@@ -140,6 +140,9 @@ function diagnose() {
   console.log(`doctor: diagnosis written (${runs.length} runs, ${failed.length} failure logs)`);
 }
 
+// Never let a credential reach a public issue comment, even inside an error message.
+const mask = (s: string) => { const t = env('CLAUDE_CODE_OAUTH_TOKEN').trim(); return t.length > 8 ? s.split(t).join('***') : s; };
+
 function treat() {
   const loop = DOCTOR_ALLOWED.map((p) => `./${p.replace(/^\//, '')}${p.endsWith('/') ? '**' : ''}`);
   const no = DOCTOR_FORBIDDEN.map((p) => `./${p.replace(/^\//, '')}`);
@@ -153,10 +156,11 @@ function treat() {
       'Bash(npm test:*)', 'Bash(npx tsc:*)', 'Bash(node --test:*)', 'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git show:*)'].join(','),
     '--disallowedTools', no.flatMap((l) => [`Edit(${l})`, `Write(${l})`]).join(','),
     '--max-turns', '80', '--max-budget-usd', env('DOCTOR_BUDGET_USD', '5'), ...(env('MODEL_DOCTOR') ? ['--model', env('MODEL_DOCTOR')] : [])],
-  { encoding: 'utf8', maxBuffer: 64 << 20 });
+  // Token trimmed (a pasted secret with a stray space or line break kills the CLI silently).
+  { encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: env('CLAUDE_CODE_OAUTH_TOKEN').trim() } });
   let out: unknown = null;
   try { const j = JSON.parse(p.stdout); out = j.structured_output ?? (j.result ? JSON.parse(j.result) : null); } catch { /* reported below */ }
-  writeFileSync('.autopilot/doctor.json', JSON.stringify(out ?? { needs_human: true, diagnosis: `doctor call failed: ${(p.stdout || p.stderr || '').slice(0, 500)}`, fix_summary: '' }));
+  writeFileSync('.autopilot/doctor.json', JSON.stringify(out ?? { needs_human: true, diagnosis: `doctor call failed: ${mask((p.stdout || p.stderr || '').slice(0, 500))}`, fix_summary: '' }));
 }
 
 function publish() {

@@ -6,7 +6,7 @@
 //   NEED=<n> node scripts/plan.ts   → .autopilot/plan.json { issues, agreed, discussion }
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { parseResult } from './team.ts';
+import { cliEnv, cliErr, parseResult } from './team.ts';
 
 export type PlanIssue = { title: string; body: string; single: boolean };
 export type Turn = { who: 'lead' | 'engineer'; agree: boolean; critique: string; issues: PlanIssue[]; costUsd: number };
@@ -46,9 +46,9 @@ function ask(who: Turn['who'], prompt: string): Turn | null {
     `${prompt}\n\nYour role and bar: ${SPEC[who]}. Issue format and planning rules: ${at('team/planner.md')}. State: .autopilot/state.md. Precedent: docs/DECISIONS.md. Product rules: CLAUDE.md, docs/DESIGN.md.`,
     '--output-format', 'json', '--json-schema', JSON.stringify(SCHEMA), '--allowedTools', tools, '--permission-mode', 'dontAsk', ...(LOOP ? ['--add-dir', LOOP] : []),
     '--max-turns', '40', '--max-budget-usd', env('BUDGET_PLAN_CALL', '1.5'), ...(model ? ['--model', model] : [])],
-  { encoding: 'utf8', maxBuffer: 64 << 20 });
+  { encoding: 'utf8', maxBuffer: 64 << 20, env: cliEnv() });
   const r = parseResult(p.stdout ?? '');
-  if (r.error) { console.error(`${who} failed: ${r.error}`); return null; }
+  if (r.error) { console.error(`${who} failed: ${r.error}${cliErr(p.stderr) ? ` | CLI: ${cliErr(p.stderr)}` : ''}`); return null; }
   return { ...(r.out as Omit<Turn, 'who' | 'costUsd'>), who, costUsd: r.cost };
 }
 
