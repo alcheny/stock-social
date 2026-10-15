@@ -16,6 +16,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <nav className="top">
           <Link href="/" className="logo">Stock Social</Link>
+          <Link href="/t">Stocks</Link>
           {me ? <Link href={`/u/${me.handle}`}>@{me.handle}</Link> : <Link href="/login">Publish your trades</Link>}
         </nav>
         {children}

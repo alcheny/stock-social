@@ -107,7 +107,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {trades.map((t) => (
           <li key={t.id} id={`trade-${t.id}`}>
             <div className="line">
-              <span><b>{t.symbol}</b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
+              <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
               <b className={t.return_pct > 0 ? 'up' : 'down'}>{pct(t.return_pct)}</b>
             </div>
             {t.thesis_status === 'published' && <p style={{ margin: '4px 0 0' }}>“{t.thesis}”</p>}

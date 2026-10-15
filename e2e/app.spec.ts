@@ -184,3 +184,227 @@ test('thesis moderation holds risky claims and publishes clean ones', async ({ p
   await first.getByRole('button', { name: 'Save' }).click();
   await expect(first.getByText('“Rotation into staples ahead of CPI.”')).toBeVisible();
 });
+
+test('ticker page: seeded symbol, rows newest first, links from feed and profile', async ({ page }) => {
+  const res = await page.goto('/t/NVDA');
+  expect(res?.status()).toBe(200);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('NVDA');
+  await expect(page.locator('.badge.demo').first()).toHaveText('Demo');
+  await expect(page.locator('.ticker-rows a[href^="/u/"]').first()).toBeVisible();
+  const dates = await page.locator('.ticker-rows a').evaluateAll((els) => els.map((e) => (e.querySelector('.muted')?.textContent ?? '').split('·')[1]?.trim() ?? ''));
+  const times = dates.map((d) => Date.parse(d));
+  expect(times.every((t, i) => i === 0 || t <= times[i - 1])).toBe(true);
+  await page.goto('/');
+  await expect(page.locator('a[href^="/t/"]').first()).toBeAttached();
+  await page.goto('/u/momentum_maya');
+  await expect(page.locator('a[href^="/t/"]').first()).toBeAttached();
+});
+
+test('ticker page: outcome spread chart, caption equals aria-label, median in summary, no h-scroll at 360px', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const res = await page.goto('/t/NVDA');
+  expect(res?.status()).toBe(200);
+  const svg = page.locator('section[aria-label="Outcome spread"] svg[role="img"]');
+  await expect(svg).toBeVisible();
+  const caption = (await page.getByTestId('spread-caption').innerText()).trim();
+  expect(caption).toMatch(/\d+ trades?: \d+ up, \d+ down/);
+  expect(await svg.getAttribute('aria-label')).toBe(caption);
+  await expect(page.locator('section[aria-label="Summary"]')).toContainText(/median [+-]?\d/);
+  await expect(page.locator('section[aria-label="Summary"]')).toContainText('win rate');
+  await expect(page.locator('.evidence')).toBeVisible();
+  await expect(page.locator('.ticker-rows a').first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await expect(page.getByTestId('timeline-caption')).toContainText('closed:');
+  await expect(page.getByTestId('timeline-table')).toBeAttached();
+  await expect(page.getByTestId('timeline-legend')).toBeVisible();
+  await expect(page.getByTestId('timeline-legend')).toContainText('hatched = down');
+  const sc = page.getByTestId('timeline-scroll');
+  expect(await sc.evaluate((el) => el.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+  // rtl scroller: starts at the newest end, so scrollLeft is ~0 (never scrolled away from it)
+  expect(await sc.evaluate((el) => Math.abs(el.scrollLeft) < 2 || el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.goto('/t/ZZZZ');
+  await expect(page.locator('section[aria-label="Outcome spread"]')).toHaveCount(0);
+  await expect(page.getByTestId('timeline-caption')).toHaveCount(0);
+  await expect(page.getByTestId('timeline-table')).toHaveCount(0);
+  await expect(page.getByTestId('hold-time')).toHaveCount(0);
+  await expect(page.getByTestId('concentration')).toHaveCount(0);
+});
+
+test('ticker page: concentration check renders for a seeded symbol', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const res = await page.goto('/t/NVDA');
+  expect(res?.status()).toBe(200);
+  const sec = page.getByTestId('concentration');
+  await expect(sec).toBeVisible();
+  await expect(sec).toContainText('This shows how much of the record depends on one trader.');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
+test('ticker page: baseline section renders on a seeded symbol, not on an unknown one', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const res = await page.goto('/t/NVDA');
+  expect(res?.status()).toBe(200);
+  const sec = page.getByTestId('baseline');
+  await expect(sec).toBeVisible();
+  const kind = await sec.getAttribute('data-kind');
+  if (kind === 'too_few_trades' || kind === 'demo_only' || kind === 'empty') await expect(page.getByTestId('baseline-verdict')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await page.goto('/t/ZZZZ');
+  await expect(page.getByTestId('baseline')).toHaveCount(0);
+});
+
+test('ticker page: By hold time shows all four rows, no h-scroll at 360px', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const res = await page.goto('/t/NVDA');
+  expect(res?.status()).toBe(200);
+  const sec = page.getByTestId('hold-time');
+  await expect(sec).toBeVisible();
+  await expect(sec).toContainText('By hold time');
+  await expect(sec.locator('tbody tr')).toHaveCount(4);
+  await expect(page.getByTestId('hold-caption')).toContainText('by hold time:');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
+test('ticker page: Why they traded it shows the seeded thesis with a Demo badge and a trade link', async ({ page }) => {
+  const res = await page.goto('/t/NVDA');
+  expect(res?.status()).toBe(200);
+  const sec = page.getByTestId('theses');
+  await expect(sec).toBeVisible();
+  await expect(sec).toContainText('Breakout above the 50-day on volume after earnings beat');
+  await expect(sec).toContainText('Demo');
+  await expect(sec.locator('a[href*="/u/"][href*="#trade-"]').first()).toBeVisible();
+});
+
+test('ticker page: unknown symbol has no theses section', async ({ page }) => {
+  await page.goto('/t/ZZZZ');
+  await expect(page.getByTestId('theses')).toHaveCount(0);
+});
+
+test('ticker page: unknown and invalid symbols are calm 200s', async ({ page }) => {
+  let res = await page.goto('/t/ZZZZ');
+  expect(res?.status()).toBe(200);
+  await expect(page.getByText('No verified closed trades in ZZZZ yet.')).toBeVisible();
+  res = await page.goto('/t/%3Cscript%3E');
+  expect(res?.status()).toBe(200);
+  await expect(page.getByText("doesn't look like a ticker")).toBeVisible();
+});
+
+test('ticker index: lists seeded symbols with no performance numbers, sort is safe, nav links to it', async ({ page }) => {
+  let res = await page.goto('/t');
+  expect(res?.status()).toBe(200);
+  await expect(page.locator('.ticker-rows a[href="/t/NVDA"]')).toBeVisible();
+  expect(await page.locator('.ticker-rows').innerText()).not.toContain('%');
+  res = await page.goto('/t?sort=garbage');
+  expect(res?.status()).toBe(200);
+  await expect(page.locator('.ticker-rows a').first()).toBeVisible();
+  await page.goto('/t?sort=az');
+  const syms = await page.locator('.ticker-rows a b').allInnerTexts();
+  expect(syms).toEqual([...syms].sort());
+  await page.goto('/');
+  await page.locator('nav.top').getByRole('link', { name: 'Stocks' }).click();
+  await expect(page).toHaveURL(/\/t$/);
+  await page.goto('/t/NVDA');
+  await expect(page.getByRole('link', { name: /All stocks/ }).first()).toHaveAttribute('href', '/t');
+});
+
+test('stock search: exact redirects, no match and hostile input are honest, sort keeps q', async ({ page }) => {
+  await page.goto('/t?q=nvda');
+  await expect(page).toHaveURL(/\/t\/NVDA$/);
+  let res = await page.goto('/t?q=zzz');
+  expect(res?.status()).toBe(200);
+  await expect(page.getByText('No stock with verified trades matches')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'See all stocks' })).toHaveAttribute('href', '/t');
+  res = await page.goto('/t?q=%25');
+  expect(res?.status()).toBe(200);
+  await expect(page.getByText('No stock with verified trades matches')).toBeVisible();
+  await page.goto('/t?q=N');
+  await expect(page.getByRole('link', { name: 'A–Z' })).toHaveAttribute('href', /q=N/);
+});
+
+test('related stocks section appears only when 2+ traders overlap', async ({ page }) => {
+  // The demo seed gives each trader a disjoint symbol set, so on seeded data the section must be absent.
+  // If the seed ever gains overlapping symbols, this assertion needs updating.
+  await page.goto('/t/NVDA');
+  await expect(page.getByRole('heading', { name: 'Also closed by these traders' })).toHaveCount(0);
+});
+
+test('ticker share card: image for seeded symbol, neutral image for bad or unknown', async ({ request }) => {
+  for (const s of ['NVDA', '!!!', 'ZZZZZ']) {
+    const res = await request.get(`/t/${encodeURIComponent(s)}/opengraph-image`);
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toContain('image/png');
+  }
+});
+
+test('compare page: two seeded symbols in URL order, noindex, honest empty states', async ({ page, request }) => {
+  const res = await page.goto('/t/compare?a=NVDA&b=AMD');
+  expect(res!.status()).toBe(200);
+  const heads = await page.locator('main section h2 a').allTextContents();
+  expect(heads.slice(0, 2)).toEqual(['NVDA', 'AMD']);
+  expect(await page.locator('meta[name="robots"]').getAttribute('content')).toContain('noindex');
+  await expect(page.locator('main section h2 a')).toHaveCount(2);
+  await expect(page.locator('main section section')).toHaveCount(0);
+  const cases: [string, string][] = [
+    ['/t/compare?a=ZZZZ&b=NVDA', 'No verified closed trades in ZZZZ yet.'],
+    ['/t/compare?a=NVDA&b=nvda', 'Pick two different stocks. You chose NVDA twice.'],
+    ['/t/compare?a=ZZZZ&b=YYYY', 'No verified closed trades in ZZZZ or YYYY yet.'],
+    ['/t/compare', 'Pick two stocks to compare.'],
+  ];
+  for (const [url, text] of cases) {
+    const r = await page.goto(url);
+    expect(r!.status()).toBe(200);
+    await expect(page.locator('h1')).toBeVisible();
+    await expect(page.getByText(text)).toBeVisible();
+  }
+  await page.goto('/t/NVDA');
+  await expect(page.locator('form[action="/t/compare"]')).toBeAttached();
+  // Every related-list Compare link (none on the disjoint demo seed) must point at the compare page with this symbol first.
+  const links = await page.locator('a.compare-link').evaluateAll((els) => els.map((e) => e.getAttribute('href')));
+  const related = await page.getByRole('heading', { name: 'Also closed by these traders' }).count();
+  if (related > 0) expect(links.length).toBeGreaterThan(0);
+  for (const h of links) expect(h!.startsWith('/t/compare?a=NVDA&b=')).toBe(true);
+  const sm = await (await request.get('/sitemap.xml')).text();
+  expect(sm).not.toContain('/t/compare');
+});
+
+test('sitemap lists /t but no demo-only ticker pages; robots points at it', async ({ request }) => {
+  const sm = await request.get('/sitemap.xml');
+  expect(sm.status()).toBe(200);
+  expect(sm.headers()['content-type']).toContain('xml');
+  const body = await sm.text();
+  expect(body).toMatch(/\/t<\/loc>/);
+  expect(body).not.toMatch(/\/t\/[A-Z]/);
+  const rb = await request.get('/robots.txt');
+  expect(rb.status()).toBe(200);
+  const txt = await rb.text();
+  expect(txt).toContain('Sitemap:');
+  expect(txt).toContain('Disallow: /api');
+  expect(txt).toContain('Disallow: /connect');
+  expect(txt).not.toContain('Disallow: /t');
+});
+
+test('watchlist: signed-in trader watches a symbol and sees it on /t; signed out sees only a sign-in link', async ({ page, browser }) => {
+  await page.goto('/login');
+  await page.getByLabel('Handle').fill('momentum_maya');
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(/\/u\/momentum_maya$/);
+  await page.goto('/t/NVDA');
+  await page.getByRole('button', { name: 'Watch', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Watching NVDA/ })).toHaveAttribute('aria-pressed', 'true');
+  await page.goto('/t');
+  await expect(page.getByRole('region', { name: 'Your watched stocks' }).getByText('NVDA')).toBeVisible();
+  // unwatch so reruns start clean
+  await page.goto('/t/NVDA');
+  await page.getByRole('button', { name: /Watching NVDA/ }).click();
+
+  const ctx = await browser.newContext();
+  const anon = await ctx.newPage();
+  const res = await anon.goto('/t/NVDA');
+  expect(res?.status()).toBe(200);
+  await expect(anon.getByRole('link', { name: 'Sign in to watch' })).toBeVisible();
+  await expect(anon.getByRole('button', { name: /^Watch/ })).toHaveCount(0);
+  await anon.goto('/t');
+  await expect(anon.getByText('Your watched stocks')).toHaveCount(0);
+  await ctx.close();
+});

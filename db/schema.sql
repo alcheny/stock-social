@@ -63,3 +63,12 @@ insert into broker_accounts (account_id, user_id)
   select distinct on (account_id) account_id, user_id from activities
   where source = 'snaptrade' order by account_id, executed_at
   on conflict (account_id) do nothing;
+
+-- Private ticker watchlist: a user-owned preference. last_seen_at drives "new since you last looked".
+create table if not exists ticker_watches (
+  user_id int not null references users on delete cascade,
+  symbol text not null,
+  created_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  primary key (user_id, symbol)
+);
