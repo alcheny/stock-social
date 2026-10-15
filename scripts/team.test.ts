@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blocking, parseResult, renderSpecDoc, type Finding, headline } from './team.ts';
+import { blocking, cliEnv, cliErr, parseResult, renderSpecDoc, type Finding, headline } from './team.ts';
 
 test('parseResult: structured output, cost, and errors from the CLI envelope', () => {
   const ok = parseResult(JSON.stringify({ structured_output: { pass: true }, total_cost_usd: 0.12, is_error: false }));
@@ -46,4 +46,15 @@ test('headline picks the failing line from a check log', () => {
   assert.equal(headline('\n\n  ✘ 3 e2e/app.spec.ts:10 › feed (5s)\nmore\n  1 failed\n'), '✘ 3 e2e/app.spec.ts:10 › feed (5s)');
   assert.equal(headline('all good\nlast line\n\n'), 'last line');
   assert.equal(headline(''), '');
+});
+
+test('cli: token is trimmed for the CLI and masked in error output; empty output is a clear error', () => {
+  const prev = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  try {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = ['\n ', 'tok', 'en-abcdefgh12345', '\n'].join('');
+    assert.equal(cliEnv().CLAUDE_CODE_OAUTH_TOKEN, 'token-abcdefgh12345');
+    assert.equal(cliErr(['boom with token-abcdefgh12345 inside', '⚠ Permission mode forced to default'].join('\n')), 'boom with *** inside');
+    assert.match(parseResult('').error ?? '', /no output from the CLI/);
+    assert.equal(parseResult('⚠ note\n{"structured_output":{"a":1},"total_cost_usd":0.1}').error, null);
+  } finally { if (prev === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN; else process.env.CLAUDE_CODE_OAUTH_TOKEN = prev; }
 });

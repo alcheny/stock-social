@@ -18,10 +18,24 @@ import { branchInfo, isLimitError, type BuildResult, type Variant } from './auto
 export type Finding = { severity: 'bug' | 'usability' | 'spec' | 'note'; where: string; problem: string };
 export const blocking = (fs: Finding[]) => fs.filter((f) => f.severity !== 'note');
 
+// The CLI's environment: the OAuth token trimmed. A pasted secret with a stray space or line break made the
+// CLI exit at once with no output, failing every round silently (lines, first run on the public repo).
+export const cliEnv = (): NodeJS.ProcessEnv => {
+  const t = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  return t ? { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: t.trim() } : { ...process.env };
+};
+// The tail of the CLI's stderr for the job log when a call fails, with the token masked (public logs).
+export function cliErr(stderr: string | null | undefined): string {
+  const t = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim();
+  const s = (stderr ?? '').split('\n').filter((l) => l.trim() && !l.includes('Permission mode forced')).slice(-5).join(' | ');
+  return t && t.length > 8 ? s.split(t).join('***') : s;
+}
+
 // The CLI's `--output-format json` envelope: structured answer, cost, and error state.
 export function parseResult(stdout: string): { out: unknown; cost: number; error: string | null } {
   let j: { structured_output?: unknown; result?: string; is_error?: boolean; total_cost_usd?: number };
-  try { j = JSON.parse(stdout); } catch { return { out: null, cost: 0, error: `unparseable CLI output: ${stdout.slice(0, 200)}` }; }
+  if (!stdout.trim()) return { out: null, cost: 0, error: 'no output from the CLI (see its stderr below)' };
+  try { j = JSON.parse(stdout.slice(Math.max(0, stdout.indexOf('{')))); } catch { return { out: null, cost: 0, error: `unparseable CLI output: ${stdout.slice(0, 200)}` }; }
   let out = j.structured_output ?? null;
   if (out === null && j.result) { try { out = JSON.parse(j.result); } catch { /* not JSON */ } }
   return { out, cost: j.total_cost_usd ?? 0, error: j.is_error ? j.result ?? 'error' : out === null ? 'no structured output' : null };
@@ -104,10 +118,10 @@ function ask<T>(role: Role, round: number, prompt: string): T | null {
     '--allowedTools', r.tools, '--disallowedTools', PROTECTED_EDITS, '--permission-mode', 'dontAsk', '--max-turns', String(r.turns), '--max-budget-usd', String(r.budget),
     ...(r.model ? ['--model', r.model] : [])];
   console.log(`→ ${role} (round ${round})`);
-  const p = spawnSync(env('CLAUDE_BIN', 'claude'), args, { encoding: 'utf8', maxBuffer: 64 << 20 });
+  const p = spawnSync(env('CLAUDE_BIN', 'claude'), args, { encoding: 'utf8', maxBuffer: 64 << 20, env: cliEnv() });
   const res = parseResult(p.stdout ?? '');
   calls.push({ role, round, costUsd: res.cost, ok: !res.error });
-  if (res.error) console.error(`${role} failed: ${res.error}`);
+  if (res.error) console.error(`${role} failed: ${res.error}${cliErr(p.stderr) ? ` | CLI: ${cliErr(p.stderr)}` : ''}`);
   if (res.error && isLimitError(`${res.error}\n${p.stderr ?? ''}`)) hitLimit = true;
   return (res.error ? null : res.out) as T | null;
 }
