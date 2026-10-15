@@ -1,0 +1,91 @@
+name: Doctor
+
+# Independent watchdog for lines mode (docs/AUTOPILOT.md → Doctor). Hourly, and on demand: if a line is
+# stuck, one Claude call fixes the loop's own files and the script opens a PR the Gate can merge into main.
+# The doctor can't edit this workflow, ci.yml, gate.yml, CODEOWNERS, its own script or spec, the invariants
+# test, or dependencies. If the simplest fix needs a human, it changes nothing and leaves a note.
+on:
+  schedule:
+    - cron: "11 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: autopilot-doctor
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write # read run logs, dispatch CI for its PR
+  checks: read
+
+jobs:
+  doctor:
+    if: vars.AUTOPILOT == 'on' && vars.AUTOPILOT_MODE == 'lines'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres: # so the doctor can run the same tests CI does
+        image: postgres:17
+        env:
+          POSTGRES_USER: stock_social
+          POSTGRES_PASSWORD: stock_social
+          POSTGRES_DB: stock_social
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://stock_social:stock_social@localhost:5432/stock_social
+      APP_SECRET_KEY: ci-only
+      CRON_SECRET: ci-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Is a line stuck?
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOPILOT: ${{ vars.AUTOPILOT }}
+          AUTOPILOT_MODE: ${{ vars.AUTOPILOT_MODE }}
+          STUCK_HOURS: ${{ vars.STUCK_HOURS || '3' }}
+          DOCTOR_DAILY_MAX: ${{ vars.DOCTOR_DAILY_MAX || '6' }}
+          LIMIT_COOLDOWN_HOURS: ${{ vars.LIMIT_COOLDOWN_HOURS || '5' }}
+        run: node scripts/doctor.ts detect
+      - name: Gather the evidence
+        if: steps.detect.outputs.line != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINE: ${{ steps.detect.outputs.line }}
+          ISSUE: ${{ steps.detect.outputs.issue }}
+        run: node scripts/doctor.ts diagnose
+      - name: Install dependencies and Claude Code
+        if: steps.detect.outputs.line != ''
+        run: |
+          npm ci
+          node scripts/db-setup.ts
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Treat (Claude, no GitHub credentials)
+        if: steps.detect.outputs.line != ''
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Scrub Anthropic/GitHub/cloud secrets from subprocesses the doctor agent spawns. Repo variable to 0 to debug.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ vars.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || '1' }}
+          DOCTOR_BUDGET_USD: ${{ vars.DOCTOR_BUDGET_USD || '5' }}
+          MODEL_DOCTOR: ${{ vars.MODEL_DOCTOR }}
+        run: node scripts/doctor.ts treat
+      - name: Open the fix as a PR, or leave a note
+        if: steps.detect.outputs.line != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINE: ${{ steps.detect.outputs.line }}
+          ISSUE: ${{ steps.detect.outputs.issue }}
+        run: |
+          git config user.name "stock-social-autopilot"
+          git config user.email "autopilot@users.noreply.github.com"
+          node scripts/doctor.ts publish

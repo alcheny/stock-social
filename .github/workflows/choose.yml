@@ -1,0 +1,75 @@
+name: Choose
+
+# `/choose <why>` on a variant PR merges it, closes its siblings and records the decision in docs/DECISIONS.md.
+# `/reject <why>` closes all variants of that issue and records why.
+# `/approve` approves a PR's protected-path changes at its current commit; the Gate then handles it normally.
+# Merging a variant with the GitHub button does the same as `/choose`: its sibling versions close.
+on:
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: write # continue developing after a decision
+  deployments: read # preview links in the review queue
+  contents: write
+  pull-requests: write
+  issues: write
+  checks: read
+
+concurrency:
+  group: autopilot-choose
+
+jobs:
+  choose:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.merged &&
+      startsWith(github.event.pull_request.head.ref, 'autopilot/')) ||
+      (github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      (startsWith(github.event.comment.body, '/choose') || startsWith(github.event.comment.body, '/reject') || startsWith(github.event.comment.body, '/approve')) &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Approve protected-path changes at this commit
+        if: github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/approve')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.issue.number }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: node scripts/autopilot.ts approve
+      - if: github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '/approve')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.issue.number }}
+          COMMENT: ${{ github.event.comment.body }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          git config user.name "stock-social-autopilot"
+          git config user.email "autopilot@users.noreply.github.com"
+          node scripts/autopilot.ts choose
+      - name: Close sibling versions
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          COMMENTER: ${{ github.event.sender.login }}
+        run: |
+          git config user.name "stock-social-autopilot"
+          git config user.email "autopilot@users.noreply.github.com"
+          node scripts/autopilot.ts merged
+      - name: Refresh review queue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOPILOT_MODE: ${{ vars.AUTOPILOT_MODE }}
+        run: node scripts/autopilot.ts queue

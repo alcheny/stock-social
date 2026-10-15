@@ -1,0 +1,46 @@
+# Build output and dependencies
+node_modules
+.next
+next-env.d.ts
+*.tsbuildinfo
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Secrets. Only .env.example (placeholders) is committed.
+.env
+.env.*
+!.env.example
+.vercel/
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa*
+id_ed25519*
+*credentials*.json
+service-account*.json
+
+# Local machine, editors and personal notes
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.log
+.vibe-wise/
+graphify-out/
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
+
+# Scratch: the loop commits with `git add -A`, so anything unignored here gets pushed
+.autopilot/
+.tmp*
+/tmp/
+/review-*/

@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # npm dependencies (next, react, postgres, snaptrade SDK, playwright, typescript, @types/*).
+  # package.json/package-lock.json are protected paths (.github/CODEOWNERS), so these PRs go to a human.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    groups:
+      # One PR per week for routine bumps; security updates still open on their own immediately.
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions. Keeps the SHA-pinned actions current (Dependabot bumps the SHA and the # vX.Y.Z comment).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]

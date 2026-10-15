@@ -1,0 +1,50 @@
+import Link from 'next/link';
+import { paneSummary } from '@/lib/pane.ts';
+import { pct } from '@/lib/trades.ts';
+import { PerformanceChart } from './u/[handle]/chart.tsx';
+import { Badge } from './ui.tsx';
+
+export type PaneTrade = {
+  id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
+};
+
+const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+// Feed profile pane (SW-1), variant C: leads with the chart and an honest one-line summary (length of
+// record, trade count, worst trade), then the headline stats. All-time numbers via paneSummary().
+export function ProfilePane({ handle, name, trades, now }: { handle: string; name: string; trades: PaneTrade[]; now: Date }) {
+  const p = paneSummary(trades);
+  const verified = trades.length > 0 && trades.every((t) => t.verified);
+  return (
+    <section className="pane" aria-label={`${name}'s record`}>
+      <header>
+        <button type="button" className="back" data-back>← Back</button>
+        <Link href={`/u/${handle}`} className="who"><strong>{name}</strong> <span className="muted">@{handle}</span></Link>
+        <Badge verified={verified} />
+      </header>
+      <PerformanceChart trades={trades} now={now} linkBase={`/u/${handle}`} />
+      {p.since && p.worst && (
+        <p className="summary">
+          Since first closed trade, {day(p.since)}: {p.count} closed trades. Worst: {p.worst.symbol}{' '}
+          <b className={p.worst.returnPct > 0 ? 'up' : 'down'}>{pct(p.worst.returnPct)}</b>.
+          {!verified && <span className="muted"> Sample data, not from a real broker.</span>}
+        </p>
+      )}
+      <section className="stats">
+        <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
+        <div className="stat big"><b className={p.avgReturn > 0 ? 'up' : 'down'}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>
+      </section>
+      <h3>Last {p.recent.length} trades</h3>
+      <ul className="rows">
+        {p.recent.map((t) => (
+          <li key={t.id} className="line">
+            <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
+            <b className={t.returnPct > 0 ? 'up' : 'down'}>{pct(t.returnPct)}</b>
+          </li>
+        ))}
+      </ul>
+      <p><Link href={`/u/${handle}`} className="button">See full profile →</Link></p>
+      <p className="muted">Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.</p>
+    </section>
+  );
+}

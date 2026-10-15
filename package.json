@@ -1,0 +1,29 @@
+{
+  "name": "stock-social",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --test",
+    "db:up": "docker compose up -d",
+    "db:schema": "psql \"$DATABASE_URL\" -f db/schema.sql",
+    "db:seed": "node --env-file=.env scripts/seed.ts",
+    "test:e2e": "playwright test",
+    "vercel-build": "node scripts/db-setup.ts && next build"
+  },
+  "dependencies": {
+    "next": "^16.4.0",
+    "postgres": "^3.4.9",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "snaptrade-typescript-sdk": "^12.2.22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}

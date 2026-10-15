@@ -1,0 +1,172 @@
+name: Build
+run-name: Build${{ inputs.line && format(' line {0}', inputs.line) || '' }} # the doctor tells lines apart by this
+
+# Event-driven: Gate, Choose, Judge, Plan and Queue dispatch this whenever the loop may have work
+# (a decision was made, a PR merged/closed, a check failed, new issues planned). It develops only when
+# no autopilot PR is awaiting checks or review; otherwise it exits in seconds.
+on:
+  workflow_dispatch:
+    inputs:
+      line:
+        description: Lines mode only, the line to advance (a, b or c)
+        required: false
+        default: ''
+  issues:
+    types: [labeled] # a human marks an issue `ready`
+  schedule:
+    - cron: "41 * * * *" # recovery heartbeat only: resumes after an outage or a failed round; no-op when busy or waiting
+
+concurrency:
+  group: autopilot-build-${{ inputs.line || 'main' }} # each line runs independently; the main loop runs alone
+
+# The agents never see a write credential: checkout persists none, the team step gets only the Claude
+# token, and only the Publish step (deterministic script) uses GITHUB_TOKEN to push, open the PR and start CI.
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+  checks: read
+  statuses: read
+
+jobs:
+  pick:
+    if: vars.AUTOPILOT == 'on' && (github.event_name != 'issues' || github.event.label.name == 'ready')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.next.outputs.mode }}
+      number: ${{ steps.next.outputs.number }}
+      variants: ${{ steps.next.outputs.variants }}
+      base: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main # newest main, not the commit that queued this run
+      - id: base # every variant starts from this exact commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_ATTEMPTS: ${{ vars.MAX_ATTEMPTS || '3' }}
+          DAILY_PR_CAP: ${{ vars.DAILY_PR_CAP || '0' }} # 0 = no cap
+          LINE_MAX_ATTEMPTS: ${{ vars.LINE_MAX_ATTEMPTS || '10' }}
+          STALL_MINUTES: ${{ vars.STALL_MINUTES || '45' }}
+          AUTOPILOT_MODE: ${{ vars.AUTOPILOT_MODE }}
+          LIMIT_COOLDOWN_HOURS: ${{ vars.LIMIT_COOLDOWN_HOURS || '5' }}
+          LINE: ${{ inputs.line }}
+        run: node scripts/autopilot.ts next
+      - name: Nothing to build, so plan more work
+        if: steps.next.outputs.plan == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run plan.yml -R "$GITHUB_REPOSITORY"
+
+  # One branch team per variant (A/B/C), in parallel, each on its own branch and PR:
+  # designer ⇄ business analyst → spec → engineer ⇄ tester (scripts/team.ts; role specs in team/).
+  # Fix mode and `single` issues run one entry.
+  variant:
+    needs: pick
+    if: needs.pick.outputs.mode == 'build' || needs.pick.outputs.mode == 'fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300 # QA_ROUNDS=20 can take hours; a timeout publishes nothing
+    services:
+      postgres: # lets the team run the same build and e2e checks as CI
+        image: postgres:17
+        env:
+          POSTGRES_USER: stock_social
+          POSTGRES_PASSWORD: stock_social
+          POSTGRES_DB: stock_social
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://stock_social:stock_social@localhost:5432/stock_social
+      APP_SECRET_KEY: ci-only
+      CRON_SECRET: ci-only
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.pick.outputs.variants) }}
+    name: variant ${{ matrix.variant.key || needs.pick.outputs.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.pick.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Snapshot the loop from main # a line branch carries its own (possibly older) copy; always run main's
+        run: |
+          mkdir -p "$RUNNER_TEMP/loop" && cp -r scripts team "$RUNNER_TEMP/loop/"
+          echo "LOOP_DIR=$RUNNER_TEMP/loop" >> "$GITHUB_ENV"
+      - name: Prepare branch and task
+        id: prep
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.pick.outputs.mode }}
+          NUMBER: ${{ needs.pick.outputs.number }}
+          VARIANT: ${{ toJSON(matrix.variant) }}
+          BASE: ${{ needs.pick.outputs.base }}
+        run: |
+          git config user.name "stock-social-autopilot"
+          git config user.email "autopilot@users.noreply.github.com"
+          node scripts/autopilot.ts prepare
+      - run: npm ci
+      - name: Install Claude Code and a test browser
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          npx playwright install --with-deps chromium
+      - name: Plan this line's round (business lead ⇄ engineer)
+        if: needs.pick.outputs.mode == 'build' && inputs.line != '' && steps.prep.outputs.planned != 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Scrub Anthropic/GitHub/cloud secrets from the environment of commands the agent runs (Bash(node:*),
+          # Bash(npm:*), package install scripts), so an injected prompt can't exfiltrate the token. Set the
+          # repo variable to 0 only to debug. With it on, the CLI pins permission mode to the explicit allowlist.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ vars.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || '1' }}
+          LINE: ${{ inputs.line }}
+          PLAN_ROUNDS: ${{ vars.PLAN_ROUNDS || '4' }}
+          PLAN_BUDGET_USD: ${{ vars.PLAN_BUDGET_USD || '6' }}
+          MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
+        run: node "$LOOP_DIR/scripts/plan.ts"
+      - name: Branch team
+        id: team
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Scrub Anthropic/GitHub/cloud secrets from the environment of commands the agent runs (the engineer
+          # has Bash(node:*)/Bash(npm:*), which could otherwise print the token or leak it via an install script).
+          # Set the repo variable to 0 only to debug. With it on, the CLI pins permission mode to the explicit allowlist.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ vars.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || '1' }}
+          MODE: ${{ needs.pick.outputs.mode }}
+          NUMBER: ${{ needs.pick.outputs.number }}
+          BRANCH: ${{ steps.prep.outputs.branch }}
+          BASE_REF: ${{ steps.prep.outputs.base }}
+          VARIANT: ${{ toJSON(matrix.variant) }}
+          SPEC_ROUNDS: ${{ vars.SPEC_ROUNDS || '2' }}
+          QA_ROUNDS: ${{ vars.QA_ROUNDS || '20' }}
+          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '15' }}
+          MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
+        run: node "$LOOP_DIR/scripts/team.ts"
+      - name: Publish
+        if: steps.team.outcome == 'success'
+        env:
+          AUTOPILOT_MODE: ${{ vars.AUTOPILOT_MODE }}
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.pick.outputs.mode }}
+          NUMBER: ${{ needs.pick.outputs.number }}
+          BRANCH: ${{ steps.prep.outputs.branch }}
+          VARIANT: ${{ toJSON(matrix.variant) }}
+        run: node "$LOOP_DIR/scripts/autopilot.ts" publish
+      - name: Retry a line's fix right away if this run crashed # attempts are counted, so this is bounded
+        if: failure() && inputs.line != '' && needs.pick.outputs.mode == 'fix'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINE: ${{ inputs.line }} # via env, never interpolated into the shell
+        run: gh workflow run build.yml -R "$GITHUB_REPOSITORY" -f line="$LINE"

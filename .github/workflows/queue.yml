@@ -1,0 +1,39 @@
+name: Queue
+
+# Keeps the pinned "Review queue" issue current when PRs are merged, closed or relabeled by hand,
+# and restarts development when a merge/close frees the loop.
+# pull_request_target runs main's copy and never checks out PR code.
+on:
+  pull_request_target:
+    types: [closed, labeled, unlabeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  deployments: read
+  actions: write
+
+concurrency:
+  group: review-queue
+
+jobs:
+  queue:
+    if: github.event_name != 'pull_request_target' || contains(github.event.pull_request.labels.*.name, 'autopilot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOPILOT_MODE: ${{ vars.AUTOPILOT_MODE }}
+          ACTION: ${{ github.event.action }} # via env, not interpolated into the shell
+        run: |
+          node scripts/autopilot.ts queue
+          if [ "$ACTION" = "closed" ]; then node scripts/autopilot.ts kick; fi

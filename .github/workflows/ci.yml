@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: # Publish dispatches it for autopilot PRs; merges by the loop dispatch it on main
+
+permissions:
+  contents: read
+
+jobs:
+  check: # the Gate looks for this exact job name
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: stock_social
+          POSTGRES_PASSWORD: stock_social
+          POSTGRES_DB: stock_social
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://stock_social:stock_social@localhost:5432/stock_social
+      APP_SECRET_KEY: ci-only
+      CRON_SECRET: ci-only
+    permissions:
+      contents: read
+      pull-requests: read # the policy scan looks up a dispatched branch's PR base
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: Policy scan (docs/POLICY.md; blocking)
+        # PRs into main and pushes to main: the whole tree. PRs into a line branch: only what they add.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE: ${{ github.base_ref }}
+          REF: ${{ github.ref_name }}
+        run: |
+          BASE_REF="$PR_BASE"
+          if [ -z "$BASE_REF" ] && [ "$REF" != "main" ]; then
+            BASE_REF=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$REF" --state open --json baseRefName --jq '.[0].baseRefName // empty')
+          fi
+          git fetch -q origin "+refs/heads/${BASE_REF:-main}:refs/remotes/origin/${BASE_REF:-main}"
+          BASE_REF="$BASE_REF" node scripts/compliance.ts auto
+      - name: Lint workflows # agents (the doctor) edit workflows; a broken one would stop the loop
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7 && ./actionlint -color
+      - run: npm test
+      - name: Guardrails
+        if: github.ref != 'refs/heads/main'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || 'origin/main' }} # via env, not interpolated into the shell
+        run: node scripts/autopilot.ts guard "$BASE_SHA"
+      - name: Build exactly as a Vercel preview does (schema + seed + next build)
+        run: npm run vercel-build
+        env:
+          VERCEL_ENV: preview
+      - name: Missing DATABASE_URL fails with a clear message
+        run: |
+          if env -u DATABASE_URL node scripts/db-setup.ts 2> err.txt; then echo "expected failure"; exit 1; fi
+          grep -q "DATABASE_URL is not set" err.txt
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --reporter=list
+
+  # Cheap checks first: when the loop started this run, start the (expensive) AI Review only if CI passed;
+  # otherwise go straight to the Gate, which sends the PR back for a fix. Separate job: PR code never
+  # runs with this actions:write token. (Runs started by the workflow token can't trigger workflow_run.)
+  notify-gate:
+    needs: check
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          CHECK: ${{ needs.check.result }}
+        run: |
+          PR=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ "$CHECK" = "success" ] && [ -n "$PR" ]; then
+            gh workflow run review.yml -R "$GITHUB_REPOSITORY" --ref main -f pr="$PR"
+          else
+            gh workflow run gate.yml -R "$GITHUB_REPOSITORY" --ref main -f branch="$BRANCH"
+          fi

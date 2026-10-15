@@ -1,0 +1,40 @@
+# Protected paths. The Gate (scripts/autopilot.ts) never auto-merges a PR touching these; it labels
+# them needs-human. With GitHub Pro, also enable "Require review from Code Owners" on main.
+# Supported shapes: /dir/ (prefix) and /file (exact).
+
+# The loop's own guardrails: an agent must never be able to loosen the rules it is judged by
+/.github/ @alcheny
+/scripts/autopilot.ts @alcheny
+/scripts/autopilot.test.ts @alcheny
+/scripts/team.ts @alcheny
+/scripts/team.test.ts @alcheny
+/scripts/plan.ts @alcheny
+/scripts/plan.test.ts @alcheny
+/scripts/doctor.ts @alcheny
+/scripts/doctor.test.ts @alcheny
+/scripts/invariants.test.ts @alcheny
+
+# Legal and security policy (docs/POLICY.md) and its enforcement: owner only, never agents
+/docs/POLICY.md @alcheny
+/SECURITY.md @alcheny
+/scripts/compliance.ts @alcheny
+/scripts/compliance.test.ts @alcheny
+/scripts/policy.test.ts @alcheny
+/scripts/workflow-security.test.ts @alcheny
+/docs/AUTOPILOT.md @alcheny
+/team/ @alcheny
+/.claude/agents/ @alcheny
+/CLAUDE.md @alcheny
+/playwright.config.ts @alcheny
+
+# Product decisions (CEO-owned); DECISIONS.md is written only by the Choose and Judge workflows
+/docs/DESIGN.md @alcheny
+/docs/DECISIONS.md @alcheny
+
+# Security and credentials
+/lib/session.ts @alcheny
+/lib/broker.ts @alcheny
+
+# Supply chain: new or changed dependencies
+/package.json @alcheny
+/package-lock.json @alcheny

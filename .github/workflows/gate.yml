@@ -1,0 +1,56 @@
+name: Gate
+
+# Runs the default branch's copy of this workflow and script, so a PR can never change the gate that judges it.
+on:
+  workflow_run: # CI/Review runs started by people (e.g. pushes to a PR)
+    workflows: [CI, Review]
+    types: [completed]
+  workflow_dispatch: # CI/Review runs started by the loop notify explicitly; also usable by hand
+    inputs:
+      branch:
+        description: PR head branch to gate
+        required: true
+
+permissions:
+  deployments: read # preview links in the review queue
+  contents: write
+  pull-requests: write
+  issues: write
+  checks: read
+  statuses: write # lines: a PR that changes loop files is failed back to the fix loop
+  actions: write # auto mode dispatches judge.yml
+
+jobs:
+  gate:
+    # workflow_run fires for fork-PR CI too; only gate runs whose branch lives in THIS repo (the loop pushes
+    # its branches here). Fork PRs are excluded so their CI completion never starts this write-token job.
+    # (The gate also re-checks the autopilot label and the PR's own statuses, so this is defence in depth.)
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'workflow_dispatch') &&
+        github.event.workflow_run.head_branch != 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: gate-${{ inputs.branch || github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOPILOT: ${{ vars.AUTOPILOT }}
+          AUTOPILOT_MODE: ${{ vars.AUTOPILOT_MODE }}
+          MAX_DIFF: ${{ vars.MAX_DIFF || '800' }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_BRANCH: ${{ inputs.branch || github.event.workflow_run.head_branch }}
+        run: node scripts/autopilot.ts gate
+      - name: Refresh review queue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTOPILOT_MODE: ${{ vars.AUTOPILOT_MODE }}
+        run: node scripts/autopilot.ts queue
