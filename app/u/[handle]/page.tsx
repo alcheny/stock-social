@@ -8,14 +8,25 @@ import { saveThesis } from '../../actions.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
+import { SharePrompt } from './share-prompt.tsx';
+import { BadgeEmbed } from './badge-embed.tsx';
+import { SaveImage } from './save-image.tsx';
+import { ReferralFeedback } from './referral-feedback.tsx';
+import { ctaVia, referralSummary } from '@/lib/referral.ts';
+import { JoinCta } from './join-cta.tsx';
+import { isDemoUser } from '@/lib/demo.ts';
+import { newTradesSince } from '@/lib/new-trades.ts';
+import { MarkTradesPromptSeen, NewTradesPrompt } from './new-trades-prompt.tsx';
+import { latestRecapYm } from '@/lib/recap.ts';
+import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string }> };
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string }> };
 
 async function load(handle: string) {
-  const [user] = await sql`select id, handle, display_name, excluded_positions, last_synced_at, snaptrade_user_id from users where handle = ${handle}`;
+  const [user] = await sql`select id, handle, display_name, excluded_positions, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle}`;
   if (!user) return null;
   const trades = await sql`
-    select id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
+    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
     from closed_trades where user_id = ${user.id} order by closed_at desc`;
   const brokers = await sql`select distinct raw->>'institution' as inst from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
@@ -39,7 +50,31 @@ export default async function Profile({ params, searchParams }: Params) {
   const { user, trades, s, c, brokers, accounts } = data;
   const me = await currentUser();
   const isMe = me?.id === user.id;
+  const showJoin = !me && !(await isDemoUser(user.id));
+  const referred = isMe
+    ? referralSummary({
+        ownerId: user.id,
+        ownerIsDemo: await isDemoUser(user.id),
+        rows: (await sql`
+          select u.id, u.handle,
+            exists(select 1 from activities d where d.user_id = u.id and d.source = 'demo') as is_demo,
+            exists(select 1 from activities a where a.user_id = u.id and a.source = 'snaptrade') as has_snaptrade_activity,
+            coalesce(u.referred_surface, u.referred_via) as surface
+          from users u where u.referred_by_user_id = ${user.id} order by u.id`).map((r) => ({
+          id: r.id as number,
+          handle: r.handle as string,
+          isDemo: r.is_demo as boolean,
+          hasSnaptradeActivity: r.has_snaptrade_activity as boolean,
+          referredSurface: (r.surface as string | null) ?? null,
+        })),
+      })
+    : { connected: 0, handles: [] as string[], byVia: {} as Record<string, number> };
+  const sharePromptShowing = isMe && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]);
+  const nt = isMe
+    ? newTradesSince(trades.map((t) => ({ sellId: t.sell_id, symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at })), user.trades_prompt_seen_at)
+    : { shown: [], more: 0 };
   const claimed = isMe && (await searchParams)?.connect === 'account-claimed';
+  const recapYm = latestRecapYm(trades.map((t) => ({ closedAt: t.closed_at as Date })));
   const allVerified = trades.length > 0 && trades.every((t) => t.verified);
   const first = trades.length ? new Date(Math.min(...trades.map((t) => t.opened_at.getTime()))) : null;
   const isNew = isNewRecord(trades.map((t) => ({ openedAt: t.opened_at })), trades.length, new Date());
@@ -60,8 +95,17 @@ export default async function Profile({ params, searchParams }: Params) {
         </p>
       )}
 
+      {isMe && <ReferralFeedback handles={referred.handles} byVia={referred.byVia} />}
+
       {claimed && (
         <p role="alert" className="down"><b>{ACCOUNT_CLAIMED_TITLE}</b> {ACCOUNT_CLAIMED_BODY}</p>
+      )}
+      {isMe && !claimed && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]) && (
+        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={range} isNew={isNew} />
+      )}
+      {isMe && !claimed && user.trades_prompt_seen_at === null && <MarkTradesPromptSeen />}
+      {isMe && !claimed && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
+        <NewTradesPrompt handle={user.handle} trades={nt.shown.map((x) => ({ sellId: x.sellId, symbol: x.symbol, returnPct: x.returnPct, closedAt: x.closedAt.toISOString() }))} more={nt.more} />
       )}
       {isMe && (!user.snaptrade_user_id || claimed) && (
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
@@ -69,8 +113,11 @@ export default async function Profile({ params, searchParams }: Params) {
       {isMe && trades.length > 0 && (
         <p className="muted">Share your card: <code>/u/{user.handle}</code></p>
       )}
+      {isMe && !claimed && trades.length > 0 && <SaveImage handle={user.handle} displayName={user.display_name} trades={trades.length} />}
+      {isMe && recapYm && <p><Link href={`/u/${user.handle}/month/${recapYm}`}>Share your latest recap</Link></p>}
 
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
+      {isMe && trades.length === 0 && <BadgeEmbed handle={user.handle} verified={false} />}
       {trades.length > 0 && <>
       <section className="stats">
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
@@ -95,21 +142,24 @@ export default async function Profile({ params, searchParams }: Params) {
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
+      {isMe && <BadgeEmbed handle={user.handle} verified={trades.length > 0 && !(await isDemoUser(user.id))} />}
       <PerformanceChart trades={trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null }))} now={new Date()} />
       {user.excluded_positions > 0 && (
         <p className="muted">{user.excluded_positions} earlier position(s) excluded: no matching entry in the imported history.</p>
       )}
       </>}
 
+      {showJoin && <JoinCta handle={user.handle} via={ctaVia((await searchParams)?.via)} />}
+
       <h2>Closed trades</h2>
       {!trades.length && <p className="muted">{user.snaptrade_user_id ? 'Syncing… closed trades appear here.' : 'No trades yet.'}</p>}
       <ul className="rows">
         {trades.map((t) => (
           <li key={t.id} id={`trade-${t.id}`}>
-            <div className="line">
+            <Link className="line trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
               <span><b>{t.symbol}</b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
               <b className={t.return_pct > 0 ? 'up' : 'down'}>{pct(t.return_pct)}</b>
-            </div>
+            </Link>
             {t.thesis_status === 'published' && <p style={{ margin: '4px 0 0' }}>“{t.thesis}”</p>}
             {isMe && t.thesis_status === 'held' && <p className="muted" style={{ margin: '4px 0 0' }}>Thesis held for review.</p>}
             {isMe && (

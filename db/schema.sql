@@ -13,6 +13,33 @@ create table if not exists users (
   created_at timestamptz not null default now()
 );
 
+-- Share moment (issue #66). Measure: share of users with share_prompt_seen_at set whose action is copied/shared.
+alter table users add column if not exists share_prompt_seen_at timestamptz;
+alter table users add column if not exists share_prompt_action text check (share_prompt_action in ('dismissed','copied','shared'));
+
+-- New trade prompt. Measure: owners with trades_prompt_action not null vs trade_shared_at > trades_prompt_seen_at;
+-- shown-but-no-action = trades_prompt_action is null. trade_shared_at covers any owner trade share: an upper bound on prompt-driven sharing.
+alter table users add column if not exists trades_prompt_seen_at timestamptz;
+alter table users add column if not exists trades_prompt_action text check (trades_prompt_action in ('dismissed','opened'));
+alter table users add column if not exists trade_shared_at timestamptz;
+
+-- Referral attribution. Set once, only when login inserts a new user via a profile CTA link.
+-- Measure by hand: connected referred users / all connected users; per referrer, joined to share_prompt_action.
+alter table users add column if not exists referred_by_user_id integer references users(id) on delete set null;
+-- Which page's CTA brought the signup ('profile' or 'trade'); null = referred before this existed or no referrer. Insert-only.
+-- Measure: among referred users with a snaptrade activity, count(*) filter (where referred_via = 'trade') vs 'profile'; nulls reported separately.
+alter table users add column if not exists referred_via text check (referred_via in ('profile','trade'));
+-- Which surface's CTA brought the signup: profile|trade|month|badge. Insert-only. No CHECK on purpose: widening the
+-- referred_via CHECK needs drop+re-add, which CI forbids; the allow-list lives in normalizeVia.
+-- Measure: among referred users with a snaptrade activity, count(*) by coalesce(referred_surface, referred_via); nulls reported separately.
+alter table users add column if not exists referred_surface text;
+
+-- Embeddable badge. Set once, on the owner's first copy of the embed snippet. Measure: count(*) where badge_copied_at is not null.
+alter table users add column if not exists badge_copied_at timestamptz;
+
+-- Story image. Set once, on the owner's first click of a Save image link. Intent to save, not posting.
+alter table users add column if not exists share_image_saved_at timestamptz;
+
 create table if not exists activities (
   id bigint generated always as identity primary key,
   user_id int not null references users on delete cascade,

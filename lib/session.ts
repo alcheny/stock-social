@@ -13,6 +13,7 @@ function guard() {
 export type User = {
   id: number; handle: string; display_name: string; excluded_positions: number;
   snaptrade_user_id: string | null; snaptrade_secret_enc: string | null; last_synced_at: Date | null;
+  share_prompt_seen_at: Date | null;
 };
 
 export async function currentUser(): Promise<User | null> {
