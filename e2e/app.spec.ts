@@ -1,5 +1,6 @@
 // Product-rule checks against the real app (needs `npm run db:seed`). Each test maps to a rule in CLAUDE.md.
 import { expect, test } from '@playwright/test';
+import postgres from 'postgres';
 
 test('feed works signed out and shows losses alongside gains', async ({ page }) => {
   await page.goto('/');
@@ -166,6 +167,92 @@ test('share card is a PNG', async ({ request }) => {
 
 test('sync endpoint rejects requests without the cron secret', async ({ request }) => {
   expect((await request.post('/api/sync')).status()).toBe(401);
+});
+
+test('my record is private: signed out goes to login, owner sees it from their profile', async ({ page }) => {
+  await page.goto('/me/record');
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByLabel('Handle').fill('dividend_dan');
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('link', { name: 'My record' }).click();
+  await expect(page.getByRole('heading', { name: 'My record', level: 1 })).toBeVisible();
+  await expect(page.getByText('Only you can see this page')).toBeVisible();
+});
+
+test('my record: "Since your last visit" shows for an owner with a baseline and survives a reload', async ({ page }) => {
+  const db = postgres(process.env.DATABASE_URL!);
+  try {
+    await page.goto('/login');
+    await page.getByLabel('Handle').fill('dividend_dan');
+    await page.getByLabel('I am 18 or older').check();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.waitForURL((u) => !u.pathname.startsWith('/login'));
+    await db`update users set record_prev_viewed_at = now() - interval '30 days', record_last_viewed_at = now() where handle = 'dividend_dan'`;
+    await page.goto('/me/record');
+    const h = page.getByRole('heading', { name: 'Since your last visit' });
+    await expect(h).toBeVisible();
+    await page.reload();
+    await expect(h).toBeVisible();
+  } finally { await db.end(); }
+});
+
+test('my record: rules set and clear, and never appear on the public profile', async ({ page }) => {
+  await page.goto('/login');
+  await page.getByLabel('Handle').fill('dividend_dan');
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'));
+  await page.goto('/me/record');
+  await expect(page.getByRole('heading', { name: 'Your rules' })).toBeVisible();
+  const card = page.getByRole('region', { name: 'Close losing trades within N days' });
+  await expect(card).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Hold winning trades at least N days' })).toBeVisible();
+  await card.getByLabel('Days').fill('7');
+  await card.getByRole('button', { name: 'Set rule' }).click();
+  await expect(card.getByRole('button', { name: 'Clear rule' })).toBeVisible();
+  await expect(card.getByText(/too few trades to say|losing trades were closed within 7 days/).first()).toBeVisible();
+  await card.getByRole('button', { name: 'Clear rule' }).click();
+  await expect(card.getByText('Not set')).toBeVisible();
+  await page.goto('/u/dividend_dan');
+  await expect(page.getByText('Your rules')).toHaveCount(0);
+});
+
+test('my record: recent versus earlier rule comparison is private and honest about small samples', async ({ page }) => {
+  await page.goto('/me/record');
+  await expect(page).toHaveURL(/\/login$/);
+  const db = postgres(process.env.DATABASE_URL!);
+  const ids = Array.from({ length: 15 }, (_, i) => `e2e-trend-${i}`);
+  try {
+    await page.getByLabel('Handle').fill('dividend_dan');
+    await page.getByLabel('I am 18 or older').check();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.waitForURL((u) => !u.pathname.startsWith('/login'));
+    const [u] = await db`select id from users where handle = 'dividend_dan'`;
+    await db`delete from trade_rules where user_id = ${u.id}`;
+    for (const [i, id] of ids.entries()) {
+      const closed = new Date(Date.now() - (40 - i) * 86_400_000);
+      await db`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+        values (${u.id}, ${id}, 'e2e', 'ZZTR', ${new Date(closed.getTime() - 30 * 86_400_000)}, ${closed}, -4, ${i >= 8 ? 3 : 20}, false)`;
+    }
+    await page.goto('/me/record');
+    const card = page.getByRole('region', { name: 'Close losing trades within N days' });
+    await card.getByLabel('Days').fill('7');
+    await card.getByRole('button', { name: 'Set rule' }).click();
+    const group = card.getByRole('group', { name: 'Recent versus earlier' });
+    await expect(group.getByText(/Followed (more|less|equally) often: on \d+ of your latest 10 applicable trades, versus \d+ of the \d+ before\./)).toBeVisible();
+    await expect(group.getByText(/These are small samples/)).toBeVisible();
+    await db`delete from closed_trades where sell_id = any(${ids})`;
+    await page.reload();
+    await expect(card.getByRole('group', { name: 'Recent versus earlier' }).getByText('too few trades to say')).toBeVisible();
+    await page.goto('/u/dividend_dan');
+    await expect(page.getByText('Recent versus earlier')).toHaveCount(0);
+  } finally {
+    await db`delete from closed_trades where sell_id = any(${ids})`;
+    await db`delete from trade_rules where user_id = (select id from users where handle = 'dividend_dan')`;
+    await db.end();
+  }
 });
 
 test('thesis moderation holds risky claims and publishes clean ones', async ({ page }) => {

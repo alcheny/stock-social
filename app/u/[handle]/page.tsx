@@ -110,6 +110,7 @@ export default async function Profile({ params, searchParams }: Params) {
       {isMe && (!user.snaptrade_user_id || claimed) && (
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
       )}
+      {isMe && <p><Link href="/me/record">My record</Link> <span className="muted small">(private)</span></p>}
       {isMe && trades.length > 0 && (
         <p className="muted">Share your card: <code>/u/{user.handle}</code></p>
       )}

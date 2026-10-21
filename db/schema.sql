@@ -1,5 +1,7 @@
 -- Raw in, derived out (docs/DESIGN.md §2.3). `activities` is immutable broker data;
 -- `closed_trades` is rebuilt from it on every sync and can be dropped and recomputed at any time.
+-- `trade_reflections` is the exception: it is USER-SUPPLIED, not derived. Never remove it or rebuild it along with `closed_trades`.
+-- `trade_rules` is user-supplied too, with the same rule.
 
 create table if not exists users (
   id int generated always as identity primary key,
@@ -98,4 +100,31 @@ create table if not exists ticker_watches (
   created_at timestamptz not null default now(),
   last_seen_at timestamptz not null default now(),
   primary key (user_id, symbol)
+-- set once, on the owner's first open of /me/record
+alter table users add column if not exists record_first_viewed_at timestamptz;
+-- repeat-visit record: a visit is an open 30+ minutes after the last one
+alter table users add column if not exists record_last_viewed_at timestamptz;
+alter table users add column if not exists record_prev_viewed_at timestamptz;
+alter table users add column if not exists record_view_count int not null default 0;
+
+-- Private 'why I took it' tags. Rows reattach to trades by sell_id, like theses.
+-- sell_id deliberately has NO foreign key: rebuildTrades deletes closed_trades rows.
+-- Rows whose sell_id matches no trade are kept and ignored on read; never clean them up.
+create table if not exists trade_reflections (
+  user_id int not null references users on delete cascade,
+  sell_id text not null,
+  reason text not null check (reason in ('planned', 'catalyst', 'tip', 'impulse', 'other')),
+  created_at timestamptz not null default now(),
+  unique (user_id, sell_id)
+);
+
+-- Private personal rules. USER-SUPPLIED, not derived: never rebuild it with closed_trades and never remove it in rebuildTrades.
+-- Stores a kind and a day count only: no quantities, no prices. Private to the owner; never read by public pages, the feed or the share card.
+create table if not exists trade_rules (
+  user_id int not null references users on delete cascade,
+  kind text not null check (kind in ('cut_losers', 'hold_winners')),
+  days int not null check (days between 1 and 365),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, kind)
 );
