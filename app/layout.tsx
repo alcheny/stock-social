@@ -16,7 +16,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <nav className="top">
           <Link href="/" className="logo">Stock Social</Link>
-          {me ? <Link href={`/u/${me.handle}`}>@{me.handle}</Link> : <Link href="/login">Publish your trades</Link>}
+          <Link href="/t">Stocks</Link>
+          {me && <Link href="/me/record">My record</Link>}
+          {me ? <Link className="me" href={`/u/${me.handle}`}>@{me.handle}</Link> : <Link href="/login">Publish your trades</Link>}
         </nav>
         {children}
         {/* docs/POLICY.md F3: every page that can show performance carries this, in plain view */}

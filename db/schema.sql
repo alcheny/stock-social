@@ -1,5 +1,7 @@
 -- Raw in, derived out (docs/DESIGN.md §2.3). `activities` is immutable broker data;
 -- `closed_trades` is rebuilt from it on every sync and can be dropped and recomputed at any time.
+-- `trade_reflections` is the exception: it is USER-SUPPLIED, not derived. Never remove it or rebuild it along with `closed_trades`.
+-- `trade_rules` is user-supplied too, with the same rule.
 
 create table if not exists users (
   id int generated always as identity primary key,
@@ -12,6 +14,33 @@ create table if not exists users (
   last_synced_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+-- Share moment (issue #66). Measure: share of users with share_prompt_seen_at set whose action is copied/shared.
+alter table users add column if not exists share_prompt_seen_at timestamptz;
+alter table users add column if not exists share_prompt_action text check (share_prompt_action in ('dismissed','copied','shared'));
+
+-- New trade prompt. Measure: owners with trades_prompt_action not null vs trade_shared_at > trades_prompt_seen_at;
+-- shown-but-no-action = trades_prompt_action is null. trade_shared_at covers any owner trade share: an upper bound on prompt-driven sharing.
+alter table users add column if not exists trades_prompt_seen_at timestamptz;
+alter table users add column if not exists trades_prompt_action text check (trades_prompt_action in ('dismissed','opened'));
+alter table users add column if not exists trade_shared_at timestamptz;
+
+-- Referral attribution. Set once, only when login inserts a new user via a profile CTA link.
+-- Measure by hand: connected referred users / all connected users; per referrer, joined to share_prompt_action.
+alter table users add column if not exists referred_by_user_id integer references users(id) on delete set null;
+-- Which page's CTA brought the signup ('profile' or 'trade'); null = referred before this existed or no referrer. Insert-only.
+-- Measure: among referred users with a snaptrade activity, count(*) filter (where referred_via = 'trade') vs 'profile'; nulls reported separately.
+alter table users add column if not exists referred_via text check (referred_via in ('profile','trade'));
+-- Which surface's CTA brought the signup: profile|trade|month|badge. Insert-only. No CHECK on purpose: widening the
+-- referred_via CHECK needs drop+re-add, which CI forbids; the allow-list lives in normalizeVia.
+-- Measure: among referred users with a snaptrade activity, count(*) by coalesce(referred_surface, referred_via); nulls reported separately.
+alter table users add column if not exists referred_surface text;
+
+-- Embeddable badge. Set once, on the owner's first copy of the embed snippet. Measure: count(*) where badge_copied_at is not null.
+alter table users add column if not exists badge_copied_at timestamptz;
+
+-- Story image. Set once, on the owner's first click of a Save image link. Intent to save, not posting.
+alter table users add column if not exists share_image_saved_at timestamptz;
 
 create table if not exists activities (
   id bigint generated always as identity primary key,
@@ -63,3 +92,41 @@ insert into broker_accounts (account_id, user_id)
   select distinct on (account_id) account_id, user_id from activities
   where source = 'snaptrade' order by account_id, executed_at
   on conflict (account_id) do nothing;
+
+-- Private ticker watchlist: a user-owned preference. last_seen_at drives "new since you last looked".
+create table if not exists ticker_watches (
+  user_id int not null references users on delete cascade,
+  symbol text not null,
+  created_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  primary key (user_id, symbol)
+);
+
+-- set once, on the owner's first open of /me/record
+alter table users add column if not exists record_first_viewed_at timestamptz;
+-- repeat-visit record: a visit is an open 30+ minutes after the last one
+alter table users add column if not exists record_last_viewed_at timestamptz;
+alter table users add column if not exists record_prev_viewed_at timestamptz;
+alter table users add column if not exists record_view_count int not null default 0;
+
+-- Private 'why I took it' tags. Rows reattach to trades by sell_id, like theses.
+-- sell_id deliberately has NO foreign key: rebuildTrades deletes closed_trades rows.
+-- Rows whose sell_id matches no trade are kept and ignored on read; never clean them up.
+create table if not exists trade_reflections (
+  user_id int not null references users on delete cascade,
+  sell_id text not null,
+  reason text not null check (reason in ('planned', 'catalyst', 'tip', 'impulse', 'other')),
+  created_at timestamptz not null default now(),
+  unique (user_id, sell_id)
+);
+
+-- Private personal rules. USER-SUPPLIED, not derived: never rebuild it with closed_trades and never remove it in rebuildTrades.
+-- Stores a kind and a day count only: no quantities, no prices. Private to the owner; never read by public pages, the feed or the share card.
+create table if not exists trade_rules (
+  user_id int not null references users on delete cascade,
+  kind text not null check (kind in ('cut_losers', 'hold_winners')),
+  days int not null check (days between 1 and 365),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, kind)
+);
