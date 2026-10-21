@@ -25,7 +25,7 @@ export function TradeCard({ t }: { t: TradeRow }) {
         <Badge verified={t.verified} />
       </header>
       <div className="hero">
-        <div className="symbol">{t.symbol}</div>
+        <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
         <div className="muted">held {days(t.holding_days)} · closed {t.closed_at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
       </div>

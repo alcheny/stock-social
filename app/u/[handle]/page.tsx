@@ -156,10 +156,12 @@ export default async function Profile({ params, searchParams }: Params) {
       <ul className="rows">
         {trades.map((t) => (
           <li key={t.id} id={`trade-${t.id}`}>
-            <Link className="line trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
-              <span><b>{t.symbol}</b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
-              <b className={t.return_pct > 0 ? 'up' : 'down'}>{pct(t.return_pct)}</b>
-            </Link>
+            <div className="line">
+              <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
+              <Link className="trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
+                <b className={t.return_pct > 0 ? 'up' : 'down'}>{pct(t.return_pct)}</b>
+              </Link>
+            </div>
             {t.thesis_status === 'published' && <p style={{ margin: '4px 0 0' }}>“{t.thesis}”</p>}
             {isMe && t.thesis_status === 'held' && <p className="muted" style={{ margin: '4px 0 0' }}>Thesis held for review.</p>}
             {isMe && (

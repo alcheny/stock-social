@@ -8,6 +8,7 @@ import { isDemoUser } from '@/lib/demo.ts';
 import { legacyVia, normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
 import { TRADES_PROMPT_ACTIONS, type TradesPromptAction } from '@/lib/new-trades.ts';
 import { SHARE_ACTIONS, type ShareAction } from '@/lib/share-prompt.ts';
+import { canWatch, normalizeSymbol } from '@/lib/ticker.ts';
 
 export async function login(form: FormData) {
   const handle = normalizeHandle(form.get('handle')) ?? '';
@@ -100,4 +101,23 @@ export async function recordTradeShared() {
   const user = await currentUser();
   if (!user) return;
   await sql`update users set trade_shared_at = now() where id = ${user.id}`;
+}
+
+export async function toggleWatch(symbol: string) {
+  const user = await currentUser();
+  if (!user) redirect('/login');
+  const s = normalizeSymbol(String(symbol));
+  if (!s) redirect('/t');
+  const [existing] = await sql`select 1 from ticker_watches where user_id = ${user.id} and symbol = ${s}`;
+  if (existing) {
+    await sql`delete from ticker_watches where user_id = ${user.id} and symbol = ${s}`;
+  } else {
+    const [{ n }] = await sql`select count(*)::int as n from ticker_watches where user_id = ${user.id}`;
+    const can = canWatch(n, s);
+    if (!can.ok) redirect(`/t/${encodeURIComponent(s)}?watch=${can.reason}`);
+    await sql`insert into ticker_watches (user_id, symbol, created_at, last_seen_at) values (${user.id}, ${s}, now(), now()) on conflict do nothing`;
+  }
+  revalidatePath('/t');
+  revalidatePath(`/t/${s}`);
+  redirect(`/t/${encodeURIComponent(s)}`);
 }
