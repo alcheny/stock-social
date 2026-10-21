@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeVia, normalizeHandle, referralSummary, resolveReferrer, legacyVia, ctaVia } from './referral.ts';
-import { snippet } from './badge-snippet.ts';
+import { normalizeVia, normalizeHandle, referralSummary, resolveReferrer, legacyVia, ctaVia, REFERRED_SURFACES } from './referral.ts';
 import { readFileSync } from 'node:fs';
 
 test('normalizeVia allowlist', () => {
@@ -32,20 +31,21 @@ test('normalizeHandle', () => {
   assert.equal(normalizeHandle('ab'), null);
 });
 
-test('normalizeVia accepts month and badge', () => {
-  assert.equal(normalizeVia('month'), 'month');
-  assert.equal(normalizeVia(' BADGE '), 'badge');
+test('normalizeVia accepts month; the removed badge surface is no longer valid', () => {
+  assert.equal(normalizeVia(' MONTH '), 'month');
+  assert.equal(normalizeVia('badge'), null);
   for (const v of ['bogus', '', 5, null]) assert.equal(normalizeVia(v), null, String(v));
 });
 test('legacyVia only keeps values the old CHECK allows', () => {
   assert.equal(legacyVia('month'), null);
-  assert.equal(legacyVia('badge'), null);
+  assert.equal(legacyVia(normalizeVia('badge')), null);
   assert.equal(legacyVia('profile'), 'profile');
   assert.equal(legacyVia('trade'), 'trade');
   assert.equal(legacyVia(null), null);
 });
 test('ctaVia falls back to profile', () => {
-  assert.equal(ctaVia('badge'), 'badge');
+  assert.equal(ctaVia('month'), 'month');
+  assert.equal(ctaVia('badge'), 'profile');
   assert.equal(ctaVia('x'), 'profile');
   assert.equal(ctaVia(undefined), 'profile');
 });
@@ -56,12 +56,8 @@ test('month page CTA uses via="month", not "trade"', () => {
   const cta = readFileSync(new URL('../app/u/[handle]/join-cta.tsx', import.meta.url), 'utf8');
   assert.ok(cta.includes('/login?ref=${handle}&via=${via}'));
 });
-test('badge snippets carry ref and via=badge, image stays badge.svg', () => {
-  for (const f of ['markdown', 'html'] as const) {
-    const s = snippet(f, 'https://x.test', 'amy');
-    assert.ok(s.includes('/u/amy?ref=amy&via=badge'), s);
-    assert.ok(s.includes('/u/amy/badge.svg'), s);
-  }
+test('attribution surfaces are exactly the shareable pages (the website badge was removed)', () => {
+  assert.deepEqual([...REFERRED_SURFACES], ['profile', 'trade', 'month']);
 });
 test('signup derivation: month stores surface only', () => {
   const s = normalizeVia('month');
@@ -86,8 +82,8 @@ test('referralSummary byVia counts surfaces, omits null, excludes bad rows', () 
   const r = (id: number, handle: string, referredSurface: string | null, o: Opts = {}) => ({ ...row(id, handle, o), referredSurface });
   const out = referralSummary({
     ownerId: 1, ownerIsDemo: false,
-    rows: [r(2, 'a', 'month'), r(3, 'b', 'month'), r(4, 'c', 'trade'), r(5, 'd', null), r(6, 'e', 'badge', { isDemo: true }),
-      r(1, 'me', 'badge'), r(7, 'f', 'badge', { hasSnaptradeActivity: false }), r(2, 'a', 'month')],
+    rows: [r(2, 'a', 'month'), r(3, 'b', 'month'), r(4, 'c', 'trade'), r(5, 'd', null), r(6, 'e', 'trade', { isDemo: true }),
+      r(1, 'me', 'trade'), r(7, 'f', 'month', { hasSnaptradeActivity: false }), r(2, 'a', 'month')],
   });
   assert.deepEqual(out.byVia, { month: 2, trade: 1 });
   assert.equal(out.connected, 4);

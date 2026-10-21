@@ -1,6 +1,7 @@
 // The share card: the Phase 1 growth loop (DESIGN Stage 1, BL resolution).
 // Rendered by Next's built-in next/og whenever the profile link is posted on a social network or in a messaging app.
 import { ImageResponse } from 'next/og';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
 import { confidence, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
 
@@ -50,6 +51,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
         </div>
         )}
         <span style={{ fontSize: 30, color: '#8b8b98' }}>{evidenceLine(c)}{isNew ? ' · New record' : ''}</span>
+        <span style={{ fontSize: 22, color: '#8b8b98' }}>{DISCLAIMER}</span>
       </div>
     ),
     size,

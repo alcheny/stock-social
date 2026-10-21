@@ -58,13 +58,6 @@ export async function markSharePromptSeen() {
   await sql`update users set share_prompt_seen_at = now() where id = ${user.id} and share_prompt_seen_at is null`;
 }
 
-// Embeddable badge adoption. Best-effort: session user only, idempotent.
-export async function markBadgeCopied() {
-  const user = await currentUser();
-  if (!user) return;
-  await sql`update users set badge_copied_at = now() where id = ${user.id} and badge_copied_at is null`;
-}
-
 // Story-image adoption: first click on a Save link. Session user only, idempotent.
 export async function markShareImageSaved() {
   const user = await currentUser();

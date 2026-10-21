@@ -9,8 +9,7 @@ import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
-import { BadgeEmbed } from './badge-embed.tsx';
-import { SaveImage } from './save-image.tsx';
+import { ShareCard } from './share-card.tsx';
 import { ReferralFeedback } from './referral-feedback.tsx';
 import { ctaVia, referralSummary } from '@/lib/referral.ts';
 import { JoinCta } from './join-cta.tsx';
@@ -110,15 +109,12 @@ export default async function Profile({ params, searchParams }: Params) {
       {isMe && (!user.snaptrade_user_id || claimed) && (
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
       )}
-      {isMe && <p><Link href="/me/record">My record</Link> <span className="muted small">(private)</span></p>}
-      {isMe && trades.length > 0 && (
-        <p className="muted">Share your card: <code>/u/{user.handle}</code></p>
+      {isMe && !claimed && trades.length > 0 && !sharePromptShowing && (
+        <ShareCard handle={user.handle} recapYm={recapYm}
+          recapLabel={recapYm ? new Date(`${recapYm}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : null} />
       )}
-      {isMe && !claimed && trades.length > 0 && <SaveImage handle={user.handle} displayName={user.display_name} trades={trades.length} />}
-      {isMe && recapYm && <p><Link href={`/u/${user.handle}/month/${recapYm}`}>Share your latest recap</Link></p>}
 
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
-      {isMe && trades.length === 0 && <BadgeEmbed handle={user.handle} verified={false} />}
       {trades.length > 0 && <>
       <section className="stats">
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
@@ -143,7 +139,6 @@ export default async function Profile({ params, searchParams }: Params) {
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
-      {isMe && <BadgeEmbed handle={user.handle} verified={trades.length > 0 && !(await isDemoUser(user.id))} />}
       <PerformanceChart trades={trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null }))} now={new Date()} />
       {user.excluded_positions > 0 && (
         <p className="muted">{user.excluded_positions} earlier position(s) excluded: no matching entry in the imported history.</p>

@@ -1,5 +1,6 @@
 // Evergreen whole-record image for stories and chats. Public, percent-only, like the OG card.
 import { ImageResponse } from 'next/og';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
 import { confidence, stats } from '@/lib/trades.ts';
 import { FORMATS, parseFormat, storyModel } from '@/lib/story-image.ts';
@@ -58,6 +59,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
           </div>
         )}
         <span style={{ fontSize: 32, color: muted }}>{link}</span>
+        <span style={{ fontSize: 28, color: '#8b8b98' }}>{DISCLAIMER}</span>
       </div>
     ),
     { ...size, headers: { 'Cache-Control': 'public, max-age=300' } },

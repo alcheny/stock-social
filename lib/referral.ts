@@ -9,7 +9,7 @@ export function normalizeHandle(raw: unknown): string | null {
 export const REFERRED_VIA = ['profile', 'trade'] as const;
 export type ReferredVia = (typeof REFERRED_VIA)[number];
 // Which surface's call to action brought the signup (referred_surface column; validated here, no CHECK).
-export const REFERRED_SURFACES = ['profile', 'trade', 'month', 'badge'] as const;
+export const REFERRED_SURFACES = ['profile', 'trade', 'month'] as const;
 export type ReferredSurface = (typeof REFERRED_SURFACES)[number];
 export function normalizeVia(v: unknown): ReferredSurface | null {
   if (typeof v !== 'string') return null;

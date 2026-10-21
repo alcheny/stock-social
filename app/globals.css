@@ -27,7 +27,11 @@ nav.top {
   position: fixed; inset: 0 0 auto; z-index: 10; display: flex; justify-content: space-between; align-items: center;
   padding: 12px 16px; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(8px);
 }
-nav.top a { text-decoration: none; font-weight: 600; }
+nav.top a { text-decoration: none; font-weight: 600; white-space: nowrap; }
+nav.top { gap: 14px; }
+nav.top .logo { margin-right: auto; }
+nav.top .me { overflow: hidden; text-overflow: ellipsis; max-width: 34vw; }
+@media (max-width: 420px) { nav.top { gap: 10px; font-size: 0.9rem; } }
 .logo { font-weight: 800; letter-spacing: -0.02em; }
 
 /* Feed: one trade per screen, native scroll-snap, no gesture library. */

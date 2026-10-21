@@ -1,4 +1,4 @@
-// Pure monthly recap. Every closed trade in the UTC month is kept; no sizes or prices exist here and nothing varies by sign.
+// Pure monthly recap. Keeps each closed trade in the UTC month; no sizes or prices exist here and nothing varies by sign.
 import { confidence, evidenceLine, isNewRecord, rangeText, stats, type ConfidenceInput } from './trades.ts';
 
 export type RecapTrade = ConfidenceInput & { sellId: string };

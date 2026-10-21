@@ -62,7 +62,7 @@ export default async function RecapPage({ params }: Params) {
           ) : (
             <>
               <p className="big">{plural(m.count)} this month</p>
-              <p className="muted small" style={{ marginTop: 0 }}>Too few trades for a win rate. Every trade is listed below.</p>
+              <p className="muted small" style={{ marginTop: 0 }}>Too few trades for a win rate. The month&apos;s trades are listed below.</p>
             </>
           )}
           <p className="small">{m.evidence}{m.range ? ` ${m.range}` : ''}</p>
@@ -93,7 +93,7 @@ export default async function RecapPage({ params }: Params) {
       </ol>
       <TradeShare isOwner={false} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
-      <p className="muted small">Recaps show every closed trade in the month and can&apos;t be hidden.</p>
+      <p className="muted small">Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</p>
       <p><Link href={`/u/${handle}`}>See their record, wins and losses →</Link></p>
       {!me && !r.demo && <JoinCta handle={handle} via="month" />}
       <p><Link href="/">← Feed</Link></p>

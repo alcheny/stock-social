@@ -16,7 +16,7 @@ import Watch, { loadWatch, markSeen } from './Watch.tsx';
 type Params = { params: Promise<{ symbol: string }>; searchParams?: Promise<{ watch?: string | string[] }> };
 
 const CAP = 500;
-const EXPLAINER = 'Every verified closed trade in this stock, newest first. Percentages only. Few trades means a wide range, and that is expected.';
+const EXPLAINER = 'Verified closed trades in this stock from connected accounts, newest first. Percentages only. Few trades means a wide range, and that is expected.';
 const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
 const heldWords = (d: number) => (d < 1 ? 'less than a day' : `${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);

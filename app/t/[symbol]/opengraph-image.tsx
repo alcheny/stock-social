@@ -1,5 +1,6 @@
 // Ticker share card: unfurls a pasted /t/SYMBOL link. Percentages only; never throws on a bad symbol.
 import { ImageResponse } from 'next/og';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
 import { decodeSymbolParam, tickerSummary, type TickerRow, type TickerSummary } from '@/lib/ticker.ts';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
@@ -65,6 +66,7 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
             </div>
           </div>
           <span style={{ fontSize: 30, color: '#8b8b98' }}>{range ? `95% range ${range} · ` : ''}{evidenceLine(c)}</span>
+          <span style={{ fontSize: 22, color: '#8b8b98' }}>{DISCLAIMER}</span>
         </div>
       ),
       size,

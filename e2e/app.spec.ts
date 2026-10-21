@@ -289,9 +289,10 @@ test('share moment: copy records the action, shows once, hidden signed out; card
   expect(card.headers()['content-type']).toBe('image/png');
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.addInitScript(() => { delete (Navigator.prototype as { share?: unknown }).share; }); // desktop path: one click copies the link
   await page.goto(`/u/${handle}`);
   await expect(page.getByText('Your record is live.')).toBeVisible();
-  await page.getByRole('button', { name: 'Copy link' }).click();
+  await page.getByRole('button', { name: 'Share my record' }).click();
   await expect(page.getByRole('button', { name: 'Link copied' })).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${baseURL}/u/${handle}`);
   await expect.poll(async () => (await sql`select share_prompt_action a from users where handle = ${handle}`)[0].a).toBe('copied');
@@ -395,7 +396,8 @@ test('trade permalink: signed out, record beside the trade, via=trade CTA, 404s,
   await expect(page.getByRole('heading', { name: /Their whole record/ })).toBeVisible();
   await expect(page.getByText('1 closed trade ·')).toBeVisible();
   await expect(page.getByText('held text')).toHaveCount(0); // held thesis never renders
-  await expect(page.getByRole('button', { name: 'Copy link' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeVisible(); // one button
+  await expect(page.getByRole('button', { name: 'Copy link' })).toHaveCount(0);
   const href = await page.getByRole('link', { name: 'Verify your record' }).getAttribute('href');
   expect(href).toContain('ref=tp_owner');
   expect(href).toContain('via=trade');
@@ -428,13 +430,13 @@ test('monthly recap: signed out, whole record beside the month, every trade list
   expect(card.status()).toBe(200);
   expect(card.headers()['content-type']).toContain('image/png');
 
-  // owner sees the share link on their profile
+  // owner shares the recap from their profile in one click
   await page.goto('/login');
   await page.getByLabel('Handle').fill(handle);
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
-  await expect(page.getByRole('link', { name: 'Share your latest recap' })).toHaveAttribute('href', `/u/${handle}/month/${ym}`);
+  await expect(page.getByRole('button', { name: /^Share \w+ recap$/ })).toBeVisible();
 
   // demo trader: badge visible and the list shows every trade in the month
   const [d] = await sql`select id from users where handle = 'momentum_maya'`;
@@ -493,34 +495,39 @@ test('new trade prompt: owner only, dismiss records, first visit stamps without 
   await expect.poll(async () => (await sql`select trades_prompt_seen_at s from users where id = ${u.id}`)[0].s).not.toBeNull();
 });
 
-test('badge: public svg, 404, owner embed section copies absolute snippet and records it', async ({ page, request, context }) => {
+test('share card: each share is one click, no embed code or downloads, owner only', async ({ page, context, baseURL, browser }) => {
   const { sql } = await import('../lib/db.ts');
-  const res = await request.get('/u/momentum_maya/badge.svg');
-  expect(res.status()).toBe(200);
-  expect(res.headers()['content-type']).toContain('image/svg+xml');
-  expect(await res.text()).toContain('Demo');
-  expect((await request.get('/u/no_such_handle_xyz/badge.svg')).status()).toBe(404);
-
-  await page.goto('/u/momentum_maya');
-  await expect(page.getByText('Embed your badge')).toHaveCount(0); // signed out
-
-  const handle = 'badge_owner';
+  const handle = 'share_card_owner';
+  await page.addInitScript(() => { delete (Navigator.prototype as { share?: unknown }).share; }); // desktop path: one click copies the link
   await page.goto('/login');
   await page.getByLabel('Handle').fill(handle);
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
-  await sql`update users set badge_copied_at = null where handle = ${handle}`;
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  await sql`delete from closed_trades where user_id = ${u.id}`;
+  await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+    values (${u.id}, ${'sc-sell-' + Date.now()}, 'a', 'AMD', now() - interval '3 days', now() - interval '1 day', 0.05, 2, true)`;
+  await sql`update users set share_image_saved_at = null where id = ${u.id}`;
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.getByText('Embed your badge').click();
-  await page.getByRole('button', { name: 'Copy Markdown' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Copied' })).toBeVisible();
-  const clip = await page.evaluate(() => navigator.clipboard.readText());
-  expect(clip).toMatch(new RegExp(`^\\[!\\[.*\\]\\(https?://[^)]+/u/${handle}/badge\\.svg\\)\\]\\(https?://[^)]+/u/${handle}\\?ref=${handle}&via=badge\\)$`));
-  await expect.poll(async () => (await sql`select badge_copied_at b from users where handle = ${handle}`)[0].b).not.toBeNull();
+  await page.reload();
+  const card = page.getByRole('region', { name: 'Share your record' });
+  await expect(card).toBeVisible();
+  for (const gone of ['Embed your badge', 'Copy Markdown', 'Copy HTML', 'Save story', 'Save square']) await expect(page.getByText(gone)).toHaveCount(0);
+  await expect(page.locator('textarea')).toHaveCount(0);
+  await card.getByRole('button', { name: 'Share my record' }).click();
+  await expect(card.getByRole('button', { name: 'Link copied' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${baseURL}/u/${handle}`);
+  await expect.poll(async () => (await sql`select share_image_saved_at s from users where id = ${u.id}`)[0].s).not.toBeNull();
+
+  const anonCtx = await browser.newContext();
+  const anon = await anonCtx.newPage();
+  await anon.goto(`/u/${handle}`);
+  await expect(anon.getByRole('region', { name: 'Share your record' })).toHaveCount(0);
+  await anonCtx.close();
 });
 
-test('story image: public route formats/404, owner-only Save section records first click', async ({ page, request, browser }) => {
+test('story image: public route formats/404; the share card appears only with trades and only for the owner', async ({ page, request, browser }) => {
   const { sql } = await import('../lib/db.ts');
   const dim = (b: Buffer) => [b.readUInt32BE(16), b.readUInt32BE(20)];
   for (const [q, w, h] of [['?format=story', 1080, 1920], ['?format=square', 1080, 1080], ['?format=bogus', 1080, 1080]] as const) {
@@ -542,24 +549,19 @@ test('story image: public route formats/404, owner-only Save section records fir
   await sql`update users set share_image_saved_at = null where id = ${u.id}`;
   expect((await request.get(`/u/${handle}/story`)).status()).toBe(200); // 0 trades
   await page.reload();
-  const section = page.getByRole('heading', { name: 'Save your record as an image' });
+  const section = page.getByRole('region', { name: 'Share your record' });
   await expect(section).toHaveCount(0); // 0 trades: hidden
 
   await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
     values (${u.id}, ${'story-sell-' + Date.now()}, 'a', 'TSLA', now() - interval '3 days', now() - interval '1 day', -0.08, 2, true)`;
   await page.reload();
   await expect(section).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Share my record' })).toBeVisible(); // shares the square image where the device can
   const anonCtx = await browser.newContext();
   const anon = await anonCtx.newPage();
   await anon.goto(`/u/${handle}`);
-  await expect(anon.getByRole('heading', { name: 'Save your record as an image' })).toHaveCount(0);
+  await expect(anon.getByRole('region', { name: 'Share your record' })).toHaveCount(0);
   await anonCtx.close();
-
-  const download = page.waitForEvent('download');
-  await page.getByRole('link', { name: /Save square/ }).click();
-  await (await download).cancel();
-  await expect(page.getByText('Saved. Post it wherever your friends are.')).toBeVisible();
-  await expect.poll(async () => (await sql`select share_image_saved_at s from users where id = ${u.id}`)[0].s).not.toBeNull();
 });
 
 test('ticker page: seeded symbol, rows newest first, links from feed and profile', async ({ page }) => {
@@ -750,7 +752,13 @@ test('sitemap lists /t but no demo-only ticker pages; robots points at it', asyn
   expect(sm.headers()['content-type']).toContain('xml');
   const body = await sm.text();
   expect(body).toMatch(/\/t<\/loc>/);
-  expect(body).not.toMatch(/\/t\/[A-Z]/);
+  // Other tests insert verified trades, so check the rule itself: demo-only stocks are never listed, and every
+  // listed stock has a verified trade.
+  const { sql } = await import('../lib/db.ts');
+  const rows = await sql`select symbol, bool_or(verified) as real from closed_trades group by symbol`;
+  const listed = [...body.matchAll(/\/t\/([A-Z0-9.%-]+)<\/loc>/g)].map((m) => decodeURIComponent(m[1]));
+  for (const r of rows.filter((x) => !x.real)) expect(listed).not.toContain(r.symbol);
+  for (const sym of listed) expect(rows.find((x) => x.symbol === sym)?.real).toBe(true);
   const rb = await request.get('/robots.txt');
   expect(rb.status()).toBe(200);
   const txt = await rb.text();

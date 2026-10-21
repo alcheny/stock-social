@@ -100,6 +100,8 @@ create table if not exists ticker_watches (
   created_at timestamptz not null default now(),
   last_seen_at timestamptz not null default now(),
   primary key (user_id, symbol)
+);
+
 -- set once, on the owner's first open of /me/record
 alter table users add column if not exists record_first_viewed_at timestamptz;
 -- repeat-visit record: a visit is an open 30+ minutes after the last one

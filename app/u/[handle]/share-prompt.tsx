@@ -1,6 +1,7 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { markSharePromptSeen, recordSharePromptAction } from '../../actions.ts';
+import { ShareButton } from '../../share-button.tsx';
 
 type Props = { handle: string; displayName: string; trades: number; range: string | null; isNew: boolean };
 
@@ -9,43 +10,11 @@ const best = (p: Promise<unknown>) => p.catch((e) => console.error('share prompt
 export function SharePrompt({ handle, displayName, trades, range, isNew }: Props) {
   const [open, setOpen] = useState(true);
   const [done, setDone] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
-  const [canShare, setCanShare] = useState(false);
-  const [url, setUrl] = useState(`/u/${handle}`);
-  const field = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setUrl(`${window.location.origin}/u/${handle}`);
-    setCanShare(typeof navigator.share === 'function');
-    best(markSharePromptSeen());
-  }, [handle]);
+  useEffect(() => { best(markSharePromptSeen()); }, [handle]);
 
   if (!open) return null;
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      field.current?.select();
-      document.execCommand('copy');
-    }
-    setCopied(true);
-    setDone(true);
-    setTimeout(() => setCopied(false), 2000);
-    best(recordSharePromptAction('copied'));
-  }
-
-  async function share() {
-    try {
-      await navigator.share({ title: `${displayName} on Stock Social`, text: 'My verified trading record on Stock Social', url });
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') console.error(e);
-      return;
-    }
-    setDone(true);
-    best(recordSharePromptAction('shared'));
-  }
 
   function close() {
     if (!done) best(recordSharePromptAction('dismissed'));
@@ -64,7 +33,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew }: Props
           alt={`Preview of your share card: ${displayName}, ${trades} verified trade${trades === 1 ? '' : 's'}`} />
       )}
       <p style={{ margin: 0 }}>
-        Public: your win rate, average return and each closed trade as a percentage. Never share sizes, prices or balances. Your broker login stays private. Losses show alongside gains.
+        Public: your win rate, average return and each closed trade as a percentage, losses included. Never sizes, prices or balances. Your broker login stays private.
       </p>
       {isNew && (
         <p className="muted note" style={{ margin: 0 }}>
@@ -74,12 +43,10 @@ export function SharePrompt({ handle, displayName, trades, range, isNew }: Props
         </p>
       )}
       <div className="actions">
-        <button type="button" onClick={copy}>{copied ? 'Link copied' : 'Copy link'}</button>
-        {canShare && <button type="button" className="secondary" onClick={share}>Share…</button>}
+        <ShareButton url={`/u/${handle}`} title={`${displayName} on Stock Social`} label="Share my record" image={`/u/${handle}/story?format=square`}
+          onShared={(how) => { setDone(true); best(recordSharePromptAction(how)); }} />
         <button type="button" className="link" onClick={close}>{done ? 'Done' : 'Not now'}</button>
       </div>
-      <span aria-live="polite" className="sr-only">{copied ? 'Link copied' : ''}</span>
-      <input ref={field} readOnly value={url} aria-label="Your profile link" onFocus={(e) => e.currentTarget.select()} />
     </section>
   );
 }

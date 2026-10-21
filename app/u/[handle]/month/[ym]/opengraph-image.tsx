@@ -1,5 +1,6 @@
 // Monthly recap card: percent only, and layout and colour never vary by sign.
 import { ImageResponse } from 'next/og';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { pct } from '@/lib/trades.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 
@@ -44,6 +45,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
           <span style={{ fontSize: 26, color: MUTED }}>{w.range ? `${w.evidence} ${w.range}` : w.evidence || 'Too early to tell'}</span>
           {w.newRecord && <span style={{ fontSize: 26, color: MUTED }}>New record · short record, wide uncertainty</span>}
         </div>
+        <span style={{ fontSize: 22, color: '#8b8b98' }}>{DISCLAIMER}</span>
       </div>
     ),
     size,

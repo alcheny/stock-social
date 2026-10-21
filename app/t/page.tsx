@@ -100,7 +100,7 @@ export default async function Stocks({ searchParams }: Props) {
       <p><Link href="/">← Feed</Link></p>
       <h1>Stocks</h1>
       <Strip strip={strip} />
-      <p className="muted">Every stock with at least one verified closed trade. Open a stock to see all the trades in it, losses included. Percentages only.</p>
+      <p className="muted">Stocks with at least one verified closed trade from connected accounts. Open a stock to see its trades, losses included. Percentages only.</p>
       <form role="search" action="/t" method="get" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <label htmlFor="q">Find a stock</label>
         <input id="q" name="q" type="search" defaultValue={rawQ} placeholder="NVDA" maxLength={10} autoCapitalize="characters" autoCorrect="off" spellCheck={false} style={{ minHeight: 44 }} />

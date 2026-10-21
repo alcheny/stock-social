@@ -64,7 +64,7 @@ export const PROMO: RegExp[] = [/\bguaranteed? (returns?|profits?|gains?|income|
   /\b(you should|we recommend( that you)?|time to) (buy|sell)\b/i, /\bbuy now\b/i, /\bcopy (this|their|my|his|her) trades?\b/i,
   /\b(proven|guaranteed) (strategy|system|track record|winner)\b/i, /\b(outperforms?|make money|passive income|hot (pick|stock)|top picks?|pick of the day)\b/i,
   // Completeness claims the data can't back (options and some positions are excluded): POLICY F3.
-  /\b(every closed trade is published|see every trade|all (of )?(their|his|her|my) trades|from any broker|every trade, verified)\b/i,
+  /\b(every closed trade is published|see every trade|all (of )?(their|his|her|my) trades|from any broker|every trade, verified|every (verified )?(closed )?trade (in|is listed)|recaps show every|all the trades in it)\b/i,
   // "Verified" means broker-sourced only; never "verified by/via/on" someone, which implies endorsement (POLICY F3a).
   /\bverified (via|by|on)\b/i];
 const PRODUCT = /^(app|lib|public|components)\//;

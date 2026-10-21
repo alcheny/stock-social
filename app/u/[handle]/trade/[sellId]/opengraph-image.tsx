@@ -1,5 +1,6 @@
 // Trade share card: percent only, and layout and colour never vary by sign.
 import { ImageResponse } from 'next/og';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { pct } from '@/lib/trades.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 
@@ -48,6 +49,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
           </span>
           {t.newRecord && <span style={{ fontSize: 26, color: MUTED }}>New record · short record, wide uncertainty</span>}
         </div>
+        <span style={{ fontSize: 22, color: '#8b8b98' }}>{DISCLAIMER}</span>
       </div>
     ),
     size,
