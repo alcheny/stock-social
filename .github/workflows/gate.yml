@@ -43,6 +43,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           AUTOPILOT: ${{ vars.AUTOPILOT }}
+          FEATURES: ${{ vars.FEATURES }}
           AUTOPILOT_MODE: ${{ vars.AUTOPILOT_MODE }}
           MAX_DIFF: ${{ vars.MAX_DIFF || '800' }}
           PR: ${{ github.event.workflow_run.pull_requests[0].number }}

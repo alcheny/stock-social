@@ -50,7 +50,8 @@ export const lineOf = (baseRef: string) => baseRef.match(/^line\/([a-c])$/)?.[1]
 export const LOOP_PATHS = ['/.github/', '/scripts/autopilot.ts', '/scripts/autopilot.test.ts', '/scripts/team.ts', '/scripts/team.test.ts',
   '/scripts/plan.ts', '/scripts/plan.test.ts', '/scripts/doctor.ts', '/scripts/doctor.test.ts', '/scripts/invariants.test.ts', '/team/', '/.claude/agents/', '/CLAUDE.md', '/docs/AUTOPILOT.md', '/docs/DECISIONS.md',
   '/docs/DESIGN.md', '/playwright.config.ts', '/docs/POLICY.md', '/SECURITY.md', '/scripts/compliance.ts', '/scripts/compliance.test.ts',
-  '/scripts/policy.test.ts', '/scripts/workflow-security.test.ts'];
+  '/scripts/policy.test.ts', '/scripts/workflow-security.test.ts', '/scripts/features.ts', '/scripts/features.test.ts', '/docs/FEATURES.md',
+  '/docs/features/'];
 export const lineTitle = (title: string, key: string) => /^line ([a-c])\b/i.exec(title)?.[1]?.toLowerCase() === key;
 
 // key '' = single build.
@@ -337,7 +338,7 @@ export const failed = (r: RollupItem) =>
 
 // Read checks from the commit, not the PR's statusCheckRollup: GitHub leaves runs started by
 // workflow_dispatch (which is how the loop runs CI) out of the PR rollup.
-function ownChecks(sha: string): RollupItem[] {
+export function ownChecks(sha: string): RollupItem[] {
   const runs = ghJson<{ check_runs: { name: string; conclusion: string | null; details_url: string; app: { slug: string } }[] }>(
     'api', `repos/${repo()}/commits/${sha}/check-runs?per_page=100`).check_runs // latest run per name
     .filter((c) => c.app.slug === 'github-actions')
@@ -628,9 +629,11 @@ function gate() {
     'pr', 'view', String(n), '--json', 'files,headRefOid,headRefName,baseRefName,labels,isDraft,state,additions,deletions,author');
   const line = lineOf(pr.baseRefName);
   const labels = pr.labels.map((l) => l.name);
+  // Feature PRs (docs/FEATURES.md) have their own switch and always merge when green; same identity checks.
+  const feature = labels.includes('feature') && pr.headRefName.startsWith('feature/') && pr.baseRefName === 'main' && pr.author.login === 'app/github-actions';
   // Only the doctor's own PRs count: opened by the workflow token, from a doctor branch, into main.
   const doctor = labels.includes('doctor') && pr.headRefName.startsWith('autopilot/doctor-') && pr.baseRefName === 'main' && pr.author.login === 'app/github-actions';
-  if (pr.state !== 'OPEN' || pr.isDraft || !labels.includes(L.pr)) return console.log('not an open autopilot PR');
+  if (pr.state !== 'OPEN' || pr.isDraft || !(labels.includes(L.pr) || feature)) return console.log('not an open autopilot or feature PR');
 
   // Only trust ai-review statuses written by the Review workflow, newest first.
   const statuses = ghJson<{ context: string; state: string; creator: { login: string } }[]>('api', `repos/${repo()}/commits/${pr.headRefOid}/statuses?per_page=100`);
@@ -642,11 +645,17 @@ function gate() {
   if (approvedBy && labels.includes(L.human) && !labels.includes(L.stuck)) gh('pr', 'edit', String(n), '--remove-label', L.human);
   const d = gateDecision({
     approved: approvedBy, line: !!line, doctor,
-    enabled: env('AUTOPILOT') === 'on', automerge: modeOf(env('AUTOPILOT_MODE')) === 'auto', variant: labels.includes(L.variant),
+    enabled: feature ? env('FEATURES') === 'on' : env('AUTOPILOT') === 'on', automerge: feature || modeOf(env('AUTOPILOT_MODE')) === 'auto', variant: labels.includes(L.variant),
     files: pr.files.map((f) => f.path), patterns: parseCodeowners(readFileSync('.github/CODEOWNERS', 'utf8')),
     ci: ciState(pr.headRefOid), review: reviewState, diffLines: pr.additions + pr.deletions, maxDiff: Number(env('MAX_DIFF', '800')),
   });
   console.log(`PR #${n}: ${d.action} (${d.reason})`);
+  if (d.action === 'merge' && feature) { // the next decided feature starts building
+    gh('pr', 'merge', String(n), '--squash', '--delete-branch', '--match-head-commit', pr.headRefOid);
+    dispatch('ci.yml', '--ref', 'main');
+    return dispatch('features.yml', '--ref', 'main');
+  }
+  if (d.action === 'wait' && feature) return d.reason.includes('=failure') ? dispatch('features.yml', '--ref', 'main') : undefined;
   if (d.action === 'merge' && doctor) { // the loop fix is on main; every line picks it up on its next round (syncLoop)
     gh('pr', 'merge', String(n), '--squash', '--delete-branch', '--match-head-commit', pr.headRefOid);
     dispatch('ci.yml', '--ref', 'main');

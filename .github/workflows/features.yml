@@ -1,0 +1,110 @@
+name: Features
+
+# Feature pipeline (docs/FEATURES.md): builds the features the owner decided in design sessions, one at a time,
+# until each is accepted. Separate from the autopilot (own switch FEATURES, own label `feature`, own queue in
+# docs/features/). Started from the chat, and again by the Gate after each feature PR merges or fails.
+run-name: Features
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: features
+
+# Agents never get a write credential: the build step gets only the Claude token; the deterministic
+# prepare/publish steps use GITHUB_TOKEN to push, open the PR and start CI.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+  checks: read
+  statuses: read
+
+jobs:
+  pick:
+    if: vars.FEATURES == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.next.outputs.mode }}
+      file: ${{ steps.next.outputs.file }}
+      number: ${{ steps.next.outputs.number }}
+      branch: ${{ steps.next.outputs.branch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEATURES: ${{ vars.FEATURES }}
+          FEATURE_MAX_ATTEMPTS: ${{ vars.FEATURE_MAX_ATTEMPTS || '5' }}
+        run: node scripts/features.ts next
+
+  build:
+    needs: pick
+    if: needs.pick.outputs.mode == 'build' || needs.pick.outputs.mode == 'fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    services:
+      postgres: # the team runs the same build and e2e checks as CI
+        image: postgres:17
+        env:
+          POSTGRES_USER: stock_social
+          POSTGRES_PASSWORD: stock_social
+          POSTGRES_DB: stock_social
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://stock_social:stock_social@localhost:5432/stock_social
+      APP_SECRET_KEY: ci-only
+      CRON_SECRET: ci-only
+      MODE: ${{ needs.pick.outputs.mode }}
+      FILE: ${{ needs.pick.outputs.file }}
+      NUMBER: ${{ needs.pick.outputs.number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Prepare branch and task
+        id: prep
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "stock-social-autopilot"
+          git config user.email "autopilot@users.noreply.github.com"
+          if [ "$MODE" = "build" ]; then node scripts/features.ts prepare; else node scripts/autopilot.ts prepare; fi
+      - run: npm ci
+      - name: Install Claude Code and a test browser
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          npx playwright install --with-deps chromium
+      - name: Build to the owner's spec (engineer ⇄ tester)
+        id: team
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ vars.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || '1' }}
+          SPEC_FILE: ${{ needs.pick.outputs.file }}
+          BRANCH: ${{ steps.prep.outputs.branch }}
+          BASE_REF: main
+          QA_ROUNDS: ${{ vars.QA_ROUNDS || '20' }}
+          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '15' }}
+          MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
+        run: node scripts/team.ts
+      - name: Publish
+        if: steps.team.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.prep.outputs.branch }}
+        run: |
+          if [ "$MODE" = "build" ]; then node scripts/features.ts publish; else node scripts/autopilot.ts publish; fi

@@ -18,7 +18,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 export const DOCTOR_ALLOWED = ['/.github/workflows/', '/scripts/', '/team/', '/docs/AUTOPILOT.md', '/CLAUDE.md', '/.claude/agents/'];
 export const DOCTOR_FORBIDDEN = ['/.github/CODEOWNERS', '/.github/workflows/ci.yml', '/.github/workflows/gate.yml', '/.github/workflows/doctor.yml',
   '/scripts/doctor.ts', '/scripts/doctor.test.ts', '/scripts/invariants.test.ts', '/team/doctor.md', '/package.json', '/package-lock.json',
-  '/docs/POLICY.md', '/SECURITY.md', '/scripts/compliance.ts', '/scripts/compliance.test.ts', '/scripts/policy.test.ts', '/scripts/workflow-security.test.ts'];
+  '/docs/POLICY.md', '/SECURITY.md', '/scripts/compliance.ts', '/scripts/compliance.test.ts', '/scripts/policy.test.ts', '/scripts/workflow-security.test.ts',
+  '/scripts/features.ts', '/.github/workflows/features.yml'];
 const matches = (file: string, patterns: string[]) => patterns.some((p) => {
   const q = p.replace(/^\//, '');
   return q.endsWith('/') ? file.startsWith(q) : file === q;
