@@ -69,7 +69,7 @@ export function renderSpecDoc(d: {
 // ---------- roles ----------
 
 type Role = 'designer' | 'business' | 'engineer' | 'tester';
-const PROTECTED_EDITS = ['./.github/**', './docs/AUTOPILOT.md', './docs/DECISIONS.md', './docs/DESIGN.md', './scripts/autopilot.ts', './scripts/team.ts', './scripts/plan.ts', './scripts/doctor.ts', './scripts/invariants.test.ts', './docs/POLICY.md', './SECURITY.md', './scripts/compliance.ts', './scripts/compliance.test.ts', './scripts/policy.test.ts', './scripts/workflow-security.test.ts', './CLAUDE.md', './team/**', './.claude/agents/**', './playwright.config.ts']
+const PROTECTED_EDITS = ['./.github/**', './docs/AUTOPILOT.md', './docs/DECISIONS.md', './docs/DESIGN.md', './scripts/autopilot.ts', './scripts/team.ts', './scripts/plan.ts', './scripts/doctor.ts', './scripts/invariants.test.ts', './docs/POLICY.md', './SECURITY.md', './scripts/compliance.ts', './scripts/compliance.test.ts', './scripts/policy.test.ts', './scripts/workflow-security.test.ts', './scripts/features.ts', './docs/FEATURES.md', './docs/features/**', './CLAUDE.md', './team/**', './.claude/agents/**', './playwright.config.ts']
   .flatMap((p) => [`Edit(${p})`, `Write(${p})`]).join(',');
 const READ = 'Read,Glob,Grep';
 const RUN = 'Bash(npm:*),Bash(npx tsc:*),Bash(npx playwright:*),Bash(node:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)';
@@ -184,10 +184,13 @@ function main() {
   const v = JSON.parse(env('VARIANT', '{"key":"","title":"Single","brief":""}')) as Variant;
   const info = branchInfo(env('BRANCH'));
   const issue = info?.issue ?? n;
-  const docPath = `docs/specs/issue-${issue}-${(info?.key || v.key) || 'single'}.md`;
+  // SPEC_FILE (feature pipeline, docs/FEATURES.md): the owner's decided feature file is the spec; its build and QA
+  // record goes beside it in docs/features/logs/, never into the owner's file.
+  const specFile = env('SPEC_FILE');
+  const docPath = specFile ? `docs/features/logs/${specFile.split('/').at(-1)}` : `docs/specs/issue-${issue}-${(info?.key || v.key) || 'single'}.md`;
   const variantName = v.key ? `${v.key.toUpperCase()} · ${v.title}` : info?.key ? info.key.toUpperCase() : 'single';
   mkdirSync('.autopilot', { recursive: true });
-  mkdirSync('docs/specs', { recursive: true });
+  mkdirSync(docPath.slice(0, docPath.lastIndexOf('/')), { recursive: true });
   const fb = (text: string) => writeFileSync('.autopilot/feedback.md', text);
 
   type Design = { spec: string; summary: string; direction: string; design: string; business: string; tradeoffs: string; measure: string };
@@ -196,7 +199,15 @@ function main() {
   let agreed = false;
   let title = `#${issue}`;
 
-  if (mode === 'build') {
+  if (mode === 'build' && specFile) {
+    // Decided in a design session: no designer or analyst round; the engineer builds the owner's spec as written.
+    const spec = readFileSync(specFile, 'utf8');
+    title = /^#\s+(.+)$/m.exec(spec)?.[1] ?? title;
+    agreed = true;
+    writeFileSync(docPath, renderSpecDoc({ title, variant: 'feature (decided by the owner)', spec, agreed, discussion, qa: [], calls }));
+    commitAll(`Spec for ${title}`);
+  }
+  if (mode === 'build' && !specFile) {
     // 1. Spec: designer drafts, business analyst reviews; repeat until agreement or the round cap.
     const rounds = Number(env('SPEC_ROUNDS', '2'));
     fb('');
@@ -220,7 +231,8 @@ function main() {
     if (!design) return finish({ done: false, summary: 'The designer could not produce a spec.' });
     writeFileSync(docPath, renderSpecDoc({ title, variant: variantName, spec: design.spec, agreed, discussion, qa: [], calls }));
     commitAll(`Spec for #${issue} (${variantName})`);
-
+  }
+  if (mode === 'build') {
     // 2. Build to the spec.
     const e = ask<{ done: boolean; title: string; summary: string }>('engineer', 1,
       `You are the ENGINEER. Implement the agreed spec in ${docPath} for the task in .autopilot/task.md. Write tests for the acceptance criteria first. Commit your work.`);

@@ -21,6 +21,12 @@
 /scripts/compliance.test.ts @alcheny
 /scripts/policy.test.ts @alcheny
 /scripts/workflow-security.test.ts @alcheny
+
+# Feature pipeline (docs/FEATURES.md): its script and process are owner-only. Feature files themselves
+# (docs/features/) are the owner's decisions, written in design sessions; agents can't edit them.
+/scripts/features.ts @alcheny
+/scripts/features.test.ts @alcheny
+/docs/FEATURES.md @alcheny
 /docs/AUTOPILOT.md @alcheny
 /team/ @alcheny
 /.claude/agents/ @alcheny

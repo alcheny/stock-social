@@ -96,6 +96,15 @@ including the thesis moderation regex list. Styling is plain CSS tokens in `app/
   (record trust: no per-trade hiding, full history, open positions shown, records freeze on
   disconnect, confidence intervals on performance and lower-bound rankings) and SW-1 (swipe to profile) is a requirement. Charts are percent-only with 0% on the axis.
 
+## Design sessions (the owner designs in the chat)
+
+When the owner discusses how the app should look, work or feel, follow `docs/FEATURES.md` → "How Claude
+runs a design session": record every decision in the same turn in `docs/features/F-<n>-<slug>.md` (dated,
+with the reason; open points under Open questions), turn decisions into testable acceptance criteria,
+set `Status: ready` only when the owner confirms, and turn feedback on built features into new decisions
+plus `Status: rework`. Don't write code in a design session unless asked. The feature pipeline
+(`features.yml`, switch `FEATURES`) builds ready features one at a time; it's separate from the autopilot.
+
 ## Autopilot
 
 Team member specs live in `team/` (overview: `team/README.md`); the autopilot reads them directly.
