@@ -17,6 +17,17 @@ elements that catch the eye and travel, and leave detail for the profile.
   disclaimer "Not investment advice. Past performance does not guarantee future results." Why: POLICY
   F3, TR-1, Standing direction 2. (Not an owner choice; a standing rule, listed so the card can't lose it.)
 
+- 2026-10-22: The simple card shows the chart, the trade count, the period and one headline figure, the
+  average return per trade; win rate comes off. Why: the owner took the recommendation; the chart's
+  end point already implies the return, so one number is enough.
+- 2026-10-22: The evidence label stays on the card, and the card carries trust statistics that a
+  person with no finance or statistics background can read. Why: the owner wants the share card to
+  establish trust; TR-9 makes the evidence label a Must.
+- 2026-10-22: Trust is shown two ways: the confidence range next to the average ("+1.3% per trade,
+  likely between −0.1% and +2.7%") and one plain-language line that needs no education to read, for
+  example "Based on 30 separate bets over 61 days. Still early." / "Based on 140 bets over 2 years.
+  A solid sample." Why: the owner wants both the interval and something an average user understands.
+
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
 handle, the evidence label, the disclaimer. No chart.
@@ -25,6 +36,13 @@ handle, the evidence label, the disclaimer. No chart.
 Each one testable; the pipeline writes a test for every line.
 - [ ] The card shows: the record's percent chart (single line, 0% on the axis, CH-1), the total number
       of closed trades, and the period ("Record since ‹month year› · ‹N› months"), plus name and handle.
+- [ ] The card shows one headline figure, the average return per trade, with its range in words
+      ("likely between −0.1% and +2.7%") once K ≥ 10, and no win rate.
+- [ ] The card carries the evidence label and one plain-language trust line whose wording is chosen
+      from a fixed table by evidence tier (thin / moderate / strong) and sign, tested for every cell;
+      the words never describe skill, only the sample ("still early", "a solid sample", "a long record").
+- [ ] A reader test: the plain-language line uses no term from a banned list (confidence interval,
+      standard error, p-value, alpha, Sharpe, edge, signal, skill).
 - [ ] The card shows no per-trade rows, closing times or holding periods.
 - [ ] A losing record renders with the same layout and prominence as a winning one; the line is in the
       down color when the record is negative.
@@ -39,10 +57,7 @@ Each one testable; the pipeline writes a test for every line.
 - Per-trade cards (`/u/[handle]/trade`) keep their own design; this file is the record card.
 
 ## Open questions
-- Keep the headline average return and win rate on the simple card, or chart + count + period only?
-  (The chart's end value already implies the return.)
-- Does the confidence range / evidence label (TR-9 "Share card: shows the evidence label") stay on the
-  simple card? It is a Must in DESIGN §5.2, so dropping it needs an owner decision recorded here.
+- Exact wording of the plain-language trust lines per tier (draft table to be reviewed by the owner).
 - Later depth: which per-trade elements, and whether they appear on the record card or only on
   per-trade cards.
 
