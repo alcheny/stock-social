@@ -39,7 +39,8 @@ after(async () => {
 async function setup() {
   const { sql } = await import('./db.ts');
   const tag = `t${Math.random().toString(36).slice(2, 12)}`;
-  const mk = async (n: string) => (await sql`insert into users (handle, display_name, adult_attested_at) values (${`${tag}${n}`}, ${n}, now()) returning id`)[0].id as number;
+  const mk = async (n: string) => (await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+    insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${`${tag}${n}`}, ${n}, now(), a.id from a returning id`)[0].id as number;
   return { sql, tag, a: await mk('a'), b: await mk('b') };
 }
 

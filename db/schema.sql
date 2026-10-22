@@ -130,3 +130,74 @@ create table if not exists trade_rules (
   updated_at timestamptz not null default now(),
   unique (user_id, kind)
 );
+
+-- F-1 sign-in (docs/features/logs/F-1/plan.md §3). The 18+ attestation lives on a signup_attempts row that
+-- exists BEFORE any user row; users.signup_attempt_id is required, so no account exists without one.
+-- No personal data here: method, timestamps, vendor ids and referral only.
+create table if not exists signup_attempts (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  method text not null check (method in ('provider_a', 'provider_b', 'email', 'brokerage', 'dev')),
+  adult_attested_at timestamptz not null,
+  snaptrade_user_id text,
+  snaptrade_secret_enc text,
+  referred_by_user_id int references users(id) on delete set null,
+  referred_surface text,
+  user_id int references users(id) on delete set null,
+  completed_at timestamptz
+);
+alter table users add column if not exists signup_attempt_id bigint references signup_attempts(id);
+alter table users add column if not exists deleted_at timestamptz;
+-- Backfill: rows from before F-1 attested through the dev form at created_at; one attempt each, then the column is required.
+insert into signup_attempts (method, adult_attested_at, user_id, completed_at, created_at)
+  select 'dev', u.adult_attested_at, u.id, u.created_at, u.created_at from users u where u.signup_attempt_id is null;
+update users u set signup_attempt_id = a.id from signup_attempts a where a.user_id = u.id and u.signup_attempt_id is null;
+alter table users alter column signup_attempt_id set not null;
+
+-- One row per sign-in method a user has used. subject is the provider's stable id (or the address for 'email').
+create table if not exists identities (
+  user_id int not null references users on delete cascade,
+  provider text not null check (provider in ('provider_a', 'provider_b', 'email')),
+  subject text not null,
+  email text,
+  created_at timestamptz not null default now(),
+  unique (provider, subject)
+);
+create index if not exists identities_user on identities (user_id);
+
+-- Sessions: the cookie holds a signed random token; only its sha256 is stored.
+create table if not exists sessions (
+  token_hash text primary key,
+  user_id int not null references users on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  last_seen_at timestamptz not null default now()
+);
+create index if not exists sessions_user on sessions (user_id);
+
+-- Passwordless email links: single use, 15 minutes, hashed token.
+create table if not exists login_links (
+  token_hash text primary key,
+  email text not null,
+  attempt_id bigint not null references signup_attempts(id),
+  expires_at timestamptz not null,
+  used_at timestamptz
+);
+create index if not exists login_links_attempt on login_links (attempt_id);
+
+-- A deleted profile's handle stays unavailable for a year. Handle and date only: no personal data.
+create table if not exists handle_reservations (
+  handle text primary key,
+  until timestamptz not null
+);
+
+-- Sign-up funnel, per attempt (plan §5). meta keys are allow-listed in lib/funnel.ts; never personal data.
+create table if not exists funnel_events (
+  id bigint generated always as identity primary key,
+  attempt_id bigint not null references signup_attempts(id),
+  name text not null check (name in ('landed', 'method_chosen', 'attested', 'notice_seen', 'portal_opened', 'link_succeeded',
+    'no_real_account', 'consented', 'declined', 'expired', 'abandoned', 'failed', 'import_finished', 'own_profile_viewed')),
+  at timestamptz not null default now(),
+  meta jsonb not null default '{}'
+);
+create index if not exists funnel_events_attempt on funnel_events (attempt_id, at);

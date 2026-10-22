@@ -2,23 +2,26 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
-import { currentUser, signIn } from '@/lib/session.ts';
+import { currentUser, devGuard, signIn } from '@/lib/session.ts';
+import { completeAttempt, createAttempt, createUserForAttempt } from '@/lib/auth/attempts.ts';
 import { moderate } from '@/lib/moderation.ts';
 import { isDemoUser } from '@/lib/demo.ts';
-import { legacyVia, normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
+import { normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
 import { TRADES_PROMPT_ACTIONS, type TradesPromptAction } from '@/lib/new-trades.ts';
 import { SHARE_ACTIONS, type ShareAction } from '@/lib/share-prompt.ts';
 import { canWatch, normalizeSymbol } from '@/lib/ticker.ts';
 import { checkReflection } from '@/lib/reflections.ts';
 import { checkRule } from '@/lib/rules.ts';
 
+// DEV-ONLY sign-in (/login/dev): no password, guarded like the old stub. It still goes through a signup_attempts row
+// (method 'dev') so the attestation precedes the users row on this path too.
 export async function login(form: FormData) {
+  devGuard();
   const handle = normalizeHandle(form.get('handle')) ?? '';
   const name = String(form.get('name') ?? '').trim() || handle;
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) throw new Error('Handle: 3–20 lowercase letters, numbers or _');
-  if (form.get('adult') !== 'on') throw new Error('Stock Social is 18+ only');
 
-  // Recorded only on insert: the update clause below never touches referred_by_user_id.
+  // Recorded only on insert: an existing handle signs in and keeps its referral.
   const refHandle = normalizeHandle(form.get('ref'));
   let referrer = null;
   if (refHandle) {
@@ -26,15 +29,11 @@ export async function login(form: FormData) {
     if (r) referrer = { id: r.id as number, handle: r.handle as string, isDemo: await isDemoUser(r.id) };
   }
   const referredBy = resolveReferrer({ refHandle, referrer, newHandle: handle });
-  // referred_via keeps its old CHECK (profile|trade only), so month/badge land in referred_surface alone.
-  const surface = referredBy ? normalizeVia(form.get('via')) : null;
-  const via = legacyVia(surface);
+  const attempt = await createAttempt({ method: 'dev', attested: form.get('adult') === 'on', referredBy, surface: referredBy ? normalizeVia(form.get('via')) : null, source: refHandle ? 'profile' : 'direct' });
 
-  const [u] = await sql`
-    insert into users (handle, display_name, adult_attested_at, referred_by_user_id, referred_via, referred_surface) values (${handle}, ${name}, now(), ${referredBy}, ${via}, ${surface})
-    on conflict (handle) do update set handle = excluded.handle
-    returning id`;
-  await signIn(u.id);
+  const [existing] = await sql`select id from users where handle = ${handle}`;
+  const id = existing ? (await completeAttempt(attempt, existing.id), existing.id as number) : (await createUserForAttempt(attempt, { handle, name })).id;
+  await signIn(id);
   redirect(`/u/${handle}`);
 }
 

@@ -173,6 +173,7 @@ test('my record is private: signed out goes to login, owner sees it from their p
   await page.goto('/me/record');
   await expect(page).toHaveURL(/\/login$/);
 
+  await page.goto('/login/dev');
   await page.getByLabel('Handle').fill('dividend_dan');
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -184,7 +185,7 @@ test('my record is private: signed out goes to login, owner sees it from their p
 test('my record: "Since your last visit" shows for an owner with a baseline and survives a reload', async ({ page }) => {
   const db = postgres(process.env.DATABASE_URL!);
   try {
-    await page.goto('/login');
+    await page.goto('/login/dev');
     await page.getByLabel('Handle').fill('dividend_dan');
     await page.getByLabel('I am 18 or older').check();
     await page.getByRole('button', { name: 'Continue' }).click();
@@ -199,7 +200,7 @@ test('my record: "Since your last visit" shows for an owner with a baseline and 
 });
 
 test('my record: rules set and clear, and never appear on the public profile', async ({ page }) => {
-  await page.goto('/login');
+  await page.goto('/login/dev');
   await page.getByLabel('Handle').fill('dividend_dan');
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -225,6 +226,7 @@ test('my record: recent versus earlier rule comparison is private and honest abo
   const db = postgres(process.env.DATABASE_URL!);
   const ids = Array.from({ length: 15 }, (_, i) => `e2e-trend-${i}`);
   try {
+    await page.goto('/login/dev');
     await page.getByLabel('Handle').fill('dividend_dan');
     await page.getByLabel('I am 18 or older').check();
     await page.getByRole('button', { name: 'Continue' }).click();
@@ -256,7 +258,7 @@ test('my record: recent versus earlier rule comparison is private and honest abo
 });
 
 test('thesis moderation holds risky claims and publishes clean ones', async ({ page }) => {
-  await page.goto('/login');
+  await page.goto('/login/dev');
   await page.getByLabel('Handle').fill('dividend_dan');
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -277,7 +279,7 @@ test('share moment: copy records the action, shows once, hidden signed out; card
   const handle = 'share_tester';
   // Reruns reuse the DB: clear connected state first so the signup landing page doesn't show (and mark seen) the prompt late.
   await sql`update users set snaptrade_user_id = null, last_synced_at = null where handle = ${handle}`;
-  await page.goto('/login');
+  await page.goto('/login/dev');
   await page.getByLabel('Handle').fill(handle);
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -310,7 +312,7 @@ test('share moment: copy records the action, shows once, hidden signed out; card
 
 test('referral: CTA on real profiles signed out only; ref is recorded once on signup', async ({ page, context }) => {
   const { sql } = await import('../lib/db.ts');
-  const signUp = async (handle: string, url = '/login') => {
+  const signUp = async (handle: string, url = '/login/dev') => {
     await page.goto(url);
     await page.getByLabel('Handle').fill(handle);
     await page.getByLabel('I am 18 or older').check();
@@ -328,24 +330,24 @@ test('referral: CTA on real profiles signed out only; ref is recorded once on si
   await page.goto('/u/momentum_maya');
   await expect(cta).toHaveCount(0); // demo profile
 
-  await signUp('ref_friend', '/login?ref=Ref_Owner');
+  await signUp('ref_friend', '/login/dev?ref=Ref_Owner');
   const [f] = await sql`select u.referred_by_user_id r, o.id oid from users u, users o where u.handle = 'ref_friend' and o.handle = 'ref_owner'`;
   expect(f.r).toBe(f.oid);
 
   await context.clearCookies(); // signing in again never overwrites it
-  await signUp('ref_friend', '/login?ref=momentum_maya');
+  await signUp('ref_friend', '/login/dev?ref=momentum_maya');
   const [g] = await sql`select referred_by_user_id r from users where handle = 'ref_friend'`;
   expect(g.r).toBe(f.oid);
 
   await context.clearCookies(); // garbage ref still signs up normally, nothing recorded
-  await signUp('ref_garbage', '/login?ref=../x');
+  await signUp('ref_garbage', '/login/dev?ref=../x');
   const [h] = await sql`select referred_by_user_id r from users where handle = 'ref_garbage'`;
   expect(h.r).toBeNull();
 });
 
 test('referral feedback: owner sees connected referrals only', async ({ page, context }) => {
   const { sql } = await import('../lib/db.ts');
-  const signUp = async (handle: string, url = '/login') => {
+  const signUp = async (handle: string, url = '/login/dev') => {
     await page.goto(url);
     await page.getByLabel('Handle').fill(handle);
     await page.getByLabel('I am 18 or older').check();
@@ -357,7 +359,7 @@ test('referral feedback: owner sees connected referrals only', async ({ page, co
 
   await signUp('fb_owner');
   await context.clearCookies();
-  await signUp('fb_friend', '/login?ref=fb_owner');
+  await signUp('fb_friend', '/login/dev?ref=fb_owner');
   await context.clearCookies();
   await signUp('fb_owner'); // sign back in
   await expect(line).toHaveCount(0); // bare signup
@@ -384,7 +386,8 @@ test('trade permalink: signed out, record beside the trade, via=trade CTA, 404s,
   const { sql } = await import('../lib/db.ts');
   const handle = 'tp_owner';
   const sell = `tp-sell-${Date.now()}`;
-  const [u] = await sql`insert into users (handle, display_name, adult_attested_at) values (${handle}, 'TP Owner', now())
+  const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+    insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, 'TP Owner', now(), a.id from a
     on conflict (handle) do update set handle = excluded.handle returning id`;
   await sql`delete from closed_trades where user_id = ${u.id}`;
   await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified, thesis, thesis_status)
@@ -413,7 +416,8 @@ test('trade permalink: signed out, record beside the trade, via=trade CTA, 404s,
 test('monthly recap: signed out, whole record beside the month, every trade listed, 404s, card', async ({ page, request }) => {
   const { sql } = await import('../lib/db.ts');
   const handle = 'mr_owner';
-  const [u] = await sql`insert into users (handle, display_name, adult_attested_at) values (${handle}, 'MR Owner', now())
+  const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+    insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, 'MR Owner', now(), a.id from a
     on conflict (handle) do update set handle = excluded.handle returning id`;
   await sql`delete from closed_trades where user_id = ${u.id}`;
   await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
@@ -431,7 +435,7 @@ test('monthly recap: signed out, whole record beside the month, every trade list
   expect(card.headers()['content-type']).toContain('image/png');
 
   // owner shares the recap from their profile in one click
-  await page.goto('/login');
+  await page.goto('/login/dev');
   await page.getByLabel('Handle').fill(handle);
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -461,7 +465,7 @@ test('new trade prompt: owner only, dismiss records, first visit stamps without 
   await sql`update closed_trades set closed_at = now() where user_id = ${u.id} and sell_id = ${tr.sell_id}`;
   const heading = (p: typeof page) => p.getByRole('heading', { name: 'New closed trades since your last visit' });
   const login = async (p: typeof page, h: string) => {
-    await p.goto('/login');
+    await p.goto('/login/dev');
     await p.getByLabel('Handle').fill(h);
     await p.getByLabel('I am 18 or older').check();
     await p.getByRole('button', { name: 'Continue' }).click();
@@ -499,7 +503,7 @@ test('share card: each share is one click, no embed code or downloads, owner onl
   const { sql } = await import('../lib/db.ts');
   const handle = 'share_card_owner';
   await page.addInitScript(() => { delete (Navigator.prototype as { share?: unknown }).share; }); // desktop path: one click copies the link
-  await page.goto('/login');
+  await page.goto('/login/dev');
   await page.getByLabel('Handle').fill(handle);
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -539,7 +543,7 @@ test('story image: public route formats/404; the share card appears only with tr
   expect((await request.get('/u/no-such-handle-xyz/story')).status()).toBe(404);
 
   const handle = 'story_owner';
-  await page.goto('/login');
+  await page.goto('/login/dev');
   await page.getByLabel('Handle').fill(handle);
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -769,7 +773,7 @@ test('sitemap lists /t but no demo-only ticker pages; robots points at it', asyn
 });
 
 test('watchlist: signed-in trader watches a symbol and sees it on /t; signed out sees only a sign-in link', async ({ page, browser }) => {
-  await page.goto('/login');
+  await page.goto('/login/dev');
   await page.getByLabel('Handle').fill('momentum_maya');
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
