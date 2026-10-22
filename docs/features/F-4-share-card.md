@@ -30,7 +30,7 @@ elements that catch the eye and travel, and leave detail for the profile.
 
 - 2026-10-22: The confidence range is always shown, from the first closed trade, and widens as the
   sample thins; there is no flat count below which it is hidden. "Too early" is a model state, not a
-  number: the interval is undefined (fewer than 2 independent bets) or wider than a width threshold
+  number: there are fewer than 5 independent bets, or the interval is wider than a width threshold
   recorded in the design record. At small samples the interval uses a t multiplier (K − 1 degrees of
   freedom) instead of a fixed 2 standard errors, so it widens on its own; a population-shrunk
   (Bayesian) estimate is the later upgrade, consistent with F-2. Why: the owner wants the display to
@@ -56,6 +56,9 @@ elements that catch the eye and travel, and leave detail for the profile.
   the trader, which keeps it inside POLICY F3b (labels describe evidence, never skill or a future
   outcome) and outside the F2 banned list. Why: the owner wants "consistent" for strong performers and
   "a fair sample" for the moderate tier; symmetry and the evidence-only wording keep it compliant.
+- 2026-10-22: The minimum for showing the range is 5 independent bets (the t multiplier at K = 5 is
+  about 2.8). Why: the owner set the floor at five; below that the variance estimate is too unstable
+  to mean anything even with the t correction.
 - 2026-10-22: The owner confirmed F-4 is decided; it stays Status: rework (the card is built and is
   rebuilt to these decisions by the pipeline).
 
@@ -68,10 +71,10 @@ Each one testable; the pipeline writes a test for every line.
 - [ ] The card shows: the record's percent chart (single line, 0% on the axis, CH-1), the total number
       of closed trades, and the period ("Record since ‹month year› · ‹N› months"), plus name and handle.
 - [ ] The card shows one headline figure, the average return per trade, with its range in words
-      ("likely between −0.1% and +2.7%") whenever at least 2 independent bets exist, and no win rate;
-      the multiplier is Student's t with K − 1 degrees of freedom (tested against a table at K = 2, 3,
+      ("likely between −0.1% and +2.7%") whenever at least 5 independent bets exist, and no win rate;
+      the multiplier is Student's t with K − 1 degrees of freedom (tested against a table at K = 5,
       10, 30, 100).
-- [ ] "Too early" is shown when K < 2 or the interval's half-width exceeds the threshold in the design
+- [ ] "Too early" is shown when K < 5 or the interval's half-width exceeds the threshold in the design
       record; a test proves it is never triggered by a count alone.
 - [ ] The card carries the evidence label and one plain-language trust line whose wording is chosen
       from a fixed table by evidence tier (thin / moderate / strong) and sign, tested for every cell;

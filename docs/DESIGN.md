@@ -350,12 +350,12 @@ holding losers can't flatter the interval.
 
 | Evidence | Rule | Edge | Rule |
 |---|---|---|---|
-| Too early | K < 10: no interval shown, "Too early to tell (K of 10 bets)" | Positive | pace interval entirely above 0 |
+| Too early | K < 5, or the interval's half-width exceeds 10 points per trade: "The range is still too wide to say much" | Positive | pace interval entirely above 0 |
 | Thin | K < 30 or span < 90 days | Negative | pace interval entirely below 0 |
 | Moderate | K ≥ 30 and span ≥ 90 days | Unclear | interval includes 0 |
 | Strong | K ≥ 100 and span ≥ 365 days | | |
 
-- **Display (Must):** the headline average return always carries its range once K ≥ 10:
+- **Display (Must):** the headline average return always carries its range once K ≥ 5, using Student's t with K − 1 degrees of freedom:
   "+1.3% per trade (−0.1% to +2.7%)", plus one line "Edge: unclear · Evidence: thin (30 bets, 60 days)".
   Pace and the method sit one tap deeper. Losses and negative edges are shown with the same prominence.
 - **Copy (Must):** never "skill", "proven", "guaranteed" or similar; the label describes evidence, not
@@ -363,7 +363,7 @@ holding losers can't flatter the interval.
 - **Ranking (Must):** any ranking of traders (lists, "top traders", future leaderboards) sorts by the
   pace interval's **lower bound**, never by raw averages, so small lucky samples can't top it.
 - **Share card:** shows the evidence label next to the headline numbers.
-- **Tests (Must):** unit tests for clustering of overlapping same-symbol trades, K < 10 → too early,
+- **Tests (Must):** unit tests for clustering of overlapping same-symbol trades, K < 5 → too early, half-width > 10 points → too early,
   a hand-computed example, and zero spread (no division by zero).
 - **Known limits:** trades in different but correlated stocks (e.g. two chip makers in the same week)
   still count as separate bets, so intervals are somewhat optimistic for concentrated traders; fat-tailed
