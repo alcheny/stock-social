@@ -261,16 +261,17 @@ const sessionHash = async (page: Page) => {
 
 test('the dev form lives at /login/dev and still signs an existing handle in through an attempt; signing in again replaces the session row', async ({ page }) => {
   const sql = await db();
-  const before = await attempts();
+  // Other specs sign in through this form in parallel workers, so look for this test's attempt, not a global count.
+  const [{ max: before }] = await sql`select coalesce(max(id), 0)::int as max from signup_attempts`;
   await page.goto('/login/dev');
   await page.getByLabel('Handle').fill('dividend_dan');
   await page.getByLabel('I am 18 or older').check();
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(/\/u\/dividend_dan$/);
-  expect(await attempts()).toBe(before + 1);
-  const [a] = await sql`select method, completed_at from signup_attempts order by id desc limit 1`;
-  expect(a.method).toBe('dev');
-  expect(a.completed_at).toBeTruthy();
+  const mine = await sql`select method, completed_at from signup_attempts a join users u on u.id = a.user_id where a.id > ${before} and u.handle = 'dividend_dan'`;
+  expect(mine.length).toBe(1);
+  expect(mine[0].method).toBe('dev');
+  expect(mine[0].completed_at).toBeTruthy();
   await expect(page.getByText('Change handle')).toBeVisible();
   const first = await sessionHash(page);
   expect((await sql`select 1 from sessions where token_hash = ${first}`).length).toBe(1);
