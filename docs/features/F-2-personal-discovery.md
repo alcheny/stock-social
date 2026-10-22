@@ -47,6 +47,8 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Open questions
 - Owner review of the Design overview (weights, metrics, the private-likes rule).
+- Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
+  decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.
 - Does this wait for the week-8 supply gate (demand feature, Phase 2) or get built right after F-1?
 - Where does the section live: feed top, feed interleaved, profile bottom, or its own tab?
 - Must suggestions of trader records go to the trader's profile or open the swipe pane?
