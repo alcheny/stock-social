@@ -53,6 +53,14 @@ anything else.
   "expired". Consent → import starts and the state moves to "importing", then "connected". "Import
   pending" can never persist beyond the limit. Why: the owner wants a recorded decline and a clean end
   state, never an indefinite pending link.
+- 2026-10-22: Before the vendor's portal opens, the trader sees a short trust notice about the
+  connector: who SnapTrade is, that the connection is read-only (the app can never place trades or
+  move money), that for brokers with a login handoff the broker password is never shared with SnapTrade
+  or with us, that SnapTrade holds an independent SOC 2 Type II audit, and a link to SnapTrade's own
+  security page and to our "How records are calculated" page. Every statement is one the vendor
+  publishes itself; no claim of endorsement by brokers and no "recommended by" wording (POLICY F3a,
+  Section 11 of COMPLIANCE). Why: the owner wants traders to know the connector is reputable before
+  handing over broker access; the notice must stay factual and sourced.
 - 2026-10-22: Heavy-use targets for tests: 10,000 activities per trader, 5 accounts per trader, 500
   traders per hourly sync. Why: the owner accepted the defaults.
 
@@ -60,6 +68,10 @@ anything else.
 Each one testable; the pipeline writes a test for every line.
 - [ ] A trader can sign in with an email-provider account or a social account, or create a session by
       completing a brokerage connection; the 18+ attestation is required on every first sign-in.
+- [ ] A trust notice precedes the portal on every connection attempt: read-only, password not shared
+      for login-handoff brokers, the vendor's audit status, links to the vendor's security page and
+      the app's "How records are calculated" page; its wording is a fixed string tested against the
+      banned-claims list (no "endorsed", "recommended", "guaranteed", "secure" as a bare promise).
 - [ ] The portal opens embedded in the app's page; the broker login runs in the portal's popup; when the
       popup is blocked the app falls back to the redirect flow and the trader still completes the
       connection (tested in a popup-blocked browser context).
