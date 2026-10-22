@@ -20,8 +20,16 @@ advice. The owner has been told this and the scope below respects it.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
-- [ ] A signed-in viewer sees a "More like what you read" section built from their own preference
-      signals (profiles opened, panes swiped, watchlist symbols, traders followed).
+- [ ] A signed-in viewer sees a "More like what you read" section built from their own event log
+      (impressions, dwell, swipes, opens, shares, follows, watchlist, hides).
+- [ ] Every event is written with viewer id, surface, target (trader, trade or symbol), type and
+      timestamp only; a test asserts no event row contains personal data or brokerage data.
+- [ ] "Not interested" on a suggestion removes that trader from the viewer's suggestions for 90 days
+      and lowers similar records; unfollow does the same for the trader.
+- [ ] Raw events older than 90 days are deleted by a nightly job; deleting an account deletes its
+      events and affinities the same day (tested end to end).
+- [ ] Diversity: in any 10 consecutive feed cards no trader or symbol appears more than twice; at
+      least 2 of 10 are exploration picks (tested on generated feeds).
 - [ ] Each suggestion shows why it was suggested in plain words ("similar holding period to @x",
       "trades symbols on your watchlist").
 - [ ] Losses and negative records are suggested with the same rules as gains; the ranking inside the
@@ -38,8 +46,6 @@ Each one testable; the pipeline writes a test for every line.
 - Pushing suggestions by notification (Phase 2 "make watching sticky").
 
 ## Open questions
-- Preference signals: implicit only (opens, swipes, dwell), explicit only (follow, watchlist, a
-  "more/less like this" tap), or both?
 - Where does AI earn its place here: scoring (needs a model call per viewer, a second vendor, DESIGN
   Standing direction 3) or only writing the plain-words "why" line from deterministic scores? The
   design record's rule is every model call through one module with a 50-example eval file.
