@@ -34,6 +34,18 @@ anything else.
   the owner requires it.
 - 2026-10-22: Empty record copy: open positions are shown, plus "No closed trades yet. Your record
   starts with your first close." Why: the owner approved option 5.
+- 2026-10-22: The connection portal is the vendor's portal embedded in the app's own page (the vendor's
+  web SDK in a modal); the broker's own login opens in the popup the portal manages, so a trader with a
+  live session at the broker's website is not asked for a password again where the broker allows it.
+  Where a browser blocks the popup (some mobile and in-app browsers), the app falls back to the
+  redirect flow that runs today. Why: the owner chose the embedded portal after reviewing the vendor's
+  broker list; nearly every large retail broker uses a login handoff, so the popup gives password-free
+  login wherever it is possible at all, and the fallback keeps every browser working.
+- 2026-10-22: Vendor isolation stays strict so a direct integration with one or more brokers can be
+  added later without touching the trade math: one file per vendor, raw payloads stored, broker
+  account IDs as the identity key. Why: the owner wants room to take over the connection ourselves in
+  a future version. Note: a direct integration is a partnership per broker (a developer agreement, an
+  approval process, usually months), not only code; it is recorded as a future option, not a plan.
 - 2026-10-22: Heavy-use targets for tests: 10,000 activities per trader, 5 accounts per trader, 500
   traders per hourly sync. Why: the owner accepted the defaults.
 
@@ -41,6 +53,9 @@ anything else.
 Each one testable; the pipeline writes a test for every line.
 - [ ] A trader can sign in with an email-provider account or a social account, or create a session by
       completing a brokerage connection; the 18+ attestation is required on every first sign-in.
+- [ ] The portal opens embedded in the app's page; the broker login runs in the portal's popup; when the
+      popup is blocked the app falls back to the redirect flow and the trader still completes the
+      connection (tested in a popup-blocked browser context).
 - [ ] Completing a read-only brokerage connection writes only the link and the claimed account IDs
       (TR-6), imports nothing, and shows the trader a consent screen naming the import depth (full
       history the broker provides, every account under the login, TR-2/TR-3).
@@ -67,7 +82,5 @@ Each one testable; the pipeline writes a test for every line.
 - Which real test accounts exist for each day-one brokerage?
 - Which social accounts exactly (private checklist)? Each adds an OAuth client to maintain.
 - If the trader declines the import consent, what happens: the link is dropped, or kept with no record?
-- Portal in-app or redirect: the vendor's portal can open as a redirect (today) or embedded in the
-  page; decision pending.
 
 ## Rework notes
