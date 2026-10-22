@@ -76,6 +76,16 @@ removing a stop is the owner's change, not the pipeline's.
    pipeline does not wait for it and starts the next feature.
 9. **Usage limits** on the agent runs pause the loop until the cooldown passes (AUTOPILOT.md).
 
+- 2026-10-22: Pre-authorization for protected paths: the feature pipeline may change `lib/session.ts`,
+  `lib/broker.ts` and `package.json` (with its lockfile) when, and only to the extent that, a ready
+  feature file requires it (F-1: real sign-in replacing the dev stub, the embedded portal and link
+  deletion, the sign-in and vendor SDK dependencies). The reviewer checks those files line by line
+  against the feature file and POLICY (read-only connection type kept, secret encryption unchanged,
+  dependency licenses allowed) and fails the PR on anything beyond the feature's need. All other
+  protected paths keep their stop. Why: the owner pre-authorized these so F-1 runs without a manual
+  merge. Note: this is a CODEOWNERS and Gate change (`scripts/autopilot.ts`), both owner-only; the
+  owner makes it when folding this file into the pipeline.
+
 ## The cycle (draft)
 ```
 feature file (ready/rework)
