@@ -83,3 +83,95 @@ Personal fields: `login_links.email`, `identities.email/subject`, session hashes
 ## Verdict
 
 DEFECTS
+
+---
+
+# Re-run 1 (after fix round 1)
+
+Date: 2026-10-22. Branch `claude/adoring-euler-4469ys` (cde6d07) vs `origin/main`. Inputs: the original report above, the
+engineer's "Fix round 1" section in `build-pr1-engineer.md`, the fix diff (3964b94..cde6d07: 17 files, product code in
+`app/auth/actions.ts`, `app/login/{page,sent/page}.tsx`, `app/connect/page.tsx`, `app/globals.css`, `db/schema.sql`,
+`lib/auth/{links,sessions}.ts`, `lib/session.ts`, `lib/delete.ts`, `lib/copy.ts`). No product code changed by this pass.
+Local Postgres 16 (same role/database as before, the `DATABASE_URL` from `.env.example`), schema applied twice with `psql`,
+demo seed, production build started with `ALLOW_DEV_AUTH=1` and the in-repo issuer and email-sink fakes configured as the
+header of `e2e/signin.spec.ts` lists. Screenshots: `screenshots/pr1/rerun1/`.
+
+## 1. Checks
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` with `DATABASE_URL`, 3 runs in a row | 359 / 359 / 359 pass, 0 fail, 0 skipped. No deadlock, no lock wait |
+| `npm test` without `DATABASE_URL` | 359 tests, 346 pass, 13 skipped |
+| `npm run build` | success |
+| `npx playwright test` (fakes configured) | **50 passed** (41 on main + 9) |
+| `npx playwright test e2e/signin.spec.ts` with no provider/sink variables (CI's situation) | 6 passed, 3 skipped with their reasons (the two provider flows, the send-failure test) |
+| `node scripts/compliance.ts diff origin/main` | one finding, the pre-existing optional prebuilt image package's licence; identical on `origin/main` (`tree` run in a worktree of main). Nothing from this diff |
+| `node scripts/autopilot.ts guard main` | ok |
+| Schema on an empty database | `scripts/db-setup.ts` twice, `psql -1 -f` once, then `SEED=1`: `signup_attempt_id` NOT NULL, 25 indexes, 3 users / 3 attempts |
+
+## 2. The three must-fix defects, as a user sees them
+
+1. **Stray purple block above the checkbox: fixed.** `/login` at 375px, light and dark (`rerun1/login-light.png`,
+   `rerun1/login-dark.png`): nothing paints between the attestation line and the first provider button. Measured: the one
+   `button[hidden]` has computed `display: none`, `isVisible() = false`, no bounding box; the four visible buttons are
+   343×44–45px and all named. No horizontal scroll. Enter in the email field still submits (lands on `/login/sent?a=N`,
+   the sink receives the message), so the implicit-submission path survived the CSS change.
+2. **Email send failure: fixed.** With the sink answering 500, "Send me a link" lands on `/login/sent?a=N&error=send`
+   (`rerun1/login-sent-error-light.png`, `-dark.png`): one `role="alert"` "We could not send your link. Try again." in the
+   error colour, a primary "Send again" (114×44px, `aria-describedby` the alert), "← Back" (44px). No "Check your email",
+   no framework error text. Database after the failure: one `login_links` row for the attempt, `used_at` set (nothing
+   claimable), the attempt row open with `user_id null`. A retry while the sink still fails returns to the same error state
+   and leaves the row count at one (the second row is closed too). With the sink back, "Send again" → `&again=1`,
+   "Check your email… / Sent again." (`rerun1/login-sent-retry-ok-light.png`, `-dark.png`), the sink receives the message
+   for the same address, the link signs in with a provisional handle and the attempt completes
+   (`rerun1/profile-after-retry-light.png`). The retry also works keyboard-only (Tab to "Send again", Enter). Server log:
+   no address, token or link; the only noise is the share-card font fetch that also exists on main.
+3. **Flaky schema apply: fixed, and the test proves it.** `lib/schema.test.ts` exists with two tests. The text test pins the
+   mechanism: no bare `add column if not exists` / `create index if not exists` left in `db/schema.sql` (16+ columns and 8+
+   indexes go through the catalog-checking `schema_add_column` / `schema_add_index`), the backfill and `set not null` only
+   inside a `do` block guarded by `is_nullable = 'YES'`, the advisory transaction lock first, still no drop/truncate/delete.
+   The DB test holds an open transaction with an uncommitted insert into `users` and `activities` from one connection and
+   applies the schema twice from another under `lock_timeout = 3s`: any table lock the apply would wait on fails the test.
+   I ran the same test file against the pre-fix schema (3964b94) in a scratch copy: both tests fail, the DB one with
+   `canceling statement due to lock timeout` (55P03), which is the wait that turned into the 40P01 deadlock when test files
+   ran in parallel. Against the fixed schema it passes, and three full `npm test` runs were clean.
+
+## 3. Nits the engineer marked done
+
+| # | Verified |
+|---|---|
+| 4 | After the attestation error the field still holds the typed address, the URL is `/login?method=email&error=attest` (no address), the box is focused with the alert (`rerun1/login-attest-error-light.png`, `-dark.png`). The address rides in `login_email`: httpOnly, `path=/login`, Lax, 10 minutes. |
+| 5 | A second browser context at the same `/login/sent?a=N` sees the text and "← Back" only, no "Send again" (`rerun1/login-sent-error-stranger.png`). The owner's `login_attempt` cookie is the signed attempt id (httpOnly, `path=/login`). Resend cap: with JavaScript off (native form posts, no client-side race) resends 1–3 send a new row each, resend 4 and 5 land on `&error=limit` with "Too many links sent. Try again in a few minutes." and no new row (`rerun1/login-sent-limit-light.png`, `-dark.png`). |
+| 6 | Dev sign-in as one demo handle, then as another without clearing cookies: the first session's hash is gone from `sessions`, the second is the only row for that browser. |
+| 8 | "← Back" on `/login/sent` is 44px tall; on `/connect` the vendor security link, "How records are calculated" and the primary are 44px (`rerun1/connect-light.png`, `-dark.png`). No horizontal scroll at 375px. |
+| 9 (first half) | `deleted_at` is set before the vendor call; a failed vendor call leaves the row marked (`lib/delete.test.ts`, run clean). PR-2a must hide marked rows and stop them signing in; until then a marked row is a normal profile, which is unchanged from before and unreachable without the PR-2a screen. |
+| 10 | Build log corrected to 41 → 49 (50 with the send-failure test). |
+
+Deferred to PR-2, and still only these two: **#7** (`notice_seen` is written on every render of `/connect?attempt=N`, any open
+id: `app/connect/page.tsx:15`) and **#9 second half** (`/login?method=brokerage` is read into the page's search-param type
+but not used, so the signed-out brokerage-first path still loops S1 → S2 → S1 with "Sign in first" as the only explanation).
+
+## 4. New defects introduced by the fixes
+
+None found. Looked for: the global `[hidden] { display: none !important }` (no other element in `app/` uses the `hidden`
+attribute, so nothing else changed); the session replacement deleting a row that belongs to another user (it deletes only the
+row behind the cookie the browser presents, which is the right thing on a shared browser); the `login_email` cookie
+(10 minutes, cleared when the field is empty, never in a URL); the failed-send link rows (closed by `used_at`; the claim
+route also checks `used_at is null`, tested by the single-use e2e); the rate limiter counting failed sends (five failed
+sends in 15 minutes show "Too many links sent", acceptable and explained on screen); a stranger at `…&error=send` sees the
+error line with no retry (correct: the retry belongs to the originating browser).
+
+Observations, not defects: the rate-limited state shows "Check your email…" and "Too many links sent…" together (the first
+link was sent, so both are true); the resend limit is per process (documented in `lib/auth/rate-limit.ts`).
+
+## 5. Compliance scan of the fix diff
+
+New strings (`sendFailed`, `sentAgain`, `tooMany`, `back`) are in `lib/copy.ts` and pass `lib/copy.test.ts`. The error
+message carries no address, token or link. No new dependency; no third-party script, font or stylesheet; no `console.*`.
+New personal data at rest: none (the typed address in a 10-minute httpOnly cookie on the user's own browser). Only the
+integrated vendor is named, in the S2 copy that already existed. No performance surface touched.
+
+## Verdict
+
+CLEAN
