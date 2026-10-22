@@ -46,6 +46,13 @@ anything else.
   account IDs as the identity key. Why: the owner wants room to take over the connection ourselves in
   a future version. Note: a direct integration is a partnership per broker (a developer agreement, an
   approval process, usually months), not only code; it is recorded as a future option, not a plan.
+- 2026-10-22: Consent has a recorded, time-boxed life. After the broker link succeeds the connection is
+  in state "import pending" with the consent screen shown. Decline → the broker link is removed at the
+  vendor and in the app, the attempt is recorded as "declined" and the trader sees "Import not started.
+  Nothing is connected." No answer within the time limit (24 hours) → the same cleanup, recorded as
+  "expired". Consent → import starts and the state moves to "importing", then "connected". "Import
+  pending" can never persist beyond the limit. Why: the owner wants a recorded decline and a clean end
+  state, never an indefinite pending link.
 - 2026-10-22: Heavy-use targets for tests: 10,000 activities per trader, 5 accounts per trader, 500
   traders per hourly sync. Why: the owner accepted the defaults.
 
@@ -59,6 +66,11 @@ Each one testable; the pipeline writes a test for every line.
 - [ ] Completing a read-only brokerage connection writes only the link and the claimed account IDs
       (TR-6), imports nothing, and shows the trader a consent screen naming the import depth (full
       history the broker provides, every account under the login, TR-2/TR-3).
+- [ ] A connection row carries a state (pending, importing, connected, declined, expired, failed) and a
+      timestamp for each transition; a declined or expired connection has no broker link at the vendor
+      and no account claims in the app; a profile never shows "pending" older than 24 hours (a cron
+      expires them; tested with a clock).
+- [ ] Declining shows "Import not started. Nothing is connected." and offers to connect again.
 - [ ] After consent, the trader lands on their profile with a banner that updates with the number of
       trades imported so far and disappears when the import finishes.
 - [ ] Two syncs for the same trader never interleave: a concurrent sync waits or is skipped, every
@@ -81,6 +93,5 @@ Each one testable; the pipeline writes a test for every line.
 ## Open questions
 - Which real test accounts exist for each day-one brokerage?
 - Which social accounts exactly (private checklist)? Each adds an OAuth client to maintain.
-- If the trader declines the import consent, what happens: the link is dropped, or kept with no record?
 
 ## Rework notes
