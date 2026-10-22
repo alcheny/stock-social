@@ -164,6 +164,8 @@ Business lead's notes: 1 adopted (`/how` and `/settings` to PR-2a; 2a/2b default
 
 Business lead: SIGNED (round 1, with notes adopted)
 
-UX lead:
+UX lead: SIGNED (round 2; notes: hourly call tied to Status: built; count may lag up to an hour between ticks)
 
-Engineer:
+Engineer: SIGNED (round 2, author of the revision)
+
+Plan signed 2026-10-22 by all three members. Build starts with PR-1.
