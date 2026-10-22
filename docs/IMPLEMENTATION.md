@@ -86,6 +86,14 @@ removing a stop is the owner's change, not the pipeline's.
   merge. Note: this is a CODEOWNERS and Gate change (`scripts/autopilot.ts`), both owner-only; the
   owner makes it when folding this file into the pipeline.
 
+- 2026-10-22: The plan for each feature ends with a "Pre-authorization requests" section: the
+  committee lists every bottleneck it foresees that would stop the autonomous cycle (protected paths,
+  secrets, dependencies, vendors, external approvals) with the reason. The owner answers that list
+  once, before the build starts, and the answers are logged; the pipeline then runs without further
+  stops for those items. The committee identifies; only the owner authorizes (an agent never loosens a
+  rule it is judged by, AUTOPILOT.md hard rules). Why: the owner wants pre-authorization driven by what
+  the committee says the bottlenecks are.
+
 ## The cycle (draft)
 ```
 feature file (ready/rework)
