@@ -122,6 +122,12 @@ removing a stop is the owner's change, not the pipeline's.
   never waived by an agent. Why: the owner's rule, "always, always, always a step to validate legal
   compliance".
 
+- 2026-10-22: The committee reviews at every stage, including F-2's later stages and every rework
+  round; no build of any size merges without the full cycle. Why: the owner's rule.
+- 2026-10-22: First run started in the owner's chat session, with the roles played by subagents
+  reading the member specs, on the session branch, until the owner wires the process into the
+  pipeline scripts. Logs go to `docs/features/logs/F-1/`. Why: the owner said to begin.
+
 ## Pre-authorization requests for the first run (F-1 → F-2 stage 1 → F-4)
 Compiled 2026-10-22 from the business lead's and the engineer's reviews of the feature files, the
 pipeline scripts and the workflows. Each is a yes/no for the owner; answers are logged here.
@@ -213,7 +219,5 @@ fail → demands become round n+1's plan → back to 1 (bounded by FEATURE_MAX_A
   asked, or unlimited?
 - Does the business lead's "market demand" debate apply to a feature the owner already decided, or
   only to how it is implemented (recommendation: only how; demand was settled in the design session)?
-- Does the committee also review the three-stage items (F-2 stages 2 and 3) when they are built later,
-  or only the stage-1 build? (Recommendation: every stage; each is a separate build.)
 - How the process is run: extend `scripts/features.ts` and `scripts/team.ts` (owner-only files) or a
   new script; either way the owner makes the change.

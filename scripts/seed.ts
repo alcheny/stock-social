@@ -17,9 +17,13 @@ const DAY = 86_400_000;
 const now = Date.now();
 
 for (const t of traders) {
-  const [u] = await sql`
-    insert into users (handle, display_name, adult_attested_at) values (${t.handle}, ${t.name}, now())
-    on conflict (handle) do update set display_name = excluded.display_name returning id`;
+  // Demo traders attest through a 'dev' attempt like any other row: no users row exists without one.
+  let [u] = await sql`update users set display_name = ${t.name} where handle = ${t.handle} returning id`;
+  if (!u) {
+    [u] = await sql`
+      with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+      insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${t.handle}, ${t.name}, now(), a.id from a returning id`;
+  }
 
   const acts: (Activity & { raw: unknown })[] = [];
   const add = (a: Omit<Activity, 'accountId' | 'verified'>) => acts.push({ ...a, accountId: 'demo-acct', verified: false, raw: { demo: true } });

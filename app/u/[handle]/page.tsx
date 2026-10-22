@@ -5,7 +5,10 @@ import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
 import { confidence, edgeText, evidenceLine, isNewRecord, pct, rangeText, stats } from '@/lib/trades.ts';
 import { saveThesis } from '../../actions.ts';
+import { setHandle } from '../../auth/actions.ts';
+import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
+import { PROFILE } from '@/lib/copy.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
@@ -19,7 +22,7 @@ import { MarkTradesPromptSeen, NewTradesPrompt } from './new-trades-prompt.tsx';
 import { latestRecapYm } from '@/lib/recap.ts';
 import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string }> };
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string }> };
 
 async function load(handle: string) {
   const [user] = await sql`select id, handle, display_name, excluded_positions, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle}`;
@@ -49,6 +52,12 @@ export default async function Profile({ params, searchParams }: Params) {
   const { user, trades, s, c, brokers, accounts } = data;
   const me = await currentUser();
   const isMe = me?.id === user.id;
+  if (isMe) {
+    // Funnel (plan §5): once per completed attempt, the first time the trader sees their own profile.
+    const [{ a }] = await sql`select max(id) as a from signup_attempts where user_id = ${user.id} and completed_at is not null
+      and not exists (select 1 from funnel_events f where f.attempt_id = signup_attempts.id and f.name = 'own_profile_viewed')`;
+    if (a) await recordFunnel(Number(a), 'own_profile_viewed');
+  }
   const showJoin = !me && !(await isDemoUser(user.id));
   const referred = isMe
     ? referralSummary({
@@ -82,12 +91,17 @@ export default async function Profile({ params, searchParams }: Params) {
     ? `Connected: ${brokers.length ? brokers.join(', ') : 'broker'} (${accounts} account${accounts === 1 ? '' : 's'})`
     : 'Demo data';
 
+  // A provisional profile (no display name set yet) shows the handle once, as the heading.
+  const provisional = user.display_name === user.handle;
+  const fresh = isMe && !claimed && !user.snaptrade_user_id && trades.length === 0;
+
   return (
     <main className="page">
-      <h1 style={{ marginBottom: 4 }}>{user.display_name}</h1>
+      <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
       <p className="muted" style={{ marginTop: 0 }}>
-        @{user.handle} {trades.length > 0 && <Badge verified={allVerified} />} {isNew && trades.length > 0 && <span className="badge new">New record</span>}
+        {!provisional && `@${user.handle} `}{trades.length > 0 && <Badge verified={allVerified} />} {isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
+      {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {first && (
         <p className="muted small" style={{ marginTop: 0 }}>
           Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.
@@ -108,6 +122,17 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
       {isMe && (!user.snaptrade_user_id || claimed) && (
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
+      )}
+      {isMe && (
+        <details className="handle-edit">
+          <summary className="button secondary">{PROFILE.changeHandle}</summary>
+          <form action={setHandle} className="inline">
+            <label htmlFor="new-handle" className="sr-only">New handle</label>
+            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" defaultValue={user.handle} aria-describedby={(await searchParams)?.handle === 'taken' ? 'handle-err' : undefined} />
+            <button>Save</button>
+          </form>
+          {(await searchParams)?.handle === 'taken' && <p id="handle-err" role="alert" className="down small">That handle is taken or reserved, or not 3–20 lowercase letters, numbers or _.</p>}
+        </details>
       )}
       {isMe && !claimed && trades.length > 0 && !sharePromptShowing && (
         <ShareCard handle={user.handle} recapYm={recapYm}

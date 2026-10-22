@@ -92,7 +92,8 @@ dbTest('reflections survive rebuildTrades, orphans too', async () => {
   const { sql } = await import('./db.ts');
   const { rebuildTrades } = await import('./sync.ts');
   const tag = `t${Math.random().toString(36).slice(2, 12)}`;
-  const [{ id }] = await sql`insert into users (handle, display_name, adult_attested_at) values (${tag}, 'r', now()) returning id`;
+  const [{ id }] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+    insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${tag}, 'r', now(), a.id from a returning id`;
   try {
     const act = (ext: string, side: string, price: number, at: string) => sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
       values (${id}, 'demo', ${`${tag}-${ext}`}, ${tag}, 'AAPL', ${side}, 1, ${price}, ${at}, '{}')`;

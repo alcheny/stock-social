@@ -3,6 +3,27 @@
 -- `trade_reflections` is the exception: it is USER-SUPPLIED, not derived. Never remove it or rebuild it along with `closed_trades`.
 -- `trade_rules` is user-supplied too, with the same rule.
 
+-- Serialized applies: node (scripts/db-setup.ts and every DB-backed test file) sends this file as one simple query,
+-- which Postgres runs as a single transaction, so this lock is held for the whole apply and concurrent applies
+-- (node --test runs several test files at once; CI starts from an empty database) wait instead of racing on
+-- `create table`. With psql, `-1` gives the same single transaction.
+select pg_advisory_xact_lock(hashtext('db/schema.sql'));
+
+-- Idempotent additions without needless locks. A plain `add column if not exists` or `create index if not exists`
+-- takes an ACCESS EXCLUSIVE or SHARE lock on the table before noticing nothing is missing; applied while another
+-- session inserts rows that reference `users`, the two deadlock (F-1 PR-1 fix round 1). These helpers look in the
+-- catalog first and take no table lock when the column or index is already there.
+create or replace function schema_add_column(tbl text, col text, ddl text) returns void language plpgsql as $f$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = tbl and column_name = col) then
+    execute format('alter table %I add column %I %s', tbl, col, ddl);
+  end if;
+end $f$;
+create or replace function schema_add_index(idx text, ddl text) returns void language plpgsql as $f$
+begin
+  if not exists (select 1 from pg_indexes where schemaname = current_schema() and indexname = idx) then execute ddl; end if;
+end $f$;
+
 create table if not exists users (
   id int generated always as identity primary key,
   handle text unique not null check (handle ~ '^[a-z0-9_]{3,20}$'),
@@ -16,31 +37,31 @@ create table if not exists users (
 );
 
 -- Share moment (issue #66). Measure: share of users with share_prompt_seen_at set whose action is copied/shared.
-alter table users add column if not exists share_prompt_seen_at timestamptz;
-alter table users add column if not exists share_prompt_action text check (share_prompt_action in ('dismissed','copied','shared'));
+select schema_add_column('users', 'share_prompt_seen_at', 'timestamptz');
+select schema_add_column('users', 'share_prompt_action', $d$text check (share_prompt_action in ('dismissed','copied','shared'))$d$);
 
 -- New trade prompt. Measure: owners with trades_prompt_action not null vs trade_shared_at > trades_prompt_seen_at;
 -- shown-but-no-action = trades_prompt_action is null. trade_shared_at covers any owner trade share: an upper bound on prompt-driven sharing.
-alter table users add column if not exists trades_prompt_seen_at timestamptz;
-alter table users add column if not exists trades_prompt_action text check (trades_prompt_action in ('dismissed','opened'));
-alter table users add column if not exists trade_shared_at timestamptz;
+select schema_add_column('users', 'trades_prompt_seen_at', 'timestamptz');
+select schema_add_column('users', 'trades_prompt_action', $d$text check (trades_prompt_action in ('dismissed','opened'))$d$);
+select schema_add_column('users', 'trade_shared_at', 'timestamptz');
 
 -- Referral attribution. Set once, only when login inserts a new user via a profile CTA link.
 -- Measure by hand: connected referred users / all connected users; per referrer, joined to share_prompt_action.
-alter table users add column if not exists referred_by_user_id integer references users(id) on delete set null;
+select schema_add_column('users', 'referred_by_user_id', 'integer references users(id) on delete set null');
 -- Which page's CTA brought the signup ('profile' or 'trade'); null = referred before this existed or no referrer. Insert-only.
 -- Measure: among referred users with a snaptrade activity, count(*) filter (where referred_via = 'trade') vs 'profile'; nulls reported separately.
-alter table users add column if not exists referred_via text check (referred_via in ('profile','trade'));
+select schema_add_column('users', 'referred_via', $d$text check (referred_via in ('profile','trade'))$d$);
 -- Which surface's CTA brought the signup: profile|trade|month|badge. Insert-only. No CHECK on purpose: widening the
 -- referred_via CHECK needs drop+re-add, which CI forbids; the allow-list lives in normalizeVia.
 -- Measure: among referred users with a snaptrade activity, count(*) by coalesce(referred_surface, referred_via); nulls reported separately.
-alter table users add column if not exists referred_surface text;
+select schema_add_column('users', 'referred_surface', 'text');
 
 -- Embeddable badge. Set once, on the owner's first copy of the embed snippet. Measure: count(*) where badge_copied_at is not null.
-alter table users add column if not exists badge_copied_at timestamptz;
+select schema_add_column('users', 'badge_copied_at', 'timestamptz');
 
 -- Story image. Set once, on the owner's first click of a Save image link. Intent to save, not posting.
-alter table users add column if not exists share_image_saved_at timestamptz;
+select schema_add_column('users', 'share_image_saved_at', 'timestamptz');
 
 create table if not exists activities (
   id bigint generated always as identity primary key,
@@ -58,7 +79,7 @@ create table if not exists activities (
   created_at timestamptz not null default now(),
   unique (source, external_id)                      -- makes sync idempotent
 );
-create index if not exists activities_user_time on activities (user_id, executed_at);
+select schema_add_index('activities_user_time', 'create index activities_user_time on activities (user_id, executed_at)');
 
 -- No quantities or prices here on purpose: the display layer can't leak position size it doesn't have.
 create table if not exists closed_trades (
@@ -75,8 +96,8 @@ create table if not exists closed_trades (
   thesis text check (char_length(thesis) <= 280),
   thesis_status text check (thesis_status in ('published', 'held'))
 );
-create index if not exists closed_trades_user on closed_trades (user_id, closed_at desc);
-create index if not exists closed_trades_recent on closed_trades (closed_at desc);
+select schema_add_index('closed_trades_user', 'create index closed_trades_user on closed_trades (user_id, closed_at desc)');
+select schema_add_index('closed_trades_recent', 'create index closed_trades_recent on closed_trades (closed_at desc)');
 
 -- TR-6: a broker account belongs to one profile, ever. Claimed on first sync, never released.
 create table if not exists broker_accounts (
@@ -85,7 +106,7 @@ create table if not exists broker_accounts (
   user_id int not null references users on delete cascade,
   claimed_at timestamptz not null default now()
 );
-create index if not exists broker_accounts_user on broker_accounts (user_id);
+select schema_add_index('broker_accounts_user', 'create index broker_accounts_user on broker_accounts (user_id)');
 -- Backfill: existing real data is claimed by its earliest user.
 -- ponytail: if two users already share an account (the exploit) their rows stay; cleanup is a follow-up.
 insert into broker_accounts (account_id, user_id)
@@ -103,11 +124,11 @@ create table if not exists ticker_watches (
 );
 
 -- set once, on the owner's first open of /me/record
-alter table users add column if not exists record_first_viewed_at timestamptz;
+select schema_add_column('users', 'record_first_viewed_at', 'timestamptz');
 -- repeat-visit record: a visit is an open 30+ minutes after the last one
-alter table users add column if not exists record_last_viewed_at timestamptz;
-alter table users add column if not exists record_prev_viewed_at timestamptz;
-alter table users add column if not exists record_view_count int not null default 0;
+select schema_add_column('users', 'record_last_viewed_at', 'timestamptz');
+select schema_add_column('users', 'record_prev_viewed_at', 'timestamptz');
+select schema_add_column('users', 'record_view_count', 'int not null default 0');
 
 -- Private 'why I took it' tags. Rows reattach to trades by sell_id, like theses.
 -- sell_id deliberately has NO foreign key: rebuildTrades deletes closed_trades rows.
@@ -130,3 +151,82 @@ create table if not exists trade_rules (
   updated_at timestamptz not null default now(),
   unique (user_id, kind)
 );
+
+-- F-1 sign-in (docs/features/logs/F-1/plan.md §3). The 18+ attestation lives on a signup_attempts row that
+-- exists BEFORE any user row; users.signup_attempt_id is required, so no account exists without one.
+-- No personal data here: method, timestamps, vendor ids and referral only.
+create table if not exists signup_attempts (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  method text not null check (method in ('provider_a', 'provider_b', 'email', 'brokerage', 'dev')),
+  adult_attested_at timestamptz not null,
+  snaptrade_user_id text,
+  snaptrade_secret_enc text,
+  referred_by_user_id int references users(id) on delete set null,
+  referred_surface text,
+  user_id int references users(id) on delete set null,
+  completed_at timestamptz
+);
+select schema_add_column('users', 'signup_attempt_id', 'bigint references signup_attempts(id)');
+select schema_add_column('users', 'deleted_at', 'timestamptz');
+-- Backfill, once: rows from before F-1 attested through the dev form at created_at; one attempt each, then the column is
+-- required. Runs only while the column is still nullable (the first apply); afterwards no row can lack an attempt and
+-- the block takes no lock at all.
+do $b$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'users'
+             and column_name = 'signup_attempt_id' and is_nullable = 'YES') then
+    insert into signup_attempts (method, adult_attested_at, user_id, completed_at, created_at)
+      select 'dev', u.adult_attested_at, u.id, u.created_at, u.created_at from users u where u.signup_attempt_id is null;
+    update users u set signup_attempt_id = a.id from signup_attempts a where a.user_id = u.id and u.signup_attempt_id is null;
+    alter table users alter column signup_attempt_id set not null;
+  end if;
+end $b$;
+
+-- One row per sign-in method a user has used. subject is the provider's stable id (or the address for 'email').
+create table if not exists identities (
+  user_id int not null references users on delete cascade,
+  provider text not null check (provider in ('provider_a', 'provider_b', 'email')),
+  subject text not null,
+  email text,
+  created_at timestamptz not null default now(),
+  unique (provider, subject)
+);
+select schema_add_index('identities_user', 'create index identities_user on identities (user_id)');
+
+-- Sessions: the cookie holds a signed random token; only its sha256 is stored.
+create table if not exists sessions (
+  token_hash text primary key,
+  user_id int not null references users on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  last_seen_at timestamptz not null default now()
+);
+select schema_add_index('sessions_user', 'create index sessions_user on sessions (user_id)');
+
+-- Passwordless email links: single use, 15 minutes, hashed token.
+create table if not exists login_links (
+  token_hash text primary key,
+  email text not null,
+  attempt_id bigint not null references signup_attempts(id),
+  expires_at timestamptz not null,
+  used_at timestamptz
+);
+select schema_add_index('login_links_attempt', 'create index login_links_attempt on login_links (attempt_id)');
+
+-- A deleted profile's handle stays unavailable for a year. Handle and date only: no personal data.
+create table if not exists handle_reservations (
+  handle text primary key,
+  until timestamptz not null
+);
+
+-- Sign-up funnel, per attempt (plan §5). meta keys are allow-listed in lib/funnel.ts; never personal data.
+create table if not exists funnel_events (
+  id bigint generated always as identity primary key,
+  attempt_id bigint not null references signup_attempts(id),
+  name text not null check (name in ('landed', 'method_chosen', 'attested', 'notice_seen', 'portal_opened', 'link_succeeded',
+    'no_real_account', 'consented', 'declined', 'expired', 'abandoned', 'failed', 'import_finished', 'own_profile_viewed')),
+  at timestamptz not null default now(),
+  meta jsonb not null default '{}'
+);
+select schema_add_index('funnel_events_attempt', 'create index funnel_events_attempt on funnel_events (attempt_id, at)');
