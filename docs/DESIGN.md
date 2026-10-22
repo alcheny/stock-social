@@ -203,6 +203,11 @@ schema-validated object, and has a 50-example eval file checked into the repo.**
 
 ## Stage 3 — Scope, sequencing & bets (owner: CEO)
 
+> **Superseded 2026-10-22 by the owner:** the phase sequencing below (§3.1 to §3.3) no longer limits what
+> is built. Features decided in design sessions (`docs/features/`) are built in number order
+> (`docs/IMPLEMENTATION.md`). §3.4 (Never) and §3.5 (gates as metrics) stay in force, and every item
+> marked as needing counsel still waits for that opinion.
+
 ### 3.1 Phase 1 — "Prove supply" (target: 6 weeks, 1 engineer + agents)
 1. Read-only broker connect (SnapTrade) and hourly sync
 2. Derived closed trades + stats, with a unit test on the math

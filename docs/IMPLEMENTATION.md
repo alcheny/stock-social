@@ -105,6 +105,23 @@ removing a stop is the owner's change, not the pipeline's.
   committee and the committee's verdict is on the engineer's build, not its own. The owner edits the
   member specs (owner-only) to lift the tool restrictions.
 
+- 2026-10-22: The phase limitations (DESIGN §3 Phase 1/2/3, "don't build Phase 2/3", the supply-gate
+  timing) no longer apply to what gets built. The design sessions set the backlog and the order; every
+  feature with Status ready or rework is built in number order, now. Why: the owner declared the
+  phases an older version of the planning. What stays: legal gates are not phase gates. Anything the
+  policy or the compliance reference marks as needing counsel (selling access to records or positions,
+  payouts, anything that could be read as advice) still waits for that opinion, because the exposure
+  is per user and the owner's own rule is that POLICY outranks everything.
+- 2026-10-22: Legal compliance is validated at every stage of the cycle, always: (1) the plan answers
+  the per-change checklist (COMPLIANCE.md Section 1) in writing and names the sections that apply;
+  (2) the build runs the deterministic scanner before the tester; (3) every committee member reviews
+  the built feature against POLICY and the applicable COMPLIANCE sections and returns a compliance
+  pass or a list of failures, separate from the usability verdict; (4) the reviewer's independent check
+  includes the same. A compliance failure at any stage sends the feature back to the plan step with the
+  failure as the first item: the design is changed so it cannot fail that rule, never worked around,
+  never waived by an agent. Why: the owner's rule, "always, always, always a step to validate legal
+  compliance".
+
 ## Pre-authorization requests for the first run (F-1 → F-2 stage 1 → F-4)
 Compiled 2026-10-22 from the business lead's and the engineer's reviews of the feature files, the
 pipeline scripts and the workflows. Each is a yes/no for the owner; answers are logged here.
@@ -129,26 +146,26 @@ queue, an AI-model key (F-2 stages 2 and 3; F-2 stage 1 is SQL co-visitation on 
 and the reason line's model call is behind an injected interface with its fallback tested).
 
 ## Conflicts and gaps the committee found in the feature files (owner decides before the build)
-1. **F-2 is a Phase 2 feature** (DESIGN §3.2 lists personalization) and POLICY H forbids agents
-   building Phase 2. The file's criteria must be split into stage 1 (events, retention, deletion,
-   metrics, evaluation pipeline), buildable now, and the ranking and "More like what you read"
-   section, which wait for the supply gate.
+1. ~~F-2 is a Phase 2 feature~~ Resolved 2026-10-22: phase limitations scratched by the owner; F-2
+   builds in full in its number order. POLICY H's "Phase 2/3 features" clause and DESIGN §3.2 are the
+   owner's to edit to match.
 2. **POLICY F1 says "no personalized suggestions"** literally. F-2 suggests records to read, not trades,
    but the reviewer reads the policy as written. The owner amends the F1 wording (owner-only) or the
    reviewer fails F-2.
 3. **F-2 depends on features that do not exist**: follow and unfollow, "not interested", account
-   deletion. Decide: in F-2 stage 1's scope (a `follows` table, hides, a delete-account action with
-   event tables cascading), or a prerequisite feature file.
-4. **F-1 trust notice** names the vendor's audit; POLICY F3a says never imply auditing. Compliant only
-   if phrased as the vendor's own audit of itself ("the vendor reports an independent audit of its
-   security controls"), never as an audit of records. Fix the string in F-1.
-5. **F-1 "session by completing a connection"** for a returning trader conflicts with "already
+   deletion. Resolved 2026-10-22 as scope: F-2 includes a `follows` table with follow/unfollow on the
+   profile, the "not interested" control, and account deletion (POLICY P6) with event tables cascading
+   on the user row. Recorded in F-2.
+4. ~~F-1 trust notice~~ Resolved 2026-10-22: F-1 now phrases it as the vendor's own report of an
+   independent audit of its security controls, never an audit of records (owner chose the compliant
+   version).
+5. (Applied to F-1, 2026-10-22) **"session by completing a connection"** for a returning trader conflicts with "already
    claimed → refused". Fix: a fresh connection whose accounts are all claimed by one existing trader
    signs in as that trader and drops the new link; refusal applies only when a different signed-in user
    tries.
-6. **F-1 "declined or expired → no claims"** vs TR-6 "claims are never released". Fix: claims are
+6. (Applied to F-1, 2026-10-22) **"declined or expired → no claims"** vs TR-6 "claims are never released". Fix: claims are
    provisional until consent (`confirmed_at`); unconfirmed claims are released at decline or expiry.
-7. **F-1 attestation "before a user row exists"** vs the vendor registration needing an app user id.
+7. (Applied to F-1, 2026-10-22) **attestation "before a user row exists"** vs the vendor registration needing an app user id.
    Fix: a `signup_attempts` row (no personal data) holds the attestation and the vendor link; the user
    row is created at consent.
 8. **F-4 "threshold recorded in the design record"**: DESIGN.md is owner-only, so the constant lives in
@@ -162,15 +179,18 @@ feature file (ready/rework)
    ▼
 1 Plan     business lead ⇄ UX lead agree the implementation approach
            ⇄ engineer on feasibility, size, market demand   → signed plan (logged)
+           + compliance checklist answered (COMPLIANCE.md §1) + pre-authorization requests
    ▼
 2 Build    engineer: tests per acceptance criterion first, then code, on autopilot/feature-<n>
    ▼
 3 Verify   deterministic checks (tsc, tests, compliance scanner, guard)
+           compliance failure → back to 1 with the failure first
            ⇄ tester: conformance, edge cases, heavy use, 360px usability (logged)
    ▼
 4 User test  every committee member on the preview as first-time trader and viewer (logged)
    ▼
-5 Committee  business lead: pass / demands   +   UX lead: pass / demands   (both logged)
+5 Committee  each member: compliance pass/fail against POLICY + COMPLIANCE, then usability
+             pass / demands (all logged); any compliance fail → back to 1
    ▼
 pass → reviewer's independent check → Gate merges → Status: built → next feature
 fail → demands become round n+1's plan → back to 1 (bounded by FEATURE_MAX_ATTEMPTS, then owner)
@@ -194,6 +214,6 @@ fail → demands become round n+1's plan → back to 1 (bounded by FEATURE_MAX_A
 - Does the business lead's "market demand" debate apply to a feature the owner already decided, or
   only to how it is implemented (recommendation: only how; demand was settled in the design session)?
 - Does the committee also review the three-stage items (F-2 stages 2 and 3) when they are built later,
-  or only the stage-1 build?
+  or only the stage-1 build? (Recommendation: every stage; each is a separate build.)
 - How the process is run: extend `scripts/features.ts` and `scripts/team.ts` (owner-only files) or a
   new script; either way the owner makes the change.

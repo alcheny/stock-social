@@ -20,6 +20,8 @@ advice. The owner has been told this and the scope below respects it.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
+- [ ] A signed-in viewer can follow and unfollow a trader from the profile and the pane; follows are
+      private to the viewer (no public follower counts, POLICY F6) and feed the ranking.
 - [ ] A signed-in viewer sees a "More like what you read" section built from their own event log
       (impressions, dwell, swipes, opens, shares, follows, watchlist, hides).
 - [ ] Every event is written with viewer id, surface, target (trader, trade or symbol), type and
