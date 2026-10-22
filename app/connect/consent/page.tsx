@@ -1,19 +1,27 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { accountCounts, applyClocks, CONNECT_COOKIE, getConnection, ownsConnection, PENDING_HOURS } from '@/lib/connections.ts';
+import { accountCounts, applyClocks, CONNECT_COOKIE, getConnection, ownsConnection, parseConnectionId, PENDING_HOURS } from '@/lib/connections.ts';
+import { sql } from '@/lib/db.ts';
+import { NotFound } from '../result/connection-not-found.tsx';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser } from '@/lib/session.ts';
 import { CONSENT } from '@/lib/copy.ts';
 import { consentAction, declineAction } from '../actions.ts';
 
 // S4 consent: names the import depth before anything is read. The 24-hour clock is applied on this read too, so an
-// expired link never shows a consent form (plan §1: lazy marking).
+// expired link never shows a consent form (plan §1: lazy marking). A missing or malformed id is a plain not-found page
+// (D3); a connection already consented goes to the profile, where the import shows (D7).
 export default async function Consent({ searchParams }: { searchParams?: Promise<{ c?: string }> }) {
-  const id = Number((await searchParams)?.c);
+  const id = parseConnectionId((await searchParams)?.c);
+  if (id === null) return <NotFound />;
   await applyClocks(new Date(), { id });
-  const c = id > 0 ? await getConnection(id) : null;
+  const c = await getConnection(id);
   const me = await currentUser();
-  if (!c || !ownsConnection(c, me?.id ?? null, (await cookies()).get(CONNECT_COOKIE)?.value, sessionSecret())) redirect('/connect');
+  if (!c || !ownsConnection(c, me?.id ?? null, (await cookies()).get(CONNECT_COOKIE)?.value, sessionSecret())) return <NotFound />;
+  if (c.state === 'importing' || c.state === 'connected') {
+    const [u] = await sql`select handle from users where id = ${c.user_id}`;
+    redirect(u ? `/u/${u.handle}` : '/connect');
+  }
   if (c.state !== 'pending') redirect(`/connect/result?c=${c.id}`);
   const { total, paper } = accountCounts(c);
   const by = new Date(c.pending_at.getTime() + PENDING_HOURS * 3_600_000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });

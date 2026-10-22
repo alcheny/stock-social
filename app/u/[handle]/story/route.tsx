@@ -11,7 +11,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   const format = parseFormat(url.searchParams.get('format'));
   const size = FORMATS[format];
   if (typeof handle !== 'string' || !handle) return new Response('Not found', { status: 404 });
-  const [user] = await sql`select id, display_name from users where handle = ${handle}`;
+  const [user] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;
   if (!user) return new Response('Not found', { status: 404 });
   const rows = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${user.id}`;
   const [d] = await sql`select exists(select 1 from activities where user_id = ${user.id} and source = 'demo') as d`;

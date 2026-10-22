@@ -1,6 +1,6 @@
 import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
-import { fetchActivities, fetchPositions, listAccountIds, listAccounts, type VendorAccount } from './broker.ts';
+import { fetchActivities, fetchPositions, listAccounts } from './broker.ts';
 import { AccountClaimedError, claimIn } from './claims.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
@@ -49,15 +49,27 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql) {
 }
 
 type Broker = {
-  listAccountIds?: typeof listAccountIds;
-  listAccounts?: typeof listAccounts; // with the paper and sync flags; listAccountIds is the pre-F-1 shape
+  listAccounts: typeof listAccounts; // with the authorization, paper and sync flags
   fetchActivities: typeof fetchActivities;
   fetchPositions?: typeof fetchPositions;
 };
 const defaultBroker: Broker = { listAccounts, fetchActivities, fetchPositions };
 
+export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
+// The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
+// `connected`, and never while an import runs (the tick's steps own that row). A pending link, a failed import and a
+// profile being deleted are never synced.
+export async function usersToSync(): Promise<SyncableUser[]> {
+  return sql<SyncableUser[]>`select id, snaptrade_user_id, snaptrade_secret_enc from users u
+    where snaptrade_user_id is not null and deleted_at is null
+    and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
+    and not exists (select 1 from connections c where c.user_id = u.id and c.state = 'importing') order by last_synced_at nulls first`;
+}
+
 // One transaction per user under the per-user advisory lock: a concurrent sync for the same user is skipped and a
 // failure anywhere leaves activities, closed_trades, claims and positions exactly as before.
+// Only accounts under a consented authorization (one in the snapshot of a `connected` connection) are read or claimed:
+// a pending link, a link still in the portal and a failed import's accounts are left exactly as they are (D1, D5).
 // Returns the activity count, 'skipped' when another sync holds the lock; throws AccountClaimedError (writing nothing)
 // if any account belongs to another profile. Simulated accounts are claimed, excluded and counted; never imported.
 export async function syncUser(
@@ -71,15 +83,17 @@ export async function syncUser(
   return sql.begin(async (tx) => {
     const [{ got }] = await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${user.id}) as got`;
     if (!got) return 'skipped';
-    const accounts: Pick<VendorAccount, 'id' | 'isPaper'>[] = broker.listAccounts
-      ? await broker.listAccounts(bu)
-      : (await broker.listAccountIds!(bu)).map((id) => ({ id, isPaper: false }));
+    const consented = new Set((await tx`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
+      where c.user_id = ${user.id} and c.state = 'connected'`).map((r) => r.auth as string));
+    const accounts = (await broker.listAccounts(bu)).filter((a) => consented.has(a.authorizationId));
     // Claim first so no conflicting data is ever read for the wrong user. Zero-activity accounts are claimed too.
-    if (!(await claimIn(tx, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
+    if (accounts.length && !(await claimIn(tx, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
     const real = accounts.filter((a) => !a.isPaper).map((a) => a.id);
     // TR-5: a connection whose accounts the vendor no longer lists is disconnected; its record stays, frozen.
     await tx`update connections c set disconnected_at = ${now} where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null
       and not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${tx(accounts.length ? accounts.map((a) => a.id) : [''])})`;
+    // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
+    if (!accounts.length) return 0;
     const [{ last }] = await tx`select max(executed_at) as last from activities where user_id = ${user.id} and source = 'snaptrade'`;
     const since = last ? new Date(last.getTime() - BACKFILL_MS) : new Date('2000-01-01');
     const acts = real.length ? await broker.fetchActivities(bu, since, real) : [];

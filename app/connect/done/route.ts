@@ -24,6 +24,6 @@ export async function GET() {
       await rememberMethod('brokerage');
       return NextResponse.redirect(`${base}/u/${out.handle}`);
     }
-    default: return NextResponse.redirect(me ? `${base}/u/${me.handle}` : `${base}/connect/result?k=abandoned`);
+    default: return NextResponse.redirect(`${base}/connect/result?k=abandoned`); // signed in or not: the portal returned without a link (S7a)
   }
 }

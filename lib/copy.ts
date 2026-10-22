@@ -60,7 +60,8 @@ export const CONSENT = {
   linked: 'Your brokerage is linked. Nothing has been imported yet.',
   lines: (found: number, paper: number) => [
     'Full trade history your broker provides',
-    paper > 0 ? `Every account under this login (${found} account${found === 1 ? '' : 's'} found, ${paper} simulated, not imported)` : `Every account under this login (${found} found)`,
+    'Every account under this login',
+    `${found} account${found === 1 ? '' : 's'} found${paper > 0 ? ` (${paper} simulated, not imported)` : ''}`,
     'Closed trades are published on your public profile as percent returns. No amounts, quantities or prices.',
     'A broker account can belong to one profile, ever.',
     'Your record stays public if you disconnect; deleting your profile removes it.',
@@ -79,8 +80,12 @@ export const RECORD_BODY = {
   finished: 'Import finished.',
   paperExcluded: (n: number) => `${n} simulated account${n === 1 ? '' : 's'} excluded: simulated trades are never part of a record.`,
   positionsTitle: 'Open positions',
+  // A failed import is never shown as a whole record (TR-3): the line is visible to everyone, the retry to the owner.
+  failed: 'The import did not finish, so this record may be incomplete.',
+  retry: 'Try again',
 } as const;
-export type RecordState = 'importing' | 'connected' | 'none';
+export type RecordState = 'importing' | 'connected' | 'failed' | 'none';
+// The S8 empty-record line belongs to a finished import only; a failed one says so instead.
 export const recordBodyCopy = (state: RecordState, closes: number): string | null =>
   state === 'importing' ? RECORD_BODY.importing : closes > 0 ? null : state === 'connected' ? RECORD_BODY.connected : RECORD_BODY.none;
 
@@ -91,8 +96,10 @@ export const RESULT = {
   none: 'No real brokerage account found.',
   noneAction: 'Connect a different brokerage',
   abandoned: 'Connection not completed. Nothing was saved.',
-  failed: "Your brokerage didn't finish connecting. Nothing was saved.",
-  stale: 'Your brokerage stopped sending history. Your record is unchanged.',
+  failed: 'Your brokerage stopped the connection before the import finished.',
+  stale: 'Your brokerage stopped sending history before the import finished.',
+  notFound: 'Connection not found.',
+  notFoundAction: 'Connect a brokerage',
   claimedAction: 'Try another login',
   again: 'Connect again',
   retry: 'Try again',

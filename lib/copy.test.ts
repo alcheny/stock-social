@@ -37,8 +37,14 @@ test('S1 and S2 copy is the UX lead\'s, verbatim', () => {
 test('PR-2a copy: the trust notice stays the vendor\'s own report of an audit of its controls; consent names the depth; results and settings are as written; /how says what Verified means and what is excluded', () => {
   assert.equal(TRUST_NOTICE.lines[2], 'SnapTrade reports an independent audit of its security controls.');
   assert.doesNotMatch(TRUST_NOTICE.lines.join(' '), /audit(ed)? (of )?(the |your |any )?(record|trade|app)/i);
-  assert.deepEqual(CONSENT.lines(3, 1).slice(0, 2), ['Full trade history your broker provides', 'Every account under this login (3 accounts found, 1 simulated, not imported)']);
-  assert.equal(CONSENT.lines(2, 0)[1], 'Every account under this login (2 found)');
+  assert.deepEqual(CONSENT.lines(3, 1).slice(0, 3), ['Full trade history your broker provides', 'Every account under this login', '3 accounts found (1 simulated, not imported)']);
+  assert.equal(CONSENT.lines(2, 0)[2], '2 accounts found');
+  assert.equal(CONSENT.lines(1, 0)[2], '1 account found');
+  // S7b and stale say what happened once pages were read; S7a (no link) still says nothing was saved.
+  assert.equal(RESULT.failed, 'Your brokerage stopped the connection before the import finished.');
+  assert.equal(RESULT.stale, 'Your brokerage stopped sending history before the import finished.');
+  assert.doesNotMatch(`${RESULT.failed} ${RESULT.stale}`, /Nothing was saved|record is unchanged/);
+  assert.equal(RESULT.notFound, 'Connection not found.');
   assert.equal(CONSENT.primary, 'Import my record');
   assert.equal(CONSENT.secondary, "Don't import");
   assert.equal(RESULT.declined, 'Import not started. Nothing is connected.');

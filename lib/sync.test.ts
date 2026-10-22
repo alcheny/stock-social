@@ -22,13 +22,17 @@ async function setup() {
     externalId: `${tag}-${id}`, accountId, symbol: 'AAA', side, units: 1, price, fee: 0, executedAt: new Date(Date.UTC(2024, 0, day)), verified: true, raw: {},
   });
   const count = async (table: 'activities' | 'closed_trades') => (await sql`select count(*)::int as n from ${sql(table)} where user_id = ${u.id}`)[0].n as number;
-  return { sql, tag, user, act, count, cleanup: async (ids: string[]) => { await sql`delete from users where id = ${u.id}`; if (ids.length) await sql`delete from broker_accounts where account_id in ${sql(ids)}`; } };
+  // F-1: a sync reads only accounts under a consented authorization: a connected connection on authorization 'a'.
+  const connected = async (ids: string[]) => sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, consent_at, importing_at, connected_at, accounts)
+    select signup_attempt_id, id, 'a', 'connected', now(), now(), now(), ${sql.json(ids.map((id) => ({ id, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true })))} from users where id = ${u.id}`;
+  return { sql, tag, user, act, count, connected, cleanup: async (ids: string[]) => { await sql`delete from users where id = ${u.id}`; if (ids.length) await sql`delete from broker_accounts where account_id in ${sql(ids)}`; } };
 }
 
 dbTest('two syncs for the same trader at once: one runs, the other is skipped; rows never interleave; a third sync afterwards runs normally', async () => {
-  const { tag, user, act, count, cleanup } = await setup();
+  const { tag, user, act, count, connected, cleanup } = await setup();
   const { syncUser } = await import('./sync.ts');
   const acc = `${tag}-acc`;
+  await connected([acc]);
   let inFlight = 0, maxInFlight = 0;
   const broker = {
     listAccounts: async () => [{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }],
@@ -53,10 +57,11 @@ dbTest('two syncs for the same trader at once: one runs, the other is skipped; r
 });
 
 dbTest('a failure anywhere in a sync leaves activities, closed_trades, claims and positions exactly as before', async () => {
-  const { sql, tag, user, act, count, cleanup } = await setup();
+  const { sql, tag, user, act, count, connected, cleanup } = await setup();
   const { syncUser } = await import('./sync.ts');
   const acc = `${tag}-acc`, acc2 = `${tag}-acc2`;
   const accounts = (ids: string[]) => ids.map((id) => ({ id, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }));
+  await connected([acc]);
   try {
     await syncUser(user, { listAccounts: async () => accounts([acc]), fetchActivities: async () => [act('b1', acc, 'BUY', 100, 1), act('s1', acc, 'SELL', 90, 2)], fetchPositions: async () => [{ symbol: 'ZZZ', unrealizedPct: 0.1 }] });
     const snapshot = async () => JSON.stringify([
@@ -102,5 +107,32 @@ dbTest('disconnect after connecting (TR-5): accounts the vendor no longer lists 
     assert.equal((await sql`select 1 from broker_accounts where account_id = ${acc} and user_id = ${user.id}`).length, 1); // confirmed claim kept
   } finally {
     await cleanup([acc]);
+  }
+});
+
+dbTest('usersToSync (D1, D5): only a trader with a connected connection and no import in progress; never pending-only, importing-only, failed-only or a profile being deleted', async () => {
+  const { sql, tag, user, cleanup } = await setup();
+  const { usersToSync } = await import('./sync.ts');
+  const listed = async () => (await usersToSync()).some((u) => u.id === user.id);
+  const [a] = await sql`select signup_attempt_id from users where id = ${user.id}`;
+  const row = async (state: string) => Number((await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, accounts)
+    values (${a.signup_attempt_id}, ${user.id}, ${`${tag}-${state}`}, ${state}, '[]') returning id`)[0].id);
+  try {
+    assert.equal(await listed(), false); // a vendor id alone is not a consent
+    const pending = await row('pending');
+    assert.equal(await listed(), false);
+    await sql`update connections set state = 'failed', failure_reason = 'stale' where id = ${pending}`;
+    assert.equal(await listed(), false);
+    const connected = await row('connected');
+    assert.equal(await listed(), true);
+    const importing = await row('importing');
+    assert.equal(await listed(), false);
+    await sql`update connections set state = 'connected' where id = ${importing}`;
+    assert.equal(await listed(), true);
+    await sql`update users set deleted_at = now() where id = ${user.id}`;
+    assert.equal(await listed(), false);
+    assert.ok(connected);
+  } finally {
+    await cleanup([]);
   }
 });

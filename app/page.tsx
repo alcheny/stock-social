@@ -13,7 +13,7 @@ export default async function Feed() {
     select t.id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status,
            u.handle, u.display_name, u.id as user_id,
            ln(1 + abs(t.return_pct) * 100) * exp(-extract(epoch from now() - t.closed_at) / 3600 / 48) as score
-    from closed_trades t join users u on u.id = t.user_id
+    from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
     where t.user_id in (select user_id from closed_trades group by user_id having count(*) >= 5)
     order by ln(1 + abs(t.return_pct) * 100) * exp(-extract(epoch from now() - t.closed_at) / 3600 / 48) desc
     limit 200`) as unknown as (TradeRow & { score: number })[];

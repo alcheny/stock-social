@@ -29,6 +29,11 @@ footer.site nav.legal a { display: inline-flex; align-items: center; min-height:
 .how h2 { margin-top: 24px; font-size: 1.1rem; }
 .how ul { padding-left: 1.2em; display: grid; gap: 8px; }
 .importing { margin: 8px 0; min-height: 24px; }
+.record-failed { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+/* Open positions (TR-4): the symbol link is the row's tap target, 44px tall (POLICY A1). */
+.rows.positions li { padding: 0; }
+.rows.positions .line { align-items: center; min-height: 44px; }
+.rows.positions .line a { display: inline-flex; align-items: center; min-height: 44px; }
 
 nav.top {
   position: fixed; inset: 0 0 auto; z-index: 10; display: flex; justify-content: space-between; align-items: center;

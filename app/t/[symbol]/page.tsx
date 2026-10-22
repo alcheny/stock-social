@@ -28,7 +28,7 @@ async function load(raw: string) {
   const rows = (await sql`
     select t.id, t.user_id, u.handle, u.display_name, t.symbol, t.return_pct, t.holding_days,
            t.opened_at, t.closed_at, t.verified
-    from closed_trades t join users u on u.id = t.user_id
+    from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
     where t.symbol = ${symbol}
     order by t.closed_at desc, t.id desc`) as unknown as Row[];
   return { symbol, rows };
@@ -91,7 +91,7 @@ export default async function Ticker({ params, searchParams }: Params) {
   // Held text is never selected: status is filtered in SQL, and selectTheses re-checks it.
   const thesisRows = (await sql`
     select t.id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status
-    from closed_trades t join users u on u.id = t.user_id
+    from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
     where t.symbol = ${symbol} and t.thesis_status = 'published' and t.thesis is not null
     order by t.closed_at desc, t.id desc
     limit 20`) as unknown as { id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null }[];

@@ -1,6 +1,7 @@
 // The share card: the Phase 1 growth loop (DESIGN Stage 1, BL resolution).
 // Rendered by Next's built-in next/og whenever the profile link is posted on a social network or in a messaging app.
 import { ImageResponse } from 'next/og';
+import { notFound } from 'next/navigation';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
 import { confidence, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
@@ -11,7 +12,8 @@ export const alt = 'Verified trading record on Stock Social';
 
 export default async function Card({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
-  const [user] = await sql`select id, display_name, snaptrade_user_id from users where handle = ${handle}`;
+  const [user] = await sql`select id, display_name, snaptrade_user_id from users where handle = ${handle} and deleted_at is null`;
+  if (!user) notFound(); // no card for an unknown handle or a profile being deleted (the profile itself is 404 too)
   const rows = user ? await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${user.id}` : [];
   const s = stats(rows.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at })));
   const verified = rows.length > 0 && rows.every((t) => t.verified);

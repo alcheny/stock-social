@@ -5,7 +5,7 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { BrokerUser, VendorAccount } from './broker.ts';
-import { advanceCursor, assertTransition, clockState, IllegalTransitionError, ownsConnection, PENDING_HOURS, STALE_HOURS, STATES, startCursor, TRANSITIONS, type Deps } from './connections.ts';
+import { advanceCursor, assertTransition, clockState, IllegalTransitionError, ownsConnection, parseConnectionId, PENDING_HOURS, REFUSED_STATUSES, RETRY_BASE_MS, RETRY_MAX_MS, retryDelayMs, STALE_HOURS, STATES, startCursor, TRANSITIONS, type Deps } from './connections.ts';
 import { recordBodyCopy, RECORD_BODY } from './copy.ts';
 import { attemptCookieValue } from './auth/links.ts';
 
@@ -73,6 +73,22 @@ test('schema: connections carries the six states and a timestamp per state; clai
   assert.doesNotMatch(pos, /\b(units|price|amount|quantity|cost)\b/);
   assert.match(pos, /unrealized_pct double precision not null/);
   assert.doesNotMatch(s, /\b(drop|truncate)\b|delete\s+from/i);
+});
+
+test('connection ids from a query string or form are digits only (D3): NaN, floats, signs, blanks and oversized values are rejected before any query', () => {
+  assert.equal(parseConnectionId('12'), 12);
+  assert.equal(parseConnectionId('123456789012345678'), 123456789012345678);
+  for (const bad of [undefined, null, '', 'abc', '1.5', '-1', '0', '+1', ' 1', '1e3', 'NaN', '1234567890123456789', 7]) assert.equal(parseConnectionId(bad), null, String(bad));
+});
+
+test('vendor backoff (D4): 30 s doubling per consecutive failure, capped at one hour; only 401/403/404 fail an import', () => {
+  assert.equal(RETRY_BASE_MS, 30_000);
+  assert.equal(RETRY_MAX_MS, 3_600_000);
+  assert.deepEqual([1, 2, 3, 4].map(retryDelayMs), [30_000, 60_000, 120_000, 240_000]);
+  assert.equal(retryDelayMs(8), 3_600_000);
+  assert.equal(retryDelayMs(20), 3_600_000);
+  assert.deepEqual([...REFUSED_STATUSES].sort(), [401, 403, 404]);
+  for (const st of [400, 429, 500, 502, 503]) assert.equal(REFUSED_STATUSES.has(st), false);
 });
 
 // ---------- DB tests ----------
@@ -235,9 +251,15 @@ dbTest('decline: declined with its timestamp, the link removed at the vendor, pr
     const outB = await completeLink({ userId: b.id, attemptId: await att(b.id) }, depsB);
     assert.equal(outB.kind, 'consent');
     assert.equal((await claims([acc]))[0].user_id, b.id);
-    // Declining on a non-pending row changes nothing but still finishes cleanup.
+    // A replayed decline on a consented (connected) row is a no-op: no state change, no cleanup, the vendor link survives (D2).
     await decline(first.id, deps);
     assert.equal((await conn(first.id)).state, 'connected');
+    assert.equal((await conn(first.id)).cleanup_done_at, null);
+    assert.deepEqual(v.deletedConnections, ['auth-new']); // the consented authorization was never deleted
+    assert.equal((await claims([confirmed])).length, 1);
+    await decline(out.id, deps); // declining twice is idempotent
+    assert.deepEqual(v.deletedConnections, ['auth-new']);
+    assert.equal((await events(await att(a.id))).filter((e) => e === 'declined').length, 1); // recorded once
   } finally {
     await cleanup([a.id, b.id], [acc, confirmed]);
   }
@@ -394,11 +416,15 @@ dbTest('staleness: an importing row with no progress for 24 h becomes failed (re
     // The page is read at h(2); positions then fail with a 500: the whole step rolls back, nothing recorded, still importing.
     assert.deepEqual(await importStep(id, deps, h(2)), { state: 'importing', imported: 2, progressed: true });
     v.failPositions = 500;
-    await assert.rejects(importStep(id, deps, h(3)), /vendor 500/);
+    const deferred = await importStep(id, deps, h(3));
+    assert.deepEqual({ ...deferred, retryAt: undefined }, { state: 'importing', imported: 2, progressed: false, retryAt: undefined });
+    assert.equal(deferred.retryAt, h(3).getTime() + 30_000); // D4: a 5xx defers the next step; nothing is failed
     assert.equal((await conn(id)).state, 'importing');
     assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n, 0);
     assert.equal((await conn(id)).import_cursor.rebuilt, undefined);
+    assert.equal((await conn(id)).import_cursor.retries, 1);
     assert.equal((await conn(id)).last_progress_at.toISOString(), h(2).toISOString());
+    v.failPositions = null;
     // No progress for 24 h → failed, stale, lazily; the activities read so far stay, closed_trades untouched.
     assert.deepEqual(await applyClocks(h(25.9), { userId: u.id }), { expired: [], failed: [] });
     assert.deepEqual(await applyClocks(h(26), { userId: u.id }), { expired: [], failed: [id] });
@@ -408,7 +434,7 @@ dbTest('staleness: an importing row with no progress for 24 h becomes failed (re
     assert.ok(c.failed_at);
     assert.ok((await events(attempt)).includes('failed'));
     assert.deepEqual(await importStep(id, deps, h(27)), { state: 'failed', imported: 2, progressed: false });
-    // A vendor 4xx on a step fails the row with reason vendor.
+    // A vendor 401/403 on a step fails the row with reason vendor (the vendor refused the link).
     const { id: id2 } = await completeLink({ userId: u.id, attemptId: attempt }, { ...deps, listAccounts: async () => [acct(`${tag}-v`, { authorizationId: 'auth-v' })] }, h(30)) as { id: number };
     await consent(id2, h(30), deps);
     const d403 = { ...deps, fetchActivitiesPage: async () => { throw Object.assign(new Error('vendor 403'), { response: { status: 403 } }); } };
@@ -527,5 +553,207 @@ dbTest('concurrency: two import steps for one user at once never interleave: eac
     assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 10);
   } finally {
     await cleanup([u.id], [acc]);
+  }
+});
+
+dbTest('D1: the hourly sync never touches a pending link: syncUser and the tick read nothing and confirm nothing; a later decline releases the claims and removes the link', async () => {
+  const { sql, tag, mkUser, conn, claims, cleanup } = await setup();
+  const { startConnection, completeLink, decline, tick } = await import('./connections.ts');
+  const { syncUser, usersToSync } = await import('./sync.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('d1');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const acc = `${tag}-d1`;
+  v.accounts = [acct(acc)];
+  v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2), ...pair(acc, 3)]);
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps) as { id: number };
+    assert.equal((await conn(id)).state, 'pending');
+    const [bu] = await sql<{ id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null }[]>`select id, snaptrade_user_id, snaptrade_secret_enc from users where id = ${u.id}`;
+    const fetched: string[][] = [];
+    const broker = {
+      listAccounts: async () => v.accounts,
+      fetchActivities: async (_b: unknown, _s: unknown, ids?: string[]) => { fetched.push(ids ?? []); return v.rows.get(acc)!.map((r) => ({ externalId: r.id, accountId: acc, symbol: r.symbol, side: r.side, units: 1, price: r.price, fee: 0, executedAt: new Date(r.at), verified: true, raw: {} })); },
+    };
+    // The route would not even list this trader; and a direct sync reads nothing under a non-consented authorization.
+    assert.equal((await usersToSync()).some((x) => x.id === u.id), false);
+    assert.equal(await syncUser(bu, broker), 0);
+    assert.deepEqual(fetched, []);
+    await tick(deps);
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 0);
+    assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n, 0);
+    const c = await conn(id);
+    assert.equal(c.state, 'pending');
+    assert.deepEqual((await claims([acc])).map((r) => [r.user_id, r.confirmed_at]), [[u.id, null]]); // still provisional
+    assert.ok(!v.calls.some((x) => x.startsWith('page:')));
+    // A later decline releases everything.
+    await decline(id, deps);
+    assert.equal((await conn(id)).state, 'declined');
+    assert.equal((await claims([acc])).length, 0);
+    assert.deepEqual(v.deletedConnections, [`auth-${acc}`]);
+    assert.equal(await syncUser(bu, broker), 0);
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 0);
+  } finally {
+    await cleanup([u.id], [acc]);
+  }
+});
+
+dbTest('D2: an expired, uncleaned link re-bundled into a new consent is not cut by the tick: cleanup of the expired row skips the authorization the live connection holds', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, applyClocks, tick, drive } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('d2');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const acc = `${tag}-d2`;
+  v.accounts = [acct(acc, { authorizationId: 'auth-x' })];
+  v.rows.set(acc, pair(acc, 1));
+  const t0 = new Date('2026-10-22T10:00:00Z');
+  const h = (n: number) => new Date(t0.getTime() + n * 3_600_000);
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id: a } = await completeLink({ userId: u.id, attemptId: attempt }, deps, t0) as { id: number };
+    assert.deepEqual(await applyClocks(h(24), { userId: u.id }), { expired: [a], failed: [] }); // marked, not cleaned
+    // The trader returns from the portal: the vendor still lists auth-x, which is bundled into pending B.
+    const outB = await completeLink({ userId: u.id, attemptId: attempt }, deps, h(24.5)) as { kind: string; id: number };
+    assert.equal(outB.kind, 'consent');
+    assert.equal((await conn(outB.id)).vendor_authorization_id, 'auth-x');
+    await consent(outB.id, h(24.6), deps);
+    const t = await tick(deps, h(25));
+    assert.equal(t.cleaned, 1);
+    assert.ok((await conn(a)).cleanup_done_at);
+    assert.deepEqual(v.deletedConnections, []); // auth-x is held by B: never deleted
+    assert.equal((await conn(outB.id)).state, 'connected'); // the tick also drove B
+    assert.equal((await sql`select user_id from broker_accounts where account_id = ${acc}`)[0].user_id, u.id);
+    // And a replayed cleanup of A, or a decline of B, changes nothing more.
+    await tick(deps, h(26));
+    assert.deepEqual(v.deletedConnections, []);
+    assert.equal((await drive(outB.id, deps, h(26))).state, 'connected');
+  } finally {
+    await cleanup([u.id], [acc]);
+  }
+});
+
+dbTest('D4: a vendor 429 defers the step with backoff and keeps the cursor; a step before retryAt makes no vendor call, one after it reads the page and the import finishes; 401 fails with reason vendor', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, importStep, drive, retryDelayMs } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('d4');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const acc = `${tag}-d4`;
+  v.accounts = [acct(acc)];
+  v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2)]); // 4 rows, 2 pages
+  const t0 = new Date('2026-10-22T10:00:00Z');
+  const s = (n: number) => new Date(t0.getTime() + n * 1000);
+  const fail = (status: number) => Object.assign(new Error(`vendor ${status}`), { response: { status } });
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps, t0) as { id: number };
+    await consent(id, s(1), deps);
+    assert.equal((await importStep(id, deps, s(2))).imported, 3);
+    const cursorBefore = (await conn(id)).import_cursor;
+    let fails = 2;
+    const flaky = { ...deps, fetchActivitiesPage: async (...args: Parameters<Deps['fetchActivitiesPage']>) => { if (fails-- > 0) throw fail(429); return deps.fetchActivitiesPage(...args); } };
+    const r1 = await importStep(id, flaky, s(3));
+    assert.deepEqual(r1, { state: 'importing', imported: 3, progressed: false, retryAt: s(3).getTime() + retryDelayMs(1) });
+    let c = await conn(id);
+    assert.equal(c.state, 'importing');
+    assert.deepEqual({ i: c.import_cursor.i, offset: c.import_cursor.offset, pass: c.import_cursor.pass }, { i: cursorBefore.i, offset: cursorBefore.offset, pass: cursorBefore.pass });
+    assert.equal(c.import_cursor.retries, 1);
+    assert.equal(c.last_progress_at.toISOString(), s(2).toISOString()); // waiting is not progress
+    // Before retryAt: no vendor call at all.
+    const pages = v.calls.filter((x) => x.startsWith('page:')).length;
+    assert.deepEqual(await importStep(id, flaky, s(10)), { state: 'importing', imported: 3, progressed: false, retryAt: r1.retryAt });
+    assert.equal(v.calls.filter((x) => x.startsWith('page:')).length, pages);
+    assert.equal((await drive(id, flaky, s(10))).progressed, false);
+    // At retryAt the second 429 doubles the wait; after that the page lands and the backoff is cleared.
+    const r2 = await importStep(id, flaky, s(33));
+    assert.equal(r2.retryAt, s(33).getTime() + retryDelayMs(2));
+    assert.equal((await conn(id)).import_cursor.retries, 2);
+    const r3 = await drive(id, flaky, s(100));
+    assert.equal(r3.state, 'connected');
+    c = await conn(id);
+    assert.equal(c.import_cursor.retries, undefined);
+    assert.equal(c.import_cursor.retryAt, undefined);
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 4);
+    // 401: the vendor refused the link; failed with reason vendor.
+    v.accounts = [acct(`${tag}-d4b`, { authorizationId: 'auth-d4b' })];
+    const { id: id2 } = await completeLink({ userId: u.id, attemptId: attempt }, deps, s(200)) as { id: number };
+    await consent(id2, s(200), deps);
+    assert.deepEqual(await importStep(id2, { ...deps, fetchActivitiesPage: async () => { throw fail(401); } }, s(201)), { state: 'failed', imported: 0, progressed: false });
+    assert.equal((await conn(id2)).failure_reason, 'vendor');
+  } finally {
+    await cleanup([u.id], [acc, `${tag}-d4b`]);
+  }
+});
+
+dbTest('D5: after a failed import the sync publishes nothing: the failed connection\'s accounts are not read, closed_trades stays empty, and the record state is failed', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, importStep, latestConnection } = await import('./connections.ts');
+  const { syncUser, usersToSync } = await import('./sync.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('d5');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const a1 = `${tag}-d5a`, a2 = `${tag}-d5b`;
+  v.accounts = [acct(a1), acct(a2, { authorizationId: `auth-${a1}` })];
+  v.rows.set(a1, [...pair(a1, 1), ...pair(a1, 2)]);
+  v.rows.set(a2, pair(a2, 1));
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps) as { id: number };
+    await consent(id, new Date(), deps);
+    assert.equal((await importStep(id, deps)).imported, 3); // one page of a1; a2 never read
+    const fail = { ...deps, fetchActivitiesPage: async () => { throw Object.assign(new Error('vendor 403'), { response: { status: 403 } }); } };
+    assert.equal((await importStep(id, fail)).state, 'failed');
+    assert.equal((await latestConnection(u.id))!.state, 'failed');
+    const [bu] = await sql<{ id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null }[]>`select id, snaptrade_user_id, snaptrade_secret_enc from users where id = ${u.id}`;
+    const fetched: string[][] = [];
+    const broker = {
+      listAccounts: async () => v.accounts,
+      fetchActivities: async (_b: unknown, _s: unknown, ids?: string[]) => { fetched.push(ids ?? []); return [...v.rows.get(a1)!, ...v.rows.get(a2)!].map((r) => ({ externalId: r.id, accountId: r.id.startsWith(a2) ? a2 : a1, symbol: r.symbol, side: r.side, units: 1, price: r.price, fee: 0, executedAt: new Date(r.at), verified: true, raw: {} })); },
+    };
+    assert.equal((await usersToSync()).some((x) => x.id === u.id), false);
+    assert.equal(await syncUser(bu, broker), 0);
+    assert.deepEqual(fetched, []);
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 3);
+    assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n, 0); // never rebuilt, never published
+    assert.equal((await conn(id)).state, 'failed');
+  } finally {
+    await cleanup([u.id], [a1, a2]);
+  }
+});
+
+dbTest('D6: a brokerage-first consent that loses the claim race leaves no ghost user: the users row goes, the attempt reopens, and the link and the vendor user are deleted in one cleanup', async () => {
+  const { sql, tag, mkUser, events, conn, cleanup } = await setup();
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { startConnection, completeLink, consent } = await import('./connections.ts');
+  const { claimAccounts, AccountClaimedError } = await import('./claims.ts');
+  const other = await mkUser('d6');
+  const attempt = await createAttempt({ method: 'brokerage', attested: true });
+  const acc = `${tag}-d6`;
+  const { v, deps } = fakeVendor();
+  try {
+    await startConnection({ userId: null, attemptId: attempt }, 'r', deps);
+    v.accounts = [acct(acc)];
+    const out = await completeLink({ userId: null, attemptId: attempt }, deps) as { kind: string; id: number };
+    assert.equal(out.kind, 'consent');
+    // Between the link and the tap, another trader confirm-claims the account.
+    assert.deepEqual(await claimAccounts(other.id, [acc]), { ok: true });
+    const usersBefore = (await sql`select count(*)::int as n from users`)[0].n;
+    await assert.rejects(consent(out.id, new Date(), deps), AccountClaimedError);
+    assert.equal((await sql`select count(*)::int as n from users`)[0].n, usersBefore); // no ghost
+    assert.equal((await sql`select 1 from users where signup_attempt_id = ${attempt}`).length, 0);
+    const [a] = await sql`select user_id, completed_at, snaptrade_user_id, snaptrade_secret_enc from signup_attempts where id = ${attempt}`;
+    assert.deepEqual([a.user_id, a.completed_at, a.snaptrade_user_id, a.snaptrade_secret_enc], [null, null, null, null]);
+    const c = await conn(out.id);
+    assert.equal(c.state, 'declined');
+    assert.equal(c.user_id, null);
+    assert.ok(c.cleanup_done_at);
+    assert.deepEqual(v.deletedConnections, [`auth-${acc}`]);
+    assert.deepEqual(v.deletedUsers, [`vendor-attempt-${attempt}`]);
+    assert.equal((await sql`select user_id from broker_accounts where account_id = ${acc}`)[0].user_id, other.id);
+    assert.ok((await events(attempt)).includes('failed'));
+  } finally {
+    await cleanup([other.id], [acc]);
   }
 });

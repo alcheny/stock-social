@@ -25,6 +25,11 @@ export function assertTransition(from: State, to: State): void {
   if (!TRANSITIONS[from]?.includes(to)) throw new IllegalTransitionError(from, to);
 }
 
+// A connection id from a query string or a form: digits only, no NaN, nothing a bigint column would reject (D3).
+export function parseConnectionId(raw: unknown): number | null {
+  return typeof raw === 'string' && /^[1-9]\d{0,17}$/.test(raw) ? Number(raw) : null;
+}
+
 export const PENDING_HOURS = 24; // "import pending" never persists beyond this (the feature's consent decision)
 export const STALE_HOURS = 24; // importing with no progress for this long → failed (plan §8 item 2)
 export const WAIT_RECHECK_MS = 30_000; // while the vendor's own initial sync runs, re-check its flag at most this often
@@ -42,8 +47,15 @@ export function clockState(c: ClockRow, now: Date): 'expired' | 'failed' | null 
 
 // Import cursor: account index and page offset of the current pass. A pass re-reads every account; a second pass runs
 // when the vendor's initial sync was still filling during the first one, so the record ends complete (TR-3).
-export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; checkedAt?: number };
+export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; checkedAt?: number; retries?: number; retryAt?: number };
 export const startCursor = (): Cursor => ({ i: 0, offset: 0, pass: 1 });
+// A vendor 429, 5xx or transport error defers the next step: 30 s doubling per consecutive failure, capped at one hour.
+// Progress is not recorded while waiting, so the 24 h stale clock still ends an import the vendor never resumes.
+export const RETRY_BASE_MS = 30_000;
+export const RETRY_MAX_MS = 3_600_000;
+export const retryDelayMs = (retries: number): number => Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.max(0, retries - 1));
+// The vendor refused or no longer has the link: the import cannot continue and is failed (reason `vendor`).
+export const REFUSED_STATUSES = new Set([401, 403, 404]);
 export function advanceCursor(c: Cursor, pageDone: boolean, limit: number): Cursor {
   return pageDone ? { i: c.i + 1, offset: 0, pass: c.pass } : { i: c.i, offset: c.offset + limit, pass: c.pass };
 }
@@ -168,6 +180,7 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
   const c = await getConnection(id);
   if (!c || c.state !== 'pending') throw new NotPendingError();
   let user: { id: number; handle: string };
+  const createdHere = c.user_id === null;
   if (c.user_id === null) {
     user = await createUserForAttempt(c.attempt_id);
     // The vendor user registered on the attempt moves to the user it now belongs to.
@@ -187,7 +200,16 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
       if (!ok) throw new NotPendingError();
     });
   } catch (e) {
-    if (e instanceof AccountClaimedError) { await refuse(id, c.attempt_id, deps, now); }
+    if (e instanceof AccountClaimedError) {
+      // A brokerage-first consent that lost the race leaves no ghost user: the vendor user goes back onto the attempt,
+      // the users row goes, the attempt is open again, and the refusal's cleanup removes the link and the vendor user.
+      if (createdHere) {
+        await sql`update signup_attempts a set snaptrade_user_id = u.snaptrade_user_id, snaptrade_secret_enc = u.snaptrade_secret_enc, user_id = null, completed_at = null
+          from users u where u.id = ${user.id} and a.id = ${c.attempt_id}`;
+        await sql`delete from users where id = ${user.id}`;
+      }
+      await refuse(id, c.attempt_id, deps, now);
+    }
     throw e;
   }
   await recordFunnel(c.attempt_id, 'consented');
@@ -195,15 +217,17 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
 }
 
 // S4 "Don't import": declined, the link removed at the vendor, provisional claims released.
+// Only a pending row can be declined; anything else (a replay, a consented connection) is a no-op (D2).
 export async function decline(id: number, deps: Deps = realDeps, now = new Date()): Promise<void> {
   const c = await getConnection(id);
-  if (!c) return;
-  if (c.state === 'pending' && (await setState(id, 'pending', 'declined', now))) await recordFunnel(c.attempt_id, 'declined');
+  if (!c || c.state !== 'pending' || !(await setState(id, 'pending', 'declined', now))) return;
+  await recordFunnel(c.attempt_id, 'declined');
   await cleanupQuietly(id, deps);
 }
 
 // The clocks, applied lazily on every read (marking only; the vendor cleanup runs from the tick) and by the tick.
 export async function applyClocks(now = new Date(), scope: { id?: number; userId?: number } = {}): Promise<{ expired: number[]; failed: number[] }> {
+  if ((scope.id !== undefined && !Number.isSafeInteger(scope.id)) || (scope.userId !== undefined && !Number.isSafeInteger(scope.userId))) return { expired: [], failed: [] };
   const where = scope.id !== undefined ? sql`and id = ${scope.id}` : scope.userId !== undefined ? sql`and user_id = ${scope.userId}` : sql``;
   const expired = await sql`update connections set state = 'expired', expired_at = ${now} where state = 'pending' and pending_at + ${PENDING_HOURS} * interval '1 hour' <= ${now} ${where} returning id, attempt_id`;
   const failed = await sql`update connections set state = 'failed', failed_at = ${now}, failure_reason = 'stale'
@@ -215,13 +239,19 @@ export async function applyClocks(now = new Date(), scope: { id?: number; userId
 
 // Decline, expiry, no real account, refusal: the link goes at the vendor (and the vendor user with it when no users row
 // exists), provisional claims are released, confirmed claims never. Retried by the tick until cleanup_done_at is set.
+// Only a declined or expired row is ever cleaned, and an authorization that a live (pending, importing or connected)
+// connection of the same user or attempt holds is never deleted: an expired link re-bundled into a new consent, or a
+// replayed decline, must not cut the consented link (D2).
 export async function cleanup(id: number, deps: Deps = realDeps, now = new Date()): Promise<void> {
   const c = await getConnection(id);
-  if (!c || c.cleanup_done_at) return;
+  if (!c || c.cleanup_done_at || (c.state !== 'declined' && c.state !== 'expired')) return;
+  const live = await sql`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
+    where c.id <> ${id} and c.state in ('pending', 'importing', 'connected') and (c.attempt_id = ${c.attempt_id} ${c.user_id === null ? sql`` : sql`or c.user_id = ${c.user_id}`})`;
+  const held = new Set(live.map((r) => r.auth as string));
   const bu = await brokerUserFor(c);
   if (bu) {
-    for (const auth of new Set(c.accounts.map((a) => a.authorizationId))) await ignoreGone(deps.deleteConnection(bu, auth));
-    if (c.user_id === null) {
+    for (const auth of new Set(c.accounts.map((a) => a.authorizationId))) if (!held.has(auth)) await ignoreGone(deps.deleteConnection(bu, auth));
+    if (c.user_id === null && held.size === 0) {
       await ignoreGone(deps.deleteUser(bu));
       await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id = ${c.attempt_id}`;
     }
@@ -237,13 +267,15 @@ const errStatus = (e: unknown) => { const x = e as { status?: number; response?:
 // A link or user already gone at the vendor counts as removed.
 async function ignoreGone(p: Promise<unknown>) { try { await p; } catch (e) { if (errStatus(e) !== 404) throw e; } }
 
-export type StepResult = { state: State; imported: number; progressed: boolean };
+export type StepResult = { state: State; imported: number; progressed: boolean; retryAt?: number };
 
 // One import step: one vendor page in one transaction under the per-user advisory lock, so a step and an hourly sync
 // never interleave and a failure leaves the record exactly as before. Resumable from import_cursor by any caller.
 export async function importStep(id: number, deps: Deps = realDeps, now = new Date()): Promise<StepResult> {
   const head = await getConnection(id);
   if (!head || head.state !== 'importing' || head.user_id === null) return { state: head?.state ?? 'failed', imported: head?.imported_count ?? 0, progressed: false };
+  const retryAt = head.import_cursor?.retryAt;
+  if (retryAt && now.getTime() < retryAt) return { state: 'importing', imported: head.imported_count, progressed: false, retryAt };
   try {
     return await sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${head.user_id})`;
@@ -252,7 +284,7 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
       if (c.state !== 'importing') return { state: c.state, imported: c.imported_count, progressed: false };
       const bu = (await brokerUserFor(c, tx))!;
       const real = realOf(c);
-      const cur: Cursor = { ...startCursor(), ...c.import_cursor };
+      const { retries: _retries, retryAt: _retryAt, ...cur }: Cursor = { ...startCursor(), ...c.import_cursor }; // a page read clears the backoff
       const save = async (cursor: Cursor, progressed: boolean, imported = c.imported_count) => {
         await tx`update connections set import_cursor = ${tx.json(cursor as never)}, imported_count = ${imported}, last_progress_at = ${progressed ? now : c.last_progress_at} where id = ${id}`;
         return { state: 'importing' as State, imported, progressed };
@@ -285,12 +317,18 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
     });
   } catch (e) {
     const status = errStatus(e);
-    // The vendor refused the link for good (4xx): failed, visible to the trader. Anything else is retried by the next step.
-    if (typeof status === 'number' && status >= 400 && status < 500) {
+    if (typeof status !== 'number') throw e; // not the vendor's answer (a database error): the caller sees it
+    // The vendor refused or lost the link: failed, visible to the trader, retried by connecting again.
+    if (REFUSED_STATUSES.has(status)) {
       if (await setState(id, 'importing', 'failed', now, { failure_reason: 'vendor' })) await recordFunnel(head.attempt_id, 'failed', { reason: 'vendor' });
       return { state: 'failed', imported: head.imported_count, progressed: false };
     }
-    throw e;
+    // Rate limited, a vendor outage or any other answer: the step rolled back; the next one waits out the backoff (D4).
+    const retries = (head.import_cursor?.retries ?? 0) + 1;
+    const next = now.getTime() + retryDelayMs(retries);
+    await sql`update connections set import_cursor = import_cursor || ${sql.json({ retries, retryAt: next })} where id = ${id} and state = 'importing'`;
+    console.error('import step deferred', id, status);
+    return { state: 'importing', imported: head.imported_count, progressed: false, retryAt: next };
   }
 }
 

@@ -26,7 +26,7 @@ import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string }> };
 
 async function load(handle: string) {
-  const [user] = await sql`select id, handle, display_name, excluded_positions, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle}`;
+  const [user] = await sql`select id, handle, display_name, excluded_positions, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
   if (!user) return null;
   const trades = await sql`
     select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
@@ -37,7 +37,8 @@ async function load(handle: string) {
   // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.
   if (user.snaptrade_user_id) await applyClocks(new Date(), { userId: user.id });
   const conn = user.snaptrade_user_id ? await latestConnection(user.id) : null;
-  const state: RecordState = conn?.state === 'importing' ? 'importing' : user.snaptrade_user_id ? 'connected' : 'none';
+  // A failed import is shown as such (TR-3: never a partial record presented as whole), never as connected.
+  const state: RecordState = conn?.state === 'importing' ? 'importing' : conn?.state === 'failed' ? 'failed' : user.snaptrade_user_id ? 'connected' : 'none';
   const positions = conn ? await sql`select symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol` : [];
   const [{ paper }] = await sql`select count(*)::int as paper from broker_accounts where user_id = ${user.id} and is_paper and removed_at is null`;
   return { user, trades, state, imported: conn?.imported_count ?? 0, positions: positions.map((p) => ({ symbol: p.symbol as string, pct: p.unrealized_pct as number })), paper: paper as number, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
@@ -110,6 +111,9 @@ export default async function Profile({ params, searchParams }: Params) {
       </p>
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {state === 'importing' && <p role="status" aria-live="polite" className="importing">{RECORD_BODY.banner(imported)}</p>}
+      {state === 'failed' && (
+        <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
+      )}
       {first && (
         <p className="muted small" style={{ marginTop: 0 }}>
           Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.

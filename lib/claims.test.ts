@@ -68,12 +68,15 @@ dbTest('syncUser: conflict throws, writes nothing, no rebuild; owner re-sync wor
     executedAt: new Date('2025-01-02'), verified: true, raw: {},
   });
   const stub = (accounts: string[], acts: ReturnType<typeof act>[]) => ({
-    listAccountIds: async () => accounts,
+    listAccounts: async () => accounts.map((id) => ({ id, authorizationId: `${tag}-auth`, institution: 'x', isPaper: false, initialSyncCompleted: true })),
     fetchActivities: async () => acts,
   });
   const u = (id: number) => ({ id, snaptrade_user_id: 'x', snaptrade_secret_enc: 'y' });
   let rebuilds = 0;
   const rebuild = async () => { rebuilds++; };
+  // F-1: a sync reads only accounts under a consented authorization, so each trader holds a connected connection on it.
+  for (const uid of [a, b]) await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, consent_at, importing_at, connected_at, accounts)
+    select signup_attempt_id, id, ${`${tag}-auth`}, 'connected', now(), now(), now(), ${sql.json([{ id: `${tag}-1`, authorizationId: `${tag}-auth` }])} from users where id = ${uid}`;
   try {
     assert.equal(await syncUser(u(a), stub([`${tag}-1`, `${tag}-2`], [act('e1', `${tag}-1`)]), rebuild), 1);
     assert.equal((await sql`select 1 from broker_accounts where account_id = ${`${tag}-2`} and user_id = ${a}`).length, 1);

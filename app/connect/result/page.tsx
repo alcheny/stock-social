@@ -1,22 +1,35 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
-import { applyClocks, CONNECT_COOKIE, getConnection, ownsConnection } from '@/lib/connections.ts';
+import { redirect } from 'next/navigation';
+import { applyClocks, CONNECT_COOKIE, getConnection, ownsConnection, parseConnectionId } from '@/lib/connections.ts';
+import { sql } from '@/lib/db.ts';
+import { FocusHeading } from './focus-heading.tsx';
+import { NotFound } from './connection-not-found.tsx';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser } from '@/lib/session.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { RESULT } from '@/lib/copy.ts';
 
 // S6 declined / expired, S6c no real account, S7 abandoned / failed / claimed. Every terminal state has one retry and
-// one way out; errors are role="alert". No ids or vendor details are shown.
+// one way out; errors are role="alert" and take focus. No ids or vendor details are shown. `?k=abandoned` needs no
+// connection (the portal returned without one); any other call without a valid, owned `c` is a plain not-found page
+// (D3); a consented connection goes to the profile and a pending one back to consent (D7).
 type Kind = 'declined' | 'expired' | 'none' | 'refused' | 'abandoned' | 'failed' | 'stale';
 
 export default async function Result({ searchParams }: { searchParams?: Promise<{ c?: string; k?: string }> }) {
   const sp = await searchParams;
-  const id = Number(sp?.c);
-  await applyClocks(new Date(), { id });
-  const c = id > 0 ? await getConnection(id) : null;
+  const id = parseConnectionId(sp?.c);
+  if (id === null && sp?.k !== 'abandoned') return <NotFound />;
+  if (id !== null) await applyClocks(new Date(), { id });
+  const c = id !== null ? await getConnection(id) : null;
   const me = await currentUser();
   const mine = c && ownsConnection(c, me?.id ?? null, (await cookies()).get(CONNECT_COOKIE)?.value, sessionSecret());
+  if (id !== null && !mine && sp?.k !== 'abandoned') return <NotFound />;
+  if (mine && (c.state === 'importing' || c.state === 'connected')) {
+    const [u] = await sql`select handle from users where id = ${c.user_id}`;
+    redirect(u ? `/u/${u.handle}` : '/connect');
+  }
+  if (mine && c.state === 'pending' && sp?.k !== 'none' && sp?.k !== 'refused') redirect(`/connect/consent?c=${c.id}`);
   const k: Kind = sp?.k === 'none' || sp?.k === 'refused' ? sp.k
     : !mine ? 'abandoned'
     : c.state === 'expired' ? 'expired'
@@ -29,7 +42,8 @@ export default async function Result({ searchParams }: { searchParams?: Promise<
   const primary = k === 'none' ? RESULT.noneAction : k === 'refused' ? RESULT.claimedAction : k === 'declined' || k === 'expired' ? RESULT.again : RESULT.retry;
   return (
     <main className="page auth">
-      <h1 tabIndex={-1} role={error ? 'alert' : undefined} data-kind={k}>{text}</h1>
+      <h1 id="result-heading" tabIndex={-1} role={error ? 'alert' : undefined} data-kind={k}>{text}</h1>
+      {error && <FocusHeading id="result-heading" />}
       <p><Link className="button wide" href="/connect">{primary}</Link></p>
       <p><Link className="button wide secondary" href="/">{k === 'abandoned' ? RESULT.notNow : RESULT.feed}</Link></p>
     </main>

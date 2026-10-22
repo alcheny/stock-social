@@ -118,11 +118,17 @@ test('signed in: S2 → portal → consent (zero depth: no activities) → impor
   await connectThrough(page);
   await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
   await expect(page.getByRole('heading', { name: 'Confirm what gets imported', level: 1 })).toBeVisible();
-  await expect(page.locator('ul.notice li').nth(1)).toHaveText('Every account under this login (2 accounts found, 1 simulated, not imported)');
+  await expect(page.locator('ul.notice li').nth(1)).toHaveText('Every account under this login');
+  await expect(page.locator('ul.notice li').nth(2)).toHaveText('2 accounts found (1 simulated, not imported)');
   const sql = await db();
   const [u] = await sql`select id from users where handle = ${handle}`;
-  expect((await sql`select 1 from activities where user_id = ${u.id}`).length).toBe(0);
-  expect((await sql`select confirmed_at from broker_accounts where user_id = ${u.id}`).every((r) => r.confirmed_at === null)).toBe(true);
+  const provisional = async () => {
+    expect((await sql`select 1 from activities where user_id = ${u.id}`).length).toBe(0);
+    expect((await sql`select confirmed_at from broker_accounts where user_id = ${u.id}`).every((r) => r.confirmed_at === null)).toBe(true);
+  };
+  await provisional();
+  // D1: the hourly tick while the consent is open imports nothing and confirms nothing.
+  if (cronSecret) { await tick(page.request); await provisional(); expect((await sql`select state from connections where user_id = ${u.id}`)[0].state).toBe('pending'); }
   await page.setViewportSize({ width: 375, height: 740 });
   await page.screenshot({ path: test.info().outputPath('s4-consent.png'), fullPage: true });
   await page.getByRole('button', { name: 'Import my record' }).click();
@@ -130,9 +136,16 @@ test('signed in: S2 → portal → consent (zero depth: no activities) → impor
   await expect(page.getByRole('status')).toHaveText('Importing your record · 0 trades so far');
   await expect(page.locator('.record-body')).toHaveText('Your trades appear here as they import.');
   await expect(page.locator('main')).not.toContainText('No closed trades yet');
-  const [c] = await sql`select state, consent_at from connections where user_id = ${u.id}`;
+  const [c] = await sql`select id, state, consent_at from connections where user_id = ${u.id}`;
   expect(c.state).toBe('importing');
   expect(c.consent_at).toBeTruthy();
+  // D7: revisiting the consent or result page after consent shows the import, never an error.
+  for (const path of [`/connect/consent?c=${c.id}`, `/connect/result?c=${c.id}`]) {
+    await page.goto(path);
+    await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+    await expect(page.getByRole('status')).toHaveText('Importing your record · 0 trades so far');
+    await expect(page.locator('main')).not.toContainText('Connection not completed');
+  }
   // The client poll: one page per call until connected.
   let r = await step(page.request);
   expect(r.imported).toBe(6);
@@ -143,6 +156,7 @@ test('signed in: S2 → portal → consent (zero depth: no activities) → impor
   await expect(page.getByRole('status')).toHaveCount(0);
   await expect(page.locator('main')).toContainText('Open positions');
   await expect(page.locator('.positions li')).toHaveText(['QQQ+10.0%']);
+  expect((await page.locator('.positions li a').first().boundingBox())!.height).toBeGreaterThanOrEqual(44); // D9: the symbol link is a tap target
   await expect(page.locator('.rows:not(.positions) li')).toHaveCount(3);
   await expect(page.locator('main')).toContainText('1 simulated account excluded');
   expect((await sql`select distinct account_id from activities where user_id = ${u.id}`).map((x) => x.account_id)).toEqual([acc]);
@@ -296,4 +310,95 @@ test('expiry with a clock: a pending consent older than 24 h reads expired and t
   expect((await sql`select state from connections where user_id = ${u.id} order by id desc limit 1`)[0].state).toBe('connected');
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+test('connect pages without a valid connection (D3, D9): ?k=abandoned is S7a with focus on the alert; a missing or malformed c is a plain not-found page, never a 500; a signed-in portal return with no link is S7a; a profile being deleted is hidden from the feed, the profile and the ticker page', async ({ page }) => {
+  await page.goto('/connect/result?k=abandoned');
+  const h1 = page.locator('h1'); // role="alert" replaces the heading role in the accessibility tree
+  await expect(h1).toHaveText('Connection not completed. Nothing was saved.');
+  await expect(h1).toHaveAttribute('role', 'alert');
+  await expect(page.getByRole('link', { name: 'Try again' })).toHaveAttribute('href', '/connect');
+  await expect(page.getByRole('link', { name: 'Not now' })).toHaveAttribute('href', '/');
+  await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('result-heading');
+  for (const path of ['/connect/result', '/connect/result?c=abc', '/connect/result?c=99999999999999999999', '/connect/result?c=1.5', '/connect/consent', '/connect/consent?c=0', '/connect/consent?c=NaN']) {
+    const r = await page.request.get(path);
+    expect([200, 404], path).toContain(r.status());
+    await page.goto(path);
+    await expect(page.getByRole('heading', { level: 1 }), path).toHaveText('Connection not found.');
+    await expect(page.getByRole('link', { name: 'Connect a brokerage' })).toHaveAttribute('href', '/connect');
+  }
+  // Signed in, a portal return that produced no link lands on S7a, not silently on the profile.
+  const handle = `abn${uniq()}`;
+  await devSignIn(page, handle);
+  await page.goto('/connect/done');
+  await expect(page).toHaveURL(/\/connect\/result\?k=abandoned$/);
+  await expect(page.locator('h1')).toHaveText('Connection not completed. Nothing was saved.');
+  // A user marked deleted_at (vendor deletion pending) is public nowhere, even with a feed-worthy record.
+  const sql = await db();
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  const sym = `ZDL${uniq().slice(0, 3).toUpperCase()}`;
+  for (let i = 0; i < 5; i++) await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+    values (${u.id}, ${`${handle}-s${i}`}, 'demo', ${sym}, now() - interval '2 days', now() - interval '1 hour', 0.9, 1, true)`;
+  await page.context().clearCookies();
+  await page.goto('/');
+  await expect(page.locator('main')).toContainText(`@${handle}`);
+  await sql`update users set deleted_at = now() where id = ${u.id}`;
+  await page.goto('/');
+  await expect(page.locator('main')).not.toContainText(handle);
+  expect((await page.request.get(`/u/${handle}`)).status()).toBe(404);
+  expect((await page.request.get(`/u/${handle}/opengraph-image`)).status()).toBe(404);
+  await page.goto(`/t/${sym}`);
+  await expect(page.locator('main')).not.toContainText(handle);
+  await sql`delete from users where id = ${u.id}`;
+});
+
+test('a vendor refusal fails the import and the hourly sync never publishes the partial record (D4, D5): a 5xx defers with backoff and keeps the cursor; a 403 fails; the profile shows the failed state with a retry, signed in and out', async ({ page }) => {
+  const handle = `fai${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  test.skip(!cronSecret, 'CRON_SECRET is not known to the spec');
+  const a1 = `e2e-${handle}-1`, a2 = `e2e-${handle}-2`;
+  await scenario([{ id: a1, activities: 4 }, { id: a2, activities: 4 }]);
+  await connectThrough(page);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  const sql = await db();
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  const conn = async () => (await sql`select id, state, failure_reason, import_cursor from connections where user_id = ${u.id} order by id desc limit 1`)[0];
+  expect((await step(page.request)).imported).toBe(4); // the first account's page
+  // 503 (the SDK retries a 429 in-process first; a 5xx reaches the app directly): deferred, still importing, cursor kept, no page consumed.
+  await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 503, times: 1 }) });
+  let r = await step(page.request);
+  expect(r).toMatchObject({ state: 'importing', imported: 4 });
+  let c = await conn();
+  expect(c.state).toBe('importing');
+  expect(c.import_cursor.retries).toBe(1);
+  expect(c.import_cursor.retryAt).toBeGreaterThan(Date.now());
+  expect(c.import_cursor.i).toBe(1);
+  r = await step(page.request); // before retryAt: no vendor call, nothing changes
+  expect(r).toMatchObject({ state: 'importing', imported: 4 });
+  // 403 once the backoff has passed: failed, reason vendor.
+  await sql`update connections set import_cursor = import_cursor || '{"retryAt": 0}' where id = ${c.id}`;
+  await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
+  r = await step(page.request);
+  expect(r.state).toBe('failed');
+  c = await conn();
+  expect(c.failure_reason).toBe('vendor');
+  // The tick: no sync for a trader without a connected connection; nothing published.
+  const t = await tick(page.request);
+  expect(t.failed).not.toContain(u.id);
+  expect((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n).toBe(4); // the second account was never read
+  expect((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n).toBe(0);
+  // The profile says so and offers the retry; the S8 empty-record line never shows.
+  await page.goto(`/u/${handle}`);
+  await expect(page.locator('p[role="alert"]')).toContainText('The import did not finish, so this record may be incomplete.');
+  await expect(page.getByRole('link', { name: 'Try again' })).toHaveAttribute('href', '/connect');
+  await expect(page.locator('main')).not.toContainText('No closed trades yet');
+  await expect(page.locator('.rows:not(.positions) li')).toHaveCount(0);
+  await page.context().clearCookies();
+  await page.goto(`/u/${handle}`);
+  await expect(page.locator('.record-failed')).toContainText('may be incomplete');
+  await expect(page.getByRole('link', { name: 'Try again' })).toHaveCount(0);
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id in (${a1}, ${a2})`;
 });

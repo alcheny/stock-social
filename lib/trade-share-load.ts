@@ -8,7 +8,7 @@ export async function loadTradeShare(handle: string, sellId: string) {
     select ct.user_id, ct.symbol, ct.return_pct, ct.holding_days, ct.closed_at,
       case when ct.thesis_status = 'published' then ct.thesis end as thesis,
       u.display_name
-    from closed_trades ct join users u on u.id = ct.user_id
+    from closed_trades ct join users u on u.id = ct.user_id and u.deleted_at is null
     where u.handle = ${handle} and ct.sell_id = ${sellId}`;
   if (!t) return null;
   const all = await sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${t.user_id}`;

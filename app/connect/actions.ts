@@ -3,13 +3,13 @@
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { AccountClaimedError } from '@/lib/claims.ts';
-import { CONNECT_COOKIE, consent, decline, getConnection, NotPendingError, ownsConnection } from '@/lib/connections.ts';
+import { CONNECT_COOKIE, consent, decline, getConnection, NotPendingError, ownsConnection, parseConnectionId } from '@/lib/connections.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser, rememberMethod, signIn } from '@/lib/session.ts';
 
 async function owned(form: FormData) {
-  const id = Number(form.get('c'));
-  const c = id > 0 ? await getConnection(id) : null;
+  const id = parseConnectionId(form.get('c'));
+  const c = id !== null ? await getConnection(id) : null;
   const me = await currentUser();
   if (!c || !ownsConnection(c, me?.id ?? null, (await cookies()).get(CONNECT_COOKIE)?.value, sessionSecret())) redirect('/connect');
   return { c, me };
