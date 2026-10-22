@@ -24,8 +24,9 @@ violations on every PR. The rules that matter most while working:
 
 **Stock Social**: public, verified trading records pulled read-only from supported brokers. Traders connect a
 broker, closed trades appear on a public profile and in a swipe feed, and the profile link unfurls as
-a share card. Full reasoning, phases and kill gates: `docs/DESIGN.md`. Phase 1 ("prove supply") is
-what's built. Don't build Phase 2/3 features (predictions, leagues, subscriptions, ride-along) unless asked.
+a share card. Full reasoning and kill gates: `docs/DESIGN.md`. The phase sequencing there is superseded:
+features decided in design sessions (`docs/features/`) are built in number order by the process in
+`docs/IMPLEMENTATION.md`. Anything POLICY or `docs/COMPLIANCE.md` marks as needing counsel still waits.
 
 ## Commands
 

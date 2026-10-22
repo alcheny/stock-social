@@ -64,7 +64,9 @@ anything else.
 - 2026-10-22: Before the vendor's portal opens, the trader sees a short trust notice about the
   connector: who SnapTrade is, that the connection is read-only (the app can never place trades or
   move money), that for brokers with a login handoff the broker password is never shared with SnapTrade
-  or with us, that SnapTrade holds an independent SOC 2 Type II audit, and a link to SnapTrade's own
+  or with us, that SnapTrade reports an
+  independent audit of its own security controls (its wording, linked, never presented as an audit of
+  any record or of this app), and a link to SnapTrade's own
   security page and to our "How records are calculated" page. Every statement is one the vendor
   publishes itself; no claim of endorsement by brokers and no "recommended by" wording (POLICY F3a,
   Section 11 of COMPLIANCE). Why: the owner wants traders to know the connector is reputable before
@@ -79,6 +81,18 @@ anything else.
 - 2026-10-22: Heavy-use targets for tests: 10,000 activities per trader, 5 accounts per trader, 500
   traders per hourly sync. Why: the owner accepted the defaults.
 
+- 2026-10-22: Trust-notice wording fixed to the legally compliant form (POLICY F3a: never imply
+  auditing of records): the notice says the vendor reports an independent audit of its own security
+  controls, in the vendor's words with a link, and nothing about this app or any record being audited.
+  Why: the owner chose the compliant version.
+- 2026-10-22: Three mechanics the committee found necessary, recorded so the build has them: (a) a
+  fresh connection whose accounts are all already claimed by one existing trader signs that trader in
+  and drops the new link; "refused" applies only when a different signed-in user tries (TR-6 kept);
+  (b) account claims are provisional until consent (`confirmed_at`); claims of a declined or expired
+  connection are released, confirmed claims are never released; (c) a `signup_attempts` row with no
+  personal data holds the 18+ attestation and the vendor link, and the user row is created at consent,
+  so the attestation always precedes the account. Why: without these the decisions above contradict
+  each other or the vendor's API; none changes what the owner decided.
 - 2026-10-22: The owner confirmed F-1 is decided; Status set to ready.
 
 ## Acceptance criteria
@@ -102,7 +116,16 @@ Each one testable; the pipeline writes a test for every line.
       timestamp for each transition; a declined or expired connection has no broker link at the vendor
       and no account claims in the app; a profile never shows "pending" older than 24 hours (a cron
       expires them; tested with a clock).
-- [ ] Declining shows "Import not started. Nothing is connected." and offers to connect again.
+- [ ] Declining shows "Import not started. Nothing is connected." and offers to connect again; the
+      connection's provisional claims are released (tested: the same account can then be claimed by
+      the same or another trader), while confirmed claims are never released.
+- [ ] A connection whose accounts are all confirmed-claimed by one existing trader signs that trader
+      in; a different signed-in trader is refused with the existing message.
+- [ ] The 18+ attestation is stored on a `signup_attempts` row before any user row exists; no user row
+      is ever created without a linked attestation (tested).
+- [ ] Account deletion exists (POLICY P6): it deletes personal data, the vendor user, events and
+      affinities, freezes nothing public that the owner's rules say survives (the handle is reserved
+      for one year with no personal data), and is tested end to end.
 - [ ] After consent, the trader lands on their profile with a banner that updates with the number of
       trades imported so far and disappears when the import finishes.
 - [ ] Two syncs for the same trader never interleave: a concurrent sync waits or is skipped, every
