@@ -175,3 +175,77 @@ integrated vendor is named, in the S2 copy that already existed. No performance 
 ## Verdict
 
 CLEAN
+
+---
+
+# Re-run 2 (after fix round 2)
+
+Date: 2026-10-22. Branch `claude/adoring-euler-4469ys` (606283e) vs `origin/main`. Inputs: the three committee reports, the
+engineer's `build-pr1-fix2.md`, the fix diff (7aa16d7..606283e: 24 files, product code in `app/{actions,layout,nav-login}.ts(x)`,
+`app/api/sync/route.ts`, `app/auth/{actions.ts,email/route.ts,callback/[provider]/route.ts}`, `app/connect/{page.tsx,start,done}`,
+`app/globals.css`, `app/login/page.tsx` (`order.tsx` deleted), `app/u/[handle]/page.tsx`, `lib/auth/{links,providers}.ts`,
+`lib/{copy,delete,session}.ts`). No product code changed by this pass. Local Postgres 16 (same role/database, the `DATABASE_URL`
+from `.env.example`), schema applied, demo seed, production build started as `localhost:3000` with `ALLOW_DEV_AUTH=1` and the
+in-repo issuer (`127.0.0.1:4100`) and email sink (`127.0.0.1:4101`) configured as the header of `e2e/signin.spec.ts` lists.
+Beyond the suite, an independent script (my own contrast formula, DB queries, cookie inspection, 216 checks) drove the server
+at 375px light and dark. Screenshots: `screenshots/pr1/rerun2/` (28 files).
+
+## 1. Checks
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` with `DATABASE_URL`, 3 runs in a row | 361 / 361 / 361 pass, 0 fail, 0 skipped |
+| `npm run build` | success |
+| `npx playwright test` (fakes configured) | **56 passed** (41 on main + 15 in `signin.spec.ts`), 43 s |
+| `node scripts/compliance.ts diff origin/main` | one finding, the pre-existing optional prebuilt image package's licence, identical on `origin/main`; nothing from this diff |
+| `node scripts/autopilot.ts guard main` | ok |
+| Server log after everything | no address, token or link; only the share-card font fetch that also exists on main |
+
+## 2. Committee findings, as a user and as the database see them
+
+| | Finding | Verified |
+|---|---|---|
+| (a) | `login_links.email` outlived the link | **Fixed.** After a successful link sign-in: `select count(*) from login_links where email = <addr>` = 0; the row stays with `used_at` set and `email = ''`; the local part appears in no row; the address lives only on the user's `identities` row. After expiry: `expires_at` moved to the past, `POST /api/sync` (bearer) returns `{ok, failed, purgedLinks: n≥1}` and the row (and address) is gone; the lazy purge before the next send also removes an expired row. After profile deletion: a claimed link on the completed attempt plus an unclaimed link for the same address on a later attempt → `deleteProfile` (vendor stub) leaves zero `login_links` rows with the address or on either attempt, the `users` and `identities` rows gone, the handle reserved. |
+| (b) | Dark primary text 2.72:1 | **Fixed.** Measured with my own formula on computed colors at 375px. Dark: primaries `rgb(11,11,15)` on `rgb(167,139,250)` = **7.22:1** on `/login` (three primaries), `/connect` signed in, the profile ("Connect your broker", "Save", "Share my record"); secondaries 16.39:1. Light: `#fff` on `rgb(109,40,217)` = **7.1:1**; secondaries 18.8:1. Signed-out `/connect` options 16.39:1 / 18.8:1. Every visible button is ≥ 44px. |
+| (c) | Redirects carried the server's hostname | **Fixed.** Link minted on `http://localhost:3000/…`, opened on `http://127.0.0.1:3000/…` → lands on `http://127.0.0.1:3000/u/trader_…`, nav shows `@handle`, `sid` cookie domain `127.0.0.1`. A bad token on `127.0.0.1` → `303 http://127.0.0.1:3000/login?error=expired`; signed-out `/connect/start` on `127.0.0.1` → `307 http://127.0.0.1:3000/login`. |
+| (d) | Signed-out brokerage-first looped | **Fixed.** S1 → attest → "Connect a brokerage instead" → S2 shows one `role="status"` "Sign in first, then connect.", no "Connect brokerage (read-only)", three 45px secondary links (`/login?method=provider_a|provider_b|email`); following one lands on S1 with the form (no redirect back). Signed in: the primary → `/connect/start`, 45px, no status line. Light and dark (`connect-signed-out-*.png`, `connect-signed-in-*.png`). |
+| (e) | Reused link said "expired", nothing to tap, address retyped | **Fixed.** Second tap after sign-in (session cleared) → `/login?error=used`, alert "That link was already used. Send a new one?", field prefilled, button "Send a new link". `expires_at` in the past → `/login?error=expired`, the expired alert, field prefilled, "Send a new link" 44px; after the attestation it sends a new link to the same address on a new attempt and the expired row is gone. `login_email` cookie: httpOnly, `path=/login`, ~15 min, never in a URL (`login-used-*.png`, `login-expired-*.png`). |
+| (f) | S2 "·" orphaned | **Fixed.** No "·" in `main`; the vendor link and "How records are calculated" are 44px rows 58px apart; no horizontal scroll at 375px or 360px. |
+| (g) | Tap-time reorder | **Fixed.** `data-method` order before a failed attestation submit equals the order after (and after a reload), the brokerage block last, the typed address kept, the alert shown. `auth_last_method` is written only on completion (`email`, httpOnly, `path=/login`); after a completed link sign-in S1 lists `email` first, `brokerage` last. A `dev` value leaves the order sane. |
+| (h) | New profile: handle twice, no "what next", bare "Change handle" | **Fixed on the first screen.** `h1` = `@trader_…`, the handle occurs once in `main`, `role="status"` "You're in. Next: connect your brokerage.", "Change handle" is a 44px secondary button (16.39:1 / 18.8:1) that opens the form (`profile-new-*.png`, `profile-new-handle-edit-*.png`). See defect 1 for what happens after the handle is changed. |
+| (i) | Signed-in `/login` | **Fixed.** `/login` and `/login?ref=…&via=nav` → `307` to `/u/<handle>`, signed in. |
+| (j) | Nav attribution | **Fixed.** On `/u/momentum_maya` the nav link is `/login?ref=momentum_maya&via=nav` (also in the server-rendered HTML, so JS is not needed); on `/` and `/t` it is `/login`. Following it through the email path records `landed` with `{"source":"profile"}`. |
+| (k) | 24px checkbox, legal links lost the box | **Fixed.** Checkbox bounding box 44×44; Terms and Privacy carry `target="_blank" rel="noopener noreferrer"`; after checking, a tap on "Terms" opens `/terms` in a new tab and the box is still checked; Space toggles the drawn box; a 2px focus ring (`login-checkbox-checked-focus-*.png`). |
+
+## 3. Regression
+
+- Chart range tabs (restyled): the pressed tab is the solid sign colour with page-background text, `rgb(250,250,250)` on
+  `rgb(21,128,61)` = **4.81:1** light, `rgb(11,11,15)` on `rgb(34,197,94)` = **8.62:1** dark, measured for every tab on
+  `dividend_dan` and the pressed tab on `yolo_yuki`; the losing colour by the same formula is 6.1:1 light, 5.3:1 dark.
+  Tapping a tab presses it, exactly one tab is pressed, the header number changes, the unpressed tabs are 5.0:1 / 5.8:1 as before
+  (`profile-dividend_dan-*.png`, `profile-momentum_maya-tab-switched-dark.png`).
+- Round-1 fixes still hold: the send-failure state shows the alert and "Send again", and the retry signs in after the sink
+  recovers (`login-sent-error-*.png`); the hidden default submit does not paint; Enter in the field still submits (e2e).
+- The second `role="alert"` on `/login/sent` is the framework's route announcer (page title), not product markup.
+- No horizontal scroll at 375px or 360px on S1, S2, the used state and a seeded profile.
+
+## 4. Defects
+
+1. **bug (usability)** · After "Change handle" the discarded provisional handle stays as the display name: `changeHandle`
+   (`lib/auth/attempts.ts`) updates `handle` only, and nothing in the product sets `display_name`, so the heading reads
+   `trader_zz9q1w2e` over `@chosen_name`, and the same text is the page title, `og:title` and the share-card name
+   (`profile-after-handle-change-light.png`; DB after: `handle = chosen_name, display_name = trader_zz9q1w2e`). The feed and
+   ticker pages show `display_name` too. Pre-existing in PR-1 (the heading was `display_name` before fix round 2 as well),
+   but item 9's `provisional = display_name === handle` now flips to this state the moment the trader uses the control the fix
+   made prominent, and the "You're in" line still shows. Simplest fix: `changeHandle` also sets `display_name` when it equals
+   the old handle (or the pages treat a display name that never diverged from a provisional handle as unset).
+
+Observations, not defects: a used or expired link opened in a browser without the `login_email` cookie shows the alert and
+"Send a new link" with an empty field (the cookie is per browser, by design); a `dev` sign-in writes `auth_last_method=dev`,
+which `orderMethods` ignores.
+
+## Verdict
+
+DEFECTS
+1. After "Change handle" the discarded provisional handle remains the display name on the profile heading, page title, share card and feed (bug, usability; pre-existing, exposed by fix 2 item 9).
