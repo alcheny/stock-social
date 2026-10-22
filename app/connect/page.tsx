@@ -14,8 +14,8 @@ export default async function Connect({ searchParams }: { searchParams?: Promise
   const me = await currentUser();
   const attempt = Number((await searchParams)?.attempt);
   if (attempt > 0) {
-    const [a] = await sql`select user_id from signup_attempts where id = ${attempt}`;
-    if (a && (a.user_id === null || a.user_id === me?.id)) await recordFunnel(attempt, 'notice_seen');
+    const [a] = await sql`select user_id, exists(select 1 from funnel_events f where f.attempt_id = signup_attempts.id and f.name = 'notice_seen') as seen from signup_attempts where id = ${attempt}`;
+    if (a && !a.seen && (a.user_id === null || a.user_id === me?.id)) await recordFunnel(attempt, 'notice_seen');
   }
   const options = [...providersFromEnv().map((p) => ({ key: p.key, label: SIGNIN.provider(p.label) })), { key: 'email', label: TRUST_NOTICE.emailOption }];
   return (
@@ -28,7 +28,10 @@ export default async function Connect({ searchParams }: { searchParams?: Promise
       <p className="small"><a className="tap" href={VENDOR_SECURITY_URL} rel="noopener noreferrer" target="_blank">{TRUST_NOTICE.vendorLink}</a> <span className="muted">({TRUST_NOTICE.vendorLinkNote})</span></p>
       <p className="small"><Link className="tap" href="/how">{TRUST_NOTICE.howLink}</Link></p>
       {me ? (
-        <p><a className="button wide" href="/connect/start">{TRUST_NOTICE.primary}</a></p>
+        <>
+          <p><a className="button wide" href="/connect/start">{TRUST_NOTICE.primary}</a></p>
+          <p className="small"><Link className="tap" href="/settings">{TRUST_NOTICE.settingsLink}</Link></p>
+        </>
       ) : (
         <>
           <p role="status">{TRUST_NOTICE.signInFirst}</p>

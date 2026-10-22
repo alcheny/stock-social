@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import { currentUser } from '@/lib/session.ts';
 import { NavLogin } from './nav-login.tsx';
+import { FOOTER } from '@/lib/copy.ts';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -26,6 +27,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <footer className="site muted">
           Not investment advice. Past performance does not guarantee future results. &ldquo;Verified&rdquo; means
           imported read-only from the trader&rsquo;s broker; it doesn&rsquo;t verify identity or imply endorsement.
+          <nav className="legal" aria-label="Legal">
+            <Link href="/terms">{FOOTER.terms}</Link> <Link href="/privacy">{FOOTER.privacy}</Link> <Link href="/how">{FOOTER.how}</Link>
+          </nav>
         </footer>
       </body>
     </html>

@@ -1,18 +1,24 @@
-import { NextResponse } from 'next/server';
-import { sql } from '@/lib/db.ts';
-import { connectUrl, registerUser } from '@/lib/broker.ts';
+import { NextResponse, type NextRequest } from 'next/server';
+import { cookies } from 'next/headers';
+import { getAttempt } from '@/lib/auth/attempts.ts';
+import { attemptCookieValue } from '@/lib/auth/links.ts';
+import { sessionSecret } from '@/lib/auth/sessions.ts';
+import { CONNECT_COOKIE, startConnection } from '@/lib/connections.ts';
 import { currentUser, origin } from '@/lib/session.ts';
 
-// Sends the signed-in trader to SnapTrade's read-only connection portal. URLs come from the request's origin.
-export async function GET() {
+// S2 → the vendor's read-only portal (today's redirect flow; PR-2b embeds it). Signed in, the connection hangs off the
+// user; brokerage-first (signed out, `?attempt=`), off the attested attempt, bound to this browser by a signed cookie.
+export async function GET(req: NextRequest) {
   const base = await origin();
-  const user = await currentUser();
-  if (!user) return NextResponse.redirect(`${base}/login`);
-
-  let bu = user.snaptrade_user_id && user.snaptrade_secret_enc ? { snaptradeUserId: user.snaptrade_user_id, secretEnc: user.snaptrade_secret_enc } : null;
-  if (!bu) {
-    bu = await registerUser(user.id);
-    await sql`update users set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${user.id}`;
+  const me = await currentUser();
+  let who: { userId: number | null; attemptId: number };
+  if (me) {
+    who = { userId: me.id, attemptId: me.signup_attempt_id };
+  } else {
+    const a = await getAttempt(Number(req.nextUrl.searchParams.get('attempt')));
+    if (!a || a.method !== 'brokerage' || a.user_id !== null || a.completed_at) return NextResponse.redirect(`${base}/login`);
+    who = { userId: null, attemptId: a.id };
+    (await cookies()).set(CONNECT_COOKIE, attemptCookieValue(a.id, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/connect', maxAge: 86_400, secure: base.startsWith('https://') });
   }
-  return NextResponse.redirect(await connectUrl(bu, `${base}/connect/done`));
+  return NextResponse.redirect(await startConnection(who, `${base}/connect/done`));
 }

@@ -28,7 +28,6 @@ test.afterAll(async () => {
 });
 
 const db = async () => (await import('../lib/db.ts')).sql;
-const attempts = async () => Number((await (await db())`select count(*)::int as n from signup_attempts`)[0].n);
 const maxAttempt = async () => Number((await (await db())`select coalesce(max(id), 0)::int as m from signup_attempts`)[0].m);
 const attest = (page: Page) => page.getByLabel('I am 18 or older and accept the Terms and Privacy Policy');
 const uniq = () => Math.random().toString(36).slice(2, 10);
@@ -78,15 +77,15 @@ test('S1 at 375px, signed out: copy, one attestation, legal links, both buttons,
   await expect(page.getByRole('heading', { name: 'Publish your trades', level: 1 })).toBeVisible();
   await expect(page.getByText('Read-only. We can never place trades or move money.')).toBeVisible();
   await expect(attest(page)).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
-  await expect(page.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
+  await expect(page.locator('main').getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
+  await expect(page.locator('main').getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
   // The checkbox is a 44px control; the legal links open in a new tab and the checked box is still there afterwards.
   const box = (await attest(page).boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(44);
   expect(box.height).toBeGreaterThanOrEqual(44);
-  for (const name of ['Terms', 'Privacy Policy']) await expect(page.getByRole('link', { name })).toHaveAttribute('rel', /noopener/);
+  for (const name of ['Terms', 'Privacy Policy']) await expect(page.locator('main').getByRole('link', { name })).toHaveAttribute('rel', /noopener/);
   await attest(page).check();
-  const [popup] = await Promise.all([page.waitForEvent('popup'), page.getByRole('link', { name: 'Terms' }).click()]);
+  const [popup] = await Promise.all([page.waitForEvent('popup'), page.locator('main').getByRole('link', { name: 'Terms' }).click()]);
   await expect(popup).toHaveURL(/\/terms$/);
   await popup.close();
   await expect(attest(page)).toBeChecked();
@@ -117,20 +116,29 @@ test('S1 at 375px, signed out: copy, one attestation, legal links, both buttons,
 
 test('unchecked attestation blocks every path: the box gets focus with the message, and no attempt row is written', async ({ page }) => {
   await page.goto('/login');
-  const before = await attempts();
   const buttons = await page.locator('button[name="method"]:not([hidden])').all();
   expect(buttons.length).toBeGreaterThanOrEqual(2);
+  const email = `blocked-${uniq()}@example.com`;
   for (let i = 0; i < buttons.length; i++) {
     await page.goto('/login');
-    await page.getByLabel('Email').fill('blocked@example.com');
+    await page.getByLabel('Email').fill(email);
     await page.locator('button[name="method"]:not([hidden])').nth(i).click();
     await expect(page.locator('p[role="alert"]')).toHaveText('Confirm you are 18 or older to continue.');
     await expect(attest(page)).toBeFocused();
     await expect(attest(page)).toHaveAttribute('aria-describedby', 'adult-err');
-    await expect(page.getByLabel('Email')).toHaveValue('blocked@example.com'); // the typed address survives the redirect
+    await expect(page.getByLabel('Email')).toHaveValue(email); // the typed address survives the redirect
     expect(page.url()).not.toContain('blocked'); // and never travels in the URL
+    // No attempt was written by this browser: every path that writes one also binds it to the browser (login_attempt,
+    // auth_tx or connect_attempt cookie) or redirects with its id; the email path would also leave a link for the address.
+    // (A global attempts count raced with the dev sign-ins of the other workers, as the PR-1 fix rounds found.)
+    expect(page.url()).toMatch(/\/login\?.*error=attest/);
+    expect(page.url()).not.toMatch(/attempt=/);
+    expect((await page.context().cookies()).map((c) => c.name)).not.toContain('login_attempt');
+    expect((await page.context().cookies()).map((c) => c.name)).not.toContain('auth_tx');
+    expect((await page.context().cookies()).map((c) => c.name)).not.toContain('connect_attempt');
   }
-  expect(await attempts()).toBe(before);
+  const sql = await db();
+  expect((await sql`select 1 from login_links where email = ${email}`).length).toBe(0);
 });
 
 test('email link: attestation stored before any redirect, link signs in once with a provisional handle, second use expired', async ({ page }) => {
@@ -226,11 +234,11 @@ test('S2 trust notice: four fixed lines, vendor and how links, before any portal
   await expect(lines.nth(0)).toHaveText('Read-only. Stock Social can never place trades or move money.');
   await expect(lines.nth(3)).toContainText('Nothing is imported until you confirm on the next screen.');
   await expect(page.getByRole('link', { name: "SnapTrade's security page" })).toHaveAttribute('href', /^https:\/\//);
-  await expect(page.getByRole('link', { name: 'How records are calculated' })).toHaveAttribute('href', '/how');
+  await expect(page.locator('main').getByRole('link', { name: 'How records are calculated' })).toHaveAttribute('href', '/how');
   // The two links on their own 44px rows, no orphan separator at 375px.
   expect(await page.locator('main').innerText()).not.toContain('·');
   const vendorBox = (await page.getByRole('link', { name: "SnapTrade's security page" }).boundingBox())!;
-  const howBox = (await page.getByRole('link', { name: 'How records are calculated' }).boundingBox())!;
+  const howBox = (await page.locator('main').getByRole('link', { name: 'How records are calculated' }).boundingBox())!;
   expect(vendorBox.height).toBeGreaterThanOrEqual(44);
   expect(howBox.height).toBeGreaterThanOrEqual(44);
   expect(howBox.y).toBeGreaterThanOrEqual(vendorBox.y + vendorBox.height);

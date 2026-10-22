@@ -1,4 +1,5 @@
 import { sql } from './db.ts';
+import type { TransactionSql } from 'postgres';
 
 // TR-6: a broker account belongs to one profile, ever. Shown on the owner's own profile only.
 export const ACCOUNT_CLAIMED_TITLE = "We couldn't link that broker account.";
@@ -29,14 +30,34 @@ export async function claimAccounts(userId: number, accountIds: string[]): Promi
   let conflicts: string[] = [];
   try {
     await sql.begin(async (tx) => {
-      await tx`insert into broker_accounts ${tx(ids.map((account_id) => ({ account_id, user_id: userId })))} on conflict (account_id) do nothing`;
-      const rows = await tx`select account_id, user_id from broker_accounts where account_id in ${tx(ids)}`;
-      conflicts = partitionClaims(ids, new Map(rows.map((r) => [r.account_id as string, r.user_id as number])), userId);
-      if (conflicts.length) throw ROLLBACK;
+      const r = await claimIn(tx, userId, ids.map((id) => ({ id, isPaper: false })), { confirmed: true, now: new Date() });
+      if (!r.ok) { conflicts = r.conflicts; throw ROLLBACK; }
     });
   } catch (e) {
     if (e !== ROLLBACK) throw e;
     return { ok: false, conflicts };
   }
   return { ok: true };
+}
+
+export type ClaimOpts = { connectionId?: number; confirmed: boolean; now: Date };
+// The claim inside a caller's transaction (F-1): provisional (confirmed_at null) at link time, confirmed at consent and
+// on every completed sync. The paper flag is re-read each time; confirmed_at is never cleared. The caller rolls back
+// on conflicts. Returns the ids owned by someone else.
+export async function claimIn(tx: TransactionSql, userId: number, accounts: { id: string; isPaper: boolean }[], o: ClaimOpts): Promise<{ ok: true } | { ok: false; conflicts: string[] }> {
+  const seen = new Map(accounts.map((a) => [a.id, a]));
+  const ids = [...seen.keys()];
+  if (!ids.length) return { ok: true };
+  const rows = [...seen.values()].map((a) => ({
+    account_id: a.id, user_id: userId, connection_id: o.connectionId ?? null, confirmed_at: o.confirmed ? o.now : null,
+    is_paper: a.isPaper, paper_seen_at: a.isPaper ? o.now : null,
+  }));
+  await tx`insert into broker_accounts ${tx(rows)} on conflict (account_id) do update set
+    confirmed_at = coalesce(broker_accounts.confirmed_at, excluded.confirmed_at),
+    connection_id = coalesce(excluded.connection_id, broker_accounts.connection_id),
+    is_paper = excluded.is_paper, paper_seen_at = case when excluded.is_paper then excluded.paper_seen_at else broker_accounts.paper_seen_at end
+    where broker_accounts.user_id = excluded.user_id`;
+  const owners = await tx`select account_id, user_id from broker_accounts where account_id in ${tx(ids)}`;
+  const conflicts = partitionClaims(ids, new Map(owners.map((r) => [r.account_id as string, r.user_id as number])), userId);
+  return conflicts.length ? { ok: false, conflicts } : { ok: true };
 }

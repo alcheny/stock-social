@@ -3,15 +3,16 @@
 // go in the same transaction, and the handle is reserved for a year
 // with no personal data. The two-step screen (S9) is PR-2a; this is the action behind it.
 import { sql } from './db.ts';
+import { deleteUser } from './broker.ts';
 
 export type DeletableUser = { id: number; handle: string; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 export type DeleteDeps = { deleteVendorUser: (u: { snaptradeUserId: string; secretEnc: string }) => Promise<void> };
 
 export const HANDLE_RESERVED_DAYS = 365;
 
-// ponytail: lib/broker.ts gains deleteUser in PR-2a; until then a connected profile cannot be deleted silently.
+// A vendor user already gone (404) counts as deleted; any other vendor error keeps the row, marked, for the hourly retry.
 export const defaultDeleteDeps: DeleteDeps = {
-  deleteVendorUser: async () => { throw new Error('vendor user deletion is not wired yet'); },
+  deleteVendorUser: async (u) => { try { await deleteUser(u); } catch (e) { const x = e as { status?: number; response?: { status?: number } }; if ((x?.status ?? x?.response?.status) !== 404) throw e; } },
 };
 
 // deleted_at marks a deletion in progress before the vendor call: if the vendor call fails the row stays, marked, and

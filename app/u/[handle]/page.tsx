@@ -8,7 +8,8 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { PROFILE } from '@/lib/copy.ts';
+import { PROFILE, RECORD_BODY, recordBodyCopy, type RecordState } from '@/lib/copy.ts';
+import { applyClocks, latestConnection } from '@/lib/connections.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
@@ -33,7 +34,13 @@ async function load(handle: string) {
   const brokers = await sql`select distinct raw->>'institution' as inst from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
-  return { user, trades, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.
+  if (user.snaptrade_user_id) await applyClocks(new Date(), { userId: user.id });
+  const conn = user.snaptrade_user_id ? await latestConnection(user.id) : null;
+  const state: RecordState = conn?.state === 'importing' ? 'importing' : user.snaptrade_user_id ? 'connected' : 'none';
+  const positions = conn ? await sql`select symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol` : [];
+  const [{ paper }] = await sql`select count(*)::int as paper from broker_accounts where user_id = ${user.id} and is_paper and removed_at is null`;
+  return { user, trades, state, imported: conn?.imported_count ?? 0, positions: positions.map((p) => ({ symbol: p.symbol as string, pct: p.unrealized_pct as number })), paper: paper as number, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -49,7 +56,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
-  const { user, trades, s, c, brokers, accounts } = data;
+  const { user, trades, s, c, brokers, accounts, state, imported, positions, paper } = data;
   const me = await currentUser();
   const isMe = me?.id === user.id;
   if (isMe) {
@@ -102,6 +109,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {!provisional && `@${user.handle} `}{trades.length > 0 && <Badge verified={allVerified} />} {isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
+      {state === 'importing' && <p role="status" aria-live="polite" className="importing">{RECORD_BODY.banner(imported)}</p>}
       {first && (
         <p className="muted small" style={{ marginTop: 0 }}>
           Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.
@@ -165,15 +173,26 @@ export default async function Profile({ params, searchParams }: Params) {
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
       <PerformanceChart trades={trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null }))} now={new Date()} />
+      </>}
       {user.excluded_positions > 0 && (
         <p className="muted">{user.excluded_positions} earlier position(s) excluded: no matching entry in the imported history.</p>
       )}
+      {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
+
+      {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
+      {positions.length > 0 && <>
+        <h2>{RECORD_BODY.positionsTitle}</h2>
+        <ul className="rows positions">
+          {positions.map((p) => (
+            <li key={p.symbol}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link></b><b className={p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
+          ))}
+        </ul>
       </>}
 
       {showJoin && <JoinCta handle={user.handle} via={ctaVia((await searchParams)?.via)} />}
 
       <h2>Closed trades</h2>
-      {!trades.length && <p className="muted">{user.snaptrade_user_id ? 'Syncing… closed trades appear here.' : 'No trades yet.'}</p>}
+      {recordBodyCopy(state, trades.length) && <p className="muted record-body">{recordBodyCopy(state, trades.length)}</p>}
       <ul className="rows">
         {trades.map((t) => (
           <li key={t.id} id={`trade-${t.id}`}>

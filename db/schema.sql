@@ -230,3 +230,54 @@ create table if not exists funnel_events (
   meta jsonb not null default '{}'
 );
 select schema_add_index('funnel_events_attempt', 'create index funnel_events_attempt on funnel_events (attempt_id, at)');
+
+-- F-1 PR-2a: one row per brokerage connection attempt (docs/features/logs/F-1/plan.md §1, §3). States and one
+-- timestamp per state; the legal transitions live in lib/connections.ts. No personal data: vendor ids, counts and
+-- timestamps only. `accounts` is the vendor's account list at link time (ids, institution, paper flag), the
+-- provisional claim of a brokerage-first attempt that has no users row yet (confirmed into broker_accounts at consent).
+create table if not exists connections (
+  id bigint generated always as identity primary key,
+  attempt_id bigint not null references signup_attempts(id),
+  user_id int references users(id) on delete cascade,
+  vendor_authorization_id text,
+  institution text,
+  state text not null check (state in ('pending', 'importing', 'connected', 'declined', 'expired', 'failed')),
+  pending_at timestamptz not null default now(),
+  importing_at timestamptz,
+  connected_at timestamptz,
+  declined_at timestamptz,
+  expired_at timestamptz,
+  failed_at timestamptz,
+  consent_at timestamptz,
+  import_cursor jsonb not null default '{}',
+  imported_count int not null default 0,
+  last_progress_at timestamptz,
+  failure_reason text check (failure_reason in ('stale', 'vendor', 'link_closed', 'link_error')),
+  portal_mode text check (portal_mode in ('embedded', 'redirect')),
+  accounts jsonb not null default '[]',
+  cleanup_done_at timestamptz,
+  disconnected_at timestamptz
+);
+select schema_add_index('connections_user', 'create index connections_user on connections (user_id)');
+select schema_add_index('connections_state', 'create index connections_state on connections (state)');
+
+-- Claims are provisional until consent (confirmed_at); provisional rows are released on decline, expiry or when no real
+-- account was found, confirmed rows never. Simulated ("paper") accounts are claimed, excluded from the record and
+-- counted; the flag is re-read on every sync.
+select schema_add_column('broker_accounts', 'connection_id', 'bigint references connections(id) on delete set null');
+select schema_add_column('broker_accounts', 'confirmed_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'removed_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'is_paper', 'boolean not null default false');
+select schema_add_column('broker_accounts', 'paper_seen_at', 'timestamptz');
+-- Rows from before F-1 were claimed by a completed sync: confirmed.
+update broker_accounts set confirmed_at = claimed_at where confirmed_at is null and connection_id is null;
+
+-- Open positions (TR-4): symbol and unrealized percent only. No units, prices or amounts, on purpose.
+create table if not exists open_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  symbol text not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null default now(),
+  primary key (user_id, account_id, symbol)
+);

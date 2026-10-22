@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
-import { allCopy, LEGAL_PLACEHOLDER, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
+import { allCopy, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
 
 const MARK_RE = new RegExp(`\\b(${MARKS.map((m) => m.replace(/ /g, '[\\s-]?')).join('|')})\\b`, 'i');
 const MINORS_RE = new RegExp(`\\b(${MINORS.map((m) => m.replace(/ /g, '\\s')).join('|')})\\b`, 'i');
@@ -10,7 +10,7 @@ const BANNED = [/\bendorse[sd]?\b/i, /\brecommend(ed|s|ation)?\b/i, /\bguarantee
 
 test('every F-1 string passes the banned-claims list, the marks list and the promo list', () => {
   const all = allCopy();
-  assert.ok(all.length > 20);
+  assert.ok(all.length > 60);
   for (const s of all) {
     for (const re of PROMO) assert.doesNotMatch(s, re, s);
     for (const re of BANNED) assert.doesNotMatch(s, re, s);
@@ -32,4 +32,22 @@ test('S1 and S2 copy is the UX lead\'s, verbatim', () => {
   assert.match(TRUST_NOTICE.lines[2], /reports an independent audit of its security controls/);
   assert.match(VENDOR_SECURITY_URL, /^https:\/\//);
   assert.match(LEGAL_PLACEHOLDER.placeholder, /^Placeholder: the owner supplies the final text before launch\./);
+});
+
+test('PR-2a copy: the trust notice stays the vendor\'s own report of an audit of its controls; consent names the depth; results and settings are as written; /how says what Verified means and what is excluded', () => {
+  assert.equal(TRUST_NOTICE.lines[2], 'SnapTrade reports an independent audit of its security controls.');
+  assert.doesNotMatch(TRUST_NOTICE.lines.join(' '), /audit(ed)? (of )?(the |your |any )?(record|trade|app)/i);
+  assert.deepEqual(CONSENT.lines(3, 1).slice(0, 2), ['Full trade history your broker provides', 'Every account under this login (3 accounts found, 1 simulated, not imported)']);
+  assert.equal(CONSENT.lines(2, 0)[1], 'Every account under this login (2 found)');
+  assert.equal(CONSENT.primary, 'Import my record');
+  assert.equal(CONSENT.secondary, "Don't import");
+  assert.equal(RESULT.declined, 'Import not started. Nothing is connected.');
+  assert.equal(RESULT.none, 'No real brokerage account found.');
+  assert.equal(RESULT.abandoned, 'Connection not completed. Nothing was saved.');
+  assert.equal(SETTINGS.confirm, 'This cannot be undone.');
+  assert.match(HOW.verified, /imported read-only from the trader.s broker/);
+  assert.doesNotMatch(HOW.verified, /\bevery trade\b|\bany broker\b|\bcomplete\b/i);
+  for (const word of ['Options', 'short sales', 'Transfers in', 'no recorded entry', 'not connected', 'paper']) assert.match(HOW.excluded.join(' '), new RegExp(word));
+  assert.match(HOW.math.join(' '), /first in, first out/);
+  assert.match(HOW.math.join(' '), /Only percentages/);
 });
