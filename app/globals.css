@@ -233,6 +233,7 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .auth .divider { text-align: center; margin: 4px 0; }
 .auth .options { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .auth .email-block label { margin-top: 0; }
+.auth .email-block input { width: 100%; } /* as wide as the buttons under it */
 .auth .notice { padding-left: 1.2em; display: grid; gap: 10px; }
 /* Text links that are tap targets ("Back", the S2 links): 44px tall without changing the line. */
 .auth a.tap { display: inline-flex; align-items: center; min-height: 44px; }

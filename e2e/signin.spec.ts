@@ -94,6 +94,10 @@ test('S1 at 375px, signed out: copy, one attestation, legal links, both buttons,
   await expect(page.getByLabel('Email')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send me a link' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Connect a brokerage instead' })).toBeVisible();
+  // The email field is as wide as the buttons under it (computed width at 375px).
+  const emailWidth = (await page.getByLabel('Email').boundingBox())!.width;
+  expect(emailWidth).toBe((await page.getByRole('button', { name: 'Send me a link' }).boundingBox())!.width);
+  expect(emailWidth).toBe((await page.getByRole('button', { name: 'Connect a brokerage instead' }).boundingBox())!.width);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   for (const b of await page.locator('button:not([hidden]), .button').all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   // Every visible button has a name; the hidden default submit (Enter in the email field) paints nothing.
@@ -202,6 +206,9 @@ test('email link: attestation stored before any redirect, link signs in once wit
   await page.getByLabel('New handle').fill(chosen);
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(new RegExp(`/u/${chosen}$`));
+  // The root-layout nav follows without a reload (the action revalidates the layout before redirecting).
+  await expect(page.locator('nav.top .me')).toHaveText(`@${chosen}`);
+  await expect(page.locator('nav.top .me')).toHaveAttribute('href', `/u/${chosen}`);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`@${chosen}`);
   await expect(page).toHaveTitle(`${chosen} (@${chosen}) · Stock Social`);
   expect(await page.locator('main').innerText()).not.toContain(handle);

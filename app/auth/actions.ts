@@ -2,6 +2,7 @@
 // F-1 sign-in actions. Every path writes the 18+ attestation (signup_attempts) before any redirect; the users row
 // is created only when a method completes (lib/auth/attempts.ts). Nothing personal is logged.
 import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db.ts';
 import { createAttempt, isMethod } from '@/lib/auth/attempts.ts';
@@ -115,6 +116,7 @@ export async function setHandle(form: FormData) {
   const { changeHandle, HandleTakenError } = await import('@/lib/auth/attempts.ts');
   try {
     const h = await changeHandle(user.id, form.get('handle'));
+    revalidatePath('/', 'layout'); // the root-layout nav shows the handle; without this it keeps the old one (now a 404) until a reload
     redirect(`/u/${h}`);
   } catch (e) {
     if (e instanceof HandleTakenError) redirect(`/u/${user.handle}?handle=taken`);

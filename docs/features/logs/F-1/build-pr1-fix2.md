@@ -96,3 +96,33 @@ Compliance checklist for this diff: no new strings, no personal data (the displa
 schema or dependency change, no protected path touched. Not changed: the "You're in" status line still shows after a
 handle change while no brokerage is connected (by design: `provisional` is `display_name === handle`, now true for the
 chosen handle as well).
+
+# Fix round 4 (committee re-sit: business lead demand, UX lead observation, taste item)
+
+**Demand: stale nav after a handle change.** After "Save" the root-layout nav kept `@<old>` linking to `/u/<old>` (now
+a 404) until a full reload. `app/auth/actions.ts#setHandle` redirected without revalidating the root layout, so the
+cached layout shell (which renders the nav from `currentUser()`) was reused by the client router.
+
+**Fix.** `setHandle` calls `revalidatePath('/', 'layout')` before `redirect` (the same pattern `app/actions.ts:51`
+uses for the profile path). No schema, copy or dependency change.
+
+**Taste: S1 email input narrower than the buttons.** `input[type="email"]` fell through to the generic input rule
+(no width), so it sat at ~274px under 343px buttons at 375px. Fix: `.auth .email-block input { width: 100%; }` in
+`app/globals.css` (global `box-sizing: border-box` keeps the padding inside).
+
+**Tests (both in `e2e/signin.spec.ts`, existing tests extended, so the count is unchanged).**
+- Email-link test, after Save and the URL change, without a reload: `nav.top .me` reads `@<new>` and its `href` is
+  `/u/<new>`. With the fix stashed it fails (`Received: "@trader_…"`); with it, passes.
+- S1 at 375px: the email field's computed width equals the width of both buttons under it. With the fix stashed it
+  fails (`Expected: 343, Received: 274`); with it, passes.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` with the local Postgres 16 | 361 tests, 361 pass, 0 fail, 0 skipped |
+| `npm run build` | success, same routes |
+| `npx playwright test e2e/signin.spec.ts` against `npm run start` (`ALLOW_DEV_AUTH=1`, fake issuer on 4100 and sink on 4101 configured) | 15 passed (21.5 s) |
+| `node scripts/compliance.ts diff origin/main` | the one pre-existing violation only (`node_modules/@img/sharp-wasm32`, identical on `main`); nothing from this diff |
+
+Compliance checklist for this diff: no new strings, no personal data, no schema or dependency change, no protected
+path touched, no motion added; the full-width field keeps its 44px height and label.
