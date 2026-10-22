@@ -19,10 +19,15 @@ anything else.
 - 2026-10-22: Supported brokerages on day one: the set that together covers about 95% of retail
   brokerage accounts in the launch market, as reached through the integrated vendor. Named in the
   private launch checklist, not in the repo (POLICY: no third-party names). Why: the owner's coverage target.
-- 2026-10-22: Sign-in options: with a brokerage connection, with a major email-provider account, and
-  with social accounts (listed in the private checklist). Why: the owner wants low-friction sign-in.
-  Note: the brokerage link is not an identity provider; "log in with brokerage" means a session created
-  by completing a verified connection, with the claimed broker account as the identity key (TR-6).
+- 2026-10-22: Sign-in at launch: a major email-provider account (one provider, named in the private
+  checklist), a passwordless email link, and a session created by completing a brokerage connection.
+  No social networks at launch; the platforms where traders gather are served through sharing (F-4)
+  and referral links, not sign-in. Why: the owner chose the provider plus email after reviewing
+  coverage (the provider alone reaches roughly nine in ten US adult internet users; email reaches
+  everyone) and the cost of extra buttons (lower conversion, duplicate accounts that can never connect
+  the same broker account twice, TR-6). Note: the brokerage link is not an identity provider; "log in
+  with brokerage" means a session created by completing a verified connection, with the claimed broker
+  account as the identity key. The email link is the recovery path for every other method.
 - 2026-10-22: First sync depth is zero: the connect step only validates that the brokerage is linked.
   The record is then imported at the full depth the anti-cherry-picking rules require (TR-3: the full
   history the broker provides), after the trader consents to that depth on screen. Why: validate first,
@@ -104,6 +109,7 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Open questions
 - Which real test accounts exist for each day-one brokerage?
-- Which social accounts exactly (private checklist)? Each adds an OAuth client to maintain.
+- Phone-number sign-in (SMS one-time code): decision pending; see the conversion and risk notes in chat
+  (cost per message, SMS-pumping fraud, SIM-swap account takeover, phone as personal data).
 
 ## Rework notes
