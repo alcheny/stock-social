@@ -30,10 +30,13 @@ Run this before planning and again before merging. Record the answers in the PR 
 5. **Does it accept or show user-written text or images?** → Section 6 (user content).
 6. **Does it change sign-up, age, identity or accounts?** → Section 7 (age and identity).
 7. **Does it add a vendor, a dependency, a font, an image or copy from elsewhere?** → Section 8
-   (IP, licenses, vendors).
+   (IP, licenses, vendors). A font, script or image served from another company's servers is also a
+   privacy transfer → Section 3: self-host it.
 8. **Can it be used by someone with a screen reader or without a mouse?** → Section 9.
 9. **Does it change security posture (auth, secrets, webhooks, public endpoints)?** → Section 10.
 10. **Does any marketing or product copy make a claim?** → Section 11 (advertising claims).
+11. **Does it add a checkout, a trial or a renewal?** → Section 4: price, interval, next charge date and
+    cancellation method on the checkout page itself, plus the post-purchase acknowledgment.
 
 If any answer is "yes" and the matching section says "owner/counsel", the agent stops and writes what
 the owner should decide. Never work around.
@@ -71,6 +74,7 @@ build if it could be read as a recommendation. Keep a written "how records are c
 | GDPR / UK GDPR | If EU/UK users are allowed. | Default: not allowed at launch (POLICY). If allowed later: lawful basis, DPA with vendors, data-subject rights, transfers. |
 | Children's privacy (COPPA) | Under-13 data. | 18+ only; no collection from minors; see Section 7. |
 | Data minimization in the schema | | `closed_trades` stores no quantities or prices by design; keep it that way. Don't add fields "just in case". |
+| Third-party resource loads (fonts, scripts, images, embeds served from another company's servers) | Each load sends the visitor's IP address and page URL to that company; under GDPR and some state laws that is a data transfer without consent (a German court awarded damages per visitor for fonts loaded from a third party's servers). | **Self-host everything:** fonts, scripts, icons and images are served from the app's own origin; no third-party font, analytics, chat, map or video embeds on any page. The only outbound calls are server-side to integrated vendors. The scanner blocks `fonts.googleapis`, `fonts.gstatic`, third-party `<script src>` and `<link href>` to other hosts. (Status today: none found in `app/` or `lib/`; keep it that way.) |
 
 **Procedures:** data inventory (what, where, why, retention) updated with every schema change; a
 privacy-policy diff for every new field or vendor; deletion tested end to end, including the vendor
@@ -82,7 +86,7 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
 |---|---|---|
 | State money-transmitter laws and FinCEN (Bank Secrecy Act) | Holding or moving others' money. | Never hold funds. Payouts (F-3) only through a payments vendor's connected-accounts product where the vendor is the regulated party. |
 | Payment-card industry standard (PCI DSS) | Card data handling. | Hosted checkout only; no card fields in the codebase (scanner). Annual self-assessment. |
-| Automatic-renewal laws (federal ROSCA; California and other state auto-renewal laws) | Subscriptions: clear terms, affirmative consent, easy cancellation, renewal reminders. | Cancel online in as many clicks as sign-up; show renewal date and price before purchase; reminder emails for annual plans and before a trial converts. |
+| Automatic-renewal laws (federal ROSCA; California and other state auto-renewal laws) | Subscriptions: clear terms, affirmative consent, easy cancellation, renewal reminders. | Cancel online in as many clicks as sign-up; show renewal date and price before purchase; reminder emails for annual plans and before a trial converts. **California specifically:** the renewal terms must be shown in visual proximity to the consent, in a clear and conspicuous way, before the charge, with a post-purchase acknowledgment the consumer can keep; goods or services delivered without that are deemed an **unconditional gift** (no charge can be kept, refunds owed). The checkout page itself, not only the Terms, must show price, renewal interval, cancellation method and the date of the next charge. |
 | Tax (sales tax on digital goods varies by state; 1099 reporting for payouts) | | Billing vendor handles tax; payout vendor handles tax forms. |
 | Gambling, sweepstakes and prize laws (state) | Anything with chance, consideration and a prize. | No prizes, wagering, loot boxes or points convertible to money (POLICY F6). "Call it" predictions (Phase 2) must stay paper-only and prize-free, and be reviewed before build. |
 | Unfair or deceptive practices in pricing (FTC, state UDAP) | Hidden fees, dark patterns. | Total price up front; no pre-checked boxes; no confirm-shaming. |
@@ -102,7 +106,7 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
 | Rule | What it governs | Look out for |
 |---|---|---|
 | Communications Decency Act §230 | Immunity for third-party content, with exceptions. | Moderation is allowed and keeps immunity; the company's *own* statements (computed stats, labels) are not covered, so computed numbers must be correct (F3c). |
-| DMCA §512 safe harbor | Copyright claims on user content. | Register a DMCA agent with the Copyright Office; publish a takedown process; repeat-infringer policy; act on notices. |
+| DMCA §512 safe harbor | Copyright claims on user content. | Register a DMCA agent with the Copyright Office (online, a small fee, renewed every three years) **before** any user content goes live, including text theses; publish the agent's contact and a takedown process on the site; repeat-infringer policy; act on notices. Without the registration there is no safe harbor, and statutory damages run per work. |
 | Defamation, harassment, impersonation | | Moderation rules hold suspect theses; impersonation of real people or firms is removed; display names and handles can't use third-party marks (POLICY T). |
 | Securities-specific content rules | Pump language, solicitation, off-platform payment links, guaranteed returns. | Rules-based moderation now, model classifier in Phase 2, fail closed (held, never auto-published). |
 | Terms of Service | | Must grant the license needed to display records and theses publicly, set the 18+ rule, the record-freeze rule, the one-account-one-profile rule and the deletion rule, in plain words. Owner/counsel only. |
@@ -111,7 +115,7 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
 
 | Rule | What it governs | Look out for |
 |---|---|---|
-| COPPA (under 13) and state minors' online-safety laws (several states regulate accounts, feeds and features for under-18s, with varying age-assurance duties) | Minors' data and design. | 18+ only, attested at sign-up, repeated on every first sign-in method. If age assurance becomes required for adult-only services in a state, counsel decides the method. No features or copy aimed at minors; no age cohorts that include minors in docs. **"Adults only" is a mitigation, not an exemption:** a service with accounts, a feed and sharing can still fall inside a state's minors' law if minors can sign up by lying, so treat an under-18 report like a COPPA notice (delete, log, review the gate) and watch the states that mandate age assurance for services like this. See Section 13 for exposure. |
+| COPPA (under 13) and state minors' online-safety laws (several states regulate accounts, feeds and features for under-18s, with varying age-assurance duties) | Minors' data and design. | 18+ only, attested at sign-up, repeated on every first sign-in method (every sign-in path in F-1, including "sign in with brokerage", must collect the attestation before an account exists; a test asserts no `users` row without `adult_attested_at`). If age assurance becomes required for adult-only services in a state, counsel decides the method. No features or copy aimed at minors; no age cohorts that include minors in docs. **"Adults only" is a mitigation, not an exemption:** a service with accounts, a feed and sharing can still fall inside a state's minors' law if minors can sign up by lying, so treat an under-18 report like a COPPA notice (delete, log, review the gate) and watch the states that mandate age assurance for services like this. See Section 13 for exposure. |
 | Know-your-customer rules | Apply to financial institutions holding funds. | Not applicable while no funds are held; the broker and the payments vendor perform KYC. Becomes relevant to payouts (vendor-handled). |
 | Identity and authentication duties (FTC reasonable security; state laws) | | Replace the dev auth stub before launch; MFA available; secure session cookies; rate limits on sign-in. "Verified" never implies identity verification (F3a). |
 | Account-claim rule (TR-6) vs. consumer rights | A broker account belongs to one profile forever. | Must be explained at connect time and in Terms; needs a support path for mistaken claims (human review), since deletion rights and the claim rule interact. |
@@ -171,7 +175,7 @@ agencies; confirm current numbers with counsel. "Per" is the unit that multiplie
 | Privacy | California CCPA/CPRA (and similar state laws) | per violation, i.e. per consumer | ~$2,500 per violation, ~$7,500 if intentional or involving minors; private right of action for breaches (~$100 to $750 per consumer per incident) | Missing notice, ignored deletion or opt-out requests, selling or "sharing" data for ads without opt-out, a breach of unencrypted personal data. Mitigation: deletion and export working end to end, no third-party ad tracking, encryption at rest, GPC honored. |
 | Privacy | Biometric laws (Illinois BIPA and others) | per person, per scan | $1,000 to $5,000 per violation, private suits | Any face or voice processing. Mitigation: none in the product; never add without counsel. |
 | Privacy | GLBA / FTC Safeguards | per violation, per day | civil penalties per violation plus consent orders | Not having or not following a written security program after a breach. Mitigation: keep the program document current and followed. |
-| Privacy | GDPR / UK GDPR (if EU/UK users are allowed) | per infringement | up to 4% of global turnover or €20M | Any processing without a lawful basis, missing DPAs, transfers. Mitigation: EU/UK not allowed at launch. |
+| Privacy | GDPR / UK GDPR (if EU/UK users are allowed) | per infringement; also per-visitor damages in private suits | up to 4% of global turnover or €20M; courts have awarded damages per visitor for third-party font loads | Any processing without a lawful basis, missing DPAs, transfers, third-party resource loads. Mitigation: EU/UK not allowed at launch; self-host all assets anyway, since EU visitors reach shared links regardless of policy. |
 | Communications | TCPA | per text or call | $500 per message, $1,500 if willful; class actions | Any SMS without prior express written consent. Mitigation: no SMS. |
 | Communications | CAN-SPAM | per email | ~$50,000+ per separate email | Missing unsubscribe, false headers, no physical address. Mitigation: billing-vendor and transactional email only, unsubscribe on every marketing message. |
 | Communications | State wiretap / session-replay suits (e.g. California CIPA) | per user, statutory damages | $2,500 to $5,000 per violation, class actions | Session-replay scripts, chat widgets or pixels that record interactions without consent. Mitigation: no session replay, first-party analytics only. |
