@@ -28,6 +28,15 @@ elements that catch the eye and travel, and leave detail for the profile.
   example "Based on 30 separate bets over 61 days. Still early." / "Based on 140 bets over 2 years.
   A solid sample." Why: the owner wants both the interval and something an average user understands.
 
+- 2026-10-22: The confidence range is always shown, from the first closed trade, and widens as the
+  sample thins; there is no flat count below which it is hidden. "Too early" is a model state, not a
+  number: the interval is undefined (fewer than 2 independent bets) or wider than a width threshold
+  recorded in the design record. At small samples the interval uses a t multiplier (K − 1 degrees of
+  freedom) instead of a fixed 2 standard errors, so it widens on its own; a population-shrunk
+  (Bayesian) estimate is the later upgrade, consistent with F-2. Why: the owner wants the display to
+  follow the statistics rather than a hand-set cutoff; the width is the honest statement of how little
+  is known. Note: this amends TR-9 in DESIGN §5.2 ("once K ≥ 10"), which the owner edits to match.
+
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
 handle, the evidence label, the disclaimer. No chart.
@@ -37,7 +46,11 @@ Each one testable; the pipeline writes a test for every line.
 - [ ] The card shows: the record's percent chart (single line, 0% on the axis, CH-1), the total number
       of closed trades, and the period ("Record since ‹month year› · ‹N› months"), plus name and handle.
 - [ ] The card shows one headline figure, the average return per trade, with its range in words
-      ("likely between −0.1% and +2.7%") once K ≥ 10, and no win rate.
+      ("likely between −0.1% and +2.7%") whenever at least 2 independent bets exist, and no win rate;
+      the multiplier is Student's t with K − 1 degrees of freedom (tested against a table at K = 2, 3,
+      10, 30, 100).
+- [ ] "Too early" is shown when K < 2 or the interval's half-width exceeds the threshold in the design
+      record; a test proves it is never triggered by a count alone.
 - [ ] The card carries the evidence label and one plain-language trust line whose wording is chosen
       from a fixed table by evidence tier (thin / moderate / strong) and sign, tested for every cell;
       the words never describe skill, only the sample ("still early", "a solid sample", "a long record").
