@@ -111,7 +111,7 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
 
 | Rule | What it governs | Look out for |
 |---|---|---|
-| COPPA (under 13) and state minors' online-safety laws (several states regulate accounts, feeds and features for under-18s, with varying age-assurance duties) | Minors' data and design. | 18+ only, attested at sign-up, repeated on every first sign-in method. If age assurance becomes required for adult-only services in a state, counsel decides the method. No features or copy aimed at minors; no age cohorts that include minors in docs. |
+| COPPA (under 13) and state minors' online-safety laws (several states regulate accounts, feeds and features for under-18s, with varying age-assurance duties) | Minors' data and design. | 18+ only, attested at sign-up, repeated on every first sign-in method. If age assurance becomes required for adult-only services in a state, counsel decides the method. No features or copy aimed at minors; no age cohorts that include minors in docs. **"Adults only" is a mitigation, not an exemption:** a service with accounts, a feed and sharing can still fall inside a state's minors' law if minors can sign up by lying, so treat an under-18 report like a COPPA notice (delete, log, review the gate) and watch the states that mandate age assurance for services like this. See Section 13 for exposure. |
 | Know-your-customer rules | Apply to financial institutions holding funds. | Not applicable while no funds are held; the broker and the payments vendor perform KYC. Becomes relevant to payouts (vendor-handled). |
 | Identity and authentication duties (FTC reasonable security; state laws) | | Replace the dev auth stub before launch; MFA available; secure session cookies; rate limits on sign-in. "Verified" never implies identity verification (F3a). |
 | Account-claim rule (TR-6) vs. consumer rights | A broker account belongs to one profile forever. | Must be explained at connect time and in Terms; needs a support path for mistaken claims (human review), since deletion rights and the claim rule interact. |
@@ -156,7 +156,37 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
 - "How records are calculated" page history (every change to the trade math is a product statement).
 - Counsel opinions: adviser status, each Phase 2/3 feature, state coverage.
 
-## 13. Review calendar
+## 13. Penalty exposure: laws that fine per user, per message or per violation
+
+Why this section exists: most internet and consumer laws count **each affected user, message or day**
+as a separate violation, so a defect that touches every account multiplies into a company-ending sum.
+Figures are approximate statutory maximums at the time of writing, inflation-adjusted yearly by the
+agencies; confirm current numbers with counsel. "Per" is the unit that multiplies.
+
+| Area | Law | Unit | Approximate exposure | What triggers it in this app |
+|---|---|---|---|---|
+| Child safety and minors | COPPA (FTC) | per violation (in practice per child, per day) | ~$50,000+ per violation; recent settlements in the tens of millions | Collecting data from an under-13 user with knowledge; a feature or marketing that makes the service "directed to children"; failing to delete on notice. Mitigation: 18+ only, no child-directed design or copy, delete on any report, no age cohorts under 18 in analytics or docs. |
+| Child safety and minors | State minors' online-safety and age-verification laws (a growing set; design codes, social-media account laws, age-assurance mandates) | per violation, often per minor user, sometimes per day | commonly $2,500 to $10,000 per violation; some allow private suits with statutory damages per user | A feed, accounts and posts can bring a service inside these laws even when adults-only, if a state requires age assurance rather than attestation. Mitigation: counsel reviews each state; attestation at sign-up now, age assurance added when and where required; no features aimed at minors. |
+| Child safety | Federal TAKE IT DOWN Act and state laws on intimate images; CSAM reporting duties (18 U.S.C. §2258A) | per image / per failure to report | criminal and civil; reporting failures carry six-figure fines | User-uploaded images (none today; theses are text). If images are ever allowed: notice-and-removal within 48 hours, hash-matching, reporting pipeline. Mitigation: keep user content text-only until this is built. |
+| Privacy | California CCPA/CPRA (and similar state laws) | per violation, i.e. per consumer | ~$2,500 per violation, ~$7,500 if intentional or involving minors; private right of action for breaches (~$100 to $750 per consumer per incident) | Missing notice, ignored deletion or opt-out requests, selling or "sharing" data for ads without opt-out, a breach of unencrypted personal data. Mitigation: deletion and export working end to end, no third-party ad tracking, encryption at rest, GPC honored. |
+| Privacy | Biometric laws (Illinois BIPA and others) | per person, per scan | $1,000 to $5,000 per violation, private suits | Any face or voice processing. Mitigation: none in the product; never add without counsel. |
+| Privacy | GLBA / FTC Safeguards | per violation, per day | civil penalties per violation plus consent orders | Not having or not following a written security program after a breach. Mitigation: keep the program document current and followed. |
+| Privacy | GDPR / UK GDPR (if EU/UK users are allowed) | per infringement | up to 4% of global turnover or €20M | Any processing without a lawful basis, missing DPAs, transfers. Mitigation: EU/UK not allowed at launch. |
+| Communications | TCPA | per text or call | $500 per message, $1,500 if willful; class actions | Any SMS without prior express written consent. Mitigation: no SMS. |
+| Communications | CAN-SPAM | per email | ~$50,000+ per separate email | Missing unsubscribe, false headers, no physical address. Mitigation: billing-vendor and transactional email only, unsubscribe on every marketing message. |
+| Communications | State wiretap / session-replay suits (e.g. California CIPA) | per user, statutory damages | $2,500 to $5,000 per violation, class actions | Session-replay scripts, chat widgets or pixels that record interactions without consent. Mitigation: no session replay, first-party analytics only. |
+| Subscriptions | ROSCA, state auto-renewal laws | per transaction / per consumer | FTC civil penalties per violation (~$50,000+); state suits with restitution | Unclear renewal terms, hard cancellation, no reminders. Mitigation: F-3 acceptance criteria (cancel online, renewal date shown, reminders). |
+| Securities | Advisers Act / Exchange Act / state blue-sky enforcement | per violation; disgorgement; injunctions; registration costs | six to seven figures in practice, plus being forced to register or shut the feature | Giving personalized advice, soliciting trades, paid signals. Mitigation: POLICY F1 to F6, counsel before any F-2/F-3 feature. |
+| Consumer protection | FTC Act §5 and state UDAP | per violation (order violations per day) | FTC penalties after an order (~$50,000+ per violation per day); state AGs per consumer | Deceptive "verified" claims, dark patterns, privacy-policy mismatch. Mitigation: F3a wording, Section 11. |
+| Accessibility | ADA / state civil-rights laws | per suit, per plaintiff | statutory damages per offense in some states (~$4,000 in California) plus fees | An inaccessible flow. Mitigation: WCAG 2.1 AA (POLICY A). |
+| Copyright | DMCA / Copyright Act | per work infringed | $750 to $150,000 statutory damages per work | Losing safe harbor by having no registered agent or ignoring notices. Mitigation: register the agent, follow the takedown process. |
+
+**Design rule drawn from this table:** any defect in consent, deletion, unsubscribe, age gating or data
+exposure is a per-user liability, so those paths get the same test rigor as the trade math: unit
+tests, an end-to-end test, and a heavy-use test (every user processed, none skipped). A missing
+unsubscribe link in one template is not one bug; it is one violation per recipient.
+
+## 14. Review calendar
 
 - **Every PR:** Section 1 checklist in the PR body.
 - **Every new vendor, field, feature phase or market:** counsel review; privacy policy and Terms diff.
