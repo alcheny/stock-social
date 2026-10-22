@@ -140,3 +140,41 @@ Screenshots per screen (light and dark, 375px) are written to the Playwright out
 10. **Claims in copy?** All strings fixed in `lib/copy.ts` and tested against `PROMO`, the marks list and
     endorse/recommend/guarantee/secure; the vendor is named only as the integrated vendor; "Verified" unchanged.
 11. **Checkout?** No.
+
+## Fix round 1 (tester report `test-pr1-tester.md`, verdict DEFECTS)
+
+Date: 2026-10-22. No decision in the feature file or the plan changed; no new dependency; `lib/session.ts` edited again under
+the F-1 pre-authorization (one function, `signIn`). PR-2 items left as noted by the tester: the signed-out brokerage-first
+loop (S1 → S2 → S1) and the `notice_seen` dedupe (PR-2 touches S2).
+
+| # | Defect | Fix | Test |
+|---|---|---|---|
+| 3 (must) | Schema deadlock (40P01) when `node --test` applies `db/schema.sql` from several files at once | Root cause from the server log: the apply (one implicit transaction) held ACCESS EXCLUSIVE on `users` from the pre-existing `alter table users add column if not exists …` lines (Postgres locks before it checks), then waited for SHARE on `activities`/`closed_trades`/`identities` from `create index if not exists`, while another file's insert into that table waited for the FK row share on `users`. The backfill alone was not the cycle. `db/schema.sql` now: (a) `pg_advisory_xact_lock(hashtext('db/schema.sql'))` first, so concurrent applies serialize (CI starts empty); (b) `schema_add_column` / `schema_add_index` helpers that look in the catalog and take no table lock when the column or index exists (every `add column if not exists` and `create index if not exists` goes through them); (c) the F-1 backfill and `set not null` inside a `do` block guarded by `is_nullable = 'YES'`, so after the first apply it runs no statement at all. Verified on an empty database (node twice, `psql -1`, seed) and on the existing one. | `lib/schema.test.ts`: text checks (no bare `if not exists` additions, guarded set-not-null, advisory lock, still no drop/truncate/delete) and a DB test: a session holding an open insert into `users` + `activities`; a repeat apply under `lock_timeout = 3s` completes twice. Against the old schema the same scenario fails with "canceling statement due to lock timeout". |
+| 1 (must) | Hidden default submit painted as a 28×44 px block | `[hidden] { display: none !important; }` in `globals.css` (the `button { display: inline-block }` rule beat the attribute). Enter in the email field still submits (the hidden default button is clicked by the browser's implicit submission regardless of display). | `e2e/signin.spec.ts` S1 test: every visible button has a name; exactly one `button[hidden]`, `toBeHidden()`, computed `display: none`. Keyboard-only test still presses Enter. |
+| 2 (must) | Email send failure showed the framework error; attempt + link rows left behind | `lib/auth/links.ts#issueLink`: writes the link row, sends, and on failure marks the row `used_at = now()` in the same breath and throws `SendFailedError` (no address, token or link in the message). `startSignIn` turns it into `/login/sent?a=N&error=send`: `role="alert"` "We could not send your link. Try again." and a primary "Send again" (the retry, same attempt, no second attestation row). The attempt row stays: it is the attestation and funnel record of an incomplete sign-in, with nothing claimable attached. | `lib/auth/links.test.ts` DB test with a sender that throws: one row, status `used`, `pendingLinkEmail` still knows the address, a good resend leaves exactly one open link. E2e (sink forced to 500 via `POST /_fail` on `e2e/fakes/email.ts`): error state text, no "Check your email", the link row is closed, no generic error text, "Send again" with the sink back signs in; skips with a message when the server does not send to the sink. |
+| 4 (nit) | Attestation error dropped the typed email | The address rides in a 10-minute httpOnly cookie (`login_email`, path `/login`), never the URL (request logs); `/login` reads it into the field after any validation redirect. | E2e: after the attestation error the field holds the address and the URL does not. |
+| 5 (nit) | Resend open to anyone with a guessed attempt id | `login_attempt` cookie: the attempt id HMAC-signed with the session secret, path `/login`; `resendLink` refuses a mismatch and `/login/sent` shows "Send again" only to the owner. The per-address (5) and per-attempt (3) limits per 15 minutes stay, and the rate-limited case now says so (`error=limit`) instead of "Sent again." | `ownsAttempt` unit test (other id, other key, tampered, unsigned, id 0). E2e: a second browser context at the same `/login/sent?a=N` gets the text and Back, no "Send again". |
+| 6 (nit) | Sign-in while signed in kept the old session row | `createSession(userId, now, replacing)` deletes the browser's current session row in the same transaction; `signIn` passes the token from the cookie. | `lib/auth/sessions.test.ts`: the old token stops resolving, one row per browser, an unknown token replaces nothing. E2e: dev sign-in twice without clearing cookies; the first `sid` hash is gone from `sessions`. |
+| 8 (nit) | "← Back" and the two S2 links under 44 px | `.auth a.tap { display: inline-flex; align-items: center; min-height: 44px }` on those links. | E2e bounding boxes ≥ 44 on `/login/sent` and both S2 links (plus the S2 dark screenshot). |
+| 9 (nit) | `users.deleted_at` never written | `deleteProfile` sets `deleted_at` before the vendor call: a deletion in progress. A vendor failure leaves the row, marked, for the next call to finish (PR-2a's S9 hides marked rows and retries from the hourly tick). | `lib/delete.test.ts`: after the failed vendor call the row stays with `deleted_at` set; the retry completes as before. |
+| 10 (nit) | E2e miscount | Build log corrected: 41 → 49 (now 50 with the send-failure test). | — |
+
+Also: `e2e/signin.spec.ts` dev-form test no longer asserts a global `signup_attempts` count (app.spec.ts signs in through the
+same form in a parallel worker; it was a latent race): it finds its own attempt and checks method and completion.
+New copy strings (`sendFailed`, `sentAgain`, `tooMany`, `back`) live in `lib/copy.ts` and run through the banned-list test.
+
+### Commands run
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` with a local Postgres 16, run 1 / 2 / 3 / 4 | 359 tests, 359 pass, 0 fail, each run (plus 12 earlier runs while reproducing: the old schema deadlocked in 2 of them, in `lib/claims.test.ts` and `lib/funnel.test.ts`) |
+| `npm test` without `DATABASE_URL` | 359 tests, 346 pass, 13 skipped |
+| `npm run build` | success |
+| `npx playwright test` with the fake issuer and sink configured on the server, twice | 50 passed, 50 passed |
+| `npx playwright test e2e/signin.spec.ts` without the provider/sink variables (CI's situation) | 6 passed, 3 skipped with their reasons |
+| `node scripts/compliance.ts tree` | the same single pre-existing dependency finding as on `main` (`@img/sharp-wasm32`); nothing from this diff |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+| Schema on an empty database | `scripts/db-setup.ts` twice, `psql -1 -f`, then `SEED=1`: `signup_attempt_id` NOT NULL, 25 indexes, seed ok |
+
+Diff this round: ~320 added / 70 removed lines, 17 files, no protected path other than `lib/session.ts` (pre-authorized).

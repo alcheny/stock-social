@@ -269,9 +269,8 @@ test('the dev form lives at /login/dev and still signs an existing handle in thr
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(/\/u\/dividend_dan$/);
   const mine = await sql`select method, completed_at from signup_attempts a join users u on u.id = a.user_id where a.id > ${before} and u.handle = 'dividend_dan'`;
-  expect(mine.length).toBe(1);
-  expect(mine[0].method).toBe('dev');
-  expect(mine[0].completed_at).toBeTruthy();
+  expect(mine.length).toBeGreaterThanOrEqual(1); // app.spec.ts may sign the same demo handle in at the same time
+  for (const a of mine) { expect(a.method).toBe('dev'); expect(a.completed_at).toBeTruthy(); }
   await expect(page.getByText('Change handle')).toBeVisible();
   const first = await sessionHash(page);
   expect((await sql`select 1 from sessions where token_hash = ${first}`).length).toBe(1);
