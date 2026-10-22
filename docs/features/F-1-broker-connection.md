@@ -19,8 +19,11 @@ anything else.
 - 2026-10-22: Supported brokerages on day one: the set that together covers about 95% of retail
   brokerage accounts in the launch market, as reached through the integrated vendor. Named in the
   private launch checklist, not in the repo (POLICY: no third-party names). Why: the owner's coverage target.
-- 2026-10-22: Sign-in at launch: a major email-provider account (one provider, named in the private
-  checklist), a passwordless email link, and a session created by completing a brokerage connection.
+- 2026-10-22: Sign-in at launch: two device-native account providers (the major email provider and
+  the major phone maker, named in the private checklist), a passwordless email link, and a session
+  created by completing a brokerage connection. The phone maker's sign-in is included from the start
+  because it is the one-tap path on its phones and is required by its app store the day a native app
+  ships with any other social sign-in.
   No social networks at launch; the platforms where traders gather are served through sharing (F-4)
   and referral links, not sign-in. Why: the owner chose the provider plus email after reviewing
   coverage (the provider alone reaches roughly nine in ten US adult internet users; email reaches
@@ -66,13 +69,23 @@ anything else.
   publishes itself; no claim of endorsement by brokers and no "recommended by" wording (POLICY F3a,
   Section 11 of COMPLIANCE). Why: the owner wants traders to know the connector is reputable before
   handing over broker access; the notice must stay factual and sourced.
+- 2026-10-22: Phone-number sign-in (SMS one-time code) is planned for the first follow-up after launch,
+  not for launch. The sign-up funnel is instrumented from day one (step reached, method chosen,
+  completed, time to complete) so the decision to add phone is made on measured drop-off at the email
+  step. When added: rate limits and a fraud filter against SMS pumping before the first message is
+  sent, codes that are transactional only, and phone never the sole recovery factor for an account
+  holding a brokerage link. Why: the owner wants sign-up completion as high as possible, like the
+  one-tap provider path, and accepts deferring phone until the data shows it is needed.
 - 2026-10-22: Heavy-use targets for tests: 10,000 activities per trader, 5 accounts per trader, 500
   traders per hourly sync. Why: the owner accepted the defaults.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
-- [ ] A trader can sign in with an email-provider account or a social account, or create a session by
-      completing a brokerage connection; the 18+ attestation is required on every first sign-in.
+- [ ] A trader can sign in with either device-native provider account, with an email link, or by
+      completing a brokerage connection; the 18+ attestation is required on every first sign-in, on
+      every method, before a user row exists.
+- [ ] The sign-up funnel records, per attempt: method chosen, each step reached, completion, and time
+      to complete, with no personal data in the event (tested: events contain no email, phone or name).
 - [ ] A trust notice precedes the portal on every connection attempt: read-only, password not shared
       for login-handoff brokers, the vendor's audit status, links to the vendor's security page and
       the app's "How records are calculated" page; its wording is a fixed string tested against the
@@ -109,7 +122,5 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Open questions
 - Which real test accounts exist for each day-one brokerage?
-- Phone-number sign-in (SMS one-time code): decision pending; see the conversion and risk notes in chat
-  (cost per message, SMS-pumping fraud, SIM-swap account takeover, phone as personal data).
 
 ## Rework notes
