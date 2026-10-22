@@ -167,7 +167,7 @@ test('email link: attestation stored before any redirect, link signs in once wit
   await expect(page.getByRole('status')).toHaveText("You're in. Next: connect your brokerage.");
   expect((await page.getByText('Change handle').boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await expect(page.getByRole('link', { name: 'Connect your broker (read-only)' })).toBeVisible();
-  const [u] = await sql`select signup_attempt_id, adult_attested_at from users where handle = ${handle}`;
+  const [u] = await sql`select id, signup_attempt_id, adult_attested_at from users where handle = ${handle}`;
   expect(Number(u.signup_attempt_id)).toBe(Number(a.id));
   const [done] = await sql`select completed_at from signup_attempts where id = ${a.id}`;
   expect(done.completed_at).toBeTruthy();
@@ -190,7 +190,24 @@ test('email link: attestation stored before any redirect, link signs in once wit
   await expect(page.locator('p[role="alert"]')).toHaveText('That link was already used. Send a new one?');
   await expect(page.getByLabel('Email')).toHaveValue(email);
   await expect(page.getByRole('button', { name: 'Send a new link' })).toBeVisible();
-  await sql`delete from users where handle = ${handle}`;
+  // Change handle: the chosen handle replaces the provisional one everywhere the name shows (heading, page title,
+  // share-card title, feed name), not only in the URL; the discarded handle is gone from the page.
+  await page.goto('/login/dev');
+  await page.getByLabel('Handle').fill(handle);
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  const chosen = `chosen_${uniq()}`;
+  await page.getByText('Change handle').click();
+  await page.getByLabel('New handle').fill(chosen);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${chosen}$`));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`@${chosen}`);
+  await expect(page).toHaveTitle(`${chosen} (@${chosen}) · Stock Social`);
+  expect(await page.locator('main').innerText()).not.toContain(handle);
+  const [renamed] = await sql`select handle, display_name from users where id = ${u.id}`;
+  expect(renamed).toEqual({ handle: chosen, display_name: chosen });
+  await sql`delete from users where handle = ${chosen}`;
 });
 
 test('S2 trust notice: four fixed lines, vendor and how links, before any portal; brokerage-first attests first', async ({ page }) => {

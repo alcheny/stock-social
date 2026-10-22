@@ -87,6 +87,18 @@ dbTest('signInWithIdentity: new subject → new user with a provisional handle; 
     const nh = await changeHandle(u1.id, `${tag}_new`);
     assert.equal(nh, `${tag}_new`);
     await assert.rejects(changeHandle(u1.id, 'Bad Handle!'), HandleTakenError);
+    // The provisional display name (= the old handle) follows the new handle: nothing shows the discarded handle.
+    const [d1] = await sql`select display_name from users where id = ${u1.id}`;
+    assert.equal(d1.display_name, `${tag}_new`);
+    // A blank display name follows too.
+    await sql`update users set display_name = ' ' where id = ${u1.id}`;
+    await changeHandle(u1.id, `${tag}_blank`);
+    assert.equal((await sql`select display_name from users where id = ${u1.id}`)[0].display_name, `${tag}_blank`);
+    // A display name the trader typed themselves is never overwritten by a handle change.
+    await sql`update users set display_name = 'Typed Name' where id = ${u1.id}`;
+    await changeHandle(u1.id, `${tag}_again`);
+    const [d2] = await sql`select handle, display_name from users where id = ${u1.id}`;
+    assert.deepEqual(d2, { handle: `${tag}_again`, display_name: 'Typed Name' });
   } finally {
     await sql`delete from users where id in ${sql(ids)}`;
   }

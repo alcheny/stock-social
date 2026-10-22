@@ -65,3 +65,34 @@ Screenshots (375px, light and dark, S1 and S2) are written by the spec to the Pl
 ## Compliance checklist (docs/COMPLIANCE.md §1) for this diff
 
 1. Performance: no stats on any touched screen; disclaimer unchanged on every page. 2. Personal data: the email address now lives only in `identities` (the user's), in an open link row for at most 15 minutes, and in the httpOnly `login_email` cookie for 15 minutes; deleted with the profile (tested), blanked on claim (tested), purged on expiry (tested); the `auth_last_method` cookie holds a method name only. 3. Money: no. 4. Email: unchanged (one transactional link). 5. User text: none. 6. Sign-up/age: unchanged, the attestation still precedes every attempt row (the `requireLinkOrigin` check runs before the attempt is written). 7. Vendor/dependency: none added. 8. Screen reader/keyboard: `role="status"` lines on S2 and the profile; the 44px checkbox keeps its label and focus ring; legal links announce as links; no motion. 9. Security: redirects from the request origin; production refuses to mint links without the configured origin; single-use claim unchanged; no address, token or link in any URL, log or error. 10. Claims: every new string in `lib/copy.ts` passes the banned-list test. 11. Checkout: no.
+
+# Fix round 3 (tester re-run 2, Defect 1)
+
+**Defect.** After "Change handle", `lib/auth/attempts.ts#changeHandle` updated `handle` only, so the discarded provisional
+handle stayed as `display_name` and showed as the profile heading, the page title, the share-card name and the feed name.
+
+**Fix.** `changeHandle` sets `display_name` in the same `update`: when the current display name equals the old handle
+(the provisional default, never typed by the trader) or is blank, it becomes the new handle; otherwise it is left as is,
+so a display name the trader typed themselves is never overwritten. One statement, no schema change; every surface that
+reads `display_name` (heading, `generateMetadata` title, share card, feed, ticker pages) picks the new value up on read.
+
+**Tests.**
+- `lib/auth/attempts.test.ts` (DB, in the `signInWithIdentity` test): after `changeHandle` the provisional display name
+  equals the new handle; a blank display name follows too; a typed display name (`'Typed Name'`) survives a further
+  handle change with `handle` updated. Fails on the previous code (`display_name` stayed the old handle), passes now.
+- `e2e/signin.spec.ts` email-link test, extended: signs the provisional user in (dev form), opens "Change handle",
+  saves a new handle, and asserts the URL, the `h1` (`@<new>`), the page `<title>` (`<new> (@<new>) · Stock Social`),
+  that the old handle no longer appears in `main`, and the `users` row (`handle` and `display_name` both the new handle).
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` with the local Postgres | 361 tests, 361 pass, 0 fail, 0 skipped (the new assertions sit in an existing test, so the count is unchanged; it is 4 pass / 1 fail in `lib/auth/attempts.test.ts` with the fix stashed) |
+| `npm run build` | success, same routes |
+| `npx playwright test e2e/signin.spec.ts` against `npm run start` (`ALLOW_DEV_AUTH=1`, fake issuer on 4100 and sink on 4101 configured) | 15 passed (23 s) |
+| `node scripts/compliance.ts diff origin/main` | the one pre-existing violation only (`node_modules/@img/sharp-wasm32`, identical on `main`); nothing from this diff |
+
+Compliance checklist for this diff: no new strings, no personal data (the display name is the trader's own handle), no
+schema or dependency change, no protected path touched. Not changed: the "You're in" status line still shows after a
+handle change while no brokerage is connected (by design: `provisional` is `display_name === handle`, now true for the
+chosen handle as well).

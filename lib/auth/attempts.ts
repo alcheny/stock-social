@@ -91,11 +91,17 @@ export async function signInWithIdentity(attemptId: number, id: Identity): Promi
   return u;
 }
 
-// Owner-only handle change (the provisional handle is editable on the profile).
+// Owner-only handle change (the provisional handle is editable on the profile). A display name that is still the
+// old handle (never typed by the trader; the provisional default) or blank follows the new handle in the same update,
+// so the discarded handle never lingers as the heading, page title, share-card name or feed name. A display name the
+// trader typed themselves is never overwritten.
 export async function changeHandle(userId: number, raw: unknown): Promise<string> {
   const handle = normalizeHandle(raw);
   if (!handle) throw new HandleTakenError();
   if (!(await handleAvailable(handle))) throw new HandleTakenError();
-  const [u] = await sql`update users set handle = ${handle} where id = ${userId} returning handle`;
+  const [u] = await sql`update users
+    set handle = ${handle},
+        display_name = case when display_name = handle or btrim(display_name) = '' then ${handle} else display_name end
+    where id = ${userId} returning handle`;
   return u.handle as string;
 }
