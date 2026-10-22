@@ -94,6 +94,17 @@ removing a stop is the owner's change, not the pipeline's.
   rule it is judged by, AUTOPILOT.md hard rules). Why: the owner wants pre-authorization driven by what
   the committee says the bottlenecks are.
 
+- 2026-10-22: Members are distinct roles (business lead, UX lead, engineer, tester, reviewer) but every
+  member has the full capability set: every tool and skill an agent in this repo can use, and the whole
+  scope of the project (every doc, decision, spec and file) in view. The UX lead is a separate member
+  from the engineer. What differs between members is only which ones are activated at each stage, and
+  what each is told to prioritize, emphasize and watch for. Why: the owner's rule; roles are lenses,
+  not capability limits. Note: today `team/README.md` restricts most members to read-only tools and
+  states "no member grades their own work". Full capability is compatible with that as long as the
+  member who built a round is not the one who passes it, so the reviewer stays independent of the
+  committee and the committee's verdict is on the engineer's build, not its own. The owner edits the
+  member specs (owner-only) to lift the tool restrictions.
+
 ## The cycle (draft)
 ```
 feature file (ready/rework)
@@ -127,7 +138,6 @@ fail → demands become round n+1's plan → back to 1 (bounded by FEATURE_MAX_A
 - Per-feature implementation logs with the debate positions and committee verdicts.
 
 ## Open questions
-- Is the UX lead the existing designer member with a widened spec, or a new member?
 - Committee rounds: a hard cap per feature (today FEATURE_MAX_ATTEMPTS = 5) after which the owner is
   asked, or unlimited?
 - Does the business lead's "market demand" debate apply to a feature the owner already decided, or
