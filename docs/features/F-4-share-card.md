@@ -37,6 +37,28 @@ elements that catch the eye and travel, and leave detail for the profile.
   follow the statistics rather than a hand-set cutoff; the width is the honest statement of how little
   is known. Note: this amends TR-9 in DESIGN §5.2 ("once K ≥ 10"), which the owner edits to match.
 
+- 2026-10-22: The "too early" width threshold is a half-width of 10 percentage points per trade: while
+  the range around the average is wider than ±10 points, the card says the range is too wide to say
+  much. Why: the owner accepted the proposal; the threshold follows the trader's actual variance.
+- 2026-10-22: Plain-language trust lines, approved by the owner:
+  | Tier | Edge | Line |
+  |---|---|---|
+  | Too early | any | "Based on N trades. The range is still too wide to say much." |
+  | Thin | positive | "Based on N separate bets over D days. Still early." |
+  | Thin | unclear or negative | "Based on N separate bets over D days. Still early, and results could go either way." |
+  | Moderate | positive | "Based on N bets over M months. A fair sample." |
+  | Moderate | unclear or negative | "Based on N bets over M months. A fair sample, with no clear pattern yet." |
+  | Strong | positive, interval entirely above 0 | "Based on N bets over Y years. A long, consistent record." |
+  | Strong | unclear | "Based on N bets over Y years. A long record, with no clear pattern." |
+  | Strong | negative, interval entirely below 0 | "Based on N bets over Y years. A long record, with consistent losses." |
+  "Consistent" is used only in the strong tier and only when the interval lies entirely on one side of
+  zero, and it is applied to losses exactly as to gains. It describes the pattern in the evidence, not
+  the trader, which keeps it inside POLICY F3b (labels describe evidence, never skill or a future
+  outcome) and outside the F2 banned list. Why: the owner wants "consistent" for strong performers and
+  "a fair sample" for the moderate tier; symmetry and the evidence-only wording keep it compliant.
+- 2026-10-22: The owner confirmed F-4 is decided; it stays Status: rework (the card is built and is
+  rebuilt to these decisions by the pipeline).
+
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
 handle, the evidence label, the disclaimer. No chart.
@@ -53,7 +75,8 @@ Each one testable; the pipeline writes a test for every line.
       record; a test proves it is never triggered by a count alone.
 - [ ] The card carries the evidence label and one plain-language trust line whose wording is chosen
       from a fixed table by evidence tier (thin / moderate / strong) and sign, tested for every cell;
-      the words never describe skill, only the sample ("still early", "a solid sample", "a long record").
+      the words never describe skill, only the sample; "consistent" appears only in the strong tier with
+      the interval entirely on one side of zero, for losses as for gains (tested for both signs).
 - [ ] A reader test: the plain-language line uses no term from a banned list (confidence interval,
       standard error, p-value, alpha, Sharpe, edge, signal, skill).
 - [ ] The card shows no per-trade rows, closing times or holding periods.
@@ -70,7 +93,7 @@ Each one testable; the pipeline writes a test for every line.
 - Per-trade cards (`/u/[handle]/trade`) keep their own design; this file is the record card.
 
 ## Open questions
-- Exact wording of the plain-language trust lines per tier (draft table to be reviewed by the owner).
+- None.
 - Later depth: which per-trade elements, and whether they appear on the record card or only on
   per-trade cards.
 
