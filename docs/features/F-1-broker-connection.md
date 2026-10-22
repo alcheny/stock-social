@@ -1,6 +1,6 @@
 # F-1 · Broker connection, end to end
 
-Status: draft
+Status: ready
 
 ## Why
 A trader signs up, connects a brokerage read-only, and lands on a clean, readable profile of their own
@@ -78,6 +78,8 @@ anything else.
   one-tap provider path, and accepts deferring phone until the data shows it is needed.
 - 2026-10-22: Heavy-use targets for tests: 10,000 activities per trader, 5 accounts per trader, 500
   traders per hourly sync. Why: the owner accepted the defaults.
+
+- 2026-10-22: The owner confirmed F-1 is decided; Status set to ready.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
