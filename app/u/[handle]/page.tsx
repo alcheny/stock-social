@@ -8,6 +8,7 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
+import { PROFILE } from '@/lib/copy.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
@@ -90,12 +91,17 @@ export default async function Profile({ params, searchParams }: Params) {
     ? `Connected: ${brokers.length ? brokers.join(', ') : 'broker'} (${accounts} account${accounts === 1 ? '' : 's'})`
     : 'Demo data';
 
+  // A provisional profile (no display name set yet) shows the handle once, as the heading.
+  const provisional = user.display_name === user.handle;
+  const fresh = isMe && !claimed && !user.snaptrade_user_id && trades.length === 0;
+
   return (
     <main className="page">
-      <h1 style={{ marginBottom: 4 }}>{user.display_name}</h1>
+      <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
       <p className="muted" style={{ marginTop: 0 }}>
-        @{user.handle} {trades.length > 0 && <Badge verified={allVerified} />} {isNew && trades.length > 0 && <span className="badge new">New record</span>}
+        {!provisional && `@${user.handle} `}{trades.length > 0 && <Badge verified={allVerified} />} {isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
+      {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {first && (
         <p className="muted small" style={{ marginTop: 0 }}>
           Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.
@@ -119,7 +125,7 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
       {isMe && (
         <details className="handle-edit">
-          <summary>Change handle</summary>
+          <summary className="button secondary">{PROFILE.changeHandle}</summary>
           <form action={setHandle} className="inline">
             <label htmlFor="new-handle" className="sr-only">New handle</label>
             <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" defaultValue={user.handle} aria-describedby={(await searchParams)?.handle === 'taken' ? 'handle-err' : undefined} />

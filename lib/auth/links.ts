@@ -18,6 +18,36 @@ export function linkStatus(row: LinkRow | undefined | null, now = new Date()): L
 }
 export const linkExpiry = (now = new Date()) => new Date(now.getTime() + LINK_MINUTES * 60_000);
 
+// The link's own status after the claim: 'ok' means this call claimed it and signs the attempt in.
+export type Claim = { status: 'ok'; email: string; attemptId: number } | { status: Exclude<LinkStatus, 'ok'> };
+
+// Single use, and the address never outlives the link (POLICY P6, COMPLIANCE §3): the one atomic update marks the row
+// used and blanks the address. The row itself stays until purgeExpiredLinks so a second tap can say "already used".
+export async function claimLink(token: string, now = new Date()): Promise<Claim> {
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(token)) return { status: 'missing' };
+  const hash = hashToken(token);
+  const [row] = await sql`select email, attempt_id, expires_at, used_at from login_links where token_hash = ${hash}`;
+  const status = linkStatus(row as LinkRow | undefined, now);
+  if (status !== 'ok') return { status };
+  const [claimed] = await sql`update login_links set used_at = ${now}, email = '' where token_hash = ${hash} and used_at is null returning attempt_id`;
+  if (!claimed) return { status: 'used' }; // lost the race to another tap on the same link
+  return { status: 'ok', email: String(row.email), attemptId: Number(row.attempt_id) };
+}
+
+// Expired rows (claimed or not) go with their address: from the hourly tick and lazily before every send.
+export async function purgeExpiredLinks(now = new Date()): Promise<number> {
+  const rows = await sql`delete from login_links where expires_at <= ${now} returning 1`;
+  return rows.length;
+}
+
+// A sign-in link must carry the configured public origin: without NEXT_PUBLIC_SITE_URL, origin() trusts the Host header
+// and a forged Host would put an attacker's host into a trader's link. Production refuses to send unless ALLOW_DEV_AUTH=1
+// marks the deployment non-public (the same marker lib/auth/email.ts#defaultSender honors; e2e runs a production build).
+export class SiteUrlMissingError extends Error { constructor() { super('NEXT_PUBLIC_SITE_URL must be set to send sign-in links in production'); } }
+export function requireLinkOrigin(env: Record<string, string | undefined> = process.env): void {
+  if (env.NODE_ENV === 'production' && !env.NEXT_PUBLIC_SITE_URL && env.ALLOW_DEV_AUTH !== '1') throw new SiteUrlMissingError();
+}
+
 // Lower-cased, trimmed, one @, no spaces, bounded. Not a deliverability check: the link proves the address.
 export function normalizeEmail(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
@@ -32,6 +62,7 @@ export class SendFailedError extends Error { constructor() { super('the sign-in 
 // Writes the link row, then sends. On a send failure the row is marked used in the same breath and SendFailedError
 // is thrown, so no link that nobody received can ever sign someone in.
 export async function issueLink(attemptId: number, email: string, send: Sender, originUrl: string): Promise<void> {
+  await purgeExpiredLinks();
   const { token, hash } = newLinkToken();
   await sql`insert into login_links (token_hash, email, attempt_id, expires_at) values (${hash}, ${email}, ${attemptId}, ${linkExpiry()})`;
   try {
@@ -52,8 +83,10 @@ export async function pendingLinkEmail(attemptId: number): Promise<string | null
 // "Send again" belongs to the browser that started the attempt: a signed cookie holds the attempt id (ids are
 // sequential, so the id alone proves nothing). Pure helpers; the cookie glue is in app/auth/actions.ts.
 export const ATTEMPT_COOKIE = 'login_attempt';
-// The address typed before a validation redirect (kept 10 minutes, httpOnly, path /login; never in a URL).
+// The address typed before a validation redirect, and the one a link was sent to (kept 15 minutes, the link's life,
+// httpOnly, path /login; never in a URL). /login reads it back into the field, so an expired or used link needs no retyping.
 export const EMAIL_COOKIE = 'login_email';
+export const EMAIL_COOKIE_SECONDS = LINK_MINUTES * 60;
 export const attemptCookieValue = (attemptId: number, secret: string) => signToken(String(attemptId), secret);
 export function ownsAttempt(cookieValue: string | undefined | null, attemptId: number, secret: string): boolean {
   const v = unsignToken(cookieValue, secret);

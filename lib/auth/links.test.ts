@@ -1,7 +1,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { attemptCookieValue, hashToken, issueLink, LINK_MINUTES, linkExpiry, linkStatus, newLinkToken, normalizeEmail, ownsAttempt, pendingLinkEmail, SendFailedError } from './links.ts';
+import { attemptCookieValue, claimLink, EMAIL_COOKIE_SECONDS, hashToken, issueLink, LINK_MINUTES, linkExpiry, linkStatus, newLinkToken, normalizeEmail, ownsAttempt, pendingLinkEmail, purgeExpiredLinks, requireLinkOrigin, SendFailedError, SiteUrlMissingError } from './links.ts';
 import { defaultSender, httpsSender, memoryOutbox, memorySender } from './email.ts';
 import { allow, resetRateLimits } from './rate-limit.ts';
 import { LOGIN_MAIL } from '../copy.ts';
@@ -21,6 +21,16 @@ test('link token: random, url-safe, stored only as its sha256; 15-minute life; s
   assert.equal(linkStatus({ expires_at: exp, used_at: null }, new Date(exp.getTime() + 1)), 'expired');
   assert.equal(linkStatus({ expires_at: exp, used_at: null }, exp), 'expired');
   assert.equal(linkStatus({ expires_at: exp, used_at: now }, now), 'used');
+});
+
+test('production refuses to send a link without NEXT_PUBLIC_SITE_URL (the origin would come from the Host header)', () => {
+  assert.throws(() => requireLinkOrigin({ NODE_ENV: 'production' }), SiteUrlMissingError);
+  assert.throws(() => requireLinkOrigin({ NODE_ENV: 'production', NEXT_PUBLIC_SITE_URL: '' }), SiteUrlMissingError);
+  assert.doesNotThrow(() => requireLinkOrigin({ NODE_ENV: 'production', NEXT_PUBLIC_SITE_URL: 'https://app.example' }));
+  assert.doesNotThrow(() => requireLinkOrigin({ NODE_ENV: 'development' }));
+  assert.doesNotThrow(() => requireLinkOrigin({}));
+  assert.doesNotThrow(() => requireLinkOrigin({ NODE_ENV: 'production', ALLOW_DEV_AUTH: '1' })); // a non-public build (e2e runs one)
+  assert.equal(EMAIL_COOKIE_SECONDS, LINK_MINUTES * 60); // the prefill for "Send a new link" lives exactly as long as the link
 });
 
 test('normalizeEmail lower-cases and trims; rejects junk', () => {
@@ -93,6 +103,45 @@ dbTest('issueLink: a send failure closes the link row (nothing claimable is left
     const open = await sql`select token_hash from login_links where attempt_id = ${attempt} and used_at is null`;
     assert.equal(open.length, 1);
     assert.equal(open[0].token_hash, hashToken(new URL(sent[0]).searchParams.get('t')!));
+  } finally {
+    await sql`delete from login_links where attempt_id = ${attempt}`;
+  }
+});
+
+dbTest('claimLink: the address is gone the moment the link is claimed; a second claim says used; purge removes expired rows with their address', async () => {
+  const { sql } = await import('../db.ts');
+  const { createAttempt } = await import('./attempts.ts');
+  const attempt = await createAttempt({ method: 'email', attested: true });
+  const email = `claim${Math.random().toString(36).slice(2, 8)}@example.com`;
+  const urls: string[] = [];
+  const send = async (m: { url: string }) => { urls.push(m.url); };
+  try {
+    await issueLink(attempt, email, send, 'https://app.example');
+    const token = new URL(urls[0]).searchParams.get('t')!;
+    assert.deepEqual(await claimLink('short'), { status: 'missing' });
+    assert.deepEqual(await claimLink(`${token}x`), { status: 'missing' });
+    const first = await claimLink(token);
+    assert.deepEqual(first, { status: 'ok', email, attemptId: attempt });
+    assert.equal((await sql`select 1 from login_links where email = ${email}`).length, 0); // no row holds the address
+    const [row] = await sql`select email, used_at from login_links where token_hash = ${hashToken(token)}`;
+    assert.equal(row.email, '');
+    assert.ok(row.used_at);
+    assert.deepEqual(await claimLink(token), { status: 'used' }); // single use, reported as such
+    // Expiry: an unclaimed link past its time reads expired, and the purge deletes it together with its address.
+    await issueLink(attempt, email, send, 'https://app.example');
+    const second = new URL(urls[1]).searchParams.get('t')!;
+    await sql`update login_links set expires_at = now() - interval '1 second' where token_hash in (${hashToken(token)}, ${hashToken(second)})`;
+    assert.deepEqual(await claimLink(second), { status: 'expired' });
+    assert.equal((await sql`select 1 from login_links where email = ${email}`).length, 1);
+    await issueLink(attempt, email, send, 'https://app.example'); // a fresh link survives the purge (issueLink purges lazily too)
+    const left = await sql`select email, token_hash from login_links where attempt_id = ${attempt}`;
+    assert.equal(left.length, 1);
+    assert.equal(left[0].email, email);
+    assert.equal(left[0].token_hash, hashToken(new URL(urls[2]).searchParams.get('t')!));
+    assert.deepEqual(await claimLink(token), { status: 'missing' }); // the purged claimed link is simply unknown now
+    await sql`update login_links set expires_at = now() - interval '1 second' where attempt_id = ${attempt}`;
+    assert.ok((await purgeExpiredLinks()) >= 1); // the explicit purge (the hourly tick) deletes the rest
+    assert.equal((await sql`select 1 from login_links where attempt_id = ${attempt}`).length, 0);
   } finally {
     await sql`delete from login_links where attempt_id = ${attempt}`;
   }

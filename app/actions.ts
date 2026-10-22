@@ -2,7 +2,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
-import { currentUser, devGuard, signIn } from '@/lib/session.ts';
+import { currentUser, devGuard, rememberMethod, signIn } from '@/lib/session.ts';
 import { completeAttempt, createAttempt, createUserForAttempt } from '@/lib/auth/attempts.ts';
 import { moderate } from '@/lib/moderation.ts';
 import { isDemoUser } from '@/lib/demo.ts';
@@ -34,6 +34,7 @@ export async function login(form: FormData) {
   const [existing] = await sql`select id from users where handle = ${handle}`;
   const id = existing ? (await completeAttempt(attempt, existing.id), existing.id as number) : (await createUserForAttempt(attempt, { handle, name })).id;
   await signIn(id);
+  await rememberMethod('dev');
   redirect(`/u/${handle}`);
 }
 

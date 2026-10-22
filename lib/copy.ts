@@ -19,6 +19,8 @@ export const SIGNIN = {
   linkSent: 'Check your email. The link works for 15 minutes.',
   sendAgain: 'Send again',
   linkExpired: 'That link has expired. Send a new one?',
+  linkUsed: 'That link was already used. Send a new one?',
+  newLink: 'Send a new link',
   sendFailed: 'We could not send your link. Try again.',
   sentAgain: 'Sent again.',
   tooMany: 'Too many links sent. Try again in a few minutes.',
@@ -39,9 +41,17 @@ export const TRUST_NOTICE = {
   vendorLinkNote: "opens SnapTrade's site",
   howLink: 'How records are calculated',
   primary: 'Connect brokerage (read-only)',
+  signInFirst: 'Sign in first, then connect.',
+  emailOption: 'Sign in with an email link',
 } as const;
 // The vendor's own security page, linked from the notice. Configurable so the owner can point at the page the vendor publishes.
 export const VENDOR_SECURITY_URL = process.env.NEXT_PUBLIC_VENDOR_SECURITY_URL || 'https://snaptrade.com/security';
+
+// Own profile, first screen after sign-in (the committee's item 9): one status line, no celebration.
+export const PROFILE = {
+  youreIn: "You're in. Next: connect your brokerage.",
+  changeHandle: 'Change handle',
+} as const;
 
 export const LEGAL_PLACEHOLDER = {
   termsTitle: 'Terms of Service',
@@ -63,6 +73,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
   return out;
 }

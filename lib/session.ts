@@ -39,6 +39,13 @@ export async function signIn(userId: number) {
   jar.set(SESSION_COOKIE, signToken(token, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/', secure: await secure(), maxAge: SESSION_DAYS * 86_400 });
 }
 
+// S1 lists the last method that completed a sign-in first. A first-party cookie holding the method name only (never an
+// identity), written here and nowhere else: a tap that fails attestation or never completes leaves the order alone.
+export const LAST_METHOD_COOKIE = 'auth_last_method';
+export async function rememberMethod(method: string) {
+  (await cookies()).set(LAST_METHOD_COOKIE, method, { httpOnly: true, sameSite: 'lax', path: '/login', secure: await secure(), maxAge: 365 * 86_400 });
+}
+
 export async function signOut() {
   const jar = await cookies();
   await deleteSession(unsignToken(jar.get(SESSION_COOKIE)?.value, sessionSecret()));

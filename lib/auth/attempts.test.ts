@@ -29,6 +29,9 @@ test('provider buttons exist only when their configuration is complete; the emai
   assert.deepEqual(orderMethods({ available: ['provider_a', 'provider_b'], deviceFirst: true }), ['provider_b', 'provider_a', 'email', 'brokerage']);
   assert.deepEqual(orderMethods({ available: ['provider_a'], deviceFirst: true, last: 'email' }), ['email', 'provider_a', 'brokerage']);
   assert.deepEqual(orderMethods({ available: ['provider_a'], deviceFirst: true, last: 'provider_b' }), ['provider_a', 'email', 'brokerage']);
+  // The brokerage block (and its "or" divider) never moves first, whatever completed last.
+  assert.deepEqual(orderMethods({ available: ['provider_a'], deviceFirst: false, last: 'brokerage' }), ['provider_a', 'email', 'brokerage']);
+  assert.deepEqual(orderMethods({ available: [], deviceFirst: false, last: 'brokerage' }), ['email', 'brokerage']);
   assert.equal(deviceFirst('Mozilla/5.0 (PhoneOS 17)', { AUTH_DEVICE_PROVIDER_UA_PATTERN: 'PhoneOS' }), true);
   assert.equal(deviceFirst('Mozilla/5.0 (PhoneOS 17)', {}), false);
   assert.equal(deviceFirst('Mozilla/5.0', { AUTH_DEVICE_PROVIDER_UA_PATTERN: '(' }), false);

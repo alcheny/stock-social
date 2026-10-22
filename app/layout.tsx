@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import { currentUser } from '@/lib/session.ts';
+import { NavLogin } from './nav-login.tsx';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -18,7 +19,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Link href="/" className="logo">Stock Social</Link>
           <Link href="/t">Stocks</Link>
           {me && <Link href="/me/record">My record</Link>}
-          {me ? <Link className="me" href={`/u/${me.handle}`}>@{me.handle}</Link> : <Link href="/login">Publish your trades</Link>}
+          {me ? <Link className="me" href={`/u/${me.handle}`}>@{me.handle}</Link> : <NavLogin>Publish your trades</NavLogin>}
         </nav>
         {children}
         {/* docs/POLICY.md F3: every page that can show performance carries this, in plain view */}

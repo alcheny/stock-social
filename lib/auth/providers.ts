@@ -24,11 +24,12 @@ export function providersFromEnv(env: Env = process.env): Provider[] {
 }
 
 // Order on S1: the device maker's button first on its own phones (a user-agent pattern from config), the email
-// provider first elsewhere; email link third; brokerage fourth. The last method used (localStorage) moves first on the client.
+// provider first elsewhere; email link third; brokerage always fourth, under its "or" divider. The last method that
+// completed a sign-in (the auth_last_method cookie, lib/session.ts#rememberMethod) moves first, on the server.
 export function orderMethods(i: { available: MethodKey[]; deviceFirst: boolean; last?: string | null }): MethodKey[] {
   const base: MethodKey[] = i.deviceFirst ? ['provider_b', 'provider_a', 'email', 'brokerage'] : ['provider_a', 'provider_b', 'email', 'brokerage'];
   const list = base.filter((m) => m === 'email' || m === 'brokerage' || i.available.includes(m));
-  if (i.last && (list as string[]).includes(i.last)) return [i.last as MethodKey, ...list.filter((m) => m !== i.last)];
+  if (i.last && i.last !== 'brokerage' && (list as string[]).includes(i.last)) return [i.last as MethodKey, ...list.filter((m) => m !== i.last)];
   return list;
 }
 

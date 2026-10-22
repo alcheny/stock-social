@@ -8,7 +8,7 @@ import { createAttempt, isMethod } from '@/lib/auth/attempts.ts';
 import { encodeTx, TX_COOKIE, type Tx } from '@/lib/auth/tx.ts';
 import { authorizeUrl, discover, pkce, randomToken } from '@/lib/auth/oidc.ts';
 import { providersFromEnv } from '@/lib/auth/providers.ts';
-import { ATTEMPT_COOKIE, attemptCookieValue, EMAIL_COOKIE, hashToken, issueLink, normalizeEmail, ownsAttempt, pendingLinkEmail, SendFailedError } from '@/lib/auth/links.ts';
+import { ATTEMPT_COOKIE, attemptCookieValue, EMAIL_COOKIE, EMAIL_COOKIE_SECONDS, hashToken, issueLink, normalizeEmail, ownsAttempt, pendingLinkEmail, requireLinkOrigin, SendFailedError } from '@/lib/auth/links.ts';
 import { defaultSender } from '@/lib/auth/email.ts';
 import { allow } from '@/lib/auth/rate-limit.ts';
 import { sessionSecret, signToken } from '@/lib/auth/sessions.ts';
@@ -34,12 +34,13 @@ const back = (q: Record<string, string | null | undefined>) => {
   redirect(`/login?${p}`);
 };
 
-// The typed address survives a validation redirect in a short-lived httpOnly cookie, never in the URL (an address
-// in a query string ends up in request logs). /login reads it back into the field.
+// The typed address survives a validation redirect, and the address a link went to survives the link's 15 minutes, in
+// a short-lived httpOnly cookie, never in the URL (an address in a query string ends up in request logs). /login reads
+// it back into the field, so an expired or already-used link offers "Send a new link" without retyping.
 async function keepEmail(form: FormData) {
   const raw = form.get('email');
   const email = typeof raw === 'string' ? raw.trim().slice(0, 254) : '';
-  (await cookies()).set(EMAIL_COOKIE, email, { httpOnly: true, sameSite: 'lax', path: '/login', maxAge: email ? 600 : 0, secure: (await origin()).startsWith('https://') });
+  (await cookies()).set(EMAIL_COOKIE, email, { httpOnly: true, sameSite: 'lax', path: '/login', maxAge: email ? EMAIL_COOKIE_SECONDS : 0, secure: (await origin()).startsWith('https://') });
 }
 // "Send again" is bound to the browser that started the attempt (lib/auth/links.ts#ownsAttempt).
 async function bindAttempt(attemptId: number) {
@@ -56,9 +57,11 @@ export async function startSignIn(form: FormData) {
   const base = { method, attested: true, referredBy: r.referredBy, surface: r.surface, landedAt: landedAt ? new Date(landedAt) : null, source: r.surface ?? (r.ref ? 'profile' : 'direct') };
 
   if (method === 'email') {
+    requireLinkOrigin(); // production refuses to send a link whose origin would come from the Host header
     const email = normalizeEmail(form.get('email'));
     if (!email) { await keepEmail(form); return back({ ...keep, error: 'email' }); }
     if (!allow(`mail:${hashToken(email)}`, 5, 15 * 60_000)) { await keepEmail(form); return back({ ...keep, error: 'rate' }); }
+    await keepEmail(form);
     const attemptId = await createAttempt(base);
     await bindAttempt(attemptId);
     redirect(`/login/sent?a=${attemptId}${await sendOrFail(attemptId, email)}`);

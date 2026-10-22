@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { sql } from '@/lib/db.ts';
 import { syncAll, syncUser } from '@/lib/sync.ts';
+import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 
 // Hourly cron: POST /api/sync with `Authorization: Bearer $CRON_SECRET`.
 export async function POST(req: NextRequest) {
@@ -11,8 +12,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
+  const purgedLinks = await purgeExpiredLinks(); // expired sign-in links go with their address (COMPLIANCE §3)
   const users = await sql<{ id: number; snaptrade_user_id: string; snaptrade_secret_enc: string }[]>`select id, snaptrade_user_id, snaptrade_secret_enc from users where snaptrade_user_id is not null order by last_synced_at nulls first`;
   // ponytail: sequential, ~5k traders/hour; shard by user_id % N across cron calls, then a queue (DESIGN §2.7)
   const { ok, failed } = await syncAll(users, (u) => syncUser(u));
-  return NextResponse.json({ ok, failed });
+  return NextResponse.json({ ok, failed, purgedLinks });
 }
