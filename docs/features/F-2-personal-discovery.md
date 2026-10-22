@@ -1,6 +1,6 @@
 # F-2 · Personalized discovery of traders and records
 
-Status: draft
+Status: ready
 
 ## Why
 A viewer who has looked at or followed certain traders and records should see more of what they like:
@@ -46,10 +46,7 @@ Each one testable; the pipeline writes a test for every line.
 - Pushing suggestions by notification (Phase 2 "make watching sticky").
 
 ## Open questions
-- Owner review of the Design overview (weights, metrics, the private-likes rule).
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
   decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.
-- Where does the section live: feed top, feed interleaved, profile bottom, or its own tab?
-- Must suggestions of trader records go to the trader's profile or open the swipe pane?
 
 ## Rework notes
