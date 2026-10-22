@@ -105,6 +105,57 @@ removing a stop is the owner's change, not the pipeline's.
   committee and the committee's verdict is on the engineer's build, not its own. The owner edits the
   member specs (owner-only) to lift the tool restrictions.
 
+## Pre-authorization requests for the first run (F-1 → F-2 stage 1 → F-4)
+Compiled 2026-10-22 from the business lead's and the engineer's reviews of the feature files, the
+pipeline scripts and the workflows. Each is a yes/no for the owner; answers are logged here.
+
+| # | Request | Why it stops the cycle | Owner's answer |
+|---|---|---|---|
+| 1 | Carve-out in CODEOWNERS and the Gate for `lib/session.ts`, `lib/broker.ts`, `package.json`, `package-lock.json`, scoped to feature PRs | Gate labels any PR touching them needs-human | pre-authorized (decision above); owner edits the files |
+| 2 | Raise the Gate's diff cap (`MAX_DIFF`, 800 lines) to ~4000 for `feature` PRs, or let the plan split F-1 into three sequential PRs (sign-in; connection state machine + consent + import; heavy tests) | F-1 with tests is 2k to 4k lines; every PR would go needs-human | |
+| 3 | Repo variables: `TEAM_BUDGET_USD` ≈ 60 (now 15), `BUDGET_ENGINEER` ≈ 10, `FEATURE_MAX_ATTEMPTS` 10 for F-1 then 5 | F-1's size exhausts the current budgets and attempt cap | |
+| 4 | Test-mode secrets created and passed to the build and CI jobs (names only): the vendor's test key pair, the email-provider sign-in client id and secret, the phone-maker sign-in team id, key id and private key, the email-sending key and from-address, a session secret, the public site URL | Only the owner creates secrets; without them the committee's running-preview test of sign-in and the portal is mocks only | |
+| 5 | One new dependency: the vendor's web SDK for the embedded portal. Everything else built without dependencies (sign-in via standard OIDC with the runtime's crypto, email via one HTTPS call, the t multiplier inline) | POLICY H: new dependencies are the owner's | |
+| 6 | One new vendor: an email-sending service for the magic link (the single Phase 1 exception to "no new vendor") | DESIGN §3 and Standing direction 3 | |
+| 7 | An hourly scheduled call to `/api/sync` in the deploy settings (nothing calls it today); consent expiry and the 90-day purge run in that tick, with lazy expiry on profile read | Deploy settings are owner-only | |
+| 8 | Function duration limit ≥ 60 s in the deploy settings, for the chunked import (one vendor page per step, client-polled; no worker or queue yet) | Deploy settings are owner-only | |
+| 9 | Preview deploys per feature PR (deployments are off today), or accept in-job `npm run start` plus browser screenshots as the committee's "running preview" | The committee and user tests need a running app | |
+| 10 | Placeholder Terms and Privacy pages and the consent-screen copy (what becomes public), supplied by the owner | POLICY P6/F3: the attestation and consent screens must link them | |
+| 11 | A `blocked` status the publish script may set when a feature hits a hard stop | Otherwise the picker returns the blocked feature forever and later features never build | |
+| 12 | Process wiring: owner edits to `scripts/features.ts`, `scripts/team.ts`, `team/*.md`, CODEOWNERS and `features.yml` for the plan round, the UX lead, the committee, per-member user tests and `docs/features/logs/` | All owner-only paths | |
+
+Not needed for the first run (wait): a read replica, object storage, a vector index, a worker or
+queue, an AI-model key (F-2 stages 2 and 3; F-2 stage 1 is SQL co-visitation on the primary database
+and the reason line's model call is behind an injected interface with its fallback tested).
+
+## Conflicts and gaps the committee found in the feature files (owner decides before the build)
+1. **F-2 is a Phase 2 feature** (DESIGN §3.2 lists personalization) and POLICY H forbids agents
+   building Phase 2. The file's criteria must be split into stage 1 (events, retention, deletion,
+   metrics, evaluation pipeline), buildable now, and the ranking and "More like what you read"
+   section, which wait for the supply gate.
+2. **POLICY F1 says "no personalized suggestions"** literally. F-2 suggests records to read, not trades,
+   but the reviewer reads the policy as written. The owner amends the F1 wording (owner-only) or the
+   reviewer fails F-2.
+3. **F-2 depends on features that do not exist**: follow and unfollow, "not interested", account
+   deletion. Decide: in F-2 stage 1's scope (a `follows` table, hides, a delete-account action with
+   event tables cascading), or a prerequisite feature file.
+4. **F-1 trust notice** names the vendor's audit; POLICY F3a says never imply auditing. Compliant only
+   if phrased as the vendor's own audit of itself ("the vendor reports an independent audit of its
+   security controls"), never as an audit of records. Fix the string in F-1.
+5. **F-1 "session by completing a connection"** for a returning trader conflicts with "already
+   claimed → refused". Fix: a fresh connection whose accounts are all claimed by one existing trader
+   signs in as that trader and drops the new link; refusal applies only when a different signed-in user
+   tries.
+6. **F-1 "declined or expired → no claims"** vs TR-6 "claims are never released". Fix: claims are
+   provisional until consent (`confirmed_at`); unconfirmed claims are released at decline or expiry.
+7. **F-1 attestation "before a user row exists"** vs the vendor registration needing an app user id.
+   Fix: a `signup_attempts` row (no personal data) holds the attestation and the vendor link; the user
+   row is created at consent.
+8. **F-4 "threshold recorded in the design record"**: DESIGN.md is owner-only, so the constant lives in
+   `lib/confidence.ts` with its test, and the owner keeps DESIGN.md in step (done for K ≥ 5).
+9. **F-4 and `lib/confidence`** must drop any "Edge:" label (POLICY F3b bans "edge"); the evidence
+   line keeps tier and sample only.
+
 ## The cycle (draft)
 ```
 feature file (ready/rework)
