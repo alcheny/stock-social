@@ -18,7 +18,7 @@
     "postgres": "^3.4.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "snaptrade-typescript-sdk": "^12.2.22"
+    "snaptrade-typescript-sdk": "^13.1.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
