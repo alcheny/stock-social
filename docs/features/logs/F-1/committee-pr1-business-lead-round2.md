@@ -44,3 +44,21 @@ provisional handle (`@trader_d8sa…`); acceptable, the rename control is the fi
 the signed-out S2 is honest and ends the loop.
 
 Demo sentence: "Tap the link in your email and your record page is already yours, read-only, no password."
+
+# Round 3 (fix round 4 re-check)
+
+Date: 2026-10-22. Branch `claude/adoring-euler-4469ys` (e94a926), build current, production server on 3101 with the
+in-repo issuer and sink, local Postgres 16, Chromium at 375px, light and dark. No product code changed; test users
+deleted; server and fakes stopped.
+
+**Remaining demand, stale nav after a handle change: met.** As a fresh trader (dev sign-in, then "Change handle" →
+Save): the URL changes to `/u/<new>` with zero full page loads during the save; the nav `.me` link reads `@<new>` with
+`href="/u/<new>"` immediately; `h1` = `@<new>`; `<title>` = `<new> (@<new>) · Stock Social`; the old handle is nowhere
+in `main`. Tapping the nav link lands on `/u/<new>` (200), not a 404. Same result in light and dark.
+
+**Taste, email field width: met.** S1 at 375px, both themes: email input 343px = "Send me a link" 343px = "Connect a
+brokerage instead" 343px. The column now reads as one stack; nothing else on S1 moved.
+
+Carried to PR-2a, unchanged: `/how` 404, footer legal links, `notice_seen` dedupe, provider e2e in CI (#12).
+
+COMPLIANCE: PASS · USABILITY: PASS
