@@ -64,7 +64,7 @@ Changed: `lib/session.ts`, `app/login/page.tsx`, `app/actions.ts` (dev `login` v
 form is at `/login/dev`; the signed-out redirect assertions on `/login` are unchanged). Moved:
 `app/connect/route.ts` → `app/connect/start/route.ts`.
 
-## Tests added (test count 327 → 355 unit, 46 → 55 e2e)
+## Tests added (test count 327 → 355 unit, 41 → 49 e2e; the e2e figures were miscounted as 46 → 55 in the first draft)
 
 | File | Covers |
 |---|---|
@@ -87,7 +87,7 @@ form is at `/login/dev`; the signed-out redirect assertions on `/login` are unch
 | `node scripts/compliance.ts tree` | one violation, pre-existing and identical on `main`: `node_modules/@img/sharp-wasm32` (optional prebuilt package, `Apache-2.0 AND LGPL-3.0-or-later AND MIT`); nothing from this diff. Only a human adds the `LICENSE_REVIEWED` entry (`scripts/compliance.ts` is owner-only). |
 | `node scripts/autopilot.ts guard main` | `guard: ok` |
 | `npm run build` | success; new routes `/auth/callback/[provider]`, `/auth/email`, `/connect`, `/connect/start`, `/login/dev`, `/login/sent`, `/privacy`, `/terms` |
-| `npx playwright test` with the fake issuer and sink configured on the server | 55 passed |
+| `npx playwright test` with the fake issuer and sink configured on the server | 49 passed (41 on `main` + 8 here; first draft said 55) |
 | `npx playwright test e2e/signin.spec.ts` with no provider/sink variables (CI's situation) | 6 passed, 2 skipped (the provider flows, with the reason printed) |
 
 Screenshots per screen (light and dark, 375px) are written to the Playwright output folder by the spec.

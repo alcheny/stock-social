@@ -19,6 +19,10 @@ export const SIGNIN = {
   linkSent: 'Check your email. The link works for 15 minutes.',
   sendAgain: 'Send again',
   linkExpired: 'That link has expired. Send a new one?',
+  sendFailed: 'We could not send your link. Try again.',
+  sentAgain: 'Sent again.',
+  tooMany: 'Too many links sent. Try again in a few minutes.',
+  back: '← Back',
   devLink: 'Dev sign-in',
 } as const;
 

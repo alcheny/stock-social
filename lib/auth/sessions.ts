@@ -1,8 +1,9 @@
 // Server sessions: a random token, HMAC-signed into the cookie (SESSION_SECRET), sha256 in the sessions table.
 // No Next imports here so node:test can cover it; lib/session.ts is the cookie glue.
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql } from '../db.ts';
-import { hashToken } from './links.ts';
+
+const hashToken = (t: string) => createHash('sha256').update(t).digest('hex'); // same digest as lib/auth/links.ts
 
 export type Env = Record<string, string | undefined>;
 export const SESSION_COOKIE = 'sid';
@@ -25,10 +26,15 @@ export function unsignToken(value: string | undefined | null, key: string): stri
   return sig.length === want.length && timingSafeEqual(sig, want) ? token : null;
 }
 
-export async function createSession(userId: number, now = new Date()): Promise<string> {
+// `replacing` is the token of the session this browser already holds (signing in while signed in): its row goes in
+// the same transaction, so one browser never keeps two live sessions.
+export async function createSession(userId: number, now = new Date(), replacing: string | null = null): Promise<string> {
   const token = randomBytes(32).toString('base64url');
   const expires = new Date(now.getTime() + SESSION_DAYS * 86_400_000);
-  await sql`insert into sessions (token_hash, user_id, created_at, expires_at, last_seen_at) values (${hashToken(token)}, ${userId}, ${now}, ${expires}, ${now})`;
+  await sql.begin(async (tx) => {
+    if (replacing) await tx`delete from sessions where token_hash = ${hashToken(replacing)}`;
+    await tx`insert into sessions (token_hash, user_id, created_at, expires_at, last_seen_at) values (${hashToken(token)}, ${userId}, ${now}, ${expires}, ${now})`;
+  });
   return token;
 }
 

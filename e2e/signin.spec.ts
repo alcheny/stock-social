@@ -6,6 +6,7 @@
 //   AUTH_EMAIL_SEND_URL=http://127.0.0.1:4101/send
 // Without AUTH_EMAIL_SEND_URL the app keeps the link in memory and /login/dev shows it, so the email path always runs.
 import { expect, test, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import type { Server } from 'node:http';
 import { startOidcFake } from './fakes/oidc.ts';
 import { startEmailFake } from './fakes/email.ts';
@@ -53,6 +54,11 @@ test('S1 at 375px, signed out: copy, one attestation, legal links, both buttons,
   await expect(page.getByRole('button', { name: 'Connect a brokerage instead' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   for (const b of await page.locator('button:not([hidden]), .button').all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // Every visible button has a name; the hidden default submit (Enter in the email field) paints nothing.
+  for (const b of await page.locator('button').all()) if (await b.isVisible()) expect((await b.innerText()).trim() || (await b.getAttribute('aria-label'))).toBeTruthy();
+  await expect(page.locator('button[hidden]')).toHaveCount(1);
+  await expect(page.locator('button[hidden]')).toBeHidden();
+  expect(await page.locator('button[hidden]').evaluate((el) => getComputedStyle(el).display)).toBe('none');
   await expect(page.locator('footer.site')).toContainText('Not investment advice. Past performance does not guarantee future results.');
   await page.screenshot({ path: test.info().outputPath('s1-light.png'), fullPage: true });
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -75,6 +81,8 @@ test('unchecked attestation blocks every path: the box gets focus with the messa
     await expect(page.locator('p[role="alert"]')).toHaveText('Confirm you are 18 or older to continue.');
     await expect(attest(page)).toBeFocused();
     await expect(attest(page)).toHaveAttribute('aria-describedby', 'adult-err');
+    await expect(page.getByLabel('Email')).toHaveValue('blocked@example.com'); // the typed address survives the redirect
+    expect(page.url()).not.toContain('blocked'); // and never travels in the URL
   }
   expect(await attempts()).toBe(before);
 });
@@ -89,6 +97,14 @@ test('email link: attestation stored before any redirect, link signs in once wit
   await expect(page).toHaveURL(/\/login\/sent\?a=\d+$/);
   await expect(page.getByText('Check your email. The link works for 15 minutes.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send again' })).toBeVisible();
+  expect((await page.getByRole('link', { name: '← Back' }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // "Send again" belongs to this browser: another browser with the (sequential) id gets no resend control.
+  const stranger = await page.context().browser()!.newContext();
+  const other = await stranger.newPage();
+  await other.goto(page.url());
+  await expect(other.getByText('Check your email. The link works for 15 minutes.')).toBeVisible();
+  await expect(other.getByRole('button', { name: 'Send again' })).toHaveCount(0);
+  await stranger.close();
   const sql = await db();
   expect(await attempts()).toBe(before + 1);
   const [a] = await sql`select id, method, adult_attested_at, user_id from signup_attempts order by id desc limit 1`;
@@ -135,8 +151,12 @@ test('S2 trust notice: four fixed lines, vendor and how links, before any portal
   await expect(page.getByRole('link', { name: "SnapTrade's security page" })).toHaveAttribute('href', /^https:\/\//);
   await expect(page.getByRole('link', { name: 'How records are calculated' })).toHaveAttribute('href', '/how');
   await expect(page.getByRole('link', { name: 'Connect brokerage (read-only)' })).toBeVisible();
+  for (const name of ["SnapTrade's security page", 'How records are calculated', 'Connect brokerage (read-only)']) expect((await page.getByRole('link', { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath('s2-light.png'), fullPage: true });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: test.info().outputPath('s2-dark.png'), fullPage: true });
+  await page.emulateMedia({ colorScheme: 'light' });
   expect(await page.locator('script[src]').evaluateAll((s) => s.some((x) => !(x as HTMLScriptElement).src.startsWith(location.origin)))).toBe(false);
 
   await page.goto('/login');
@@ -192,7 +212,54 @@ test('keyboard only: the whole email path without a pointer', async ({ page }) =
   await expect(page).toHaveURL(/\/login\/sent/);
 });
 
-test('the dev form lives at /login/dev and still signs an existing handle in through an attempt', async ({ page }) => {
+test('email send failure: the error state with a message and "Send again", no claimable link left; the retry signs in', async ({ page }) => {
+  // Needs the server sending to the sink (AUTH_EMAIL_SEND_URL, header of this spec); the in-memory outbox cannot fail.
+  const email = `fail-${uniq()}@example.com`;
+  await page.goto('/login');
+  await attest(page).check();
+  await page.getByLabel('Email').fill(email);
+  await page.getByRole('button', { name: 'Send me a link' }).click();
+  await expect(page).toHaveURL(/\/login\/sent\?a=\d+$/);
+  const probe = (await (await fetch(`${mail.base}/last`)).json()) as { to?: string } | null;
+  test.skip(probe?.to !== email, 'the server is not sending to the e2e sink (see the header of this spec)');
+  await fetch(`${mail.base}/_fail`, { method: 'POST', body: JSON.stringify({ fail: true }) });
+  try {
+    await page.goto('/login');
+    await attest(page).check();
+    await page.getByLabel('Email').fill(email);
+    await page.getByRole('button', { name: 'Send me a link' }).click();
+    await expect(page).toHaveURL(/\/login\/sent\?a=\d+&error=send$/);
+    const id = Number(page.url().match(/a=(\d+)/)![1]);
+    await expect(page.locator('p[role="alert"]')).toHaveText('We could not send your link. Try again.');
+    await expect(page.getByText('Check your email. The link works for 15 minutes.')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send again' })).toBeVisible();
+    const sql = await db();
+    const links = await sql`select used_at from login_links where attempt_id = ${id}`;
+    expect(links.length).toBe(1);
+    expect(links[0].used_at).toBeTruthy(); // the undelivered link can never sign anyone in
+    expect(await page.locator('body').innerText()).not.toMatch(/couldn't load|Internal Server Error|Application error/i);
+    // Retry: "Send again" with the sender back, same attempt, and the new link signs in.
+    await fetch(`${mail.base}/_fail`, { method: 'POST', body: JSON.stringify({ fail: false }) });
+    await page.getByRole('button', { name: 'Send again' }).click();
+    await expect(page).toHaveURL(new RegExp(`/login/sent\\?a=${id}&again=1$`));
+    await expect(page.getByText('Check your email. The link works for 15 minutes.')).toBeVisible();
+    const link = await lastLink(page);
+    await page.goto(link);
+    await expect(page).toHaveURL(/\/u\/trader_[a-z0-9]{8}$/);
+    const [done] = await sql`select user_id, completed_at from signup_attempts where id = ${id}`;
+    expect(done.completed_at).toBeTruthy();
+    await sql`delete from users where id = ${done.user_id}`;
+  } finally {
+    await fetch(`${mail.base}/_fail`, { method: 'POST', body: JSON.stringify({ fail: false }) });
+  }
+});
+
+const sessionHash = async (page: Page) => {
+  const sid = (await page.context().cookies()).find((c) => c.name === 'sid')!.value;
+  return createHash('sha256').update(sid.slice(0, sid.lastIndexOf('.'))).digest('hex');
+};
+
+test('the dev form lives at /login/dev and still signs an existing handle in through an attempt; signing in again replaces the session row', async ({ page }) => {
   const sql = await db();
   const before = await attempts();
   await page.goto('/login/dev');
@@ -205,4 +272,15 @@ test('the dev form lives at /login/dev and still signs an existing handle in thr
   expect(a.method).toBe('dev');
   expect(a.completed_at).toBeTruthy();
   await expect(page.getByText('Change handle')).toBeVisible();
+  const first = await sessionHash(page);
+  expect((await sql`select 1 from sessions where token_hash = ${first}`).length).toBe(1);
+  await page.goto('/login/dev');
+  await page.getByLabel('Handle').fill('momentum_maya');
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(/\/u\/momentum_maya$/);
+  const second = await sessionHash(page);
+  expect(second).not.toBe(first);
+  expect((await sql`select 1 from sessions where token_hash = ${first}`).length).toBe(0); // the old row is gone
+  expect((await sql`select 1 from sessions where token_hash = ${second}`).length).toBe(1);
 });

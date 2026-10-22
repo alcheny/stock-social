@@ -21,8 +21,8 @@ export default async function Connect({ searchParams }: { searchParams?: Promise
         {TRUST_NOTICE.lines.map((l) => <li key={l}>{l}</li>)}
       </ul>
       <p className="small">
-        <a href={VENDOR_SECURITY_URL} rel="noopener noreferrer" target="_blank">{TRUST_NOTICE.vendorLink}</a> <span className="muted">({TRUST_NOTICE.vendorLinkNote})</span>
-        {' · '}<Link href="/how">{TRUST_NOTICE.howLink}</Link>
+        <a className="tap" href={VENDOR_SECURITY_URL} rel="noopener noreferrer" target="_blank">{TRUST_NOTICE.vendorLink}</a> <span className="muted">({TRUST_NOTICE.vendorLinkNote})</span>
+        {' · '}<Link className="tap" href="/how">{TRUST_NOTICE.howLink}</Link>
       </p>
       <p><a className="button wide" href={me ? '/connect/start' : `/login${attempt > 0 ? `?method=brokerage` : ''}`}>{TRUST_NOTICE.primary}</a></p>
       {!me && <p className="muted small">Sign in first; the connection then opens read-only.</p>}

@@ -1,10 +1,11 @@
 import Link from 'next/link';
-import { headers } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { startSignIn } from '../auth/actions.ts';
 import { normalizeHandle, normalizeVia } from '@/lib/referral.ts';
 import { SIGNIN } from '@/lib/copy.ts';
 import { deviceFirst, orderMethods, providersFromEnv, type MethodKey } from '@/lib/auth/providers.ts';
 import { devAuthAllowed } from '@/lib/session.ts';
+import { EMAIL_COOKIE } from '@/lib/auth/links.ts';
 import { MethodOrder } from './order.tsx';
 
 type SP = { ref?: string; via?: string; error?: string; method?: string };
@@ -18,15 +19,16 @@ export default async function Login({ searchParams }: { searchParams?: Promise<S
   const providers = providersFromEnv();
   const order = orderMethods({ available: providers.map((p) => p.key), deviceFirst: deviceFirst((await headers()).get('user-agent')) });
   const error = sp.error;
+  const typed = error ? (await cookies()).get(EMAIL_COOKIE)?.value ?? '' : ''; // the address typed before a validation redirect
   const blocks: Partial<Record<MethodKey, React.ReactNode>> = {
     provider_a: providers.find((p) => p.key === 'provider_a') && <button name="method" value="provider_a" className="button wide">{SIGNIN.provider(providers.find((p) => p.key === 'provider_a')!.label)}</button>,
     provider_b: providers.find((p) => p.key === 'provider_b') && <button name="method" value="provider_b" className="button wide">{SIGNIN.provider(providers.find((p) => p.key === 'provider_b')!.label)}</button>,
     email: (
       <div className="email-block">
         <label htmlFor="email">{SIGNIN.emailLabel}</label>
-        <input id="email" name="email" type="email" inputMode="email" autoComplete="email" aria-describedby={error === 'email' ? 'email-err' : undefined} aria-invalid={error === 'email' || undefined} />
+        <input id="email" name="email" type="email" inputMode="email" autoComplete="email" defaultValue={typed} aria-describedby={error === 'email' ? 'email-err' : undefined} aria-invalid={error === 'email' || undefined} />
         {error === 'email' && <p id="email-err" role="alert" className="down small">{SIGNIN.emailError}</p>}
-        {error === 'rate' && <p role="alert" className="muted small">Too many links sent. Try again in a few minutes.</p>}
+        {error === 'rate' && <p role="alert" className="muted small">{SIGNIN.tooMany}</p>}
         <button name="method" value="email" className="button wide">{SIGNIN.emailButton}</button>
       </div>
     ),

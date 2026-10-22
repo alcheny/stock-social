@@ -10,7 +10,7 @@ const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !ha
 before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 
-dbTest('deleteProfile: vendor first (a failure deletes nothing), then the row cascades, the handle is reserved with no personal data', async () => {
+dbTest('deleteProfile: vendor first (a failure deletes nothing but marks deleted_at), then the row cascades, the handle is reserved with no personal data', async () => {
   const { sql } = await import('./db.ts');
   const { createAttempt, createUserForAttempt, signInWithIdentity, handleAvailable } = await import('./auth/attempts.ts');
   const { createSession } = await import('./auth/sessions.ts');
@@ -25,6 +25,8 @@ dbTest('deleteProfile: vendor first (a failure deletes nothing), then the row ca
     await assert.rejects(deleteProfile(user, { deleteVendorUser: async () => { throw new Error('vendor down'); } }), /vendor down/);
     assert.equal((await sql`select 1 from users where id = ${u.id}`).length, 1);
     assert.equal((await sql`select 1 from handle_reservations where handle = ${u.handle}`).length, 0);
+    const [marked] = await sql`select deleted_at from users where id = ${u.id}`;
+    assert.ok(marked.deleted_at); // deletion in progress: the row stays, marked, until the vendor call succeeds
     const vendorCalls: string[] = [];
     await deleteProfile(user, { deleteVendorUser: async (v) => { vendorCalls.push(v.snaptradeUserId); } });
     assert.deepEqual(vendorCalls, [`${tag}-vendor`]);

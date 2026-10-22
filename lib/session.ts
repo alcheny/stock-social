@@ -32,9 +32,11 @@ async function secure(): Promise<boolean> {
   return (await headers()).get('x-forwarded-proto') === 'https';
 }
 
+// Signing in while signed in replaces this browser's session row rather than leaving the old one live for 30 days.
 export async function signIn(userId: number) {
-  const token = await createSession(userId);
-  (await cookies()).set(SESSION_COOKIE, signToken(token, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/', secure: await secure(), maxAge: SESSION_DAYS * 86_400 });
+  const jar = await cookies();
+  const token = await createSession(userId, new Date(), unsignToken(jar.get(SESSION_COOKIE)?.value, sessionSecret()));
+  jar.set(SESSION_COOKIE, signToken(token, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/', secure: await secure(), maxAge: SESSION_DAYS * 86_400 });
 }
 
 export async function signOut() {

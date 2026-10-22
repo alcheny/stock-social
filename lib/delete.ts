@@ -13,7 +13,10 @@ export const defaultDeleteDeps: DeleteDeps = {
   deleteVendorUser: async () => { throw new Error('vendor user deletion is not wired yet'); },
 };
 
+// deleted_at marks a deletion in progress before the vendor call: if the vendor call fails the row stays, marked, and
+// the next call finishes it (PR-2a's S9 hides marked rows and retries from the hourly tick).
 export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = defaultDeleteDeps): Promise<void> {
+  await sql`update users set deleted_at = coalesce(deleted_at, now()) where id = ${u.id}`;
   if (u.snaptrade_user_id && u.snaptrade_secret_enc) await deps.deleteVendorUser({ snaptradeUserId: u.snaptrade_user_id, secretEnc: u.snaptrade_secret_enc });
   await sql.begin(async (tx) => {
     await tx`insert into handle_reservations (handle, until) values (${u.handle}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day')

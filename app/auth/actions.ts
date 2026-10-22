@@ -8,7 +8,7 @@ import { createAttempt, isMethod } from '@/lib/auth/attempts.ts';
 import { encodeTx, TX_COOKIE, type Tx } from '@/lib/auth/tx.ts';
 import { authorizeUrl, discover, pkce, randomToken } from '@/lib/auth/oidc.ts';
 import { providersFromEnv } from '@/lib/auth/providers.ts';
-import { hashToken, linkExpiry, newLinkToken, normalizeEmail } from '@/lib/auth/links.ts';
+import { ATTEMPT_COOKIE, attemptCookieValue, EMAIL_COOKIE, hashToken, issueLink, normalizeEmail, ownsAttempt, pendingLinkEmail, SendFailedError } from '@/lib/auth/links.ts';
 import { defaultSender } from '@/lib/auth/email.ts';
 import { allow } from '@/lib/auth/rate-limit.ts';
 import { sessionSecret, signToken } from '@/lib/auth/sessions.ts';
@@ -34,22 +34,34 @@ const back = (q: Record<string, string | null | undefined>) => {
   redirect(`/login?${p}`);
 };
 
+// The typed address survives a validation redirect in a short-lived httpOnly cookie, never in the URL (an address
+// in a query string ends up in request logs). /login reads it back into the field.
+async function keepEmail(form: FormData) {
+  const raw = form.get('email');
+  const email = typeof raw === 'string' ? raw.trim().slice(0, 254) : '';
+  (await cookies()).set(EMAIL_COOKIE, email, { httpOnly: true, sameSite: 'lax', path: '/login', maxAge: email ? 600 : 0, secure: (await origin()).startsWith('https://') });
+}
+// "Send again" is bound to the browser that started the attempt (lib/auth/links.ts#ownsAttempt).
+async function bindAttempt(attemptId: number) {
+  (await cookies()).set(ATTEMPT_COOKIE, attemptCookieValue(attemptId, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/login', maxAge: 3600, secure: (await origin()).startsWith('https://') });
+}
+
 export async function startSignIn(form: FormData) {
   const method = form.get('method');
   const r = await referral(form);
   if (!isMethod(method) || method === 'dev') return back({ ref: r.ref, via: r.via });
   const keep = { ref: r.ref, via: r.via, method };
-  if (form.get('adult') !== 'on') return back({ ...keep, error: 'attest' });
+  if (form.get('adult') !== 'on') { await keepEmail(form); return back({ ...keep, error: 'attest' }); }
   const landedAt = Number(form.get('landed_at'));
   const base = { method, attested: true, referredBy: r.referredBy, surface: r.surface, landedAt: landedAt ? new Date(landedAt) : null, source: r.surface ?? (r.ref ? 'profile' : 'direct') };
 
   if (method === 'email') {
     const email = normalizeEmail(form.get('email'));
-    if (!email) return back({ ...keep, error: 'email' });
-    if (!allow(`mail:${hashToken(email)}`, 5, 15 * 60_000)) return back({ ...keep, error: 'rate' });
+    if (!email) { await keepEmail(form); return back({ ...keep, error: 'email' }); }
+    if (!allow(`mail:${hashToken(email)}`, 5, 15 * 60_000)) { await keepEmail(form); return back({ ...keep, error: 'rate' }); }
     const attemptId = await createAttempt(base);
-    await sendLink(attemptId, email);
-    redirect(`/login/sent?a=${attemptId}`);
+    await bindAttempt(attemptId);
+    redirect(`/login/sent?a=${attemptId}${await sendOrFail(attemptId, email)}`);
   }
   if (method === 'brokerage') {
     const attemptId = await createAttempt(base);
@@ -67,20 +79,25 @@ export async function startSignIn(form: FormData) {
   redirect(authorizeUrl(d, p, { state: tx.s, nonce: tx.n, challenge, redirectUri: `${await origin()}/auth/callback/${p.key}` }));
 }
 
-async function sendLink(attemptId: number, email: string) {
-  const { token, hash } = newLinkToken();
-  await sql`insert into login_links (token_hash, email, attempt_id, expires_at) values (${hash}, ${email}, ${attemptId}, ${linkExpiry()})`;
-  await defaultSender()({ to: email, url: `${await origin()}/auth/email?t=${token}` });
+// Sends the link; a send failure becomes the error state on /login/sent (message + "Send again"), never a thrown
+// error, and leaves no claimable link behind (lib/auth/links.ts#issueLink). Returns the query suffix to show.
+async function sendOrFail(attemptId: number, email: string): Promise<string> {
+  try {
+    await issueLink(attemptId, email, defaultSender(), await origin());
+    return '';
+  } catch (e) {
+    if (e instanceof SendFailedError) return '&error=send';
+    throw e;
+  }
 }
 
 export async function resendLink(form: FormData) {
   const attemptId = Number(form.get('a'));
-  const [row] = await sql`select l.email from login_links l join signup_attempts a on a.id = l.attempt_id
-    where l.attempt_id = ${attemptId} and a.completed_at is null order by l.expires_at desc limit 1`;
-  if (!row) redirect('/login');
-  if (!allow(`mail:${hashToken(row.email)}`, 5, 15 * 60_000) || !allow(`attempt:${attemptId}`, 3, 15 * 60_000)) redirect(`/login/sent?a=${attemptId}&again=1`);
-  await sendLink(attemptId, row.email);
-  redirect(`/login/sent?a=${attemptId}&again=1`);
+  if (!ownsAttempt((await cookies()).get(ATTEMPT_COOKIE)?.value, attemptId, sessionSecret())) redirect('/login');
+  const email = await pendingLinkEmail(attemptId);
+  if (!email) redirect('/login');
+  if (!allow(`mail:${hashToken(email)}`, 5, 15 * 60_000) || !allow(`attempt:${attemptId}`, 3, 15 * 60_000)) redirect(`/login/sent?a=${attemptId}&error=limit`);
+  redirect(`/login/sent?a=${attemptId}${(await sendOrFail(attemptId, email)) || '&again=1'}`);
 }
 
 export async function signOut() {

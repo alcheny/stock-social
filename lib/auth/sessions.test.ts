@@ -45,6 +45,15 @@ dbTest('sessions: created, looked up by hash, expire, delete; the raw token is n
     assert.equal(new Date(s.last_seen_at).getTime(), later.getTime());
     await deleteSession(token);
     assert.equal(await userIdForSession(token, now), null);
+    // Signing in while signed in: the new session replaces the one this browser already holds.
+    const first = await createSession(u.id, now);
+    const second = await createSession(u.id, now, first);
+    assert.equal(await userIdForSession(first, now), null);
+    assert.equal(await userIdForSession(second, now), u.id);
+    assert.equal((await sql`select count(*)::int as n from sessions where user_id = ${u.id}`)[0].n, 1);
+    const third = await createSession(u.id, now, 'not-a-session'); // an unknown token replaces nothing
+    assert.equal((await sql`select count(*)::int as n from sessions where user_id = ${u.id}`)[0].n, 2);
+    assert.equal(await userIdForSession(third, now), u.id);
   } finally {
     await sql`delete from users where id = ${u.id}`;
   }

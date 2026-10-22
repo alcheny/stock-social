@@ -1,5 +1,8 @@
 // Passwordless email links: a random token in the URL, its sha256 in login_links, single use, 15 minutes.
 import { createHash, randomBytes } from 'node:crypto';
+import { sql } from '../db.ts';
+import type { Sender } from './email.ts';
+import { signToken, unsignToken } from './sessions.ts';
 
 export const LINK_MINUTES = 15;
 export const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -20,4 +23,39 @@ export function normalizeEmail(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const e = raw.trim().toLowerCase();
   return e.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
+}
+
+// The send failed: the link row is closed (used_at) so nothing claimable is left behind; the attempt stays and the
+// trader retries from /login/sent. The message carries no address, token or link.
+export class SendFailedError extends Error { constructor() { super('the sign-in link could not be sent'); } }
+
+// Writes the link row, then sends. On a send failure the row is marked used in the same breath and SendFailedError
+// is thrown, so no link that nobody received can ever sign someone in.
+export async function issueLink(attemptId: number, email: string, send: Sender, originUrl: string): Promise<void> {
+  const { token, hash } = newLinkToken();
+  await sql`insert into login_links (token_hash, email, attempt_id, expires_at) values (${hash}, ${email}, ${attemptId}, ${linkExpiry()})`;
+  try {
+    await send({ to: email, url: `${originUrl}/auth/email?t=${token}` });
+  } catch {
+    await sql`update login_links set used_at = now() where token_hash = ${hash} and used_at is null`;
+    throw new SendFailedError();
+  }
+}
+
+// The address behind an open (not completed) attempt, for "Send again". Null when there is none.
+export async function pendingLinkEmail(attemptId: number): Promise<string | null> {
+  const [row] = await sql`select l.email from login_links l join signup_attempts a on a.id = l.attempt_id
+    where l.attempt_id = ${attemptId} and a.completed_at is null order by l.expires_at desc limit 1`;
+  return row ? String(row.email) : null;
+}
+
+// "Send again" belongs to the browser that started the attempt: a signed cookie holds the attempt id (ids are
+// sequential, so the id alone proves nothing). Pure helpers; the cookie glue is in app/auth/actions.ts.
+export const ATTEMPT_COOKIE = 'login_attempt';
+// The address typed before a validation redirect (kept 10 minutes, httpOnly, path /login; never in a URL).
+export const EMAIL_COOKIE = 'login_email';
+export const attemptCookieValue = (attemptId: number, secret: string) => signToken(String(attemptId), secret);
+export function ownsAttempt(cookieValue: string | undefined | null, attemptId: number, secret: string): boolean {
+  const v = unsignToken(cookieValue, secret);
+  return v !== null && Number.isInteger(attemptId) && attemptId > 0 && v === String(attemptId);
 }
