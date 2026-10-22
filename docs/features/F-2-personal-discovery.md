@@ -46,9 +46,7 @@ Each one testable; the pipeline writes a test for every line.
 - Pushing suggestions by notification (Phase 2 "make watching sticky").
 
 ## Open questions
-- Where does AI earn its place here: scoring (needs a model call per viewer, a second vendor, DESIGN
-  Standing direction 3) or only writing the plain-words "why" line from deterministic scores? The
-  design record's rule is every model call through one module with a 50-example eval file.
+- Owner review of the Design overview (weights, metrics, the private-likes rule).
 - Does this wait for the week-8 supply gate (demand feature, Phase 2) or get built right after F-1?
 - Where does the section live: feed top, feed interleaved, profile bottom, or its own tab?
 - Must suggestions of trader records go to the trader's profile or open the swipe pane?
