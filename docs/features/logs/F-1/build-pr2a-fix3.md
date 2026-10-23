@@ -111,9 +111,10 @@ Date: 2026-10-23. Same branch, on top of `c1f9160`. Fixes the two Lows and one n
 | Note | While importing, the banner counted imported activities while the list under it shows closed trades | Banner now counts closed trades: "Importing your record · N closed trade(s) so far", fed by the profile's closed-trade count (the unfurl text while importing uses the same count). Copy stays in `lib/copy.ts` (`RECORD_BODY.banner`), checked by the existing copy test and the e2e banner assertions (updated to the new wording; none removed) |
 | Note | Unfurl "0 verified trades · % win rate …" for a record with no closes | Left as is: there is no share text helper; the string is inline in `generateMetadata` of the profile page, so the fix is not the one-line helper change the brief allows. Suggested for PR-2b: move the unfurl text into `lib/copy.ts` with a no-closes case under test |
 
-Open point for the owner/tester (not changed here): the profile page still shows the Verified badge for a `failed`
-record beside the incomplete line (it hides the badge only while importing). The feed pane now drops it. If the pane's
-rule is the one wanted, the profile should match (a one-condition change at the badge in `app/u/[handle]/page.tsx`).
+Profile made consistent with the pane (added in this round at the coordinator's request): the profile page no longer
+shows the Verified badge while the record is `failed`; it uses the same `paneTrust()` rule as the feed pane, and the
+incomplete line stays above the stats, which stay. The share card already showed no Verified label for `failed` ("Import
+did not finish" in amber); unchanged, now pinned by a unit assertion with every trade verified.
 The feature doc's banner wording ("N trades so far", F-1 decision) now reads "N closed trades so far"; the decision
 record should be updated by the owner if the wording is accepted.
 
@@ -149,7 +150,24 @@ record should be updated by the owner if the wording is accepted.
 - No new dependency, no schema change, no drop / truncate / delete. Percent-only; no quantities or prices.
 - No third-party names added; the new banner string is in `lib/copy.ts` under the existing copy checks.
 
+### Profile consistency: tests and results
+
+- `lib/copy.test.ts` "share card text per state": added `failed` with every trade verified → still "Import did not
+  finish", never the Verified label.
+- `e2e/connect.spec.ts` "a vendor refusal fails the import …" (D4/D5): signed out, no `.badge.verified` on the failed
+  profile. "fix round 4 (TR-3)": signed out, the profile shows the Verified badge while the record is whole; after the 403
+  it shows no Verified badge, the incomplete line and the headline stats (win rate).
+- Counts unchanged (assertions added to existing tests): unit 398, e2e 69.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, two runs | 398 pass both runs, 0 fail, 0 skipped |
+| `npm run build` (needed before e2e) | first attempt stopped on the framework's advisory prompt (tool output; nothing upgraded); the retry built cleanly |
+| `npm run test:e2e` (same variables and fakes as above) | 69 passed, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+
 ### Files changed
 
 `lib/connections.ts`, `lib/pane.ts`, `app/pane.tsx`, `app/page.tsx`, `app/u/[handle]/page.tsx`, `lib/copy.ts`; tests
-`lib/pane.test.ts`, `lib/connections.test.ts`, `e2e/connect.spec.ts`.
+`lib/pane.test.ts`, `lib/connections.test.ts`, `lib/copy.test.ts`, `e2e/connect.spec.ts`.

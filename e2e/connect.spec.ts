@@ -399,6 +399,7 @@ test('a vendor refusal fails the import and the hourly sync never publishes the 
   await page.goto(`/u/${handle}`);
   await expect(page.locator('.record-failed')).toContainText('may be incomplete');
   await expect(page.getByRole('link', { name: 'Try again' })).toHaveCount(0);
+  await expect(page.locator('.badge.verified')).toHaveCount(0); // fix round 4: a failed record is never badged Verified
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id in (${a1}, ${a2})`;
 });
@@ -573,6 +574,8 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await feed.goto('/');
   await expect(pane().locator('.badge.verified')).toHaveCount(1);
   await expect(pane().locator('.record-failed')).toHaveCount(0);
+  await feed.goto(`/u/${handle}`);
+  await expect(feed.locator('.badge.verified')).toHaveCount(1);
   // Second link (2 accounts) consented; one step reads account 1 of 2, then the vendor refuses (403) → failed.
   await scenario([{ id: a2, activities: recent(a2, 2) }, { id: a3, activities: recent(a3, 2) }]);
   await connectThrough(page);
@@ -588,6 +591,11 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await expect(pane().locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');
   await expect(pane().locator('.badge.verified')).toHaveCount(0);
   await expect(pane().locator('section.stats')).toHaveCount(1);
+  // The profile matches the pane (fix round 4): no Verified badge, the incomplete line, the stats.
+  await feed.goto(`/u/${handle}`);
+  await expect(feed.locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');
+  await expect(feed.locator('.badge.verified')).toHaveCount(0);
+  await expect(feed.locator('section.stats').first()).toContainText('win rate');
   await anon.close();
   await sql`delete from users where handle = ${handle}`;
   await sql`delete from broker_accounts where account_id = any(${[a1, a2, a3]})`;

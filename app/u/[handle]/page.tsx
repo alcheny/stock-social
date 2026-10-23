@@ -10,6 +10,7 @@ import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { PROFILE, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
 import { applyClocks, publicRecordDetail } from '@/lib/connections.ts';
+import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
@@ -95,6 +96,8 @@ export default async function Profile({ params, searchParams }: Params) {
   const claimed = isMe && (await searchParams)?.connect === 'account-claimed';
   const recapYm = latestRecapYm(trades.map((t) => ({ closedAt: t.closed_at as Date })));
   const allVerified = trades.length > 0 && trades.every((t) => t.verified);
+  // Fix round 4 (TR-3): the same trust rule as the feed pane: a failed record carries no Verified badge.
+  const trust = paneTrust(trades.map((t) => ({ verified: t.verified as boolean })), state);
   const first = trades.length ? new Date(Math.min(...trades.map((t) => t.opened_at.getTime()))) : null;
   const isNew = isNewRecord(trades.map((t) => ({ openedAt: t.opened_at })), trades.length, new Date());
   const range = rangeText(c);
@@ -113,7 +116,7 @@ export default async function Profile({ params, searchParams }: Params) {
     <main className="page">
       <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
       <p className="muted" style={{ marginTop: 0 }}>
-        {!provisional && `@${user.handle} `}{complete && trades.length > 0 && <Badge verified={allVerified} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
+        {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge verified={trust.badge === 'verified'} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {state === 'importing' && <p role="status" aria-live="polite" className="importing">{RECORD_BODY.banner(trades.length)}</p>}

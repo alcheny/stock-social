@@ -74,6 +74,8 @@ test('share card text per state (fix round 3): mirrors the profile; "Demo data" 
   // Failed: the profile's wording, never "Broker connected" or Verified.
   assert.deepEqual(card('failed'), { label: 'Import did not finish', tone: 'warn', body: 'No closed trades yet', note: RECORD_BODY.failed });
   assert.deepEqual(card('failed', { empty: false }), { label: 'Import did not finish', tone: 'warn', body: null, note: RECORD_BODY.failed });
+  // Fix round 4: a failed record never carries the Verified label, even when every trade is verified.
+  assert.deepEqual(card('failed', { empty: false, verified: true }), { label: 'Import did not finish', tone: 'warn', body: null, note: RECORD_BODY.failed });
   // Connected: Verified with closes, "Broker connected" with none.
   assert.deepEqual(card('connected', { empty: false }), { label: '✓ Verified from broker', tone: 'ok', body: null, note: null });
   assert.deepEqual(card('connected'), { label: '✓ Broker connected', tone: 'ok', body: 'No closed trades yet', note: null });
