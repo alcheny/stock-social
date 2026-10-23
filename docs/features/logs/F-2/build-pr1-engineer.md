@@ -643,3 +643,135 @@ Screenshots are in `screenshots/pr1-fix2/` (the e2e writes there now; `pr1-fix1/
   metrics for the feed.
 - Carried over: UX 4 (Retry far by Tab), UX 7 (demo-only feed is 6 cards), UX 9b, the pane header, and the sticky
   header at 375.
+
+## Fix round 3
+
+2026-10-23. From the tester's re-run 2 (1 medium E, 1 low F, the stale comment in note 2). Business lead round 3
+passed. Nothing committed. No dependency, `package.json`, CI, cron, sync, CODEOWNERS, schema or protected path
+changed. Own database `ss_eng3` (Postgres 16.15, `work_mem` 4 MB, `hash_mem_multiplier` 2), Node 22.22.
+
+### Changes
+
+1. **Weight query rescan (tester Medium E). `lib/feed.ts#weights`.**
+   - Reproduced first: the new LOAD case (below) on the round-2 code ran over 240 s on its first cold page 2 and was
+     stopped. The running statement was the weight query.
+   - Cause confirmed with `PREPARE` and `SET plan_cache_mode` on the same data (150,000 late closes among 15 listed
+     traders; the array is all of them):
+
+     | Weight query | `force_custom_plan` | `force_generic_plan` |
+     |---|---|---|
+     | Round 2: `not in (select unnest($3::text[]))` | `NOT (SubPlan 1)` over `Materialize (rows=150000)`, estimated cost 251,736,716; EXPLAIN ANALYZE cancelled by a 60 s statement timeout | `NOT (hashed SubPlan 1)`, 189 ms |
+     | Tried: the same array as a materialized CTE column | `NOT (hashed SubPlan 2)`, ProjectSet estimated 10 rows, 193 ms | hashed, 191 ms |
+     | **Shipped: `not in (select unnest(array(select external_id from activities where created_at > $asOf and side = 'SELL')))`** | `NOT (hashed SubPlan 2)`: ProjectSet estimated 10 rows over an InitPlan, 208 to 262 ms | hashed, 237 to 244 ms |
+
+     The shipped rows were taken with stale statistics (autovacuum off; `activities` reltuples 183 against 150,183
+     live rows, `closed_trades` 66,250 against 218,790), with `plan_cache_mode` set for the database and
+     `auto_explain` (analyze, no per-node timing) logging every page read.
+   - So a weight miss no longer receives the late closes from the candidate statement. It reads the late sells itself
+     (`lateArray`), as an InitPlan array: never a constant, so always hashed, in a custom or a generic plan.
+   - `pl` (each candidate trader's late sell ids) is gone from the candidate statement and the client. That removes
+     the 150,000-string row and the 150,000-element bound parameter (deviation 3 of round 2), at the cost of one more
+     read of the late sells on a weight miss (about 60 ms at 150,000).
+2. **The candidate statement, so the new case's cold page stays under 1 s.** With the weight query fixed, the cold
+   page was 0.9 to 1.5 s and the candidate statement 650 to 780 ms: it built the 150,000-row hash three times and
+   probed each late close up to three times. Measured one change at a time on the same fixture (16 reads each,
+   alternated):
+   - **Eligibility from c's own count.** A trader with ≥ 5 rows in `c` (closes at `asOf`, not late) passes the 5-close
+     rule without the per-trader probe; the probe runs only for traders with fewer. 170 to 200 ms less.
+   - **pk without probing c's rows again.** `pk` (the rows counted at `asOf`) is now `c`'s count plus the not-late rows
+     older than the window. Those are probed against `o`, the late sells dated before the window, read in the same
+     scan as `a` (`array_agg ... filter`). A close's `closed_at` is its sell's `executed_at` (`lib/trades.ts`), so `o`
+     holds every late sell an older close can have. Same `pk` as round 2 (checked: identical md5 over the 200
+     candidates' sell id and pk). Candidates median 366 and 377 ms against 461 and 499 with `a` there.
+   - Tried and reverted: fencing the window scan (`offset 0`) so only window rows are probed (worse: median 393 to
+     429 against 345 to 370), and the same fence in the weight query (no change).
+   - Plans with stale statistics, custom and generic: every late filter is `hashed SubPlan`; the fallback count's
+     subplan is never executed on this fixture; `pr`'s probe of `o` builds an empty hash.
+3. **Low F: recorded as a known limit (`ponytail:` in `lib/feed.ts`).** A page with no kept list stays linear in the
+   late sells since its `asOf`. Data path, page 2, 12-heavy fixture, late sells of a non-candidate (dated 30 days
+   back, so both arrays hold them), 10 reads each:
+
+   | Late sells since asOf | Weights kept, median / p95 | Cold, median / p95 |
+   |---|---|---|
+   | 0 | 128 / 163 ms | 233 / 308 ms |
+   | 150,000 | 316 / 367 ms | 567 / 685 ms |
+   | 300,000 | 722 / 949 ms | 1,007 / 1,124 ms |
+   | 600,000 | 1,343 / 1,699 ms | 1,931 / 2,228 ms |
+
+   - About 2.3 ms per 1,000 late sells with the weights kept, as the tester measured.
+   - No small change bounds it. Capping the late read changes which closes count, so pages would stop matching the
+     kept list. Serving page 1 above a threshold breaks legitimate cross-server paging during a large import.
+   - A real bound needs the import time stored on each close. That is a schema and rebuild change, outside this
+     round's limits. Planner item below.
+4. **Stale comment (note 2).** `lib/feed.load.test.ts` now says the round-2 fix is a hashed `not in` over the late
+   sells unnested from a non-constant array.
+
+### New test
+
+`lib/feed.load.test.ts`, LOAD case "fix round 3":
+- 12-heavy fixture. Page 1 and the kept page 2 are served.
+- Then the first 15 distinct traders on pages 1 and 2 each import 10,000 sells, dated before `asOf` and imported after
+  it, with a close for each: 150,000 late closes among listed traders (asserted ≥ 150,000).
+- Page 2 is read with no kept list 7 times with stale statistics, then 7 times after `analyze`. That is more than five
+  reads per connection statement, so custom plans and the generic plan both run. Each read is fully cold, then with
+  the weights kept.
+- Asserted: every read is the kept list's page 2; the cold median is under 1 s and every cold read is under 2 s (a
+  rescan is over 60 s); every weights-kept read is under 1 s. The weights-kept p95 is logged against the 400 ms
+  budget (deviation 1).
+
+### Measurements (own database, quiet machine, load average under 1)
+
+| Measure | Budget | Result (two runs) |
+|---|---|---|
+| New case, cold page 2 (14 reads) | median < 1 s | median **855 and 789 ms**; 697–1,034 and 719–1,007 ms. Before: over 240 s. |
+| New case, weights kept (14 reads) | 400 ms p95, logged | p95 **629 and 722 ms**; 411–629 and 403–722 ms |
+| Round-2 case (150,020 late activities), weights kept | p95 < 400 ms | p95 **227 and 296 ms** (round 2: 275 and 318) |
+| Round-2 case, cold | < 1 s each | 302–539 and 325–608 ms |
+| 12 heavy, pages 1–3 × 20 | p95 < 400 ms | p95 157 and 212 ms; cold page 1 361 and 352 ms |
+| 50 heavy, pages 1–3 × 20 | p95 < 400 ms | p95 320 and 363 ms; cold page 1 516 and 885 ms |
+
+Checks:
+
+- **`npx tsc --noEmit`**: clean.
+- **`npm test` ×3**: 559 tests (was 558, +1), 550 passed, 9 skipped (the load suites), 0 failed, all three runs.
+- **`LOAD=1 … lib/feed.load.test.ts` ×2**: 4 of 4 both runs. **`lib/sync.load.test.ts` ×2**: 5 of 5 (fleet 11,293
+  and 9,943 ms, bound 60,000).
+- **`CI=1 npm run build`**, stdin closed: the first attempt stopped on the framework's security advisory. That is tool
+  output; nothing was upgraded. The retry exits 0.
+- **`npm run test:e2e` ×1**, own database (demo seed), fresh `next start`, vendor fake configured: **100 passed,
+  3 skipped, 0 failed** (4.2 min). The skips are the sign-in provider and email-sink tests.
+- **`node scripts/compliance.ts diff origin/main`**: only the pre-existing `@img/sharp-wasm32` license line.
+- **`node scripts/autopilot.ts guard main`**: ok.
+- **Size**: PR-1 product lines against `origin/main` are **789 added** (was 794). The round removes `pl` and trims the
+  late-filter comment; the test file grows by the new case only.
+
+### Deviations
+
+1. **Weights-kept page 2 is over the 400 ms budget at 150,000 late closes among listed traders: p95 629 and 722 ms.**
+   - It is asserted under 1 s and logged against the budget, not asserted under it.
+   - The cost is linear, not a rescan. Each late close in the window is probed once per statement, and the late
+     hash is built once per statement: about 240 ms of the candidate statement here. The page's panes add about
+     100 ms, because 2 page-2 traders now have 10,000+ closes each. That is the business lead's pane-summary trigger
+     (more than 12 traders with 1,000+ closes among the candidates).
+   - The same class as Low F. The fix is the same: a stored import time per close.
+2. **The cold bound is a median plus a 2 s ceiling, not every read under 1 s.** 3 of 28 cold reads crossed 1 s
+   (1,001 to 1,034 ms) on this machine. The 2 s ceiling still catches any rescan (over 60 s).
+3. **`pk` relies on `closed_at` being the closing sell's `executed_at`** for closes older than the 14-day window, as
+   `lib/trades.ts#matchTrades` sets it. If that changes, such a late close would count in `pk`, so a weight kept at an
+   earlier `asOf` could be reused once it is no longer late. The weights themselves always filter the exact late set.
+   No unit test reaches this path apart from the load cases. One would need an older-than-window late close and two
+   `asOf` values on a warm cache.
+
+### Planner items
+
+- **Import time on each close** (`closed_trades.sell_imported_at`, set by the rebuild from the sell's `created_at`):
+  every late filter becomes a column comparison. That removes the late read, the hashes, Low F's linear cost and
+  deviation 3. It needs a schema change and a rebuild change. Not this PR.
+- `elig` joins `users` as a nested loop when `users` statistics are stale (503 × 252 comparisons here). It is cheap at
+  this size and the plan existed before this round. Watch it at 100,000+ users.
+
+### Cleanup
+
+- My fixtures were deleted after each run. Then my database `ss_eng3` was dropped, with its per-database settings
+  (`auto_explain`, `plan_cache_mode` and logging, set only for the EXPLAIN evidence).
+- The e2e server and the vendor fake are stopped. No other database was touched.

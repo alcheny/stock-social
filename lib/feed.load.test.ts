@@ -113,7 +113,8 @@ loadTest('fix round 1: signed-out feed, pages 1 to 3 at 500 traders (50 heavy, 5
 
 // F-2 PR-1 fix round 2 (tester High A): a cursor page with no kept list (another server, a restart, a crafted `?after=`)
 // after ≥ 150,000 activities were imported since the cursor's asOf. The late filter was `not in (late)`, which Postgres
-// rescans per candidate row once the late set exceeds work_mem: 129 s to over 180 s a page. Now an anti-join.
+// rescans per candidate row once the late set exceeds work_mem: 129 s to over 180 s a page. Now a hashed `not in` over the
+// late sells unnested from a non-constant array (lib/feed.ts#lateArray).
 // The fixture: the 12-heavy budget fixture; page 1 is served; then 15 traders' first imports land (10,000 activities
 // each, with 3,000 closes each) plus a late close for 20 listed traders, all after page 1's asOf. Page 2 is then read
 // with no kept list LATE.rounds times, first with the statistics as autovacuum left them (the planner expects almost no
@@ -189,6 +190,73 @@ loadTest('fix round 2: page 2 with no kept list after 150,000 activities importe
     const p95 = [...warm].sort((a, b) => a - b)[Math.ceil(warm.length * 0.95) - 1];
     assert.ok(p95 < FEED_BOUNDS.p95Ms, `page 2 with the weights kept: p95 ${p95.toFixed(0)} ms (${fmt(warm)})`);
     log(`page 2 with no kept list after ${n.toLocaleString('en-US')} late activities (first ${LATE.rounds} of each with stale statistics): weights kept ${fmt(warm)} ms (p95 ${p95.toFixed(0)}); cold server ${fmt(cold)} ms`);
+  } finally {
+    await sql`delete from activities where user_id = any(${made})`;
+    await fx.remove();
+  }
+});
+
+// F-2 PR-1 fix round 3 (tester Medium E): the listed traders' own late closes, 15 × 10,000 (dated before asOf, imported
+// after it). The weight query's `not in` over those sells was a bound array: in a custom plan (a connection's first five
+// runs) the planner saw its true length and, above hash_mem, rescanned it per row (over 60 s a page). Page 2 is read with
+// no kept list LATE_OWN.rounds times with stale statistics, then analyzed (more than five reads each, so custom and
+// generic plans both run): each read is the kept list's page; the cold server's median under COLD_LATE_MS and every
+// read under twice that (a rescan is over 60 s; 3 of 28 reads crossed 1 s on a noisy machine); weights kept, every
+// read under COLD_LATE_MS, and its p95 logged against the budget, not asserted under it: each of the 150,000 late closes
+// in the window is probed once per statement (linear, the known limit in lib/feed.ts), about 400 to 700 ms here.
+const LATE_OWN = { traders: 15, perTrader: 10_000, rounds: 7 };
+loadTest('fix round 3: page 2 with no kept list after 15 listed traders import 10,000 late closes each: cold median under 1 s, no rescan, the kept list\'s page', async () => {
+  const fx = await fixture({ traders: 500, heavy: 12, heavyCloses: 4_700, closes: 20, fresh: 10 });
+  const { sql } = await import('./db.ts');
+  const { loadFeedPage, clearFeedCache } = await import('./feed.ts');
+  try {
+    clearFeedCache();
+    const p1 = await loadFeedPage(undefined);
+    assert.ok(p1.next, 'a page 2 exists');
+    const kept = await loadFeedPage(p1.next);
+    await new Promise((r) => setTimeout(r, 5)); // every import below is strictly after asOf
+    const listed = [...new Set([...p1.cards, ...kept.cards].map((c) => c.user_id))].slice(0, LATE_OWN.traders);
+    assert.equal(listed.length, LATE_OWN.traders);
+    const tag = `lo${Math.random().toString(36).slice(2, 8)}`, asOf = p1.asOf.getTime();
+    const t0 = performance.now();
+    for (const [k, id] of listed.entries()) {
+      await sql`
+        insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
+        select ${id}, 'snaptrade', ${tag} || '-' || ${k} || '-' || i, 'b', 'L' || (i % 300), 'SELL', 1, 10,
+               ${new Date(asOf - 3_600_000)}::timestamptz - (i || ' seconds')::interval, '{}'::jsonb
+        from generate_series(1, ${LATE_OWN.perTrader}) i`;
+      await sql`
+        insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+        select ${id}, ${tag} || '-' || ${k} || '-' || i, 'b', 'L' || (i % 300), ${new Date(asOf - 5 * 86_400_000)}::timestamptz - (i || ' seconds')::interval,
+               ${new Date(asOf - 3_600_000)}::timestamptz - (i || ' seconds')::interval, ((i % 401) - 200) / 100.0, 5, true
+        from generate_series(1, ${LATE_OWN.perTrader}) i`;
+    }
+    const [{ n }] = await sql`select count(*)::int as n from closed_trades t join activities a on a.external_id = t.sell_id
+      where a.created_at > ${p1.asOf} and t.user_id = any(${listed}) and t.closed_at <= ${p1.asOf}`;
+    assert.ok(n >= 150_000, `late closes among listed traders ${n}`);
+    log(`own-late fixture: ${n.toLocaleString('en-US')} late closes among ${listed.length} listed traders, ${Math.round(performance.now() - t0)} ms setup`);
+    const warm: number[] = [], cold: number[] = [];
+    for (const analyzed of [false, true]) {
+      if (analyzed) await sql`analyze activities, closed_trades`;
+      for (let r = 0; r < LATE_OWN.rounds; r++) {
+        for (const what of ['all', 'lists'] as const) {
+          clearFeedCache('all');
+          if (what === 'lists') { await loadFeedPage(p1.next); clearFeedCache('lists'); }
+          const s = performance.now();
+          const page = await loadFeedPage(p1.next);
+          const ms = performance.now() - s;
+          (what === 'all' ? cold : warm).push(ms);
+          const when = `${analyzed ? 'analyzed' : 'stale statistics'}, ${what === 'all' ? 'cold server' : 'weights kept'}`;
+          assert.deepEqual(page.cards.map((c) => c.sell_id), kept.cards.map((c) => c.sell_id), `the kept list's page 2 (${when})`);
+          assert.ok(ms < (what === 'all' ? 2 : 1) * COLD_LATE_MS, `page 2 ${ms.toFixed(0)} ms (${when})`);
+        }
+      }
+    }
+    const fmt = (xs: number[]) => xs.map((t) => t.toFixed(0)).join(', ');
+    const p95 = [...warm].sort((a, b) => a - b)[Math.ceil(warm.length * 0.95) - 1];
+    const median = [...cold].sort((a, b) => a - b)[Math.floor(cold.length / 2)];
+    assert.ok(median < COLD_LATE_MS, `cold page 2 median ${median.toFixed(0)} ms (${fmt(cold)})`);
+    log(`page 2 with no kept list after ${n.toLocaleString('en-US')} listed traders' late closes (budget ${FEED_BOUNDS.p95Ms} ms): weights kept ${fmt(warm)} ms (p95 ${p95.toFixed(0)}); cold server ${fmt(cold)} ms`);
   } finally {
     await sql`delete from activities where user_id = any(${made})`;
     await fx.remove();
