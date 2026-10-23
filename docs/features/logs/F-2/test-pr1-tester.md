@@ -157,3 +157,177 @@ Fixture: 120 traders × 6 closes plus the demo seed, so the list is 200 cards.
   - Retry (light, dark), stale, after Retry and after a jump (light, dark).
 
 Verdict: DEFECTS (1 High, 2 Medium, 1 Low, 2 notes)
+
+## Re-run 1
+
+2026-10-23. Branch `claude/adoring-euler-4469ys` at `8f1b88f` (the engineer's fix round 1). Postgres 16, Node 22.22.
+Everything ran on my own database. The build, the e2e runs and my server ran from a copy of `HEAD` outside the repo, so
+the e2e did not rewrite any committed screenshot. No product code changed.
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | Clean both times. The new `activities_created` index is created once and skipped the second time. No drop, truncate or delete from. |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | 555 tests: 548 pass, 7 skipped (load), 0 fail, every run (16–17 s) |
+| Test count | 547 → 555 (+8); e2e 100 → 102 (+2). Nothing removed. |
+| Weakened? | No. The property test's per-slot rule now prefers another trader than the previous card's. It still names one exact card for every slot. The load test was split into a fixture and a measure; the 12-heavy case keeps its fixture, bound and assertions. |
+| `LOAD=1 … lib/sync.load.test.ts` | 5/5 (fleet 9,989 ms, bound 60,000) |
+| `LOAD=1 … lib/feed.load.test.ts` ×5 | 2/2 every run. Quiet machine (runs 4, 5): 12 heavy p95 154 and 188 ms; **50 heavy p95 287 and 294 ms**; cold page 1 490 and 532 ms. Runs 1–3 shared the CPU with another session's browser and servers: 50 heavy p95 305, 312 and 386 ms (page 1 alone up to 538 ms). |
+| `CI=1 npm run build`, stdin closed | Run 1 stopped on the framework's security advisory. That is tool output; nothing was upgraded. Retry: exit 0. |
+| `npm run test:e2e` ×2, own database, fresh `next start` each run, vendor fake configured | **99 passed, 3 skipped, 0 failed**, both runs (4.6 and 4.2 min). The skips are the sign-in provider and email-sink tests. |
+| `node scripts/compliance.ts diff origin/main` | Only the existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | ok |
+
+### 2. My first report's defects
+
+| # | Then | Now |
+|---|---|---|
+| 1 High, the page-join chain | Retry left the reader at card 180; a jump left them at card 120 | **Closed** when the page arrives with the reader at the control (table 3). One new case is defect B below. |
+| 2 Medium, repeats and skips across joins | Up to 3 repeats and 11 skips in 90 | **Closed** for late imports, soft deletes, imports starting and rebuilds, on both paths. An outright delete on another server still shifts the list (defect D). |
+| 3 Medium, server time with 50 heavy traders | `loadFeedPage` p95 1,835 ms | Data path passes (287–294 ms). The full response is still over budget (defect C). |
+| 4 Low, request at card 24 | card 24 | **Closed**: card 25 |
+
+### 3. The feed as a user
+
+Fixture A: 120 traders × 6 fresh closes plus the demo seed, so the list holds 200 cards. Signed out unless stated.
+
+| Check | Result |
+|---|---|
+| Request point | 360×640, 375×800, 390×844 and 1280×800: **no request at card 24, one at card 25**; page 3 at card 55, not at 54 |
+| Retry (POST blocked, then a 1.2 s server) by keyboard and by click, light and dark | 1 failed request, **0 while in error, exactly 1 for Retry**. The button reads "Loading…" and keeps focus meanwhile. After 3 s: 60 rows, **card 31 at the top**, focus on card 31's name (keyboard and click), live line "30 more trades loaded". Reading on: page 3 at card 55, once. A synthetic tap gives the same result, with focus left where it was. |
+| Jump while page 2 is held (End key, a 60-event wheel fling, a 40-frame programmatic fling; 375 light and dark, 1280 dark) | **1 request** each. The control reads "Loading…" with `aria-busy="true"`. Two more End presses while held add nothing. After release: 60 rows, **card 31 at the top**, no further request in 3 s. |
+| End, held, release, repeated to the end of the list | 6 requests for 6 pages, one each. Last live line: "20 more trades loaded". End card shown. But see defect B for where the reader stops. |
+| Steady reader (PageDown every 650 ms, server 1.5 s per page), 375 and 1280 | 6 requests. Every card from 2 to 200 came into view in order; no backward move. 200 distinct cards, then the end card. |
+| Reader at the control when a fast page arrives | **Defect B.** End key or a smooth scroll to the end, with the server answering in 0 to 500 ms: the reader stops between cards 30 and 31, unsnapped (4 of 4 hold times, light and dark, 375 and 1280). With 800 ms or more: card 31 at the top. |
+| End card by viewer (375 light and dark, 1280 dark) | Signed out and a signed-in member with no record: "Publish your trades". A signed-in publisher: **"See your record"**. Only one is visible each time, 44 px high. Both go to `/login`, which takes a signed-in viewer to their own profile. `<body data-viewer>` reads guest, member and publisher. |
+| No JS, 7 pages by keyboard | Page 1 has no `h1`. Pages 2–7 have the hidden headings **"Trades 31 to 60" … "Trades 181 to 200"**, and all are `noindex`. 200 cards, 200 distinct, then the end card. |
+| Regressions | Card 40 (appended): → opens the pane with its chart and stats, ← returns. 59 Verified cards and 1 Demo card; none has both. The disclaimer is in plain view. No page errors. The 4,700-close profile pages by 50 (`?closes=100`) with its chart. Consent, TR-3, the pane, profile paging and the F-1 chart race are covered by the e2e, which passed twice. |
+
+### 4. Variety (skewed fixture)
+
+Five fixtures, each read on five days. Each has 5 hyperactive traders (60 closes each, last 20 h, |r| ≤ 8%) and 55
+ordinary traders (6–20 closes over 30 days, |r| ≤ 25%), with mixed signs.
+
+| Measure | Result |
+|---|---|
+| Traders among the 200 candidates | **57–61** (≥ 33). At most 6 per trader. |
+| The 5 hyperactive traders' share of the list | **15%** (30 of 199–200) in all 25 lists. On page 1: 1–7 cards. |
+| Exploration picks that are new traders, first 120 cards | **24 of 24 in all 25 lists** |
+| The same, whole list | 24–29 of 40 (60–73%). This is the engineer's deviation 1: by card ~120 every candidate trader is already in the list. The business lead decides. |
+| One trader twice in a row | 0 in all 25 lists |
+| Most cards of one trader in any 30 | 6 |
+
+### 5. Data changes between pages
+
+I ran each case through `loadFeedPage` twice on fixture A. "Kept" means the same server; "recomputed" means the kept
+list is cleared before every later page, as on another server. The reference is the list read page by page just
+before the change.
+
+| Change after page 1 | Kept | Recomputed |
+|---|---|---|
+| A +350% close dated 10 min before `asOf`, imported after it, for the trader at position 101; and a new trader whose 6 closes are all late | 0 repeats, 0 skips, 0 new cards, order unchanged | same |
+| The trader at position 71 soft-deleted | Their 3 later cards leave gaps; nothing else moves | same |
+| An import starts for the trader at position 96 | 1 card leaves a gap; nothing else moves | same |
+| A rebuild of the trader at position 51 (rows reinserted with new ids) | unchanged | unchanged |
+| The trader at position 41 deleted outright | Gaps only | **3 repeats, 3 skips, 3 cards from outside the list** (defect D) |
+| All of the above together | Gaps only | 3 repeats, 3 skips, 2 new cards (from the outright delete) |
+
+- A later page 1 includes all 7 late cards.
+- In the browser, across a server restart after an outright delete, the client dropped every repeat (0 shown). But 10
+  of the 136 remaining cards were skipped, and 4 cards from outside the list appeared.
+
+### 6. Performance (quiet machine, load average about 1; my server only)
+
+| Measure | Budget | Result |
+|---|---|---|
+| Full HTTP response, signed out, **50 heavy** × 4,700 closes, 5 fresh each; 3 server starts × 20 rounds × pages 1–3 (180 pages) | p95 < 400 ms | **p95 473 ms**, median 344. Page 1 p95 502, page 2 399, page 3 141. **Cold** first page: 956, 1,020 and 1,059 ms. |
+| Same, worst case (1 fresh close per heavy trader) | p95 < 400 ms | **p95 569 ms**, median 95. Page 1 p95 602. Cold: 1,028–1,079 ms. |
+| Same, 12 heavy (the original fixture) | p95 < 400 ms | p95 **320 ms**. Cold: 656–696 ms. |
+| Data path (`loadFeedPage`, the LOAD suite) | p95 < 400 ms | 50 heavy: **287 and 294 ms**. 12 heavy: 154 and 188 ms. |
+| Raw HTML per page, pages 1–7 | ≤ 500 KB | 50 heavy: 219–334 KB (gzipped 21–30), 16–27 traders a page. Worst case: 191–346 KB. 12 heavy: 187–328 KB. |
+| Cursor page with no kept list after many recent imports (50 heavy, cursors 1, 12 and 47 h old) | – | 0 imports: 159–1,105 ms. 50,000: 352–808 ms. 100,000: 463–789 ms. **150,000: over 180 s twice (aborted), 129 s once** (defect A). |
+
+### 7. Defects
+
+A. **High · bug · `lib/feed.ts` (`late`): a cursor page with no kept list takes minutes once ~120,000 activities have
+   been imported since the cursor's `asOf`.**
+   - `sell_id not in (select external_id from late)` becomes a hashed subplan only while the late set fits in
+     `work_mem` (4 MB by default). Above that, Postgres rescans the whole late set for every candidate row.
+   - EXPLAIN, 150,000 late activities, 814 closes: `Materialize (actual rows=150000 loops=814)`, **14.0 s**. With
+     `work_mem` 64 MB the same query is a hashed subplan: 129 ms.
+   - Data path, fixture A, page 2 with no kept list:
+
+     | Late activities | Page 2 time |
+     |---|---|
+     | 20,000 | 94–186 ms |
+     | 60,000 | 293–333 ms |
+     | 100,000 | 372–491 ms |
+     | 150,000 | **7.6–32 s** |
+     | 300,000 | **14–64 s** |
+
+     Over HTTP with 50 heavy traders, see section 6. The `weights()` miss query uses the same `not in`.
+   - Who hits it:
+     - Every page 2 or later served by a process that did not serve that cursor's page 1: another instance, a
+       restart or a deploy.
+     - Every crafted `?after=`. The cursor is public JSON, and each new `asOf` misses the kept list. So one visitor
+       can hold a database backend for minutes per request.
+   - When: one trader's first import is up to ~10,000 activities (the sync load fixture). So about 12–15 first imports
+     within a cursor's 48 h lifetime are enough.
+   - Fix (engineer's choice):
+     - an anti-join (`not exists`, or a left join with `is null`) instead of `not in`; it plans as a hash anti-join
+       that spills to disk instead of rescanning;
+     - and/or read the late set only for the candidate sell ids.
+
+     Either way, add a load case with ≥ 150,000 activities imported after `asOf`, on a page with no kept list.
+B. **Medium · bug · `app/feed-pager.tsx`: with a fast server, the End key leaves the reader between cards 30 and 31,
+   unsnapped.**
+   - What happens:
+     - During the smooth scroll to the end, card 25 passes and page 2 is requested.
+     - The page arrives while the scroll is still running, before the control is in view. So there is no pin, which
+       is correct.
+     - The scroll then finishes at its first target, the old end (scrollTop 23,520 at 375×800).
+   - The reader sees card 30's lower 480 px over card 31's first 320 px. Card 30's "−45.8%" and "No thesis posted"
+     sit directly above card 31's "T a15 ✓ Verified" (`end-key-fast-server-375-{light,dark}.png`,
+     `chain-end-375-light.png`). A return reads as if it belonged to the next trader.
+   - Measured with the server held 0, 150, 300 and 500 ms: the reader stops there every time (light, dark, 375,
+     1280). With 800 ms or more: card 31 at the top.
+   - Page 2 normally answers in 100–400 ms, so this is the usual End-key case on a desktop. The fix round's e2e holds
+     the request until the scroll has ended, so it cannot see this. Seen in headless Chromium.
+   - Fix (engineer's choice): when a scroll comes to rest inside the join at no card's top (`scrollend`), snap to the
+     nearest card, or pin then. Test it with the request released before the scroll ends.
+C. **Medium · spec (plan §4, "signed-out feed server time p95 < 400 ms") · the full response with 50 heavy traders
+   is over budget.**
+   - Full response: p95 473 ms; 569 ms in the worst case. Page 1 p95: 502 and 602 ms. A cold first page: about
+     1.0 s.
+   - The data path that the LOAD suite asserts passes (287–294 ms). Rendering adds about 180 ms.
+   - If the business lead reads the budget as the data path only, this is closed. Otherwise, the pane summaries
+     (engineer's follow-up) are the next step.
+D. **Low · bug (engineer's deviation 3) · an outright delete on another server shifts the list.**
+   - Recomputed pages: 3 repeats (seen without JS), 3 skips and 3 cards from outside the list.
+   - In the browser across a restart: 0 repeats (the client's drop works), but 10 of 136 cards skipped and 4 new
+     ones.
+   - It needs an account deletion during someone's session, so it is rare.
+
+Notes:
+
+- **Exploration, whole list.** 60–73% of picks are new traders, against ≥ 80%. The first 120 cards are at 100%. This
+  is the engineer's deviation 1; the business lead decides.
+- **Page 1 has no `h1`.** Later pages do (the hidden position heading).
+- **A slip of mine.** My first command failed to create my database, and the demo seed then ran against the shared
+  database. The seed is idempotent (the 3 demo traders were already there), so nothing else was written.
+- **Screenshots** are in `screenshots/pr1-test2/`:
+  - Retry: the line, "Loading…", and after Retry by keyboard and by click (light, dark);
+  - after a jump (End, wheel and programmatic fling; 375 light and dark, 1280 dark), and `loading-*`;
+  - the End key with a fast server (defect B) and the end of the End chain;
+  - the end card for a guest, a member and a publisher;
+  - no-JS page 2, and the pane on card 40 (light, dark).
+
+### 8. Cleanup
+
+- My test users were deleted, then my database (`ss_tst2`) was dropped. I wrote nothing else to the shared database
+  (see the seed note above).
+- My server (3218) and the e2e servers are stopped. The copy of `HEAD` I built from is removed.
+
+Verdict: DEFECTS (1 High, 2 Medium, 1 Low, 2 notes)
