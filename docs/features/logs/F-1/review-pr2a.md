@@ -119,3 +119,60 @@ are all per unit. A total-cost reading would fail every one of them.
   say so.
 - Carried from the first review: the PR-2b items, and the framework advisory that blocks `npm run build` on this branch
   and on main (owner).
+
+## Final check
+
+approve: false
+
+Date: 2026-10-23, on `e3e11b1` (engineer's "Reviewer fix round 2", `build-pr2a-fix4.md`). Read-only; no code changed.
+
+### Checks run
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL=postgres://…@localhost:5432/stock_social`) | 419 tests, 419 pass, 0 fail, 0 skipped (count unchanged, 419 → 419) |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line (`package.json` and the lockfile unchanged) |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+### What was verified
+
+- **Schema** (`db/schema.sql:136-146`): `create table if not exists kept_theses`, additive, same 280-character and
+  status checks as `closed_trades`, user cascade, no foreign key on `sell_id` (like `trade_reflections`). No `drop`,
+  `truncate` or `delete from`; the guard and the reflections test's schema regex both pass, and every DB test file
+  re-applies the schema on an existing database, so it is idempotent.
+- **The rebuild never deletes a thesis** (`lib/sync.ts:39-50`): live theses whose `sell_id` the rebuild does not produce
+  are upserted into `kept_theses` before the `delete from closed_trades`; `kept_theses` itself is never deleted from in
+  `lib/sync.ts`. The only `delete from` in the file is still `closed_trades`, so `lib/reflections.test.ts` "nothing
+  deletes, truncates or drops trade_reflections" holds unchanged and passes.
+- **Published and held survive with status intact**: the upsert copies `thesis_status` as is, and re-attachment reads it
+  back; `lib/connections.test.ts:590-617` asserts one published and one held thesis leave with their trades, sit in
+  `kept_theses` across a second flagged rebuild, and return with the same text and status when the flag clears.
+- **Live wins over kept**: `reattachTheses` (`lib/theses.ts:15-20`) lets the later entry win a `sell_id`; `lib/sync.ts:45`
+  passes kept rows first, then live rows, so a thesis on a current `closed_trades` row always wins. The edit assertion
+  (`lib/connections.test.ts:621-624`) covers this.
+- **Cleared or edited through the form**: `app/actions.ts:51-53` deletes the kept copy for that trade's `sell_id`
+  (scoped to the session user) after the update, so a cleared thesis cannot be re-attached from `kept_theses`. Correct
+  by reading.
+- **No page reads kept theses**: outside `lib/sync.ts` (the rebuild) the only reference is the delete in `saveThesis`;
+  no page, image, feed or ticker query selects from `kept_theses`. Profile deletion removes the rows through the user
+  cascade (`lib/delete.ts`, `lib/connections.ts`).
+- No new endpoints, vendors, auth changes or string-built SQL; percent-only and the other Product rules are untouched.
+
+### Remaining findings
+
+1. **Low · `app/actions.ts:51-53` has no test; `lib/connections.test.ts:621-624` does not exercise it.** The "a cleared
+   thesis never comes back" behavior depends entirely on the new `delete from kept_theses` in `saveThesis`, but no test
+   goes through `saveThesis`. The edit assertion writes `closed_trades` with direct SQL, so it passes because live
+   wins, with or without the delete; and a clear by direct SQL would bring the kept copy back, which is exactly the
+   case the delete exists for. Rule: team/reviewer.md item 2 (new behavior has tests). Fix: one test that, after the
+   trades return with their theses, clears one thesis the way the form does (the e2e thesis form already used by
+   `e2e/app.spec.ts` "thesis moderation …", or a DB test calling the same update plus delete), runs another rebuild,
+   and asserts the thesis stays cleared and its `kept_theses` row is gone.
+
+### Notes (not blocking)
+
+- The update and the delete in `saveThesis` are two statements outside a transaction; a rebuild between them could set
+  the thesis aside again. Narrow, and the same window already exists for the update itself against a rebuild that
+  replaces row ids; worth one `sql.begin` when the test above is added.
+- Carried: the PR-2b items, and the framework advisory that blocks `npm run build` (owner dependency bump).
