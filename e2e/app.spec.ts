@@ -1127,7 +1127,8 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
 });
 
 // ---- F-2 PR-1: feed mix and paging (docs/features/logs/F-2/plan.md §1 PR-1) ----
-const PR1_SHOTS = 'docs/features/logs/F-2/screenshots/pr1';
+// Fix round 1: this round's screenshots go to their own folder (the PR-1 build's evidence in pr1/ stays as it was).
+const PR1_SHOTS = 'docs/features/logs/F-2/screenshots/pr1-fix1';
 // 45 traders × 5 fresh closes (large moves, losses included), one symbol per close: enough for three pages.
 async function pagingFixture() {
   const now = Date.now();
@@ -1311,6 +1312,118 @@ test('F-2 PR-1: a bad or tampered cursor serves page 1 (never a 500); later page
       expect(html).toMatch(/<meta name="robots" content="noindex"/);
     }
   } finally {
+    await release();
+  }
+});
+
+// ---- F-2 PR-1 fix round 1 (blocking, all three reports): the page join from the control ----
+// The row whose top sits at the top of the feed (0-based), and the POSTs made since `since`.
+const atTop = (page: import('@playwright/test').Page) => page.locator('main.feed').evaluate((feed) => {
+  const top = feed.getBoundingClientRect().top;
+  return [...feed.querySelectorAll(':scope > .row, :scope > .feed-more, :scope > .feed-end')].findIndex((r) => Math.abs(r.getBoundingClientRect().top - top) < 2);
+});
+// The reader is at the control: it is in view (at the end of the list, below the lower part of card 30).
+const controlInView = (page: import('@playwright/test').Page) => page.locator('main.feed').evaluate((feed) =>
+  feed.querySelector(':scope > .feed-more')!.getBoundingClientRect().top < feed.getBoundingClientRect().bottom - 1);
+
+test('F-2 PR-1 fix round 1: Retry from the control makes one request and leaves the reader on card 31, focus on its card; nothing loads at card 24', async ({ page }) => {
+  test.setTimeout(180_000);
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const fx = await pagingFixture();
+  try {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width: 375, height: 800 });
+      await page.emulateMedia({ colorScheme });
+      let fail = true;
+      const posts: string[] = [];
+      await page.route('**/*', (route) => {
+        if (route.request().method() !== 'POST') return route.continue();
+        posts.push(route.request().url());
+        return fail ? route.abort() : route.continue();
+      });
+      await page.goto('/');
+      const rows = page.locator('.feed > .row');
+      await expect(rows).toHaveCount(30);
+      await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached(); // hydrated
+      // Card 24 snapped to the top: card 25 only touches the feed's bottom edge, so nothing loads (it loaded here before).
+      await rows.nth(23).evaluate((el) => el.scrollIntoView());
+      await page.waitForTimeout(500);
+      expect(posts).toEqual([]);
+      await rows.nth(24).evaluate((el) => el.scrollIntoView());
+      const status = page.locator('.feed-more [role="status"]');
+      await expect(status).toHaveText('Couldn\u2019t load more. Retry');
+      expect(posts).toHaveLength(1);
+      // The reader goes to the control and retries by keyboard.
+      await page.locator('main.feed').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      await expect.poll(() => controlInView(page)).toBe(true);
+      fail = false;
+      await status.getByRole('button', { name: 'Retry' }).focus();
+      await page.keyboard.press('Enter');
+      await expect(rows).toHaveCount(60);
+      await page.waitForTimeout(2_000); // a chain would fire within this
+      expect(posts).toHaveLength(2); // the failed one, then exactly one for Retry
+      await expect(rows).toHaveCount(60);
+      expect(await atTop(page)).toBe(30); // card 31
+      await expect(rows.nth(30).locator('.card .who')).toBeFocused();
+      await expect(page.locator('.feed > p[aria-live="polite"]')).toHaveText('30 more trades loaded');
+      await page.screenshot({ path: `${PR1_SHOTS}/after-retry-375-${colorScheme}.png` });
+      await page.unroute('**/*');
+    }
+  } finally {
+    await fx.remove();
+    await release();
+  }
+});
+
+test('F-2 PR-1 fix round 1: a jump to the control while page 2 is on its way makes one request and lands on card 31; "Loading…" shows meanwhile', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const fx = await pagingFixture();
+  try {
+    for (const [width, colorScheme] of [[375, 'light'], [375, 'dark'], [1280, 'dark']] as const) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme });
+      const posts: string[] = [];
+      let hold = true;
+      await page.route('**/*', async (route) => {
+        if (route.request().method() !== 'POST') return route.continue();
+        posts.push(route.request().url());
+        while (hold) await new Promise((r) => setTimeout(r, 50));
+        return route.continue();
+      });
+      await page.goto('/');
+      const rows = page.locator('.feed > .row');
+      await expect(rows).toHaveCount(30);
+      await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached();
+      // From card 3 straight to the end (End, a fling): the control comes into view and asks for page 2, once.
+      await rows.nth(2).evaluate((el) => el.scrollIntoView());
+      await page.locator('main.feed').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      await expect.poll(() => posts.length).toBe(1);
+      await expect(page.locator('.feed-more a')).toHaveText('Loading\u2026');
+      await expect(page.locator('.feed-more a')).toHaveAttribute('aria-busy', 'true');
+      if (width === 375) await page.screenshot({ path: `${PR1_SHOTS}/loading-375-${colorScheme}.png` });
+      expect(await controlInView(page)).toBe(true); // the reader is at the control as the page arrives
+      hold = false;
+      await expect(rows).toHaveCount(60);
+      await page.waitForTimeout(2_000);
+      expect(posts).toHaveLength(1);
+      await expect(rows).toHaveCount(60);
+      expect(await atTop(page)).toBe(30); // card 31, the first new card
+      await page.screenshot({ path: `${PR1_SHOTS}/after-jump-${width}-${colorScheme}.png` });
+      // Reading on from there loads page 3 at its card 25, once.
+      await rows.nth(54).evaluate((el) => el.scrollIntoView());
+      await expect(rows).toHaveCount(90);
+      expect(posts).toHaveLength(2);
+      await page.unroute('**/*');
+    }
+    // Without JavaScript, page 2 says where it starts (a visually hidden heading).
+    const html = await (await request.get('/')).text();
+    const next = /href="\/\?after=([A-Za-z0-9_-]+)"/.exec(html)![1];
+    expect(await (await request.get(`/?after=${next}`)).text()).toContain('<h1 class="sr-only">Trades 31 to 60</h1>');
+  } finally {
+    await fx.remove();
     await release();
   }
 });

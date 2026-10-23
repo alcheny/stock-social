@@ -221,7 +221,8 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   void today; // reserved for open positions (TR-4)
   const n = trades.length;
   const bySymbol = new Map<string, ConfidenceInput[]>();
-  for (const t of trades) bySymbol.set(t.symbol, [...(bySymbol.get(t.symbol) ?? []), t]);
+  // F-2 PR-1 fix round 1 (load check): push, not copy (a copy per trade was quadratic in a symbol's trade count).
+  for (const t of trades) { const g = bySymbol.get(t.symbol); if (g) g.push(t); else bySymbol.set(t.symbol, [t]); }
   // A cluster = same-symbol trades whose holds overlap (inclusive of the boundary instant): one bet.
   const clusters: Cluster[] = [];
   for (const group of bySymbol.values()) {

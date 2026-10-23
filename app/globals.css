@@ -305,3 +305,7 @@ footer.site:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .feed .feed-end h2 { margin: 0; font-size: 1.25rem; }
 .feed .feed-end p, .feed .feed-more p { margin: 0; }
 .feed .feed-more .button, .feed .feed-end .button, .feed .feed-more button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+/* F-2 PR-1 fix round 1: the control never anchors scrolling (the pager pins the reader to card 31 itself), and the end
+   card shows the one action that fits the viewer (app/feed-rows.tsx#FeedEnd; <body data-viewer> from the layout). */
+.feed .feed-more { overflow-anchor: none; }
+body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publisher"]) .feed-end .for-publisher { display: none; }

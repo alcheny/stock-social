@@ -55,13 +55,15 @@ test('property, 1,000 generated feeds × 3 pages: caps on every window (page joi
     const used = new Set(list.map((x) => x.card.key));
     for (const left of ranked.filter((x) => !used.has(x.key))) assert.equal(fits(list.map((x) => x.card), left), false, `feed ${f}: ${left.key} fits but was dropped`);
     // Exploration picks come from outside the top 30, in exploration slots; every other card is the best-ranked card
-    // that fits its slot (the list stays in rank order past the top).
+    // that fits its slot (the list stays in rank order past the top). Fix round 1 (UX follow-up 6): of another trader
+    // than the previous card's when one fits; the previous card's trader only when no other card fits.
     const rank = new Map(ranked.map((x, i) => [x.key, i]));
     list.forEach((x, p) => {
       if (x.explore) { assert.ok(x.exploreSlot && rank.get(x.card.key)! >= EXPLORE_TOP, `feed ${f}: explore pick`); return; }
       const before = list.slice(0, p).map((y) => y.card);
       const placed = new Set(before.map((y) => y.key));
-      const best = ranked.find((q) => !placed.has(q.key) && fits(before, q));
+      const prev = before[before.length - 1]?.trader;
+      const best = ranked.find((q) => !placed.has(q.key) && fits(before, q) && q.trader !== prev) ?? ranked.find((q) => !placed.has(q.key) && fits(before, q));
       assert.equal(x.card.key, best?.key, `feed ${f} slot ${p}: not the best-ranked card that fits`);
     });
     // ≥ 2 per full window on realistic feeds. An exploration slot takes a top-30 card only when no card from outside
@@ -130,4 +132,75 @@ test('a pool of 30 or fewer cards has nothing outside the top 30: no exploration
   assert.equal(list.length, 6); // 3 traders, 2 each per 10 cards
   assert.ok(list.every((x) => !x.explore));
   assert.deepEqual(mixFeed([], { day: '2026-10-23' }), []);
+});
+
+// F-2 PR-1 fix round 1 (business lead blocker 2): exploration explores traders. A skewed fixture: 5 hyperactive traders
+// (60 fresh closes each, small moves) and 55 ordinary ones (6 to 20 closes over 30 days, larger moves), scored like the
+// feed (size of move × recency), at most 6 candidates per trader (lib/feed.ts#FEED_PER_TRADER), 200 candidates.
+function skewed(seed: number) {
+  const r = prng(seed);
+  const all: (MixCard & { score: number })[] = [];
+  for (let t = 0; t < 60; t++) {
+    const hyper = t < 5, n = hyper ? 60 : 6 + Math.floor(r() * 15);
+    for (let i = 0; i < n; i++) {
+      const ageH = hyper ? r() * 20 : r() * 720, ret = hyper ? r() * 0.08 : r() * 0.25;
+      all.push({ key: `${t}-${i}`, trader: t, symbol: `S${Math.floor(r() * 45)}`, score: Math.log1p(ret * 100) * Math.exp(-ageH / 48) });
+    }
+  }
+  all.sort((a, b) => b.score - a.score);
+  const per = new Map<MixCard['trader'], number>();
+  return all.filter((c) => { const k = (per.get(c.trader) ?? 0) + 1; per.set(c.trader, k); return k <= 6; }).slice(0, 200);
+}
+
+test('fix round 1: exploration picks a trader not yet in the list whenever one fits; ≥ 80% of picks in the first 4 pages are new traders', () => {
+  for (let seed = 1; seed <= 50; seed++) {
+    const ranked = skewed(seed);
+    assert.ok(new Set(ranked.map((c) => c.trader)).size >= 33, 'the 200 candidates span ≥ 33 traders');
+    const list = mixFeed(ranked, { day: DAYS[seed % DAYS.length] });
+    const pool = ranked.slice(EXPLORE_TOP);
+    let picks = 0, fresh = 0;
+    list.forEach((x, p) => {
+      const before = list.slice(0, p).map((y) => y.card);
+      const seen = new Set(before.map((y) => y.trader));
+      const placed = new Set(before.map((y) => y.key));
+      if (x.explore) {
+        const freshFits = pool.some((q) => !placed.has(q.key) && !seen.has(q.trader) && fits(before, q));
+        // A new trader whenever one fits; a trader already shown only when none does.
+        assert.equal(!seen.has(x.card.trader), freshFits, `seed ${seed} slot ${p}`);
+        if (p < 120) { picks++; if (!seen.has(x.card.trader)) fresh++; }
+      }
+    });
+    assert.ok(fresh >= 0.8 * picks, `seed ${seed}: ${fresh} of ${picks} picks in the first 120 cards are new traders`);
+    // No trader holds more than 6 cards in any 30 (one page), joins included.
+    for (let s = 0; s + 30 <= list.length; s++) {
+      const n = new Map<MixCard['trader'], number>();
+      for (const x of list.slice(s, s + 30)) n.set(x.card.trader, (n.get(x.card.trader) ?? 0) + 1);
+      assert.ok(Math.max(...n.values()) <= 6, `seed ${seed} window ${s}`);
+    }
+  }
+});
+
+test('fix round 1: a trader appears twice in a row only when no other trader\'s card fits that slot', () => {
+  const check = (ranked: MixCard[], label: string) => {
+    const list = mixFeed(ranked, { day: '2026-10-23' });
+    let repeats = 0;
+    list.forEach((x, p) => {
+      if (!p || x.card.trader !== list[p - 1].card.trader) return;
+      repeats++;
+      const before = list.slice(0, p).map((y) => y.card);
+      const placed = new Set(before.map((y) => y.key));
+      assert.ok(!ranked.some((q) => !placed.has(q.key) && q.trader !== x.card.trader && fits(before, q)), `${label} slot ${p}: another trader fits`);
+    });
+    return { list, repeats };
+  };
+  // The demo seed's shape: three traders, six closes each, interleaved by score.
+  const demo = check(Array.from({ length: 18 }, (_, i) => ({ key: `d${i}`, trader: i % 3 === 2 && i > 9 ? 0 : i % 3, symbol: `S${i}` })), 'demo');
+  assert.equal(demo.list.length, 6);
+  assert.equal(demo.repeats, 0);
+  // Ranked in blocks of one trader: the greedy rule defers the repeat to the end, where nothing else fits.
+  check(Array.from({ length: 18 }, (_, i) => ({ key: `b${i}`, trader: Math.floor(i / 6), symbol: `S${i}` })), 'blocks');
+  // One trader alone: twice in a row is all that fits, and the list still holds it (a preference, never a cap).
+  assert.equal(check(Array.from({ length: 6 }, (_, i) => ({ key: `o${i}`, trader: 1, symbol: `S${i}` })), 'one').list.length, 2);
+  // Generated feeds: no avoidable repeat anywhere (the property test checks the same rule card by card).
+  for (let f = 0; f < 200; f++) check(generate(7000 + f, f % 4 ? 'realistic' : 'adversarial'), `feed ${f}`);
 });

@@ -311,6 +311,14 @@ export const FEED = {
   retry: 'Retry',
   stale: 'Load today\u2019s feed',
   endLabel: 'End of feed',
+  // Fix round 1 (UX follow-ups 2 and 8).
+  loading: 'Loading\u2026',
+  seeRecord: 'See your record',
+};
+// Fix round 1 (UX follow-ups 5 and 9): the polite announcement when cards are appended, and the no-JS page's position.
+export const FEED_COUNTS = {
+  added: (n: number) => `${n} more ${n === 1 ? 'trade' : 'trades'} loaded`,
+  position: (from: number, to: number) => `Trades ${from} to ${to}`,
 };
 
 export function allCopy(): string[] {
@@ -321,6 +329,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS].forEach(walk);
   return out;
 }

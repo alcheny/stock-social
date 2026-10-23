@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
-import { allCopy, FEED, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
+import { allCopy, FEED, FEED_COUNTS, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
 
 const MARK_RE = new RegExp(`\\b(${MARKS.map((m) => m.replace(/ /g, '[\\s-]?')).join('|')})\\b`, 'i');
 const MINORS_RE = new RegExp(`\\b(${MINORS.map((m) => m.replace(/ /g, '\\s')).join('|')})\\b`, 'i');
@@ -309,4 +309,16 @@ test('F-2 PR-1: the feed end card and paging copy; no completeness claim; in the
     assert.doesNotMatch(s, /\b(every|all|complete|whole|nothing (else|more)|caught up|that'?s it)\b/i, s);
     assert.ok(allCopy().includes(s), s);
   }
+});
+
+test('F-2 PR-1 fix round 1: loading, the appended-cards announcement, the no-JS position heading, the publisher end action', () => {
+  assert.equal(FEED.loading, 'Loading…');
+  assert.equal(FEED.seeRecord, 'See your record');
+  assert.equal(FEED_COUNTS.added(30), '30 more trades loaded');
+  assert.equal(FEED_COUNTS.added(1), '1 more trade loaded');
+  assert.equal(FEED_COUNTS.position(31, 60), 'Trades 31 to 60');
+  for (const s of [FEED_COUNTS.added(30), FEED_COUNTS.position(31, 60)]) assert.doesNotMatch(s, /\b(every|all|complete|whole|nothing (else|more)|caught up|that'?s it)\b/i, s);
+  // In the banned-list walk (it calls each function with ('x', 2, 1)).
+  const walked = allCopy(), x = 'x' as unknown as number;
+  assert.ok(walked.includes(FEED_COUNTS.added(x)) && walked.includes(FEED_COUNTS.position(x, 2)));
 });
