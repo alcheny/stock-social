@@ -291,3 +291,12 @@ test('PR-3 fix round 7 (business lead re-sit, demand 3): before the first close 
   assert.equal(RECORD_BODY.banner(3, true), 'Importing your record · 3 closed trades so far');
   assert.ok(allCopy().some((s) => s.includes('read from your broker'))); // in the banned-list walk
 });
+
+test('fix round 8 (tester re-run 4): exclusion counts are pluralized, never "(s)"', async () => {
+  const { PROFILE } = await import('./copy.ts');
+  assert.equal(PROFILE.excludedPositions(1), '1 earlier position excluded: no matching entry in the imported history.');
+  assert.equal(PROFILE.excludedPositions(2), '2 earlier positions excluded: no matching entry in the imported history.');
+  assert.equal(PROFILE.excludedFuture(1), '1 imported trade excluded: dated in the future by the broker.');
+  assert.equal(PROFILE.excludedFuture(1_200), '1,200 imported trades excluded: dated in the future by the broker.');
+  for (const n of [1, 2]) for (const t of [PROFILE.excludedPositions(n), PROFILE.excludedFuture(n)]) assert.ok(!t.includes('(s)'), t);
+});

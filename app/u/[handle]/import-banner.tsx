@@ -75,7 +75,9 @@ export function ImportBanner({ state, closes, read, owner, quiet = false }: { st
           status line stays the live region, visually hidden meanwhile, so a screen reader hears what it heard before. */}
       <p role="status" aria-live="polite" className={counting(b) ? 'sr-only' : statusClass}>{b.text}</p>
       {counting(b) && <p className="importing import-head" aria-hidden="true">{headline(b)}</p>}
-      {!finished && owner && <p className="muted small import-read">{RECORD_BODY.imported(b.read)}</p>}
+      {/* Fix round 8 (business lead round 3): while the headline counts activities, this line would repeat its number, so
+          it is not rendered; it returns with the closes count. The hidden live twin below is unchanged. */}
+      {!finished && owner && !counting(b) && <p className="muted small import-read">{RECORD_BODY.imported(b.read)}</p>}
       {/* PR-3 fix round 4 (UX lead note 1): the same count for a screen reader, throttled with the status line. */}
       {!finished && owner && <p className="sr-only import-read-live" aria-live="polite">{b.readText}</p>}
       {!finished && owner && <p className="muted small import-slow" aria-live="polite">{slowText(b)}</p>}

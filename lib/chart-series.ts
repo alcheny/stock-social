@@ -6,9 +6,9 @@
 // land on. Before, each card drew one path point per close and the client received the whole record: a feed of heavy
 // records weighed 3.5 MB. The header total, the trade count, the max drawdown and the y range are still computed from
 // every close in the range, so the numbers the pane shows are the profile's numbers.
-import { RANGES, curveDomain, equityCurve, maxDrawdown, rangeTrades, type RangeKey } from './trades.ts';
-import { downsampleIndices } from './downsample.ts';
-import type { ChartPoint } from './paging.ts';
+import { RANGES, curveDomain, equityCurve, maxDrawdown, pct, rangeTrades, type RangeKey } from './trades.ts';
+import { downsampleIndices, FEED_CHART_POINTS, FEED_LITE_POINTS, PANE_EAGER_CLOSES } from './downsample.ts';
+import { packPoints, unpackPoints, type ChartPoint } from './paging.ts';
 
 const DAY = 86_400_000;
 
@@ -33,15 +33,22 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
 // Wire format for the feed pane, compact because every trader on the feed ships one: the closes the kept points land
 // on (once per trader, shared by every range; a close's time is its point's), and per range its numbers and a flat list
 // of kept points [minutes after `base`, value, close (-1 for the range start)]. Times are floored to the minute (a
-// point's date never moves to the next day; the range ends are floored alike); values keep 6 decimals (the header shows 1 decimal of a percent).
+// point's date never moves to the next day; the range ends are floored alike); values keep 6 decimals (the header shows 1 decimal of a percent),
+// except where 6 decimals would print differently from the exact value (fix round 8: −0.9999997 rounds to −1, which
+// reads "-100.0%" where the profile reads "≈-100.0%"); those keep full precision.
+// Fix round 8 (tester re-run 4, Medium): `lite` marks the feed's server-rendered stand-in: only the ALL line, at
+// FEED_LITE_POINTS, with no closes attached, and every range's numbers (header, label, tabs). The pane fetches the full
+// chart (`/u/<handle>/pane-chart`) on its first swipe-open, so the feed page no longer carries each trader's chart data.
 export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number];
 export type PackedSeries = { t0: number; t1: number; last: number; n: number; dd: number; min: number; max: number; p: number[] };
-export type PackedChart = { base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries> };
+export type PackedChart = { base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries>; lite?: 1 };
 
 const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
+// Rounded unless the rounding changes what `pct` prints (the scrub header and the sheet print with `pct`).
+export const packValue = (v: number): number => { const r = r6(v); return pct(r) === pct(v) ? r : v; };
 const MIN = 60_000;
 
-export function packChart(trades: ChartPoint[], now: Date, maxPoints: number): PackedChart {
+export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, lite = false): PackedChart {
   const out: PackedTrade[] = [];
   const ref = new Map<string, number>();
   const series = RANGES.map(({ key }) => [key, chartSeries(trades, key, now, maxPoints)] as const);
@@ -49,23 +56,33 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number): P
   const ranges = {} as Record<RangeKey, PackedSeries>;
   for (const [key, s] of series) {
     const p: number[] = [];
-    for (const pt of s.pts) {
+    for (const pt of lite && key !== 'ALL' ? [] : s.pts) {
       let i = -1;
-      if (pt.trade) {
+      if (pt.trade && !lite) {
         const t = pt.trade;
         i = ref.get(t.id) ?? -1;
         if (i < 0) {
           i = out.length;
           ref.set(t.id, i);
-          out.push([t.id, t.symbol, r6(t.returnPct), t.holdingDays, t.thesis, t.index]);
+          out.push([t.id, t.symbol, packValue(t.returnPct), t.holdingDays, t.thesis, t.index]);
         }
       }
-      p.push(Math.floor((pt.at - base) / MIN), r6(pt.value), i);
+      p.push(Math.floor((pt.at - base) / MIN), packValue(pt.value), i);
     }
     ranges[key] = { t0: Math.floor(s.t0 / MIN) * MIN, t1: Math.floor(s.t1 / MIN) * MIN, last: s.last, n: s.n, dd: s.drawdown, min: s.min, max: s.max, p };
   }
-  return { base, trades: out, ranges };
+  return lite ? { base, trades: out, ranges, lite: 1 } : { base, trades: out, ranges };
 }
+
+// The feed pane's chart (fix round 7), from a trader's whole record.
+type PaneInput = Parameters<typeof packPoints>[0];
+export const paneChart = (trades: PaneInput, now: Date): PackedChart => packChart(unpackPoints(packPoints(trades)), now, FEED_CHART_POINTS);
+// Fix round 8 (tester re-run 4, Medium): what the feed page carries per trader. A record longer than PANE_EAGER_CLOSES
+// ships only the stand-in line (`lite`); the pane fetches `paneChart` from `paneChartSrc` (app/u/[handle]/pane-chart)
+// on its first swipe-open. Every number the pane shows (header, label, tabs, summary, stats) is in the page either way.
+export const feedPaneChart = (trades: PaneInput, now: Date): PackedChart =>
+  trades.length <= PANE_EAGER_CLOSES ? paneChart(trades, now) : packChart(unpackPoints(packPoints(trades)), now, FEED_LITE_POINTS, true);
+export const paneChartSrc = (handle: string) => `/u/${encodeURIComponent(handle)}/pane-chart`;
 
 export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
   const trades: (ChartPoint | undefined)[] = new Array(c.trades.length);

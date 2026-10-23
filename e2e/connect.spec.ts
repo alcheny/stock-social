@@ -28,7 +28,19 @@ test.beforeEach(async ({ page }) => {
 // heavy-feed test in app.spec.ts never fills the feed under them. Released after each test, pass or fail.
 let feedHeld: (() => Promise<void>) | null = null;
 const holdFeed = async () => { test.setTimeout(test.info().timeout + 60_000); feedHeld = await feedLock('shared'); };
-test.afterEach(async () => { await feedHeld?.(); feedHeld = null; });
+// Fix round 8 (tester re-run 4, Low 4): a failed test used to leave its trader behind (each test deletes its own only on
+// success), and every leftover took feed cards in later runs. The handles devSignIn creates in a test (never one that
+// existed before, such as a demo trader) are deleted after it, pass or fail, with their `e2e-<handle>…` accounts. A
+// test that already cleaned up deletes nothing here.
+let created: string[] = [];
+test.afterEach(async () => {
+  await feedHeld?.(); feedHeld = null;
+  for (const h of created) {
+    await sql`delete from users where handle = ${h}`;
+    await sql`delete from broker_accounts where account_id like ${`e2e-${h}%`}`;
+  }
+  created = [];
+});
 test.afterAll(async () => {
   vendor?.server.close();
   await sql.end({ timeout: 1 });
@@ -52,6 +64,7 @@ const brokerageAttempt = async (page: Page) => {
   return Number(cookie!.value.split('.')[0]);
 };
 const devSignIn = async (page: Page, handle: string) => {
+  if (!created.includes(handle) && !(await sql`select 1 from users where handle = ${handle}`).length) created.push(handle);
   await page.goto('/login/dev');
   await page.getByLabel('Handle').fill(handle);
   await page.getByLabel('I am 18 or older').check();
@@ -1088,9 +1101,18 @@ test('PR-2b S5 live banner: the owner\'s open tab drives the import; the importe
   const before = await box();
   await shots(page, 's5-importing');
   // No test-driven steps: only the page's own 2 s poll. Counts follow each account.
-  const read = page.locator('.import-read');
+  // Fix round 8 (business lead round 3): before the first close the count is seen on the headline only (the activities
+  // line is not rendered then); once closes show, the activities line carries it. Exactly one visible count at a time.
   const counts: string[] = [];
-  await expect.poll(async () => { const t = await read.textContent(); if (t && counts.at(-1) !== t) counts.push(t); return t; }, { timeout: 30_000, intervals: [250] }).toBe('12 activities imported'); // fix round 2 (business lead 2): one noun per count
+  let both = 0;
+  await expect.poll(async () => {
+    const r = await page.evaluate(() => ({ head: document.querySelector('.import-banner .import-head')?.textContent ?? null, read: document.querySelector('.import-banner .import-read')?.textContent ?? null }));
+    if (r.head !== null && r.read !== null) both++;
+    const n = (r.head ?? '').match(/· ([\d,]+) activit(?:y|ies) read from your broker$/)?.[1] ?? (r.read ?? '').match(/^([\d,]+) activit(?:y|ies) imported$/)?.[1] ?? null;
+    if (n !== null && counts.at(-1) !== n) counts.push(n);
+    return n;
+  }, { timeout: 30_000, intervals: [250] }).toBe('12'); // fix round 2 (business lead 2): one noun per count
+  expect(both).toBe(0);
   expect(counts.length).toBeGreaterThanOrEqual(3); // 0 → 4 → 8 → 12, at least the intermediate ones seen
   await expect(status).toHaveText('Import finished.', { timeout: 30_000 });
   const finishedAt = Date.now();
@@ -1148,9 +1170,14 @@ test('PR-2b S5: after 60 s with no new rows the owner reads "You can leave; the 
   const empty = (await slow.boundingBox())!;
   // Two polls: the page, then the rebuild; after that the vendor's flag keeps the import waiting, no new rows.
   await page.clock.fastForward(2_000);
-  await expect(page.locator('.import-read')).toHaveText('2 activities imported'); // fix round 2 (business lead 2)
+  // Fix round 8 (business lead round 3): while the headline counts activities, it alone shows the count; the activities
+  // line returns, with the same count, once the closes show.
+  await expect(page.locator('.import-banner .import-head')).toHaveText('Importing your record · 2 activities read from your broker');
+  await expect(page.locator('.import-read')).toHaveCount(0);
   await page.clock.fastForward(2_000);
   await expect(page.getByRole('status')).toHaveText('Importing your record · 1 closed trade so far');
+  await expect(page.locator('.import-read')).toHaveText('2 activities imported'); // fix round 2 (business lead 2)
+  await expect(page.locator('.import-banner .import-head')).toHaveCount(0);
   await page.clock.fastForward(61_000);
   await expect(slow).toHaveText('Your broker is still sending history. You can leave; the import continues.');
   expect(Math.abs((await slow.boundingBox())!.height - empty.height)).toBeLessThanOrEqual(1);
@@ -1607,12 +1634,15 @@ test('PR-2b S5 (PR-3 fix round 7): before the first close the headline counts ac
   await expect(head).toHaveText(/^Importing your record · [\d,]+ activit(y|ies) read from your broker$/);
   await expect(status).toHaveText('Importing your record · 0 closed trades so far');
   expect((await status.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
+  await expect(page.locator('.import-banner .import-read')).toHaveCount(0); // fix round 8: one visible count while counting
+  await expect(page.locator('.import-banner .import-read-live')).toHaveCount(1); // the announced twin stays
   // It moves within 5 s of the first step's answer, to the number of rows read.
   await expect.poll(() => steps.length, { timeout: 30_000 }).toBeGreaterThan(0);
   const first = steps[0];
   expect(first.closes).toBe(0);
   await expect(head).toHaveText(`Importing your record · ${first.read.toLocaleString('en-US')} activities read from your broker`, { timeout: 5_000 });
   expect(Date.now() - first.at).toBeLessThanOrEqual(5_000);
+  await expect(page.locator('.import-banner .import-read')).toHaveCount(0);
   expect(first.at - landed).toBeLessThan(10_000);
   await shots(page, 'fix7-headline-reading');
   // It climbs with the pages, then the closes count takes over (seen and announced), and "0" never comes back.

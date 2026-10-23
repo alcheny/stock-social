@@ -15,7 +15,8 @@ test('profile shows headline stats and excluded positions', async ({ page }) => 
   await expect(page.getByText('win rate', { exact: true })).toBeVisible();
   await expect(page.getByText('avg return / trade')).toBeVisible();
   await expect(page.getByText('max drawdown (per-trade, equal-weight)')).toBeVisible();
-  await expect(page.getByText(/earlier position\(s\) excluded/)).toBeVisible();
+  // Fix round 8 (tester re-run 4): the count is pluralized properly (the seed gives each demo trader one orphan sell).
+  await expect(page.getByText('1 earlier position excluded: no matching entry in the imported history.', { exact: true })).toBeVisible();
 });
 
 test('profile chart is labeled, accessible and links points to trades', async ({ page }) => {
@@ -946,54 +947,84 @@ test('fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): a 2,828-close profile 
   }
 });
 
-// F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the feed draws each card's chart at screen resolution. Five
-// traders with the heavy-use fixture's record (lib/sync.load.test.ts: 4 accounts × 2,500 seeded activities, about 4,700
-// closes each) fill all 50 cards. Their newest 45 closes are moved into the last 90 minutes with large moves (half of them
-// losses) so they, and only they, make the feed's candidates; the rest is the fixture as matched.
-test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at screen resolution and reads like the profile\'s', async ({ page, request }) => {
-  test.setTimeout(180_000);
+// F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the feed draws each card's chart at screen resolution.
+// Fix round 8 (tester re-run 4, Medium): the bound held only while the 50 cards fell on 2 traders (about 30 KB of chart
+// data per distinct heavy trader). Twelve traders with the heavy-use fixture's record (lib/sync.load.test.ts: 4 accounts
+// × 2,500 seeded activities, about 4,700 closes each) now share the 50 cards, at most 5 each, so at least 10 distinct
+// heavy records are on the page. Each trader's newest 5 closes are moved into the last 15 minutes with large moves (2 of
+// them losses) so they, and only they, make the feed's cards; the rest is the fixture as matched, ending 30 days ago.
+// The page carries a stand-in line per trader; a pane loads its full chart on its first swipe-open.
+test('fix round 8: 50 heavy cards from 10+ distinct heavy traders weigh under 500 KB; a pane loads its chart on first open and reads like the profile\'s', async ({ page, request, browser }) => {
+  test.setTimeout(300_000);
   const { seededActivities } = await import('./fakes/vendor.ts');
-  const { matchTrades } = await import('../lib/trades.ts');
+  const { matchTrades, confidence, evidenceWeight } = await import('../lib/trades.ts');
+  const { FEED_LITE_POINTS } = await import('../lib/downsample.ts');
   const { gzipSync } = await import('node:zlib');
   const { feedLock } = await import('./feed-lock.ts');
   const release = await feedLock('exclusive'); // the connect tests that look for their trader in the feed wait meanwhile
   const now = Date.now();
   const made: Awaited<ReturnType<typeof makeTrader>>[] = [];
   try {
-    for (let h = 0; h < 5; h++) {
+    for (let h = 0; h < 12; h++) {
       const acts = [];
       for (let a = 0; a < 4; a++) for (const r of seededActivities(`hf${h}-${a}`, 2_500, 1000 + 10 * h + a)) {
         acts.push({ externalId: r.id, accountId: `hf${h}-${a}`, symbol: r.symbol, side: r.type, units: r.units, price: r.price, fee: r.fee ?? 0, executedAt: new Date(r.trade_date), verified: true });
       }
       const closes = matchTrades(acts).trades.sort((x, y) => y.closedAt.getTime() - x.closedAt.getTime());
-      const shift = now - 3 * 3_600_000 - closes[0].closedAt.getTime();
-      made.push(await makeTrader(`heavy_feed_${h}`, (i) => (i < 45
-        ? { closedAt: new Date(now - (i + 1 + h * 0.2) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5 } // each pair nets 0%
-        : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length));
+      const shift = now - 30 * 86_400_000 - closes[0].closedAt.getTime();
+      const t = await makeTrader(`heavy_feed_${h}`, (i) => (i < 5
+        ? { closedAt: new Date(now - (i + 1 + h * 0.05) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5 }
+        : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length);
+      made.push(t);
+      // Each ranks with a confident edge (TR-9), as the feed computes it, so its 5 fresh cards outrank every older close.
+      const rows = await t.sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${t.id}`;
+      expect(evidenceWeight(confidence(rows.map((r) => ({ symbol: r.symbol, openedAt: r.opened_at, closedAt: r.closed_at, returnPct: r.return_pct, holdingDays: r.holding_days })), new Date()))).toBeGreaterThan(0);
     }
     const total = made.reduce((s, t) => s + t.ids.length, 0);
-    expect(total).toBeGreaterThan(5 * 4_500);
+    expect(total).toBeGreaterThan(12 * 4_500);
 
     const res = await request.get('/');
     expect(res.status()).toBe(200);
     const html = await res.text();
     const raw = Buffer.byteLength(html), gz = gzipSync(html).length;
-    console.log(`# feed: 50 heavy cards (${total} closes) ${(raw / 1024).toFixed(0)} KB raw, ${(gz / 1024).toFixed(0)} KB gzipped`);
+    const traders = new Set(html.match(/\/u\/heavy_feed_\d+(?=")/g)).size; // the cards' profile links
+    console.log(`# feed: 50 heavy cards from ${traders} distinct heavy traders (${total} closes) ${(raw / 1024).toFixed(0)} KB raw, ${(gz / 1024).toFixed(0)} KB gzipped`);
     expect(raw).toBeLessThan(500_000);
+    expect(traders).toBeGreaterThanOrEqual(10);
+    test.info().annotations.push({ type: 'feed-bytes', description: `${raw} raw, ${gz} gzipped, ${traders} distinct heavy traders` });
 
     await page.setViewportSize({ width: 375, height: 667 });
+    const fetched: string[] = [];
+    page.on('request', (r) => { if (r.url().includes('/pane-chart')) fetched.push(new URL(r.url()).pathname); });
     await page.goto('/');
     await expect(page.locator('.feed .row')).toHaveCount(50);
     const who = await page.locator('.feed .row .pane .who .muted').allInnerTexts();
     expect(who).toHaveLength(50);
-    for (const w of who) expect(w).toMatch(/^@heavy_feed_\d$/); // every card is a heavy record
+    for (const w of who) expect(w).toMatch(/^@heavy_feed_\d+$/); // every card is a heavy record
+    expect(new Set(who).size).toBeGreaterThanOrEqual(10); // spread over at least 10 distinct heavy traders
+    // The name equals the handle here: shown once ("@heavy_feed_3", never "heavy_feed_3@heavy_feed_3").
+    for (const t of await page.locator('.feed .row .who').allInnerTexts()) expect(t).toMatch(/^@heavy_feed_\d+$/);
+    // Trust rule unchanged: every pane carries its card's badge (all of these are whole, verified records).
+    for (const row of await page.locator('.feed .row').all()) {
+      await expect(row.locator('.pane header .badge.verified')).toHaveCount(1);
+      await expect(row.locator('.card .badge.verified')).toHaveCount(1);
+    }
 
-    // Screen resolution: each card's path has at most 400 points (it had one per close), and so does its scrub layer.
+    // The page carries only the stand-in line per card (the ALL range, at most FEED_LITE_POINTS points, no closes).
     const counts = await page.locator('.feed .pane path.curve').evaluateAll((ps) => ps.map((p) => (p.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g) ?? []).length / 2));
     expect(counts).toHaveLength(50);
-    for (const c of counts) expect(c).toBeLessThanOrEqual(401); // 400 points, plus the line to the range end
-    const pane = page.locator('.feed .row').first().locator('.pane');
+    for (const c of counts) expect(c).toBeLessThanOrEqual(FEED_LITE_POINTS + 1); // plus the line to the range end
+    await expect(page.locator('.feed .pane figure.chart[data-chart="stand-in"]')).toHaveCount(50);
+    expect(fetched).toEqual([]); // nothing is fetched before a pane opens
+    const row0 = page.locator('.feed .row').first();
+    const pane = row0.locator('.pane');
+    await expect(pane.locator('.chart-hit')).toBeAttached(); // hydrated
+    expect(await pane.locator('.chart-hit a').count()).toBe(0); // the stand-in links no closes
+    const first = (await pane.locator('.who .muted').innerText()).slice(1);
+    // Swipe-open (the row scrolls to its pane): the pane fetches its trader's chart once and replaces the stand-in.
     await pane.scrollIntoViewIfNeeded();
+    await expect(pane.locator('figure.chart')).toHaveAttribute('data-chart', 'full');
+    expect(fetched).toEqual([`/u/${first}/pane-chart`]);
     await expect(pane.locator('.chart-hit a').first()).toBeAttached(); // drawn after hydration
     expect(await pane.locator('.chart-hit a').count()).toBeLessThanOrEqual(400);
     // The pane's scrubbable chart reaches the newest close and the range tabs work within the bound.
@@ -1015,7 +1046,7 @@ test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at
       label: await fig.locator('svg[role="img"]').getAttribute('aria-label'),
       points: await fig.locator('path.curve').evaluate((p) => (p.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g) ?? []).length / 2),
     });
-    const shot = test.info().outputPath('fix7');
+    const shot = test.info().outputPath('fix8');
     const capture = async (fig: ReturnType<typeof page.locator>, name: string) => {
       const out = [];
       for (const key of ['ALL', '1Y'] as const) {
@@ -1039,6 +1070,30 @@ test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at
       expect(small[k].label).toBe(full[k].label);
       for (let i = 0; i < 4; i++) expect(Math.abs(small[k].box[i] - full[k].box[i])).toBeLessThanOrEqual(0.5);
     }
+    // Fix round 8: the keyboard path loads too. A pane not yet opened, reached by Tab focus on its chart, fetches its
+    // chart, and the arrows scrub it.
+    const other = page.locator('.feed .row').filter({ hasNot: page.locator(`a[href="/u/${first}"]`) }).first();
+    await page.goto('/');
+    const otherPane = other.locator('.pane');
+    await expect(otherPane.locator('.chart-hit')).toBeAttached();
+    await expect(otherPane.locator('figure.chart')).toHaveAttribute('data-chart', 'stand-in');
+    await otherPane.locator('.chart-stack').focus();
+    await expect(otherPane.locator('figure.chart')).toHaveAttribute('data-chart', 'full');
+    await page.keyboard.press('ArrowLeft');
+    await expect(otherPane.locator('.chart-head')).toContainText(/\d+\/\d+\/\d{4} · [A-Z]+/); // a close, with its symbol
+    await page.keyboard.press('Escape');
+    // Without JS the pane keeps its stand-in line (0% on the axis), its numbers and its trust badge.
+    const ctx = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 375, height: 667 } });
+    const nojs = await ctx.newPage();
+    await nojs.goto('/');
+    const np = nojs.locator('.feed .row').first().locator('.pane');
+    expect(await np.locator('path.curve').evaluate((p) => (p.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g) ?? []).length / 2)).toBeGreaterThan(FEED_LITE_POINTS / 2);
+    await expect(np.locator('.chart .zero-label')).toHaveText('0%');
+    expect((await nojs.locator('.feed .row').first().locator('.pane .who .muted').innerText()).slice(1)).toBe(first);
+    expect(await np.locator('svg[role="img"]').getAttribute('aria-label')).toBe(small[0].label); // the full chart's numbers
+    await expect(np.locator('header .badge.verified')).toHaveCount(1);
+    await expect(np.getByText('win rate', { exact: true })).toBeAttached();
+    await ctx.close();
   } finally {
     for (const t of made) await t.remove();
     await release();

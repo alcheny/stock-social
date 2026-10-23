@@ -56,6 +56,9 @@ export const VENDOR_SECURITY_URL = process.env.NEXT_PUBLIC_VENDOR_SECURITY_URL |
 export const PROFILE = {
   youreIn: "You're in. Next: connect your brokerage.",
   changeHandle: 'Change handle',
+  // Fix round 8 (tester re-run 4): counts pluralized ("1 earlier position", "2 imported trades"), never "(s)".
+  excludedPositions: (n: number) => `${counted(n, 'earlier position')} excluded: no matching entry in the imported history.`,
+  excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.

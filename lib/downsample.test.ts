@@ -121,3 +121,56 @@ test('the path is one move then one relative run, in tenths, with no drift', asy
   assert.ok(Math.abs(x - xs.at(-1)!) <= 0.05 + 1e-9 && Math.abs(y - ys.at(-1)!) <= 0.05 + 1e-9);
   assert.equal(nums.length, 8_000);
 });
+
+// F-1 PR-3 fix round 8 (tester re-run 4, Medium): the feed page carries only a stand-in line per long record; the pane
+// fetches the full chart (above) on its first swipe-open.
+test('fix round 8: the feed\'s stand-in carries the ALL line at FEED_LITE_POINTS with no closes, and every range\'s numbers', async () => {
+  const { FEED_LITE_POINTS, PANE_EAGER_CLOSES } = await import('./downsample.ts');
+  const { feedPaneChart, paneChart, paneChartSrc } = await import('./chart-series.ts');
+  const trades = heavyRecord();
+  const now = new Date(Date.UTC(2026, 0, 15));
+  const input = trades.map((t) => ({ id: t.id, symbol: t.symbol, returnPct: t.returnPct, closedAt: t.closedAt, holdingDays: t.holdingDays, thesis: 'a thesis that must not ride along' }));
+  const lite = feedPaneChart(input, now), full = paneChart(input, now);
+  assert.equal(lite.lite, 1);
+  assert.equal(full.lite, undefined);
+  assert.deepEqual(lite.trades, []);
+  assert.ok(!JSON.stringify(lite).includes('a thesis'));
+  const l = unpackChart(lite), f = unpackChart(full);
+  assert.ok(l.ALL.pts.length <= FEED_LITE_POINTS && l.ALL.pts.length > FEED_LITE_POINTS / 2, String(l.ALL.pts.length));
+  assert.ok(l.ALL.pts.every((p) => p.trade === null));
+  for (const { key } of RANGES) {
+    if (key !== 'ALL') assert.equal(l[key].pts.length, 0, key);
+    const { pts: _a, ...ln } = l[key], { pts: _b, ...fn } = f[key];
+    assert.deepEqual(ln, fn, key); // header total, count, drawdown, y range, range ends: the full chart's
+  }
+  // The stand-in keeps the line's ends and extremes (the line is not smoothed).
+  const vals = (s: typeof l.ALL) => s.pts.map((p) => p.value);
+  assert.equal(Math.min(...vals(l.ALL)), Math.min(...vals(f.ALL)));
+  assert.equal(Math.max(...vals(l.ALL)), Math.max(...vals(f.ALL)));
+  assert.equal(l.ALL.pts.at(-1)!.value, f.ALL.pts.at(-1)!.value);
+  // Several times lighter than the full chart.
+  assert.ok(JSON.stringify(lite).length * 5 < JSON.stringify(full).length, `${JSON.stringify(lite).length} vs ${JSON.stringify(full).length}`);
+  // A short record ships whole: nothing to fetch.
+  assert.equal(feedPaneChart(input.slice(0, PANE_EAGER_CLOSES), now).lite, undefined);
+  assert.equal(feedPaneChart(input.slice(0, PANE_EAGER_CLOSES + 1), now).lite, 1);
+  assert.equal(paneChartSrc('a b'), '/u/a%20b/pane-chart');
+});
+
+test('fix round 8 (tester re-run 4, Low): a near-total loss is never shipped as an exact total loss', async () => {
+  const { packValue } = await import('./chart-series.ts');
+  const { pct } = await import('./trades.ts');
+  for (const v of [-0.9999997, -0.99999949, -0.9999995, -0.99999999, -0.5, 0.1234567891, -1, 0, 3.2]) {
+    assert.equal(pct(packValue(v)), pct(v), String(v));
+  }
+  assert.equal(pct(packValue(-0.99999999)), '≈-100.0%'); // 6 decimals made it −1: "-100.0%"
+  assert.equal(pct(-1), '-100.0%');
+  assert.equal(packValue(0.1234567891), 0.123457); // rounded where it prints the same
+  // End to end: a record that compounds to just above −100% scrubs to "≈-100.0%" at its last point, like the profile.
+  const now = new Date(Date.UTC(2026, 0, 15));
+  const t = (i: number, r: number) => ({ id: String(i), symbol: 'AAA', returnPct: r, closedAt: new Date(Date.UTC(2025, 5, 1 + i)), holdingDays: 1, thesis: null });
+  const trades = unpackPoints(packPoints([t(1, -0.9999), t(2, -0.9999)]));
+  const full = chartSeries(trades, 'ALL', now);
+  const last = unpackChart(JSON.parse(JSON.stringify(packChart(trades, now, FEED_CHART_POINTS)))).ALL.pts.at(-1)!;
+  assert.equal(pct(full.pts.at(-1)!.value), '≈-100.0%');
+  assert.equal(pct(last.value), pct(full.pts.at(-1)!.value));
+});

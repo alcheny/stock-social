@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { RANGES, nearestIndex, pct, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
 import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
-import { count } from '@/lib/format.ts';
+import { counted } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
 
 const W = 640, H = 240, T = 16, B = 16;
@@ -18,12 +18,41 @@ const W = 640, H = 240, T = 16, B = 16;
 // opens the profile window that renders the row (`?closes=N#trade-id`; the anchor alone on the window shown, `current`).
 // The per-point links are drawn after hydration only: they were never Tab stops (tabindex -1), and on a heavy record
 // they were most of the page's HTML. Without JS, every trade is reached through the paged list.
-export function PerformanceChart({ points, chart, now, linkBase = '', current }: { points?: PackedPoint[]; chart?: PackedChart; now: Date; linkBase?: string; current?: number }) {
+// Fix round 8: one request per trader per page, however many of the trader's cards open their pane; a failed request
+// is forgotten so the next open retries.
+const fullCharts = new Map<string, Promise<PackedChart>>();
+function fetchChart(src: string): Promise<PackedChart> {
+  let p = fullCharts.get(src);
+  if (!p) {
+    p = fetch(src).then((r) => (r.ok ? (r.json() as Promise<PackedChart>) : Promise.reject(new Error(String(r.status)))));
+    p.catch(() => fullCharts.delete(src));
+    fullCharts.set(src, p);
+  }
+  return p;
+}
+
+export function PerformanceChart({ points, chart, src, now, linkBase = '', current }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number }) {
   // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the profile passes the whole record (`points`) and draws it
   // at full resolution; the feed pane passes `chart`, each range's series already drawn at screen resolution on the
   // server (lib/chart-series.ts, at most FEED_CHART_POINTS points). Both draw and scrub the same way.
+  // Fix round 8 (tester re-run 4, Medium): on the feed a long record's `chart` is the stand-in (`lite`: the ALL line at
+  // FEED_LITE_POINTS, no closes, every range's numbers). The full chart is fetched from `src` when the chart first comes
+  // into view (the pane's swipe-open scrolls it in), is focused, or a range is picked; it then replaces the stand-in.
+  // Without JS the stand-in line is what shows.
+  const [full, setFull] = useState<PackedChart | null>(null);
+  const lazy = !!(chart?.lite && src) && !full;
+  const load = useCallback(() => { if (lazy) fetchChart(src!).then(setFull, () => {}); }, [lazy, src]);
+  const fig = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = fig.current;
+    if (!lazy || !el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); load(); } });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [lazy, load]);
+  const shownChart = full ?? chart;
   const trades = useMemo(() => (points ? unpackPoints(points) : null), [points]);
-  const packed = useMemo(() => (chart ? unpackChart(chart) : null), [chart]);
+  const packed = useMemo(() => (shownChart ? unpackChart(shownChart) : null), [shownChart]);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const [range, setRange] = useState<RangeKey>('ALL');
@@ -33,6 +62,23 @@ export function PerformanceChart({ points, chart, now, linkBase = '', current }:
   const dragging = useRef(false);
   const stack = useRef<HTMLDivElement>(null);
   const series = useMemo(() => (packed ? packed[range] : chartSeries(trades ?? [], range, now)), [packed, trades, range, now]);
+  // The full chart has other points than the stand-in: a scrub position held across the swap moves to the point
+  // nearest in time (a key press or drag made before the swap keeps its place). `seen` holds the points last drawn.
+  const seen = useRef(series.pts);
+  useEffect(() => {
+    const before = seen.current, after = series.pts;
+    seen.current = after;
+    if (before === after || !after.length) return;
+    const near = (i: number | null) => {
+      if (i === null || !before[i]) return null;
+      const at = before[i].at;
+      let k = 0;
+      for (let j = 1; j < after.length; j++) if (Math.abs(after[j].at - at) < Math.abs(after[k].at - at)) k = j;
+      return k;
+    };
+    setActive(near);
+    setSel(near);
+  }, [series.pts]);
   const total = packed ? packed.ALL.n : (trades?.length ?? 0);
   const inRange = (key: RangeKey) => (packed ? packed[key].n : rangeTrades(trades ?? [], key, now).length);
   if (total < 2) return null;
@@ -51,13 +97,13 @@ export function PerformanceChart({ points, chart, now, linkBase = '', current }:
   const xs = pts.map((_, i) => x(i));
 
   // The line runs on to the range end at the last value when the range ends after the last close.
-  const tail = span > 0 && t1 > pts[pts.length - 1].at;
+  const tail = span > 0 && pts.length > 0 && t1 > pts[pts.length - 1].at; // no points: a range still loading (fix round 8)
   const d = pathD(tail ? [...xs, W] : xs, [...pts.map((p) => y(p.value)), ...(tail ? [y(last)] : [])]);
 
   const at = active === null ? null : pts[active];
   const shown = at ? at.value : last;
   const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : spec.label;
-  const label = `${count(series.n)} trades, ${pct(last, 0)} total, max drawdown ${pct(-series.drawdown, 0)}`;
+  const label = `${counted(series.n, 'trade')}, ${pct(last, 0)} total, max drawdown ${pct(-series.drawdown, 0)}`; // fix round 8: "1 trade"
 
   const scrubTo = (e: PointerEvent) => {
     const r = stack.current!.getBoundingClientRect();
@@ -76,11 +122,11 @@ export function PerformanceChart({ points, chart, now, linkBase = '', current }:
     else return;
     e.preventDefault();
   };
-  const pick = (key: RangeKey) => { setRange(key); setActive(null); setSel(null); setOpen(false); };
+  const pick = (key: RangeKey) => { load(); setRange(key); setActive(null); setSel(null); setOpen(false); };
   const chosen = sel === null ? null : (pts[sel]?.trade ?? null);
 
   return (
-    <figure className={`chart ${last >= 0 ? 'gain' : 'loss'}`}>
+    <figure ref={fig} className={`chart ${last >= 0 ? 'gain' : 'loss'}`} data-chart={lazy ? 'stand-in' : 'full'}>
       <figcaption>Return if every trade were the same size</figcaption>
       <div className="chart-head" aria-live="polite">
         <b className={`chart-value ${shown >= 0 ? 'up' : 'down'}`}>{pct(shown, 1)}</b>
@@ -88,6 +134,8 @@ export function PerformanceChart({ points, chart, now, linkBase = '', current }:
       </div>
       {series.n === 0 ? (
         <p className="muted chart-empty">No closed trades in this range.</p>
+      ) : pts.length === 0 ? (
+        <p className="muted chart-empty" role="status">Loading the chart…</p>
       ) : (
         <div
           className="chart-stack"
@@ -96,6 +144,7 @@ export function PerformanceChart({ points, chart, now, linkBase = '', current }:
           role="group"
           aria-label="Scrub the chart. Use left and right arrows to move."
           onKeyDown={onKey}
+          onFocus={load}
           onBlur={() => setActive(null)}
           onPointerDown={(e) => { dragging.current = true; e.currentTarget.setPointerCapture(e.pointerId); setOpen(false); scrubTo(e); }}
           onPointerMove={(e) => { if (dragging.current || e.pointerType === 'mouse') scrubTo(e); }}

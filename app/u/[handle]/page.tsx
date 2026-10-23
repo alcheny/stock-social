@@ -215,10 +215,10 @@ export default async function Profile({ params, searchParams }: Params) {
       <PerformanceChart points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
       </>}
       {user.excluded_positions > 0 && (
-        <p className="muted">{count(user.excluded_positions)} earlier position(s) excluded: no matching entry in the imported history.</p>
+        <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
       )}
       {user.excluded_future > 0 && (
-        <p className="muted">{count(user.excluded_future)} imported trade(s) excluded: dated in the future by the broker.</p>
+        <p className="muted">{PROFILE.excludedFuture(user.excluded_future)}</p>
       )}
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
 

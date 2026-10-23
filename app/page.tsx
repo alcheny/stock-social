@@ -5,7 +5,8 @@ import { groupByUser } from '@/lib/pane.ts';
 import { confidence, evidenceWeight, rankTraders } from '@/lib/trades.ts';
 import { feedCandidates } from '@/lib/feed.ts';
 import { FeedKeys } from './feed-keys.tsx';
-import { ProfilePane, paneChart, type PaneTrade } from './pane.tsx';
+import { ProfilePane, type PaneTrade } from './pane.tsx';
+import { feedPaneChart } from '@/lib/chart-series.ts';
 import { TradeCard, type TradeRow } from './ui.tsx';
 
 // Public, no signup: every shared link lands here (DESIGN §2 BL feedback).
@@ -42,13 +43,14 @@ export default async function Feed() {
     weight.set(id, evidenceWeight(confidence(inputs, now)));
   }
   // One chart per trader, drawn at screen resolution (fix round 7: at most FEED_CHART_POINTS points per range, never one
-  // per close) and shared by all of that trader's cards.
+  // per close) and shared by all of that trader's cards. Fix round 8: for a long record the page carries only its
+  // stand-in line; the pane loads the full chart on its first swipe-open (app/pane.tsx#feedPaneChart).
   // The pane itself is the same for every card of a trader: built once per trader and the same element placed in each
   // of that trader's rows, so the page's data payload carries it once (each row still renders it).
   const panes = new Map<number, ReturnType<typeof ProfilePane>>();
   const paneOf = (t: (typeof trades)[number]) => {
     let p = panes.get(t.user_id);
-    if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades: byUser.get(t.user_id) ?? [], chart: paneChart(byUser.get(t.user_id) ?? [], now), now, state: records.get(t.user_id)?.state })));
+    if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades: byUser.get(t.user_id) ?? [], chart: feedPaneChart(byUser.get(t.user_id) ?? [], now), now, state: records.get(t.user_id)?.state })));
     return p;
   };
   const ranked = rankTraders(trades.map((t) => ({ t, score: Number(t.score), weight: weight.get(t.user_id) ?? 0 }))).slice(0, 50).map((x) => x.t);
