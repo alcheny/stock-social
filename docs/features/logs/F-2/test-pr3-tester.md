@@ -227,3 +227,114 @@ Screenshots: `screenshots/pr3-test/`, light and dark unless noted.
 - Sheet: `sheet-from-row-375`, `sheet-from-swipe-375`.
 - Rows: `row-menu-375`, `row-hidden-undo-375`, `reject-swipe-undo-375`, `row-followed-375` (light).
 - No JS: `nojs-section-375` (light), `nojs-hidden-line-375` (light).
+
+## Re-run 1
+
+2026-10-23. Product code at `24d93d1` (fix round 1). Postgres 16, Node 22.22. No product code changed.
+
+Isolation: two databases of my own, both created as the superuser and owned by the shared role: `ss_tst_pr3r` (checks,
+build, both e2e passes) and `ss_tst_pr3rw` (the walk, my server on 3221 with the vendor fake on 4221). Everything ran from
+a copy of `HEAD` in my scratch directory with its own `.next`, `.env` and a real copy of `node_modules` (a symlinked one
+makes the bundler refuse the build; that was my setup, not the product). The shared `stock_social` was never written.
+
+**Verdict: CLEAN.** Both Mediums and both Lows are fixed, every check passes, no regression.
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2 (both databases), seed | exit 0 each time; `db/schema.sql` has no `drop`, `truncate` or `delete from` |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | **600 tests, 588 pass, 12 skipped (LOAD), 0 fail**, all three runs. Count 600 ≥ 600. |
+| `LOAD=1` feed ×2 | 6/6 both. 12 heavy p95 161 / 167 ms; 50 heavy 253 / 281 ms; section on every page signed out **333 / 285 ms**, signed in 296 / 290 ms; 45 in one period: rows in buckets 1,1,4 / 1,1,2 / 1,1,2 on pages 1–3, under the 400 ms assertion both runs |
+| `LOAD=1` follows ×2 | 1/1 both; delete with 100,000 viewers 94 / 94 ms; purge 278 / 261 ms |
+| `LOAD=1` sync ×2 | 5/5 both; fleet of 500 through 8 callers 9,968 / 7,928 ms |
+| `CI=1 npm run build`, stdin closed | first run stops on the framework's security advisory (tool output: nothing upgraded, nothing acted on); the retry exits 0 |
+| `npm run test:e2e` ×2 | **109 passed, 3 skipped, 0 failed** both runs (4.2 / 4.1 min). "320: tray fits; row card 286 px, swipe area 106 px". Section pages 282 / 335 / 289 KB raw, 14–15 KB gzipped (≤ 500 KB). |
+| `node scripts/compliance.ts diff origin/main` | 1 violation, pre-existing only: the `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | ok |
+
+**Restated assertions** (`git diff 90cae3e 24d93d1 -- '*.test.ts' e2e/`), each equivalent or stronger:
+- `reject` recognizer: the seven old `swipeOutcome` cases keep their outcomes with full travel and the row card as an
+  extra argument; six travel cases are added (49%/51% of the card, a fling-carried 40% flick, 50 px, enough travel but
+  resting under half, unarmed).
+- Pool order: from "matches `rankTraders`" to "weight alone, non-increasing, ties by closes then id": stricter.
+- Reasons: from four outcomes to one template asserted equal to the record's bucket (the other two templates were deleted
+  by the business lead's demand, and the copy test asserts their keys are gone).
+- `feed.section.test.ts`: "hold or week" narrows to "hold, and its bucket"; fixture gains optional fields with old defaults.
+- E2e: heading and line exact to the new copy; reason regex narrowed and the two deleted templates asserted absent; the
+  commit swipes move from 90% of the swipe area (145 px at 375) to 55% of the row card (≈ 188 px): a longer gesture,
+  matching the new rule, not a looser check. `shoot` gained an optional directory. No assertion removed.
+
+### 2. As a user (my server, vendor fake on)
+
+**Swipe (375 × 800, CDP touch, signed in).** Row card 341 px, swipe area 161 px.
+
+| Gesture | Exclusions | Row |
+|---|---|---|
+| Flick 50 px, 4 moves at 4 ms, no hold | 0 | at rest (`scrollLeft` 161), visible |
+| Flick 60 px, same | 0 | at rest |
+| Flick 136 px, 4 moves; and in 2 moves | 0 / 0 | at rest |
+| Fast 40% of the card (136 px), 3 moves; and in a single move | 0 / 0 | at rest |
+| Slow drag 40% (16 moves at 16 ms, held 150 ms) | 0 | snaps back |
+| **Slow drag 55% (20 moves at 16 ms, held 150 ms)** | **1** | hidden, bar "Hidden for 90 days. Undo" (`reject-swipe-undo-375`) |
+| Tap on the bar's text, wait 5.6 s | — | bar still up (Undo pauses on tap); Undo → 0 exclusions, row back |
+| "…" → Not interested on all three rows | 3 | section `display: none`; Esc closes the bar and focus lands on the next card's `.who` at top 64, in view (`section-all-hidden-375`) |
+
+**320 × 640.** Tray fits, row card 286, swipe area 106, no page scroll (`scrollWidth` 320). Flicks of 50, 60 and 114 px
+(40%) write nothing and leave the row at rest; a slow 55% drag commits (1), Undo returns to 0; the menu path hides (1)
+(`section-signed-in-320`, `reject-swipe-undo-320`, `row-menu-320`).
+
+**Medium 1, my repro (fixed).** 50 heavy traders with 300 closes each, 45 of them in "1 to 7 days" and one in each other
+period, plus 30 normals, 3 TR-9 records and the demo seed. Signed out, through the no-JS "Show more" links: **a section on
+all 7 pages** (pages 1–3 included), 3 rows each, the section after card 5, at most 2 rows per holding period on every page
+(e.g. page 1: two "1 to 7 days" + one "under a day"), and no row trader among its page's first 10 cards. Page 1 raw
+297 KB, 35 KB gzipped; 20 rounds of page 1 over HTTP p50 96 ms, p95 184 ms.
+
+**Medium 2, my construction (fixed).** `tr1steady` (40 closes, +3.0% average, lower-bound weight 0.0599), `tr1inv`
+(40 closes, +5.5% average, a +100% close, weight 0.0265) and `tr1loser`, the steady record's exact log mirror (weight
+0.0599). Heavy traders removed so all three have cards in the list:
+- page 3's section: `tr1loser`, `tr1steady` (both 0.0599); `tr1inv` is held back by the 2-per-period cap and leads
+  page 4's section. The higher raw average and bigger move no longer move a record ahead.
+- Within every section of the 7 pages the rows' weights are non-increasing, and weight-0 ties order by closes
+  (`momentum_maya`, `yolo_yuki` with 30 before a 6-close trader).
+- The loss mirror weighs the same as the gain (difference 3 × 10⁻¹⁶, float rounding; here it put the loss first).
+
+**Low 1 (fixed)** is covered by the new unit test (hidden trader's cards removed before counting the 10 near cards) and
+my walk found no row trader among the displayed first 10 cards. **Low 2 (fixed):** Enter on a row opens the sheet with
+"Skip to the disclaimer" focused; Enter focuses "Not investment advice. Past performance does not guarantee future
+results." at y 733–800 of an 800 px viewport, wholly in view, signed out (`sheet-skip-375`, `sheet-disclaimer-375`).
+
+**Header ellipsis.** A 20-character handle with a 36-character name: at 375 and 320, signed out and in, the handle is
+whole (178 of 178 px, right edge = the link's), the name ends in an ellipsis showing 68 / 97 px, no page scroll
+(`pane-header-long-*`). Signed in the header block is 158 / 190 px tall (the engineer's recorded follow-up).
+
+**Copy, signed out and in:** heading "Other traders' records", line "Ordered by how much evidence each record has. Losses
+count the same as gains." in both. Every rendered reason is "Typical holding period: …" (all five periods seen).
+
+**Impersonal.** Two signed-out crawls of all 7 pages: every section byte-identical. A fresh signed-in viewer's row links
+are identical to the signed-out ones (Follow and "…" are the only additions).
+
+**Banned words.** The text of all 7 sections (handles stripped) against the suggestion word list, the endorsement list and
+`%` / signed number / money: no hit.
+
+### 3. Regressions
+
+- PR-1 paging: the no-JS "Show more" chain reached 200 cards over 7 pages with a section on each; PR-1's e2e passes twice.
+- PR-2 follow / hide / Undo / `/me/following`: e2e passes twice; my menu and swipe hides write exactly one exclusion each.
+- Trust rule (Demo badge, failed import), consent and connect with the vendor fake: e2e passes twice.
+- p95 and page weight: see §1 and §2, all inside the budgets.
+
+### 4. Notes (not defects)
+
+- N1. The section's pool is still the 200-card list's traders: in my first fixture the two records with the highest lower
+  bound had no card and so never appeared as rows, while lower-weight records did. That is PR-1b's scope (item 2), already
+  accepted for the next PR.
+- N2. A fast flick whose finger travel itself exceeds half the row card (≈ 172 px at 375) still commits. That is the
+  rule as written (finger travel, never momentum).
+
+### 5. Cleanup
+
+The walk's traders and viewers deleted; the e2e database held only its own seed and fixtures and was dropped with
+`ss_tst_pr3r`; `ss_tst_pr3rw` dropped; my server and vendor fake stopped, the e2e servers stopped with their runs. Only this
+log and `screenshots/pr3-test2/` are committed.
