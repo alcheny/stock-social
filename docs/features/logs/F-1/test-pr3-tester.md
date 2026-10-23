@@ -600,3 +600,170 @@ Notes (not blocking):
   agent and were left running.
 
 Verdict: DEFECTS
+
+## Re-run 5 (after fix round 8)
+
+2026-10-23. Tester. Branch `claude/adoring-euler-4469ys` at `9f1013c`. Postgres 16.
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| `npm run db:schema` ×2, `npm run db:seed` | exit 0 both times (idempotent), seed ok |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | 520 tests: 515 pass, 0 fail, 5 skipped (load), in 13.7 / 14.3 / 13.3 s |
+| `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` | 5/5. Import 1,296 ms (bound 15,000), slowest step 443 (3,000), rebuild 504 (5,000), at most 1,341 rows held, heap +27.8 MB (160). Syncs 435/448/420 ms, sha256 unchanged. Contention: 1 ran, 2 skipped. First sync 1,142 ms. Fleet 7,877 ms (60,000), each trader once |
+| `CI=1 npm run build`, stdin closed | The first attempt stopped on the framework's security advisory (tool output; nothing upgraded or offered). The retry exited 0 and lists `ƒ /u/[handle]/pane-chart` |
+| `npm run test:e2e` ×2 on the shared database (`CI=1`, every variable from the spec headers) | **93 passed, 3 failed**, both runs: `connect.spec.ts:359`, `:575` and `:617`. Each failed because its own trader was not in the top 50 of the feed. Two other agents were importing heavy records into the same database during both runs (`uxr3heavy`, `uxr3named`, about 4,800 closes each, created at 09:34). Afterwards the shared feed held only those two traders and the demo trader. This is the recorded known limit (§3, item 3) |
+| `npm run test:e2e` ×2 on a private database (fresh schema and seed, same build and variables) | **96 passed, 0 failed, 0 skipped**, both runs (4.0 and 4.2 min). Heavy test: "50 heavy cards from 11 distinct heavy traders (57,308 closes) 322 KB raw, 23 KB gzipped". Pane 400/311 path points, profile 4,735/469 |
+| `node scripts/compliance.ts diff origin/main` | 1 violation: the `@img/sharp-wasm32` license line that is already on `main`. Nothing from this diff |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+Failed tests now clean up after themselves. After the two shared runs with 3 failures each, no `e2e-*` broker account
+and no trader created by those tests was left. Round 4 left 8.
+
+### 2. As a user (`next start` on port 3205 with the vendor fake on 4205, private database, 375 px unless noted)
+
+**Import headline: one count.** Traders `r5headl` and `r5headd` (light and dark) went through the embedded portal,
+consent and "Import my record". The vendor returned 2 × 2,500 activities, with each page slowed by 2.5 s, and the page's
+own poll was running. The banner was sampled every 250 ms (ms after landing):
+
+| ms | Headline (visible) | `.import-read` | Visible lines with an activities count |
+|---|---|---|---|
+| 15 | "Importing your record · 0 activities read from your broker" | absent | 1 |
+| 4,893 → 27,939 | 1,000 → 2,000 → 2,500 → 3,500 → 4,500 → 5,000 activities read | absent | 1 |
+| 30,237 | removed | "5,000 activities imported", with status "Importing your record · 2,415 closed trades so far" | 1 |
+| 32,330 | none | removed | 0 |
+| 35,130 | none | none | status "Import finished." |
+
+- The headline and the activities line were **never rendered together**: 0 of about 140 samples, in light and dark.
+- The line comes back on the first poll that shows closes.
+- Screenshots: `headline-counting-one-line-375-{light,dark}.png` and `headline-closes-line-returns-375-{light,dark}.png`.
+
+**Lazy pane chart.** 12 heavy traders, built like the e2e (4 accounts × 2,500 seeded activities, 4,743–4,820 closes
+each, 5 fresh closes, the rest ending 30 days ago):
+
+| Criterion | Result |
+|---|---|
+| Before any swipe | All 50 panes are `data-chart="stand-in"`, with 80 path points each. No `/pane-chart` request is made, including after 1.5 s idle |
+| Real swipe (horizontal wheel on the first row) | Exactly one request, `/u/r5_hv9/pane-chart`. The pane becomes `full` (400 points, 399 close links). Header "≈-100.0% · All time" and the label are identical before and after. `pane-after-swipe-full-375-{light,dark}.png` |
+| Once per trader | The trader's other 4 cards, opened afterwards, all show `full` with no further request |
+| Keyboard focus (pane not yet opened, route delayed 2.5 s) | Focusing loads the chart. Six ArrowRight presses on the stand-in reach "-87.3% · 7/23/2017". After the swap the header reads "-83.7% · 7/16/2017 · FFF": the nearest close in time, now with its symbol. Focus stays on the chart, and ArrowLeft continues from there. `pane-keyboard-scrub-kept-375-light.png` |
+| Range pick (route delayed) | Picking 1Y makes one request and shows "Loading the chart…" with the range's numbers ("-71.2% · Past year", "474 trades, -71% total, max drawdown -83%"). It then draws 319 points. `pane-range-loading-375-light.png` |
+| Pointer drag across the swap | The drag on the stand-in reads "-99.996% · 11/17/2019". With the button still held after the swap, it reads "-99.996% · 11/17/2019 · GGG", the same position. Release restores "≈-100.0% · All time" and does not navigate |
+| 1,280 px wide | 0 panes in the viewport and 0 requests at load or after scrolling down. `feed-1280-light.png` |
+| Without JS | Stand-in, 80 points, "0%" on the axis, header "≈-100.0% · All time", the full label "4,774 trades, ≈-100% total, max drawdown ≈-100%", "✓ Verified", "45% win rate", no loading line. `pane-nojs-standin-375-{light,dark}.png` |
+
+**`/u/<handle>/pane-chart`: trust and safety.**
+- Every response, whatever the record's state, has only `base,trades,ranges`. None contains "verif", "demo", price, units
+  or quantity, so the route cannot report Verified.
+- Not consented (`r5pend`, the consent page left unanswered, one cron call): 200 with 0 trades (518 bytes).
+- Whole (`r5part`, 60 closes from a first link): the feed pane goes from stand-in to full with 1 request. Pane and card
+  are Verified.
+- Partial, while the second link is still importing: the route serves the 60 closes, as the profile lists them. The
+  trader is **not in the feed** (fix round 3 rule).
+- Partial, after the second link failed (forced 403):
+  - in the feed, the pane loads the full chart lazily;
+  - pane and card have **no Verified badge** and read "The import did not finish, so this record may be incomplete.";
+  - screenshot: `pane-failed-record-after-lazy-load-375-{light,dark}.png`.
+- Demo trader: 200, with no trust data in the body. The profile shows "Demo" and no Verified badge.
+- Unknown handles answer `404 {"error":"not found"}` with `no-store`. Tried: an unknown handle, an encoded `../../api/sync`, a
+  quote/SQL string, a 300-character handle, and a wrong-case handle.
+- POST, PUT and DELETE answer 405.
+- A handle with a NUL byte (`%00`, `a%00b`) answers **500**. See §3, item 1.
+
+**Feed weight (50 cards, raw HTML of `/`, measured with curl).**
+
+| Distinct heavy traders on the page | Raw | Gzipped |
+|---|---|---|
+| 12 (5 fresh closes each) | **337,577 bytes** (under 500 KB) | 25 KB |
+| 25 (2 each) | 417,016 bytes | 44 KB |
+| 50 (1 each) | **564,211 bytes**, over 500 KB | 71 KB |
+
+- With 12 traders, the 50 cards split 20/20/20/20/20/20/20/20/12/12/12/4 across them. Every pane on these pages was a
+  stand-in.
+- A sample of the 50-distinct feed is in `feed-50-distinct-heavy-375-{light,dark}.png`.
+- The 50-distinct case is the engineer's recorded projection (about 560 KB). See §3, item 2.
+
+**Scrub near a total loss.**
+- Trader `r5loss`: 55 closes of +1%, then 5 of −97%. That compounds to about −0.99999996.
+- In the pane, on the stand-in and on the full chart, the header and the scrub at the newest close both read
+  **"≈-100.0%"**.
+- Stepping back through the closes, pane and profile match point for point: "-99.9999%", "-99.995%", "-99.8%", "-94.8%"
+  and "+72.9%".
+- Escape followed by ArrowLeft behaves the same in the pane and on the profile.
+- Screenshots: `pane-scrub-near-total-loss-375-light.png` beside `profile-scrub-near-total-loss-375-light.png`.
+
+**Plurals.**
+- "1 earlier position excluded: …" and "2 imported trades excluded: …" (`r5loss`).
+- "2 earlier positions excluded: …" and "1 imported trade excluded: …" (`r5one`).
+- The 1W range with one close is labeled "1 trade, -97% total, max drawdown -97%" on the profile and in the pane.
+- The pane heading reads "Last 5 trades".
+- The name equals the handle and is shown once ("@r5loss").
+- Screenshots: `plural-1W-one-trade-profile-375-light.png` and `plural-one-close-profile-375-light.png`.
+
+**Regression.**
+- Trust rule:
+  - the demo profile shows "Demo" and no Verified badge;
+  - the failed record shows no Verified badge and does show the incomplete line;
+  - heavy panes show Verified and no Demo badge.
+- Consent (`r5cons`):
+  - before consent, a cron call answered 200, and a visitor saw "No trades yet." (`pane-chart`: 0 trades);
+  - after "Import my record" the profile shows "✓ Verified".
+- Portal: opens in `dialog.portal[open]` with the vendor fake's `/portal` in the frame, and its Connect reached consent.
+  `regress-portal-embedded-375-light.png`.
+- Paging without JS (120 closes):
+  - "Showing 50 of 120 closed trades";
+  - "Show 50 more" goes to `?closes=100#trade-…`, "Showing 51–100 of 120 closed trades";
+  - "Show 20 more" gives "Showing 101–120 of 120 closed trades", with no further "more" link and "Back to the newest"
+    offered.
+  - `regress-paging-last-window-nojs-375-light.png`.
+
+### 3. Defects
+
+1. **Low · product: `/u/<handle>/pane-chart` answers 500 for a handle containing a NUL byte.**
+   - `GET /u/%00/pane-chart` and `/u/a%00b/pane-chart` reach the query. Postgres rejects the parameter (`invalid byte
+     sequence for encoding "UTF8": 0x00`) and the route answers 500 with an empty body.
+   - Nothing leaks, but it is not the 404 the route gives every other unknown handle. Each request logs a server error.
+   - The profile, `/u/%00`, answers 404.
+   - The same 500 already exists on `/u/%00/opengraph-image` and `/u/dividend_dan/trade/%00`. Those are older routes and
+     not part of this diff.
+   - Fix (engineer's choice): return 404 for a handle that fails the handle pattern before querying. The older routes
+     can share the guard.
+2. **Low · owner decision: the 500 KB feed bound holds up to about 25–30 distinct heavy traders, not 50.**
+   - 12 distinct: 330 KB. 25 distinct: 407 KB. 50 distinct: **551 KB (564,211 bytes)** raw, 71 KB gzipped.
+   - The criterion as set ("≥ 10 distinct heavy traders") passes. The 50-distinct worst case fails it by about 13%.
+   - The engineer measured and recorded this as a known limit, with next steps.
+   - It is not blocking against the demand as written. It needs the owner's call before real traffic.
+3. **Low · spec (known limit, unchanged): the connect feed tests fail on a shared database whenever another writer adds
+   heavy records.**
+   - Both shared runs failed the same 3 tests while two other agents imported heavy records.
+   - On a private database both runs were 96/96.
+   - The new `afterEach` cleanup works: no leftovers after 6 failures.
+   - Fix as recorded: run e2e on its own database, or assert eligibility through `feedCandidates({ ids })`.
+
+Notes (not blocking):
+- The screen-reader twin of the count (`.import-read-live`, "N activities imported so far") trails the visible headline
+  by one step: "1,000" while the headline reads "2,000". The engineer says this is unchanged from before. A screen
+  reader user hears a count one page behind.
+- "0 activities read" stayed for about 4.85 s with a 2.5 s vendor page, as in re-run 4.
+- The `bd2043e` commit (another committee member's round) swept 19 of this run's screenshots into the branch before
+  this section was written. The rest are added with this log.
+
+### 4. Cleanup
+
+- Shared database:
+  - this run created no traders there (checked by snapshot diff);
+  - the e2e tests removed their own;
+  - the e2e cron calls had stamped `sync_claimed_at` on 5 pre-existing traders (`liv4zw093nl`, `liv3gsioecu`,
+    `liv26zfoo3r`, `liv9sggea6v`, `c6k752kakp`). Those were restored to their snapshot values, only where still the
+    stamped value;
+  - the other agents' traders (`bl4_*`, `uxr3*`) were left alone.
+- Private database `stock_social_r5`: it held every tester trader (`r5headl`, `r5headd`, `r5pend`, `r5part`, `r5cons`,
+  `r5loss`, `r5one`, `r5page` and `r5_hv0`–`r5_hv49`). It was dropped after the run.
+- The tester's server (3205) and vendor fake (4205) are stopped. The server on 3102 and the business lead's fake belong
+  to another agent and were left running.
+- No product code changed.
+
+Verdict: DEFECTS (Low ×3: pane-chart 500 on a NUL-byte handle; feed over 500 KB at 50 distinct heavy traders, owner
+decision; shared-database e2e isolation, known limit). No blocking or medium defect.
