@@ -622,6 +622,19 @@ dbTest('reviewer fix (plan §9): a real account reflagged as simulated leaves th
     await sql`update closed_trades set thesis = 'Edited.' where sell_id = ${flipSells[0]}`;
     assert.equal(await sync(false), 0);
     assert.deepEqual((await theses())[0], [flipSells[0], 'Edited.', 'published']);
+    // Reviewer fix round 3: clearing the held thesis through the form's own function removes its kept copy, so it stays
+    // cleared across a flagged and an unflagged rebuild (without the delete in saveThesisFor the kept copy returns).
+    const { saveThesisFor } = await import('./thesis-save.ts');
+    const keptFor = async (sellId: string) => (await sql`select count(*)::int as n from kept_theses where user_id = ${u.id} and sell_id = ${sellId}`)[0].n;
+    assert.equal(await keptFor(flipSells[1]), 1);
+    const [held] = await sql`select id from closed_trades where user_id = ${u.id} and sell_id = ${flipSells[1]}`;
+    await saveThesisFor(u.id, String(held.id), '   ');
+    assert.equal(await keptFor(flipSells[1]), 0);
+    assert.equal(await sync(true), 0);
+    assert.equal(await sync(false), 0);
+    assert.deepEqual(await theses(), [[flipSells[0], 'Edited.', 'published']]);
+    assert.equal(await keptFor(flipSells[1]), 0);
+    assert.deepEqual((await sql`select thesis, thesis_status from closed_trades where user_id = ${u.id} and sell_id = ${flipSells[1]}`).map((r) => [r.thesis, r.thesis_status]), [[null, null]]);
   } finally {
     await cleanup([u.id], [keep, flip]);
   }

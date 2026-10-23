@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
 import { currentUser, devGuard, rememberMethod, signIn } from '@/lib/session.ts';
 import { completeAttempt, createAttempt, createUserForAttempt } from '@/lib/auth/attempts.ts';
-import { moderate } from '@/lib/moderation.ts';
+import { saveThesisFor } from '@/lib/thesis-save.ts';
 import { isDemoUser } from '@/lib/demo.ts';
 import { normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
 import { TRADES_PROMPT_ACTIONS, type TradesPromptAction } from '@/lib/new-trades.ts';
@@ -41,16 +41,7 @@ export async function login(form: FormData) {
 export async function saveThesis(form: FormData) {
   const user = await currentUser();
   if (!user) redirect('/login');
-  const id = String(form.get('tradeId'));
-  const text = String(form.get('thesis') ?? '').trim().slice(0, 280);
-  const status = moderate(text);
-
-  await sql`
-    update closed_trades set thesis = ${text || null}, thesis_status = ${text ? status : null}
-    where id = ${id} and user_id = ${user.id}`;
-  // The trader's latest word replaces a thesis kept aside by a rebuild (lib/sync.ts#rebuildTrades), so it never returns.
-  await sql`delete from kept_theses where user_id = ${user.id}
-    and sell_id = (select sell_id from closed_trades where id = ${id} and user_id = ${user.id})`;
+  await saveThesisFor(user.id, String(form.get('tradeId')), String(form.get('thesis') ?? ''));
   revalidatePath(`/u/${user.handle}`);
 }
 

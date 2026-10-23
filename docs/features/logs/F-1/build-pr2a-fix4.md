@@ -340,3 +340,25 @@ rebuild, and did not come back when the flag cleared.
 | `npx playwright test e2e/connect.spec.ts` with the vendor fake variables (the spec starts its fake) | 16 passed, 0 failed |
 
 Files: `db/schema.sql`, `lib/sync.ts`, `app/actions.ts`, `lib/connections.test.ts`, this log.
+
+## Reviewer fix round 3
+
+Finding (review-pr2a.md, Final check, Low): the delete of the kept copy in `saveThesis` had no test; the "edit wins"
+assertion wrote with direct SQL and passed with or without it. Note: the update and the delete were not in one transaction.
+
+- `lib/thesis-save.ts` (new): `saveThesisFor(userId, tradeId, input)` holds the thesis write the form makes (trim, 280
+  characters, moderation status) and runs the update and the kept-copy delete in one `sql.begin`.
+- `app/actions.ts#saveThesis`: unchanged behavior; it now calls `saveThesisFor` with the session user, then revalidates.
+- `lib/connections.test.ts` reflag test: after the trades return, clears the held thesis through `saveThesisFor` (the
+  function the action calls), asserts its kept row is gone, rebuilds flagged and then unflagged, and asserts the thesis
+  stays cleared (null text and status) and no kept row returns. With the delete removed the test fails (kept row count
+  1, expected 0). Test renamed: none; unit tests 419 → 419.
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL=postgres://…@localhost:5432/stock_social`), two runs | 419 pass each run, 0 fail, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+Files: `lib/thesis-save.ts`, `app/actions.ts`, `lib/connections.test.ts`, this log.
