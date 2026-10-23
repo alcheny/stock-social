@@ -100,3 +100,119 @@ Note: S3's "error → S7b" is replaced by the redirect fallback (engineer deviat
 Cleanup: server and fake stopped; 11 test users and their claims deleted.
 
 Verdict: DEFECTS (3 Low; every check green, every security probe passed)
+
+## Re-run 1 (after fix round 2)
+
+Date: 2026-10-23. Branch `claude/adoring-euler-4469ys` at `43d083d`, against `origin/main`. No product code was changed.
+Inputs: the three committee verdicts and `build-pr2b-fix2.md`.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| Schema applied twice, then seed (Postgres 16) | clean |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×5 | runs 2–5: 448 pass, 0 fail. Run 1: 447 pass, **1 fail**, in `lib/schema.test.ts` "a repeat apply blanks accounts and institution…" (line 89, `0 !== 1`). See defect 1 below. |
+| `CI=1 npm run build < /dev/null` | compiles (fresh `BUILD_ID`, `/connect/continue` and `/connect/portal` listed), then exits 1 on the framework's security advisory, as on main. This is tool output and was not acted on. |
+| `npm run test:e2e` (fakes started by the specs) | 88 passed, 3 skipped (the unconfigured OIDC and email fakes, as before) |
+| `compliance.ts diff origin/main` | only the existing `@img/sharp-wasm32` license line |
+| `autopilot.ts guard main` | `guard: ok` |
+
+### The "expiry with a clock" flake: reproduced, and it is a test race
+
+- **What I saw.** It showed up once in five runs, from the other side of the same race: the schema test failed rather
+  than the expiry test.
+- **Cause.** `tick()` in `lib/connections.ts` (line 537) cleans every row in the database that is declined or expired
+  with `cleanup_done_at is null`.
+  - The expiry test in `lib/connections.test.ts` calls the global `tick` and asserts `cleaned === 1` and
+    `deletedConnections` equal to its own row only.
+  - `lib/schema.test.ts` inserts an "uncleaned" expired row (48 h old) and asserts that it keeps its snapshot.
+  - When the two files overlap (node:test runs files in parallel), the tick cleans the schema test's row. The schema
+    test then reads `accounts = []` (my run 1), or the expiry test counts 2 (the engineer's failure).
+- **Deterministic reproduction.** I inserted one expired row with `cleanup_done_at` null, then ran
+  `node --test --test-name-pattern="expiry with a clock" lib/connections.test.ts`. The result was `expected: 1, actual:
+  2`, and the foreign row was cleaned (`accounts = []`).
+- **Classification: test race, not a product bug.** Cleaning every uncleaned row is the tick's job.
+
+### Verified as a user and as an attacker
+
+I ran 85 scripted checks against my own server and vendor fake, started after e2e. 84 passed. The one that failed was
+a selector error in my script; the screenshot confirms the behaviour.
+
+- **Server-side framing probe.**
+  - Probe timeout: a portal that holds HEAD for 3 s gets `mode: embedded` after about 1.7 s, and the dialog opens.
+  - Refusing headers: on the `localhost` origin, the answer is `mode: redirect`. `showModal` is never called, the page
+    goes straight to the vendor's page, and it completes to consent.
+  - The probe is one HEAD with no cookie, and funnel rows record the mode as `redirect`.
+  - Cache per origin: a second refused mint sends no new probe. The `127.0.0.1` origin stays embedded in the meantime.
+- **Dialog at 375×667, light and dark.**
+  - "Opening…" with `aria-busy` shows on the primary only while the mint is held. The label is restored when the
+    dialog opens.
+  - Before load, the frame has `aria-busy=true`. The 3 s line appears, and at 8 s the control becomes the filled
+    primary.
+  - After a late load, the control drops to secondary and there is no slow line.
+  - A loaded portal left idle for 15 s, sampled every 250 ms, never showed the slow line or a filled control. "Page
+    blank? Open it in a new page." appeared at about 8.15 s after load, beside a 45 px secondary control.
+  - Close is the only app button, and the flow still completes.
+  - No `[role=status]` sat under `[aria-busy="true"]`, either while loading or after load.
+  - Control insets from the dialog's edges: 17 px left, right and bottom before load, and 17/97/17 px after. There is
+    no horizontal scroll.
+- **Blocked popup.** The app shows `/connect/continue` with the exact line, and its Continue link goes to
+  `/connect/start`. It continues on its own after about 2.0 s, reaches the vendor and then consent. With lure query
+  parameters and no script, no link leaves the app.
+- **Banner.**
+  - Owner: "Importing your record · 0 closed trades so far" and "0 activities imported".
+  - Visitor: "Importing this record · …" with no "your" and no activities line. `description` and `og:description`
+    read the same.
+  - Finish: "Import finished." is announced exactly once and the other lines are dropped. "Your record is live." is the
+    only thing drawn, with the note visually hidden.
+  - The banner is removed 5.06 s after finish, and no empty box is left.
+- **Concurrency and limits.**
+  - Concurrent first opens: 6 parallel `POST /connect/portal` for a new trader all returned 200, and exactly 1 vendor
+    user was registered (the one stored).
+  - Mint limit:
+    - Mints 7 to 10 returned 200.
+    - The 11th returned `429 {"error":"rate"}` with `no-store`.
+    - `/connect/start` returned a 429 page.
+    - In the browser: the "Too many tries…" line, and no dialog.
+    - 14 parallel mints for a new trader: exactly 10 returned 200 and 4 returned 429.
+  - Polling:
+    - Two steps within a second: one 200 and one 429 with `Retry-After: 1`, and both answers are `no-store`.
+    - Steps at 2 per second alternate with 429s.
+    - Signed out: 401 with `no-store`. GET returns 405.
+- **Poll after a 401.** I cleared the cookies mid-import. The page showed "Signed out in another tab." with "Sign in
+  again" (`/login`). The last poll was a `no-store` 401, and no polls followed in 6 s.
+- **Anti-framing.**
+  - `frame-ancestors 'none'` and `X-Frame-Options: DENY` are present on all 21 paths I tried:
+    - pages: feed, login, the connect pages, consent, profile, the OG image, how, terms, privacy, settings, stocks
+    - 404s
+    - the step, portal and sync APIs
+  - A foreign page that frames a profile renders nothing of it.
+- **PR-2a regression.**
+  - Consent gating:
+    - Nothing is imported before consent.
+    - Before consent, the signed-out profile shows no banner.
+    - Another trader opening the consent URL gets "Connection not found."
+  - Trust rule:
+    - An importing record has no Verified badge; once connected, it does.
+    - The demo profile shows Demo, no Verified, and its description says "demo trades".
+
+Screenshots are in `screenshots/pr2b/rerun1/`. Cleanup: server and fake stopped; 18 test users (`rr1*`) and their
+claims deleted.
+
+### Defects
+
+1. **Low · bug (test) · a cross-file race makes `npm test` flaky** (1 run in 5 here, and once in the engineer's
+   runs).
+   - The global `tick()` in the "expiry with a clock" test (`lib/connections.test.ts`) cleans the uncleaned expired
+     row that `lib/schema.test.ts` inserts.
+   - Whichever file asserts second fails. CI can go red on a correct change.
+   - Fix, in the tests only: one of the following.
+     - Scope the schema test's fixture so the tick never selects it, for example by marking its "uncleaned" row
+       inside the same transaction as the apply and rolling back.
+     - Make the expiry test assert only on its own row (`cleaned >= 1`, `deletedConnections` includes its id).
+     - Serialize the two files.
+   - Not a product defect.
+
+Verdict: DEFECTS (1 Low, test race; product behaviour clean: every check other than the flaky run is green, and every
+user and attacker probe passed)
