@@ -30,20 +30,24 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
   return { pts, t0, t1, last, n: curve.length, drawdown: maxDrawdown(curve), min, max };
 }
 
-// Wire format for the feed pane: the closes the kept points land on (once per trader, shared by every range), and per
-// range its numbers and a flat list of kept points [at ms, value, close (-1 for the range start)].
-export type PackedTrade = [id: string, symbol: string, returnPct: number, closedAt: number, holdingDays: number, thesis: string | null, index: number];
+// Wire format for the feed pane, compact because every trader on the feed ships one: the closes the kept points land
+// on (once per trader, shared by every range; a close's time is its point's), and per range its numbers and a flat list
+// of kept points [minutes after `base`, value, close (-1 for the range start)]. Times are floored to the minute (a
+// point's date never moves to the next day; the range ends are floored alike); values keep 6 decimals (the header shows 1 decimal of a percent).
+export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number];
 export type PackedSeries = { t0: number; t1: number; last: number; n: number; dd: number; min: number; max: number; p: number[] };
-export type PackedChart = { trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries> };
+export type PackedChart = { base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries> };
 
 const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
+const MIN = 60_000;
 
 export function packChart(trades: ChartPoint[], now: Date, maxPoints: number): PackedChart {
   const out: PackedTrade[] = [];
   const ref = new Map<string, number>();
+  const series = RANGES.map(({ key }) => [key, chartSeries(trades, key, now, maxPoints)] as const);
+  const base = Math.floor(Math.min(...series.flatMap(([, s]) => s.pts.map((p) => p.at))) / MIN) * MIN;
   const ranges = {} as Record<RangeKey, PackedSeries>;
-  for (const { key } of RANGES) {
-    const s = chartSeries(trades, key, now, maxPoints);
+  for (const [key, s] of series) {
     const p: number[] = [];
     for (const pt of s.pts) {
       let i = -1;
@@ -53,24 +57,50 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number): P
         if (i < 0) {
           i = out.length;
           ref.set(t.id, i);
-          out.push([t.id, t.symbol, t.returnPct, t.closedAt.getTime(), t.holdingDays, t.thesis, t.index]);
+          out.push([t.id, t.symbol, r6(t.returnPct), t.holdingDays, t.thesis, t.index]);
         }
       }
-      p.push(pt.at, r6(pt.value), i);
+      p.push(Math.floor((pt.at - base) / MIN), r6(pt.value), i);
     }
-    ranges[key] = { t0: s.t0, t1: s.t1, last: s.last, n: s.n, dd: s.drawdown, min: s.min, max: s.max, p };
+    ranges[key] = { t0: Math.floor(s.t0 / MIN) * MIN, t1: Math.floor(s.t1 / MIN) * MIN, last: s.last, n: s.n, dd: s.drawdown, min: s.min, max: s.max, p };
   }
-  return { trades: out, ranges };
+  return { base, trades: out, ranges };
 }
 
 export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
-  const trades: ChartPoint[] = c.trades.map(([id, symbol, returnPct, at, holdingDays, thesis, index]) => ({ id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index }));
+  const trades: (ChartPoint | undefined)[] = new Array(c.trades.length);
   const out = {} as Record<RangeKey, Series>;
   for (const { key } of RANGES) {
     const r = c.ranges[key];
     const pts: SeriesPt[] = [];
-    for (let i = 0; i < r.p.length; i += 3) pts.push({ at: r.p[i], value: r.p[i + 1], trade: r.p[i + 2] < 0 ? null : trades[r.p[i + 2]] });
+    for (let i = 0; i < r.p.length; i += 3) {
+      const at = c.base + r.p[i] * MIN, k = r.p[i + 2];
+      let trade: ChartPoint | null = null;
+      if (k >= 0) {
+        const [id, symbol, returnPct, holdingDays, thesis, index] = c.trades[k];
+        trade = trades[k] ??= { id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index };
+      }
+      pts.push({ at, value: r.p[i + 1], trade });
+    }
     out[key] = { pts, t0: r.t0, t1: r.t1, last: r.last, n: r.n, drawdown: r.dd, min: r.min, max: r.max };
   }
   return out;
+}
+
+// The line's SVG path: an absolute move, then one relative lineto run ("M x y l dx dy dx dy …"), coordinates in tenths.
+// Each delta is taken between rounded absolute positions, so rounding never drifts along the line. About a third shorter
+// than absolute "L x y" pairs; draws the same line.
+export function pathD(xs: number[], ys: number[]): string {
+  if (!xs.length) return '';
+  const t = (v: number) => Math.round(v * 10);
+  const num = (n: number) => String(n / 10);
+  let px = t(xs[0]), py = t(ys[0]);
+  let d = `M${num(px)} ${num(py)}`;
+  for (let i = 1; i < xs.length; i++) {
+    const x = t(xs[i]), y = t(ys[i]);
+    const dx = num(x - px), dy = num(y - py);
+    d += `${i === 1 ? 'l' : dx.startsWith('-') ? '' : ' '}${dx}${dy.startsWith('-') ? '' : ' '}${dy}`;
+    px = x; py = y;
+  }
+  return d;
 }

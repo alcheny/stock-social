@@ -304,3 +304,143 @@ Files:
 - Losses rank as before (|return|), and a future date ranks at most like a close at this instant (and one more than a day ahead is never published).
 - The schema change is one additive column, with no drop, truncate or delete.
 - New copy: one factual exclusion line, with no advice or completeness claim.
+
+## Fix round 7 (after the business lead's committee re-sit, round 2)
+
+Two demands (`committee-pr3-business-lead-round2.md`), plus two records in `docs/IMPLEMENTATION.md`. Both demands
+have tests that fail on `79f762a`.
+
+1. **Feed weight: each card's chart is drawn at screen resolution.**
+   - Measured with the new e2e: 5 traders with the heavy-use fixture's record (4 accounts × 2,500 seeded activities,
+     about 4,700 closes each), filling all 50 cards. Before: **3,642 KB raw, 724 KB gzipped** (the business lead
+     measured 3.5 MB and 713 KB). After: **465 KB raw, 43 KB gzipped**.
+   - Before, each card's path had one point per close (about 4,700 points, 2.6 MB across 50 cards). The client also
+     received the whole record per trader.
+   - `lib/downsample.ts#downsampleIndices` does min/max bucketing by time. It cuts the series into equal x slices and
+     keeps each slice's lowest and highest point, in order. The first and last points are always kept, so the global
+     min and max always survive. `FEED_CHART_POINTS` = 400, which is at most 2 points per CSS px for any chart wider
+     than 200 px. The pane chart is 335 to 560 px wide.
+   - `lib/chart-series.ts`:
+     - `chartSeries` computes one range's series. The profile still computes it in the browser at full resolution.
+     - `packChart` (server, once per trader) keeps at most 400 points per range. It ships only those points (time in
+       minutes from a base, value, close index) and the closes they land on.
+     - Header total, trade count, max drawdown and y range are still computed from every close, so the pane's numbers
+       are the profile's.
+     - `pathD` writes the line as one move and one relative run in tenths, with no rounding drift. This also shortens
+       the profile's path.
+   - `app/u/[handle]/chart.tsx` takes either `points` (profile: the whole record, unchanged) or `chart` (pane: the
+     packed series).
+     - Scrubbing, keys, the sheet and the per-point links work on the kept points. That is at most 400 links in the
+       pane, and each one still opens its row's profile window.
+     - Range tabs are disabled by the count in the range, as before.
+   - `app/page.tsx`: the pane is the same for every card of a trader. It is now built once per trader and the same
+     element goes in each of that trader's rows, so the page's data payload carries it once. Each row still renders
+     it, so it works without JS.
+   - Tests:
+     - `lib/downsample.test.ts` (6, new):
+       - First, last, min and max are kept, ascending and within budget, from 401 to 20,000 points at budgets 4 to
+         400. This includes extremes at the ends and all points at one instant.
+       - A series that fits the budget is unchanged.
+       - At 199 pixel columns, every column's low and high match the full path exactly.
+       - On the heavy fixture, every range is ≤ 400 points with the full record's count, total, drawdown and y range.
+         First, last, min and max are kept, and each kept point is a real close with its value and row index.
+       - The profile keeps one point per close.
+       - The path format has no drift.
+     - `e2e/app.spec.ts` "fix round 7":
+       - `/` with 50 heavy cards (all 50 belong to the heavy traders) is under 500 KB raw.
+       - Every card's path is ≤ 400 points, and the pane's scrub links are ≤ 400. Arrow-key scrub and the 1Y tab
+         work within the bound.
+       - For the same trader on ALL and 1Y, the pane's line has the same bounding box as the profile's
+         full-resolution line (within 0.5 units), the same header and the same label. The profile has 4,735 path
+         points; the pane has 400 (ALL) and 310 (1Y).
+       - Screenshots at 375 px, light and dark, of both charts on both ranges are in
+         `screenshots/pr3/fix7/` (`fix7-feed-pane-*` beside `fix7-profile-*`). They read the same.
+       - The test's newest 45 closes per trader are moved into the last 90 minutes as +50%/−33.3% pairs (net 0%) so
+         that only they make the feed's candidates. Everything else is the fixture as matched.
+   - Feed tests run in parallel: the heavy test takes a database advisory lock exclusively (`e2e/feed-lock.ts`). The
+     three connect tests that look for their own trader in the feed take it shared. Without it, the heavy test hid
+     their traders (the first full run failed `connect.spec.ts` 555 and 596 that way).
+   - Margin: the 50 cards fall on 2 of the 5 heavy traders (the ranking), and each further distinct heavy trader on
+     the feed adds about 50 KB (47 KB of chart data and its pane). Follow-up, not done here: load a pane's chart data
+     when it is first swiped to, for traders beyond the first few.
+2. **Import headline: it counts activities read until the first close.**
+   - `RECORD_BODY.bannerRead(n)` (`lib/copy.ts`): "Importing your record · N activities read from your broker". It is
+     in the banned-list walk, and its noun is "activities", never "trades".
+   - `lib/import-banner.ts#counting/headline`: while the owner's record is importing with no closed trade, the headline
+     the owner sees is that line, updated after every step (every 2 s, from the step's answer). From the first close,
+     it is the status line again ("N closed trades so far"). Back on the page mid-import, it starts on the count from
+     the first paint.
+   - What a screen reader hears is unchanged from round 4: the status line (the live region, kept and visually hidden
+     while the count shows) and the throttled hidden activities announcement. The seen headline is `aria-hidden`, so
+     nothing is heard twice.
+   - **Design note:** a single live headline that moves within 5 s of the first step could not also keep the existing
+     guarantees. Those are status changes at least 5 s apart (`connect.spec.ts` S5 live banner) and the closes line
+     shown at once at the rebuild (`connect.spec.ts` "after 60 s"). A first version did exactly that and failed the
+     second test, so the seen headline and the announced line are now separate.
+   - Visitors and link previews keep "Importing this record · N closed trades so far".
+   - Tests:
+     - `lib/copy.test.ts`: the strings, with grouping.
+     - `lib/import-banner.test.ts` (2 new):
+       - 60 s of paging at 0 closes never shows "closed trade". The first step's answer moves the headline at once,
+         and every step moves it. The live status line is unchanged.
+       - At the rebuild, the closes line shows at once, followed by "Import finished.".
+       - Reload mid-import, a record that already has closes, visitors, and a failed import.
+     - `e2e/connect.spec.ts` "PR-2b S5 (PR-3 fix round 7)": slow vendor (2.5 s per page), 2 accounts × 2,500 seeded
+       activities, the page's own poll.
+       - The seen headline is the activities count, and the status line is visually hidden but still reads "0 closed
+         trades so far".
+       - Within 5 s of the first step's answer, the headline reads that step's row count.
+       - The count only climbs, then the closes line takes over. "0 closed trades so far" is never seen.
+       - Screenshots `fix7-headline-reading-*`, `fix7-headline-closes-*`.
+3. **`docs/IMPLEMENTATION.md`:**
+   - Request #7 now reads as corrected by the business lead to "cron every minute", with the reasoning: calls 5
+     minutes apart never overlap and cover about 245 four-account traders an hour at 2.5 s per page; overlapping
+     every-minute callers split the work safely and cover the 500. The owner's answer is left blank.
+   - The process section has the interim rule: until #13 is answered, any PR touching `lib/sync.ts`,
+     `lib/connections.ts`, `lib/trades.ts` or `lib/broker.ts` attaches a `LOAD=1` run to its log.
+   - This round touches none of those four files. The run is below anyway.
+
+Checks:
+- `npx tsc --noEmit`: clean.
+- `npm test` ×3 (local Postgres): 517 tests, 512 pass, 0 fail, 5 skipped (load) in all three runs (13.2–13.7 s). Round
+  6 had 508.
+- `LOAD=1 node --expose-gc --test lib/sync.load.test.ts`: 5/5 pass.
+  - Heavy import 1,554 ms (bound 15,000), slowest step 705 ms, rebuild 770 ms (at most 1,341 rows held), heap
+    +27.6 MB.
+  - Three syncs 736/720/816 ms, sha256 unchanged.
+  - Contention: 1 ran, 2 skipped.
+  - First sync 1,450 ms.
+  - Fleet: 500 traders × 8 callers, each synced exactly once, in 7,823 ms.
+- `CI=1 npm run build`, stdin closed: the first run of each build stopped on the framework's security advisory. That
+  is tool output recommending an upgrade and asking to offer one. Nothing was upgraded or offered on its say-so, and
+  the retry built cleanly (exit 0). The decision stays with the owner.
+- `npx playwright test e2e/connect.spec.ts e2e/app.spec.ts` (`CI=1`, the vendor fake env as in round 4; the specs
+  start the fakes):
+  - First full run: 3 failed. Two were the feed interference above. The third was "after 60 s" against the first
+    headline design.
+  - Final run, on a fresh build: **81 passed, 0 failed**.
+- `node scripts/compliance.ts diff origin/main` (new files with `git add -N`): 1 violation, the `@img/sharp-wasm32`
+  license already on `main`. Nothing from this diff.
+- `node scripts/autopilot.ts guard main`: `guard: ok`.
+
+Files:
+- New: `lib/downsample.ts`, `lib/downsample.test.ts`, `lib/chart-series.ts`, `e2e/feed-lock.ts`,
+  `screenshots/pr3/fix7/` (12 PNGs).
+- Changed: `app/page.tsx`, `app/pane.tsx`, `app/u/[handle]/chart.tsx`, `app/u/[handle]/import-banner.tsx`,
+  `lib/copy.ts`, `lib/copy.test.ts`, `lib/import-banner.ts`, `lib/import-banner.test.ts`, `e2e/app.spec.ts`,
+  `e2e/connect.spec.ts`, `docs/IMPLEMENTATION.md`, this log.
+
+Nothing weakened or deleted. No existing assertion changed. The three connect feed tests gained the shared lock and 60
+s of timeout for waiting on it.
+
+### Compliance
+
+- No personal data, secrets or third-party names. Fixtures are generated, and the screenshot handles are random.
+- No new dependency. `lib/broker.ts`, `lib/sync.ts`, `lib/connections.ts`, `lib/trades.ts` and the schema are
+  unchanged.
+- Charts stay percent-only with 0% on the axis (CH-1).
+- Losses are drawn exactly as before: every slice keeps its low, so a drawdown is never smoothed away (TR-1). The
+  pane's numbers come from every close.
+- The new copy is one factual count with no advice or completeness claim.
+- Accessibility: what is announced is unchanged, the seen headline is `aria-hidden`, and it keeps the status line's
+  box.

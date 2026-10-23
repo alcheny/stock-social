@@ -955,6 +955,8 @@ test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at
   const { seededActivities } = await import('./fakes/vendor.ts');
   const { matchTrades } = await import('../lib/trades.ts');
   const { gzipSync } = await import('node:zlib');
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive'); // the connect tests that look for their trader in the feed wait meanwhile
   const now = Date.now();
   const made: Awaited<ReturnType<typeof makeTrader>>[] = [];
   try {
@@ -966,7 +968,7 @@ test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at
       const closes = matchTrades(acts).trades.sort((x, y) => y.closedAt.getTime() - x.closedAt.getTime());
       const shift = now - 3 * 3_600_000 - closes[0].closedAt.getTime();
       made.push(await makeTrader(`heavy_feed_${h}`, (i) => (i < 45
-        ? { closedAt: new Date(now - (i + 1 + h * 0.2) * 120_000).toISOString(), r: (i % 2 ? -1 : 1) * (0.5 + (i % 5) / 100) }
+        ? { closedAt: new Date(now - (i + 1 + h * 0.2) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5 } // each pair nets 0%
         : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length));
     }
     const total = made.reduce((s, t) => s + t.ids.length, 0);
@@ -977,7 +979,6 @@ test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at
     const html = await res.text();
     const raw = Buffer.byteLength(html), gz = gzipSync(html).length;
     console.log(`# feed: 50 heavy cards (${total} closes) ${(raw / 1024).toFixed(0)} KB raw, ${(gz / 1024).toFixed(0)} KB gzipped`);
-    (await import('node:fs')).writeFileSync(test.info().outputPath('feed.html'), html); // TEMP
     expect(raw).toBeLessThan(500_000);
 
     await page.setViewportSize({ width: 375, height: 667 });
@@ -988,7 +989,7 @@ test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at
     for (const w of who) expect(w).toMatch(/^@heavy_feed_\d$/); // every card is a heavy record
 
     // Screen resolution: each card's path has at most 400 points (it had one per close), and so does its scrub layer.
-    const counts = await page.locator('.feed .pane path.curve').evaluateAll((ps) => ps.map((p) => (p.getAttribute('d')!.match(/[ML]/g) ?? []).length));
+    const counts = await page.locator('.feed .pane path.curve').evaluateAll((ps) => ps.map((p) => (p.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g) ?? []).length / 2));
     expect(counts).toHaveLength(50);
     for (const c of counts) expect(c).toBeLessThanOrEqual(401); // 400 points, plus the line to the range end
     const pane = page.locator('.feed .row').first().locator('.pane');
@@ -1002,7 +1003,7 @@ test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at
     await page.keyboard.press('Escape');
     await pane.getByRole('button', { name: '1Y', exact: true }).click();
     await expect(pane.locator('.chart-head')).toContainText('Past year');
-    expect(await pane.locator('path.curve').evaluate((p) => (p.getAttribute('d')!.match(/[ML]/g) ?? []).length)).toBeLessThanOrEqual(401);
+    expect(await pane.locator('path.curve').evaluate((p) => (p.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g) ?? []).length / 2)).toBeLessThanOrEqual(401);
     await pane.getByRole('button', { name: 'ALL', exact: true }).click();
 
     // Reads the same: the pane's line spans exactly the box of the profile's full-resolution line (first, last, low and
@@ -1012,28 +1013,34 @@ test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at
       box: await fig.locator('path.curve').evaluate((p) => { const b = (p as SVGPathElement).getBBox(); return [b.x, b.y, b.width, b.height]; }),
       head: await fig.locator('.chart-head').innerText(),
       label: await fig.locator('svg[role="img"]').getAttribute('aria-label'),
-      points: await fig.locator('path.curve').evaluate((p) => (p.getAttribute('d')!.match(/[ML]/g) ?? []).length),
+      points: await fig.locator('path.curve').evaluate((p) => (p.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g) ?? []).length / 2),
     });
-    const small = await look(pane.locator('figure.chart'));
     const shot = test.info().outputPath('fix7');
-    for (const colorScheme of ['light', 'dark'] as const) {
-      await page.emulateMedia({ colorScheme });
-      await pane.locator('figure.chart').screenshot({ path: `${shot}-feed-pane-chart-375-${colorScheme}.png` });
-    }
-    await page.emulateMedia({ colorScheme: 'light' });
+    const capture = async (fig: ReturnType<typeof page.locator>, name: string) => {
+      const out = [];
+      for (const key of ['ALL', '1Y'] as const) {
+        await fig.getByRole('button', { name: key, exact: true }).click();
+        out.push(await look(fig));
+        for (const colorScheme of ['light', 'dark'] as const) {
+          await page.emulateMedia({ colorScheme });
+          await fig.screenshot({ path: `${shot}-${name}-${key}-375-${colorScheme}.png` });
+        }
+        await page.emulateMedia({ colorScheme: 'light' });
+      }
+      return out;
+    };
+    const small = await capture(pane.locator('figure.chart'), 'feed-pane');
     await page.goto(`/u/${handle}`);
-    const fig = page.locator('figure.chart');
-    const full = await look(fig);
-    for (const colorScheme of ['light', 'dark'] as const) {
-      await page.emulateMedia({ colorScheme });
-      await fig.screenshot({ path: `${shot}-profile-chart-375-${colorScheme}.png` });
+    const full = await capture(page.locator('figure.chart'), 'profile');
+    console.log(`# feed: pane chart ${small.map((s) => s.points).join('/')} path points (ALL/1Y), profile chart ${full.map((s) => s.points).join('/')}`);
+    expect(full[0].points).toBeGreaterThan(4_000); // the profile keeps full resolution
+    for (const k of [0, 1]) {
+      expect(small[k].head).toBe(full[k].head);
+      expect(small[k].label).toBe(full[k].label);
+      for (let i = 0; i < 4; i++) expect(Math.abs(small[k].box[i] - full[k].box[i])).toBeLessThanOrEqual(0.5);
     }
-    console.log(`# feed: pane chart ${small.points} path points, profile chart ${full.points}`);
-    expect(full.points).toBeGreaterThan(4_000); // the profile keeps full resolution
-    expect(small.head).toBe(full.head);
-    expect(small.label).toBe(full.label);
-    for (let i = 0; i < 4; i++) expect(Math.abs(small.box[i] - full.box[i])).toBeLessThanOrEqual(0.5);
   } finally {
     for (const t of made) await t.remove();
+    await release();
   }
 });

@@ -15,14 +15,12 @@
 // never while a status change is pending, and not in the first ANNOUNCE_MS after mount. The status line keeps strict
 // priority: it is never held back by the activities line (the closes count arriving at the rebuild goes out at once). The 60 s line says "Still waiting for your broker." when the last step was deferred
 // (`waiting`: a timeout, a rate limit or an outage), never that the broker is sending.
-// F-1 PR-3 fix round 7 (business lead re-sit, demand 3): before the first close the owner's headline (the status line
-// as shown, `head`) counts the activities read, "N activities read from your broker", instead of "0 closed trades so
-// far" for the whole paging phase. It moves with the activities announcement (the first 5 s after mount, then at most
-// once per 5 s; a timer in the component fires at 5 s), so it shows "0 closed trades so far" for at most 5 s. Once
-// closed trades exist it reads "N closed trades so far" again. One live element, one clock: `head` changes at most once
-// per ANNOUNCE_MS, so the hand-over from the activities count to the closes count waits out the window on screen too
-// (the state's `text` still commits at once and refreshes the list, as before). While the headline carries the count,
-// the hidden activities region stays empty (`liveRead`), so the count is heard once.
+// F-1 PR-3 fix round 7 (business lead re-sit, demand 3): before the first close the owner's banner headline read "0
+// closed trades so far" for the whole paging phase (57 of 63 s with a slow vendor). While the record has no closed trade
+// the owner now sees the activities read instead, "N activities read from your broker", updated after every step like
+// the activities line, and the closes count from the first close on. The seen headline is not a live region (it moves
+// every 2 s); what a screen reader hears is unchanged: the status line (kept, visually hidden while the count shows) and
+// the throttled activities announcement above.
 import { RECORD_BODY } from './copy.ts';
 
 export const POLL_MS = 2_000;
@@ -48,10 +46,6 @@ export type Banner = {
   readText: string; // the activities line as announced (the hidden live region); '' until the first announcement
   readAt: number; // when readText was last announced
   mountedAt: number;
-  head: string; // fix round 7: the status line as shown (the headline); `text`, or the activities count before the first close
-  headAt: number; // when head last changed
-  readShown: number; // the activities count of the last announcement
-  liveRead: string; // the hidden region's text: readText, or '' while the headline carries the count
 };
 
 const textFor = (phase: Banner['phase'], closes: number, owner: boolean) => (phase === 'finished' ? RECORD_BODY.finished : RECORD_BODY.banner(closes, owner));
@@ -60,25 +54,12 @@ export function initBanner(x: Snapshot & { owner: boolean; visible?: boolean }, 
   const phase = x.state === 'importing' ? 'importing' : 'hidden';
   const text = textFor(phase, x.closes, x.owner);
   return { phase, owner: x.owner, closes: x.closes, read: x.read, changedAt: now, text, want: text, announcedAt: -Infinity, slow: false, refreshes: 0, visible: x.visible ?? true, signedOut: false,
-    waiting: x.waiting ?? false, readText: '', readAt: -Infinity, mountedAt: now, head: text, headAt: -Infinity, readShown: x.read, liveRead: '' };
+    waiting: x.waiting ?? false, readText: '', readAt: -Infinity, mountedAt: now };
 }
-
-// Fix round 7: the owner's headline counts activities while the committed line still has no closed trade.
-const readMode = (b: Banner) => b.owner && b.phase === 'importing' && b.text === RECORD_BODY.banner(0, true);
-function settle(b: Banner, now: number): Banner {
-  const want = readMode(b) && b.readText ? RECORD_BODY.bannerRead(b.readShown) : b.text;
-  if (want === b.head || now - b.headAt < ANNOUNCE_MS) return b;
-  return { ...b, head: want, headAt: now };
-}
-// The status line as shown and announced.
-export const headline = (b: Banner): string => b.head;
 
 function commit(b: Banner, now: number): Banner {
   // The finished note has been out for FINISHED_MS: the banner is gone (no refresh: the page already has the record).
-  if (b.phase === 'finished' && b.head === RECORD_BODY.finished && now - b.headAt >= FINISHED_MS) return { ...b, phase: 'hidden' };
-  return settle(step(b, now), now);
-}
-function step(b: Banner, now: number): Banner {
+  if (b.phase === 'finished' && b.text === RECORD_BODY.finished && now - b.announcedAt >= FINISHED_MS) return { ...b, phase: 'hidden' };
   const slow = b.owner && !b.signedOut && b.phase === 'importing' && now - b.changedAt >= SLOW_MS;
   if (b.want !== b.text) {
     if (now - b.announcedAt < ANNOUNCE_MS) return slow === b.slow ? b : { ...b, slow };
@@ -86,7 +67,7 @@ function step(b: Banner, now: number): Banner {
   }
   const quiet = now - b.announcedAt >= ANNOUNCE_MS && now - b.readAt >= ANNOUNCE_MS; // nothing heard for 5 s
   const readWant = RECORD_BODY.importedSoFar(b.read);
-  if (b.owner && b.phase === 'importing' && readWant !== b.readText && quiet && now - b.mountedAt >= ANNOUNCE_MS) return { ...b, slow, readText: readWant, readAt: now, readShown: b.read, liveRead: readMode(b) ? '' : readWant };
+  if (b.owner && b.phase === 'importing' && readWant !== b.readText && quiet && now - b.mountedAt >= ANNOUNCE_MS) return { ...b, slow, readText: readWant, readAt: now };
   return slow === b.slow ? b : { ...b, slow };
 }
 // The 60 s line (owner, importing, no new rows for SLOW_MS): never says the broker is sending while it is not answering.
@@ -114,3 +95,8 @@ export function onVisibility(b: Banner, visible: boolean, now: number): Banner {
   if (visible === b.visible) return b;
   return visible ? { ...b, visible, changedAt: now, slow: false } : { ...b, visible };
 }
+
+// Fix round 7: the owner's headline counts activities read while the record has no closed trade yet.
+export const counting = (b: Banner): boolean => b.owner && b.phase === 'importing' && b.closes === 0;
+// The headline as seen: the activities read before the first close, the status line otherwise.
+export const headline = (b: Banner): string => (counting(b) ? RECORD_BODY.bannerRead(b.read) : b.text);

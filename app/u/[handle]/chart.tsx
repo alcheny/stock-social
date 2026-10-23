@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { RANGES, nearestIndex, pct, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
-import { chartSeries, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
+import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { count } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
 
@@ -50,8 +50,9 @@ export function PerformanceChart({ points, chart, now, linkBase = '', current }:
   const f = (n: number) => n.toFixed(1);
   const xs = pts.map((_, i) => x(i));
 
-  let d = pts.map((p, i) => `${i ? 'L' : 'M'}${f(xs[i])} ${f(y(p.value))}`).join('');
-  if (span > 0 && t1 > pts[pts.length - 1].at) d += `L${W} ${f(y(last))}`;
+  // The line runs on to the range end at the last value when the range ends after the last close.
+  const tail = span > 0 && t1 > pts[pts.length - 1].at;
+  const d = pathD(tail ? [...xs, W] : xs, [...pts.map((p) => y(p.value)), ...(tail ? [y(last)] : [])]);
 
   const at = active === null ? null : pts[active];
   const shown = at ? at.value : last;

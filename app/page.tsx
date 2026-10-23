@@ -41,9 +41,16 @@ export default async function Feed() {
     const inputs = rows.filter((r) => r.user_id === id).map((r) => ({ symbol: r.symbol as string, openedAt: r.opened_at as Date, closedAt: r.closed_at as Date, returnPct: r.return_pct as number, holdingDays: r.holding_days as number }));
     weight.set(id, evidenceWeight(confidence(inputs, now)));
   }
-  // One chart per trader, drawn at screen resolution and shared by all of that trader's cards (the client payload
-  // references it once; fix round 7: at most FEED_CHART_POINTS points per range, never one per close).
-  const charts = new Map([...byUser].map(([id, ts]) => [id, paneChart(ts, now)]));
+  // One chart per trader, drawn at screen resolution (fix round 7: at most FEED_CHART_POINTS points per range, never one
+  // per close) and shared by all of that trader's cards.
+  // The pane itself is the same for every card of a trader: built once per trader and the same element placed in each
+  // of that trader's rows, so the page's data payload carries it once (each row still renders it).
+  const panes = new Map<number, ReturnType<typeof ProfilePane>>();
+  const paneOf = (t: (typeof trades)[number]) => {
+    let p = panes.get(t.user_id);
+    if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades: byUser.get(t.user_id) ?? [], chart: paneChart(byUser.get(t.user_id) ?? [], now), now, state: records.get(t.user_id)?.state })));
+    return p;
+  };
   const ranked = rankTraders(trades.map((t) => ({ t, score: Number(t.score), weight: weight.get(t.user_id) ?? 0 }))).slice(0, 50).map((x) => x.t);
   return (
     <main className="feed">
@@ -51,7 +58,7 @@ export default async function Feed() {
       {ranked.map((t) => (
         <div className="row" key={t.id}>
           <TradeCard t={t} state={records.get(t.user_id)?.state} />
-          <ProfilePane handle={t.handle} name={t.display_name} trades={byUser.get(t.user_id) ?? []} chart={charts.get(t.user_id)} now={now} state={records.get(t.user_id)?.state} />
+          {paneOf(t)}
         </div>
       ))}
     </main>

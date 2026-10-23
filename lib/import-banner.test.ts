@@ -216,62 +216,45 @@ test('the 60 s line: "Still waiting for your broker." after a deferred step, "st
   assert.equal(slowText(b), RECORD_BODY.stillSending);
 });
 
-// F-1 PR-3 fix round 7 (business lead re-sit, demand 3): the headline (the status line as shown) never reads
-// "0 closed trades so far" for more than 5 s; it counts activities read until closed trades exist.
-test('fix round 7: the headline counts activities read from 5 s after mount, at most once per 5 s, then switches to the closes count with the 5 s spacing kept', async () => {
-  const { headline } = await import('./import-banner.ts');
+// F-1 PR-3 fix round 7 (business lead re-sit, demand 3): the headline the owner sees never reads "0 closed trades so far"
+// while the import pages; it counts the activities read until the first close, then the closes.
+test('fix round 7: before the first close the owner\'s headline counts activities read and moves with every step; from the first close it is the status line', async () => {
+  const { counting, headline } = await import('./import-banner.ts');
   let b = initBanner({ state: 'importing', closes: 0, read: 0, owner: true }, T);
-  assert.equal(headline(b), 'Importing your record · 0 closed trades so far');
-  const seen: [number, string][] = [[T, headline(b)]];
-  const look = (now: number) => { if (headline(b) !== seen[seen.length - 1][1]) seen.push([now, headline(b)]); };
-  // The first step lands at 2 s; the timer fires at 5 s; then one page every 2 s and a tick every second.
-  for (let s = 1; s <= 40; s++) {
+  assert.equal(counting(b), true);
+  assert.equal(headline(b), 'Importing your record · 0 activities read from your broker');
+  const seen: string[] = [];
+  // A slow vendor: one page every 2 s, ticks every second; the closes stay 0 for a minute.
+  for (let s = 1; s <= 60; s++) {
     const now = T + s * 1_000;
-    b = s % 2 === 0 ? onPoll(b, { state: 'importing', closes: 0, read: s * 250 }, now) : onTick(b, now);
-    look(now);
+    b = s % 2 === 0 ? onPoll(b, { state: 'importing', closes: 0, read: s * 500 }, now) : onTick(b, now);
+    if (seen.at(-1) !== headline(b)) seen.push(headline(b));
+    assert.doesNotMatch(headline(b), /closed trade/, `${s} s`);
   }
-  assert.deepEqual(seen[1], [T + 5_000, 'Importing your record · 1,000 activities read from your broker']);
-  assert.ok(seen.length >= 7);
-  for (let i = 1; i < seen.length; i++) assert.ok(seen[i][0] - seen[i - 1][0] >= ANNOUNCE_MS, `gap at ${i}`);
-  for (const [, t] of seen.slice(1)) assert.match(t, /^Importing your record · [\d,]+ activities read from your broker$/);
-  assert.equal(b.liveRead, ''); // the hidden region is silent while the headline carries the count
-  // The rebuild lands 2 s after the last move: the state commits at once (the list refreshes), the headline waits 5 s.
-  const last = seen[seen.length - 1][0];
-  b = onPoll(b, { state: 'importing', closes: 2828, read: 30_500 }, last + 2_000);
-  assert.equal(b.text, 'Importing your record · 2,828 closed trades so far');
-  assert.match(headline(b), /activities read/);
-  b = onTick(b, last + 4_999);
-  assert.match(headline(b), /activities read/);
-  b = onTick(b, last + 5_000);
+  assert.equal(seen[1], 'Importing your record · 1,000 activities read from your broker'); // the first step's answer, at once
+  assert.equal(seen.length, 31); // every step moves it
+  assert.equal(b.text, RECORD_BODY.banner(0, true)); // the live status line (visually hidden meanwhile) is unchanged
+  // The rebuild: the closes count at once, seen and announced.
+  b = onPoll(b, { state: 'importing', closes: 2828, read: 30_500 }, T + 62_000);
+  assert.equal(counting(b), false);
   assert.equal(headline(b), 'Importing your record · 2,828 closed trades so far');
-  // Later activities announcements go to the hidden region again, never into the headline.
-  b = onPoll(b, { state: 'importing', closes: 2828, read: 31_000 }, last + 12_000);
-  assert.equal(headline(b), 'Importing your record · 2,828 closed trades so far');
-  assert.equal(b.liveRead, '31,000 activities imported so far');
-  // Then "Import finished." for 5 s, and the banner is gone.
-  b = onPoll(b, { state: 'connected', closes: 2830, read: 31_000 }, last + 20_000);
-  b = onTick(b, last + 20_000);
+  assert.equal(b.text, headline(b));
+  // Finished: the note, as before.
+  b = onTick(onPoll(b, { state: 'connected', closes: 2830, read: 30_500 }, T + 70_000), T + 70_000);
   assert.equal(headline(b), RECORD_BODY.finished);
-  assert.equal(onTick(b, last + 24_999).phase, 'finished');
-  assert.equal(onTick(b, last + 25_000).phase, 'hidden');
 });
 
-test('fix round 7: a slow first step still moves the headline at 5 s; a record with closes at mount, and visitors, keep the closes line', async () => {
-  const { headline } = await import('./import-banner.ts');
-  let b = initBanner({ state: 'importing', closes: 0, read: 0, owner: true }, T);
-  b = onTick(b, T + 4_999);
-  assert.equal(headline(b), 'Importing your record · 0 closed trades so far');
-  b = onTick(b, T + 5_000);
-  assert.equal(headline(b), 'Importing your record · 0 activities read from your broker'); // the vendor has sent nothing yet
-  b = onPoll(b, { state: 'importing', closes: 0, read: 1_000 }, T + 7_500); // a 2.5 s page
-  b = onTick(b, T + 10_000);
-  assert.equal(headline(b), 'Importing your record · 1,000 activities read from your broker');
-  // Reloaded mid-import with closes already in: the closes line, unchanged by later reads.
-  let c = initBanner({ state: 'importing', closes: 12, read: 400, owner: true }, T);
-  for (let s = 1; s <= 20; s++) c = s % 2 ? onTick(c, T + s * 1_000) : onPoll(c, { state: 'importing', closes: 12, read: 400 + s * 100 }, T + s * 1_000);
-  assert.equal(headline(c), 'Importing your record · 12 closed trades so far');
-  // A visitor never sees the activities count.
-  let v = initBanner({ state: 'importing', closes: 0, read: 0, owner: false }, T);
-  for (let s = 1; s <= 20; s++) v = onTick(onPoll(v, { state: 'importing', closes: 0, read: s * 100 }, T + s * 1_000), T + s * 1_000);
+test('fix round 7: back on the page mid-import the count shows from the first paint; a record with closes, and visitors, keep the closes line', async () => {
+  const { counting, headline } = await import('./import-banner.ts');
+  const r = initBanner({ state: 'importing', closes: 0, read: 2_500, owner: true }, T);
+  assert.equal(headline(r), 'Importing your record · 2,500 activities read from your broker');
+  const c = initBanner({ state: 'importing', closes: 12, read: 400, owner: true }, T);
+  assert.equal(counting(c), false);
+  assert.equal(headline(onPoll(c, { state: 'importing', closes: 12, read: 900 }, T + 2_000)), 'Importing your record · 12 closed trades so far');
+  // Visitors never see the activities count (no "your", no activity numbers).
+  const v = onPoll(initBanner({ state: 'importing', closes: 0, read: 0, owner: false }, T), { state: 'importing', closes: 0, read: 900 }, T + 2_000);
+  assert.equal(counting(v), false);
   assert.equal(headline(v), 'Importing this record · 0 closed trades so far');
+  // Gone or failed: nothing counts.
+  assert.equal(counting(onPoll(r, { state: 'failed', closes: 0, read: 2_600 }, T + 2_000)), false);
 });

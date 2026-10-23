@@ -83,7 +83,8 @@ test('the feed pane\'s chart: every range at most 400 points, the same numbers a
     assert.equal(small.n, full.n);
     assert.equal(small.last, full.last);
     assert.equal(small.drawdown, full.drawdown);
-    assert.deepEqual([small.min, small.max, small.t0, small.t1], [full.min, full.max, full.t0, full.t1]);
+    assert.deepEqual([small.min, small.max], [full.min, full.max]);
+    for (const k of ['t0', 't1'] as const) assert.ok(full[k] - small[k] >= 0 && full[k] - small[k] < 60_000, k);
     if (!full.n) continue;
     const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
     assert.ok(near(small.pts[0].value, full.pts[0].value) && small.pts[0].trade === null, `${key}: first`);
@@ -94,7 +95,9 @@ test('the feed pane\'s chart: every range at most 400 points, the same numbers a
     // Each kept point is a real close with its own link target (row index) and value.
     for (const p of small.pts.slice(1)) {
       const orig = full.pts.find((q) => q.trade?.id === p.trade!.id)!;
-      assert.ok(near(orig.value, p.value) && orig.at === p.at && orig.trade!.index === p.trade!.index);
+      // Times are floored to the minute on the wire: never later, never more than a minute earlier.
+      assert.ok(near(orig.value, p.value) && orig.at - p.at >= 0 && orig.at - p.at < 60_000 && orig.trade!.index === p.trade!.index);
+      assert.ok(Math.abs(p.trade!.returnPct - orig.trade!.returnPct) <= 5e-7 + 1e-12);
     }
   }
   // The ALL range is the one that needed it.
@@ -105,4 +108,16 @@ test('the profile keeps full resolution: no budget, one point per close', () => 
   const trades = heavyRecord();
   const s = chartSeries(trades, 'ALL', new Date(Date.UTC(2026, 0, 15)));
   assert.equal(s.pts.length, trades.length + 1);
+});
+
+test('the path is one move then one relative run, in tenths, with no drift', async () => {
+  const { pathD } = await import('./chart-series.ts');
+  assert.equal(pathD([0, 1.6, 3.24, 3.24], [10, 8.75, 12, 11.96]), 'M0 10l1.6-1.2 1.6 3.2 0 0');
+  // Ends exactly at the rounded last point after many steps.
+  const xs = Array.from({ length: 4_000 }, (_, i) => i * 0.16), ys = xs.map((x) => 100 + 50 * Math.sin(x / 7));
+  const nums = pathD(xs, ys).slice(1).replace('l', ' ').match(/-?\d+(\.\d+)?/g)!.map(Number);
+  let x = nums[0], y = nums[1];
+  for (let i = 2; i < nums.length; i += 2) { x += nums[i]; y += nums[i + 1]; }
+  assert.ok(Math.abs(x - xs.at(-1)!) <= 0.05 + 1e-9 && Math.abs(y - ys.at(-1)!) <= 0.05 + 1e-9);
+  assert.equal(nums.length, 8_000);
 });
