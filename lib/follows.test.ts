@@ -133,6 +133,45 @@ dbTest('the signed-in feed honors exclusions (excluded at 89 d 23 h 59 m, back a
   }
 });
 
+// Fix round 1 (committee, the owner may reverse it with FEED_HIDES_UNFOLLOWED): unfollow affects suggestions (PR-3),
+// not the feed; the privacy line shows once per viewer, ever.
+dbTest('fix round 1: an unfollow keeps its 90-day row but neither the feed nor "Not interested" honors it; it never replaces a running "Not interested"; the privacy line is flagged once per viewer, even after the list empties', async () => {
+  const F = await import('./follows.ts');
+  const { FEED_HIDES_UNFOLLOWED } = await import('./discovery/weights.ts');
+  assert.equal(FEED_HIDES_UNFOLLOWED, false);
+  const { loadFeedPage } = await import('./feed.ts');
+  const p = await people(6);
+  const [a, b] = p.traders;
+  const ids = p.traders;
+  const all = async (viewer?: number) => { const out: number[] = []; let q = await loadFeedPage(undefined, { ids, viewer, now: Date.now() + 1000 }); for (;;) { out.push(...q.cards.map((c) => c.user_id)); if (!q.next) return out; q = await loadFeedPage(q.next, { ids, viewer, now: Date.now() + 1000 }); } };
+  try {
+    assert.deepEqual(await F.follow(p.viewer, a), { first: true });
+    await F.unfollow(p.viewer, a); // the list is empty again
+    const [x] = await p.sql`select reason, until > now() as running from viewer_exclusions where viewer_id = ${p.viewer} and trader_id = ${a}`;
+    assert.deepEqual({ ...x }, { reason: 'unfollow', running: true }); // kept for PR-3's section
+    assert.ok((await all(p.viewer)).includes(a), 'an unfollowed trader stays in the feed');
+    assert.deepEqual(await all(p.viewer), await all());
+    assert.deepEqual((await F.ownLists(p.viewer)).hidden, []); // never listed under "Not interested"
+    assert.equal(await F.isHidden(p.viewer, a), false);
+    assert.deepEqual(await F.follow(p.viewer, b), { first: false }); // shown once per viewer, not per empty list
+    // "Not interested" on a followed trader, then unfollow: still hidden, still "not_interested".
+    await F.exclude(p.viewer, b, 'not_interested');
+    await F.unfollow(p.viewer, b);
+    const [y] = await p.sql`select reason from viewer_exclusions where viewer_id = ${p.viewer} and trader_id = ${b}`;
+    assert.equal(y.reason, 'not_interested');
+    assert.equal(await F.isHidden(p.viewer, b), true);
+    assert.ok(!(await all(p.viewer)).includes(b));
+    // "Not interested" over a running unfollow starts now (the feed never honored the unfollow, so no cursor re-shapes).
+    await p.sql`update viewer_exclusions set created_at = now() - interval '1 hour' where viewer_id = ${p.viewer} and trader_id = ${a}`;
+    await F.exclude(p.viewer, a, 'not_interested');
+    const [z] = await p.sql`select reason, now() - created_at < interval '1 minute' as fresh from viewer_exclusions where viewer_id = ${p.viewer} and trader_id = ${a}`;
+    assert.deepEqual({ ...z }, { reason: 'not_interested', fresh: true });
+    assert.deepEqual((await F.ownLists(p.viewer)).hidden.map((t) => t.handle).sort(), [p.handle(1), p.handle(2)].sort());
+  } finally {
+    await p.remove();
+  }
+});
+
 dbTest('purge: deletes only exclusions ended over a day ago, in batches; a call cut by its time box resumes on the next; two concurrent callers: exactly one purges and the other returns at once', async () => {
   const { purgeDiscovery, PURGE_BOX_MS } = await import('./discovery/purge.ts');
   assert.equal(PURGE_BOX_MS, 30_000);

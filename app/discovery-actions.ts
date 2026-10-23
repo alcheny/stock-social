@@ -1,5 +1,5 @@
 'use server';
-import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { endExclusion, exclude, follow as followTrader, traderId, unfollow as unfollowTrader } from '@/lib/follows.ts';
 
@@ -26,8 +26,16 @@ export async function follow(handle: unknown): Promise<DiscoveryResult> { return
 export async function unfollow(handle: unknown): Promise<DiscoveryResult> { return run(handle, unfollowTrader); }
 export async function notInterested(handle: unknown): Promise<DiscoveryResult> { return run(handle, (v, t) => exclude(v, t, 'not_interested')); }
 export async function undoNotInterested(handle: unknown): Promise<DiscoveryResult> { return run(handle, (v, t) => endExclusion(v, t)); }
-// The same actions as form actions (no JavaScript: the page renders again with the new state).
-export async function followForm(handle: unknown): Promise<void> { await follow(handle); }
-export async function unfollowForm(handle: unknown): Promise<void> { await unfollow(handle); }
-export async function notInterestedForm(handle: unknown): Promise<void> { await notInterested(handle); }
-export async function showAgainForm(handle: unknown): Promise<void> { await undoNotInterested(handle); revalidatePath('/me/following'); }
+// The same actions as form actions. Fix round 1 (UX 11): without JavaScript the reader lands on the trader they acted on,
+// with a line saying what happened (app/u/[handle]/page.tsx checks it against the stored state); "Show again" (with or
+// without JavaScript) comes back to /me/following saying who is back. A refused or invalid handle goes nowhere new.
+const done = async (handle: unknown, r: DiscoveryResult, what: 'follow' | 'unfollow' | 'hidden') => {
+  if (r.ok && typeof handle === 'string') redirect(`/u/${handle}?done=${what}${r.first ? '&first=1' : ''}`);
+};
+export async function followForm(handle: unknown): Promise<void> { await done(handle, await follow(handle), 'follow'); }
+export async function unfollowForm(handle: unknown): Promise<void> { await done(handle, await unfollow(handle), 'unfollow'); }
+export async function notInterestedForm(handle: unknown): Promise<void> { await done(handle, await notInterested(handle), 'hidden'); }
+export async function showAgainForm(handle: unknown): Promise<void> {
+  const r = await undoNotInterested(handle);
+  if (r.ok && typeof handle === 'string') redirect(`/me/following?back=${handle}`);
+}

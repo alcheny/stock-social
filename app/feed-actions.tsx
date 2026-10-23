@@ -5,7 +5,8 @@ import { FeedEnd, feedRowNodes } from './feed-rows.tsx';
 import { viewerId } from '@/lib/viewer.ts';
 
 // F-2 PR-1: the next 30 server-rendered cards for the auto-append (app/feed-pager.tsx). Public and read-only: it
-// reads no cookie or session and writes nothing; the cursor is validated (a stale or tampered one starts over).
+// writes nothing, and reads the session only for the viewer's id (F-2 PR-2, lib/viewer.ts: that viewer's own
+// exclusions and follows); the cursor is validated (a stale or tampered one starts over).
 // Fix round 1: the rows one by one (the client leaves out a card it already shows), and the end card after the last.
 export async function nextFeedPage(cursor: unknown): Promise<{ rows: { id: string; node: React.ReactNode }[]; end: React.ReactNode; next: string | null; from: number; to: number } | { stale: true }> {
   if (typeof cursor !== 'string' || !decodeCursor(cursor, Date.now(), FEED_CANDIDATES)) return { stale: true };

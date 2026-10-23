@@ -24,7 +24,7 @@ const day = (d: Date) => DAY.format(d);
 // range, lib/chart-series.ts), shared by that trader's cards (PR-3 fix rounds 4 and 7). The profile keeps full resolution.
 // Fix round 8: on the feed it is `feedPaneChart` (a stand-in line for a long record) and the chart fetches the full one
 // from `paneChartSrc` on its first swipe-open.
-// F-2 PR-2: `viewer`: Follow (signed out, a sign-in link) and, signed in, the "…" menu with "Not interested".
+// F-2 PR-2: `viewer`, signed in: Follow and the "…" menu with "Not interested" (fix round 1: nothing signed out).
 export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean } }) {
   const p = paneSummary(trades);
   const trust = paneTrust(trades, state);
@@ -34,7 +34,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         <button type="button" className="back" data-back>← Back</button>
         <Link href={`/u/${handle}`} className="who"><WhoName name={name} handle={handle} /></Link>
         {trust.badge && <Badge verified={trust.badge === 'verified'} />}
-        {viewer && <div className="pane-actions"><FollowButton handle={handle} following={viewer.following} signedIn={viewer.signedIn} />{viewer.signedIn && <NotInterested handle={handle} />}</div>}
+        {viewer?.signedIn && <div className="pane-actions"><FollowButton handle={handle} following={viewer.following} signedIn /><NotInterested handle={handle} /></div>}
       </header>
       <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} />
       {p.since && p.worst && (

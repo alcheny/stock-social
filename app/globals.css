@@ -314,20 +314,33 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .feed .feed-more .button[aria-busy="true"], .feed .feed-more button[aria-disabled="true"] { background: none; color: var(--muted); font-weight: 400; cursor: progress; }
 
 /* F-2 PR-2: follow and "Not interested". Private controls, no counts; 44 px targets; no motion. The pane header's name
-   and handle were run together by the flex row ("Name@handle"): a gap now separates them. */
+   and handle were run together by the flex row ("Name@handle"): a gap now separates them.
+   Fix round 1: Follow is outline in both states (the record is the page's subject; the fill stays for its one primary
+   action), with a fixed minimum width so "…" does not move when it flips; the status line is always in the tree (a live
+   region registered before it speaks) and takes no room while empty; "…" sits at the header's right edge and its popover
+   opens leftward from there, never wider than the screen, wrapping. */
 .follow, .more-menu summary { min-height: 44px; min-width: 44px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; }
-.follow.secondary, .follow-status .secondary, .more-menu .secondary, .people .secondary, .profile-follow .button.secondary, .pane-actions .button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--line); min-height: 44px; }
+.follow { min-width: 112px; }
+.follow.secondary, .more-menu .secondary, .people .secondary, .pane-actions .button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--line); min-height: 44px; }
+.follow[aria-pressed="true"] { color: var(--muted); }
 .follow-form { display: inline; margin: 0; }
 .follow-status { margin: 4px 0 0; flex-basis: 100%; order: 1; }
-.follow-status:empty { display: none; }
+.follow-status:empty { margin: 0; }
 .pane-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-basis: 100%; }
+.pane-actions .more-menu { margin-left: auto; }
 .profile-follow { margin: 0 0 12px; }
 .more-menu { position: relative; }
 .more-menu summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-weight: 700; }
 .more-menu summary::-webkit-details-marker { display: none; }
-.more-menu form { position: absolute; z-index: 2; margin-top: 4px; white-space: nowrap; }
+.more-menu form { position: absolute; z-index: 2; right: 0; margin-top: 4px; width: max-content; max-width: calc(100vw - 40px); }
+.more-menu form button { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .hide-bar { position: fixed; z-index: 20; left: 16px; right: 16px; bottom: 16px; max-width: 528px; margin: 0 auto; }
 .hide-bar p { margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
 .hide-bar button { min-height: 44px; }
-.people li.line { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+/* /me/following: every row the same shape: name, then the date on its own line; the button never wraps. */
+.people li.line { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.people .who-col { display: flex; flex-direction: column; min-width: 0; flex: 1 1 0; }
+.people .who-col a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people .until { white-space: nowrap; }
+.people button { white-space: nowrap; flex-shrink: 0; }
 .people a { display: inline-flex; align-items: center; gap: .35em; min-height: 44px; }

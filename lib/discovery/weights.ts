@@ -10,3 +10,8 @@ export const WEIGHTS = {
 
 // O3 default (plan §3): 90 days. The Undo line says "Hidden for 90 days."; the copy changes with this constant.
 export const EXCLUSION_DAYS = 90;
+
+// Fix round 1 (committee, owner may reverse): the feed honors only "Not interested". An unfollow still writes its
+// 90-day 'unfollow' exclusion, which PR-3's suggestions section honors (criterion 4: unfollow affects suggestions).
+// true restores the plan's reading (unfollow also hides from the feed and lists the trader as hidden).
+export const FEED_HIDES_UNFOLLOWED = false;

@@ -8,7 +8,7 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { CLOSES_PAGING, connectedLine, PROFILE, profileCardAlt, profileDescription, RECORD_BODY, recordBodyCopy, shareCardText } from '@/lib/copy.ts';
+import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileCardAlt, profileDescription, RECORD_BODY, recordBodyCopy, shareCardText } from '@/lib/copy.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
@@ -29,9 +29,9 @@ import { count } from '@/lib/format.ts';
 import { closesWindow, packPoints } from '@/lib/paging.ts';
 import { RowFocus } from './row-focus.tsx';
 import { FollowButton } from '../../follow-button.tsx';
-import { followingAmong } from '@/lib/follows.ts';
+import { followingAmong, isHidden } from '@/lib/follows.ts';
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string }> };
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
 async function load(handle: string) {
   const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
@@ -86,6 +86,12 @@ export default async function Profile({ params, searchParams }: Params) {
   const isMe = me?.id === user.id;
   // F-2 PR-2: whether this viewer follows the trader (their own row only); never a count, never on your own profile.
   const following = !!me && !isMe && (await followingAmong(me.id, [user.id])).has(user.id);
+  // Fix round 1 (UX 11): after a no-JS follow, unfollow or "Not interested", one line saying what happened, shown only
+  // when the stored state agrees (a crafted link claims nothing).
+  const done = me && !isMe ? (await searchParams)?.done : undefined;
+  const doneLine = done === 'follow' && following ? ((await searchParams)?.first ? FOLLOW.first(user.handle) : FOLLOW.followed(user.handle))
+    : done === 'unfollow' && !following ? FOLLOW.unfollowed(user.handle)
+    : done === 'hidden' && me && (await isHidden(me.id, user.id)) ? FOLLOW.hiddenFrom(user.handle) : null;
   if (isMe) {
     // Funnel (plan §5): once per completed attempt, the first time the trader sees their own profile.
     const [{ a }] = await sql`select max(id) as a from signup_attempts where user_id = ${user.id} and completed_at is not null
@@ -146,7 +152,7 @@ export default async function Profile({ params, searchParams }: Params) {
       <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
         {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge verified={trust.badge === 'verified'} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
-      {!isMe && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn={!!me} /></div>}
+      {me && !isMe && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}</p>}</div>}
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {/* S5: the live banner (owner polls; visitors see the server's line). Rendered in every state so its finished
           line survives the refresh that follows the end of the import. */}
@@ -175,6 +181,8 @@ export default async function Profile({ params, searchParams }: Params) {
       {isMe && (state === 'none' || claimed) && (
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
       )}
+      {/* F-2 PR-2 fix round 1: Settings (sign out, delete my profile, following and hidden traders) is reachable by tapping. */}
+      {isMe && <p><Link className="tap" href="/settings">{SETTINGS.title}</Link></p>}
       {isMe && (
         <details className="handle-edit">
           <summary className="button secondary">{PROFILE.changeHandle}</summary>

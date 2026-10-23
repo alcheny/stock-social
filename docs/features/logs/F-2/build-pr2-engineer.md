@@ -109,3 +109,73 @@ tables is H4 (plan §5 inventory): no real viewer before it.
 
 Test users and fixtures deleted by each test; my database `ss_eng_pr2` dropped after the last run; the e2e server and
 the vendor fake stopped with their runs. No other database touched.
+
+## Fix round 1
+
+2026-10-23. Inputs: `test-pr2-tester.md` (3 Low, notes N1 to N4), `committee-pr2-business-lead.md` (COMPLIANCE PASS;
+blockers 1 and 2, demands 3 and 4), `committee-pr2-ux-lead.md` (1 blocking, 13 follow-ups). Product diff now
++618 / −33 (23 files, no tests, no e2e, no logs), within the 800 cap. No dependency, protected path, CI or
+`package.json` change.
+
+### Fixed
+
+| Finding | Fix | Test |
+|---|---|---|
+| **Blocker (BL 1, UX 1): "…" menu off screen at 375** | "…" sits at the pane header's right edge (`margin-left: auto`); the popover is anchored `right: 0`, `width: max-content`, `max-width: calc(100vw - 40px)` (the pane's 20 px gutters), and the item wraps. 20-character handle at 375: x 20 to 355; at 320 inside too, text not cut | e2e `fix round 1: the "…" menu fits…` (375 and 320, a 20-character handle, with "Following" beside it) |
+| Menu close (tester Low 2, UX 9) | Esc closes and returns focus to "…"; a pointer down outside closes; focus moving out (Tab away) closes. A click on the item never closes it first (only a focus move to a real element outside counts) | same e2e: Esc, click outside, Tab past the item |
+| **Blocker (BL 2): `/me/following` unreachable** | A "Settings" link on the viewer's own profile (only when `isMe`); `/settings` already links "Following and hidden traders" and holds Sign out and Delete my profile | e2e test 1: nav @handle → Settings → the list, taps only, no `goto` |
+| BL 3 / UX 2, 3 / tester O-T1: unfollow hid from the feed | `FEED_HIDES_UNFOLLOWED = false` (`lib/discovery/weights.ts`): the feed (`exclusionsFor`), the "Not interested" list (`ownLists`) and the no-JS check (`isHidden`) honor only `not_interested`. Unfollow still writes its 90-day `unfollow` row for PR-3's section. The unfollow status line and its Undo are gone ("Follow" coming back is the feedback; tapping it again is the undo). An unfollow never replaces a running "Not interested", and a "Not interested" over a running unfollow starts now, so a same-day cursor's list is never re-shaped | unit `fix round 1: an unfollow keeps its 90-day row but neither the feed nor…`; e2e test 1 (cards stay, next page 1 keeps the trader, "No one is hidden.") |
+| BL 4: signed-out Follow lost the trader | No control signed out (profile and pane); `FOLLOW.signIn` copy removed | e2e test 1: signed out, no `.follow`, `.pane-actions` or `.more-menu` on the profile or the feed |
+| Tester Low 1, UX 5: focus to `<body>` after Undo expiry | The follow control has no Undo any more. On the feed bar: expiry, Esc or Tab moves focus to the next visible card, else the one before, else the first card; never the body | e2e tests 2 and 3 |
+| UX 6: Undo focus off-screen | After Undo, focus goes (in the layout effect, after the rows return) to the "…" of the pane the reader hid from | e2e test 2 |
+| UX 7, BL 5: timer runs under focus | The 5 s pause while Undo has keyboard focus (`:focus-visible`) or a mouse is on the bar, and restart on leaving; Esc or Tab closes the bar. A touch or click hide still times out at 5 s | e2e test 3 (keyboard hide, bar still there at 5.6 s, Esc → a card has focus); test 2 (click hide expires) |
+| Tester Low 3: privacy line not "once" | `users.follow_notice_at` (additive, `schema_add_column`), set atomically on the first follow; `first` is true once per viewer, ever | unit fix-round-1 test (follow → unfollow → follow another: `first: false`) |
+| UX 8: live region with `display: none` | The follow status is an always-rendered `aria-live="polite"` paragraph (no status role, so it never competes with a page's own status line, which the import-banner e2e relies on); empty, it takes no room (`margin: 0`) | e2e test 1 (the region exists before it speaks) |
+| UX 12, tester N4: "Show again" | Redirects to `/me/following?back=<handle>`: "@x is back in your feed." (`role="status"`, shown only if the trader is not hidden). Accessible name "Show @x again" per row | e2e test 2 |
+| UX 12: row shapes, h1 | Every row: name column (date on its own line, `nowrap`) and a button that never wraps; h1 "Following and hidden traders", h2 "Following" and "Not interested" | e2e test 1 (button one line, inside 375) |
+| UX 11: no-JS posts | The form variants redirect to `/u/<handle>?done=follow|unfollow|hidden`; the profile shows one line ("Following @x. Only you can see this." on a first follow, "Following @x.", "Unfollowed @x.", "@x is hidden from your feed for 90 days. Their profile stays public.") only when the stored state agrees, so a crafted link claims nothing | e2e test 1 (no-JS follow lands on the trader with the line; a crafted `?done=unfollow` shows nothing) |
+| Tester N3: stale comment | `app/feed-actions.tsx` now says it reads the session only for the viewer id | — |
+| BL 5, UX 14 (taste): Follow filled | Outline in both states, "Following" in muted text, `min-width: 112px` so "…" does not move when it flips | e2e test 1 (same background and width in both states) |
+
+### Recorded as follow-ups (not in this round)
+
+- UX 4: "Not interested" on a followed trader keeps the follow (deviation 5, accepted by the business lead). Options:
+  end the follow too, or say "You still follow @x."
+- UX 10: a sign-in return path (`next`) and a follower-fit `/login` heading; signed-out Follow comes back with it
+  (BL: its own PR, after a `via` count).
+- UX 12: a "Manage hidden traders" link from the "…" menu; focus on the list after "Show again" (the line is announced).
+- UX 13: the toggle says its state twice (label and `aria-pressed`); pick one.
+- Tester N1: no rate limit on the four actions (rows are bounded per pair); consider the import step's `minInterval`.
+- Tester N2: a cross-origin action POST gets the framework's 500 (nothing written).
+- UX older items: long name + handle + badge clips the handle in the pane header at 375; following a Demo trader is allowed.
+- BL 6 (reviewer checklist): menu bounds at 320/375, reachability by navigation, status copy true on screen.
+
+### Deviation the owner can reverse
+
+7. **Unfollow does not hide from the feed** (committee: business lead, UX lead, tester O-T1; reading criterion 4 as
+   "suggestions"). One constant, `FEED_HIDES_UNFOLLOWED`, restores the plan's reading for the feed, the list and the
+   no-JS line. Also recorded under Open questions in `docs/features/F-2-personal-discovery.md`.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 (own database `ss_eng_pr2b`) | **575 tests, 565 pass, 10 skipped (LOAD), 0 fail**, all three runs (574 → 575) |
+| `LOAD=1` feed / follows / sync | 4/4, 1/1, 5/5 |
+| `CI=1 npm run build`, stdin closed | first run stops on the framework's security advisory (tool output; nothing upgraded); retry exit 0 |
+| `npm run test:e2e` ×2 (fresh `next start`, vendor fake configured, own database) | **103 passed, 3 skipped, 0 failed** both runs (4.3 / 4.4 min); 102 → 103. An earlier run found the always-rendered status paragraph colliding with an import-banner test's `getByRole('status')`: fixed in the product (polite live region), the test untouched. PR-1's committed screenshots the run rewrites were restored with `git checkout` |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `@img/sharp-wasm32` license line (local `node_modules`) |
+| `node scripts/autopilot.ts guard main` | ok |
+
+Tests changed: PR-2's own e2e assertions for the removed unfollow line, its Undo and the signed-out link were replaced
+by assertions of the new behavior (stronger: the cards stay, nothing listed, no control signed out); "Show again" is
+found by its new per-trader name. No PR-1 or earlier test changed; no test removed.
+
+Screenshots (`screenshots/pr2-fix1/`, light and dark): `pane-menu-20char-375`, `pane-menu-20char-320`,
+`hide-bar-paused-320`, `pane-following-375`, `pane-unfollowed-375`, `pane-menu-375`, `not-interested-undo-375`,
+`not-interested-undo-1280`, `me-following-375`, `me-following-show-again-375`, `nojs-profile-following-375`,
+`profile-first-follow-375`, `profile-following-1280`.
+
+Cleanup: test users deleted by each test; `ss_eng_pr2b` dropped; e2e servers and the vendor fake stopped with their
+runs. No other database touched.

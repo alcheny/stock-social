@@ -2,7 +2,7 @@
 // or list on any public page, card, share image or route. Screenshots in docs/features/logs/F-2/screenshots/pr2/.
 import { expect, test, type Page } from '@playwright/test';
 
-const SHOTS = 'docs/features/logs/F-2/screenshots/pr2';
+const SHOTS = 'docs/features/logs/F-2/screenshots/pr2-fix1'; // fix round 1 (the build's own shots stay in pr2/)
 const db = async () => (await import('../lib/db.ts')).sql;
 const shoot = async (page: Page, name: string) => {
   for (const colorScheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme }); await page.screenshot({ path: `${SHOTS}/${name}-${colorScheme}.png` }); }
@@ -15,11 +15,12 @@ async function signIn(page: Page, handle: string) {
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
 }
+const shown = (page: Page) => page.locator('.feed > .row').evaluateAll((rows) => rows.filter((r) => (r as HTMLElement).offsetParent).map((r) => ({ trade: r.getAttribute('data-trade')!, handle: r.getAttribute('data-handle')! })));
 const rowsOf = (sql: Awaited<ReturnType<typeof db>>, handle: string) => sql`select
   (select count(*) from follows f join users u on u.id = f.viewer_id where u.handle = ${handle})::int as follows,
   (select count(*) from viewer_exclusions x join users u on u.id = x.viewer_id where u.handle = ${handle})::int as exclusions`.then((r) => r[0]);
 
-test('F-2 PR-2: follow and unfollow from the profile and the pane, keyboard only; the first follow says only you can see it; /me/following; signed out goes to sign-in; no public page or route shows follow data; deletion leaves zero rows', async ({ page, browser, request }) => {
+test('F-2 PR-2: follow and unfollow from the profile and the pane, keyboard only; the first follow says only you can see it; /me/following reached by tapping; signed out there is no control; no public page or route shows follow data; deletion leaves zero rows', async ({ page, browser, request }) => {
   test.setTimeout(180_000);
   const sql = await db();
   const me = `f2v${Math.random().toString(36).slice(2, 8)}`;
@@ -38,7 +39,7 @@ test('F-2 PR-2: follow and unfollow from the profile and the pane, keyboard only
   await page.keyboard.press('Enter');
   await expect(btn).toHaveAttribute('aria-pressed', 'true');
   await expect(btn).toHaveText('Following');
-  await expect(page.locator('.profile-follow [role="status"]')).toHaveText('Following @momentum_maya. Only you can see this.');
+  await expect(page.locator('.profile-follow .follow-status[aria-live="polite"]')).toHaveText('Following @momentum_maya. Only you can see this.');
   await shoot(page, 'profile-first-follow-375');
   await expect.poll(async () => (await rowsOf(sql, me)).follows).toBe(1);
   await page.reload();
@@ -47,7 +48,8 @@ test('F-2 PR-2: follow and unfollow from the profile and the pane, keyboard only
   await shoot(page, 'profile-following-1280');
   await page.setViewportSize({ width: 375, height: 800 });
 
-  // The pane: Follow, then unfollow says what it does, with Undo.
+  // The pane: Follow, then unfollow. Fix round 1: unfollow hides nothing from the feed and says nothing ("Follow"
+  // coming back is the feedback; tapping it again is the undo). The status region is always in the tree.
   await page.goto('/');
   const row = page.locator('.feed > .row[data-handle="dividend_dan"]').first();
   await row.evaluate((el) => el.scrollIntoView());
@@ -56,30 +58,53 @@ test('F-2 PR-2: follow and unfollow from the profile and the pane, keyboard only
   // The header spacing fix: the name and the handle no longer touch ("Name@handle").
   const [name, handle] = await row.locator('.pane header .who').evaluate((el) => [...el.children].map((c) => c.getBoundingClientRect()));
   expect(handle.left - name.right).toBeGreaterThanOrEqual(4);
+  await expect(row.locator('.pane .follow-status[aria-live="polite"]')).toHaveCount(1); // registered before it speaks
   await paneBtn.focus();
   await page.keyboard.press('Enter');
   await expect(paneBtn).toHaveAttribute('aria-pressed', 'true');
-  await expect(row.locator('.pane [role="status"]').first()).toHaveText('');
+  await expect(row.locator('.pane .follow-status').first()).toHaveText(''); // not this viewer's first follow
+  // Outline in both states, and the same width either way ("…" does not move under the finger).
+  const look = () => paneBtn.evaluate((el) => { const c = getComputedStyle(el); return { bg: c.backgroundColor, w: Math.round(el.getBoundingClientRect().width) }; });
+  const onLook = await look();
   await shoot(page, 'pane-following-375');
+  const dans = async () => page.locator('.feed > .row[data-handle="dividend_dan"]').evaluateAll((rs) => rs.filter((r) => (r as HTMLElement).offsetParent).length);
+  const dansBefore = await dans();
   // Tap to feedback < 100 ms: the toggle shows on the next frame, before the server answers (optimistic).
   const [ms, pressed] = await paneBtn.evaluate(async (el) => { const t = performance.now(); (el as HTMLElement).click(); await new Promise((r) => requestAnimationFrame(r)); return [performance.now() - t, el.getAttribute('aria-pressed')]; });
   console.log(`follow toggle feedback: ${Number(ms).toFixed(1)} ms`);
   expect(pressed).toBe('false');
   expect(Number(ms)).toBeLessThan(100);
-  await expect(row.locator('.pane .follow-status')).toContainText('Unfollowed @dividend_dan. Hidden from your feed for 90 days.');
-  await shoot(page, 'pane-unfollowed-undo-375');
-  await row.locator('.pane .follow-status').getByRole('button', { name: 'Undo' }).click();
-  await expect(paneBtn).toHaveAttribute('aria-pressed', 'true');
-  const [{ n: running }] = await sql`select count(*)::int as n from viewer_exclusions x join users u on u.id = x.viewer_id where u.handle = ${me} and x.until > now()`;
-  expect(running).toBe(0); // Undo (a follow) ended the exclusion
+  expect(await look()).toEqual(onLook);
+  await expect.poll(async () => (await sql`select count(*)::int as n from viewer_exclusions x join users u on u.id = x.viewer_id where u.handle = ${me} and x.reason = 'unfollow' and x.until > now()`)[0].n).toBe(1);
+  await expect(row.locator('.pane .follow-status')).toHaveText('');
+  await expect(row.locator('.pane .follow-status button')).toHaveCount(0); // no Undo
+  expect(await dans()).toBe(dansBefore); // the cards stay
+  await page.goto('/');
+  await expect.poll(async () => (await shown(page)).some((c) => c.handle === 'dividend_dan')).toBe(true); // and stay on the next page 1
+  await shoot(page, 'pane-unfollowed-375');
+  const row2 = page.locator('.feed > .row[data-handle="dividend_dan"]').first();
+  await row2.evaluate((el) => el.scrollIntoView());
+  await expect.poll(async () => { await page.keyboard.press('ArrowRight'); return row2.evaluate((el) => el.scrollLeft); }).toBeGreaterThan(300);
+  await row2.locator('.pane .pane-actions button.follow').click(); // following again is the undo
+  await expect(row2.locator('.pane .pane-actions button.follow')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await sql`select count(*)::int as n from viewer_exclusions x join users u on u.id = x.viewer_id where u.handle = ${me} and x.until > now()`)[0].n).toBe(0);
 
-  // /me/following, reached from settings.
-  await page.goto('/settings');
+  // /me/following, reached by tapping only (business lead demand 2): @handle in the nav → Settings → the list.
+  await page.locator('nav.top a.me').click();
+  await expect(page).toHaveURL(new RegExp(`/u/${me}$`));
+  await page.locator('main').getByRole('link', { name: 'Settings', exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.getByRole('link', { name: 'Following and hidden traders' }).click();
   await expect(page).toHaveURL(/\/me\/following$/);
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Following and hidden traders');
+  await expect(page.getByRole('heading', { level: 2, name: 'Following' })).toBeVisible();
   await expect(page.locator('.people li')).toHaveCount(2);
+  await expect(page.getByText('No one is hidden.')).toBeVisible(); // the unfollow is not listed as "Not interested"
   await expect(page.getByText('Only you can see these lists. Traders are never told.')).toBeVisible();
+  // One row shape: the control on one line, inside the screen.
+  for (const b of await page.locator('.people li button.follow').all()) { const r = (await b.boundingBox())!; expect(r.height).toBeLessThan(50); expect(r.x + r.width).toBeLessThanOrEqual(375); }
   await shoot(page, 'me-following-375');
 
   // Nothing public changed: the same pages and images, byte for byte, and no follow wording or viewer handle anywhere.
@@ -87,19 +112,25 @@ test('F-2 PR-2: follow and unfollow from the profile and the pane, keyboard only
   for (const i of [3, 4]) expect(afterBodies[i].equals(before[i]), 'share images unchanged').toBe(true);
   for (const b of afterBodies.slice(0, 3)) { const t = b.toString(); expect(t).not.toContain(me); expect(t).not.toMatch(/follower/i); }
 
-  // Signed out: a sign-in link, no button. Without JavaScript, signed in: the form follows.
+  // Signed out (fix round 1, business lead demand 4): no follow control on the profile or in the pane, no "…".
   const anon = await (await browser.newContext({ viewport: { width: 375, height: 800 } })).newPage();
   await anon.goto('/u/momentum_maya');
-  await expect(anon.locator('.profile-follow button')).toHaveCount(0);
-  await anon.getByRole('link', { name: 'Sign in to follow @momentum_maya' }).click();
-  await expect(anon).toHaveURL(/\/login$/);
+  await expect(anon.locator('.profile-follow, .follow')).toHaveCount(0);
+  await anon.goto('/');
+  await expect(anon.locator('.feed .row').first()).toBeAttached();
+  await expect(anon.locator('.feed .pane-actions, .feed .follow, .feed .more-menu')).toHaveCount(0);
   await anon.context().close();
+  // Without JavaScript, signed in: the form follows and lands on the trader with a line saying so.
   const nojs = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 375, height: 800 }, storageState: await page.context().storageState() });
   const np = await nojs.newPage();
   await np.goto('/u/yolo_yuki');
   await np.locator('.profile-follow button.follow').click();
+  await expect(np).toHaveURL(/\/u\/yolo_yuki\?done=follow/);
   await expect(np.locator('.profile-follow button.follow')).toHaveText('Following');
+  await expect(np.locator('.profile-follow p[role="status"]', { hasText: 'Following @yolo_yuki.' })).toBeVisible();
   await shoot(np, 'nojs-profile-following-375');
+  await np.goto('/u/momentum_maya?done=unfollow'); // a crafted link claims nothing: still following
+  await expect(np.getByText('Unfollowed @momentum_maya.')).toHaveCount(0);
   await nojs.close();
   expect((await rowsOf(sql, me)).follows).toBe(3);
 
@@ -128,7 +159,6 @@ async function fixture() {
   await sql`insert into closed_trades ${sql(rows)}`;
   return { remove: async () => { await sql`delete from users where id in ${sql(users.map((u) => u.id))}`; await sql`delete from signup_attempts where id = ${attempt}`; } };
 }
-const shown = (page: Page) => page.locator('.feed > .row').evaluateAll((rows) => rows.filter((r) => (r as HTMLElement).offsetParent).map((r) => ({ trade: r.getAttribute('data-trade')!, handle: r.getAttribute('data-handle')! })));
 
 test('F-2 PR-2: "Not interested" in the pane: the trader\'s cards drop in place, "Hidden for 90 days." with Undo for 5 s; Undo restores them; page 2 leaves them out in order; "Show again" on /me/following', async ({ page }) => {
   test.setTimeout(180_000);
@@ -179,6 +209,7 @@ test('F-2 PR-2: "Not interested" in the pane: the trader\'s cards drop in place,
     await bar.getByRole('button', { name: 'Undo' }).click();
     await expect.poll(async () => (await shown(page)).length).toBe(30);
     await expect.poll(async () => (await sql`select count(*)::int as n from viewer_exclusions x join users u on u.id = x.viewer_id where u.handle = ${me} and x.until > now()`)[0].n).toBe(0);
+    await expect(row.locator('.pane .more-menu summary')).toBeFocused(); // fix round 1: back on the control the reader used
     // Hide again and let the 5 s pass: the bar goes, focus lands on a card; then page 2 arrives without x, in order.
     await row.evaluate((el) => el.scrollIntoView());
     await row.locator('.pane .more-menu summary').click();
@@ -200,13 +231,95 @@ test('F-2 PR-2: "Not interested" in the pane: the trader\'s cards drop in place,
     await expect(page.locator('.people li')).toHaveCount(1);
     await expect(page.locator('.people li')).toContainText(`@${x}`);
     await shoot(page, 'me-following-show-again-375');
-    await page.getByRole('button', { name: 'Show again' }).click();
+    await page.getByRole('button', { name: `Show @${x} again` }).click(); // fix round 1: a name per trader
     await expect(page.getByText('No one is hidden.')).toBeVisible();
+    await expect(page.locator('[role="status"]', { hasText: `@${x} is back in your feed.` })).toBeVisible(); // and feedback
     await page.goto('/');
     await expect.poll(async () => (await shown(page)).some((c) => c.handle === x)).toBe(true);
   } finally {
     await sql`delete from users where handle = ${me}`;
     await fx.remove();
+    await release();
+  }
+});
+
+// Fix round 1 (business lead and UX blocker; tester Low 2; UX 7): the "…" menu stays inside the screen at 375 and 320
+// with a 20-character handle (the longest) beside "Following"; it closes on Esc (focus back on "…"), a click outside
+// and Tab away; the hide bar's timer pauses while Undo has keyboard focus, and Esc closes it onto a card.
+test('F-2 PR-2 fix round 1: the "…" menu fits the screen with a 20-character handle and closes on Esc, outside click and Tab away; the Undo timer pauses under keyboard focus', async ({ page }) => {
+  test.setTimeout(120_000);
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const sql = await db();
+  const h = `f2m_${Math.random().toString(36).slice(2)}xxxxxxxxxxxxxxxx`.slice(0, 20);
+  const me = `f2k${Math.random().toString(36).slice(2, 8)}`;
+  const [{ id: attempt }] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+  // Five closes: the feed's minimum record.
+  const [{ id: trader }] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${h}, 'Long Handle', now(), ${attempt}) returning id`;
+  await sql`insert into closed_trades ${sql([0, 1, 2, 3, 4].map((i) => ({ user_id: trader, sell_id: `${h}-${i}`, account_id: 'a', symbol: `LH${'ABCDE'[i]}`, opened_at: new Date(Date.now() - 86_400_000),
+    closed_at: new Date(Date.now() - (i + 1) * 5_000), return_pct: i === 1 ? -0.9 : 0.9, holding_days: 1, verified: true })))}`;
+  try {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await signIn(page, me);
+    await page.goto('/');
+    const row = page.locator(`.feed > .row[data-handle="${h}"]`).first();
+    await expect(row).toBeAttached();
+    await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached(); // hydrated
+    const toPane = async () => { await row.evaluate((el) => el.scrollIntoView()); await expect.poll(async () => { await page.keyboard.press('ArrowRight'); return row.evaluate((el) => el.scrollLeft); }).toBeGreaterThan(200); };
+    await toPane();
+    await row.locator('.pane .pane-actions button.follow').click();
+    await expect(row.locator('.pane .pane-actions button.follow')).toHaveText('Following');
+    const summary = row.locator('.pane .more-menu summary');
+    const item = row.getByRole('button', { name: `Not interested in @${h}` });
+    const fits = async (w: number) => {
+      const b = (await item.boundingBox())!;
+      expect(b.x, `left edge at ${w}`).toBeGreaterThanOrEqual(16 - 0.5);
+      expect(b.x + b.width, `right edge at ${w}`).toBeLessThanOrEqual(w - 16 + 0.5);
+      expect(await item.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'text not cut').toBe(true);
+    };
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await expect(item).toBeVisible();
+    await fits(375);
+    await shoot(page, 'pane-menu-20char-375');
+    // Esc closes it and puts focus back on "…".
+    await page.keyboard.press('Escape');
+    await expect(item).toBeHidden();
+    await expect(summary).toBeFocused();
+    // A click outside closes it.
+    await page.keyboard.press('Enter');
+    await expect(item).toBeVisible();
+    await page.mouse.click(8, 600);
+    await expect(item).toBeHidden();
+    // Tab away closes it.
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Tab');
+    await expect(item).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(item).toBeHidden();
+    // 320 wide: still inside, wrapping if it must.
+    await page.setViewportSize({ width: 320, height: 640 });
+    await toPane();
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await fits(320);
+    await shoot(page, 'pane-menu-20char-320');
+    // Hide by keyboard: Undo has focus and the 5 s do not run out under it; Esc closes the bar onto a card.
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    const bar = page.locator('.hide-bar');
+    await expect(bar.getByRole('button', { name: 'Undo' })).toBeFocused();
+    await page.waitForTimeout(5_600);
+    await expect(bar).toHaveText(/Hidden for 90 days\./);
+    await shoot(page, 'hide-bar-paused-320');
+    await page.keyboard.press('Escape');
+    await expect(bar).toHaveText('');
+    await expect(page.locator('.feed .card .who:focus')).toHaveCount(1);
+  } finally {
+    await sql`delete from users where handle in ${sql([h, me])}`;
+    await sql`delete from signup_attempts where id = ${attempt}`;
+    await sql`delete from handle_reservations where handle = ${me}`;
     await release();
   }
 });

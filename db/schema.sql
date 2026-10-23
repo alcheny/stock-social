@@ -329,7 +329,8 @@ create table if not exists follows (
   check (viewer_id <> trader_id)
 );
 select schema_add_index('follows_trader', 'create index follows_trader on follows (trader_id)');
--- "Not interested" and unfollow: the trader leaves this viewer's feed until `until` (90 days). Undo and "Show again"
+-- "Not interested" and unfollow: 90-day exclusions. The feed honors only 'not_interested' (fix round 1; the owner can
+-- switch it, lib/discovery/weights.ts#FEED_HIDES_UNFOLLOWED); 'unfollow' is kept for PR-3's suggestions. Undo and "Show again"
 -- end it (until = now()) without deleting; the sync tick deletes rows ended over a day ago (lib/discovery/purge.ts).
 create table if not exists viewer_exclusions (
   viewer_id int not null references users on delete cascade,
@@ -341,6 +342,8 @@ create table if not exists viewer_exclusions (
   check (viewer_id <> trader_id)
 );
 select schema_add_index('viewer_exclusions_trader', 'create index viewer_exclusions_trader on viewer_exclusions (trader_id)');
+-- Fix round 1: when the viewer saw "Only you can see this." (the privacy line shows once per viewer, ever).
+select schema_add_column('users', 'follow_notice_at', 'timestamptz');
 select schema_add_index('viewer_exclusions_until', 'create index viewer_exclusions_until on viewer_exclusions (until)');
 -- Deleting a users row checks users.referred_by_user_id (on delete set null): without an index that is a scan of users
 -- per deleted account (found by the heavy check: removing its 100,000 fixture viewers took minutes).
