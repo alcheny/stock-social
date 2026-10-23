@@ -444,3 +444,186 @@ s of timeout for waiting on it.
 - The new copy is one factual count with no advice or completeness claim.
 - Accessibility: what is announced is unchanged, the seen headline is `aria-hidden`, and it keeps the status line's
   box.
+
+## Fix round 8 (after the business lead's round 3 and the tester's re-run 4)
+
+2026-10-23. Engineer. Order as given: the blocking duplicate line, the feed weight, then the Lows.
+
+### 1. Blocking: one visible count while the headline counts activities (business lead round 3)
+
+- `app/u/[handle]/import-banner.tsx`: the "N activities imported" line (`import-read`) is no longer rendered while
+  `counting(b)` (owner, importing, no closes yet). The headline "Importing your record · N activities read from your
+  broker" is the only count seen. The line returns, with the same count, once closes show.
+- The hidden live twin (`import-read-live`) and the status live region are unchanged, so a screen reader hears exactly
+  what it heard before.
+- `e2e/connect.spec.ts`, adjusted only where the old line was asserted during counting. Each assertion is the same or
+  stronger:
+  - "S5 live banner" (was polling `.import-read` to "12 activities imported"): it now reads the count from whichever
+    line is seen, and the count still climbs to 12 with at least 3 values. It also checks that the headline and the
+    activities line are never both rendered.
+  - "after 60 s" (was `.import-read` = "2 activities imported" right after the first poll): during counting the headline
+    reads "Importing your record · 2 activities read from your broker" and `.import-read` is absent. After the next poll
+    (1 close), `.import-read` reads "2 activities imported" (the original assertion, now one step later) and the
+    headline is gone. This is the business lead's "the line returns once closes show".
+  - "fix round 7" headline test: it adds that `.import-read` is absent while counting, at landing and after the first
+    step, and that the announced twin is still there.
+  - Visitors (line ~1163): unchanged, still true.
+- Screenshots: `screenshots/pr3/fix8/fix8-import-headline-counting-375-{light,dark}.png` (one count) and
+  `fix8-import-headline-closes-375-*.png`.
+
+### 2. Medium: feed weight with many distinct heavy traders (tester re-run 4, business lead note)
+
+The cause: each distinct trader on the page carried its whole pane chart. That is 6 ranges × up to 400 points with
+their closes, about 53 KB of JSON for a 4,700-close record, or about 30 KB in the page.
+
+The change is a lazy pane chart:
+- `lib/chart-series.ts`:
+  - `feedPaneChart` gives the feed a stand-in for any record over `PANE_EAGER_CLOSES` (50) closes. The stand-in is the
+    ALL line only, at `FEED_LITE_POINTS` (80), as [minute, value] pairs with no closes and values to 4 decimals. It
+    still carries every range's numbers (total, count, drawdown, y range, range ends), so the header, the label and
+    the tabs are the full chart's. It is about 2.6 KB against about 53 KB.
+  - A record of at most 50 closes ships whole, so it needs no request.
+  - `paneChart` and `paneChartSrc` moved here from `app/pane.tsx` so the route and the page share one definition.
+- `app/u/[handle]/pane-chart/route.ts` (new, GET, public like the profile): returns `paneChart` for the trader.
+  - It reads the same closed trades, with theses only when published, and percentages only.
+  - A deleted or unknown handle gets 404.
+  - `cache-control: public, max-age=60`.
+  - The trust rule is not in this data: the pane's badge, the incomplete line and the stats are still rendered on the
+    server with the page.
+- `app/u/[handle]/chart.tsx`:
+  - It fetches the full chart from `src` when the chart first intersects the viewport. The rows clip the pane
+    horizontally, so that happens at the swipe-open.
+  - It also fetches when the chart is focused (keyboard) or a range is picked.
+  - There is one request per trader per page, however many cards the trader has, and a failed request is retried on
+    the next open.
+  - The scrub position is carried across the swap to the nearest point in time.
+  - A range that is still loading shows "Loading the chart…" with its numbers.
+  - The figure has `data-chart="stand-in|full"`.
+  - Without JS the stand-in line stays: 0% on the axis, the full numbers in the label, the badge, the stats.
+- The heavy-feed e2e (`e2e/app.spec.ts`, "fix round 8: 50 heavy cards from 10+ distinct heavy traders…"):
+  - 12 traders with the heavy-use fixture (about 4,700 closes each). Each has 5 fresh closes in the last 15 minutes, and
+    the rest of the fixture ends 30 days ago. Each must rank with a confident edge, which the test checks with the
+    feed's own `confidence`/`evidenceWeight`.
+  - It asserts that 50 cards come from ≥ 10 distinct heavy traders, both in the HTML and in the page, and that the page
+    is under 500 KB raw.
+  - Every pane and card shows the Verified badge, and every stand-in is ≤ 81 path points.
+  - No pane chart is fetched before a pane opens. Swiping the first pane open fetches exactly its trader's chart, and
+    the stand-in becomes the full chart.
+  - The full chart's scrub, keyboard path, tabs and profile match (header, label, bounding box) are unchanged from round
+    7.
+  - A second pane reached by keyboard focus loads and scrubs to a close with its symbol.
+  - Without JS, the first pane has its stand-in line, "0%", the same label as the full chart, the Verified badge and
+    win rate.
+
+Measurements (`CI=1` build, `next start`, shared database):
+
+| Feed (50 cards) | Raw | Gzipped |
+|---|---|---|
+| e2e, 11 distinct heavy traders (57,308 closes), runs 1 and 2 | **322 KB** | 24 KB |
+| Scratch, 10 distinct heavy traders | 331 KB | 24 KB |
+| Scratch, 23 distinct heavy traders | 409 KB | 41 KB |
+| Scratch, 32 distinct heavy traders | 458 KB | 52 KB |
+| Round 7, 6 distinct (tester) | 535–558 KB | 80 KB |
+
+- Each further distinct heavy trader now adds about 5.8 KB, down from about 30 KB: about 2.6 KB of stand-in data and
+  about 3.2 KB for the pane's own server-rendered tree (summary, stats, last 5 rows). A page of 50 distinct heavy
+  traders projects to about 560 KB raw (about 80 KB gzipped). That is not measured: the scratch ranking put at most 32
+  distinct traders on the page.
+- The pane fetch is about 53 KB of JSON (gzip-compressible) per opened trader, once.
+- The scratch script was `worst.ts` in the session scratchpad: N heavy traders inserted, `/` fetched, then deleted.
+  It was not committed.
+- Screenshots: `fix8-feed-pane-{ALL,1Y}-375-{light,dark}.png` (the pane after its lazy load, beside
+  `fix8-profile-*`), and `fix8-feed-weight-375-light.png` (the measured weight, from the e2e run).
+
+### 3. Lows
+
+- **Precision (`packChart`):**
+  - Values are rounded only where the rounding does not change what `pct` prints (`packValue`). Otherwise the exact
+    value ships.
+  - A near-total loss scrubs to "≈-100.0%" in the pane, as on the profile.
+  - Unit test: a two-close record compounding to −0.99999999 reads "≈-100.0%" at full resolution and from the packed
+    chart. Before, it read "-100.0%".
+- **Plurals:**
+  - "N earlier position(s) excluded" and "N imported trade(s) excluded" are now `PROFILE.excludedPositions` and
+    `PROFILE.excludedFuture` in `lib/copy.ts` (`counted`), unit-tested for 1, 2 and 1,200.
+  - The chart's label reads "1 trade" for a range with one close.
+  - The pane's heading is "Last N trades" through `counted`.
+  - The demo profile e2e now asserts the exact "1 earlier position excluded: no matching entry in the imported
+    history.". Before, it matched the regex `earlier position\(s\) excluded`.
+- **Name equal to handle:** `WhoName` (`app/ui.tsx`) shows "@handle" once on the card and the pane. The heavy e2e
+  asserts it for all 50 rows.
+- **Failed connect tests clean up:**
+  - `devSignIn` records each handle it creates in the test. A handle that existed before, such as a demo trader, is
+    never recorded.
+  - `afterEach` deletes those users and their `e2e-<handle>…` broker accounts, pass or fail.
+  - Tests that already cleaned up delete nothing more.
+
+### Known limits (recorded, no code)
+
+- **A future-dated close never decays in the feed.** Its age is clamped at 0, so it scores exactly its size term until
+  its date arrives. It therefore ranks above every real close of the same size meanwhile (tester re-run 4, Low 3).
+  - The import quarantines activities dated more than 24 h ahead (`lib/sync.ts#FUTURE_GRACE_HOURS`), so this is
+    reachable only within the 24 h grace.
+  - The card also prints such a date without a year.
+  - The follow-up, if wanted: give `closed_at > now()` the floor score, or leave such rows out of the candidates.
+- **The feed lock coordinates only the e2e tests.** Any other writer to the same database can fill the feed and hide a
+  connect test's trader: a dev session, another agent, or a seed with heavy records. Records with a confident edge
+  rank first (TR-9).
+  - The connect feed tests are therefore stable only on a database no one else writes to.
+  - The follow-up: run e2e on its own database, or assert eligibility through `feedCandidates({ ids })`.
+- **Feed weight at 50 distinct heavy traders** projects to about 560 KB raw (above). The next step, if the owner wants
+  that case under 500 KB: send the pane's summary rows with the lazy chart too, or render one pane per trader instead of
+  one per card.
+
+### Checks
+
+- `npx tsc --noEmit`: clean.
+- `npm test` ×3: 520 tests, 515 pass, 0 fail, 5 skipped (load), in 13.2 / 13.3 / 15.2 s. Round 7 had 517.
+- `LOAD=1 node --expose-gc --test lib/sync.load.test.ts`: 5/5 pass.
+  - First sync: 10,000 activities to 4,709 closes in 1,066 ms (bound 15,000), heap +18.9 MB.
+  - Fleet: 500 traders × 8 callers, each synced exactly once, in 8,694 ms.
+- `CI=1 npm run build`, stdin closed: each build first stopped on the framework's security advisory. That is tool
+  output recommending an upgrade. Nothing was upgraded or offered, and the retry built cleanly (exit 0). The new route
+  `ƒ /u/[handle]/pane-chart` is listed.
+- `npm run test:e2e` (`CI=1`, with the vendor fake env as in round 4) ×2: **93 passed, 3 skipped, 0 failed** both times.
+  The skips are the provider sign-in tests, as before.
+- `node scripts/compliance.ts diff origin/main` (new files with `git add -N`): 1 violation, the `@img/sharp-wasm32`
+  license already on `main`. Nothing from this diff.
+- `node scripts/autopilot.ts guard main`: `guard: ok`.
+
+### Deviations
+
+- The stand-in is 80 points, not the 400-point card chart. That makes the no-JS line coarser: one low and one high per
+  about 8 px of a phone-wide pane, with the first and last point and the record's low and high kept. With JS the full
+  400-point chart replaces it at the swipe-open.
+- A record of at most 50 closes is not lazy: it ships whole, which costs less than a request.
+- The heavy test now uses 12 traders with 5 fresh closes each, and their history ends 30 days ago instead of 3 hours.
+  This is so the ranking spreads the 50 cards over ≥ 10 distinct records. Every assertion of round 7 is kept.
+  Screenshot names changed from `fix7-*` to `fix8-*`.
+- The chart label's "N trades" now uses `counted`, which affects ranges with one close only. The profile and the pane
+  share it, so they still match.
+- While I worked, two checkpoint commits of this round's work in progress (`a55eb20`, `c060014`) appeared on the
+  branch. I did not make them. Everything after them is uncommitted, as asked.
+
+Files:
+- New: `app/u/[handle]/pane-chart/route.ts`, `screenshots/pr3/fix8/` (13 PNGs).
+- Changed: `app/u/[handle]/import-banner.tsx`, `app/u/[handle]/chart.tsx`, `app/u/[handle]/page.tsx`, `app/pane.tsx`,
+  `app/page.tsx`, `app/ui.tsx`, `lib/chart-series.ts`, `lib/downsample.ts`, `lib/copy.ts`, `lib/downsample.test.ts`,
+  `lib/copy.test.ts`, `e2e/app.spec.ts`, `e2e/connect.spec.ts`, this log.
+
+Test users: the e2e tests remove their own traders, and the scratch traders `fx8w_*` were deleted by the script. No
+`heavy_feed_*` or `fx8w_*` rows remain (checked below). My servers are stopped.
+
+### Compliance
+
+- No personal data, secrets or third-party names. Fixture handles are generated.
+- No new dependency. `package.json`, CI and CODEOWNERS paths are untouched. `lib/broker.ts`, `lib/sync.ts`,
+  `lib/connections.ts`, `lib/trades.ts` and the schema are unchanged.
+- The new route serves only what the public profile already shows: percentages, dates, symbols, published theses. It
+  stores nothing and needs no sign-in.
+- Charts stay percent-only with 0% on the axis (CH-1). The stand-in keeps the record's low and high, so losses are
+  never smoothed away (TR-1).
+- The trust rule (Verified, Demo, incomplete) is rendered with the page and asserted on every heavy pane, with and
+  without JS.
+- Accessibility: what a screen reader hears during an import is unchanged. The loading state is one `role="status"`
+  line.

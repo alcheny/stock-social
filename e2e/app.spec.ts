@@ -994,6 +994,9 @@ test('fix round 8: 50 heavy cards from 10+ distinct heavy traders weigh under 50
     test.info().annotations.push({ type: 'feed-bytes', description: `${raw} raw, ${gz} gzipped, ${traders} distinct heavy traders` });
 
     await page.setViewportSize({ width: 375, height: 667 });
+    // Evidence for the log (fix round 8): the measured weight, as an image beside the pane screenshots.
+    await page.setContent(`<main style="font:16px/1.5 system-ui;padding:16px"><h1 style="font-size:20px">Feed weight, 50 heavy cards</h1><p>${traders} distinct heavy traders, ${total.toLocaleString('en-US')} closes in their records</p><p><b>${(raw / 1024).toFixed(0)} KB raw</b> (bound 500 KB), ${(gz / 1024).toFixed(0)} KB gzipped</p><p>Each pane carries a stand-in line; its chart loads on first open.</p></main>`);
+    await page.screenshot({ path: test.info().outputPath('fix8-feed-weight-375-light.png') });
     const fetched: string[] = [];
     page.on('request', (r) => { if (r.url().includes('/pane-chart')) fetched.push(new URL(r.url()).pathname); });
     await page.goto('/');
