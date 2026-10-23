@@ -90,3 +90,99 @@ Every suite deleted its test users (the user table matches the pre-run list). Th
 were reset to null. The servers this run started are stopped.
 
 Verdict: DEFECTS
+
+## Re-run 1 (2026-10-23)
+
+Branch `claude/adoring-euler-4469ys` at `fdc8bf8` (fix round 1), Postgres 16. No product code changed.
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | Clean both times. `users.sync_lease_until` (timestamptz) exists once, added through `schema_add_column`. The diff adds no drop, truncate or delete from. |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×4 | 466 tests: 461 pass, 5 skipped (load), 0 fail every run (8.0–8.5 s) |
+| Load suite ×3 | 5/5 every run (23.4–27.9 s); timings in §2 |
+| `CI=1 npm run build`, stdin closed | Run 1 stopped on the framework's security advisory. This is tool output, and it recommends an upgrade. Nothing was upgraded; the owner decides. Retry: exit 0. |
+| `e2e/connect.spec.ts` (`CI=1`, vendor fake on 4102) | 34 passed (2.9 min) |
+| `compliance.ts diff origin/main` | 1 violation, already on `main` (`@img/sharp-wasm32` license). Nothing from this diff. |
+| `autopilot.ts guard main` | ok |
+
+### 2. Load timings vs bounds (ms, unless noted)
+
+| Measure | Bound | Run 1 | Run 2 | Run 3 | Headroom (worst) |
+|---|---|---|---|---|---|
+| Heavy import, 14 steps | 15,000 | 1,405 | 1,376 | 1,185 | 10.7× |
+| Slowest step | 3,000 | 491 | 549 | 398 | 5.5× |
+| Rebuild | 5,000 | 423 | 487 | 384 | 10.3× |
+| Hourly syncs, each | 5,000 | 440/469/513 | 391/384/349 | 310/342/351 | 9.7× |
+| First sync, 10,000 paged | 15,000 | 1,024 | 1,023 | 874 | 14.6× |
+| Fleet: 500 traders, 8 callers | 60,000 | 6,830 | 6,686 | 5,822 | 8.8× |
+| Heap peak, MB (import / syncs / first) | +160 | 27/36.7/25.7 | 27.2/25.9/25.9 | 27.2/32.6/25.8 | **4.36×** |
+| Rows held by the rebuild | ≤2,000 | 1,341 | 1,341 | 1,341 | structural |
+
+- **Heap bound.** Fixed (Low 2): the worst run in all five measured so far was +36.7 MB, so 160 MB is 4.36×. That meets the
+  4× rule in the file header.
+- **How to run.** The header's line, `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` with `DATABASE_URL` set, is
+  the command used above, and it works as written.
+- **CI request.** Request #13 is in `docs/IMPLEMENTATION.md` §Pre-authorization, with the owner's answer blank (Low 3:
+  recorded, waits on the owner).
+- **Fleet.** Each trader was synced exactly once (61–64 per caller), and the repeat tick synced none of them again.
+
+### 3. Claim rule, attacked (tester's scratch tests, outside the repo, run against the repo's modules)
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | My report's late tick: +12 only, then +60, +120 | **pass**: [12, 60, 120] for each trader |
+| 2 | My report's crash: one claim at +0 then the caller dies; retry at +15; tick at +60 | **pass**: [15, 60] for each trader |
+| 3 | A tick started at :55 is still running when the :60 tick starts (the first trader's sync ends at :62) | **fail (Low)**: synced at real minutes [55, 63], [60], [62, 63]. One trader is synced twice in real hour 1. |
+| 4 | The lease runs out mid-sync while the per-user advisory lock is still held (A holds it from :00 to past :12; B ticks at :12) | **pass**: B claims and is `skipped`, rows never interleave, the lease ends null, and a :20 tick does not sync again |
+| 5 | 8 concurrent ticks over 12 traders (4 at :59, 4 at :61), then :65, :120 | **pass**: never two at once, at most once per hour label, every trader synced in hour 1 and once at :120 |
+| 6 | Hourly cron at the exact hour, instance clocks +2 / −2 min, one call per hour on alternating instances | **fail (Medium)**: in 6 true hours, each trader is synced 3 times ([2, 122, 242]). Every call on the slow instance syncs nobody. |
+| 7 | Both instances fire each true hour (−2 first, then +2) | **fail (Low part of Medium)**: the first hour syncs each trader twice ([58, 62, …]) |
+| 8 | On-time call on the −2 instance, retry on the +2 instance a minute later | **fail**: each trader is synced twice ([58, 63]) |
+| 9 | An import running from :58 to past :61, ticks at :58–:61 (two of them concurrent); the import then connects | **pass**: never claimed, claim and lease stay null; synced once at :62, not again at :63 |
+| 10 | No skew, one instance: the scheduler fires 0.3 s late one hour and 0.1 s early the next | **fail (Medium)**: [0.005, 120.005]. The early call syncs nobody, so the gap is 2 hours. |
+
+### 4. Defects
+
+1. **Medium · bug · `lib/sync.ts#claimNextUser`: the hour key comes from the caller's clock, and the boundary sits on
+   the cron mark.**
+   - The hourly cron fires at :00, exactly on the boundary of the claim's key (`hourStart(now)`).
+   - A call that lands a moment before the mark is keyed to the previous hour, and then syncs nobody. This happens when
+     an instance's clock is a little fast or slow (rows 6, 7, 8) or when the scheduler fires a fraction of a second
+     early (row 10). Every trader then goes 2 hours between syncs: the same outcome as the first Medium.
+   - Calls that straddle the mark, such as a retry on another instance, are keyed to two different hours, and each
+     syncs every trader (rows 7, 8).
+   - Leases compare the claimer's clock with timestamps another instance's clock wrote.
+   - The unit tests use exact :00 times, so they hide this.
+   - Fix (engineer's choice):
+     - Take the time from the database, in `now()` and `date_trunc` inside the claim statement, not from the caller.
+     - Move the round boundary away from the schedule, for example rounds from :30 to :30, so that a call within
+       ±30 minutes of :00 always maps to one round.
+     - Assert both with ticks at :59:59.9 and :00:00.3.
+2. **Low · bug · `syncTick` freezes `now` for the whole run (row 3).**
+   - A tick that runs past the hour keeps claiming with its start time:
+     - traders it reaches after :00 are keyed to the old hour, so the new hour's tick syncs them again (twice in real
+       hour 1);
+     - their lease (start + 10 min) may already have run out when they are claimed, so a concurrent tick claims a trader
+       that is mid-sync.
+   - The advisory lock keeps that from interleaving (row 4, `skipped`).
+   - At the ~5k traders per hour of the known limit, one sequential tick runs for many minutes, so this case is real.
+   - Fix: take the claim time per claim, from the database clock (it falls out of the fix for defect 1).
+3. **Low · spec · the load fleet test claims other traders in the current hour.**
+   - It ticks at "five minutes into the current hour", so every syncable trader in the database that isn't in the fleet
+     is claimed and leased, but not synced.
+   - The real tick then skips those traders for the rest of the hour.
+   - On this database, it happened to 5 leftover traders from earlier e2e runs. I reset them to null.
+   - The header says to run the suite on a development database, so it should restore the claims of traders it does not
+     own, or tick in a past hour as the unit tests do.
+
+### 5. Cleanup
+
+- The scratch suite deleted its traders and their accounts.
+- It restored every user's `sync_claimed_at` and `sync_lease_until` from a snapshot taken before it ran.
+- The 5 claims in the current hour left by the load fleet test are reset to null, and no lease is set.
+- The user table matches the list from before the run (85 rows). No servers are left running.
+
+Verdict: DEFECTS
