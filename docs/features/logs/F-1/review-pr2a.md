@@ -176,3 +176,40 @@ Date: 2026-10-23, on `e3e11b1` (engineer's "Reviewer fix round 2", `build-pr2a-f
   the thesis aside again. Narrow, and the same window already exists for the update itself against a rebuild that
   replaces row ids; worth one `sql.begin` when the test above is added.
 - Carried: the PR-2b items, and the framework advisory that blocks `npm run build` (owner dependency bump).
+
+## Final check 2
+
+approve: true
+
+Date: 2026-10-23, on `7d7b985` (engineer's "Reviewer fix round 3", `build-pr2a-fix4.md`). Read-only; no code changed.
+
+### Checks run
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL=postgres://…@localhost:5432/stock_social`) | 419 tests, 419 pass, 0 fail, 0 skipped (count unchanged; the new assertions extend the existing reflag test) |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+| Mutation check: in a throwaway copy of `HEAD` outside the repo, the `delete from kept_theses` removed from `lib/thesis-save.ts`, then the reflag test run alone | fails (`expected: 0, actual: 1` on the kept-row count right after the clear), so the engineer's claim holds. The copy was then deleted |
+
+### What was verified
+
+- Final check finding 1 is fixed. `lib/thesis-save.ts#saveThesisFor` does the update and the kept-copy delete in one
+  `sql.begin`, which also covers the note about two separate statements. Both statements are scoped to the given user
+  and trade, and the action (`app/actions.ts:41-46`) passes only the session user's id. Trimming, the 280-character
+  limit and `moderate` are the same as before, so moderation behavior is unchanged (a held result is still `held`).
+- `lib/connections.test.ts:625-637` clears the held thesis through `saveThesisFor` (whitespace input, the form's
+  empty case). It asserts the kept row is gone, rebuilds flagged and then unflagged, and asserts the thesis stays
+  null with a null status, the kept row stays gone, and the edited published thesis is untouched.
+- Still holds from Final check: the schema addition is idempotent, the rebuild never deletes a thesis, the only
+  `delete from` in `lib/sync.ts` is `closed_trades`, the reflections guard test passes, and no page reads
+  `kept_theses` (the only references are in `lib/sync.ts` and `lib/thesis-save.ts`).
+
+### Remaining findings
+
+None.
+
+### Notes (not blocking)
+
+- Carried: the PR-2b items, and the framework advisory that blocks `npm run build` (owner dependency bump).
