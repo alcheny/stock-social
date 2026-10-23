@@ -2,8 +2,9 @@
 // 500 traders per hourly sync; repeated hourly syncs idempotent; a heavy record syncs and rebuilds within a bounded time;
 // two syncs for one trader never interleave). The real vendor module (lib/broker.ts) runs against the in-repo vendor
 // fake over HTTP (e2e/fakes/vendor.ts) with seeded histories, so every run sees the same data.
-// Skipped unless LOAD=1, so `npm test` stays fast. Run on demand (CI or locally), with DATABASE_URL set:
-//   LOAD=1 node --expose-gc --test lib/sync.load.test.ts
+// Skipped unless LOAD=1, so `npm test` stays fast. No CI job sets LOAD=1 yet (a `test:load` script and an on-demand CI
+// job are pre-authorization request #13 in docs/IMPLEMENTATION.md; scripts and workflows are owner-only).
+// How to run (DATABASE_URL set, e.g. after `npm run db:up`): LOAD=1 node --expose-gc --test lib/sync.load.test.ts
 // Timings print as `# load: …` lines. Bounds are asserted; docs/features/logs/F-1/build-pr3-engineer.md records them.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,8 +19,10 @@ const hasDb = !!process.env.DATABASE_URL;
 const loadTest = (name: string, fn: () => Promise<void>) =>
   test(name, { skip: !LOAD ? 'heavy-use suite: set LOAD=1' : !hasDb && 'no DATABASE_URL', timeout: 900_000 }, fn);
 
-// The bounds (asserted). Each is about ten times the time measured on a development container, so a slower CI runner
-// passes and a regression to per-row work or a whole-history read does not.
+// The bounds (asserted). Rule: every bound is at least 4x the worst measurement on a development container (times are
+// about ten times), so a slower CI runner and garbage-collector timing pass while a regression to per-row work or a
+// whole-history read does not. Re-measure and keep the 4x rule whenever a bound changes. The heap bound is a coarse
+// guard; the structural memory check is the rebuild's `maxHeld` (rows held at once).
 export const BOUNDS = {
   importMs: 15_000, // 10,000 activities in 5 accounts (one simulated): every import step plus the rebuild
   stepMs: 3_000, // any single import step (one vendor page, or the rebuild): fits a short function duration
@@ -27,7 +30,7 @@ export const BOUNDS = {
   syncMs: 5_000, // one hourly sync of the 10,000-activity record (backfill week)
   firstSyncMs: 15_000, // a first sync that pages the whole 10,000-activity history in
   fleetMs: 60_000, // 500 traders through 8 concurrent callers of the sync tick
-  heapMb: 64, // peak heap growth during the heavy import and syncs
+  heapMb: 160, // peak heap growth during the heavy import and syncs (worst measured +36.4 MB: 4.4x)
 };
 const HEAVY = { accounts: 4, perAccount: 2_500, paper: 500 }; // 10,000 imported activities, 5 accounts
 const FLEET = { traders: 500, callers: 8, accounts: 2, perAccount: 20 };
@@ -239,7 +242,7 @@ loadTest('a first sync with no stored history pages a 10,000-activity record in 
 
 loadTest('500 traders synced by 8 concurrent callers of the sync tick: each exactly once, never two at a time, no duplicate activity, within bounds', async () => {
   const { sql } = await import('./db.ts');
-  const { syncTick, syncUser } = await import('./sync.ts');
+  const { syncTick, syncUser, hourStart } = await import('./sync.ts');
   const broker = await import('./broker.ts');
   // Setup: 500 vendor users, each with 2 linked accounts of 20 seeded activities, and a connected connection.
   const s0 = performance.now();
@@ -269,7 +272,8 @@ loadTest('500 traders synced by 8 concurrent callers of the sync tick: each exac
     calls.set(u.id, (calls.get(u.id) ?? 0) + 1);
     try { return await syncUser(u); } finally { inFlight.delete(u.id); }
   };
-  const now = new Date();
+  // Five minutes into the current clock hour, so the repeat tick a minute later is in the same hour (claims are per hour).
+  const now = new Date(hourStart(new Date()).getTime() + 5 * 60_000);
   const t0 = performance.now();
   const results = await Promise.all(Array.from({ length: FLEET.callers }, () => syncTick({ now, sync })));
   const took = ms(t0);
@@ -281,9 +285,9 @@ loadTest('500 traders synced by 8 concurrent callers of the sync tick: each exac
   assert.equal(n, FLEET.traders * FLEET.accounts * FLEET.perAccount);
   assert.equal(d, n);
   const perCaller = results.map((r) => r.ok + r.skipped + r.failed.length);
-  // A second tick in the same round claims none of them again.
+  // A second tick in the same clock hour claims none of them again.
   await syncTick({ now: new Date(now.getTime() + 60_000), sync });
   assert.equal(fleet.filter((f) => calls.get(f.id) !== 1).length, 0);
-  log(`fleet: ${FLEET.traders} traders × ${FLEET.accounts} accounts (setup ${setupMs} ms); ${FLEET.callers} concurrent callers synced each exactly once in ${took} ms (bound ${BOUNDS.fleetMs}), ${Math.round(took / FLEET.traders)} ms per trader, up to ${peakConcurrent} at once, per caller ${perCaller.join('/')}; a repeat tick in the same round synced none of them again`);
+  log(`fleet: ${FLEET.traders} traders × ${FLEET.accounts} accounts (setup ${setupMs} ms); ${FLEET.callers} concurrent callers synced each exactly once in ${took} ms (bound ${BOUNDS.fleetMs}), ${Math.round(took / FLEET.traders)} ms per trader, up to ${peakConcurrent} at once, per caller ${perCaller.join('/')}; a repeat tick in the same clock hour synced none of them again`);
   assert.ok(took < BOUNDS.fleetMs, `fleet ${took} ms`);
 });

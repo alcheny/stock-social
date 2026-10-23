@@ -146,6 +146,7 @@ pipeline scripts and the workflows. Each is a yes/no for the owner; answers are 
 | 10 | Placeholder Terms and Privacy pages and the consent-screen copy (what becomes public), supplied by the owner | POLICY P6/F3: the attestation and consent screens must link them | |
 | 11 | A `blocked` status the publish script may set when a feature hits a hard stop | Otherwise the picker returns the blocked feature forever and later features never build | |
 | 12 | Process wiring: owner edits to `scripts/features.ts`, `scripts/team.ts`, `team/*.md`, CODEOWNERS and `features.yml` for the plan round, the UX lead, the committee, per-member user tests and `docs/features/logs/` | All owner-only paths | |
+| 13 | Run the heavy-use suite automatically: a `test:load` script in `package.json` (`LOAD=1 node --expose-gc --test lib/sync.load.test.ts`) and a CI job on demand (manual dispatch, with Postgres) | Nothing sets `LOAD=1`, so the F-1 heavy-use criteria are never checked automatically; `package.json` and workflows are owner-only (F-1 PR-3 tester, Low 3) | |
 
 Not needed for the first run (wait): a read replica, object storage, a vector index, a worker or
 queue, an AI-model key (F-2 stages 2 and 3; F-2 stage 1 is SQL co-visitation on the primary database

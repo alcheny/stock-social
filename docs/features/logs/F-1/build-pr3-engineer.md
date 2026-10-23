@@ -183,3 +183,68 @@ vendor ids carry a per-run tag.
      not importing, not deleted).
 10. **Claims.** "Connected: the broker" makes no claim. No "your" is said to visitors. "Verified" is unchanged.
 11. **Checkout.** No.
+
+## Fix round 1 (2026-10-23)
+
+From `test-pr3-tester.md` (verdict DEFECTS: one Medium, two Lows). All three fixed.
+
+**How to run the load suite:** with `DATABASE_URL` set, `LOAD=1 node --expose-gc --test lib/sync.load.test.ts`
+(no CI job runs it yet: pre-authorization request #13).
+
+1. **Medium · the sync claim could skip traders for an hour.**
+   - Cause: `claimNextUser` held a claim for 50 minutes from the claiming call. A late call (+12 min) or a crashed
+     call's retry pushed every claim past the next on-time tick, which then synced nobody.
+   - Fix (`lib/sync.ts`): the claim is keyed on the clock hour. A trader is claimed only if `sync_claimed_at` is before
+     the start of this hour. Each claim also takes a short in-flight lease, `users.sync_lease_until` (now +
+     `SYNC_LEASE_MS`, 10 minutes). `syncTick` releases it in `finally` when the sync ends or fails (`releaseClaim`
+     clears only its own lease). A leased trader is never claimed. A lease left by a crashed caller lapses, and the
+     trader is claimable again in the same hour, since its sync never finished. The per-user advisory lock still
+     prevents interleaving. A failed sync keeps its hour claim, so it is retried next hour, as before.
+   - The rule: at most once per clock hour; at least once per hour while any tick runs in that hour; never two at once.
+   - Schema: `users.sync_lease_until`, added idempotently through `schema_add_column`. `SYNC_ROUND_MS` is removed.
+   - Tests (`lib/sync.test.ts`, 4 new; the ticks run in past hours so no claim shadows a real tick):
+     - Jitter (the tester's scenario): ticks at +0, +12 (late), +60, +120, then +192 and +240. Each trader is
+       synced at [0, 60, 120, 192, 240]: once per hour, never skipped.
+     - Crash: a caller claims one trader and dies. A tick at +5 syncs the other two. A retry at +15 (lease lapsed)
+       syncs the crashed one only. +60 syncs all three.
+     - Concurrency: 4 ticks at once in one hour sync each of 6 traders once, never two at a time. A sync claimed at the
+       top of the next hour and still running is left out by two concurrent ticks at +61, which sync the other five; a
+       tick after its release syncs nobody again that hour.
+     - A trader with an import running is never claimed (claim and lease stay null); the other one is synced each hour.
+   - The existing four-caller test now uses clock hours (a past hour, then the next one), with the same assertions.
+     The load suite's fleet test runs five minutes into the current hour, so its repeat tick is in the same hour.
+2. **Low · heap bound.** `heapMb` is now 160 (4.4x the worst measurement, +36.4 MB). The load file header states the
+   rule: every bound is at least 4x the worst measurement; the structural memory check is `maxHeld`.
+3. **Low · no CI path runs the load suite.** "How to run" is in the load file header and above. A `test:load` script
+   and an on-demand CI job are pre-authorization request #13 in `docs/IMPLEMENTATION.md` (owner's answer blank).
+
+### Re-measured (two load runs)
+
+| Measure | Bound | Run 1 | Run 2 |
+|---|---|---|---|
+| Heavy import, 14 steps | 15,000 ms | 1,265 | 1,139 |
+| Slowest step | 3,000 ms | 408 | 292 |
+| Rebuild | 5,000 ms | 393 | 399 |
+| Hourly syncs, each | 5,000 ms | 373/423/394 | 380/394/315 |
+| First sync, 10,000 paged | 15,000 ms | 1,049 | 1,043 |
+| Fleet: 500 traders, 8 callers | 60,000 ms | 6,907 | 6,259 |
+| Heap peak, MB (import / syncs / first) | +160 | 26.7/30.9/25.2 | 27.5/32.2/25.3 |
+| Rows held by the rebuild | 2,000 | 1,341 | 1,341 |
+
+Fleet: each trader exactly once (62 to 65 per caller); the repeat tick in the same hour synced none again.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL` set), three runs | 466 tests: 461 pass, 5 skipped (load), 0 fail (7.8 s, 8.0 s, 8.1 s). Before: 462. |
+| Load suite, two runs | 5/5 both runs |
+| `node scripts/compliance.ts diff origin/main` | One violation, the same one already on `main` (`node_modules/@img/sharp-wasm32` license). Nothing from this diff. |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+### Compliance (changes from the checklist above)
+
+Personal data: none new; `users.sync_lease_until` is a timestamp. Security: the claim reads and writes only the
+eligibility conditions and the two claim timestamps; the cron endpoint is unchanged. Everything else as above.
+

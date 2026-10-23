@@ -85,6 +85,8 @@ select schema_add_index('activities_user_time', 'create index activities_user_ti
 select schema_add_index('activities_user_pair', 'create index activities_user_pair on activities (user_id, account_id, symbol, executed_at, external_id)');
 -- F-1 PR-3: the hourly tick's claim (lib/sync.ts#claimNextUser): each trader is synced by one caller per round.
 select schema_add_column('users', 'sync_claimed_at', 'timestamptz');
+-- F-1 PR-3 fix round 1: the claim's short in-flight lease, cleared when that trader's sync ends or fails.
+select schema_add_column('users', 'sync_lease_until', 'timestamptz');
 
 -- No quantities or prices here on purpose: the display layer can't leak position size it doesn't have.
 create table if not exists closed_trades (
