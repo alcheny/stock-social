@@ -301,6 +301,18 @@ export const LOGIN_MAIL = {
 } as const;
 
 // Everything above, flattened, for the banned-list test.
+// F-2 PR-1: the feed's paging and end card (plan §1 PR-1). "today's": the order is seeded per UTC day; the list is
+// capped (FEED_CANDIDATES), so the end card claims no completeness. The UX lead may rewrite it within that rule.
+export const FEED = {
+  end: 'End of today\u2019s feed.',
+  publish: 'Publish your trades',
+  more: 'Show more',
+  failed: 'Couldn\u2019t load more.',
+  retry: 'Retry',
+  stale: 'Load today\u2019s feed',
+  endLabel: 'End of feed',
+};
+
 export function allCopy(): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
@@ -309,6 +321,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED].forEach(walk);
   return out;
 }

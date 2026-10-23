@@ -21,7 +21,8 @@ export function paneSummary<T extends PaneTrade>(trades: T[]) {
 // One batched query for every visible trader, split here instead of one query per feed item.
 export function groupByUser<T extends { userId: number }>(rows: T[]): Map<number, T[]> {
   const m = new Map<number, T[]>();
-  for (const r of rows) m.set(r.userId, [...(m.get(r.userId) ?? []), r]);
+  // F-2 PR-1 load check: push, not copy (copying the array per row was quadratic: ~0.3 s for a few 4,700-close records).
+  for (const r of rows) { const a = m.get(r.userId); if (a) a.push(r); else m.set(r.userId, [r]); }
   return m;
 }
 

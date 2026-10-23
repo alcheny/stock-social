@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
-import { allCopy, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
+import { allCopy, FEED, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
 
 const MARK_RE = new RegExp(`\\b(${MARKS.map((m) => m.replace(/ /g, '[\\s-]?')).join('|')})\\b`, 'i');
 const MINORS_RE = new RegExp(`\\b(${MINORS.map((m) => m.replace(/ /g, '\\s')).join('|')})\\b`, 'i');
@@ -299,4 +299,14 @@ test('fix round 8 (tester re-run 4): exclusion counts are pluralized, never "(s)
   assert.equal(PROFILE.excludedFuture(1), '1 imported trade excluded: dated in the future by the broker.');
   assert.equal(PROFILE.excludedFuture(1_200), '1,200 imported trades excluded: dated in the future by the broker.');
   for (const n of [1, 2]) for (const t of [PROFILE.excludedPositions(n), PROFILE.excludedFuture(n)]) assert.ok(!t.includes('(s)'), t);
+});
+
+test('F-2 PR-1: the feed end card and paging copy; no completeness claim; in the banned-list walk', () => {
+  assert.equal(FEED.end, 'End of today\u2019s feed.');
+  assert.equal(FEED.publish, 'Publish your trades');
+  assert.equal(`${FEED.failed} ${FEED.retry}`, 'Couldn\u2019t load more. Retry');
+  for (const s of Object.values(FEED)) {
+    assert.doesNotMatch(s, /\b(every|all|complete|whole|nothing (else|more)|caught up|that'?s it)\b/i, s);
+    assert.ok(allCopy().includes(s), s);
+  }
 });

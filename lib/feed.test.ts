@@ -98,3 +98,114 @@ dbTest('closes dated 2031 and tomorrow do not break the feed query and never sco
     await sql`delete from users where id in ${sql([u.id, v.id])}`;
   }
 });
+
+// ---- F-2 PR-1: feed mix and paging ----
+// A fixture of `n` traders, `per` closes each, minutes old, distinct symbols per trader (so the caps leave room).
+async function fixture(n: number, per: number, ret: (t: number, i: number) => number, opts: { minutesAgo?: number; holdDays?: number } = {}) {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `p${Math.random().toString(36).slice(2, 9)}`;
+  const ids: number[] = [];
+  for (let t = 0; t < n; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
+  const at = Date.now() - (opts.minutesAgo ?? 30) * 60_000;
+  const rows = ids.flatMap((u, t) => Array.from({ length: per }, (_, i) => ({
+    user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `${tag.slice(1, 4).toUpperCase()}${(t * per + i) % 37}`,
+    opened_at: new Date(at - (t * per + i) * 60_000 - (opts.holdDays ?? 1) * 86_400_000), closed_at: new Date(at - (t * per + i) * 60_000),
+    return_pct: ret(t, i), holding_days: opts.holdDays ?? 1, verified: true,
+  })));
+  for (let i = 0; i < rows.length; i += 1000) await sql`insert into closed_trades ${sql(rows.slice(i, i + 1000))}`;
+  return { sql, tag, ids, remove: () => sql`delete from users where id in ${sql(ids)}` };
+}
+const keyOf = (c: { user_id: number; symbol: string; closed_at: Date; explore: boolean }) => `${c.user_id}|${c.symbol}|${new Date(c.closed_at).getTime()}|${c.explore}`;
+
+dbTest('F-2 PR-1: asOf freezes the ranking: a trade closed after asOf appears nowhere and moves nothing', async () => {
+  const { feedList } = await import('./feed.ts');
+  const f = await fixture(12, 6, (t, i) => ((t * 7 + i * 3) % 11 - 5) / 20);
+  const late = await fixture(1, 6, () => 0.9, { minutesAgo: -1 }); // a new trader whose 6 closes (now + 1 min to now − 4 min) are all after asOf
+  try {
+    const asOf = new Date(Date.now() - 5 * 60_000);
+    const day = asOf.toISOString().slice(0, 10);
+    const ids = [...f.ids, ...late.ids];
+    const before = (await feedList({ asOf, day, ids })).list.map(keyOf);
+    assert.ok(before.length >= 30, `${before.length} cards`);
+    // After asOf: a big fresh close for a listed trader, five closes for a trader with one old close (eligible only
+    // after asOf), and the late trader's own closes (they were all dated after asOf already).
+    const { sql } = f;
+    await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+      values (${f.ids[0]}, ${`${f.tag}-late-0`}, 'a', 'ZZLATE', now() - interval '1 day', now() - interval '1 minute', 2.5, 1, true)`;
+    const late2 = await fixture(1, 1, () => 0.1, { minutesAgo: 600 });
+    for (let i = 0; i < 5; i++) await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+      values (${late2.ids[0]}, ${`${late2.tag}-n${i}`}, 'a', 'ZZNEW', now() - interval '1 day', now() - interval '1 minute', 1.5, 1, true)`;
+    try {
+      const after = (await feedList({ asOf, day, ids: [...ids, ...late2.ids] })).list.map(keyOf);
+      assert.deepEqual(after, before);
+      assert.ok(!after.some((k) => k.includes('ZZLATE') || k.includes('ZZNEW') || late.ids.some((u) => k.startsWith(`${u}|`))));
+      // A new page 1 (a later asOf) does see them.
+      const fresh = (await feedList({ asOf: new Date(), day, ids: [...ids, ...late2.ids] })).list.map(keyOf);
+      assert.ok(fresh.some((k) => k.includes('ZZLATE')));
+      assert.ok(fresh.some((k) => k.startsWith(`${late2.ids[0]}|`)));
+    } finally {
+      await late2.remove();
+    }
+  } finally {
+    await f.remove();
+    await late.remove();
+  }
+});
+
+dbTest('F-2 PR-1: pages 1 to 3 concatenated equal the unpaged list; caps hold across the joins; a tampered cursor is page 1', async () => {
+  const { feedList, loadFeedPage } = await import('./feed.ts');
+  const { worstWindow } = await import('./discovery/diversity.ts');
+  const { decodeCursor } = await import('./discovery/pager.ts');
+  const f = await fixture(40, 5, (t, i) => ((t * 13 + i * 5) % 17 - 8) / 25);
+  try {
+    const now = Date.now();
+    const p1 = await loadFeedPage(undefined, { now, ids: f.ids });
+    assert.equal(p1.cards.length, 30);
+    assert.ok(p1.next, 'a second page');
+    const c = decodeCursor(p1.next, now, 200)!;
+    assert.equal(c.asOf, now);
+    const p2 = await loadFeedPage(p1.next, { now: now + 1000, ids: f.ids });
+    const p3 = await loadFeedPage(p2.next!, { now: now + 2000, ids: f.ids });
+    const shown = [...p1.cards, ...p2.cards, ...p3.cards];
+    const { list } = await feedList({ asOf: new Date(now), day: new Date(now).toISOString().slice(0, 10), ids: f.ids });
+    assert.deepEqual(shown.map(keyOf), list.slice(0, 90).map(keyOf));
+    assert.equal(new Set(shown.map(keyOf)).size, shown.length, 'no card repeats');
+    const w = worstWindow(shown.map((x) => ({ key: keyOf(x), trader: x.user_id, symbol: x.symbol })));
+    assert.ok(w.trader <= 2 && w.symbol <= 2, JSON.stringify(w));
+    assert.ok(shown.filter((x) => x.explore).length >= 18, 'at least 2 of every 10');
+    // Each page's panes cover exactly its own traders.
+    assert.deepEqual([...p2.byUser.keys()].sort(), [...new Set(p2.cards.map((x) => x.user_id))].sort());
+    // Tampered → page 1 (a fresh clock), never a throw.
+    for (const bad of ['', 'garbage', p1.next!.slice(0, -1), p1.next! + 'A', ['x'], 'e30']) {
+      const p = await loadFeedPage(bad, { now, ids: f.ids });
+      assert.equal(p.offset, 0);
+      assert.deepEqual(p.cards.map(keyOf), p1.cards.map(keyOf));
+    }
+  } finally {
+    await f.remove();
+  }
+});
+
+dbTest('F-2 PR-1: losses rank equal to gains: negating every return leaves the feed order unchanged', async () => {
+  const { feedList, feedCandidates } = await import('./feed.ts');
+  // Records under 10 bets (TR-9 "too early"), so the order is the feed's size-of-move × recency score and the mix.
+  const f = await fixture(30, 6, (t, i) => ((t * 11 + i * 7) % 19 - 9) / 30 || 0.01);
+  try {
+    const asOf = new Date();
+    const day = asOf.toISOString().slice(0, 10);
+    const a = await feedList({ asOf, day, ids: f.ids });
+    const sa = (await feedCandidates({ asOf, ids: f.ids })).map((r) => [r.user_id, r.symbol, Number(r.score).toPrecision(12)]);
+    await f.sql`update closed_trades set return_pct = -return_pct where user_id in ${f.sql(f.ids)}`;
+    const b = await feedList({ asOf, day, ids: f.ids });
+    const sb = (await feedCandidates({ asOf, ids: f.ids })).map((r) => [r.user_id, r.symbol, Number(r.score).toPrecision(12)]);
+    assert.deepEqual(sb, sa);
+    assert.ok(a.list.length >= 60);
+    assert.deepEqual(b.list.map((x) => `${x.user_id}|${x.symbol}|${x.explore}`), a.list.map((x) => `${x.user_id}|${x.symbol}|${x.explore}`));
+    assert.deepEqual(b.list.map((x) => -Number(x.return_pct)), a.list.map((x) => Number(x.return_pct)));
+    // Losses are in the feed at the rate they are in the records.
+    assert.ok(a.list.some((x) => x.return_pct < 0) && a.list.some((x) => x.return_pct > 0));
+  } finally {
+    await f.remove();
+  }
+});

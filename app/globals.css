@@ -298,3 +298,10 @@ label.check { display: flex; gap: 8px; align-items: center; }
   background: var(--surface); color: var(--text); border: 2px solid var(--accent); border-radius: 8px; }
 .skip-link:focus { top: 8px; }
 footer.site:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* F-2 PR-1: the feed's paging control and end card. Snap targets like a row; 44px targets; no motion. */
+.feed .feed-more, .feed .feed-end { scroll-snap-align: start; min-height: 40dvh; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 32px 20px; text-align: center; }
+.feed .feed-end { min-height: 100dvh; }
+.feed .feed-end h2 { margin: 0; font-size: 1.25rem; }
+.feed .feed-end p, .feed .feed-more p { margin: 0; }
+.feed .feed-more .button, .feed .feed-end .button, .feed .feed-more button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
