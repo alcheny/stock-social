@@ -1128,7 +1128,8 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
 
 // ---- F-2 PR-1: feed mix and paging (docs/features/logs/F-2/plan.md §1 PR-1) ----
 // Fix round 1: this round's screenshots go to their own folder (the PR-1 build's evidence in pr1/ stays as it was).
-const PR1_SHOTS = 'docs/features/logs/F-2/screenshots/pr1-fix1';
+// Fix round 2: pr1-fix2 (pr1-fix1 keeps fix round 1's evidence).
+const PR1_SHOTS = 'docs/features/logs/F-2/screenshots/pr1-fix2';
 // 45 traders × 5 fresh closes (large moves, losses included), one symbol per close: enough for three pages.
 async function pagingFixture() {
   const now = Date.now();
@@ -1366,9 +1367,55 @@ test('F-2 PR-1 fix round 1: Retry from the control makes one request and leaves 
       await expect(rows).toHaveCount(60);
       expect(await atTop(page)).toBe(30); // card 31
       await expect(rows.nth(30).locator('.card .who')).toBeFocused();
-      await expect(page.locator('.feed > p[aria-live="polite"]')).toHaveText('30 more trades loaded');
+      // Fix round 2 (UX follow-up 2): the live line names the positions, so every append reads differently.
+      await expect(page.locator('.feed > p[aria-live="polite"]')).toHaveText('Trades 31 to 60 loaded');
       await page.screenshot({ path: `${PR1_SHOTS}/after-retry-375-${colorScheme}.png` });
       await page.unroute('**/*');
+    }
+  } finally {
+    await fx.remove();
+    await release();
+  }
+});
+
+// Fix round 2 (tester B, UX follow-up 1): with a fast server, page 2 arrives while End's smooth scroll is still on its way
+// (card 25 passed, the control not yet in view), so nothing pins; the scroll then stopped at the old end, between cards
+// 30 and 31, unsnapped. Now the reader comes to rest on card 31. The request is not held here (that is the other test).
+test('F-2 PR-1 fix round 2: End or a smooth scroll to the end with a fast server comes to rest on card 31, not between 30 and 31; the live line changes per page; page 1 has an h1', async ({ page }) => {
+  test.setTimeout(240_000);
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const fx = await pagingFixture();
+  try {
+    const cases = [[375, 'light', 'end'], [375, 'dark', 'end'], [1280, 'dark', 'end'], [375, 'light', 'smooth'], [1280, 'light', 'smooth']] as const;
+    for (const [width, colorScheme, how] of cases) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme, reducedMotion: 'no-preference' });
+      const posts: string[] = [];
+      page.on('request', (r) => { if (r.method() === 'POST') posts.push(r.url()); });
+      await page.goto('/');
+      const rows = page.locator('.feed > .row');
+      await expect(rows).toHaveCount(30);
+      await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached(); // hydrated
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Trade feed');
+      await rows.nth(2).evaluate((el) => el.scrollIntoView());
+      await rows.nth(2).locator('.card .who').focus({ preventScroll: true } as never);
+      if (how === 'end') await page.keyboard.press('End');
+      else await page.locator('main.feed').evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }));
+      await expect(rows).toHaveCount(60);
+      // At rest: one request, card 31 exactly at the top (never card 30's lower part over card 31's name).
+      await expect.poll(() => atTop(page), { timeout: 5_000 }).toBe(30);
+      await page.waitForTimeout(1_500);
+      expect(await atTop(page)).toBe(30);
+      expect(posts).toHaveLength(1);
+      await expect(page.locator('.feed > p[aria-live="polite"]')).toHaveText('Trades 31 to 60 loaded');
+      await page.screenshot({ path: `${PR1_SHOTS}/end-fast-server-${how}-${width}-${colorScheme}.png` });
+      // Reading on: page 3 at its card 25, and the live line changes (the same text twice is not announced again).
+      await rows.nth(54).evaluate((el) => el.scrollIntoView());
+      await expect(rows).toHaveCount(90);
+      await expect(page.locator('.feed > p[aria-live="polite"]')).toHaveText('Trades 61 to 90 loaded');
+      expect(posts).toHaveLength(2);
+      page.removeAllListeners('request');
     }
   } finally {
     await fx.remove();
@@ -1403,6 +1450,8 @@ test('F-2 PR-1 fix round 1: a jump to the control while page 2 is on its way mak
       await expect.poll(() => posts.length).toBe(1);
       await expect(page.locator('.feed-more a')).toHaveText('Loading\u2026');
       await expect(page.locator('.feed-more a')).toHaveAttribute('aria-busy', 'true');
+      // Fix round 2 (UX follow-up 4): "Loading…" is drawn as a state (no fill), not as a button to press.
+      expect(await page.locator('.feed-more a').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
       if (width === 375) await page.screenshot({ path: `${PR1_SHOTS}/loading-375-${colorScheme}.png` });
       expect(await controlInView(page)).toBe(true); // the reader is at the control as the page arrives
       hold = false;

@@ -309,3 +309,6 @@ footer.site:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
    card shows the one action that fits the viewer (app/feed-rows.tsx#FeedEnd; <body data-viewer> from the layout). */
 .feed .feed-more { overflow-anchor: none; }
 body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publisher"]) .feed-end .for-publisher { display: none; }
+/* Fix round 2 (UX follow-up 4, business lead taste): "Loading…" is a state, not a button: muted text, no fill. The
+   element stays the same (the no-JS link; the Retry button keeps focus), only its look changes; Retry keeps the fill. */
+.feed .feed-more .button[aria-busy="true"], .feed .feed-more button[aria-disabled="true"] { background: none; color: var(--muted); font-weight: 400; cursor: progress; }

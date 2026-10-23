@@ -287,7 +287,7 @@ dbTest('fix round 1: on the server that served page 1, a trader deleted outright
 
 // Business lead blocker 2: one trader cannot own the list. 5 hyperactive traders (60 closes each in the last 20 hours,
 // moves within ±8%) and 55 ordinary ones (6 to 20 closes over 30 days, moves within ±25%).
-dbTest('fix round 1: on a skewed fixture the 200 candidates span ≥ 33 traders, ≤ 6 each; ≤ 6 per trader in any 30 cards', async () => {
+dbTest('fix round 1: on a skewed fixture the 200 candidates span ≥ 33 traders, ≤ 6 each; ≤ 6 per trader in any 30 cards; fix round 2: the 5 hyperactive traders hold ≤ 5 of any 10 and ≤ 27 of the first 60', async () => {
   const { feedCandidates, feedList, FEED_PER_TRADER } = await import('./feed.ts');
   const { prng } = await import('./discovery/explore.ts');
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
@@ -322,11 +322,19 @@ dbTest('fix round 1: on a skewed fixture the 200 candidates span ≥ 33 traders,
       assert.ok(Math.max(...n.values()) <= 6, `window ${s}`);
     }
     const top5 = list.filter((c) => ids.indexOf(c.user_id) < 5).length;
+    // Fix round 2 (business lead blocker; reviewer checklist): the first minute, not only the whole list. The 5
+    // hyperactive traders held 29 of the first 60 cards and 8 of 10 at worst before the last-9 preference.
+    const hyper = list.map((c) => ids.indexOf(c.user_id) < 5);
+    const first60 = hyper.slice(0, 60).filter(Boolean).length;
+    let worst10 = 0;
+    for (let s = 0; s + 10 <= list.length; s++) worst10 = Math.max(worst10, hyper.slice(s, s + 10).filter(Boolean).length);
+    assert.ok(worst10 <= 5, `the 5 hyperactive traders hold ${worst10} of some 10 cards`);
+    assert.ok(first60 <= 27, `the 5 hyperactive traders hold ${first60} of the first 60 cards`);
     const seen = new Set<number>();
     let picks = 0, fresh = 0;
     for (const c of list.slice(0, 120)) { if (c.explore) { picks++; if (!seen.has(c.user_id)) fresh++; } seen.add(c.user_id); }
     assert.ok(fresh >= 0.8 * picks, `${fresh} of ${picks} exploration picks in the first 120 cards are new traders`);
-    console.log(`# skewed fixture: ${per.size} traders in 200 candidates; list ${list.length} cards, ${new Set(list.map((c) => c.user_id)).size} traders; top 5 hold ${top5} (${Math.round((100 * top5) / list.length)}%); ${fresh} of ${picks} picks new in the first 120`);
+    console.log(`# skewed fixture: ${per.size} traders in 200 candidates; list ${list.length} cards, ${new Set(list.map((c) => c.user_id)).size} traders; top 5 hold ${top5} (${Math.round((100 * top5) / list.length)}%), ${first60} of the first 60, ≤ ${worst10} of any 10; ${fresh} of ${picks} picks new in the first 120`);
   } finally {
     await sql`delete from users where id in ${sql(ids)}`;
   }

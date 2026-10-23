@@ -314,11 +314,16 @@ export const FEED = {
   // Fix round 1 (UX follow-ups 2 and 8).
   loading: 'Loading\u2026',
   seeRecord: 'See your record',
+  // Fix round 2 (UX, carried over): page 1's level-1 heading (visually hidden; later pages name their positions).
+  heading: 'Trade feed',
 };
 // Fix round 1 (UX follow-ups 5 and 9): the polite announcement when cards are appended, and the no-JS page's position.
 export const FEED_COUNTS = {
   added: (n: number) => `${n} more ${n === 1 ? 'trade' : 'trades'} loaded`,
   position: (from: number, to: number) => `Trades ${from} to ${to}`,
+  // Fix round 2 (UX follow-up 2): the live line names the positions, so it changes on every append (the same text twice
+  // is not announced again) and matches the no-JS page's heading.
+  loaded: (from: number, to: number) => `Trades ${from} to ${to} loaded`,
 };
 
 export function allCopy(): string[] {

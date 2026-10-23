@@ -110,3 +110,87 @@ loadTest('fix round 1: signed-out feed, pages 1 to 3 at 500 traders (50 heavy, 5
     await fx.remove();
   }
 });
+
+// F-2 PR-1 fix round 2 (tester High A): a cursor page with no kept list (another server, a restart, a crafted `?after=`)
+// after ≥ 150,000 activities were imported since the cursor's asOf. The late filter was `not in (late)`, which Postgres
+// rescans per candidate row once the late set exceeds work_mem: 129 s to over 180 s a page. Now an anti-join.
+// The fixture: the 12-heavy budget fixture; page 1 is served; then 15 traders' first imports land (10,000 activities
+// each, with 3,000 closes each) plus a late close for 20 listed traders, all after page 1's asOf. Page 2 is then read
+// with no kept list LATE.rounds times, first with the statistics as autovacuum left them (the planner expects almost no
+// late rows), then analyzed. Each read must be the page the kept list served, and:
+// - with the weights kept (a crafted `?after=`, or another warm server): p95 over the reads under the feed budget
+//   (FEED_BOUNDS.p95Ms), as the other cases here measure it;
+// - on a fully cold server (no kept list, no kept weight): logged, and every read under COLD_LATE_MS. A cold server's first page is
+//   over the budget even with no late import (the business lead's accepted cold start, with its trigger); this bound
+//   catches a late filter that rescans (43 s here before the fix).
+const COLD_LATE_MS = 1_000;
+const LATE = { importers: 15, perImporter: 10_000, closesPerImporter: 3_000, lateForListed: 20, rounds: 10 };
+loadTest('fix round 2: page 2 with no kept list after 150,000 activities imported since its asOf: under the budget, the kept list\'s page', async () => {
+  const fx = await fixture({ traders: 500, heavy: 12, heavyCloses: 4_700, closes: 20, fresh: 10 });
+  const { sql } = await import('./db.ts');
+  const { loadFeedPage, clearFeedCache } = await import('./feed.ts');
+  try {
+    clearFeedCache();
+    const p1 = await loadFeedPage(undefined);
+    assert.ok(p1.next, 'a page 2 exists');
+    const kept = await loadFeedPage(p1.next);
+    await new Promise((r) => setTimeout(r, 5)); // every import below is strictly after asOf
+    const tag = `lt${Math.random().toString(36).slice(2, 8)}`;
+    const imp = await sql`
+      with a as (insert into signup_attempts (method, adult_attested_at) select 'dev', now() from generate_series(1, ${LATE.importers}) returning id),
+           n as (select id, row_number() over (order by id) as k from a)
+      insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${tag} || k, ${tag} || k, now(), id from n returning id`;
+    made.push(...imp.map((u) => u.id as number));
+    const t0 = performance.now();
+    for (const [k, u] of imp.entries()) {
+      await sql`
+        insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
+        select ${u.id}, 'snaptrade', ${tag} || '-' || ${k} || '-' || i, 'a', 'L' || (i % 300), case when i % 2 = 0 then 'BUY' else 'SELL' end, 1, 10,
+               now() - (i || ' minutes')::interval, '{}'::jsonb
+        from generate_series(1, ${LATE.perImporter}) i`;
+      // Their closes (the rebuild's output): every one's sell was imported after asOf.
+      await sql`
+        insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+        select ${u.id}, ${tag} || '-' || ${k} || '-' || (2 * i + 1), 'a', 'L' || ((2 * i + 1) % 300), now() - interval '3 days' - (i || ' minutes')::interval,
+               now() - interval '1 hour' - (i || ' minutes')::interval, ((i % 401) - 200) / 100.0, 2, true
+        from generate_series(0, ${LATE.closesPerImporter - 1}) i`;
+    }
+    // A late close for 20 traders already in the list (dated an hour before asOf, imported after it): it must not count.
+    const listed = [...new Set(kept.cards.map((c) => c.user_id))].slice(0, LATE.lateForListed);
+    for (const [k, id] of listed.entries()) {
+      const sell = `${tag}-x-${k}`;
+      await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
+        values (${id}, 'snaptrade', ${sell}, 'a', 'LX', 'SELL', 1, 10, ${new Date(p1.asOf.getTime() - 3_600_000)}, '{}'::jsonb)`;
+      await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+        values (${id}, ${sell}, 'a', 'LX', ${new Date(p1.asOf.getTime() - 86_400_000)}, ${new Date(p1.asOf.getTime() - 3_600_000)}, 3.5, 1, true)`;
+    }
+    const [{ n }] = await sql`select count(*)::int as n from activities where created_at > ${p1.asOf}`;
+    assert.ok(n >= 150_000, `late activities ${n}`);
+    log(`late fixture: ${n.toLocaleString('en-US')} activities imported after asOf, ${Math.round(performance.now() - t0)} ms setup`);
+    // Not analyzed on purpose first (autovacuum has not run yet: the planner's row estimates are stale), then analyzed.
+    const warm: number[] = [], cold: number[] = [];
+    for (const analyzed of [false, true]) {
+      if (analyzed) await sql`analyze activities`;
+      for (let r = 0; r < LATE.rounds; r++) {
+        for (const what of ['all', 'lists'] as const) {
+          clearFeedCache('all');
+          if (what === 'lists') { await loadFeedPage(p1.next); clearFeedCache('lists'); } // weights kept, list forgotten
+          const s = performance.now();
+          const page = await loadFeedPage(p1.next);
+          const ms = performance.now() - s;
+          (what === 'all' ? cold : warm).push(ms);
+          const when = `${analyzed ? 'analyzed' : 'stale statistics'}, ${what === 'all' ? 'cold server' : 'weights kept'}`;
+          assert.deepEqual(page.cards.map((c) => c.sell_id), kept.cards.map((c) => c.sell_id), `the kept list's page 2 (${when})`);
+          if (what === 'all') assert.ok(ms < COLD_LATE_MS, `page 2 ${ms.toFixed(0)} ms (${when})`);
+        }
+      }
+    }
+    const fmt = (xs: number[]) => xs.map((t) => t.toFixed(0)).join(', ');
+    const p95 = [...warm].sort((a, b) => a - b)[Math.ceil(warm.length * 0.95) - 1];
+    assert.ok(p95 < FEED_BOUNDS.p95Ms, `page 2 with the weights kept: p95 ${p95.toFixed(0)} ms (${fmt(warm)})`);
+    log(`page 2 with no kept list after ${n.toLocaleString('en-US')} late activities (first ${LATE.rounds} of each with stale statistics): weights kept ${fmt(warm)} ms (p95 ${p95.toFixed(0)}); cold server ${fmt(cold)} ms`);
+  } finally {
+    await sql`delete from activities where user_id = any(${made})`;
+    await fx.remove();
+  }
+});

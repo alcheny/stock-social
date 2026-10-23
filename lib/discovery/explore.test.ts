@@ -56,14 +56,17 @@ test('property, 1,000 generated feeds × 3 pages: caps on every window (page joi
     for (const left of ranked.filter((x) => !used.has(x.key))) assert.equal(fits(list.map((x) => x.card), left), false, `feed ${f}: ${left.key} fits but was dropped`);
     // Exploration picks come from outside the top 30, in exploration slots; every other card is the best-ranked card
     // that fits its slot (the list stays in rank order past the top). Fix round 1 (UX follow-up 6): of another trader
-    // than the previous card's when one fits; the previous card's trader only when no other card fits.
+    // than the previous card's when one fits; the previous card's trader only when no other card fits. Fix round 2
+    // (business lead blocker): before that, of a trader not among the last 9 cards when one fits.
     const rank = new Map(ranked.map((x, i) => [x.key, i]));
     list.forEach((x, p) => {
       if (x.explore) { assert.ok(x.exploreSlot && rank.get(x.card.key)! >= EXPLORE_TOP, `feed ${f}: explore pick`); return; }
       const before = list.slice(0, p).map((y) => y.card);
       const placed = new Set(before.map((y) => y.key));
       const prev = before[before.length - 1]?.trader;
-      const best = ranked.find((q) => !placed.has(q.key) && fits(before, q) && q.trader !== prev) ?? ranked.find((q) => !placed.has(q.key) && fits(before, q));
+      const recent = new Set(before.slice(-9).map((y) => y.trader));
+      const free = (q: Card) => !placed.has(q.key) && fits(before, q);
+      const best = ranked.find((q) => free(q) && !recent.has(q.trader)) ?? ranked.find((q) => free(q) && q.trader !== prev) ?? ranked.find(free);
       assert.equal(x.card.key, best?.key, `feed ${f} slot ${p}: not the best-ranked card that fits`);
     });
     // ≥ 2 per full window on realistic feeds. An exploration slot takes a top-30 card only when no card from outside
@@ -152,13 +155,15 @@ function skewed(seed: number) {
   return all.filter((c) => { const k = (per.get(c.trader) ?? 0) + 1; per.set(c.trader, k); return k <= 6; }).slice(0, 200);
 }
 
-test('fix round 1: exploration picks a trader not yet in the list whenever one fits; ≥ 80% of picks in the first 4 pages are new traders', () => {
+// Fix round 2 (business lead, accepted): the criterion reads "≥ 80% of exploration picks are new traders while a new
+// pool trader exists" (100% here). Over the whole list it cannot hold: by card ~120 every candidate trader is listed.
+test('fix round 1: exploration picks a trader not yet in the list whenever one fits; ≥ 80% of exploration picks are new traders while a new pool trader exists (and in the first 4 pages)', () => {
   for (let seed = 1; seed <= 50; seed++) {
     const ranked = skewed(seed);
     assert.ok(new Set(ranked.map((c) => c.trader)).size >= 33, 'the 200 candidates span ≥ 33 traders');
     const list = mixFeed(ranked, { day: DAYS[seed % DAYS.length] });
     const pool = ranked.slice(EXPLORE_TOP);
-    let picks = 0, fresh = 0;
+    let picks = 0, fresh = 0, whileNew = 0, freshWhileNew = 0;
     list.forEach((x, p) => {
       const before = list.slice(0, p).map((y) => y.card);
       const seen = new Set(before.map((y) => y.trader));
@@ -168,9 +173,11 @@ test('fix round 1: exploration picks a trader not yet in the list whenever one f
         // A new trader whenever one fits; a trader already shown only when none does.
         assert.equal(!seen.has(x.card.trader), freshFits, `seed ${seed} slot ${p}`);
         if (p < 120) { picks++; if (!seen.has(x.card.trader)) fresh++; }
+        if (pool.some((q) => !placed.has(q.key) && !seen.has(q.trader))) { whileNew++; if (!seen.has(x.card.trader)) freshWhileNew++; }
       }
     });
     assert.ok(fresh >= 0.8 * picks, `seed ${seed}: ${fresh} of ${picks} picks in the first 120 cards are new traders`);
+    assert.ok(freshWhileNew >= 0.8 * whileNew, `seed ${seed}: ${freshWhileNew} of ${whileNew} picks made while a new pool trader exists are new traders`);
     // No trader holds more than 6 cards in any 30 (one page), joins included.
     for (let s = 0; s + 30 <= list.length; s++) {
       const n = new Map<MixCard['trader'], number>();
@@ -178,6 +185,28 @@ test('fix round 1: exploration picks a trader not yet in the list whenever one f
       assert.ok(Math.max(...n.values()) <= 6, `seed ${seed} window ${s}`);
     }
   }
+});
+
+// Fix round 2 (business lead blocker): the first minute is not half five people. On the skewed fixture the 5 hyperactive
+// traders held 27 to 30 of the first 60 cards (8 of 10 at worst) when only the previous card's trader was avoided.
+test('fix round 2: on 50 skewed fixtures the 5 hyperactive traders hold ≤ 5 of any 10 cards and ≤ 28 of the first 60 (median ≤ 25); list length and exploration unchanged', () => {
+  const first60: number[] = [];
+  for (let seed = 1; seed <= 50; seed++) {
+    const ranked = skewed(seed);
+    const list = mixFeed(ranked, { day: DAYS[seed % DAYS.length] });
+    const hyper = list.map((x) => (x.card.trader as number) < 5);
+    for (let s = 0; s + 10 <= list.length; s++) assert.ok(hyper.slice(s, s + 10).filter(Boolean).length <= 5, `seed ${seed} window ${s}`);
+    for (let s = 0; s + 30 <= list.length; s++) assert.ok(hyper.slice(s, s + 30).filter(Boolean).length <= 15, `seed ${seed} 30-window ${s}`);
+    const n = hyper.slice(0, 60).filter(Boolean).length;
+    assert.ok(n <= 28, `seed ${seed}: ${n} of the first 60`);
+    first60.push(n);
+    // Every pick slot still goes to a new trader while one fits (the exploration test checks it card by card); the list
+    // keeps its length (the preference never ends it): 198 to 200 cards before and after.
+    assert.ok(list.length >= 198, `seed ${seed}: ${list.length} cards`);
+  }
+  first60.sort((a, b) => a - b);
+  assert.ok(first60[25] <= 25, `median ${first60[25]} of the first 60`);
+  assert.ok(first60.filter((n) => n <= 27).length >= 49, `${first60.join(',')}`);
 });
 
 test('fix round 1: a trader appears twice in a row only when no other trader\'s card fits that slot', () => {

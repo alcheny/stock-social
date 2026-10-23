@@ -317,6 +317,11 @@ test('F-2 PR-1 fix round 1: loading, the appended-cards announcement, the no-JS 
   assert.equal(FEED_COUNTS.added(30), '30 more trades loaded');
   assert.equal(FEED_COUNTS.added(1), '1 more trade loaded');
   assert.equal(FEED_COUNTS.position(31, 60), 'Trades 31 to 60');
+  assert.equal(FEED.heading, 'Trade feed'); // fix round 2: page 1's (visually hidden) h1
+  // Fix round 2 (UX follow-up 2): the live line differs on every append.
+  assert.equal(FEED_COUNTS.loaded(61, 90), 'Trades 61 to 90 loaded');
+  assert.notEqual(FEED_COUNTS.loaded(31, 60), FEED_COUNTS.loaded(61, 90));
+  assert.doesNotMatch(FEED_COUNTS.loaded(31, 60), /\b(every|all|complete|whole|nothing)\b/i);
   for (const s of [FEED_COUNTS.added(30), FEED_COUNTS.position(31, 60)]) assert.doesNotMatch(s, /\b(every|all|complete|whole|nothing (else|more)|caught up|that'?s it)\b/i, s);
   // In the banned-list walk (it calls each function with ('x', 2, 1)).
   const walked = allCopy(), x = 'x' as unknown as number;

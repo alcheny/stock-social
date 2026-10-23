@@ -15,6 +15,11 @@
 // - F-2 PR-1 fix round 1 (UX follow-up 6): every slot prefers a card whose trader differs from the previous card's,
 //   within the same rule (the best-ranked such card); only when no other card fits does a trader appear twice in a
 //   row. A preference, never a cap: it never ends the list.
+// - F-2 PR-1 fix round 2 (business lead blocker): every slot first prefers a card whose trader is not among the last
+//   window − 1 (9) cards, then one whose trader is not the previous card's, then any, each the best-ranked such card that
+//   fits. Before, hyperactive traders (many fresh small moves, ranked high) filled their 2-per-10 allowance in every
+//   window: 29 of the first 60 cards on the skewed fixture, 8 of 10 at worst. Still a preference, never a cap: it never
+//   ends the list, and exploration is unchanged (a trader new to the list is never among the last 9).
 // - It never reads a return (sign or size): it orders by the ranking it is given.
 // A pool of EXPLORE_TOP cards or fewer has nothing outside the top to explore, so that feed has no exploration.
 import { fits, FEED_CAPS, type Caps, type MixCard } from './diversity.ts';
@@ -41,16 +46,19 @@ export function prng(seed: number): () => number {
 
 export type Mixed<T> = { card: T; explore: boolean; exploreSlot: boolean };
 
-// The first card of `from` (in its order) that is unused and fits, preferring one whose trader is not `prev`.
+// The first card of `from` (in its order) that is unused and fits, preferring one whose trader is not among the last
+// caps.window − 1 placed cards, then one whose trader is not the previous card's (fix round 2).
 export function pick<T extends MixCard>(from: readonly T[], used: ReadonlySet<T>, placed: readonly T[], caps: Caps = FEED_CAPS): T | null {
   const prev = placed.length ? placed[placed.length - 1].trader : undefined;
-  let fallback: T | null = null;
+  const recent = new Set(placed.slice(-(caps.window - 1)).map((c) => c.trader));
+  let notPrev: T | null = null, any: T | null = null;
   for (const c of from) {
     if (used.has(c) || !fits(placed, c, caps)) continue;
-    if (c.trader !== prev) return c;
-    fallback ??= c;
+    if (!recent.has(c.trader)) return c;
+    if (c.trader !== prev) notPrev ??= c;
+    else any ??= c;
   }
-  return fallback;
+  return notPrev ?? any;
 }
 
 export function mixFeed<T extends MixCard>(ranked: readonly T[], opts: { day: string; caps?: Caps; top?: number; every?: number }): Mixed<T>[] {

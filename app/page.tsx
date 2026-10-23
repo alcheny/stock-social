@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { loadFeedPage } from '@/lib/feed.ts';
-import { FEED_COUNTS } from '@/lib/copy.ts';
+import { FEED, FEED_COUNTS } from '@/lib/copy.ts';
 import { FeedKeys } from './feed-keys.tsx';
 import { FeedEnd, FeedRows } from './feed-rows.tsx';
 import { FeedPager } from './feed-pager.tsx';
@@ -31,8 +31,9 @@ export default async function Feed({ searchParams }: Props) {
 
   return (
     <main className="feed">
-      {/* Fix round 1 (UX follow-up 9): a later page (no JS) says where in the list it starts. */}
-      {page.offset > 0 && <h1 className="sr-only">{FEED_COUNTS.position(page.from, page.to)}</h1>}
+      {/* Fix round 1 (UX follow-up 9): a later page (no JS) says where in the list it starts. Fix round 2: page 1 has its
+          own level-1 heading too (visually hidden; the cards are the page). */}
+      <h1 className="sr-only">{page.offset > 0 ? FEED_COUNTS.position(page.from, page.to) : FEED.heading}</h1>
       <FeedKeys />
       <FeedRows page={page} />
       {page.next ? <FeedPager key={page.next} next={page.next} /> : <FeedEnd />}

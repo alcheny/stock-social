@@ -28,6 +28,10 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
   return <>{name !== handle && <><strong>{name}</strong>{' '}</>}<span className="muted">@{handle}</span></>;
 }
 
+// F-2 PR-1 fix round 2 (render cost): one formatter, not one per card (toLocaleDateString with options builds a new one
+// each call, ~0.1 ms). Same locale, options and time zone, so the same text.
+const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+
 export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: PublicState }) {
   const up = t.return_pct > 0;
   const trust = cardTrust(t, state);
@@ -43,7 +47,7 @@ export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: Pub
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
-        <div className="muted">held {days(t.holding_days)} · closed {t.closed_at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+        <div className="muted">held {days(t.holding_days)} · closed {CLOSED_DAY.format(t.closed_at)}</div>
       </div>
       <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
       <footer className="muted">
