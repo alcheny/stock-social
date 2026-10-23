@@ -70,5 +70,8 @@ Each one testable; the pipeline writes a test for every line.
   visitors away). The owner's placement decision includes it.
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
   decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.
+- Owner (F-2 PR-2 fix round 1, 2026-10-23, committee deviation): unfollow does not hide the trader from the feed; its
+  90-day `unfollow` row is kept for PR-3's suggestions (criterion 4). Reverse with one constant,
+  `lib/discovery/weights.ts#FEED_HIDES_UNFOLLOWED = true`.
 
 ## Rework notes

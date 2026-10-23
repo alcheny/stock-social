@@ -5,6 +5,7 @@ import { syncAll, syncDeadline, syncRouteEnd, syncTick, type TickReport } from '
 import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
 import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
+import { purgeDiscovery, type PurgeReport } from '@/lib/discovery/purge.ts';
 
 // Cron: POST /api/sync with `Authorization: Bearer $CRON_SECRET`, every 5 minutes and never at :30 (request #7 as amended;
 // rounds run :30 to :30, lib/sync.ts).
@@ -27,10 +28,14 @@ export async function POST(req: NextRequest) {
   // Deletions a failed vendor call left marked (lib/delete.ts) are finished here.
   const pendingDeletes = await sql<DeletableUser[]>`select id, handle, snaptrade_user_id, snaptrade_secret_enc from users where deleted_at is not null`;
   const deletions = await syncAll(pendingDeletes, (u) => deleteProfile(u));
+  // F-2 PR-2 (plan demand D): ended exclusions, ≤ 30 s under its own lock. Never a branch: whatever it returns or
+  // throws, the traders below are claimed exactly as before.
+  let purged: PurgeReport | null = null;
+  try { purged = await purgeDiscovery(); } catch (e) { console.error('discovery purge failed', e instanceof Error ? e.message : e); }
   // Only traders with a connected (consented) connection and no import in progress, each claimed by one caller per
   // round (lib/sync.ts#syncTick), so overlapping cron calls split the traders instead of syncing each one twice.
   // ponytail: one caller is sequential, ~5k traders/hour; more concurrent calls add throughput, then a queue (DESIGN §2.7)
   let end: TickReport | null = null;
   const { ok, skipped, failed } = await syncTick({ deadline, routeEnd: syncRouteEnd(startedAt), report: (r) => { end = r; } });
-  return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions });
+  return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions, purged });
 }
