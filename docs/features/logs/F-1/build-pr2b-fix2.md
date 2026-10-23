@@ -171,12 +171,16 @@ Date: 2026-10-23. Engineer. Tests only; no product code changed.
 - **`lib/connections.test.ts`, "D2".** This test had the same race (`t.cleaned === 1` and an unfiltered
   `deletedConnections`). It now asserts `cleaned >= 1`, that row A is cleaned and not in `errors`, and that no `auth-x`
   link and no link carrying its tag was ever deleted.
-- **`lib/schema.test.ts`, "a repeat apply blanks…".** The old and fresh declined, old expired and connected rows keep
-  their strict assertions. The uncleaned row is exactly what the tick cleans, so its check is now the invariant itself:
-  - While the row is uncleaned (`cleanup_done_at` null), its snapshot must be intact, because the apply never blanks it.
-  - If a concurrent tick's cleanup finished it, it must show the cleanup's own blanking with `cleanup_done_at` set.
-  - With no overlap, the strict branch runs, as before.
-  - The regex check on the update's predicate (`cleanup_done_at is not null`) is unchanged.
+- **`lib/schema.test.ts`, "a repeat apply blanks…".** The fixture is now unaffected by a concurrent tick, and every
+  assertion is strict again (the earlier draft of this round accepted either outcome for the uncleaned row; that was
+  replaced).
+  - A second session inserts the uncleaned row and holds its row lock (`select … for update`) from just after the insert
+    until the row is deleted, inside that same transaction. A concurrent tick's cleanup blocks on its final update and
+    then finds the row gone. The apply's update never waits on it, because the row fails its predicate
+    (`cleanup_done_at is not null`), and the apply takes no table lock.
+  - If a tick cleans the row in the instant between its insert and the lock, the row is dropped and made again.
+  - All five rows are read by the test's own `attempt_id`. The uncleaned row must still have its snapshot and
+    `cleanup_done_at` null.
 - No test was removed, and the count is unchanged (448).
 
 ### Proof
@@ -186,6 +190,7 @@ Date: 2026-10-23. Engineer. Tests only; no product code changed.
 | `npm test` ×6 | 448 pass, 0 fail, every run |
 | `node --test lib/connections.test.ts lib/schema.test.ts` (files run concurrently) ×10 | 39 pass, 0 fail, every run |
 | Tester's reproduction: one foreign expired row with `cleanup_done_at` null inserted, then `--test-name-pattern="expiry with a clock\|D2"` | 2 pass. The foreign row was cleaned by the tick (`accounts = []`, `cleanup_done_at` set), and both tests still passed. The row was removed afterwards. |
+| Forced overlap on the schema test: a loop runs the tick's cleanup update (every uncleaned declined or expired row) back to back for 8 s while `node --test lib/schema.test.ts` runs 5 times | 3 pass, 0 fail, every run. The locked fixture row was never cleaned. |
 | `npx tsc --noEmit` | clean (a `string[]` cast was needed: an earlier `deepEqual(…, [])` had narrowed the array to `never[]`) |
 | `node scripts/compliance.ts diff origin/main` | only the existing `@img/sharp-wasm32` license line |
 | `node scripts/autopilot.ts guard main` | `guard: ok` |

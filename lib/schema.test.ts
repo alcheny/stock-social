@@ -63,11 +63,22 @@ dbTest('a repeat apply waits on no table lock while another session holds an ope
 // touches declined or expired rows that cleanup finished more than 24 h after they ended.
 dbTest('schema: a repeat apply blanks accounts and institution on cleaned declined/expired rows older than 24 h, and nothing else', async () => {
   assert.match(bare, /update connections set accounts = '\[\]'::jsonb, institution = null\s+where state in \('declined', 'expired'\) and cleanup_done_at is not null/);
-  const db = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+  const url = process.env.DATABASE_URL!;
+  const db = postgres(url, { max: 1, onnotice: () => {} });
+  // The uncleaned row is exactly what the connection tick cleans (it cleans every uncleaned declined or expired row in
+  // the database), and another test file may tick while this one applies the schema. So a second session holds that
+  // row's lock from just after it is committed until it is deleted: a concurrent tick's cleanup blocks on its final
+  // update and then finds the row gone, and the apply (whose predicate the row fails) never waits on it.
+  const holder = postgres(url, { max: 1, onnotice: () => {} });
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  let open: Promise<unknown> = Promise.resolve();
   const snap = JSON.stringify([{ id: 'acct-x', authorizationId: 'auth-x', institution: 'Test Broker', paper: false }]);
+  let attempt: number | null = null;
   try {
     await db.unsafe(ddl).simple();
     const [a] = await db`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+    attempt = Number(a.id);
     const mk = (state: string, ended: string, cleaned: boolean) => db.unsafe(
       `insert into connections (attempt_id, state, institution, accounts, pending_at, ${state === 'declined' ? 'declined_at' : state === 'expired' ? 'expired_at' : 'connected_at'}, cleanup_done_at)
        values ($1, $2, 'Test Broker', $3::text::jsonb, now() - interval '${ended}', now() - interval '${ended}', ${cleaned ? 'now()' : 'null'}) returning id`,
@@ -76,30 +87,43 @@ dbTest('schema: a repeat apply blanks accounts and institution on cleaned declin
       oldDeclined: await mk('declined', '30 hours', true),
       oldExpired: await mk('expired', '48 hours', true),
       freshDeclined: await mk('declined', '1 hour', true),
-      uncleaned: await mk('expired', '48 hours', false), // cleanup still needs the snapshot to remove the link
+      uncleaned: 0, // cleanup still needs the snapshot to remove the link; inserted and locked below
       connected: await mk('connected', '48 hours', true),
     };
+    let locked!: (id: number) => void;
+    const ready = new Promise<number>((r) => (locked = r));
+    open = holder.begin(async (tx) => {
+      // A tick may clean the row in the instant between its insert and the lock: then it is dropped and made again.
+      for (;;) {
+        const id = await mk('expired', '48 hours', false);
+        const [r] = await tx`select cleanup_done_at from connections where id = ${id} for update`;
+        if (r.cleanup_done_at === null) { locked(id); break; }
+        await tx`delete from connections where id = ${id}`;
+      }
+      await released;
+      await tx`delete from connections where id = ${ids.uncleaned}`; // still under the lock: no tick ever cleans it
+    });
+    ids.uncleaned = await Promise.race([ready, open.then(() => 0)]); // the holder failing rejects here
+    assert.ok(ids.uncleaned > 0);
     await db.unsafe(ddl).simple();
     await db.unsafe(ddl).simple(); // idempotent
     const rows = await db`select id, state, accounts, institution, cleanup_done_at from connections where attempt_id = ${a.id} order by id`;
     assert.equal(rows.length, 5); // no row deleted
     const by = new Map(rows.map((r) => [Number(r.id), r]));
     for (const id of [ids.oldDeclined, ids.oldExpired]) assert.deepEqual([by.get(id)!.accounts, by.get(id)!.institution], [[], null]);
-    for (const id of [ids.freshDeclined, ids.connected]) {
+    for (const id of [ids.freshDeclined, ids.uncleaned, ids.connected]) {
       assert.equal(by.get(id)!.accounts.length, 1);
       assert.equal(by.get(id)!.institution, 'Test Broker');
     }
-    // The uncleaned row is exactly what the connection tick cleans, and a test file running alongside may tick while
-    // this one applies the schema. So the check is on the invariant itself: as long as the row is still uncleaned, its
-    // snapshot is intact (the apply never blanks it). If a concurrent tick's cleanup finished it, cleanup itself
-    // blanked it and recorded cleanup_done_at; that is the cleanup's job, not the apply's.
-    const u = by.get(ids.uncleaned)!;
-    assert.equal(u.state, 'expired');
-    if (u.cleanup_done_at === null) assert.deepEqual([u.accounts.length, u.institution], [1, 'Test Broker']);
-    else assert.deepEqual([u.accounts, u.institution], [[], null]);
-    await db`delete from connections where attempt_id = ${a.id}`;
-    await db`delete from signup_attempts where id = ${a.id}`;
+    assert.equal(by.get(ids.uncleaned)!.cleanup_done_at, null);
   } finally {
+    release();
+    await open;
+    if (attempt !== null) {
+      await db`delete from connections where attempt_id = ${attempt}`;
+      await db`delete from signup_attempts where id = ${attempt}`;
+    }
+    await holder.end({ timeout: 1 });
     await db.end({ timeout: 1 });
   }
 });
