@@ -1,6 +1,6 @@
 # F-1 · Broker connection, end to end
 
-Status: ready
+Status: built (2026-10-23; PRs #11, #15, #16, #17; owner sets accepted)
 
 ## Why
 A trader signs up, connects a brokerage read-only, and lands on a clean, readable profile of their own
