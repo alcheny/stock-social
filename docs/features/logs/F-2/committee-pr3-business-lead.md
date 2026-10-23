@@ -216,3 +216,42 @@ COMPLIANCE: PASS · USABILITY: DEMANDS
    the list.
 8. Accepted: "More records"; section not a `.row`; new faces first; sheet with its own F3 line; "Not interested" kept in
    the pane; O1 default (section rows only).
+
+## Round 2 (2026-10-23, HEAD 24d93d1, fix round 1)
+
+Verified as a user: fresh production build of HEAD, `next start` on 3115, the vendor fake on 4195, my own database
+(created by the superuser, owned by the shared role, dropped afterwards). No sync tick; the shared database untouched.
+
+| Round 1 item | Check | Result |
+|---|---|---|
+| 1. Blocker: reject on a fast flick | Signed in, 375×667, real touch events on the first section row (343 px card) | Delivered. 60 px in 30 ms: no tray commit, no Undo bar. 40% (137 px) in 30 ms: nothing. 40% slow (480 ms): snaps back. 55% slow: commits, "Hidden for 90 days." bar with Undo. 60% fast: commits (the finger really travelled past half). Undo restores the row and ends the exclusion (`until` set at undo time); the sheet never opened on a rightward swipe. |
+| 1. Tray label | Source and screenshot | "Hide", whole once revealed. |
+| 2. One reason template | Page HTML | Every row reads "Typical holding period: …"; "Closed a trade this week" and "New here this month" are gone from the product. |
+| 3. Explainer | Page HTML | Heading "Other traders' records"; line "Ordered by how much evidence each record has. Losses count the same as gains." Nothing about "the same for everyone". True signed in and out. |
+| 4. Log §8.1 | Engineer log row 5i | Corrected. |
+| Ordering (criterion 8) | Own fixture: 30 established, 2 all-loss records, 5 + 4 newcomers, 1 hyperactive; weights recomputed independently with `evidenceWeight(confidence())` | Delivered. After removing the 10 cards around the section (which held the 7 highest weights), the rows were exactly the next three by weight (ranks 8, 9, 10), bucket cap respected. The all-loss record ranked first by weight: losses weigh like gains. The 80-close hyperactive trader ranks by evidence, not volume. |
+| Section on page 1 with 50 heavy traders | 50 traders × 60 closes, 45 sharing the 1–7 day bucket | Delivered. Section rendered on page 1, signed out; rows 2 × "1 to 7 days" + 1 × "1 to 4 weeks" (cap holds while choosing). Page 261 KB, 70–90 ms warm. |
+| PR-1b scope | Engineer log "Next PR" | Recorded as I asked, with the acceptance test. |
+
+Cleanup: 43 + 50 test users and my viewer deleted (`blp3_%`), server and fake stopped, database dropped. No product
+code changed.
+
+### Still open (not blocking, carried in the engineer's follow-ups)
+
+- Section block two-thirds full at 375×667 (165 px empty below the third row, seen again this round): center it.
+- Signed in, the reason still wraps to two lines beside Follow and "…" ("Typical holding / period: …"). One template
+  made it shorter, not whole: put Follow and "…" on the name line so the reason gets the full width.
+- Focus ring at 1280 and "…" popover elevation.
+- PR-1b is the next PR, before PR-4. Today a newcomer with 4 to 6 closes has weight 0 and never reaches a section row
+  while 12 established records exist: the section serves evidence, PR-1b must serve new faces.
+
+### Ready-to-merge statement
+
+PR-3 is ready to merge. The blocker is fixed where it matters, at the finger: a fast short flick no longer hides a
+trader, and only a deliberate travel past half the row does, with Undo that really ends the exclusion. The section now
+says one true thing per row, orders by the documented lower bound with losses weighted like gains (verified against an
+independent recomputation, an all-loss record ranked first), and still appears on page 1 under a 50-heavy load within
+budget. What remains is layout polish already queued for the UX lead and the exposure gap PR-1b closes next; neither
+changes what a signed-out reader from a shared link sees or trusts.
+
+COMPLIANCE: PASS · USABILITY: PASS
