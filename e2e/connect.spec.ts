@@ -717,6 +717,24 @@ test('committee fix (items 1, 4, 7): brokerage-first from /login reaches the imp
   await sql`delete from broker_accounts where account_id = ${acc}`;
 });
 
+test('committee fix round 6: a bound attempt older than 24 h is refused like an unbound one (no primary on S2; start and done go to /login), counted once as expired with no personal data', async ({ page }) => {
+  const attempt = await brokerageAttempt(page);
+  const sql = await db();
+  await sql`update signup_attempts set created_at = now() - interval '25 hours' where id = ${attempt}`;
+  await page.goto('/connect');
+  await expect(page.getByRole('status')).toHaveText('Sign in first, then connect.');
+  await expect(page.getByRole('link', { name: 'Connect brokerage (read-only)' })).toHaveCount(0);
+  for (const path of ['/connect/start', '/connect/done']) {
+    const r = await page.request.get(path, { maxRedirects: 0 });
+    expect(r.status(), path).toBe(307);
+    expect(new URL(r.headers()['location']).pathname, path).toBe('/login');
+  }
+  const refusals = await sql`select meta::text as meta from funnel_events where attempt_id = ${attempt} and name = 'failed' order by id`;
+  expect(refusals.map((r) => JSON.parse(r.meta))).toEqual([{ reason: 'expired' }]);
+  expect(JSON.stringify(refusals)).not.toMatch(/@|\d{7,}/);
+  expect((await sql`select snaptrade_user_id from signup_attempts where id = ${attempt}`)[0].snaptrade_user_id).toBeNull(); // no portal was opened
+});
+
 test('committee fix (items 5, 6): no share invitation while importing or failed; "Try again" is the only primary and at least 44 px; a retry that reaches connected brings the share prompt back', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 740 });
   const handle = `shr${uniq()}`;

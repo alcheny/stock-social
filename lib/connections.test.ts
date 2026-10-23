@@ -1081,3 +1081,59 @@ dbTest('committee fix 3 (Medium): after cleanup a declined or expired row keeps 
     await cleanup([u.id], [a1, a2, a3, `${tag}-ret4`]);
   }
 });
+
+// Committee fix round 6 (Low): one 24 h life for a bound attempt, read from one clock. Refused from 24 h after creation
+// (counted once, `reason: 'expired'`, no personal data); swept at the same age only when no live connection uses it.
+dbTest('committee fix round 6 (Low): a bound attempt older than 24 h is refused and counted once as expired; cleanup removes its vendor user only when older than 24 h and not referenced by a live connection', async () => {
+  const { sql, tag, cleanup } = await setup();
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { boundAttempt, startConnection, completeLink, cleanupAttempts, ATTEMPT_HOURS, CONNECT_COOKIE_SECONDS } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const secret = 'fake-round6-secret';
+  assert.equal(CONNECT_COOKIE_SECONDS, ATTEMPT_HOURS * 3_600); // the cookie never outlives the attempt
+  const [{ now }] = await sql`select now() as now`;
+  const clock = new Date(now);
+  const at = (hoursAgo: number) => new Date(clock.getTime() - hoursAgo * 3_600_000);
+  const age = (id: number, hoursAgo: number) => sql`update signup_attempts set created_at = ${at(hoursAgo)} where id = ${id}`;
+  const acc = `${tag}-r6`;
+  try {
+    // The bound-attempt rule, against the clock.
+    const a = await createAttempt({ method: 'brokerage', attested: true });
+    const cookie = attemptCookieValue(a, secret);
+    await age(a, 23.9);
+    assert.equal(await boundAttempt(cookie, secret, clock), a);
+    assert.equal(await boundAttempt(cookie, secret, at(-0.2)), null); // the same attempt, 24.1 h after creation
+    await age(a, 24);
+    assert.equal(await boundAttempt(cookie, secret, clock), null); // exactly 24 h: refused
+    await age(a, 30);
+    assert.equal(await boundAttempt(cookie, secret), null); // database clock
+    const refusals = await sql`select meta::text as meta from funnel_events where attempt_id = ${a} and name = 'failed' order by id`;
+    assert.deepEqual(refusals.map((r) => JSON.parse(r.meta)), [{ reason: 'expired' }]); // once, however often presented
+    assert.doesNotMatch(JSON.stringify(refusals), /@|\d{7,}/);
+
+    // The cleanup rule, against the same clock: portal opened, nothing linked.
+    const young = await createAttempt({ method: 'brokerage', attested: true });
+    const aged = await createAttempt({ method: 'brokerage', attested: true });
+    const held = await createAttempt({ method: 'brokerage', attested: true });
+    for (const x of [young, aged, held]) await startConnection({ userId: null, attemptId: x }, 'r', deps);
+    v.accounts = [acct(acc)];
+    await completeLink({ userId: null, attemptId: held }, deps); // a pending connection: live
+    await age(young, 23.9);
+    await age(aged, 24);
+    await age(held, 30);
+    await cleanupAttempts(deps, clock);
+    const vu = async (id: number) => (await sql`select snaptrade_user_id from signup_attempts where id = ${id}`)[0].snaptrade_user_id;
+    assert.ok(v.deletedUsers.includes(`vendor-attempt-${aged}`));
+    assert.equal(await vu(aged), null);
+    assert.ok(!v.deletedUsers.includes(`vendor-attempt-${young}`)); // its cookie is still accepted, its portal may be open
+    assert.equal(await vu(young), `vendor-attempt-${young}`);
+    assert.equal(await boundAttempt(attemptCookieValue(young, secret), secret, clock), young);
+    assert.ok(!v.deletedUsers.includes(`vendor-attempt-${held}`)); // a live connection references it
+    assert.equal(await vu(held), `vendor-attempt-${held}`);
+    // Anything cleanup can sweep is already refused: the two rules share one age and one clock.
+    assert.equal(await boundAttempt(attemptCookieValue(aged, secret), secret, clock), null);
+    await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id in (${young}, ${held})`;
+  } finally {
+    await cleanup([], [acc]);
+  }
+});

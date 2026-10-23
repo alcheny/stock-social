@@ -15,16 +15,25 @@ import { unsignToken } from './auth/sessions.ts';
 
 // Brokerage-first: the signed attempt id, bound to the browser at S1 (startSignIn) until the user row exists.
 export const CONNECT_COOKIE = 'connect_attempt';
-export const CONNECT_COOKIE_SECONDS = 86_400;
+export const ATTEMPT_HOURS = 24;
+export const CONNECT_COOKIE_SECONDS = ATTEMPT_HOURS * 3_600; // the cookie never outlives its attempt
 
 // Committee fix (High): the ONLY way a signed-out request finds its attempt. The HMAC-signed cookie written when the
 // attempt was created, for an attested brokerage attempt with no user that is not completed. A query-string id is never
 // read: ids are sequential, and an attempt handed to whoever asks is a takeover.
-export async function boundAttempt(cookie: string | undefined | null, secret: string): Promise<number | null> {
+// Committee fix (Low, round 6): a bound attempt lives ATTEMPT_HOURS from its creation, as its cookie does. Older, it is
+// refused like an unbound one and counted once (`reason: 'expired'`, an id and a reason only), so nothing a portal
+// started can complete after cleanupAttempts (same age, same database clock) has removed its vendor user.
+export async function boundAttempt(cookie: string | undefined | null, secret: string, now?: Date): Promise<number | null> {
   const id = Number(unsignToken(cookie, secret));
   if (!Number.isSafeInteger(id) || id <= 0) return null;
-  const [a] = await sql`select id from signup_attempts where id = ${id} and method = 'brokerage' and user_id is null and completed_at is null`;
-  return a ? id : null;
+  const [a] = await sql`select id, created_at + ${ATTEMPT_HOURS} * interval '1 hour' > ${now ?? sql`now()`} as live from signup_attempts
+    where id = ${id} and method = 'brokerage' and user_id is null and completed_at is null`;
+  if (!a) return null;
+  if (a.live) return id;
+  const [seen] = await sql`select 1 from funnel_events where attempt_id = ${id} and name = 'failed' and meta->>'reason' = 'expired' limit 1`;
+  if (!seen) await recordFunnel(id, 'failed', { reason: 'expired' });
+  return null;
 }
 // A request that presents an attempt id its cookie does not match: refused, and counted on that attempt (an id and a
 // reason; nothing personal). An unknown or malformed id writes nothing.
@@ -348,9 +357,10 @@ export async function cleanup(id: number, deps: Deps = realDeps, now = new Date(
 // with no use. After 24 h (the longest a portal or consent can stay open), with no live or uncleaned connection and no
 // users row holding the same vendor user, it is deleted at the vendor and blanked on the attempt. Retried by the tick.
 // Age is read from the database clock (not the tick's `now`), so a simulated clock never sweeps a fresh attempt.
-export async function cleanupAttempts(deps: Deps = realDeps): Promise<number> {
+// `now` exists for tests; the tick passes none. Swept exactly when boundAttempt stops accepting the attempt.
+export async function cleanupAttempts(deps: Deps = realDeps, now?: Date): Promise<number> {
   const rows = await sql`select id, snaptrade_user_id as u, snaptrade_secret_enc as s from signup_attempts a
-    where snaptrade_user_id is not null and created_at + ${PENDING_HOURS} * interval '1 hour' <= now()
+    where snaptrade_user_id is not null and created_at + ${ATTEMPT_HOURS} * interval '1 hour' <= ${now ?? sql`now()`}
       and not exists (select 1 from connections c where c.attempt_id = a.id and (c.state in ('pending', 'importing', 'connected') or c.cleanup_done_at is null))
       and not exists (select 1 from users x where x.snaptrade_user_id = a.snaptrade_user_id)
     order by id`;

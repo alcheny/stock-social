@@ -263,6 +263,13 @@ create table if not exists connections (
 );
 select schema_add_index('connections_user', 'create index connections_user on connections (user_id)');
 select schema_add_index('connections_state', 'create index connections_state on connections (state)');
+-- Committee fix (Low, PR-2a round 6): rows cleaned before cleanup blanked the snapshot still hold one. A declined or
+-- expired row that cleanup has finished and that ended over 24 h ago keeps no account snapshot or institution; ids,
+-- states and timestamps stay for the funnel. Idempotent (a blanked row no longer matches); never deletes a row.
+update connections set accounts = '[]'::jsonb, institution = null
+  where state in ('declined', 'expired') and cleanup_done_at is not null
+    and coalesce(declined_at, expired_at, pending_at) < now() - interval '24 hours'
+    and (accounts <> '[]'::jsonb or institution is not null);
 
 -- Claims are provisional until consent (confirmed_at); provisional rows are released on decline, expiry or when no real
 -- account was found, confirmed rows never. Simulated ("paper") accounts are claimed, excluded from the record and

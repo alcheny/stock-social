@@ -236,3 +236,27 @@ inside the page that owns the attempt.
 Files: `lib/connections.test.ts`, `app/u/[handle]/page.tsx`, `e2e/connect.spec.ts`, `e2e/app.spec.ts`,
 `docs/features/logs/F-1/test-pr2a-tester.md` (one quoted line reworded). Nothing weakened or deleted; test counts unchanged
 (unit 413; the two new assertions extend existing e2e tests).
+
+## Fix round 6 (committee engineer re-sit, two Lows)
+
+| Finding | Fix | Test |
+|---|---|---|
+| Low · `boundAttempt` had no server-side age limit, so a bound cookie worked indefinitely and the hourly sweep could remove a vendor user while that attempt's portal was still open | `lib/connections.ts`: one `ATTEMPT_HOURS = 24` from the attempt's creation. `boundAttempt` refuses an attempt at or past that age like an unbound one and records `failed` with `reason: 'expired'` once per attempt (an id and a reason, nothing personal). `cleanupAttempts` sweeps at the same age on the same database clock, and still only when no live (pending, importing, connected) or uncleaned connection references the attempt, so anything it can sweep is already refused. Both take an optional clock for tests; the routes and the tick pass none. `CONNECT_COOKIE_SECONDS = ATTEMPT_HOURS * 3600` (unchanged 24 h, now derived) | `lib/connections.test.ts` "committee fix round 6": against one clock, 23.9 h accepted, 24 h and 24.1 h refused, one `expired` event however often presented; cleanup sweeps the 24 h attempt, keeps the 23.9 h one (still accepted) and a 30 h one with a pending connection; cookie max-age equals the attempt life. e2e `connect.spec.ts` "committee fix round 6": an attempt aged 25 h gets no primary on S2, `/connect/start` and `/connect/done` go to `/login`, one `{reason: 'expired'}` event, no portal opened |
+| Low · rows cleaned before the snapshot fix still hold `accounts`/`institution` | `db/schema.sql`: one idempotent `update` (no delete) that blanks `accounts` and `institution` on `declined`/`expired` rows whose cleanup has finished and that ended over 24 h ago; rows still awaiting cleanup keep the snapshot cleanup needs to remove the link | `lib/schema.test.ts`: a repeat apply blanks old cleaned declined and expired rows; leaves a 1 h-old declined row, an uncleaned expired row and a connected row untouched; no row deleted; a second apply changes nothing |
+
+Note: on the local database the remaining snapshot rows were cleaned within the last 24 h (today's test runs), so the
+statement blanks them on the first schema apply after they pass 24 h; one expired row still awaits its cleanup and is
+left for it.
+
+### Checks
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL` local Postgres), two runs | 415 pass each run, 0 fail, 0 skipped |
+| `npm run build` | first attempt stopped on the framework's security-advisory prompt (tool output; not acted on, nothing upgraded); the retry built cleanly |
+| `npx playwright test e2e/connect.spec.ts` (`ALLOW_DEV_AUTH=1`, vendor variables pointing at the fake the spec starts) | 16 passed, 0 failed |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+
+Files: `lib/connections.ts`, `db/schema.sql`, `lib/connections.test.ts`, `lib/schema.test.ts`, `e2e/connect.spec.ts`.
+Nothing weakened or deleted; unit tests 413 → 415, e2e connect 15 → 16.
