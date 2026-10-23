@@ -449,3 +449,56 @@ test('fix round 2: a link waiting on consent shows nothing public (signed out: n
   await sql`delete from users where handle = ${handle}`;
   await sql`delete from broker_accounts where account_id in (${acc}, ${pap})`;
 });
+
+test('fix round 3: a second link consented while a 3-account import runs keeps the record importing (banner, no Verified badge or stats, signed out too) until both finish; the poll drives both and ends connected with 7 closes', async ({ page, browser }) => {
+  const handle = `two${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const a = [1, 2, 3].map((n) => `e2e-${handle}-${n}`), b = `e2e-${handle}-b`;
+  await scenario(a.map((id) => ({ id, activities: 4 })));
+  await connectThrough(page);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  expect(await step(page.request)).toMatchObject({ state: 'importing', imported: 4 }); // account 1 of 3
+  // A second link (1 account, 2 activities) while the first import runs; consented.
+  await scenario([{ id: b, activities: 2 }]);
+  await connectThrough(page);
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  const sql = await db();
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  // Finish only the second link out of band (what the old newest-row poll did), leaving the first importing.
+  const [second] = await sql`select id from connections where user_id = ${u.id} order by id desc limit 1`;
+  const [firstRow] = await sql`select id from connections where user_id = ${u.id} and id <> ${second.id} and state = 'importing'`;
+  await sql`update connections set import_cursor = import_cursor || '{"retryAt": 9999999999999}' where id = ${firstRow.id}`;
+  let r = await step(page.request);
+  for (let i = 0; i < 6 && (await sql`select state from connections where id = ${second.id}`)[0].state === 'importing'; i++) r = await step(page.request);
+  expect((await sql`select state from connections where id = ${second.id}`)[0].state).toBe('connected');
+  expect(r.state).toBe('importing'); // the aggregate: the first import is still running
+  expect((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n).toBeGreaterThan(0);
+  // Signed out: the banner shows and nothing is presented as complete.
+  const anon = await browser.newContext();
+  const p2 = await anon.newPage();
+  await p2.setViewportSize({ width: 375, height: 740 });
+  await p2.goto(`/u/${handle}`);
+  await expect(p2.locator('.importing')).toContainText('Importing your record');
+  await expect(p2.locator('.badge.verified')).toHaveCount(0);
+  await expect(p2.locator('section.stats')).toHaveCount(0);
+  await expect(p2.locator('main')).not.toContainText('win rate');
+  await expect(p2.locator('main')).not.toContainText('Connected:');
+  await expect(p2.locator('.record-body')).toHaveText('Your trades appear here as they import.');
+  await p2.screenshot({ path: test.info().outputPath('profile-two-imports-importing.png'), fullPage: true });
+  // The poll resumes the first import and the record ends whole.
+  await sql`update connections set import_cursor = import_cursor - 'retryAt' where id = ${firstRow.id}`;
+  for (let i = 0; i < 8 && r.state === 'importing'; i++) r = await step(page.request);
+  expect(r).toMatchObject({ state: 'connected', closes: 7 });
+  await p2.goto(`/u/${handle}`);
+  await expect(p2.locator('.importing')).toHaveCount(0);
+  await expect(p2.locator('.badge.verified')).toHaveCount(1);
+  await expect(p2.locator('section.stats').first()).toContainText('win rate');
+  await expect(p2.locator('.rows:not(.positions) li')).toHaveCount(7);
+  await anon.close();
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id = any(${[...a, b]})`;
+});

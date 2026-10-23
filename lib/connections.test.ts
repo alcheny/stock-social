@@ -5,7 +5,7 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { BrokerUser, VendorAccount } from './broker.ts';
-import { advanceCursor, assertTransition, clockState, IllegalTransitionError, ownsConnection, parseConnectionId, PENDING_HOURS, REFUSED_STATUSES, RETRY_BASE_MS, RETRY_MAX_MS, retryDelayMs, STALE_HOURS, STATES, startCursor, TRANSITIONS, type Deps } from './connections.ts';
+import { advanceCursor, aggregateRecord, assertTransition, clockState, IllegalTransitionError, ownsConnection, parseConnectionId, PENDING_HOURS, REFUSED_STATUSES, RETRY_BASE_MS, RETRY_MAX_MS, retryDelayMs, STALE_HOURS, STATES, startCursor, TRANSITIONS, type Deps } from './connections.ts';
 import { recordBodyCopy, RECORD_BODY } from './copy.ts';
 import { attemptCookieValue } from './auth/links.ts';
 
@@ -89,6 +89,40 @@ test('vendor backoff (D4): 30 s doubling per consecutive failure, capped at one 
   assert.equal(retryDelayMs(20), 3_600_000);
   assert.deepEqual([...REFUSED_STATUSES].sort(), [401, 403, 404]);
   for (const st of [400, 429, 500, 502, 503]) assert.equal(REFUSED_STATUSES.has(st), false);
+});
+
+test('record aggregate (fix round 3): the state is over every consented connection, never the newest one; pending, declined and expired rows never count; a later live connection of the same accounts supersedes a failed one', () => {
+  const a = (id: string, isPaper = false) => ({ id, authorizationId: `auth-${id}`, institution: 'X', isPaper, initialSyncCompleted: true });
+  const t = new Date('2026-10-23T10:00:00Z');
+  const row = (id: number, state: (typeof STATES)[number], accts: string[], imported = 0, consented = true) =>
+    ({ id, state, consent_at: consented ? t : null, imported_count: imported, accounts: accts.map((x) => a(x)) });
+  // Nothing consented.
+  assert.deepEqual(aggregateRecord([]), { state: 'none', imported: 0, importing: [] });
+  assert.deepEqual(aggregateRecord([], true), { state: 'connected', imported: 0, importing: [] });
+  for (const st of ['pending', 'declined', 'expired'] as const) assert.equal(aggregateRecord([row(1, st, ['p'], 0, false)]).state, 'none', st);
+  // One consented connection: its own state.
+  assert.equal(aggregateRecord([row(1, 'importing', ['a'])]).state, 'importing');
+  assert.equal(aggregateRecord([row(1, 'connected', ['a'])]).state, 'connected');
+  assert.equal(aggregateRecord([row(1, 'failed', ['a'])]).state, 'failed');
+  // The tester's repro: an older import still running and a newer connected one → importing, counts summed, the running id listed.
+  assert.deepEqual(aggregateRecord([row(1, 'importing', ['a1', 'a2', 'a3'], 4), row(2, 'connected', ['b1'], 2)]), { state: 'importing', imported: 6, importing: [1] });
+  // An older import still running and a newer pending, declined or expired link → importing, never pending.
+  for (const st of ['pending', 'declined', 'expired'] as const) assert.deepEqual(aggregateRecord([row(1, 'importing', ['a'], 4), row(2, st, ['b'], 0, false)]), { state: 'importing', imported: 4, importing: [1] }, st);
+  // Two imports running → both driven.
+  assert.deepEqual(aggregateRecord([row(1, 'importing', ['a'], 1), row(2, 'importing', ['b'], 2)]).importing, [1, 2]);
+  // Importing wins over failed; failed wins over connected; connected only when every counted connection is connected.
+  assert.equal(aggregateRecord([row(1, 'failed', ['a']), row(2, 'importing', ['b'])]).state, 'importing');
+  assert.equal(aggregateRecord([row(1, 'connected', ['a']), row(2, 'failed', ['b'])]).state, 'failed');
+  assert.equal(aggregateRecord([row(1, 'failed', ['a']), row(2, 'connected', ['b'])]).state, 'failed'); // a different account: still incomplete
+  assert.equal(aggregateRecord([row(1, 'connected', ['a']), row(2, 'connected', ['b'])]).state, 'connected');
+  // "Try again": a later live connection re-imports every real account of the failed one → the failed row no longer counts.
+  assert.deepEqual(aggregateRecord([row(1, 'failed', ['a'], 3), row(2, 'connected', ['a'], 5)]), { state: 'connected', imported: 5, importing: [] });
+  assert.equal(aggregateRecord([row(1, 'failed', ['a']), row(2, 'importing', ['a'])]).state, 'importing');
+  assert.equal(aggregateRecord([row(1, 'failed', ['a', 'b']), row(2, 'connected', ['a'])]).state, 'failed'); // only part re-imported
+  assert.equal(aggregateRecord([row(2, 'failed', ['a']), row(1, 'connected', ['a'])]).state, 'failed'); // an older connection never supersedes
+  assert.equal(aggregateRecord([row(1, 'failed', ['a']), row(2, 'failed', ['a'])]).state, 'failed');
+  // A pending link never supersedes a failed import.
+  assert.equal(aggregateRecord([row(1, 'failed', ['a']), row(2, 'pending', ['a'], 0, false)]).state, 'failed');
 });
 
 // ---------- DB tests ----------
@@ -812,5 +846,82 @@ dbTest('public record (fix round 2): a pending, declined or expired link contrib
     assert.deepEqual(await publicRecord(uf.id), { state: 'failed', paper: 0 });
   } finally {
     await cleanup(users, [real, paper, real2, paper2, real3]);
+  }
+});
+
+dbTest('fix round 3, the tester\'s repro: a 3-account import is running and a second link is consented; the record stays importing (nothing complete) until both finish; the owner poll drives both and never answers pending from a newer link; after the tick, 7 closes and connected', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, drive, ownerPoll, publicRecord, recordStatus, tick } = await import('./connections.ts');
+  const { v, deps: base } = fakeVendor();
+  const deps = { ...base, pageLimit: 10 }; // one account per step, as the real page size does for small histories
+  const u = await mkUser('r3');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const [a1, a2, a3, b1] = ['a1', 'a2', 'a3', 'b1'].map((x) => `${tag}-${x}`);
+  const first = [acct(a1, { authorizationId: `auth-${tag}-L1` }), acct(a2, { authorizationId: `auth-${tag}-L1` }), acct(a3, { authorizationId: `auth-${tag}-L1` })];
+  for (const [i, x] of [a1, a2, a3].entries()) v.rows.set(x, [...pair(x, 1, `S${i}A`), ...pair(x, 2, `S${i}B`)]);
+  v.rows.set(b1, pair(b1, 1, 'BBB'));
+  const closes = async () => (await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n as number;
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    v.accounts = first;
+    const { id: id1 } = await completeLink({ userId: u.id, attemptId: attempt }, deps) as { id: number };
+    await consent(id1, new Date(), deps);
+    assert.deepEqual(await ownerPoll(u.id, deps), { state: 'importing', imported: 4, closes: 0 }); // account 1 read
+    // A second link lands on its consent page and waits: the poll still drives the running import and says importing.
+    v.accounts = [...first, acct(b1, { authorizationId: `auth-${tag}-L2` })];
+    const out = await completeLink({ userId: u.id, attemptId: attempt }, deps);
+    assert.equal(out.kind, 'consent');
+    const id2 = (out as { id: number }).id;
+    assert.deepEqual(await ownerPoll(u.id, deps), { state: 'importing', imported: 8, closes: 0 }); // account 2 read; never 'pending'
+    assert.equal((await conn(id1)).import_cursor.i, 2);
+    // The trader consents to the second link, which then finishes on its own (what the old newest-row poll did).
+    await consent(id2, new Date(), deps);
+    assert.equal((await drive(id2, deps)).state, 'connected');
+    assert.equal((await conn(id1)).state, 'importing');
+    assert.equal(await closes(), 5); // accounts 1, 2 and the second link: a partial record exists in closed_trades ...
+    assert.deepEqual(await publicRecord(u.id), { state: 'importing', paper: 0 }); // ... but is never presented as whole
+    assert.deepEqual(await recordStatus(u.id), { state: 'importing', imported: 10, importing: [id1] });
+    // The hourly tick finishes the first import: the whole record, connected.
+    const t = await tick(deps);
+    assert.ok(t.advanced >= 1);
+    assert.equal((await conn(id1)).state, 'connected');
+    assert.equal(await closes(), 7);
+    assert.deepEqual(await publicRecord(u.id), { state: 'connected', paper: 0 });
+    assert.deepEqual(await ownerPoll(u.id, deps), { state: 'connected', imported: 14, closes: 7 });
+  } finally {
+    await cleanup([u.id], [a1, a2, a3, b1]);
+  }
+});
+
+dbTest('fix round 3: with a newer link still pending, the owner poll finishes the running import and reports it ("Import finished"), never pending; with only a pending link it answers none', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, ownerPoll } = await import('./connections.ts');
+  const { v, deps: base } = fakeVendor();
+  const deps = { ...base, pageLimit: 10 };
+  const u = await mkUser('r3p');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const [a1, a2, b1] = ['pa1', 'pa2', 'pb1'].map((x) => `${tag}-${x}`);
+  const first = [acct(a1, { authorizationId: `auth-${tag}-P1` }), acct(a2, { authorizationId: `auth-${tag}-P1` })];
+  v.rows.set(a1, pair(a1, 1, 'PPA'));
+  v.rows.set(a2, pair(a2, 1, 'PPB'));
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    v.accounts = first;
+    const { id: id1 } = await completeLink({ userId: u.id, attemptId: attempt }, deps) as { id: number };
+    assert.deepEqual(await ownerPoll(u.id, deps), { state: 'none', imported: 0, closes: 0 }); // only a pending link
+    await consent(id1, new Date(), deps);
+    assert.equal((await ownerPoll(u.id, deps)).state, 'importing');
+    v.accounts = [...first, acct(b1, { authorizationId: `auth-${tag}-P2` })];
+    const { id: id2 } = await completeLink({ userId: u.id, attemptId: attempt }, deps) as { id: number };
+    const seen: string[] = [];
+    let r = await ownerPoll(u.id, deps);
+    for (let i = 0; i < 10 && r.state === 'importing'; i++) { seen.push(r.state); r = await ownerPoll(u.id, deps); }
+    seen.push(r.state);
+    assert.ok(!seen.includes('pending'), seen.join());
+    assert.deepEqual(r, { state: 'connected', imported: 4, closes: 2 });
+    assert.equal((await conn(id1)).state, 'connected');
+    assert.equal((await conn(id2)).state, 'pending'); // untouched, still the trader's to decide
+  } finally {
+    await cleanup([u.id], [a1, a2, b1]);
   }
 });

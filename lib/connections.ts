@@ -83,15 +83,47 @@ export async function latestConnection(userId: number): Promise<Connection | nul
 // connection (consent_at set: importing, connected, or failed after consent) and claims confirmed at consent or by a
 // completed sync contribute; a pending, declined or expired link, its provisional claims and its account snapshot never
 // do. A pre-F-1 claim (confirmed, no connection) counts as connected. The state never derives from "has a vendor id".
+// Fix round 3: the state is over ALL consented connections, never the newest one (TR-3): a trader can hold several,
+// and a newer finished one must not present a still-running import as a whole record.
 export type PublicState = 'importing' | 'connected' | 'failed' | 'none';
+export type AggregateRow = Pick<Connection, 'id' | 'state' | 'consent_at' | 'imported_count' | 'accounts'>;
+export type RecordStatus = { state: PublicState; imported: number; importing: number[] };
+// Pure. importing while any consented connection imports; else failed while a consented import failed and no later
+// live (importing or connected) connection re-imports every one of its real accounts (a retry clears it); else
+// connected when every remaining consented connection is connected; else the pre-F-1 claim, else none.
+export function aggregateRecord(rows: AggregateRow[], legacy = false): RecordStatus {
+  const consented = rows.filter((r) => r.consent_at !== null && (r.state === 'importing' || r.state === 'connected' || r.state === 'failed'));
+  const live = consented.filter((r) => r.state !== 'failed');
+  const superseded = (f: AggregateRow) => {
+    const later = new Set(live.filter((r) => r.id > f.id).flatMap((r) => r.accounts.map((a) => a.id)));
+    const real = f.accounts.filter((a) => !a.isPaper);
+    return real.length > 0 && real.every((a) => later.has(a.id));
+  };
+  const counted = consented.filter((r) => r.state !== 'failed' || !superseded(r));
+  const importing = counted.filter((r) => r.state === 'importing').map((r) => r.id);
+  const state: PublicState = importing.length ? 'importing'
+    : counted.some((r) => r.state === 'failed') ? 'failed'
+    : counted.length ? 'connected'
+    : legacy ? 'connected' : 'none';
+  return { state, imported: counted.reduce((n, r) => n + r.imported_count, 0), importing };
+}
+const legacyClaim = (userId: number) => sql`exists (select 1 from broker_accounts where user_id = ${userId} and confirmed_at is not null and connection_id is null)`;
+export async function recordStatus(userId: number): Promise<RecordStatus> {
+  const rows = await sql`select id, state, consent_at, imported_count, accounts from connections where user_id = ${userId} and consent_at is not null order by id`;
+  const [{ legacy }] = await sql`select ${legacyClaim(userId)} as legacy`;
+  return aggregateRecord(rows.map((r) => ({ ...(r as unknown as AggregateRow), id: Number(r.id) })), legacy as boolean);
+}
 export async function publicRecord(userId: number): Promise<{ state: PublicState; paper: number }> {
+  return (await publicRecordDetail(userId)).public;
+}
+// The profile's read: the public state and simulated count, plus the summed import count for the banner.
+export async function publicRecordDetail(userId: number): Promise<{ public: { state: PublicState; paper: number }; imported: number }> {
+  const status = await recordStatus(userId);
   const [r] = await sql`select
-    (select state from connections where user_id = ${userId} and consent_at is not null and state in ('importing', 'connected', 'failed') order by id desc limit 1) as state,
     exists (select 1 from connections where user_id = ${userId} and consent_at is not null) as consented,
-    exists (select 1 from broker_accounts where user_id = ${userId} and confirmed_at is not null and connection_id is null) as legacy,
+    ${legacyClaim(userId)} as legacy,
     (select count(*)::int from broker_accounts where user_id = ${userId} and is_paper and removed_at is null and confirmed_at is not null) as paper`;
-  const state = (r.state as PublicState | null) ?? (r.legacy ? 'connected' : 'none');
-  return { state, paper: r.consented || r.legacy ? (r.paper as number) : 0 };
+  return { public: { state: status.state, paper: r.consented || r.legacy ? (r.paper as number) : 0 }, imported: status.imported };
 }
 // A connection belongs to its user, or, before a user row exists, to the browser holding the signed attempt cookie.
 export function ownsConnection(c: Pick<Connection, 'user_id' | 'attempt_id'>, meId: number | null, cookie: string | undefined, secret: string): boolean {
@@ -344,6 +376,17 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
     console.error('import step deferred', id, status);
     return { state: 'importing', imported: head.imported_count, progressed: false, retryAt: next };
   }
+}
+
+// The owner's poll (POST /api/import/step): applies the clocks, runs one step for every importing connection of the
+// user (fix round 3: not the newest row; a newer pending or finished link never hides a running import), then answers
+// the aggregate over all consented connections: the state, the summed import count and the closes.
+export async function ownerPoll(userId: number, deps: Deps = realDeps, now = new Date()): Promise<{ state: PublicState; imported: number; closes: number }> {
+  await applyClocks(now, { userId });
+  for (const id of (await recordStatus(userId)).importing) await importStep(id, deps, now);
+  const r = await recordStatus(userId);
+  const [{ n }] = await sql`select count(*)::int as n from closed_trades where user_id = ${userId}`;
+  return { state: r.state, imported: r.imported, closes: n as number };
 }
 
 // Runs steps for one row until it stops progressing, finishes, or hits the per-tick bound.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
-import { allCopy, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
+import { allCopy, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
 
 const MARK_RE = new RegExp(`\\b(${MARKS.map((m) => m.replace(/ /g, '[\\s-]?')).join('|')})\\b`, 'i');
 const MINORS_RE = new RegExp(`\\b(${MINORS.map((m) => m.replace(/ /g, '\\s')).join('|')})\\b`, 'i');
@@ -56,4 +56,31 @@ test('PR-2a copy: the trust notice stays the vendor\'s own report of an audit of
   for (const word of ['Options', 'short sales', 'Transfers in', 'no recorded entry', 'not connected', 'paper']) assert.match(HOW.excluded.join(' '), new RegExp(word));
   assert.match(HOW.math.join(' '), /first in, first out/);
   assert.match(HOW.math.join(' '), /Only percentages/);
+});
+
+test('share card text per state (fix round 3): mirrors the profile; "Demo data" only for a demo profile; "Broker connected" only for a finished import with no closes; a failed import says so; a running import shows no stats', () => {
+  const card = (state: 'importing' | 'connected' | 'failed' | 'none', o: { demo?: boolean; verified?: boolean; empty?: boolean } = {}) =>
+    shareCardText({ state, demo: o.demo ?? false, verified: o.verified ?? !(o.empty ?? true), empty: o.empty ?? true });
+  // A real trader with nothing consented (no link, pending, declined or expired all read `none`): no label, never Demo.
+  assert.deepEqual(card('none'), { label: null, tone: 'muted', body: 'No closed trades yet', note: null });
+  // Demo is only for source='demo' profiles, with or without trades.
+  assert.deepEqual(card('none', { demo: true, empty: false, verified: false }), { label: 'Demo data', tone: 'muted', body: null, note: null });
+  assert.equal(card('none', { demo: true }).label, 'Demo data');
+  // Importing: no stats, no Verified, no "Broker connected", whether or not some trades already arrived.
+  for (const empty of [true, false]) {
+    const c = card('importing', { empty, verified: !empty });
+    assert.deepEqual(c, { label: 'Importing record', tone: 'muted', body: 'Import in progress', note: 'Stats appear when the import finishes.' });
+  }
+  // Failed: the profile's wording, never "Broker connected" or Verified.
+  assert.deepEqual(card('failed'), { label: 'Import did not finish', tone: 'warn', body: 'No closed trades yet', note: RECORD_BODY.failed });
+  assert.deepEqual(card('failed', { empty: false }), { label: 'Import did not finish', tone: 'warn', body: null, note: RECORD_BODY.failed });
+  // Connected: Verified with closes, "Broker connected" with none.
+  assert.deepEqual(card('connected', { empty: false }), { label: '✓ Verified from broker', tone: 'ok', body: null, note: null });
+  assert.deepEqual(card('connected'), { label: '✓ Broker connected', tone: 'ok', body: 'No closed trades yet', note: null });
+  // "Broker connected" appears for no other state; "Demo data" for no non-demo profile.
+  for (const st of ['importing', 'failed', 'none'] as const) for (const empty of [true, false]) {
+    assert.notEqual(card(st, { empty }).label, SHARE_CARD.connected, st);
+    assert.notEqual(card(st, { empty }).label, SHARE_CARD.demo, st);
+  }
+  assert.match(RECORD_BODY.failed, /did not finish/);
 });

@@ -89,6 +89,31 @@ export type RecordState = 'importing' | 'connected' | 'failed' | 'none';
 export const recordBodyCopy = (state: RecordState, closes: number): string | null =>
   state === 'importing' ? RECORD_BODY.importing : closes > 0 ? null : state === 'connected' ? RECORD_BODY.connected : RECORD_BODY.none;
 
+// The share card (fix round 3): its states mirror the profile's. "Demo data" only for a demo profile (source='demo');
+// "Broker connected" only for a finished import with no closes; an import still running shows no stats; a failed one
+// says so and carries the profile's incomplete line; a real trader with nothing consented gets no label.
+export const SHARE_CARD = {
+  verified: '✓ Verified from broker',
+  connected: '✓ Broker connected',
+  importing: 'Importing record',
+  importingBody: 'Import in progress',
+  importingNote: 'Stats appear when the import finishes.',
+  failed: 'Import did not finish',
+  demo: 'Demo data',
+  empty: 'No closed trades yet',
+} as const;
+export type ShareCardText = { label: string | null; tone: 'ok' | 'muted' | 'warn'; body: string | null; note: string | null };
+// body null = show the stats; note null = show the evidence line.
+export function shareCardText(x: { state: RecordState; demo: boolean; verified: boolean; empty: boolean }): ShareCardText {
+  const body = x.empty ? SHARE_CARD.empty : null;
+  if (x.demo) return { label: SHARE_CARD.demo, tone: 'muted', body, note: null };
+  if (x.state === 'importing') return { label: SHARE_CARD.importing, tone: 'muted', body: SHARE_CARD.importingBody, note: SHARE_CARD.importingNote };
+  if (x.state === 'failed') return { label: SHARE_CARD.failed, tone: 'warn', body, note: RECORD_BODY.failed };
+  if (!x.empty && x.verified) return { label: SHARE_CARD.verified, tone: 'ok', body, note: null };
+  if (x.state === 'connected') return { label: x.empty ? SHARE_CARD.connected : null, tone: 'ok', body, note: null };
+  return { label: null, tone: 'muted', body, note: null };
+}
+
 // S6 declined / expired, S6c no real account, S7 errors (role="alert").
 export const RESULT = {
   declined: 'Import not started. Nothing is connected.',
@@ -163,6 +188,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, RESULT, HOW, SETTINGS, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, RESULT, HOW, SETTINGS, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
   return out;
 }

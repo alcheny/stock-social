@@ -5,6 +5,8 @@ import { notFound } from 'next/navigation';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
 import { publicRecord } from '@/lib/connections.ts';
+import { isDemoUser } from '@/lib/demo.ts';
+import { shareCardText } from '@/lib/copy.ts';
 import { confidence, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
 
 export const size = { width: 1200, height: 630 };
@@ -19,8 +21,10 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   const s = stats(rows.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at })));
   const verified = rows.length > 0 && rows.every((t) => t.verified);
   const empty = rows.length === 0;
-  // Fix round 2: "Broker connected" only for a consented connection, never for a link still waiting on consent.
-  const connectedEmpty = empty && (await publicRecord(user.id)).state !== 'none';
+  // Fix round 3: the card's label, body and note follow the profile's record state (aggregate over all consented
+  // connections); "Demo data" only for a demo profile, "Broker connected" only for a finished import with no closes.
+  const text = shareCardText({ state: (await publicRecord(user.id)).state, demo: await isDemoUser(user.id), verified, empty });
+  const toneColor = text.tone === 'ok' ? '#22c55e' : text.tone === 'warn' ? '#f59e0b' : '#8b8b98';
   const up =s.avgReturn > 0;
   const c = confidence(rows.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
   const isNew = rows.length > 0 && isNewRecord(rows.map((t) => ({ openedAt: t.opened_at })), rows.length, new Date());
@@ -30,14 +34,14 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 64, background: '#0b0b0f', color: '#f4f4f6', fontFamily: 'sans-serif' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 36 }}>
           <span style={{ fontWeight: 800 }}>Stock Social</span>
-          <span style={{ color: verified || connectedEmpty ? '#22c55e' : '#8b8b98', fontWeight: 700 }}>{verified ? '✓ Verified from broker' : connectedEmpty ? '✓ Broker connected' : 'Demo data'}</span>
+          <span style={{ color: toneColor, fontWeight: 700 }}>{text.label ?? ''}</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ fontSize: 56, fontWeight: 700 }}>{user?.display_name ?? handle}</span>
           <span style={{ fontSize: 32, color: '#8b8b98' }}>@{handle}</span>
         </div>
-        {empty ? (
-          <span style={{ fontSize: 72, fontWeight: 800 }}>No closed trades yet</span>
+        {text.body !== null ? (
+          <span style={{ fontSize: 72, fontWeight: 800 }}>{text.body}</span>
         ) : (
         <div style={{ display: 'flex', gap: 72 }}>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -54,7 +58,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
           </div>
         </div>
         )}
-        <span style={{ fontSize: 30, color: '#8b8b98' }}>{evidenceLine(c)}{isNew ? ' · New record' : ''}</span>
+        <span style={{ fontSize: 30, color: text.note && text.tone === 'warn' ? toneColor : '#8b8b98' }}>{text.note ?? `${evidenceLine(c)}${isNew ? ' · New record' : ''}`}</span>
         <span style={{ fontSize: 22, color: '#8b8b98' }}>{DISCLAIMER}</span>
       </div>
     ),

@@ -15,6 +15,8 @@ export default async function Feed() {
            ln(1 + abs(t.return_pct) * 100) * exp(-extract(epoch from now() - t.closed_at) / 3600 / 48) as score
     from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
     where t.user_id in (select user_id from closed_trades group by user_id having count(*) >= 5)
+      -- F-1 fix round 3 (TR-3): a record with an import still running is not in the feed until it is whole.
+      and not exists (select 1 from connections c where c.user_id = t.user_id and c.state = 'importing' and c.consent_at is not null)
     order by ln(1 + abs(t.return_pct) * 100) * exp(-extract(epoch from now() - t.closed_at) / 3600 / 48) desc
     limit 200`) as unknown as (TradeRow & { score: number })[];
 
