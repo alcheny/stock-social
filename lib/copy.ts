@@ -117,6 +117,11 @@ export function shareCardText(x: { state: RecordState; demo: boolean; verified: 
   return { label: null, tone: 'muted', body, note: null };
 }
 
+// Reviewer fix (POLICY F3a, A1): the profile card's alt text names the card's own label for the record state, so a demo,
+// importing or failed record is never described as verified.
+export const profileCardAlt = (handle: string, t: ShareCardText) =>
+  `Trading record card for @${handle} on Stock Social${t.label ? `: ${imageLabel(t.label)}` : ''}`;
+
 // Fix round 6 (POLICY F3, TR-3): the trader's other performance images (single-trade card, month recap card, story
 // image) follow the profile card's rule, from the same record state. No image draws the check mark: the image font has
 // no glyph for it (it rendered as an empty box), so the word carries the meaning. The story keeps its own wording for a
@@ -128,7 +133,29 @@ export type ImageTrust = { label: string | null; tone: ShareCardText['tone']; st
 export function imageTrust(kind: ImageKind, x: { state: RecordState; demo: boolean; verified: boolean; empty: boolean }): ImageTrust {
   const t = shareCardText(x);
   const label = t.label === SHARE_CARD.verified && kind === 'story' ? STORY_VERIFIED : imageLabel(t.label);
-  return { label, tone: t.tone, stats: x.demo || x.state !== 'importing', note: t.note };
+  return { label, tone: t.tone, stats: wholeRecordView(x).stats, note: t.note };
+}
+
+// Reviewer fix (TR-3, POLICY F3a): the trade and month pages' "Their whole record" block and their link previews follow
+// the profile's record-state rule, the same one the images use. An import still running: no whole-record stats (win
+// rate, average return, evidence, New record), one importing line instead. A failed import: the stats with the
+// incomplete line. Demo data never imports, so it always shows its stats.
+export const WHOLE_RECORD = {
+  importing: 'Import in progress. Stats appear when the import finishes.',
+  soFar: (closes: number) => `${closes} closed trade${closes === 1 ? '' : 's'} so far`,
+} as const;
+export type WholeRecordView = { stats: boolean; line: string | null; tone: 'muted' | 'warn' | null };
+export function wholeRecordView(x: { state: RecordState; demo: boolean }): WholeRecordView {
+  if (x.demo) return { stats: true, line: null, tone: null };
+  if (x.state === 'importing') return { stats: false, line: WHOLE_RECORD.importing, tone: 'muted' };
+  if (x.state === 'failed') return { stats: true, line: RECORD_BODY.failed, tone: 'warn' };
+  return { stats: true, line: null, tone: null };
+}
+// The link-preview text for the whole record: the count, then either the stats or the importing line.
+export function wholeRecordPreview(x: { state: RecordState; demo: boolean; verified: boolean; trades: number }, stats: string): string {
+  const v = wholeRecordView(x);
+  if (!v.stats) return `${WHOLE_RECORD.soFar(x.trades)} · ${WHOLE_RECORD.importing}`;
+  return `${v.line ? `${v.line} ` : ''}${recordCountText(x)} · ${stats}`;
 }
 
 // Fix round 6: the whole-record count in a link preview's description says "verified" only when the profile would
@@ -212,6 +239,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, RESULT, HOW, SETTINGS, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, HOW, SETTINGS, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
   return out;
 }

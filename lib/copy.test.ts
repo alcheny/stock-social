@@ -139,3 +139,38 @@ test('committee fix (item 8): the importing line shows only while no trades are 
   assert.equal(recordBodyCopy('connected', 0), RECORD_BODY.connected);
   assert.equal(recordBodyCopy('none', 0), RECORD_BODY.none);
 });
+
+test('reviewer fix (TR-3): the trade and month pages and their previews follow the profile record-state rule', async () => {
+  const { wholeRecordView, wholeRecordPreview, WHOLE_RECORD } = await import('./copy.ts');
+  // Importing: no whole-record stats, the importing line; failed: the stats with the incomplete line.
+  assert.deepEqual(wholeRecordView({ state: 'importing', demo: false }), { stats: false, line: WHOLE_RECORD.importing, tone: 'muted' });
+  assert.deepEqual(wholeRecordView({ state: 'failed', demo: false }), { stats: true, line: RECORD_BODY.failed, tone: 'warn' });
+  for (const st of ['connected', 'none'] as const) assert.deepEqual(wholeRecordView({ state: st, demo: false }), { stats: true, line: null, tone: null });
+  for (const st of ['importing', 'connected', 'failed', 'none'] as const) {
+    assert.deepEqual(wholeRecordView({ state: st, demo: true }), { stats: true, line: null, tone: null });
+    // The images use the same rule.
+    assert.equal(imageTrust('trade', { state: st, demo: false, verified: true, empty: false }).stats, wholeRecordView({ state: st, demo: false }).stats);
+  }
+  const p = (state: 'importing' | 'connected' | 'failed' | 'none', demo = false) => wholeRecordPreview({ state, demo, verified: !demo, trades: 4 }, '50% win rate · +1.0% avg return');
+  assert.equal(p('importing'), '4 closed trades so far · Import in progress. Stats appear when the import finishes.');
+  assert.doesNotMatch(p('importing'), /win rate|avg return|verified/i);
+  assert.equal(p('failed'), `${RECORD_BODY.failed} 4 closed trades · 50% win rate · +1.0% avg return`);
+  assert.equal(p('connected'), '4 verified trades · 50% win rate · +1.0% avg return');
+  assert.equal(p('importing', true), '4 demo trades · 50% win rate · +1.0% avg return');
+});
+
+test('reviewer fix (POLICY F3a, A1): the profile card alt text follows the record state, Verified only for a whole verified record', async () => {
+  const { profileCardAlt } = await import('./copy.ts');
+  const alt = (state: 'importing' | 'connected' | 'failed' | 'none', o: { demo?: boolean; verified?: boolean; empty?: boolean } = {}) =>
+    profileCardAlt('maya', shareCardText({ state, demo: o.demo ?? false, verified: o.verified ?? true, empty: o.empty ?? false }));
+  assert.equal(alt('connected'), 'Trading record card for @maya on Stock Social: Verified from broker');
+  assert.equal(alt('importing'), 'Trading record card for @maya on Stock Social: Importing record');
+  assert.equal(alt('failed'), 'Trading record card for @maya on Stock Social: Import did not finish');
+  assert.equal(alt('connected', { empty: true }), 'Trading record card for @maya on Stock Social: Broker connected');
+  assert.equal(alt('none', { verified: false }), 'Trading record card for @maya on Stock Social');
+  for (const st of ['importing', 'connected', 'failed', 'none'] as const) {
+    assert.equal(alt(st, { demo: true, verified: false }), 'Trading record card for @maya on Stock Social: Demo data');
+    assert.ok(!alt(st, { demo: true, verified: false }).includes('✓'));
+  }
+  for (const st of ['importing', 'failed'] as const) assert.doesNotMatch(alt(st), /verified/i);
+});

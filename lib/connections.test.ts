@@ -557,9 +557,56 @@ dbTest('paper accounts: claimed, excluded from the import, counted; a real accou
     assert.equal(n, 0);
     assert.deepEqual(fetched, []); // no real account left: nothing fetched
     assert.deepEqual((await sql`select account_id, is_paper from broker_accounts where user_id = ${u.id} order by account_id`).map((r) => [r.account_id, r.is_paper]), [[paper, true], [real, true]]);
-    assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n, 1); // the record stays
+    // Reviewer fix (plan §9): the reflagged account's trades leave the Verified record and it is counted as excluded;
+    // its raw activities stay untouched.
+    assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n, 0);
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id} and account_id = ${real}`)[0].n, 2);
+    const { publicRecord } = await import('./connections.ts');
+    assert.equal((await publicRecord(u.id)).paper, 2);
   } finally {
     await cleanup([u.id], [real, paper]);
+  }
+});
+
+dbTest('reviewer fix (plan §9): a real account reflagged as simulated leaves the record on the sync rebuild, is counted excluded, drops its positions, and returns if the vendor clears the flag', async () => {
+  const { sql, tag, mkUser, cleanup } = await setup();
+  const { startConnection, completeLink, consent, drive, publicRecord } = await import('./connections.ts');
+  const { syncUser } = await import('./sync.ts');
+  const u = await mkUser('rf');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const keep = `${tag}-keep`, flip = `${tag}-flip`;
+  const { v, deps } = fakeVendor();
+  v.accounts = [acct(keep), acct(flip, { authorizationId: `auth-${keep}` })];
+  v.rows.set(keep, pair(keep, 1));
+  v.rows.set(flip, [...pair(flip, 1), ...pair(flip, 2)]);
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps) as { id: number };
+    await consent(id, new Date(), deps);
+    assert.equal((await drive(id, deps)).state, 'connected');
+    const record = async () => (await sql`select account_id, verified from closed_trades where user_id = ${u.id} order by account_id, sell_id`).map((r) => [r.account_id, r.verified]);
+    assert.deepEqual(await record(), [[flip, true], [flip, true], [keep, true]]);
+    assert.equal((await publicRecord(u.id)).paper, 0);
+    const [bu] = await sql<{ id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null }[]>`select id, snaptrade_user_id, snaptrade_secret_enc from users where id = ${u.id}`;
+    const fetched: string[][] = [];
+    const sync = (flipPaper: boolean) => syncUser(bu, {
+      listAccounts: async () => [acct(keep), acct(flip, { isPaper: flipPaper, authorizationId: `auth-${keep}` })],
+      fetchActivities: async (_b, _s, ids) => { fetched.push(ids ?? []); return []; },
+      fetchPositions: async (_b, accountId) => [{ symbol: accountId === flip ? 'FLP' : 'KEP', unrealizedPct: 0.1 }],
+    });
+    // The vendor now flags the account as simulated: its trades leave, the account counts as excluded, no positions.
+    assert.equal(await sync(true), 0);
+    assert.deepEqual(fetched, [[keep]]);
+    assert.deepEqual(await record(), [[keep, true]]);
+    assert.equal((await publicRecord(u.id)).paper, 1);
+    assert.deepEqual((await sql`select symbol from open_positions where user_id = ${u.id}`).map((r) => r.symbol), ['KEP']);
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id} and account_id = ${flip}`)[0].n, 4); // raw stays
+    // The vendor clears the flag: the trades come back on the next rebuild, nothing counted excluded.
+    assert.equal(await sync(false), 0);
+    assert.deepEqual(await record(), [[flip, true], [flip, true], [keep, true]]);
+    assert.equal((await publicRecord(u.id)).paper, 0);
+  } finally {
+    await cleanup([u.id], [keep, flip]);
   }
 });
 

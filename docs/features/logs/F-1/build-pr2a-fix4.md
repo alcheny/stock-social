@@ -260,3 +260,52 @@ left for it.
 
 Files: `lib/connections.ts`, `db/schema.sql`, `lib/connections.test.ts`, `lib/schema.test.ts`, `e2e/connect.spec.ts`.
 Nothing weakened or deleted; unit tests 413 → 415, e2e connect 15 → 16.
+
+## Reviewer fix round (docs/features/logs/F-1/review-pr2a.md, findings 1–7)
+
+Date: 2026-10-23, on `3872e3e`.
+
+### Finding 1: what the vendor SDK documents (settled from its own models)
+
+From `node_modules/snaptrade-typescript-sdk/dist/index.d.ts`, the model the positions call returns
+(`AllAccountPositionsResponse.results: Array<AccountPosition>`):
+
+> `units`: "The number of units held in the position. Positive numbers indicate long positions and negative numbers indicate short positions."
+> `price`: "Last known market price _per share_. …"
+> `cost_basis`: "Book price or average purchase price for the position. For options, this is per-share."
+
+and the older `Position` model's alternate field:
+
+> `average_purchase_price`: "Cost basis _per share_ of this position."
+> (`open_pnl`: "… It is recommended to calculate this value using the average purchase price and the current market price yourself …")
+
+For contrast, the tax-lot model is the only one with a lot total: `TaxLot.cost_basis`: "The cost basis of the entire lot."
+So the reviewer is right: the position's cost field is a per-unit price, not the lot total.
+
+| Finding | Fix | Test |
+|---|---|---|
+| 1 High · open-position percent used the cost field as the lot total | `lib/broker.ts#unrealizedPct`: `(price - perUnitCost) / perUnitCost`. Per-unit cost is `average_purchase_price` when present and positive (its doc is unambiguous), else `cost_basis`. `null` when price or both cost fields are missing or zero; units only gate long positions (long-only, like the matcher). The fake (`e2e/fakes/vendor.ts`) documents `price` and `cost_basis` as per unit, and its scenarios use per-unit values | `lib/broker.test.ts`: hand-computed 10 units at 10, now 11 → +10% (the lot-total reading gives +1000%); 2 at 50 now 45 → −10%; `average_purchase_price` alone, winning over `cost_basis`, null or zero falling back; missing/zero price or cost → null; the HTTP test's position is 10 at 10 now 11 → 0.1. e2e `connect.spec.ts`: the position is now 10 units at 100, now 110, and the profile still shows `QQQ+10.0%` (it would show +1000% under the old reading) |
+| 2 Medium · trade and month pages (and their previews) showed whole-record stats while importing | `lib/copy.ts`: `wholeRecordView` (importing → no stats, the line "Import in progress. Stats appear when the import finishes."; failed → stats plus the incomplete line; demo always stats) and `wholeRecordPreview` for the descriptions ("N closed trades so far · Import in progress…" while importing; the incomplete line first when failed). `imageTrust` now takes its `stats` from the same function, so pages and images cannot drift. Both pages hide win rate, avg return, evidence and the New record badge while importing | `lib/copy.test.ts` "reviewer fix (TR-3)": every state, demo, image parity, preview strings. e2e `connect.spec.ts` fix round 3 two-import test: signed out, the trade and month pages show the importing line, no "win rate"/"avg return"/New record, and the descriptions carry no stats or "verified"; after both imports finish the trade page shows the stats again. The failed-import checks (fix round 6 assertions) still pass |
+| 3 Medium · a real account later flagged simulated stayed in the Verified record | `lib/sync.ts#rebuildTrades` leaves out activities of accounts whose claim is `is_paper` for the user. Raw activities stay (immutable); the trades leave `closed_trades` on the same transaction's rebuild, and the account is the one counted in "N simulated accounts excluded". Positions already came from real accounts only. If the vendor clears the flag, the claim upsert sets `is_paper` false and the next rebuild brings the trades back | `lib/connections.test.ts`: the existing paper test now asserts 0 closed trades after the reflag (was "the record stays", the behavior the reviewer flagged), raw activities kept, `publicRecord.paper` = 2. New DB test "reviewer fix (plan §9)": two real accounts, one reflagged on the hourly sync → only the other account's trades remain, paper count 1, only its position stored, raw rows kept; flag cleared → trades back, paper count 0 |
+| 4 Low · profile card alt said "Verified trading record" in every state | `lib/copy.ts#profileCardAlt` builds the alt from the card's own `shareCardText` label: "Trading record card for @handle on Stock Social: Verified from broker / Demo data / Importing record / Import did not finish / Broker connected", or no suffix. A file-level `alt` export is static, so `app/u/[handle]/opengraph-image.tsx` drops it and the profile's `generateMetadata` declares the same image URL (`/u/<handle>/opengraph-image`, unchanged, so shared links and the share prompt keep working) with the derived alt. Chose this over `generateImageMetadata`, which would move the image to `/opengraph-image/<id>` | `lib/copy.test.ts` "reviewer fix (POLICY F3a, A1)": every state and demo; never "verified" for importing or failed. e2e: demo profile alt is "…: Demo data" and the image path is unchanged (`app.spec.ts`); failed profile "…: Import did not finish" and importing profile "…: Importing record" (`connect.spec.ts`) |
+| 5 Low · positions keyed by symbol only | Chosen: **list per account, keyed by account and symbol** (`lib/positions.ts#positionRows`). Not merged: a size-weighted percent needs amounts we never store, and an unweighted mean would be a number no account holds. A symbol held in more than one account gets a muted "account N" label (N counts that trader's accounts holding it, ordered by account), so rows are distinct without showing a vendor account id. The profile query reads `account_id` and orders by symbol, account | `lib/positions.test.ts`: the same symbol in two accounts gives two rows with distinct keys and labels 1 and 2, a single holding has no label, no account id in any row |
+| 6 Low · `;` inside the trailing comment | `app/auth/callback/[provider]/route.ts`, `app/auth/email/route.ts`: `303); // … (committee item 7)` | `npx tsc --noEmit` |
+| 7 Low · `listAccountIds` had no caller | Removed from `lib/broker.ts`: no caller and no test referenced it (`grep` over the repo outside `node_modules`) | `npx tsc --noEmit`, `npm test` |
+
+### Checks
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL=postgres://…@localhost:5432/stock_social`), two runs | 419 pass each run, 0 fail, 0 skipped |
+| `npm run build` | with stdin closed it compiled and generated every page, then stopped on the framework's `SecurityFatalError` advisory (tool output: not acted on, nothing upgraded). Re-run non-interactively as CI does (`CI=1`, stdin closed): exit 0, fresh `.next/BUILD_ID`, the new code is in the server bundle. The advisory still needs an owner dependency bump |
+| `npm run test:e2e` (`ALLOW_DEV_AUTH=1` from the config, vendor variables pointing at the fake the specs start) | 70 passed, 0 failed, 3 skipped (the two OIDC provider tests and the email-send-failure test, which need the provider and mail fakes' variables; unchanged by this round) |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line (`package.json` and the lockfile unchanged) |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+Files: `lib/broker.ts`, `lib/broker.test.ts`, `e2e/fakes/vendor.ts`, `lib/copy.ts`, `lib/copy.test.ts`,
+`app/u/[handle]/trade/[sellId]/page.tsx`, `app/u/[handle]/month/[ym]/page.tsx`, `lib/sync.ts`, `lib/connections.test.ts`,
+`app/u/[handle]/page.tsx`, `app/u/[handle]/opengraph-image.tsx`, `lib/positions.ts`, `lib/positions.test.ts` (new),
+`app/auth/callback/[provider]/route.ts`, `app/auth/email/route.ts`, `e2e/connect.spec.ts`, `e2e/app.spec.ts`.
+No test removed or renamed; one assertion changed in the paper test to the behavior plan §9 requires (stronger, and
+the reflag path has its own new test). Unit tests 415 → 419.

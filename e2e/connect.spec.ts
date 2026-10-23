@@ -119,7 +119,7 @@ test('signed in: S2 → portal → consent (zero depth: no activities) → impor
   await devSignIn(page, handle);
   test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
   const acc = `e2e-${handle}`;
-  await scenario([{ id: acc, activities: 6, positions: [{ symbol: 'QQQ', units: 1, price: 110, cost_basis: 100 }] }, { id: `${acc}-paper`, paper: true, activities: 4 }]);
+  await scenario([{ id: acc, activities: 6, positions: [{ symbol: 'QQQ', units: 10, price: 110, cost_basis: 100 }] }, { id: `${acc}-paper`, paper: true, activities: 4 }]);
   await connectThrough(page);
   await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
   await expect(page.getByRole('heading', { name: 'Confirm what gets imported', level: 1 })).toBeVisible();
@@ -490,6 +490,7 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   await p2.setViewportSize({ width: 375, height: 740 });
   await p2.goto(`/u/${handle}`);
   await expect(p2.locator('.importing')).toContainText('Importing your record');
+  expect(await p2.locator('meta[property="og:image:alt"]').getAttribute('content')).toBe(`Trading record card for @${handle} on Stock Social: Importing record`);
   await expect(p2.locator('.badge.verified')).toHaveCount(0);
   await expect(p2.locator('section.stats')).toHaveCount(0);
   await expect(p2.locator('main')).not.toContainText('win rate');
@@ -498,6 +499,21 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   await expect(p2.locator('.rows:not(.positions) li').first()).toBeVisible();
   await expect(p2.locator('.record-body')).toHaveCount(0);
   await p2.screenshot({ path: test.info().outputPath('profile-two-imports-importing.png'), fullPage: true });
+  // Reviewer fix (TR-3): the trade and month pages and their link previews show no whole-record stats while importing.
+  const [lastClose] = await sql`select sell_id, closed_at from closed_trades where user_id = ${u.id} order by closed_at desc limit 1`;
+  const lc = new Date(lastClose.closed_at as Date);
+  const lym = `${lc.getUTCFullYear()}-${String(lc.getUTCMonth() + 1).padStart(2, '0')}`;
+  for (const path of [`/u/${handle}/trade/${encodeURIComponent(lastClose.sell_id as string)}`, `/u/${handle}/month/${lym}`]) {
+    await p2.goto(path);
+    const whole = p2.locator('section[aria-labelledby="whole-record"]');
+    await expect(whole.locator('.importing'), path).toHaveText('Import in progress. Stats appear when the import finishes.');
+    await expect(whole, path).not.toContainText('win rate');
+    await expect(whole, path).not.toContainText('avg return');
+    await expect(whole.locator('.badge.new'), path).toHaveCount(0);
+    const description = await p2.locator('meta[name="description"]').getAttribute('content');
+    expect(description!, path).toContain('so far · Import in progress');
+    expect(description!, path).not.toMatch(/whole record: .*win rate|avg return|verified/i);
+  }
   // The poll resumes the first import and the record ends whole.
   await sql`update connections set import_cursor = import_cursor - 'retryAt' where id = ${firstRow.id}`;
   for (let i = 0; i < 8 && r.state === 'importing'; i++) r = await step(page.request);
@@ -507,6 +523,9 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   await expect(p2.locator('.badge.verified')).toHaveCount(1);
   await expect(p2.locator('section.stats').first()).toContainText('win rate');
   await expect(p2.locator('.rows:not(.positions) li')).toHaveCount(7);
+  await p2.goto(`/u/${handle}/trade/${encodeURIComponent(lastClose.sell_id as string)}`);
+  await expect(p2.locator('section[aria-labelledby="whole-record"]')).toContainText('win rate');
+  await expect(p2.locator('section[aria-labelledby="whole-record"] .importing')).toHaveCount(0);
   await anon.close();
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id = any(${[...a, b]})`;
@@ -630,6 +649,7 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   const profileDescription = await feed.locator('meta[name="description"]').getAttribute('content');
   expect(profileDescription).toMatch(/\d+ closed trades? · /);
   expect(profileDescription!).not.toMatch(/verified/i);
+  expect(await feed.locator('meta[property="og:image:alt"]').getAttribute('content')).toBe(`Trading record card for @${handle} on Stock Social: Import did not finish`);
   for (const path of [`/u/${handle}/trade/${encodeURIComponent(last.sell_id as string)}`, `/u/${handle}/month/${ym}`]) {
     await feed.goto(path);
     await expect(feed.locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');

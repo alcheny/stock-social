@@ -73,11 +73,19 @@ export async function fetchActivitiesPage(u: BrokerUser, accountId: string, offs
 }
 
 // Open positions (TR-4) as symbol + unrealized percent only; never units, prices or amounts.
+// The vendor SDK documents both cost fields as per unit, not as the lot total: the account position's `cost_basis` is
+// "Book price or average purchase price for the position" and the older position model's `average_purchase_price` is
+// "Cost basis _per share_"; `price` is the "Last known market price _per share_". So the percent is
+// (price - per-unit cost) / per-unit cost; units only gate long positions (long-only, like the FIFO matcher).
+// When both cost fields are present `average_purchase_price` wins (its doc is unambiguous); `cost_basis` is the fallback.
 export type VendorPosition = { symbol: string; unrealizedPct: number };
-export function unrealizedPct(p: { units?: string | number | null; price?: string | number | null; cost_basis?: string | number | null }): number | null {
-  const units = Number(p.units), price = Number(p.price), cost = Number(p.cost_basis);
+type Num = string | number | null | undefined;
+export function unrealizedPct(p: { units?: Num; price?: Num; cost_basis?: Num; average_purchase_price?: Num }): number | null {
+  const units = Number(p.units), price = Number(p.price);
+  const avg = Number(p.average_purchase_price ?? NaN), basis = Number(p.cost_basis ?? NaN);
+  const cost = avg > 0 ? avg : basis;
   if (!(units > 0) || !(price > 0) || !(cost > 0)) return null;
-  return (price * units - cost) / cost;
+  return (price - cost) / cost;
 }
 export async function fetchPositions(u: BrokerUser, accountId: string): Promise<VendorPosition[]> {
   const { data } = await client().accountInformation.getAllAccountPositions({ ...auth(u), accountId });
@@ -112,11 +120,6 @@ function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?
     });
   }
   return out;
-}
-
-export async function listAccountIds(u: BrokerUser): Promise<string[]> {
-  const { data } = await client().accountInformation.listUserAccounts({ userId: u.snaptradeUserId, userSecret: decrypt(u.secretEnc) });
-  return data.map((a) => a.id);
 }
 
 // `accountIds` limits the fetch to accounts already cleared by the TR-6 claim.

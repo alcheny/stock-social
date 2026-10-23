@@ -8,7 +8,7 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { PROFILE, RECORD_BODY, recordBodyCopy, recordCountText } from '@/lib/copy.ts';
+import { PROFILE, RECORD_BODY, profileCardAlt, recordBodyCopy, recordCountText, shareCardText } from '@/lib/copy.ts';
 import { applyClocks, publicRecordDetail } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
@@ -19,6 +19,7 @@ import { ReferralFeedback } from './referral-feedback.tsx';
 import { ctaVia, referralSummary } from '@/lib/referral.ts';
 import { JoinCta } from './join-cta.tsx';
 import { isDemoUser } from '@/lib/demo.ts';
+import { positionRows } from '@/lib/positions.ts';
 import { newTradesSince } from '@/lib/new-trades.ts';
 import { MarkTradesPromptSeen, NewTradesPrompt } from './new-trades-prompt.tsx';
 import { latestRecapYm } from '@/lib/recap.ts';
@@ -42,23 +43,29 @@ async function load(handle: string) {
   // Fix round 3: the state is the aggregate over every consented connection (importing while any imports) and the
   // banner count is summed over them, so a newer finished link never presents a running import as a whole record.
   const { public: { state, paper }, imported } = await publicRecordDetail(user.id);
-  const positions = state !== 'none' ? await sql`select symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol` : [];
-  return { user, trades, state, imported, positions: positions.map((p) => ({ symbol: p.symbol as string, pct: p.unrealized_pct as number })), paper: paper as number, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol, account_id` : [];
+  return { user, trades, state, imported, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const data = await load((await params).handle);
   if (!data) return {};
   const { user, s, c, state } = data;
-  // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete).
-  if (state === 'importing') return { title: `${user.display_name} (@${user.handle}) · Stock Social`, description: RECORD_BODY.banner(data.trades.length) };
   // Fix round 5 (TR-3): the same count wording as the trade and month previews ("closed" for a failed or partly
   // unverified record, "demo" for demo data, "verified" only for a whole record from the broker).
   const verified = data.trades.length > 0 && data.trades.every((t) => t.verified);
-  const count = recordCountText({ state, demo: await isDemoUser(user.id), verified, trades: s.trades });
+  const demo = await isDemoUser(user.id);
+  // Reviewer fix (POLICY F3a, A1): the share card's alt text comes from the same record state as the card's label, so
+  // it never says "Verified" for a demo, importing or failed record. Declared here because a file-level alt is static.
+  const card = shareCardText({ state, demo, verified, empty: data.trades.length === 0 });
+  const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: profileCardAlt(user.handle, card) }] };
+  // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete).
+  if (state === 'importing') return { title: `${user.display_name} (@${user.handle}) · Stock Social`, description: RECORD_BODY.banner(data.trades.length), openGraph };
+  const count = recordCountText({ state, demo, verified, trades: s.trades });
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
     description: `${state === 'failed' ? `${RECORD_BODY.failed} ` : ''}${count} · ${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`,
+    openGraph,
   };
 }
 
@@ -203,7 +210,7 @@ export default async function Profile({ params, searchParams }: Params) {
         <h2>{RECORD_BODY.positionsTitle}</h2>
         <ul className="rows positions">
           {positions.map((p) => (
-            <li key={p.symbol}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link></b><b className={p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
+            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
           ))}
         </ul>
       </>}

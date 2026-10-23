@@ -11,7 +11,7 @@ import { confidence, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
-export const alt = 'Verified trading record on Stock Social';
+// The alt text depends on the record state, so the profile page declares it with this image (app/u/[handle]/page.tsx).
 
 export default async function Card({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;

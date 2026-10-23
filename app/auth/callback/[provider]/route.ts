@@ -31,7 +31,7 @@ async function finish(params: URLSearchParams, provider: string) {
     const user = await signInWithIdentity(tx.a, { provider: p.key, subject: v.claims.sub, email: verified && v.claims.email ? v.claims.email.toLowerCase() : null });
     await signIn(user.id);
     await rememberMethod(p.key);
-    return NextResponse.redirect(`${base}${await landingFor(user)}`, 303) // an empty profile goes straight to S2 (committee item 7);
+    return NextResponse.redirect(`${base}${await landingFor(user)}`, 303); // an empty profile goes straight to S2 (committee item 7)
   } catch {
     return fail('exchange'); // reason only: never the token, the code or the address
   }

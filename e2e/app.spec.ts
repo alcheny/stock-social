@@ -428,6 +428,9 @@ test('fix round 6: the demo trader\'s trade link preview says demo trades, never
   const profileDescription = await page.locator('meta[name="description"]').getAttribute('content');
   expect(profileDescription).toMatch(/^\d+ demo trades? · /);
   expect(profileDescription).not.toMatch(/verified/i);
+  // Reviewer fix (POLICY F3a, A1): the card's alt text follows the record state; the card URL is unchanged.
+  expect(await page.locator('meta[property="og:image:alt"]').getAttribute('content')).toBe('Trading record card for @momentum_maya on Stock Social: Demo data');
+  expect(new URL((await page.locator('meta[property="og:image"]').first().getAttribute('content'))!).pathname).toBe('/u/momentum_maya/opengraph-image');
 });
 
 test('monthly recap: signed out, whole record beside the month, every trade listed, 404s, card', async ({ page, request }) => {

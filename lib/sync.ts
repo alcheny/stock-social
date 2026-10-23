@@ -22,9 +22,14 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
 
 // Recompute a user's closed trades from raw activities. Theses survive via sell_id. Runs in the caller's transaction
 // when given one (an import step, a sync), else in its own.
+// Reviewer fix (plan §4/§9): an account the vendor flags as simulated, even on a later sync after a real import, never
+// feeds the record. Its raw activities stay (immutable), but the rebuild leaves them out, so its trades leave the
+// Verified record while the profile counts the account as a simulated account excluded. A flag cleared again by the
+// vendor brings them back on the next rebuild.
 export async function rebuildTrades(userId: number, tx?: TransactionSql) {
   const run = async (tx: TransactionSql) => {
-    const rows = await tx`select * from activities where user_id = ${userId}`;
+    const rows = await tx`select a.* from activities a where a.user_id = ${userId}
+      and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)`;
     const { trades, excluded } = matchTrades(
       rows.map((r) => ({
         externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,

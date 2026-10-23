@@ -6,11 +6,22 @@ import assert from 'node:assert/strict';
 import { unrealizedPct } from './broker.ts';
 import { startVendorFake } from '../e2e/fakes/vendor.ts';
 
-test('unrealizedPct: percent from price × units against cost basis; nothing without all three', () => {
-  assert.equal(unrealizedPct({ units: '10', price: '11', cost_basis: '100' }), 0.1);
-  assert.equal(unrealizedPct({ units: 2, price: 45, cost_basis: 100 }), -0.1);
-  assert.equal(unrealizedPct({ units: '10', price: null, cost_basis: '100' }), null);
-  assert.equal(unrealizedPct({ units: '0', price: '1', cost_basis: '0' }), null);
+test('unrealizedPct: per-unit cost against per-unit price (the SDK documents both as per share); nothing without them', () => {
+  // Hand-computed: 10 units bought at 10, now 11 -> (11 - 10) / 10 = +10%. A lot-total reading would give +1000%.
+  assert.equal(unrealizedPct({ units: '10', price: '11', cost_basis: '10' }), 0.1);
+  assert.equal(unrealizedPct({ units: 2, price: 45, cost_basis: 50 }), -0.1);
+  // The older model's per-share field works alone and wins when both are present.
+  assert.equal(unrealizedPct({ units: 10, price: 11, average_purchase_price: 10 }), 0.1);
+  assert.equal(unrealizedPct({ units: 10, price: 11, average_purchase_price: 10, cost_basis: '5.5' }), 0.1);
+  assert.equal(unrealizedPct({ units: 10, price: 11, average_purchase_price: null, cost_basis: '10' }), 0.1);
+  assert.equal(unrealizedPct({ units: 10, price: 11, average_purchase_price: 0, cost_basis: '10' }), 0.1);
+  // Missing or zero price or cost: no percent.
+  assert.equal(unrealizedPct({ units: '10', price: null, cost_basis: '10' }), null);
+  assert.equal(unrealizedPct({ units: '10', price: '0', cost_basis: '10' }), null);
+  assert.equal(unrealizedPct({ units: '10', price: '11' }), null);
+  assert.equal(unrealizedPct({ units: '10', price: '11', cost_basis: '0', average_purchase_price: 0 }), null);
+  assert.equal(unrealizedPct({ units: '10', price: '11', cost_basis: null }), null);
+  assert.equal(unrealizedPct({ units: '0', price: '1', cost_basis: '1' }), null);
 });
 
 let fake: Awaited<ReturnType<typeof startVendorFake>>;
@@ -33,7 +44,7 @@ test('register, read-only portal URL, accounts with flags, paged activities, pos
   assert.ok(url.startsWith(`${fake.base}/portal?`));
   assert.deepEqual(await b.listAccounts(u), []);
   await fetch(`${fake.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: [
-    { id: 'real-1', institution: 'Fake Brokerage', activities: 7, syncDone: false, positions: [{ symbol: 'QQQ', units: 2, price: 55, cost_basis: 100 }] },
+    { id: 'real-1', institution: 'Fake Brokerage', activities: 7, syncDone: false, positions: [{ symbol: 'QQQ', units: 10, price: 11, cost_basis: 10 }] },
     { id: 'paper-1', paper: true, activities: 2 },
   ] }) });
   await fetch(`${url}&go=1`, { redirect: 'manual' }); // the portal's Connect

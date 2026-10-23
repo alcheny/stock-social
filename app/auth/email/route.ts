@@ -15,5 +15,5 @@ export async function GET(req: Request) {
   const user = await signInWithIdentity(claim.attemptId, { provider: 'email', subject: claim.email, email: claim.email });
   await signIn(user.id);
   await rememberMethod('email');
-  return NextResponse.redirect(`${base}${await landingFor(user)}`, 303) // an empty profile goes straight to S2 (committee item 7);
+  return NextResponse.redirect(`${base}${await landingFor(user)}`, 303); // an empty profile goes straight to S2 (committee item 7)
 }
