@@ -115,6 +115,27 @@ export function shareCardText(x: { state: RecordState; demo: boolean; verified: 
   return { label: null, tone: 'muted', body, note: null };
 }
 
+// Fix round 6 (POLICY F3, TR-3): the trader's other performance images (single-trade card, month recap card, story
+// image) follow the profile card's rule, from the same record state. No image draws the check mark: the image font has
+// no glyph for it (it rendered as an empty box), so the word carries the meaning. The story keeps its own wording for a
+// whole verified record. stats false = an import still running: no whole-record stats line. note = the incomplete line.
+export type ImageKind = 'profile' | 'trade' | 'month' | 'story';
+export const imageLabel = (label: string | null) => label && label.replace(/^\u2713\s*/, '');
+export const STORY_VERIFIED = 'Imported read-only from the broker';
+export type ImageTrust = { label: string | null; tone: ShareCardText['tone']; stats: boolean; note: string | null };
+export function imageTrust(kind: ImageKind, x: { state: RecordState; demo: boolean; verified: boolean; empty: boolean }): ImageTrust {
+  const t = shareCardText(x);
+  const label = t.label === SHARE_CARD.verified && kind === 'story' ? STORY_VERIFIED : imageLabel(t.label);
+  return { label, tone: t.tone, stats: x.demo || x.state !== 'importing', note: t.note };
+}
+
+// Fix round 6: the whole-record count in a link preview's description says "verified" only when the profile would
+// (a whole record, every trade from the broker); "demo" for a demo profile; plain "closed" otherwise.
+export function recordCountText(x: { state: RecordState; demo: boolean; verified: boolean; trades: number }): string {
+  const kind = x.demo ? 'demo' : x.verified && x.trades > 0 && (x.state === 'connected' || x.state === 'none') ? 'verified' : 'closed';
+  return `${x.trades} ${kind} trade${x.trades === 1 ? '' : 's'}`;
+}
+
 // S6 declined / expired, S6c no real account, S7 errors (role="alert").
 export const RESULT = {
   declined: 'Import not started. Nothing is connected.',

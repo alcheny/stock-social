@@ -38,7 +38,7 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
     const s: TickerSummary = tickerSummary(rows, new Date());
     const c = s.conf!;
     const range = rangeText(c);
-    const status = s.demoOnly ? 'Sample data' : s.mixed ? 'Includes sample data' : '✓ Verified from broker';
+    const status = s.demoOnly ? 'Sample data' : s.mixed ? 'Includes sample data' : 'Verified from broker' /* no check mark: the image font has no glyph for it */;
     const good = !s.demoOnly && !s.mixed;
     return new ImageResponse(
       (

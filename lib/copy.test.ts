@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
-import { allCopy, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
+import { allCopy, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
 
 const MARK_RE = new RegExp(`\\b(${MARKS.map((m) => m.replace(/ /g, '[\\s-]?')).join('|')})\\b`, 'i');
 const MINORS_RE = new RegExp(`\\b(${MINORS.map((m) => m.replace(/ /g, '\\s')).join('|')})\\b`, 'i');
@@ -85,4 +85,38 @@ test('share card text per state (fix round 3): mirrors the profile; "Demo data" 
     assert.notEqual(card(st, { empty }).label, SHARE_CARD.demo, st);
   }
   assert.match(RECORD_BODY.failed, /did not finish/);
+});
+
+test('fix round 6 (TR-3, POLICY F3): the trade, month and story images follow the profile card per record state; no check-mark glyph', () => {
+  const states = ['importing', 'connected', 'failed', 'none'] as const;
+  for (const kind of ['trade', 'month', 'story'] as const) {
+    const img = (state: typeof states[number], o: { demo?: boolean; verified?: boolean } = {}) => imageTrust(kind, { state, demo: o.demo ?? false, verified: o.verified ?? true, empty: false });
+    // Failed: never Verified or "Imported read-only", the warning label and the incomplete line, stats still shown.
+    assert.deepEqual(img('failed'), { label: 'Import did not finish', tone: 'warn', stats: true, note: RECORD_BODY.failed }, kind);
+    // Importing: no whole-record stats line, never Verified.
+    assert.deepEqual(img('importing'), { label: 'Importing record', tone: 'muted', stats: false, note: 'Stats appear when the import finishes.' }, kind);
+    // A whole verified record: the verified wording without the check mark (the story keeps its own words).
+    assert.deepEqual(img('connected'), { label: kind === 'story' ? 'Imported read-only from the broker' : 'Verified from broker', tone: 'ok', stats: true, note: null }, kind);
+    // Demo: Demo data in every state, stats shown, no incomplete line.
+    for (const st of states) assert.deepEqual(img(st, { demo: true, verified: false }), { label: 'Demo data', tone: 'muted', stats: true, note: null }, `${kind} ${st}`);
+    for (const st of states) for (const demo of [true, false]) {
+      const t = img(st, { demo, verified: !demo });
+      assert.ok(!(t.label ?? '').includes('\u2713'), `${kind} ${st}`);
+      if (st === 'failed' || st === 'importing' || demo) assert.doesNotMatch(t.label ?? '', /verified|imported read-only/i, `${kind} ${st} demo=${demo}`);
+    }
+  }
+  // The profile card's label also loses the glyph; its other fields are shareCardText's.
+  assert.equal(imageTrust('profile', { state: 'connected', demo: false, verified: true, empty: true }).label, 'Broker connected');
+});
+
+test('fix round 6: a link preview counts trades as verified only for a whole record from the broker', () => {
+  const c = (state: 'importing' | 'connected' | 'failed' | 'none', o: { demo?: boolean; verified?: boolean; trades?: number } = {}) =>
+    recordCountText({ state, demo: o.demo ?? false, verified: o.verified ?? true, trades: o.trades ?? 5 });
+  assert.equal(c('connected'), '5 verified trades');
+  assert.equal(c('connected', { trades: 1 }), '1 verified trade');
+  assert.equal(c('failed'), '5 closed trades');
+  assert.equal(c('importing'), '5 closed trades');
+  for (const st of ['importing', 'connected', 'failed', 'none'] as const) assert.equal(c(st, { demo: true, verified: false, trades: 30 }), '30 demo trades');
+  assert.equal(c('connected', { verified: false }), '5 closed trades');
+  assert.equal(c('connected', { trades: 0 }), '0 closed trades');
 });

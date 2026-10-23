@@ -612,6 +612,27 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await feed.goto('/t/AAA');
   await expect(stockRows().first()).toBeAttached();
   await expect(feed.locator(`a.trow[href^="/u/${handle}"] .badge.verified`)).toHaveCount(0);
+  // Fix round 6 (TR-3, POLICY F3): the trade and month pages say the record may be incomplete, their link previews carry
+  // no "verified" wording, and their preview images (and the story image) render for the failed record.
+  const [last] = await sql`select ct.sell_id, ct.closed_at from closed_trades ct join users u on u.id = ct.user_id where u.handle = ${handle} order by ct.closed_at desc limit 1`;
+  const d = new Date(last.closed_at as Date);
+  const ym = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  for (const path of [`/u/${handle}/trade/${encodeURIComponent(last.sell_id as string)}`, `/u/${handle}/month/${ym}`]) {
+    await feed.goto(path);
+    await expect(feed.locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');
+    await expect(feed.locator('.badge.verified')).toHaveCount(0);
+    const description = await feed.locator('meta[name="description"]').getAttribute('content');
+    expect(description, path).toBeTruthy();
+    expect(description!, path).not.toMatch(/verified/i);
+    const image = await feed.locator('meta[property="og:image"]').first().getAttribute('content');
+    expect(image, path).toBeTruthy();
+    const res = await feed.request.get(new URL(image!).pathname + new URL(image!).search);
+    expect(res.status(), path).toBe(200);
+    expect(res.headers()['content-type']).toContain('image/png');
+  }
+  const story = await feed.request.get(`/u/${handle}/story?format=square`);
+  expect(story.status()).toBe(200);
+  expect(story.headers()['content-type']).toContain('image/png');
   await anon.close();
   await sql`delete from users where handle = ${handle}`;
   await sql`delete from broker_accounts where account_id = any(${[a1, a2, a3]})`;

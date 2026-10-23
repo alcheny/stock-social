@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
+import { RECORD_BODY } from '@/lib/copy.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
@@ -69,6 +70,8 @@ export default async function RecapPage({ params }: Params) {
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {w.newRecord && <span className="badge new">New record</span>}</h2>
+          {/* Fix round 6 (TR-3): a failed import is never presented as a whole record, here as on the profile. */}
+          {r.state === 'failed' && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
           <p className="big">{(w.winRate * 100).toFixed(0)}%</p>
           <p className="muted small" style={{ marginTop: 0 }}>win rate · {plural(w.trades)} · {pct(w.avgReturn)} avg return</p>
           <p className="small">{w.evidence}{w.range ? ` ${w.range}` : ''}</p>

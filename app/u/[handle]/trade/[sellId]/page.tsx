@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
+import { RECORD_BODY, recordCountText } from '@/lib/copy.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from './trade-share.tsx';
@@ -22,7 +23,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   if (!t) return {};
   return {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
-    description: `${t.record.trades} verified trades · ${(t.record.winRate * 100).toFixed(0)}% win rate · ${pct(t.record.avgReturn)} avg return`,
+    // Fix round 6: "verified" only for a whole record from the broker; "demo" for demo data.
+    description: `${recordCountText({ state: t.state, demo: t.demo, verified: t.verified, trades: t.record.trades })} · ${(t.record.winRate * 100).toFixed(0)}% win rate · ${pct(t.record.avgReturn)} avg return`,
   };
 }
 
@@ -50,6 +52,8 @@ export default async function TradePage({ params }: Params) {
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {t.newRecord && <span className="badge new">New record</span>}</h2>
+          {/* Fix round 6 (TR-3): a failed import is never presented as a whole record, here as on the profile. */}
+          {t.state === 'failed' && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
           <p className="big">{(t.record.winRate * 100).toFixed(0)}%</p>
           <p className="muted small" style={{ marginTop: 0 }}>win rate · {n} closed trade{n === 1 ? '' : 's'} · {pct(t.record.avgReturn)} avg return</p>
           <p className="small">{t.record.evidence}{t.record.range ? ` ${t.record.range}` : ''}</p>

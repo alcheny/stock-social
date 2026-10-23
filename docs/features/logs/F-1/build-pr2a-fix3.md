@@ -241,3 +241,72 @@ Every per-trade row that drew a Verified badge from the trade's own flag alone n
 
 Files changed (part 2): `lib/pane.ts`, `app/ui.tsx`, `app/t/[symbol]/page.tsx`, `app/t/[symbol]/Theses.tsx`; tests
 `lib/pane.test.ts`, `e2e/connect.spec.ts`.
+
+## Fix round 6 (tester re-run 5: one Low and three notes)
+
+Date: 2026-10-23. Engineer. Fixes the re-run 5 Low and its three notes; three touch POLICY F3 (every performance image
+carries the disclaimer and never presents an incomplete record as verified).
+
+1. **Trade card, month recap card and story image follow the record state (TR-3).** `lib/copy.ts` `imageTrust(kind,
+   {state, demo, verified, empty})` applies the profile card's rule (`shareCardText`) to each image: failed → "Import did
+   not finish" (warn) plus the incomplete line, never "Verified from broker" or "Imported read-only"; importing → no
+   whole-record stats line (the story shows "Import in progress"); demo → "Demo data" in every state. The story keeps
+   its own "Imported read-only from the broker" for a whole verified record. `lib/trade-share-load.ts` and
+   `lib/recap-load.ts` now return `state` (`publicRecord`) and `verified`; `app/u/[handle]/story/route.tsx` reads
+   `publicRecord` and passes it to `storyModel` (new `state` option, `tone`, `note`). The trade and month pages also
+   show the incomplete line (`.record-failed`) under "Their whole record" for a failed record. The two images' static
+   `alt` text no longer says "verified".
+2. **Month recap card keeps the disclaimer in view.** New pure layout model `lib/month-card.ts`: every line is one
+   line (nowrap, ellipsis as a backstop) and the month label's size shrinks with its length (`fitSize`, at most 96 px;
+   "October 2026 · month so far" draws at 61 px), so the card's height is fixed and the disclaimer always fits; the
+   incomplete line takes the evidence line's place. The image draws exactly the model's lines, and the header, the
+   rule block and the disclaimer do not shrink. The trade card got the same guard: only the thesis gives way when space
+   runs short.
+3. **No empty box for the check mark.** Images no longer draw "✓" (the image font has no glyph for it): `imageLabel`
+   strips it on the trade, month and profile cards, and the stock share image says "Verified from broker". The word
+   carries the meaning; the HTML badges keep the glyph.
+4. **Trade page link preview wording.** `recordCountText` derives the count's adjective from record state and source:
+   "N demo trades" for a demo profile, "N verified trades" only for a whole record from the broker, "N closed trades"
+   otherwise (failed, importing, no closes).
+
+Tests:
+- `lib/copy.test.ts`: "fix round 6 (TR-3, POLICY F3)" covers `imageTrust` for the trade, month and story images in
+  every state, demo and real, with no check mark; "fix round 6: a link preview counts trades…" covers `recordCountText`.
+- `lib/story-image.test.ts`: failed (label, warn tone, incomplete line, stats kept), importing (no stats), demo.
+- `lib/month-card.test.ts` (new, layout assertion; image snapshots are not available in `node:test`): with the longest
+  month label ("September 2026 · month so far") in every state, demo and real, the model ends with the full
+  `DISCLAIMER`, its stacked height fits the 502 px inner height and the label fits one line; header and lines follow
+  the record state; no check mark or `$`.
+- `e2e/connect.spec.ts` "fix round 4 (TR-3)": after the 403, the trader's trade and month pages show the incomplete
+  line and no `.badge.verified`, their `meta[name=description]` has no "verified", and each page's `og:image` returns
+  200 `image/png`; the story image returns 200.
+- `e2e/app.spec.ts` "fix round 6": the demo trader's trade page description reads "N demo trades", no "verified"; its
+  `og:image` returns 200.
+
+Manual check (built app, signed out, test user removed afterwards): the failed trader's trade, month and story images
+show "Import did not finish" and the incomplete line with the disclaimer in full; the demo trader's month card
+("October 2026 · month so far") and trade card with a thesis show the disclaimer in full and "Demo data".
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, two runs | 405 pass both runs, 0 fail, 0 skipped |
+| `npm run build` | the first attempt stopped on the framework's security-advisory prompt (tool output; nothing upgraded); the retry built cleanly |
+| `SEED=1 node --env-file=.env scripts/db-setup.ts`, then `npm run test:e2e` (same variables; fakes started by the specs) | 70 passed, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+### Compliance
+
+- POLICY F3: every performance image still renders `{DISCLAIMER}` (`lib/share.test.ts`), and the month card's layout
+  now guarantees it is in view; no image presents a failed record as verified.
+- TR-3: the record state reaches every per-trader image and link preview. No new dependency, no schema change, no
+  third-party names. New copy reuses `SHARE_CARD` and `RECORD_BODY`; the only new strings are the count adjectives.
+
+### Files changed
+
+`lib/copy.ts`, `lib/month-card.ts` (new), `lib/story-image.ts`, `lib/trade-share-load.ts`, `lib/recap-load.ts`,
+`app/u/[handle]/trade/[sellId]/opengraph-image.tsx`, `app/u/[handle]/trade/[sellId]/page.tsx`,
+`app/u/[handle]/month/[ym]/opengraph-image.tsx`, `app/u/[handle]/month/[ym]/page.tsx`,
+`app/u/[handle]/story/route.tsx`, `app/u/[handle]/opengraph-image.tsx`, `app/t/[symbol]/opengraph-image.tsx`; tests
+`lib/copy.test.ts`, `lib/story-image.test.ts`, `lib/month-card.test.ts` (new), `e2e/connect.spec.ts`, `e2e/app.spec.ts`.
