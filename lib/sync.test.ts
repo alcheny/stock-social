@@ -233,7 +233,7 @@ dbTest('PR-3: a sync with no stored history reads it a vendor page at a time (on
 
 dbTest('PR-3 defect 2: four concurrent callers of the sync tick sync each trader exactly once per round, never two at a time; the next round claims them again; a failure is retried next round, not by another caller', async () => {
   const sets = await Promise.all(Array.from({ length: 6 }, () => setup()));
-  const { syncTick, hourStart, HOUR_MS } = await import('./sync.ts');
+  const { syncTick, ROUND_MS } = await import('./sync.ts');
   const mine = new Map(sets.map((s) => [s.user.id, s]));
   for (const s of sets) await s.connected([`${s.tag}-acc`]);
   const calls = new Map<number, number>();
@@ -250,48 +250,64 @@ dbTest('PR-3 defect 2: four concurrent callers of the sync tick sync each trader
     return 1;
   };
   try {
-    const now = new Date(hourStart(new Date()).getTime() - 3 * HOUR_MS + 5 * 60_000); // a past hour, 5 minutes in
-    const results = await Promise.all(Array.from({ length: 4 }, () => syncTick({ now, sync })));
+    // A past round, 5 minutes after its cron mark, on the database clock shifted back (fix round 2); only our traders.
+    const ids = [...mine.keys()];
+    const at = (ms: number) => ({ ids, sync, clockShiftMs: () => ms - Date.now() });
+    const now = Math.floor(Date.now() / ROUND_MS) * ROUND_MS - 3 * ROUND_MS + 5 * 60_000;
+    const results = await Promise.all(Array.from({ length: 4 }, () => syncTick(at(now))));
     assert.equal(overlap, false);
     assert.deepEqual([...mine.keys()].map((id) => calls.get(id)), sets.map(() => 1));
     assert.deepEqual(results.flatMap((r) => r.failed).filter((id) => mine.has(id)), [failOnce]);
     // Same round: nothing is claimed twice, the failed trader included.
-    await syncTick({ now: new Date(now.getTime() + 60_000), sync });
+    await syncTick(at(now + 60_000));
     assert.deepEqual([...mine.keys()].map((id) => calls.get(id)), sets.map(() => 1));
     // Next round (an hour later): every trader once more.
     inFlight = new Set();
-    await Promise.all(Array.from({ length: 4 }, () => syncTick({ now: new Date(now.getTime() + HOUR_MS), sync })));
+    await Promise.all(Array.from({ length: 4 }, () => syncTick(at(now + ROUND_MS))));
     assert.deepEqual([...mine.keys()].map((id) => calls.get(id)), sets.map(() => 2));
   } finally {
     for (const s of sets) await s.cleanup([`${s.tag}-acc`]);
   }
 });
 
-// Fix round 1 (tester's medium): the claim is per clock hour plus a short in-flight lease. Ticks run at past hours, so a
-// claim never shadows a real tick; other suites' traders are claimed too but never synced here.
-async function hourTicks(n: number) {
+
+// Fix rounds 1 and 2 (tester's mediums): the claim is per round, :30 to :30 on the database clock, plus a short in-flight
+// lease. Ticks run in a past round by shifting the database clock (minute 0 = a past :00 cron mark, so round k is
+// minutes [60k - 30, 60k + 30)) and claim only these tests' traders, so no real trader is ever claimed here.
+const MIN = 60_000;
+async function roundTicks(n: number) {
   const sets = await Promise.all(Array.from({ length: n }, () => setup()));
   for (const s of sets) await s.connected([`${s.tag}-acc`]);
   const S = await import('./sync.ts');
   const ids = sets.map((s) => s.user.id);
   const mine = new Set(ids);
   const calls = new Map<number, number[]>();
-  const at = (minute: number) => async (u: { id: number }) => { if (mine.has(u.id)) calls.set(u.id, [...(calls.get(u.id) ?? []), minute]); return 0; };
-  const T0 = S.hourStart(new Date()).getTime() - 6 * S.HOUR_MS; // the top of a past hour
-  const tick = (minute: number, sync = at(minute)) => S.syncTick({ now: new Date(T0 + minute * 60_000), sync });
+  const T0 = Math.floor(Date.now() / S.ROUND_MS) * S.ROUND_MS - 20 * S.ROUND_MS; // a past :00
+  const sim = { m: 0 }; // the database clock for clock-driven ticks, in minutes after T0; read at every claim
+  const shiftTo = (minute: number) => T0 + minute * MIN - Date.now();
+  const at = (minute?: number) => async (u: { id: number }) => { if (mine.has(u.id)) calls.set(u.id, [...(calls.get(u.id) ?? []), minute ?? sim.m]); return 0; };
+  // A tick at a fixed database time (`minute`), or one that follows `sim.m` claim by claim (no minute).
+  const tick = <R>(minute?: number, sync: (u: { id: number }) => Promise<R> = at(minute) as never) =>
+    S.syncTick({ ids, sync, clockShiftMs: () => shiftTo(minute ?? sim.m) });
+  const claim = (minute: number) => S.claimNextUser({ ids, shiftMs: shiftTo(minute) });
   const synced = () => ids.map((id) => calls.get(id) ?? []);
-  return { S, sets, ids, mine, calls, T0, tick, at, synced, cleanup: async () => { for (const s of sets) await s.cleanup([`${s.tag}-acc`]); } };
+  const round = (m: number) => Math.floor((m + 30) / 60);
+  return { S, sets, ids, mine, calls, T0, sim, tick, claim, at, synced, round, cleanup: async () => { for (const s of sets) await s.cleanup([`${s.tag}-acc`]); } };
 }
+const gate = () => { let open!: () => void; const p = new Promise<void>((r) => { open = r; }); return { p, open }; };
+const until = async (f: () => boolean) => {
+  for (const end = Date.now() + 5_000; !f(); await new Promise((r) => setTimeout(r, 5))) if (Date.now() > end) throw new Error('timed out waiting');
+};
 
-dbTest('PR-3 fix round 1: a late tick (+12 min) never makes the next on-time tick (+60) skip anyone: every trader is synced in hour 1 and again in hour 2', async () => {
-  const h = await hourTicks(3);
+dbTest('PR-3 fix round 1: a late tick (+12 min) never makes the next on-time tick (+60) skip anyone: every trader is synced in round 1 and again in round 2', async () => {
+  const h = await roundTicks(3);
   try {
     await h.tick(0);
-    await h.tick(12); // the hour-1 call delivered late (or a duplicate): same clock hour, nobody again
+    await h.tick(12); // the round-1 call delivered late (or a duplicate): same round, nobody again
     await h.tick(60);
     await h.tick(120);
     assert.deepEqual(h.synced(), h.ids.map(() => [0, 60, 120]));
-    // A tick that only runs late in its hour still syncs everyone that hour, and the next on-time tick syncs them again.
+    // A tick that only runs late in its round still syncs everyone that round, and the next on-time tick syncs them again.
     await h.tick(192);
     await h.tick(240);
     assert.deepEqual(h.synced(), h.ids.map(() => [0, 60, 120, 192, 240]));
@@ -300,20 +316,16 @@ dbTest('PR-3 fix round 1: a late tick (+12 min) never makes the next on-time tic
   }
 });
 
-dbTest('PR-3 fix round 1: a tick that crashes mid-run leaves no gap: a retry at +15 syncs the remaining traders (and the one whose lease lapsed), the next hour syncs all again', async () => {
-  const h = await hourTicks(3);
+dbTest('PR-3 fix round 1: a tick that crashes mid-run leaves no gap: a retry at +15 syncs the remaining traders (and the one whose lease lapsed), the next round syncs all again', async () => {
+  const h = await roundTicks(3);
   try {
-    // The crash: claims (and so leases) until it holds one of ours, syncs nothing, never releases.
-    let held: number | null = null;
-    for (let u = await h.S.claimNextUser(new Date(h.T0)); u; u = await h.S.claimNextUser(new Date(h.T0))) {
-      if (h.mine.has(u.id)) { held = u.id; break; }
-      await h.S.releaseClaim(u);
-    }
+    // The crash: claims one trader (and so leases it), syncs nothing, never releases.
+    const held = (await h.claim(0))?.id;
     assert.ok(held);
     // Still inside the lease (+5): the crashed claim is not taken, the others are.
     await h.tick(5);
     assert.deepEqual(h.synced(), h.ids.map((id) => (id === held ? [] : [5])));
-    // After the lease lapses (+15): the crashed trader is synced in the same hour; the others are not synced twice.
+    // After the lease lapses (+15): the crashed trader is synced in the same round; the others are not synced twice.
     await h.tick(15);
     assert.deepEqual(h.synced(), h.ids.map((id) => (id === held ? [15] : [5])));
     await h.tick(60);
@@ -323,48 +335,44 @@ dbTest('PR-3 fix round 1: a tick that crashes mid-run leaves no gap: a retry at 
   }
 });
 
-dbTest('PR-3 fix round 1: concurrent ticks in one hour sync each trader once and never two at a time, including a tick in the next hour while a sync is still in flight', async () => {
-  const h = await hourTicks(6);
+dbTest('PR-3 fix round 1: concurrent ticks in one round sync each trader once and never two at a time, including a tick in the next round while a sync is still in flight', async () => {
+  const h = await roundTicks(6);
   try {
     const inFlight = new Set<number>();
     let overlap = false;
-    const slow = (minute: number, gate?: Promise<void>) => async (u: { id: number }) => {
-      if (!h.mine.has(u.id)) return 0;
+    const slow = (minute: number, wait?: Promise<void>) => async (u: { id: number }) => {
       if (inFlight.has(u.id)) overlap = true;
       inFlight.add(u.id);
       await h.at(minute)(u);
-      await (gate ?? new Promise((r) => setTimeout(r, 20)));
+      await (wait ?? new Promise((r) => setTimeout(r, 20)));
       inFlight.delete(u.id);
       return 1;
     };
-    await Promise.all(Array.from({ length: 4 }, () => h.tick(30, slow(30))));
+    await Promise.all(Array.from({ length: 4 }, () => h.tick(0, slow(0))));
     assert.equal(overlap, false);
-    assert.deepEqual(h.synced(), h.ids.map(() => [30]));
-    // A sync claimed at the top of the next hour is still running when other ticks of that hour arrive: its lease keeps
-    // it out of them, so it is never synced twice at once nor twice in that hour.
-    let open!: () => void;
-    const gate = new Promise<void>((r) => { open = r; });
+    assert.deepEqual(h.synced(), h.ids.map(() => [0]));
+    // A sync claimed at the next cron mark is still running when other ticks of that round arrive: its lease keeps it out
+    // of them, so it is never synced twice at once nor twice in that round.
+    const g = gate();
     h.calls.clear();
-    let claimed = await h.S.claimNextUser(new Date(h.T0 + 60 * 60_000));
-    while (claimed && !h.mine.has(claimed.id)) { await h.S.releaseClaim(claimed); claimed = await h.S.claimNextUser(new Date(h.T0 + 60 * 60_000)); }
-    assert.ok(claimed);
-    const c = claimed;
-    const running = (async () => { try { await slow(60, gate)(c); } finally { await h.S.releaseClaim(c); } })();
+    const c = await h.claim(60);
+    assert.ok(c);
+    const running = (async () => { try { await slow(60, g.p)(c); } finally { await h.S.releaseClaim(c); } })();
     await Promise.all([h.tick(61, slow(61)), h.tick(61, slow(61))]);
     assert.deepEqual(h.calls.get(c.id), [60]);
     for (const id of h.ids.filter((id) => id !== c.id)) assert.deepEqual(h.calls.get(id), [61]);
-    open();
+    g.open();
     await running;
     await h.tick(62, slow(62));
     assert.equal(overlap, false);
-    for (const id of h.ids) assert.equal(h.calls.get(id)?.length, 1, 'once in hour 2');
+    for (const id of h.ids) assert.equal(h.calls.get(id)?.length, 1, 'once in round 2');
   } finally {
     await h.cleanup();
   }
 });
 
 dbTest('PR-3 fix round 1: a trader with an import running is never claimed', async () => {
-  const h = await hourTicks(2);
+  const h = await roundTicks(2);
   try {
     const [busy, free] = h.sets;
     await busy.sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, consent_at, importing_at, accounts)
@@ -376,6 +384,252 @@ dbTest('PR-3 fix round 1: a trader with an import running is never claimed', asy
     const [row] = await busy.sql`select sync_claimed_at, sync_lease_until from users where id = ${busy.user.id}`;
     assert.equal(row.sync_claimed_at, null);
     assert.equal(row.sync_lease_until, null);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+// Fix round 2 (tester's re-run 1, scenarios 3 to 10 of the attack suite).
+dbTest('PR-3 fix round 2: the claim uses the database clock: a claim stamps the database time, the lease is that time plus SYNC_LEASE_MS, the round starts at :30', async () => {
+  const h = await roundTicks(1);
+  try {
+    const { sql } = h.sets[0];
+    const [{ db }] = await sql`select now() as db`;
+    const c = await h.S.claimNextUser({ ids: h.ids }); // no shift: production's clock
+    assert.ok(c);
+    const [row] = await sql`select sync_claimed_at as c, sync_lease_until as l from users where id = ${c.id}`;
+    assert.ok(Math.abs(row.c.getTime() - db.getTime()) < 5_000);
+    assert.equal(row.l.getTime() - row.c.getTime(), h.S.SYNC_LEASE_MS);
+    await h.S.releaseClaim(c);
+    assert.equal((await sql`select sync_lease_until as l from users where id = ${c.id}`)[0].l, null); // microsecond lease matched
+    assert.equal(h.S.ROUND_OFFSET_MS, 30 * MIN);
+    await sql`update users set sync_claimed_at = null where id = ${c.id}`; // back before the past rounds below
+    // The boundary is at :30, not :00: a call 0.6 s before :30 and one 0.6 s after are different rounds.
+    await h.tick(-60 + 29.99);
+    await h.tick(-60 + 30.01);
+    await h.tick(-60 + 59.9983); // :59:59.9, the next cron mark 0.1 s early: same round as :30.01
+    await h.tick(0.005); // :00:00.3
+    assert.deepEqual(h.synced(), [[-60 + 29.99, -60 + 30.01]]);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('PR-3 fix round 2: the scheduler fires 0.3 s late one hour and 0.1 s early the next: nobody is skipped (scenario 10)', async () => {
+  const h = await roundTicks(2);
+  try {
+    await h.tick(0.005); // :00:00.3
+    await h.tick(59.9983); // the next hour's call, 0.1 s early (:59:59.9)
+    await h.tick(120.005);
+    assert.deepEqual(h.synced(), h.ids.map(() => [0.005, 59.9983, 120.005]));
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('PR-3 fix round 2: instances whose clocks are 2 min fast and 2 min slow fire their cron at true :58 and :02: alternating, both, or a retry a minute later, each trader is synced once per round (scenarios 6, 7, 8)', async () => {
+  const h = await roundTicks(3);
+  try {
+    for (let k = 0; k < 6; k++) await h.tick(k * 60 + (k % 2 === 0 ? 2 : -2)); // one call per hour, alternating instances
+    assert.deepEqual(h.synced().map((s) => s.length), h.ids.map(() => 6));
+    h.calls.clear();
+    for (let k = 7; k <= 9; k++) { await h.tick(k * 60 - 2); await h.tick(k * 60 + 2); } // both instances each hour
+    assert.deepEqual(h.synced(), h.ids.map(() => [418, 478, 538]));
+    h.calls.clear();
+    await h.tick(600 - 2); // on time on the slow-firing instance
+    await h.tick(601 + 2); // a retry on the other instance a minute later
+    assert.deepEqual(h.synced(), h.ids.map(() => [598]));
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('PR-3 fix round 2: a tick running across :30 claims under the new round after it: never twice in one round, and later claims carry the new round (scenario 3)', async () => {
+  const h = await roundTicks(3);
+  try {
+    const g1 = gate(), g2 = gate();
+    let a = 0, b = 0;
+    const slow = (n: () => number, g: Promise<void>) => async (u: { id: number }) => { await h.at()(u); if (n() === 1) await g; return 1; };
+    h.sim.m = 28;
+    const A = h.tick(undefined, slow(() => ++a, g1.p)); // its first sync ends after :30
+    await until(() => h.calls.size === 1);
+    h.sim.m = 31;
+    const B = h.tick(undefined, slow(() => ++b, g2.p)); // the next round's tick, slow on its first trader too
+    await until(() => h.calls.size === 2);
+    h.sim.m = 32;
+    g1.open(); // A goes on claiming at :32, in round 1
+    await until(() => [...h.calls.values()].flat().length === 4);
+    h.sim.m = 33;
+    g2.open();
+    await Promise.all([A, B]);
+    const [first, second] = [...h.calls.keys()];
+    const third = h.ids.find((id) => id !== first && id !== second)!;
+    assert.deepEqual(h.calls.get(first), [28, 32]); // round 0 at :28, then round 1 after the boundary
+    assert.deepEqual(h.calls.get(second), [31]);
+    assert.deepEqual(h.calls.get(third), [32]);
+    for (const s of h.synced()) for (const r of [0, 1]) assert.ok(s.filter((m) => h.round(m) === r).length <= 1);
+    const [row] = await h.sets[0].sql`select min(sync_claimed_at) as c from users where id in ${h.sets[0].sql(h.ids)}`;
+    assert.ok(row.c.getTime() >= h.T0 + 30 * MIN, 'every claim after the boundary carries round 1');
+    await h.tick(60); // round 1's cron: nobody again
+    await h.tick(90); // round 2: everyone once
+    assert.deepEqual(h.synced().map((s) => s.filter((m) => h.round(m) === 1).length), h.ids.map(() => 1));
+    assert.deepEqual(h.synced().map((s) => s.filter((m) => h.round(m) === 2)), h.ids.map(() => [90]));
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('PR-3 fix round 2: a lease that lapses mid-sync while the advisory lock holds: the second claimer is skipped, rows never interleave, no further sync that round (scenario 4)', async () => {
+  const h = await roundTicks(1);
+  try {
+    const [id] = h.ids;
+    const { sql } = h.sets[0];
+    const g = gate();
+    let inside = 0, overlap = false;
+    const locked = (minute: number, wait?: Promise<void>) => async (u: { id: number }) => sql.begin(async (tx) => {
+      const [{ got }] = await tx`select pg_try_advisory_xact_lock(${h.S.USER_LOCK}, ${u.id}) as got`;
+      if (!got) return 'skipped' as const;
+      if (++inside > 1) overlap = true;
+      await h.at(minute)(u);
+      if (wait) await wait;
+      inside--;
+      return 1;
+    });
+    const A = h.tick(0, locked(0, g.p));
+    await until(() => h.calls.size === 1);
+    const b = await h.tick(12, locked(12)); // the lease (until :10) has lapsed; the lock is still held by A
+    assert.deepEqual(b, { ok: 0, skipped: 1, failed: [] });
+    g.open();
+    await A;
+    await h.tick(20, locked(20));
+    const [end] = await sql`select sync_lease_until as l from users where id = ${id}`;
+    assert.equal(overlap, false);
+    assert.deepEqual(h.calls.get(id), [0]);
+    assert.equal(end.l, null);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('PR-3 fix round 2: 8 concurrent ticks across :30 (4 at :29, 4 at :31): never two at once, at most once per round, every trader once in round 1 (scenario 5)', async () => {
+  const h = await roundTicks(12);
+  try {
+    const inFlight = new Set<number>();
+    let overlap = false;
+    const slow = (minute: number) => async (u: { id: number }) => {
+      if (inFlight.has(u.id)) overlap = true;
+      inFlight.add(u.id);
+      await h.at(minute)(u);
+      await new Promise((r) => setTimeout(r, 15));
+      inFlight.delete(u.id);
+      return 1;
+    };
+    await Promise.all([...Array.from({ length: 4 }, () => h.tick(29, slow(29))), ...Array.from({ length: 4 }, () => h.tick(31, slow(31)))]);
+    await h.tick(35, slow(35));
+    await h.tick(90, slow(90));
+    assert.equal(overlap, false);
+    for (const s of h.synced()) {
+      assert.ok(s.filter((m) => h.round(m) === 0).length <= 1, JSON.stringify(s));
+      assert.equal(s.filter((m) => h.round(m) === 1).length, 1, JSON.stringify(s));
+      assert.deepEqual(s.filter((m) => h.round(m) === 2), [90]);
+    }
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('PR-3 fix round 2: an import running across :30 is never claimed (claim and lease stay null), and the first tick after it connects syncs it once (scenario 9)', async () => {
+  const h = await roundTicks(1);
+  try {
+    const [id] = h.ids;
+    const { sql } = h.sets[0];
+    await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, consent_at, importing_at, accounts)
+      select signup_attempt_id, id, 'b', 'importing', now(), now(), '[]' from users where id = ${id}`;
+    for (const m of [28, 29, 30, 31]) {
+      await h.tick(m);
+      const [r] = await sql`select sync_claimed_at as c, sync_lease_until as l from users where id = ${id}`;
+      assert.equal(r.c, null);
+      assert.equal(r.l, null);
+    }
+    await Promise.all([h.tick(31), h.tick(31)]);
+    assert.equal(h.calls.get(id), undefined);
+    await sql`update connections set state = 'connected', connected_at = now() where user_id = ${id} and state = 'importing'`;
+    await h.tick(32);
+    await h.tick(33);
+    assert.deepEqual(h.calls.get(id), [32]);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('PR-3 fix round 2, the rule: two instances skewed ±2 min with a cron at :00 on each, retries at arbitrary offsets, a tick across :30, an import and a lapsed lease: every trader is synced exactly once per round across 6 rounds, never interleaved', async () => {
+  const h = await roundTicks(6);
+  try {
+    const { sql } = h.sets[0];
+    const fresh = h.sets[5].user.id; // a trader with a second import running through most of round 3
+    const entries: { id: number; m: number }[] = [];
+    const inFlight = new Set<number>();
+    let overlap = false;
+    // A real sync's shape: one transaction under the per-user advisory lock; `hold` keeps the lock while the clock moves.
+    const locked = (hold?: (id: number) => Promise<void> | undefined) => async (u: { id: number }) => sql.begin(async (tx) => {
+      const [{ got }] = await tx`select pg_try_advisory_xact_lock(${h.S.USER_LOCK}, ${u.id}) as got`;
+      if (!got) return 'skipped' as const;
+      if (inFlight.has(u.id)) overlap = true;
+      inFlight.add(u.id);
+      entries.push({ id: u.id, m: h.sim.m });
+      await hold?.(u.id);
+      inFlight.delete(u.id);
+      return 1;
+    });
+    const go = (m: number, sync = locked()) => { h.sim.m = m; return h.tick(undefined, sync); };
+    for (let k = 1; k <= 6; k++) {
+      const M = 60 * k; // the cron mark; the instance 2 min fast fires at true M - 2, the slow one at M + 2
+      if (k === 3) {
+        h.sim.m = M - 5;
+        await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, consent_at, importing_at, accounts)
+          select signup_attempt_id, id, 'imp', 'importing', now(), now(), '[]' from users where id = ${fresh}`;
+      }
+      if (k === 6) await go(M - 29.99); // a retry just after the round opens
+      if (k === 2) await go(M + 0.005); // 0.3 s late on an unskewed caller
+      if (k === 5) {
+        // The fast instance's tick holds its first trader's lock past the lease (:58 to :71); the slow instance's cron
+        // syncs the rest; a retry at :71 claims the lapsed lease and is skipped by the lock.
+        const g = gate();
+        let first: number | null = null;
+        const P = go(M - 2, locked((id) => { if (first === null) { first = id; return g.p; } }));
+        await until(() => first !== null);
+        await go(M + 2);
+        const r = await go(M + 11);
+        assert.deepEqual(r, { ok: 0, skipped: 1, failed: [] });
+        g.open();
+        await P;
+      } else if (k % 2 === 1) {
+        await go(M - 2); await go(M + 2); // both instances fire
+      } else {
+        await go(k % 4 === 0 ? M - 2 : M + 2); // only one instance fires
+      }
+      if (k === 4) await go(M - 0.0017); // the scheduler 0.1 s early
+      await go(M + 17); // a retry mid-round
+      if (k === 3) {
+        // The import connects at :28; a retry at :29 syncs it and is still in its sync at :30, then claims under round 4.
+        h.sim.m = M + 28;
+        await sql`update connections set state = 'connected', connected_at = now() where user_id = ${fresh} and state = 'importing'`;
+        const g = gate();
+        const X = go(M + 29, locked((id) => (id === fresh && h.sim.m < M + 30 ? g.p : undefined)));
+        await until(() => entries.some((e) => e.id === fresh && e.m === M + 29));
+        h.sim.m = M + 31;
+        g.open();
+        await X;
+      } else {
+        await go(M + 29.99); // 0.6 s before the boundary: still this round
+      }
+    }
+    assert.equal(overlap, false);
+    for (let r = 1; r <= 6; r++) {
+      assert.deepEqual(h.ids.map((id) => entries.filter((e) => e.id === id && h.round(e.m) === r).length), h.ids.map(() => 1), `round ${r}: ${JSON.stringify(entries)}`);
+    }
+    assert.ok(entries.filter((e) => e.id === fresh && e.m >= 175 && e.m < 208).length === 0, 'never synced while importing');
+    assert.deepEqual(entries.filter((e) => h.round(e.m) === 4).map((e) => e.m), h.ids.map(() => 211), 'the tick across :30 synced round 4');
   } finally {
     await h.cleanup();
   }

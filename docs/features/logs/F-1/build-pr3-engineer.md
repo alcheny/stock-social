@@ -248,3 +248,70 @@ Fleet: each trader exactly once (62 to 65 per caller); the repeat tick in the sa
 Personal data: none new; `users.sync_lease_until` is a timestamp. Security: the claim reads and writes only the
 eligibility conditions and the two claim timestamps; the cron endpoint is unchanged. Everything else as above.
 
+
+## Fix round 2 (tester's re-run 1: one medium, two lows)
+
+1. **Medium · the round came from the caller's clock and its boundary sat on the cron's :00.** Redesigned
+   `claimNextUser` (`lib/sync.ts`):
+   - One clock. The claim statement reads `now()` from the database and decides the round, the claim stamp and the
+     lease there. The calling instance's clock is never used, so instance skew, a scheduler firing early or late, and
+     leases written by another instance all compare against the same time.
+   - Rounds run from :30 to :30 (UTC), half an hour from the cron mark (`ROUND_OFFSET_MS`). A trader is claimable when
+     its last claim is before the start of the current round. Any call within ±30 minutes of a :00 mark lands in that
+     mark's round, so a call 0.1 s early, a call 2 minutes off on a skewed instance, and a retry a minute later on the
+     other instance are the same round.
+   - `releaseClaim` compares the lease as the database wrote it (microseconds, sent as text). A bare `::timestamptz`
+     parameter goes through a millisecond date in the driver and never matched, so a released lease stayed set.
+   - The scheduler's hook into the clock is test-only: `syncTick({ clockShiftMs, ids })` shifts the database clock to a
+     past round and limits claims to the test's own traders. The cron route passes neither.
+2. **Low · a tick kept its start time for its whole run.** Each claim now reads the database clock when it runs, so a
+   tick running across :30 claims under the new round from then on (its earlier claims stay in the old round).
+3. **Low · the load fleet test claimed real traders.** It now claims only the fleet's own traders (`ids`), on the
+   database clock shifted to a past round, asserts that no other trader's claim or lease changed, and resets the
+   fleet's claims in `finally`.
+
+### Tests (`lib/sync.test.ts`; the tester's attack suite is the acceptance set)
+
+- The four fix-round-1 tests now run on the shifted database clock and only on their own traders. One changed time:
+  the concurrent test's first batch moves from minute 30 to minute 0, since :30 is now a round boundary. The
+  assertions are unchanged.
+- New, from the attack suite:
+  - the claim stamps the database time, the lease is that time plus 10 minutes, release clears it, and the boundary sits
+    at :30 (ticks at :29:59.4 and :30:00.6 are two rounds; :59:59.9 and :00:00.3 are one);
+  - scenario 10: 0.3 s late, then 0.1 s early: nobody skipped;
+  - scenarios 6, 7 and 8: instances 2 minutes fast and slow, alternating, both, or a retry a minute later: once per
+    round;
+  - scenario 3: a tick from :28 across :30 alongside a :31 tick: never twice in a round, and its claims after the
+    boundary carry the new round;
+  - scenario 4: a lease that lapses mid-sync: the second claimer is skipped by the advisory lock and nothing
+    interleaves;
+  - scenario 5: 8 concurrent ticks at :29 and :31: once per round, never two at once;
+  - scenario 9: an import across :30 is never claimed, and is synced once after it connects.
+- The rule test runs 6 rounds. Each round has two instances skewed ±2 minutes with a cron at :00 on each (both or one
+  firing), a 0.3 s late and a 0.1 s early call, and retries at +17 and at 0.6 s before the boundary. Round 3 also has an
+  import running from :55 to :28, then a retry at :29 still in its sync at :30. Round 5 has a lease that lapses
+  mid-sync. Result: every trader is synced exactly once per round, nothing interleaves, and nobody is synced while
+  importing. The tick across :30 synced round 4 for everyone.
+- Mutation checks:
+  - Moving the boundary back to :00 fails the boundary, early-fire and skew tests.
+  - Freezing the clock per tick fails the scenario 3 test and the rule test.
+
+### Load (three runs; all 5/5)
+
+Third run's timings: import 1,132 ms, slowest step 352 ms, rebuild 315 ms, syncs 369/311/322 ms, first sync 794 ms,
+fleet 7,258 ms (62 to 63 per caller), and heap peak +26.5 MB at most. Every run is within its bound.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL` set), three runs | 474 tests: 469 pass, 5 skipped (load), 0 fail. Before: 466. |
+| `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` | 5/5 on all three runs |
+| `node scripts/compliance.ts diff origin/main` | One violation, the same one already on `main` (`node_modules/@img/sharp-wasm32` license). Nothing from this diff. |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+### Compliance
+
+No schema change, no new data, no new dependency. The claim still reads only eligibility and the two claim timestamps,
+and the cron endpoint is unchanged.

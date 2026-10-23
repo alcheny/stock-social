@@ -128,39 +128,58 @@ export async function usersToSync(): Promise<SyncableUser[]> {
 // PR-3 (heavy-use defect 2): the hourly sync tick, safe to run from any number of callers at once (overlapping cron
 // calls, retries, several instances). Before, each caller listed every trader and synced them all, so N callers synced
 // each trader N times (the per-user lock only skipped calls that overlapped in time).
-// Fix round 1 (tester's medium): the claim is keyed on the clock hour, not a window from the claiming call, so a late
-// or retried call never makes the next on-time tick skip anyone. The rule:
-//   - at most once per clock hour: a trader is claimed only if `sync_claimed_at` is before the start of this hour;
-//   - at least once per hour while any tick runs in that hour: every tick claims every trader not yet claimed this hour;
+// Fix round 2 (tester's re-run 1): the claim is keyed on a round read from the database clock, and rounds run from :30
+// to :30, half an hour away from the cron's :00. The rule:
+//   - one clock: every claim and lease decision uses `now()` inside the claim statement, never the calling instance's
+//     clock, so instance skew, a scheduler firing a moment early or late, and leases written by another instance all
+//     compare against the same time;
+//   - at most once per round: a trader is claimed only if `sync_claimed_at` is before the start of the current round
+//     (the latest :30 at or before now, UTC). Any call within ±30 minutes of a :00 cron mark lands in that mark's round;
+//   - per claim, not per tick: each claim reads the round when it runs, so a tick that runs across :30 claims under the
+//     new round from then on (its earlier claims stay in the old one);
+//   - at least once per round while any tick runs in it: every tick claims every trader not yet claimed this round;
 //   - never two at once: a claim also takes a short in-flight lease (`sync_lease_until`), released when the sync ends or
 //     fails; a leased trader is never claimed (`for update skip locked` keeps concurrent claims apart, and the per-user
-//     advisory lock in syncUser still prevents interleaving). A caller that dies leaves its lease to lapse after
-//     SYNC_LEASE_MS; that trader is then claimable again in the same hour, since its sync never finished.
-// A failed sync keeps its hour claim, so it is retried next hour, as before.
+//     advisory lock in syncUser still prevents interleaving when a lease lapses mid-sync). A caller that dies leaves its
+//     lease to lapse after SYNC_LEASE_MS; that trader is then claimable again in the same round, since its sync never
+//     finished;
+//   - an import in progress is never claimed (`syncable`).
+// A failed sync keeps its round claim, so it is retried next round.
 export const SYNC_LEASE_MS = 10 * 60_000; // far above one trader's sync (under 1 s for a 10,000-activity record)
-export const HOUR_MS = 3_600_000;
-export const hourStart = (now: Date) => new Date(Math.floor(now.getTime() / HOUR_MS) * HOUR_MS);
-export type ClaimedUser = SyncableUser & { lease: Date };
-export async function claimNextUser(now = new Date()): Promise<ClaimedUser | null> {
-  const lease = new Date(now.getTime() + SYNC_LEASE_MS);
-  const [u] = await sql<SyncableUser[]>`update users set sync_claimed_at = ${now}, sync_lease_until = ${lease} where id = (
-      select u.id from users u where ${syncable()}
-        and (u.sync_lease_until is null or u.sync_lease_until <= ${now})
-        and (u.sync_claimed_at is null or u.sync_claimed_at < ${hourStart(now)} or u.sync_lease_until is not null)
-      order by u.last_synced_at nulls first, u.id limit 1 for update skip locked)
-    returning id, snaptrade_user_id, snaptrade_secret_enc`;
-  return u ? { ...u, lease } : null;
+export const ROUND_MS = 3_600_000;
+export const ROUND_OFFSET_MS = 30 * 60_000; // rounds start at :30, away from the hourly cron's :00
+export type ClaimedUser = SyncableUser & { lease: string };
+// `shiftMs` and `ids` are test hooks: tests run in a past round by shifting the database clock, and claim only their
+// own traders. Production calls pass neither (shift 0: the database clock as is; every syncable trader).
+export type ClaimScope = { shiftMs?: number; ids?: number[] };
+export async function claimNextUser(scope: ClaimScope = {}): Promise<ClaimedUser | null> {
+  const { shiftMs = 0, ids } = scope;
+  if (ids && !ids.length) return null;
+  const [u] = await sql<(SyncableUser & { lease: string })[]>`with clock as (
+      select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
+        date_trunc('hour', now() + ${shiftMs}::float8 * interval '1 millisecond' - ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond', 'UTC')
+          + ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond' as round_start)
+    update users set sync_claimed_at = clock.t, sync_lease_until = clock.t + ${SYNC_LEASE_MS}::float8 * interval '1 millisecond'
+    from clock where users.id = (
+      select u.id from users u, clock where ${syncable()} ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
+        and (u.sync_lease_until is null or u.sync_lease_until <= clock.t)
+        and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)
+      order by u.last_synced_at nulls first, u.id limit 1 for update of u skip locked)
+    returning users.id, users.snaptrade_user_id, users.snaptrade_secret_enc, users.sync_lease_until::text as lease`;
+  return u ?? null;
 }
-// Ends a claim's in-flight lease (only that claim's: a newer lease taken after this one lapsed is left alone).
+// Ends a claim's in-flight lease (only that claim's: a newer lease taken after this one lapsed is left alone). The lease
+// is compared as the database wrote it (microseconds), never through a millisecond Date.
 export async function releaseClaim(u: ClaimedUser) {
-  await sql`update users set sync_lease_until = null where id = ${u.id} and sync_lease_until = ${u.lease}`;
+  // `::text` first: a bare `::timestamptz` parameter goes through a millisecond Date in the driver and never matches.
+  await sql`update users set sync_lease_until = null where id = ${u.id} and sync_lease_until = ${u.lease}::text::timestamptz`;
 }
-export async function syncTick<R>(opts: { now?: Date; sync?: (u: SyncableUser) => Promise<R> } = {}) {
-  const now = opts.now ?? new Date();
+export async function syncTick<R>(opts: { sync?: (u: SyncableUser) => Promise<R>; ids?: number[]; clockShiftMs?: () => number } = {}) {
   const sync = opts.sync ?? ((u: SyncableUser) => syncUser(u));
+  const claim = () => claimNextUser({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0 });
   let ok = 0, skipped = 0;
   const failed: number[] = [];
-  for (let u = await claimNextUser(now); u; u = await claimNextUser(now)) {
+  for (let u = await claim(); u; u = await claim()) {
     try {
       if ((await sync(u)) === 'skipped') skipped++; else ok++;
     } catch (e) {

@@ -242,7 +242,7 @@ loadTest('a first sync with no stored history pages a 10,000-activity record in 
 
 loadTest('500 traders synced by 8 concurrent callers of the sync tick: each exactly once, never two at a time, no duplicate activity, within bounds', async () => {
   const { sql } = await import('./db.ts');
-  const { syncTick, syncUser, hourStart } = await import('./sync.ts');
+  const { syncTick, syncUser, ROUND_MS } = await import('./sync.ts');
   const broker = await import('./broker.ts');
   // Setup: 500 vendor users, each with 2 linked accounts of 20 seeded activities, and a connected connection.
   const s0 = performance.now();
@@ -272,22 +272,33 @@ loadTest('500 traders synced by 8 concurrent callers of the sync tick: each exac
     calls.set(u.id, (calls.get(u.id) ?? 0) + 1);
     try { return await syncUser(u); } finally { inFlight.delete(u.id); }
   };
-  // Five minutes into the current clock hour, so the repeat tick a minute later is in the same hour (claims are per hour).
-  const now = new Date(hourStart(new Date()).getTime() + 5 * 60_000);
-  const t0 = performance.now();
-  const results = await Promise.all(Array.from({ length: FLEET.callers }, () => syncTick({ now, sync })));
-  const took = ms(t0);
-  const failed = results.flatMap((r) => r.failed).filter((id) => mine.has(id));
-  assert.deepEqual(failed, []);
-  assert.equal(interleaved, 0);
-  assert.equal(fleet.filter((f) => calls.get(f.id) !== 1).length, 0, 'each trader exactly once');
-  const [{ n, d }] = await sql`select count(*)::int as n, count(distinct external_id)::int as d from activities where user_id in ${sql([...mine])}`;
-  assert.equal(n, FLEET.traders * FLEET.accounts * FLEET.perAccount);
-  assert.equal(d, n);
-  const perCaller = results.map((r) => r.ok + r.skipped + r.failed.length);
-  // A second tick in the same clock hour claims none of them again.
-  await syncTick({ now: new Date(now.getTime() + 60_000), sync });
-  assert.equal(fleet.filter((f) => calls.get(f.id) !== 1).length, 0);
-  log(`fleet: ${FLEET.traders} traders × ${FLEET.accounts} accounts (setup ${setupMs} ms); ${FLEET.callers} concurrent callers synced each exactly once in ${took} ms (bound ${BOUNDS.fleetMs}), ${Math.round(took / FLEET.traders)} ms per trader, up to ${peakConcurrent} at once, per caller ${perCaller.join('/')}; a repeat tick in the same clock hour synced none of them again`);
-  assert.ok(took < BOUNDS.fleetMs, `fleet ${took} ms`);
+  // Fix round 2 (tester's low 3): the ticks claim only the fleet's own traders (`ids`), on the database clock shifted to
+  // five minutes after a past cron mark, so no other trader in the database is ever claimed, and the repeat tick a minute
+  // later is in the same round. The fleet's claims are reset in `finally` (the traders are also deleted by the suite).
+  const ids = fleet.map((f) => f.id);
+  const at = (ms: number) => ({ ids, sync, clockShiftMs: () => ms - Date.now() });
+  const now = Math.floor(Date.now() / ROUND_MS) * ROUND_MS - 3 * ROUND_MS + 5 * 60_000;
+  const others = async () => sql`select id, sync_claimed_at::text as c, sync_lease_until::text as l from users where id not in ${sql(ids)} order by id`;
+  const before = await others();
+  try {
+    const t0 = performance.now();
+    const results = await Promise.all(Array.from({ length: FLEET.callers }, () => syncTick(at(now))));
+    const took = ms(t0);
+    const failed = results.flatMap((r) => r.failed).filter((id) => mine.has(id));
+    assert.deepEqual(failed, []);
+    assert.equal(interleaved, 0);
+    assert.equal(fleet.filter((f) => calls.get(f.id) !== 1).length, 0, 'each trader exactly once');
+    const [{ n, d }] = await sql`select count(*)::int as n, count(distinct external_id)::int as d from activities where user_id in ${sql([...mine])}`;
+    assert.equal(n, FLEET.traders * FLEET.accounts * FLEET.perAccount);
+    assert.equal(d, n);
+    const perCaller = results.map((r) => r.ok + r.skipped + r.failed.length);
+    // A second tick in the same round claims none of them again.
+    await syncTick(at(now + 60_000));
+    assert.equal(fleet.filter((f) => calls.get(f.id) !== 1).length, 0);
+    log(`fleet: ${FLEET.traders} traders × ${FLEET.accounts} accounts (setup ${setupMs} ms); ${FLEET.callers} concurrent callers synced each exactly once in ${took} ms (bound ${BOUNDS.fleetMs}), ${Math.round(took / FLEET.traders)} ms per trader, up to ${peakConcurrent} at once, per caller ${perCaller.join('/')}; a repeat tick in the same round synced none of them again; no other trader's claim changed`);
+    assert.deepEqual(await others(), before, 'no trader outside the fleet was claimed');
+    assert.ok(took < BOUNDS.fleetMs, `fleet ${took} ms`);
+  } finally {
+    await sql`update users set sync_claimed_at = null, sync_lease_until = null where id in ${sql(ids)}`;
+  }
 });
