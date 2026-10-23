@@ -570,3 +570,41 @@ Engineer: proposes this plan for round 2. I would stake my name on building ever
 a version that keeps the owner's reject swipe (in the §3 form until O1 is answered) and the profile row as
 a PR waiting on O2, because those are owner decisions; everything else in the business lead's critique is
 applied.
+
+## Round 3 (2026-10-23): the business lead's A to E, applied as written
+
+The business lead's round 2 ends REVISE with "If A to E come back as written, I sign without another
+debate round." Applied in the signed plan, `plan.md`:
+
+- **A. Import guard.** The import-graph test covers only `lib/discovery/diversity.ts`, `explore.ts` and
+  `pager.ts` (nothing from `lib/db.ts`, `lib/session.ts` or any per-viewer module); `app/page.tsx` is out
+  of it. Added a behavioral DB test: a signed-out feed render (pages 1 to 3, query log via a pre-seeded
+  `globalThis.sql` with a `debug` hook) issues no query against `follows`, `viewer_exclusions`,
+  `trade_likes` or `discovery_events`. PR-2, PR-4 and PR-5 only add signed-in own-viewer cases; the
+  reviewer fails PR-2 if it changes a PR-1 assertion.
+- **B. Hides between pages.** The sliced list is a pure function of `(day, asOf, exclusions at asOf)`:
+  exclusions created ≤ `asOf` shape it; newer ones are a display filter that drops the hidden trader's
+  cards in place without reordering the rest (rendered cards collapse client-side). Undo and "Show
+  again" set `until = now()`, and the tick deletes only `until < now() − 1 day`, so a same-day cursor
+  never shifts. The hide enters the ranking at the next page 1. No repeats, no vanished card but the
+  hidden trader's; stated bound in a session with hides: ≤ 4 per trader or symbol in any 10 displayed
+  cards after one hide (tight), ≤ 6 after two, ≤ 8 after three; exact caps again at the next page 1.
+  Property test: 1,000 feeds with a hide between pages 1 and 2. About 50 lines, inside the ~60 limit.
+- **C. Event log.** Moved whole to PR-5 (now PR-5a events and logger, PR-5b scoring, both under the cap
+  and waiting on H1, H2, H4): `discovery_events`, both lookup tables, `events.ts`, `weights.ts`, the
+  share and watch emitters and the event purge. PR-2 to PR-4 create no event table; `follows`,
+  `viewer_exclusions` (+ `created_at`) and `trade_likes` carry the explicit signals. Criterion 3 is
+  tested in PR-5; the data inventory shows no behavioral rows before PR-5.
+- **D. Purge shape.** `purgeDiscovery` runs under the advisory lock with a fixed ≤ 30 s box per call,
+  after the connection tick and the deletion retries and before `syncTick`; no branch, trader claiming
+  never skipped. PR-6: a 4 M backlog drains within 10 consecutive ticks, zero live rows touched, the F-1
+  fleet test unchanged. One line in the plan reads criterion 5's "nightly" as satisfied by the
+  per-minute tick.
+- **E. Text fixes.** (1) End card "End of today's feed." (2) PR-3: "position 6, so the first five cards
+  are records"; no landing-card reference. (3) Default duration 90 days, owner question O3; Undo line
+  "Hidden for 90 days." (4) `trade_key` = `encode(sha256(replace(sell_id, chr(92), chr(92) || chr(92))::bytea), 'hex')`,
+  escape-free and immutable, tested against `node:crypto` for sell ids with backslashes (fallback: a
+  column filled by `rebuildTrades`). (5) Counsel packet gains Q6 (viewer mute) and Q7 (impersonal
+  section) as the business lead wrote them.
+
+Engineer: SIGNED 2026-10-23.
