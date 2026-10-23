@@ -1214,3 +1214,41 @@ dbTest('committee fix round 6 (Low): a bound attempt older than 24 h is refused 
     await cleanup([], [acc]);
   }
 });
+
+dbTest('PR-2b: the embedded portal is recorded as such (funnel portal_opened mode and the row\'s portal_mode); the redirect stays the default; the banner\'s imported count is distinct rows; "Connected:" reads the institution the vendor returned', async () => {
+  const { sql, tag, mkUser, events, cleanup } = await setup();
+  const { startConnection, completeLink, consent, drive, importedRows, recordInstitutions } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('pm');
+  const [{ signup_attempt_id: attempt }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const a1 = `${tag}-e1`, a2 = `${tag}-e2`, p = `${tag}-ep`;
+  const meta = async () => (await sql`select meta from funnel_events where attempt_id = ${attempt} and name = 'portal_opened' order by id`).map((e) => e.meta);
+  try {
+    await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'r', deps, 'embedded');
+    await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'r', deps); // the fallback: a new page on the same attempt
+    assert.deepEqual(await meta(), [{ mode: 'embedded' }, { mode: 'redirect' }]);
+    assert.deepEqual(await recordInstitutions(u.id), []); // nothing consented yet: nothing public
+    v.accounts = [acct(a1, { institution: 'First Fake Bank' }), acct(p, { authorizationId: `auth-${a1}`, institution: 'Paper Fake Bank', isPaper: true })];
+    v.rows.set(a1, [...pair(a1, 1), ...pair(a1, 2)]);
+    const first = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps, new Date(), 'embedded') as { id: number };
+    assert.equal((await sql`select portal_mode from connections where id = ${first.id}`)[0].portal_mode, 'embedded');
+    assert.deepEqual(await recordInstitutions(u.id), []); // pending: nothing public (COMPLIANCE §3)
+    await consent(first.id, new Date(), deps);
+    assert.equal(await importedRows(u.id), 0);
+    await drive(first.id, deps);
+    assert.equal(await importedRows(u.id), 4);
+    // A second link, through the redirect flow (default): portal_mode redirect; a re-read never double counts.
+    v.accounts = [...v.accounts, acct(a2, { authorizationId: `auth-${a2}`, institution: 'Second Fake Bank' })];
+    v.rows.set(a2, pair(a2, 1));
+    const second = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps) as { id: number };
+    assert.equal((await sql`select portal_mode from connections where id = ${second.id}`)[0].portal_mode, 'redirect');
+    await consent(second.id, new Date(), deps);
+    await drive(second.id, deps);
+    assert.equal(await importedRows(u.id), 6);
+    // Only real accounts of consented connections, in link order; the simulated account's institution is never named.
+    assert.deepEqual(await recordInstitutions(u.id), ['First Fake Bank', 'Second Fake Bank']);
+    assert.ok((await events(Number(attempt))).includes('import_finished'));
+  } finally {
+    await cleanup([u.id], [a1, a2, p]);
+  }
+});

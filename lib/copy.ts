@@ -80,6 +80,10 @@ export const RECORD_BODY = {
   // Fix round 4: the count is the closed trades listed under the banner, never the raw activities imported.
   banner: (closes: number) => `Importing your record · ${closes} closed trade${closes === 1 ? '' : 's'} so far`,
   finished: 'Import finished.',
+  // PR-2b (S5): the rows read so far, updated after every step (not a live region); the count of distinct activities.
+  imported: (n: number) => `${n} trade${n === 1 ? '' : 's'} imported from your broker`,
+  // Plan §8 item 2: after 60 s with no new rows, the owner learns the hourly tick carries on without the tab.
+  stillSending: 'Your broker is still sending history. You can leave; the import continues.',
   paperExcluded: (n: number) => `${n} simulated account${n === 1 ? '' : 's'} excluded: simulated trades are never part of a record.`,
   positionsTitle: 'Open positions',
   // A failed import is never shown as a whole record (TR-3): the line is visible to everyone, the retry to the owner.
@@ -180,8 +184,36 @@ export const RESULT = {
   again: 'Connect again',
   retry: 'Try again',
   notNow: 'Not now',
+  // S7a second action (plan §8 item 1): the redirect flow on the same attempt.
+  continueNewPage: 'Continue in a new page',
   feed: 'Back to feed',
 } as const;
+
+// S3 portal modal (the UX lead's strings): loading, the 3 s line, the persistent redirect link.
+export const PORTAL = {
+  title: 'Connect your brokerage',
+  opening: 'Opening…',
+  slow: 'Taking longer than usual.',
+  newPage: 'Open in a new page instead',
+  close: 'Close',
+  frameTitle: 'SnapTrade connection portal',
+} as const;
+
+// The profile's "Connected:" line names the institutions the vendor returned for consented real accounts; with none
+// (a pre-F-1 record) it says "your broker", never a placeholder.
+export const connectedLine = (institutions: string[], accounts: number): string => {
+  const names = institutions.map((s) => s.trim()).filter(Boolean);
+  return `Connected: ${names.length ? names.join(', ') : 'your broker'} (${accounts} account${accounts === 1 ? '' : 's'})`;
+};
+
+// The profile's link-preview text. With no closes there is no stats line (never "0 closed trades · % win rate"): the
+// profile's own empty-record words instead. While importing, the banner line (no stats, TR-3).
+export function profileDescription(x: { state: RecordState; demo: boolean; verified: boolean; trades: number; stats: string }): string {
+  if (x.state === 'importing' && !x.demo) return RECORD_BODY.banner(x.trades);
+  const failed = x.state === 'failed' && !x.demo ? `${RECORD_BODY.failed} ` : '';
+  if (x.trades === 0) return x.state === 'failed' ? `${failed}${SHARE_CARD.empty}.` : x.state === 'connected' ? RECORD_BODY.connected : RECORD_BODY.none;
+  return `${failed}${recordCountText(x)} · ${x.stats}`;
+}
 
 // /how (POLICY F3): what Verified means and what is excluded, in the words of lib/trades.ts. Percent only.
 export const HOW = {
@@ -239,6 +271,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, HOW, SETTINGS, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
   return out;
 }

@@ -29,6 +29,30 @@ footer.site nav.legal a { display: inline-flex; align-items: center; min-height:
 .how h2 { margin-top: 24px; font-size: 1.1rem; }
 .how ul { padding-left: 1.2em; display: grid; gap: 8px; }
 .importing { margin: 8px 0; min-height: 24px; }
+/* S5 live banner (PR-2b): every line keeps its box, so a count change, the 60 s line or "Import finished." never moves
+   the page; no motion. */
+.import-banner { margin: 8px 0; }
+.import-banner p { margin: 0; }
+.import-banner .importing, .import-banner .import-finished { min-height: 2.9em; }
+.import-banner .import-finished { border-left: 3px solid var(--accent); padding-left: 8px; font-weight: 600; }
+.import-banner .import-read { min-height: 1.45em; }
+.import-banner .import-slow { min-height: 2.9em; }
+/* S3 portal modal (PR-2b): a native modal dialog (the rest of the page is inert), full width at 375 px. */
+dialog.portal { width: min(100% - 16px, 480px); max-width: none; max-height: calc(100dvh - 16px); padding: 0; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--surface); color: var(--text); display: none; }
+dialog.portal[open] { display: flex; flex-direction: column; }
+dialog.portal::backdrop { background: color-mix(in srgb, var(--bg) 70%, transparent); }
+dialog.portal header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--line); }
+dialog.portal h2 { margin: 0; font-size: 1.05rem; }
+dialog.portal header button { min-height: 44px; min-width: 44px; }
+dialog.portal .portal-body { position: relative; flex: 1 1 auto; min-height: min(560px, calc(100dvh - 160px)); }
+dialog.portal .portal-status { position: absolute; inset: 16px 16px auto; margin: 0; }
+dialog.portal iframe { display: block; width: 100%; height: min(560px, calc(100dvh - 160px)); border: 0; background: var(--surface); }
+dialog.portal iframe.loading { visibility: hidden; }
+dialog.portal .portal-alt { margin: 0; padding: 4px 16px 8px; border-top: 1px solid var(--line); }
+dialog.portal .portal-alt a { display: inline-flex; align-items: center; min-height: 44px; }
+dialog.portal .portal-alt a.button { display: flex; justify-content: center; margin: 4px 0; }
+html.portal-open { overflow: hidden; }
 .record-failed { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .record-failed .button { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; }
 /* Open positions (TR-4): the symbol link is the row's tap target, 44px tall (POLICY A1). */
@@ -75,7 +99,8 @@ nav.top .me { overflow: hidden; text-overflow: ellipsis; max-width: 34vw; }
 
 .badge { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 .badge.verified { background: color-mix(in srgb, var(--up) 18%, transparent); color: var(--up); }
-.badge.demo { background: var(--line); color: var(--muted); }
+/* PR-2b: muted text on the surface token with a hairline: 5.3:1 dark, 5.3:1 light (it was 4.4 and 4.2 on --line). */
+.badge.demo { background: var(--surface); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
 
 .page { max-width: 640px; margin: 0 auto; padding: 72px 16px 48px; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 16px 0; }

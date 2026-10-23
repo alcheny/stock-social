@@ -4,8 +4,9 @@ import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { boundAttempt, CONNECT_COOKIE, refuseUnbound, startConnection } from '@/lib/connections.ts';
 import { currentUser, origin } from '@/lib/session.ts';
 
-// S2 → the vendor's read-only portal (today's redirect flow; PR-2b embeds it). Signed in, the connection hangs off the
-// user; brokerage-first (signed out), off the attested attempt this browser was bound to at S1 by the signed
+// S2 → the vendor's read-only portal by redirect: the S3 modal's fallback (a portal error, the persistent "Open in a new
+// page instead" link, S7a's "Continue in a new page", in-app browsers, no script). The embedded flow is POST /connect/portal.
+// Signed in, the connection hangs off the user; brokerage-first (signed out), off the attested attempt this browser was bound to at S1 by the signed
 // `connect_attempt` cookie. Committee fix (High): an id in the URL is never used; one that this browser's cookie does
 // not match is refused and counted (lib/connections.ts#refuseUnbound).
 export async function GET(req: NextRequest) {

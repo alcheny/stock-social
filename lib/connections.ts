@@ -165,6 +165,21 @@ export async function publicRecordDetail(userId: number): Promise<{ public: { st
     (select count(*)::int from broker_accounts where user_id = ${userId} and is_paper and removed_at is null and confirmed_at is not null) as paper`;
   return { public: { state: status.state, paper: r.consented || r.legacy ? (r.paper as number) : 0 }, imported: status.imported };
 }
+// PR-2b (S5): the banner's imported count: distinct activity rows stored from the broker (a second pass re-reads pages,
+// so the per-connection imported_count can count a row twice; the table cannot).
+export async function importedRows(userId: number): Promise<number> {
+  const [r] = await sql`select count(*)::int as n from activities where user_id = ${userId} and source = 'snaptrade'`;
+  return r.n as number;
+}
+// PR-2b: the institutions the vendor returned for real accounts of consented connections, in link order, for the
+// profile's "Connected:" line. A pending, declined or expired link is never named (COMPLIANCE §3, as publicRecord).
+export async function recordInstitutions(userId: number): Promise<string[]> {
+  const rows = await sql`select a->>'institution' as inst, min(c.id) as first from connections c, jsonb_array_elements(c.accounts) a
+    where c.user_id = ${userId} and c.consent_at is not null and c.state in ('importing', 'connected', 'failed')
+      and coalesce((a->>'isPaper')::boolean, false) = false and coalesce(btrim(a->>'institution'), '') <> ''
+    group by 1 order by 2, 1`;
+  return rows.map((r) => r.inst as string);
+}
 // A connection belongs to its user, or, before a user row exists, to the browser holding the signed attempt cookie.
 export function ownsConnection(c: Pick<Connection, 'user_id' | 'attempt_id'>, meId: number | null, cookie: string | undefined, secret: string): boolean {
   return c.user_id !== null ? meId === c.user_id : ownsAttempt(cookie, c.attempt_id, secret);
@@ -183,14 +198,18 @@ async function brokerUserFor(c: { user_id: number | null; attempt_id: number }, 
 }
 
 // S2 → portal: makes sure a vendor user exists (on the user, else on the attempt) and returns the portal URL.
-export async function startConnection(who: { userId: number | null; attemptId: number }, returnTo: string, deps: Deps = realDeps): Promise<string> {
+// PR-2b: `mode` is how it opens: 'embedded' (S3 modal, POST /connect/portal) or 'redirect' (GET /connect/start: the
+// fallback, the persistent link, S7a's "Continue in a new page", in-app browsers). Either way the URL is minted here,
+// server side, for this user or bound attempt only; nothing a browser sends is ever used as a portal URL.
+export type PortalMode = 'embedded' | 'redirect';
+export async function startConnection(who: { userId: number | null; attemptId: number }, returnTo: string, deps: Deps = realDeps, mode: PortalMode = 'redirect'): Promise<string> {
   let bu = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId });
   if (!bu) {
     bu = await deps.registerUser(who.userId ?? `attempt-${who.attemptId}`);
     if (who.userId !== null) await sql`update users set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.userId}`;
     else await sql`update signup_attempts set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.attemptId}`;
   }
-  await recordFunnel(who.attemptId, 'portal_opened', { mode: 'redirect' });
+  await recordFunnel(who.attemptId, 'portal_opened', { mode });
   return deps.connectUrl(bu, returnTo);
 }
 
@@ -202,7 +221,7 @@ export type LinkOutcome =
   | { kind: 'nothing' }; // the portal returned without a new link
 
 // Back from the portal: zero-depth validation. Lists accounts, records the link and the provisional claims, imports nothing.
-export async function completeLink(who: { userId: number | null; attemptId: number }, deps: Deps = realDeps, now = new Date()): Promise<LinkOutcome> {
+export async function completeLink(who: { userId: number | null; attemptId: number }, deps: Deps = realDeps, now = new Date(), mode: PortalMode = 'redirect'): Promise<LinkOutcome> {
   const bu = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId });
   if (!bu) return { kind: 'nothing' };
   const all = await deps.listAccounts(bu);
@@ -212,7 +231,7 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
   if (!fresh.length) return { kind: 'nothing' };
   const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted }));
   const [row] = await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, institution, state, pending_at, portal_mode, accounts)
-    values (${who.attemptId}, ${who.userId}, ${fresh[0].authorizationId}, ${fresh[0].institution}, 'pending', ${now}, 'redirect', ${sql.json(snapshot as never)}) returning id`;
+    values (${who.attemptId}, ${who.userId}, ${fresh[0].authorizationId}, ${fresh[0].institution}, 'pending', ${now}, ${mode}, ${sql.json(snapshot as never)}) returning id`;
   const id = Number(row.id);
   const real = snapshot.filter((a) => !a.isPaper);
   if (!real.length) {

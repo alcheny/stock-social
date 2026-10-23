@@ -1,8 +1,13 @@
 // In-repo fake of the integrated vendor's API for tests: register/login/portal, accounts (with the paper flag and the
 // initial-sync flag), paged activities, positions, delete connection and delete user, all in memory. The app's SDK is
 // pointed here with SNAPTRADE_BASE_URL; no real vendor is ever contacted. Test controls live under /_ paths:
-//   POST /_scenario {accounts:[{id, authorization?, institution?, paper?, activities?: number | rows, syncDone?}], delayMs?}
-//     the accounts the next portal "Connect" links (one authorization per distinct `authorization`, default 'auth-<n>')
+//   POST /_scenario {accounts:[{id, authorization?, institution?, paper?, activities?: number | rows, syncDone?}], delayMs?, portalDelayMs?}
+//     the accounts the next portal "Connect" links (one authorization per distinct `authorization`, default 'auth-<n>');
+//     portalDelayMs holds the portal page that long (the S3 loading states)
+// The portal page behaves like the vendor's (PR-2b): opened as a page, "Connect" links and redirects to customRedirect;
+// loaded in an iframe it ignores customRedirect, opens the "broker login" in a popup it manages, and posts window
+// messages to its parent: {status:'SUCCESS', authorizationId} after linking, {status:'ERROR', errorCode:'POPUP_BLOCKED'}
+// when window.open returns null (a blocked popup), 'CLOSED' from its own Cancel.
 //   POST /_sync {completed: boolean, accountId?}   flips initial_sync_completed
 //   POST /_fail {status: number, times: number}    the next `times` API calls answer `status`
 //   GET  /_state                                   users, their connections and accounts, for assertions
@@ -10,7 +15,7 @@ import { createServer, type Server } from 'node:http';
 
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
 export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
-type Scenario = { accounts: FakeAccount[]; delayMs?: number };
+type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number };
 type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: FakeActivity[]; syncDone: boolean }> };
 
 // Deterministic BUY/SELL pairs so `n` activities give n/2 closed trades per account.
@@ -61,17 +66,37 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       const r = url.searchParams.get('r') ?? '';
       if (req.method === 'POST' || url.searchParams.get('go') === '1') {
         const user = users.get(u);
+        let auth = `auth-${++authSeq}`;
         if (user) {
-          const auth = `auth-${++authSeq}`;
           for (const a of next.accounts) {
             const rows = Array.isArray(a.activities) ? a.activities : generateActivities(a.id, a.activities ?? 0);
             user.accounts.set(a.id, { ...a, authorization: a.authorization ?? auth, rows, syncDone: a.syncDone !== false });
           }
+          auth = next.accounts[0]?.authorization ?? auth;
         }
+        if (url.searchParams.get('json') === '1') return json({ authorizationId: auth }); // framed: the page posts the message
         res.writeHead(302, { location: r }); return res.end();
       }
+      if (next.portalDelayMs) await new Promise((done) => setTimeout(done, next.portalDelayMs));
+      const action = `/portal?u=${encodeURIComponent(u)}&r=${encodeURIComponent(r)}`;
       res.writeHead(200, { 'content-type': 'text/html' });
-      return res.end(`<!doctype html><title>Fake portal</title><h1>Fake brokerage portal</h1><form method="post" action="/portal?u=${encodeURIComponent(u)}&r=${encodeURIComponent(r)}"><button>Connect</button></form>`);
+      return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>Fake portal</title>
+<style>body{font:16px system-ui;margin:16px}button{min-height:44px;margin:4px 0}</style>
+<h1>Fake brokerage portal</h1><form method="post" action="${action}"><button>Connect</button></form>
+<button type="button" id="cancel">Cancel</button>
+<script>
+const framed = window.self !== window.top;
+document.getElementById('cancel').addEventListener('click', () => { if (framed) parent.postMessage('CLOSED', '*'); else location.assign(${JSON.stringify(r)}); });
+if (framed) document.querySelector('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const login = window.open('about:blank', 'broker-login', 'popup,width=420,height=600');
+  if (!login) { parent.postMessage({ status: 'ERROR', errorCode: 'POPUP_BLOCKED', detail: 'The login window was blocked.' }, '*'); return; }
+  login.close();
+  const res = await fetch(${JSON.stringify(action)} + '&json=1', { method: 'POST' });
+  const { authorizationId } = await res.json();
+  parent.postMessage({ status: 'SUCCESS', authorizationId }, '*');
+});
+</script>`);
     }
     if (fail.times > 0) { fail.times--; return json({ detail: 'forced failure' }, fail.status); }
     if (next.delayMs && p.includes('/activities')) await new Promise((r) => setTimeout(r, next.delayMs));
