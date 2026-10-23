@@ -11,7 +11,7 @@ import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { RESULT } from '@/lib/copy.ts';
 
 // S6 declined / expired, S6c no real account, S7 abandoned / failed / claimed. Every terminal state has one retry and
-// one way out; errors are role="alert" and take focus. No ids or vendor details are shown. `?k=abandoned` needs no
+// one way out (S7a also "Continue in a new page"); errors are role="alert" and take focus. No ids or vendor details are shown. `?k=abandoned` needs no
 // connection (the portal returned without one); any other call without a valid, owned `c` is a plain not-found page
 // (D3); a consented connection goes to the profile and a pending one back to consent (D7).
 type Kind = 'declined' | 'expired' | 'none' | 'refused' | 'abandoned' | 'failed' | 'stale';
@@ -37,10 +37,11 @@ export default async function Result({ searchParams }: { searchParams?: Promise<
     : c.state === 'failed' ? (c.failure_reason === 'stale' ? 'stale' : 'failed')
     : 'abandoned';
   const error = k === 'abandoned' || k === 'failed' || k === 'stale' || k === 'refused';
-  const text = k === 'declined' ? RESULT.declined : k === 'expired' ? `${RESULT.expiredPrefix} ${RESULT.declined}` : k === 'none' ? RESULT.none
+  // PR-2b: S6 expired is a short heading with the rest as body text, like S6b.
+  const text = k === 'declined' ? RESULT.declined : k === 'expired' ? RESULT.expiredPrefix : k === 'none' ? RESULT.none
     : k === 'abandoned' ? RESULT.abandoned : k === 'failed' ? RESULT.failed : k === 'stale' ? RESULT.stale : ACCOUNT_CLAIMED_TITLE;
   // S6b: a short heading; the explanation is body text, read with the focused heading through aria-describedby.
-  const body = k === 'refused' ? ACCOUNT_CLAIMED_BODY : null;
+  const body = k === 'refused' ? ACCOUNT_CLAIMED_BODY : k === 'expired' ? RESULT.declined : null;
   const primary = k === 'none' ? RESULT.noneAction : k === 'refused' ? RESULT.claimedAction : k === 'declined' || k === 'expired' ? RESULT.again : RESULT.retry;
   return (
     <main className="page auth">
@@ -48,6 +49,8 @@ export default async function Result({ searchParams }: { searchParams?: Promise<
       {body && <p id="result-body">{body}</p>}
       {error && <FocusHeading id="result-heading" />}
       <p><Link className="button wide" href="/connect">{primary}</Link></p>
+      {/* S7a (plan §8 item 1): the second action is the redirect flow on the same attempt, a plain link (a route, not a page). */}
+      {k === 'abandoned' && <p><a className="button wide secondary" href="/connect/start">{RESULT.continueNewPage}</a></p>}
       <p><Link className="button wide secondary" href="/">{k === 'abandoned' ? RESULT.notNow : RESULT.feed}</Link></p>
     </main>
   );

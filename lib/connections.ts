@@ -6,7 +6,7 @@ import type { TransactionSql } from 'postgres';
 import * as vendor from './broker.ts';
 import type { BrokerUser, VendorAccount } from './broker.ts';
 import { AccountClaimedError, claimIn } from './claims.ts';
-import { recordFunnel } from './funnel.ts';
+import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
 import { replacePositions } from './positions.ts';
@@ -165,6 +165,21 @@ export async function publicRecordDetail(userId: number): Promise<{ public: { st
     (select count(*)::int from broker_accounts where user_id = ${userId} and is_paper and removed_at is null and confirmed_at is not null) as paper`;
   return { public: { state: status.state, paper: r.consented || r.legacy ? (r.paper as number) : 0 }, imported: status.imported };
 }
+// PR-2b (S5): the banner's imported count: distinct activity rows stored from the broker (a second pass re-reads pages,
+// so the per-connection imported_count can count a row twice; the table cannot).
+export async function importedRows(userId: number): Promise<number> {
+  const [r] = await sql`select count(*)::int as n from activities where user_id = ${userId} and source = 'snaptrade'`;
+  return r.n as number;
+}
+// PR-2b: the institutions the vendor returned for real accounts of consented connections, in link order, for the
+// profile's "Connected:" line. A pending, declined or expired link is never named (COMPLIANCE §3, as publicRecord).
+export async function recordInstitutions(userId: number): Promise<string[]> {
+  const rows = await sql`select a->>'institution' as inst, min(c.id) as first from connections c, jsonb_array_elements(c.accounts) a
+    where c.user_id = ${userId} and c.consent_at is not null and c.state in ('importing', 'connected', 'failed')
+      and coalesce((a->>'isPaper')::boolean, false) = false and coalesce(btrim(a->>'institution'), '') <> ''
+    group by 1 order by 2, 1`;
+  return rows.map((r) => r.inst as string);
+}
 // A connection belongs to its user, or, before a user row exists, to the browser holding the signed attempt cookie.
 export function ownsConnection(c: Pick<Connection, 'user_id' | 'attempt_id'>, meId: number | null, cookie: string | undefined, secret: string): boolean {
   return c.user_id !== null ? meId === c.user_id : ownsAttempt(cookie, c.attempt_id, secret);
@@ -183,15 +198,65 @@ async function brokerUserFor(c: { user_id: number | null; attempt_id: number }, 
 }
 
 // S2 → portal: makes sure a vendor user exists (on the user, else on the attempt) and returns the portal URL.
-export async function startConnection(who: { userId: number | null; attemptId: number }, returnTo: string, deps: Deps = realDeps): Promise<string> {
-  let bu = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId });
-  if (!bu) {
-    bu = await deps.registerUser(who.userId ?? `attempt-${who.attemptId}`);
-    if (who.userId !== null) await sql`update users set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.userId}`;
-    else await sql`update signup_attempts set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.attemptId}`;
+// PR-2b: `mode` is how it opens: 'embedded' (S3 modal, POST /connect/portal) or 'redirect' (GET /connect/start: the
+// fallback, the persistent link, S7a's "Continue in a new page", in-app browsers). Either way the URL is minted here,
+// server side, for this user or bound attempt only; nothing a browser sends is ever used as a portal URL.
+export type PortalMode = 'embedded' | 'redirect';
+export async function startConnection(who: { userId: number | null; attemptId: number }, returnTo: string, deps: Deps = realDeps, mode: PortalMode = 'redirect'): Promise<string> {
+  return (await mintPortal(who, returnTo, mode, deps)).url;
+}
+
+// Fix round 2 (engineer, Medium and Low): every mint runs under a transaction-scoped advisory lock, the per-user lock for
+// a trader and ATTEMPT_LOCK for a brokerage-first attempt that has no user yet. Under it: the rate limit (at most
+// MINT_MAX portal_opened events per attempt in MINT_WINDOW_MIN minutes, counted and written under the same lock, so
+// parallel calls cannot slip past), the vendor user (registered only when none is stored; see ensureBrokerUser), the
+// URL and the funnel event. Everything inside uses the transaction's own connection, so a queue of parallel mints never
+// needs a second pool connection while holding the lock.
+// Fix round 4 (engineer re-sit, Low 1): the embedded/redirect decision is made after the commit. `decide` is either a
+// fixed mode (GET /connect/start: written with the event) or the server-side framing probe for the modal
+// (POST /connect/portal), which may wait on the vendor for up to its timeout: it runs with no transaction, no lock and
+// no pool connection held. The event is written under the lock with the probe's fallback answer ('embedded') and set
+// to the probe's answer by its id if that differs, so the count the limit relies on is never outside the lock.
+export const ATTEMPT_LOCK = 2; // USER_LOCK (lib/sync.ts) is 1
+export const MINT_MAX = 10;
+export const MINT_WINDOW_MIN = 10;
+export class RateLimitedError extends Error { constructor() { super('too many portal opens'); } }
+export async function mintPortal(who: { userId: number | null; attemptId: number }, returnTo: string, decide: PortalMode | ((url: string) => Promise<PortalMode>), deps: Deps = realDeps): Promise<{ url: string; mode: PortalMode }> {
+  const provisional: PortalMode = typeof decide === 'string' ? decide : 'embedded';
+  const { url, eventId } = await sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(${who.userId !== null ? USER_LOCK : ATTEMPT_LOCK}, ${who.userId ?? who.attemptId})`;
+    const [{ n }] = await tx`select count(*)::int as n from funnel_events where attempt_id = ${who.attemptId} and name = 'portal_opened'
+      and at > now() - ${MINT_WINDOW_MIN} * interval '1 minute'`;
+    if ((n as number) >= MINT_MAX) throw new RateLimitedError();
+    const bu = await ensureBrokerUser(who, deps, tx);
+    const url = await deps.connectUrl(bu, returnTo);
+    const e = funnelEvent('portal_opened', { mode: provisional });
+    const [row] = await tx`insert into funnel_events (attempt_id, name, meta) values (${who.attemptId}, ${e.name}, ${tx.json(e.meta)}) returning id`;
+    return { url, eventId: String(row.id) };
+  }) as { url: string; eventId: string };
+  if (typeof decide === 'string') return { url, mode: decide };
+  const mode = await decide(url);
+  if (mode !== provisional) {
+    const e = funnelEvent('portal_opened', { mode });
+    await sql`update funnel_events set meta = ${sql.json(e.meta)} where id = ${eventId}`;
   }
-  await recordFunnel(who.attemptId, 'portal_opened', { mode: 'redirect' });
-  return deps.connectUrl(bu, returnTo);
+  return { url, mode };
+}
+// The stored vendor user, or a new one. Called under the mint lock, so parallel first mints register once. The store is
+// still conditional: if a writer outside the lock stored one first, the one just registered is deleted at the vendor
+// (never left orphaned there, P6) and the stored one is used.
+async function ensureBrokerUser(who: { userId: number | null; attemptId: number }, deps: Deps, tx: TransactionSql): Promise<BrokerUser> {
+  const stored = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId }, tx);
+  if (stored) return stored;
+  const bu = await deps.registerUser(who.userId ?? `attempt-${who.attemptId}`);
+  const kept = who.userId !== null
+    ? await tx`update users set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.userId} and snaptrade_user_id is null returning id`
+    : await tx`update signup_attempts set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.attemptId} and snaptrade_user_id is null returning id`;
+  if (kept.length) return bu;
+  await ignoreGone(deps.deleteUser(bu));
+  const winner = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId }, tx);
+  if (!winner) throw new Error('vendor user vanished while minting');
+  return winner;
 }
 
 export type LinkOutcome =
@@ -202,17 +267,17 @@ export type LinkOutcome =
   | { kind: 'nothing' }; // the portal returned without a new link
 
 // Back from the portal: zero-depth validation. Lists accounts, records the link and the provisional claims, imports nothing.
-export async function completeLink(who: { userId: number | null; attemptId: number }, deps: Deps = realDeps, now = new Date()): Promise<LinkOutcome> {
+export async function completeLink(who: { userId: number | null; attemptId: number }, deps: Deps = realDeps, now = new Date(), mode: PortalMode = 'redirect'): Promise<LinkOutcome> {
   const bu = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId });
-  if (!bu) return { kind: 'nothing' };
+  if (!bu) return abandoned(who.attemptId);
   const all = await deps.listAccounts(bu);
   const known = who.userId === null ? [] : await sql`select vendor_authorization_id as a from connections where user_id = ${who.userId} and state in ('pending', 'importing', 'connected')`;
   const knownIds = new Set(known.map((k) => k.a as string));
   const fresh = all.filter((a) => !knownIds.has(a.authorizationId));
-  if (!fresh.length) return { kind: 'nothing' };
+  if (!fresh.length) return abandoned(who.attemptId);
   const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted }));
   const [row] = await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, institution, state, pending_at, portal_mode, accounts)
-    values (${who.attemptId}, ${who.userId}, ${fresh[0].authorizationId}, ${fresh[0].institution}, 'pending', ${now}, 'redirect', ${sql.json(snapshot as never)}) returning id`;
+    values (${who.attemptId}, ${who.userId}, ${fresh[0].authorizationId}, ${fresh[0].institution}, 'pending', ${now}, ${mode}, ${sql.json(snapshot as never)}) returning id`;
   const id = Number(row.id);
   const real = snapshot.filter((a) => !a.isPaper);
   if (!real.length) {
@@ -242,6 +307,13 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
   }
   await recordFunnel(who.attemptId, 'link_succeeded', { accounts: snapshot.length, paper: snapshot.length - real.length });
   return { kind: 'consent', id };
+}
+
+// Fix round 1 (tester defect 2, plan §5): the portal came back without a new link (the embedded dialog closed, a
+// CLOSED / ABANDONED message, or the redirect flow returning empty): S7a, counted as `abandoned`.
+async function abandoned(attemptId: number): Promise<LinkOutcome> {
+  await recordFunnel(attemptId, 'abandoned');
+  return { kind: 'nothing' };
 }
 
 async function refuse(id: number, attemptId: number, deps: Deps, now: Date): Promise<LinkOutcome> {

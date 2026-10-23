@@ -49,8 +49,9 @@ test('body copy by state (plan §8 item 3): S5 line while importing, S8 line onl
   assert.equal(recordBodyCopy('connected', 1), null);
   assert.equal(recordBodyCopy('none', 0), 'No trades yet.');
   assert.doesNotMatch(RECORD_BODY.importing, /No closed trades yet/);
-  assert.equal(RECORD_BODY.banner(0), 'Importing your record · 0 closed trades so far');
-  assert.equal(RECORD_BODY.banner(1), 'Importing your record · 1 closed trade so far');
+  assert.equal(RECORD_BODY.banner(0, true), 'Importing your record · 0 closed trades so far');
+  assert.equal(RECORD_BODY.banner(1, true), 'Importing your record · 1 closed trade so far');
+  assert.equal(RECORD_BODY.banner(1, false), 'Importing this record · 1 closed trade so far'); // fix round 2: visitors
   assert.equal(RECORD_BODY.finished, 'Import finished.');
 });
 
@@ -420,9 +421,12 @@ dbTest('expiry with a clock: a pending row is marked expired at 24 h lazily on r
     assert.equal(c.cleanup_done_at, null);
     assert.deepEqual(v.deletedConnections, []);
     await assert.rejects(consent(id, h(24), deps), /no longer awaiting consent/);
+    // The tick is global: a concurrent test file's uncleaned row may be cleaned in the same pass, so the assertions
+    // read this test's own row and links (the tag is unique to this test), never the global count.
     const t = await tick(deps, h(25));
-    assert.equal(t.cleaned, 1);
-    assert.deepEqual(v.deletedConnections, [`auth-${acc}`]);
+    assert.ok(t.cleaned >= 1);
+    assert.ok(!t.errors.includes(id));
+    assert.deepEqual((v.deletedConnections as string[]).filter((x) => x.includes(tag)), [`auth-${acc}`]); // cast: the deepEqual above narrowed it to never[]
     assert.equal((await claims([acc])).length, 0);
     assert.ok((await conn(id)).cleanup_done_at);
     assert.ok((await events(attempt)).includes('expired'));
@@ -497,8 +501,8 @@ dbTest('tick advances every importing row with no client poll, resuming from the
     // One client step (the tab), then the tab closes.
     assert.equal((await importStep(id, deps, s(2))).imported, 3);
     // The tick finishes the pass and then waits on the vendor's flag: still importing, no progress recorded while waiting.
-    const t1 = await tick(deps, s(10));
-    assert.equal(t1.advanced, 1);
+    const t1 = await tick(deps, s(10)); // global: another file's importing row may be advanced too; the checks below read this row
+    assert.ok(t1.advanced >= 1 && !t1.errors.includes(id));
     let c = await conn(id);
     assert.equal(c.state, 'importing');
     assert.equal(c.imported_count, 4);
@@ -514,7 +518,7 @@ dbTest('tick advances every importing row with no client poll, resuming from the
     v.accounts = [acct(acc, { initialSyncCompleted: true })];
     v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2), ...pair(acc, 3, 'EEE')]);
     const t2 = await tick(deps, s(10 + WAIT_RECHECK_MS / 1000 + 1));
-    assert.equal(t2.advanced, 1);
+    assert.ok(t2.advanced >= 1 && !t2.errors.includes(id));
     c = await conn(id);
     assert.equal(c.state, 'connected');
     assert.equal(c.import_cursor.pass, 2);
@@ -730,15 +734,16 @@ dbTest('D2: an expired, uncleaned link re-bundled into a new consent is not cut 
     assert.equal(outB.kind, 'consent');
     assert.equal((await conn(outB.id)).vendor_authorization_id, 'auth-x');
     await consent(outB.id, h(24.6), deps);
-    const t = await tick(deps, h(25));
-    assert.equal(t.cleaned, 1);
+    const t = await tick(deps, h(25)); // global: other files' uncleaned rows may be cleaned too, so assert on A and auth-x only
+    assert.ok(t.cleaned >= 1);
+    assert.ok(!t.errors.includes(a));
     assert.ok((await conn(a)).cleanup_done_at);
-    assert.deepEqual(v.deletedConnections, []); // auth-x is held by B: never deleted
+    assert.deepEqual(v.deletedConnections.filter((x) => x === 'auth-x' || x.includes(tag)), []); // auth-x is held by B: never deleted
     assert.equal((await conn(outB.id)).state, 'connected'); // the tick also drove B
     assert.equal((await sql`select user_id from broker_accounts where account_id = ${acc}`)[0].user_id, u.id);
     // And a replayed cleanup of A, or a decline of B, changes nothing more.
     await tick(deps, h(26));
-    assert.deepEqual(v.deletedConnections, []);
+    assert.deepEqual(v.deletedConnections.filter((x) => x === 'auth-x' || x.includes(tag)), []);
     assert.equal((await drive(outB.id, deps, h(26))).state, 'connected');
   } finally {
     await cleanup([u.id], [acc]);
@@ -1212,5 +1217,189 @@ dbTest('committee fix round 6 (Low): a bound attempt older than 24 h is refused 
     await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id in (${young}, ${held})`;
   } finally {
     await cleanup([], [acc]);
+  }
+});
+
+dbTest('PR-2b: the embedded portal is recorded as such (funnel portal_opened mode and the row\'s portal_mode); the redirect stays the default; the banner\'s imported count is distinct rows; "Connected:" reads the institution the vendor returned', async () => {
+  const { sql, tag, mkUser, events, cleanup } = await setup();
+  const { startConnection, completeLink, consent, drive, importedRows, recordInstitutions } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('pm');
+  const [{ signup_attempt_id: attempt }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const a1 = `${tag}-e1`, a2 = `${tag}-e2`, p = `${tag}-ep`;
+  const meta = async () => (await sql`select meta from funnel_events where attempt_id = ${attempt} and name = 'portal_opened' order by id`).map((e) => e.meta);
+  try {
+    await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'r', deps, 'embedded');
+    await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'r', deps); // the fallback: a new page on the same attempt
+    assert.deepEqual(await meta(), [{ mode: 'embedded' }, { mode: 'redirect' }]);
+    assert.deepEqual(await recordInstitutions(u.id), []); // nothing consented yet: nothing public
+    v.accounts = [acct(a1, { institution: 'First Fake Bank' }), acct(p, { authorizationId: `auth-${a1}`, institution: 'Paper Fake Bank', isPaper: true })];
+    v.rows.set(a1, [...pair(a1, 1), ...pair(a1, 2)]);
+    const first = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps, new Date(), 'embedded') as { id: number };
+    assert.equal((await sql`select portal_mode from connections where id = ${first.id}`)[0].portal_mode, 'embedded');
+    assert.deepEqual(await recordInstitutions(u.id), []); // pending: nothing public (COMPLIANCE §3)
+    await consent(first.id, new Date(), deps);
+    assert.equal(await importedRows(u.id), 0);
+    await drive(first.id, deps);
+    assert.equal(await importedRows(u.id), 4);
+    // A second link, through the redirect flow (default): portal_mode redirect; a re-read never double counts.
+    v.accounts = [...v.accounts, acct(a2, { authorizationId: `auth-${a2}`, institution: 'Second Fake Bank' })];
+    v.rows.set(a2, pair(a2, 1));
+    const second = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps) as { id: number };
+    assert.equal((await sql`select portal_mode from connections where id = ${second.id}`)[0].portal_mode, 'redirect');
+    await consent(second.id, new Date(), deps);
+    await drive(second.id, deps);
+    assert.equal(await importedRows(u.id), 6);
+    // Only real accounts of consented connections, in link order; the simulated account's institution is never named.
+    assert.deepEqual(await recordInstitutions(u.id), ['First Fake Bank', 'Second Fake Bank']);
+    assert.ok((await events(Number(attempt))).includes('import_finished'));
+  } finally {
+    await cleanup([u.id], [a1, a2, p]);
+  }
+});
+
+dbTest('PR-2b fix round 1 (plan §5): the portal coming back without a new link (the embedded dialog closed, or an empty redirect return) records `abandoned`, once per return, with no meta; a real link does not', async () => {
+  const { sql, tag, mkUser, events, cleanup } = await setup();
+  const { startConnection, completeLink } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('ab');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const a1 = `${tag}-ab1`;
+  try {
+    // No vendor user yet (the portal was never minted): still a return with nothing linked.
+    assert.deepEqual(await completeLink({ userId: u.id, attemptId: attempt }, deps, new Date(), 'embedded'), { kind: 'nothing' });
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps, 'embedded');
+    assert.deepEqual(await completeLink({ userId: u.id, attemptId: attempt }, deps, new Date(), 'embedded'), { kind: 'nothing' }); // closed in the dialog
+    assert.deepEqual(await completeLink({ userId: u.id, attemptId: attempt }, deps), { kind: 'nothing' }); // the redirect flow, back empty
+    assert.deepEqual((await events(attempt)).filter((n) => n === 'abandoned'), ['abandoned', 'abandoned', 'abandoned']);
+    const rows = await sql`select meta::text as meta from funnel_events where attempt_id = ${attempt} and name = 'abandoned'`;
+    for (const r of rows) assert.equal(r.meta, '{}');
+    assert.equal((await sql`select count(*)::int as n from connections where user_id = ${u.id}`)[0].n, 0);
+    v.accounts = [acct(a1)];
+    v.rows.set(a1, pair(a1, 1));
+    const linked = await completeLink({ userId: u.id, attemptId: attempt }, deps, new Date(), 'embedded');
+    assert.equal(linked.kind, 'consent');
+    assert.equal((await events(attempt)).filter((n) => n === 'abandoned').length, 3); // a link is not an abandonment
+  } finally {
+    await cleanup([u.id], [a1]);
+  }
+});
+
+dbTest('fix round 2 (engineer, Medium): six parallel first mints for a new trader register one vendor user; a brokerage-first attempt too; a writer outside the lock that wins still leaves no orphan at the vendor', async () => {
+  const { sql, mkUser, cleanup } = await setup();
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { mintPortal, startConnection } = await import('./connections.ts');
+  const { v, deps: base } = fakeVendor();
+  let n = 0;
+  const registered: string[] = [];
+  const deps: Deps = { ...base, registerUser: async (ref) => { const id = `vendor-${ref}-${++n}`; registered.push(id); await new Promise((r) => setTimeout(r, 30)); return { snaptradeUserId: id, secretEnc: 'enc' }; } };
+  const u = await mkUser('pm');
+  const [{ signup_attempt_id: a }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const attempt = await createAttempt({ method: 'brokerage', attested: true });
+  try {
+    // A trader: six at once (the dialog's POST and /connect/start mixed).
+    const results = await Promise.all(Array.from({ length: 6 }, (_, i) => i % 2
+      ? startConnection({ userId: u.id, attemptId: Number(a) }, 'r', deps)
+      : mintPortal({ userId: u.id, attemptId: Number(a) }, 'r', async () => 'embedded', deps).then((x) => x.url)));
+    assert.equal(results.length, 6);
+    assert.equal(registered.length, 1);
+    const [row] = await sql`select snaptrade_user_id from users where id = ${u.id}`;
+    assert.equal(row.snaptrade_user_id, registered[0]);
+    assert.deepEqual(v.deletedUsers, []);
+    assert.equal((await sql`select count(*)::int as n from funnel_events where attempt_id = ${a} and name = 'portal_opened'`)[0].n, 6);
+    // A brokerage-first attempt: the same, on the attempt row.
+    await Promise.all(Array.from({ length: 6 }, () => startConnection({ userId: null, attemptId: attempt }, 'r', deps)));
+    assert.equal(registered.length, 2);
+    const [att] = await sql`select snaptrade_user_id from signup_attempts where id = ${attempt}`;
+    assert.equal(att.snaptrade_user_id, registered[1]);
+    // A writer outside the lock stores a vendor user while ours is being registered: ours is deleted at the vendor,
+    // the stored one is kept and used.
+    const u2 = await mkUser('pr');
+    const [{ signup_attempt_id: a2 }] = await sql`select signup_attempt_id from users where id = ${u2.id}`;
+    const racing: Deps = { ...deps, registerUser: async (ref) => {
+      await sql`update users set snaptrade_user_id = 'vendor-stored', snaptrade_secret_enc = 'enc' where id = ${u2.id}`;
+      return { snaptradeUserId: `vendor-${ref}-loser`, secretEnc: 'enc' };
+    } };
+    let used: string | null = null;
+    const withUrl: Deps = { ...racing, connectUrl: async (bu) => { used = bu.snaptradeUserId; return 'https://vendor.example/portal'; } };
+    await startConnection({ userId: u2.id, attemptId: Number(a2) }, 'r', withUrl);
+    assert.deepEqual(v.deletedUsers, [`vendor-${u2.id}-loser`]);
+    assert.equal(used, 'vendor-stored');
+    assert.equal((await sql`select snaptrade_user_id from users where id = ${u2.id}`)[0].snaptrade_user_id, 'vendor-stored');
+    await cleanup([u2.id]);
+  } finally {
+    await cleanup([u.id]);
+  }
+});
+
+dbTest('fix round 2 (engineer, Low): at most 10 portal opens per trader in 10 minutes, counted under the lock (parallel calls cannot slip past); older opens do not count; the mode the probe decides is the one recorded', async () => {
+  const { sql, mkUser, cleanup } = await setup();
+  const { mintPortal, startConnection, RateLimitedError, MINT_MAX, MINT_WINDOW_MIN } = await import('./connections.ts');
+  const { deps } = fakeVendor();
+  assert.equal(MINT_MAX, 10);
+  assert.equal(MINT_WINDOW_MIN, 10);
+  const u = await mkUser('rl');
+  const [{ signup_attempt_id: a }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const who = { userId: u.id, attemptId: Number(a) };
+  try {
+    const r = await mintPortal(who, 'r', async (url) => (url.includes('vendor.example') ? 'redirect' : 'embedded'), deps);
+    assert.deepEqual(r, { url: 'https://vendor.example/portal', mode: 'redirect' });
+    assert.deepEqual((await sql`select meta from funnel_events where attempt_id = ${a} and name = 'portal_opened'`).map((e) => e.meta), [{ mode: 'redirect' }]);
+    const results = await Promise.allSettled(Array.from({ length: 14 }, () => startConnection(who, 'r', deps, 'embedded')));
+    assert.equal(results.filter((x) => x.status === 'fulfilled').length, 9); // 10 in all
+    for (const x of results.filter((x) => x.status === 'rejected')) assert.ok((x as PromiseRejectedResult).reason instanceof RateLimitedError);
+    await assert.rejects(mintPortal(who, 'r', async () => 'embedded', deps), RateLimitedError);
+    assert.equal((await sql`select count(*)::int as n from funnel_events where attempt_id = ${a} and name = 'portal_opened'`)[0].n, 10);
+    // Ten minutes later the window is free again.
+    await sql`update funnel_events set at = at - interval '11 minutes' where attempt_id = ${a} and name = 'portal_opened'`;
+    assert.equal(await startConnection(who, 'r', deps), 'https://vendor.example/portal');
+  } finally {
+    await cleanup([u.id]);
+  }
+});
+
+dbTest('fix round 4 (engineer re-sit, Low 1): 12 concurrent mints against a hanging framing probe make one probe and hold no lock or pool connection while waiting; each open is recorded under the lock and set to the probe\'s answer after it', async () => {
+  const { sql, tag, mkUser, cleanup } = await setup();
+  const { mintPortal } = await import('./connections.ts');
+  const { USER_LOCK } = await import('./sync.ts');
+  const { clearProbeCache, probePortalMode } = await import('./portal-probe.ts');
+  const { deps } = fakeVendor();
+  const origin = `https://${tag}.vendor.example`;
+  const withUrl: Deps = { ...deps, connectUrl: async (bu) => `${origin}/portal?u=${bu.snaptradeUserId}` };
+  const users = await Promise.all(Array.from({ length: 12 }, (_, i) => mkUser(`h${i}`)));
+  const ids = users.map((u) => u.id);
+  const attempts = (await sql`select id, signup_attempt_id from users where id in ${sql(ids)}`).map((r) => ({ userId: r.id as number, attemptId: Number(r.signup_attempt_id) }));
+  let probes = 0, waiting = 0;
+  let release!: () => void;
+  const answered = new Promise<void>((r) => { release = r; });
+  const hang = async () => { probes++; await answered; return { headers: new Headers({ 'x-frame-options': 'DENY' }) }; };
+  clearProbeCache();
+  try {
+    const mints = attempts.map((who) => mintPortal(who, 'r', async (url) => { waiting++; return probePortalMode(url, origin, 'https://app.example', { fetch: hang, timeoutMs: 30_000 }); }, withUrl));
+    for (let t = 0; waiting < 12 && t < 200; t++) await new Promise((r) => setTimeout(r, 25));
+    assert.equal(waiting, 12);
+    assert.equal(probes, 1); // merged: one in flight for the origin
+    // No mint lock is held while the probe waits ...
+    const [{ n: locks }] = await sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and classid = ${USER_LOCK} and objid in ${sql(ids)}`;
+    assert.equal(locks, 0);
+    // ... and the whole pool is free: as many parallel queries as the pool has connections answer at once.
+    const free = Promise.all(Array.from({ length: 10 }, () => sql`select 1 as one`));
+    const raced = await Promise.race([free.then(() => 'free'), new Promise((r) => setTimeout(() => r('blocked'), 2_000))]);
+    assert.equal(raced, 'free');
+    // Every open is already recorded (under the lock), with the fallback answer until the probe speaks.
+    const before = await sql`select meta from funnel_events where attempt_id in ${sql(attempts.map((a) => a.attemptId))} and name = 'portal_opened'`;
+    assert.equal(before.length, 12);
+    assert.ok(before.every((e) => (e.meta as { mode: string }).mode === 'embedded'));
+    release();
+    const done = await Promise.all(mints);
+    assert.ok(done.every((d) => d.mode === 'redirect' && d.url.startsWith(`${origin}/portal?u=`)));
+    assert.equal(probes, 1);
+    const after = await sql`select meta from funnel_events where attempt_id in ${sql(attempts.map((a) => a.attemptId))} and name = 'portal_opened'`;
+    assert.equal(after.length, 12);
+    assert.ok(after.every((e) => (e.meta as { mode: string }).mode === 'redirect'));
+  } finally {
+    release();
+    clearProbeCache();
+    await cleanup(ids);
   }
 });

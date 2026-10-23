@@ -8,8 +8,8 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { PROFILE, RECORD_BODY, profileCardAlt, recordBodyCopy, recordCountText, shareCardText } from '@/lib/copy.ts';
-import { applyClocks, publicRecordDetail } from '@/lib/connections.ts';
+import { connectedLine, PROFILE, profileCardAlt, profileDescription, RECORD_BODY, recordBodyCopy, shareCardText } from '@/lib/copy.ts';
+import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
@@ -18,6 +18,7 @@ import { ShareCard } from './share-card.tsx';
 import { ReferralFeedback } from './referral-feedback.tsx';
 import { ctaVia, referralSummary } from '@/lib/referral.ts';
 import { JoinCta } from './join-cta.tsx';
+import { ImportBanner } from './import-banner.tsx';
 import { isDemoUser } from '@/lib/demo.ts';
 import { positionRows } from '@/lib/positions.ts';
 import { newTradesSince } from '@/lib/new-trades.ts';
@@ -33,7 +34,6 @@ async function load(handle: string) {
   const trades = await sql`
     select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
     from closed_trades where user_id = ${user.id} order by closed_at desc`;
-  const brokers = await sql`select distinct raw->>'institution' as inst from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
   // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.
@@ -43,8 +43,12 @@ async function load(handle: string) {
   // Fix round 3: the state is the aggregate over every consented connection (importing while any imports) and the
   // banner count is summed over them, so a newer finished link never presents a running import as a whole record.
   const { public: { state, paper }, imported } = await publicRecordDetail(user.id);
+  // PR-2b: "Connected:" names the institutions the vendor returned for consented real accounts (never "broker"), and
+  // the banner's imported-rows line starts from the rows already stored.
+  const brokers = await recordInstitutions(user.id);
+  const read = state === 'importing' ? await importedRows(user.id) : 0;
   const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol, account_id` : [];
-  return { user, trades, state, imported, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  return { user, trades, state, imported, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -59,12 +63,12 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   // it never says "Verified" for a demo, importing or failed record. Declared here because a file-level alt is static.
   const card = shareCardText({ state, demo, verified, empty: data.trades.length === 0 });
   const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: profileCardAlt(user.handle, card) }] };
-  // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete).
-  if (state === 'importing') return { title: `${user.display_name} (@${user.handle}) · Stock Social`, description: RECORD_BODY.banner(data.trades.length), openGraph };
-  const count = recordCountText({ state, demo, verified, trades: s.trades });
+  // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete); with no
+  // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
+  const statsText = `${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
-    description: `${state === 'failed' ? `${RECORD_BODY.failed} ` : ''}${count} · ${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`,
+    description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }),
     openGraph,
   };
 }
@@ -72,7 +76,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
-  const { user, trades, s, c, brokers, accounts, state, positions, paper } = data;
+  const { user, trades, s, c, brokers, accounts, state, positions, paper, read } = data;
   const me = await currentUser();
   const isMe = me?.id === user.id;
   if (isMe) {
@@ -117,9 +121,7 @@ export default async function Profile({ params, searchParams }: Params) {
   const complete = state !== 'importing';
   // Committee fix (item 5): no share invitation on a record that is importing or failed; "Try again" is the only primary.
   const shareable = state === 'connected' || state === 'none';
-  const connected = allVerified
-    ? `Connected: ${brokers.length ? brokers.join(', ') : 'broker'} (${accounts} account${accounts === 1 ? '' : 's'})`
-    : 'Demo data';
+  const connected = allVerified ? connectedLine(brokers, accounts) : 'Demo data';
 
   // A provisional profile (no display name set yet) shows the handle once, as the heading.
   const provisional = user.display_name === user.handle;
@@ -128,11 +130,14 @@ export default async function Profile({ params, searchParams }: Params) {
   return (
     <main className="page">
       <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
-      <p className="muted" style={{ marginTop: 0 }}>
+      {/* PR-2b: one line reserved, so the badge arriving when an import finishes does not push the banner down. */}
+      <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
         {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge verified={trust.badge === 'verified'} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
-      {state === 'importing' && <p role="status" aria-live="polite" className="importing">{RECORD_BODY.banner(trades.length)}</p>}
+      {/* S5: the live banner (owner polls; visitors see the server's line). Rendered in every state so its finished
+          line survives the refresh that follows the end of the import. */}
+      <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />
       {state === 'failed' && (
         <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
       )}
@@ -178,7 +183,8 @@ export default async function Profile({ params, searchParams }: Params) {
       <section className="stats">
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn > 0 ? 'up' : 'down'}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
-          <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of 10 bets)`}</small>
+          {/* PR-2b: "Too early to tell" is said once, in the evidence line below; here only an actual range. */}
+          {range && <small className="range">{`${range} · 95% range`}</small>}
         </div>
       </section>
       <div className="evidence">
