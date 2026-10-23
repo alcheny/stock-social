@@ -10,6 +10,11 @@ export function Badge({ verified }: { verified: boolean }) {
     : <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>;
 }
 
+// A badge chosen by a trust rule (paneTrust / cardTrust / rowBadge): null shows none.
+export function RowBadge({ kind }: { kind: 'verified' | 'demo' | null }) {
+  return kind ? <Badge verified={kind === 'verified'} /> : null;
+}
+
 export type TradeRow = {
   id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number;
@@ -27,7 +32,7 @@ export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: Pub
         <Link href={`/u/${t.handle}`} className="who">
           <strong>{t.display_name}</strong> <span className="muted">@{t.handle}</span>
         </Link>
-        {trust.badge && <Badge verified={trust.badge === 'verified'} />}
+        <RowBadge kind={trust.badge} />
       </header>
       {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">

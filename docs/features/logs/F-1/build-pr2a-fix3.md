@@ -214,3 +214,30 @@ Fix:
 ### Files changed
 
 `lib/pane.ts`, `app/ui.tsx`, `app/page.tsx`; tests `lib/pane.test.ts`, `e2e/connect.spec.ts`.
+
+### Fix round 5, part 2: per-trade rows on other pages (coordinator request)
+
+Every per-trade row that drew a Verified badge from the trade's own flag alone now applies the same record-state rule.
+- Audit: `app/t/[symbol]/page.tsx` trade rows and `app/t/[symbol]/Theses.tsx` thesis rows were the only per-trade
+  Verified badges. The trade page (`app/u/[handle]/trade/[sellId]`) and month recap (`app/u/[handle]/month/[ym]`) only
+  draw a Demo badge, and compare (`app/t/compare`) and the stock page heading draw one badge per symbol, not per
+  trader, so those files are unchanged.
+- `lib/pane.ts`: `rowBadge(verified, state)` (the same `cardTrust`/`paneTrust` rule, badge only). `app/ui.tsx`:
+  `RowBadge` renders a rule's badge, or none for null (the trade card uses it too).
+- `app/t/[symbol]/page.tsx`: one batched `recordStates` call for every trader listed on the page (its two fixed queries,
+  never one per row). Both lists get their badge from `rowBadge`. A failed trader's trades stay listed and counted;
+  only the Verified badge goes. `Theses` takes an optional `badgeFor` and keeps the old behaviour when it isn't given.
+- Tests: `lib/pane.test.ts` "row badge (fix round 5, TR-3)". `e2e/connect.spec.ts` "fix round 4 (TR-3)": `/t/AAA` shows
+  the trader's row with a Verified badge while the record is whole; after the 403 the row is still listed and no
+  `a.trow` linking to the trader has a `.badge.verified`.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, two runs | 400 pass both runs, 0 fail, 0 skipped |
+| `npm run build` | built cleanly (no advisory stop this time; nothing upgraded) |
+| `npm run test:e2e` (same variables; fakes started by the specs) | 69 passed, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+
+Files changed (part 2): `lib/pane.ts`, `app/ui.tsx`, `app/t/[symbol]/page.tsx`, `app/t/[symbol]/Theses.tsx`; tests
+`lib/pane.test.ts`, `e2e/connect.spec.ts`.

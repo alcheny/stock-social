@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { paneSummary, groupByUser, paneTrust, cardTrust } from './pane.ts';
+import { paneSummary, groupByUser, paneTrust, cardTrust, rowBadge } from './pane.ts';
 import { stats } from './trades.ts';
 
 const t = (returnPct: number, day: number, symbol = 'AAA') => ({
@@ -54,4 +54,12 @@ test('card trust (fix round 5, TR-3): the feed trade card shows no Verified badg
   assert.deepEqual(cardTrust({ verified: true }), { badge: 'verified', incomplete: false }); // no state read: as before
   assert.deepEqual(cardTrust({ verified: false }, 'none'), { badge: 'demo', incomplete: false });
   assert.deepEqual(cardTrust({ verified: false }, 'failed'), { badge: 'demo', incomplete: true });
+});
+
+test('row badge (fix round 5, TR-3): stock page trade and thesis rows show no Verified badge for a trader whose record failed; Demo stays Demo', () => {
+  assert.equal(rowBadge(true, 'failed'), null);
+  assert.equal(rowBadge(true, 'connected'), 'verified');
+  assert.equal(rowBadge(true, undefined), 'verified');
+  assert.equal(rowBadge(false, 'failed'), 'demo');
+  assert.equal(rowBadge(false, 'none'), 'demo');
 });

@@ -579,6 +579,11 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await expect(card().locator('.record-failed')).toHaveCount(0);
   await feed.goto(`/u/${handle}`);
   await expect(feed.locator('.badge.verified')).toHaveCount(1);
+  // Fix round 5: the stock page's trade rows for this trader are Verified while the record is whole.
+  const stockRows = () => feed.locator(`a.trow[href="/u/${handle}"]`);
+  await feed.goto('/t/AAA');
+  await expect(stockRows().first()).toBeAttached();
+  await expect(stockRows().first().locator('.badge.verified')).toHaveCount(1);
   // Second link (2 accounts) consented; one step reads account 1 of 2, then the vendor refuses (403) → failed.
   await scenario([{ id: a2, activities: recent(a2, 2) }, { id: a3, activities: recent(a3, 2) }]);
   await connectThrough(page);
@@ -603,6 +608,10 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await expect(feed.locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');
   await expect(feed.locator('.badge.verified')).toHaveCount(0);
   await expect(feed.locator('section.stats').first()).toContainText('win rate');
+  // Fix round 5: the stock page lists the trades (never hidden) with no Verified badge beside a failed record.
+  await feed.goto('/t/AAA');
+  await expect(stockRows().first()).toBeAttached();
+  await expect(feed.locator(`a.trow[href^="/u/${handle}"] .badge.verified`)).toHaveCount(0);
   await anon.close();
   await sql`delete from users where handle = ${handle}`;
   await sql`delete from broker_accounts where account_id = any(${[a1, a2, a3]})`;

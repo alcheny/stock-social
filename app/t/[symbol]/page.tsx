@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
+import { recordStates, type PublicState } from '@/lib/connections.ts';
+import { rowBadge } from '@/lib/pane.ts';
 import { baselineVerdict, decodeSymbolParam, holdBuckets, isIndexableTicker, monthlyTimeline, outcomeSpread, relatedSymbols, selectTheses, tickerSummary, toSpreadPct, toTicker } from '@/lib/ticker.ts';
 import { pct, rangeText } from '@/lib/trades.ts';
-import { Badge } from '../../ui.tsx';
+import { Badge, RowBadge } from '../../ui.tsx';
 import Spread from './Spread.tsx';
 import Timeline from './Timeline.tsx';
 import HoldTime from './HoldTime.tsx';
@@ -78,6 +80,10 @@ export default async function Ticker({ params, searchParams }: Params) {
   const c = s.conf!;
   const range = rangeText(c);
   const shown = rows.slice(0, CAP);
+  // Fix round 5 (TR-3): one batched read of every listed trader's record state; a failed record shows no Verified badge.
+  const states = await recordStates([...new Set(rows.map((r) => r.user_id))]);
+  const stateByHandle = new Map<string, PublicState>(rows.map((r) => [r.handle, states.get(r.user_id)?.state ?? 'connected']));
+  const badgeFor = (verified: boolean, handle: string) => rowBadge(verified, stateByHandle.get(handle));
   // ponytail: move the grouping into SQL if one symbol's traders hold thousands of trades.
   const overlap = (await sql`
     select o.symbol, o.user_id, o.verified
@@ -152,7 +158,7 @@ export default async function Ticker({ params, searchParams }: Params) {
       <Timeline timeline={monthlyTimeline(rows.map(toTicker), new Date())} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
       <HoldTime holds={holdBuckets(rows.map(toTicker), new Date())} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
 
-      <Theses list={theses} symbol={symbol} />
+      <Theses list={theses} symbol={symbol} badgeFor={badgeFor} />
 
       <h2>Trades (newest first)</h2>
       {rows.length > CAP && <p className="muted small">Showing the {CAP} most recent of {rows.length}. The summary covers all {rows.length}.</p>}
@@ -164,7 +170,7 @@ export default async function Ticker({ params, searchParams }: Params) {
               className="trow"
               aria-label={`@${r.handle}, ${symbol}, ${pct(r.return_pct)}, held ${heldWords(r.holding_days)}, closed ${date(r.closed_at)}`}
             >
-              <span className="who">@{r.handle} <Badge verified={r.verified} /></span>
+              <span className="who">@{r.handle} <RowBadge kind={badgeFor(r.verified, r.handle)} /></span>
               <b className={r.return_pct > 0 ? 'up' : 'down'}>{pct(r.return_pct)}</b>
               <span className="muted">held {held(r.holding_days)} · {date(r.closed_at)}</span>
             </Link>

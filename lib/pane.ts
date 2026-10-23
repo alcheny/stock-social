@@ -40,3 +40,9 @@ export function paneTrust(trades: { verified: boolean }[], state: PublicState): 
 export function cardTrust(t: { verified: boolean }, state: PublicState = 'connected') {
   return paneTrust([t], state);
 }
+
+// Fix round 5 (TR-3): a per-trade row elsewhere (stock page trade and thesis rows) gets its badge by the same rule: no
+// Verified badge beside a trader whose record state is failed; Demo kept for demo data.
+export function rowBadge(verified: boolean, state?: PublicState): 'verified' | 'demo' | null {
+  return cardTrust({ verified }, state).badge;
+}
