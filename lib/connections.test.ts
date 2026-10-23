@@ -1403,3 +1403,73 @@ dbTest('fix round 4 (engineer re-sit, Low 1): 12 concurrent mints against a hang
     await cleanup(ids);
   }
 });
+
+dbTest('PR-3 (carried Low 2): the vendor portal URL is requested after the mint commits: no advisory lock held during connectUrl, the open already recorded; parallel first mints still register one vendor user and the limit still holds', async () => {
+  const { sql, mkUser, cleanup } = await setup();
+  const { mintPortal, startConnection, RateLimitedError, MINT_MAX } = await import('./connections.ts');
+  const { USER_LOCK } = await import('./sync.ts');
+  const { deps: base } = fakeVendor();
+  const u = await mkUser('ml');
+  const [{ signup_attempt_id: a }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const who = { userId: u.id, attemptId: Number(a) };
+  let registered = 0;
+  const seen: { locks: number; opens: number }[] = [];
+  let inFlight = 0, overlap = 0;
+  const deps: Deps = {
+    ...base,
+    registerUser: async (ref) => { registered++; await new Promise((r) => setTimeout(r, 20)); return { snaptradeUserId: `vendor-${ref}-ml`, secretEnc: 'enc' }; },
+    connectUrl: async () => {
+      const [{ n: locks }] = await sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and classid = ${USER_LOCK} and objid = ${u.id}`;
+      const [{ n: opens }] = await sql`select count(*)::int as n from funnel_events where attempt_id = ${a} and name = 'portal_opened'`;
+      seen.push({ locks: locks as number, opens: opens as number });
+      overlap = Math.max(overlap, ++inFlight);
+      await new Promise((r) => setTimeout(r, 30)); // a slow vendor
+      inFlight--;
+      return 'https://vendor.example/portal';
+    },
+  };
+  try {
+    const r = await mintPortal(who, 'r', 'redirect', deps);
+    assert.equal(r.url, 'https://vendor.example/portal');
+    assert.deepEqual(seen, [{ locks: 0, opens: 1 }]);
+    // Parallel: one registration, MINT_MAX opens in all, the rest refused by the limit.
+    const results = await Promise.allSettled(Array.from({ length: 12 }, () => startConnection(who, 'r', deps)));
+    assert.equal(registered, 1);
+    assert.equal(results.filter((x) => x.status === 'fulfilled').length, MINT_MAX - 1);
+    for (const x of results.filter((x) => x.status === 'rejected')) assert.ok((x as PromiseRejectedResult).reason instanceof RateLimitedError);
+    // The slow vendor calls ran side by side: none waited behind another mint's lock.
+    assert.ok(overlap > 1, `connectUrl calls overlapped ${overlap}`);
+  } finally {
+    await cleanup([u.id]);
+  }
+});
+
+dbTest('PR-3 (carried Info 3): a vendor 5xx, a transport error or a refused URL on mint does not count toward the mint limit; a vendor 4xx still counts', async () => {
+  const { sql, mkUser, cleanup } = await setup();
+  const { mintPortal, startConnection, PortalRefusedError, RateLimitedError, MINT_MAX } = await import('./connections.ts');
+  const { deps: base } = fakeVendor();
+  const u = await mkUser('m5');
+  const [{ signup_attempt_id: a }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const who = { userId: u.id, attemptId: Number(a) };
+  const opens = async () => (await sql`select count(*)::int as n from funnel_events where attempt_id = ${a} and name = 'portal_opened'`)[0].n as number;
+  const failing = (e: unknown): Deps => ({ ...base, connectUrl: async () => { throw e; } });
+  const vendorErr = (status: number) => Object.assign(new Error(`vendor ${status}`), { response: { status } });
+  try {
+    // Twice the limit in vendor outages: none counts, and the trader can still open the portal afterwards.
+    for (let i = 0; i < MINT_MAX * 2; i++) await assert.rejects(startConnection(who, 'r', failing(vendorErr(i % 2 ? 502 : 503))), /vendor 50/);
+    await assert.rejects(startConnection(who, 'r', failing(new TypeError('fetch failed'))), /fetch failed/);
+    assert.equal(await opens(), 0);
+    // The portal route's https check, made inside the mint: refused, not counted, the route answers 502.
+    await assert.rejects(mintPortal(who, 'r', async () => 'embedded', base, () => false), PortalRefusedError);
+    assert.equal(await opens(), 0);
+    assert.equal(await startConnection(who, 'r', base), 'https://vendor.example/portal');
+    assert.equal(await opens(), 1);
+    // A 4xx (the vendor refusing this user) counts, so the app cannot be used to hammer the vendor.
+    await assert.rejects(startConnection(who, 'r', failing(vendorErr(400))), /vendor 400/);
+    assert.equal(await opens(), 2);
+    for (let i = 0; i < MINT_MAX - 2; i++) await startConnection(who, 'r', base);
+    await assert.rejects(startConnection(who, 'r', base), RateLimitedError);
+  } finally {
+    await cleanup([u.id]);
+  }
+});

@@ -197,8 +197,10 @@ test('PR-2b copy (S3, S5, S6, S7a): the UX lead\'s strings, in the banned-list w
   // "Connected:" names the institution the vendor returned, never the placeholder "broker".
   assert.equal(connectedLine(['Fake Brokerage'], 1), 'Connected: Fake Brokerage (1 account)');
   assert.equal(connectedLine(['A Bank', 'B Bank'], 3), 'Connected: A Bank, B Bank (3 accounts)');
-  assert.equal(connectedLine([], 2), 'Connected: your broker (2 accounts)');
-  assert.equal(connectedLine(['', '  '], 1), 'Connected: your broker (1 account)');
+  // PR-3 (carried Low 1): with no institution, visitors read "the broker", never "your broker".
+  assert.equal(connectedLine([], 2), 'Connected: the broker (2 accounts)');
+  assert.equal(connectedLine(['', '  '], 1), 'Connected: the broker (1 account)');
+  for (const line of [connectedLine([], 1), connectedLine([' '], 3), connectedLine(['Fake Brokerage'], 2)]) assert.doesNotMatch(line, /\byour\b/i);
   // The profile unfurl: no stats line when there are no closes (no "0 closed trades · % win rate").
   const d = (state: 'importing' | 'connected' | 'failed' | 'none', trades: number, demo = false) =>
     profileDescription({ state, demo, verified: trades > 0 && !demo, trades, stats: '60% win rate · +1.0% avg return · Evidence: too early' });

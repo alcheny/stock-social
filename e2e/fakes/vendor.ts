@@ -17,12 +17,14 @@
 // messages to its parent: {status:'SUCCESS', authorizationId} after linking, {status:'ERROR', errorCode:'POPUP_BLOCKED'}
 // when window.open returns null (a blocked popup), 'CLOSED' from its own Cancel.
 //   POST /_sync {completed: boolean, accountId?}   flips initial_sync_completed
+//   An account with `seed` and a numeric `activities` gets seededActivities (PR-3 heavy-use tests); activities honour
+//   `startDate` like the vendor's endpoint
 //   POST /_fail {status: number, times: number}    the next `times` API calls answer `status`
 //   GET  /_state                                   users, their connections and accounts, for assertions
 import { createServer, type Server } from 'node:http';
 
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
-export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
+export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
 type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean; portalFrameHeaders?: boolean };
 type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: FakeActivity[]; syncDone: boolean }> };
 
@@ -35,6 +37,31 @@ export function generateActivities(accountId: string, n: number): FakeActivity[]
     const sell = i % 2 === 1;
     const day = new Date(Date.UTC(2024, 0, 1) + pair * 86_400_000 + (sell ? 43_200_000 : 0)).toISOString();
     out.push({ id: `${accountId}-${i}`, symbol: syms[pair % syms.length], type: sell ? 'SELL' : 'BUY', units: 10, price: sell ? 100 + ((pair * 7) % 11) - 5 : 100, fee: 0, trade_date: day });
+  }
+  return out;
+}
+
+// PR-3 (heavy-use tests): a reproducible, realistic history from a seed. Several symbols per account, buys of varying
+// size, partial and full sells across lots (FIFO), fees, same-instant ties, and an occasional sell with no recorded entry
+// (excluded, never guessed). Times move forward from 2020-01-01 in steps of minutes to days. Same seed, same rows.
+export function seededActivities(accountId: string, n: number, seed: number): FakeActivity[] {
+  let t = seed >>> 0;
+  const rnd = () => { t = (t + 0x6d2b79f5) >>> 0; let x = Math.imul(t ^ (t >>> 15), 1 | t); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+  const syms = ['AAA', 'BBB', 'CCC', 'DDD', 'EEE', 'FFF', 'GGG', 'HHH'];
+  const held = new Map<string, number>(), price = new Map<string, number>(syms.map((s, i) => [s, 20 + i * 15]));
+  let at = Date.UTC(2020, 0, 1);
+  const out: FakeActivity[] = [];
+  for (let i = 0; i < n; i++) {
+    if (rnd() > 0.05) at += Math.floor(rnd() * 3 * 86_400_000) + 60_000; // 5% share the previous row's instant
+    const symbol = syms[Math.floor(rnd() * syms.length)];
+    const p = Math.max(1, price.get(symbol)! * (1 + (rnd() - 0.5) * 0.08));
+    price.set(symbol, p);
+    const have = held.get(symbol) ?? 0;
+    const orphan = rnd() < 0.01; // a sell with no recorded entry
+    const sell = orphan || (have > 0 && rnd() < 0.5);
+    const units = sell ? (orphan ? have + 1 + Math.floor(rnd() * 5) : Math.max(1, Math.floor(have * (0.3 + rnd() * 0.7)))) : 1 + Math.floor(rnd() * 20);
+    held.set(symbol, sell ? Math.max(0, have - units) : have + units);
+    out.push({ id: `${accountId}-${i}`, symbol, type: sell ? 'SELL' : 'BUY', units, price: Math.round(p * 100) / 100, fee: Math.round(rnd() * 100) / 100, trade_date: new Date(at).toISOString() });
   }
   return out;
 }
@@ -84,7 +111,7 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
         let auth = `auth-${++authSeq}`;
         if (user) {
           for (const a of next.accounts) {
-            const rows = Array.isArray(a.activities) ? a.activities : generateActivities(a.id, a.activities ?? 0);
+            const rows = Array.isArray(a.activities) ? a.activities : a.seed !== undefined ? seededActivities(a.id, a.activities ?? 0, a.seed) : generateActivities(a.id, a.activities ?? 0);
             user.accounts.set(a.id, { ...a, authorization: a.authorization ?? auth, rows, syncDone: a.syncDone !== false });
           }
           auth = next.accounts[0]?.authorization ?? auth;
@@ -147,8 +174,11 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
       const a = user.accounts.get(decodeURIComponent(act[1]));
       if (!a) return json({ detail: 'unknown account' }, 404);
       const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 1000);
-      const data = a.rows.slice(offset, offset + limit).map((r) => ({ ...r, symbol: { symbol: r.symbol } }));
-      return json({ data, pagination: { offset, limit, total: a.rows.length } });
+      // `startDate` (YYYY-MM-DD, inclusive), as the vendor documents it: the hourly sync's backfill window.
+      const from = url.searchParams.get('startDate');
+      const rows = from ? a.rows.filter((r) => r.trade_date.slice(0, 10) >= from) : a.rows;
+      const data = rows.slice(offset, offset + limit).map((r) => ({ ...r, symbol: { symbol: r.symbol } }));
+      return json({ data, pagination: { offset, limit, total: rows.length } });
     }
     const pos = p.match(/^\/accounts\/([^/]+)\/positions\/all$/);
     if (pos) {

@@ -212,10 +212,11 @@ export const PORTAL = {
 } as const;
 
 // The profile's "Connected:" line names the institutions the vendor returned for consented real accounts; with none
-// (a pre-F-1 record) it says "your broker", never a placeholder.
+// (a pre-F-1 record) it says "the broker", never a placeholder. PR-3 (carried Low 1, POLICY F3a): never "your broker",
+// since visitors and link previews read this line, and "your" is only ever said to the owner.
 export const connectedLine = (institutions: string[], accounts: number): string => {
   const names = institutions.map((s) => s.trim()).filter(Boolean);
-  return `Connected: ${names.length ? names.join(', ') : 'your broker'} (${accounts} account${accounts === 1 ? '' : 's'})`;
+  return `Connected: ${names.length ? names.join(', ') : 'the broker'} (${accounts} account${accounts === 1 ? '' : 's'})`;
 };
 
 // The profile's link-preview text. With no closes there is no stats line (never "0 closed trades · % win rate"): the

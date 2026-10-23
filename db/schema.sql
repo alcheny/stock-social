@@ -81,6 +81,11 @@ create table if not exists activities (
 );
 select schema_add_index('activities_user_time', 'create index activities_user_time on activities (user_id, executed_at)');
 
+-- F-1 PR-3 (heavy-use): the rebuild reads a trader's activities in (account, symbol, time, id) keyset pages.
+select schema_add_index('activities_user_pair', 'create index activities_user_pair on activities (user_id, account_id, symbol, executed_at, external_id)');
+-- F-1 PR-3: the hourly tick's claim (lib/sync.ts#claimNextUser): each trader is synced by one caller per round.
+select schema_add_column('users', 'sync_claimed_at', 'timestamptz');
+
 -- No quantities or prices here on purpose: the display layer can't leak position size it doesn't have.
 create table if not exists closed_trades (
   id bigint generated always as identity primary key,

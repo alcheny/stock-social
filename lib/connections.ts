@@ -209,8 +209,8 @@ export async function startConnection(who: { userId: number | null; attemptId: n
 // Fix round 2 (engineer, Medium and Low): every mint runs under a transaction-scoped advisory lock, the per-user lock for
 // a trader and ATTEMPT_LOCK for a brokerage-first attempt that has no user yet. Under it: the rate limit (at most
 // MINT_MAX portal_opened events per attempt in MINT_WINDOW_MIN minutes, counted and written under the same lock, so
-// parallel calls cannot slip past), the vendor user (registered only when none is stored; see ensureBrokerUser), the
-// URL and the funnel event. Everything inside uses the transaction's own connection, so a queue of parallel mints never
+// parallel calls cannot slip past), the vendor user (registered only when none is stored; see ensureBrokerUser) and
+// the funnel event (PR-3: the portal URL is requested after the commit, below). Everything inside uses the transaction's own connection, so a queue of parallel mints never
 // needs a second pool connection while holding the lock.
 // Fix round 4 (engineer re-sit, Low 1): the embedded/redirect decision is made after the commit. `decide` is either a
 // fixed mode (GET /connect/start: written with the event) or the server-side framing probe for the modal
@@ -221,19 +221,40 @@ export const ATTEMPT_LOCK = 2; // USER_LOCK (lib/sync.ts) is 1
 export const MINT_MAX = 10;
 export const MINT_WINDOW_MIN = 10;
 export class RateLimitedError extends Error { constructor() { super('too many portal opens'); } }
-export async function mintPortal(who: { userId: number | null; attemptId: number }, returnTo: string, decide: PortalMode | ((url: string) => Promise<PortalMode>), deps: Deps = realDeps): Promise<{ url: string; mode: PortalMode }> {
+// PR-3 (carried Info 3): the vendor answered with a URL the caller refuses (not an https vendor URL): the route answers 502.
+export class PortalRefusedError extends Error { constructor() { super('the vendor returned no usable portal URL'); } }
+// PR-3 (carried Low 2 and Info 3): only what needs the lock runs under it: the limit's count, the vendor user's
+// registration (so parallel first mints register once) and the `portal_opened` event, which reserves the slot so
+// parallel calls still cannot slip past the limit. The vendor's portal URL (`connectUrl`) is requested after the commit,
+// with no lock or pool connection held, so a slow vendor never queues mints behind one another. When that call fails on
+// the vendor's side (a 5xx, a transport error, no URL in the answer) or `accept` refuses the URL, the reserved event is
+// removed: an open the trader never got does not count toward the limit. A vendor 4xx (the vendor refusing this user)
+// keeps counting, so a refused user cannot hammer the vendor through the app.
+export async function mintPortal(
+  who: { userId: number | null; attemptId: number }, returnTo: string, decide: PortalMode | ((url: string) => Promise<PortalMode>), deps: Deps = realDeps,
+  accept: (url: string) => boolean = () => true,
+): Promise<{ url: string; mode: PortalMode }> {
   const provisional: PortalMode = typeof decide === 'string' ? decide : 'embedded';
-  const { url, eventId } = await sql.begin(async (tx) => {
+  const { bu, eventId } = await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(${who.userId !== null ? USER_LOCK : ATTEMPT_LOCK}, ${who.userId ?? who.attemptId})`;
     const [{ n }] = await tx`select count(*)::int as n from funnel_events where attempt_id = ${who.attemptId} and name = 'portal_opened'
       and at > now() - ${MINT_WINDOW_MIN} * interval '1 minute'`;
     if ((n as number) >= MINT_MAX) throw new RateLimitedError();
     const bu = await ensureBrokerUser(who, deps, tx);
-    const url = await deps.connectUrl(bu, returnTo);
     const e = funnelEvent('portal_opened', { mode: provisional });
     const [row] = await tx`insert into funnel_events (attempt_id, name, meta) values (${who.attemptId}, ${e.name}, ${tx.json(e.meta)}) returning id`;
-    return { url, eventId: String(row.id) };
-  }) as { url: string; eventId: string };
+    return { bu, eventId: String(row.id) };
+  }) as { bu: BrokerUser; eventId: string };
+  const unreserve = () => sql`delete from funnel_events where id = ${eventId}`;
+  let url: string;
+  try {
+    url = await deps.connectUrl(bu, returnTo);
+  } catch (e) {
+    const status = errStatus(e);
+    if (typeof status !== 'number' || status >= 500) await unreserve();
+    throw e;
+  }
+  if (!accept(url)) { await unreserve(); throw new PortalRefusedError(); }
   if (typeof decide === 'string') return { url, mode: decide };
   const mode = await decide(url);
   if (mode !== provisional) {
