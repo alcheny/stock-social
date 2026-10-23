@@ -518,3 +518,153 @@ Notes:
   - the pane on card 40.
 
 Verdict: DEFECTS (1 Medium, 1 Low, 6 notes)
+
+## Re-run 3
+
+2026-10-23. Branch `claude/adoring-euler-4469ys` at `e844694` (the engineer's fix round 3). Postgres 16.15 (`work_mem` 4 MB,
+`hash_mem_multiplier` 2, 2 parallel workers per gather, the defaults here), Node 22.22. Everything ran on my own database
+(`ss_tst4`). The build, the e2e run and my server ran from a copy of `HEAD` outside the repo. No product code changed.
+This is a scoped re-run: defects E and F, the query changes, and regressions they could cause.
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | Clean both times. No schema change. No drop, truncate or delete from. |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | **559 tests, 550 pass, 9 skipped (load), 0 fail**, all three runs. The re-run 2 funnel flake did not recur. |
+| Test count | 558 → 559 (+1, the new LOAD case). Nothing removed. |
+| Weakened? | No. The only removed line in a test file is the stale comment (my re-run 2 note 2), now corrected. |
+| `LOAD=1 … lib/sync.load.test.ts` ×2 | 5/5 both (fleet 8,763 and 9,483 ms, bound 60,000) |
+| `LOAD=1 … lib/feed.load.test.ts` ×2 | 4/4 both. 12 heavy p95 156 and 153 ms. 50 heavy p95 248 and 273 ms. Round-2 late case: weights kept p95 291 and 232 ms. **New case** (150,000 late closes among 15 listed traders): cold 641–970 and 668–976 ms (medians 751 and 803); weights kept p95 563 and 650 ms. |
+| `CI=1 npm run build`, stdin closed | Run 1 stopped on the framework's security advisory. That is tool output; nothing was upgraded. Retry: exit 0. |
+| `npm run test:e2e` ×1, own database, fresh `next start`, vendor fake configured | **100 passed, 3 skipped, 0 failed** (4.0 min) |
+| `node scripts/compliance.ts diff origin/main` | Only the existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | ok |
+
+### 2. Defect E, reproduced exactly as in re-run 2
+
+Fixture A (120 traders × 6 closes). Page 1 and the kept page 2 are served. Then 15 traders listed on page 2 each import
+10,000 SELLs with a close for each, dated before `asOf` and imported after it: 150,000 late closes. Then page 2 with no
+kept list, 8 cold reads (lists and weights cleared) and 4 with the weights kept, on one connection pool. For the stale
+runs, autovacuum was off for both tables (`activities` reltuples 903 against 150,903 live rows).
+
+| Statistics, plan mode | Cold page 2 (8 reads) | Weights kept (4) | Same page as the kept list |
+|---|---|---|---|
+| Analyzed, default (re-run 2's run: over 60 s, 3 of 3) | **680–826 ms** | 566–706 ms | yes |
+| Stale, default | **829–1,226 ms** (two runs) | 646–908 ms | yes |
+| Stale, `force_custom_plan` | 859–1,239 ms | 732–770 ms | yes |
+| Stale, `force_generic_plan` | 884–1,096 ms | 695–808 ms | yes |
+
+- One further stale run read 1.9–2.3 s a page. It overlapped a 66 s checkpoint from the fixture's bulk insert (server
+  log). The next two runs on the same data were 0.8–1.2 s. I count it as machine noise.
+- **EXPLAIN ANALYZE**, stale statistics, with `set local plan_cache_mode` in a transaction:
+  - The weight query is `NOT (hashed SubPlan 2)` over a `ProjectSet` (`rows=150000 loops=1`) fed by an `InitPlan`
+    (one index scan of `activities_created`). That holds in both plan modes. 271 ms custom, 185 ms generic. Rows
+    removed by the filter: 150,000.
+  - In the candidate statement, every late filter is a hashed SubPlan. The 5-close probe and `pr`'s probe of `o` were
+    never executed on this fixture. The only `Materialize` nodes sit over `d` (123 rows) and `connections` (0 rows).
+    339 ms custom, 411 ms generic.
+- **E is closed.** No per-row rescan in any plan mode. The cost is linear, and the page still matches the kept list.
+- Weights kept is over 400 ms at this size. That is the engineer's deviation 1, in the same class as F.
+
+### 3. Low F at 150,000 and 600,000 late sells
+
+Data path, page 2 with no kept list, 5 reads each. The late sells are a non-candidate trader's, dated 30 days back, so
+they fall in both `a` and `o`.
+
+| Fixture, statistics | 150,000: cold / weights kept | 600,000: cold / weights kept | Engineer's table (150,000; 600,000) |
+|---|---|---|---|
+| Fixture A, stale | 352–613 / 176–490 ms | 1,297–1,762 / 793–938 ms | cold 567 / 685, kept 316 / 367 ms (median / p95); cold 1,931 / 2,228, kept 1,343 / 1,699 ms |
+| 12 heavy, stale | 627–714 / 353–545 ms | 1,817–2,136 / 1,276–1,425 ms | (as above) |
+| 12 heavy, analyzed | **726–1,005 / 507–702 ms** | **2,392–5,176 / 1,617–3,596 ms** (3 runs) | — |
+| 12 heavy, analyzed, **round 2's code** (`HEAD~1`) on the same data | 465–610 / 370–439 ms | 1,358–1,558 / 1,263–1,296 ms | — |
+
+- With stale statistics, my numbers match the engineer's: about 2.3 ms per 1,000 late sells with the weights kept.
+  Linear, no cliff, and always the kept list's page. The `ponytail:` note is in `lib/feed.ts`.
+- **With analyzed statistics (the normal state) the numbers are higher, and higher than round 2's.** Defect G.
+
+### 4. The query changes: eligibility from `c`, `pk` probing only closes older than the window
+
+Fixture C (500 traders, 12 heavy with closes going back years) plus 5 of my own traders whose closes straddle the 14-day
+window. After page 1, their late closes (imported after `asOf`) land on both sides of the window:
+- **P**: 3 closes in the window and 3 older. It is eligible only through the probe, because `c` holds 3.
+- **Q**: 3 in the window and 1 older, plus 2 older late closes. It has 4 at `asOf`, so it is not eligible.
+- **R**: 6 in the window and 10 older. Late: 5 older (22–26 days) and 3 in the window with a high return.
+- **U**: 2 in the window and 4 older (30 days), plus 3 older late closes.
+- **V**: 4 in the window. On time: one older close 1 min past the window edge and one 1 min inside it. Late: one on
+  each side of the edge.
+
+| Check | Stale statistics | Analyzed |
+|---|---|---|
+| Page 1 and page 2 with no kept list equal the kept ones | yes, yes | yes, yes |
+| Cards in the 200-card list: P, Q, R, U, V | 3, 0, 6, 2, 4 | the same |
+| `pk` against a direct count (`closed_at <= asOf`, sell not imported after `asOf`), my traders | P 6/6, R 16/16, U 6/6, V 6/6 | the same |
+| `pk` against the direct count, all 90 candidate traders (12 heavy) | 0 mismatches | 0 mismatches |
+| Fallback statement (no window; only my 5 traders ranked) | PRUV listed, `pk` 6, 16, 6, 6: all equal | the same |
+| Late closes shown at `asOf` | 0 | 0 |
+
+The list is right, and `pk` is exact on both sides of the window, through `c`'s count and through the probe.
+
+### 5. Regressions as a user (fixture A, 200 cards, my server)
+
+| Check | Result |
+|---|---|
+| End key from card 3, server +0 and +300 ms (375 light and dark, 1280 dark) | 6 of 6: 1 request, **card 31 at the top**, still there 1.5 s later, live "Trades 31 to 60 loaded" |
+| Retry (first request fails; Retry with the keyboard) | 3 of 3: 1 failed request. "Loading…" is `aria-disabled` and keeps focus. Then 60 rows, card 31 at the top, focus in card 31, live line correct. |
+| Jump while page 2 is held (End, a 20-event wheel fling, End again) | 3 of 3: 1 request, "Loading…" with `aria-busy`. After release, card 31 at the top, no further request. |
+| Variety (skewed fixture, 5 fixtures × 5 days) | The same as re-run 2: candidates from 57–61 traders, at most 6 each. Hyperactive share 15% in every list. Worst 30-card window 3–5. Exploration picks that are new traders, first 120 cards: 24 of 24. Back-to-back: 1 in 2 lists. |
+| Trust rule | No-JS walk of pages 1–7: 200 cards, every card shows Verified, 0 Demo, disclaimer on all 7, `h1`s as before. The 3 demo profiles show Demo and no Verified. |
+| Pane | Card 40 (appended): → opens the pane with its chart and stats; ← returns; 0 page errors (375 light and dark) |
+
+Screenshots: `screenshots/pr1-test4/` (End and after Retry at 375 light, 375 dark and 1280 dark; the pane on card 40).
+
+### 6. Defects
+
+G. **Low · performance · `lib/feed.ts` (`candidateQuery`, CTE `late`): with fresh statistics, fix round 3 makes a page with
+   no kept list 1.5–3× slower than round 2 at large late sets (Low F's path).**
+   - Round 3 builds `a` and `o` with `array_agg(...)` and `array_agg(...) filter (...)` in one aggregate. With statistics
+     fresh, Postgres 16 runs it as a parallel aggregate (Gather, then Finalize Aggregate). Combining the workers'
+     partial arrays is slow.
+   - At 600,000 late sells (EXPLAIN ANALYZE, default settings), the `late` CTE alone takes 1,927 ms of a 2,971 ms
+     statement. The round-2 form, `array(select external_id ...)`, takes about 230 ms for the same rows (the weight
+     query's InitPlan in the same run).
+   - Isolated, same data, analyzed statistics:
+
+     | Late sells | Round-3 form | Round-3 form, parallel off | Round-2 form `array(select …)` |
+     |---|---|---|---|
+     | 150,000 | 243–260 ms | 91 ms | 38–45 ms |
+     | 600,000 | 716–767 ms | 316 ms | 156 ms |
+
+   - Page 2 with no kept list (12 heavy, analyzed, section 3):
+     - 150,000 late sells: weights kept 507–702 ms, against 370–439 ms for round 2.
+     - 600,000: cold 2.4–5.2 s, against 1.36–1.56 s.
+     - With parallel aggregation turned off for the pool, round 3 falls back to the engineer's figures (150,000:
+       kept 375–426 ms; 600,000: cold 1.9–2.2 s, kept 1.3–1.5 s). So the engineer's F table, all stale statistics,
+       understates the normal (analyzed) cost by 1.5–2×.
+   - Who hits it: a crafted `?after=`, or another instance or a restart during a large import. It is linear and
+     bounded, so this is not E's minutes-long rescan, hence Low.
+   - The new LOAD case does not see it: its late sells are the listed traders' own, inside the window, about 150,000.
+   - Fix (engineer's choice): build `a` and `o` as `array(select …)` subqueries, which are not parallel-aggregated, or
+     keep the parallel plan out of that CTE; then add the analyzed 600,000-sell number to the known-limit note.
+
+Notes:
+
+1. **E is closed** (section 2). **F is accepted as a known limit** (the `ponytail:` note and the planner item, a stored
+   import time per close). Its stale-statistics numbers reproduce. G is about this round's added cost on F's path,
+   not about F itself.
+2. **The new LOAD case's cold bound is tight on a slower fixture.** In the suite, the cold medians were 751 and
+   803 ms (bound 1 s). On fixture A with stale statistics, my cold medians were about 0.95–1.0 s. Not a failure;
+   it may flake on a busier CI runner.
+3. **`pk` relies on `closed_at` being the sell's `executed_at`** (the engineer's deviation 3). That held for every
+   close here. `matchTrades` copies a millisecond `Date`, while an `executed_at` written by SQL can carry
+   microseconds. So a close could, in principle, sit up to 1 ms before its sell's `executed_at` at the window edge.
+   The sync path writes `executed_at` from the same millisecond dates, so I could not produce one. Not counted.
+
+### 7. Cleanup
+
+- My test users (prefix `tq`) and their activities were deleted. Then my database (`ss_tst4`) was dropped, with the e2e
+  leftovers and its logging setting.
+- My server (3219), the e2e server and the vendor fake are stopped. The copies of `HEAD` and `HEAD~1` are removed.
+
+Verdict: DEFECTS (1 Low, 3 notes)
