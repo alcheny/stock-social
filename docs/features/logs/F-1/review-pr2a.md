@@ -37,3 +37,85 @@ What holds: one vendor file only. `lib/broker.ts` keeps `connectionType: 'read'`
 
 - PR-2b carries: the "broker" placeholder in "Connected: broker", the zero-trade preview copy, and the lured-portal case.
 - Owner: the framework advisory blocks `npm run build` on this branch and on main.
+
+## Re-check
+
+approve: false
+
+Date: 2026-10-23, at `3ad9377` against `origin/main`. No code changed.
+
+### Checks run
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL=postgres://…@localhost:5432/stock_social`) | 419 pass, 0 fail, 0 skipped (415 → 419) |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line; `package.json` and the lockfile unchanged |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+| `CI=1 npm run build < /dev/null` | compiles and generates all 22 routes (fresh `.next/BUILD_ID`, the new `unrealizedPct` is in the server bundle), then exits 1 on the framework's own advisory check, as on main (owner dependency bump) |
+| `npx playwright test` with `SNAPTRADE_BASE_URL=http://127.0.0.1:4102 SNAPTRADE_CLIENT_ID=e2e SNAPTRADE_CONSUMER_KEY=e2e`, `CI=1` (fakes started by the specs) | 70 passed, 0 failed, 3 skipped. The skips are the two OIDC provider tests and the email-send-failure test in `signin.spec.ts` (their fakes' variables unset); every `connect.spec.ts` test ran |
+| Removed lines in `3872e3e..3ad9377` | one test name changed (`unrealizedPct`, its old name stated the wrong formula) and one assertion changed (the paper test, below). No test deleted or skipped |
+
+### Finding 1 (High): resolved
+
+The SDK's own models (`node_modules/snaptrade-typescript-sdk/dist/index.d.ts`). The positions call returns
+`AllAccountPositionsResponse` (line 3545), whose `'results': Array<AccountPosition>` (line 3552) are:
+
+- line 3210: `units`: "The number of units held in the position. Positive numbers indicate long positions and negative numbers indicate short positions."
+- line 3216: `price`: "Last known market price _per share_. …"
+- line 3222: `cost_basis`: "Book price or average purchase price for the position. For options, this is per-share."
+- the older `Position` model, line 823: `average_purchase_price`: "Cost basis _per share_ of this position."
+- for contrast, `TaxLot`, line 765: `cost_basis`: "The cost basis of the entire lot." Only the tax lot carries a lot total.
+
+All three `AccountPosition` fields are typed `string | null`; `unrealizedPct` converts each with `Number()`.
+`lib/broker.ts:83-88` now computes `(price - cost) / cost` with `cost` = `average_purchase_price` when positive, else
+`cost_basis`; `null` unless units, price and cost are all positive. Hand check of `lib/broker.test.ts:10-11`: 10 units
+bought at 10, now 11 → (11 − 10) / 10 = 0.1 (+10%; the old formula gave (110 − 10) / 10 = 10, +1000%); 2 at 50 now
+45 → (45 − 50) / 50 = −0.1. Both match. The HTTP test (`lib/broker.test.ts:47`, 10 at 10 now 11 → 0.1), the fake (`e2e/fakes/vendor.ts:12,114`,
+strings per unit like the SDK) and the e2e position (10 units at 100, now 110 → `QQQ+10.0%`, `e2e/connect.spec.ts:122,164`)
+are all per unit. A total-cost reading would fail every one of them.
+
+### Findings 2 to 7: resolved
+
+2. `lib/copy.ts#wholeRecordView`/`wholeRecordPreview`: importing → no win rate, avg return, evidence or New record
+   on the trade and month pages, and descriptions "N closed trades so far · Import in progress…"; failed → the incomplete
+   line plus the stats; demo always stats. `imageTrust` takes `stats` from the same function, so pages and images
+   cannot drift. Unit test covers every state; e2e two-import test checks both pages and their descriptions signed out,
+   and the trade page's stats after the import finishes.
+3. `lib/sync.ts:31-32`: the rebuild leaves out activities of the user's accounts flagged `is_paper`; raw rows stay.
+   The changed paper-test assertion (`lib/connections.test.ts:560`, 1 → 0 closed trades) is a correction, not a
+   weakening: plan §4 ("stays excluded when flagged on a later sync") and §9 ("They never enter the record or carry
+   'Verified' … flag re-read on every sync") require 0, and the old assertion encoded the behavior this review flagged.
+   The same test now also asserts the raw activities kept and the excluded count 2, and a new DB test covers the
+   reflag on the hourly sync (only the other account's trades and position remain, count 1) and the flag cleared.
+4. `app/u/[handle]/opengraph-image.tsx` drops the static alt; `app/u/[handle]/page.tsx` `generateMetadata` declares the
+   same image URL with `profileCardAlt`, built from the card's own label. Unit test per state; e2e asserts the demo,
+   importing and failed alts (exactly one `og:image:alt` each) and the unchanged image path.
+5. `lib/positions.ts#positionRows`: one row per account and symbol, distinct keys, a muted "account N" label only when a
+   symbol is held in more than one account, no vendor account id rendered. Not merging is the right call: a weighted
+   percent needs amounts the record never stores. Tested.
+6. Both redirects now end `303); // …`.
+7. `listAccountIds` removed; no caller remains (checked outside `node_modules`).
+
+### Remaining findings
+
+1. **Low · `lib/sync.ts:31-43` with `lib/connections.test.ts:571,604-607`: a thesis on a reflagged account's trade is
+   deleted for good, and the new test's "returns if the vendor clears the flag" does not check it.** On the flagged
+   rebuild those trades are no longer produced, so `reattachTheses` orphans their theses (published or `held`) and the
+   `delete from closed_trades` removes them, with only a server warning. When the flag clears, the trades come back
+   with no thesis. This fix round created that path: before it, a reflag never removed trades, so their theses were
+   never orphaned. The log says the trades "come back", which leaves this out. Rule: CLAUDE.md Architecture ("Theses
+   survive rebuilds … re-attached by `sell_id`") and the Product rule that `held` theses are never silently dropped.
+   Fix: keep the theses of excluded-account trades across the rebuild (for example, keep those `closed_trades` rows'
+   thesis fields aside by `sell_id` and re-attach them when the trades return), with an assertion in the reflag test
+   that a thesis written before the reflag is back after the flag clears. If the owner accepts the loss, the other
+   option is a `ponytail:` note next to the existing orphan note, an assertion that records the loss, and an owner
+   open question. Either way the test must state the outcome.
+
+### Notes (not blocking)
+
+- `docs/features/logs/F-1/build-pr2a-fix4.md:310` says "No test removed or renamed". One test was renamed
+  (`lib/broker.test.ts:9`). The rename is justified because the old name stated the wrong formula, but the log should
+  say so.
+- Carried from the first review: the PR-2b items, and the framework advisory that blocks `npm run build` on this branch
+  and on main (owner).
