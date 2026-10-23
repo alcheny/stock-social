@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
-import { allCopy, FEED, FEED_COUNTS, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
+import { allCopy, SECTION, FEED, FEED_COUNTS, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
 
 const MARK_RE = new RegExp(`\\b(${MARKS.map((m) => m.replace(/ /g, '[\\s-]?')).join('|')})\\b`, 'i');
 const MINORS_RE = new RegExp(`\\b(${MINORS.map((m) => m.replace(/ /g, '\\s')).join('|')})\\b`, 'i');
@@ -326,4 +326,21 @@ test('F-2 PR-1 fix round 1: loading, the appended-cards announcement, the no-JS 
   // In the banned-list walk (it calls each function with ('x', 2, 1)).
   const walked = allCopy(), x = 'x' as unknown as number;
   assert.ok(walked.includes(FEED_COUNTS.added(x)) && walked.includes(FEED_COUNTS.position(x, 2)));
+});
+
+// F-2 PR-3 (criterion 9): the suggestion copy word list (plan P5; lib/copy.test.ts enforces it until scripts/compliance.ts
+// carries it). "holding period" passes; "hold" and "holds" fail.
+const SUGGESTION_WORDS = /\b(buy|sell|hold|pick|signal|advice|price target)s?\b/i;
+const ENDORSEMENT = /\b(suggested|recommended|top|best|ai)\b/i;
+test('F-2 PR-3: every suggestions-section string passes PROMO, the suggestion word list and the endorsement list; no ticker slot, no number about performance', () => {
+  assert.doesNotMatch('Typical holding period: 1 to 7 days', SUGGESTION_WORDS);
+  for (const bad of ['hold', 'Holds', 'a pick', 'signals', 'buy', 'sells', 'price targets', 'advice']) assert.match(bad, SUGGESTION_WORDS, bad);
+  const strings = [SECTION.heading, SECTION.explain, ...SECTION.holds, SECTION.week, SECTION.fresh, SECTION.tray, SECTION.close, SECTION.incomplete];
+  assert.ok(strings.length >= 11);
+  for (const s of strings) {
+    for (const re of [...PROMO, ...BANNED, SUGGESTION_WORDS, ENDORSEMENT]) assert.doesNotMatch(s, re, s);
+    assert.doesNotMatch(s, /%|[+\u2212-]\d|\$/, s); // no percentage, signed number or money
+  }
+  assert.equal(SECTION.holds.length, 5);
+  assert.ok(allCopy().includes(SECTION.heading));
 });

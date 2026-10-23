@@ -355,6 +355,22 @@ export const FOLLOW = {
   settingsLink: 'Following and hidden traders',
 };
 
+// F-2 PR-3: the suggestions section (plan §1 PR-3), the same for every viewer. No performance number on a row (a number
+// would make it a performance screen: the pane it opens carries the record and the disclaimer); reasons are fixed
+// templates with no ticker slot, each true against its inputs (lib/discovery/section.ts#reasonFor). Scanned by
+// lib/copy.test.ts against PROMO and the suggestion word list (no buy, sell, hold, pick, signal, advice, price target;
+// no "Suggested", "Recommended", "Top", "Best", "AI"). The UX lead may rewrite within those rules.
+export const SECTION = {
+  heading: 'More records',
+  explain: 'The same for everyone. Records with more evidence come first, losses counted like gains.',
+  holds: ['under a day', '1 to 7 days', '1 to 4 weeks', '1 to 6 months', 'over 6 months'].map((b) => `Typical holding period: ${b}`),
+  week: 'Closed a trade this week',
+  fresh: 'New here this month',
+  tray: 'Not interested',
+  close: 'Close',
+  incomplete: 'Import did not finish',
+};
+
 export function allCopy(): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
@@ -363,6 +379,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION].forEach(walk);
   return out;
 }

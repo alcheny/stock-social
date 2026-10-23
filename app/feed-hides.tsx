@@ -11,6 +11,9 @@ import { UNDO_MS } from './follow-button.tsx';
 // Fix round 1: the timer pauses while Undo has keyboard focus or the pointer is on the bar (WCAG 2.2.1); Esc or Tab
 // closes it. Focus never drops to the page: it goes to the next visible card (or the one before, at the end), and
 // after Undo to the "…" of the pane the reader hid from (the side they were on).
+// F-2 PR-3: a hide from the suggestions section (its "…" menu, its reject swipe or the sheet it opens) collapses that
+// row (and the trader's cards) with the reader left on the section; focus goes to the next row, Undo returns to the
+// row's "…".
 type Bar = { handle: string; text: string; undo: boolean };
 const HANDLE = /^[a-z0-9_]{3,20}$/;
 
@@ -24,10 +27,11 @@ export function FeedHides() {
   const source = useRef<Element | null>(null); // the row the reader hid from (Undo returns there)
   const refocus = useRef<HTMLElement | null>(null); // focused after the next change of `hidden`
   const toCard = () => {
-    let r: Element | null = after.current;
-    while (r && !(r as HTMLElement).offsetParent) r = r.nextElementSibling;
-    if (!r) { r = source.current; while (r && !(r as HTMLElement).offsetParent) r = r.previousElementSibling; }
-    (r?.querySelector<HTMLElement>('.card .who') ?? document.querySelector<HTMLElement>('.feed .row .card .who'))?.focus({ preventScroll: true });
+    const target = (r: Element | null) => (r && (r as HTMLElement).offsetParent ? [...r.querySelectorAll<HTMLElement>('.card .who, .sopen')].find((e) => e.offsetParent) : undefined);
+    let r: Element | null = after.current, f: HTMLElement | undefined;
+    while (r && !(f = target(r))) r = r.nextElementSibling;
+    if (!f) { r = source.current; while (r && !(f = target(r))) r = r.previousElementSibling; }
+    (f ?? document.querySelector<HTMLElement>('.feed .row .card .who'))?.focus({ preventScroll: true });
   };
   const close = () => { clearTimeout(timer.current); const had = !!document.activeElement?.closest('.hide-bar'); setBar(null); if (had) toCard(); };
   const run = () => { clearTimeout(timer.current); timer.current = window.setTimeout(close, UNDO_MS); };
@@ -42,9 +46,11 @@ export function FeedHides() {
     const onHide = async (e: Event) => {
       const { handle, row } = (e as CustomEvent<{ handle: string; row: Element | null }>).detail;
       if (!HANDLE.test(handle)) return;
-      let n = row?.nextElementSibling ?? null;
+      const inSection = !!row?.matches('.suggest');
+      let n = inSection ? null : row?.nextElementSibling ?? null;
       while (n && n.getAttribute('data-handle') === handle) n = n.nextElementSibling;
-      anchor.current = after.current = n;
+      anchor.current = n;
+      after.current = inSection ? row : n;
       source.current = row;
       setHidden((h) => [...h, handle]);
       show({ handle, text: FOLLOW.hidden, undo: true });
@@ -68,14 +74,15 @@ export function FeedHides() {
     const r = await undoNotInterested(handle).catch(() => ({ ok: false }));
     if (!r.ok) { show({ handle, text: FOLLOW.failed, undo: false }); return; }
     anchor.current = first;
-    refocus.current = first?.querySelector<HTMLElement>('.pane .more-menu summary') ?? first?.querySelector<HTMLElement>('.card .who') ?? null;
+    refocus.current = first?.querySelector<HTMLElement>(`li[data-handle="${handle}"] .more-menu summary`) ?? first?.querySelector<HTMLElement>(`li[data-handle="${handle}"] .sopen`)
+      ?? first?.querySelector<HTMLElement>('.pane .more-menu summary') ?? first?.querySelector<HTMLElement>('.card .who') ?? null;
     setHidden((h) => h.filter((x) => x !== handle));
   };
   const pause = () => clearTimeout(timer.current);
   const resume = () => { if (bar && !paused()) run(); };
   return (
     <>
-      <style>{hidden.map((h) => `.feed .row[data-handle="${h}"]{display:none}`).join('')}</style>
+      <style>{hidden.map((h) => `.feed [data-handle="${h}"]{display:none}`).join('')}</style>
       <div className="hide-bar" role="status"
         onPointerEnter={(e) => { if (e.pointerType === 'mouse') { hover.current = true; pause(); } }}
         onPointerLeave={() => { hover.current = false; resume(); }}

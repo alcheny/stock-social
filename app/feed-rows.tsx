@@ -4,6 +4,8 @@ import { feedPaneChart } from '@/lib/chart-series.ts';
 import { FEED } from '@/lib/copy.ts';
 import { ProfilePane } from './pane.tsx';
 import { TradeCard, type TradeRow } from './ui.tsx';
+import { SuggestSection } from './suggest-section.tsx';
+import { SECTION_AT } from '@/lib/discovery/section.ts';
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -20,7 +22,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   // page; for a long record a stand-in line, the full chart loading on the pane's first swipe-open (fix round 8). The
   // pane is built once per trader and the same element placed in each of that trader's rows.
   const panes = new Map<number, ReturnType<typeof ProfilePane>>();
-  const paneOf = (t: FeedPage['cards'][number]) => {
+  const paneOf = (t: { user_id: number; handle: string; display_name: string }) => {
     let p = panes.get(t.user_id);
     const trades = page.byUser.get(t.user_id) ?? [];
     // F-2 PR-2: no Follow or "…" on the viewer's own record.
@@ -28,7 +30,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer })));
     return p;
   };
-  return page.cards.map((t) => {
+  const out = page.cards.map((t) => {
     // The card's own fields only (the close's vendor id stays on the server).
     const row: TradeRow = { id: String(t.id), symbol: t.symbol, return_pct: t.return_pct, holding_days: t.holding_days, closed_at: t.closed_at, verified: t.verified,
       thesis: t.thesis, thesis_status: t.thesis_status, handle: t.handle, display_name: t.display_name, user_id: t.user_id };
@@ -42,6 +44,13 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       ),
     };
   });
+  // F-2 PR-3: the suggestions section after the 5th card (position 6), on every page that has one.
+  if (page.section && out.length >= SECTION_AT) {
+    const rows = new Map(page.section.map((r) => [r.userId, r]));
+    const pane = (id: number) => { const r = rows.get(id)!; return paneOf({ user_id: id, handle: r.handle, display_name: r.name }); };
+    out.splice(SECTION_AT, 0, { id: `section-${page.offset}`, node: <SuggestSection key={`section-${page.offset}`} page={page} pane={pane} /> });
+  }
+  return out;
 }
 
 // The end of the list: true because the order is seeded per UTC day; the list is capped, so no completeness claim.

@@ -102,3 +102,68 @@ dbTest('F-2 PR-2, signed in, pages 1 to 3: follows and viewer_exclusions are rea
     await sql`delete from users where id in ${sql(ids)}`;
   }
 });
+
+// F-2 PR-3: added cases. The suggestions section is rendered by the feed's own modules (no db or session import), and
+// it reads no viewer table signed out; signed in, its one extra read is keyed by the session's viewer id.
+test('F-2 PR-3: the suggestions section\'s components query nothing and read no session (every read is loadFeedPage\'s)', () => {
+  for (const f of ['../app/suggest-section.tsx', '../app/suggest-row.tsx']) {
+    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /lib\/db(\.ts)?['"]|lib\/session(\.ts)?['"]|lib\/viewer(\.ts)?['"]|lib\/follows(\.ts)?['"]|next\/headers|\bsql`/, f);
+  }
+  assert.match(readFileSync(new URL('../app/feed-rows.tsx', import.meta.url), 'utf8'), /<SuggestSection /);
+});
+
+dbTest('F-2 PR-3, signed out, pages 1 to 3 with a section on each: no query touches follows, viewer_exclusions, trade_likes or discovery_events; the section is the same on a second request', async () => {
+  const { sql } = await import('./db.ts');
+  const { loadFeedPage } = await import('./feed.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `q${Math.random().toString(36).slice(2, 9)}`;
+  const ids: number[] = [];
+  for (let t = 0; t < 40; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
+  const at = Date.now() - 600_000;
+  await sql`insert into closed_trades ${sql(ids.flatMap((u, t) => Array.from({ length: 5 }, (_, i) => ({
+    user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `Q${(t * 5 + i) % 41}`, opened_at: new Date(at - 86_400_000 * (1 + (t % 5) * 20)),
+    closed_at: new Date(at - (t * 5 + i) * 1000), return_pct: ((t + i) % 7 - 3) / 10 || 0.05, holding_days: 1 + (t % 5) * 20, verified: true,
+  }))))}`;
+  try {
+    log.length = 0;
+    const p1 = await loadFeedPage(undefined, { ids });
+    const p2 = await loadFeedPage(p1.next!, { ids });
+    const p3 = await loadFeedPage(p2.next!, { ids });
+    assert.ok(p1.section && p2.section && p3.section, 'a section on every page');
+    assert.ok(log.some((q) => /from users where id = any/.test(q)), 'the log sees the section query');
+    assert.deepEqual(log.filter((q) => VIEWER_TABLES.test(q)), []);
+    assert.deepEqual((await loadFeedPage(undefined, { ids, now: p1.asOf.getTime() })).section, p1.section);
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});
+
+dbTest('F-2 PR-3, signed in: the section\'s read of follows and exclusions is keyed by the session\'s viewer id only', async () => {
+  const { sql } = await import('./db.ts');
+  const { loadFeedPage } = await import('./feed.ts');
+  const { follow, exclude } = await import('./follows.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `r${Math.random().toString(36).slice(2, 9)}`;
+  const ids: number[] = [];
+  for (let t = 0; t < 41; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
+  const [viewer, ...traders] = ids;
+  const at = Date.now() - 600_000;
+  await sql`insert into closed_trades ${sql(traders.flatMap((u, t) => Array.from({ length: 5 }, (_, i) => ({
+    user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `R${(t * 5 + i) % 41}`, opened_at: new Date(at - 86_400_000),
+    closed_at: new Date(at - (t * 5 + i) * 1000), return_pct: 0.05, holding_days: 1 + (t % 5) * 20, verified: true,
+  }))))}`;
+  await follow(viewer, traders[5]); await exclude(viewer, traders[6], 'unfollow'); await follow(traders[2], traders[3]);
+  try {
+    log.length = 0; params.length = 0;
+    const p1 = await loadFeedPage(undefined, { ids: traders, viewer });
+    assert.ok(p1.section);
+    const skips = log.map((q, i) => ({ q, p: params[i] })).filter((x) => /\bunion\b/.test(x.q) && VIEWER_TABLES.test(x.q));
+    assert.equal(skips.length, 1);
+    assert.match(skips[0].q, /where viewer_id = \$1/);
+    assert.ok(skips[0].p.every((v) => Number(v) === viewer), 'every parameter is the viewer');
+    assert.deepEqual(log.filter((q) => /\b(trade_likes|discovery_events)\b/.test(q)), []);
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});

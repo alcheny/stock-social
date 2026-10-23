@@ -152,7 +152,7 @@ export default async function Profile({ params, searchParams }: Params) {
       <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
         {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge verified={trust.badge === 'verified'} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
-      {me && !isMe && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}</p>}</div>}
+      {me && !isMe && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}{done === 'hidden' && <> <Link href="/me/following">{FOLLOW.settingsLink}</Link></>}</p>}</div>}
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {/* S5: the live banner (owner polls; visitors see the server's line). Rendered in every state so its finished
           line survives the refresh that follows the end of the import. */}
