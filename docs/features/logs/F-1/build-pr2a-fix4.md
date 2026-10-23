@@ -215,3 +215,24 @@ inside the page that owns the attempt.
 `app/u/[handle]/page.tsx`, `app/globals.css`, `lib/connections.ts`, `lib/copy.ts`, new `lib/vendor-env.ts`,
 `lib/auth/landing.ts`, `instrumentation.ts`; tests `lib/connections.test.ts`, `lib/copy.test.ts`, new
 `lib/vendor-env.test.ts`, `lib/auth/landing.test.ts`, `e2e/connect.spec.ts`, `e2e/signin.spec.ts`.
+
+## Fix round 5 (tester Re-run 6: two remaining items)
+
+| Finding | Fix | Test |
+|---|---|---|
+| 1 Medium · CI: the compliance scanner flagged the committee test's signing value as a hard-coded secret | `lib/connections.test.ts`: the value is now `fake-committee-secret`, which the rule treats as a placeholder. Every new test and e2e file grepped for `secret`/`key`/`token`/`password` literals: the only other hit (`secret-${b.userId}` in the vendor fake) is a template, not a quoted literal, and is not flagged. The tester log quoted the old literal on one line, which the scanner flagged too; that quote now describes the value instead of repeating it (wording only, the finding is unchanged) | `node scripts/compliance.ts diff origin/main` |
+| 2 Low · TR-3: the profile's link preview said "N verified trades" for a failed record and for the demo trader | `app/u/[handle]/page.tsx#generateMetadata` uses `recordCountText` (the trade and month pages' wording): "closed" for a failed or partly unverified record, "demo" for demo data, "verified" only for a whole record from the broker | e2e `connect.spec.ts` fix round 4 failed-trader test: the profile description matches `N closed trade(s)` and has no "verified"; e2e `app.spec.ts` fix round 6 demo test: the demo profile description starts `N demo trade(s)` and has no "verified" |
+
+### Checks
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL` local Postgres), two runs | 413 pass each run, 0 fail, 0 skipped |
+| `npm run build` | first attempt stopped on the framework's security-advisory prompt (tool output; not acted on, nothing upgraded); the retry built cleanly |
+| `SEED=1 node --env-file=.env scripts/db-setup.ts`, then `npx playwright test e2e/connect.spec.ts e2e/app.spec.ts` (`ALLOW_DEV_AUTH=1`, vendor and provider variables pointing at the fakes the specs start) | 57 passed, 0 failed |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+
+Files: `lib/connections.test.ts`, `app/u/[handle]/page.tsx`, `e2e/connect.spec.ts`, `e2e/app.spec.ts`,
+`docs/features/logs/F-1/test-pr2a-tester.md` (one quoted line reworded). Nothing weakened or deleted; test counts unchanged
+(unit 413; the two new assertions extend existing e2e tests).

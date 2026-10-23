@@ -423,6 +423,11 @@ test('fix round 6: the demo trader\'s trade link preview says demo trades, never
   const image = await page.locator('meta[property="og:image"]').first().getAttribute('content');
   const res = await page.request.get(new URL(image!).pathname + new URL(image!).search);
   expect(res.status()).toBe(200);
+  // Fix round 5 (TR-3): the demo trader's profile link preview says demo trades too.
+  await page.goto('/u/momentum_maya');
+  const profileDescription = await page.locator('meta[name="description"]').getAttribute('content');
+  expect(profileDescription).toMatch(/^\d+ demo trades? · /);
+  expect(profileDescription).not.toMatch(/verified/i);
 });
 
 test('monthly recap: signed out, whole record beside the month, every trade listed, 404s, card', async ({ page, request }) => {

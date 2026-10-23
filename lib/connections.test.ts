@@ -961,7 +961,7 @@ dbTest('committee fix 1 (High): a brokerage-first attempt is found only through 
   const { sql, events } = await setup();
   const { createAttempt } = await import('./auth/attempts.ts');
   const { boundAttempt, refuseUnbound } = await import('./connections.ts');
-  const secret = 'committee-secret';
+  const secret = 'fake-committee-secret';
   const mine = await createAttempt({ method: 'brokerage', attested: true });
   const theirs = await createAttempt({ method: 'brokerage', attested: true });
   const email = await createAttempt({ method: 'email', attested: true });

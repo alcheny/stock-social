@@ -520,7 +520,7 @@ The takeover is closed.
 ### Findings
 
 1. **Medium · bug (CI) · the compliance check fails on the new test.** `node scripts/compliance.ts diff origin/main`
-   flags `lib/connections.test.ts:964` (`const secret = 'committee-secret';`) as a hard-coded secret. CI runs this on
+   flags `lib/connections.test.ts:964` (the `const secret` literal, a 16-character test value) as a hard-coded secret. CI runs this on
    every PR, so the PR is blocked; the fix log reports only the pre-existing license line. Fix: a value the rule
    already treats as a placeholder (for example one containing `fake`, or shorter than 12 characters) in the test.
 2. **Low · spec (TR-3) · the profile's unfurl description still says "verified" for a failed and a demo record.**

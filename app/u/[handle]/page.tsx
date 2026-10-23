@@ -8,7 +8,7 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { PROFILE, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
+import { PROFILE, RECORD_BODY, recordBodyCopy, recordCountText } from '@/lib/copy.ts';
 import { applyClocks, publicRecordDetail } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
@@ -52,9 +52,13 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { user, s, c, state } = data;
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete).
   if (state === 'importing') return { title: `${user.display_name} (@${user.handle}) · Stock Social`, description: RECORD_BODY.banner(data.trades.length) };
+  // Fix round 5 (TR-3): the same count wording as the trade and month previews ("closed" for a failed or partly
+  // unverified record, "demo" for demo data, "verified" only for a whole record from the broker).
+  const verified = data.trades.length > 0 && data.trades.every((t) => t.verified);
+  const count = recordCountText({ state, demo: await isDemoUser(user.id), verified, trades: s.trades });
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
-    description: `${state === 'failed' ? `${RECORD_BODY.failed} ` : ''}${s.trades} verified trades · ${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`,
+    description: `${state === 'failed' ? `${RECORD_BODY.failed} ` : ''}${count} · ${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`,
   };
 }
 
