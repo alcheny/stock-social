@@ -331,3 +331,190 @@ Notes:
 - My server (3218) and the e2e servers are stopped. The copy of `HEAD` I built from is removed.
 
 Verdict: DEFECTS (1 High, 2 Medium, 1 Low, 2 notes)
+
+## Re-run 2
+
+2026-10-23. Branch `claude/adoring-euler-4469ys` at `0a0150d` (the engineer's fix round 2). Postgres 16, Node 22.22.
+Everything ran on my own database (`ss_tst3`). The build, the e2e runs and my servers ran from a copy of `HEAD` outside
+the repo, so no committed screenshot was rewritten. No product code changed.
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | Clean both times. No schema change this round. No drop, truncate or delete from. |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 (+1) | 558 tests, 550 pass, 8 skipped (load). Runs 2, 3 and a 4th: 0 fail. **Run 1: 4 fail**, all in `lib/funnel.test.ts`, from its `before` hook (note 4). |
+| Test count | 555 → 558 (+3). e2e 102 → 103 (+1). Nothing removed. |
+| Weakened? | No. The property test's per-slot rule names the card the new `pick` chooses, still one exact card per slot. The e2e live-line text changed with the copy. The exploration test gained an assertion. |
+| `LOAD=1 … lib/sync.load.test.ts` ×2 | 5/5 both (fleet 9,123 and 10,360 ms, bound 60,000) |
+| `LOAD=1 … lib/feed.load.test.ts` ×2 | 3/3 both. 12 heavy p95 155 and 159 ms. 50 heavy p95 264 and 278 ms. **Late case** (150,020 late activities): weights kept p95 292 and 350 ms; cold server 265–424 ms per read. |
+| `CI=1 npm run build`, stdin closed | Run 1 stopped on the framework's security advisory. That is tool output; nothing was upgraded. Retry: exit 0. |
+| `npm run test:e2e` ×2, own database, fresh `next start` each run, vendor fake configured | **100 passed, 3 skipped, 0 failed**, both runs (4.2 and 4.3 min) |
+| `node scripts/compliance.ts diff origin/main` | Only the existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | ok |
+
+### 2. My re-run 1 defects
+
+| # | Then | Now |
+|---|---|---|
+| A High, late-set rescan | 150,000 late activities: page 2 129 s to over 180 s | **Closed** for the late set (section 3). The same rescan remains in the weight query (defect E). |
+| B Medium, End with a fast server | Reader stopped between cards 30 and 31 | **Closed**: card 31 in 56 of 56 runs (section 4) |
+| C Medium, full HTTP p95 with 50 heavy traders | 473 ms | 422 and 428 ms. Still over 400; the business lead accepted it, with a trigger (note 1). |
+| D Low, outright delete on another server | Shifts the list | Not changed (planner item) |
+
+### 3. The late set, as a user
+
+Fixture A (120 traders × 6 closes), or fixture C (50 heavy traders × 4,700 closes) over HTTP. "Cold" means no kept
+list and no kept weights.
+
+- **Exactly as before.** 150,000 late BUY activities, crafted `?after=` at 1, 12 and 47 h: **137–416 ms** (was over
+  180 s). Data path, cold page 2: 0 to 300,000 late BUYs, 23–144 ms.
+- **Sells, the case that counts now.** Only sells enter the late set, so I re-ran with SELL activities.
+  - Data path, cold page 2: 150,000 sells 292–368 ms; 300,000 sells 637–867 ms; 600,000 sells (stale statistics)
+    1.35–1.75 s.
+  - Linear, about 2.3 ms per 1,000 late sells. No cliff. Same page as the kept list every time.
+- **Crafted `?after=` over HTTP (50 heavy)**: 150,000 late sells 358–861 ms; 300,000 sells 658–1,051 ms. Stale
+  statistics give the same: 364–758 and 658–964 ms.
+- **Another instance.** Page 1 from server A, then 150,000 late activities (statistics stale), then page 2 from a fresh
+  server B.
+  - First request: 1,200 ms (BUYs) and 1,643 ms (150,020 SELLs). That includes B's cold start.
+  - Next requests: 313–411 ms. All equal to A's kept page.
+- **Crafted cursor, first request of a just-started server**: 282–1,337 ms.
+- **EXPLAIN ANALYZE** of the exact candidate statement (captured from a cold page 2), with 150,000 late sells among
+  300,000 late activities:
+  - Run with stale statistics (autovacuum off, `n_mod_since_analyze` 300,000), with a custom plan and with a forced
+    generic plan, then again after ANALYZE.
+  - `CTE late` is one Index Scan (stale: estimated 1 row, actual 150,000) or one Seq Scan (analyzed), `loops=1`.
+  - All three late filters are `NOT (hashed SubPlan n)` over a `ProjectSet` with `rows=150000 loops=1`. That holds
+    inside the eligibility count too, whose outer subplan runs `loops=127`.
+  - **No Materialize and no per-row rescan** in any of the four plans. Execution time is 411–508 ms.
+- **But see defect E**: the weight query still rescans.
+
+### 4. End key and smooth scroll with a fast server
+
+Server answer delayed 0, 150, 300, 500 and 800 ms. Each case ran at 375 and 1280, light and dark.
+
+| Input | Result |
+|---|---|
+| End key from card 3 (focus on its name) | 20 of 20: **card 31 at the top**, offset 0 px, still there 1.5 s later; 1 request |
+| Smooth `scrollTo` to the end | 20 of 20: card 31, 1 request |
+| End key with focus on the feed (re-run 1's method), 0 and 300 ms | 8 of 8: card 31 |
+| End held, release, repeated to the end of the list (375 light) | Each End one request, card 31, 61, 91, 121, 151, 181 at the top; end card; last live line "Trades 181 to 200 loaded" |
+
+- Screenshots: `end-fast-{end,endmain,smooth}-{375,1280}-{light,dark}.png`, `chain-end-375-light.png`.
+- A 64,000 px wheel fling with a fast server carries on through the new cards (note 3).
+
+### 5. Variety (skewed fixture, 5 fixtures × 5 days)
+
+| Measure | Result |
+|---|---|
+| The 5 hyperactive traders in the first 60 cards | **19–24** in all 25 lists (≤ 27) |
+| Worst 10-card window | **5** in all 25 |
+| Worst 30-card window | 15 |
+| Whole-list share | 15% (30 of 199–200), unchanged |
+| Traders among the candidates; per trader | 57–61; at most 6 |
+| Exploration picks that are new traders, first 120 cards | 24 of 24 in all 25 lists |
+| One trader twice in a row | 0 in 23 lists, 1 in 2 lists (note 5) |
+| Most cards of one trader in any 30 | 3–5 (was 6) |
+
+### 6. Performance (quiet machine, load average about 1; my server only)
+
+| Measure | Budget | Result |
+|---|---|---|
+| Full HTTP, signed out, 50 heavy, 3 server starts × 20 rounds × pages 1–3 (180 pages), two runs | p95 < 400 ms | **p95 428 and 422 ms**, median 280. Page 1 p95 455 and 457; page 2 352 and 363; page 3 156 and 171. Cold first page 974–1,142 ms. |
+| Raw HTML, 50 heavy, pages 1–7 | ≤ 500 KB | 212–334 KB (gzipped 20–32), 16–27 traders a page |
+
+### 7. Other checks as a user (fixture A, 200 cards)
+
+| Check | Result |
+|---|---|
+| Request point | 360×640, 375×800, 390×844, 1280×800: no request at card 24, one at 25; page 3 at 55 |
+| Live line per page | "Trades 31 to 60 loaded", then 61–90, 91–120, 121–150, 151–180 and "Trades 181 to 200 loaded": a different text on every append (375 light and dark, 1280 dark). Visually hidden, polite. |
+| `h1` | Page 1: "Trade feed". No-JS pages 2–7: "Trades 31 to 60" … "Trades 181 to 200", one `h1` each. Pages 2–7 are `noindex`; page 1 is not. |
+| "Loading…" | Link: no fill, muted text, weight 400. Retrying button: the same, 44 px high, `aria-disabled`. Contrast 5.0–5.3 (light) and 5.4–5.8 (dark). Retry keeps its fill. |
+| Retry (keyboard, click, synthetic tap; light and dark) | 1 failed request, 0 while in error, 1 for Retry. "Loading…" keeps focus. Then 60 rows, card 31 at the top, focus on card 31's name (keyboard and click), live "Trades 31 to 60 loaded". Page 3 at card 55. |
+| Jump while page 2 is held (End, wheel fling, programmatic fling; 375 light and dark, 1280 dark) | 1 request each, "Loading…" with `aria-busy`. After release, card 31 at the top, no further request. |
+| Trust rule | 200 cards over 7 pages: 200 Verified, 0 Demo, none with both. The demo profiles show Demo and no Verified. The disclaimer is on all 7 pages. |
+| Pane | Card 40 (appended): → opens the pane with its chart and stats; ← returns. No page errors. |
+| Profile paging | The 4,700-close profile shows 50, then "Show 50 more" → `?closes=100` (51–100), with its chart |
+| Consent, TR-3, pane, profile paging, the F-1 chart race | The e2e passed twice |
+
+### 8. Defects
+
+E. **Medium · bug · `lib/feed.ts` (`weights`): the weight query still rescans per row once the candidate traders' own
+   late closes reach about 150,000.**
+   - The miss query filters `sell_id not in (select unnest(${array}::text[]))`. The array is every missing trader's
+     `pl`, their closes imported after `asOf`.
+   - The array is a bound parameter. In a custom plan (the first five runs of a statement on a connection) the
+     planner sees it as a constant and estimates its true length. Above `hash_mem` the subplan is no longer hashed.
+     That is the same mechanism as defect A, which the candidate statement avoids by unnesting a non-constant
+     column.
+   - Fixture A, cold page 2 (no kept list, no kept weights). 15 listed traders each import their own late closes
+     (dated before `asOf`, imported after it):
+
+     | Late closes per trader (total) | Cold page 2 | Weight-query plan |
+     |---|---|---|
+     | 2,000 (30,000) | 361–449 ms | `NOT (hashed SubPlan 1)` |
+     | 5,000 (75,000) | 566–687 ms | hashed |
+     | 7,000 (105,000) | 771–957 ms | hashed |
+     | 10,000 (150,000) | **over 60 s (statement timeout), 3 of 3**. Without the timeout, the first read ran 10 minutes before I cancelled it. | `NOT (SubPlan 1)` over `Materialize (rows=150000)` |
+
+   - Who hits it:
+     - Every cursor page with no kept list or kept weights: another instance, a restart or a deploy, or a crafted
+       `?after=`.
+     - It happens once the traders in that `asOf`'s candidate list have imported about 110,000–150,000 closes of
+       their own since then. For example, 15 listed traders each connect a second account with 10,000 closes
+       within the cursor's 48 hours.
+     - The fingerprints change with the import, so a warm server's kept weights do not help.
+     - The pool recycles connections every 30–60 minutes, so custom plans come back.
+     - Much rarer than defect A, since it needs real large imports by listed traders. But once that data exists, a
+       crafted cursor reaches it on every request.
+   - The fix round's load case gives 20 listed traders one late close each, so it cannot see this. The engineer's
+     deviation 3 names only the row size.
+   - Fix (engineer's choice):
+     - make the array non-constant to the planner, as in the candidate statement (for example, a materialized CTE
+       over the parameter), or anti-join against it;
+     - and add a load case with ≥ 150,000 late closes among listed traders.
+F. **Low · spec (plan §4 budget) · a crafted `?after=` reads the whole late set per request: over 400 ms beyond about
+   150,000 late sells.**
+   - It is linear now, about 2.3 ms per 1,000 late sells. HTTP (50 heavy): 150,000 sells 358–861 ms; 300,000 sells
+     658–1,051 ms. Data path at 600,000: 1.35–1.75 s.
+   - The fix round's load case has about 75,000 late sells, so its p95 (275–350 ms) holds there.
+   - An attacker picks `asOf` 47 h back to get the largest set. The cost is bounded and linear, not minutes.
+   - Option for the engineer: cap or reject an `asOf` older than the newest kept list by more than a few minutes on a
+     server with no kept list.
+
+Notes:
+
+1. **Full HTTP p95 with 50 heavy traders**: 422–428 ms, over 400. The business lead accepted this with a trigger.
+   It is not counted as a defect.
+2. **Stale comment.** `lib/feed.load.test.ts` describes the late-case fix as "Now an anti-join". The shipped fix is a
+   hashed `not in` over an unnested array.
+3. **Wheel fling with a fast server.** A 40-event, 64,000 px wheel fling with no server delay continues through the
+   appended cards.
+   - The reader rests at the new end, with the control in view and no card at the top: 375 and 1280, light and dark,
+     1 or 2 requests.
+   - That is the reader's own input. With a 300 ms server, the pin lands on card 61.
+   - No request fires without input.
+4. **Pre-existing test flake, not from this PR.** `npm test` run 1 failed the 4 funnel tests in their `before` hook.
+   - The hook re-applies `db/schema.sql`. Its F-1 `broker_accounts` backfill raced another test file's user delete:
+     `broker_accounts_user_id_fkey`.
+   - Runs 2–4 passed. That schema block has not changed since F-1 PR-2a.
+5. **Back-to-back.** With the last-9 preference, a trader appears twice in a row in 2 of 25 lists (1 time each; was 0
+   of 25). It is still only when no other card fits that slot (the property test).
+6. **A slip of mine.** My first command did not create my database. The demo seed then ran against the shared
+   database. The seed is idempotent and the 3 demo traders were already there, so nothing else was written. Another
+   session's users in the shared database were not touched.
+
+### 9. Cleanup
+
+- My 120 test users (prefix `tq`) and their activities were deleted. Then my database (`ss_tst3`) was dropped, with
+  the e2e leftovers.
+- My servers (3219, 3220), the e2e servers and the vendor fake are stopped. The copy of `HEAD` is removed.
+- Screenshots are in `screenshots/pr1-test3/`:
+  - End and smooth scroll with a fast server (375 and 1280, light and dark), and the End chain;
+  - Retry, "Loading…" (muted, link and button), after Retry and after a jump;
+  - the pane on card 40.
+
+Verdict: DEFECTS (1 Medium, 1 Low, 6 notes)
