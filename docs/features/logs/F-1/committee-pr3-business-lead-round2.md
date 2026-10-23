@@ -90,3 +90,66 @@ It is "working" against the real vendor only after one test-mode connection, whi
 Demo sentence: "Connect your broker, watch ten thousand trades arrive, and your whole record, losses included, is live in a minute."
 
 COMPLIANCE: PASS · USABILITY: DEMANDS (1: delete the duplicate activities line while the headline counts; owner items #4, #7, #13)
+
+## Round 4
+
+2026-10-23. Tested the existing `CI=1` build of `9f1013c` (no app or lib file is newer than the build; the `pane-chart` route is in it) on port 3102, with the vendor fake on 4182. Phone viewport 375 px, light and dark. For the pane, I also throttled the network (1.6 Mbps, 150 ms) and the CPU (4×). I ran no tick. I created 28 test traders through the real connect flow and deleted all of them afterwards. Other sessions share the database.
+
+### My demands
+
+1. **Duplicate activities line: met.**
+   - 2 accounts × 2,500 activities, fake at 2.5 s per page. A recorder logged every visible banner line on every DOM change.
+   - While counting, exactly one count is seen: "Importing your record · 0 → 1,000 → 2,000 → 2,500 → 3,500 → 4,500 → 5,000 activities read from your broker". The first count shows at 4.6 s, and zero is never visible for 5 s.
+   - From the first close, the banner reads "Importing your record · 2,358 closed trades so far", with "5,000 activities imported" below it. That is two different numbers, so it is not a duplicate. Then it reads "Import finished.", and the banner is gone at 36 s.
+   - Screenshots: `import-counting-*` and `import-closes-*`.
+2. **Feed weight with 10 or more distinct heavy traders: met.**
+   - I imported 12 traders through the UI. Each had 2 × 2,500 activities (about 2,400 closes) plus 5 fresh closes.
+   - `/` shows 50 cards, and 49 of them come from **11 distinct heavy traders**. The page is **329 KB raw, 24 KB gzipped**. Round 3 measured 535–558 KB with only 6 distinct heavy traders.
+   - This matches the engineer's 322 KB. Before any pane opens, no chart is fetched.
+
+### The pane: stand-in and swap
+
+- **Instant: yes.**
+  - On the throttled phone, the swipe settles in 240–340 ms, and the full chart replaces the stand-in 310–410 ms later. One request of about 28 KB per trader comes back in about 300 ms.
+  - The header, the label ("2,425 trades, ≈-100% total…") and the line's bounding box are identical before and after. Only the line's grain sharpens, from 78 points to 372.
+  - Tapping 1Y before the load shows the range's own numbers with "Loading the chart…", then the full line.
+- **Honest: yes.**
+  - The stand-in is the same record at a coarser grain, with the same low, high, ends, numbers, Verified badge and stats.
+  - No figure changes at the swap, so nothing reads as a correction.
+- **No JS: acceptable.**
+  - The pane shows the stand-in line with 0% on the axis, the same header and label, Verified, win rate and average return, and the last 5 trades.
+  - Two controls do nothing without JS: the range tabs, and the "Drag across the chart…" hint, which is boxed like an input. This is not new and not blocking.
+
+### Copy fixes: met
+
+- "40 earlier positions excluded" / "51 earlier positions excluded": no "(s)" anywhere in the feed or the profile.
+- When the name equals the handle, the card and the pane show "@bl4_g3" once.
+
+### Environmental, not product
+
+- Two of my slow imports failed (`failed: vendor`, and one marked connected at a future clock time). Both happened while another session's e2e suite was running. Its tick tests call `POST /api/sync` unscoped (`e2e/connect.spec.ts:96`), which advanced my imports against its own fake.
+- The same import, run in a quiet window, was clean.
+- The owner still saw an honest state: "The import did not finish, so this record may be incomplete. Try again".
+- This confirms the engineer's known limit: run e2e on its own database.
+
+### Non-blocking, for follow-up (taste)
+
+- In the pane, the "0%" axis label sits on the line when the record starts near 0. Give the label a background chip or offset it.
+- Without JS, hide the scrub hint and the range tabs, or make the tabs links.
+- At 50 distinct heavy traders, the projected weight is about 560 KB (not measured). This is the owner's call, as recorded.
+
+### Definition of done
+
+F-1 now meets the owner's definition of done, pending only the owner items.
+- **The profile is clear and readable** at 2,400–4,700 closes. Losses are visible, future dates are excluded and explained, and the plurals are right.
+- **The UI is clean and intuitive.** After connecting, the trader sees one climbing number and never a long zero. The feed carries 11 distinct heavy records in 329 KB. A swiped-open pane sharpens in about a third of a second, and none of its numbers change.
+- **The connector works** against the fake under load, with honest failure states.
+- Three owner items remain:
+  - #4: one real test-mode connection. Until it happens, "works" means "works against the fake".
+  - #7: the cron every minute.
+  - #13: the automatic load runs.
+- Nothing else is open on my side.
+
+Demo sentence: "Connect your broker, watch ten thousand trades arrive, and your whole record, losses included, is live in a minute."
+
+COMPLIANCE: PASS · USABILITY: PASS
