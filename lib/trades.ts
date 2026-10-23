@@ -146,7 +146,18 @@ export function stats(trades: Pick<ClosedTrade, 'returnPct' | 'holdingDays' | 'c
   };
 }
 
-export const pct = (x: number, digits = 1) => `${x > 0 ? '+' : ''}${(x * 100).toFixed(digits)}%`;
+// Signed percent. A value that rounds to zero reads "0.0%" (never "-0.0%" or "+0.0%", same as an exact zero). A loss
+// short of -100% never rounds to a total loss: it gets up to 4 more digits ("-99.98%"), and past that reads "≈-100.0%".
+export function pct(x: number, digits = 1): string {
+  const fixed = (d: number) => (x * 100).toFixed(d);
+  let s = fixed(digits);
+  if (Number(s) === 0) return `${fixed(digits).replace('-', '')}%`;
+  if (x > -1 && Number(s) <= -100) {
+    for (let d = digits + 1; d <= digits + 4 && Number(s) <= -100; d++) s = fixed(d);
+    if (Number(s) <= -100) return `≈${fixed(digits)}%`;
+  }
+  return `${x > 0 ? '+' : ''}${s}%`;
+}
 
 // Chart navigation: arrow keys move the active point, clamped at the ends (no wrap, so the ends are obvious).
 export const stepIndex = (i: number, delta: number, n: number) => Math.min(Math.max(i + delta, 0), n - 1);

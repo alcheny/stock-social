@@ -192,3 +192,34 @@ dependency; the disclaimer and legal links are now in reach on every page (skip 
 rank as before (the clamp keeps |return|); no advice or completeness claims in the new copy (banned-list test covers
 `CLOSES_PAGING`, `stillWaiting`, `importedSoFar`, `FOOTER.skip`); read-only vendor use unchanged; `lib/broker.ts` not
 edited; schema unchanged.
+
+## Fix round 5 (after the tester's Re-run 3)
+
+1. **Low, flaky unit test (`lib/claims.test.ts` "schema applies twice; backfill … earliest owner wins").** Fixed in
+   the test, not the product: both owners' activities now go in one `insert … values (…), (…)` statement, so a schema
+   apply from another test file (files run in parallel) sees both rows or neither. The backfill's rule is unchanged.
+   Audit of the other tests that apply `db/schema.sql` inside a test body: `lib/schema.test.ts` (lock test: one
+   transaction, rolled back; snapshot-blanking test: every row it asserts on gives the same result whichever apply
+   touches it first, and the one row a tick could change is held under a lock) has no order-dependent shape. Every
+   other file applies the schema only in `before`.
+2. **Display nits, in the shared formatter `pct` (`lib/trades.ts`), so the stats, 95% range, chart label, cards and
+   share images all follow:**
+   - A value that rounds to zero reads `0.0%`, the same as an exact zero (never `-0.0%` or `+0.0%`). The range now
+     reads "(-0.8% to 0.0%)".
+   - A loss short of -100% never rounds to a total loss: it gets up to four more digits (-99.98% shows "-99.98%", also
+     at 0 digits), and only past that reads "≈-100.0%". An actual -100% still reads "-100.0%".
+   - Tests: two new cases in `lib/trades.test.ts` (rounding to zero, the range text, and losses near -100%).
+3. **Stray server.** A `next-server` on 3100 that this round did not start (running about 25 minutes, working
+   directory this repo) was stopped; 3100 no longer answers.
+
+Checks: `npx tsc --noEmit` clean. `npm test` ×5 (local Postgres): 503 tests, 498 pass, 0 fail, 5 skipped (load) in all
+five runs (11.6–12.7 s). `compliance.ts diff origin/main`: 1 violation, the `@img/sharp-wasm32` license already on
+`main`, nothing from this diff. `autopilot.ts guard main`: ok.
+
+Files: `lib/claims.test.ts`, `lib/trades.ts`, `lib/trades.test.ts`, this log.
+
+### Compliance
+
+No personal data, secrets or third-party names; no new dependency; no copy beyond number formatting; losses are shown
+as before and more exactly (a near-total loss is never shown as better or worse than it is); schema and
+`lib/broker.ts` unchanged.

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rangeReturn, rangeTrades, curveDomain, equityCurve, matchTrades, maxDrawdown, nearestIndex, stats, stepIndex, type Activity } from './trades.ts';
+import { rangeReturn, rangeTrades, curveDomain, equityCurve, matchTrades, maxDrawdown, nearestIndex, pct, rangeText, stats, stepIndex, type Activity } from './trades.ts';
 
 const d = (day: number) => new Date(Date.UTC(2026, 0, day));
 let n = 0;
@@ -120,4 +120,27 @@ test('range tabs: one trade, all losses stay negative', () => {
   assert.equal(rangeReturn([{ returnPct: 0.25, closedAt: d(9) }], '1W', now), 0.25);
   const losses = [{ returnPct: -0.1, closedAt: d(8) }, { returnPct: -0.1, closedAt: d(9) }];
   assert.ok(Math.abs(rangeReturn(losses, '1W', now) - -0.19) < 1e-12);
+});
+
+test('pct: a value that rounds to zero never reads "-0.0%" or "+0.0%"', () => {
+  assert.equal(pct(-0.0001), '0.0%');
+  assert.equal(pct(0.0001), '0.0%');
+  assert.equal(pct(-0), '0.0%');
+  assert.equal(pct(0), '0.0%');
+  assert.equal(pct(-0.004, 0), '0%');
+  assert.equal(pct(-0.0005), '-0.1%');
+  assert.equal(pct(0.0005), '+0.1%');
+  assert.equal(rangeText({ perTrade: { low: -0.008, high: -0.0001 } } as Parameters<typeof rangeText>[0]), '(-0.8% to 0.0%)');
+});
+
+test('pct: a loss short of -100% never rounds to a total loss', () => {
+  assert.equal(pct(-0.9998), '-99.98%');
+  assert.equal(pct(-0.9998, 0), '-99.98%');
+  assert.equal(pct(-0.99996), '-99.996%');
+  assert.equal(pct(-0.9999999999), '≈-100.0%');
+  assert.equal(pct(-1), '-100.0%');
+  assert.equal(pct(-0.9994), '-99.9%');
+  assert.equal(pct(-0.5), '-50.0%');
+  assert.equal(pct(0.25, 0), '+25%');
+  for (const x of [-0.99951, -0.9999, -0.999999, -0.99999999999]) assert.notEqual(pct(x), '-100.0%');
 });
