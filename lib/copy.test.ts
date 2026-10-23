@@ -189,8 +189,9 @@ test('PR-2b copy (S3, S5, S6, S7a): the UX lead\'s strings, in the banned-list w
   assert.equal(RESULT.declined, 'Import not started. Nothing is connected.');
   assert.equal(RECORD_BODY.stillSending, 'Your broker is still sending history. You can leave; the import continues.');
   assert.equal(RECORD_BODY.finished, 'Import finished.');
-  assert.equal(RECORD_BODY.imported(0), '0 trades imported from your broker');
-  assert.equal(RECORD_BODY.imported(1), '1 trade imported from your broker');
+  // Fix round 2 (business lead 2): the activity rows are "activities", never "trades" (one noun per count).
+  assert.equal(RECORD_BODY.imported(0), '0 activities imported');
+  assert.equal(RECORD_BODY.imported(1), '1 activity imported');
   const all = allCopy();
   for (const s of [PORTAL.title, PORTAL.opening, PORTAL.slow, PORTAL.newPage, RESULT.continueNewPage, RECORD_BODY.stillSending, RECORD_BODY.imported('x' as never)]) assert.ok(all.includes(s), s); // the walk calls functions with 'x'
   // "Connected:" names the institution the vendor returned, never the placeholder "broker".
@@ -204,11 +205,35 @@ test('PR-2b copy (S3, S5, S6, S7a): the UX lead\'s strings, in the banned-list w
   assert.equal(d('connected', 0), RECORD_BODY.connected);
   assert.equal(d('none', 0), RECORD_BODY.none);
   assert.equal(d('failed', 0), `${RECORD_BODY.failed} ${SHARE_CARD.empty}.`);
-  assert.equal(d('importing', 0), RECORD_BODY.banner(0));
-  assert.equal(d('importing', 4), RECORD_BODY.banner(4));
+  assert.equal(d('importing', 0), RECORD_BODY.banner(0, false));
+  assert.equal(d('importing', 4), RECORD_BODY.banner(4, false));
+  assert.equal(d('importing', 4), 'Importing this record · 4 closed trades so far'); // fix round 2: the preview is public, never "your"
   for (const st of ['connected', 'none', 'failed'] as const) assert.doesNotMatch(d(st, 0), /win rate|avg return|% |\b0 (closed|verified) trades/, st);
   assert.doesNotMatch(d('importing', 0), /win rate|avg return/);
   assert.equal(d('connected', 5), '5 verified trades · 60% win rate · +1.0% avg return · Evidence: too early');
   assert.equal(d('failed', 5), `${RECORD_BODY.failed} 5 closed trades · 60% win rate · +1.0% avg return · Evidence: too early`);
   assert.equal(d('none', 30, true), '30 demo trades · 60% win rate · +1.0% avg return · Evidence: too early');
+});
+
+test('fix round 2 (business lead 2, 3; UX lead 1; engineer Lows): one noun per count, "your" only for the owner, the portal\'s quiet line, the explained fallback, the signed-out and rate-limit lines', async () => {
+  const { PORTAL, profileDescription } = await import('./copy.ts');
+  // One noun per count: "trades" counts closed trades only; no S5 activity string says "trade".
+  for (const n of [0, 1, 2, 60]) assert.doesNotMatch(RECORD_BODY.imported(n), /trade/i, String(n));
+  assert.equal(RECORD_BODY.imported(60), '60 activities imported');
+  for (const owner of [true, false]) for (const n of [0, 1, 30]) assert.match(RECORD_BODY.banner(n, owner), new RegExp(`· ${n} closed trades? so far$`));
+  // "your" only for the owner; the visitor line and the link preview read "this record".
+  assert.equal(RECORD_BODY.banner(0, true), 'Importing your record · 0 closed trades so far');
+  assert.equal(RECORD_BODY.banner(0, false), 'Importing this record · 0 closed trades so far');
+  for (const trades of [0, 1, 7]) {
+    const d = profileDescription({ state: 'importing', demo: false, verified: false, trades, stats: 'x' });
+    assert.doesNotMatch(d, /\byour\b/i, d);
+    assert.match(d, /^Importing this record/);
+  }
+  assert.equal(PORTAL.blank, 'Page blank? Open it in a new page.');
+  assert.equal(PORTAL.popupBlocked, "Your browser blocked the embedded window; continuing on the vendor's page.");
+  assert.equal(RECORD_BODY.signedOut, 'Signed out in another tab.');
+  assert.equal(RECORD_BODY.signInAgain, 'Sign in again');
+  assert.equal(PORTAL.tooMany, 'Too many tries. Wait a few minutes, then try again.');
+  const all = allCopy();
+  for (const s of [PORTAL.blank, PORTAL.popupBlocked, PORTAL.continue, PORTAL.tooMany, RECORD_BODY.signedOut, RECORD_BODY.signInAgain]) assert.ok(all.includes(s), s);
 });

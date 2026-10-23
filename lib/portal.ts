@@ -4,7 +4,10 @@
 // customRedirect while framed. No vendor SDK (pre-authorization #5 has no answer): this file is the in-repo protocol.
 
 export const PORTAL_SLOW_MS = 3_000; // "Taking longer than usual."
-export const PORTAL_LINK_MS = 8_000; // the persistent "Open in a new page instead" link is promoted to a button
+export const PORTAL_LINK_MS = 8_000; // before load: the persistent "Open in a new page instead" link is promoted to a button
+// Fix round 2: the dialog opens when the server says the portal can be framed, or after this long if the mint is
+// still running (so the before-load rules above still have a dialog to show in).
+export const PORTAL_MINT_GRACE_MS = 1_000;
 
 export type PortalEvent =
   | { kind: 'success'; authorizationId: string | null }
@@ -63,22 +66,65 @@ export function prefersRedirect(ua: string, standalone = false): boolean {
 
 // Where a counted message may take the app: one of two fixed same-origin paths, never anything the message carries.
 // SUCCESS / CLOSED / ABANDONED → the server decides at /connect/done (consent if a link happened, S7a otherwise);
-// ERROR (a blocked broker popup reports itself this way) → the redirect flow on the same attempt.
+// ERROR (a blocked broker popup reports itself this way) → the redirect flow on the same attempt, via PORTAL_CONTINUE.
 export const PORTAL_REDIRECT = '/connect/start';
 export const PORTAL_DONE = '/connect/done?m=embedded';
-export const portalTarget = (m: PortalEvent): typeof PORTAL_REDIRECT | typeof PORTAL_DONE => (m.kind === 'error' ? PORTAL_REDIRECT : PORTAL_DONE);
+// Fix round 2 (engineer walk, UX lead note 4): an ERROR (the blocked popup) goes through one app page that says why the
+// vendor's own page comes next, then on to the redirect flow (PORTAL_REDIRECT) on the same attempt.
+export const PORTAL_CONTINUE = '/connect/continue';
+export const portalTarget = (m: PortalEvent): typeof PORTAL_CONTINUE | typeof PORTAL_DONE => (m.kind === 'error' ? PORTAL_CONTINUE : PORTAL_DONE);
 
-// Fix round 1 (tester defect 1): a vendor that refuses framing (CSP frame-ancestors) still fires the frame's load event,
-// on a blank document. So "loaded" alone is not "working": the portal has spoken only once a message from its origin and
-// its frame arrives (any message, known or not: the handshake). What S3 shows, from the timers' and the frame's flags:
-//   before load: "Opening…", plus "Taking longer than usual." from 3 s; the new-page link promoted to a button at 8 s;
-//   loaded but silent for PORTAL_LINK_MS after load (stuck), or the frame errored: "Taking longer than usual." and the
-//   promoted button, whatever the load event said;
-//   a handshake: nothing more, the portal is working (the persistent link goes back to a link).
+// What S3 shows, from the timers' and the frame's flags (fix round 2, business lead 1 and UX lead 1: no false alarm
+// over a loaded portal). Fix round 1's rule still holds that "loaded" alone is not "working" (a refused frame loads
+// blank); a handshake (any message from the minted origin and the portal's own frame) means it is working.
+//   before load: "Opening…", plus "Taking longer than usual." from 3 s; at 8 s the new-page link becomes the filled
+//     primary button (unchanged);
+//   loaded: never the slow line and never the filled primary (a working portal can stay silent until the trader acts).
+//     A control promoted while loading becomes the secondary button. After PORTAL_BLANK_MS of silence after the load, or
+//     a frame error: "Page blank? Open it in a new page." beside the secondary button;
+//   a handshake: nothing more, the control is a plain link.
+export const PORTAL_BLANK_MS = 8_000;
 export type PortalFlags = { loaded: boolean; handshake: boolean; slow: boolean; promoted: boolean; stuck: boolean; errored: boolean };
-export function portalView(f: PortalFlags): { line: 'opening' | 'opening-slow' | 'slow' | null; promote: boolean } {
-  if (f.handshake) return { line: null, promote: false };
-  if (f.errored || (f.loaded && f.stuck)) return { line: 'slow', promote: true };
-  if (f.loaded) return { line: null, promote: f.promoted }; // a button promoted while loading stays one: no flicker
-  return { line: f.slow ? 'opening-slow' : 'opening', promote: f.promoted };
+export type PortalLine = 'opening' | 'opening-slow' | 'blank' | null;
+export type PortalControl = 'link' | 'primary' | 'secondary';
+export function portalView(f: PortalFlags): { line: PortalLine; control: PortalControl } {
+  if (f.handshake) return { line: null, control: 'link' };
+  if (f.errored || (f.loaded && f.stuck)) return { line: 'blank', control: 'secondary' };
+  if (f.loaded) return { line: null, control: f.promoted ? 'secondary' : 'link' };
+  return { line: f.slow ? 'opening-slow' : 'opening', control: f.promoted ? 'primary' : 'link' };
+}
+
+// Fix round 2 (business lead 1): whether a browser would let the app's origin frame the portal, from the portal's
+// response headers. Read on the server (lib/portal-probe.ts) so the client never has to guess. CSP `frame-ancestors`
+// wins over `X-Frame-Options` when present (as browsers do), and every policy in the header must allow the app;
+// `X-Frame-Options: DENY` refuses, `SAMEORIGIN` refuses unless the app is on the portal's own origin, anything else
+// (the obsolete ALLOW-FROM included) is ignored, as browsers ignore it.
+export function framingAllowed(h: { xfo: string | null; csp: string | null }, appOrigin: string, portalOrigin: string): boolean {
+  const policies = (h.csp ?? '').split(',').map((p) => p.split(';').map((d) => d.trim().split(/\s+/)).find((d) => d[0]?.toLowerCase() === 'frame-ancestors'))
+    .filter((d): d is string[] => !!d);
+  if (policies.length) return policies.every((d) => d.slice(1).some((src) => sourceMatches(src, appOrigin, portalOrigin)));
+  const xfo = (h.xfo ?? '').split(',').map((v) => v.trim().toLowerCase());
+  if (xfo.includes('deny')) return false;
+  if (xfo.includes('sameorigin')) return appOrigin === portalOrigin;
+  return true;
+}
+const defaultPort = (scheme: string) => (scheme === 'https:' ? '443' : scheme === 'http:' ? '80' : '');
+function sourceMatches(src: string, appOrigin: string, portalOrigin: string): boolean {
+  let app: URL;
+  try { app = new URL(appOrigin); } catch { return false; }
+  const s = src.toLowerCase();
+  if (s === "'none'") return false;
+  if (s === "'self'") return appOrigin === portalOrigin;
+  if (s === '*') return app.protocol === 'https:' || app.protocol === 'http:';
+  if (/^[a-z][a-z0-9+.-]*:$/.test(s)) return app.protocol === s || (s === 'http:' && app.protocol === 'https:');
+  const m = s.match(/^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*\.)?([a-z0-9.-]+|\*)(?::(\d+|\*))?(?:\/.*)?$/);
+  if (!m) return false;
+  const [, scheme, wild, host, port] = m;
+  const base = scheme ? `${scheme}:` : new URL(portalOrigin).protocol;
+  if (!(app.protocol === base || (base === 'http:' && app.protocol === 'https:'))) return false;
+  const appHost = app.hostname.toLowerCase();
+  if (host !== '*' && !(wild ? appHost.endsWith(`.${host}`) : appHost === host)) return false;
+  const appPort = app.port || defaultPort(app.protocol);
+  if (port === '*') return true;
+  return (port ?? defaultPort(base)) === appPort || (!port && base === 'http:' && app.protocol === 'https:' && appPort === '443');
 }

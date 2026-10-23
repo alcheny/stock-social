@@ -2,17 +2,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RECORD_BODY } from '@/lib/copy.ts';
-import { initBanner, onPoll, onServer, onTick, onVisibility, polls, POLL_MS, type Banner } from '@/lib/import-banner.ts';
+import { initBanner, onPoll, onServer, onTick, onUnauthorized, onVisibility, polls, POLL_MS, type Banner } from '@/lib/import-banner.ts';
 
 // S5 (plan §2, §8 item 2): the import banner, live. The owner's open tab polls POST /api/import/step every 2 s (each
 // poll also advances the import); visitors see the server's line, refreshed with the page. The status line is the only
-// live region and is announced at most once per 5 s (lib/import-banner.ts); the imported-rows line follows every step;
-// the 60 s line tells the owner the import continues without the tab. On the end, "Import finished." replaces the
-// status line as one static line until the next navigation, and the page's server data is re-read. Every line keeps its
-// box (globals.css), so nothing moves. A hidden tab does not poll (each poll advances the import); it resumes on return.
-export function ImportBanner({ state, closes, read, owner }: { state: string; closes: number; read: number; owner: boolean }) {
+// live region and is announced at most once per 5 s (lib/import-banner.ts); the activities line (owner only) follows
+// every step; the 60 s line tells the owner the import continues without the tab. A hidden tab does not poll (each poll
+// advances the import); it resumes on return.
+// Fix round 2: on finish the banner keeps only its status line, which reads "Import finished." (announced once) for 5 s,
+// then the banner is gone; while "Your record is live." shows (`quiet`), the note is visually hidden but still
+// announced, so exactly one of the two is seen. A 429 is "nothing new"; a 401/403 stops polling and says so.
+export function ImportBanner({ state, closes, read, owner, quiet = false }: { state: string; closes: number; read: number; owner: boolean; quiet?: boolean }) {
   const router = useRouter();
   const [b, setB] = useState<Banner>(() => initBanner({ state, closes, read, owner }, Date.now()));
+  // Sticky: the prompt marks itself seen on mount, and the refresh that follows no longer reports it, though it stays.
+  const [hush, setHush] = useState(quiet);
+  useEffect(() => { if (quiet) setHush(true); }, [quiet]);
   const refreshed = useRef(b.refreshes);
 
   // A refresh brings the server's view: fold it in (it can report the end before the next poll does).
@@ -34,6 +39,7 @@ export function ImportBanner({ state, closes, read, owner }: { state: string; cl
     const poll = async () => {
       try {
         const r = await fetch('/api/import/step', { method: 'POST' });
+        if (r.status === 401 || r.status === 403) { if (!stopped) setB(onUnauthorized); return; }
         if (r.ok) {
           const j = (await r.json()) as { state: string; closes: number; read: number };
           if (!stopped) setB((x) => onPoll(x, j, Date.now()));
@@ -47,7 +53,7 @@ export function ImportBanner({ state, closes, read, owner }: { state: string; cl
     return () => { stopped = true; clearTimeout(timer); };
   }, [polling]);
 
-  // Commits a held announcement when its 5 s window ends, and the 60 s line.
+  // Commits a held announcement when its 5 s window ends, the 60 s line, and the end of the finished note.
   useEffect(() => {
     if (b.phase === 'hidden') return;
     const t = setInterval(() => setB((x) => onTick(x, Date.now())), 1_000);
@@ -61,12 +67,14 @@ export function ImportBanner({ state, closes, read, owner }: { state: string; cl
   }, [b.refreshes, router]);
 
   if (b.phase === 'hidden') return null;
-  const finished = b.text === RECORD_BODY.finished;
+  const finished = b.phase === 'finished';
+  const statusClass = finished ? (b.text === RECORD_BODY.finished ? `import-finished${hush ? ' sr-only' : ''}` : 'import-ending') : 'importing';
   return (
     <div className="import-banner" data-phase={b.phase}>
-      <p role="status" aria-live="polite" className={finished ? 'import-finished' : 'importing'}>{b.text}</p>
-      <p className="muted small import-read">{b.phase === 'finished' ? '' : RECORD_BODY.imported(b.read)}</p>
-      {owner && <p className="muted small import-slow" aria-live="polite">{b.slow ? RECORD_BODY.stillSending : ''}</p>}
+      <p role="status" aria-live="polite" className={statusClass}>{b.text}</p>
+      {!finished && owner && <p className="muted small import-read">{RECORD_BODY.imported(b.read)}</p>}
+      {!finished && owner && <p className="muted small import-slow" aria-live="polite">{b.slow ? RECORD_BODY.stillSending : ''}</p>}
+      {b.signedOut && <p className="small import-signed-out">{RECORD_BODY.signedOut} <a className="tap" href="/login">{RECORD_BODY.signInAgain}</a></p>}
     </div>
   );
 }

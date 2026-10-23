@@ -5,7 +5,11 @@
 //     the accounts the next portal "Connect" links (one authorization per distinct `authorization`, default 'auth-<n>');
 //     portalDelayMs holds the portal page that long (the S3 loading states); portalFrameBlocked serves the portal page with
 //     `Content-Security-Policy: frame-ancestors 'none'`, so a browser refuses to frame it (the frame loads blank) while a
-//     top-level visit (the redirect flow) works
+//     top-level visit (the redirect flow) works. Fix round 2: only on GET, so the app's server-side HEAD probe does not
+//     see it (a refusal that "slipped past the probe"); portalFrameHeaders serves `X-Frame-Options: DENY` and
+//     `frame-ancestors 'none'` on every request, HEAD included (the probe sees it), and hands out the portal URL on
+//     `localhost` instead of `127.0.0.1`: another origin, so the app's per-origin probe cache never carries it into
+//     other tests
 //   GET  /_post?m=<json>                           a page on the vendor's origin that posts `m` to its parent (a second,
 //     vendor-origin frame for the event.source check)
 // The portal page behaves like the vendor's (PR-2b): opened as a page, "Connect" links and redirects to customRedirect;
@@ -19,7 +23,7 @@ import { createServer, type Server } from 'node:http';
 
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
 export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
-type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean };
+type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean; portalFrameHeaders?: boolean };
 type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: FakeActivity[]; syncDone: boolean }> };
 
 // Deterministic BUY/SELL pairs so `n` activities give n/2 closed trades per account.
@@ -41,6 +45,8 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
   let authSeq = 0;
   let fail: { status: number; times: number } = { status: 500, times: 0 };
   const base = `http://127.0.0.1:${port}`;
+  const refusingBase = `http://localhost:${port}`; // portalFrameHeaders: the portal on another origin
+  const probes: { method: string; cookie: boolean }[] = []; // the app's HEAD probes, for assertions (GET /_probes)
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', base);
     const p = url.pathname;
@@ -59,6 +65,7 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       res.writeHead(200, { 'content-type': 'text/html' });
       return res.end(`<!doctype html><title>post</title><script>parent.postMessage(JSON.parse(${JSON.stringify(url.searchParams.get('m') ?? 'null')}), '*');</script>`);
     }
+    if (p === '/_probes') return json(probes);
     if (p === '/_state') {
       const out: Record<string, { connections: Record<string, string[]> }> = {};
       for (const [id, u] of users) {
@@ -85,9 +92,12 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
         if (url.searchParams.get('json') === '1') return json({ authorizationId: auth }); // framed: the page posts the message
         res.writeHead(302, { location: r }); return res.end();
       }
+      if (req.method === 'HEAD') probes.push({ method: 'HEAD', cookie: !!req.headers.cookie });
       if (next.portalDelayMs) await new Promise((done) => setTimeout(done, next.portalDelayMs));
       const action = `/portal?u=${encodeURIComponent(u)}&r=${encodeURIComponent(r)}`;
-      res.writeHead(200, { 'content-type': 'text/html', ...(next.portalFrameBlocked ? { 'content-security-policy': "frame-ancestors 'none'" } : {}) });
+      const refuse = next.portalFrameHeaders ? { 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" }
+        : next.portalFrameBlocked && req.method === 'GET' ? { 'content-security-policy': "frame-ancestors 'none'" } : {};
+      res.writeHead(200, { 'content-type': 'text/html', ...refuse });
       return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>Fake portal</title>
 <style>body{font:16px system-ui;margin:16px}button{min-height:44px;margin:4px 0}</style>
 <h1>Fake brokerage portal</h1><form method="post" action="${action}"><button>Connect</button></form>
@@ -118,7 +128,7 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
       const b = await body();
       if (!users.has(userId)) return json({ detail: 'unknown user' }, 401);
       if (b.connectionType !== 'read') return json({ detail: 'only read connections are accepted by this fake' }, 400);
-      return json({ redirectURI: `${base}/portal?u=${encodeURIComponent(userId)}&r=${encodeURIComponent(b.customRedirect ?? '')}` });
+      return json({ redirectURI: `${next.portalFrameHeaders ? refusingBase : base}/portal?u=${encodeURIComponent(userId)}&r=${encodeURIComponent(b.customRedirect ?? '')}` });
     }
     if (p === '/snapTrade/deleteUser' && req.method === 'DELETE') {
       if (!users.delete(userId)) return json({ detail: 'unknown user' }, 404);
@@ -156,5 +166,9 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
     }
     json({ detail: 'not found' }, 404);
   });
-  return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve({ server, base })));
+  // `localhost` (portalFrameHeaders) may resolve to ::1 first on some machines: listen there too when the host has IPv6.
+  const v6 = createServer((req, res) => server.emit('request', req, res));
+  v6.on('error', () => {});
+  server.on('close', () => v6.close());
+  return new Promise((resolve) => server.listen(port, '127.0.0.1', () => { v6.listen(port, '::1'); resolve({ server, base }); }));
 }

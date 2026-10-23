@@ -66,7 +66,15 @@ async function connectThrough(page: Page) {
   await expect(portalFrame(page)).toHaveAttribute('src', new RegExp(`^${vendor.base}/portal`));
   await page.frameLocator('dialog.portal iframe').getByRole('button', { name: 'Connect' }).click();
 }
-const step = (req: APIRequestContext) => req.post('/api/import/step').then((r) => r.json() as Promise<{ state: string; imported: number; closes: number }>);
+// Fix round 2: the step endpoint answers 429 (Retry-After: 1) to a second step within a second for the same trader, so
+// the helper waits as a client should and asks again; every assertion on the step's effect is unchanged.
+const step = async (req: APIRequestContext): Promise<{ state: string; imported: number; closes: number }> => {
+  for (let i = 0; ; i++) {
+    const r = await req.post('/api/import/step');
+    if (r.status() !== 429 || i >= 20) return r.json();
+    await new Promise((done) => setTimeout(done, 1_000 * Number(r.headers()['retry-after'] ?? 1) + 50));
+  }
+};
 const tick = async (req: APIRequestContext) => {
   const r = await req.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } });
   expect(r.status()).toBe(200);
@@ -500,7 +508,7 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   const p2 = await anon.newPage();
   await p2.setViewportSize({ width: 375, height: 740 });
   await p2.goto(`/u/${handle}`);
-  await expect(p2.locator('.importing')).toContainText('Importing your record');
+  await expect(p2.locator('.importing')).toContainText('Importing this record'); // fix round 2: a visitor is not "you"
   expect(await p2.locator('meta[property="og:image:alt"]').getAttribute('content')).toBe(`Trading record card for @${handle} on Stock Social: Importing record`);
   await expect(p2.locator('.badge.verified')).toHaveCount(0);
   await expect(p2.locator('section.stats')).toHaveCount(0);
@@ -857,19 +865,23 @@ test('PR-2b S2 → S3 → S4: the primary opens the vendor portal in a labelled 
   await expect(primary).toHaveAttribute('href', '/connect/start'); // without script or in an in-app browser: the redirect
   await primary.click();
   await expect(dialogOf(page)).toBeVisible();
-  await expect(primary).toHaveText('Opening…');
-  await expect(primary).toHaveAttribute('aria-busy', 'true');
+  // Fix round 2 (engineer walk): "Opening…" (aria-busy) only while the URL is minted; once the dialog is open the
+  // primary behind it reads its own label again.
+  await expect(primary).toHaveText('Connect brokerage (read-only)');
+  await expect(primary).not.toHaveAttribute('aria-busy', 'true');
   await expect(page.getByRole('button', { name: 'Close' })).toBeFocused();
   await expect(dialogOf(page).getByRole('link', { name: 'Open in a new page instead' })).toHaveAttribute('href', '/connect/start');
   const [vu] = await sql`select snaptrade_user_id from users where id = ${u.id}`;
   await expect(portalFrame(page)).toHaveAttribute('src', `${vendor.base}/portal?u=${encodeURIComponent(vu.snaptrade_user_id as string)}&r=${encodeURIComponent(new URL('/connect/done', page.url()).toString())}`);
   await expect(frameOf(page).getByRole('heading', { name: 'Fake brokerage portal' })).toBeVisible();
   await expect(dialogOf(page)).not.toHaveAttribute('aria-busy', 'true');
-  await expect(dialogOf(page).locator('.portal-body')).toHaveAttribute('aria-busy', 'false');
+  await expect(portalFrame(page)).toHaveAttribute('aria-busy', 'false'); // fix round 2: on the frame only
+  await expect(dialogOf(page).locator('.portal-body')).not.toHaveAttribute('aria-busy', /.*/);
   // The endpoint reads nothing from the request either.
   const minted = await (await page.request.post(`/connect/portal?url=${encodeURIComponent(lure)}`, { headers: { referer: lure } })).json();
   expect(minted.url.startsWith(`${vendor.base}/portal?u=${encodeURIComponent(vu.snaptrade_user_id as string)}`)).toBe(true);
   expect(minted.origin).toBe(vendor.base);
+  expect(minted.mode).toBe('embedded'); // fix round 2: the fake sends no framing headers to the server's probe
   expect(JSON.stringify(minted)).not.toContain('evil');
   // A SUCCESS posted from any other origin (here the app's own window) is ignored.
   await page.evaluate(() => { window.postMessage({ status: 'SUCCESS', authorizationId: 'forged' }, '*'); window.postMessage('SUCCESS', '*'); });
@@ -1000,6 +1012,11 @@ test('PR-2b popup blocked: with window.open returning null in every frame the po
   await page.goto('/connect');
   await page.getByTestId('connect-primary').click();
   await frameOf(page).getByRole('button', { name: 'Connect' }).click(); // the portal's login popup is blocked
+  // Fix round 2 (UX lead note 4): one line from the app says why the vendor's own page comes next, then it continues.
+  await expect(page).toHaveURL(/\/connect\/continue$/);
+  await expect(page.getByRole('status')).toHaveText("Your browser blocked the embedded window; continuing on the vendor's page.");
+  await expect(page.getByRole('link', { name: 'Continue' })).toHaveAttribute('href', '/connect/start');
+  await shots(page, 's3-popup-blocked-continue');
   await expect(page).toHaveURL(new RegExp(`^${vendor.base}/portal`)); // the redirect flow, no blank modal
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
@@ -1064,13 +1081,23 @@ test('PR-2b S5 live banner: the owner\'s open tab drives the import; the importe
   // No test-driven steps: only the page's own 2 s poll. Counts follow each account.
   const read = page.locator('.import-read');
   const counts: string[] = [];
-  await expect.poll(async () => { const t = await read.textContent(); if (t && counts.at(-1) !== t) counts.push(t); return t; }, { timeout: 30_000, intervals: [250] }).toBe('12 trades imported from your broker');
+  await expect.poll(async () => { const t = await read.textContent(); if (t && counts.at(-1) !== t) counts.push(t); return t; }, { timeout: 30_000, intervals: [250] }).toBe('12 activities imported'); // fix round 2 (business lead 2): one noun per count
   expect(counts.length).toBeGreaterThanOrEqual(3); // 0 → 4 → 8 → 12, at least the intermediate ones seen
   await expect(status).toHaveText('Import finished.', { timeout: 30_000 });
+  const finishedAt = Date.now();
   await expect(status).toHaveClass(/import-finished/);
-  expect(Math.abs((await box()).height - before.height)).toBeLessThanOrEqual(1);
+  // Fix round 2 (business lead 4): on finish the banner keeps only the note: no activities or leave-line boxes.
+  await expect(page.locator('.import-read, .import-slow')).toHaveCount(0);
   expect((await box()).y).toBeCloseTo(before.y, 0);
   await expect(page.locator('section.stats').first()).toContainText('win rate', { timeout: 10_000 }); // refreshed in place
+  // Exactly one of "Import finished." and "Your record is live." is seen; the note stays announced (sr-only).
+  // ("Seen" = rendered larger than the 1 px box of a visually hidden, announced element.)
+  const seenBox = async (l: ReturnType<Page['locator']>) => ((await l.count()) ? ((await l.boundingBox())?.width ?? 0) > 1 : false);
+  const seenBoth = [await seenBox(page.getByRole('heading', { name: 'Your record is live.' })), await seenBox(page.getByText('Import finished.'))];
+  expect(seenBoth.filter(Boolean)).toHaveLength(1);
+  // Gone 5 s after it went out, with nothing left behind (no empty box).
+  await expect(page.locator('.import-banner')).toHaveCount(0, { timeout: 8_000 });
+  expect(Date.now() - finishedAt).toBeGreaterThanOrEqual(3_500);
   await expect(page.locator('.record-body')).toHaveCount(0);
   const changes = await page.evaluate(() => (window as unknown as { changes: { t: number; text: string }[] }).changes);
   const distinct = changes.filter((c, i) => i === 0 || c.text !== changes[i - 1].text);
@@ -1112,7 +1139,7 @@ test('PR-2b S5: after 60 s with no new rows the owner reads "You can leave; the 
   const empty = (await slow.boundingBox())!;
   // Two polls: the page, then the rebuild; after that the vendor's flag keeps the import waiting, no new rows.
   await page.clock.fastForward(2_000);
-  await expect(page.locator('.import-read')).toHaveText('2 trades imported from your broker');
+  await expect(page.locator('.import-read')).toHaveText('2 activities imported'); // fix round 2 (business lead 2)
   await page.clock.fastForward(2_000);
   await expect(page.getByRole('status')).toHaveText('Importing your record · 1 closed trade so far');
   await page.clock.fastForward(61_000);
@@ -1122,8 +1149,13 @@ test('PR-2b S5: after 60 s with no new rows the owner reads "You can leave; the 
   const anon = await browser.newContext({ viewport: { width: 375, height: 740 } });
   const p2 = await anon.newPage();
   await p2.goto(`/u/${handle}`);
-  await expect(p2.getByRole('status')).toHaveText('Importing your record · 1 closed trade so far');
+  await expect(p2.getByRole('status')).toHaveText('Importing this record · 1 closed trade so far'); // fix round 2 (business lead 3)
   await expect(p2.locator('.import-slow')).toHaveCount(0);
+  await expect(p2.locator('.import-read')).toHaveCount(0); // no activities line for visitors
+  const desc = await p2.locator('meta[name="description"]').getAttribute('content');
+  expect(desc).toBe('Importing this record · 1 closed trade so far');
+  expect(await p2.locator('meta[property="og:description"]').getAttribute('content')).toBe(desc);
+  expect(`${desc} ${await p2.locator('.import-banner').innerText()}`).not.toMatch(/\byour\b/i); // (the join invitation below speaks to the visitor about their own record)
   await anon.close();
   const [u] = await sql`select id from users where handle = ${handle}`;
   await sql`delete from users where id = ${u.id}`;
@@ -1182,7 +1214,7 @@ const openPortal = async (page: Page) => {
 };
 const abandonedCount = async (attempt: number) => (await sql`select count(*)::int as n from funnel_events where attempt_id = ${attempt} and name = 'abandoned'`)[0].n as number;
 
-test('PR-2b fix round 1 (defects 1, 2): a portal the vendor refuses to frame (CSP frame-ancestors) loads blank; with no message from it 8 s after the load, "Taking longer than usual." shows and "Open in a new page instead" is promoted, completing by redirect; a portal that speaks is never promoted, and closing it records abandoned', async ({ page }) => {
+test('PR-2b fix round 1 (defects 1, 2), amended by fix round 2: a portal the vendor refuses to frame (CSP frame-ancestors on GET only, past the server probe) loads blank; with no message from it 8 s after the load, "Page blank? Open it in a new page." shows beside the secondary "Open in a new page instead", completing by redirect; a portal that speaks is never promoted, and closing it records abandoned', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 740 });
   await page.clock.install();
   const handle = `csp${uniq()}`;
@@ -1207,13 +1239,15 @@ test('PR-2b fix round 1 (defects 1, 2): a portal the vendor refuses to frame (CS
   await fetch(`${vendor.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: [{ id: acc, activities: 2 }], portalFrameBlocked: true }) });
   await page.goto('/connect');
   await page.getByTestId('connect-primary').click();
-  await expect(dialogOf(page).locator('.portal-body')).toHaveAttribute('aria-busy', 'false'); // "loaded"
+  await expect(portalFrame(page)).toHaveAttribute('aria-busy', 'false'); // "loaded"
   await expect(frameOf(page).getByRole('heading', { name: 'Fake brokerage portal' })).toHaveCount(0); // but blank: refused
   await expect(dialogOf(page).getByRole('status')).toHaveCount(0);
   await expect(alt).not.toHaveClass(/button/);
   await page.clock.fastForward(8_000);
-  await expect(dialogOf(page).getByRole('status')).toHaveText('Taking longer than usual.');
-  await expect(alt).toHaveClass(/button/);
+  await expect(dialogOf(page).getByRole('status')).toHaveText('Page blank? Open it in a new page.');
+  await expect(dialogOf(page)).not.toContainText('Taking longer than usual.');
+  await expect(alt).toHaveClass(/secondary/);
+  await expect(alt).toHaveAttribute('data-control', 'secondary');
   expect((await alt.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await shots(page, 's3-frame-refused');
@@ -1274,7 +1308,7 @@ test('PR-2b fix round 1 (G1, G3): a vendor-origin message from a second frame is
   await sql`delete from broker_accounts where account_id = ${acc}`;
 });
 
-test('PR-2b fix round 1 (G5): an ERROR carrying an outside URL (in redirect, url, errorCode or after "ERROR:") never steers the fallback: it goes to /connect/start and the minted portal, and nothing reaches the outside URL', async ({ page }) => {
+test('PR-2b fix round 1 (G5): an ERROR carrying an outside URL (in redirect, url, errorCode or after "ERROR:") never steers the fallback: it goes to /connect/continue (fix round 2), /connect/start and the minted portal, and nothing reaches the outside URL', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 740 });
   const handle = `err${uniq()}`;
   await devSignIn(page, handle);
@@ -1289,6 +1323,7 @@ test('PR-2b fix round 1 (G5): an ERROR carrying an outside URL (in redirect, url
   for (const data of [{ status: 'ERROR', redirect: lure, url: lure, errorCode: lure, detail: lure }, `ERROR:${lure}`]) {
     const portal = await openPortal(page);
     await portal.evaluate((d) => parent.postMessage(d, '*'), data).catch(() => {});
+    await page.waitForURL(/\/connect\/continue$/);
     await expect(page).toHaveURL(new RegExp(`^${vendor.base}/portal\\?u=${encodeURIComponent(vu.snaptrade_user_id as string)}&`));
   }
   expect(outside).toEqual([]);
@@ -1342,7 +1377,7 @@ test('PR-2b fix round 1 (G4, hidden tab): while a record imports, an anonymous v
   const [na, no] = [counter(pa), counter(po)];
   await pa.goto(`/u/${handle}`);
   await po.goto(`/u/${handle}`);
-  for (const p of [pa, po]) await expect(p.getByRole('status')).toHaveText(/^Importing your record/);
+  for (const p of [pa, po]) await expect(p.getByRole('status')).toHaveText(/^Importing this record/); // fix round 2: neither is the owner
   await page.waitForTimeout(6_000); // three poll intervals
   expect(own.count).toBe(atHide);
   expect(na.count).toBe(0);
@@ -1352,5 +1387,183 @@ test('PR-2b fix round 1 (G4, hidden tab): while a record imports, an anonymous v
   await anon.close();
   await other.close();
   await sql`delete from users where handle in ${sql([handle, otherHandle])}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+// ---------- PR-2b fix round 2 (committee: business lead 1–5, UX lead 1–2, engineer Medium/Lows/Info) ----------
+const noBusyStatus = (page: Page) => page.evaluate(() => [...document.querySelectorAll('dialog.portal [role="status"]')].filter((el) => el.closest('[aria-busy="true"]')).length);
+// The control's box against the dialog's: at least 12 px from the left, right and bottom edges (business lead 5).
+const insetFromDialog = async (page: Page) => {
+  const d = (await page.locator('dialog.portal').boundingBox())!;
+  const c = (await page.locator('dialog.portal .portal-alt a').boundingBox())!;
+  return Math.min(c.x - d.x, d.x + d.width - (c.x + c.width), d.y + d.height - (c.y + c.height));
+};
+
+test('PR-2b fix round 2 (business lead 1): a vendor whose headers refuse framing (X-Frame-Options DENY, frame-ancestors none, seen by the server\'s HEAD probe without cookies) gets mode redirect: the dialog never opens, the trader goes to the minted page and completes, recorded as redirect', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  let opened = 0;
+  await page.exposeFunction('reportDialogOpened', () => { opened++; });
+  await page.addInitScript(() => {
+    const show = HTMLDialogElement.prototype.showModal;
+    HTMLDialogElement.prototype.showModal = function () { (window as unknown as { reportDialogOpened: () => void }).reportDialogOpened(); return show.call(this); };
+  });
+  const handle = `xfo${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  const modes = await modesFrom(handle);
+  await fetch(`${vendor.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: [{ id: acc, activities: 2 }], portalFrameHeaders: true }) });
+  const refusing = vendor.base.replace('127.0.0.1', 'localhost');
+  const minted = await (await page.request.post('/connect/portal')).json();
+  expect(minted.mode).toBe('redirect');
+  expect(minted.origin).toBe(refusing);
+  await page.goto('/connect');
+  await page.getByTestId('connect-primary').click();
+  await expect(page).toHaveURL(new RegExp(`^${refusing}/portal`));
+  expect(opened).toBe(0);
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  expect((await sql`select portal_mode from connections where user_id = ${u.id}`).map((r) => r.portal_mode)).toEqual(['redirect']);
+  expect(await modes()).toEqual(['redirect', 'redirect']); // the direct POST above, then the tap
+  const probes = (await (await fetch(`${vendor.base}/_probes`)).json()) as { method: string; cookie: boolean }[];
+  expect(probes.length).toBeGreaterThan(0);
+  expect(probes.every((p) => p.method === 'HEAD' && !p.cookie)).toBe(true);
+  expect(opened).toBe(0);
+  await portalScenario([{ id: acc, activities: 2 }]);
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+test('PR-2b fix round 2 (business lead 1, 5; UX lead 1, 2; engineer walk): before load the 3 s/8 s rules hold with the status outside any aria-busy; a loaded portal idle for 15 s (a click into it at 2 s) never shows "Taking longer than usual." or a filled control, only the quiet line beside a 44 px secondary button after 8 s; controls sit 12 px inside the dialog; Close is the app\'s only exit', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.clock.install();
+  const handle = `idl${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  const alt = dialogOf(page).getByRole('link', { name: 'Open in a new page instead' });
+  // Before load (the portal page is held): the rules are unchanged; no live region under aria-busy.
+  await portalScenario([{ id: acc, activities: 2 }], 30_000);
+  await page.goto('/connect');
+  await page.getByTestId('connect-primary').click();
+  await expect(dialogOf(page).getByRole('status')).toHaveText('Opening…');
+  await expect(portalFrame(page)).toHaveAttribute('aria-busy', 'true');
+  expect(await noBusyStatus(page)).toBe(0);
+  await expect(page.getByTestId('connect-primary')).toHaveText('Connect brokerage (read-only)');
+  await page.clock.fastForward(3_000);
+  await expect(dialogOf(page).getByRole('status')).toHaveText('Opening… Taking longer than usual.');
+  expect(await noBusyStatus(page)).toBe(0);
+  await page.clock.fastForward(5_000);
+  await expect(alt).toHaveAttribute('data-control', 'primary');
+  expect(await insetFromDialog(page)).toBeGreaterThanOrEqual(12);
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(dialogOf(page)).toBeHidden();
+  // Loaded and idle: the fake posts nothing until the trader acts.
+  await portalScenario([{ id: acc, activities: 2 }]);
+  await page.getByTestId('connect-primary').click();
+  await expect(frameOf(page).getByRole('heading', { name: 'Fake brokerage portal' })).toBeVisible();
+  await expect(portalFrame(page)).toHaveAttribute('aria-busy', 'false');
+  // The app's controls in the dialog: Close is the only button (the portal has its own Cancel inside the frame).
+  await expect(dialogOf(page).locator('button')).toHaveCount(1);
+  await expect(dialogOf(page).getByRole('button')).toHaveText(['Close']);
+  await page.clock.fastForward(2_000);
+  await frameOf(page).locator('h1').click(); // the trader reads the portal; nothing is posted
+  const seen = new Set<string>();
+  for (let t = 0; t < 13; t++) {
+    await page.clock.fastForward(1_000);
+    seen.add(`${await alt.getAttribute('data-control')}|${(await dialogOf(page).innerText()).includes('Taking longer than usual.')}`);
+    expect(await noBusyStatus(page)).toBe(0);
+  }
+  expect([...seen].some((x) => x.startsWith('primary') || x.endsWith('true'))).toBe(false);
+  // 15 s after the load: the quiet line beside the secondary 44 px button, inset from the dialog's edges.
+  await expect(dialogOf(page).getByRole('status')).toHaveText('Page blank? Open it in a new page.');
+  await expect(alt).toHaveAttribute('data-control', 'secondary');
+  expect((await alt.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await insetFromDialog(page)).toBeGreaterThanOrEqual(12);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await shots(page, 's3-loaded-idle-15s');
+  // The portal still works: Connect reaches consent.
+  await frameOf(page).getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+test('PR-2b fix round 2 (engineer, Low): no page of the app can be framed (frame-ancestors none and X-Frame-Options DENY on pages, the profile, the connect pages and the API)', async ({ page, playwright, baseURL }) => {
+  const req = await playwright.request.newContext({ baseURL });
+  for (const [method, path] of [['GET', '/'], ['GET', '/login'], ['GET', '/connect'], ['GET', '/connect/continue'], ['GET', '/u/momentum_maya'], ['GET', '/how'], ['POST', '/api/import/step']] as const) {
+    const r = method === 'GET' ? await req.get(path, { maxRedirects: 0 }) : await req.post(path);
+    expect(r.headers()['content-security-policy'], path).toContain("frame-ancestors 'none'");
+    expect(r.headers()['x-frame-options'], path).toBe('DENY');
+  }
+  await req.dispose();
+  // And the browser refuses: a page on another origin that frames /connect shows nothing of it.
+  await page.goto(`${vendor.base}/_post?m=null`);
+  await page.evaluate((url) => new Promise<void>((done) => { const f = document.createElement('iframe'); f.src = url; f.onload = () => done(); setTimeout(done, 3_000); document.body.appendChild(f); }), `${baseURL}/connect`);
+  const framed = page.frames().find((f) => f !== page.mainFrame());
+  expect(framed).toBeTruthy();
+  expect(await framed!.locator('h1', { hasText: 'Before you connect' }).count()).toBe(0);
+});
+
+test('PR-2b fix round 2 (engineer, Lows and Info): the step endpoint allows one step per trader per second (429 with Retry-After), is no-store on every answer, and is 401 signed out; portal mints stop at 10 per 10 minutes with 429 and the S2 primary says so', async ({ page, playwright, baseURL }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  const handle = `rte${uniq()}`;
+  await devSignIn(page, handle);
+  const anon = await playwright.request.newContext({ baseURL });
+  const signedOut = await anon.post('/api/import/step');
+  expect(signedOut.status()).toBe(401);
+  expect(signedOut.headers()['cache-control']).toContain('no-store');
+  await anon.dispose();
+  await new Promise((r) => setTimeout(r, 1_100));
+  const [a, b] = await Promise.all([page.request.post('/api/import/step'), page.request.post('/api/import/step')]);
+  expect([a.status(), b.status()].sort()).toEqual([200, 429]);
+  for (const r of [a, b]) expect(r.headers()['cache-control']).toContain('no-store');
+  expect([a, b].find((r) => r.status() === 429)!.headers()['retry-after']).toBe('1');
+  await new Promise((r) => setTimeout(r, 1_100));
+  expect((await page.request.post('/api/import/step')).status()).toBe(200);
+  // Mints: vendorConfigured opens one; nine more succeed; the eleventh is refused, from either route.
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const codes: number[] = [];
+  for (let i = 0; i < 9; i++) codes.push((await page.request.post('/connect/portal')).status());
+  expect(codes).toEqual(Array(9).fill(200));
+  const over = await page.request.post('/connect/portal');
+  expect(over.status()).toBe(429);
+  expect(over.headers()['cache-control']).toContain('no-store');
+  expect((await page.request.get('/connect/start', { maxRedirects: 0 })).status()).toBe(429);
+  await page.goto('/connect');
+  await page.getByTestId('connect-primary').click();
+  await expect(page.locator('main [role="alert"]')).toHaveText('Too many tries. Wait a few minutes, then try again.');
+  await expect(dialogOf(page)).toBeHidden();
+  await expect(page.getByTestId('connect-primary')).toHaveText('Connect brokerage (read-only)');
+  const [u] = await sql`select id, signup_attempt_id as att from users where handle = ${handle}`;
+  expect((await sql`select count(*)::int as n from funnel_events where attempt_id = ${u.att} and name = 'portal_opened'`)[0].n).toBe(10);
+  await sql`delete from users where id = ${u.id}`;
+});
+
+test('PR-2b fix round 2 (engineer, Low): signed out in another tab, the owner\'s banner stops polling after the 401 and says so with a sign-in link', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  const handle = `out${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  await portalScenario([{ id: acc, activities: 2, syncDone: false }]); // the record stays importing
+  await connectThrough(page);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  const answers: number[] = [];
+  page.on('response', (r) => { if (new URL(r.url()).pathname === '/api/import/step') answers.push(r.status()); });
+  await expect.poll(() => answers.length, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+  await page.context().clearCookies(); // the other tab signed out
+  await expect(page.locator('.import-signed-out')).toHaveText('Signed out in another tab. Sign in again', { timeout: 10_000 });
+  await expect(page.getByRole('link', { name: 'Sign in again' })).toHaveAttribute('href', '/login');
+  const at = answers.length;
+  expect(answers.at(-1)).toBe(401);
+  await page.waitForTimeout(6_000); // three poll intervals
+  expect(answers.length).toBe(at);
+  await expect(page.locator('.import-slow')).toHaveText('');
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id = ${acc}`;
 });

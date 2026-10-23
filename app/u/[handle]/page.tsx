@@ -137,7 +137,7 @@ export default async function Profile({ params, searchParams }: Params) {
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {/* S5: the live banner (owner polls; visitors see the server's line). Rendered in every state so its finished
           line survives the refresh that follows the end of the import. */}
-      <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} />
+      <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />
       {state === 'failed' && (
         <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
       )}

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
-import { boundAttempt, CONNECT_COOKIE, refuseUnbound, startConnection } from '@/lib/connections.ts';
+import { boundAttempt, CONNECT_COOKIE, RateLimitedError, refuseUnbound, startConnection } from '@/lib/connections.ts';
+import { PORTAL } from '@/lib/copy.ts';
 import { currentUser, origin } from '@/lib/session.ts';
 
 // S2 → the vendor's read-only portal by redirect: the S3 modal's fallback (a portal error, the persistent "Open in a new
@@ -25,5 +26,11 @@ export async function GET(req: NextRequest) {
     if (attemptId === null) return NextResponse.redirect(`${base}/login`);
     who = { userId: null, attemptId };
   }
-  return NextResponse.redirect(await startConnection(who, `${base}/connect/done`));
+  // Fix round 2 (engineer, Low): mints are rate-limited per trader; over the limit, a short plain page says so.
+  try {
+    return NextResponse.redirect(await startConnection(who, `${base}/connect/done`));
+  } catch (e) {
+    if (!(e instanceof RateLimitedError)) throw e;
+    return new NextResponse(PORTAL.tooMany, { status: 429, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '600' } });
+  }
 }

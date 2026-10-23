@@ -78,10 +78,15 @@ export const RECORD_BODY = {
   connected: 'No closed trades yet. Your record starts with your first close.',
   none: 'No trades yet.',
   // Fix round 4: the count is the closed trades listed under the banner, never the raw activities imported.
-  banner: (closes: number) => `Importing your record · ${closes} closed trade${closes === 1 ? '' : 's'} so far`,
+  // PR-2b fix round 2 (business lead 3): "your" only to the owner; visitors and link previews read "this record".
+  banner: (closes: number, owner: boolean) => `Importing ${owner ? 'your' : 'this'} record · ${closes} closed trade${closes === 1 ? '' : 's'} so far`,
   finished: 'Import finished.',
   // PR-2b (S5): the rows read so far, updated after every step (not a live region); the count of distinct activities.
-  imported: (n: number) => `${n} trade${n === 1 ? '' : 's'} imported from your broker`,
+  // Fix round 2 (business lead 2): one noun per count. "Trades" counts closed trades only; these rows are activities.
+  imported: (n: number) => `${n} activit${n === 1 ? 'y' : 'ies'} imported`,
+  // Fix round 2 (engineer, Low): a poll answered 401/403 (signed out in another tab) stops polling and says so.
+  signedOut: 'Signed out in another tab.',
+  signInAgain: 'Sign in again',
   // Plan §8 item 2: after 60 s with no new rows, the owner learns the hourly tick carries on without the tab.
   stillSending: 'Your broker is still sending history. You can leave; the import continues.',
   paperExcluded: (n: number) => `${n} simulated account${n === 1 ? '' : 's'} excluded: simulated trades are never part of a record.`,
@@ -197,6 +202,13 @@ export const PORTAL = {
   newPage: 'Open in a new page instead',
   close: 'Close',
   frameTitle: 'SnapTrade connection portal',
+  // Fix round 2 (business lead 1, UX lead 1): after load, only after 8 s of silence, beside the secondary button.
+  blank: 'Page blank? Open it in a new page.',
+  // Fix round 2 (UX lead note 4): the app's one line before the vendor's own page after a blocked popup.
+  popupBlocked: "Your browser blocked the embedded window; continuing on the vendor's page.",
+  continue: 'Continue',
+  // Fix round 2 (engineer, Low): the mint rate limit.
+  tooMany: 'Too many tries. Wait a few minutes, then try again.',
 } as const;
 
 // The profile's "Connected:" line names the institutions the vendor returned for consented real accounts; with none
@@ -209,7 +221,7 @@ export const connectedLine = (institutions: string[], accounts: number): string 
 // The profile's link-preview text. With no closes there is no stats line (never "0 closed trades · % win rate"): the
 // profile's own empty-record words instead. While importing, the banner line (no stats, TR-3).
 export function profileDescription(x: { state: RecordState; demo: boolean; verified: boolean; trades: number; stats: string }): string {
-  if (x.state === 'importing' && !x.demo) return RECORD_BODY.banner(x.trades);
+  if (x.state === 'importing' && !x.demo) return RECORD_BODY.banner(x.trades, false); // public text: never "your"
   const failed = x.state === 'failed' && !x.demo ? `${RECORD_BODY.failed} ` : '';
   if (x.trades === 0) return x.state === 'failed' ? `${failed}${SHARE_CARD.empty}.` : x.state === 'connected' ? RECORD_BODY.connected : RECORD_BODY.none;
   return `${failed}${recordCountText(x)} · ${x.stats}`;

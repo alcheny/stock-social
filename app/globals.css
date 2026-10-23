@@ -33,8 +33,11 @@ footer.site nav.legal a { display: inline-flex; align-items: center; min-height:
    the page; no motion. */
 .import-banner { margin: 8px 0; }
 .import-banner p { margin: 0; }
-.import-banner .importing, .import-banner .import-finished { min-height: 2.9em; }
+.import-banner .importing, .import-banner .import-ending { min-height: 2.9em; }
+/* Fix round 2 (business lead 4): on finish only the one-line note is left, for 5 s; no reserved empty box. */
 .import-banner .import-finished { border-left: 3px solid var(--accent); padding-left: 8px; font-weight: 600; }
+/* While "Your record is live." shows, the note is announced only: nothing of it is drawn. */
+.import-banner .import-finished.sr-only { padding: 0; border: 0; }
 .import-banner .import-read { min-height: 1.45em; }
 .import-banner .import-slow { min-height: 2.9em; }
 /* S3 portal modal (PR-2b): a native modal dialog (the rest of the page is inert), full width at 375 px. */
@@ -45,14 +48,19 @@ dialog.portal::backdrop { background: color-mix(in srgb, var(--bg) 70%, transpar
 dialog.portal header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--line); }
 dialog.portal h2 { margin: 0; font-size: 1.05rem; }
 dialog.portal header button { min-height: 44px; min-width: 44px; }
-dialog.portal .portal-body { position: relative; flex: 1 1 auto; min-height: min(560px, calc(100dvh - 160px)); }
+/* Fix round 2: the frame takes what is left after the header and the footer (which can grow by the "page blank" line),
+   so the footer's control always stays inside the dialog, at least 12 px from its edges, at 375×667. */
+dialog.portal header, dialog.portal .portal-alt { flex: none; }
+dialog.portal .portal-body { position: relative; flex: 1 1 560px; min-height: 0; display: flex; }
 dialog.portal .portal-status { position: absolute; inset: 16px 16px auto; margin: 0; }
-dialog.portal iframe { display: block; width: 100%; height: min(560px, calc(100dvh - 160px)); border: 0; background: var(--surface); }
+dialog.portal iframe { display: block; flex: 1 1 auto; width: 100%; min-height: 0; border: 0; background: var(--surface); }
 dialog.portal iframe.loading { visibility: hidden; }
-dialog.portal .portal-alt { margin: 0; padding: 4px 16px 8px; border-top: 1px solid var(--line); }
+/* Fix round 2 (business lead 5): 16 px around the footer's control, so a button never touches the dialog's edge. */
+dialog.portal .portal-alt { margin: 0; padding: 8px 16px 16px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 dialog.portal .portal-alt a { display: inline-flex; align-items: center; min-height: 44px; }
-dialog.portal .portal-alt a.button { display: flex; justify-content: center; margin: 4px 0; }
-dialog.portal .portal-stuck { display: block; padding-top: 8px; }
+dialog.portal .portal-alt a.button { justify-content: center; }
+dialog.portal .portal-alt a.button.wide { display: flex; flex: 1 1 100%; }
+dialog.portal .portal-blank { margin: 0; }
 html.portal-open { overflow: hidden; }
 .record-failed { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .record-failed .button { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; }

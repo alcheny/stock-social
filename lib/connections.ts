@@ -6,7 +6,7 @@ import type { TransactionSql } from 'postgres';
 import * as vendor from './broker.ts';
 import type { BrokerUser, VendorAccount } from './broker.ts';
 import { AccountClaimedError, claimIn } from './claims.ts';
-import { recordFunnel } from './funnel.ts';
+import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
 import { replacePositions } from './positions.ts';
@@ -203,14 +203,49 @@ async function brokerUserFor(c: { user_id: number | null; attempt_id: number }, 
 // server side, for this user or bound attempt only; nothing a browser sends is ever used as a portal URL.
 export type PortalMode = 'embedded' | 'redirect';
 export async function startConnection(who: { userId: number | null; attemptId: number }, returnTo: string, deps: Deps = realDeps, mode: PortalMode = 'redirect'): Promise<string> {
-  let bu = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId });
-  if (!bu) {
-    bu = await deps.registerUser(who.userId ?? `attempt-${who.attemptId}`);
-    if (who.userId !== null) await sql`update users set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.userId}`;
-    else await sql`update signup_attempts set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.attemptId}`;
-  }
-  await recordFunnel(who.attemptId, 'portal_opened', { mode });
-  return deps.connectUrl(bu, returnTo);
+  return (await mintPortal(who, returnTo, async () => mode, deps)).url;
+}
+
+// Fix round 2 (engineer, Medium and Low): every mint runs under a transaction-scoped advisory lock, the per-user lock for
+// a trader and ATTEMPT_LOCK for a brokerage-first attempt that has no user yet. Under it: the rate limit (at most
+// MINT_MAX portal_opened events per attempt in MINT_WINDOW_MIN minutes, counted and written under the same lock, so
+// parallel calls cannot slip past), the vendor user (registered only when none is stored; see ensureBrokerUser), the
+// URL, the embedded/redirect decision (`decide`, the server-side framing probe for the modal) and the funnel event.
+// Everything inside uses the transaction's own connection, so a queue of parallel mints never needs a second pool
+// connection while holding the lock.
+export const ATTEMPT_LOCK = 2; // USER_LOCK (lib/sync.ts) is 1
+export const MINT_MAX = 10;
+export const MINT_WINDOW_MIN = 10;
+export class RateLimitedError extends Error { constructor() { super('too many portal opens'); } }
+export async function mintPortal(who: { userId: number | null; attemptId: number }, returnTo: string, decide: (url: string) => Promise<PortalMode>, deps: Deps = realDeps): Promise<{ url: string; mode: PortalMode }> {
+  return sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(${who.userId !== null ? USER_LOCK : ATTEMPT_LOCK}, ${who.userId ?? who.attemptId})`;
+    const [{ n }] = await tx`select count(*)::int as n from funnel_events where attempt_id = ${who.attemptId} and name = 'portal_opened'
+      and at > now() - ${MINT_WINDOW_MIN} * interval '1 minute'`;
+    if ((n as number) >= MINT_MAX) throw new RateLimitedError();
+    const bu = await ensureBrokerUser(who, deps, tx);
+    const url = await deps.connectUrl(bu, returnTo);
+    const mode = await decide(url);
+    const e = funnelEvent('portal_opened', { mode });
+    await tx`insert into funnel_events (attempt_id, name, meta) values (${who.attemptId}, ${e.name}, ${tx.json(e.meta)})`;
+    return { url, mode };
+  }) as Promise<{ url: string; mode: PortalMode }>;
+}
+// The stored vendor user, or a new one. Called under the mint lock, so parallel first mints register once. The store is
+// still conditional: if a writer outside the lock stored one first, the one just registered is deleted at the vendor
+// (never left orphaned there, P6) and the stored one is used.
+async function ensureBrokerUser(who: { userId: number | null; attemptId: number }, deps: Deps, tx: TransactionSql): Promise<BrokerUser> {
+  const stored = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId }, tx);
+  if (stored) return stored;
+  const bu = await deps.registerUser(who.userId ?? `attempt-${who.attemptId}`);
+  const kept = who.userId !== null
+    ? await tx`update users set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.userId} and snaptrade_user_id is null returning id`
+    : await tx`update signup_attempts set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.attemptId} and snaptrade_user_id is null returning id`;
+  if (kept.length) return bu;
+  await ignoreGone(deps.deleteUser(bu));
+  const winner = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId }, tx);
+  if (!winner) throw new Error('vendor user vanished while minting');
+  return winner;
 }
 
 export type LinkOutcome =
