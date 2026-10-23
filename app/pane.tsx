@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { paneSummary } from '@/lib/pane.ts';
+import { paneSummary, paneTrust } from '@/lib/pane.ts';
+import type { PublicState } from '@/lib/connections.ts';
+import { RECORD_BODY } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { PerformanceChart } from './u/[handle]/chart.tsx';
 import { Badge } from './ui.tsx';
@@ -12,24 +14,25 @@ const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'n
 
 // Feed profile pane (SW-1), variant C: leads with the chart and an honest one-line summary (length of
 // record, trade count, worst trade), then the headline stats. All-time numbers via paneSummary().
-export function ProfilePane({ handle, name, trades, now }: { handle: string; name: string; trades: PaneTrade[]; now: Date }) {
+export function ProfilePane({ handle, name, trades, now, state = 'connected' }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState }) {
   const p = paneSummary(trades);
-  const verified = trades.length > 0 && trades.every((t) => t.verified);
+  const trust = paneTrust(trades, state);
   return (
     <section className="pane" aria-label={`${name}'s record`}>
       <header>
         <button type="button" className="back" data-back>← Back</button>
         <Link href={`/u/${handle}`} className="who"><strong>{name}</strong> <span className="muted">@{handle}</span></Link>
-        <Badge verified={verified} />
+        {trust.badge && <Badge verified={trust.badge === 'verified'} />}
       </header>
       <PerformanceChart trades={trades} now={now} linkBase={`/u/${handle}`} />
       {p.since && p.worst && (
         <p className="summary">
           Since first closed trade, {day(p.since)}: {p.count} closed trades. Worst: {p.worst.symbol}{' '}
           <b className={p.worst.returnPct > 0 ? 'up' : 'down'}>{pct(p.worst.returnPct)}</b>.
-          {!verified && <span className="muted"> Sample data, not from a real broker.</span>}
+          {trust.badge === 'demo' && <span className="muted"> Sample data, not from a real broker.</span>}
         </p>
       )}
+      {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
       <section className="stats">
         <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={p.avgReturn > 0 ? 'up' : 'down'}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>

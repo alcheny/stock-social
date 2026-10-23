@@ -15,6 +15,7 @@ import { allow } from '@/lib/auth/rate-limit.ts';
 import { sessionSecret, signToken } from '@/lib/auth/sessions.ts';
 import { currentUser, origin, signOut as endSession } from '@/lib/session.ts';
 import { deleteProfile as deleteRow } from '@/lib/delete.ts';
+import { CONNECT_COOKIE, CONNECT_COOKIE_SECONDS } from '@/lib/connections.ts';
 import { isDemoUser } from '@/lib/demo.ts';
 import { normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
 
@@ -68,8 +69,11 @@ export async function startSignIn(form: FormData) {
     redirect(`/login/sent?a=${attemptId}${await sendOrFail(attemptId, email)}`);
   }
   if (method === 'brokerage') {
+    // Committee fix (High): the attempt is bound to this browser the moment it is created (signed cookie, path /connect);
+    // the connect routes read only that cookie, never an id from the URL. Straight to the trust notice (S2).
     const attemptId = await createAttempt(base);
-    redirect(`/connect?attempt=${attemptId}`); // S2; the portal flow lands in PR-2
+    (await cookies()).set(CONNECT_COOKIE, attemptCookieValue(attemptId, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/connect', maxAge: CONNECT_COOKIE_SECONDS, secure: (await origin()).startsWith('https://') });
+    redirect('/connect');
   }
   const p = providersFromEnv().find((x) => x.key === method);
   if (!p) return back({ ...keep, error: 'provider' });

@@ -413,6 +413,26 @@ test('trade permalink: signed out, record beside the trade, via=trade CTA, 404s,
   expect((await request.get(`/u/momentum_maya/trade/${sell}`)).status()).toBe(404);
 });
 
+test('fix round 6: the demo trader\'s trade link preview says demo trades, never verified; its preview image renders', async ({ page }) => {
+  const { sql } = await import('../lib/db.ts');
+  const [t] = await sql`select ct.sell_id from closed_trades ct join users u on u.id = ct.user_id where u.handle = 'momentum_maya' order by ct.closed_at desc limit 1`;
+  await page.goto(`/u/momentum_maya/trade/${encodeURIComponent(t.sell_id as string)}`);
+  const description = await page.locator('meta[name="description"]').getAttribute('content');
+  expect(description).toMatch(/^\d+ demo trades? · /);
+  expect(description).not.toMatch(/verified/i);
+  const image = await page.locator('meta[property="og:image"]').first().getAttribute('content');
+  const res = await page.request.get(new URL(image!).pathname + new URL(image!).search);
+  expect(res.status()).toBe(200);
+  // Fix round 5 (TR-3): the demo trader's profile link preview says demo trades too.
+  await page.goto('/u/momentum_maya');
+  const profileDescription = await page.locator('meta[name="description"]').getAttribute('content');
+  expect(profileDescription).toMatch(/^\d+ demo trades? · /);
+  expect(profileDescription).not.toMatch(/verified/i);
+  // Reviewer fix (POLICY F3a, A1): the card's alt text follows the record state; the card URL is unchanged.
+  expect(await page.locator('meta[property="og:image:alt"]').getAttribute('content')).toBe('Trading record card for @momentum_maya on Stock Social: Demo data');
+  expect(new URL((await page.locator('meta[property="og:image"]').first().getAttribute('content'))!).pathname).toBe('/u/momentum_maya/opengraph-image');
+});
+
 test('monthly recap: signed out, whole record beside the month, every trade listed, 404s, card', async ({ page, request }) => {
   const { sql } = await import('../lib/db.ts');
   const handle = 'mr_owner';

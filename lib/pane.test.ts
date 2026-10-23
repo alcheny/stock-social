@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { paneSummary, groupByUser } from './pane.ts';
+import { paneSummary, groupByUser, paneTrust, cardTrust, rowBadge } from './pane.ts';
 import { stats } from './trades.ts';
 
 const t = (returnPct: number, day: number, symbol = 'AAA') => ({
@@ -37,4 +37,29 @@ test('groupByUser batches one query result into per-trader lists', () => {
   const g = groupByUser([{ userId: 1, v: 'a' }, { userId: 2, v: 'b' }, { userId: 1, v: 'c' }]);
   assert.deepEqual(g.get(1)?.map((x) => x.v), ['a', 'c']);
   assert.equal(g.get(2)?.length, 1);
+});
+
+test('pane trust (fix round 4, TR-3): a failed import stays in the feed with no Verified badge and the incomplete line; a whole record is Verified; demo data keeps Demo', () => {
+  const real = [{ verified: true }, { verified: true }], demo = [{ verified: false }];
+  assert.deepEqual(paneTrust(real, 'connected'), { badge: 'verified', incomplete: false });
+  assert.deepEqual(paneTrust(real, 'failed'), { badge: null, incomplete: true });
+  assert.deepEqual(paneTrust(demo, 'none'), { badge: 'demo', incomplete: false });
+  assert.deepEqual(paneTrust(demo, 'failed'), { badge: 'demo', incomplete: true });
+  assert.deepEqual(paneTrust([], 'connected'), { badge: 'demo', incomplete: false }); // as before: no trades is never Verified
+});
+
+test('card trust (fix round 5, TR-3): the feed trade card shows no Verified badge and the incomplete line for a failed record, Verified for a whole one, Demo for demo data', () => {
+  assert.deepEqual(cardTrust({ verified: true }, 'failed'), { badge: null, incomplete: true });
+  assert.deepEqual(cardTrust({ verified: true }, 'connected'), { badge: 'verified', incomplete: false });
+  assert.deepEqual(cardTrust({ verified: true }), { badge: 'verified', incomplete: false }); // no state read: as before
+  assert.deepEqual(cardTrust({ verified: false }, 'none'), { badge: 'demo', incomplete: false });
+  assert.deepEqual(cardTrust({ verified: false }, 'failed'), { badge: 'demo', incomplete: true });
+});
+
+test('row badge (fix round 5, TR-3): stock page trade and thesis rows show no Verified badge for a trader whose record failed; Demo stays Demo', () => {
+  assert.equal(rowBadge(true, 'failed'), null);
+  assert.equal(rowBadge(true, 'connected'), 'verified');
+  assert.equal(rowBadge(true, undefined), 'verified');
+  assert.equal(rowBadge(false, 'failed'), 'demo');
+  assert.equal(rowBadge(false, 'none'), 'demo');
 });

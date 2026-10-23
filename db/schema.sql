@@ -109,9 +109,12 @@ create table if not exists broker_accounts (
 select schema_add_index('broker_accounts_user', 'create index broker_accounts_user on broker_accounts (user_id)');
 -- Backfill: existing real data is claimed by its earliest user.
 -- ponytail: if two users already share an account (the exploit) their rows stay; cleanup is a follow-up.
+-- Already-claimed accounts are filtered in the same snapshot as the activities: a user deleted (with its claims and
+-- activities) by a concurrent transaction is then never re-inserted and failed on the users FK (fix round 2, PR-2a).
 insert into broker_accounts (account_id, user_id)
-  select distinct on (account_id) account_id, user_id from activities
-  where source = 'snaptrade' order by account_id, executed_at
+  select distinct on (account_id) account_id, user_id from activities a
+  where source = 'snaptrade' and not exists (select 1 from broker_accounts b where b.account_id = a.account_id)
+  order by account_id, executed_at
   on conflict (account_id) do nothing;
 
 -- Private ticker watchlist: a user-owned preference. last_seen_at drives "new since you last looked".
@@ -129,6 +132,18 @@ select schema_add_column('users', 'record_first_viewed_at', 'timestamptz');
 select schema_add_column('users', 'record_last_viewed_at', 'timestamptz');
 select schema_add_column('users', 'record_prev_viewed_at', 'timestamptz');
 select schema_add_column('users', 'record_view_count', 'int not null default 0');
+
+-- Theses whose trade a rebuild no longer produces (an account flagged simulated, a vendor correction), kept by the
+-- closing sell's id so rebuildTrades never deletes a thesis (published or held); re-attached when the trade returns.
+-- Never read by any page: a thesis whose trade is excluded is simply not shown. sell_id has no foreign key on purpose.
+-- A row stays after its trade returns (a thesis on the closed_trades row wins); saving or clearing that thesis removes it.
+create table if not exists kept_theses (
+  user_id int not null references users on delete cascade,
+  sell_id text not null,
+  thesis text not null check (char_length(thesis) <= 280),
+  thesis_status text check (thesis_status in ('published', 'held')),
+  unique (user_id, sell_id)
+);
 
 -- Private 'why I took it' tags. Rows reattach to trades by sell_id, like theses.
 -- sell_id deliberately has NO foreign key: rebuildTrades deletes closed_trades rows.
@@ -230,3 +245,61 @@ create table if not exists funnel_events (
   meta jsonb not null default '{}'
 );
 select schema_add_index('funnel_events_attempt', 'create index funnel_events_attempt on funnel_events (attempt_id, at)');
+
+-- F-1 PR-2a: one row per brokerage connection attempt (docs/features/logs/F-1/plan.md §1, §3). States and one
+-- timestamp per state; the legal transitions live in lib/connections.ts. No personal data: vendor ids, counts and
+-- timestamps only. `accounts` is the vendor's account list at link time (ids, institution, paper flag), the
+-- provisional claim of a brokerage-first attempt that has no users row yet (confirmed into broker_accounts at consent).
+create table if not exists connections (
+  id bigint generated always as identity primary key,
+  attempt_id bigint not null references signup_attempts(id),
+  user_id int references users(id) on delete cascade,
+  vendor_authorization_id text,
+  institution text,
+  state text not null check (state in ('pending', 'importing', 'connected', 'declined', 'expired', 'failed')),
+  pending_at timestamptz not null default now(),
+  importing_at timestamptz,
+  connected_at timestamptz,
+  declined_at timestamptz,
+  expired_at timestamptz,
+  failed_at timestamptz,
+  consent_at timestamptz,
+  import_cursor jsonb not null default '{}',
+  imported_count int not null default 0,
+  last_progress_at timestamptz,
+  failure_reason text check (failure_reason in ('stale', 'vendor', 'link_closed', 'link_error')),
+  portal_mode text check (portal_mode in ('embedded', 'redirect')),
+  accounts jsonb not null default '[]',
+  cleanup_done_at timestamptz,
+  disconnected_at timestamptz
+);
+select schema_add_index('connections_user', 'create index connections_user on connections (user_id)');
+select schema_add_index('connections_state', 'create index connections_state on connections (state)');
+-- Committee fix (Low, PR-2a round 6): rows cleaned before cleanup blanked the snapshot still hold one. A declined or
+-- expired row that cleanup has finished and that ended over 24 h ago keeps no account snapshot or institution; ids,
+-- states and timestamps stay for the funnel. Idempotent (a blanked row no longer matches); never deletes a row.
+update connections set accounts = '[]'::jsonb, institution = null
+  where state in ('declined', 'expired') and cleanup_done_at is not null
+    and coalesce(declined_at, expired_at, pending_at) < now() - interval '24 hours'
+    and (accounts <> '[]'::jsonb or institution is not null);
+
+-- Claims are provisional until consent (confirmed_at); provisional rows are released on decline, expiry or when no real
+-- account was found, confirmed rows never. Simulated ("paper") accounts are claimed, excluded from the record and
+-- counted; the flag is re-read on every sync.
+select schema_add_column('broker_accounts', 'connection_id', 'bigint references connections(id) on delete set null');
+select schema_add_column('broker_accounts', 'confirmed_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'removed_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'is_paper', 'boolean not null default false');
+select schema_add_column('broker_accounts', 'paper_seen_at', 'timestamptz');
+-- Rows from before F-1 were claimed by a completed sync: confirmed.
+update broker_accounts set confirmed_at = claimed_at where confirmed_at is null and connection_id is null;
+
+-- Open positions (TR-4): symbol and unrealized percent only. No units, prices or amounts, on purpose.
+create table if not exists open_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  symbol text not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null default now(),
+  primary key (user_id, account_id, symbol)
+);

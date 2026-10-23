@@ -8,7 +8,9 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { PROFILE } from '@/lib/copy.ts';
+import { PROFILE, RECORD_BODY, profileCardAlt, recordBodyCopy, recordCountText, shareCardText } from '@/lib/copy.ts';
+import { applyClocks, publicRecordDetail } from '@/lib/connections.ts';
+import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
@@ -17,6 +19,7 @@ import { ReferralFeedback } from './referral-feedback.tsx';
 import { ctaVia, referralSummary } from '@/lib/referral.ts';
 import { JoinCta } from './join-cta.tsx';
 import { isDemoUser } from '@/lib/demo.ts';
+import { positionRows } from '@/lib/positions.ts';
 import { newTradesSince } from '@/lib/new-trades.ts';
 import { MarkTradesPromptSeen, NewTradesPrompt } from './new-trades-prompt.tsx';
 import { latestRecapYm } from '@/lib/recap.ts';
@@ -25,7 +28,7 @@ import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string }> };
 
 async function load(handle: string) {
-  const [user] = await sql`select id, handle, display_name, excluded_positions, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle}`;
+  const [user] = await sql`select id, handle, display_name, excluded_positions, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
   if (!user) return null;
   const trades = await sql`
     select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
@@ -33,23 +36,43 @@ async function load(handle: string) {
   const brokers = await sql`select distinct raw->>'institution' as inst from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
-  return { user, trades, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.
+  if (user.snaptrade_user_id) await applyClocks(new Date(), { userId: user.id });
+  // Fix round 2: everything public about the connection (state, simulated-account count, positions) comes from a
+  // consented connection and confirmed claims only; a pending, declined or expired link shows nothing (COMPLIANCE §3).
+  // Fix round 3: the state is the aggregate over every consented connection (importing while any imports) and the
+  // banner count is summed over them, so a newer finished link never presents a running import as a whole record.
+  const { public: { state, paper }, imported } = await publicRecordDetail(user.id);
+  const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol, account_id` : [];
+  return { user, trades, state, imported, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const data = await load((await params).handle);
   if (!data) return {};
-  const { user, s, c } = data;
+  const { user, s, c, state } = data;
+  // Fix round 5 (TR-3): the same count wording as the trade and month previews ("closed" for a failed or partly
+  // unverified record, "demo" for demo data, "verified" only for a whole record from the broker).
+  const verified = data.trades.length > 0 && data.trades.every((t) => t.verified);
+  const demo = await isDemoUser(user.id);
+  // Reviewer fix (POLICY F3a, A1): the share card's alt text comes from the same record state as the card's label, so
+  // it never says "Verified" for a demo, importing or failed record. Declared here because a file-level alt is static.
+  const card = shareCardText({ state, demo, verified, empty: data.trades.length === 0 });
+  const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: profileCardAlt(user.handle, card) }] };
+  // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete).
+  if (state === 'importing') return { title: `${user.display_name} (@${user.handle}) · Stock Social`, description: RECORD_BODY.banner(data.trades.length), openGraph };
+  const count = recordCountText({ state, demo, verified, trades: s.trades });
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
-    description: `${s.trades} verified trades · ${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`,
+    description: `${state === 'failed' ? `${RECORD_BODY.failed} ` : ''}${count} · ${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`,
+    openGraph,
   };
 }
 
 export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
-  const { user, trades, s, c, brokers, accounts } = data;
+  const { user, trades, s, c, brokers, accounts, state, positions, paper } = data;
   const me = await currentUser();
   const isMe = me?.id === user.id;
   if (isMe) {
@@ -77,16 +100,23 @@ export default async function Profile({ params, searchParams }: Params) {
         })),
       })
     : { connected: 0, handles: [] as string[], byVia: {} as Record<string, number> };
-  const sharePromptShowing = isMe && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]);
+  const sharePromptShowing = isMe && state !== 'importing' && state !== 'failed' && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]);
   const nt = isMe
     ? newTradesSince(trades.map((t) => ({ sellId: t.sell_id, symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at })), user.trades_prompt_seen_at)
     : { shown: [], more: 0 };
   const claimed = isMe && (await searchParams)?.connect === 'account-claimed';
   const recapYm = latestRecapYm(trades.map((t) => ({ closedAt: t.closed_at as Date })));
   const allVerified = trades.length > 0 && trades.every((t) => t.verified);
+  // Fix round 4 (TR-3): the same trust rule as the feed pane: a failed record carries no Verified badge.
+  const trust = paneTrust(trades.map((t) => ({ verified: t.verified as boolean })), state);
   const first = trades.length ? new Date(Math.min(...trades.map((t) => t.opened_at.getTime()))) : null;
   const isNew = isNewRecord(trades.map((t) => ({ openedAt: t.opened_at })), trades.length, new Date());
   const range = rangeText(c);
+  // Fix round 3 (TR-3): while any consented import runs, the trades so far are listed but nothing is presented as a
+  // complete record: no Verified badge, no headline stats or chart, no "Record since · Connected" line.
+  const complete = state !== 'importing';
+  // Committee fix (item 5): no share invitation on a record that is importing or failed; "Try again" is the only primary.
+  const shareable = state === 'connected' || state === 'none';
   const connected = allVerified
     ? `Connected: ${brokers.length ? brokers.join(', ') : 'broker'} (${accounts} account${accounts === 1 ? '' : 's'})`
     : 'Demo data';
@@ -99,10 +129,14 @@ export default async function Profile({ params, searchParams }: Params) {
     <main className="page">
       <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
       <p className="muted" style={{ marginTop: 0 }}>
-        {!provisional && `@${user.handle} `}{trades.length > 0 && <Badge verified={allVerified} />} {isNew && trades.length > 0 && <span className="badge new">New record</span>}
+        {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge verified={trust.badge === 'verified'} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
-      {first && (
+      {state === 'importing' && <p role="status" aria-live="polite" className="importing">{RECORD_BODY.banner(trades.length)}</p>}
+      {state === 'failed' && (
+        <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
+      )}
+      {complete && first && (
         <p className="muted small" style={{ marginTop: 0 }}>
           Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.
         </p>
@@ -113,14 +147,14 @@ export default async function Profile({ params, searchParams }: Params) {
       {claimed && (
         <p role="alert" className="down"><b>{ACCOUNT_CLAIMED_TITLE}</b> {ACCOUNT_CLAIMED_BODY}</p>
       )}
-      {isMe && !claimed && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]) && (
+      {isMe && !claimed && shareable && sharePromptShowing && (
         <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={range} isNew={isNew} />
       )}
       {isMe && !claimed && user.trades_prompt_seen_at === null && <MarkTradesPromptSeen />}
-      {isMe && !claimed && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
+      {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
         <NewTradesPrompt handle={user.handle} trades={nt.shown.map((x) => ({ sellId: x.sellId, symbol: x.symbol, returnPct: x.returnPct, closedAt: x.closedAt.toISOString() }))} more={nt.more} />
       )}
-      {isMe && (!user.snaptrade_user_id || claimed) && (
+      {isMe && (state === 'none' || claimed) && (
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
       )}
       {isMe && (
@@ -134,13 +168,13 @@ export default async function Profile({ params, searchParams }: Params) {
           {(await searchParams)?.handle === 'taken' && <p id="handle-err" role="alert" className="down small">That handle is taken or reserved, or not 3–20 lowercase letters, numbers or _.</p>}
         </details>
       )}
-      {isMe && !claimed && trades.length > 0 && !sharePromptShowing && (
+      {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
         <ShareCard handle={user.handle} recapYm={recapYm}
           recapLabel={recapYm ? new Date(`${recapYm}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : null} />
       )}
 
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
-      {trades.length > 0 && <>
+      {complete && trades.length > 0 && <>
       <section className="stats">
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn > 0 ? 'up' : 'down'}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
@@ -165,15 +199,26 @@ export default async function Profile({ params, searchParams }: Params) {
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
       <PerformanceChart trades={trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null }))} now={new Date()} />
+      </>}
       {user.excluded_positions > 0 && (
         <p className="muted">{user.excluded_positions} earlier position(s) excluded: no matching entry in the imported history.</p>
       )}
+      {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
+
+      {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
+      {positions.length > 0 && <>
+        <h2>{RECORD_BODY.positionsTitle}</h2>
+        <ul className="rows positions">
+          {positions.map((p) => (
+            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
+          ))}
+        </ul>
       </>}
 
       {showJoin && <JoinCta handle={user.handle} via={ctaVia((await searchParams)?.via)} />}
 
       <h2>Closed trades</h2>
-      {!trades.length && <p className="muted">{user.snaptrade_user_id ? 'Syncing… closed trades appear here.' : 'No trades yet.'}</p>}
+      {recordBodyCopy(state, trades.length) && <p className="muted record-body">{recordBodyCopy(state, trades.length)}</p>}
       <ul className="rows">
         {trades.map((t) => (
           <li key={t.id} id={`trade-${t.id}`}>

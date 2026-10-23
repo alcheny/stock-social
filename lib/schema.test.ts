@@ -58,3 +58,40 @@ dbTest('a repeat apply waits on no table lock while another session holds an ope
     await applier.end({ timeout: 1 });
   }
 });
+
+// Committee fix (Low, PR-2a round 6): the one-time snapshot blanking is an idempotent update, never a delete, and only
+// touches declined or expired rows that cleanup finished more than 24 h after they ended.
+dbTest('schema: a repeat apply blanks accounts and institution on cleaned declined/expired rows older than 24 h, and nothing else', async () => {
+  assert.match(bare, /update connections set accounts = '\[\]'::jsonb, institution = null\s+where state in \('declined', 'expired'\) and cleanup_done_at is not null/);
+  const db = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+  const snap = JSON.stringify([{ id: 'acct-x', authorizationId: 'auth-x', institution: 'Test Broker', paper: false }]);
+  try {
+    await db.unsafe(ddl).simple();
+    const [a] = await db`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+    const mk = (state: string, ended: string, cleaned: boolean) => db.unsafe(
+      `insert into connections (attempt_id, state, institution, accounts, pending_at, ${state === 'declined' ? 'declined_at' : state === 'expired' ? 'expired_at' : 'connected_at'}, cleanup_done_at)
+       values ($1, $2, 'Test Broker', $3::text::jsonb, now() - interval '${ended}', now() - interval '${ended}', ${cleaned ? 'now()' : 'null'}) returning id`,
+      [a.id, state, snap]).then((r) => Number(r[0].id));
+    const ids = {
+      oldDeclined: await mk('declined', '30 hours', true),
+      oldExpired: await mk('expired', '48 hours', true),
+      freshDeclined: await mk('declined', '1 hour', true),
+      uncleaned: await mk('expired', '48 hours', false), // cleanup still needs the snapshot to remove the link
+      connected: await mk('connected', '48 hours', true),
+    };
+    await db.unsafe(ddl).simple();
+    await db.unsafe(ddl).simple(); // idempotent
+    const rows = await db`select id, state, accounts, institution from connections where attempt_id = ${a.id} order by id`;
+    assert.equal(rows.length, 5); // no row deleted
+    const by = new Map(rows.map((r) => [Number(r.id), r]));
+    for (const id of [ids.oldDeclined, ids.oldExpired]) assert.deepEqual([by.get(id)!.accounts, by.get(id)!.institution], [[], null]);
+    for (const id of [ids.freshDeclined, ids.uncleaned, ids.connected]) {
+      assert.equal(by.get(id)!.accounts.length, 1);
+      assert.equal(by.get(id)!.institution, 'Test Broker');
+    }
+    await db`delete from connections where attempt_id = ${a.id}`;
+    await db`delete from signup_attempts where id = ${a.id}`;
+  } finally {
+    await db.end({ timeout: 1 });
+  }
+});

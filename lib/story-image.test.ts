@@ -47,3 +47,27 @@ test('parseFormat', () => {
   for (const v of ['x', '', null, undefined]) assert.equal(parseFormat(v), 'square');
   assert.equal(FORMATS.story.height, 1920);
 });
+
+test('fix round 6 (TR-3): a failed record carries the incomplete line and never the imported-read-only label; a running import shows no stats', () => {
+  const run = (state: 'importing' | 'connected' | 'failed' | 'none', demo = false) => storyModel(stats(rets([0.05, -0.02])), 2, null, { worst: -0.02, demo, state });
+  const f = run('failed');
+  assert.equal(f.badge, 'Import did not finish');
+  assert.equal(f.tone, 'warn');
+  assert.equal(f.note, 'The import did not finish, so this record may be incomplete.');
+  assert.equal(f.winRatePct, '50%');
+  const i = run('importing');
+  assert.equal(i.empty, true);
+  assert.equal(i.winRatePct, null);
+  assert.equal(i.avgReturn, null);
+  assert.equal(i.worstReturn, null);
+  assert.equal(i.headline, 'Import in progress');
+  assert.doesNotMatch(i.badge, /Imported read-only|Verified/);
+  assert.equal(run('connected').badge, 'Imported read-only from the broker');
+  assert.equal(run('connected').note, null);
+  for (const st of ['importing', 'connected', 'failed', 'none'] as const) {
+    const d = run(st, true);
+    assert.equal(d.badge, 'Demo data, not a real broker record');
+    assert.equal(d.note, null);
+    assert.equal(d.winRatePct, '50%');
+  }
+});

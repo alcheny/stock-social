@@ -45,10 +45,16 @@ after(async () => { if (hasDb) await (await import('../db.ts')).sql.end({ timeou
 dbTest('attestation first: no attempt without it, no users row without a linked attempt (schema-enforced)', async () => {
   const { sql } = await import('../db.ts');
   const { createAttempt, NotAttestedError } = await import('./attempts.ts');
-  const [{ n: before }] = await sql`select count(*)::int as n from signup_attempts`;
-  await assert.rejects(createAttempt({ method: 'email', attested: false }), NotAttestedError);
-  const [{ n: after }] = await sql`select count(*)::int as n from signup_attempts`;
-  assert.equal(after, before);
+  // The rejected call's own effect, not a table-wide count (which raced with the other test files' inserts): the call
+  // carries a unique marker, and no row may carry it. The attested control proves the marker would be written.
+  const marker = `attest-${Math.random().toString(36).slice(2, 10)}`;
+  const mine = async () => (await sql`select id from signup_attempts where referred_surface = ${marker}`).map((r) => Number(r.id));
+  await assert.rejects(createAttempt({ method: 'email', attested: false, surface: marker as never }), NotAttestedError);
+  assert.deepEqual(await mine(), []);
+  const control = await createAttempt({ method: 'email', attested: true, surface: marker as never });
+  assert.deepEqual(await mine(), [control]);
+  await sql`delete from funnel_events where attempt_id = ${control}`;
+  await sql`delete from signup_attempts where id = ${control}`;
   await assert.rejects(sql`insert into users (handle, display_name, adult_attested_at) values ('att_nobody', 'x', now())`, /null value in column "signup_attempt_id"/);
   await assert.rejects(sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values ('att_nobody', 'x', now(), 999999999)`, /violates foreign key/);
   assert.equal((await sql`select 1 from users where handle = 'att_nobody'`).length, 0);

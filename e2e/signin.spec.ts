@@ -28,10 +28,18 @@ test.afterAll(async () => {
 });
 
 const db = async () => (await import('../lib/db.ts')).sql;
-const attempts = async () => Number((await (await db())`select count(*)::int as n from signup_attempts`)[0].n);
 const maxAttempt = async () => Number((await (await db())`select coalesce(max(id), 0)::int as m from signup_attempts`)[0].m);
 const attest = (page: Page) => page.getByLabel('I am 18 or older and accept the Terms and Privacy Policy');
 const uniq = () => Math.random().toString(36).slice(2, 10);
+// Committee fix (item 7): a sign-in whose profile would be empty lands on the trust notice (S2), signed in; the handle
+// is read from the nav (the profile stays one tap away).
+const landedOnNotice = async (page: Page, originRe = '') => {
+  await expect(page).toHaveURL(new RegExp(`${originRe}/connect$`));
+  await expect(page.getByRole('heading', { name: 'Before you connect', level: 1 })).toBeVisible();
+  const me = (await page.locator('nav.top .me').innerText()).trim();
+  expect(me).toMatch(/^@trader_[a-z0-9]{8}$/);
+  return me.slice(1);
+};
 const methodOrder = (page: Page) => page.locator('.auth .stack [data-method]').evaluateAll((els) => els.map((e) => e.getAttribute('data-method')));
 const devSignIn = async (page: Page, handle: string) => {
   await page.goto('/login/dev');
@@ -78,15 +86,15 @@ test('S1 at 375px, signed out: copy, one attestation, legal links, both buttons,
   await expect(page.getByRole('heading', { name: 'Publish your trades', level: 1 })).toBeVisible();
   await expect(page.getByText('Read-only. We can never place trades or move money.')).toBeVisible();
   await expect(attest(page)).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
-  await expect(page.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
+  await expect(page.locator('main').getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
+  await expect(page.locator('main').getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
   // The checkbox is a 44px control; the legal links open in a new tab and the checked box is still there afterwards.
   const box = (await attest(page).boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(44);
   expect(box.height).toBeGreaterThanOrEqual(44);
-  for (const name of ['Terms', 'Privacy Policy']) await expect(page.getByRole('link', { name })).toHaveAttribute('rel', /noopener/);
+  for (const name of ['Terms', 'Privacy Policy']) await expect(page.locator('main').getByRole('link', { name })).toHaveAttribute('rel', /noopener/);
   await attest(page).check();
-  const [popup] = await Promise.all([page.waitForEvent('popup'), page.getByRole('link', { name: 'Terms' }).click()]);
+  const [popup] = await Promise.all([page.waitForEvent('popup'), page.locator('main').getByRole('link', { name: 'Terms' }).click()]);
   await expect(popup).toHaveURL(/\/terms$/);
   await popup.close();
   await expect(attest(page)).toBeChecked();
@@ -117,20 +125,29 @@ test('S1 at 375px, signed out: copy, one attestation, legal links, both buttons,
 
 test('unchecked attestation blocks every path: the box gets focus with the message, and no attempt row is written', async ({ page }) => {
   await page.goto('/login');
-  const before = await attempts();
   const buttons = await page.locator('button[name="method"]:not([hidden])').all();
   expect(buttons.length).toBeGreaterThanOrEqual(2);
+  const email = `blocked-${uniq()}@example.com`;
   for (let i = 0; i < buttons.length; i++) {
     await page.goto('/login');
-    await page.getByLabel('Email').fill('blocked@example.com');
+    await page.getByLabel('Email').fill(email);
     await page.locator('button[name="method"]:not([hidden])').nth(i).click();
     await expect(page.locator('p[role="alert"]')).toHaveText('Confirm you are 18 or older to continue.');
     await expect(attest(page)).toBeFocused();
     await expect(attest(page)).toHaveAttribute('aria-describedby', 'adult-err');
-    await expect(page.getByLabel('Email')).toHaveValue('blocked@example.com'); // the typed address survives the redirect
+    await expect(page.getByLabel('Email')).toHaveValue(email); // the typed address survives the redirect
     expect(page.url()).not.toContain('blocked'); // and never travels in the URL
+    // No attempt was written by this browser: every path that writes one also binds it to the browser (login_attempt,
+    // auth_tx or connect_attempt cookie) or redirects with its id; the email path would also leave a link for the address.
+    // (A global attempts count raced with the dev sign-ins of the other workers, as the PR-1 fix rounds found.)
+    expect(page.url()).toMatch(/\/login\?.*error=attest/);
+    expect(page.url()).not.toMatch(/attempt=/);
+    expect((await page.context().cookies()).map((c) => c.name)).not.toContain('login_attempt');
+    expect((await page.context().cookies()).map((c) => c.name)).not.toContain('auth_tx');
+    expect((await page.context().cookies()).map((c) => c.name)).not.toContain('connect_attempt');
   }
-  expect(await attempts()).toBe(before);
+  const sql = await db();
+  expect((await sql`select 1 from login_links where email = ${email}`).length).toBe(0);
 });
 
 test('email link: attestation stored before any redirect, link signs in once with a provisional handle, second use expired', async ({ page }) => {
@@ -161,11 +178,15 @@ test('email link: attestation stored before any redirect, link signs in once wit
   const link = await lastLink(page);
   expect(link).toMatch(/\/auth\/email\?t=[A-Za-z0-9_-]+$/);
   await page.goto(link);
-  await expect(page).toHaveURL(/\/u\/trader_[a-z0-9]{8}$/);
-  const handle = page.url().match(/\/u\/(trader_[a-z0-9]{8})/)![1];
+  const handle = await landedOnNotice(page); // signed in, straight to S2 (committee item 7)
   expect(handle).not.toContain(email.split('@')[0]);
-  await expect(page.locator('nav.top .me')).toHaveText(`@${handle}`);
-  // First screen after sign-in: the provisional handle once, a status line, a 44px "Change handle" control.
+  await expect(page.getByRole('link', { name: 'Connect brokerage (read-only)' })).toBeVisible();
+  // The profile stays reachable from the notice in one tap.
+  const toProfile = page.locator('main').getByRole('link', { name: 'Your profile' });
+  expect((await toProfile.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await toProfile.click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  // The profile: the provisional handle once, a status line, a 44px "Change handle" control.
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(`@${handle}`);
   expect((await page.locator('main').innerText()).split(handle).length - 1).toBe(1);
   await expect(page.getByRole('status')).toHaveText("You're in. Next: connect your brokerage.");
@@ -226,11 +247,11 @@ test('S2 trust notice: four fixed lines, vendor and how links, before any portal
   await expect(lines.nth(0)).toHaveText('Read-only. Stock Social can never place trades or move money.');
   await expect(lines.nth(3)).toContainText('Nothing is imported until you confirm on the next screen.');
   await expect(page.getByRole('link', { name: "SnapTrade's security page" })).toHaveAttribute('href', /^https:\/\//);
-  await expect(page.getByRole('link', { name: 'How records are calculated' })).toHaveAttribute('href', '/how');
+  await expect(page.locator('main').getByRole('link', { name: 'How records are calculated' })).toHaveAttribute('href', '/how');
   // The two links on their own 44px rows, no orphan separator at 375px.
   expect(await page.locator('main').innerText()).not.toContain('·');
   const vendorBox = (await page.getByRole('link', { name: "SnapTrade's security page" }).boundingBox())!;
-  const howBox = (await page.getByRole('link', { name: 'How records are calculated' }).boundingBox())!;
+  const howBox = (await page.locator('main').getByRole('link', { name: 'How records are calculated' }).boundingBox())!;
   expect(vendorBox.height).toBeGreaterThanOrEqual(44);
   expect(howBox.height).toBeGreaterThanOrEqual(44);
   expect(howBox.y).toBeGreaterThanOrEqual(vendorBox.y + vendorBox.height);
@@ -254,16 +275,23 @@ test('S2 trust notice: four fixed lines, vendor and how links, before any portal
   await page.goto('/login');
   await attest(page).check();
   await page.getByRole('button', { name: 'Connect a brokerage instead' }).click();
-  await expect(page).toHaveURL(/\/connect\?attempt=\d+$/);
-  const id = Number(page.url().match(/attempt=(\d+)/)![1]);
+  // Committee fix (items 1, 4): the attempt is bound to this browser by a signed cookie, the URL carries no id, and S2
+  // offers the primary that starts the vendor flow.
+  await expect(page).toHaveURL(/\/connect$/);
+  const bound = (await page.context().cookies()).find((c) => c.name === 'connect_attempt')!;
+  expect(bound.httpOnly).toBe(true);
+  expect(bound.sameSite).toBe('Lax');
+  const id = Number(bound.value.split('.')[0]);
   const sql = await db();
   const [a] = await sql`select method, user_id from signup_attempts where id = ${id}`;
   expect(a).toEqual({ method: 'brokerage', user_id: null });
   const names = (await sql`select name from funnel_events where attempt_id = ${id} order by id`).map((e) => e.name);
   expect(names).toEqual(['landed', 'method_chosen', 'attested', 'notice_seen']);
-  // Brokerage-first signed out ends on the status line, never on S1 unexplained.
-  await expect(page.getByRole('status')).toHaveText('Sign in first, then connect.');
-  await expect(page.getByRole('link', { name: 'Connect brokerage (read-only)' })).toHaveCount(0);
+  await expect(page.getByRole('status')).toHaveCount(0);
+  const bfPrimary = page.getByRole('link', { name: 'Connect brokerage (read-only)' });
+  await expect(bfPrimary).toHaveAttribute('href', '/connect/start');
+  expect((await bfPrimary.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await page.context().clearCookies({ name: 'connect_attempt' });
   // Signed in, the primary is there and goes to the connection flow.
   await devSignIn(page, 'dividend_dan');
   await page.goto('/connect');
@@ -302,9 +330,7 @@ test('the emailed link opened on another host of the same server lands signed in
   const other = new URL(link.toString());
   other.hostname = link.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
   await page.goto(other.toString());
-  await expect(page).toHaveURL(new RegExp(`^${other.origin.replace(/[.]/g, '\\.')}/u/trader_[a-z0-9]{8}$`));
-  const handle = page.url().match(/\/u\/(trader_[a-z0-9]{8})/)![1];
-  await expect(page.locator('nav.top .me')).toHaveText(`@${handle}`); // signed in where the cookie was set
+  const handle = await landedOnNotice(page, `^${other.origin.replace(/[.]/g, '\\.')}`); // signed in where the cookie was set
   const sql = await db();
   await sql`delete from users where handle = ${handle}`;
 });
@@ -351,8 +377,7 @@ test('method memory: a failed submit never reorders S1, the brokerage block stay
   await page.goto('/login');
   expect(await methodOrder(page)).toEqual(before); // sent but not completed: still the same order
   await page.goto(await lastLink(page));
-  await expect(page).toHaveURL(/\/u\/trader_[a-z0-9]{8}$/);
-  const handle = page.url().match(/\/u\/(trader_[a-z0-9]{8})/)![1];
+  const handle = await landedOnNotice(page);
   await page.context().clearCookies({ name: 'sid' });
   await page.goto('/login');
   const after = await methodOrder(page);
@@ -400,8 +425,7 @@ for (const key of ['provider_a', 'provider_b'] as const) {
     await attest(page).check();
     const before = await maxAttempt();
     await button.click();
-    await expect(page).toHaveURL(/\/u\/trader_[a-z0-9]{8}$/);
-    const handle = page.url().match(/\/u\/(trader_[a-z0-9]{8})/)![1];
+    const handle = await landedOnNotice(page);
     const sql = await db();
     // The new user's own attempt (a global count races with app.spec.ts's dev sign-ins in the other worker).
     const [att] = await sql`select a.id, a.method, a.completed_at from signup_attempts a join users u on u.signup_attempt_id = a.id where u.handle = ${handle}`;
@@ -414,7 +438,7 @@ for (const key of ['provider_a', 'provider_b'] as const) {
     await page.goto('/login');
     await attest(page).check();
     await button.click();
-    await expect(page).toHaveURL(new RegExp(`/u/${handle}$`)); // same subject, same user
+    expect(await landedOnNotice(page)).toBe(handle); // same subject, same user
     await page.context().clearCookies();
     await page.goto(`/auth/callback/${key}?code=x&state=bad`);
     await expect(page).toHaveURL(/\/login\?error=provider/);
@@ -468,7 +492,7 @@ test('email send failure: the error state with a message and "Send again", no cl
     await expect(page.getByText('Check your email. The link works for 15 minutes.')).toBeVisible();
     const link = await lastLink(page);
     await page.goto(link);
-    await expect(page).toHaveURL(/\/u\/trader_[a-z0-9]{8}$/);
+    await landedOnNotice(page); // signed in; an empty profile goes straight to S2 (committee item 7)
     const [done] = await sql`select user_id, completed_at from signup_attempts where id = ${id}`;
     expect(done.completed_at).toBeTruthy();
     await sql`delete from users where id = ${done.user_id}`;

@@ -43,6 +43,8 @@ export const TRUST_NOTICE = {
   primary: 'Connect brokerage (read-only)',
   signInFirst: 'Sign in first, then connect.',
   emailOption: 'Sign in with an email link',
+  settingsLink: 'Settings',
+  profileLink: 'Your profile',
 } as const;
 // The vendor's own security page, linked from the notice. Configurable so the owner can point at the page the vendor publishes.
 export const VENDOR_SECURITY_URL = process.env.NEXT_PUBLIC_VENDOR_SECURITY_URL || 'https://snaptrade.com/security';
@@ -52,6 +54,170 @@ export const PROFILE = {
   youreIn: "You're in. Next: connect your brokerage.",
   changeHandle: 'Change handle',
 } as const;
+
+// S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
+export const CONSENT = {
+  title: 'Confirm what gets imported',
+  // Committee fix (item 7): no lead line (the notice already said it) and one scope line, so the primary fits 375×667.
+  lines: (found: number, paper: number) => [
+    'Full trade history your broker provides, from every account under this login',
+    `${found} account${found === 1 ? '' : 's'} found${paper > 0 ? ` (${paper} simulated, not imported)` : ''}`,
+    'Closed trades are published on your public profile as percent returns. No amounts, quantities or prices.',
+    'A broker account can belong to one profile, ever.',
+    'Your record stays public if you disconnect; deleting your profile removes it.',
+  ],
+  // No clock time: a UTC time is in a zone the trader does not live in (committee item 7).
+  deadline: 'Decide within 24 hours, or this link is removed automatically.',
+  primary: 'Import my record',
+  secondary: "Don't import",
+} as const;
+
+// S5 / S8 body by connection state (plan §8 item 3): the empty-record line only once the import is finished.
+export const RECORD_BODY = {
+  importing: 'Your trades appear here as they import.',
+  connected: 'No closed trades yet. Your record starts with your first close.',
+  none: 'No trades yet.',
+  // Fix round 4: the count is the closed trades listed under the banner, never the raw activities imported.
+  banner: (closes: number) => `Importing your record · ${closes} closed trade${closes === 1 ? '' : 's'} so far`,
+  finished: 'Import finished.',
+  paperExcluded: (n: number) => `${n} simulated account${n === 1 ? '' : 's'} excluded: simulated trades are never part of a record.`,
+  positionsTitle: 'Open positions',
+  // A failed import is never shown as a whole record (TR-3): the line is visible to everyone, the retry to the owner.
+  failed: 'The import did not finish, so this record may be incomplete.',
+  retry: 'Try again',
+} as const;
+export type RecordState = 'importing' | 'connected' | 'failed' | 'none';
+// The S8 empty-record line belongs to a finished import only; a failed one says so instead.
+// Committee fix (item 8): the importing line only while nothing is listed yet; with trades listed the banner says it.
+export const recordBodyCopy = (state: RecordState, closes: number): string | null =>
+  closes > 0 ? null : state === 'importing' ? RECORD_BODY.importing : state === 'connected' ? RECORD_BODY.connected : RECORD_BODY.none;
+
+// The share card (fix round 3): its states mirror the profile's. "Demo data" only for a demo profile (source='demo');
+// "Broker connected" only for a finished import with no closes; an import still running shows no stats; a failed one
+// says so and carries the profile's incomplete line; a real trader with nothing consented gets no label.
+export const SHARE_CARD = {
+  verified: '✓ Verified from broker',
+  connected: '✓ Broker connected',
+  importing: 'Importing record',
+  importingBody: 'Import in progress',
+  importingNote: 'Stats appear when the import finishes.',
+  failed: 'Import did not finish',
+  demo: 'Demo data',
+  empty: 'No closed trades yet',
+} as const;
+export type ShareCardText = { label: string | null; tone: 'ok' | 'muted' | 'warn'; body: string | null; note: string | null };
+// body null = show the stats; note null = show the evidence line.
+export function shareCardText(x: { state: RecordState; demo: boolean; verified: boolean; empty: boolean }): ShareCardText {
+  const body = x.empty ? SHARE_CARD.empty : null;
+  if (x.demo) return { label: SHARE_CARD.demo, tone: 'muted', body, note: null };
+  if (x.state === 'importing') return { label: SHARE_CARD.importing, tone: 'muted', body: SHARE_CARD.importingBody, note: SHARE_CARD.importingNote };
+  if (x.state === 'failed') return { label: SHARE_CARD.failed, tone: 'warn', body, note: RECORD_BODY.failed };
+  if (!x.empty && x.verified) return { label: SHARE_CARD.verified, tone: 'ok', body, note: null };
+  if (x.state === 'connected') return { label: x.empty ? SHARE_CARD.connected : null, tone: 'ok', body, note: null };
+  return { label: null, tone: 'muted', body, note: null };
+}
+
+// Reviewer fix (POLICY F3a, A1): the profile card's alt text names the card's own label for the record state, so a demo,
+// importing or failed record is never described as verified.
+export const profileCardAlt = (handle: string, t: ShareCardText) =>
+  `Trading record card for @${handle} on Stock Social${t.label ? `: ${imageLabel(t.label)}` : ''}`;
+
+// Fix round 6 (POLICY F3, TR-3): the trader's other performance images (single-trade card, month recap card, story
+// image) follow the profile card's rule, from the same record state. No image draws the check mark: the image font has
+// no glyph for it (it rendered as an empty box), so the word carries the meaning. The story keeps its own wording for a
+// whole verified record. stats false = an import still running: no whole-record stats line. note = the incomplete line.
+export type ImageKind = 'profile' | 'trade' | 'month' | 'story';
+export const imageLabel = (label: string | null) => label && label.replace(/^\u2713\s*/, '');
+export const STORY_VERIFIED = 'Imported read-only from the broker';
+export type ImageTrust = { label: string | null; tone: ShareCardText['tone']; stats: boolean; note: string | null };
+export function imageTrust(kind: ImageKind, x: { state: RecordState; demo: boolean; verified: boolean; empty: boolean }): ImageTrust {
+  const t = shareCardText(x);
+  const label = t.label === SHARE_CARD.verified && kind === 'story' ? STORY_VERIFIED : imageLabel(t.label);
+  return { label, tone: t.tone, stats: wholeRecordView(x).stats, note: t.note };
+}
+
+// Reviewer fix (TR-3, POLICY F3a): the trade and month pages' "Their whole record" block and their link previews follow
+// the profile's record-state rule, the same one the images use. An import still running: no whole-record stats (win
+// rate, average return, evidence, New record), one importing line instead. A failed import: the stats with the
+// incomplete line. Demo data never imports, so it always shows its stats.
+export const WHOLE_RECORD = {
+  importing: 'Import in progress. Stats appear when the import finishes.',
+  soFar: (closes: number) => `${closes} closed trade${closes === 1 ? '' : 's'} so far`,
+} as const;
+export type WholeRecordView = { stats: boolean; line: string | null; tone: 'muted' | 'warn' | null };
+export function wholeRecordView(x: { state: RecordState; demo: boolean }): WholeRecordView {
+  if (x.demo) return { stats: true, line: null, tone: null };
+  if (x.state === 'importing') return { stats: false, line: WHOLE_RECORD.importing, tone: 'muted' };
+  if (x.state === 'failed') return { stats: true, line: RECORD_BODY.failed, tone: 'warn' };
+  return { stats: true, line: null, tone: null };
+}
+// The link-preview text for the whole record: the count, then either the stats or the importing line.
+export function wholeRecordPreview(x: { state: RecordState; demo: boolean; verified: boolean; trades: number }, stats: string): string {
+  const v = wholeRecordView(x);
+  if (!v.stats) return `${WHOLE_RECORD.soFar(x.trades)} · ${WHOLE_RECORD.importing}`;
+  return `${v.line ? `${v.line} ` : ''}${recordCountText(x)} · ${stats}`;
+}
+
+// Fix round 6: the whole-record count in a link preview's description says "verified" only when the profile would
+// (a whole record, every trade from the broker); "demo" for a demo profile; plain "closed" otherwise.
+export function recordCountText(x: { state: RecordState; demo: boolean; verified: boolean; trades: number }): string {
+  const kind = x.demo ? 'demo' : x.verified && x.trades > 0 && (x.state === 'connected' || x.state === 'none') ? 'verified' : 'closed';
+  return `${x.trades} ${kind} trade${x.trades === 1 ? '' : 's'}`;
+}
+
+// S6 declined / expired, S6c no real account, S7 errors (role="alert").
+export const RESULT = {
+  declined: 'Import not started. Nothing is connected.',
+  expiredPrefix: 'The time to decide ran out.',
+  none: 'No real brokerage account found.',
+  noneAction: 'Connect a different brokerage',
+  abandoned: 'Connection not completed. Nothing was saved.',
+  failed: 'Your brokerage stopped the connection before the import finished.',
+  stale: 'Your brokerage stopped sending history before the import finished.',
+  notFound: 'Connection not found.',
+  notFoundAction: 'Connect a brokerage',
+  claimedAction: 'Try another login',
+  again: 'Connect again',
+  retry: 'Try again',
+  notNow: 'Not now',
+  feed: 'Back to feed',
+} as const;
+
+// /how (POLICY F3): what Verified means and what is excluded, in the words of lib/trades.ts. Percent only.
+export const HOW = {
+  title: 'How records are calculated',
+  verifiedTitle: 'What "Verified" means',
+  verified: 'Verified means imported read-only from the trader\u2019s broker through the integrated vendor. It does not verify identity, completeness or skill, and it is not an endorsement by a broker or by the vendor. Demo profiles carry a Demo badge instead.',
+  mathTitle: 'The math',
+  math: [
+    'Each closed trade is one sell, matched to earlier buys of the same symbol in the same account, first in, first out.',
+    'Return is the percent change between the matched buys and the sell, after the fees the broker reported. Nothing is weighted by size.',
+    'Headline stats are the win rate and the average return per trade. Max drawdown is per-trade and equal-weight, not an account return.',
+    'Only percentages are stored and shown: no amounts, quantities or prices.',
+  ],
+  excludedTitle: 'What is excluded, and counted',
+  excluded: [
+    'Options, short sales and other activity the importer cannot price correctly.',
+    'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
+    'Simulated ("paper") accounts.',
+    'Accounts and brokers that are not connected.',
+  ],
+  freezeTitle: 'Disconnecting and deleting',
+  freeze: 'A record freezes when a brokerage is disconnected and stays public. Deleting the profile removes it; the handle is held for a year.',
+} as const;
+
+// S9 /settings: deleting a profile takes two taps; only the second deletes.
+export const SETTINGS = {
+  title: 'Settings',
+  deleteTitle: 'Delete my profile',
+  deleteExplain: 'Deleting removes your profile, record, sign-in details and the brokerage link at the vendor. Your handle is held for a year.',
+  deleteAction: 'Delete my profile',
+  keep: 'Keep it',
+  confirm: 'This cannot be undone.',
+  signOut: 'Sign out',
+} as const;
+
+export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated' } as const;
 
 export const LEGAL_PLACEHOLDER = {
   termsTitle: 'Terms of Service',
@@ -69,10 +235,10 @@ export function allCopy(): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
     if (typeof v === 'string') out.push(v);
-    else if (typeof v === 'function') out.push(String((v as (s: string) => string)('x')));
+    else if (typeof v === 'function') { const r = (v as (...a: never[]) => unknown)(...(['x', 2, 1] as never[])); Array.isArray(r) ? r.forEach(walk) : out.push(String(r)); }
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, HOW, SETTINGS, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
   return out;
 }

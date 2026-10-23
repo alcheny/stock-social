@@ -1,4 +1,5 @@
 import { stats } from './trades.ts';
+import type { PublicState } from './connections.ts';
 
 type PaneTrade = { returnPct: number; holdingDays: number; closedAt: Date; symbol: string };
 
@@ -22,4 +23,26 @@ export function groupByUser<T extends { userId: number }>(rows: T[]): Map<number
   const m = new Map<number, T[]>();
   for (const r of rows) m.set(r.userId, [...(m.get(r.userId) ?? []), r]);
   return m;
+}
+
+// Fix round 4 (TR-3): what the feed pane says about the record's trust, from the aggregate record state (an importing
+// record never reaches the pane: the feed leaves it out until it is whole). A failed
+// import stays in the feed (incompleteness is never hidden) but is never presented as whole: no Verified badge, and
+// the profile's incomplete line beside the stats. Demo data keeps its Demo badge.
+export function paneTrust(trades: { verified: boolean }[], state: PublicState): { badge: 'verified' | 'demo' | null; incomplete: boolean } {
+  const verified = trades.length > 0 && trades.every((t) => t.verified);
+  if (state === 'failed') return { badge: verified ? null : 'demo', incomplete: true };
+  return { badge: verified ? 'verified' : 'demo', incomplete: false };
+}
+
+// Fix round 5 (TR-3): the feed's trade card applies the same rule to the trade it shows, with the trader's aggregate
+// record state, so the card never shows Verified beside a record the pane and profile present as incomplete.
+export function cardTrust(t: { verified: boolean }, state: PublicState = 'connected') {
+  return paneTrust([t], state);
+}
+
+// Fix round 5 (TR-3): a per-trade row elsewhere (stock page trade and thesis rows) gets its badge by the same rule: no
+// Verified badge beside a trader whose record state is failed; Demo kept for demo data.
+export function rowBadge(verified: boolean, state?: PublicState): 'verified' | 'demo' | null {
+  return cardTrust({ verified }, state).badge;
 }
