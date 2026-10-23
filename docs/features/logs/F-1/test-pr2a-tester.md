@@ -373,3 +373,66 @@ is unchanged (same note as re-run 3).
 
 Verdict: DEFECTS (re-run 3's test race and banner note fixed, the pane, profile and card fixed; 1 Low left: the feed trade
 card still shows Verified for a failed record)
+
+## Re-run 5 (after fix round 5)
+
+Date: 2026-10-23. Same branch, at `5448929` (fix round 5 and 5b, end of `build-pr2a-fix3.md`). No product code changed.
+Local Postgres 16; `db/schema.sql` applied twice with `psql`, then `npm run db:seed`, all clean.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, three runs | 400 pass in every run, 0 fail, 0 skipped |
+| `npm run build` | the first attempt stopped on the framework's security-advisory prompt (tool output; nothing upgraded). The retry built cleanly |
+| `npm run test:e2e` (`ALLOW_DEV_AUTH=1`, vendor fake variables for 4102, PR-1 issuer and sink variables; fakes started by the specs) | 69 passed, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+Tester scripts (not committed) drove the built app on port 3000 against the in-repo vendor fake (started for this manual
+pass only, after e2e). Two traders: one with a finished link (5 closes, `connected`) and one with the same first link
+plus a second link that hit a vendor 403 (`connected` + `failed`, 5 closes); each got one published thesis on an AAA
+trade. Plus the seeded demo trader. Signed out at 375 px, light and dark. Screenshots in `screenshots/pr2a/rerun5/`. The
+test users were deleted, and the server and the fake were stopped afterwards.
+
+### Re-run 4 item 1 and fix round 5 part 2
+
+| Surface | Failed record | Connected | Demo |
+|---|---|---|---|
+| Feed trade card | no badge; "The import did not finish, so this record may be incomplete." under the header; 0 `.badge.verified` across every card for the trader (`feed-card-fail-375-*`) | ✓ Verified on all 5 cards, no line | Demo |
+| Feed pane | no badge, the same line (`feed-pane-fail-375-*`) | ✓ Verified, no line | Demo |
+| Profile | no Verified badge ("New record" only), the line (`profile-fail-375-*`) | ✓ Verified | Demo |
+| Profile share card | amber "Import did not finish", the line, no Verified label (`card-fail.png`) | Verified label (`card-ok.png`) | Demo (`card-demo.png`) |
+| Stock page `/t/AAA`, trade rows and thesis row | still listed and counted, no badge on any row (`stock-rows-375-*`, `stock-theses-375-*`) | ✓ Verified on every row | `/t/TSM`: Demo on all 6 rows (`stock-demo-rows-375-*`) |
+
+No horizontal scroll on the feed, profiles or stock page in either scheme. Re-run 4 item 1 is fixed, and part 2 is
+correct for the rows it covers.
+
+### Sweep: other public surfaces that state Verified (`grep -i verified app/`)
+
+Per-symbol labels (stock page heading, compare, stock index, stock share image) describe pooled trades, not a trader's
+record, and are left as they are. The per-trader surfaces not covered by fix round 5:
+
+1. **Low · spec (TR-3) · the single-trade share card and the month recap share card still say "✓ Verified from broker"
+   for a failed record.** `app/u/[handle]/trade/[sellId]/opengraph-image.tsx` (`t.demo ? 'Demo data' : '✓ Verified from
+   broker'`) and `app/u/[handle]/month/[ym]/opengraph-image.tsx` (`r.verified`) ignore the record state. Both are the
+   unfurl images of the public trade and month pages (`og:image` on `/u/<h>/trade/<id>` and `/u/<h>/month/<ym>`), so a
+   shared link for the failed trader unfurls with the Verified label and the whole-record stats, with no incomplete line
+   (`trade-og-fail.png`, `month-og-fail.png`), while the profile card for the same trader says "Import did not finish"
+   (`card-fail.png`). The connected trader's and the demo trader's images are right (`*-ok.png`, `*-demo.png`).
+   Related, same item: the story image (`app/u/[handle]/story/route.tsx`, offered by "Share my record") shows "Imported
+   read-only from the broker" in green and no incomplete line for the failed record (`story-fail.png`); the trade and
+   month pages themselves draw no Verified badge but show the whole-record stats without the line (`trade-page-fail-*`,
+   `month-page-fail-*`). Fix: read `publicRecord(user).state` in the trade and month loaders and the story route, and use
+   the profile card's rule (`shareCardText`/`paneTrust`): no Verified label and the incomplete line when `failed`; extend
+   the "fix round 4 (TR-3)" e2e to fetch these three images' text sources or assert on the loaders.
+
+Notes (pre-existing on `origin/main`, not from this PR; not blocking):
+- The month recap share card overflows when the month label wraps ("October 2026 · month so far"): for the failed and
+  connected traders the disclaimer line is pushed off the bottom of the image (`month-og-fail.png`), and the demo card's
+  disclaimer is cut at the edge (`month-og-demo.png`). A performance image without the full disclaimer is a POLICY gap
+  worth its own fix.
+- The "✓" glyph renders as an empty box in the trade and month share cards (font has no glyph); the profile card avoids it.
+- The trade page's meta description reads "30 verified trades" for the demo trader.
+
+Verdict: DEFECTS (re-run 4's feed card fixed, and fix round 5 part 2 correct on the stock page; 1 Low left: the trade and
+month share cards and the story image still present a failed record as verified)
