@@ -49,8 +49,8 @@ test('body copy by state (plan §8 item 3): S5 line while importing, S8 line onl
   assert.equal(recordBodyCopy('connected', 1), null);
   assert.equal(recordBodyCopy('none', 0), 'No trades yet.');
   assert.doesNotMatch(RECORD_BODY.importing, /No closed trades yet/);
-  assert.equal(RECORD_BODY.banner(0), 'Importing your record · 0 trades so far');
-  assert.equal(RECORD_BODY.banner(1), 'Importing your record · 1 trade so far');
+  assert.equal(RECORD_BODY.banner(0), 'Importing your record · 0 closed trades so far');
+  assert.equal(RECORD_BODY.banner(1), 'Importing your record · 1 closed trade so far');
   assert.equal(RECORD_BODY.finished, 'Import finished.');
 });
 
@@ -773,10 +773,12 @@ dbTest('D6: a brokerage-first consent that loses the claim race leaves no ghost 
     assert.equal(out.kind, 'consent');
     // Between the link and the tap, another trader confirm-claims the account.
     assert.deepEqual(await claimAccounts(other.id, [acc]), { ok: true });
-    const usersBefore = (await sql`select count(*)::int as n from users`)[0].n;
+    // Fix round 4: assert on this attempt's own rows only (its attempt id and its vendor user), never a table-wide
+    // count that other test files change concurrently.
+    const mine = () => sql`select id from users where signup_attempt_id = ${attempt} or snaptrade_user_id = ${`vendor-attempt-${attempt}`}`;
+    assert.equal((await mine()).length, 0);
     await assert.rejects(consent(out.id, new Date(), deps), AccountClaimedError);
-    assert.equal((await sql`select count(*)::int as n from users`)[0].n, usersBefore); // no ghost
-    assert.equal((await sql`select 1 from users where signup_attempt_id = ${attempt}`).length, 0);
+    assert.equal((await mine()).length, 0); // no ghost
     const [a] = await sql`select user_id, completed_at, snaptrade_user_id, snaptrade_secret_enc from signup_attempts where id = ${attempt}`;
     assert.deepEqual([a.user_id, a.completed_at, a.snaptrade_user_id, a.snaptrade_secret_enc], [null, null, null, null]);
     const c = await conn(out.id);
@@ -789,6 +791,34 @@ dbTest('D6: a brokerage-first consent that loses the claim race leaves no ghost 
     assert.ok((await events(attempt)).includes('failed'));
   } finally {
     await cleanup([other.id], [acc]);
+  }
+});
+
+dbTest('fix round 4: recordStates gives the feed the same aggregate as recordStatus for many traders at once; a failed import reads failed, a trader with nothing consented reads none', async () => {
+  const { sql, tag, mkUser, cleanup } = await setup();
+  const { startConnection, completeLink, consent, importStep, recordStates, recordStatus } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('r4f'), w = await mkUser('r4n');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const a1 = `${tag}-r4a`;
+  v.accounts = [acct(a1)];
+  v.rows.set(a1, [...pair(a1, 1), ...pair(a1, 2)]);
+  try {
+    assert.equal((await recordStates([])).size, 0);
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps) as { id: number };
+    await consent(id, new Date(), deps);
+    assert.equal((await recordStates([u.id])).get(u.id)!.state, 'importing');
+    await importStep(id, deps);
+    const fail = { ...deps, fetchActivitiesPage: async () => { throw Object.assign(new Error('vendor 403'), { response: { status: 403 } }); } };
+    assert.equal((await importStep(id, fail)).state, 'failed');
+    const m = await recordStates([u.id, w.id, u.id]);
+    assert.equal(m.size, 2);
+    assert.deepEqual(m.get(u.id), await recordStatus(u.id));
+    assert.equal(m.get(u.id)!.state, 'failed');
+    assert.deepEqual(m.get(w.id), { state: 'none', imported: 0, importing: [] });
+  } finally {
+    await cleanup([u.id, w.id], [a1]);
   }
 });
 

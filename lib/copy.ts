@@ -76,7 +76,8 @@ export const RECORD_BODY = {
   importing: 'Your trades appear here as they import.',
   connected: 'No closed trades yet. Your record starts with your first close.',
   none: 'No trades yet.',
-  banner: (n: number) => `Importing your record · ${n} trade${n === 1 ? '' : 's'} so far`,
+  // Fix round 4: the count is the closed trades listed under the banner, never the raw activities imported.
+  banner: (closes: number) => `Importing your record · ${closes} closed trade${closes === 1 ? '' : 's'} so far`,
   finished: 'Import finished.',
   paperExcluded: (n: number) => `${n} simulated account${n === 1 ? '' : 's'} excluded: simulated trades are never part of a record.`,
   positionsTitle: 'Open positions',

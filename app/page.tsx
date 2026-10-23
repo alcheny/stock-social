@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
+import { recordStates } from '@/lib/connections.ts';
 import { groupByUser } from '@/lib/pane.ts';
 import { confidence, evidenceWeight, rankTraders } from '@/lib/trades.ts';
 import { FeedKeys } from './feed-keys.tsx';
@@ -38,6 +39,8 @@ export default async function Feed() {
     holdingDays: r.holding_days as number, closedAt: r.closed_at as Date, verified: r.verified as boolean,
     thesis: r.thesis_status === 'published' ? (r.thesis as string) : null,
   }) satisfies PaneTrade & { userId: number }));
+  // Fix round 4 (TR-3): a failed import stays in the feed (never hidden) but its pane says the record may be incomplete.
+  const records = await recordStates([...byUser.keys()]);
   const now = new Date();
   // Rank by the pace-interval lower bound (TR-9): small lucky samples can't top the feed. Losses weigh like gains.
   const weight = new Map<number, number>();
@@ -52,7 +55,7 @@ export default async function Feed() {
       {ranked.map((t) => (
         <div className="row" key={t.id}>
           <TradeCard t={t} />
-          <ProfilePane handle={t.handle} name={t.display_name} trades={byUser.get(t.user_id) ?? []} now={now} />
+          <ProfilePane handle={t.handle} name={t.display_name} trades={byUser.get(t.user_id) ?? []} now={now} state={records.get(t.user_id)?.state} />
         </div>
       ))}
     </main>

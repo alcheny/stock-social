@@ -99,3 +99,57 @@ does not clear it; a pending link never does. This is in the unit matrix.
 
 `lib/connections.ts`, `app/api/import/step/route.ts`, `app/u/[handle]/page.tsx`, `app/u/[handle]/opengraph-image.tsx`,
 `app/page.tsx`, `lib/copy.ts`; tests `lib/connections.test.ts`, `lib/copy.test.ts`, `e2e/connect.spec.ts`.
+
+## Fix round 4 (after tester re-run 3)
+
+Date: 2026-10-23. Same branch, on top of `c1f9160`. Fixes the two Lows and one note from re-run 3.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 Low (TR-3) | The feed pane presented a failed import's record as whole (Verified badge, chart, stats, no incomplete line) | Option chosen: **keep the trader in the feed** (losses and incompleteness are never hidden). The feed reads every visible trader's aggregate with the new batched `recordStates(userIds)` in `lib/connections.ts` (two queries, the same `aggregateRecord` per trader; `recordStatus` now delegates to it, so there is one state rule). The pane takes the state; the pure `paneTrust()` in `lib/pane.ts` gives `failed` no Verified badge and the profile's line `RECORD_BODY.failed` ("The import did not finish, so this record may be incomplete."), shown right above the stats, which stay. Demo data keeps its Demo badge. Importing traders are still left out of the feed as in round 3 |
+| 2 Low (test race) | "D6: … leaves no ghost user" compared a table-wide `count(*) from users` | The test now asserts on its own rows only: users carrying this attempt's id or this attempt's vendor user id, zero before and after the refused consent. No table-wide count remains |
+| Note | While importing, the banner counted imported activities while the list under it shows closed trades | Banner now counts closed trades: "Importing your record · N closed trade(s) so far", fed by the profile's closed-trade count (the unfurl text while importing uses the same count). Copy stays in `lib/copy.ts` (`RECORD_BODY.banner`), checked by the existing copy test and the e2e banner assertions (updated to the new wording; none removed) |
+| Note | Unfurl "0 verified trades · % win rate …" for a record with no closes | Left as is: there is no share text helper; the string is inline in `generateMetadata` of the profile page, so the fix is not the one-line helper change the brief allows. Suggested for PR-2b: move the unfurl text into `lib/copy.ts` with a no-closes case under test |
+
+Open point for the owner/tester (not changed here): the profile page still shows the Verified badge for a `failed`
+record beside the incomplete line (it hides the badge only while importing). The feed pane now drops it. If the pane's
+rule is the one wanted, the profile should match (a one-condition change at the badge in `app/u/[handle]/page.tsx`).
+The feature doc's banner wording ("N trades so far", F-1 decision) now reads "N closed trades so far"; the decision
+record should be updated by the owner if the wording is accepted.
+
+### Tests added
+
+- `lib/pane.test.ts` "pane trust (fix round 4, TR-3)": connected → Verified, no line; failed → no badge, the line;
+  demo stays Demo (failed or not); no trades is never Verified.
+- `lib/connections.test.ts` (DB) "fix round 4: recordStates …": empty input; importing after consent; after a 403 the
+  batched state equals `recordStatus` and reads `failed`; a trader with nothing consented reads `none`; duplicate ids
+  collapse.
+- `e2e/connect.spec.ts` "fix round 4 (TR-3)": against the vendor fake, a first link with 5 recent closes → in the feed,
+  pane Verified, no incomplete line; a second 2-account link consented, one step, then a vendor 403 → `failed`; signed
+  out at 375 px the trader is still in the feed, the pane carries the incomplete line, no Verified badge, and the stats.
+- D6 test changed to its own rows (stricter in scope, same assertion of "no ghost"). Banner strings in
+  `lib/connections.test.ts` and `e2e/connect.spec.ts` follow the new copy. Nothing weakened or deleted.
+  Unit 396 → 398; e2e 68 → 69.
+
+### Results
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (local Postgres), four runs | 398 pass every run, 0 fail, 0 skipped |
+| `npm run build` | first attempt stopped on the framework's security-advisory prompt (tool output; nothing upgraded); the retry built cleanly |
+| `SEED=1 node --env-file=.env scripts/db-setup.ts`, then `npm run test:e2e` (`ALLOW_DEV_AUTH=1`, vendor fake 4102 with the three vendor variables, PR-1 issuer and sink variables) | 69 passed, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+### Compliance
+
+- TR-3 / TR-2: a failed import is never presented as whole in the feed (no Verified badge, incomplete line), and is not
+  hidden either; losses still rank as before.
+- No new dependency, no schema change, no drop / truncate / delete. Percent-only; no quantities or prices.
+- No third-party names added; the new banner string is in `lib/copy.ts` under the existing copy checks.
+
+### Files changed
+
+`lib/connections.ts`, `lib/pane.ts`, `app/pane.tsx`, `app/page.tsx`, `app/u/[handle]/page.tsx`, `lib/copy.ts`; tests
+`lib/pane.test.ts`, `lib/connections.test.ts`, `e2e/connect.spec.ts`.

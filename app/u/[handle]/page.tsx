@@ -50,7 +50,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   if (!data) return {};
   const { user, s, c, state } = data;
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete).
-  if (state === 'importing') return { title: `${user.display_name} (@${user.handle}) · Stock Social`, description: RECORD_BODY.banner(data.imported) };
+  if (state === 'importing') return { title: `${user.display_name} (@${user.handle}) · Stock Social`, description: RECORD_BODY.banner(data.trades.length) };
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
     description: `${state === 'failed' ? `${RECORD_BODY.failed} ` : ''}${s.trades} verified trades · ${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`,
@@ -60,7 +60,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
-  const { user, trades, s, c, brokers, accounts, state, imported, positions, paper } = data;
+  const { user, trades, s, c, brokers, accounts, state, positions, paper } = data;
   const me = await currentUser();
   const isMe = me?.id === user.id;
   if (isMe) {
@@ -116,7 +116,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {!provisional && `@${user.handle} `}{complete && trades.length > 0 && <Badge verified={allVerified} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
-      {state === 'importing' && <p role="status" aria-live="polite" className="importing">{RECORD_BODY.banner(imported)}</p>}
+      {state === 'importing' && <p role="status" aria-live="polite" className="importing">{RECORD_BODY.banner(trades.length)}</p>}
       {state === 'failed' && (
         <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
       )}

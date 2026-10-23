@@ -109,9 +109,20 @@ export function aggregateRecord(rows: AggregateRow[], legacy = false): RecordSta
 }
 const legacyClaim = (userId: number) => sql`exists (select 1 from broker_accounts where user_id = ${userId} and confirmed_at is not null and connection_id is null)`;
 export async function recordStatus(userId: number): Promise<RecordStatus> {
-  const rows = await sql`select id, state, consent_at, imported_count, accounts from connections where user_id = ${userId} and consent_at is not null order by id`;
-  const [{ legacy }] = await sql`select ${legacyClaim(userId)} as legacy`;
-  return aggregateRecord(rows.map((r) => ({ ...(r as unknown as AggregateRow), id: Number(r.id) })), legacy as boolean);
+  return (await recordStates([userId])).get(userId)!;
+}
+// Fix round 4 (TR-3): the same aggregate for many traders in two queries (the feed reads every visible trader once).
+export async function recordStates(userIds: number[]): Promise<Map<number, RecordStatus>> {
+  const ids = [...new Set(userIds)];
+  const out = new Map<number, RecordStatus>();
+  if (!ids.length) return out;
+  const rows = await sql`select user_id, id, state, consent_at, imported_count, accounts from connections where user_id = any(${ids}) and consent_at is not null order by id`;
+  const legacy = new Set((await sql`select distinct user_id from broker_accounts where user_id = any(${ids}) and confirmed_at is not null and connection_id is null`).map((r) => Number(r.user_id)));
+  for (const id of ids) {
+    const mine = rows.filter((r) => Number(r.user_id) === id).map((r) => ({ ...(r as unknown as AggregateRow), id: Number(r.id) }));
+    out.set(id, aggregateRecord(mine, legacy.has(id)));
+  }
+  return out;
 }
 export async function publicRecord(userId: number): Promise<{ state: PublicState; paper: number }> {
   return (await publicRecordDetail(userId)).public;

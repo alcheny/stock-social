@@ -133,7 +133,7 @@ test('signed in: S2 → portal → consent (zero depth: no activities) → impor
   await page.screenshot({ path: test.info().outputPath('s4-consent.png'), fullPage: true });
   await page.getByRole('button', { name: 'Import my record' }).click();
   await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
-  await expect(page.getByRole('status')).toHaveText('Importing your record · 0 trades so far');
+  await expect(page.getByRole('status')).toHaveText('Importing your record · 0 closed trades so far');
   await expect(page.locator('.record-body')).toHaveText('Your trades appear here as they import.');
   await expect(page.locator('main')).not.toContainText('No closed trades yet');
   const [c] = await sql`select id, state, consent_at from connections where user_id = ${u.id}`;
@@ -143,7 +143,7 @@ test('signed in: S2 → portal → consent (zero depth: no activities) → impor
   for (const path of [`/connect/consent?c=${c.id}`, `/connect/result?c=${c.id}`]) {
     await page.goto(path);
     await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
-    await expect(page.getByRole('status')).toHaveText('Importing your record · 0 trades so far');
+    await expect(page.getByRole('status')).toHaveText('Importing your record · 0 closed trades so far');
     await expect(page.locator('main')).not.toContainText('Connection not completed');
   }
   // The client poll: one page per call until connected.
@@ -300,7 +300,7 @@ test('expiry with a clock: a pending consent older than 24 h reads expired and t
   await scenario([{ id: acc, activities: 10 }]);
   await connectThrough(page);
   await page.getByRole('button', { name: 'Import my record' }).click();
-  await expect(page.getByRole('status')).toHaveText('Importing your record · 0 trades so far');
+  await expect(page.getByRole('status')).toHaveText('Importing your record · 0 closed trades so far');
   await page.goto('/'); // the tab leaves
   const t = await tick(page.request);
   expect(t.connections.advanced).toBe(1);
@@ -541,6 +541,53 @@ test('fix round 3: the feed omits a trader whose second import is still running 
   for (let i = 0; i < 8 && r.state === 'importing'; i++) r = await step(page.request);
   expect(r).toMatchObject({ state: 'connected', closes: 9 });
   expect(await inFeed()).toBeGreaterThan(0);
+  await anon.close();
+  await sql`delete from users where handle = ${handle}`;
+  await sql`delete from broker_accounts where account_id = any(${[a1, a2, a3]})`;
+});
+
+test('fix round 4 (TR-3): a trader whose second import failed stays in the feed, and the pane says the record may be incomplete with no Verified badge, stats beside the line', async ({ page, browser }) => {
+  const handle = `ff${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const recent = (acc: string, pairs: number): FakeActivity[] => Array.from({ length: pairs }, (_, i) => {
+    const t = Date.now() - (pairs - i + 1) * 3 * 3_600_000, sym = ['AAA', 'BBB', 'CCC'][i % 3];
+    return [
+      { id: `${acc}-b${i}`, symbol: sym, type: 'BUY' as const, units: 10, price: 100, fee: 0, trade_date: new Date(t).toISOString() },
+      { id: `${acc}-s${i}`, symbol: sym, type: 'SELL' as const, units: 10, price: i % 2 ? 80 : 125, fee: 0, trade_date: new Date(t + 3_600_000).toISOString() },
+    ];
+  }).flat();
+  const [a1, a2, a3] = [1, 2, 3].map((n) => `e2e-${handle}-${n}`);
+  const anon = await browser.newContext();
+  const feed = await anon.newPage();
+  await feed.setViewportSize({ width: 375, height: 800 });
+  const pane = () => feed.locator('.row', { has: feed.locator(`a[href="/u/${handle}"]`) }).first().locator('section.pane');
+  // First link: 5 closes, finished → in the feed, Verified, no incomplete line.
+  await scenario([{ id: a1, activities: recent(a1, 5) }]);
+  await connectThrough(page);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  let r = await step(page.request);
+  for (let i = 0; i < 6 && r.state === 'importing'; i++) r = await step(page.request);
+  expect(r).toMatchObject({ state: 'connected', closes: 5 });
+  await feed.goto('/');
+  await expect(pane().locator('.badge.verified')).toHaveCount(1);
+  await expect(pane().locator('.record-failed')).toHaveCount(0);
+  // Second link (2 accounts) consented; one step reads account 1 of 2, then the vendor refuses (403) → failed.
+  await scenario([{ id: a2, activities: recent(a2, 2) }, { id: a3, activities: recent(a3, 2) }]);
+  await connectThrough(page);
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  expect((await step(page.request)).state).toBe('importing');
+  await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
+  expect((await step(page.request)).state).toBe('failed');
+  // Signed out: still in the feed (incompleteness is never hidden), but never presented as whole.
+  await feed.goto('/');
+  await expect(feed.locator(`a[href="/u/${handle}"]`).first()).toBeAttached();
+  await expect(pane().locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');
+  await expect(pane().locator('.badge.verified')).toHaveCount(0);
+  await expect(pane().locator('section.stats')).toHaveCount(1);
   await anon.close();
   await sql`delete from users where handle = ${handle}`;
   await sql`delete from broker_accounts where account_id = any(${[a1, a2, a3]})`;
