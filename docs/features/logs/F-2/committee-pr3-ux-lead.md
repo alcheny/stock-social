@@ -211,3 +211,68 @@ The server and the fake are stopped. Test users (`uxp3_*`, 61 rows) are deleted,
 with them through the cascade. `ss_ux_pr3` is dropped. No product code was changed.
 
 USABILITY: PROBLEMS
+
+## Round 2 (fix round 1 at `24d93d1`)
+
+2026-10-23. Fresh `CI=1` build (stdin closed; exit 0, no advisory hit). Port 3116, vendor fake on 4196, no sync tick. Own
+database `ss_ux_pr3r2` (Postgres 16, created as the superuser, owned by the shared role), with the schema, the seed and
+the same 40 `uxp3_*` traders. I tested at 320, 375 and 1280, in light and dark, with the keyboard, with CDP touch, and
+from a screen reader's view (ARIA snapshot, focus, live regions). I also tested without JavaScript. Screenshots are in
+`screenshots/pr3-ux2/`.
+
+### Checked against round 1
+
+1. **The flick is fixed (was blocking).** I tested at 375 (row card 343 px) and 320 (288 px), signed in:
+   - No hide for: flicks of 50 px, 30% and 45% of the row in 48 ms; slow drags of 40% and 45%; and the old round-1
+     flick set (30 to 90 px).
+   - Hides for: slow drags of 55% and 70%, and a fast 60% drag in 64 ms.
+   - Right after the sheet closes, a swipe stays unarmed. A diagonal swipe does nothing. The opening swipe still
+     opens the sheet.
+   - The commit point now follows the finger, not the momentum.
+2. **The swipe now arms at 320.** It commits at 55% of the row (see 1).
+3. **The tray label is fixed.** It reads "Hide", whole, mid-drag at 320 and 375 (`tray-label-mid-*`).
+4. **Hiding all three rows is fixed.** The section collapses (height 0). Focus lands on card 6's name link, in view,
+   with a visible focus ring (`section-all-hidden-375-light`).
+5. **Fixed: the sheet's skip link.** "Skip to the disclaimer" is the sheet's first stop, and pressing it focuses the
+   F3 line, which then sits on screen at y 600 to 667 (`sheet-skip-*`, `sheet-disclaimer-*`).
+   - Tab still cycles inside the sheet.
+   - The only stop outside the sheet is the browser's own chrome, which is normal for a native modal.
+6. **The pane header is fixed.** At 320 and 375 the long name ends in an ellipsis and `@uxp3_longhandle_2026` is whole
+   (192/192 px) (`pane-header-long-*`).
+7. **Undo: partly fixed.** A tap on the bar keeps it open: still open 7 s later, after each swipe hide at 320 and
+   375. After Undo, focus returns to the row's "…".
+   - A mouse hide from the menu with no further contact still closes the bar at about 5 s, although focus is on
+     Undo. See follow-up R2-1.
+8. **Still open: rows at 320, signed in.** The rows are still cramped (Follow and "…" leave the text about 94 px; a
+   handle shows as "@moment…"). They are recorded by the engineer as follow-ups.
+9. **The heading is fixed.** "Other traders' records" plus the evidence line is in the ARIA region and on screen.
+10. **`aria-haspopup` is fixed.** It is `dialog` with JavaScript and absent without it.
+11. **The no-JS link is fixed.** "Following and hidden traders" is 186 × 44.
+12. **Swipe cue:** unchanged. It is the owner's call under O1.
+13. **PR-2 carry-overs:** unchanged, and recorded.
+
+I also re-checked that nothing regressed:
+- Follow is optimistic (about 60 to 85 ms) and announced.
+- The "…" menu fits at every width with no horizontal scroll.
+- A keyboard hide puts focus on Undo, and Esc on the menu returns to its summary.
+- Hiding from the sheet closes the sheet and focuses Undo.
+- Without JavaScript the paths work: hide, then the line and its link; follow, then the confirmation.
+- Signed out, the rows are plain links with no Follow or menu.
+- SW-1 swipe to profile still works on cards 5 and 6.
+
+### Problems
+
+- **R2-1 follow-up: after a mouse hide the bar can still time out with focus on Undo.** At 320 focus then falls to a
+  row at y −73, inside the section's own scroll. Pausing while focus is inside the bar would close this. It is the
+  same class as round 1 item 7, now much narrower.
+- **R2-2 follow-up: on a touch open, the first focus is the offscreen "Skip to the disclaimer" (y −100).** A screen
+  reader user starts on a skip link rather than the record's name. Taste: consider focusing the dialog (it is
+  labelled "Maya's record") and keeping the skip link as the first Tab stop.
+- Round 1 follow-ups 8, 12 and 13, and the older issues, stand as recorded in the engineer's follow-up table.
+
+### Cleanup
+
+The server and the fake are stopped. The `uxp3_*` users are deleted, and their follows and exclusions went with them.
+`ss_ux_pr3r2` is dropped. No product code was changed. No third-party company is named.
+
+USABILITY: PASS (0 blocking; follow-ups R2-1, R2-2 and the carried items)
