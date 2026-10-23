@@ -315,3 +315,61 @@ PR-2b. The card's ✓ glyph rendered as a box here only because the font downloa
 
 Verdict: DEFECTS (re-run 2's Medium and two Lows fixed, both additions sound; new: 2 Low, one TR-3 feed gap and one
 test race)
+
+## Re-run 4 (after fix round 4)
+
+Date: 2026-10-23. Same branch, at `d07fe66` (fix round 4 and 4b, end of `build-pr2a-fix3.md`). No product code changed.
+Local Postgres 16; `db/schema.sql` applied twice with `psql`, then `npm run db:seed`, all clean.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, four runs | 398 pass in every run, 0 fail, 0 skipped |
+| `npm run build` | the first attempt compiled, then stopped on the framework's security-advisory prompt (tool output; nothing upgraded). The retry built cleanly |
+| `npm run test:e2e` (`ALLOW_DEV_AUTH=1`, vendor fake on 4102 with the three `SNAPTRADE_*` variables, PR-1 issuer and sink variables) | 69 passed, 0 skipped. (A first attempt had 2 fail with `EADDRINUSE` because I had started the fakes myself; the specs start their own. Not a product issue) |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+Tester scripts (not committed) drove the built app on port 3000 against the in-repo vendor fake in a browser, with
+database checks after each step, then deleted their users. Screenshots are in `screenshots/pr2a/rerun4/`. The server and
+the fakes were stopped afterwards.
+
+### Re-run 3 findings
+
+| # | Check as a user and in the database | Result |
+|---|---|---|
+| 1 Low (TR-3, feed) | A trader with 5 recent closes from a finished link (feed pane: Verified, no line), then a second 2-account link consented, one step, a vendor 403 → `failed` (rows `connected` + `failed`, 5 closes). Signed out at 375 and 360 px, light and dark, and at 1280 px: the trader is still in the feed; the **pane** has no Verified badge, the line "The import did not finish, so this record may be incomplete." above the stats (60% win rate, +7.0% avg return), the chart, no horizontal scroll (`feed-failed-pane-*`). The **profile** signed out: no Verified badge ("New record"), the same line, stats, chart, "Connected:", 5 trades (`profile-failed-signedout-*`); owner: the line and "Try again", no badge (`profile-failed-owner-375-light.png`). The **share card**: amber "Import did not finish", stats, the incomplete line, no Verified label (`card-failed-with-closes.png`). **But the feed's trade card itself** (the first thing seen in the swipe feed, before the pane) still shows "✓ Verified" next to the trader's name, with no incomplete line, at every width and scheme (`feed-failed-card-*`) | Pane, profile and card fixed; feed trade card not (new item 1) |
+| 2 Low (D6 race) | The test now selects this attempt's own rows (its attempt id or its vendor user id) before and after the refused consent; no table-wide count remains. 4 of 4 unit runs passed it, and the full suite passed 4 of 4 | Fixed |
+| Note (banner) | Stall repro, signed out and as owner after every poll: "Importing your record · 0 closed trades so far" with 0 listed (while 4, 8 and then 14 activities were imported), then "· 7 closed trades so far" with 7 listed and 7 in `closed_trades`; the unfurl text is the same line. The count always matches the list | Fixed |
+
+### Regression
+
+- **Stall repro:** 3 accounts, one poll (`{i:1}`); a second link left pending: the poll answered `importing` and moved
+  the first row on (`{i:2}`, 8 imported); after consenting the second link the polls drove both rows, rebuilt 7 closes;
+  signed out while importing: banner, no Verified badge, no stats, no chart, no "Connected:"
+  (`stall-importing-signedout-375-light.png`, `stall-importing-owner-375-light.png`). The tick (`advanced: 2`) finished
+  both (`connected`, `connected`); the poll then answered `{connected, 14, 7}`; signed out: Verified, stats, chart,
+  "Connected:", 7 trades. Still fixed.
+- **Pending privacy (re-run 1 item 1, D1):** a pending link (1 real account with an open position, 1 simulated) after two
+  ticks: still `pending`, 0 activities, 0 open positions stored; signed out "No trades yet", no "simulated", no position,
+  no "Connected:", no banner, no Verified badge. After consent and import: "1 simulated account excluded" and the
+  position appear. Still fixed.
+
+### New in this re-run
+
+1. **Low · spec (TR-3) · the feed's trade card still shows "✓ Verified" for a failed record.** Same finding as re-run 3
+   item 1 (my re-run 3 screenshot `feed-failed-row-375-light.png` was this card), fixed in the pane only. The card
+   (`TradeCard` in `app/ui.tsx`) takes its badge from the trade's own `verified` flag, so a trader whose import failed is
+   shown in the feed with the same badge, beside the same name, that the profile and the pane now withhold, and with no
+   sign that the record may be incomplete. On a phone this card is the full first screen; the pane only follows a swipe.
+   Fix: pass the record state the feed already reads (`recordStates`) to the card and apply the same `paneTrust()` rule
+   (no Verified badge for `failed`, optionally the short incomplete line); extend the "fix round 4 (TR-3)" e2e to assert
+   no `.badge.verified` in the row's `article.card`.
+
+Notes (not blocking): the unfurl text for the failed record reads "The import did not finish, so this record may be
+incomplete. 5 verified trades · …"; each trade is verified, so this is accurate, but it can move with the unfurl copy to
+`lib/copy.ts` in PR-2b as the engineer suggests. The "0 verified trades · % win rate" unfurl for a record with no closes
+is unchanged (same note as re-run 3).
+
+Verdict: DEFECTS (re-run 3's test race and banner note fixed, the pane, profile and card fixed; 1 Low left: the feed trade
+card still shows Verified for a failed record)
