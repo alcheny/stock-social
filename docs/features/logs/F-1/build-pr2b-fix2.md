@@ -154,3 +154,49 @@ Screenshots (375 px, light and dark): `screenshots/pr2b/fix2/` contains `s3-load
   vendor answers HEAD with its framing headers is unverified until the preview check (requests #4 and #9). If it does
   not, the result is "embedded" and the browser fallback remains.
 - The build's framework security advisory remains for the owner.
+
+## Fix round 3 (the tester's Low: tick test race)
+
+Date: 2026-10-23. Engineer. Tests only; no product code changed.
+
+### Finding and fix
+
+- **Finding (Low, tester Re-run 1).** `tick()` cleans every declined or expired row with `cleanup_done_at` null in the
+  whole database. When `lib/connections.test.ts` and `lib/schema.test.ts` overlap, the tick cleans the schema test's
+  "uncleaned" fixture, so whichever file asserts second fails: the expiry test counts `cleaned === 2`, or the schema
+  test reads `accounts = []`.
+- **`lib/connections.test.ts`, "expiry with a clock".** It now asserts on its own rows. `t.cleaned >= 1`, its row is
+  not in `t.errors`, its row has `cleanup_done_at`, its claims are released, and the deleted links are filtered to the
+  test's unique tag (exactly `auth-<tag>-exp`). It no longer asserts the global count.
+- **`lib/connections.test.ts`, "D2".** This test had the same race (`t.cleaned === 1` and an unfiltered
+  `deletedConnections`). It now asserts `cleaned >= 1`, that row A is cleaned and not in `errors`, and that no `auth-x`
+  link and no link carrying its tag was ever deleted.
+- **`lib/schema.test.ts`, "a repeat apply blanks…".** The old and fresh declined, old expired and connected rows keep
+  their strict assertions. The uncleaned row is exactly what the tick cleans, so its check is now the invariant itself:
+  - While the row is uncleaned (`cleanup_done_at` null), its snapshot must be intact, because the apply never blanks it.
+  - If a concurrent tick's cleanup finished it, it must show the cleanup's own blanking with `cleanup_done_at` set.
+  - With no overlap, the strict branch runs, as before.
+  - The regex check on the update's predicate (`cleanup_done_at is not null`) is unchanged.
+- No test was removed, and the count is unchanged (448).
+
+### Proof
+
+| Command | Result |
+|---|---|
+| `npm test` ×6 | 448 pass, 0 fail, every run |
+| `node --test lib/connections.test.ts lib/schema.test.ts` (files run concurrently) ×10 | 39 pass, 0 fail, every run |
+| Tester's reproduction: one foreign expired row with `cleanup_done_at` null inserted, then `--test-name-pattern="expiry with a clock\|D2"` | 2 pass. The foreign row was cleaned by the tick (`accounts = []`, `cleanup_done_at` set), and both tests still passed. The row was removed afterwards. |
+| `npx tsc --noEmit` | clean (a `string[]` cast was needed: an earlier `deepEqual(…, [])` had narrowed the array to `never[]`) |
+| `node scripts/compliance.ts diff origin/main` | only the existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+- **`lib/connections.test.ts`, "tick advances every importing row".** This test had the same kind of global count
+  (`advanced === 1`), and `lib/sync.test.ts` briefly holds an `importing` row. It now asserts `advanced >= 1` and that
+  its row is not in `errors`. The existing per-row checks (state, cursor, counts for its own user) do the rest.
+
+### Owner note (not changed here)
+
+- A concurrent tick in `lib/connections.test.ts` can also drive `lib/sync.test.ts`'s short-lived `importing` row with
+  that test's fake vendor. It has not been seen to fail. If it ever does, the fix is to give the tick test's fixtures
+  a scope (or have `sync.test.ts` insert that row directly as non-importing). That is a test-isolation change, not a
+  product one.

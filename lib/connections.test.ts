@@ -421,9 +421,12 @@ dbTest('expiry with a clock: a pending row is marked expired at 24 h lazily on r
     assert.equal(c.cleanup_done_at, null);
     assert.deepEqual(v.deletedConnections, []);
     await assert.rejects(consent(id, h(24), deps), /no longer awaiting consent/);
+    // The tick is global: a concurrent test file's uncleaned row may be cleaned in the same pass, so the assertions
+    // read this test's own row and links (the tag is unique to this test), never the global count.
     const t = await tick(deps, h(25));
-    assert.equal(t.cleaned, 1);
-    assert.deepEqual(v.deletedConnections, [`auth-${acc}`]);
+    assert.ok(t.cleaned >= 1);
+    assert.ok(!t.errors.includes(id));
+    assert.deepEqual((v.deletedConnections as string[]).filter((x) => x.includes(tag)), [`auth-${acc}`]); // cast: the deepEqual above narrowed it to never[]
     assert.equal((await claims([acc])).length, 0);
     assert.ok((await conn(id)).cleanup_done_at);
     assert.ok((await events(attempt)).includes('expired'));
@@ -498,8 +501,8 @@ dbTest('tick advances every importing row with no client poll, resuming from the
     // One client step (the tab), then the tab closes.
     assert.equal((await importStep(id, deps, s(2))).imported, 3);
     // The tick finishes the pass and then waits on the vendor's flag: still importing, no progress recorded while waiting.
-    const t1 = await tick(deps, s(10));
-    assert.equal(t1.advanced, 1);
+    const t1 = await tick(deps, s(10)); // global: another file's importing row may be advanced too; the checks below read this row
+    assert.ok(t1.advanced >= 1 && !t1.errors.includes(id));
     let c = await conn(id);
     assert.equal(c.state, 'importing');
     assert.equal(c.imported_count, 4);
@@ -515,7 +518,7 @@ dbTest('tick advances every importing row with no client poll, resuming from the
     v.accounts = [acct(acc, { initialSyncCompleted: true })];
     v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2), ...pair(acc, 3, 'EEE')]);
     const t2 = await tick(deps, s(10 + WAIT_RECHECK_MS / 1000 + 1));
-    assert.equal(t2.advanced, 1);
+    assert.ok(t2.advanced >= 1 && !t2.errors.includes(id));
     c = await conn(id);
     assert.equal(c.state, 'connected');
     assert.equal(c.import_cursor.pass, 2);
@@ -731,15 +734,16 @@ dbTest('D2: an expired, uncleaned link re-bundled into a new consent is not cut 
     assert.equal(outB.kind, 'consent');
     assert.equal((await conn(outB.id)).vendor_authorization_id, 'auth-x');
     await consent(outB.id, h(24.6), deps);
-    const t = await tick(deps, h(25));
-    assert.equal(t.cleaned, 1);
+    const t = await tick(deps, h(25)); // global: other files' uncleaned rows may be cleaned too, so assert on A and auth-x only
+    assert.ok(t.cleaned >= 1);
+    assert.ok(!t.errors.includes(a));
     assert.ok((await conn(a)).cleanup_done_at);
-    assert.deepEqual(v.deletedConnections, []); // auth-x is held by B: never deleted
+    assert.deepEqual(v.deletedConnections.filter((x) => x === 'auth-x' || x.includes(tag)), []); // auth-x is held by B: never deleted
     assert.equal((await conn(outB.id)).state, 'connected'); // the tick also drove B
     assert.equal((await sql`select user_id from broker_accounts where account_id = ${acc}`)[0].user_id, u.id);
     // And a replayed cleanup of A, or a decline of B, changes nothing more.
     await tick(deps, h(26));
-    assert.deepEqual(v.deletedConnections, []);
+    assert.deepEqual(v.deletedConnections.filter((x) => x === 'auth-x' || x.includes(tag)), []);
     assert.equal((await drive(outB.id, deps, h(26))).state, 'connected');
   } finally {
     await cleanup([u.id], [acc]);

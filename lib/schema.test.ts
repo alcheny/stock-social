@@ -81,14 +81,22 @@ dbTest('schema: a repeat apply blanks accounts and institution on cleaned declin
     };
     await db.unsafe(ddl).simple();
     await db.unsafe(ddl).simple(); // idempotent
-    const rows = await db`select id, state, accounts, institution from connections where attempt_id = ${a.id} order by id`;
+    const rows = await db`select id, state, accounts, institution, cleanup_done_at from connections where attempt_id = ${a.id} order by id`;
     assert.equal(rows.length, 5); // no row deleted
     const by = new Map(rows.map((r) => [Number(r.id), r]));
     for (const id of [ids.oldDeclined, ids.oldExpired]) assert.deepEqual([by.get(id)!.accounts, by.get(id)!.institution], [[], null]);
-    for (const id of [ids.freshDeclined, ids.uncleaned, ids.connected]) {
+    for (const id of [ids.freshDeclined, ids.connected]) {
       assert.equal(by.get(id)!.accounts.length, 1);
       assert.equal(by.get(id)!.institution, 'Test Broker');
     }
+    // The uncleaned row is exactly what the connection tick cleans, and a test file running alongside may tick while
+    // this one applies the schema. So the check is on the invariant itself: as long as the row is still uncleaned, its
+    // snapshot is intact (the apply never blanks it). If a concurrent tick's cleanup finished it, cleanup itself
+    // blanked it and recorded cleanup_done_at; that is the cleanup's job, not the apply's.
+    const u = by.get(ids.uncleaned)!;
+    assert.equal(u.state, 'expired');
+    if (u.cleanup_done_at === null) assert.deepEqual([u.accounts.length, u.institution], [1, 'Test Broker']);
+    else assert.deepEqual([u.accounts, u.institution], [[], null]);
     await db`delete from connections where attempt_id = ${a.id}`;
     await db`delete from signup_attempts where id = ${a.id}`;
   } finally {
