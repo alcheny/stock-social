@@ -38,11 +38,14 @@ export default async function Result({ searchParams }: { searchParams?: Promise<
     : 'abandoned';
   const error = k === 'abandoned' || k === 'failed' || k === 'stale' || k === 'refused';
   const text = k === 'declined' ? RESULT.declined : k === 'expired' ? `${RESULT.expiredPrefix} ${RESULT.declined}` : k === 'none' ? RESULT.none
-    : k === 'abandoned' ? RESULT.abandoned : k === 'failed' ? RESULT.failed : k === 'stale' ? RESULT.stale : `${ACCOUNT_CLAIMED_TITLE} ${ACCOUNT_CLAIMED_BODY}`;
+    : k === 'abandoned' ? RESULT.abandoned : k === 'failed' ? RESULT.failed : k === 'stale' ? RESULT.stale : ACCOUNT_CLAIMED_TITLE;
+  // S6b: a short heading; the explanation is body text, read with the focused heading through aria-describedby.
+  const body = k === 'refused' ? ACCOUNT_CLAIMED_BODY : null;
   const primary = k === 'none' ? RESULT.noneAction : k === 'refused' ? RESULT.claimedAction : k === 'declined' || k === 'expired' ? RESULT.again : RESULT.retry;
   return (
     <main className="page auth">
-      <h1 id="result-heading" tabIndex={-1} role={error ? 'alert' : undefined} data-kind={k}>{text}</h1>
+      <h1 id="result-heading" tabIndex={-1} role={error ? 'alert' : undefined} data-kind={k} aria-describedby={body ? 'result-body' : undefined}>{text}</h1>
+      {body && <p id="result-body">{body}</p>}
       {error && <FocusHeading id="result-heading" />}
       <p><Link className="button wide" href="/connect">{primary}</Link></p>
       <p><Link className="button wide secondary" href="/">{k === 'abandoned' ? RESULT.notNow : RESULT.feed}</Link></p>

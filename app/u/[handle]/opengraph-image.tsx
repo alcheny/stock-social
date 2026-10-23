@@ -4,6 +4,7 @@ import { ImageResponse } from 'next/og';
 import { notFound } from 'next/navigation';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
+import { publicRecord } from '@/lib/connections.ts';
 import { confidence, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
 
 export const size = { width: 1200, height: 630 };
@@ -12,13 +13,14 @@ export const alt = 'Verified trading record on Stock Social';
 
 export default async function Card({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
-  const [user] = await sql`select id, display_name, snaptrade_user_id from users where handle = ${handle} and deleted_at is null`;
+  const [user] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;
   if (!user) notFound(); // no card for an unknown handle or a profile being deleted (the profile itself is 404 too)
   const rows = user ? await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${user.id}` : [];
   const s = stats(rows.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at })));
   const verified = rows.length > 0 && rows.every((t) => t.verified);
   const empty = rows.length === 0;
-  const connectedEmpty = empty && !!user?.snaptrade_user_id;
+  // Fix round 2: "Broker connected" only for a consented connection, never for a link still waiting on consent.
+  const connectedEmpty = empty && (await publicRecord(user.id)).state !== 'none';
   const up =s.avgReturn > 0;
   const c = confidence(rows.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
   const isNew = rows.length > 0 && isNewRecord(rows.map((t) => ({ openedAt: t.opened_at })), rows.length, new Date());

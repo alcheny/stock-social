@@ -79,6 +79,20 @@ export async function latestConnection(userId: number): Promise<Connection | nul
   const [c] = await sql`select * from connections where user_id = ${userId} order by id desc limit 1`;
   return c ? norm(c) : null;
 }
+// What may be public about a trader's connections (fix round 2, COMPLIANCE §3 consent at collection). Only a consented
+// connection (consent_at set: importing, connected, or failed after consent) and claims confirmed at consent or by a
+// completed sync contribute; a pending, declined or expired link, its provisional claims and its account snapshot never
+// do. A pre-F-1 claim (confirmed, no connection) counts as connected. The state never derives from "has a vendor id".
+export type PublicState = 'importing' | 'connected' | 'failed' | 'none';
+export async function publicRecord(userId: number): Promise<{ state: PublicState; paper: number }> {
+  const [r] = await sql`select
+    (select state from connections where user_id = ${userId} and consent_at is not null and state in ('importing', 'connected', 'failed') order by id desc limit 1) as state,
+    exists (select 1 from connections where user_id = ${userId} and consent_at is not null) as consented,
+    exists (select 1 from broker_accounts where user_id = ${userId} and confirmed_at is not null and connection_id is null) as legacy,
+    (select count(*)::int from broker_accounts where user_id = ${userId} and is_paper and removed_at is null and confirmed_at is not null) as paper`;
+  const state = (r.state as PublicState | null) ?? (r.legacy ? 'connected' : 'none');
+  return { state, paper: r.consented || r.legacy ? (r.paper as number) : 0 };
+}
 // A connection belongs to its user, or, before a user row exists, to the browser holding the signed attempt cookie.
 export function ownsConnection(c: Pick<Connection, 'user_id' | 'attempt_id'>, meId: number | null, cookie: string | undefined, secret: string): boolean {
   return c.user_id !== null ? meId === c.user_id : ownsAttempt(cookie, c.attempt_id, secret);

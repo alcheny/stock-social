@@ -8,8 +8,8 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { PROFILE, RECORD_BODY, recordBodyCopy, type RecordState } from '@/lib/copy.ts';
-import { applyClocks, latestConnection } from '@/lib/connections.ts';
+import { PROFILE, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
+import { applyClocks, publicRecord } from '@/lib/connections.ts';
 import { Badge } from '../../ui.tsx';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
@@ -36,12 +36,12 @@ async function load(handle: string) {
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
   // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.
   if (user.snaptrade_user_id) await applyClocks(new Date(), { userId: user.id });
-  const conn = user.snaptrade_user_id ? await latestConnection(user.id) : null;
-  // A failed import is shown as such (TR-3: never a partial record presented as whole), never as connected.
-  const state: RecordState = conn?.state === 'importing' ? 'importing' : conn?.state === 'failed' ? 'failed' : user.snaptrade_user_id ? 'connected' : 'none';
-  const positions = conn ? await sql`select symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol` : [];
-  const [{ paper }] = await sql`select count(*)::int as paper from broker_accounts where user_id = ${user.id} and is_paper and removed_at is null`;
-  return { user, trades, state, imported: conn?.imported_count ?? 0, positions: positions.map((p) => ({ symbol: p.symbol as string, pct: p.unrealized_pct as number })), paper: paper as number, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  // Fix round 2: everything public about the connection (state, simulated-account count, positions) comes from a
+  // consented connection and confirmed claims only; a pending, declined or expired link shows nothing (COMPLIANCE §3).
+  const { state, paper } = await publicRecord(user.id);
+  const [conn] = state === 'importing' ? await sql`select imported_count from connections where user_id = ${user.id} and state = 'importing' order by id desc limit 1` : [];
+  const positions = state !== 'none' ? await sql`select symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol` : [];
+  return { user, trades, state, imported: (conn?.imported_count as number | undefined) ?? 0, positions: positions.map((p) => ({ symbol: p.symbol as string, pct: p.unrealized_pct as number })), paper: paper as number, brokers: brokers.map((b) => b.inst as string | null).filter(Boolean) as string[], accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -132,7 +132,7 @@ export default async function Profile({ params, searchParams }: Params) {
       {isMe && !claimed && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
         <NewTradesPrompt handle={user.handle} trades={nt.shown.map((x) => ({ sellId: x.sellId, symbol: x.symbol, returnPct: x.returnPct, closedAt: x.closedAt.toISOString() }))} more={nt.more} />
       )}
-      {isMe && (!user.snaptrade_user_id || claimed) && (
+      {isMe && (state === 'none' || claimed) && (
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
       )}
       {isMe && (

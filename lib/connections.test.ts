@@ -757,3 +757,60 @@ dbTest('D6: a brokerage-first consent that loses the claim race leaves no ghost 
     await cleanup([other.id], [acc]);
   }
 });
+
+dbTest('public record (fix round 2): a pending, declined or expired link contributes nothing public; the state and the simulated-account count come only from a consented connection and confirmed claims', async () => {
+  const { sql, tag, mkUser, cleanup } = await setup();
+  const { startConnection, completeLink, consent, decline, importStep, publicRecord } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const real = `${tag}-pr`, paper = `${tag}-pp`, real2 = `${tag}-pr2`, paper2 = `${tag}-pp2`, real3 = `${tag}-pr3`;
+  const users: number[] = [];
+  const link = async (u: { id: number }) => {
+    const [{ signup_attempt_id: a }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+    await startConnection({ userId: u.id, attemptId: Number(a) }, 'https://app.example/connect/done', deps);
+    const out = await completeLink({ userId: u.id, attemptId: Number(a) }, deps);
+    assert.equal(out.kind, 'consent');
+    return (out as { id: number }).id;
+  };
+  try {
+    // No link at all.
+    const u0 = await mkUser('n'); users.push(u0.id);
+    assert.deepEqual(await publicRecord(u0.id), { state: 'none', paper: 0 });
+    // Pending: a vendor user and a provisional paper claim exist, nothing is public (the D-medium of re-run 1).
+    const u = await mkUser('p'); users.push(u.id);
+    v.accounts = [acct(real), acct(paper, { isPaper: true, authorizationId: `auth-${real}` })];
+    v.rows.set(real, pair(real, 1));
+    const id = await link(u);
+    assert.equal((await sql`select count(*)::int as n from broker_accounts where user_id = ${u.id} and is_paper and confirmed_at is null`)[0].n, 1);
+    assert.ok((await sql`select snaptrade_user_id from users where id = ${u.id}`)[0].snaptrade_user_id);
+    assert.deepEqual(await publicRecord(u.id), { state: 'none', paper: 0 });
+    // Declined: still nothing.
+    await decline(id, deps);
+    assert.deepEqual(await publicRecord(u.id), { state: 'none', paper: 0 });
+    // Expired: still nothing.
+    const id2 = await link(u);
+    await sql`update connections set pending_at = now() - interval '25 hours' where id = ${id2}`;
+    const { applyClocks } = await import('./connections.ts');
+    await applyClocks(new Date(), { id: id2 });
+    assert.equal((await sql`select state from connections where id = ${id2}`)[0].state, 'expired');
+    assert.deepEqual(await publicRecord(u.id), { state: 'none', paper: 0 });
+    // Consented: importing, with the confirmed paper claim counted; then connected with no closes (S8).
+    const id3 = await link(u);
+    await consent(id3, new Date(), deps);
+    assert.deepEqual(await publicRecord(u.id), { state: 'importing', paper: 1 });
+    for (let i = 0; i < 10 && (await publicRecord(u.id)).state === 'importing'; i++) await importStep(id3, deps);
+    assert.deepEqual(await publicRecord(u.id), { state: 'connected', paper: 1 });
+    // A later link waiting on consent (with a new simulated account) changes nothing public.
+    v.accounts = [acct(real), acct(paper, { isPaper: true, authorizationId: `auth-${real}` }), acct(real3, { authorizationId: `auth-${paper2}` }), acct(paper2, { isPaper: true })];
+    await link(u);
+    assert.deepEqual(await publicRecord(u.id), { state: 'connected', paper: 1 });
+    // A consented connection that failed shows as failed.
+    const uf = await mkUser('f'); users.push(uf.id);
+    v.accounts = [acct(real2)];
+    const idf = await link(uf);
+    await consent(idf, new Date(), deps);
+    await sql`update connections set state = 'failed', failed_at = now(), failure_reason = 'vendor' where id = ${idf}`;
+    assert.deepEqual(await publicRecord(uf.id), { state: 'failed', paper: 0 });
+  } finally {
+    await cleanup(users, [real, paper, real2, paper2, real3]);
+  }
+});

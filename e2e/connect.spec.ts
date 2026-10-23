@@ -402,3 +402,50 @@ test('a vendor refusal fails the import and the hourly sync never publishes the 
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id in (${a1}, ${a2})`;
 });
+
+test('fix round 2: a link waiting on consent shows nothing public (signed out: no simulated-account line, "No trades yet."); a brokerage-first attempt refused on a claimed account gets a short S6b heading with the explanation as body text; after consent the confirmed count and the S8 line show', async ({ page, browser }) => {
+  const handle = `pnd${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`, pap = `${acc}-paper`;
+  await scenario([{ id: acc, activities: 0 }, { id: pap, paper: true, activities: 2 }]);
+  await connectThrough(page);
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  const consentUrl = page.url();
+  const sql = await db();
+  expect((await sql`select count(*)::int as n from broker_accounts where account_id = ${pap} and confirmed_at is null`)[0].n).toBe(1);
+  // Signed out, the pending link contributes nothing to the public profile.
+  const anon = await browser.newContext();
+  const p2 = await anon.newPage();
+  await p2.goto(`/u/${handle}`);
+  await expect(p2.locator('main')).not.toContainText('simulated');
+  await expect(p2.locator('main')).not.toContainText('No closed trades yet');
+  await expect(p2.locator('.record-body')).toHaveText('No trades yet.');
+  await expect(p2.locator('.positions')).toHaveCount(0);
+  // S6b: a brokerage-first attempt linking the same real account is refused; short heading, explanation as body.
+  const attempt = await brokerageAttempt(p2);
+  await scenario([{ id: acc, activities: 0 }]);
+  await p2.goto(`/connect/start?attempt=${attempt}`);
+  await p2.getByRole('button', { name: 'Connect' }).click();
+  await expect(p2).toHaveURL(/\/connect\/result\?c=\d+&k=refused$/);
+  const h1 = p2.locator('h1');
+  await expect(h1).toHaveText("We couldn't link that broker account.");
+  await expect(h1).toHaveAttribute('aria-describedby', 'result-body');
+  await expect(p2.locator('#result-body')).toContainText('already connected to another Stock Social profile');
+  await expect.poll(() => p2.evaluate(() => document.activeElement?.id)).toBe('result-heading');
+  await p2.setViewportSize({ width: 375, height: 740 });
+  expect((await h1.boundingBox())!.height).toBeLessThan(120); // a heading, not a paragraph (re-run 1: ~12 lines)
+  // The owner consents: the confirmed simulated account and the S8 line now show, signed out too.
+  await page.goto(consentUrl);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  let r = await step(page.request);
+  for (let i = 0; i < 6 && r.state === 'importing'; i++) r = await step(page.request);
+  expect(r.state).toBe('connected');
+  await p2.goto(`/u/${handle}`);
+  await expect(p2.locator('main')).toContainText('1 simulated account excluded');
+  await expect(p2.locator('.record-body')).toHaveText('No closed trades yet. Your record starts with your first close.');
+  await anon.close();
+  await sql`delete from users where handle = ${handle}`;
+  await sql`delete from broker_accounts where account_id in (${acc}, ${pap})`;
+});
