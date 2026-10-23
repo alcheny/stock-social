@@ -436,3 +436,103 @@ Notes (pre-existing on `origin/main`, not from this PR; not blocking):
 
 Verdict: DEFECTS (re-run 4's feed card fixed, and fix round 5 part 2 correct on the stock page; 1 Low left: the trade and
 month share cards and the story image still present a failed record as verified)
+
+## Re-run 6 (after the committee fix round, `build-pr2a-fix4.md`)
+
+Date: 2026-10-23. Same branch, at `ae7ec19`. No product code changed. Local Postgres 16; `db/schema.sql` applied twice
+with `psql`, then `npm run db:seed`, all clean.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, four runs | 413 pass in every run, 0 fail, 0 skipped |
+| `npm run build` | the first attempt stopped on the framework's security-advisory prompt (tool output; nothing upgraded). The retry built cleanly |
+| `npm run test:e2e` (`ALLOW_DEV_AUTH=1`, vendor fake variables for 4102, PR-1 issuer and sink variables; fakes started by the specs) | 72 passed, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | **2 violations**: the pre-existing `node_modules/@img/sharp-wasm32` license line, and a new `lib/connections.test.ts:964 [secret] hard-coded secret` (item 1 below). The fix log reports only the first |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+Tester scripts (not committed) drove the built app on port 3000 against the in-repo vendor fake, started for this pass
+only after e2e had finished. Screenshots in `screenshots/pr2a/rerun6/`. Test users deleted; server and fake stopped.
+
+### As an attacker: the takeover
+
+| Attempt | Result |
+|---|---|
+| Owner: `/login` → attest → "Connect a brokerage instead" | lands on `/connect` (no id in the URL), `connect_attempt` cookie httpOnly, Lax, path `/connect`; primary shown (`s2-owner-375x667.png`) |
+| Second browser, no cookie, guessed id: `/connect?attempt=N` | "Sign in first, then connect.", no primary (`s2-stranger-guessed-id-375x667.png`) |
+| Same browser: `/connect/start?attempt=N`, `/connect/done?attempt=N`, and both with `N+1` | 307 → `/login` every time |
+| Third browser holding its **own** bound attempt, presenting the owner's id at start and done | 307 → `/login` |
+| Owner's id with the third browser's valid signature spliced in (`N.<other sig>`) at `/connect/start` | 307 → `/login` |
+| Stranger hits `/connect/done` (no id) while the owner's portal is open | 307 → `/login` |
+| Stranger opens the owner's `/connect/consent?c=<id>` | "Connection not found." (`consent-stranger-375x667.png`) |
+| Refusals logged on the owner's attempt | 5 `failed` events, each exactly `{"reason": "unbound"}`; unknown ids wrote nothing |
+| Owner's attempt after all of the above | no vendor user, no connection, no user; the owner then completed normally |
+| Double tap: two tabs of the owner submit "Import my record" at the same moment | exactly 1 user for the attempt; the attempt is completed and holds no vendor user; the user holds it; the cookie is gone. The losing tab lands on `/connect` (signed in) |
+
+The takeover is closed.
+
+### Production refuses the base-URL override (`next start`, `NODE_ENV=production`, port 3199)
+
+| Environment | `/`, `/how`, `/connect/start`, `/u/<demo>`, `/api/sync` |
+|---|---|
+| remote `https://vendor.example`, no override | all 500, "Failed to prepare server … SNAPTRADE_BASE_URL is for tests only and must not be set in production." |
+| remote with `ALLOW_DEV_AUTH=1` | all 500, same message |
+| loopback without `ALLOW_DEV_AUTH` | all 500, same message |
+| look-alike `http://127.0.0.1.vendor.example` with `ALLOW_DEV_AUTH=1` | all 500, same message |
+| loopback `http://127.0.0.1:4102` with `ALLOW_DEV_AUTH=1` | serves (200, 200, 307, 200, 405 for GET) |
+| unset | serves |
+
+### Cleanup and the 24 h sweep
+
+- Signed-in decline: the row is `declined`, `accounts = []`, `institution` null, `cleanup_done_at` set, timestamps kept.
+- Pending link aged 25 h + tick: `expired`, `accounts = []`, `institution` null, cleaned.
+- Brokerage-first decline: connection blanked and cleaned, the attempt holds no vendor user or secret, and that vendor
+  user is gone from the fake; no user created.
+- Abandoned brokerage-first attempts (portal opened, nothing linked): the one aged 25 h was swept by the tick (vendor
+  user deleted at the fake, both columns null); a fresh one and one aged 23 h were left alone.
+
+### As a user (375×667)
+
+- `/login` → attest → "Connect a brokerage instead" → "Connect brokerage (read-only)" → (portal) → consent: 3 app taps
+  to consent, 4 to the importing profile. Consent: "Import my record" spans y 548–593 with no scroll; the page says
+  "Decide within 24 hours, or this link is removed automatically.", no "UTC", the merged scope line, no repeated notice
+  (`consent-375x667-light.png`).
+- Importing profile (0 listed): banner + "Your trades appear here as they import.", no "Your record is live.", no
+  "Share my record" (`profile-importing-brokerage-first-375x667.png`). With 7 trades listed and still importing: banner
+  only, no importing line (stall run).
+- Failed record owner: no "Your record is live.", no "Share my record", no new-trades prompt; "Try again" is the only
+  primary, 101×44 px (`profile-failed-owner-375x667.png`).
+- Email sign-in with an empty profile, light and dark: lands on `/connect` "Before you connect" signed in, primary shown,
+  a "Your profile" link 44 px tall that opens the profile with "You're in. Next: connect your brokerage."
+  (`signin-email-lands-notice-375x667-*.png`). No horizontal scroll.
+
+### Regression
+
+- Stall repro: the second consented link no longer blocks; after the tick both rows are `connected`, 7 closes, banner gone.
+- Pending privacy: after two ticks a pending link has imported no activities or positions and the signed-out profile
+  shows none; after consent the simulated-account line and the position appear.
+- Trust rule, signed out at 375 px, light and dark (failed / connected / demo): feed card and pane (no badge + the
+  incomplete line / ✓ Verified / Demo), profile ("New record" only + line / ✓ Verified / Demo), stock page rows (no badge
+  / ✓ Verified), and the three images for the failed trader (profile card, trade card, month card, story: "Import did not
+  finish", the incomplete line, the full disclaimer). Trade and month page descriptions say "closed" for the failed
+  trader and "demo" for the demo trader. No horizontal scroll.
+
+### Findings
+
+1. **Medium · bug (CI) · the compliance check fails on the new test.** `node scripts/compliance.ts diff origin/main`
+   flags `lib/connections.test.ts:964` (`const secret = 'committee-secret';`) as a hard-coded secret. CI runs this on
+   every PR, so the PR is blocked; the fix log reports only the pre-existing license line. Fix: a value the rule
+   already treats as a placeholder (for example one containing `fake`, or shorter than 12 characters) in the test.
+2. **Low · spec (TR-3) · the profile's unfurl description still says "verified" for a failed and a demo record.**
+   `app/u/[handle]/page.tsx#generateMetadata` writes `${s.trades} verified trades` in every state other than
+   importing: the failed trader's profile link previews as "The import did not finish, so this record may be
+   incomplete. 5 verified trades · …", and the demo trader's as "30 verified trades · …". The trade and month pages
+   already use `recordCountText` ("closed" / "demo"); the profile, the link most often shared, does not. Fix: the same
+   `recordCountText` in the profile description.
+
+Notes (not blocking): a profile with no closed trades previews as "0 verified trades · % win rate · 0.0% avg return"
+(pre-existing on `origin/main`). The engineer's residual (a victim entering credentials into a portal session an
+attacker opened) stands for PR-2b's embedded portal.
+
+Verdict: DEFECTS (takeover closed, production guard, cleanup, sweep and every usability demand verified; 1 Medium: the
+compliance check fails on a test string; 1 Low: the profile unfurl description says "verified" for failed and demo records)
