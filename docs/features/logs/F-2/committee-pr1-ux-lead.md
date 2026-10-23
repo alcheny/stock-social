@@ -127,3 +127,103 @@ Server and fake stopped. Test users (`uxf2_t0`–`uxf2_t39`, `uxf2_viewer`) dele
 Launchers and scripts are in the scratchpad (`ux/f2pr1`).
 
 USABILITY: PROBLEMS
+
+## Round 2
+
+2026-10-23, product code at `8f1b88f` (fix round 1). The existing `CI=1` build is newer than every source file and
+holds the round's strings, so I did not rebuild. Setup:
+
+- Port 3107, with the vendor fake on 4187. No sync tick was run.
+- Keyboard only, at 375 × 667 and 1280 × 800, light and dark. Reduced motion, plus two runs without it.
+- Three viewers: signed out; signed in as a publisher (`uxr2_t0`); signed in with no record (`uxr2_viewer`).
+- Screen reader view: read from the DOM accessibility tree, focus, and a log of the pager's live line.
+
+Fixture: the round 1 shape under a new prefix (`uxr2_t0`–`uxr2_t39`, 6 fresh closes each). That gives 200 cards in 7
+pages. Requests were held or failed in the browser, so the server was never changed. Screenshots are in
+`screenshots/pr1-ux2/`. Names are `<shot>-<width>-<scheme>-<viewer>`.
+
+### Round 1 blocking: fixed
+
+I held page 2 until the reader was on the control, then released it. I ran 5 cases in 4 contexts each (375 light,
+375 dark, 1280 light signed out, and 1280 dark as a publisher), 20 runs in all:
+
+| Case | Where the reader is after release | Focus | Requests after release |
+|---|---|---|---|
+| Read by ↓ to the control (`held-key-ctl-*` → `arrived-key-ctl-*`) | Card 31 at the top, 60 rows; still there 3 s later | Unchanged (on card 1, the F-1 keys don't move it) | 0 |
+| Tabbed onto the control, the screen reader case (`held-on-control-*` → `arrived-tab-ctl-*`) | Card 31 at the top | Card 31's name link | 0 |
+| Still on card 30 when the page arrives (`held-card30-*`) | Card 30. It is not pinned and does not move | Unchanged | 0 |
+| Retry by keyboard, held, then success (`retry-loading-*` → `arrived-retry-*`) | Card 31 at the top | Stays on the button, which reads "Loading…", then moves to card 31's name link with a visible ring | 0 |
+| Retry by keyboard, held, then fails again | On the control | Stays on the same button, "Retry" again | 0 |
+
+- **No chain.** Reading on from card 31 by ↓, the next requests went out at cards 25, 55 and 85 (2 runs, to card 96).
+  No card was skipped.
+- **Fling.** I sent 12 quick wheel flicks from card 1, at 375 and 1280, with and without reduced motion. Each sent 1
+  request and came to rest on a card: card 37, 30 or 31. It no longer ends on card 180.
+- **The pin reads as natural.** The reader sees the last card's lower part and "Loading…". The next frame shows card 31
+  under the header. It reads like turning a page, and the pin is instant, with no animated scroll over 30 cards. Card 30
+  is one ↑ away. On card 30 (case 3) nothing moves, which is right.
+- **Retry for a screen reader.**
+  - While held, the tree reads `status: button "Loading…" [disabled]`.
+  - On another failure, "Couldn't load more." comes back inside the status, so it is announced, and focus is still on
+    Retry.
+- **Copy.**
+  - "Loading…", "Couldn't load more. Retry" and "30 more trades loaded" are short and plain.
+  - The end card reads "See your record" for the publisher, which goes to their profile. A viewer with no record gets
+    "Publish your trades", which also goes to their profile. Signed out, it goes to `/login`. Only one link is in the
+    accessibility tree.
+- **No JavaScript** (`nojs-page2-*`, `end-*`, 4 contexts).
+  - Page 2 starts with the hidden level-1 heading "Trades 31 to 60". It is the first entry in the heading list.
+  - Page 7 reads "Trades 181 to 200" (20 rows).
+  - The first Tab is still the skip link.
+- **Same trader twice.**
+  - None in 200 cards on the fixture (40 traders).
+  - The demo-only list (computed with `loadFeedPage(undefined, { ids: demo })`) is now Dan, Yuki, Dan, Maya, Yuki, Maya.
+
+### New problems (none blocking)
+
+1. **follow-up: after End, the view comes to rest between card 30 and card 31.**
+   - **Setup.** From card 3 I pressed End, with the server at its normal speed (about 1 s). I ran it at 375 dark, at
+     1280 dark as a publisher, and at 1280 light without reduced motion.
+   - **What happens.** End scrolls with an animation. Page 2 arrives before the control is in view, so nothing pins.
+     The animation then stops at the old end of the list. That is about 0.4 of the way into card 30's height, not on
+     a snap point.
+   - **Result.** In all 3 runs, the screen showed card 30's lower half and card 31's upper half, still 4 s later
+     (`end-375-dark-out`, `end-1280-dark-uxr2_t0`).
+   - **What is fine.** No card is skipped. The next ↓ goes to card 31, and the next request goes out at card 55. That
+     is why this is a follow-up.
+   - **Gap in the tests.** The engineer's jump e2e holds the request until the jump has finished, so it misses this
+     race.
+   - **Suggestion.** After an append, if the feed is not on a snap point, snap to the nearest card.
+2. **follow-up: the live line speaks only once.**
+   - Pages 3 and 4 appended with no change to the live line. It already read "30 more trades loaded", and React writes
+     no change for the same text. The live line log shows one entry for 3 appends.
+   - So a screen reader user hears about page 2 and never again.
+   - **Suggestion.** Clear the line before setting it, or vary the text, for example "Trades 61 to 90 loaded". That
+     also matches the no-JS heading.
+3. **follow-up: a screen reader in browse mode is left past the new cards.**
+   - With real focus on the control, focus moves to card 31, which is good.
+   - A virtual cursor that rests on "Loading…" without focus stays on the control. The control now sits after card 60,
+     so reading on goes to the end of page 2.
+   - **Suggestion.** Wording such as "30 more trades loaded above" or "…, from trade 31" would point the reader back.
+     I could not check a real screen reader; this is from the tree.
+4. **follow-up: "Loading…" looks like a button you can press.**
+   - While loading, the control is the same filled button as "Show more" (`held-key-ctl-375-light-out`), and the
+     retrying button looks like an enabled Retry (`retry-loading-*`). Tapping either does nothing.
+   - **Suggestion.** A quieter style for the busy state, such as outline or muted text.
+5. **note: each pin registers as a layout shift of 0.38 to 0.40.** The browser records the instant move as a shift
+   not caused by input. This is the intended behaviour and is not a usability problem. It will show in field
+   layout-shift metrics for the feed, and the engineer may want to know. Appends on card 30 record 0.
+
+### Carried over, still open
+
+- **UX 4.** Retry is far by Tab when the reader read by ↓. The same root shows here: after reading to card 34 by ↓,
+  one Tab moves focus, and the view, back to card 1's symbol link. This is F-1 behaviour (focus does not follow ↓).
+- **UX 7.** The demo-only feed is 6 cards.
+- **UX 9b.** One fresh cohort fills the day's candidates.
+- **Older.** The pane header runs name and handle together. The sticky header covers the top of the card at 375.
+  Page 1 has no level-1 heading, while later no-JS pages do.
+
+Server and fake stopped (only this round's processes). Test users (`uxr2_t0`–`uxr2_t39`, `uxr2_viewer`) deleted, 41
+rows. No product code changed. Launcher and scripts are in the scratchpad (`ux/f2pr1r2`).
+
+USABILITY: PASS

@@ -129,3 +129,162 @@ COMPLIANCE: PASS · USABILITY: DEMANDS
 4. Builder log: correct the demo-feed exploration statement.
 5. Owner: pre-authorization #2 (count non-test lines against 800 for feature PRs; do not split PR-1); TR-9 log-return
    symmetry line.
+
+## Round 2
+
+2026-10-23. Build of `8f1b88f` (`.next` newer than every source file), `next start` on 3106 with the vendor fake on
+4186, Postgres 16, signed out, 375×667, light and dark. No sync tick. Same fixture shape as round 1 (5 hyperactive + 55
+ordinary + the 3 demo traders), plus one "new" trader: 8 closes, the latest 2 days old. A second member's 40 traders
+(6 closes each, ±50%, all in the last 2 hours) were in the database throughout. My 61 rows were deleted afterwards (0
+left). Server and fake stopped. Scripts and screenshots: scratchpad `bl/f2pr1r2`.
+
+**Decision: one more small fix, then merge.** Both round-1 blockers are fixed as specified. The paging is now
+invisible in every way I could break it. But on the skewed fixture, the first two pages are still half the same five
+people. A preference of about five lines fixes it, and I measured that it does.
+
+### Blocker 1 (page join): delivered
+
+| Path (375, light and dark) | Requests | Where the reader is |
+|---|---|---|
+| Card-by-card walk to card 62 | 1 at card 25 (none at 24), 1 at card 55 | on the card they scrolled to |
+| Failed load at card 30, then Retry | exactly 1 (3 more cards: still 1) | card 31 at the top, offset 0, focus on card 31 |
+| Jump to the end from card 3 | 1 | card 31 |
+| Then the End key | 1 more (2 in total), no chain | bottom of page 2, page 3 below it, nothing skipped |
+| Hard fling (6 × 6,000 px) | 1 | card 40 / 49: the fling's own momentum, not a jump |
+| Slow server (3 s), reader at the control | 1; reads "Loading…" | card 31 |
+
+- Round 1 was 6 requests and card 180. Now it is one request, and the reader stays where they are or lands on card
+  31.
+- The engineer's e2e asserts position after Retry and after a jump, so demand 3 is met in this PR.
+
+### Blocker 2 (variety by trader): delivered as specified; the first minute still repeats
+
+Measured with `feedList` on my cohort alone (the `ids` hook), on the day's seed:
+
+- **Candidates:** 200 cards from 62 traders (demand ≥ 33).
+- **The list:** 199 cards, 62 of the 63 eligible traders. In round 1, 33 of 67 never appeared.
+- **Distinct traders per page:** 20, 18, 29, 24, 23, 20, 16 (round 1: 5 to 9).
+- **The 5 hyperactive traders' share:** 15.1% (round 1: 84%).
+- **Caps:** at most 6 cards per trader in any 30. No trader twice in a row.
+- **Exploration:** 24 of 40 picks are new traders. All 24 fall in the first 120 cards, and no pick reused a trader
+  while a new pool trader existed. The last new trader enters at card 118.
+- **Not yet great: the hyperactive traders are front-loaded.**
+  - All 30 of their cards fall in the first 60. That is **29 of the first 60 cards**.
+  - The worst 10-card window is **8 of 10** (cards 13 to 22). The worst 30 is 21.
+  - Readers mostly see the first 60 cards, so the first minute is the round-1 problem in a smaller place: the same
+    five faces, two each per 10 cards, for about 30 cards.
+- **The fix, simulated.** I ran a scratch copy of `pick` (`lib/discovery/explore.ts:45-54`), changed from "prefer a
+  trader other than the previous card's" to "prefer a trader not among the last 9 cards". It is still a preference
+  that falls back the same way, and it reads no return.
+  - 25 of the first 60, the worst 10 is 5 (each hyperactive trader once), the worst 30 is 15.
+  - At most 3 per trader in any 30. The list is 198 cards, and exploration is unchanged (23 of 23 while a new trader
+    existed).
+- **This is my mistake, not the engineer's.** My round-1 criterion ("≤ 6 in any 30") allowed this. I am tightening it
+  now because the fix costs about five lines and moves the first minute.
+
+### The 80% measure: restate it, with a qualification
+
+- **Accept the engineer's restatement for PR-1.**
+  - Of the exploration picks made while a pool trader not yet in the list exists, ≥ 80% go to such a trader. It is
+    100% today.
+  - My whole-list version was wrongly specified: once every candidate trader is in the list (card ~120), it cannot be
+    met.
+- **The restatement measures the mechanism, not the outcome.** The outcome is a new trader getting reach, and in
+  practice the 200-candidate ceiling decides it:
+  - With the other member's 40 hot traders present, the 200 candidates were 100% theirs. Only 40 of 107 eligible
+    traders appeared. 67 never did, including my new trader.
+  - 27 of the 40 exploration picks re-served traders already shown, while those 67 waited outside.
+  - With my cohort alone, the new trader appears at card 53 (an exploration pick).
+  - So it works at launch scale (up to ~35 active traders, all inside the 200) and stops working above it. Any 34
+    traders with 6 fresh large closes each lock everyone else out, every day, until those others trade big.
+- **The fix belongs in the next PR, not this one.**
+  - Let the exploration pool include eligible traders outside the 200: each one's best recent close, one card per
+    trader, in the same seeded shuffle.
+  - With the day's seed rotating, every eligible trader gets roughly a 24/N daily chance of a slot in the first 120
+    cards.
+  - PR-3's section does not cover this as planned. It ranks by the lower bound, so a new trader with 5 closes ranks
+    last.
+
+### Cold start: accept for now, with a trigger
+
+- **My reading.** I ran `LOAD=1 lib/feed.load.test.ts` twice on an idle scratch database (cleaned up after). The
+  machine was at load average 7 to 8 because of other agents.
+
+  | Case | p95 | Cold page 1 |
+  |---|---|---|
+  | 12 heavy | 332 ms | 701 ms |
+  | 50 heavy | 465 ms and 435 ms (the 400 ms assertion failed both times) | 1,292 ms and 735 ms |
+
+  - The engineer's quiet-machine numbers (285 / 263 ms) are plausible. The budget has no headroom under contention.
+- **What it means for the business.**
+  - The kept list and the weights live in each server instance's memory. On a serverless deploy at low traffic, most
+    requests reach a cold instance, so at launch the cold number is the typical one.
+  - Launch has no 50-heavy cohort, though. At 12 heavy, cold page 1 is about 0.3 to 0.7 s, and a shared link still
+    reaches its aha in well under 3 s.
+  - On another instance, page 2 is recomputed pinned to `asOf`. The only miss is an outright account deletion
+    (deviation 3), which is rare and covered by the client's repeat guard. Accepted.
+- **Trigger.**
+  - Record the server time of the deployed feed's page 1 from day one.
+  - Build the engineer's follow-up (a pane summary kept per record) before either of these happens: p95 above 400 ms,
+    or more than 12 traders with 1,000+ closes among the candidates.
+  - Keep the 50-heavy load case out of any CI gate until it has headroom. On a busy runner it fails.
+
+### Compliance: PASS
+
+- The new preference (mine, demanded below) and the shipped fix read no return. Sign invariance tests are unchanged.
+- New copy ("Loading…", "30 more trades loaded", "See your record") is factual, with no completeness claim and no
+  advice.
+- The feed list is still the same for every viewer.
+- The layout's `data-viewer` query reads the session only to pick which of two end-card links is shown. The page
+  works signed out.
+- No vendor, no dependency, no third-party name.
+- **Size:** product lines across PR-1 are 722 (non-test, non-doc), inside 800 under pre-authorization #2 as proposed.
+
+### Taste
+
+- **"Loading…" is drawn as the filled purple primary button** (`loading-375-light`). A loading state that looks
+  tappable invites taps that do nothing. Use the muted text style with no fill, and keep the filled button for Retry
+  only. Not blocking; the UX lead's call.
+
+### Demands
+
+1. **Blocker, builder: the first 60 cards must not be half five people.**
+   - In `pick`, prefer a trader not among the last 9 placed cards over one who is. Fall back in the same order as
+     today (another trader than the previous card's, then any). It stays a preference, never a cap, and reads no
+     return.
+   - Verify (pure test + the DB skewed fixture, on 50 seeds):
+     - the 5 hyperactive traders hold ≤ 5 of any 10 cards and ≤ 27 of the first 60;
+     - list length is within 2 cards of today's;
+     - exploration's "new trader while one exists" stays at 100%;
+     - the sign-invariance and cap tests are unchanged;
+     - the demo-only feed is still 6 cards.
+2. **Builder, log:** restate the exploration criterion as above, in the PR body and the test name.
+3. **Planner (PR-3 or a PR-1b, before eligible traders pass ~35):** add eligible traders outside the 200 to the
+   exploration pool (best recent close, one card each, seeded order).
+   - Acceptance: with the 40-hot-trader fixture plus 60 others, ≥ 80% of eligible traders appear in the first 120 cards
+     at least once over 7 consecutive day seeds.
+   - Budget: page 1 p95 unchanged.
+4. **Planner / engineer:** cold-start trigger as above. Record page-1 server time from the first deploy. The pane
+   summary follow-up starts when the trigger fires.
+5. **Reviewer:** add to the paging checklist: the hyperactive share of the *first 60* cards and the worst 10-window,
+   not only the whole-list share. 15% overall hid 48% in the first 60.
+
+### What would change my mind
+
+- If the owner's first cohort has no hyperactive traders, demand 1 changes nothing visible. I still require it: it is
+  about five lines, and it is the first minute of every reader.
+- Fastest test after launch: the hyperactive share of the first 60 cards on real data.
+
+### Demo sentence
+
+"Scroll and you meet someone new every few cards, wins and losses alike; when today's list runs out, it says so."
+
+COMPLIANCE: PASS · USABILITY: DEMANDS
+1. Blocker: the 5 hyperactive traders hold 29 of the first 60 cards (8 of 10 at worst). Prefer a trader not in the
+   last 9 cards: simulated 25 of 60, ≤ 5 in any 10, exploration unchanged.
+2. Builder log: restate exploration as "≥ 80% new traders while a new pool trader exists" (100% today). Accepted.
+3. Planner: exploration pool to include eligible traders outside the 200 (67 of 107 got no reach with a hot cohort
+   present); ≥ 80% of eligible traders in the first 120 within 7 days. Next PR, not blocking.
+4. Cold page 1 (0.7 to 1.3 s under load, 50 heavy): accepted. Record deployed page-1 server time; pane-summary
+   follow-up when p95 > 400 ms or > 12 heavy candidates.
+5. Reviewer: check the first-60 share and the worst 10-window on a skewed fixture, not only the whole-list share.
