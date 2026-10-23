@@ -1,5 +1,8 @@
 // Fixed product copy for F-1 (docs/features/logs/F-1/plan.md §2, the UX lead's strings verbatim).
 // Every string here is tested against the banned-claims list (lib/copy.test.ts). Change copy here only.
+// F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
+import { count, counted } from './format.ts';
+import { CLOSES_PAGE } from './paging.ts';
 
 export const SIGNIN = {
   title: 'Publish your trades',
@@ -61,7 +64,7 @@ export const CONSENT = {
   // Committee fix (item 7): no lead line (the notice already said it) and one scope line, so the primary fits 375×667.
   lines: (found: number, paper: number) => [
     'Full trade history your broker provides, from every account under this login',
-    `${found} account${found === 1 ? '' : 's'} found${paper > 0 ? ` (${paper} simulated, not imported)` : ''}`,
+    `${counted(found, 'account')} found${paper > 0 ? ` (${count(paper)} simulated, not imported)` : ''}`,
     'Closed trades are published on your public profile as percent returns. No amounts, quantities or prices.',
     'A broker account can belong to one profile, ever.',
     'Your record stays public if you disconnect; deleting your profile removes it.',
@@ -79,17 +82,23 @@ export const RECORD_BODY = {
   none: 'No trades yet.',
   // Fix round 4: the count is the closed trades listed under the banner, never the raw activities imported.
   // PR-2b fix round 2 (business lead 3): "your" only to the owner; visitors and link previews read "this record".
-  banner: (closes: number, owner: boolean) => `Importing ${owner ? 'your' : 'this'} record · ${closes} closed trade${closes === 1 ? '' : 's'} so far`,
+  banner: (closes: number, owner: boolean) => `Importing ${owner ? 'your' : 'this'} record · ${counted(closes, 'closed trade')} so far`,
   finished: 'Import finished.',
   // PR-2b (S5): the rows read so far, updated after every step (not a live region); the count of distinct activities.
   // Fix round 2 (business lead 2): one noun per count. "Trades" counts closed trades only; these rows are activities.
-  imported: (n: number) => `${n} activit${n === 1 ? 'y' : 'ies'} imported`,
+  imported: (n: number) => `${counted(n, 'activity', 'activities')} imported`,
+  // F-1 PR-3 fix round 4 (UX lead note 1): the same count, announced (a hidden live region, at most once per 5 s) so a
+  // screen reader hears the import move while the closed-trades count is still 0 (closes appear at the rebuild).
+  importedSoFar: (n: number) => `${counted(n, 'activity', 'activities')} imported so far`,
   // Fix round 2 (engineer, Low): a poll answered 401/403 (signed out in another tab) stops polling and says so.
   signedOut: 'Signed out in another tab.',
   signInAgain: 'Sign in again',
   // Plan §8 item 2: after 60 s with no new rows, the owner learns the hourly tick carries on without the tab.
   stillSending: 'Your broker is still sending history. You can leave; the import continues.',
-  paperExcluded: (n: number) => `${n} simulated account${n === 1 ? '' : 's'} excluded: simulated trades are never part of a record.`,
+  // F-1 PR-3 fix round 4 (UX lead note 2): when the last step was deferred (the vendor timed out, rate-limited or was
+  // down), the broker is not sending anything: say so instead.
+  stillWaiting: 'Still waiting for your broker. You can leave; the import continues.',
+  paperExcluded: (n: number) => `${counted(n, 'simulated account')} excluded: simulated trades are never part of a record.`,
   positionsTitle: 'Open positions',
   // A failed import is never shown as a whole record (TR-3): the line is visible to everyone, the retry to the owner.
   failed: 'The import did not finish, so this record may be incomplete.',
@@ -151,7 +160,7 @@ export function imageTrust(kind: ImageKind, x: { state: RecordState; demo: boole
 // incomplete line. Demo data never imports, so it always shows its stats.
 export const WHOLE_RECORD = {
   importing: 'Import in progress. Stats appear when the import finishes.',
-  soFar: (closes: number) => `${closes} closed trade${closes === 1 ? '' : 's'} so far`,
+  soFar: (closes: number) => `${counted(closes, 'closed trade')} so far`,
 } as const;
 export type WholeRecordView = { stats: boolean; line: string | null; tone: 'muted' | 'warn' | null };
 export function wholeRecordView(x: { state: RecordState; demo: boolean }): WholeRecordView {
@@ -171,7 +180,7 @@ export function wholeRecordPreview(x: { state: RecordState; demo: boolean; verif
 // (a whole record, every trade from the broker); "demo" for a demo profile; plain "closed" otherwise.
 export function recordCountText(x: { state: RecordState; demo: boolean; verified: boolean; trades: number }): string {
   const kind = x.demo ? 'demo' : x.verified && x.trades > 0 && (x.state === 'connected' || x.state === 'none') ? 'verified' : 'closed';
-  return `${x.trades} ${kind} trade${x.trades === 1 ? '' : 's'}`;
+  return counted(x.trades, `${kind} trade`);
 }
 
 // S6 declined / expired, S6c no real account, S7 errors (role="alert").
@@ -216,7 +225,7 @@ export const PORTAL = {
 // since visitors and link previews read this line, and "your" is only ever said to the owner.
 export const connectedLine = (institutions: string[], accounts: number): string => {
   const names = institutions.map((s) => s.trim()).filter(Boolean);
-  return `Connected: ${names.length ? names.join(', ') : 'the broker'} (${accounts} account${accounts === 1 ? '' : 's'})`;
+  return `Connected: ${names.length ? names.join(', ') : 'the broker'} (${counted(accounts, 'account')})`;
 };
 
 // The profile's link-preview text. With no closes there is no stats line (never "0 closed trades · % win rate"): the
@@ -262,7 +271,16 @@ export const SETTINGS = {
   signOut: 'Sign out',
 } as const;
 
-export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated' } as const;
+// F-1 PR-3 fix round 4 (UX lead demand 1, TR-1): the profile's closed trades in windows of 50, every one reachable.
+export const CLOSES_PAGING = {
+  size: CLOSES_PAGE,
+  showing: (start: number, shown: number, total: number) =>
+    start === 0 ? `Showing ${count(shown)} of ${counted(total, 'closed trade')}` : `Showing ${count(start + 1)}–${count(start + shown)} of ${counted(total, 'closed trade')}`,
+  more: (n: number) => `Show ${count(n)} more`,
+  newest: 'Back to the newest',
+} as const;
+
+export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated', skip: 'Skip to disclaimer and legal links' } as const;
 
 export const LEGAL_PLACEHOLDER = {
   termsTitle: 'Terms of Service',
@@ -284,6 +302,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
   return out;
 }

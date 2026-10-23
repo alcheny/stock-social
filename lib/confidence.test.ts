@@ -114,3 +114,41 @@ test('rankTraders: confident edge beats wide interval; zero weights keep score o
   assert.ok(g > 0 && Math.abs(g - l) < 1e-9);
   assert.equal(evidenceWeight(confidence([], today)), 0);
 });
+
+// F-1 PR-3 fix round 4 (UX lead note 3): "Too early to tell (9 of 10 bets)" beside 2,828 trades. The seeded heavy record
+// trades the same symbols in four accounts from one start date with partial sells, so each symbol's holds chain into one
+// overlapping position: K = 9 is the rule working. The line now says so, and K never depends on input order or paging.
+test('evidence line explains overlapping positions when trades outnumber bets; unchanged when each trade is a bet', () => {
+  const chain = (sym: string, n: number) => Array.from({ length: n }, (_, i) => tr(sym, i * 2, i * 2 + 3, i % 3 ? 0.01 : -0.01));
+  const heavy = [...chain('A', 400), ...chain('B', 400), ...chain('C', 2028)];
+  const c = confidence(heavy, today);
+  assert.equal(c.n, 2828);
+  assert.equal(c.k, 3);
+  assert.equal(evidenceLine(c), 'Too early to tell: 2,828 trades in 3 overlapping positions (10 independent bets needed)');
+  assert.equal(evidenceLine(confidence(chain('A', 2), today)), 'Too early to tell: 2 trades in 1 overlapping position (10 independent bets needed)');
+  assert.equal(evidenceLine(confidence(clusters(9, 50), today)), 'Too early to tell (9 of 10 bets)');
+  // Past the threshold, the bets line names the trades behind them, with grouped counts.
+  const many = [...spaced(12, (i) => -0.05 + (i % 2 ? 0.001 : -0.001)), ...chain('Z', 4719)];
+  const m = confidence(many, today);
+  assert.equal(m.k, 13);
+  assert.match(evidenceLine(m), /^Past results: .* · Evidence: thin \(13 bets from 4,731 trades, [\d,]+ days\)$/);
+});
+
+test('cluster count is the same for any input order or page split (the pure function sorts each symbol itself)', () => {
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+  const rows = Array.from({ length: 3000 }, () => { const o = Math.floor(rnd() * 3000); return tr(['A', 'B', 'C', 'D', 'E'][Math.floor(rnd() * 5)], o, o + Math.floor(rnd() * 6), rnd() - 0.5); });
+  const k = confidence(rows, today).k;
+  assert.equal(confidence([...rows].reverse(), today).k, k);
+  assert.equal(confidence([...rows].sort((a, b) => a.closedAt.getTime() - b.closedAt.getTime() || a.symbol.localeCompare(b.symbol)), today).k, k);
+  const pages = [rows.slice(0, 1000), rows.slice(1000, 2000), rows.slice(2000)];
+  assert.equal(confidence([...pages[2], ...pages[0], ...pages[1]], today).k, k);
+  // Reference: connected components of the same-symbol overlap graph, by brute force.
+  const parent = rows.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+    const a = rows[i], b = rows[j];
+    if (a.symbol === b.symbol && a.openedAt <= b.closedAt && b.openedAt <= a.closedAt) parent[find(i)] = find(j);
+  }
+  assert.equal(new Set(rows.map((_, i) => find(i))).size, k);
+});

@@ -725,3 +725,104 @@ dbTest('fix round 3: a vendor request that times out fails the sync like a trans
     await h.cleanup();
   }
 });
+
+// F-1 PR-3 fix round 4 (business lead 3; engineer notes).
+test('fix round 4: each route declares a duration above the 30 s vendor bound, and its deadline leaves a vendor bound of room', async () => {
+  const S = await import('./sync.ts');
+  const C = await import('./connections.ts');
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const declared = (path: string) => Number(readFileSync(new URL(path, import.meta.url), 'utf8').match(/^export const maxDuration = (\d+);$/m)?.[1]);
+  const sync = declared('../app/api/sync/route.ts');
+  const step = declared('../app/api/import/step/route.ts');
+  assert.equal(sync, S.SYNC_ROUTE_MAX_S);
+  assert.equal(step, C.STEP_ROUTE_MAX_S);
+  // Within the host's default limits: 300 s (the default and the lowest plan's ceiling); the step route at request #8's 60 s.
+  assert.ok(sync <= 300 && step >= 60 && step <= 300);
+  for (const [s, deadline] of [[sync, S.syncDeadline(0)], [step, C.stepDeadline(0)]] as const) {
+    assert.ok(s * 1000 >= VENDOR_TIMEOUT_MS * 2, 'duration at least two vendor requests');
+    assert.ok(deadline > 0 && deadline < s * 1000, 'the deadline is inside the duration');
+    assert.ok(s * 1000 - deadline > VENDOR_TIMEOUT_MS, 'a request started at the deadline still fits');
+  }
+});
+
+dbTest('fix round 4: three traders and a deadline that fits one sync: three calls in one round sync each exactly once, each stops at its deadline, and logs who is left', async () => {
+  const h = await roundTicks(3);
+  const logged: string[] = [];
+  const log = console.log;
+  console.log = (...a: unknown[]) => { logged.push(a.map(String).join(' ')); };
+  try {
+    let wall = 1_000_000; // the instance clock, moved by each sync
+    const reports: { ok: number; unclaimed: number | null; stoppedAtDeadline: boolean }[] = [];
+    const call = (minute: number) => {
+      const deadline = wall + 50; // room to start one sync of 100 ms
+      return h.S.syncTick({
+        ids: h.ids, clockShiftMs: () => h.T0 + minute * MIN - Date.now(), deadline, clock: () => wall,
+        sync: async (u) => { await h.at(minute)(u); wall += 100; return 1; }, report: (r) => reports.push(r),
+      });
+    };
+    for (const m of [0, 5, 10]) assert.equal((await call(m)).ok, 1);
+    assert.deepEqual(h.synced().map((x) => x.length), [1, 1, 1]); // each exactly once
+    assert.deepEqual(reports.map((r) => [r.ok, r.unclaimed, r.stoppedAtDeadline]), [[1, 2, true], [1, 1, true], [1, 0, true]]);
+    // A fourth call in the round claims nobody and does not hit its deadline.
+    assert.deepEqual(await call(15), { ok: 0, skipped: 0, failed: [] });
+    assert.deepEqual(reports.at(-1), { ok: 0, skipped: 0, failed: 0, unclaimed: 0, stoppedAtDeadline: false });
+    // A deadline already past claims nobody (no lease taken), next round.
+    const r = await h.S.syncTick({ ids: h.ids, clockShiftMs: () => h.T0 + 60 * MIN - Date.now(), deadline: 0, sync: async () => 1, report: (x) => reports.push(x) });
+    assert.deepEqual(r, { ok: 0, skipped: 0, failed: [] });
+    assert.deepEqual(reports.at(-1), { ok: 0, skipped: 0, failed: 0, unclaimed: 3, stoppedAtDeadline: true });
+    const leased = await h.sets[0].sql`select count(*)::int as n from users where id in ${h.sets[0].sql(h.ids)} and sync_lease_until is not null`;
+    assert.equal(leased[0].n, 0);
+    // The log line carries counts only.
+    const lines = logged.filter((l) => l.startsWith('sync tick'));
+    assert.equal(lines.length, 5);
+    assert.equal(lines[0], 'sync tick {"ok":1,"skipped":0,"failed":0,"unclaimed":2,"stoppedAtDeadline":true}');
+  } finally {
+    console.log = log;
+    await h.cleanup();
+  }
+});
+
+dbTest('fix round 4 (engineer note): a lost connection while releasing a lease does not abort the tick; that lease lapses and the trader is claimable again', async () => {
+  const h = await roundTicks(3);
+  const err = console.error;
+  const errors: string[] = [];
+  console.error = (...a: unknown[]) => { errors.push(a.map(String).join(' ')); };
+  try {
+    let first: number | null = null;
+    const release = async (u: Parameters<typeof h.S.releaseClaim>[0]) => {
+      if (first === null) { first = u.id; throw new Error('connection terminated'); }
+      return h.S.releaseClaim(u);
+    };
+    const r = await h.S.syncTick({ ids: h.ids, clockShiftMs: () => h.T0 - Date.now(), sync: h.at(0), release });
+    assert.deepEqual(r, { ok: 3, skipped: 0, failed: [] }); // every trader after the failed release was still synced
+    assert.ok(errors.some((e) => e === `sync lease release failed ${first} connection terminated`));
+    const [row] = await h.sets[0].sql`select sync_lease_until as l from users where id = ${first}`;
+    assert.notEqual(row.l, null); // left to lapse
+    await h.tick(5); // inside the lease: nobody
+    await h.tick(15); // lapsed: that trader once more (idempotent), the others not
+    assert.deepEqual(h.synced(), h.ids.map((id) => (id === first ? [0, 15] : [0])));
+  } finally {
+    console.error = err;
+    await h.cleanup();
+  }
+});
+
+dbTest('fix round 4 (engineer note): two sources sharing a vendor id at a rebuild page boundary both reach the matcher', async () => {
+  const { tag, user, cleanup } = await setup();
+  const { insertActivities, rebuildTrades, REBUILD_PAGE } = await import('./sync.ts');
+  const t0 = Date.UTC(2024, 0, 1);
+  const row = (id: string, symbol: string, side: 'BUY' | 'SELL', units: number, at: number) => ({ externalId: id, accountId: `${tag}-a`, symbol, side, units, price: side === 'BUY' ? 100 : 110, fee: 0, executedAt: new Date(at), verified: true, raw: {} });
+  try {
+    // REBUILD_PAGE - 1 rows of one symbol fill the first page; then, on the next symbol, two buys at one instant with one
+    // vendor id, one per source (rows REBUILD_PAGE and REBUILD_PAGE + 1), and a sell of both units.
+    await insertActivities(user.id, 'snaptrade', Array.from({ length: REBUILD_PAGE - 1 }, (_, i) => row(`${tag}-b${String(i).padStart(4, '0')}`, 'AAA', 'BUY', 1, t0 + i * 60_000)));
+    const at = t0 + REBUILD_PAGE * 60_000;
+    await insertActivities(user.id, 'demo', [row(`${tag}-dup`, 'BBB', 'BUY', 1, at)]);
+    await insertActivities(user.id, 'snaptrade', [row(`${tag}-dup`, 'BBB', 'BUY', 1, at), row(`${tag}-s`, 'BBB', 'SELL', 2, at + 60_000)]);
+    const r = await rebuildTrades(user.id);
+    // Without source in the key the second buy was skipped at the page boundary and the sell had no full entry.
+    assert.deepEqual([r.trades, r.excluded], [1, 0]);
+  } finally {
+    await cleanup([]);
+  }
+});

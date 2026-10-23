@@ -1,6 +1,6 @@
 import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
-import { fetchActivities, fetchActivitiesPage, fetchPositions, listAccounts, PAGE_LIMIT } from './broker.ts';
+import { fetchActivities, fetchActivitiesPage, fetchPositions, listAccounts, PAGE_LIMIT, VENDOR_TIMEOUT_MS } from './broker.ts';
 import { AccountClaimedError, claimIn } from './claims.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
@@ -72,13 +72,15 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       written += m.trades.length;
     };
     let open: Activity[] = []; // the (account, symbol) pair the last page ended in
-    let after: { account_id: string; symbol: string; at: string; external_id: string } | null = null;
+    // PR-3 fix round 4 (engineer note): the key is the whole unique row key, source included; without it two sources
+    // sharing a vendor id at a page boundary lost a row.
+    let after: { account_id: string; symbol: string; at: string; external_id: string; source: string } | null = null;
     for (;;) {
       const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
         from activities a where a.user_id = ${userId}
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
-        ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id})` : tx``}
-        order by a.account_id, a.symbol, a.executed_at, a.external_id limit ${REBUILD_PAGE}`;
+        ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
+        order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
       for (const r of page) {
         const a: Activity = {
           externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,
@@ -90,7 +92,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       }
       if (page.length < REBUILD_PAGE) break;
       const last: PairRow = page[page.length - 1];
-      after = { account_id: last.account_id, symbol: last.symbol, at: last.at, external_id: last.external_id };
+      after = { account_id: last.account_id, symbol: last.symbol, at: last.at, external_id: last.external_id, source: last.source };
     }
     await flush(open);
     const setAside = live.filter((k) => !attachedIds.has(k.sell_id as string));
@@ -159,19 +161,21 @@ export type ClaimedUser = SyncableUser & { lease: string; prev: string | null };
 // own traders. Production calls pass neither (shift 0: the database clock as is; every syncable trader). `except` is
 // the tick's own list of traders it was skipped on.
 export type ClaimScope = { shiftMs?: number; ids?: number[]; except?: number[] };
+// The database clock (shifted by the test hook) and the start of its round; and the claim rule over them.
+const clockSql = (shiftMs: number) => sql`select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
+        date_trunc('hour', now() + ${shiftMs}::float8 * interval '1 millisecond' - ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond', 'UTC')
+          + ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond' as round_start`;
+const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_until <= clock.t)
+        and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)`;
 export async function claimNextUser(scope: ClaimScope = {}): Promise<ClaimedUser | null> {
   const { shiftMs = 0, ids, except } = scope;
   if (ids && !ids.length) return null;
-  const [u] = await sql<ClaimedUser[]>`with clock as (
-      select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
-        date_trunc('hour', now() + ${shiftMs}::float8 * interval '1 millisecond' - ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond', 'UTC')
-          + ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond' as round_start)
+  const [u] = await sql<ClaimedUser[]>`with clock as (${clockSql(shiftMs)})
     update users set sync_claimed_at = clock.t, sync_lease_until = clock.t + ${SYNC_LEASE_MS}::float8 * interval '1 millisecond'
     from clock, (
       select u.id, u.sync_claimed_at::text as prev from users u, clock where ${syncable()} ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
         ${except?.length ? sql`and u.id not in ${sql(except)}` : sql``}
-        and (u.sync_lease_until is null or u.sync_lease_until <= clock.t)
-        and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)
+        and ${claimable()}
       order by u.last_synced_at nulls first, u.id limit 1 for update of u skip locked) pick
     where users.id = pick.id
     returning users.id, users.snaptrade_user_id, users.snaptrade_secret_enc, users.sync_lease_until::text as lease, pick.prev`;
@@ -190,13 +194,44 @@ export async function releaseClaim(u: ClaimedUser) {
   // `::text` first: a bare `::timestamptz` parameter goes through a millisecond Date in the driver and never matches.
   await sql`update users set sync_lease_until = null where id = ${u.id} and sync_lease_until = ${u.lease}::text::timestamptz`;
 }
-export async function syncTick<R>(opts: { sync?: (u: SyncableUser) => Promise<R>; ids?: number[]; clockShiftMs?: () => number } = {}) {
+// Syncable traders (in scope) no tick has claimed this round yet, and none holds: what is left for later calls.
+export async function unclaimedCount(scope: ClaimScope = {}): Promise<number> {
+  const { shiftMs = 0, ids } = scope;
+  if (ids && !ids.length) return 0;
+  const [{ n }] = await sql`with clock as (${clockSql(shiftMs)})
+    select count(*)::int as n from users u, clock where ${syncable()} ${ids ? sql`and u.id in ${sql(ids)}` : sql``} and ${claimable()}`;
+  return n as number;
+}
+
+// F-1 PR-3 fix round 4 (business lead 3): one call must fit one function duration. The cron route declares
+// `maxDuration = SYNC_ROUTE_MAX_S` (app/api/sync/route.ts: 300 s, the host's default and its lowest plan's ceiling), and
+// the tick stops claiming SYNC_RESERVE_MS (three vendor bounds) before the end, so a sync claimed just before the cut-off
+// has 90 s to finish. A sync that still overruns is stopped with the function: its transaction rolls back and its lease
+// lapses, so a later call (the cron runs every 5 minutes) syncs it in the same round. Traders left unclaimed when a call
+// stops are counted in the log (a number, no personal data) so a round that does not cover everyone is visible.
+export const SYNC_ROUTE_MAX_S = 300;
+export const SYNC_RESERVE_MS = 3 * VENDOR_TIMEOUT_MS;
+export const syncDeadline = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000 - SYNC_RESERVE_MS;
+
+// `deadline` (epoch ms on `clock`, the instance's own clock: it measures this call's duration only) stops claiming
+// once reached; `report` receives what the end-of-call log line says; `clock`, `release` and the rest are test hooks.
+export type TickReport = { ok: number; skipped: number; failed: number; unclaimed: number | null; stoppedAtDeadline: boolean };
+export async function syncTick<R>(opts: {
+  sync?: (u: SyncableUser) => Promise<R>; ids?: number[]; clockShiftMs?: () => number;
+  deadline?: number; clock?: () => number; release?: (u: ClaimedUser) => Promise<void>; report?: (r: TickReport) => void;
+} = {}) {
   const sync = opts.sync ?? ((u: SyncableUser) => syncUser(u));
+  const clock = opts.clock ?? Date.now;
+  const deadline = opts.deadline ?? Infinity;
+  const release = opts.release ?? releaseClaim;
   const passed: number[] = []; // skipped by this tick: the lock's holder syncs them, so they are not claimed again here
   const claim = () => claimNextUser({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0, except: passed });
-  let ok = 0, skipped = 0;
+  let ok = 0, skipped = 0, stopped = false;
   const failed: number[] = [];
-  for (let u = await claim(); u; u = await claim()) {
+  for (;;) {
+    if (clock() >= deadline) { stopped = true; break; }
+    const u = await claim();
+    if (!u) break;
     try {
       if ((await sync(u)) === 'skipped') {
         skipped++;
@@ -207,9 +242,18 @@ export async function syncTick<R>(opts: { sync?: (u: SyncableUser) => Promise<R>
       failed.push(u.id);
       console.error('sync failed', u.id, e instanceof Error ? e.message : e);
     } finally {
-      await releaseClaim(u);
+      // PR-3 fix round 4 (engineer note): a database connection lost here must not abort the tick (the route would
+      // answer 500 and the traders after this one would go unsynced by this call). The lease is left to lapse after
+      // SYNC_LEASE_MS; a lapsed lease makes the trader claimable again, so at worst it is synced once more that round
+      // (a re-sync is idempotent: the last week re-read, the same rows).
+      try { await release(u); } catch (e) { console.error('sync lease release failed', u.id, e instanceof Error ? e.message : e); }
     }
   }
+  let unclaimed: number | null = null;
+  try { unclaimed = await unclaimedCount({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0 }); } catch (e) { console.error('sync unclaimed count failed', e instanceof Error ? e.message : e); }
+  const report: TickReport = { ok, skipped, failed: failed.length, unclaimed, stoppedAtDeadline: stopped };
+  console.log('sync tick', JSON.stringify(report)); // counts only
+  opts.report?.(report);
   return { ok, skipped, failed };
 }
 

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RECORD_BODY } from '@/lib/copy.ts';
-import { initBanner, onPoll, onServer, onTick, onUnauthorized, onVisibility, polls, POLL_MS, type Banner } from '@/lib/import-banner.ts';
+import { initBanner, onPoll, onServer, onTick, onUnauthorized, onVisibility, polls, POLL_MS, slowText, type Banner } from '@/lib/import-banner.ts';
 
 // S5 (plan §2, §8 item 2): the import banner, live. The owner's open tab polls POST /api/import/step every 2 s (each
 // poll also advances the import); visitors see the server's line, refreshed with the page. The status line is the only
@@ -41,7 +41,7 @@ export function ImportBanner({ state, closes, read, owner, quiet = false }: { st
         const r = await fetch('/api/import/step', { method: 'POST' });
         if (r.status === 401 || r.status === 403) { if (!stopped) setB(onUnauthorized); return; }
         if (r.ok) {
-          const j = (await r.json()) as { state: string; closes: number; read: number };
+          const j = (await r.json()) as { state: string; closes: number; read: number; waiting?: boolean };
           if (!stopped) setB((x) => onPoll(x, j, Date.now()));
         }
       } catch { /* offline: the count is kept, the next poll retries */ }
@@ -73,7 +73,9 @@ export function ImportBanner({ state, closes, read, owner, quiet = false }: { st
     <div className="import-banner" data-phase={b.phase}>
       <p role="status" aria-live="polite" className={statusClass}>{b.text}</p>
       {!finished && owner && <p className="muted small import-read">{RECORD_BODY.imported(b.read)}</p>}
-      {!finished && owner && <p className="muted small import-slow" aria-live="polite">{b.slow ? RECORD_BODY.stillSending : ''}</p>}
+      {/* PR-3 fix round 4 (UX lead note 1): the same count for a screen reader, throttled with the status line. */}
+      {!finished && owner && <p className="sr-only import-read-live" aria-live="polite">{b.readText}</p>}
+      {!finished && owner && <p className="muted small import-slow" aria-live="polite">{slowText(b)}</p>}
       {b.signedOut && <p className="small import-signed-out">{RECORD_BODY.signedOut} <a className="tap" href="/login">{RECORD_BODY.signInAgain}</a></p>}
     </div>
   );

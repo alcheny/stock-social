@@ -817,3 +817,117 @@ test('watchlist: signed-in trader watches a symbol and sees it on /t; signed out
   await expect(anon.getByText('Your watched stocks')).toHaveCount(0);
   await ctx.close();
 });
+
+// F-1 PR-3 fix round 4 (committee). A trader made here, removed after; generic symbols, synthetic returns.
+async function makeTrader(handle: string, closes: (i: number) => { closedAt: string; r: number }, n: number) {
+  const { sql } = await import('../lib/db.ts');
+  const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+    insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, ${handle}, now(), a.id from a
+    on conflict (handle) do update set handle = excluded.handle returning id`;
+  await sql`delete from closed_trades where user_id = ${u.id}`;
+  const rows = Array.from({ length: n }, (_, i) => {
+    const c = closes(i);
+    const closed = new Date(c.closedAt);
+    return { user_id: u.id, sell_id: `${handle}-${i}`, account_id: 'a', symbol: ['AAA', 'BBB', 'CCC', 'DDD', 'EEE', 'FFF', 'GGG', 'HHH'][i % 8],
+      opened_at: new Date(closed.getTime() - (1 + (i % 9)) * 86_400_000), closed_at: closed, return_pct: c.r, holding_days: 1 + (i % 9), verified: true };
+  });
+  for (let i = 0; i < rows.length; i += 1000) await sql`insert into closed_trades ${sql(rows.slice(i, i + 1000))}`;
+  const ids = (await sql`select id from closed_trades where user_id = ${u.id} order by closed_at desc, id desc`).map((r) => String(r.id));
+  return { sql, id: u.id as number, ids, remove: () => sql`delete from users where id = ${u.id}` };
+}
+
+test('fix round 4 (business lead blocker): a close dated 2015 does not break the feed', async ({ page, request }) => {
+  const t = await makeTrader('old_close_e2e', (i) => (i < 5 ? { closedAt: new Date(Date.now() - (i + 1) * 3_600_000).toISOString(), r: 0.01 * (i + 1) } : { closedAt: '2015-03-02T15:00:00Z', r: 0.5 }), 6);
+  try {
+    const res = await request.get('/');
+    expect(res.status()).toBe(200);
+    await page.goto('/');
+    await expect(page.locator('.card').first()).toBeVisible();
+  } finally {
+    await t.remove();
+  }
+});
+
+test('fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): a 2,828-close profile is paged, short, keyboard-reachable to the disclaimer, and every close stays reachable', async ({ page, request, browser }) => {
+  test.setTimeout(120_000);
+  const N = 2828;
+  const t0 = Date.now() - 3_600_000;
+  const t = await makeTrader('heavy_e2e', (i) => ({ closedAt: new Date(t0 - i * 7 * 3_600_000).toISOString(), r: (((i * 37) % 200) - 100) / 1000 }), N);
+  try {
+    // Visitor HTML under 400 KB (it was 3.8 MB).
+    const html = await (await request.get('/u/heavy_e2e')).text();
+    expect(Buffer.byteLength(html)).toBeLessThan(400_000);
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/u/heavy_e2e');
+    const rows = page.locator('ul.rows.closes > li');
+    await expect(rows).toHaveCount(50);
+    await expect(rows.first()).toHaveId(`trade-${t.ids[0]}`);
+    await expect(page.getByText('Showing 50 of 2,828 closed trades', { exact: true })).toBeVisible();
+    // The stats and the chart cover the whole record; counts are grouped.
+    await expect(page.locator('.stat', { hasText: 'closed trades' }).locator('b')).toHaveText('2,828');
+    await expect(page.getByRole('img', { name: /^2,828 trades, / })).toBeAttached();
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThan(15_000);
+    // The footer within 200 Tab presses, with no skip link used.
+    let presses = 0;
+    for (; presses < 200; presses++) {
+      await page.keyboard.press('Tab');
+      if (await page.evaluate(() => !!document.activeElement?.closest('footer.site'))) break;
+    }
+    expect(presses).toBeLessThan(200);
+    // The skip link is the first Tab stop and moves focus to the disclaimer.
+    await page.goto('/u/heavy_e2e');
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to disclaimer and legal links' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('footer.site')).toBeFocused();
+    await expect(page.locator('footer.site')).toContainText('Not investment advice. Past performance does not guarantee future results.');
+
+    // Every chart point links to a row its target window renders (no link to a missing anchor).
+    await expect(page.locator('.chart-hit a')).toHaveCount(N); // drawn after hydration
+    const hrefs = await page.locator('.chart-hit a').evaluateAll((as) => as.map((a) => a.getAttribute('href')!));
+    expect(hrefs.length).toBe(N);
+    const order = new Map(t.ids.map((id, i) => [id, i]));
+    for (const h of hrefs) {
+      const m = h.match(/^(?:\?closes=(\d+))?#trade-(\d+)$/);
+      expect(m, h).not.toBeNull();
+      const end = Number(m![1] ?? 50), i = order.get(m![2])!;
+      expect(i >= end - 50 && i < end, h).toBe(true);
+    }
+
+    // With JS: "Show 50 more" lands on, and focuses, row 51.
+    await page.getByRole('link', { name: 'Show 50 more' }).click();
+    await expect(page).toHaveURL(new RegExp(`\\?closes=100#trade-${t.ids[50]}$`));
+    await expect(page.locator(`#trade-${t.ids[50]}`)).toBeFocused();
+    await expect(rows).toHaveCount(50);
+    await expect(page.getByText('Showing 51–100 of 2,828 closed trades', { exact: true })).toBeVisible();
+    // A chart point in another window opens that window at its row.
+    const far = await page.locator(`.chart-hit a[href$="#trade-${t.ids[N - 1]}"]`).getAttribute('href');
+    expect(far).toBe(`?closes=2850#trade-${t.ids[N - 1]}`);
+
+    // Without JS: the same link reaches rows 51-100, and walking on reaches the oldest close.
+    const ctx = await browser.newContext({ javaScriptEnabled: false });
+    const nojs = await ctx.newPage();
+    await nojs.goto('/u/heavy_e2e');
+    await expect(nojs.locator('ul.rows.closes > li')).toHaveCount(50);
+    await nojs.getByRole('link', { name: 'Show 50 more' }).click();
+    await expect(nojs).toHaveURL(new RegExp(`\\?closes=100#trade-${t.ids[50]}$`));
+    const ids = await nojs.locator('ul.rows.closes > li').evaluateAll((ls) => ls.map((l) => l.id));
+    expect(ids).toEqual(t.ids.slice(50, 100).map((id) => `trade-${id}`));
+    await expect(nojs.locator(`#trade-${t.ids[50]}`)).toBeInViewport();
+    await nojs.goto('/u/heavy_e2e?closes=2800');
+    await nojs.getByRole('link', { name: 'Show 28 more' }).click();
+    const last = await nojs.locator('ul.rows.closes > li').evaluateAll((ls) => ls.map((l) => l.id));
+    expect(last).toEqual(t.ids.slice(2800).map((id) => `trade-${id}`));
+    expect(last.at(-1)).toBe(`trade-${t.ids[N - 1]}`); // the oldest close
+    await expect(nojs.getByText('Showing 2,801–2,828 of 2,828 closed trades', { exact: true })).toBeVisible();
+    await expect(nojs.getByRole('link', { name: /^Show \d+ more$/ })).toHaveCount(0);
+    await expect(nojs.getByRole('link', { name: 'Back to the newest' })).toHaveAttribute('href', '/u/heavy_e2e');
+    // 44 px controls.
+    const box = await nojs.getByRole('link', { name: 'Back to the newest' }).boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    await ctx.close();
+  } finally {
+    await t.remove();
+  }
+});

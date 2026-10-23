@@ -16,6 +16,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en">
       <body>
+        {/* F-1 PR-3 fix round 4 (POLICY F3/A1): the disclaimer and legal links are one Tab away on any page, however long. */}
+        <a className="skip-link" href="#site-footer">{FOOTER.skip}</a>
         <nav className="top">
           <Link href="/" className="logo">Stock Social</Link>
           <Link href="/t">Stocks</Link>
@@ -24,7 +26,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </nav>
         {children}
         {/* docs/POLICY.md F3: every page that can show performance carries this, in plain view */}
-        <footer className="site muted">
+        <footer className="site muted" id="site-footer" tabIndex={-1}>
           Not investment advice. Past performance does not guarantee future results. &ldquo;Verified&rdquo; means
           imported read-only from the trader&rsquo;s broker; it doesn&rsquo;t verify identity or imply endorsement.
           <nav className="legal" aria-label="Legal">

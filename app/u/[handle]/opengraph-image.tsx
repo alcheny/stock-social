@@ -8,6 +8,7 @@ import { publicRecord } from '@/lib/connections.ts';
 import { isDemoUser } from '@/lib/demo.ts';
 import { imageLabel, shareCardText } from '@/lib/copy.ts';
 import { confidence, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
+import { count } from '@/lib/format.ts';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -53,7 +54,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
             <span style={{ fontSize: 28, color: '#8b8b98' }}>avg return / trade</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{s.trades}</span>
+            <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{count(s.trades)}</span>
             <span style={{ fontSize: 28, color: '#8b8b98' }}>trades · losses included</span>
           </div>
         </div>

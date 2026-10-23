@@ -545,32 +545,54 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
 // The owner's poll (POST /api/import/step): applies the clocks, runs one step for every importing connection of the
 // user (fix round 3: not the newest row; a newer pending or finished link never hides a running import), then answers
 // the aggregate over all consented connections: the state, the summed import count and the closes.
-export async function ownerPoll(userId: number, deps: Deps = realDeps, now = new Date()): Promise<{ state: PublicState; imported: number; closes: number }> {
+// F-1 PR-3 fix round 4 (business lead 3): the step route declares `maxDuration = STEP_ROUTE_MAX_S` (60 s, request #8)
+// and the poll starts a step only while STEP_RESERVE_MS remain (one vendor-bounded request plus the database work), so
+// a trader with several importing links never runs the call past its limit; the steps it did not start run on the next
+// poll (2 s later) or the next tick.
+// `waiting` (UX lead note 2): the last step of an importing link was deferred (the vendor timed out, rate-limited or was
+// down: a backoff is pending); a page read clears it. The banner's 60 s line then says the broker is not sending.
+export const STEP_ROUTE_MAX_S = 60;
+export const STEP_RESERVE_MS = vendor.VENDOR_TIMEOUT_MS + 5_000;
+export const stepDeadline = (startedAt: number) => startedAt + STEP_ROUTE_MAX_S * 1000 - STEP_RESERVE_MS;
+export async function ownerPoll(userId: number, deps: Deps = realDeps, now = new Date(), deadline = Infinity): Promise<{ state: PublicState; imported: number; closes: number }> {
   await applyClocks(now, { userId });
-  for (const id of (await recordStatus(userId)).importing) await importStep(id, deps, now);
+  for (const id of (await recordStatus(userId)).importing) {
+    if (Date.now() >= deadline) break;
+    await importStep(id, deps, now);
+  }
   const r = await recordStatus(userId);
   const [{ n }] = await sql`select count(*)::int as n from closed_trades where user_id = ${userId}`;
   return { state: r.state, imported: r.imported, closes: n as number };
 }
+export async function importWaiting(userId: number): Promise<boolean> {
+  const [{ waiting }] = await sql`select exists (select 1 from connections where user_id = ${userId} and state = 'importing' and import_cursor ? 'retryAt') as waiting`;
+  return waiting as boolean;
+}
 
 // Runs steps for one row until it stops progressing, finishes, or hits the per-tick bound.
-export async function drive(id: number, deps: Deps = realDeps, now = new Date(), max = MAX_STEPS_PER_TICK): Promise<StepResult> {
+// `until` (epoch ms, the instance clock): no step starts at or after it (PR-3 fix round 4, the cron call's deadline).
+export async function drive(id: number, deps: Deps = realDeps, now = new Date(), max = MAX_STEPS_PER_TICK, until = Infinity): Promise<StepResult> {
   let r: StepResult = { state: 'importing', imported: 0, progressed: true };
-  for (let n = 0; n < max && r.state === 'importing' && r.progressed; n++) r = await importStep(id, deps, now);
+  for (let n = 0; n < max && r.state === 'importing' && r.progressed && Date.now() < until; n++) r = await importStep(id, deps, now);
   return r;
 }
 
 // The hourly tick's connection work: clocks, every importing row advanced (a closed tab never stalls an import), cleanups retried.
-export async function tick(deps: Deps = realDeps, now = new Date()): Promise<{ expired: number; failed: number; advanced: number; cleaned: number; errors: number[] }> {
+// PR-3 fix round 4 (business lead 3): it runs first in the cron call, so it stops starting vendor work at the call's
+// `deadline` (epoch ms, the instance clock); what it did not reach waits for the next call (5 minutes) or an owner's poll.
+export async function tick(deps: Deps = realDeps, now = new Date(), deadline = Infinity): Promise<{ expired: number; failed: number; advanced: number; cleaned: number; errors: number[] }> {
   const clocks = await applyClocks(now);
   const errors: number[] = [];
   let advanced = 0, cleaned = 0;
+  const left = () => Date.now() < deadline;
   for (const r of await sql`select id from connections where state = 'importing' order by id`) {
-    try { await drive(Number(r.id), deps, now); advanced++; } catch (e) { errors.push(Number(r.id)); console.error('import step failed', r.id, errStatus(e)); }
+    if (!left()) break;
+    try { await drive(Number(r.id), deps, now, MAX_STEPS_PER_TICK, deadline); advanced++; } catch (e) { errors.push(Number(r.id)); console.error('import step failed', r.id, errStatus(e)); }
   }
   for (const r of await sql`select id from connections where cleanup_done_at is null and state in ('declined', 'expired') order by id`) {
+    if (!left()) break;
     try { await cleanup(Number(r.id), deps, now); cleaned++; } catch (e) { errors.push(Number(r.id)); console.error('connection cleanup failed', r.id, errStatus(e)); }
   }
-  await cleanupAttempts(deps);
+  if (left()) await cleanupAttempts(deps);
   return { expired: clocks.expired.length, failed: clocks.failed.length, advanced, cleaned, errors };
 }

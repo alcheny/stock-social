@@ -1,6 +1,8 @@
 // Pure trade math. No I/O — everything shown to users is derived here from raw activities,
 // so a bug is fixed by recomputing (see docs/DESIGN.md §2.5).
 
+import { count, counted } from './format.ts';
+
 export type Activity = {
   externalId: string;
   accountId: string;
@@ -250,12 +252,20 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   return { ...base, tier, edge, perTrade, pace30 };
 }
 
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const plural = (n: number, w: string) => counted(n, w);
 
 // Plain text shared by the profile, the share card and page metadata. Negative edges read the same as positive.
+// F-1 PR-3 fix round 4 (UX lead note 3): when trades outnumber bets, the line says why. Same-stock trades whose holds
+// overlap (in any account) are one bet, so a trader who scales in and out of a held position, or holds one stock in
+// several accounts, has few independent bets however many trades: "2,828 trades in 9 overlapping positions".
 export function evidenceLine(c: Confidence): string {
-  if (c.tier === 'too-early' || !c.edge) return `Too early to tell (${c.k} of 10 bets)`;
-  return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}, ${plural(Math.round(c.spanDays), 'day')})`;
+  const grouped = c.n > c.k;
+  if (c.tier === 'too-early' || !c.edge) {
+    return grouped
+      ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (10 independent bets needed)`
+      : `Too early to tell (${count(c.k)} of 10 bets)`;
+  }
+  return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
 }
 
 export const rangeText = (c: Confidence): string | null =>

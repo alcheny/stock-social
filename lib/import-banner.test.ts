@@ -160,3 +160,58 @@ test('fix round 2 (engineer, Low): a 401/403 poll stops polling for good and the
   assert.equal(later.slow, false); // "You can leave" is not shown to a signed-out tab
   assert.equal(polls(later), false);
 });
+
+// PR-3 fix round 4 (UX lead notes 1 and 2).
+test('with 0 closes, the activities count is announced at most once per 5 s, never within 5 s after a status announcement, not in the first 5 s; the status line is never held back by it', async () => {
+  const { slowText } = await import('./import-banner.ts');
+  let b = initBanner({ state: 'importing', closes: 0, read: 0, owner: true }, T);
+  const heard: [number, string][] = [];
+  let lastText = b.text, lastRead = b.readText;
+  const listen = (now: number) => {
+    if (b.text !== lastText) { heard.push([now, b.text]); lastText = b.text; }
+    if (b.readText !== lastRead) { heard.push([now, b.readText]); lastRead = b.readText; }
+  };
+  // 60 s of paging, one page every 2 s, ticks every second; the closes stay 0 until the rebuild.
+  for (let s = 1; s <= 60; s++) {
+    const now = T + s * 1_000;
+    b = s % 2 === 0 ? onPoll(b, { state: 'importing', closes: 0, read: s * 500 }, now) : onTick(b, now);
+    listen(now);
+  }
+  assert.equal(heard[0][0], T + 5_000); // nothing in the first 5 s
+  assert.deepEqual(heard.map(([, t]) => t).slice(0, 3), ['2,000 activities imported so far', '5,000 activities imported so far', '7,000 activities imported so far']);
+  for (let i = 1; i < heard.length; i++) assert.ok(heard[i][0] - heard[i - 1][0] >= ANNOUNCE_MS, `gap at ${i}`);
+  assert.ok(heard.length >= 10);
+  assert.equal(b.text, RECORD_BODY.banner(0, true)); // the status line is unchanged throughout
+  // The rebuild lands 2 s after an activities announcement: the status line is never held back by it (strict priority);
+  // the activities line then waits 5 s after the status line.
+  const lastHeard = heard[heard.length - 1][0];
+  b = onPoll(b, { state: 'importing', closes: 2828, read: 30_500 }, lastHeard + 2_000);
+  assert.equal(b.text, 'Importing your record · 2,828 closed trades so far');
+  const read = b.readText;
+  b = onTick(b, lastHeard + 6_000);
+  assert.equal(b.readText, read); // 4 s after the status line: held
+  b = onTick(b, lastHeard + 7_000);
+  assert.equal(b.readText, '30,500 activities imported so far');
+  // Visitors never get the activities region (they do not poll).
+  const v = onTick(onPoll(initBanner({ state: 'importing', closes: 0, read: 0, owner: false }, T), { state: 'importing', closes: 0, read: 9 }, T + 6_000), T + 20_000);
+  assert.equal(v.readText, '');
+  assert.equal(slowText(v), '');
+});
+
+test('the 60 s line: "Still waiting for your broker." after a deferred step, "still sending" only otherwise; a page read clears it', async () => {
+  const { slowText } = await import('./import-banner.ts');
+  let b = initBanner({ state: 'importing', closes: 0, read: 1000, owner: true }, T);
+  b = onPoll(b, { state: 'importing', closes: 0, read: 1000, waiting: true }, T + 2_000); // the step timed out
+  b = onTick(b, T + SLOW_MS);
+  assert.equal(b.slow, true);
+  assert.equal(slowText(b), RECORD_BODY.stillWaiting);
+  assert.doesNotMatch(slowText(b), /sending/);
+  // A refresh from the server carries no flag: the poll's answer stands.
+  b = onServer(b, { state: 'importing', closes: 0, read: 1000 }, T + SLOW_MS + 500);
+  assert.equal(slowText(b), RECORD_BODY.stillWaiting);
+  // The vendor answers again (a page read): rows move, the line goes; after another 60 s without rows it is "still sending".
+  b = onPoll(b, { state: 'importing', closes: 0, read: 2000, waiting: false }, T + SLOW_MS + 2_000);
+  assert.equal(slowText(b), '');
+  b = onTick(b, T + 2 * SLOW_MS + 2_000);
+  assert.equal(slowText(b), RECORD_BODY.stillSending);
+});

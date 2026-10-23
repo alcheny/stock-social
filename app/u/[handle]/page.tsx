@@ -8,7 +8,7 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { connectedLine, PROFILE, profileCardAlt, profileDescription, RECORD_BODY, recordBodyCopy, shareCardText } from '@/lib/copy.ts';
+import { CLOSES_PAGING, connectedLine, PROFILE, profileCardAlt, profileDescription, RECORD_BODY, recordBodyCopy, shareCardText } from '@/lib/copy.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
@@ -25,15 +25,18 @@ import { newTradesSince } from '@/lib/new-trades.ts';
 import { MarkTradesPromptSeen, NewTradesPrompt } from './new-trades-prompt.tsx';
 import { latestRecapYm } from '@/lib/recap.ts';
 import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
+import { count } from '@/lib/format.ts';
+import { closesWindow, packPoints } from '@/lib/paging.ts';
+import { RowFocus } from './row-focus.tsx';
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string }> };
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string }> };
 
 async function load(handle: string) {
   const [user] = await sql`select id, handle, display_name, excluded_positions, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
   if (!user) return null;
   const trades = await sql`
     select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
-    from closed_trades where user_id = ${user.id} order by closed_at desc`;
+    from closed_trades where user_id = ${user.id} order by closed_at desc, id desc`; // list order (lib/paging.ts)
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
   // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.
@@ -122,6 +125,11 @@ export default async function Profile({ params, searchParams }: Params) {
   // Committee fix (item 5): no share invitation on a record that is importing or failed; "Try again" is the only primary.
   const shareable = state === 'connected' || state === 'none';
   const connected = allVerified ? connectedLine(brokers, accounts) : 'Demo data';
+  // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
+  // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
+  const win = closesWindow((await searchParams)?.closes, trades.length);
+  const listed = trades.slice(win.start, win.start + win.shown);
+  const firstNew = win.next !== null ? trades[win.end] : null;
 
   // A provisional profile (no display name set yet) shows the handle once, as the heading.
   const provisional = user.display_name === user.handle;
@@ -199,15 +207,15 @@ export default async function Profile({ params, searchParams }: Params) {
         </details>
       </div>
       <section className="stats">
-        <div className="stat"><b>{s.trades}</b><small>closed trades</small></div>
+        <div className="stat"><b>{count(s.trades)}</b><small>closed trades</small></div>
         <div className="stat"><b>{s.profitFactor === null ? '—' : s.profitFactor.toFixed(2)}</b><small>profit factor</small></div>
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
-      <PerformanceChart trades={trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null }))} now={new Date()} />
+      <PerformanceChart points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
       </>}
       {user.excluded_positions > 0 && (
-        <p className="muted">{user.excluded_positions} earlier position(s) excluded: no matching entry in the imported history.</p>
+        <p className="muted">{count(user.excluded_positions)} earlier position(s) excluded: no matching entry in the imported history.</p>
       )}
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
 
@@ -225,9 +233,11 @@ export default async function Profile({ params, searchParams }: Params) {
 
       <h2>Closed trades</h2>
       {recordBodyCopy(state, trades.length) && <p className="muted record-body">{recordBodyCopy(state, trades.length)}</p>}
-      <ul className="rows">
-        {trades.map((t) => (
-          <li key={t.id} id={`trade-${t.id}`}>
+      {trades.length > CLOSES_PAGING.size && <p className="muted small closes-showing">{CLOSES_PAGING.showing(win.start, win.shown, trades.length)}</p>}
+      <RowFocus window={win.end} />
+      <ul className="rows closes">
+        {listed.map((t) => (
+          <li key={t.id} id={`trade-${t.id}`} tabIndex={-1}>
             <div className="line">
               <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
               <Link className="trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
@@ -246,6 +256,13 @@ export default async function Profile({ params, searchParams }: Params) {
           </li>
         ))}
       </ul>
+      {(firstNew || win.prev !== null) && (
+        <p className="closes-more">
+          {/* A plain link: a whole page either way (the chart's record is most of it), and the same path with or without JS. */}
+          {firstNew && <a className="button secondary" href={`?closes=${win.next}#trade-${firstNew.id}`}>{CLOSES_PAGING.more(Math.min(CLOSES_PAGING.size, trades.length - win.end))}</a>}
+          {win.prev !== null && <a className="button secondary" href={`/u/${user.handle}`}>{CLOSES_PAGING.newest}</a>}
+        </p>
+      )}
       <p><Link href="/">← Feed</Link></p>
     </main>
   );

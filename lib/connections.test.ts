@@ -1510,3 +1510,48 @@ dbTest('PR-3 (carried Info 3): a vendor 5xx, a transport error or a refused URL 
     await cleanup([u.id]);
   }
 });
+
+dbTest('PR-3 fix round 4: a deferred step marks the import waiting until a page is read; no step starts past the call\'s deadline (poll, drive, tick)', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, importStep, drive, tick, ownerPoll, importWaiting, retryDelayMs, stepDeadline, STEP_RESERVE_MS, STEP_ROUTE_MAX_S } = await import('./connections.ts');
+  const { VendorTimeoutError, VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('dl');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const acc = `${tag}-dl`;
+  v.accounts = [acct(acc)];
+  v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2)]); // 4 rows, 2 pages
+  const t0 = new Date('2026-10-22T10:00:00Z');
+  const s = (n: number) => new Date(t0.getTime() + n * 1000);
+  let calls = 0;
+  const counted = { ...deps, fetchActivitiesPage: async (...a: Parameters<Deps['fetchActivitiesPage']>) => { calls++; return deps.fetchActivitiesPage(...a); } };
+  try {
+    assert.equal(stepDeadline(0), STEP_ROUTE_MAX_S * 1000 - STEP_RESERVE_MS);
+    assert.ok(STEP_RESERVE_MS > VENDOR_TIMEOUT_MS);
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps, t0) as { id: number };
+    await consent(id, s(1), deps);
+    assert.equal(await importWaiting(u.id), false);
+    await importStep(id, counted, s(2));
+    assert.equal(calls, 1);
+    // The vendor times out: waiting.
+    const slow = { ...deps, fetchActivitiesPage: async () => { throw new VendorTimeoutError(30_000); } };
+    await importStep(id, slow, s(3));
+    assert.equal(await importWaiting(u.id), true);
+    // Past the deadline nothing starts: not the owner's poll, not drive, not the cron's connection tick.
+    const before = await conn(id);
+    const late = s(3 + retryDelayMs(1) / 1000 + 1);
+    assert.equal((await ownerPoll(u.id, counted, late, Date.now() - 1)).imported, before.imported_count);
+    assert.equal((await drive(id, counted, late, 200, Date.now() - 1)).state, 'importing');
+    const t = await tick(counted, late, Date.now() - 1);
+    assert.equal(t.advanced, 0);
+    assert.equal(calls, 1);
+    assert.deepEqual((await conn(id)).import_cursor, before.import_cursor);
+    // With time left the poll steps again; the page read clears waiting.
+    await ownerPoll(u.id, counted, late, Date.now() + 60_000);
+    assert.equal(calls, 2);
+    assert.equal(await importWaiting(u.id), false);
+  } finally {
+    await cleanup([u.id], [acc]);
+  }
+});

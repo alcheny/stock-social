@@ -239,3 +239,45 @@ test('fix round 2 (business lead 2, 3; UX lead 1; engineer Lows): one noun per c
   const all = allCopy();
   for (const s of [PORTAL.blank, PORTAL.popupBlocked, PORTAL.continue, PORTAL.tooMany, RECORD_BODY.signedOut, RECORD_BODY.signInAgain]) assert.ok(all.includes(s), s);
 });
+
+test('PR-3 fix round 4 (UX lead demand 2): every count is grouped by thousands, never "2828"', async () => {
+  const { CLOSES_PAGING, WHOLE_RECORD, connectedLine, profileDescription, wholeRecordPreview } = await import('./copy.ts');
+  const lines = [
+    RECORD_BODY.banner(2828, true), RECORD_BODY.banner(2828, false), RECORD_BODY.imported(10000), RECORD_BODY.importedSoFar(10000),
+    RECORD_BODY.paperExcluded(1200), WHOLE_RECORD.soFar(2828), recordCountText({ state: 'connected', demo: false, verified: true, trades: 2828 }),
+    profileDescription({ state: 'connected', demo: false, verified: true, trades: 2828, stats: 's' }),
+    profileDescription({ state: 'importing', demo: false, verified: false, trades: 2828, stats: 's' }),
+    wholeRecordPreview({ state: 'importing', demo: false, verified: false, trades: 2828 }, 's'),
+    connectedLine([], 1500), CONSENT.lines(1500, 1200)[1], CLOSES_PAGING.showing(0, 50, 2828), CLOSES_PAGING.showing(1000, 50, 2828),
+  ];
+  for (const l of lines) assert.doesNotMatch(l, /\d{4}/, l);
+  assert.equal(RECORD_BODY.banner(2828, true), 'Importing your record · 2,828 closed trades so far');
+  assert.equal(RECORD_BODY.imported(10000), '10,000 activities imported');
+  assert.equal(recordCountText({ state: 'connected', demo: false, verified: true, trades: 2828 }), '2,828 verified trades');
+  assert.equal(recordCountText({ state: 'connected', demo: false, verified: true, trades: 1 }), '1 verified trade');
+});
+
+test('PR-3 fix round 4 (UX lead demand 1): the paging line and controls', async () => {
+  const { CLOSES_PAGING } = await import('./copy.ts');
+  assert.equal(CLOSES_PAGING.size, 50);
+  assert.equal(CLOSES_PAGING.showing(0, 50, 2828), 'Showing 50 of 2,828 closed trades');
+  assert.equal(CLOSES_PAGING.showing(50, 50, 2828), 'Showing 51–100 of 2,828 closed trades');
+  assert.equal(CLOSES_PAGING.showing(2800, 28, 2828), 'Showing 2,801–2,828 of 2,828 closed trades');
+  assert.equal(CLOSES_PAGING.more(50), 'Show 50 more');
+  assert.equal(CLOSES_PAGING.more(28), 'Show 28 more');
+  const all = allCopy();
+  assert.ok(all.includes(CLOSES_PAGING.newest));
+});
+
+test('PR-3 fix round 4 (UX lead notes 1 and 2): the announced activities line; the 60 s line never claims the broker is sending during a timeout', async () => {
+  const { FOOTER } = await import('./copy.ts');
+  assert.equal(RECORD_BODY.importedSoFar(0), '0 activities imported so far');
+  assert.equal(RECORD_BODY.importedSoFar(1), '1 activity imported so far');
+  assert.equal(RECORD_BODY.importedSoFar(4500), '4,500 activities imported so far');
+  assert.match(RECORD_BODY.stillWaiting, /^Still waiting for your broker\./);
+  assert.doesNotMatch(RECORD_BODY.stillWaiting, /sending/i);
+  assert.match(RECORD_BODY.stillWaiting, /You can leave; the import continues\.$/);
+  assert.equal(FOOTER.skip, 'Skip to disclaimer and legal links');
+  const all = allCopy();
+  for (const s of [RECORD_BODY.stillWaiting, FOOTER.skip]) assert.ok(all.includes(s), s);
+});

@@ -9,6 +9,12 @@
 // Fix round 2 (business lead 4, acceptance criterion: the banner disappears): on finish the banner keeps only its status
 // line, which says "Import finished." once (the same live region, so it is announced once) and is removed FINISHED_MS
 // after it went out; nothing reserves an empty box. A 401/403 poll (signed out in another tab) stops polling for good.
+// PR-3 fix round 4 (UX lead notes 1 and 2): while the closes count is still 0 (closes appear only at the rebuild), a
+// screen reader heard nothing for the whole paging phase. A second, visually hidden live region now announces
+// "N activities imported so far": at most once per ANNOUNCE_MS, never within ANNOUNCE_MS after a status announcement,
+// never while a status change is pending, and not in the first ANNOUNCE_MS after mount. The status line keeps strict
+// priority: it is never held back by the activities line (the closes count arriving at the rebuild goes out at once). The 60 s line says "Still waiting for your broker." when the last step was deferred
+// (`waiting`: a timeout, a rate limit or an outage), never that the broker is sending.
 import { RECORD_BODY } from './copy.ts';
 
 export const POLL_MS = 2_000;
@@ -16,7 +22,7 @@ export const ANNOUNCE_MS = 5_000;
 export const SLOW_MS = 60_000;
 export const FINISHED_MS = 5_000;
 
-type Snapshot = { state: string; closes: number; read: number };
+type Snapshot = { state: string; closes: number; read: number; waiting?: boolean };
 export type Banner = {
   phase: 'importing' | 'finished' | 'hidden';
   owner: boolean;
@@ -30,6 +36,10 @@ export type Banner = {
   refreshes: number; // bumped when the page's server data should be re-read (the list under the banner, the end state)
   visible: boolean; // the tab is shown (document.visibilityState)
   signedOut: boolean; // a poll was answered 401/403: no more polls, the banner says so
+  waiting: boolean; // the last step was deferred (the vendor timed out, rate-limited or was down)
+  readText: string; // the activities line as announced (the hidden live region); '' until the first announcement
+  readAt: number; // when readText was last announced
+  mountedAt: number;
 };
 
 const textFor = (phase: Banner['phase'], closes: number, owner: boolean) => (phase === 'finished' ? RECORD_BODY.finished : RECORD_BODY.banner(closes, owner));
@@ -37,16 +47,25 @@ const textFor = (phase: Banner['phase'], closes: number, owner: boolean) => (pha
 export function initBanner(x: Snapshot & { owner: boolean; visible?: boolean }, now: number): Banner {
   const phase = x.state === 'importing' ? 'importing' : 'hidden';
   const text = textFor(phase, x.closes, x.owner);
-  return { phase, owner: x.owner, closes: x.closes, read: x.read, changedAt: now, text, want: text, announcedAt: -Infinity, slow: false, refreshes: 0, visible: x.visible ?? true, signedOut: false };
+  return { phase, owner: x.owner, closes: x.closes, read: x.read, changedAt: now, text, want: text, announcedAt: -Infinity, slow: false, refreshes: 0, visible: x.visible ?? true, signedOut: false,
+    waiting: x.waiting ?? false, readText: '', readAt: -Infinity, mountedAt: now };
 }
 
 function commit(b: Banner, now: number): Banner {
   // The finished note has been out for FINISHED_MS: the banner is gone (no refresh: the page already has the record).
   if (b.phase === 'finished' && b.text === RECORD_BODY.finished && now - b.announcedAt >= FINISHED_MS) return { ...b, phase: 'hidden' };
   const slow = b.owner && !b.signedOut && b.phase === 'importing' && now - b.changedAt >= SLOW_MS;
-  if (b.want === b.text || now - b.announcedAt < ANNOUNCE_MS) return slow === b.slow ? b : { ...b, slow };
-  return { ...b, slow, text: b.want, announcedAt: now, refreshes: b.refreshes + 1 };
+  if (b.want !== b.text) {
+    if (now - b.announcedAt < ANNOUNCE_MS) return slow === b.slow ? b : { ...b, slow };
+    return { ...b, slow, text: b.want, announcedAt: now, refreshes: b.refreshes + 1 };
+  }
+  const quiet = now - b.announcedAt >= ANNOUNCE_MS && now - b.readAt >= ANNOUNCE_MS; // nothing heard for 5 s
+  const readWant = RECORD_BODY.importedSoFar(b.read);
+  if (b.owner && b.phase === 'importing' && readWant !== b.readText && quiet && now - b.mountedAt >= ANNOUNCE_MS) return { ...b, slow, readText: readWant, readAt: now };
+  return slow === b.slow ? b : { ...b, slow };
 }
+// The 60 s line (owner, importing, no new rows for SLOW_MS): never says the broker is sending while it is not answering.
+export const slowText = (b: Banner): string => (!b.slow ? '' : b.waiting ? RECORD_BODY.stillWaiting : RECORD_BODY.stillSending);
 
 // A poll answer (or the server's state after a refresh): fold in the counts and the state, then commit if allowed.
 export function onPoll(b: Banner, r: Snapshot, now: number): Banner {
@@ -54,7 +73,7 @@ export function onPoll(b: Banner, r: Snapshot, now: number): Banner {
   if (r.state === 'failed') return { ...b, phase: 'hidden', slow: false, refreshes: b.refreshes + 1 };
   const moved = r.read !== b.read || r.closes !== b.closes;
   const phase: Banner['phase'] = r.state === 'importing' ? 'importing' : 'finished';
-  const next = { ...b, phase, closes: r.closes, read: r.read, changedAt: moved ? now : b.changedAt, want: textFor(phase, r.closes, b.owner) };
+  const next = { ...b, phase, closes: r.closes, read: r.read, changedAt: moved ? now : b.changedAt, want: textFor(phase, r.closes, b.owner), waiting: r.waiting ?? b.waiting };
   return commit(phase === 'finished' ? { ...next, slow: false } : next, now);
 }
 export const onServer = onPoll;

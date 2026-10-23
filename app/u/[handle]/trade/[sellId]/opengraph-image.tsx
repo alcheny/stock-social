@@ -4,6 +4,7 @@ import { DISCLAIMER } from '@/lib/share.ts';
 import { imageTrust } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
+import { counted } from '@/lib/format.ts';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -51,7 +52,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
         <div style={{ display: 'flex', flexDirection: 'column', borderTop: `2px solid ${MUTED}`, paddingTop: 16, flexShrink: 0 }}>
           {trust.stats && (
             <span style={{ fontSize: 34, fontWeight: 700 }}>
-              Overall record: {(t.record.winRate * 100).toFixed(0)}% win rate · {t.record.trades} trade{t.record.trades === 1 ? '' : 's'} · avg {pct(t.record.avgReturn)}
+              Overall record: {(t.record.winRate * 100).toFixed(0)}% win rate · {counted(t.record.trades, 'trade')} · avg {pct(t.record.avgReturn)}
             </span>
           )}
           {trust.note && <span style={{ fontSize: 26, color: TONE[trust.tone] }}>{trust.note}</span>}

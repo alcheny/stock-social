@@ -1,8 +1,10 @@
 'use client';
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { RANGES, curveDomain, equityCurve, maxDrawdown, nearestIndex, pct, rangeReturn, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
+import { count } from '@/lib/format.ts';
+import { tradeHref, unpackPoints, type ChartPoint, type PackedPoint } from '@/lib/paging.ts';
 
-type Pt = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null };
+type Pt = ChartPoint;
 
 const W = 640, H = 240, T = 16, B = 16;
 const DAY = 86_400_000;
@@ -14,7 +16,14 @@ const DAY = 86_400_000;
 // Without JS the server-rendered ALL line stays; the tabs just do nothing.
 // Kept from the trade-linked chart (#14, #21): a transparent overlay of links to each trade's row (hover/focus
 // tooltip), and scrub-to-open: releasing a drag, or Enter, opens a sheet with hold time, thesis and a row link.
-export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[]; now: Date; linkBase?: string }) {
+// F-1 PR-3 fix round 4 (UX lead demand 1): the record arrives packed (lib/paging.ts, list order) and each trade link
+// opens the profile window that renders the row (`?closes=N#trade-id`; the anchor alone on the window shown, `current`).
+// The per-point links are drawn after hydration only: they were never Tab stops (tabindex -1), and on a heavy record
+// they were most of the page's HTML. Without JS, every trade is reached through the paged list.
+export function PerformanceChart({ points, now, linkBase = '', current }: { points: PackedPoint[]; now: Date; linkBase?: string; current?: number }) {
+  const trades = useMemo(() => unpackPoints(points), [points]);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [range, setRange] = useState<RangeKey>('ALL');
   const [active, setActive] = useState<number | null>(null);
   const [sel, setSel] = useState<number | null>(null);
@@ -46,7 +55,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
   const at = active === null ? null : pts[active];
   const shown = at ? at.value : last;
   const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : spec.label;
-  const label = `${curve.length} trades, ${pct(last, 0)} total, max drawdown ${pct(-maxDrawdown(curve), 0)}`;
+  const label = `${count(curve.length)} trades, ${pct(last, 0)} total, max drawdown ${pct(-maxDrawdown(curve), 0)}`;
 
   const scrubTo = (e: PointerEvent) => {
     const r = stack.current!.getBoundingClientRect();
@@ -100,7 +109,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
               <circle cx={f(xs[active!])} cy={f(y(at.value))} r="5" className="dot" />
             </>}
           </svg>
-          <svg viewBox={`0 0 ${W} ${H}`} className="chart-hit" role="group" aria-label="Chart points: each links to its trade below">
+          {mounted && <svg viewBox={`0 0 ${W} ${H}`} className="chart-hit" role="group" aria-label="Chart points: each links to its trade below">
             {pts.map((p, i) => {
               if (!p.trade) return null;
               const cx = xs[i], cy = y(p.value);
@@ -109,7 +118,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
               const tx = Math.min(Math.max(cx - tw / 2, 2), W - tw - 2);
               const ty = cy > T + 28 ? cy - 30 : cy + 10;
               return (
-                <a key={p.trade.id} tabIndex={-1} href={`${linkBase}#trade-${p.trade.id}`} aria-label={`${text}, go to trade`}>
+                <a key={p.trade.id} tabIndex={-1} href={tradeHref(linkBase, p.trade.id, p.trade.index, current)} aria-label={`${text}, go to trade`}>
                   <circle cx={f(cx)} cy={f(cy)} r="12" className="hit" />
                   <g className="tip" pointerEvents="none">
                     <rect x={f(tx)} y={f(ty)} width={tw} height="22" rx="6" />
@@ -118,7 +127,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
                 </a>
               );
             })}
-          </svg>
+          </svg>}
           <span className="zero-label" style={{ top: `${(y(0) / H) * 100}%` }}>0%</span>
         </div>
       )}
@@ -135,7 +144,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
                 <p className="muted" style={{ margin: '4px 0 0' }}>Held {chosen.holdingDays.toFixed(1)} days</p>
                 {chosen.thesis && <p style={{ margin: '4px 0 0' }}>“{chosen.thesis}”</p>}
                 <p style={{ margin: '8px 0 0' }}>
-                  <a href={`${linkBase}#trade-${chosen.id}`}>Go to trade in list</a>{' '}
+                  <a href={tradeHref(linkBase, chosen.id, chosen.index, current)}>Go to trade in list</a>{' '}
                   <button type="button" onClick={() => setOpen(false)}>Close</button>
                 </p>
               </>

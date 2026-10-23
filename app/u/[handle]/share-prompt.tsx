@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { markSharePromptSeen, recordSharePromptAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
+import { counted } from '@/lib/format.ts';
 
 type Props = { handle: string; displayName: string; trades: number; range: string | null; isNew: boolean };
 
@@ -30,7 +31,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew }: Props
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img className="preview" src={`/u/${handle}/opengraph-image`} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
-          alt={`Preview of your share card: ${displayName}, ${trades} verified trade${trades === 1 ? '' : 's'}`} />
+          alt={`Preview of your share card: ${displayName}, ${counted(trades, 'verified trade')}`} />
       )}
       <p style={{ margin: 0 }}>
         Public: your win rate, average return and each closed trade as a percentage, losses included. Never sizes, prices or balances. Your broker login stays private.
@@ -39,7 +40,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew }: Props
         <p className="muted note" style={{ margin: 0 }}>
           {trades === 0
             ? 'You have no closed trades yet. Your card will show an empty record until you close a position.'
-            : `A short record means wide uncertainty. You have ${trades} closed trade${trades === 1 ? '' : 's'} so far, and the card is labelled New record.${range ? ` Right now the range is ${range}.` : ''}`}
+            : `A short record means wide uncertainty. You have ${counted(trades, 'closed trade')} so far, and the card is labelled New record.${range ? ` Right now the range is ${range}.` : ''}`}
         </p>
       )}
       <div className="actions">
