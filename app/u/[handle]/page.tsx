@@ -28,6 +28,8 @@ import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
 import { count } from '@/lib/format.ts';
 import { closesWindow, packPoints } from '@/lib/paging.ts';
 import { RowFocus } from './row-focus.tsx';
+import { FollowButton } from '../../follow-button.tsx';
+import { followingAmong } from '@/lib/follows.ts';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string }> };
 
@@ -82,6 +84,8 @@ export default async function Profile({ params, searchParams }: Params) {
   const { user, trades, s, c, brokers, accounts, state, positions, paper, read } = data;
   const me = await currentUser();
   const isMe = me?.id === user.id;
+  // F-2 PR-2: whether this viewer follows the trader (their own row only); never a count, never on your own profile.
+  const following = !!me && !isMe && (await followingAmong(me.id, [user.id])).has(user.id);
   if (isMe) {
     // Funnel (plan §5): once per completed attempt, the first time the trader sees their own profile.
     const [{ a }] = await sql`select max(id) as a from signup_attempts where user_id = ${user.id} and completed_at is not null
@@ -142,6 +146,7 @@ export default async function Profile({ params, searchParams }: Params) {
       <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
         {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge verified={trust.badge === 'verified'} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
+      {!isMe && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn={!!me} /></div>}
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {/* S5: the live banner (owner polls; visitors see the server's line). Rendered in every state so its finished
           line survives the refresh that follows the end of the import. */}

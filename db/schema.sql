@@ -317,3 +317,31 @@ create table if not exists open_positions (
   fetched_at timestamptz not null default now(),
   primary key (user_id, account_id, symbol)
 );
+
+-- F-2 PR-2 (docs/features/logs/F-2/plan.md): the state a signed-in viewer chose, private to that viewer. No page or
+-- route reads it for anyone else and nothing counts it (POLICY F6). No event rows of any kind before PR-5.
+-- Either account's deletion cascades; deleting the viewer also removes them first (lib/delete.ts).
+create table if not exists follows (
+  viewer_id int not null references users on delete cascade,
+  trader_id int not null references users on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (viewer_id, trader_id),
+  check (viewer_id <> trader_id)
+);
+select schema_add_index('follows_trader', 'create index follows_trader on follows (trader_id)');
+-- "Not interested" and unfollow: the trader leaves this viewer's feed until `until` (90 days). Undo and "Show again"
+-- end it (until = now()) without deleting; the sync tick deletes rows ended over a day ago (lib/discovery/purge.ts).
+create table if not exists viewer_exclusions (
+  viewer_id int not null references users on delete cascade,
+  trader_id int not null references users on delete cascade,
+  created_at timestamptz not null default now(),
+  until timestamptz not null,
+  reason text not null check (reason in ('not_interested', 'unfollow')),
+  primary key (viewer_id, trader_id),
+  check (viewer_id <> trader_id)
+);
+select schema_add_index('viewer_exclusions_trader', 'create index viewer_exclusions_trader on viewer_exclusions (trader_id)');
+select schema_add_index('viewer_exclusions_until', 'create index viewer_exclusions_until on viewer_exclusions (until)');
+-- Deleting a users row checks users.referred_by_user_id (on delete set null): without an index that is a scan of users
+-- per deleted account (found by the heavy check: removing its 100,000 fixture viewers took minutes).
+select schema_add_index('users_referred_by', 'create index users_referred_by on users (referred_by_user_id) where referred_by_user_id is not null');

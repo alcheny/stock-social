@@ -110,7 +110,8 @@ export function FeedPager({ next: first }: { next: string }) {
     // The sentinel is the card 5 from the end; every card after it and the control count too, so a jump past the
     // sentinel (a fast fling, End, a deep link) still loads.
     const feed = document.querySelector('.feed');
-    const els = [...(feed?.querySelectorAll(':scope > .row') ?? [])].slice(-6);
+    // F-2 PR-2: rows hidden by "Not interested" (display: none) never come into view, so they don't count.
+    const els = [...(feed?.querySelectorAll<HTMLElement>(':scope > .row') ?? [])].filter((r) => r.offsetParent).slice(-6);
     if (control.current) els.push(control.current);
     if (!feed || !els.length) return;
     // After a load, what is already in view when this observer starts does not count: it must come into view anew.

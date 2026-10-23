@@ -18,7 +18,13 @@ export const defaultDeleteDeps: DeleteDeps = {
 // deleted_at marks a deletion in progress before the vendor call: if the vendor call fails the row stays, marked, and
 // the next call finishes it (PR-2a's S9 hides marked rows and retries from the hourly tick).
 export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = defaultDeleteDeps): Promise<void> {
-  await sql`update users set deleted_at = coalesce(deleted_at, now()) where id = ${u.id}`;
+  // F-2 PR-2: the first step, with the mark: follows and exclusions made by this account or naming it go before the
+  // vendor call, so a failed vendor call still leaves none (the cascade covers any written meanwhile).
+  await sql.begin((tx) => [
+    tx`update users set deleted_at = coalesce(deleted_at, now()) where id = ${u.id}`,
+    tx`delete from follows where viewer_id = ${u.id} or trader_id = ${u.id}`,
+    tx`delete from viewer_exclusions where viewer_id = ${u.id} or trader_id = ${u.id}`,
+  ]);
   if (u.snaptrade_user_id && u.snaptrade_secret_enc) await deps.deleteVendorUser({ snaptradeUserId: u.snaptrade_user_id, secretEnc: u.snaptrade_secret_enc });
   await sql.begin(async (tx) => {
     // Sign-in links are keyed by attempt, not user (COMPLIANCE §3): every link on the user's attempts and every link sent

@@ -910,3 +910,29 @@ dbTest('fix round 6: the tick sizes the reserve by account count: a trader whose
     await h.cleanup();
   }
 });
+
+dbTest('F-2 PR-2 (plan demand D): two concurrent cron callers: exactly one runs the discovery purge, the other skips only the purge, and both claim traders', async () => {
+  const h = await roundTicks(4);
+  const { purgeDiscovery } = await import('./discovery/purge.ts');
+  try {
+    let open!: () => void, locked!: () => void;
+    const held = new Promise<void>((r) => { open = r; }), inLock = new Promise<void>((r) => { locked = r; });
+    const by = new Map<number, string>();
+    const slow = (who: string) => async (u: { id: number }) => { if (h.mine.has(u.id)) by.set(u.id, who); await new Promise((r) => setTimeout(r, 40)); return 0; };
+    // The route's order: purge (under its lock), then syncTick, never a branch between them.
+    const a = (async () => { const p = await purgeDiscovery({ hold: () => { locked(); return held; } }); await h.tick(0, slow('a')); return p; })();
+    await inLock;
+    const b = (async () => { const p = await purgeDiscovery(); open(); await h.tick(0, slow('b')); return p; })();
+    const [pa, pb] = await Promise.all([a, b]);
+    assert.equal(pa.ran, true);
+    assert.equal(pb.ran, false);
+    assert.equal(by.size, 4); // every trader synced once this round
+    assert.ok([...by.values()].includes('a') && [...by.values()].includes('b'), JSON.stringify([...by.values()]));
+    const route = readFileSync(new URL('../app/api/sync/route.ts', import.meta.url), 'utf8');
+    const at = (s: string) => route.indexOf(s);
+    assert.ok(at('syncAll(pendingDeletes') < at('purgeDiscovery()') && at('purgeDiscovery()') < at('await syncTick('), 'after the deletion retries, before syncTick');
+    assert.match(route, /try \{ purged = await purgeDiscovery\(\); \} catch/);
+  } finally {
+    await h.cleanup();
+  }
+});

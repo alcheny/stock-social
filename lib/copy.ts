@@ -3,6 +3,7 @@
 // F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
 import { count, counted } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
+import { EXCLUSION_DAYS } from './discovery/weights.ts';
 
 export const SIGNIN = {
   title: 'Publish your trades',
@@ -326,6 +327,30 @@ export const FEED_COUNTS = {
   loaded: (from: number, to: number) => `Trades ${from} to ${to} loaded`,
 };
 
+// F-2 PR-2: follow and "Not interested" (plan §1 PR-2). Private: no count, the trader is never told. The durations come
+// from the constant (O3: the owner may change it; the copy follows).
+export const FOLLOW = {
+  follow: 'Follow',
+  following: 'Following',
+  signIn: (h: string) => `Sign in to follow @${h}`,
+  first: (h: string) => `Following @${h}. Only you can see this.`,
+  unfollowed: (h: string) => `Unfollowed @${h}. Hidden from your feed for ${EXCLUSION_DAYS} days.`,
+  undo: 'Undo',
+  failed: 'Couldn\u2019t save that. Try again.',
+  more: (h: string) => `More for @${h}`,
+  notInterested: (h: string) => `Not interested in @${h}`,
+  hidden: `Hidden for ${EXCLUSION_DAYS} days.`,
+  title: 'Following',
+  private: 'Only you can see these lists. Traders are never told.',
+  hiddenHeading: 'Not interested',
+  hiddenExplain: 'Hidden from your feed. Their profiles stay public.',
+  until: (d: string) => `until ${d}`,
+  showAgain: 'Show again',
+  noneFollowing: 'You don\u2019t follow anyone yet.',
+  noneHidden: 'No one is hidden.',
+  settingsLink: 'Following and hidden traders',
+};
+
 export function allCopy(): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
@@ -334,6 +359,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW].forEach(walk);
   return out;
 }

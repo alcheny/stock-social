@@ -4,6 +4,8 @@ import { groupByUser } from './pane.ts';
 import { confidence, evidenceWeight, rankTraders, type ConfidenceInput } from './trades.ts';
 import { mixFeed } from './discovery/explore.ts';
 import { CURSOR_MAX_AGE_MS, encodeCursor, pageOf, readCursor, type Cursor } from './discovery/pager.ts';
+import { displayFilter, shapeList, splitExclusions } from './discovery/exclusions.ts';
+import { exclusionsFor, followingAmong } from './follows.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
 // score = ln(1 + |r|·100) · exp(-max(0, min(age_hours / RECENCY_HOURS, MAX_DECAY)))
@@ -208,7 +210,8 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
   return out;
 }
 
-export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }): Promise<{ list: FeedItem[] }> {
+// `ranked`: the list before the mix (F-2 PR-2: a viewer's exclusions are taken out of it, then it is mixed again).
+export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }): Promise<{ list: FeedItem[]; ranked: FeedCandidate[] }> {
   const candidates = await candidatesAt({ asOf: opts.asOf, ids: opts.ids });
   const prints = new Map<number, Print>();
   for (const t of candidates) prints.set(t.user_id, { n: t.pn!, m: t.pm!, k: t.pk! });
@@ -218,7 +221,7 @@ export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }
   const ranked = rankTraders(candidates.map((t) => ({ t, score: Number(t.score), weight: weight.get(t.user_id) ?? 0 })))
     .map(({ t }) => ({ ...t, key: t.sell_id, trader: t.user_id }));
   const list: FeedItem[] = mixFeed(ranked, { day: opts.day }).map(({ card: { key: _k, trader: _t, pn: _n, pm: _m, pk: _p, ...t }, explore }) => ({ ...t, explore }));
-  return { list };
+  return { list, ranked: ranked.map(({ key: _k, trader: _t, pn: _n, pm: _m, pk: _p, ...t }) => t) };
 }
 
 export type FeedPage = {
@@ -226,59 +229,72 @@ export type FeedPage = {
   // The list positions this page covers (1-based, for the no-JS page's position heading).
   from: number; to: number;
   byUser: Map<number, PaneRow[]>; records: Map<number, RecordStatus>;
+  // F-2 PR-2: signed in only, the viewer's follows among the page's traders. Never anyone else's.
+  viewer: { id: number; following: Set<number> } | null;
 };
 
 // F-2 PR-1 fix round 1: the list of each (day, asOf) is kept in memory for its cursor's lifetime, so a later page from
 // the same server slices exactly the list page 1 showed (a trader removed meanwhile leaves a gap, never a shift). Only
 // the order is kept (vendor id, trader, pick); each page reads its cards' current rows. On another server, or after a
 // restart, the list is recomputed from the database, pinned to asOf as feedCandidates describes.
-type Slot = { sell_id: string; user_id: number; explore: boolean; score: number };
-const lists = new Map<string, { asOf: number; slots: Slot[] }>();
+// F-2 PR-2: a slot is a mix card (key = the close's vendor id, trader = its user id); the ranked list before the mix is
+// kept too, for a viewer whose exclusions shape the list.
+type Slot = { key: string; trader: number; symbol: string; explore: boolean; score: number };
+type Kept = { asOf: number; mixed: Slot[]; ranked: Slot[] };
+const lists = new Map<string, Kept>();
 const LIST_CACHE_MAX = 256;
 // Tests: forget every kept list and weight (a cold server), or only the lists (fix round 2: a page whose list this
 // server never built, such as a crafted `?after=`, on a server whose weights are warm).
 export function clearFeedCache(what: 'all' | 'lists' = 'all') { lists.clear(); if (what === 'all') weightCache.clear(); }
 
-async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Slot[]> {
+async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Kept> {
   const key = `${c.day}|${c.asOf}|${ids ? ids.join(',') : '*'}`;
   const kept = lists.get(key);
-  if (kept) return kept.slots;
-  const { list } = await feedList({ asOf: new Date(c.asOf), day: c.day, ids });
-  const slots = list.map((t) => ({ sell_id: t.sell_id, user_id: t.user_id, explore: t.explore, score: Number(t.score) }));
+  if (kept) return kept;
+  const { list, ranked } = await feedList({ asOf: new Date(c.asOf), day: c.day, ids });
+  const slot = (t: FeedCandidate, explore: boolean): Slot => ({ key: t.sell_id, trader: t.user_id, symbol: t.symbol, explore, score: Number(t.score) });
   for (const [k, v] of lists) if (v.asOf < now - CURSOR_MAX_AGE_MS || lists.size >= LIST_CACHE_MAX) lists.delete(k);
-  lists.set(key, { asOf: c.asOf, slots });
-  return slots;
+  const out = { asOf: c.asOf, mixed: list.map((t) => slot(t, t.explore)), ranked: ranked.map((t) => slot(t, false)) };
+  lists.set(key, out);
+  return out;
 }
 
 // One page of the feed for a `?after=` value (or the paging action's cursor). Anything invalid is page 1.
-export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: number[] } = {}): Promise<FeedPage> {
+// F-2 PR-2: `viewer` (lib/viewer.ts, signed in only): that viewer's exclusions shape the list (made by asOf) or filter
+// the page in place (made since), lib/discovery/exclusions.ts; never on a profile (TR-1).
+export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: number[]; viewer?: number } = {}): Promise<FeedPage> {
   const now = opts.now ?? Date.now();
   const c = readCursor(after, now, FEED_CANDIDATES);
-  const slots = await listFor(c, now, opts.ids);
-  const page = pageOf(slots, c);
+  const [kept, mine] = await Promise.all([listFor(c, now, opts.ids), opts.viewer ? exclusionsFor(opts.viewer, new Date(Math.min(c.asOf, now))) : []]);
+  const { shaping, hidden } = splitExclusions(mine, c.asOf, now);
+  const slots = kept.ranked.some((s) => shaping.has(s.trader)) ? shapeList(kept.ranked, shaping, c.day).map(({ card, explore }) => ({ ...card, explore })) : kept.mixed;
+  const sliced = pageOf(slots, c);
+  const page = { ...sliced, items: displayFilter(sliced.items, hidden) };
   // The page's cards as they are now (a thesis held since page 1 is not shown; a corrected return shows corrected). A
   // card whose trader was deleted since asOf, or whose close is gone, is a gap. The three reads run side by side.
-  const traders = [...new Set(page.items.map((s) => s.user_id))];
-  const [rows, states, panes] = await Promise.all([
+  const traders = [...new Set(page.items.map((s) => s.trader))];
+  const [rows, states, panes, following] = await Promise.all([
     page.items.length ? sql`
       select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-      where t.sell_id = any(${page.items.map((s) => s.sell_id)})` : [],
+      where t.sell_id = any(${page.items.map((s) => s.key)})` : [],
     // Fix round 4 (TR-3): a failed import stays in the feed (never hidden) but its card and pane say it may be
     // incomplete. Fix round 1: a trader whose import started after asOf is left out until it is whole (a gap).
     recordStates(traders),
     records(traders),
+    opts.viewer ? followingAmong(opts.viewer, traders) : null,
   ]);
   const bySell = new Map(rows.map((r) => [r.sell_id as string, r]));
   const cards: FeedItem[] = page.items.flatMap((s) => {
-    const r = bySell.get(s.sell_id);
-    if (!r || r.user_id !== s.user_id || states.get(s.user_id)?.state === 'importing') return [];
+    const r = bySell.get(s.key);
+    if (!r || r.user_id !== s.trader || states.get(s.trader)?.state === 'importing') return [];
     return [{ ...(r as unknown as FeedCandidate), score: s.score, explore: s.explore }];
   });
   const onPage = new Set(cards.map((t) => t.user_id));
   const byUser = groupByUser(panes.filter((r) => onPage.has(r.userId)));
   return {
     cards, offset: c.offset, asOf: new Date(c.asOf), next: page.next && encodeCursor(page.next),
-    from: c.offset + 1, to: c.offset + page.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
+    from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
+    viewer: following && { id: opts.viewer!, following },
   };
 }

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { SETTINGS } from '@/lib/copy.ts';
+import { FOLLOW, SETTINGS } from '@/lib/copy.ts';
 import { deleteProfile, signOut } from '../auth/actions.ts';
 
 export const metadata: Metadata = { title: `${SETTINGS.title} · Stock Social`, robots: { index: false, follow: false } };
@@ -18,6 +18,8 @@ export default async function Settings({ searchParams }: { searchParams?: Promis
     <main className="page auth">
       <h1>{SETTINGS.title}</h1>
       <form action={signOut}><button className="secondary">{SETTINGS.signOut}</button></form>
+      {/* F-2 PR-2: follows and "Not interested", with "Show again". */}
+      <p><Link href="/me/following">{FOLLOW.settingsLink}</Link></p>
       <h2>{SETTINGS.deleteTitle}</h2>
       {confirm ? (
         <>
