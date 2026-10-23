@@ -203,3 +203,73 @@ COMPLIANCE: PASS · USABILITY: DEMANDS
 6. Reviewer: menu bounds at 320/375, reachability by navigation, status copy true on screen.
 7. Accepted: "Not interested" in the pane (keep it there after PR-3); the `users_referred_by` index; follow ends an
    exclusion; the "Only you can see this." line unchanged.
+
+## Round 2
+
+2026-10-23. Build of `6fb8952` (`.next` newer than every file under `app/`, `lib/` and `db/`), `next start` on 3111
+with `ALLOW_DEV_AUTH=1`, vendor fake on 4191, Postgres 16, my own database (schema and demo seed applied, dropped
+afterwards). No sync tick. Fixture: the 3 demo traders, 60 scratch traders, one trader with a 20-character handle, and one
+dev-signed-in viewer. All 62 scratch rows were deleted before the drop. Tested at 375×667 and 320×667, light and dark.
+Server and fake stopped. No product code changed.
+
+**Decision: merge.** Both blockers are fixed, and so are demands 3 and 4 and the cheap taste items. I verified each one
+by using the build, not by reading the log.
+
+### Round 1 demands, verified
+
+| # | Demand | Result | What I observed |
+|---|---|---|---|
+| 1 | Menu stays on screen | **Delivered** | 20-character handle. At 375 the item spans x 20 to 355 (viewport 375); at 320 it spans 20 to 300. The text wraps to two lines and nothing is cut off (`scrollWidth` = `clientWidth`). Checked in light and dark. Esc closes it and returns focus to "…". A tap outside closes it. |
+| 2 | `/me/following` reachable | **Delivered** | Starting at `/`, I reached the list in 3 taps, typing no URL: nav @handle → "Settings" (own profile only) → "Following and hidden traders". Sign out and Delete my profile are now one tap from the viewer's own profile too. |
+| 3 | Unfollow does not hide | **Delivered** | Unfollow in the pane: the button returns to "Follow", no status line, no Undo, and the trader's cards stay (1 → 1). Unfollow on the profile: same. The unfollowed trader stays in the feed, and `/me/following` lists them in neither list ("No one is hidden."). Recorded as an owner-reversible deviation (`FEED_HIDES_UNFOLLOWED`). |
+| 4 | No signed-out Follow | **Delivered** | Signed out: 0 follow controls, 0 `.pane-actions` and 0 "…" menus on `/u/<trader>` and across 30 feed rows. The pane header is "← Back · name · @handle · badge". The stat cards sit directly under the badge. |
+| 5 | Taste: outline Follow, row shape, timer pause | **Delivered** | Follow is outline in both states (surface `#fff`, `--line` border) and 112 × 45 in both, so "…" does not move. "Following" uses muted text. On `/me/following` the date sits on its own line and "Show again" stays on one line. Rows are 78 px (following) and 89 px (hidden). The engineer's e2e covers the keyboard pause. |
+| — | Privacy line once | **Delivered** | First follow: "Following @x. Only you can see this." Second follow: nothing. After unfollowing everyone and following someone new: still nothing. Once per viewer, ever. |
+| — | Show again | **Delivered** | Lands on `/me/following?back=x` with "@x is back in your feed.", and the trader is back in the feed. |
+
+Not interested is unchanged and still right. Row count 60 → 59; Undo is focused, and Undo restores the row
+(back to 60) with focus on that pane's "…" (`scrollLeft` 375). When the bar expires, focus moves to the next card, never
+to `<body>`. Privacy over HTTP, signed out: `/`, two trader profiles and a `/pane-chart` contain neither the viewer's
+handle nor "follower". `/me/following` returns 307 to `/login`.
+
+### Scorecard (round 2)
+
+| Dimension | Score | Evidence |
+|---|---|---|
+| Market demand | 4 | Unchanged: follow and "not interested" are standard explicit feed signals (analogy). The owner set both in criteria 1 and 4. |
+| Ease of adoption | 4 | Follow takes one tap. Its list is 3 taps from anywhere. The menu fits at 320. Signed out there is nothing to trip on. |
+| Phase fit | 4 | Stores PR-5's explicit signals with no event table. |
+| Revenue impact | 4 | The signed-out leak off a shared trader page is gone. Shared-link reach stays on the trader. |
+| Aesthetics & clarity | 4 | Outline Follow lets the record lead. Rows have one shape. The menu stays inside the gutters. |
+| Trust & compliance | 5 | Private everywhere, verified over HTTP. No status line makes a false claim. No advice. TR-1 holds. |
+| Simplicity | 4 | The unfollow status, its timer and its Undo were deleted. Unfollow is now a plain toggle. |
+| Craft & taste | 4 | Focus is handled at every step (Esc, expiry, Undo). The items below keep this from a 5. |
+
+Clears the bar.
+
+### Not blocking (follow-ups, in priority order)
+
+1. **The "Settings" link on the viewer's own profile is 20 px tall.** `.tap`'s 44 px rule applies only under `.auth`.
+   It is also placed between the primary "Connect" button and "Change handle", where it reads as a second call to
+   action. Give it a 44 px target and move it under "Change handle" (or into the page's foot, next to "← Feed").
+   Verify: the box height is ≥ 44, and it is the last control before "Closed trades" or after it.
+2. **The open menu has no shadow.** At 375 the top of the "+19.3%" headline shows under its bottom edge, and the menu
+   reads as if it is sitting on the number. Give the popover the surface token plus a 1-step elevation, the same as the hide
+   bar, or open it with enough offset that it covers the headline cleanly.
+3. The engineer's own follow-ups list stands (UX 4, 10, 12, 13; tester N1, N2). None of them blocks this PR.
+4. Reviewer: keep round 1 demand 6 on the checklist: menu bounds at 320/375, reachability by navigation, and status
+   copy that is true on screen.
+
+### Ready to merge
+
+PR-2 is ready to merge. Follow is a private one-tap bookmark whose list a viewer can now reach in three taps. Its first
+use says, once and truthfully, "Only you can see this." "Not interested" is a three-tap, 90-day decision that removes the
+trader in place, offers Undo for 5 s that returns the reader to where they were, and can be reversed later from a
+reachable list. Unfollow no longer makes a claim the screen contradicts. A shared-link reader who is signed out sees the
+trader's record and nothing that leads them away from it. Nothing about who follows whom is visible publicly, there is no
+advice or signal copy, and TR-1 holds. The two remaining items are a tap-target size and a shadow, and they belong in the
+next round.
+
+Demo sentence: "Follow a trader and only you know; not interested, and they're gone for 90 days, with Undo."
+
+COMPLIANCE: PASS · USABILITY: PASS
