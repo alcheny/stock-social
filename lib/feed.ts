@@ -53,6 +53,9 @@ export type FeedCandidate = {
 //   Memory grows with the late set (~75,000 sells is a few MB). Fix round 3 (tester Medium E): never a bound array
 //   either (a constant to a custom plan: above hash_mem, rescanned per row); a weight miss reads lateArray itself.
 // Only a sell can be a close's sell_id (closed_trades.sell_id is the closing sell's external_id), so only sells count.
+// F-2 PR-1 review (tester Low G): `a` and `o` are two `array(select …)` InitPlans, not one `array_agg … filter` aggregate:
+// with fresh statistics Postgres runs that aggregate in parallel and merging the workers' partial arrays cost 2× (600,000
+// late sells: 750–940 ms against 400–510 ms for both scans, reviewer's run).
 // ponytail: a page with no kept list (a crafted `?after=`) is linear in the late sells since its asOf, ~2.3 ms per 1,000
 // with the weights kept (fix round 3: 150,000 ~320 ms, 600,000 ~1.3 s); a cap would need a stored import time per close.
 const lateArray = (asOf: Date) => sql`array(select external_id from activities where created_at > ${asOf} and side = 'SELL')`;
@@ -95,8 +98,8 @@ async function candidateQuery({ ids, asOf }: { ids?: number[]; asOf?: Date }, re
   const notLateHere = (col: ReturnType<typeof sql>, arr = 'a') => sql`${col} not in (select unnest(${sql(arr)}) from late)`;
   const lo = sql`${clock} - ${RECENT_HOURS} * interval '1 hour'`;
   return (await sql`
-    with ${asOf ? sql`late as materialized (select coalesce(array_agg(external_id), '{}') as a, coalesce(array_agg(external_id) filter
-      (where executed_at <= ${lo}), '{}') as o from activities where created_at > ${asOf} and side = 'SELL'),` : sql``}
+    with ${asOf ? sql`late as materialized (select ${lateArray(asOf)} as a, array(select external_id from activities
+      where created_at > ${asOf} and side = 'SELL' and executed_at <= ${lo}) as o),` : sql``}
     c as materialized (
       select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, ${score} as score
       from closed_trades t
