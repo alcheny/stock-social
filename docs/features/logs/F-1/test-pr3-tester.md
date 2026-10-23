@@ -273,3 +273,135 @@ The Medium and both Lows from re-run 1 are fixed (rows 3, 6–8, 10–13; §2 an
 - The user table matches the re-run 1 baseline (85 rows, no claim or lease set). No servers are left running.
 
 Verdict: DEFECTS
+
+## Re-run 3 (after the engineer's fix round 4, the committee fixes)
+
+Postgres 16 on localhost. Code under test: `35fced0` (no product code changed by the tester). Screenshots:
+`docs/features/logs/F-1/screenshots/pr3/rerun3/`.
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | Clean both times (exit 0, no errors); seed exit 0 |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×4 | 501 tests, 5 skipped (load). Runs 1, 2 and 4: 496 pass, 0 fail (12.5–14.0 s). **Run 3: 1 fail**, `lib/claims.test.ts` "schema applies twice; backfill is idempotent and the earliest owner wins a duplicate" (expected owner 24389, got 24390). See defect 1. User count and claims unchanged across the runs |
+| `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` ×2 | 5/5 both runs (30.5 s, 27.4 s) |
+| `CI=1 npm run build`, stdin closed | Run 1 stopped on the framework's security advisory again. This is tool output; nothing was upgraded and no upgrade was started on its say-so. The owner decides. Retry: exit 0 |
+| `npm run test:e2e` (`CI=1`; the specs start the vendor, sign-in and mail fakes) | With only the vendor variables: 90 passed, 3 skipped (the provider and mail-sink tests, which need their server variables). With every variable from the spec headers: **93 passed, 0 skipped** (3.2 min) |
+| `compliance.ts diff origin/main` | 1 violation, already on `main` (`@img/sharp-wasm32` license). Nothing from this diff |
+| `autopilot.ts guard main` | ok |
+
+Load timings (run 1 / run 2, ms unless noted; bounds unchanged):
+- import: 1,290 / 1,157 (bound 15,000);
+- slowest step: 417 / 355 (3,000);
+- rebuild: 456 / 375 (5,000), holding at most 1,341 rows;
+- hourly syncs: 480/523/525 and 374/409/360 (5,000 each);
+- first sync: 1,252 / 948 (15,000);
+- fleet: 7,975 / 6,975 (60,000), each trader exactly once, 62–63 per caller, no other trader's claim changed;
+- heap peak: at most +37.1 MB (bound 160).
+
+### 2. As a user (`next start` on the fresh build, vendor fake started by the tester on 4102, 375 px)
+
+**Feed with a 2015 close.** Trader `rr3_old`: five closes in the last 5 hours and one on 2015-03-02 (+50%).
+- `/` answers 200 in light and dark. The server log has no `value out of range`.
+- With the feed's own score expression over every close in the database, the 2015 close scores 1.04e-260, the lowest
+  of the trader's six, so it ranks last in that record.
+- Across all traders it sits among the other closes older than 3.3 years. Those share the floor and are ordered by size
+  of move, as designed.
+- Screenshots: `feed-with-2015-close-375-{light,dark}.png` and `profile-2015-close-375-{light,dark}.png`.
+
+**Heavy profile from a real import.** Trader `rr3heavy`: 4 accounts × 1,500 seeded activities, imported through the
+portal and consent, which gave **2,863 closes**. The visitor view:
+
+| Criterion | Result |
+|---|---|
+| Visitor HTML < 400 KB | 258 KB |
+| Rows | 50, with "Showing 50 of 2,863 closed trades" |
+| Page height < 15,000 px | 5,168 px, no horizontal scroll |
+| Skip link | The first Tab stop is "Skip to disclaimer and legal links". Enter focuses `#site-footer`, which is in view with the disclaimer |
+| Footer within 200 Tab presses (no skip link) | 112 |
+| "Show 50 more", JS off | Goes to `?closes=100#trade-<row 51>`: 50 rows, the first is row 51 and it is in view, "Showing 51–100 of 2,863 closed trades" |
+| "Show 50 more", JS on | Same URL; focus is on row 51 (`document.activeElement` is row 51) |
+| The last page | Followed "Show 50 more" 57 times without JS to `?closes=2900`: "Showing 2,851–2,863 of 2,863 closed trades", 13 rows. The last row is the oldest close; only "Back to the newest" is offered |
+| Chart links | 2,863 links in 58 windows. Each one points to a window that renders its row: 0 mismatches against the database order. Three opened (windows 50, 1,500 and 2,900): the row is rendered and focused |
+| Grouped thousands | Stats "2,863 closed trades", chart label "2,863 trades, …", banner "1,000 activities imported", "2,863 closed trades so far". On the 2,828-close profile: metadata "2,828 verified trades". In the feed: "2,828 closed trades" and "2,828 trades" on every card. The visible text has no ungrouped count; the only 4-digit run is the year 2020 |
+
+Screenshots: `profile-heavy-375-{light,dark}[-full].png`, `profile-paging-375-{light,dark}.png`,
+`profile-show-more-{js,nojs}-375-light.png` and `profile-last-window-nojs-375-light.png`.
+
+**Banner during the long import.** Each activities read was slowed by 2.5 s. A mutation observer recorded every
+live-region change (ms after load):
+- **Activities region.** It announced "1,000 / 1,500 / 2,500 / 3,000 activities imported so far" at 5,277, 10,277,
+  16,276 and 21,276 ms, and "4,000 / 4,500 / 5,500 / 6,000 …" at 114,379, 120,276, 125,276 and 130,277 ms. There
+  was never more than one announcement in 5 s, and none in the first 5 s. The status line stayed at "0 closed trades
+  so far" the whole time.
+- **Status line.** "2,863 closed trades so far" at 130,523 went out 246 ms after an activities announcement. That is
+  the engineer's documented deviation: the status line keeps strict priority. "Import finished." followed 5 s later.
+- **Deferred step.** The vendor was forced to 503 at 3,000 activities. After 61 s with no new rows, the line read
+  "Still waiting for your broker. You can leave; the import continues." It never said the broker was sending. When the
+  vendor came back, the line cleared at the next page read and the import finished. Screenshots:
+  `banner-still-waiting-375-{light,dark}.png`.
+
+**Evidence line, overlapping positions.**
+- `rr3_overlap`: 2,828 closes in 8 symbols, each held 400 days, so the holds chain into one position per symbol. The
+  line reads "Too early to tell: 2,828 trades in 8 overlapping positions (10 independent bets needed)".
+- `rr3heavy`, the imported record: "Past results: below zero · Evidence: thin (10 bets from 2,863 trades, 2,193 days)".
+- Screenshots: `evidence-overlapping-375-{light,dark}.png`.
+
+**Sync deadline.** Scratch script against `lib/sync.ts` with the real wall clock. Three traders, each sync 300 ms, and a
+deadline of start + 150 ms on each call:
+- three calls each synced one trader, so each trader was synced exactly once;
+- the logged lines were `{"ok":1,…,"unclaimed":2,"stoppedAtDeadline":true}`, then `…1…`, then `…0…`;
+- a fourth call with time to spare claimed nobody (`unclaimed 0, stoppedAtDeadline false`).
+
+**Dropped connection during release.**
+- Scratch tick: the release closed its own database session. The tick still synced all 3 traders and logged
+  `sync lease release failed <id> write CONNECTION_CLOSED` for each, with the lease left to lapse.
+- Live route: a temporary trigger on the test trader's row closed the session when its lease was released. `POST
+  /api/sync` answered **200**, and the server logged `sync lease release failed 25850 write CONNECTION_CLOSED`, then the
+  tick line. The trigger was dropped afterwards.
+
+**Regression.**
+- PR-2a trust rule. The imported record shows "✓ Verified" (every activity `snaptrade`), and the demo trader shows
+  "Demo".
+- PR-2a consent gating, for a new trader on the consent page:
+  - a cron call answered 200 and imported nothing (0 activities, the link still `pending`);
+  - a visitor saw "No trades yet.";
+  - after "Import my record": 40 activities, 14 closes, `connected`, Verified.
+- PR-2b portal: the portal opened embedded in the dialog (the fake's URL in the frame), and its Connect reached consent.
+  Screenshot: `regress-portal-embedded-375-light.png`.
+- The e2e suites (93/93) cover the rest of both.
+
+### 3. Defects
+
+1. **Low · spec · flaky unit test: `lib/claims.test.ts` "schema applies twice; backfill … earliest owner wins".**
+   - It failed in 1 of 4 `npm test` runs. It passed in 12 targeted re-runs together with `feed`, `schema` and `delete`.
+   - The test inserts the later owner's activity, then the earlier owner's, then applies the schema. If another test file
+     applies `db/schema.sql` between those two inserts (`node --test` runs files in parallel), that backfill confirms the
+     later owner first, and the test sees the wrong owner.
+   - Several files already apply the schema in `before`. `lib/feed.test.ts`, new in this round, adds one more.
+   - Not a product bug. It makes the required check red at random.
+   - Fix (engineer's choice): insert both activities in one statement or transaction before any schema run, or use an
+     account id no other file's backfill can reach until both rows exist.
+
+Notes (not blocking):
+- The stats show the 95% range as "(-0.8% to -0.0%)". A negative zero reads oddly.
+- The equal-weight total and drawdown on the imported record round to "-100.0%" from -99.98%. That is arithmetically
+  right, but reads as a total loss.
+- The feed with heavy traders on it is 1.79 MB (the engineer's listed follow-up).
+
+All committee items checked here pass.
+
+### 4. Cleanup
+
+- Test traders deleted: `rr3heavy`, `rr3_old`, `rr3_overlap`, `rr3gate` and the 3 deadline traders, with their
+  `rr3-*` broker accounts.
+- The cron calls had claimed other syncable traders left in the database by earlier runs. Every claim and lease was
+  restored from a snapshot taken before the route calls. The user table is byte-identical to the list taken before this
+  run (86 rows; claim and lease unchanged).
+- The temporary trigger and its function are dropped.
+- The tester's server (3000) and vendor fake (4102) are stopped. A server on 3100 that this run did not start was left
+  alone.
+
+Verdict: DEFECTS
