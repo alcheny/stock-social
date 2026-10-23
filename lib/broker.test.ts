@@ -69,3 +69,47 @@ test('register, read-only portal URL, accounts with flags, paged activities, pos
   const state = await (await fetch(`${fake.base}/_state`)).json();
   assert.equal(state[u.snaptradeUserId], undefined);
 });
+
+test('fix round 3: every vendor request is bounded: a request that hangs is aborted at the timeout and fails with VendorTimeoutError; a slow one under it succeeds', async () => {
+  const { createServer } = await import('node:http');
+  const b = await import('./broker.ts');
+  assert.equal(b.VENDOR_TIMEOUT_MS, 30_000); // far below the sync tick's 10-minute lease
+  const u = await b.registerUser('attempt-hang');
+  let opened = 0, aborted = 0;
+  const hung = createServer((req) => { opened++; req.socket.on('close', () => aborted++); }); // never answers
+  await new Promise<void>((r) => hung.listen(0, '127.0.0.1', () => r()));
+  const base = process.env.SNAPTRADE_BASE_URL;
+  b.vendorTimeout.ms = 200;
+  try {
+    // The fake answers activities after 50 ms: under the bound, the page lands.
+    await fetch(`${fake.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: [{ id: 'slow-1', activities: 2 }], delayMs: 50 }) });
+    await fetch(`${await b.connectUrl(u, 'https://app.example/connect/done')}&go=1`, { redirect: 'manual' });
+    assert.equal((await b.fetchActivitiesPage(u, 'slow-1', 0, 10)).activities.length, 2);
+    process.env.SNAPTRADE_BASE_URL = `http://127.0.0.1:${(hung.address() as { port: number }).port}`;
+    const calls: [string, () => Promise<unknown>][] = [
+      ['listAccounts', () => b.listAccounts(u)],
+      ['fetchActivitiesPage', () => b.fetchActivitiesPage(u, 'acc', 0, 10)],
+      ['fetchActivities', () => b.fetchActivities(u, new Date('2026-01-01'), ['acc'])],
+      ['fetchActivities (listing)', () => b.fetchActivities(u, new Date('2026-01-01'))],
+      ['fetchPositions', () => b.fetchPositions(u, 'acc')],
+      ['connectUrl', () => b.connectUrl(u, 'https://app.example/connect/done')],
+      ['deleteConnection', () => b.deleteConnection(u, 'auth')],
+      ['deleteUser', () => b.deleteUser(u)],
+      ['registerUser', () => b.registerUser('attempt-hang-2')],
+    ];
+    for (const [name, call] of calls) {
+      const t = Date.now();
+      await assert.rejects(call(), b.VendorTimeoutError, name);
+      const took = Date.now() - t;
+      assert.ok(took >= 190 && took < 2_000, `${name} took ${took} ms`);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(opened, calls.length);
+    assert.equal(aborted, calls.length, 'each hung request was aborted, not left open');
+  } finally {
+    b.vendorTimeout.ms = b.VENDOR_TIMEOUT_MS;
+    process.env.SNAPTRADE_BASE_URL = base;
+    hung.closeAllConnections();
+    hung.close();
+  }
+});

@@ -197,8 +197,10 @@ test('PR-2b copy (S3, S5, S6, S7a): the UX lead\'s strings, in the banned-list w
   // "Connected:" names the institution the vendor returned, never the placeholder "broker".
   assert.equal(connectedLine(['Fake Brokerage'], 1), 'Connected: Fake Brokerage (1 account)');
   assert.equal(connectedLine(['A Bank', 'B Bank'], 3), 'Connected: A Bank, B Bank (3 accounts)');
-  assert.equal(connectedLine([], 2), 'Connected: your broker (2 accounts)');
-  assert.equal(connectedLine(['', '  '], 1), 'Connected: your broker (1 account)');
+  // PR-3 (carried Low 1): with no institution, visitors read "the broker", never "your broker".
+  assert.equal(connectedLine([], 2), 'Connected: the broker (2 accounts)');
+  assert.equal(connectedLine(['', '  '], 1), 'Connected: the broker (1 account)');
+  for (const line of [connectedLine([], 1), connectedLine([' '], 3), connectedLine(['Fake Brokerage'], 2)]) assert.doesNotMatch(line, /\byour\b/i);
   // The profile unfurl: no stats line when there are no closes (no "0 closed trades · % win rate").
   const d = (state: 'importing' | 'connected' | 'failed' | 'none', trades: number, demo = false) =>
     profileDescription({ state, demo, verified: trades > 0 && !demo, trades, stats: '60% win rate · +1.0% avg return · Evidence: too early' });
@@ -236,4 +238,65 @@ test('fix round 2 (business lead 2, 3; UX lead 1; engineer Lows): one noun per c
   assert.equal(PORTAL.tooMany, 'Too many tries. Wait a few minutes, then try again.');
   const all = allCopy();
   for (const s of [PORTAL.blank, PORTAL.popupBlocked, PORTAL.continue, PORTAL.tooMany, RECORD_BODY.signedOut, RECORD_BODY.signInAgain]) assert.ok(all.includes(s), s);
+});
+
+test('PR-3 fix round 4 (UX lead demand 2): every count is grouped by thousands, never "2828"', async () => {
+  const { CLOSES_PAGING, WHOLE_RECORD, connectedLine, profileDescription, wholeRecordPreview } = await import('./copy.ts');
+  const lines = [
+    RECORD_BODY.banner(2828, true), RECORD_BODY.banner(2828, false), RECORD_BODY.imported(10000), RECORD_BODY.importedSoFar(10000),
+    RECORD_BODY.paperExcluded(1200), WHOLE_RECORD.soFar(2828), recordCountText({ state: 'connected', demo: false, verified: true, trades: 2828 }),
+    profileDescription({ state: 'connected', demo: false, verified: true, trades: 2828, stats: 's' }),
+    profileDescription({ state: 'importing', demo: false, verified: false, trades: 2828, stats: 's' }),
+    wholeRecordPreview({ state: 'importing', demo: false, verified: false, trades: 2828 }, 's'),
+    connectedLine([], 1500), CONSENT.lines(1500, 1200)[1], CLOSES_PAGING.showing(0, 50, 2828), CLOSES_PAGING.showing(1000, 50, 2828),
+  ];
+  for (const l of lines) assert.doesNotMatch(l, /\d{4}/, l);
+  assert.equal(RECORD_BODY.banner(2828, true), 'Importing your record · 2,828 closed trades so far');
+  assert.equal(RECORD_BODY.imported(10000), '10,000 activities imported');
+  assert.equal(recordCountText({ state: 'connected', demo: false, verified: true, trades: 2828 }), '2,828 verified trades');
+  assert.equal(recordCountText({ state: 'connected', demo: false, verified: true, trades: 1 }), '1 verified trade');
+});
+
+test('PR-3 fix round 4 (UX lead demand 1): the paging line and controls', async () => {
+  const { CLOSES_PAGING } = await import('./copy.ts');
+  assert.equal(CLOSES_PAGING.size, 50);
+  assert.equal(CLOSES_PAGING.showing(0, 50, 2828), 'Showing 50 of 2,828 closed trades');
+  assert.equal(CLOSES_PAGING.showing(50, 50, 2828), 'Showing 51–100 of 2,828 closed trades');
+  assert.equal(CLOSES_PAGING.showing(2800, 28, 2828), 'Showing 2,801–2,828 of 2,828 closed trades');
+  assert.equal(CLOSES_PAGING.more(50), 'Show 50 more');
+  assert.equal(CLOSES_PAGING.more(28), 'Show 28 more');
+  const all = allCopy();
+  assert.ok(all.includes(CLOSES_PAGING.newest));
+});
+
+test('PR-3 fix round 4 (UX lead notes 1 and 2): the announced activities line; the 60 s line never claims the broker is sending during a timeout', async () => {
+  const { FOOTER } = await import('./copy.ts');
+  assert.equal(RECORD_BODY.importedSoFar(0), '0 activities imported so far');
+  assert.equal(RECORD_BODY.importedSoFar(1), '1 activity imported so far');
+  assert.equal(RECORD_BODY.importedSoFar(4500), '4,500 activities imported so far');
+  assert.match(RECORD_BODY.stillWaiting, /^Still waiting for your broker\./);
+  assert.doesNotMatch(RECORD_BODY.stillWaiting, /sending/i);
+  assert.match(RECORD_BODY.stillWaiting, /You can leave; the import continues\.$/);
+  assert.equal(FOOTER.skip, 'Skip to disclaimer and legal links');
+  const all = allCopy();
+  for (const s of [RECORD_BODY.stillWaiting, FOOTER.skip]) assert.ok(all.includes(s), s);
+});
+
+test('PR-3 fix round 7 (business lead re-sit, demand 3): before the first close the owner\'s headline counts activities read', () => {
+  assert.equal(RECORD_BODY.bannerRead(0), 'Importing your record · 0 activities read from your broker');
+  assert.equal(RECORD_BODY.bannerRead(1), 'Importing your record · 1 activity read from your broker');
+  assert.equal(RECORD_BODY.bannerRead(10000), 'Importing your record · 10,000 activities read from your broker');
+  // One noun per count: activities are never called trades; the closes line is unchanged.
+  for (const n of [0, 1, 2, 2828]) assert.doesNotMatch(RECORD_BODY.bannerRead(n), /trade/i);
+  assert.equal(RECORD_BODY.banner(3, true), 'Importing your record · 3 closed trades so far');
+  assert.ok(allCopy().some((s) => s.includes('read from your broker'))); // in the banned-list walk
+});
+
+test('fix round 8 (tester re-run 4): exclusion counts are pluralized, never "(s)"', async () => {
+  const { PROFILE } = await import('./copy.ts');
+  assert.equal(PROFILE.excludedPositions(1), '1 earlier position excluded: no matching entry in the imported history.');
+  assert.equal(PROFILE.excludedPositions(2), '2 earlier positions excluded: no matching entry in the imported history.');
+  assert.equal(PROFILE.excludedFuture(1), '1 imported trade excluded: dated in the future by the broker.');
+  assert.equal(PROFILE.excludedFuture(1_200), '1,200 imported trades excluded: dated in the future by the broker.');
+  for (const n of [1, 2]) for (const t of [PROFILE.excludedPositions(n), PROFILE.excludedFuture(n)]) assert.ok(!t.includes('(s)'), t);
 });

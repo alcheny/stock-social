@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import postgres from 'postgres';
 import { startVendorFake, type FakeAccount, type FakeActivity } from './fakes/vendor.ts';
+import { feedLock } from './feed-lock.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
 let vendor: { server: Server; base: string };
@@ -22,6 +23,23 @@ test.beforeAll(async () => { vendor = await startVendorFake(VENDOR_PORT); });
 // Every PR-2b test runs with the live poll.
 test.beforeEach(async ({ page }) => {
   if (!test.info().title.startsWith('PR-2b')) await page.context().route('**/api/import/step', (r) => r.abort());
+});
+// Fix round 7: the tests that look for their own trader in the feed hold the feed lock (shared; e2e/feed-lock.ts) so the
+// heavy-feed test in app.spec.ts never fills the feed under them. Released after each test, pass or fail.
+let feedHeld: (() => Promise<void>) | null = null;
+const holdFeed = async () => { test.setTimeout(test.info().timeout + 60_000); feedHeld = await feedLock('shared'); };
+// Fix round 8 (tester re-run 4, Low 4): a failed test used to leave its trader behind (each test deletes its own only on
+// success), and every leftover took feed cards in later runs. The handles devSignIn creates in a test (never one that
+// existed before, such as a demo trader) are deleted after it, pass or fail, with their `e2e-<handle>…` accounts. A
+// test that already cleaned up deletes nothing here.
+let created: string[] = [];
+test.afterEach(async () => {
+  await feedHeld?.(); feedHeld = null;
+  for (const h of created) {
+    await sql`delete from users where handle = ${h}`;
+    await sql`delete from broker_accounts where account_id like ${`e2e-${h}%`}`;
+  }
+  created = [];
 });
 test.afterAll(async () => {
   vendor?.server.close();
@@ -46,6 +64,7 @@ const brokerageAttempt = async (page: Page) => {
   return Number(cookie!.value.split('.')[0]);
 };
 const devSignIn = async (page: Page, handle: string) => {
+  if (!created.includes(handle) && !(await sql`select 1 from users where handle = ${handle}`).length) created.push(handle);
   await page.goto('/login/dev');
   await page.getByLabel('Handle').fill(handle);
   await page.getByLabel('I am 18 or older').check();
@@ -338,6 +357,7 @@ test('expiry with a clock: a pending consent older than 24 h reads expired and t
 });
 
 test('connect pages without a valid connection (D3, D9): ?k=abandoned is S7a with focus on the alert; a missing or malformed c is a plain not-found page, never a 500; a signed-in portal return with no link is S7a; a profile being deleted is hidden from the feed, the profile and the ticker page', async ({ page }) => {
+  await holdFeed();
   await page.goto('/connect/result?k=abandoned');
   const h1 = page.locator('h1'); // role="alert" replaces the heading role in the accessibility tree
   await expect(h1).toHaveText('Connection not completed. Nothing was saved.');
@@ -553,6 +573,7 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
 // Fix round 3 (TR-3): the feed leaves out a trader while any consented import is still running, and shows them again
 // once every import has finished. Recent trades with large moves so the trader ranks in the feed when eligible.
 test('fix round 3: the feed omits a trader whose second import is still running and shows them once it finishes', async ({ page, browser }) => {
+  await holdFeed();
   const handle = `fd${uniq()}`;
   await devSignIn(page, handle);
   test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
@@ -594,6 +615,7 @@ test('fix round 3: the feed omits a trader whose second import is still running 
 });
 
 test('fix round 4 (TR-3): a trader whose second import failed stays in the feed, and the pane says the record may be incomplete with no Verified badge, stats beside the line', async ({ page, browser }) => {
+  await holdFeed();
   const handle = `ff${uniq()}`;
   await devSignIn(page, handle);
   test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
@@ -1079,9 +1101,18 @@ test('PR-2b S5 live banner: the owner\'s open tab drives the import; the importe
   const before = await box();
   await shots(page, 's5-importing');
   // No test-driven steps: only the page's own 2 s poll. Counts follow each account.
-  const read = page.locator('.import-read');
+  // Fix round 8 (business lead round 3): before the first close the count is seen on the headline only (the activities
+  // line is not rendered then); once closes show, the activities line carries it. Exactly one visible count at a time.
   const counts: string[] = [];
-  await expect.poll(async () => { const t = await read.textContent(); if (t && counts.at(-1) !== t) counts.push(t); return t; }, { timeout: 30_000, intervals: [250] }).toBe('12 activities imported'); // fix round 2 (business lead 2): one noun per count
+  let both = 0;
+  await expect.poll(async () => {
+    const r = await page.evaluate(() => ({ head: document.querySelector('.import-banner .import-head')?.textContent ?? null, read: document.querySelector('.import-banner .import-read')?.textContent ?? null }));
+    if (r.head !== null && r.read !== null) both++;
+    const n = (r.head ?? '').match(/· ([\d,]+) activit(?:y|ies) read from your broker$/)?.[1] ?? (r.read ?? '').match(/^([\d,]+) activit(?:y|ies) imported$/)?.[1] ?? null;
+    if (n !== null && counts.at(-1) !== n) counts.push(n);
+    return n;
+  }, { timeout: 30_000, intervals: [250] }).toBe('12'); // fix round 2 (business lead 2): one noun per count
+  expect(both).toBe(0);
   expect(counts.length).toBeGreaterThanOrEqual(3); // 0 → 4 → 8 → 12, at least the intermediate ones seen
   await expect(status).toHaveText('Import finished.', { timeout: 30_000 });
   const finishedAt = Date.now();
@@ -1139,9 +1170,14 @@ test('PR-2b S5: after 60 s with no new rows the owner reads "You can leave; the 
   const empty = (await slow.boundingBox())!;
   // Two polls: the page, then the rebuild; after that the vendor's flag keeps the import waiting, no new rows.
   await page.clock.fastForward(2_000);
-  await expect(page.locator('.import-read')).toHaveText('2 activities imported'); // fix round 2 (business lead 2)
+  // Fix round 8 (business lead round 3): while the headline counts activities, it alone shows the count; the activities
+  // line returns, with the same count, once the closes show.
+  await expect(page.locator('.import-banner .import-head')).toHaveText('Importing your record · 2 activities read from your broker');
+  await expect(page.locator('.import-read')).toHaveCount(0);
   await page.clock.fastForward(2_000);
   await expect(page.getByRole('status')).toHaveText('Importing your record · 1 closed trade so far');
+  await expect(page.locator('.import-read')).toHaveText('2 activities imported'); // fix round 2 (business lead 2)
+  await expect(page.locator('.import-banner .import-head')).toHaveCount(0);
   await page.clock.fastForward(61_000);
   await expect(slow).toHaveText('Your broker is still sending history. You can leave; the import continues.');
   expect(Math.abs((await slow.boundingBox())!.height - empty.height)).toBeLessThanOrEqual(1);
@@ -1566,4 +1602,63 @@ test('PR-2b fix round 2 (engineer, Low): signed out in another tab, the owner\'s
   const [u] = await sql`select id from users where handle = ${handle}`;
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+// F-1 PR-3 fix round 7 (business lead re-sit, demand 3): with a slow vendor (2.5 s per page) and two accounts of 2,500
+// seeded activities, closes appear only at the rebuild, about half a minute in. Before, the headline read "0 closed
+// trades so far" all that time. Now the owner sees the activities read until the first close, then the closes.
+test('PR-2b S5 (PR-3 fix round 7): before the first close the headline counts activities read, moving within 5 s of the first step, then counts closed trades', async ({ page }) => {
+  test.setTimeout(150_000);
+  await page.setViewportSize({ width: 375, height: 740 });
+  const handle = `hdl${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const a = [1, 2].map((n) => `e2e-${handle}-${n}`);
+  await fetch(`${vendor.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: a.map((id, i) => ({ id, activities: 2_500, seed: 4_000 + i, institution: 'Fake Brokerage' })), delayMs: 2_500 }) });
+  await connectThrough(page);
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  const steps: { at: number; read: number; closes: number }[] = [];
+  page.on('response', async (r) => {
+    if (!r.url().endsWith('/api/import/step') || r.request().method() !== 'POST' || r.status() !== 200) return;
+    const at = Date.now();
+    const j = await r.json();
+    steps.push({ at, read: j.read, closes: j.closes });
+  });
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  const landed = Date.now();
+  const head = page.locator('.import-banner .import-head');
+  const status = page.getByRole('status');
+  // The headline seen is the activities count; the live status line is unchanged (visually hidden meanwhile).
+  await expect(head).toBeVisible();
+  await expect(head).toHaveText(/^Importing your record · [\d,]+ activit(y|ies) read from your broker$/);
+  await expect(status).toHaveText('Importing your record · 0 closed trades so far');
+  expect((await status.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
+  await expect(page.locator('.import-banner .import-read')).toHaveCount(0); // fix round 8: one visible count while counting
+  await expect(page.locator('.import-banner .import-read-live')).toHaveCount(1); // the announced twin stays
+  // It moves within 5 s of the first step's answer, to the number of rows read.
+  await expect.poll(() => steps.length, { timeout: 30_000 }).toBeGreaterThan(0);
+  const first = steps[0];
+  expect(first.closes).toBe(0);
+  await expect(head).toHaveText(`Importing your record · ${first.read.toLocaleString('en-US')} activities read from your broker`, { timeout: 5_000 });
+  expect(Date.now() - first.at).toBeLessThanOrEqual(5_000);
+  await expect(page.locator('.import-banner .import-read')).toHaveCount(0);
+  expect(first.at - landed).toBeLessThan(10_000);
+  await shots(page, 'fix7-headline-reading');
+  // It climbs with the pages, then the closes count takes over (seen and announced), and "0" never comes back.
+  const seen: string[] = [];
+  await expect.poll(async () => {
+    const t = await page.evaluate(() => (document.querySelector('.import-banner .import-head') ?? document.querySelector('.import-banner [role="status"]'))?.textContent ?? ''); // the headline as seen
+    if (seen.at(-1) !== t) seen.push(t);
+    return t;
+  }, { timeout: 90_000, intervals: [250] }).toMatch(/^Importing your record · [1-9][\d,]* closed trades? so far$|^Import finished\.$/);
+  const counts = seen.map((t) => t.match(/· ([\d,]+) activities read/)?.[1]).filter(Boolean).map((n) => Number(n!.replace(/,/g, '')));
+  expect(counts.length).toBeGreaterThanOrEqual(2);
+  for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeGreaterThan(counts[i - 1]);
+  expect(seen.some((t) => /\b0 closed trades so far/.test(t))).toBe(false);
+  await expect(head).toHaveCount(0);
+  await shots(page, 'fix7-headline-closes');
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id in ${sql(a)}`;
 });

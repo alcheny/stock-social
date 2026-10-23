@@ -1,6 +1,8 @@
 // Pure trade math. No I/O — everything shown to users is derived here from raw activities,
 // so a bug is fixed by recomputing (see docs/DESIGN.md §2.5).
 
+import { count, counted } from './format.ts';
+
 export type Activity = {
   externalId: string;
   accountId: string;
@@ -144,7 +146,18 @@ export function stats(trades: Pick<ClosedTrade, 'returnPct' | 'holdingDays' | 'c
   };
 }
 
-export const pct = (x: number, digits = 1) => `${x > 0 ? '+' : ''}${(x * 100).toFixed(digits)}%`;
+// Signed percent. A value that rounds to zero reads "0.0%" (never "-0.0%" or "+0.0%", same as an exact zero). A loss
+// short of -100% never rounds to a total loss: it gets up to 4 more digits ("-99.98%"), and past that reads "≈-100.0%".
+export function pct(x: number, digits = 1): string {
+  const fixed = (d: number) => (x * 100).toFixed(d);
+  let s = fixed(digits);
+  if (Number(s) === 0) return `${fixed(digits).replace('-', '')}%`;
+  if (x > -1 && Number(s) <= -100) {
+    for (let d = digits + 1; d <= digits + 4 && Number(s) <= -100; d++) s = fixed(d);
+    if (Number(s) <= -100) return `≈${fixed(digits)}%`;
+  }
+  return `${x > 0 ? '+' : ''}${s}%`;
+}
 
 // Chart navigation: arrow keys move the active point, clamped at the ends (no wrap, so the ends are obvious).
 export const stepIndex = (i: number, delta: number, n: number) => Math.min(Math.max(i + delta, 0), n - 1);
@@ -250,12 +263,20 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   return { ...base, tier, edge, perTrade, pace30 };
 }
 
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const plural = (n: number, w: string) => counted(n, w);
 
 // Plain text shared by the profile, the share card and page metadata. Negative edges read the same as positive.
+// F-1 PR-3 fix round 4 (UX lead note 3): when trades outnumber bets, the line says why. Same-stock trades whose holds
+// overlap (in any account) are one bet, so a trader who scales in and out of a held position, or holds one stock in
+// several accounts, has few independent bets however many trades: "2,828 trades in 9 overlapping positions".
 export function evidenceLine(c: Confidence): string {
-  if (c.tier === 'too-early' || !c.edge) return `Too early to tell (${c.k} of 10 bets)`;
-  return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}, ${plural(Math.round(c.spanDays), 'day')})`;
+  const grouped = c.n > c.k;
+  if (c.tier === 'too-early' || !c.edge) {
+    return grouped
+      ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (10 independent bets needed)`
+      : `Too early to tell (${count(c.k)} of 10 bets)`;
+  }
+  return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
 }
 
 export const rangeText = (c: Confidence): string | null =>

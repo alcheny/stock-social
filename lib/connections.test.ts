@@ -803,6 +803,43 @@ dbTest('D4: a vendor 429 defers the step with backoff and keeps the cursor; a st
   }
 });
 
+dbTest('fix round 3: a vendor request that times out in an import step is a transport error: the step rolls back, the cursor is kept, the next step waits out the backoff, then the import finishes', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, importStep, drive, retryDelayMs } = await import('./connections.ts');
+  const { VendorTimeoutError } = await import('./broker.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('to');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const acc = `${tag}-to`;
+  v.accounts = [acct(acc)];
+  v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2)]); // 4 rows, 2 pages
+  const t0 = new Date('2026-10-22T10:00:00Z');
+  const s = (n: number) => new Date(t0.getTime() + n * 1000);
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps, t0) as { id: number };
+    await consent(id, s(1), deps);
+    assert.equal((await importStep(id, deps, s(2))).imported, 3);
+    const before = await conn(id);
+    const [{ n: acts }] = await sql`select count(*)::int as n from activities where user_id = ${u.id}`;
+    // The page read times out: the step writes nothing and the next one waits out the backoff.
+    let hang = 1;
+    const slow = { ...deps, fetchActivitiesPage: async (...args: Parameters<Deps['fetchActivitiesPage']>) => { if (hang-- > 0) throw new VendorTimeoutError(30_000); return deps.fetchActivitiesPage(...args); } };
+    const r1 = await importStep(id, slow, s(3));
+    assert.deepEqual(r1, { state: 'importing', imported: 3, progressed: false, retryAt: s(3).getTime() + retryDelayMs(1) });
+    const c = await conn(id);
+    assert.equal(c.state, 'importing');
+    assert.deepEqual({ i: c.import_cursor.i, offset: c.import_cursor.offset, pass: c.import_cursor.pass }, { i: before.import_cursor.i, offset: before.import_cursor.offset, pass: before.import_cursor.pass });
+    assert.equal(c.import_cursor.retries, 1);
+    assert.equal(c.imported_count, before.imported_count);
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, acts);
+    assert.equal((await drive(id, slow, s(100))).state, 'connected');
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 4);
+  } finally {
+    await cleanup([u.id], [acc]);
+  }
+});
+
 dbTest('D5: after a failed import the sync publishes nothing: the failed connection\'s accounts are not read, closed_trades stays empty, and the record state is failed', async () => {
   const { sql, tag, mkUser, conn, cleanup } = await setup();
   const { startConnection, completeLink, consent, importStep, latestConnection } = await import('./connections.ts');
@@ -1401,5 +1438,208 @@ dbTest('fix round 4 (engineer re-sit, Low 1): 12 concurrent mints against a hang
     release();
     clearProbeCache();
     await cleanup(ids);
+  }
+});
+
+dbTest('PR-3 (carried Low 2): the vendor portal URL is requested after the mint commits: no advisory lock held during connectUrl, the open already recorded; parallel first mints still register one vendor user and the limit still holds', async () => {
+  const { sql, mkUser, cleanup } = await setup();
+  const { mintPortal, startConnection, RateLimitedError, MINT_MAX } = await import('./connections.ts');
+  const { USER_LOCK } = await import('./sync.ts');
+  const { deps: base } = fakeVendor();
+  const u = await mkUser('ml');
+  const [{ signup_attempt_id: a }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const who = { userId: u.id, attemptId: Number(a) };
+  let registered = 0;
+  const seen: { locks: number; opens: number }[] = [];
+  let inFlight = 0, overlap = 0;
+  const deps: Deps = {
+    ...base,
+    registerUser: async (ref) => { registered++; await new Promise((r) => setTimeout(r, 20)); return { snaptradeUserId: `vendor-${ref}-ml`, secretEnc: 'enc' }; },
+    connectUrl: async () => {
+      const [{ n: locks }] = await sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and classid = ${USER_LOCK} and objid = ${u.id}`;
+      const [{ n: opens }] = await sql`select count(*)::int as n from funnel_events where attempt_id = ${a} and name = 'portal_opened'`;
+      seen.push({ locks: locks as number, opens: opens as number });
+      overlap = Math.max(overlap, ++inFlight);
+      await new Promise((r) => setTimeout(r, 30)); // a slow vendor
+      inFlight--;
+      return 'https://vendor.example/portal';
+    },
+  };
+  try {
+    const r = await mintPortal(who, 'r', 'redirect', deps);
+    assert.equal(r.url, 'https://vendor.example/portal');
+    assert.deepEqual(seen, [{ locks: 0, opens: 1 }]);
+    // Parallel: one registration, MINT_MAX opens in all, the rest refused by the limit.
+    const results = await Promise.allSettled(Array.from({ length: 12 }, () => startConnection(who, 'r', deps)));
+    assert.equal(registered, 1);
+    assert.equal(results.filter((x) => x.status === 'fulfilled').length, MINT_MAX - 1);
+    for (const x of results.filter((x) => x.status === 'rejected')) assert.ok((x as PromiseRejectedResult).reason instanceof RateLimitedError);
+    // The slow vendor calls ran side by side: none waited behind another mint's lock.
+    assert.ok(overlap > 1, `connectUrl calls overlapped ${overlap}`);
+  } finally {
+    await cleanup([u.id]);
+  }
+});
+
+dbTest('PR-3 (carried Info 3): a vendor 5xx, a transport error or a refused URL on mint does not count toward the mint limit; a vendor 4xx still counts', async () => {
+  const { sql, mkUser, cleanup } = await setup();
+  const { mintPortal, startConnection, PortalRefusedError, RateLimitedError, MINT_MAX } = await import('./connections.ts');
+  const { deps: base } = fakeVendor();
+  const u = await mkUser('m5');
+  const [{ signup_attempt_id: a }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const who = { userId: u.id, attemptId: Number(a) };
+  const opens = async () => (await sql`select count(*)::int as n from funnel_events where attempt_id = ${a} and name = 'portal_opened'`)[0].n as number;
+  const failing = (e: unknown): Deps => ({ ...base, connectUrl: async () => { throw e; } });
+  const vendorErr = (status: number) => Object.assign(new Error(`vendor ${status}`), { response: { status } });
+  try {
+    // Twice the limit in vendor outages: none counts, and the trader can still open the portal afterwards.
+    for (let i = 0; i < MINT_MAX * 2; i++) await assert.rejects(startConnection(who, 'r', failing(vendorErr(i % 2 ? 502 : 503))), /vendor 50/);
+    await assert.rejects(startConnection(who, 'r', failing(new TypeError('fetch failed'))), /fetch failed/);
+    assert.equal(await opens(), 0);
+    // The portal route's https check, made inside the mint: refused, not counted, the route answers 502.
+    await assert.rejects(mintPortal(who, 'r', async () => 'embedded', base, () => false), PortalRefusedError);
+    assert.equal(await opens(), 0);
+    assert.equal(await startConnection(who, 'r', base), 'https://vendor.example/portal');
+    assert.equal(await opens(), 1);
+    // A 4xx (the vendor refusing this user) counts, so the app cannot be used to hammer the vendor.
+    await assert.rejects(startConnection(who, 'r', failing(vendorErr(400))), /vendor 400/);
+    assert.equal(await opens(), 2);
+    for (let i = 0; i < MINT_MAX - 2; i++) await startConnection(who, 'r', base);
+    await assert.rejects(startConnection(who, 'r', base), RateLimitedError);
+  } finally {
+    await cleanup([u.id]);
+  }
+});
+
+dbTest('PR-3 fix round 4: a deferred step marks the import waiting until a page is read; no step starts past the call\'s deadline (poll, drive, tick)', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, importStep, drive, tick, ownerPoll, importWaiting, retryDelayMs, stepDeadline, STEP_RESERVE_MS, STEP_ROUTE_MAX_S } = await import('./connections.ts');
+  const { VendorTimeoutError, VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('dl');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const acc = `${tag}-dl`;
+  v.accounts = [acct(acc)];
+  v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2)]); // 4 rows, 2 pages
+  const t0 = new Date('2026-10-22T10:00:00Z');
+  const s = (n: number) => new Date(t0.getTime() + n * 1000);
+  let calls = 0;
+  const counted = { ...deps, fetchActivitiesPage: async (...a: Parameters<Deps['fetchActivitiesPage']>) => { calls++; return deps.fetchActivitiesPage(...a); } };
+  try {
+    assert.equal(stepDeadline(0), STEP_ROUTE_MAX_S * 1000 - STEP_RESERVE_MS);
+    assert.ok(STEP_RESERVE_MS > VENDOR_TIMEOUT_MS);
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps, t0) as { id: number };
+    await consent(id, s(1), deps);
+    assert.equal(await importWaiting(u.id), false);
+    await importStep(id, counted, s(2));
+    assert.equal(calls, 1);
+    // The vendor times out: waiting.
+    const slow = { ...deps, fetchActivitiesPage: async () => { throw new VendorTimeoutError(30_000); } };
+    await importStep(id, slow, s(3));
+    assert.equal(await importWaiting(u.id), true);
+    // Past the deadline nothing starts: not the owner's poll, not drive, not the cron's connection tick.
+    const before = await conn(id);
+    const late = s(3 + retryDelayMs(1) / 1000 + 1);
+    assert.equal((await ownerPoll(u.id, counted, late, Date.now() - 1)).imported, before.imported_count);
+    assert.equal((await drive(id, counted, late, 200, Date.now() - 1)).state, 'importing');
+    const t = await tick(counted, late, Date.now() - 1);
+    assert.equal(t.advanced, 0);
+    assert.equal(calls, 1);
+    assert.deepEqual((await conn(id)).import_cursor, before.import_cursor);
+    // With time left the poll steps again; the page read clears waiting.
+    await ownerPoll(u.id, counted, late, Date.now() + 60_000);
+    assert.equal(calls, 2);
+    assert.equal(await importWaiting(u.id), false);
+  } finally {
+    await cleanup([u.id], [acc]);
+  }
+});
+
+// F-1 PR-3 fix round 6 (engineer re-sit, Low): no step runs past its route's limit.
+dbTest('fix round 6: the positions read after the rebuild is split across steps by time; the rest are read by the next step and the import connects only once every account is in', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, importStep, readUntil, stepDeadline, STEP_ROUTE_MAX_S } = await import('./connections.ts');
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('ps');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const ids = [`${tag}-p1`, `${tag}-p2`, `${tag}-p3`];
+  v.accounts = ids.map((id) => acct(id));
+  ids.forEach((id, i) => { v.rows.set(id, pair(id, i + 1)); v.positions.set(id, [{ symbol: `P${i}`, unrealizedPct: 0.01 * (i + 1) }]); });
+  let wall = 1_000_000; // the instance clock: each positions read takes a whole vendor bound
+  const slow: Deps = { ...deps, fetchPositions: async (...a) => { wall += VENDOR_TIMEOUT_MS; return deps.fetchPositions(...a); } };
+  const t0 = new Date('2026-10-22T10:00:00Z');
+  const positions = async () => (await sql`select account_id from open_positions where user_id = ${u.id} order by account_id`).map((r) => r.account_id as string);
+  try {
+    // The step route: its last vendor request answers 5 s before the limit.
+    assert.equal(readUntil(stepDeadline(0)), STEP_ROUTE_MAX_S * 1000 - 5_000);
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps, t0) as { id: number };
+    await consent(id, t0, deps);
+    while ((await conn(id)).import_cursor.i < ids.length) await importStep(id, deps, t0);
+    // The rebuild step with 45 s left: one account read (a step always reads one), the second would not fit.
+    v.calls.length = 0;
+    let r = await importStep(id, slow, t0, wall + 45_000, () => wall);
+    assert.deepEqual([r.state, r.progressed], ['importing', true]);
+    assert.equal(v.calls.filter((c) => c === 'positions').length, 1);
+    assert.equal((await conn(id)).import_cursor.pos, 1);
+    assert.deepEqual(await positions(), [ids[0]]);
+    // The next step with 70 s left reads the other two (the second starts with 40 s left), no rebuild again.
+    const closes = await sql`select id from closed_trades where user_id = ${u.id} order by id`;
+    r = await importStep(id, slow, t0, wall + 70_000, () => wall);
+    assert.equal(v.calls.filter((c) => c === 'positions').length, 3);
+    assert.equal((await conn(id)).import_cursor.pos, undefined);
+    assert.equal((await conn(id)).import_cursor.rebuilt, true);
+    assert.deepEqual(await positions(), ids); // each once
+    assert.deepEqual(await sql`select id from closed_trades where user_id = ${u.id} order by id`, closes); // not rebuilt again
+    // Then it finishes as before.
+    for (let n = 0; n < 5 && r.state === 'importing'; n++) r = await importStep(id, deps, t0);
+    assert.equal(r.state, 'connected');
+    assert.deepEqual(await positions(), ids);
+  } finally {
+    await cleanup([u.id], ids);
+  }
+});
+
+dbTest('fix round 6: the attempt sweep checks the deadline before every row, logs the rows left, and the connection tick logs its line even past the deadline', async () => {
+  const { sql } = await setup();
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { cleanupAttempts, tick, ATTEMPT_HOURS } = await import('./connections.ts');
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const { v, deps } = fakeVendor();
+  const logged: string[] = [];
+  const log = console.log;
+  console.log = (...a: unknown[]) => { logged.push(a.map(String).join(' ')); };
+  const attempts: number[] = [];
+  try {
+    for (let i = 0; i < 3; i++) {
+      const a = await createAttempt({ method: 'brokerage', attested: true });
+      await sql`update signup_attempts set snaptrade_user_id = ${`vendor-sweep-${a}`}, snaptrade_secret_enc = 'enc', created_at = now() - ${ATTEMPT_HOURS + 1} * interval '1 hour' where id = ${a}`;
+      attempts.push(a);
+    }
+    let wall = 1_000_000;
+    const slow: Deps = { ...deps, deleteUser: async (u) => { wall += VENDOR_TIMEOUT_MS; return deps.deleteUser(u); } };
+    // 45 s left: the first row (at 0 s) and the second (at 30 s) start; the third (at 60 s) does not.
+    const r = await cleanupAttempts(slow, undefined, { until: wall + 45_000, clock: () => wall, ids: attempts });
+    assert.deepEqual(r, { cleaned: 2, left: 1 });
+    assert.equal(v.deletedUsers.length, 2);
+    assert.ok(logged.includes('attempt cleanup stopped {"cleaned":2,"left":1}'));
+    const [{ n }] = await sql`select count(*)::int as n from signup_attempts where id in ${sql(attempts)} and snaptrade_user_id is not null`;
+    assert.equal(n, 1); // swept by the next call
+    assert.deepEqual(await cleanupAttempts(slow, undefined, { ids: attempts }), { cleaned: 1, left: 0 });
+    // The tick past its deadline starts no vendor work and still writes its log line (counts only).
+    const before = v.deletedUsers.length;
+    await tick(deps, new Date(), Date.now() - 1);
+    assert.equal(v.deletedUsers.length, before);
+    const line = logged.find((l) => l.startsWith('connections tick '));
+    assert.ok(line, 'tick line written');
+    const body = JSON.parse(line!.slice('connections tick '.length));
+    assert.equal(body.stoppedAtDeadline, true);
+    assert.equal(body.attemptsCleaned, 0);
+    assert.doesNotMatch(line!, /vendor-|@/);
+  } finally {
+    console.log = log;
+    await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id in ${sql(attempts)}`;
   }
 });

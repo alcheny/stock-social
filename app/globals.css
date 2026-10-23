@@ -288,3 +288,13 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .handle-edit summary { cursor: pointer; min-height: 44px; display: inline-flex; align-items: center; list-style: none; }
 .handle-edit summary::-webkit-details-marker { display: none; }
 .handle-edit summary.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--line); }
+/* F-1 PR-3 fix round 4 (UX lead demand 1, POLICY A1): the closed-trades window controls are 44 px targets; the row a
+   "Show 50 more" or a chart point lands on takes focus (tabindex -1) with a visible ring. */
+.closes-more { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.closes-more a.button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; box-sizing: border-box; }
+.rows.closes li:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The skip link (POLICY F3/A1): first Tab stop on every page, shown only while focused, above the fixed nav. */
+.skip-link { position: absolute; left: 8px; top: -100px; z-index: 30; padding: 10px 14px; min-height: 44px; box-sizing: border-box;
+  background: var(--surface); color: var(--text); border: 2px solid var(--accent); border-radius: 8px; }
+.skip-link:focus { top: 8px; }
+footer.site:focus { outline: 2px solid var(--accent); outline-offset: 2px; }

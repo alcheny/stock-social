@@ -1,11 +1,11 @@
 'use client';
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { RANGES, curveDomain, equityCurve, maxDrawdown, nearestIndex, pct, rangeReturn, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
-
-type Pt = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null };
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { RANGES, nearestIndex, pct, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
+import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
+import { counted } from '@/lib/format.ts';
+import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
 
 const W = 640, H = 240, T = 16, B = 16;
-const DAY = 86_400_000;
 
 // CH-1, single-line scrub chart: one line, no axes, header number that follows the cursor, range tabs.
 // Green when the range ends at or above its start, red below. The dashed baseline is the range start (0%).
@@ -14,39 +14,96 @@ const DAY = 86_400_000;
 // Without JS the server-rendered ALL line stays; the tabs just do nothing.
 // Kept from the trade-linked chart (#14, #21): a transparent overlay of links to each trade's row (hover/focus
 // tooltip), and scrub-to-open: releasing a drag, or Enter, opens a sheet with hold time, thesis and a row link.
-export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[]; now: Date; linkBase?: string }) {
+// F-1 PR-3 fix round 4 (UX lead demand 1): the record arrives packed (lib/paging.ts, list order) and each trade link
+// opens the profile window that renders the row (`?closes=N#trade-id`; the anchor alone on the window shown, `current`).
+// The per-point links are drawn after hydration only: they were never Tab stops (tabindex -1), and on a heavy record
+// they were most of the page's HTML. Without JS, every trade is reached through the paged list.
+// Fix round 8: one request per trader per page, however many of the trader's cards open their pane; a failed request
+// is forgotten so the next open retries.
+const fullCharts = new Map<string, Promise<PackedChart>>();
+function fetchChart(src: string): Promise<PackedChart> {
+  let p = fullCharts.get(src);
+  if (!p) {
+    p = fetch(src).then((r) => (r.ok ? (r.json() as Promise<PackedChart>) : Promise.reject(new Error(String(r.status)))));
+    p.catch(() => fullCharts.delete(src));
+    fullCharts.set(src, p);
+  }
+  return p;
+}
+
+export function PerformanceChart({ points, chart, src, now, linkBase = '', current }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number }) {
+  // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the profile passes the whole record (`points`) and draws it
+  // at full resolution; the feed pane passes `chart`, each range's series already drawn at screen resolution on the
+  // server (lib/chart-series.ts, at most FEED_CHART_POINTS points). Both draw and scrub the same way.
+  // Fix round 8 (tester re-run 4, Medium): on the feed a long record's `chart` is the stand-in (`lite`: the ALL line at
+  // FEED_LITE_POINTS, no closes, every range's numbers). The full chart is fetched from `src` when the chart first comes
+  // into view (the pane's swipe-open scrolls it in), is focused, or a range is picked; it then replaces the stand-in.
+  // Without JS the stand-in line is what shows.
+  const [full, setFull] = useState<PackedChart | null>(null);
+  const lazy = !!(chart?.lite && src) && !full;
+  const load = useCallback(() => { if (lazy) fetchChart(src!).then(setFull, () => {}); }, [lazy, src]);
+  const fig = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = fig.current;
+    if (!lazy || !el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); load(); } });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [lazy, load]);
+  const shownChart = full ?? chart;
+  const trades = useMemo(() => (points ? unpackPoints(points) : null), [points]);
+  const packed = useMemo(() => (shownChart ? unpackChart(shownChart) : null), [shownChart]);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [range, setRange] = useState<RangeKey>('ALL');
   const [active, setActive] = useState<number | null>(null);
   const [sel, setSel] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const dragging = useRef(false);
   const stack = useRef<HTMLDivElement>(null);
-  if (trades.length < 2) return null;
+  const series = useMemo(() => (packed ? packed[range] : chartSeries(trades ?? [], range, now)), [packed, trades, range, now]);
+  // The full chart has other points than the stand-in: a scrub position held across the swap moves to the point
+  // nearest in time (a key press or drag made before the swap keeps its place). `seen` holds the points last drawn.
+  const seen = useRef(series.pts);
+  useEffect(() => {
+    const before = seen.current, after = series.pts;
+    seen.current = after;
+    if (before === after || !after.length) return;
+    const near = (i: number | null) => {
+      if (i === null || !before[i]) return null;
+      const at = before[i].at;
+      let k = 0;
+      for (let j = 1; j < after.length; j++) if (Math.abs(after[j].at - at) < Math.abs(after[k].at - at)) k = j;
+      return k;
+    };
+    setActive(near);
+    setSel(near);
+  }, [series.pts]);
+  const total = packed ? packed.ALL.n : (trades?.length ?? 0);
+  const inRange = (key: RangeKey) => (packed ? packed[key].n : rangeTrades(trades ?? [], key, now).length);
+  if (total < 2) return null;
 
   const spec = RANGES.find((r) => r.key === range)!;
-  const curve = equityCurve(rangeTrades(trades, range, now));
-  const last = rangeReturn(trades, range, now);
+  const { pts, t0, t1, last } = series;
 
-  // Scrub points: the range start (0%) then one per close.
-  const t0 = spec.days === null ? (curve[0]?.trade.closedAt.getTime() ?? 0) : now.getTime() - spec.days * DAY;
-  const t1 = spec.days === null ? (curve[curve.length - 1]?.trade.closedAt.getTime() ?? 0) : now.getTime();
-  const pts = [{ value: 0, at: t0, trade: null as Pt | null }, ...curve.map((p) => ({ value: p.cumulative, at: p.trade.closedAt.getTime(), trade: p.trade as Pt | null }))];
+  // Scrub points: the range start (0%) then one per close (per kept close in the feed pane).
   const span = t1 - t0;
   const x = (i: number) => (span > 0 ? ((pts[i].at - t0) / span) * W : (i / (pts.length - 1 || 1)) * W);
-  const { min, max } = curveDomain(curve);
+  const { min, max } = series;
   const pad = (max - min) * 0.08 || 0.01;
   const lo = min - pad, hi = max + pad;
   const y = (v: number) => T + ((hi - v) / (hi - lo)) * (H - T - B);
   const f = (n: number) => n.toFixed(1);
   const xs = pts.map((_, i) => x(i));
 
-  let d = pts.map((p, i) => `${i ? 'L' : 'M'}${f(xs[i])} ${f(y(p.value))}`).join('');
-  if (span > 0 && t1 > pts[pts.length - 1].at) d += `L${W} ${f(y(last))}`;
+  // The line runs on to the range end at the last value when the range ends after the last close.
+  const tail = span > 0 && pts.length > 0 && t1 > pts[pts.length - 1].at; // no points: a range still loading (fix round 8)
+  const d = pathD(tail ? [...xs, W] : xs, [...pts.map((p) => y(p.value)), ...(tail ? [y(last)] : [])]);
 
   const at = active === null ? null : pts[active];
   const shown = at ? at.value : last;
   const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : spec.label;
-  const label = `${curve.length} trades, ${pct(last, 0)} total, max drawdown ${pct(-maxDrawdown(curve), 0)}`;
+  const label = `${counted(series.n, 'trade')}, ${pct(last, 0)} total, max drawdown ${pct(-series.drawdown, 0)}`; // fix round 8: "1 trade"
 
   const scrubTo = (e: PointerEvent) => {
     const r = stack.current!.getBoundingClientRect();
@@ -65,18 +122,20 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
     else return;
     e.preventDefault();
   };
-  const pick = (key: RangeKey) => { setRange(key); setActive(null); setSel(null); setOpen(false); };
+  const pick = (key: RangeKey) => { load(); setRange(key); setActive(null); setSel(null); setOpen(false); };
   const chosen = sel === null ? null : (pts[sel]?.trade ?? null);
 
   return (
-    <figure className={`chart ${last >= 0 ? 'gain' : 'loss'}`}>
+    <figure ref={fig} className={`chart ${last >= 0 ? 'gain' : 'loss'}`} data-chart={lazy ? 'stand-in' : 'full'}>
       <figcaption>Return if every trade were the same size</figcaption>
       <div className="chart-head" aria-live="polite">
         <b className={`chart-value ${shown >= 0 ? 'up' : 'down'}`}>{pct(shown, 1)}</b>
         <span className="muted"> · {sub}</span>
       </div>
-      {curve.length === 0 ? (
+      {series.n === 0 ? (
         <p className="muted chart-empty">No closed trades in this range.</p>
+      ) : pts.length === 0 ? (
+        <p className="muted chart-empty" role="status">Loading the chart…</p>
       ) : (
         <div
           className="chart-stack"
@@ -85,6 +144,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
           role="group"
           aria-label="Scrub the chart. Use left and right arrows to move."
           onKeyDown={onKey}
+          onFocus={load}
           onBlur={() => setActive(null)}
           onPointerDown={(e) => { dragging.current = true; e.currentTarget.setPointerCapture(e.pointerId); setOpen(false); scrubTo(e); }}
           onPointerMove={(e) => { if (dragging.current || e.pointerType === 'mouse') scrubTo(e); }}
@@ -100,7 +160,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
               <circle cx={f(xs[active!])} cy={f(y(at.value))} r="5" className="dot" />
             </>}
           </svg>
-          <svg viewBox={`0 0 ${W} ${H}`} className="chart-hit" role="group" aria-label="Chart points: each links to its trade below">
+          {mounted && <svg viewBox={`0 0 ${W} ${H}`} className="chart-hit" role="group" aria-label="Chart points: each links to its trade below">
             {pts.map((p, i) => {
               if (!p.trade) return null;
               const cx = xs[i], cy = y(p.value);
@@ -109,7 +169,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
               const tx = Math.min(Math.max(cx - tw / 2, 2), W - tw - 2);
               const ty = cy > T + 28 ? cy - 30 : cy + 10;
               return (
-                <a key={p.trade.id} tabIndex={-1} href={`${linkBase}#trade-${p.trade.id}`} aria-label={`${text}, go to trade`}>
+                <a key={p.trade.id} tabIndex={-1} href={tradeHref(linkBase, p.trade.id, p.trade.index, current)} aria-label={`${text}, go to trade`}>
                   <circle cx={f(cx)} cy={f(cy)} r="12" className="hit" />
                   <g className="tip" pointerEvents="none">
                     <rect x={f(tx)} y={f(ty)} width={tw} height="22" rx="6" />
@@ -118,7 +178,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
                 </a>
               );
             })}
-          </svg>
+          </svg>}
           <span className="zero-label" style={{ top: `${(y(0) / H) * 100}%` }}>0%</span>
         </div>
       )}
@@ -135,7 +195,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
                 <p className="muted" style={{ margin: '4px 0 0' }}>Held {chosen.holdingDays.toFixed(1)} days</p>
                 {chosen.thesis && <p style={{ margin: '4px 0 0' }}>“{chosen.thesis}”</p>}
                 <p style={{ margin: '8px 0 0' }}>
-                  <a href={`${linkBase}#trade-${chosen.id}`}>Go to trade in list</a>{' '}
+                  <a href={tradeHref(linkBase, chosen.id, chosen.index, current)}>Go to trade in list</a>{' '}
                   <button type="button" onClick={() => setOpen(false)}>Close</button>
                 </p>
               </>
@@ -149,7 +209,7 @@ export function PerformanceChart({ trades, now, linkBase = '' }: { trades: Pt[];
             key={r.key}
             type="button"
             aria-pressed={r.key === range}
-            disabled={rangeTrades(trades, r.key, now).length === 0}
+            disabled={inRange(r.key) === 0}
             onClick={() => pick(r.key)}
           >{r.key}</button>
         ))}

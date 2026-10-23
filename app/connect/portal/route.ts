@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
-import { boundAttempt, CONNECT_COOKIE, mintPortal, RateLimitedError } from '@/lib/connections.ts';
+import { boundAttempt, CONNECT_COOKIE, mintPortal, PortalRefusedError, RateLimitedError } from '@/lib/connections.ts';
 import { portalOrigin } from '@/lib/portal.ts';
 import { probePortalMode } from '@/lib/portal-probe.ts';
 import { currentUser, origin } from '@/lib/session.ts';
@@ -25,14 +25,16 @@ export async function POST() {
   const app = await origin();
   const allowLoopback = !!process.env.SNAPTRADE_BASE_URL;
   try {
+    // PR-3 (carried Info 3): a URL that is not an https vendor URL is refused inside the mint (`accept`), before it is
+    // counted, so a 502 never uses up one of the trader's opens.
     const { url, mode } = await mintPortal({ userId: me?.id ?? null, attemptId }, `${app}/connect/done`, async (u) => {
       const o = portalOrigin(u, { allowLoopback });
       return o ? probePortalMode(u, o, app) : 'embedded';
-    });
-    const portal = portalOrigin(url, { allowLoopback });
-    if (!portal) return NextResponse.json({ error: 'portal' }, { status: 502, headers: noStore });
+    }, undefined, (u) => portalOrigin(u, { allowLoopback }) !== null);
+    const portal = portalOrigin(url, { allowLoopback })!;
     return NextResponse.json({ url, origin: portal, mode }, { headers: noStore });
   } catch (e) {
+    if (e instanceof PortalRefusedError) return NextResponse.json({ error: 'portal' }, { status: 502, headers: noStore });
     if (e instanceof RateLimitedError) return NextResponse.json({ error: 'rate' }, { status: 429, headers: { ...noStore, 'retry-after': '600' } });
     throw e;
   }

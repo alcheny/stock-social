@@ -109,11 +109,12 @@ dbTest('schema applies twice; backfill is idempotent and the earliest owner wins
   const { sql, tag, a, b } = await setup();
   const ddl = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
   const acct = `${tag}-dup`;
-  const ins = (uid: number, ext: string, at: string) => sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
-    values (${uid}, 'snaptrade', ${`${tag}-${ext}`}, ${acct}, 'AAPL', 'BUY', 1, 10, ${at}, '{}')`;
   try {
-    await ins(b, 'eb', '2025-01-05');
-    await ins(a, 'ea', '2025-01-02');
+    // Both owners' rows land in one statement: another test file may apply the schema at any moment (node --test runs
+    // files in parallel), and a backfill that saw only the later owner's row would rightly confirm that owner.
+    await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
+      values (${b}, 'snaptrade', ${`${tag}-eb`}, ${acct}, 'AAPL', 'BUY', 1, 10, '2025-01-05', '{}'),
+             (${a}, 'snaptrade', ${`${tag}-ea`}, ${acct}, 'AAPL', 'BUY', 1, 10, '2025-01-02', '{}')`;
     await sql.unsafe(ddl).simple();
     await sql.unsafe(ddl).simple();
     const rows = await sql`select user_id from broker_accounts where account_id = ${acct}`;

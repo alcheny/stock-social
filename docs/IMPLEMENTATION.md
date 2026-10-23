@@ -140,12 +140,13 @@ pipeline scripts and the workflows. Each is a yes/no for the owner; answers are 
 | 4 | Test-mode secrets created and passed to the build and CI jobs (names only): the vendor's test key pair, the email-provider sign-in client id and secret, the phone-maker sign-in team id, key id and private key, the email-sending key and from-address, a session secret, the public site URL | Only the owner creates secrets; without them the committee's running-preview test of sign-in and the portal is mocks only | |
 | 5 | One new dependency: the vendor's web SDK for the embedded portal. Everything else built without dependencies (sign-in via standard OIDC with the runtime's crypto, email via one HTTPS call, the t multiplier inline) | POLICY H: new dependencies are the owner's | |
 | 6 | One new vendor: an email-sending service for the magic link (the single Phase 1 exception to "no new vendor") | DESIGN §3 and Standing direction 3 | |
-| 7 | An hourly scheduled call to `/api/sync` in the deploy settings (nothing calls it today); consent expiry and the 90-day purge run in that tick, with lazy expiry on profile read | Deploy settings are owner-only | |
+| 7 | A scheduled call to `/api/sync` in the deploy settings (nothing calls it today): **corrected 2026-10-23 by the business lead (F-1 PR-3 committee re-sit): cron every minute** (was hourly, then "every 5 minutes, never at :30" from the first committee round, now withdrawn). Why: each call stops claiming before its 300 s `maxDuration`, so calls 5 minutes apart never overlap, and at a slow vendor (2.5 s per page) they cover only about 245 four-account traders an hour, half the 500 target; calls every minute overlap, and overlapping callers split the work safely (each trader is claimed once per round; the fleet test runs 8 concurrent callers), which covers the 500. Consent expiry and the 90-day purge run in that tick, with lazy expiry on profile read | Deploy settings are owner-only | |
 | 8 | Function duration limit ≥ 60 s in the deploy settings, for the chunked import (one vendor page per step, client-polled; no worker or queue yet) | Deploy settings are owner-only | |
 | 9 | Preview deploys per feature PR (deployments are off today), or accept in-job `npm run start` plus browser screenshots as the committee's "running preview" | The committee and user tests need a running app | |
 | 10 | Placeholder Terms and Privacy pages and the consent-screen copy (what becomes public), supplied by the owner | POLICY P6/F3: the attestation and consent screens must link them | |
 | 11 | A `blocked` status the publish script may set when a feature hits a hard stop | Otherwise the picker returns the blocked feature forever and later features never build | |
 | 12 | Process wiring: owner edits to `scripts/features.ts`, `scripts/team.ts`, `team/*.md`, CODEOWNERS and `features.yml` for the plan round, the UX lead, the committee, per-member user tests and `docs/features/logs/` | All owner-only paths | |
+| 13 | Run the heavy-use suite automatically: a `test:load` script in `package.json` (`LOAD=1 node --expose-gc --test lib/sync.load.test.ts`) and a CI job on demand (manual dispatch, with Postgres) | Nothing sets `LOAD=1`, so the F-1 heavy-use criteria are never checked automatically; `package.json` and workflows are owner-only (F-1 PR-3 tester, Low 3) | |
 
 Not needed for the first run (wait): a read replica, object storage, a vector index, a worker or
 queue, an AI-model key (F-2 stages 2 and 3; F-2 stage 1 is SQL co-visitation on the primary database
@@ -201,6 +202,8 @@ feature file (ready/rework)
 pass → reviewer's independent check → Gate merges → Status: built → next feature
 fail → demands become round n+1's plan → back to 1 (bounded by FEATURE_MAX_ATTEMPTS, then owner)
 ```
+
+Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `lib/connections.ts`, `lib/trades.ts` or `lib/broker.ts` attaches a `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` run (its `# load:` lines) to its build log.
 
 ## What already exists and is reused
 - Branch team roles and specs in `team/` (business lead, designer, engineer, tester, reviewer).

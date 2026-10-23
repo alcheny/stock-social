@@ -7,6 +7,7 @@ import { wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
+import { counted } from '@/lib/format.ts';
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -16,7 +17,7 @@ async function load(p: Params['params']) {
 }
 
 const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
-const plural = (n: number) => `${n} closed trade${n === 1 ? '' : 's'}`;
+const plural = (n: number) => counted(n, 'closed trade');
 const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {

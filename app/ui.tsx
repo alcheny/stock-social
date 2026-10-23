@@ -23,6 +23,11 @@ export type TradeRow = {
 const days = (d: number) => (d < 1 ? `${Math.max(1, Math.round(d * 24))}h` : `${d.toFixed(d < 10 ? 1 : 0)}d`);
 
 // state: the trader's aggregate record state (recordStates); a failed import shows no Verified badge and the short line.
+// Fix round 8 (tester re-run 4): a display name equal to the handle is shown once ("@name", not "name@name").
+export function WhoName({ name, handle }: { name: string; handle: string }) {
+  return <>{name !== handle && <><strong>{name}</strong>{' '}</>}<span className="muted">@{handle}</span></>;
+}
+
 export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: PublicState }) {
   const up = t.return_pct > 0;
   const trust = cardTrust(t, state);
@@ -30,7 +35,7 @@ export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: Pub
     <article className="card">
       <header>
         <Link href={`/u/${t.handle}`} className="who">
-          <strong>{t.display_name}</strong> <span className="muted">@{t.handle}</span>
+          <WhoName name={t.display_name} handle={t.handle} />
         </Link>
         <RowBadge kind={trust.badge} />
       </header>
