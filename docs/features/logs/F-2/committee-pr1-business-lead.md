@@ -288,3 +288,134 @@ COMPLIANCE: PASS · USABILITY: DEMANDS
 4. Cold page 1 (0.7 to 1.3 s under load, 50 heavy): accepted. Record deployed page-1 server time; pane-summary
    follow-up when p95 > 400 ms or > 12 heavy candidates.
 5. Reviewer: check the first-60 share and the worst 10-window on a skewed fixture, not only the whole-list share.
+
+## Round 3
+
+2026-10-23. Verified fix round 2 (`0a0150d`) as a user. Rebuilt with `CI=1 npm run build`, stdin closed (the first
+attempt stopped on the framework's security advisory; the retry exits 0). `next start` on 3108 with
+`ALLOW_DEV_AUTH=1`, vendor fake on 4188, Postgres 16, no sync tick. Fixture: my round-2 skewed cohort (5 hyperactive
+traders with 60 closes in 20 h, 55 ordinary traders with 6 to 20 closes over 30 days), re-seeded under a new prefix and
+removed afterwards (60 users deleted; the user count is back to 87). Server and fake stopped. No product code changed.
+
+### Decision
+
+Blocker 1 is delivered exactly as I specified it. Accept the 28-on-one-seed deviation. No stronger rule in this PR.
+
+### Variety in the first minute: delivered
+
+- **The code is my rule, word for word.** `pick` (`lib/discovery/explore.ts:51-62`) takes the best-ranked card whose
+  trader is not among the last 9 cards. If there is none, it takes another trader than the previous card's, then any.
+  It is a preference, it never ends the list, and it reads no return.
+- **My fixture, `feedList` on the cohort alone, 50 consecutive day seeds:**
+
+  | Measure | Round 2 (before) | Round 3 |
+  |---|---|---|
+  | Hyperactive cards in the first 60 | 29 | **26 to 27, median 26: ≤ 27 on all 50 seeds** |
+  | Worst 10-card window | 8 | **5 on every seed** |
+  | Worst 30-card window | 21 | 15 on every seed |
+  | Most cards of one trader in any 30 | 6 | 3 to 5 |
+  | Distinct traders in the first 60 | not measured | 35 to 38 |
+  | First card that repeats a trader from the previous 9 | not measured | card 106 to 172; never in the first 105 |
+  | List length | 199 | 199 to 200 |
+  | Exploration picks in the first 120 | 24 | 24 on every seed |
+
+- **Signed out over HTTP, the whole database** (demo traders and the 87 existing users plus my cohort): 25 of the first
+  60 cards, 37 distinct traders. Each demo trader appears exactly once per 10 cards. The disclaimer is present on page 1.
+- **In practice:** a reader now meets no trader twice within 10 cards for the first ~100 cards. Round 2 showed the
+  same five faces 8 times in 10.
+
+### The 28 on one seed: accepted, and why
+
+- **28 of 60 is not a defect of the rule; it is the rule's ceiling.** "Once per 10 cards" lets 5 traders who outrank
+  everyone fill 5 of every 10 slots, so 30 of 60 is the arithmetic maximum. My ≤ 27 was a number from one simulation,
+  not a property of the rule. That was my error in round 2, not the engineer's.
+- **What the reader experiences is the per-window bound, and it holds on every seed:** ≤ 5 of any 10, no trader twice
+  in any 10.
+- **A stronger rule would cost more than it buys:**
+  - A 20-card window would bring the share to about 15 of 60, but it pushes the best-ranked cards down by rule, not by
+    merit.
+  - No user evidence says half the first minute from active traders is a problem when each appears once per 10. Today
+    that is a fixture, not a cohort.
+- **The binding criterion, stated precisely:**
+  - When at least 10 traders have a card that fits, no trader appears twice within any 10 consecutive cards.
+  - On the 50-seed pure test, the 5 hyperactive traders hold ≤ 5 of any 10 and ≤ 28 of the first 60 on every seed.
+  - The test as written (`lib/discovery/explore.test.ts:192-209`: ≤ 28 every seed, ≤ 27 on ≥ 49, median ≤ 25) is
+    accepted as is.
+
+### Taste (not blocking; PR-3 owns ranking)
+
+- **The rhythm is mechanical.** The five hyperactive traders recur in the same order every 10 cards (on one seed:
+  "day2 day1 day4 · day3 · day0", repeated six times, with three of them back to back).
+  - Variety is fixed. Predictability is not: a reader scrolling fast will notice the loop.
+- **What great looks like:** discount each further card of a trader already in the list (for example, multiply its
+  score by a constant below 1 per card already placed). Repeat traders then drift apart naturally and in no fixed order.
+  - It still reads no return sign, so sign invariance holds.
+- **Planner (PR-3):** evaluate this alongside the lower-bound ranking. Acceptance:
+  - no fixed sequence of 3 or more traders repeats within the first 60 cards on the skewed fixture;
+  - the per-window bound above still holds.
+
+### Page time against my trigger
+
+- **The trigger I set in round 2:**
+  - Record the deployed page-1 server time from day one.
+  - Build the per-record pane summary before p95 passes 400 ms or more than 12 traders with 1,000+ closes are among
+    the candidates.
+  - Keep the 50-heavy case out of CI gates.
+- **The engineer's numbers:**
+  - Full HTTP p95 with 50 heavy traders: 434 and 456 ms. The data path: 273 and 326 ms. Round 1 was 449 to 502 ms on
+    the same machine, so this round improved it by about 40 ms.
+  - At 12 heavy (launch scale), the data path p95 is 164 to 169 ms.
+- **My measurement at launch scale:**
+  - HTTP, signed out, 20 rounds × pages 1 to 3: p95 214 ms, median 111 ms. Page-1 p95 253 ms.
+  - Page 1 HTML is 290 KB.
+- **Verdict:** the trigger has not fired. 50 heavy is above the trigger's own threshold of 12, so its p95 above 400 ms
+  is the case the trigger anticipates, not a breach at launch. The load suite is skipped unless `LOAD=1`
+  (`lib/feed.load.test.ts:10-13`), and no workflow sets it. The trigger is recorded in the engineer's follow-ups.
+  Accepted.
+- I did not re-run the 50-heavy fixture: it is the engineer's measurement, run on a shared machine, and round 2
+  already showed that this budget has no headroom under contention.
+
+### Compliance: PASS
+
+- The preference reads no return; sign invariance and the cap tests are unchanged.
+- New copy ("Trades 31 to 60 loaded", the hidden "Trade feed" heading) is factual: no completeness claim, no advice.
+- The feed is the same for every viewer and works signed out. The disclaimer is on page 1.
+- No vendor, no dependency, no third-party name.
+- Size: 794 product lines added across PR-1, inside 800 under pre-authorization #2. This is the last room: any further
+  product line in PR-1 needs the owner.
+
+### Is PR-1 ready to merge?
+
+Yes, from the business side, pending the reviewer.
+- My round-1 and round-2 blockers are closed and verified on my own fixture: one request per page join, variety by
+  trader, and no trader twice in 10 cards in the first minute.
+- The tester's high (late-set rescan) is fixed with plan evidence. The cold-start cost is accepted with a trigger that
+  has not fired.
+- What remains belongs to later PRs: the exploration pool beyond the 200, the mechanical rhythm, and outright delete
+  across servers.
+- The PR is 6 lines under its size ceiling, so further polish belongs in PR-3, not here.
+- The reviewer should check the first-60 share and the worst 10-window on a skewed fixture (my demand 5). These are
+  now in the PR's tests.
+
+### Demands
+
+1. **Reviewer:** run `lib/discovery/explore.test.ts` (the fix-round-2 test) and the DB skewed test. Confirm that
+   `pick` reads no return. Confirm that no trader repeats within 10 cards in the first 100 on one skewed seed of your
+   own.
+2. **Planner (PR-3):** de-rhythm repeat traders with a per-placement score discount (criteria above). Carry demand 3
+   (exploration beyond the 200) as before.
+3. **Planner / engineer:** keep the cold-start trigger as recorded. It has not fired; nothing to build now.
+
+### Demo sentence
+
+"Scroll and you meet someone new every card for the first hundred, wins and losses alike; when today's list runs out,
+it says so."
+
+COMPLIANCE: PASS · USABILITY: PASS
+1. Blocker 1 delivered: hyperactive share of the first 60 is 26 to 27 (≤ 27 on all 50 seeds of my fixture). The worst
+   10-window is 5 and no trader repeats within 10 in the first 105 cards. Signed out over HTTP: 25 of 60, 37 distinct.
+2. The engineer's 28 on 1 of 50 seeds is accepted. It is the rule's ceiling, not a defect. Binding criterion: no trader
+   twice in any 10 when 10 fit; ≤ 28 of the first 60 on every seed.
+3. Page time: launch scale p95 214 ms over HTTP. 50 heavy at 434 to 456 ms is beyond the trigger's 12-heavy threshold,
+   so the trigger has not fired. Accepted.
+4. Follow-up (PR-3, not blocking): break the fixed 5-trader rhythm with a per-placement score discount.
