@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RECORD_BODY } from '@/lib/copy.ts';
-import { initBanner, onPoll, onServer, onTick, onUnauthorized, onVisibility, polls, POLL_MS, slowText, type Banner } from '@/lib/import-banner.ts';
+import { ANNOUNCE_MS, headline, initBanner, onPoll, onServer, onTick, onUnauthorized, onVisibility, polls, POLL_MS, slowText, type Banner } from '@/lib/import-banner.ts';
 
 // S5 (plan §2, §8 item 2): the import banner, live. The owner's open tab polls POST /api/import/step every 2 s (each
 // poll also advances the import); visitors see the server's line, refreshed with the page. The status line is the only
@@ -60,6 +60,13 @@ export function ImportBanner({ state, closes, read, owner, quiet = false }: { st
     return () => clearInterval(t);
   }, [b.phase]);
 
+  // Fix round 7: the headline's first move (the activities count) is due exactly ANNOUNCE_MS after mount, not at the
+  // next whole-second tick after it.
+  useEffect(() => {
+    const t = setTimeout(() => setB((x) => onTick(x, Date.now())), ANNOUNCE_MS + 20);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     if (b.refreshes === refreshed.current) return;
     refreshed.current = b.refreshes;
@@ -68,13 +75,13 @@ export function ImportBanner({ state, closes, read, owner, quiet = false }: { st
 
   if (b.phase === 'hidden') return null;
   const finished = b.phase === 'finished';
-  const statusClass = finished ? (b.text === RECORD_BODY.finished ? `import-finished${hush ? ' sr-only' : ''}` : 'import-ending') : 'importing';
+  const statusClass = finished ? (b.head === RECORD_BODY.finished ? `import-finished${hush ? ' sr-only' : ''}` : 'import-ending') : 'importing';
   return (
     <div className="import-banner" data-phase={b.phase}>
-      <p role="status" aria-live="polite" className={statusClass}>{b.text}</p>
+      <p role="status" aria-live="polite" className={statusClass}>{headline(b)}</p>
       {!finished && owner && <p className="muted small import-read">{RECORD_BODY.imported(b.read)}</p>}
-      {/* PR-3 fix round 4 (UX lead note 1): the same count for a screen reader, throttled with the status line. */}
-      {!finished && owner && <p className="sr-only import-read-live" aria-live="polite">{b.readText}</p>}
+      {/* PR-3 fix round 4 (UX lead note 1): the same count for a screen reader, throttled with the status line; empty while the headline itself carries it (fix round 7). */}
+      {!finished && owner && <p className="sr-only import-read-live" aria-live="polite">{b.liveRead}</p>}
       {!finished && owner && <p className="muted small import-slow" aria-live="polite">{slowText(b)}</p>}
       {b.signedOut && <p className="small import-signed-out">{RECORD_BODY.signedOut} <a className="tap" href="/login">{RECORD_BODY.signInAgain}</a></p>}
     </div>

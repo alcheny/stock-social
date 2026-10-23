@@ -83,6 +83,10 @@ export const RECORD_BODY = {
   // Fix round 4: the count is the closed trades listed under the banner, never the raw activities imported.
   // PR-2b fix round 2 (business lead 3): "your" only to the owner; visitors and link previews read "this record".
   banner: (closes: number, owner: boolean) => `Importing ${owner ? 'your' : 'this'} record · ${counted(closes, 'closed trade')} so far`,
+  // F-1 PR-3 fix round 7 (business lead re-sit, demand 3): before the first close the headline counts what the import
+  // has read, so it moves within seconds instead of reading "0 closed trades so far" for a minute. The owner's banner
+  // only (visitors and link previews keep the closed-trades count). Switches to `banner` once closed trades exist.
+  bannerRead: (read: number) => `Importing your record · ${counted(read, 'activity', 'activities')} read from your broker`,
   finished: 'Import finished.',
   // PR-2b (S5): the rows read so far, updated after every step (not a live region); the count of distinct activities.
   // Fix round 2 (business lead 2): one noun per count. "Trades" counts closed trades only; these rows are activities.

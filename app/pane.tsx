@@ -4,7 +4,9 @@ import type { PublicState } from '@/lib/connections.ts';
 import { RECORD_BODY } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { counted } from '@/lib/format.ts';
-import { packPoints, type PackedPoint } from '@/lib/paging.ts';
+import { unpackPoints, packPoints } from '@/lib/paging.ts';
+import { packChart, type PackedChart } from '@/lib/chart-series.ts';
+import { FEED_CHART_POINTS } from '@/lib/downsample.ts';
 import { PerformanceChart } from './u/[handle]/chart.tsx';
 import { Badge } from './ui.tsx';
 
@@ -16,8 +18,10 @@ const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'n
 
 // Feed profile pane (SW-1), variant C: leads with the chart and an honest one-line summary (length of
 // record, trade count, worst trade), then the headline stats. All-time numbers via paneSummary().
-// `points`: the record packed once per trader by the feed, so a trader with several cards ships one copy (PR-3 fix round 4).
-export function ProfilePane({ handle, name, trades, now, state = 'connected', points }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; points?: PackedPoint[] }) {
+// `chart`: the trader's chart drawn once per trader by the feed at screen resolution (at most FEED_CHART_POINTS points per
+// range, lib/chart-series.ts), shared by that trader's cards (PR-3 fix rounds 4 and 7). The profile keeps full resolution.
+export const paneChart = (trades: PaneTrade[], now: Date): PackedChart => packChart(unpackPoints(packPoints(trades)), now, FEED_CHART_POINTS);
+export function ProfilePane({ handle, name, trades, now, state = 'connected', chart }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart }) {
   const p = paneSummary(trades);
   const trust = paneTrust(trades, state);
   return (
@@ -27,7 +31,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', po
         <Link href={`/u/${handle}`} className="who"><strong>{name}</strong> <span className="muted">@{handle}</span></Link>
         {trust.badge && <Badge verified={trust.badge === 'verified'} />}
       </header>
-      <PerformanceChart points={points ?? packPoints(trades)} now={now} linkBase={`/u/${handle}`} />
+      <PerformanceChart chart={chart ?? paneChart(trades, now)} now={now} linkBase={`/u/${handle}`} />
       {p.since && p.worst && (
         <p className="summary">
           Since first closed trade, {day(p.since)}: {counted(p.count, 'closed trade')}. Worst: {p.worst.symbol}{' '}

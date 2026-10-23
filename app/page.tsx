@@ -4,9 +4,8 @@ import { recordStates } from '@/lib/connections.ts';
 import { groupByUser } from '@/lib/pane.ts';
 import { confidence, evidenceWeight, rankTraders } from '@/lib/trades.ts';
 import { feedCandidates } from '@/lib/feed.ts';
-import { packPoints } from '@/lib/paging.ts';
 import { FeedKeys } from './feed-keys.tsx';
-import { ProfilePane, type PaneTrade } from './pane.tsx';
+import { ProfilePane, paneChart, type PaneTrade } from './pane.tsx';
 import { TradeCard, type TradeRow } from './ui.tsx';
 
 // Public, no signup: every shared link lands here (DESIGN §2 BL feedback).
@@ -42,8 +41,9 @@ export default async function Feed() {
     const inputs = rows.filter((r) => r.user_id === id).map((r) => ({ symbol: r.symbol as string, openedAt: r.opened_at as Date, closedAt: r.closed_at as Date, returnPct: r.return_pct as number, holdingDays: r.holding_days as number }));
     weight.set(id, evidenceWeight(confidence(inputs, now)));
   }
-  // One packed record per trader, shared by all of that trader's cards (the client payload references it once).
-  const packed = new Map([...byUser].map(([id, ts]) => [id, packPoints(ts)]));
+  // One chart per trader, drawn at screen resolution and shared by all of that trader's cards (the client payload
+  // references it once; fix round 7: at most FEED_CHART_POINTS points per range, never one per close).
+  const charts = new Map([...byUser].map(([id, ts]) => [id, paneChart(ts, now)]));
   const ranked = rankTraders(trades.map((t) => ({ t, score: Number(t.score), weight: weight.get(t.user_id) ?? 0 }))).slice(0, 50).map((x) => x.t);
   return (
     <main className="feed">
@@ -51,7 +51,7 @@ export default async function Feed() {
       {ranked.map((t) => (
         <div className="row" key={t.id}>
           <TradeCard t={t} state={records.get(t.user_id)?.state} />
-          <ProfilePane handle={t.handle} name={t.display_name} trades={byUser.get(t.user_id) ?? []} points={packed.get(t.user_id)} now={now} state={records.get(t.user_id)?.state} />
+          <ProfilePane handle={t.handle} name={t.display_name} trades={byUser.get(t.user_id) ?? []} chart={charts.get(t.user_id)} now={now} state={records.get(t.user_id)?.state} />
         </div>
       ))}
     </main>

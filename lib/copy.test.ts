@@ -281,3 +281,13 @@ test('PR-3 fix round 4 (UX lead notes 1 and 2): the announced activities line; t
   const all = allCopy();
   for (const s of [RECORD_BODY.stillWaiting, FOOTER.skip]) assert.ok(all.includes(s), s);
 });
+
+test('PR-3 fix round 7 (business lead re-sit, demand 3): before the first close the owner\'s headline counts activities read', () => {
+  assert.equal(RECORD_BODY.bannerRead(0), 'Importing your record · 0 activities read from your broker');
+  assert.equal(RECORD_BODY.bannerRead(1), 'Importing your record · 1 activity read from your broker');
+  assert.equal(RECORD_BODY.bannerRead(10000), 'Importing your record · 10,000 activities read from your broker');
+  // One noun per count: activities are never called trades; the closes line is unchanged.
+  for (const n of [0, 1, 2, 2828]) assert.doesNotMatch(RECORD_BODY.bannerRead(n), /trade/i);
+  assert.equal(RECORD_BODY.banner(3, true), 'Importing your record · 3 closed trades so far');
+  assert.ok(allCopy().some((s) => s.includes('read from your broker'))); // in the banned-list walk
+});
