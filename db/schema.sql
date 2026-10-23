@@ -133,6 +133,18 @@ select schema_add_column('users', 'record_last_viewed_at', 'timestamptz');
 select schema_add_column('users', 'record_prev_viewed_at', 'timestamptz');
 select schema_add_column('users', 'record_view_count', 'int not null default 0');
 
+-- Theses whose trade a rebuild no longer produces (an account flagged simulated, a vendor correction), kept by the
+-- closing sell's id so rebuildTrades never deletes a thesis (published or held); re-attached when the trade returns.
+-- Never read by any page: a thesis whose trade is excluded is simply not shown. sell_id has no foreign key on purpose.
+-- A row stays after its trade returns (a thesis on the closed_trades row wins); saving or clearing that thesis removes it.
+create table if not exists kept_theses (
+  user_id int not null references users on delete cascade,
+  sell_id text not null,
+  thesis text not null check (char_length(thesis) <= 280),
+  thesis_status text check (thesis_status in ('published', 'held')),
+  unique (user_id, sell_id)
+);
+
 -- Private 'why I took it' tags. Rows reattach to trades by sell_id, like theses.
 -- sell_id deliberately has NO foreign key: rebuildTrades deletes closed_trades rows.
 -- Rows whose sell_id matches no trade are kept and ignored on read; never clean them up.

@@ -307,5 +307,36 @@ Files: `lib/broker.ts`, `lib/broker.test.ts`, `e2e/fakes/vendor.ts`, `lib/copy.t
 `app/u/[handle]/trade/[sellId]/page.tsx`, `app/u/[handle]/month/[ym]/page.tsx`, `lib/sync.ts`, `lib/connections.test.ts`,
 `app/u/[handle]/page.tsx`, `app/u/[handle]/opengraph-image.tsx`, `lib/positions.ts`, `lib/positions.test.ts` (new),
 `app/auth/callback/[provider]/route.ts`, `app/auth/email/route.ts`, `e2e/connect.spec.ts`, `e2e/app.spec.ts`.
-No test removed or renamed; one assertion changed in the paper test to the behavior plan §9 requires (stronger, and
+No test removed. One test renamed: `lib/broker.test.ts:9` (the unrealizedPct test), because the old name stated the
+wrong formula; the new name states the per-unit cost against per-unit price the code now uses. One assertion changed in the paper test to the behavior plan §9 requires (stronger, and
 the reflag path has its own new test). Unit tests 415 → 419.
+
+## Reviewer fix round 2
+
+Finding (review-pr2a.md, Re-check, Low): a thesis on a reflagged account's trade was orphaned and deleted by the
+rebuild, and did not come back when the flag cleared.
+
+- `db/schema.sql`: new additive table `kept_theses (user_id, sell_id, thesis, thesis_status, unique (user_id, sell_id))`,
+  no foreign key on `sell_id` (like `trade_reflections`), cascades with the user. No drop, truncate or delete.
+- `lib/sync.ts#rebuildTrades`: a rebuild never deletes a thesis. Theses whose trade the rebuild does not produce
+  (account flagged simulated, a vendor correction) are upserted into `kept_theses` by `sell_id`, published and `held`
+  alike, with the status unchanged. Kept rows are re-attached when the trade returns; a thesis still on a current
+  `closed_trades` row wins its `sell_id`. The only `delete from` in the file is still `closed_trades`. The orphan
+  warning and its `ponytail:` note are gone, since nothing is lost any more.
+- `app/actions.ts#saveThesis`: saving or clearing a thesis removes its kept copy, so a cleared thesis never returns.
+- No page reads `kept_theses`: a thesis whose trade is excluded is simply not shown.
+- `lib/connections.test.ts` reflag test: writes a published and a held thesis on the account before the reflag; asserts
+  both leave `closed_trades` with their trades, are kept by `sell_id` across a second flagged rebuild, come back with
+  the same text and status when the flag clears, and that a later edit wins over the kept copy. It fails on the
+  previous `lib/sync.ts`. Test renamed: none; unit tests 419 → 419.
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL=postgres://…@localhost:5432/stock_social`), two runs | 419 pass each run, 0 fail, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+| `CI=1 npm run build`, stdin closed | compiled and generated every page with a fresh `.next/BUILD_ID` (new code in the server bundle), then exit 1 on the framework's `SecurityFatalError` advisory (owner dependency bump, unchanged) |
+| `npx playwright test e2e/connect.spec.ts` with the vendor fake variables (the spec starts its fake) | 16 passed, 0 failed |
+
+Files: `db/schema.sql`, `lib/sync.ts`, `app/actions.ts`, `lib/connections.test.ts`, this log.

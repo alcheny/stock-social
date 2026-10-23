@@ -36,10 +36,18 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql) {
         price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
       })),
     );
-    const kept = await tx`select sell_id, thesis, thesis_status from closed_trades where user_id = ${userId} and thesis is not null`;
-    const { attached, orphaned } = reattachTheses(kept as unknown as KeptThesis[], trades);
-    if (orphaned.length) console.warn(`rebuildTrades: user ${userId} has ${orphaned.length} orphaned thesis(es)`);
-    // ponytail: orphaned theses are lost from the DB once the old rows are deleted; this warning is the only trace.
+    // Reviewer fix round 2: a rebuild never deletes a thesis. One whose trade is not produced now (its account is flagged
+    // simulated, a vendor correction) is kept in kept_theses by sell_id, shown nowhere, and re-attached when the trade
+    // returns. Kept rows come first, so a thesis on a current closed_trades row always wins its sell_id; saveThesis
+    // removes the kept row when the trader edits or clears that thesis, so a cleared thesis never comes back.
+    const aside = await tx`select sell_id, thesis, thesis_status from kept_theses where user_id = ${userId}`;
+    const live = await tx`select sell_id, thesis, thesis_status from closed_trades where user_id = ${userId} and thesis is not null`;
+    const { attached } = reattachTheses([...aside, ...live] as unknown as KeptThesis[], trades);
+    const setAside = live.filter((k) => !attached.has(k.sell_id as string));
+    if (setAside.length) {
+      await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status })))}
+        on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status`;
+    }
     await tx`delete from closed_trades where user_id = ${userId}`;
     if (trades.length) {
       await tx`insert into closed_trades ${tx(trades.map((t) => ({

@@ -587,6 +587,13 @@ dbTest('reviewer fix (plan §9): a real account reflagged as simulated leaves th
     const record = async () => (await sql`select account_id, verified from closed_trades where user_id = ${u.id} order by account_id, sell_id`).map((r) => [r.account_id, r.verified]);
     assert.deepEqual(await record(), [[flip, true], [flip, true], [keep, true]]);
     assert.equal((await publicRecord(u.id)).paper, 0);
+    // Reviewer fix round 2: a published and a held thesis on the account that gets reflagged.
+    const flipSells = (await sql`select sell_id from closed_trades where user_id = ${u.id} and account_id = ${flip} order by sell_id`).map((r) => r.sell_id as string);
+    await sql`update closed_trades set thesis = 'Breakout on volume.', thesis_status = 'published' where sell_id = ${flipSells[0]}`;
+    await sql`update closed_trades set thesis = 'Held for review.', thesis_status = 'held' where sell_id = ${flipSells[1]}`;
+    const theses = async () => (await sql`select sell_id, thesis, thesis_status from closed_trades where user_id = ${u.id} and thesis is not null order by sell_id`).map((r) => [r.sell_id, r.thesis, r.thesis_status]);
+    const expected = [[flipSells[0], 'Breakout on volume.', 'published'], [flipSells[1], 'Held for review.', 'held']];
+    assert.deepEqual(await theses(), expected);
     const [bu] = await sql<{ id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null }[]>`select id, snaptrade_user_id, snaptrade_secret_enc from users where id = ${u.id}`;
     const fetched: string[][] = [];
     const sync = (flipPaper: boolean) => syncUser(bu, {
@@ -601,10 +608,20 @@ dbTest('reviewer fix (plan §9): a real account reflagged as simulated leaves th
     assert.equal((await publicRecord(u.id)).paper, 1);
     assert.deepEqual((await sql`select symbol from open_positions where user_id = ${u.id}`).map((r) => r.symbol), ['KEP']);
     assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id} and account_id = ${flip}`)[0].n, 4); // raw stays
-    // The vendor clears the flag: the trades come back on the next rebuild, nothing counted excluded.
+    // Both theses leave with their trades (shown nowhere) but are kept by sell_id, never deleted, across another rebuild too.
+    assert.deepEqual(await theses(), []);
+    assert.equal(await sync(true), 0);
+    const kept = async () => (await sql`select sell_id, thesis, thesis_status from kept_theses where user_id = ${u.id} order by sell_id`).map((r) => [r.sell_id, r.thesis, r.thesis_status]);
+    assert.deepEqual(await kept(), expected);
+    // The vendor clears the flag: the trades come back on the next rebuild with both theses, nothing counted excluded.
     assert.equal(await sync(false), 0);
     assert.deepEqual(await record(), [[flip, true], [flip, true], [keep, true]]);
+    assert.deepEqual(await theses(), expected);
     assert.equal((await publicRecord(u.id)).paper, 0);
+    // A thesis edited after the return wins over the kept copy on the next rebuild.
+    await sql`update closed_trades set thesis = 'Edited.' where sell_id = ${flipSells[0]}`;
+    assert.equal(await sync(false), 0);
+    assert.deepEqual((await theses())[0], [flipSells[0], 'Edited.', 'published']);
   } finally {
     await cleanup([u.id], [keep, flip]);
   }

@@ -48,6 +48,9 @@ export async function saveThesis(form: FormData) {
   await sql`
     update closed_trades set thesis = ${text || null}, thesis_status = ${text ? status : null}
     where id = ${id} and user_id = ${user.id}`;
+  // The trader's latest word replaces a thesis kept aside by a rebuild (lib/sync.ts#rebuildTrades), so it never returns.
+  await sql`delete from kept_theses where user_id = ${user.id}
+    and sell_id = (select sell_id from closed_trades where id = ${id} and user_id = ${user.id})`;
   revalidatePath(`/u/${user.handle}`);
 }
 
