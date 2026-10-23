@@ -61,10 +61,12 @@ approve: true
    - The 500 KB bound holds up to about 25–30 distinct heavy traders.
    - At 50 distinct heavy traders the feed is about 560 KB raw (71 KB gzipped).
 4. **Low · e2e on a shared database.** Concurrent writers can push a test's trader out of the top 50 of the feed. On a private database it is green.
-5. **Info · `lib/sync.ts#rebuildTrades`.** Memory is bounded by the largest single (account, symbol) pair plus one page, not by one page. That is acceptable: one pair is the unit FIFO needs whole.
+5. **Info · `app/api/sync/route.ts:9`.** The comment still says "every 5 minutes and never at :30". Request #7 now reads "cron every minute" (business lead, committee re-sit). The claim rule is per round, so any call frequency is safe. Only the comment is stale.
+6. **Info · `lib/sync.ts#rebuildTrades`.** Memory is bounded by the largest single (account, symbol) pair plus one page, not by one page. That is acceptable: one pair is the unit FIFO needs whole.
 
 ## Owner
 
 - The framework advisory stops the first `npm run build`. The dependency bump is yours.
 - Feed size at 50 distinct heavy traders (finding 3) is your call.
-- Cron schedule: every 5 minutes, never at :30 (request #7 as amended). The route's `maxDuration = 300` needs a plan that allows it.
+- Cron schedule: every minute (request #7 as corrected). The route's `maxDuration = 300` needs a plan that allows it (with request #8, 60 s or more for the import step).
+- Request #13 (`test:load` script and an on-demand CI job) would run the heavy-use suite automatically. This review ran it by hand: 5 of 5 passed.
