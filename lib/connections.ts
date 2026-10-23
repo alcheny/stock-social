@@ -525,9 +525,11 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
     });
   } catch (e) {
     const status = errStatus(e);
-    if (typeof status !== 'number') throw e; // not the vendor's answer (a database error): the caller sees it
+    // Fix round 3: a vendor request that ran past VENDOR_TIMEOUT_MS is a transport error: rolled back, cursor kept, backoff.
+    const timedOut = e instanceof vendor.VendorTimeoutError;
+    if (typeof status !== 'number' && !timedOut) throw e; // not the vendor's answer (a database error): the caller sees it
     // The vendor refused or lost the link: failed, visible to the trader, retried by connecting again.
-    if (REFUSED_STATUSES.has(status)) {
+    if (typeof status === 'number' && REFUSED_STATUSES.has(status)) {
       if (await setState(id, 'importing', 'failed', now, { failure_reason: 'vendor' })) await recordFunnel(head.attempt_id, 'failed', { reason: 'vendor' });
       return { state: 'failed', imported: head.imported_count, progressed: false };
     }

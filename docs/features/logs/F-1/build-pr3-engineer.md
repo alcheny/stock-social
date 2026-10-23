@@ -315,3 +315,68 @@ fleet 7,258 ms (62 to 63 per caller), and heap peak +26.5 MB at most. Every run 
 
 No schema change, no new data, no new dependency. The claim still reads only eligibility and the two claim timestamps,
 and the cron endpoint is unchanged.
+
+## Fix round 3 (tester's re-run 2: one low)
+
+The defect: a sync skipped by the per-user lock kept its round claim. When a lease lapsed mid-sync and the next claim
+landed in the following round (row 14: A claims :25 and holds the lock past :36, B ticks at :36), the trader got no
+vendor read in that round. The realistic trigger was a hung vendor call, because vendor requests run inside the sync
+transaction with no timeout. Both halves are fixed.
+
+1. **Every vendor request is bounded** (`lib/broker.ts`). `VENDOR_TIMEOUT_MS` is 30 s, far below the 10-minute lease.
+   - Every SDK call goes through `bounded()`. This covers register, portal URL, account list, activity pages (both
+     readers), positions, delete connection and delete user.
+   - `bounded()` passes the SDK's per-request options: an `AbortSignal` and axios `timeout`. It also races its own
+     timer, so the SDK's waits between rate-limit retries are inside the bound.
+   - On expiry the request is aborted and the call fails with `VendorTimeoutError`.
+   - The read-only connection type and the secret encryption are unchanged.
+   - A timeout is handled as a transport error:
+     - **Import step** (`lib/connections.ts`): `importStep` now treats `VendorTimeoutError` like a 429/5xx. The step
+       rolls back, the cursor and count are kept, and the backoff is set. Before this, a non-numeric error was
+       rethrown.
+     - **Sync**: the error rolls back the transaction, the tick records it as `failed` and releases the lease, and the
+       round claim is kept, so the trader is retried next round.
+2. **A skipped sync gives the round back** (`lib/sync.ts`).
+   - `claimNextUser` now returns `prev`, the claim it replaced, as database text with microseconds.
+   - On `skipped`, `syncTick` calls `restoreClaim`. It puts `prev` back and ends the lease, but only while the lease is
+     still this claim's. The tick also excludes that trader from its later claims (`except`), so it does not loop on a
+     held lock.
+   - The lease is not restored. The lock holder is the live sync, so once it ends, any tick in a round that has not
+     claimed the trader can take it.
+   - I chose restore over "claim only after the lock". The lock is a transaction lock inside `syncUser`. Moving the
+     claim into that transaction would change the claim's statement, its tests and the import path. Restoring is two
+     statements.
+
+### Tests
+
+- `lib/sync.test.ts`:
+  - **Row 14, from the tester's scratch case.** A at :25 holds the lock. B at :36 and C at :40 are each `skipped` once
+    and put back the :25 claim, with the lease null. The :60 and :120 ticks then sync. Vendor reads land at exactly
+    [25, 60, 120], never overlap, and a :70 tick syncs nobody. Run against the previous `lib/sync.ts`, this test fails
+    (the claim reads :36).
+  - A stale restore, whose lease was taken over by a newer claim, leaves the newer claim alone. A current restore puts
+    back the earlier claim at microsecond precision.
+  - A `VendorTimeoutError` in a sync gives `failed`. Nothing is written (no activities, and the account claim is rolled
+    back). The lease is released, the trader is not claimed again that round, and it is retried next round.
+- `lib/connections.test.ts`: a timed-out page read in an import step gives `importing` with `retryAt` set to the first
+  backoff. The cursor, count and activities are unchanged. The import then finishes once the backoff has passed.
+- `lib/broker.test.ts`: a local server that accepts requests and never answers, with the bound lowered to 200 ms. All
+  9 vendor calls reject with `VendorTimeoutError` in 200 ms to 2 s, and the server sees every one of the 9 sockets
+  closed (aborted, not left open). A 50 ms fake delay under the bound still returns the page.
+- Scenario 4 (same-round lapse) and the 6-round rule test pass unchanged.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL` set), three runs | 479 tests: 474 pass, 5 skipped (load), 0 fail (10.2–11.2 s). Before: 474. |
+| `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` | 5/5 |
+| `node scripts/compliance.ts diff origin/main` | One violation, the same one already on `main` (`node_modules/@img/sharp-wasm32` license). Nothing from this diff. |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+### Compliance
+
+- No schema change, no new data and no new dependency.
+- The vendor connection stays read-only, and the secret encryption is untouched.
+- Timeout errors log only the trader id and the timeout message.

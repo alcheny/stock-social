@@ -803,6 +803,43 @@ dbTest('D4: a vendor 429 defers the step with backoff and keeps the cursor; a st
   }
 });
 
+dbTest('fix round 3: a vendor request that times out in an import step is a transport error: the step rolls back, the cursor is kept, the next step waits out the backoff, then the import finishes', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { startConnection, completeLink, consent, importStep, drive, retryDelayMs } = await import('./connections.ts');
+  const { VendorTimeoutError } = await import('./broker.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('to');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const acc = `${tag}-to`;
+  v.accounts = [acct(acc)];
+  v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2)]); // 4 rows, 2 pages
+  const t0 = new Date('2026-10-22T10:00:00Z');
+  const s = (n: number) => new Date(t0.getTime() + n * 1000);
+  try {
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps, t0) as { id: number };
+    await consent(id, s(1), deps);
+    assert.equal((await importStep(id, deps, s(2))).imported, 3);
+    const before = await conn(id);
+    const [{ n: acts }] = await sql`select count(*)::int as n from activities where user_id = ${u.id}`;
+    // The page read times out: the step writes nothing and the next one waits out the backoff.
+    let hang = 1;
+    const slow = { ...deps, fetchActivitiesPage: async (...args: Parameters<Deps['fetchActivitiesPage']>) => { if (hang-- > 0) throw new VendorTimeoutError(30_000); return deps.fetchActivitiesPage(...args); } };
+    const r1 = await importStep(id, slow, s(3));
+    assert.deepEqual(r1, { state: 'importing', imported: 3, progressed: false, retryAt: s(3).getTime() + retryDelayMs(1) });
+    const c = await conn(id);
+    assert.equal(c.state, 'importing');
+    assert.deepEqual({ i: c.import_cursor.i, offset: c.import_cursor.offset, pass: c.import_cursor.pass }, { i: before.import_cursor.i, offset: before.import_cursor.offset, pass: before.import_cursor.pass });
+    assert.equal(c.import_cursor.retries, 1);
+    assert.equal(c.imported_count, before.imported_count);
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, acts);
+    assert.equal((await drive(id, slow, s(100))).state, 'connected');
+    assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 4);
+  } finally {
+    await cleanup([u.id], [acc]);
+  }
+});
+
 dbTest('D5: after a failed import the sync publishes nothing: the failed connection\'s accounts are not read, closed_trades stays empty, and the record state is failed', async () => {
   const { sql, tag, mkUser, conn, cleanup } = await setup();
   const { startConnection, completeLink, consent, importStep, latestConnection } = await import('./connections.ts');

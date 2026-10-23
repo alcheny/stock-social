@@ -13,6 +13,31 @@ const client = () =>
     basePath: process.env.SNAPTRADE_BASE_URL || undefined,
   });
 
+// F-1 fix round 3: every vendor request is bounded. Syncs and import steps call the vendor inside their transaction,
+// under the per-user lock; an unbounded hung request could hold both past the sync tick's 10-minute claim lease. Each
+// request gets VENDOR_TIMEOUT_MS from its start, covering the SDK's own waits between rate-limit retries: the request is
+// aborted and the call fails with VendorTimeoutError, which callers treat like a transport error (the transaction rolls
+// back; an import step keeps its cursor and backs off; a sync is retried next round). `vendorTimeout.ms` is a test hook.
+export const VENDOR_TIMEOUT_MS = 30_000;
+export const vendorTimeout = { ms: VENDOR_TIMEOUT_MS };
+export class VendorTimeoutError extends Error {
+  name = 'VendorTimeoutError';
+  constructor(ms: number) { super(`vendor request timed out after ${ms} ms`); }
+}
+async function bounded<T>(call: (options: { signal: AbortSignal; timeout: number }) => Promise<T>): Promise<T> {
+  const ms = vendorTimeout.ms;
+  const abort = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => { abort.abort(); reject(new VendorTimeoutError(ms)); }, ms);
+  });
+  try {
+    return await Promise.race([call({ signal: abort.signal, timeout: ms }), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const key = () => createHash('sha256').update(process.env.APP_SECRET_KEY!).digest();
 
 function encrypt(plain: string) {
@@ -34,19 +59,19 @@ export type BrokerUser = { snaptradeUserId: string; secretEnc: string };
 // `ref` is the app user id, or `attempt-<id>` for a brokerage-first sign-up that has no user row yet.
 export async function registerUser(ref: number | string): Promise<BrokerUser> {
   const userId = `stock-social-${ref}-${randomBytes(4).toString('hex')}`;
-  const { data } = await client().authentication.registerSnapTradeUser({ userId });
+  const { data } = await bounded((o) => client().authentication.registerSnapTradeUser({ userId }, o));
   return { snaptradeUserId: data.userId!, secretEnc: encrypt(data.userSecret!) };
 }
 
 // Read-only connection: we can never place trades or move money.
 export async function connectUrl(u: BrokerUser, returnTo: string): Promise<string> {
-  const { data } = await client().authentication.loginSnapTradeUser({
+  const { data } = await bounded((o) => client().authentication.loginSnapTradeUser({
     userId: u.snaptradeUserId,
     userSecret: decrypt(u.secretEnc),
     connectionType: 'read',
     customRedirect: returnTo,
     darkMode: true,
-  });
+  }, o));
   if (!('redirectURI' in data) || !data.redirectURI) throw new Error('SnapTrade returned no redirect URI');
   return data.redirectURI;
 }
@@ -58,7 +83,7 @@ const auth = (u: BrokerUser) => ({ userId: u.snaptradeUserId, userSecret: decryp
 // vendor's own initial transaction sync has finished. No activities are read here.
 export type VendorAccount = { id: string; authorizationId: string; institution: string; isPaper: boolean; initialSyncCompleted: boolean };
 export async function listAccounts(u: BrokerUser): Promise<VendorAccount[]> {
-  const { data } = await client().accountInformation.listUserAccounts(auth(u));
+  const { data } = await bounded((o) => client().accountInformation.listUserAccounts(auth(u), o));
   return data.map((a) => ({
     id: a.id, authorizationId: a.brokerage_authorization, institution: a.institution_name ?? '', isPaper: a.is_paper === true,
     initialSyncCompleted: a.sync_status?.transactions?.initial_sync_completed === true,
@@ -68,7 +93,7 @@ export async function listAccounts(u: BrokerUser): Promise<VendorAccount[]> {
 export const PAGE_LIMIT = 1000;
 // One vendor page of an account's full history (TR-3): the chunked import reads one page per step and resumes by offset.
 export async function fetchActivitiesPage(u: BrokerUser, accountId: string, offset: number, limit = PAGE_LIMIT): Promise<{ activities: Fetched[]; done: boolean }> {
-  const { data } = await client().accountInformation.getAccountActivities({ ...auth(u), accountId, type: 'BUY,SELL', offset, limit });
+  const { data } = await bounded((o) => client().accountInformation.getAccountActivities({ ...auth(u), accountId, type: 'BUY,SELL', offset, limit }, o));
   return { activities: toActivities(accountId, data.data ?? []), done: (data.data?.length ?? 0) < limit };
 }
 
@@ -88,7 +113,7 @@ export function unrealizedPct(p: { units?: Num; price?: Num; cost_basis?: Num; a
   return (price - cost) / cost;
 }
 export async function fetchPositions(u: BrokerUser, accountId: string): Promise<VendorPosition[]> {
-  const { data } = await client().accountInformation.getAllAccountPositions({ ...auth(u), accountId });
+  const { data } = await bounded((o) => client().accountInformation.getAllAccountPositions({ ...auth(u), accountId }, o));
   const out: VendorPosition[] = [];
   for (const p of data.results ?? []) {
     const symbol = (p.instrument as { symbol?: string } | undefined)?.symbol;
@@ -100,11 +125,11 @@ export async function fetchPositions(u: BrokerUser, accountId: string): Promise<
 
 // Decline, expiry or no real account: the link is removed at the vendor (F-1 consent decision).
 export async function deleteConnection(u: BrokerUser, authorizationId: string): Promise<void> {
-  await client().connections.deleteConnection({ ...auth(u), connectionId: authorizationId });
+  await bounded((o) => client().connections.deleteConnection({ ...auth(u), connectionId: authorizationId }, o));
 }
 // Profile deletion (POLICY P6) and the end of a brokerage-first attempt that never became a user.
 export async function deleteUser(u: BrokerUser): Promise<void> {
-  await client().authentication.deleteSnapTradeUser({ userId: u.snaptradeUserId });
+  await bounded((o) => client().authentication.deleteSnapTradeUser({ userId: u.snaptradeUserId }, o));
 }
 
 function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): Fetched[] {
@@ -126,14 +151,14 @@ function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?
 export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: string[]): Promise<Fetched[]> {
   const st = client();
   const auth = { userId: u.snaptradeUserId, userSecret: decrypt(u.secretEnc) };
-  const accounts = accountIds ? accountIds.map((id) => ({ id })) : (await st.accountInformation.listUserAccounts(auth)).data;
+  const accounts = accountIds ? accountIds.map((id) => ({ id })) : (await bounded((o) => st.accountInformation.listUserAccounts(auth, o))).data;
   const out: Fetched[] = [];
 
   for (const account of accounts) {
     for (let offset = 0; ; offset += 1000) {
-      const { data } = await st.accountInformation.getAccountActivities({
+      const { data } = await bounded((o) => st.accountInformation.getAccountActivities({
         ...auth, accountId: account.id, startDate: since, type: 'BUY,SELL', offset, limit: 1000,
-      });
+      }, o));
       out.push(...toActivities(account.id, data.data ?? []));
       if ((data.data?.length ?? 0) < 1000) break;
     }

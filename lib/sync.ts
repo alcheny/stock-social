@@ -145,28 +145,44 @@ export async function usersToSync(): Promise<SyncableUser[]> {
 //     finished;
 //   - an import in progress is never claimed (`syncable`).
 // A failed sync keeps its round claim, so it is retried next round.
+// Fix round 3 (tester's re-run 2, row 14): a sync skipped because another sync still holds the per-user lock (a lease
+// that lapsed mid-sync) puts back the claim it replaced, so it never takes the trader's round: when the lapse crosses
+// :30, the next round's ticks still claim and read the trader once the holder finishes. The tick that was skipped does
+// not claim that trader again (it would only be skipped again). Every vendor request is also bounded far below the lease
+// (VENDOR_TIMEOUT_MS in lib/broker.ts), so a hung vendor call no longer holds the lock past it.
 export const SYNC_LEASE_MS = 10 * 60_000; // far above one trader's sync (under 1 s for a 10,000-activity record)
 export const ROUND_MS = 3_600_000;
 export const ROUND_OFFSET_MS = 30 * 60_000; // rounds start at :30, away from the hourly cron's :00
-export type ClaimedUser = SyncableUser & { lease: string };
+// `prev` is the round claim this claim replaced (database text, microseconds), put back if the sync is skipped.
+export type ClaimedUser = SyncableUser & { lease: string; prev: string | null };
 // `shiftMs` and `ids` are test hooks: tests run in a past round by shifting the database clock, and claim only their
-// own traders. Production calls pass neither (shift 0: the database clock as is; every syncable trader).
-export type ClaimScope = { shiftMs?: number; ids?: number[] };
+// own traders. Production calls pass neither (shift 0: the database clock as is; every syncable trader). `except` is
+// the tick's own list of traders it was skipped on.
+export type ClaimScope = { shiftMs?: number; ids?: number[]; except?: number[] };
 export async function claimNextUser(scope: ClaimScope = {}): Promise<ClaimedUser | null> {
-  const { shiftMs = 0, ids } = scope;
+  const { shiftMs = 0, ids, except } = scope;
   if (ids && !ids.length) return null;
-  const [u] = await sql<(SyncableUser & { lease: string })[]>`with clock as (
+  const [u] = await sql<ClaimedUser[]>`with clock as (
       select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
         date_trunc('hour', now() + ${shiftMs}::float8 * interval '1 millisecond' - ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond', 'UTC')
           + ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond' as round_start)
     update users set sync_claimed_at = clock.t, sync_lease_until = clock.t + ${SYNC_LEASE_MS}::float8 * interval '1 millisecond'
-    from clock where users.id = (
-      select u.id from users u, clock where ${syncable()} ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
+    from clock, (
+      select u.id, u.sync_claimed_at::text as prev from users u, clock where ${syncable()} ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
+        ${except?.length ? sql`and u.id not in ${sql(except)}` : sql``}
         and (u.sync_lease_until is null or u.sync_lease_until <= clock.t)
         and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)
-      order by u.last_synced_at nulls first, u.id limit 1 for update of u skip locked)
-    returning users.id, users.snaptrade_user_id, users.snaptrade_secret_enc, users.sync_lease_until::text as lease`;
+      order by u.last_synced_at nulls first, u.id limit 1 for update of u skip locked) pick
+    where users.id = pick.id
+    returning users.id, users.snaptrade_user_id, users.snaptrade_secret_enc, users.sync_lease_until::text as lease, pick.prev`;
   return u ?? null;
+}
+// A skipped sync gives the round back: the claim it replaced is restored and its lease ended, only while the lease is
+// still this claim's (a newer claim is left alone). The lease is not restored: the sync holding the lock is the one
+// running, and once it ends the trader must be claimable by any tick in a round it has not been claimed in.
+export async function restoreClaim(u: ClaimedUser) {
+  await sql`update users set sync_claimed_at = ${u.prev}::text::timestamptz, sync_lease_until = null
+    where id = ${u.id} and sync_lease_until = ${u.lease}::text::timestamptz`;
 }
 // Ends a claim's in-flight lease (only that claim's: a newer lease taken after this one lapsed is left alone). The lease
 // is compared as the database wrote it (microseconds), never through a millisecond Date.
@@ -176,12 +192,17 @@ export async function releaseClaim(u: ClaimedUser) {
 }
 export async function syncTick<R>(opts: { sync?: (u: SyncableUser) => Promise<R>; ids?: number[]; clockShiftMs?: () => number } = {}) {
   const sync = opts.sync ?? ((u: SyncableUser) => syncUser(u));
-  const claim = () => claimNextUser({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0 });
+  const passed: number[] = []; // skipped by this tick: the lock's holder syncs them, so they are not claimed again here
+  const claim = () => claimNextUser({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0, except: passed });
   let ok = 0, skipped = 0;
   const failed: number[] = [];
   for (let u = await claim(); u; u = await claim()) {
     try {
-      if ((await sync(u)) === 'skipped') skipped++; else ok++;
+      if ((await sync(u)) === 'skipped') {
+        skipped++;
+        passed.push(u.id);
+        await restoreClaim(u);
+      } else ok++;
     } catch (e) {
       failed.push(u.id);
       console.error('sync failed', u.id, e instanceof Error ? e.message : e);

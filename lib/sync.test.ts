@@ -634,3 +634,94 @@ dbTest('PR-3 fix round 2, the rule: two instances skewed ±2 min with a cron at 
     await h.cleanup();
   }
 });
+
+dbTest('fix round 3 (tester re-run 2, row 14): a lease that lapses mid-sync and a claim in the NEXT round (A claims :25 and holds the lock past :36; B at :36, C at :40): B and C are skipped and give the round back, so :60 reads the trader in round 1', async () => {
+  const h = await roundTicks(1);
+  try {
+    const [id] = h.ids;
+    const { sql } = h.sets[0];
+    const g = gate();
+    let entered = false, inside = 0, overlap = false;
+    const fetchedAt: number[] = [];
+    const locked = (minute: number, wait?: Promise<void>) => async (u: { id: number }) => sql.begin(async (tx) => {
+      const [{ got }] = await tx`select pg_try_advisory_xact_lock(${h.S.USER_LOCK}, ${u.id}) as got`;
+      if (!got) return 'skipped' as const;
+      if (++inside > 1) overlap = true;
+      entered = true; fetchedAt.push(minute);
+      if (wait) await wait;
+      inside--;
+      return 1;
+    });
+    const A = h.tick(25, locked(25, g.p));
+    await until(() => entered);
+    const [claimA] = await sql`select sync_claimed_at::text as c from users where id = ${id}`;
+    const b = await h.tick(36, locked(36)); // A's lease (until :35) has lapsed; A still holds the lock; :36 is round 1
+    assert.deepEqual(b, { ok: 0, skipped: 1, failed: [] }); // claimed once, skipped once, not claimed again by this tick
+    const [afterB] = await sql`select sync_claimed_at::text as c, sync_lease_until as l from users where id = ${id}`;
+    assert.equal(afterB.c, claimA.c, 'the skipped claim put back the round-0 claim');
+    assert.equal(afterB.l, null);
+    assert.deepEqual(await h.tick(40, locked(40)), { ok: 0, skipped: 1, failed: [] }); // still held: skipped again, round given back again
+    g.open();
+    await A;
+    const c = await h.tick(60, locked(60));
+    const d = await h.tick(120, locked(120));
+    assert.deepEqual(c, { ok: 1, skipped: 0, failed: [] });
+    assert.deepEqual(d, { ok: 1, skipped: 0, failed: [] });
+    assert.deepEqual(fetchedAt, [25, 60, 120], 'one vendor read in each of rounds 0, 1 and 2');
+    assert.equal(overlap, false);
+    assert.deepEqual(await h.tick(70, locked(70)), { ok: 0, skipped: 0, failed: [] }); // round 1 already read
+    const [end] = await sql`select sync_lease_until as l from users where id = ${id}`;
+    assert.equal(end.l, null);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('fix round 3: a restore never overwrites a newer claim: a skipped claim whose lease was taken over again is left alone', async () => {
+  const h = await roundTicks(1);
+  try {
+    const [id] = h.ids;
+    const { sql } = h.sets[0];
+    const first = await h.claim(36);
+    assert.ok(first);
+    assert.equal(first!.prev, null); // never claimed before
+    await sql`update users set sync_lease_until = sync_lease_until - interval '20 minutes' where id = ${id}`; // lapses
+    const second = await h.claim(37);
+    assert.ok(second);
+    await h.S.restoreClaim(first!); // stale: the lease is no longer this claim's
+    const [r] = await sql`select sync_claimed_at::text as c, sync_lease_until::text as l from users where id = ${id}`;
+    assert.equal(r.l, second!.lease);
+    await h.S.restoreClaim(second!);
+    const [r2] = await sql`select sync_claimed_at::text as c, sync_lease_until as l from users where id = ${id}`;
+    assert.equal(r2.l, null);
+    assert.equal(r2.c, second!.prev); // the first claim's time, as the database wrote it
+  } finally {
+    await h.cleanup();
+  }
+});
+
+dbTest('fix round 3: a vendor request that times out fails the sync like a transport error: rolled back, lease released, round claim kept (retried next round)', async () => {
+  const h = await roundTicks(1);
+  const { VendorTimeoutError } = await import('./broker.ts');
+  try {
+    const [id] = h.ids;
+    const s = h.sets[0];
+    const acc = `${s.tag}-acc`;
+    const broker = {
+      listAccounts: async () => [{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }],
+      fetchActivities: async () => { throw new VendorTimeoutError(30_000); },
+    };
+    const sync = (u: { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null }) => h.S.syncUser(u, broker);
+    const r = await h.tick(0, sync as never);
+    assert.deepEqual(r, { ok: 0, skipped: 0, failed: [id] });
+    assert.equal(await s.count('activities'), 0);
+    const [row] = await s.sql`select sync_claimed_at as c, sync_lease_until as l from users where id = ${id}`;
+    assert.equal(row.l, null);
+    assert.notEqual(row.c, null);
+    assert.equal((await s.sql`select count(*)::int as n from broker_accounts where account_id = ${acc}`)[0].n, 0); // the claim of the account rolled back too
+    assert.deepEqual(await h.tick(10, sync as never), { ok: 0, skipped: 0, failed: [] }); // not again this round
+    assert.deepEqual(await h.tick(60, sync as never), { ok: 0, skipped: 0, failed: [id] }); // retried next round
+  } finally {
+    await h.cleanup();
+  }
+});
