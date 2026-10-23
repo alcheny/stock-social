@@ -127,7 +127,9 @@ Screenshots (`screenshots/pr3/`, light and dark unless noted): `section-signed-o
 
 ## 8. Policy and compliance (COMPLIANCE §1)
 
-1. Performance: rows show no number (e2e scans each row); the sheet shows the record with the F3 line in view; ordering by the
+1. Performance: rows show no number (e2e scans each row); the sheet shows the record with the F3 line at its end (corrected in fix
+   round 1: at 375×667 the line sat at y 1,120, below the fold, at parity with the page footer elsewhere; it was not "in view";
+   fix round 1 adds the sheet's own skip link to it); ordering by the
    documented TR-9 lower bound, losses equal (tests); no endorsement words ("Suggested", "Recommended", "Top", "Best", "AI"
    scanned out).
 2. Personal data: nothing new stored; signed out nothing read about a viewer (query-log test); signed in one read keyed by the
@@ -144,3 +146,126 @@ No third-party company is named in the code, copy or this log.
 Test users and fixtures deleted by each test (pass or fail); debug fixtures from manual checks deleted; my database
 `ss_eng_pr3` dropped after the last run; the e2e servers and the vendor fake stopped with their runs, and my manual server
 stopped. No other database touched.
+
+## Fix round 1
+
+Date: 2026-10-23. Inputs: `test-pr3-tester.md` (2 Medium, 2 Low), `committee-pr3-business-lead.md` (COMPLIANCE PASS, one
+blocker, copy demands, PR-1b accepted), `committee-pr3-ux-lead.md` (1 blocking, 12 follow-ups). Product diff of this round
+(no tests, e2e or logs): 10 files, **+99 / −66**; PR-3 in total stays far under 800.
+
+### What changed
+
+| # | Finding | Fix | Where | Proof |
+|---|---|---|---|---|
+| 1 | **Blocker** (business lead 1, UX 1): a fast 50–60 px flick hid a trader for 90 days; `swipeOutcome` read only where the scroll stopped | The reject commits only when **both** hold: the row rests past half its swipe area **and** the finger's own travel toward the tray, `touchend` clientX − `touchstart` clientX, is at least half the row card (`.srow-wrap`, 343 px at 375, so ≈ 172 px). Momentum never counts. | `lib/discovery/reject.ts#swipeOutcome` (two new arguments), `app/suggest-row.tsx` (travel kept from `touchstart`/`touchmove`/`touchend`) | Unit: 49%/51% restated against the row card; a 40% flick that the fling carried to the tray's end, a 50 px flick, enough travel but resting under half, and unarmed: all `back`. E2e (375, CDP touch, 4 ms steps, no hold): flicks of 40% of the card (136 px), 50 px and 60 px write nothing and the row is at rest; a slow 55% drag commits. **Seen failing:** with the travel check removed, the 136 px flick committed (`scrollLeft` 0). |
+| 1b | At 320 (UX 2): the tray was wider than the row, so the swipe never armed | The tray now reads **"Hide"** (item 5), so it fits at 320: the gesture works there under the same travel rule (e2e: a 50 px flick writes nothing; a slow drag past half the 286 px card commits; Undo; then the menu path hides). Where a tray is still wider than its row (very large text), the row never reads as at rest and the swipe never arms: **fails safe**, the "…" menu stays the way (documented in `suggest-row.tsx`; the e2e branches on the measured geometry and asserts the snap-back in that case). | `lib/copy.ts`, `app/suggest-row.tsx` | e2e both runs: "320: tray fits; row card 286 px, swipe area 106 px" |
+| 2 | **Medium 2** (tester, spec): the section was ordered by weight × biggest recent move, not by the TR-9 lower bound | `sectionPool` sorts by the lower-bound weight alone; ties by the number of closes counted at asOf (more evidence), then user id (deterministic). Sign-invariant: a mirrored loss has the same weight and count. | `lib/discovery/section.ts`, `lib/feed.ts` (`TraderFacts.n` replaces `last`) | Unit: the tester's construction (40 closes each; +5.4% raw average with a +100% last close and score 9 vs +3% steady with score 0.1): the steady record ranks first; weight-0 ties: more closes, then lower id, never the bigger move. 200-seed sign-invariance test unchanged and passing. DB: the pool's weights are non-increasing. |
+| 3 | **Medium 1** (tester, `lib/feed.ts`): 8 candidates sharing one holding period → no section | The spares are chosen with `capped(candidates, 8)`: at most 2 per holding period **while choosing**, from every candidate, never a fixed slice. `chooseRows` is `capped(…, 3)` or `null`. | `lib/discovery/section.ts#capped`, `lib/feed.ts` | Unit: 12 bucket-1 candidates first → spares `[1, 2, 13, 14, 15]`, rows `[1, 2, 13]`. DB: 30 of 40 traders in one period with the bigger moves (lead under either order) → 3 rows, 2 of that period; **seen failing** on the old code (`a section`). LOAD: 50 heavy traders, 45 in one period: a section on pages 1 to 3 (rows in buckets 1, 1, 4 / 1, 1, 2 / 1, 1, 2), p95 268 ms. |
+| 4 | Copy (business lead 2 and 3, UX 9) | One reason template, the holding period, on every row ("Closed a trade this week" and "New here this month" deleted with their `reasonFor` branches). Heading **"Other traders' records"**, line **"Ordered by how much evidence each record has. Losses count the same as gains."** (the UX lead's proposal; passes the scanner; true signed in or out; "The same for everyone." gone). | `lib/copy.ts#SECTION`, `lib/discovery/section.ts#reasonFor`, `app/suggest-section.tsx` | Copy test: every SECTION string scanned (11 strings, `week`/`fresh` asserted gone). E2e: heading and line exact; every row matches "Typical holding period: " and neither removed template. DB: every row's reason is its record's bucket. |
+| 5a | Tester Low 1: the 10 cards around the section came from the slots before the display filter | `sectionCandidates` takes the page's displayed items (hidden traders' cards removed); after the reads, candidates on the first 10 cards actually rendered (a dropped importing/deleted card moves the next one in) are left out too. | `lib/discovery/section.ts`, `lib/feed.ts` | Unit: the tester's repro (hidden trader on slots 31 and 35, trader P on slot 40): P is no longer a candidate. |
+| 5b | UX 3: tray label cut mid-reveal | Label "Hide" (whole at the commit point), and where the browser supports scroll-driven animation the label is invisible until wholly revealed (no motion: an opacity step). | `lib/copy.ts`, `app/globals.css` | E2e: mid-drag at the commit point the label's box is inside the row and opacity 1; back under half it is either whole or hidden (`tray-label-mid-375`). |
+| 5c | UX 4: hiding all three rows left an empty full-height stop | When no row is left the style rule collapses the section (`:has()`, handles that passed the pattern only); the card after it takes its place at the top; Undo is focused, and when the bar closes focus lands on that card's name, on screen. | `app/feed-hides.tsx` | E2e (375): three menu hides → 3 exclusions, the section hidden, the next card at top 0, Esc → focus on its `.who`, in viewport (`section-all-hidden-375`). |
+| 5d | UX 7 (open since PR-2): Undo timed out after a click or tap | The bar pauses once any pointer goes down on it (touch, pen or mouse), as well as on mouse hover and keyboard focus. Not focus-within: the app focuses Undo itself after every hide, so focus-within would never time out, and PR-2's e2e pins the 5 s close after a mouse hide with no further contact. | `app/feed-hides.tsx` | E2e: after a swipe hide, a tap on the bar's text, 5.6 s later the bar is still up; then Undo. |
+| 5e | Tester Low 2, UX 5: the sheet's disclaimer was below the fold and the page's skip link is behind the modal | The sheet's first stop is its own skip link, "Skip to the disclaimer" (shown only on keyboard focus); it focuses the F3 line at the sheet's end. The footer-position line stays (business lead: no move to the top in this PR). | `app/suggest-row.tsx`, `app/suggest-section.tsx`, `app/globals.css`, `lib/copy.ts` | E2e: Enter on a row → the skip link focused and visible; Enter → the line focused and wholly in view (`sheet-skip-375`, `sheet-disclaimer-375`). |
+| 5f | UX 10: `aria-haspopup="dialog"` in the no-JS HTML | Set only once the sheet is ready. | `app/suggest-row.tsx` | E2e no-JS: no `a.sopen[aria-haspopup]`. |
+| 5g | UX 11: no-JS hide line's link 36 px tall | 44 px (`inline-flex`, `min-height`). | `app/globals.css` | E2e no-JS: height ≥ 44. |
+| 5h | UX 6: the pane header's long-name fix did not hold (name width 0; handle cut by its container) | The name link asks for room for the whole handle plus the start of the name (`min-width: min(100%, (handle length + 4)ch)`, inline per pane), so the header wraps the badge (or the link) before squeezing the name away; the name ends in an ellipsis; the handle stays whole. A first try (`flex-basis: 14em`) pushed every signed-in pane header to three lines and moved the chart under the feed's mid-height swipe (PR-3's SW-1 e2e caught it); the per-handle width keeps short handles on the old two lines. | `app/pane.tsx`, `app/globals.css` | E2e at 375 and 320: name shown > 20 px and truncated, the handle's right edge inside the link (`pane-header-long-375`, `-320`). PR-2's same-line assertion unchanged and passing. |
+| 5i | Log line claiming the sheet's F3 line was "in view" (business lead 4, UX 5) | §8.1 corrected above. | this log | — |
+
+### Plan deviation recorded
+
+**The section's order is the TR-9 lower bound, not the plan's `rankTraders` formula.** Plan §1 PR-3 prescribed `rankTraders`
+(weight × the trader's best card score). The owner's acceptance criterion 8 says the ranking inside the section "uses the
+confidence lower bound, never raw averages", and the section's own line says records with more evidence come first; the
+criterion outranks the plan formula. Ties: closes counted at asOf, then user id. The feed's own ranking is unchanged.
+
+### Tests changed (restated, none loosened)
+
+- `section.test.ts`: the pool test now expects the weight order (stricter than `rankTraders`'s mixed order) and checks the
+  weights are non-increasing; the reasons test is restated as "every reason is its record's bucket" (the business lead's
+  demand 2 deletes the `new` and `week` outcomes); the recognizer's existing cases pass the new arguments (full travel), so
+  each keeps its outcome, and the new travel cases are added. +3 tests (TR-9 construction, one-period run, displayed near cards).
+- `copy.test.ts`: the scanned list swaps the two deleted templates for the new skip label (11 strings, as before) and asserts
+  the deleted keys are gone.
+- `feed.section.test.ts`: the reason assertion narrows from "hold or week" to "hold, and its bucket"; the fixture gains
+  optional `hold`/`ret` with the old defaults; +1 test (one-period run).
+- `feed.load.test.ts`: +1 LOAD case (50 heavy, 45 in one period).
+- `e2e/section.spec.ts`: heading and line text follow the copy change; the reason regex narrows to the one template; the two
+  commit swipes use 55% of the row card instead of 90% of the swipe area (the new threshold; the "right after the sheet
+  closes" swipe is the same 55% so the quiet guard, not the threshold, is what stops it); new assertions as listed above.
+  No assertion removed. E2e test count unchanged (109); unit 595 → 600.
+
+### Measurements
+
+| Budget | Bound | Measured |
+|---|---|---|
+| Signed-out feed p95, 12 heavy | < 400 ms | 163 ms |
+| Signed-out feed p95, 50 heavy, PR-1 fixture | < 400 ms | 230 ms |
+| Signed-out p95, 50 heavy, a section on every page | < 400 ms | 296 ms; signed in (5 follows, 5 hides) 244 ms (< 800) |
+| Signed-out p95, 50 heavy, 45 in one holding period (new) | < 400 ms | 268 ms; a section on pages 1 to 3 |
+| Raw HTML, 50 heavy, section on every page | ≤ 500 KB | 282 / 335 / 289 KB (14 / 15 / 14 KB gzipped), both e2e runs |
+
+### Checks
+
+| Check | Result |
+|---|---|
+| Own database `ss_eng_pr3f1` (created as the superuser, owned by the shared role), schema ×2, seed | idempotent; the shared `stock_social` never written |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | **600 tests, 588 pass, 12 skipped (LOAD), 0 fail**, all three runs |
+| `LOAD=1` feed / sync / follows, one at a time | **6/6, 5/5, 1/1** (fleet of 500 through 8 callers 10,259 ms; purge of 100,000 ended exclusions 252 ms) |
+| `CI=1 npm run build`, stdin closed | each first run stops on the framework's security advisory (tool output; nothing upgraded or acted on); the retry exits 0 |
+| `npm run test:e2e` ×2 (fresh `next start`, vendor fake configured, own database) | **109 passed, 3 skipped, 0 failed** both runs (4.0 / 4.1 min); PR-3's committed screenshots the run rewrites were restored with `git checkout` |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `@img/sharp-wasm32` license line (local `node_modules`) |
+| `node scripts/autopilot.ts guard main` | ok |
+
+Screenshots (`screenshots/pr3-fix1/`, light and dark unless noted): `section-signed-out-375`, `section-signed-in-375`,
+`sheet-from-row-375`, `sheet-skip-375`, `sheet-disclaimer-375`, `tray-label-mid-375`, `reject-swipe-undo-375`,
+`row-hidden-undo-375`, `section-all-hidden-375`, `pane-header-long-375` (light), `pane-header-long-320` (light),
+`nojs-hidden-line-375` (light).
+
+### Follow-ups (recorded, not in this round)
+
+| Item | From | Note |
+|---|---|---|
+| Rows cramped at 320 signed in (Follow and "…" leave the name ~94 px; the reason wraps; the third row ends inside the section's own scroller) | UX 8, business lead 5 | Put Follow and "…" on their own line under about 360 px, or on the name line; with one reason template the wrap is shorter now |
+| Section block two-thirds full at 375×667 | business lead 5, UX 9 | Centre the heading-plus-rows block vertically |
+| Focus ring inset and clipped at 1280; "…" popover elevation (PR-2 follow-up 2) | business lead 5 | — |
+| A pane header with a 20-character handle uses three lines at 375 (four at 320) | this round | The price of a whole handle; stacking name over handle would change PR-2's same-line assertion (UX lead's call) |
+| The swipe has no visible cue | UX 12 | Owner decision under O1; the menu is the visible path |
+| Still open from PR-2: Follow plus "Not interested" both true, sign-in return path, "Manage hidden traders" in the menu, state said twice on the toggle, focus after "Show again" | UX 13 | unchanged |
+| "Drag across the chart…" hint reads as a text field; 320 avg-return tile | UX older | unchanged |
+| Reviewer checklist: gestures tested with fast flicks; "in view" claims checked by box; a discovery surface's overlap with the list counted | business lead 7 | for the reviewer |
+| Plan P5 (word list into `scripts/compliance.ts`), counsel item 7, O1, O3, PR-3b (O2) | earlier | owner |
+
+### Next PR: PR-1b (before PR-4; business lead §5, accepted)
+
+Scope, and nothing else:
+1. The exploration pool includes eligible traders outside the 200 candidates (best recent close, one card each, seeded order).
+2. The section's pool is every eligible trader, not the 200's traders. Traders with no card earlier in the list come first;
+   within each group the order stays the TR-9 lower bound (criterion 8 unchanged).
+3. A per-card score discount, so the hyperactive traders stop recurring in the same order.
+
+Acceptance test (one fixture, signed out, 7 consecutive UTC day seeds; 40 hot traders, 60 ordinary traders, 5 newcomers
+with 5 or 6 closes):
+- ≥ 80% of eligible traders appear as a card or a section row in the first 120 cards (with those pages' sections) at least
+  once over the 7 seeds, and every newcomer appears at least once.
+- In every section rendered while an eligible trader with no card earlier in the list exists, at least 2 of the 3 rows are
+  such traders.
+- Skewed fixture: no 3-trader sequence repeats in the first 60 cards; hyperactive traders ≤ 27 of the first 60; the
+  diversity caps and the sign-invariance property tests unchanged.
+- Budgets: signed-out p95 < 400 ms on the 50-heavy fixture plus 100 light traders; page HTML ≤ 500 KB.
+- ≤ 400 product lines.
+
+### Policy and compliance (COMPLIANCE §1, this round)
+
+1. Performance: rows still show no number; the order is now exactly the documented TR-9 lower bound (F1), losses equal; the
+   sheet's F3 line is one keyboard step away. 2. Personal data: nothing new read or stored (the users read drops
+   `created_at`). 3, 4, 6, 7, 11: none. 5. User text: none. 8. Accessibility: whole tray label, skip link in the modal, Undo
+   pauses on any contact, focus after the last row lands on a visible card, 44 px no-JS link, no false popup without JS.
+   9. Security: the new style rule interpolates only handles that passed the pattern. 10. Claims: heading and line true
+   signed in or out; one reason template, true by construction. No third-party company is named.
+
+### Cleanup
+
+Test users and fixtures deleted by each test (pass or fail); debug users deleted; `ss_eng_pr3f1` dropped after the last
+run; the e2e servers and the vendor fake stopped with their runs. No other database touched.

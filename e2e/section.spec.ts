@@ -7,13 +7,14 @@ import postgres from 'postgres';
 import { feedLock } from './feed-lock.ts';
 
 const SHOTS = 'docs/features/logs/F-2/screenshots/pr3';
+const FIX1 = 'docs/features/logs/F-2/screenshots/pr3-fix1'; // fix round 1's own shots (PR-3's stay as committed)
 const DAY = 86_400_000;
 const HOLDS = [0.5, 3, 14, 60, 300];
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 test.afterAll(async () => { await sql.end({ timeout: 1 }); });
 
-const shoot = async (page: Page, name: string) => {
-  for (const colorScheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme }); await page.screenshot({ path: `${SHOTS}/${name}-${colorScheme}.png` }); }
+const shoot = async (page: Page, name: string, dir = SHOTS) => {
+  for (const colorScheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme }); await page.screenshot({ path: `${dir}/${name}-${colorScheme}.png` }); }
   await page.emulateMedia({ colorScheme: 'light' });
 };
 // 40 traders × 5 fresh closes with varied holding periods, accounts 60 days old; one with a 36-character name and a
@@ -57,6 +58,17 @@ async function swipe(page: Page, el: ReturnType<Page['locator']>, dx: number) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await cdp.detach();
 }
+// Fix round 1: a quick flick, 4 ms between moves and no hold before the lift (native momentum carries it further).
+async function flick(page: Page, el: ReturnType<Page['locator']>, dx: number, steps = 4) {
+  const b = (await el.boundingBox())!;
+  const y = Math.round(b.y + b.height / 2), x0 = Math.round(b.x + 10);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y }] });
+  for (let i = 1; i <= steps; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + (dx * i) / steps, y }] }); await page.waitForTimeout(4); }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.detach();
+}
+const cardWidth = (row: ReturnType<Page['locator']>) => row.locator('.srow-wrap').evaluate((el) => el.clientWidth);
 const exclusions = async (handle: string) => (await sql`select count(*)::int as n from viewer_exclusions x join users u on u.id = x.viewer_id where u.handle = ${handle} and x.until > now()`)[0].n as number;
 async function touchPage(browser: Browser) {
   const ctx = await browser.newContext({ viewport: { width: 375, height: 800 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
@@ -88,11 +100,12 @@ test('F-2 PR-3: signed out, the section sits at position 6 with 3 rows, a true h
     const s = section(page);
     await expect(s).toHaveCount(1);
     expect(await rowsBefore(page)).toBe(5);
-    await expect(s.getByRole('heading', { level: 2 })).toHaveText('More records');
+    await expect(s.getByRole('heading', { level: 2 })).toHaveText("Other traders' records"); // fix round 1: the UX lead's heading
+    await expect(s.locator('.suggest-in > p')).toHaveText('Ordered by how much evidence each record has. Losses count the same as gains.');
     const rows = s.locator('.suggest-in > ul > li');
     await expect(rows).toHaveCount(3);
     const text = await rows.allInnerTexts();
-    for (const t of text) { expect(t).not.toMatch(/%|[+−-]\d|\$/); expect(t).toMatch(/Typical holding period: |Closed a trade this week|New here this month/); }
+    for (const t of text) { expect(t).not.toMatch(/%|[+−-]\d|\$/); expect(t).toMatch(/Typical holding period: /); expect(t).not.toMatch(/Closed a trade this week|New here this month/); } // fix round 1: one template
     await expect(s.locator('.follow, .more-menu')).toHaveCount(0); // nothing signed out
     await expect(page.locator('.feed .card .more-menu')).toHaveCount(0); // "…" never on a feed card
     // None of the section's traders has a card among the 10 around it.
@@ -119,6 +132,17 @@ test('F-2 PR-3: signed out, the section sits at position 6 with 3 rows, a true h
     await expect(link).toBeFocused();
     await page.keyboard.press('Enter'); // keyboard opens it too
     await expect(sheet).toHaveAttribute('open', '');
+    // Fix round 1 (UX 5, tester Low 2): the sheet's own skip link, its first stop, reaches the disclaimer (the page's is
+    // behind the modal); the line is then focused and on screen.
+    const skip = sheet.getByRole('button', { name: 'Skip to the disclaimer' });
+    await expect(skip).toBeFocused();
+    await expect(skip).toBeInViewport();
+    await shoot(page, 'sheet-skip-375', FIX1);
+    await page.keyboard.press('Enter');
+    const note = sheet.locator('.sheet-note');
+    await expect(note).toBeFocused();
+    await expect(note).toBeInViewport({ ratio: 1 });
+    await shoot(page, 'sheet-disclaimer-375', FIX1);
     await sheet.getByRole('button', { name: '← Back' }).click();
     await expect(sheet).not.toHaveAttribute('open', '');
     expect(page.url()).toMatch(/\/$/);
@@ -148,6 +172,7 @@ test('F-2 PR-3: signed out, the section sits at position 6 with 3 rows, a true h
     await nojs.goto('/');
     const ns = section(nojs);
     await expect(ns.locator('.suggest-in > ul > li')).toHaveCount(3);
+    await expect(ns.locator('a.sopen[aria-haspopup]')).toHaveCount(0); // fix round 1 (UX 10): no popup without the sheet
     expect(await ns.locator('.suggest-in > ul > li').evaluateAll((ls) => ls.map((l) => l.getAttribute('data-handle')))).toEqual(await rows.evaluateAll((ls) => ls.map((l) => l.getAttribute('data-handle'))));
     await ns.evaluate((el) => el.scrollIntoView());
     await nojs.screenshot({ path: `${SHOTS}/nojs-section-375-light.png` });
@@ -220,7 +245,35 @@ test('F-2 PR-3: signed in, rows carry Follow and "…"; "Not interested" on a ro
       expect(right).toBeLessThanOrEqual(2 * w); // inside the pane (the second half of the row)
       // Section rows fit the screen at this width.
       for (const r of await s.locator('.srow-wrap').evaluateAll((ws) => ws.map((x) => x.getBoundingClientRect().right))) expect(r).toBeLessThanOrEqual(w);
+      // Fix round 1 (UX 6): the name shows its start and ends in an ellipsis; the handle is whole inside the link's box.
+      const [nameShown, nameFull, handleRight, whoRight] = await who.evaluate((el) => { const n = el.querySelector('strong')!, h = el.querySelector('.muted')!;
+        return [n.clientWidth, n.scrollWidth, h.getBoundingClientRect().right, el.getBoundingClientRect().right]; });
+      expect(nameShown).toBeGreaterThan(20);
+      expect(nameFull).toBeGreaterThan(nameShown);
+      expect(handleRight).toBeLessThanOrEqual(whoRight + 0.5);
+      await page.locator(`.feed > .row[data-handle="${longHandle}"]`).first().evaluate((el) => { el.scrollIntoView(); el.scrollLeft = el.clientWidth; });
+      await page.waitForTimeout(100);
+      await page.screenshot({ path: `${FIX1}/pane-header-long-${w}-light.png` });
     }
+    // Fix round 1 (UX 4): hiding every row left collapses the section; the card after it takes its place, and when the bar
+    // closes focus lands on that card, on screen.
+    await page.setViewportSize({ width: 375, height: 800 });
+    await s.evaluate((el) => el.scrollIntoView());
+    for (const li of await rows.evaluateAll((ls) => ls.filter((l) => (l as HTMLElement).offsetParent).map((l) => l.getAttribute('data-handle')!))) {
+      const r = s.locator(`li[data-handle="${li}"]`);
+      await r.locator('.sactions .more-menu summary').click();
+      await r.getByRole('button', { name: `Not interested in @${li}` }).click();
+      await expect(r).toBeHidden();
+    }
+    await expect.poll(() => exclusions(me)).toBe(3);
+    await expect(s).toBeHidden();
+    const next = s.locator('xpath=following-sibling::*[contains(concat(" ", @class, " "), " row ")][1]');
+    await expect.poll(() => next.evaluate((el) => Math.round(el.getBoundingClientRect().top))).toBe(0);
+    await shoot(page, 'section-all-hidden-375', FIX1);
+    await page.keyboard.press('Escape');
+    await expect(bar).toHaveText('');
+    await expect(next.locator('.card .who')).toBeFocused();
+    await expect(next.locator('.card .who')).toBeInViewport();
   } finally {
     await sql`delete from users where handle = ${me}`;
     await fx.remove();
@@ -252,22 +305,61 @@ test('F-2 PR-3: the reject swipe on a section row writes exactly one exclusion, 
     await expect(row.locator('.stray')).toBeAttached();
     const rest = await srow.evaluate((el) => el.scrollLeft);
     expect(rest).toBeGreaterThan(100); // resting on the row, the tray off to the left
+    // Fix round 1: the commit needs the finger's own travel past half the row card (about 170 px at 375).
+    const cardW = await cardWidth(row);
+    expect(cardW).toBeGreaterThan(300);
     // Right after the sheet closes, a reject swipe on the row beneath snaps back and writes nothing.
     await row.locator('a.sopen').tap();
     await expect(row.locator('dialog.pane-sheet')).toHaveAttribute('open', '');
     await page.keyboard.press('Escape');
-    await swipe(page, srow, Math.round(rest * 0.9));
+    await swipe(page, srow, Math.round(cardW * 0.55));
     await expect.poll(() => srow.evaluate((el) => el.scrollLeft)).toBe(rest);
     await page.waitForTimeout(300);
     expect(await exclusions(me)).toBe(0);
     await expect(row).toBeVisible();
-    // At rest, later: the reject swipe commits.
+    // Fix round 1 (business lead demand 1, UX 1): quick flicks never commit, whatever the browser's fling does: 40% of the
+    // row card and a 50 px flick (4 ms steps, no hold) write nothing and leave the row at rest.
     await page.waitForTimeout(500);
-    await swipe(page, srow, Math.round(rest * 0.9));
+    for (const dx of [Math.round(cardW * 0.4), 50, 60]) {
+      await flick(page, srow, dx);
+      await expect.poll(() => srow.evaluate((el) => el.scrollLeft), { message: `flick ${dx}` }).toBe(rest);
+      await page.waitForTimeout(300);
+      expect(await exclusions(me), `flick ${dx}`).toBe(0);
+      await expect(row).toBeVisible();
+      await page.waitForTimeout(450);
+    }
+    // Mid-drag at the commit point the tray's label is whole (fix round 1, UX 3).
+    {
+      const b = (await srow.boundingBox())!;
+      const y = Math.round(b.y + b.height / 2), x0 = Math.round(b.x + 10);
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y }] });
+      for (let i = 1; i <= 12; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + Math.round((rest * 0.55 + 15) * i / 12), y }] }); await page.waitForTimeout(16); }
+      await page.waitForTimeout(150);
+      const [l, r, sl, sr, op] = await srow.evaluate((el) => { const t = el.querySelector('.stray span')!.getBoundingClientRect(), s = el.getBoundingClientRect(); return [t.left, t.right, s.left, s.right, Number(getComputedStyle(el.querySelector('.stray span')!).opacity)]; });
+      expect(l).toBeGreaterThanOrEqual(sl);
+      expect(r).toBeLessThanOrEqual(sr);
+      expect(op).toBe(1);
+      await shoot(page, 'tray-label-mid-375', FIX1);
+      // Back under half: the label is cut, so it is not shown.
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + 22, y }] });
+      await page.waitForTimeout(150);
+      expect(await srow.evaluate((el) => { const t = el.querySelector('.stray span')!.getBoundingClientRect(), s = el.getBoundingClientRect(); return t.left >= s.left || Number(getComputedStyle(el.querySelector('.stray span')!).opacity) === 0; })).toBe(true);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await cdp.detach();
+      await expect.poll(() => srow.evaluate((el) => el.scrollLeft)).toBe(rest);
+      await page.waitForTimeout(450);
+    }
+    // At rest, a slow drag past half the row card commits.
+    await swipe(page, srow, Math.round(cardW * 0.55));
     await expect(row).toBeHidden();
     await expect.poll(() => exclusions(me)).toBe(1);
     await expect(page.locator('.hide-bar')).toContainText('Hidden for 90 days.');
     await shoot(page, 'reject-swipe-undo-375');
+    // Fix round 1 (UX 7): a tap on the bar pauses its 5 s, as hover and keyboard focus do.
+    await page.locator('.hide-bar p').tap({ position: { x: 4, y: 4 } });
+    await page.waitForTimeout(5_600);
+    await expect(page.locator('.hide-bar')).toContainText('Hidden for 90 days.');
     await page.locator('.hide-bar').getByRole('button', { name: 'Undo' }).tap();
     await expect(row).toBeVisible();
     await expect.poll(() => exclusions(me)).toBe(0);
@@ -281,6 +373,29 @@ test('F-2 PR-3: the reject swipe on a section row writes exactly one exclusion, 
     await swipe(page, srow, -Math.round(rest * 0.9));
     await expect(row.locator('dialog.pane-sheet')).toHaveAttribute('open', '');
     await shoot(page, 'sheet-from-swipe-375');
+    await page.keyboard.press('Escape');
+    // Fix round 1: at 320 a flick never commits either. Where the tray is wider than its row, the row never reads as at
+    // rest and a full drag snaps back (fails safe); otherwise the same travel rule applies. The menu works either way.
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.waitForTimeout(800);
+    await s.evaluate((el) => el.scrollIntoView());
+    const rest320 = await srow.evaluate((el) => el.scrollLeft);
+    const fits = await srow.evaluate((el) => (el.querySelector('.stray') as HTMLElement).offsetWidth <= el.clientWidth);
+    const card320 = await cardWidth(row), area320 = await srow.evaluate((el) => el.clientWidth);
+    await flick(page, srow, 50);
+    await expect.poll(() => srow.evaluate((el) => el.scrollLeft)).toBe(rest320);
+    await page.waitForTimeout(300);
+    expect(await exclusions(me)).toBe(0);
+    await page.waitForTimeout(450);
+    await swipe(page, srow, Math.round(card320 * 0.55));
+    if (fits) await expect.poll(() => exclusions(me)).toBe(1);
+    else { await page.waitForTimeout(400); expect(await exclusions(me)).toBe(0); await expect.poll(() => srow.evaluate((el) => el.scrollLeft)).toBe(rest320); }
+    console.log(`# 320: tray ${fits ? 'fits' : 'wider than the row'}; row card ${card320} px, swipe area ${area320} px`);
+    if (fits) { await page.locator('.hide-bar').getByRole('button', { name: 'Undo' }).tap(); await expect.poll(() => exclusions(me)).toBe(0); await expect(row).toBeVisible(); }
+    await row.locator('.sactions .more-menu summary').tap();
+    await row.getByRole('button', { name: /^Not interested in @/ }).tap();
+    await expect(row).toBeHidden();
+    await expect.poll(() => exclusions(me)).toBe(1);
   } finally {
     await ctx.close();
     await sql`delete from users where handle = ${me}`;
@@ -306,6 +421,7 @@ test('F-2 PR-3: without JavaScript, "Not interested" on a row lands on the trade
     const line = page.locator('.profile-follow p[role="status"]');
     await expect(line).toContainText(`@${x} is hidden from your feed for 90 days.`);
     await expect(line.getByRole('link', { name: 'Following and hidden traders' })).toHaveAttribute('href', '/me/following');
+    expect((await line.getByRole('link', { name: 'Following and hidden traders' }).boundingBox())!.height).toBeGreaterThanOrEqual(44); // fix round 1 (UX 11)
     await page.screenshot({ path: `${SHOTS}/nojs-hidden-line-375-light.png` });
     expect(await exclusions(me)).toBe(1);
   } finally {

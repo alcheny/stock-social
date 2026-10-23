@@ -378,3 +378,13 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 /* F-2 PR-3 (UX follow-up, PR-1 and PR-2): a long name gives way first; the handle stays whole in the pane header. */
 .pane .who strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pane .who .muted { flex: none; }
+/* Fix round 1: the tray label shows only once it is wholly revealed (never cut mid-swipe); no motion. */
+@supports (animation-timeline: view()) {
+  .stray span { animation: stray-whole linear both; animation-timeline: view(inline); animation-range: exit 0% exit 100%; }
+}
+@keyframes stray-whole { 0% { opacity: 1; } 0.1%, 100% { opacity: 0; } } /* exit 0%: its start edge at the row's start edge */
+/* The sheet's skip link (its page's one is behind the modal): shown only while focused from the keyboard. */
+.pane-sheet .sheet-skip { position: absolute; left: 8px; top: -100px; z-index: 1; min-height: 44px; }
+.pane-sheet .sheet-skip:focus-visible { top: 8px; }
+.pane-sheet .sheet-note:focus { outline: 2px solid var(--text); outline-offset: 2px; }
+.profile-follow p a { display: inline-flex; align-items: center; min-height: 44px; }

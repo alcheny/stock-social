@@ -6,10 +6,13 @@ import { canArm, horizontal, swipeOutcome } from '@/lib/discovery/reject.ts';
 // F-2 PR-3: one section row. A tap (or Enter) on it opens the trader's pane as a modal sheet; Esc, "← Back" or a tap
 // outside closes it and focus returns to the row. With JavaScript the row is its own native scroll-snap container
 // [reject tray (signed in) | row | open sentinel], resting on the row (scroll-snap-stop: always): swiping toward the
-// sentinel opens the sheet; swiping toward the tray past half the row commits "Not interested" (the menu's action:
+// sentinel opens the sheet; swiping toward the tray commits "Not interested" (the menu's action:
 // app/feed-hides.tsx collapses the row and shows "Hidden for 90 days." with Undo for 5 s). The reject arms only on a
 // touch that starts on the row at rest, with no sheet open and not within 400 ms after one closed, while the travel is
-// horizontal (lib/discovery/reject.ts). Feed cards keep SW-1 exactly (O1 open). Without JavaScript the row is a link.
+// horizontal, and it commits only when the finger itself travelled half the row card (fix round 1: never on where a
+// fling lands; lib/discovery/reject.ts). Feed cards keep SW-1 exactly (O1 open). Without JavaScript the row is a link.
+// Where the tray is wider than the row (a very narrow row or large text), the row never reads as at rest, so the swipe
+// never arms: it fails safe and the "…" menu stays the way.
 let lastClose = 0;
 
 export function SuggestRow({ handle, name, signedIn, pane, actions, children }: { handle: string; name: string; signedIn: boolean; pane: ReactNode; actions: ReactNode; children: ReactNode }) {
@@ -17,7 +20,8 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
   const box = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDialogElement>(null);
   const armed = useRef(false);
-  const start = useRef<{ x: number; y: number; locked: boolean } | null>(null);
+  const start = useRef<{ x: number; y: number; locked: boolean; last: number } | null>(null);
+  const travel = useRef(0); // the finger's travel toward the tray at its last lift
   const timer = useRef(0);
   const rest = () => (signedIn ? box.current?.clientWidth ?? 0 : 0);
   const toRest = (smooth = false) => box.current?.scrollTo({ left: rest(), behavior: smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto' });
@@ -30,8 +34,8 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
     if (!ready || !el || !d) return;
     const settle = () => {
       if (start.current) return; // a finger is still down
-      const o = swipeOutcome(el.scrollLeft, rest(), el.clientWidth, armed.current);
-      armed.current = false;
+      const o = swipeOutcome(el.scrollLeft, rest(), el.clientWidth, armed.current, travel.current, el.closest('.srow-wrap')?.clientWidth ?? Infinity);
+      armed.current = false; travel.current = 0;
       if (o === 'open') { toRest(); open(); }
       else if (o === 'reject') { toRest(); dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, row: el.closest('.suggest') } })); }
       else if (o === 'back') toRest(true);
@@ -42,18 +46,24 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
     const onScroll = () => { clearTimeout(timer.current); if (!ends) timer.current = window.setTimeout(settle, 150); };
     const down = (e: TouchEvent) => {
       const t = e.touches[0];
-      start.current = { x: t.clientX, y: t.clientY, locked: false };
+      start.current = { x: t.clientX, y: t.clientY, locked: false, last: t.clientX };
+      travel.current = 0;
       armed.current = signedIn && canArm({ atRest: Math.abs(el.scrollLeft - rest()) < 2, paneOpen: !!document.querySelector('dialog[open]'), sinceClose: Date.now() - lastClose });
     };
     const move = (e: TouchEvent) => {
       const s = start.current, t = e.touches[0];
+      if (s && t) s.last = t.clientX;
       if (!s || s.locked) return;
       const dx = t.clientX - s.x, dy = t.clientY - s.y;
       if (Math.abs(dx) + Math.abs(dy) < 10) return;
       s.locked = true;
       if (!horizontal(dx, dy)) armed.current = false;
     };
-    const up = () => { start.current = null; clearTimeout(timer.current); timer.current = window.setTimeout(settle, 150); };
+    const up = (e: TouchEvent) => {
+      const s = start.current;
+      travel.current = s ? (e.changedTouches[0]?.clientX ?? s.last) - s.x : 0;
+      start.current = null; clearTimeout(timer.current); timer.current = window.setTimeout(settle, 150);
+    };
     const onHide = (e: Event) => { if ((e as CustomEvent<{ handle: string }>).detail.handle === handle && d.open) close(); };
     const onClose = () => { lastClose = Date.now(); };
     el.addEventListener('scroll', onScroll, { passive: true });
@@ -81,7 +91,7 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
         <div className="srow" ref={box}>
           {ready && signedIn && <div className="stray" aria-hidden="true"><span>{SECTION.tray}</span></div>}
           <div className="sitem">
-            <a className="sopen" href={`/u/${handle}`} aria-haspopup="dialog"
+            <a className="sopen" href={`/u/${handle}`} aria-haspopup={ready ? 'dialog' : undefined}
               onClick={(e) => { if (!ready || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); open(); }}>{children}</a>
           </div>
           {ready && <div className="ssentinel" aria-hidden="true" />}
@@ -91,6 +101,8 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
       </div>
       <dialog className="pane-sheet" ref={sheet} aria-label={`${name}’s record`}
         onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).closest('[data-back]')) close(); }}>
+        {/* Fix round 1: the page's skip link is behind the modal, so the sheet has its own (shown when focused). */}
+        {ready && <button type="button" className="sheet-skip" onClick={() => sheet.current?.querySelector<HTMLElement>('.sheet-note')?.focus()}>{SECTION.skip}</button>}
         {ready && pane}
       </dialog>
     </>

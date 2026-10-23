@@ -335,7 +335,9 @@ const ENDORSEMENT = /\b(suggested|recommended|top|best|ai)\b/i;
 test('F-2 PR-3: every suggestions-section string passes PROMO, the suggestion word list and the endorsement list; no ticker slot, no number about performance', () => {
   assert.doesNotMatch('Typical holding period: 1 to 7 days', SUGGESTION_WORDS);
   for (const bad of ['hold', 'Holds', 'a pick', 'signals', 'buy', 'sells', 'price targets', 'advice']) assert.match(bad, SUGGESTION_WORDS, bad);
-  const strings = [SECTION.heading, SECTION.explain, ...SECTION.holds, SECTION.week, SECTION.fresh, SECTION.tray, SECTION.close, SECTION.incomplete];
+  // Fix round 1: one reason template (the holding period); "Closed a trade this week" and "New here this month" are gone.
+  assert.ok(!('week' in SECTION) && !('fresh' in SECTION));
+  const strings = [SECTION.heading, SECTION.explain, ...SECTION.holds, SECTION.skip, SECTION.tray, SECTION.close, SECTION.incomplete];
   assert.ok(strings.length >= 11);
   for (const s of strings) {
     for (const re of [...PROMO, ...BANNED, SUGGESTION_WORDS, ENDORSEMENT]) assert.doesNotMatch(s, re, s);

@@ -6,7 +6,7 @@ import { mixFeed } from './discovery/explore.ts';
 import { CURSOR_MAX_AGE_MS, encodeCursor, pageOf, readCursor, type Cursor } from './discovery/pager.ts';
 import { displayFilter, shapeList, splitExclusions } from './discovery/exclusions.ts';
 import { exclusionsFor, followingAmong, sectionSkips } from './follows.ts';
-import { chooseRows, median, reasonFor, SECTION_AT, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
+import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
 // score = ln(1 + |r|·100) · exp(-max(0, min(age_hours / RECENCY_HOURS, MAX_DECAY)))
@@ -169,7 +169,7 @@ async function records(userIds: number[]): Promise<PaneRow[]> {
 // trader's row count and largest row id (a rebuild renumbers every row; a new close adds one) plus the number of
 // those rows counted at asOf. The counted rows are a subset that only grows with asOf, so the same row set and the same
 // count are the same rows: the same weight. Only a trader whose record changed reads its record again.
-// F-2 PR-3: with the weight, the facts the suggestions section reads at asOf (median holding days, last close).
+// F-2 PR-3: with the weight, the facts the suggestions section reads at asOf (median holding days, closes counted).
 const weightCache = new Map<string, TraderFacts>();
 const WEIGHT_CACHE_MAX = 20_000;
 
@@ -201,8 +201,7 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
       });
     }
     for (const [id, ts] of byTrader) {
-      const w: TraderFacts = { weight: ts.length ? evidenceWeight(confidence(ts, asOf)) : 0, hold: median(ts.map((t) => t.holdingDays)),
-        last: ts.reduce((m, t) => Math.max(m, t.closedAt.getTime()), 0) };
+      const w: TraderFacts = { weight: ts.length ? evidenceWeight(confidence(ts, asOf)) : 0, hold: median(ts.map((t) => t.holdingDays)), n: ts.length };
       out.set(id, w);
       const key = keys.get(id);
       if (!key) continue;
@@ -225,7 +224,7 @@ export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }
   const ranked = rankTraders(candidates.map((t) => ({ t, score: Number(t.score), weight: weight.get(t.user_id)?.weight ?? 0 })))
     .map(({ t }) => ({ ...t, key: t.sell_id, trader: t.user_id }));
   const list: FeedItem[] = mixFeed(ranked, { day: opts.day }).map(({ card: { key: _k, trader: _t, pn: _n, pm: _m, pk: _p, ...t }, explore }) => ({ ...t, explore }));
-  const pool = sectionPool(candidates.map((t) => ({ trader: t.user_id, score: Number(t.score) })), weight, rankTraders);
+  const pool = sectionPool(candidates.map((t) => ({ trader: t.user_id, score: Number(t.score) })), weight);
   return { list, ranked: ranked.map(({ key: _k, trader: _t, pn: _n, pm: _m, pk: _p, ...t }) => t), pool };
 }
 
@@ -286,7 +285,9 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   // F-2 PR-3: the section's candidates (the same for every viewer; signed in, minus the viewer, follows and exclusions).
   // The first 3 records are read with the page's; the spares only when a row turns out importing or deleted.
   // Nothing is read for it when the candidates cannot make 3 rows even before that check (it only removes candidates).
-  const cands = sectionCandidates(kept.pool, slots, c.offset, new Set(opts.viewer ? [opts.viewer, ...skips] : [])).slice(0, SECTION_SPARES);
+  // Fix round 1: the spares are chosen from every candidate under the bucket cap (tester Medium 1: a fixed slice of 8
+  // sharing one holding period made no section), and the 10 cards around it are the displayed ones (tester Low 1).
+  const cands = capped(sectionCandidates(kept.pool, slots, c.offset, new Set(opts.viewer ? [opts.viewer, ...skips] : []), page.items), SECTION_SPARES);
   const candIds = cands.map((t) => t.trader);
   const likely = (chooseRows(cands) ?? []).map((t) => t.trader);
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
@@ -300,7 +301,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     recordStates(withSection ? [...new Set([...traders, ...candIds])] : traders),
     records(withSection ? [...new Set([...traders, ...likely])] : traders),
     opts.viewer ? followingAmong(opts.viewer, traders) : null,
-    withSection ? sql`select id, handle, display_name, created_at from users where id = any(${candIds}) and deleted_at is null` : [],
+    withSection ? sql`select id, handle, display_name from users where id = any(${candIds}) and deleted_at is null` : [],
   ]);
   const bySell = new Map(rows.map((r) => [r.sell_id as string, r]));
   const cards: FeedItem[] = page.items.flatMap((s) => {
@@ -309,15 +310,13 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     return [{ ...(r as unknown as FeedCandidate), score: s.score, explore: s.explore }];
   });
   const who = new Map(people.map((u) => [u.id as number, u]));
-  const picked = withSection && cards.length >= SECTION_AT ? chooseRows(cands.filter((t) => who.has(t.trader) && states.get(t.trader)?.state !== 'importing')) : null;
+  const near = new Set(cards.slice(0, SECTION_NEAR).map((t) => t.user_id)); // a card dropped as a gap moves the next one in
+  const picked = withSection && cards.length >= SECTION_AT ? chooseRows(cands.filter((t) => who.has(t.trader) && !near.has(t.trader) && states.get(t.trader)?.state !== 'importing')) : null;
   const missing = (picked ?? []).map((t) => t.trader).filter((id) => !likely.includes(id) && !traders.includes(id));
   if (missing.length) panes.push(...await records(missing));
-  const buckets: number[] = [];
   const section = picked && picked.map((t): SectionRow => {
     const u = who.get(t.trader)!;
-    const reason = reasonFor({ hold: t.hold, last: t.last, joined: (u.created_at as Date).getTime() }, c.asOf, buckets);
-    if (reason.kind === 'hold') buckets.push(reason.bucket);
-    return { userId: t.trader, handle: u.handle as string, name: u.display_name as string, reason };
+    return { userId: t.trader, handle: u.handle as string, name: u.display_name as string, reason: reasonFor(t) };
   });
   const onPage = new Set([...cards.map((t) => t.user_id), ...(picked ?? []).map((t) => t.trader)]);
   const byUser = groupByUser(panes.filter((r) => onPage.has(r.userId)));

@@ -300,3 +300,33 @@ loadTest('F-2 PR-3: with the section on every page, 50 heavy traders: signed-out
     await fx.remove();
   }
 });
+
+// F-2 PR-3 fix round 1 (tester Medium 1): 50 heavy traders, 45 of them sharing one holding period (1 to 7 days), so the
+// first candidates of page 1 are all in that period. The section is still on page 1 (and 2 and 3): 2 rows of that period
+// at most, the third from another, chosen from every candidate; the signed-out budget holds.
+loadTest('F-2 PR-3 fix round 1: 50 heavy traders, 45 in one holding period: a section on page 1 with at most 2 of that period; p95 < 400 ms', async () => {
+  const fx = await fixture({ traders: 500, heavy: 50, heavyCloses: 4_700, closes: 20, fresh: 5, hold: (u) => (u < 50 ? (u < 45 ? 3 : [0.5, 14, 60, 300, 300][u - 45]) : 1 + (u % 30)) });
+  const heavy = new Set(made.slice(0, 50));
+  const { loadFeedPage, clearFeedCache } = await import('./feed.ts');
+  const { holdBucket } = await import('./discovery/section.ts');
+  const { sql } = await import('./db.ts');
+  try {
+    const p95 = await measure(FIX.rounds);
+    clearFeedCache();
+    let after: string | null | undefined;
+    for (let p = 0; p < 3; p++) {
+      const page = await loadFeedPage(after);
+      assert.equal(page.section?.length, 3, `page ${p + 1} has a section`);
+      const ids = page.section!.map((r) => r.userId);
+      const holds = await sql`select user_id, percentile_cont(0.5) within group (order by holding_days) as h from closed_trades where user_id = any(${ids}) group by user_id`;
+      const buckets = holds.map((r) => holdBucket(Number(r.h)));
+      assert.ok(buckets.filter((b) => b === 1).length <= 2, `page ${p + 1}: ${buckets}`);
+      log(`one-period fixture page ${p + 1}: rows in buckets ${buckets.join(', ')}, ${ids.filter((id) => heavy.has(id)).length} heavy`);
+      after = page.next;
+    }
+    log(`one-period fixture: signed-out p95 ${p95.toFixed(0)} ms`);
+    assert.ok(p95 < FEED_BOUNDS.p95Ms, `p95 ${p95.toFixed(0)} ms`);
+  } finally {
+    await fx.remove();
+  }
+});

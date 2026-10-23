@@ -9,7 +9,7 @@ import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
 import { SuggestRow } from './suggest-row.tsx';
 
-export const reasonText = (r: Reason) => (r.kind === 'new' ? SECTION.fresh : r.kind === 'week' ? SECTION.week : SECTION.holds[r.bucket]);
+export const reasonText = (r: Reason) => SECTION.holds[r.bucket];
 
 // F-2 PR-3: the suggestions section, one full-height feed card after the page's 5th card (lib/feed.ts#loadFeedPage
 // decides it; lib/discovery/section.ts orders it). The same rows for every viewer; signed in, Follow and the "…" menu
@@ -28,7 +28,7 @@ export function SuggestSection({ page, pane }: { page: FeedPage; pane: (userId: 
             const trust = paneTrust(page.byUser.get(r.userId) ?? [], page.records.get(r.userId)?.state ?? 'connected');
             return (
               <li key={r.userId} data-handle={r.handle}>
-                <SuggestRow handle={r.handle} name={r.name} signedIn={!!page.viewer} pane={<>{pane(r.userId)}<p className="muted small sheet-note">{DISCLAIMER}</p></>}
+                <SuggestRow handle={r.handle} name={r.name} signedIn={!!page.viewer} pane={<>{pane(r.userId)}<p className="muted small sheet-note" tabIndex={-1}>{DISCLAIMER}</p></>}
                   actions={page.viewer && <><FollowButton handle={r.handle} following={false} signedIn /><NotInterested handle={r.handle} /></>}>
                   <span className="sname"><WhoName name={r.name} handle={r.handle} /></span>
                   <span className="sfacts"><RowBadge kind={trust.badge} />{trust.incomplete && <span className="badge new">{SECTION.incomplete}</span>}<span className="sreason">{reasonText(r.reason)}</span></span>

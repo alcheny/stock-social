@@ -14,7 +14,8 @@ const HOLDS = [0.5, 3, 14, 60, 300];
 
 // n traders (plus a viewer at index 0), `closes` each, holding period by trader, accounts 60 days old (so reasons are
 // about the record, not "New here"). `sign` −1 makes every return a loss.
-async function fixture(n: number, o: { closes?: number; sign?: 1 | -1 } = {}) {
+// Fix round 1: `hold` and `ret` (optional) set a trader's holding period and returns; the defaults are as before.
+async function fixture(n: number, o: { closes?: number; sign?: 1 | -1; hold?: (t: number) => number; ret?: (t: number, i: number) => number } = {}) {
   const { sql } = await import('./db.ts');
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
   const tag = `x${Math.random().toString(36).slice(2, 8)}`;
@@ -22,10 +23,10 @@ async function fixture(n: number, o: { closes?: number; sign?: 1 | -1 } = {}) {
   for (let t = 0; t <= n; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
   await sql`update users set created_at = now() - interval '60 days' where id in ${sql(ids)}`;
   const at = Date.now() - 600_000, k = o.closes ?? 5, sign = o.sign ?? 1;
-  const traders = ids.slice(1);
+  const traders = ids.slice(1), hold = o.hold ?? ((t: number) => HOLDS[t % 5]), ret = o.ret ?? ((t: number, i: number) => 0.02 + ((t * 7 + i) % 9) / 100);
   await sql`insert into closed_trades ${sql(traders.flatMap((u, t) => Array.from({ length: k }, (_, i) => ({
-    user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `X${(t * k + i) % 47}`, opened_at: new Date(at - (t * k + i) * 1000 - HOLDS[t % 5] * DAY),
-    closed_at: new Date(at - (t * k + i) * 1000), return_pct: sign * (0.02 + ((t * 7 + i) % 9) / 100), holding_days: HOLDS[t % 5], verified: true,
+    user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `X${(t * k + i) % 47}`, opened_at: new Date(at - (t * k + i) * 1000 - hold(t) * DAY),
+    closed_at: new Date(at - (t * k + i) * 1000), return_pct: sign * ret(t, i), holding_days: hold(t), verified: true,
   }))))}`;
   return { sql, ids, viewer: ids[0], traders, handle: (id: number) => `${tag}${ids.indexOf(id)}`, remove: () => sql`delete from users where id in ${sql(ids)}` };
 }
@@ -47,16 +48,19 @@ dbTest('signed out: a section after the 5th card of each page, 3 distinct trader
     const buckets = p1.section!.map((r) => holdBucket(hold(r.userId)));
     assert.ok([...new Set(buckets)].every((b) => buckets.filter((x) => x === b).length <= 2));
     for (const r of p1.section!) {
-      assert.ok(r.reason.kind === 'hold' || r.reason.kind === 'week', JSON.stringify(r.reason)); // accounts are 60 days old
-      if (r.reason.kind === 'hold') assert.equal(r.reason.bucket, holdBucket(hold(r.userId)));
+      // Fix round 1: one template; every row's reason is its record's holding bucket.
+      assert.equal(r.reason.kind, 'hold', JSON.stringify(r.reason));
+      assert.equal(r.reason.bucket, holdBucket(hold(r.userId)));
       assert.ok(p1.byUser.get(r.userId)?.length, 'the pane\'s record is on the page');
       assert.equal(r.handle, f.handle(r.userId));
     }
-    // The order is the pool's (rankTraders by the TR-9 weight): the rows are the first candidates that qualify.
+    // The order is the pool's (fix round 1: the TR-9 weight alone, ties by closes then id): the rows are the first
+    // candidates that qualify.
     const { pool } = await feedList({ asOf: p1.asOf, day: p1.asOf.toISOString().slice(0, 10), ids: f.traders });
     const order = pool.map((t) => t.trader).filter((id) => !near.has(id));
     assert.deepEqual(p1.section!.map((r) => order.indexOf(r.userId)).sort((a, b) => a - b), p1.section!.map((r) => order.indexOf(r.userId)));
     assert.equal(order.indexOf(p1.section![0].userId), 0);
+    for (let i = 1; i < pool.length; i++) assert.ok(pool[i - 1].weight >= pool[i].weight, 'never above a record with a higher lower bound');
     // Page 2 has its own section, new faces first.
     const p2 = await loadFeedPage(p1.next!, { ids: f.traders });
     assert.ok(p2.section);
@@ -149,6 +153,24 @@ dbTest('a trader whose import is running is never a row (TR-3); the next candida
     assert.equal(q.section?.length, 3);
     assert.ok(!q.section!.some((r) => r.userId === first));
     assert.ok(q.section!.every((r) => q.byUser.get(r.userId)?.length));
+  } finally {
+    await f.remove();
+  }
+});
+
+// Fix round 1 (tester Medium 1): 30 of 40 traders share one holding period and come first in the pool; the section is
+// still there, its rows chosen from every candidate under the cap (2 from that period, 1 from another).
+dbTest('a run of candidates sharing one holding period still makes a section: at most 2 of that period, the third from the rest of the pool', async () => {
+  const { loadFeedPage } = await import('./feed.ts');
+  const { holdBucket } = await import('./discovery/section.ts');
+  // The 30 also have the bigger moves, so they lead under either order (closes then id, or the size of a move).
+  const f = await fixture(40, { hold: (t) => (t < 30 ? 3 : HOLDS[t % 5]), ret: (t, i) => (t < 30 ? 0.3 + i / 100 : 0.02 + i / 100) });
+  try {
+    const p1 = await loadFeedPage(undefined, { ids: f.traders });
+    assert.equal(p1.section?.length, 3, 'a section');
+    const bucket = (id: number) => holdBucket(f.traders.indexOf(id) < 30 ? 3 : HOLDS[f.traders.indexOf(id) % 5]);
+    assert.equal(p1.section!.filter((r) => bucket(r.userId) === 1).length, 2);
+    assert.ok(p1.section!.some((r) => bucket(r.userId) !== 1));
   } finally {
     await f.remove();
   }

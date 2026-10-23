@@ -13,7 +13,8 @@ import { UNDO_MS } from './follow-button.tsx';
 // after Undo to the "…" of the pane the reader hid from (the side they were on).
 // F-2 PR-3: a hide from the suggestions section (its "…" menu, its reject swipe or the sheet it opens) collapses that
 // row (and the trader's cards) with the reader left on the section; focus goes to the next row, Undo returns to the
-// row's "…".
+// row's "…". Fix round 1: when no row is left the section collapses (no empty full-height stop) and card 6 takes its
+// place; the bar also pauses once the reader touches or clicks it (any pointer), not only on hover or keyboard focus.
 type Bar = { handle: string; text: string; undo: boolean };
 const HANDLE = /^[a-z0-9_]{3,20}$/;
 
@@ -36,9 +37,11 @@ export function FeedHides() {
   const close = () => { clearTimeout(timer.current); const had = !!document.activeElement?.closest('.hide-bar'); setBar(null); if (had) toCard(); };
   const run = () => { clearTimeout(timer.current); timer.current = window.setTimeout(close, UNDO_MS); };
   const hover = useRef(false);
-  const paused = () => hover.current || !!undoBtn.current?.matches(':focus-visible');
+  const pressed = useRef(false); // a pointer went down on the bar since it opened
+  const paused = () => hover.current || pressed.current || !!undoBtn.current?.matches(':focus-visible');
   const show = (b: Bar | null) => {
     clearTimeout(timer.current);
+    pressed.current = false;
     setBar(b);
     if (b) run();
   };
@@ -82,10 +85,12 @@ export function FeedHides() {
   const resume = () => { if (bar && !paused()) run(); };
   return (
     <>
-      <style>{hidden.map((h) => `.feed [data-handle="${h}"]{display:none}`).join('')}</style>
+      <style>{hidden.map((h) => `.feed [data-handle="${h}"]{display:none}`).join('')
+        + (hidden.length ? `.feed .suggest:not(:has(> .suggest-in > ul > li${hidden.map((h) => `:not([data-handle="${h}"])`).join('')})){display:none}` : '')}</style>
       <div className="hide-bar" role="status"
         onPointerEnter={(e) => { if (e.pointerType === 'mouse') { hover.current = true; pause(); } }}
         onPointerLeave={() => { hover.current = false; resume(); }}
+        onPointerDown={() => { pressed.current = true; pause(); }}
         onFocus={() => { if (paused()) pause(); }} onBlur={() => setTimeout(resume)}
         onKeyDown={(e) => { if (e.key === 'Escape' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); close(); } }}>
         {bar && <p>{bar.text}{bar.undo && <> <button type="button" ref={undoBtn} onClick={() => void undo(bar.handle)}>{FOLLOW.undo}</button></>}</p>}
