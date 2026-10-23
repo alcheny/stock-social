@@ -1357,3 +1357,49 @@ dbTest('fix round 2 (engineer, Low): at most 10 portal opens per trader in 10 mi
     await cleanup([u.id]);
   }
 });
+
+dbTest('fix round 4 (engineer re-sit, Low 1): 12 concurrent mints against a hanging framing probe make one probe and hold no lock or pool connection while waiting; each open is recorded under the lock and set to the probe\'s answer after it', async () => {
+  const { sql, tag, mkUser, cleanup } = await setup();
+  const { mintPortal } = await import('./connections.ts');
+  const { USER_LOCK } = await import('./sync.ts');
+  const { clearProbeCache, probePortalMode } = await import('./portal-probe.ts');
+  const { deps } = fakeVendor();
+  const origin = `https://${tag}.vendor.example`;
+  const withUrl: Deps = { ...deps, connectUrl: async (bu) => `${origin}/portal?u=${bu.snaptradeUserId}` };
+  const users = await Promise.all(Array.from({ length: 12 }, (_, i) => mkUser(`h${i}`)));
+  const ids = users.map((u) => u.id);
+  const attempts = (await sql`select id, signup_attempt_id from users where id in ${sql(ids)}`).map((r) => ({ userId: r.id as number, attemptId: Number(r.signup_attempt_id) }));
+  let probes = 0, waiting = 0;
+  let release!: () => void;
+  const answered = new Promise<void>((r) => { release = r; });
+  const hang = async () => { probes++; await answered; return { headers: new Headers({ 'x-frame-options': 'DENY' }) }; };
+  clearProbeCache();
+  try {
+    const mints = attempts.map((who) => mintPortal(who, 'r', async (url) => { waiting++; return probePortalMode(url, origin, 'https://app.example', { fetch: hang, timeoutMs: 30_000 }); }, withUrl));
+    for (let t = 0; waiting < 12 && t < 200; t++) await new Promise((r) => setTimeout(r, 25));
+    assert.equal(waiting, 12);
+    assert.equal(probes, 1); // merged: one in flight for the origin
+    // No mint lock is held while the probe waits ...
+    const [{ n: locks }] = await sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and classid = ${USER_LOCK} and objid in ${sql(ids)}`;
+    assert.equal(locks, 0);
+    // ... and the whole pool is free: as many parallel queries as the pool has connections answer at once.
+    const free = Promise.all(Array.from({ length: 10 }, () => sql`select 1 as one`));
+    const raced = await Promise.race([free.then(() => 'free'), new Promise((r) => setTimeout(() => r('blocked'), 2_000))]);
+    assert.equal(raced, 'free');
+    // Every open is already recorded (under the lock), with the fallback answer until the probe speaks.
+    const before = await sql`select meta from funnel_events where attempt_id in ${sql(attempts.map((a) => a.attemptId))} and name = 'portal_opened'`;
+    assert.equal(before.length, 12);
+    assert.ok(before.every((e) => (e.meta as { mode: string }).mode === 'embedded'));
+    release();
+    const done = await Promise.all(mints);
+    assert.ok(done.every((d) => d.mode === 'redirect' && d.url.startsWith(`${origin}/portal?u=`)));
+    assert.equal(probes, 1);
+    const after = await sql`select meta from funnel_events where attempt_id in ${sql(attempts.map((a) => a.attemptId))} and name = 'portal_opened'`;
+    assert.equal(after.length, 12);
+    assert.ok(after.every((e) => (e.meta as { mode: string }).mode === 'redirect'));
+  } finally {
+    release();
+    clearProbeCache();
+    await cleanup(ids);
+  }
+});

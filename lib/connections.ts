@@ -203,33 +203,44 @@ async function brokerUserFor(c: { user_id: number | null; attempt_id: number }, 
 // server side, for this user or bound attempt only; nothing a browser sends is ever used as a portal URL.
 export type PortalMode = 'embedded' | 'redirect';
 export async function startConnection(who: { userId: number | null; attemptId: number }, returnTo: string, deps: Deps = realDeps, mode: PortalMode = 'redirect'): Promise<string> {
-  return (await mintPortal(who, returnTo, async () => mode, deps)).url;
+  return (await mintPortal(who, returnTo, mode, deps)).url;
 }
 
 // Fix round 2 (engineer, Medium and Low): every mint runs under a transaction-scoped advisory lock, the per-user lock for
 // a trader and ATTEMPT_LOCK for a brokerage-first attempt that has no user yet. Under it: the rate limit (at most
 // MINT_MAX portal_opened events per attempt in MINT_WINDOW_MIN minutes, counted and written under the same lock, so
 // parallel calls cannot slip past), the vendor user (registered only when none is stored; see ensureBrokerUser), the
-// URL, the embedded/redirect decision (`decide`, the server-side framing probe for the modal) and the funnel event.
-// Everything inside uses the transaction's own connection, so a queue of parallel mints never needs a second pool
-// connection while holding the lock.
+// URL and the funnel event. Everything inside uses the transaction's own connection, so a queue of parallel mints never
+// needs a second pool connection while holding the lock.
+// Fix round 4 (engineer re-sit, Low 1): the embedded/redirect decision is made after the commit. `decide` is either a
+// fixed mode (GET /connect/start: written with the event) or the server-side framing probe for the modal
+// (POST /connect/portal), which may wait on the vendor for up to its timeout: it runs with no transaction, no lock and
+// no pool connection held. The event is written under the lock with the probe's fallback answer ('embedded') and set
+// to the probe's answer by its id if that differs, so the count the limit relies on is never outside the lock.
 export const ATTEMPT_LOCK = 2; // USER_LOCK (lib/sync.ts) is 1
 export const MINT_MAX = 10;
 export const MINT_WINDOW_MIN = 10;
 export class RateLimitedError extends Error { constructor() { super('too many portal opens'); } }
-export async function mintPortal(who: { userId: number | null; attemptId: number }, returnTo: string, decide: (url: string) => Promise<PortalMode>, deps: Deps = realDeps): Promise<{ url: string; mode: PortalMode }> {
-  return sql.begin(async (tx) => {
+export async function mintPortal(who: { userId: number | null; attemptId: number }, returnTo: string, decide: PortalMode | ((url: string) => Promise<PortalMode>), deps: Deps = realDeps): Promise<{ url: string; mode: PortalMode }> {
+  const provisional: PortalMode = typeof decide === 'string' ? decide : 'embedded';
+  const { url, eventId } = await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(${who.userId !== null ? USER_LOCK : ATTEMPT_LOCK}, ${who.userId ?? who.attemptId})`;
     const [{ n }] = await tx`select count(*)::int as n from funnel_events where attempt_id = ${who.attemptId} and name = 'portal_opened'
       and at > now() - ${MINT_WINDOW_MIN} * interval '1 minute'`;
     if ((n as number) >= MINT_MAX) throw new RateLimitedError();
     const bu = await ensureBrokerUser(who, deps, tx);
     const url = await deps.connectUrl(bu, returnTo);
-    const mode = await decide(url);
+    const e = funnelEvent('portal_opened', { mode: provisional });
+    const [row] = await tx`insert into funnel_events (attempt_id, name, meta) values (${who.attemptId}, ${e.name}, ${tx.json(e.meta)}) returning id`;
+    return { url, eventId: String(row.id) };
+  }) as { url: string; eventId: string };
+  if (typeof decide === 'string') return { url, mode: decide };
+  const mode = await decide(url);
+  if (mode !== provisional) {
     const e = funnelEvent('portal_opened', { mode });
-    await tx`insert into funnel_events (attempt_id, name, meta) values (${who.attemptId}, ${e.name}, ${tx.json(e.meta)})`;
-    return { url, mode };
-  }) as Promise<{ url: string; mode: PortalMode }>;
+    await sql`update funnel_events set meta = ${sql.json(e.meta)} where id = ${eventId}`;
+  }
+  return { url, mode };
 }
 // The stored vendor user, or a new one. Called under the mint lock, so parallel first mints register once. The store is
 // still conditional: if a writer outside the lock stored one first, the one just registered is deleted at the vendor

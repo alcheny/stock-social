@@ -14,6 +14,9 @@ import { currentUser, origin } from '@/lib/session.ts';
 // Fix round 2: the server probes the minted URL's framing headers (lib/portal-probe.ts) and answers `mode`: 'embedded'
 // (the dialog frames it) or 'redirect' (the browser navigates to it; recorded as a redirect open). Mints are
 // rate-limited per trader (429) and serialized under the per-user lock (lib/connections.ts#mintPortal).
+// Fix round 4: the probe runs after the mint's transaction commits (no lock or pool connection held while the vendor is
+// slow), one in flight per vendor origin, pinned to the origin minted here, following no redirect off it. Its cache
+// and in-flight map are per instance; the mint limit and the registration lock are in the database.
 const noStore = { 'cache-control': 'no-store' };
 export async function POST() {
   const me = await currentUser();

@@ -205,3 +205,63 @@ Date: 2026-10-23. Engineer. Tests only; no product code changed.
   that test's fake vendor. It has not been seen to fail. If it ever does, the fix is to give the tick test's fixtures
   a scope (or have `sync.test.ts` insert that row directly as non-importing). That is a test-isolation change, not a
   product one.
+
+## Fix round 4 (2026-10-23): the engineer re-sit's two Lows and its Info
+
+Source: `docs/features/logs/F-1/committee-pr2b-engineer-round2.md`, findings 1 to 3. No product behaviour changed for
+the trader: the same mode is returned, and the same `portal_opened` event is recorded.
+
+1. **Low 1: the probe held the mint transaction, and probes were not merged.**
+   - `lib/connections.ts#mintPortal` now decides the mode after the commit. `decide` is either a fixed mode or a
+     function:
+     - A fixed mode is used by `GET /connect/start` (`'redirect'`). It is written with the event, as before.
+     - A function is the probe used by `POST /connect/portal`. It runs with no transaction, no advisory lock and no pool
+       connection held.
+   - The rate-limit count, the vendor user and the URL are still under the lock. The event is still inserted under the
+     lock, with the probe's fallback answer (`embedded`). After the probe, the event is updated by its id if the answer
+     differs. The limit's count therefore never leaves the lock.
+   - `lib/portal-probe.ts` allows one probe in flight per vendor origin. Concurrent callers await the same promise, and
+     the result goes into the cache once.
+   - The vendor's register and URL calls stay under the lock. Registering once depends on that lock. These calls are
+     the vendor's own API, not the portal page, and they were not part of the stall that was found.
+2. **Low 2: the probe followed redirects to any host.**
+   - The probe never fetches a URL off the origin the server minted (`portalOrigin`).
+   - It sends `redirect: 'manual'`. A 3xx is followed by hand only while its `Location` resolves to that same origin
+     (scheme, host and port), for at most `PROBE_MAX_HOPS` (3). A redirect anywhere else is "unknown", and so is a
+     loop or a bad `Location`. "Unknown" means `embedded`, with the client's fallback, and that answer is cached for the
+     failure TTL (5 minutes) only.
+   - The 1.5 s timeout covers every hop. Any response body is cancelled.
+3. **Info: the poll limit and the probe cache are per process.** This is now stated in comments in
+   `lib/portal-probe.ts` and `app/connect/portal/route.ts`.
+   - Each instance keeps its own probe cache and in-flight map. Behind N instances, each probes once per origin per
+     hour, and a new instance starts empty.
+   - The step limit of one per second is also per instance, so a trader can get N steps per second.
+   - The mint limit (10 per 10 minutes) and the registration lock are in the database, and they hold across instances.
+
+### Tests (unit 448 → 451; e2e connect spec unchanged, 34)
+
+| Test | What it proves |
+|---|---|
+| `lib/connections.test.ts`, "12 concurrent mints against a hanging framing probe" (DB) | 12 traders mint at once against a probe that never answers until released. All 12 reach the probe, and exactly 1 request is made. No advisory mint lock is held for any of them. 10 parallel queries (the pool's size) answer at once. All 12 opens are already recorded as `embedded`. After release: 12 × `redirect`, still 1 probe, and all 12 events now read `redirect`. On the round-3 code the same test fails: only 10 of 12 reach the probe, because the pool is exhausted. |
+| `lib/portal.test.ts`, "follows no redirect off the minted origin" | A 302 to another host: `embedded`, and only the vendor URL is fetched. A 307 to `127.0.0.1:5432`, `localhost` or `[::1]`: `embedded`, never fetched. A relative same-origin redirect is followed and its headers decide (`redirect`). A same-origin loop stops after 4 requests (`embedded`). A minted URL off the pinned origin is never fetched. A redirect-away answer is asked again after 5 minutes. Every request is a HEAD with `redirect: 'manual'` and no credentials. |
+| `lib/portal.test.ts`, "concurrent probes of one vendor origin share one request" | 12 concurrent probes of one origin plus 1 of another origin make 2 requests. All answer, and the next call is served from the cache. |
+
+The two new probe unit tests and the DB test failed on the round-3 code (`redirect: 'follow'`, 12 requests, 10 of 12
+reached), and they pass now.
+
+### Proof
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` ×2 (`DATABASE_URL=postgres://stock_social:stock_social@localhost:5432/stock_social`) | 451 pass, 0 fail, both runs |
+| `npx playwright test e2e/connect.spec.ts` (`CI=1`, `SNAPTRADE_BASE_URL=http://127.0.0.1:4102`, `SNAPTRADE_CLIENT_ID=e2e`, `SNAPTRADE_CONSUMER_KEY=e2e`; fakes started by the spec; fresh `npm run build`) | 34 passed |
+| `node scripts/compliance.ts diff origin/main` | only the existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+### Owner notes
+
+- Still open from the re-sit: check in preview whether a HEAD consumes the one-time portal URL.
+- The first `npm run build` stopped on the framework's own notice that the installed version has a known security
+  advisory, and it recommended an upgrade. The retry built normally. No dependency was changed here. The upgrade is a
+  dependency change for a human to schedule.

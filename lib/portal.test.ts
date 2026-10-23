@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { framingAllowed, parsePortalMessage, portalOrigin, portalTarget, portalView, prefersRedirect, PORTAL_BLANK_MS, PORTAL_CONTINUE, PORTAL_DONE, PORTAL_LINK_MS, PORTAL_MINT_GRACE_MS, PORTAL_REDIRECT, PORTAL_SLOW_MS, type PortalFlags } from './portal.ts';
-import { clearProbeCache, probePortalMode, PROBE_FAIL_TTL_MS, PROBE_TIMEOUT_MS, PROBE_TTL_MS } from './portal-probe.ts';
+import { clearProbeCache, probePortalMode, PROBE_FAIL_TTL_MS, PROBE_MAX_HOPS, PROBE_TIMEOUT_MS, PROBE_TTL_MS } from './portal-probe.ts';
 
 const VENDOR = 'https://portal.vendor.test';
 
@@ -184,5 +184,74 @@ test('fix round 2 (business lead 1): the server probe is one HEAD without creden
   const t0 = Date.now();
   assert.equal(await probePortalMode(`${VENDOR}/x`, VENDOR, 'https://app.example', { fetch: hang, timeoutMs: 50 }), 'embedded');
   assert.ok(Date.now() - t0 < 1_000);
+  clearProbeCache();
+});
+
+test('fix round 4 (engineer re-sit, Low 2): the probe follows no redirect off the minted origin (another host, loopback) and fetches nothing off it; a same-origin redirect is followed by hand, a bounded number of times', async () => {
+  const app = 'https://app.example';
+  const run = async (url: string, replies: Record<string, { status: number; headers: Record<string, string> }>) => {
+    clearProbeCache();
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetch = async (u: string, init: RequestInit) => {
+      calls.push({ url: u, init });
+      const r = replies[u] ?? { status: 200, headers: { 'x-frame-options': 'DENY' } };
+      return { status: r.status, headers: new Headers(r.headers) };
+    };
+    const mode = await probePortalMode(url, VENDOR, app, { fetch });
+    return { mode, urls: calls.map((c) => c.url), inits: calls.map((c) => c.init) };
+  };
+  // A redirect to another host: unknown, embedded; the other host is never fetched.
+  let r = await run(`${VENDOR}/redeem`, { [`${VENDOR}/redeem`]: { status: 302, headers: { location: 'https://other.example/x' } } });
+  assert.equal(r.mode, 'embedded');
+  assert.deepEqual(r.urls, [`${VENDOR}/redeem`]);
+  assert.equal(r.inits[0].redirect, 'manual');
+  assert.equal(r.inits[0].method, 'HEAD');
+  assert.equal(r.inits[0].credentials, 'omit');
+  // A redirect to loopback (absolute, or another port/scheme on the loopback host): embedded, never fetched.
+  for (const location of ['http://127.0.0.1:5432/', 'http://localhost/admin', 'https://[::1]/']) {
+    r = await run(`${VENDOR}/redeem`, { [`${VENDOR}/redeem`]: { status: 307, headers: { location } } });
+    assert.equal(r.mode, 'embedded', location);
+    assert.deepEqual(r.urls, [`${VENDOR}/redeem`], location);
+  }
+  // A redirect that stays on the vendor's portal origin (relative or absolute) is followed by hand, and its headers decide.
+  r = await run(`${VENDOR}/redeem`, { [`${VENDOR}/redeem`]: { status: 302, headers: { location: '/portal?x=1' } } });
+  assert.equal(r.mode, 'redirect');
+  assert.deepEqual(r.urls, [`${VENDOR}/redeem`, `${VENDOR}/portal?x=1`]);
+  assert.ok(r.inits.every((i) => i.redirect === 'manual'));
+  // A loop on the vendor's origin stops after PROBE_MAX_HOPS: embedded.
+  assert.equal(PROBE_MAX_HOPS, 3);
+  r = await run(`${VENDOR}/loop`, { [`${VENDOR}/loop`]: { status: 302, headers: { location: '/loop' } } });
+  assert.equal(r.mode, 'embedded');
+  assert.equal(r.urls.length, PROBE_MAX_HOPS + 1);
+  // Pinned to the minted origin: a URL that is not on it is never fetched.
+  r = await run('http://127.0.0.1/redeem', {});
+  assert.equal(r.mode, 'embedded');
+  assert.deepEqual(r.urls, []);
+  // A redirect-away answer is not definite: cached for the failure TTL only, then asked again.
+  clearProbeCache();
+  let t = 0, n = 0;
+  const away = async () => { n++; return { status: 302, headers: new Headers({ location: 'https://other.example/' }) }; };
+  assert.equal(await probePortalMode(`${VENDOR}/a`, VENDOR, app, { fetch: away, now: () => t }), 'embedded');
+  t = PROBE_FAIL_TTL_MS;
+  assert.equal(await probePortalMode(`${VENDOR}/a`, VENDOR, app, { fetch: away, now: () => t }), 'embedded');
+  assert.equal(n, 2);
+  clearProbeCache();
+});
+
+test('fix round 4 (engineer re-sit, Low 1): concurrent probes of one vendor origin share one request; another origin gets its own', async () => {
+  clearProbeCache();
+  let n = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const fetch = async () => { n++; await gate; return { status: 200, headers: new Headers({ 'x-frame-options': 'DENY' }) }; };
+  const all = Array.from({ length: 12 }, (_, i) => probePortalMode(`${VENDOR}/redeem?t=${i}`, VENDOR, 'https://app.example', { fetch }));
+  const other = probePortalMode('https://other-vendor.example/r', 'https://other-vendor.example', 'https://app.example', { fetch });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(n, 2);
+  release();
+  assert.deepEqual(await Promise.all(all), Array(12).fill('redirect'));
+  assert.equal(await other, 'redirect');
+  assert.equal(await probePortalMode(`${VENDOR}/again`, VENDOR, 'https://app.example', { fetch }), 'redirect'); // cached
+  assert.equal(n, 2);
   clearProbeCache();
 });
