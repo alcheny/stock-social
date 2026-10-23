@@ -83,3 +83,65 @@ personal data. §3 consent at collection: defect 1 collects before it. §7: atte
 session-only, cookie signed and path-scoped.
 
 Verdict: DEFECTS
+
+## Re-run 1 (after fix round 1)
+
+Date: 2026-10-23. Same branch, at `0ad904f` (fix round 1 in `5722c6d`, `build-pr2a-fix1.md`). No product code changed.
+Local Postgres 16; `scripts/db-setup.ts` twice, then with `SEED=1`, all clean.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, four runs | 391 pass every run, 0 fail, 0 skipped |
+| `npm run build` | success. The first attempt stopped after compiling on a framework security advisory prompt (tool output, not acted on beyond a retry); the retry built cleanly, routes as listed in the build log |
+| `npm run test:e2e` (`ALLOW_DEV_AUTH=1`, vendor fake on 4102, PR-1 issuer and sink variables) | 65 passed, 0 skipped; all 9 connect tests ran |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+**Watch item, "attestation first" (PR-1, `lib/auth/attempts.test.ts`).** It did not fail in the four runs. Reproduced
+on purpose: running that one test while a second process inserts attested attempts fails 2 of 3 times with
+`expected N, actual N+1`, an off-by-one equal to one concurrent insert. Confirmed: a global `count(*)` race between
+parallel test files, not a product defect (the rejected call itself writes nothing). Classified as a separate must-fix
+for test robustness (assert on the rejected call's own effect, not a table-wide count), owned by PR-1.
+
+Tester scripts (not committed) drove the built app on port 3201 against the in-repo vendor fake, as a user in a
+browser, with database and vendor-state checks after each step. Screenshots at 375 and 360 px, light and dark, in
+`screenshots/pr2a/rerun1/` (consent, result declined / failed / not found / abandoned signed in and out / refused
+and refused after the claim race, profile importing / importing while deferred / connected / failed owner and
+signed out / pending owner and signed out, stale-tab decline after consent and after connected). The server and
+the fake were stopped afterwards.
+
+### D1–D9
+
+| # | Check as a user and in the database | Result |
+|---|---|---|
+| D1 | Signed in, link 2 accounts (1 simulated) → consent page; `POST /api/sync` twice → 0 activities, both claims `confirmed_at` null, state `pending`, `last_synced_at` null, no closed trades. "Don't import" → claims released, vendor link gone, row `declined` with `cleanup_done_at`, activities still 0. | Fixed |
+| D2 | Consent with the consent page also open in two stale tabs. "Don't import" in stale tab 1 while importing, and in stale tab 2 after `connected`: both land on the profile; row stays `importing`/`connected`, no `declined_at`/`cleanup_done_at`, the authorization is still at the vendor, confirmed claim kept, the next tick marks no disconnect and the record (2 closes) stays. Expired row re-bundled: link A with a fixed authorization, expire it, link again (B bundles the same authorization), consent, tick → A cleaned, authorization kept at the vendor, B `connected`, 2 closed trades. | Fixed |
+| D3 | The seven URLs (`/connect/result`, `?c=abc`, `?c=<20 digits>`, `?c=1.5`, `/connect/consent`, `?c=0`, `?c=NaN`) plus `-1`, a blank, `1e3`, `007`, an 18-digit unknown id and another trader's real id: all 200 "Connection not found." with "Connect a brokerage". `?k=abandoned` signed out is S7a, 200. | Fixed |
+| D4 | One page read, then a forced 503 → still `importing`, cursor unchanged, `retries` 1, `retryAt` ≈ 30 s, `last_progress_at` unchanged. A 403 armed and a step before `retryAt` → the 403 is still armed afterwards (no vendor call), still `importing`. Second 503 → `retries` 2, ≈ 60 s. After the backoff, 403 → `failed`, reason `vendor`. | Fixed |
+| D5 | After that failure, the tick → activities stay 4 (second account never read), 0 closed trades. Owner profile: "The import did not finish, so this record may be incomplete." as an alert with "Try again" → `/connect`; signed out the same line as a status, no retry, no Verified badge, never "No closed trades yet". The result page for that row reads "Your brokerage stopped the connection before the import finished." | Fixed |
+| D6 | Brokerage-first attempt links account X and waits on consent; a signed-in trader links X and consents first (confirmed claim). The attempt taps "Import my record" → `?k=refused`, not signed in; no users row for the attempt, user count unchanged, attempt `user_id`/`completed_at`/vendor id null, vendor user gone at the fake, row `declined` with `cleanup_done_at`, funnel ends `failed` (`claimed`), the other trader keeps the confirmed claim. | Fixed |
+| D7 | After consent, `/connect/consent?c=` and `/connect/result?c=` land on `/u/<handle>` with "Importing your record · 0 trades so far", no "Connection not completed". | Fixed |
+| D8 | Consent lines read "Every account under this login" then "2 accounts found (1 simulated, not imported)". Failed result line as above. | Fixed |
+| D9 | Open-position link 44 px tall. Focus is on `#result-heading` on `?k=abandoned`. Signed in, `GET /connect/done` with no new link → `?k=abandoned`. A user with five feed-worthy closes, visible in the feed and with a 200 share card, then `deleted_at` set: absent from the feed and the ticker page; profile, share card, story image and trade page all 404. | Fixed |
+
+### New in this re-run
+
+1. **Medium · a pending (unconsented) link already shows on the public profile.** With only a `pending` connection,
+   the profile reads "1 simulated account excluded: simulated trades are never part of a record." to everyone,
+   signed out included (`profile-pending-signedout-*.png`): the count comes from `broker_accounts` provisional rows
+   (`app/u/[handle]/page.tsx` counts `is_paper` with no `confirmed_at` filter). That publishes a fact read from the
+   vendor before consent (COMPLIANCE §3, consent at collection; the consent screen says "Nothing has been imported
+   yet"). Count only confirmed claims. Present since PR-2a; not caught in the first pass.
+2. **Low · the S8 empty-record line shows for a trader who never consented.** The record state falls back to
+   `connected` whenever the user has a vendor id, so a trader whose only connection is `pending`, `declined` or
+   `expired` sees, and visitors see, "No closed trades yet. Your record starts with your first close." instead of
+   "No trades yet." (plan §8 item 3: the empty-record line only once an import has finished). Derive `connected`
+   from a `connected` connection (or confirmed claims), not from the vendor id.
+3. **Low · usability.** On S6b (`?k=refused`, `result-refused-race-*.png`) the whole four-sentence claim message is the
+   H1 (about 12 lines of heading text at 375 px, read as one heading by a screen reader). Short heading, the rest as
+   body text.
+
+Watch item (separate must-fix, test robustness, PR-1): the "attestation first" global-count race, above.
+
+Verdict: DEFECTS (D1–D9 fixed; new: 1 Medium, 2 Low)
