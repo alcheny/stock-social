@@ -7,7 +7,7 @@ import { expect, test, type Page, type APIRequestContext } from '@playwright/tes
 import { readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import postgres from 'postgres';
-import { startVendorFake, type FakeAccount } from './fakes/vendor.ts';
+import { startVendorFake, type FakeAccount, type FakeActivity } from './fakes/vendor.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
 let vendor: { server: Server; base: string };
@@ -501,4 +501,47 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   await anon.close();
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id = any(${[...a, b]})`;
+});
+
+// Fix round 3 (TR-3): the feed leaves out a trader while any consented import is still running, and shows them again
+// once every import has finished. Recent trades with large moves so the trader ranks in the feed when eligible.
+test('fix round 3: the feed omits a trader whose second import is still running and shows them once it finishes', async ({ page, browser }) => {
+  const handle = `fd${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const recent = (acc: string, pairs: number): FakeActivity[] => Array.from({ length: pairs }, (_, i) => {
+    const t = Date.now() - (pairs - i + 1) * 3 * 3_600_000, sym = ['AAA', 'BBB', 'CCC'][i % 3];
+    return [
+      { id: `${acc}-b${i}`, symbol: sym, type: 'BUY' as const, units: 10, price: 100, fee: 0, trade_date: new Date(t).toISOString() },
+      { id: `${acc}-s${i}`, symbol: sym, type: 'SELL' as const, units: 10, price: i % 2 ? 80 : 125, fee: 0, trade_date: new Date(t + 3_600_000).toISOString() },
+    ];
+  }).flat();
+  const [a1, a2, a3] = [1, 2, 3].map((n) => `e2e-${handle}-${n}`);
+  const anon = await browser.newContext();
+  const feed = await anon.newPage();
+  const inFeed = async () => { await feed.goto('/'); return feed.locator(`a[href="/u/${handle}"]`).count(); };
+  // First link: 5 closes, finished → eligible for the feed.
+  await scenario([{ id: a1, activities: recent(a1, 5) }]);
+  await connectThrough(page);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  let r = await step(page.request);
+  for (let i = 0; i < 6 && r.state === 'importing'; i++) r = await step(page.request);
+  expect(r).toMatchObject({ state: 'connected', closes: 5 });
+  expect(await inFeed()).toBeGreaterThan(0);
+  // Second link (2 accounts) consented; one step reads account 1 of 2, so the import is still running.
+  await scenario([{ id: a2, activities: recent(a2, 2) }, { id: a3, activities: recent(a3, 2) }]);
+  await connectThrough(page);
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  r = await step(page.request);
+  expect(r).toMatchObject({ state: 'importing', closes: 5 });
+  expect(await inFeed()).toBe(0);
+  for (let i = 0; i < 8 && r.state === 'importing'; i++) r = await step(page.request);
+  expect(r).toMatchObject({ state: 'connected', closes: 9 });
+  expect(await inFeed()).toBeGreaterThan(0);
+  await anon.close();
+  await sql`delete from users where handle = ${handle}`;
+  await sql`delete from broker_accounts where account_id = any(${[a1, a2, a3]})`;
 });

@@ -240,3 +240,78 @@ Note (not blocking): the card's ✓ glyph rendered as a missing-glyph box here b
 This is the sandbox, not the build.
 
 Verdict: DEFECTS (re-run 1's three fixed and both test races closed; new: 1 Medium, 2 Low)
+
+## Re-run 3 (after fix round 3)
+
+Date: 2026-10-23. Same branch, at `60e64b0` (fix round 3, `build-pr2a-fix3.md`). No product code changed. Local
+Postgres 16; `db/schema.sql` applied twice with `psql`, then `npm run db:seed`, all clean.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, four runs | 396 pass in runs 1, 3 and 4. Run 2: 395 pass, 1 fail ("D6: a brokerage-first consent that loses the claim race…", `49 !== 50` on a table-wide `count(*) from users`; see new item 2) |
+| `npm run build` | the first attempt compiled, then stopped on a framework security-advisory prompt (tool output; nothing upgraded). The retry built cleanly |
+| `npm run test:e2e` (`ALLOW_DEV_AUTH=1`, vendor fake on 4102 with the three `SNAPTRADE_*` variables, PR-1 issuer and sink variables) | 67 passed, 0 skipped; then 68 passed with the feed test added below. The two "fix round 3" tests also passed 3 of 3 runs on their own |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+Tester scripts (not committed) drove the built app on port 3000 against the in-repo vendor fake in a browser, with
+database checks after each step, then deleted their users and claims. Screenshots at 375 and 360 px, light and dark,
+plus the share card per state, are in `screenshots/pr2a/rerun3/`. The server and the fake were stopped afterwards.
+
+### Re-run 2 findings
+
+| # | Check as a user and in the database | Result |
+|---|---|---|
+| 1 Medium | Stall repro end to end. A signed-in trader linked 3 real accounts (4 activities each) and consented; one poll read account 1 (`{importing, 4}`). A second link (1 account, 2 activities) reached its consent page and stayed `pending`: the next poll answered `importing` (not `pending`) and moved the first row to account 3 (`{i:2}`, 8 imported). The second link was then consented. Signed out: the banner "Importing your record · 8 trades so far", no Verified badge, no `section.stats`, no chart, no "Connected:" line; the unfurl text was the banner line. One poll advanced **both** rows (first `{i:3}`, 12; second `{i:1}`, 2) and answered `{importing, 14}`; the next rebuilt both (7 rows in `closed_trades`), still `importing`, and signed out the 7 trades so far were listed under the banner with no badge, stats, chart or "Connected:" (`stall-importing-signedout-*`, `stall-importing-owner-375-light.png`). The tick (`advanced: 2`) finished both: `connected` and `connected`, 7 closes; the poll then answered `{connected, 14, 7}`. Signed out: no banner, Verified, stats, chart, "Connected:", 7 trades (`stall-connected-signedout-*`); the share card went from "Importing record / Import in progress" to "✓ Verified from broker" with stats | Fixed |
+| 2 Low | Same run: with the newer link pending the poll drove the running import and never said `pending` | Fixed |
+| 3 Low | Share card per state (images in `rerun3/`): demo profile "Demo data" (`card-demo.png`); a real trader with nothing consented, and one with only a pending link: no label, "No closed trades yet" (`card-real-none.png`, `card-real-pending.png`); importing: "Importing record", "Import in progress", "Stats appear when the import finishes.", no stats (`card-importing-two-links.png`); failed with no closes: amber "Import did not finish", "No closed trades yet", the profile's incomplete line (`card-failed.png`); failed with closes: the same label and line under the stats (`card-failed-partial-retry.png`); connected with no closes: "✓ Broker connected" (`card-real-empty.png`); connected with closes: "✓ Verified from broker" (`card-retry-connected.png`, `card-connected-after-two-links.png`). No "Demo data" on any real trader | Fixed |
+
+The engineer's two additions:
+
+- **A failed import stops counting once a later live connection re-imports all of its real accounts.** Sound, and
+  needed: without it "Try again" could never clear the incomplete line. Checked as a user: 2 accounts, one page, then a
+  403 → `failed`; owner sees the alert and "Try again", signed out the status line, the card says the import did not
+  finish (`failed-owner-375-light.png`, `failed-signedout-*`); a tick leaves it `failed`. "Try again" → `/connect` →
+  portal → consent → polls → the new row `connected` (8 imported, 4 closes), the old row stays `failed` in the table,
+  and the profile has no failed line and no "Try again", Verified, stats, "Connected:" (`retry-connected-signedout-*`).
+  A retry re-reads from offset 0 for each account, so the cleared record is whole. A retry that cannot cover the
+  failed accounts (the old authorization removed at the vendor, only account 1 linked again) ends `connected` for the
+  new row but the record stays `failed`: the line and the amber card label remain. A re-link while the vendor still
+  lists the old authorization bundles both accounts into the new row, which correctly clears it.
+- **The feed leaves out traders whose import is still running.** Correct. Checked: a trader with 5 recent closes from a
+  finished first link is in the feed; a second link (2 accounts) consented and one step run → `importing`, 5 closes,
+  absent from the feed (`feed-importing-omitted-375-light.png`); after the polls finish it (9 closes) they are back.
+  The missing automated test was cheap and test-only, so I added it: `e2e/connect.spec.ts` "fix round 3: the feed
+  omits a trader whose second import is still running and shows them once it finishes" (recent fake activities so the
+  trader ranks; skips without the vendor fake like the other vendor-backed tests). e2e 67 → 68; nothing weakened.
+
+### Regression (D1–D9, Re-run 1)
+
+Quick pass, all still fixed: D1 (pending link, two ticks: 0 activities, no confirmed claim, still `pending`); D3 (the
+seven URLs answer 200 "Connection not found.", `?k=abandoned` 200; `POST /api/sync` without the bearer and an anonymous
+`POST /api/import/step` both 401); D7 (revisiting the consent page after consent lands on the profile, no
+"Connection not completed"); D9 (open-position link 44 px); Re-run 1 item 1 (pending link: signed out "No trades
+yet.", no simulated text; after consent and import "1 simulated account excluded"). D2, D4, D5, D6, D8 and the S6b
+heading are covered by named unit/e2e tests that passed (D6's in 3 of 4 runs, see item 2).
+
+### New in this re-run
+
+1. **Low · spec (TR-3) · the feed presents a failed import's record as whole.** A trader with 5 closes from a finished
+   link whose second import failed (403 after one page) stays in the feed, and the feed pane shows "✓ Verified", the
+   chart and stats with no incomplete line (`feed-failed-row-375-light.png`), while the profile and the card both say
+   "The import did not finish, so this record may be incomplete." Present since PR-2a (the feed never read the record
+   state); not raised in earlier passes. Fix: in the feed, either leave out a `failed` record as an `importing` one is,
+   or carry the incomplete line in the pane and drop the Verified badge there; add the case to the new feed e2e.
+2. **Low · test robustness · "D6: … leaves no ghost user" counts the whole `users` table.** It failed once in four
+   runs with `49 !== 50`: another test file deleted a user between `usersBefore` and the assertion. Same class as the
+   "attestation first" race closed in re-run 2. Fix: assert on the attempt's own rows only (the
+   `signup_attempt_id = attempt` check already there), not a table-wide count. The product behavior is correct.
+
+Notes (not blocking): the unfurl text for a record with no closes reads "0 verified trades · % win rate · 0.0% avg
+return" (same on `main`; with `failed` it is now prefixed by the incomplete line). While importing, the banner's count
+is imported activities ("14 trades so far") while 7 closed trades are listed under it; worth aligning the wording in
+PR-2b. The card's ✓ glyph rendered as a box here only because the font download failed offline.
+
+Verdict: DEFECTS (re-run 2's Medium and two Lows fixed, both additions sound; new: 2 Low, one TR-3 feed gap and one
+test race)
