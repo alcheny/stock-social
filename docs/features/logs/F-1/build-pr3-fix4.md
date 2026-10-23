@@ -223,3 +223,84 @@ Files: `lib/claims.test.ts`, `lib/trades.ts`, `lib/trades.test.ts`, this log.
 No personal data, secrets or third-party names; no new dependency; no copy beyond number formatting; losses are shown
 as before and more exactly (a near-total loss is never shown as better or worse than it is); schema and
 `lib/broker.ts` unchanged.
+
+## Fix round 6 (after the engineer's committee re-sit, round 2)
+
+1. **Medium, future-dated close (feed overflow and boost).**
+   - `lib/feed.ts`: the age term is `greatest(0, least(age_hours / 48, 600))`. A future close scores exactly like a close
+     at this instant (its size term), never above it. The tie-break reads a future `closed_at` as now, so a future date
+     never wins a tie. Before the fix, a 2031 close made the whole query fail with `value out of range: overflow`, and a
+     close dated tomorrow scored e^0.5 × its size and took the top.
+   - Import path (`lib/sync.ts#rebuildTrades`, used by import steps, syncs and the seed): an activity dated more than
+     `FUTURE_GRACE_HOURS` (24) after the database clock is quarantined. Its raw row is kept, since activities are
+     immutable, but it is never matched or published. It is counted in the new `users.excluded_future` column
+     (`db/schema.sql`, `schema_add_column`, additive), and the profile shows it with its reason: "N imported trade(s)
+     excluded: dated in the future by the broker." The check runs again on every rebuild, so a date the vendor corrects
+     comes back on the next sync. `syncUser` also leaves quarantined rows out of the re-read window, so one future row
+     can no longer push the backfill week past the real activity.
+   - Tests:
+     - `lib/feed.test.ts`: closes dated 2031 and tomorrow. The page's own `feedCandidates()` call answers; it fails
+       with the overflow when the fix is reverted. Each future close scores exactly its size term, and an hour-old
+       real 30% move ranks above both.
+     - `lib/sync.test.ts`: an activity 2 days ahead is never published. It is counted as `excluded_future = 1`
+       (`excluded_positions` stays 0) and keeps its raw row. +12 h is inside the grace and is published. The next
+       sync's window starts from the newest non-future row.
+     - `e2e/app.spec.ts`: `/` answers 200 with the 2031 and tomorrow closes and shows its cards (run against a
+       production build: passes).
+   - The heavy-use fixture (`e2e/fakes/vendor.ts#seededActivities`) used to generate 2,500-row histories that ran to
+     about 2030. The new quarantine caught this, and the load suite failed on it. The history is now shifted back as
+     a whole so its last row is at a fixed past date (`SEEDED_END`, 2026-01-01). Same seed, same rows, same structure.
+2. **Low, step overruns.**
+   - `cleanupAttempts` checks `until` (the cron call's deadline) before every row. No row starts at or after it, it
+     logs `attempt cleanup stopped {"cleaned":n,"left":m}` (counts only), and the next call sweeps the rest. The
+     connection `tick` always calls it with the deadline and always writes `connections tick {…counts,
+     stoppedAtDeadline}`, even when the sweep fails or the budget is gone. The `sync tick` line is written in either
+     case, because the sweep now returns before the deadline is reached.
+   - The sync reserve is sized by account count. `syncTick({ routeEnd })` (the route passes `syncRouteEnd(start)`,
+     its 300 s limit) claims a trader only if `(1 + 2n) × 30 s` fits the time left. Here n is the number of real
+     accounts in the trader's connected snapshots; paper accounts are not counted. Traders that do not fit stay
+     unclaimed for the next call: they are counted, and `stoppedAtDeadline` is set. n is capped at `SYNC_FIT_CAP` (4,
+     270 s), so a trader with more accounts is still claimed when a whole call is left and never starves.
+     `ponytail:` past 4 accounts, or past one activity page per account, a sync can still overrun. It then rolls back
+     and its lease lapses, as before. Next step: split the sync per account like the import.
+   - The import's positions read after the rebuild is split by time. `importStep(…, readUntil, clock)` reads at least
+     one account per step, then starts another only while a whole vendor bound still fits before `readUntil`. That
+     is `readUntil(deadline)` = the step route's limit minus 5 s, or, for the cron's `drive`, one vendor bound past
+     its deadline. The cursor's `pos` carries the remaining accounts to the next step, which does not rebuild again
+     (`replaceAccountPositions` replaces only those accounts' rows). The import connects only once every account is
+     in. Old cursors (no `pos`) behave as before.
+   - Tests:
+     - `lib/connections.test.ts`: 3 accounts, each read takes 30 s. 45 s left reads 1 (`pos` 1, one row). The next
+       step with 70 s left reads 2, with no second rebuild. It then connects with all three accounts' positions.
+     - Sweep: 3 rows with 45 s left cleans 2, leaves 1, logs it, and the next call sweeps the last. A tick past its
+       deadline makes no vendor call and still logs its line.
+     - `lib/sync.test.ts`: traders with 1, 2 and 6 accounts (plus paper). 100 s left claims only the 1-account
+       trader. Under 30 s claims nobody. A whole call claims the 2- and 6-account traders. With the clock moving,
+       160 s left and an 80 s sync, the second trader is left unclaimed.
+
+Checks:
+- `npx tsc --noEmit`: clean.
+- `npm test` ×3 (local Postgres): 508 tests, 503 pass, 0 fail, 5 skipped (load) in all three runs (15.9–18.6 s). An
+  earlier run of the new account-count test was flaky because trader ids come from a parallel setup. Its timed step
+  now holds whatever the claim order, and it passed 6/6 in isolation.
+- `LOAD=1 node --expose-gc --test lib/sync.load.test.ts`: 5/5 pass.
+- `compliance.ts diff origin/main`: 1 violation, the `@img/sharp-wasm32` license already on `main`. Nothing comes
+  from this diff.
+- `autopilot.ts guard main`: ok.
+- Playwright (production build, seeded): the new feed test, the 2015 test and "feed works signed out" pass.
+
+Files:
+- `lib/feed.ts`, `lib/sync.ts`, `lib/connections.ts`, `lib/positions.ts`
+- `app/api/sync/route.ts`, `app/u/[handle]/page.tsx`
+- `db/schema.sql`, `e2e/fakes/vendor.ts`
+- `lib/feed.test.ts`, `lib/sync.test.ts`, `lib/connections.test.ts`, `e2e/app.spec.ts`
+- this log
+
+### Compliance
+
+- No personal data, secrets or third-party names. Logs carry counts only, and fixtures are generated.
+- No new dependency. `lib/broker.ts` is unchanged.
+- Nothing is hidden silently: a quarantined trade is counted on the profile with its reason.
+- Losses rank as before (|return|), and a future date ranks at most like a close at this instant (and one more than a day ahead is never published).
+- The schema change is one additive column, with no drop, truncate or delete.
+- New copy: one factual exclusion line, with no advice or completeness claim.
