@@ -186,3 +186,90 @@ Branch `claude/adoring-euler-4469ys` at `fdc8bf8` (fix round 1), Postgres 16. No
 - The user table matches the list from before the run (85 rows). No servers are left running.
 
 Verdict: DEFECTS
+
+## Re-run 2 (after the engineer's fix round 2)
+
+Postgres 16 on localhost. Code under test: `3b4b202` (no product code changed by the tester).
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | Clean both times; seed exit 0 |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×4 | 474 tests: 469 pass, 5 skipped (load), 0 fail every run (9.8–10.3 s). User count and claims unchanged across the runs. |
+| `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` ×2 | 5/5 both runs (26.3 s, 28.4 s). A full snapshot of every user's claim and lease is byte-identical before and after each run. |
+| `CI=1 npm run build`, stdin closed | Run 1 stopped on the framework's security advisory again (tool output; nothing upgraded, the owner decides). Retry: exit 0. |
+| `e2e/connect.spec.ts` (`CI=1`, vendor fake on 4102) | 34 passed (2.9 min) |
+| `compliance.ts diff origin/main` | 1 violation, already on `main` (`@img/sharp-wasm32` license). Nothing from this diff. |
+| `autopilot.ts guard main` | ok |
+
+Load timings (run 1 / run 2, ms unless noted; bounds unchanged): import 1,349 / 1,124 (15,000); slowest step 437 / 338
+(3,000); rebuild 417 / 387 (5,000); hourly syncs 382/385/364 and 337/373/422 (5,000 each); first sync 1,073 / 1,165
+(15,000); fleet 6,855 / 7,336 (60,000), each trader once, 61–63 per caller; heap peak at most +32.7 MB (160).
+
+### 2. Static checks
+
+- **Cron route.** `app/api/sync/route.ts` calls `syncTick()` with no argument. With no options the claim runs with
+  shift 0 and no `ids`, so it reads `now()` as is and claims every syncable trader. No other caller in `app/` or `lib/`
+  passes `clockShiftMs` or `ids`.
+- **Fleet scope.** The `ids` filter sits inside the claim's subselect, so the update can only touch a listed trader. An
+  empty list returns before the query. The test asserts that every other trader is unchanged, and resets its own claims
+  in `finally`. In this database, 12 syncable traders outside the fleet kept their exact claim and lease text through
+  both runs (attack 16 checks the same thing directly).
+
+### 3. Claim rule, attacked
+
+Scratch suite (outside the repo, against the repo's modules), adapted so that every tick runs on the clock-shift hook
+with its own `ids`. Minute 0 is a past :00 cron mark in database time. Round k covers minutes [60k − 30, 60k + 30).
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | Late tick: +12 only, then +60, +120 | **pass**: [12, 60, 120] |
+| 2 | Crash holding one claim at +0; retry +15; tick +60 | **pass**: [15, 60] |
+| 3 | A tick from :25 whose first sync ends at :33, with a :31 tick alongside | **pass**: [[25, 33], [31], [31], [31]]. Once in each round, and the :31 tick never took the leased trader. |
+| 4 | Lease lapses mid-sync while the advisory lock holds (A :00 to past :12, B at :12) | **pass**: B `skipped`, no interleave, lease null, :20 does not sync again |
+| 5 | 8 concurrent ticks over 12 traders (4 at :29, 4 at :31), then :60, :120 | **pass**: never two at once, exactly once in rounds 1 and 2, at most once in round 0 |
+| 6–8 | Instances ±2 min on the :00 cron: alternating, both firing, or a retry a minute later | **pass**: once per round in every case (previously the Medium) |
+| 9 | An import from :28 to past :31 | **pass**: never claimed, claim and lease stay null; synced once at :32 |
+| 10 | 0.3 s late, then 0.1 s early (:59:59.9), then on time | **pass**: 3 of 3 rounds (previously the Medium) |
+| 11 | ±2 min across :30: calls at :28, :32, :60, :88, :92, :120; then :29:59.9 and :30:00.3 | **pass**: [28, 32, 92], once per round. :28 and :32 are two rounds by design, and :29:59.9 and :30:00.3 are two rounds. This only happens to a call that is 28+ minutes from any cron mark. |
+| 11b | The database clock steps back 2 min across :30 (:31, then :29), then :60, :120 | **pass**: [31, 120], no double |
+| 12 | A tick starts at :29 and runs past :30 (the clock moves 24 s per sync), then the :60 cron | **pass**: claims before :30 stamp round 0 and claims after stamp round 1. The same tick takes the round-0 traders again in round 1, and :60 syncs nobody. Exactly once in round 1, every lease cleared. |
+| 13 | The cron fires twice at :00 on two instances (concurrent, same database time), then again 3 s later, then a pair at :120 | **pass**: the pair split 5/5, each trader exactly once per round, never two at once |
+| 14 | Lease lapses mid-sync and the second claim lands in the **next** round (A claims at :25 and holds the lock past :36; B ticks at :36) | **fail (Low)**: B is `skipped`, but its claim stamps round 1. The :60 cron syncs nobody. The next vendor read starts at :120, so round 1 gets no read. |
+| 15 | Lease release at microsecond precision | **pass**: the returned lease text equals the stored value (e.g. `…00:10:00.001264+00`, µs part 264). The lease is exactly claim + 600 s. Release clears it and keeps the round claim, and the trader is not claimable again in that round. A release against a lease 1 µs newer leaves it set. The same release statement matches under another session time zone. A full tick leaves 0 leases. |
+| 16 | Scoped ticks with another syncable trader present; empty `ids` | **pass**: the other trader's claim and lease stay null. Empty `ids` claims nobody and calls no sync. |
+
+### 4. Defects
+
+1. **Low · bug · `lib/sync.ts#syncTick`: a `skipped` sync keeps its round claim, so a lease that lapses across :30
+   costs that trader a round (row 14).**
+   - The trigger is a single trader's sync that holds the advisory lock past `SYNC_LEASE_MS` (10 min) and across a :30
+     boundary.
+   - Measured syncs take about 1 s. But the vendor calls in `syncUser` run inside the transaction with no request
+     timeout (nothing in `lib/broker.ts` or `lib/sync.ts`), so a hung vendor call is the realistic way to get there.
+   - Every tick in the next round claims the trader, is `skipped` by the lock, and stamps the round. Once the hung sync
+     finishes, the trader is not read again until the round after.
+   - This breaks the stated rule "at least once per round while any tick runs in it". The worst case is one round of
+     extra staleness.
+   - Within a single round the same path is correct (row 4).
+   - Fix (engineer's choice):
+     - Bound each vendor request well below the lease, so a lease cannot lapse mid-sync.
+     - Or, on `skipped`, put back the claim the tick had replaced, guarded by its lease.
+     - Assert either fix with row 14's sequence.
+
+The Medium and both Lows from re-run 1 are fixed (rows 3, 6–8, 10–13; §2 and row 16 for the fleet scope).
+
+### 5. Cleanup
+
+- The scratch suite deleted its traders and their accounts, and restored every user's claim and lease from a text
+  snapshot: 0 differences afterwards.
+- The e2e cron calls claimed 17 traders in the current round. All 17 were reset to their earlier values.
+- 12 syncable test traders (`*-vendor`, created 05:52–05:57 today, before the fix commit) were left in the database,
+  probably by interrupted engineer runs. They had no accounts or activities, and the e2e cron was syncing them against
+  the fake. They are deleted.
+- The four `npm test` runs leaked no users.
+- The user table matches the re-run 1 baseline (85 rows, no claim or lease set). No servers are left running.
+
+Verdict: DEFECTS
