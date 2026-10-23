@@ -7,9 +7,10 @@
 // Pure; returns the kept indices, ascending. `max` >= 4 (first, last, one slice's low and high).
 export const FEED_CHART_POINTS = 400; // ≤ 2 points per CSS px for any chart wider than 200 px; the feed pane's is 335–560
 // Fix round 8 (tester re-run 4, Medium): the feed page carries only a stand-in line per trader (the ALL range at this
-// budget: what a visitor without JS sees, about one slice per 6 px of a phone-wide pane) and the pane loads its full
-// chart (FEED_CHART_POINTS per range, with the closes) on its first swipe-open. A record this short ships whole.
-export const FEED_LITE_POINTS = 120;
+// budget: what a visitor without JS sees, one low and one high per 8 px of a phone-wide pane; the first and last point
+// and the record's low and high are kept) and the pane loads its full chart (FEED_CHART_POINTS per range, with the
+// closes) on its first swipe-open. A record of at most PANE_EAGER_CLOSES closes ships whole.
+export const FEED_LITE_POINTS = 80;
 export const PANE_EAGER_CLOSES = 50;
 
 export function downsampleIndices(xs: number[], ys: number[], max: number): number[] {

@@ -145,11 +145,17 @@ test('fix round 8: the feed\'s stand-in carries the ALL line at FEED_LITE_POINTS
   }
   // The stand-in keeps the line's ends and extremes (the line is not smoothed).
   const vals = (s: typeof l.ALL) => s.pts.map((p) => p.value);
-  assert.equal(Math.min(...vals(l.ALL)), Math.min(...vals(f.ALL)));
-  assert.equal(Math.max(...vals(l.ALL)), Math.max(...vals(f.ALL)));
-  assert.equal(l.ALL.pts.at(-1)!.value, f.ALL.pts.at(-1)!.value);
-  // Several times lighter than the full chart.
-  assert.ok(JSON.stringify(lite).length * 5 < JSON.stringify(full).length, `${JSON.stringify(lite).length} vs ${JSON.stringify(full).length}`);
+  const close = (a: number, b: number) => Math.abs(a - b) <= 5e-5 + 1e-12;
+  assert.ok(close(Math.min(...vals(l.ALL)), Math.min(...vals(f.ALL))));
+  assert.ok(close(Math.max(...vals(l.ALL)), Math.max(...vals(f.ALL))));
+  assert.ok(close(l.ALL.pts.at(-1)!.value, f.ALL.pts.at(-1)!.value));
+  // A small fraction of the full chart (about 2 KB against about 53 KB on this record).
+  assert.ok(JSON.stringify(lite).length * 20 < JSON.stringify(full).length, `${JSON.stringify(lite).length} vs ${JSON.stringify(full).length}`);
+  // Stand-in values are within half a hundredth of a percent, and print as the exact value does.
+  const { pct } = await import('./trades.ts');
+  const exact = chartSeries(trades, 'ALL', now, FEED_LITE_POINTS).pts;
+  assert.equal(exact.length, l.ALL.pts.length);
+  exact.forEach((p, i) => { assert.ok(Math.abs(p.value - l.ALL.pts[i].value) <= 5e-5 + 1e-12); assert.equal(pct(l.ALL.pts[i].value), pct(p.value)); });
   // A short record ships whole: nothing to fetch.
   assert.equal(feedPaneChart(input.slice(0, PANE_EAGER_CLOSES), now).lite, undefined);
   assert.equal(feedPaneChart(input.slice(0, PANE_EAGER_CLOSES + 1), now).lite, 1);

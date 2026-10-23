@@ -37,15 +37,16 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
 // except where 6 decimals would print differently from the exact value (fix round 8: −0.9999997 rounds to −1, which
 // reads "-100.0%" where the profile reads "≈-100.0%"); those keep full precision.
 // Fix round 8 (tester re-run 4, Medium): `lite` marks the feed's server-rendered stand-in: only the ALL line, at
-// FEED_LITE_POINTS, with no closes attached, and every range's numbers (header, label, tabs). The pane fetches the full
+// FEED_LITE_POINTS, as [minutes, value] pairs with no closes attached (values to 4 decimals), and every range's numbers
+// (header, label, tabs). The pane fetches the full
 // chart (`/u/<handle>/pane-chart`) on its first swipe-open, so the feed page no longer carries each trader's chart data.
 export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number];
 export type PackedSeries = { t0: number; t1: number; last: number; n: number; dd: number; min: number; max: number; p: number[] };
 export type PackedChart = { base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries>; lite?: 1 };
 
-const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
-// Rounded unless the rounding changes what `pct` prints (the scrub header and the sheet print with `pct`).
-export const packValue = (v: number): number => { const r = r6(v); return pct(r) === pct(v) ? r : v; };
+// Rounded to `digits` decimals unless the rounding changes what `pct` prints (the scrub header and the sheet print
+// with `pct`); the stand-in keeps 4 (a hundredth of a percent), the full chart 6.
+export const packValue = (v: number, digits = 6): number => { const f = 10 ** digits, r = Math.round(v * f) / f; return pct(r) === pct(v) ? r : v; };
 const MIN = 60_000;
 
 export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, lite = false): PackedChart {
@@ -67,7 +68,8 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, li
           out.push([t.id, t.symbol, packValue(t.returnPct), t.holdingDays, t.thesis, t.index]);
         }
       }
-      p.push(Math.floor((pt.at - base) / MIN), packValue(pt.value), i);
+      if (lite) p.push(Math.floor((pt.at - base) / MIN), packValue(pt.value, 4)); // no close: pairs
+      else p.push(Math.floor((pt.at - base) / MIN), packValue(pt.value), i);
     }
     ranges[key] = { t0: Math.floor(s.t0 / MIN) * MIN, t1: Math.floor(s.t1 / MIN) * MIN, last: s.last, n: s.n, dd: s.drawdown, min: s.min, max: s.max, p };
   }
@@ -90,8 +92,9 @@ export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
   for (const { key } of RANGES) {
     const r = c.ranges[key];
     const pts: SeriesPt[] = [];
-    for (let i = 0; i < r.p.length; i += 3) {
-      const at = c.base + r.p[i] * MIN, k = r.p[i + 2];
+    const stride = c.lite ? 2 : 3;
+    for (let i = 0; i < r.p.length; i += stride) {
+      const at = c.base + r.p[i] * MIN, k = c.lite ? -1 : r.p[i + 2];
       let trade: ChartPoint | null = null;
       if (k >= 0) {
         const [id, symbol, returnPct, holdingDays, thesis, index] = c.trades[k];
