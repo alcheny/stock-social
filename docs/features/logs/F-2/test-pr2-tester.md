@@ -211,3 +211,132 @@ Screenshots: `screenshots/pr2-test/`, light and dark for each name below.
 - Lists: `me-following-375`, `me-following-360`.
 - No JS: `nojs-not-interested-375`, `nojs-me-following-375`.
 - Deletion: `deletion-vendor-failing-375`.
+
+## Re-run 1
+
+2026-10-23. Product code at `6fb8952` (engineer fix round 1). Postgres 16, Node 22.22. No product code changed.
+Isolation: my own database `ss_tst_pr2r1` (created as the superuser, owned by the shared role; the shared `stock_social`
+was never written). Other sessions were serving from the shared checkout (3111, 3112), so the build, both e2e passes and
+my server (3219, vendor fake 4219) ran from a copy of `HEAD` in my scratch directory.
+
+**Verdict: DEFECTS.** 3 Low, no blocker. Every fix in the engineer's table holds as a user sees it: the menu stays on
+screen and closes on Esc, outside click or tap, and Tab; `/me/following` is reachable by taps; unfollow leaves the
+feed alone; there is no signed-out Follow; the privacy line shows once per viewer; Undo focus and the pause work; no-JS
+posts land with a line. My three earlier Lows are fixed. No regression on PR-1, deletion or purge.
+
+### R1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | exit 0 both times, no error. `users.follow_notice_at` is `timestamptz`, nullable, added by `schema_add_column` (idempotent). `db/schema.sql` has no `drop`, `truncate` or `delete from` |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 (+2 extra) | **575 tests, 565 pass, 10 skipped (LOAD), 0 fail** in runs 1, 2, 4 and 5. Run 3: 4 fails, all in `lib/funnel.test.ts`, whose `before` hook (re-applying the schema) hit an FK error on the `broker_accounts` backfill. See N5: the cause is older than this PR |
+| Test count | 575 (bound 575). E2e 102 → 103 |
+| Weakened? | No. `git diff 8e7c59f HEAD -- '*.test.ts' e2e/` gives `lib/follows.test.ts` +39/−0. `e2e/follow.spec.ts` replaces 9 assertions. Each one tested behavior the fix removed and now checks the new behavior, the same or stronger: `[role=status]` becomes the polite live region with the same text; the unfollow line and Undo become "row written, no button, cards stay, still there on the next page 1"; the sign-in link becomes no control on the profile or feed; "Show again" now uses its per-trader name and also checks the feedback. Moving `shown` and the screenshot directory changes no assertion. Nothing from PR-1 or earlier changed |
+| `LOAD=1` feed / follows / sync | 4/4, 1/1, 5/5. Feed p95: 12 heavy 151 ms, 50 heavy **283 ms** (bound 400), late weights-kept 258 ms, own-late 599 ms (PR-1's known limit, unchanged). Delete of a trader with 100,000 viewers: **84 ms**; purge 100,000: **316 ms**. Sync fleet of 62 traders in one tick, fine |
+| `CI=1 npm run build`, stdin closed | exit 0 on the first run. It printed the framework's security advisory, which is tool output: nothing was upgraded. `/me/following` and `/settings` are dynamic |
+| `npm run test:e2e` ×2 (`CI=1`, fresh `next start`, vendor fake configured) | **103 passed, 3 skipped, 0 failed** in both runs (4.2 / 4.2 min). Follow toggle feedback: 2.1 / 5.7 ms |
+| `node scripts/compliance.ts diff origin/main` | 1 violation, the pre-existing `@img/sharp-wasm32` license line (local `node_modules`) |
+| `node scripts/autopilot.ts guard main` | ok |
+
+### R2. As a user
+
+Fixture: 120 traders with 6 closes each, plus one trader with the longest handle (`tr1_long_handle_abcd`, 20 chars) and
+a 25-char display name, plus the demo seed (a 200-card list).
+
+| Check | Result |
+|---|---|
+| "…" menu, 375, 20-char handle, "Following" beside it | "…" 44 × 44 at x 311–355. The item spans x **20–355**, wraps to two lines (68 px tall), and no text is cut. No horizontal page scroll (`pane-menu-20char-375`) |
+| Same at 320 | "…" at x 256–300; the item spans x **20–300**, no text cut, no page scroll (`pane-menu-20char-320`) |
+| Close | Esc closes and focus returns to "…" ("More for @…"). A click outside closes it, and so does a click on the nav. A touch tap outside closes it. Tab moves into the item, and a second Tab closes the menu (focus goes to the chart). Shift+Tab out closes it. A second tap on "…" closes it. All at 375 and 320 |
+| Tap-only path (touch, one `goto`) | Feed → `@handle` in the nav → own profile → **Settings** → "Following and hidden traders" → `/me/following` (h1 "Following and hidden traders"). Settings appears on your own profile only: not on another trader's, and not signed out. Its tap target is 61 × 20 px (Low 1, `own-profile-settings-375`) |
+| Unfollow | Pane: Follow → Following → Follow. The status stays empty and there is no Undo. The visible sequence is **identical** before and after. One `unfollow` row is written, spanning 90 days. A new page 1 paged to the end equals the signed-out list exactly (200 cards, 0 repeats, the trader's 2 cards present). `/me/following` says "No one is hidden." and does not list the trader. The trader's profile shows "Follow" (`pane-unfollowed-375`) |
+| Unfollow over a running "Not interested" | The `not_interested` row is unchanged: same reason, same `until`, `created_at` 10 days back kept |
+| Signed out | Profile and feed, with and without JS: 0 `.profile-follow`, `button.follow`, `.more-menu` or `.pane-actions`, and no "Sign in to follow" text (`pane-signed-out-375`) |
+| Privacy line once | First follow: "Following @tr1t10. Only you can see this." and `follow_notice_at` is set. Unfollow then re-follow of the only trader: no line. Another trader: no line, and the stamp is unchanged. Stamp backdated 400 days: no line. Stamp cleared: the line again, once. Two first follows at once from two tabs: the line shows in **exactly one**. The region is pre-rendered, `aria-live="polite"`, has no role and is 0 px tall when empty (`profile-first-follow-375`) |
+| Undo, keyboard | Hide via "…" → Enter → Tab → Enter puts focus on Undo. The bar is **still up after 7 s** (`hide-bar-paused-375`). Tab closes it with focus on the next card's name (never `<body>`). A keyboard Undo puts focus on the "…" of the pane hidden from, with the row in view and the exclusion ended |
+| Undo, mouse and touch | A click hide focuses Undo and expires at 5 s, with focus going to a card. Hover pauses it (still up at 6.5 s), and leaving lets it expire after 5 s. A mouse Undo also focuses the "…". On touch, Undo is 70 × 44 and on screen, and the bar expires at 5 s (`not-interested-undo-375`) |
+| No JS | A first follow lands on `/u/x?done=follow&first=1` with "Following @x. Only you can see this." A second follow shows "Following @x."; an unfollow lands on `?done=unfollow` with "Unfollowed @x.". The pane's "Not interested" lands on the trader with "@x is hidden from your feed for 90 days. Their profile stays public." and the profile lists the trades (TR-1). "Show again" lands on `/me/following?back=x` with "@x is back in your feed." (`nojs-*-375`) |
+| Crafted links | `?done=follow` when not following, `?done=hidden` when not hidden and `?done=unfollow` while following all show nothing, and so does any `done` signed out. But `/me/following?back=<any handle>` says "@x is back in your feed." even for a trader never hidden or a handle that does not exist (Low 2, `crafted-back-375`). `?done=follow&first=1` while following shows the privacy line again; that is true and harmless, so it is not a defect |
+| `/me/following` at 320 | No page scroll, and both controls stay on one line inside the screen. A long display name is cut at the button and **the handle is not visible** (Low 3, `me-following-320`, `me-following-show-again-320`). The pane header at 320/375 does the same (scrollWidth 398 vs 101–156 px); that case is already a recorded UX follow-up |
+
+### R3. Privacy sweep (viewer A follows T, viewer B hides T)
+
+- **Byte comparison.** The profile, trade, month and ticker images, `story` (both formats) and `pane-chart` are all 200
+  and **byte-identical** before and after, signed out and as B.
+- **Page text.** `/`, the profile, trade, month, `/t/<sym>`, `/t`, `/t/compare`, sitemap, robots, `/how`, `/privacy`,
+  `/terms` and both viewers' profiles are all 200. Signed out, none contains either viewer's handle, "follower",
+  "followed by" or "follows". As B, the only match is B's own handle in the nav.
+- **The trader's view.** T's own `/u/T`, `/`, `/settings` and `/me/following` name neither viewer.
+- **`/me/following` as B** shows only B's rows. `?viewer=<A's id>` and `?handle=<A>` change nothing.
+- **Routes.** Signed out, `/me/following` is a 307 to `/login`. `/api/sync` without the secret is 401.
+- **A's public profile** lists nothing A follows.
+
+### R4. Regressions
+
+- **PR-1 paging and hides.** Tab 1 hid X on page 1. Tab 2 opened a new page 1, paged to card 57 and hid Y there. Back in
+  tab 1 I paged to the end:
+  - 194 cards, **0 repeats**;
+  - **equal to the signed-out list minus X's and Y's cards, in the same order**;
+  - worst 10-card window: 2 per trader;
+  - a new session also leaves X and Y out (`feed-end-after-hides-375`).
+- **End key at 360 × 640.** Signed in, the End key loads one page (30 → 60 cards) with no chain.
+- **Deletion end to end.** A trader was registered with the vendor fake (`/connect/start`). It followed 1, hid 1 and had
+  unfollowed 1; others followed it twice and hid it once.
+  - With the vendor failing, two taps in `/settings` mark the user. **0 follows and 0 exclusions** remain either way, and
+    the profile returns 404.
+  - After clearing the failure, a tick gives `deletions: {ok: 1}`: the user row is gone, the vendor user is gone, and 0
+    rows remain.
+  - The person deleting still sees the generic error page while the vendor fails. That is pre-existing
+    (`deletion-vendor-failing-375`).
+- **Purge through `POST /api/sync`.**
+  - Of 20 rows ended 1 d + 1 s ago, all were deleted. The 10 rows ended 23 h 59 m ago and the 10 running rows were kept.
+  - With `pg_advisory_lock(3, 0)` held elsewhere: `{ran: false}`, nothing deleted.
+  - With the lock released, the next tick deleted the 10 (by then over a day old).
+- **Server log.** The only error is my forced vendor failure.
+
+### R5. Defects
+
+1. **Low · accessibility · `app/u/[handle]/page.tsx`: the "Settings" link on your own profile is 61 × 20 px.**
+   - `className="tap"` gives 44 px only under `.auth` (`app/globals.css:285`), and the profile is not in `.auth`.
+   - The fix-round claim "every action … 44 px" does not hold for this link. It is now the only way to reach Sign out,
+     Delete and the lists, so it is worth a full-size target.
+2. **Low · copy truth · `app/me/following/page.tsx`: `?back=<handle>` claims "@x is back in your feed." for any
+   well-formed handle.**
+   - It checks only that the handle is not currently hidden. A trader never hidden, or a handle that doesn't exist, also
+     gets the line (`/me/following?back=nobody_here`).
+   - The fix round says a crafted link "claims nothing", and the business lead's checklist asks for "status copy true on
+     screen".
+   - Fix: require a recently ended `not_interested` row for that trader (as `?done=` checks stored state).
+3. **Low · usability · `/me/following` at 320 (and the pane header at 320/375): a long display name pushes the handle out
+   of sight.**
+   - The row shows only "Longest Display Nam…" beside "Following". You can't tell which trader it is from the visible
+     text, and the list exists to manage specific traders.
+   - The pane-header case is already a UX follow-up; this is the same problem on the new list. For example, wrap the
+     handle under the name, or truncate the name before the handle.
+
+### R6. Notes
+
+- **N5 · test reliability, not from this PR.** 1 run in 5 had `lib/funnel.test.ts` fail in its `before` hook.
+  - The hook re-runs `db/schema.sql`. That file's one-time `broker_accounts` backfill (`insert … select … from
+    activities`, lines 124–126) raced another test file deleting its user: `broker_accounts_user_id_fkey`, 23503.
+  - This PR adds more concurrent test files that delete users, which may make the race likelier. CI can flake on it.
+  - A fix outside this PR: join `users` in the backfill, or take a lock in the hook.
+- Earlier notes N1 (no rate limit) and N2 (cross-origin POSTs get the framework's 500) stand as recorded follow-ups.
+  N3, N4, Low 1, Low 2 and Low 3 are fixed. O-T1 was answered by fix round 1 (deviation 7, the owner can reverse it).
+
+### R7. Cleanup
+
+- 130 test users (`tr1*`) deleted.
+- `ss_tst_pr2r1` dropped.
+- My server (3219) and vendor fake (4219) stopped. The e2e servers stopped with their runs.
+- The scratch copy of `HEAD` removed.
+- No other database touched. No product code changed.
+
+Screenshots: `screenshots/pr2-test2/`, light and dark for each name below.
+- Pane: `pane-menu-20char-375`, `pane-menu-20char-320`, `pane-unfollowed-375`, `pane-signed-out-375`.
+- Profile: `own-profile-settings-375`, `profile-first-follow-375`.
+- Feed: `hide-bar-paused-375`, `not-interested-undo-375`, `feed-end-after-hides-375`.
+- Lists: `me-following-375`, `me-following-320`, `me-following-show-again-320`, `crafted-back-375`.
+- No JS: `nojs-first-follow-375`, `nojs-unfollowed-375`, `nojs-hidden-375`, `nojs-show-again-375`.
+- Deletion: `deletion-vendor-failing-375`.
