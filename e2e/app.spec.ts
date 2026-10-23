@@ -820,7 +820,7 @@ test('watchlist: signed-in trader watches a symbol and sees it on /t; signed out
 });
 
 // F-1 PR-3 fix round 4 (committee). A trader made here, removed after; generic symbols, synthetic returns.
-async function makeTrader(handle: string, closes: (i: number) => { closedAt: string; r: number }, n: number) {
+async function makeTrader(handle: string, closes: (i: number) => { closedAt: string; r: number; symbol?: string }, n: number) {
   const { sql } = await import('../lib/db.ts');
   const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
     insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, ${handle}, now(), a.id from a
@@ -829,7 +829,7 @@ async function makeTrader(handle: string, closes: (i: number) => { closedAt: str
   const rows = Array.from({ length: n }, (_, i) => {
     const c = closes(i);
     const closed = new Date(c.closedAt);
-    return { user_id: u.id, sell_id: `${handle}-${i}`, account_id: 'a', symbol: ['AAA', 'BBB', 'CCC', 'DDD', 'EEE', 'FFF', 'GGG', 'HHH'][i % 8],
+    return { user_id: u.id, sell_id: `${handle}-${i}`, account_id: 'a', symbol: c.symbol ?? ['AAA', 'BBB', 'CCC', 'DDD', 'EEE', 'FFF', 'GGG', 'HHH'][i % 8],
       opened_at: new Date(closed.getTime() - (1 + (i % 9)) * 86_400_000), closed_at: closed, return_pct: c.r, holding_days: 1 + (i % 9), verified: true };
   });
   for (let i = 0; i < rows.length; i += 1000) await sql`insert into closed_trades ${sql(rows.slice(i, i + 1000))}`;
@@ -954,18 +954,23 @@ test('fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): a 2,828-close profile 
 // heavy records are on the page. Each trader's newest 5 closes are moved into the last 15 minutes with large moves (2 of
 // them losses) so they, and only they, make the feed's cards; the rest is the fixture as matched, ending 30 days ago.
 // The page carries a stand-in line per trader; a pane loads its full chart on its first swipe-open.
-test('fix round 8: 50 heavy cards from 10+ distinct heavy traders weigh under 500 KB; a pane loads its chart on first open and reads like the profile\'s', async ({ page, request, browser }) => {
-  test.setTimeout(300_000);
+// F-2 PR-1 (plan §1 PR-1, §4): 50 distinct heavy traders in the fixture (was 12) and 30-card pages; pages 1 to 3 are
+// each measured. The diversity caps put at most 2 cards of one trader in any 10 (the joins included). The fresh closes carry one symbol per trader and close, so the symbol cap never ends the list early.
+test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each weigh under 500 KB; a pane loads its chart on first open and reads like the profile\'s', async ({ page, request, browser }) => {
+  test.setTimeout(600_000);
   const { seededActivities } = await import('./fakes/vendor.ts');
   const { matchTrades, confidence, evidenceWeight } = await import('../lib/trades.ts');
   const { FEED_LITE_POINTS } = await import('../lib/downsample.ts');
+  const { worstWindow } = await import('../lib/discovery/diversity.ts');
   const { gzipSync } = await import('node:zlib');
   const { feedLock } = await import('./feed-lock.ts');
   const release = await feedLock('exclusive'); // the connect tests that look for their trader in the feed wait meanwhile
   const now = Date.now();
   const made: Awaited<ReturnType<typeof makeTrader>>[] = [];
+  const HEAVY = 50;
+  const L = (n: number) => String.fromCharCode(65 + (n % 26));
   try {
-    for (let h = 0; h < 12; h++) {
+    for (let h = 0; h < HEAVY; h++) {
       const acts = [];
       for (let a = 0; a < 4; a++) for (const r of seededActivities(`hf${h}-${a}`, 2_500, 1000 + 10 * h + a)) {
         acts.push({ externalId: r.id, accountId: `hf${h}-${a}`, symbol: r.symbol, side: r.type, units: r.units, price: r.price, fee: r.fee ?? 0, executedAt: new Date(r.trade_date), verified: true });
@@ -973,7 +978,7 @@ test('fix round 8: 50 heavy cards from 10+ distinct heavy traders weigh under 50
       const closes = matchTrades(acts).trades.sort((x, y) => y.closedAt.getTime() - x.closedAt.getTime());
       const shift = now - 30 * 86_400_000 - closes[0].closedAt.getTime();
       const t = await makeTrader(`heavy_feed_${h}`, (i) => (i < 5
-        ? { closedAt: new Date(now - (i + 1 + h * 0.05) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5 }
+        ? { closedAt: new Date(now - (i + 1 + h * 0.05) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5, symbol: `Z${L(h)}${L(Math.floor(h / 26))}${L(i)}` }
         : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length);
       made.push(t);
       // Each ranks with a confident edge (TR-9), as the feed computes it, so its 5 fresh cards outrank every older close.
@@ -981,28 +986,46 @@ test('fix round 8: 50 heavy cards from 10+ distinct heavy traders weigh under 50
       expect(evidenceWeight(confidence(rows.map((r) => ({ symbol: r.symbol, openedAt: r.opened_at, closedAt: r.closed_at, returnPct: r.return_pct, holdingDays: r.holding_days })), new Date()))).toBeGreaterThan(0);
     }
     const total = made.reduce((s, t) => s + t.ids.length, 0);
-    expect(total).toBeGreaterThan(12 * 4_500);
+    expect(total).toBeGreaterThan(HEAVY * 4_500);
 
-    const res = await request.get('/');
-    expect(res.status()).toBe(200);
-    const html = await res.text();
-    const raw = Buffer.byteLength(html), gz = gzipSync(html).length;
-    const traders = new Set(html.match(/\/u\/heavy_feed_\d+(?=")/g)).size; // the cards' profile links
-    console.log(`# feed: 50 heavy cards from ${traders} distinct heavy traders (${total} closes) ${(raw / 1024).toFixed(0)} KB raw, ${(gz / 1024).toFixed(0)} KB gzipped`);
-    expect(raw).toBeLessThan(500_000);
-    expect(traders).toBeGreaterThanOrEqual(10);
-    test.info().annotations.push({ type: 'feed-bytes', description: `${raw} raw, ${gz} gzipped, ${traders} distinct heavy traders` });
+    // Pages 1 to 3, each as served (the no-JS link carries the cursor), each under 500 KB raw.
+    let url = '/';
+    let raw = 0, gz = 0, traders = 0;
+    const seen: { handle: string; symbol: string }[] = [];
+    for (let p = 1; p <= 3; p++) {
+      const res = await request.get(url);
+      expect(res.status()).toBe(200);
+      const html = await res.text();
+      const bytes = Buffer.byteLength(html), zipped = gzipSync(html).length;
+      const cards = [...html.matchAll(/<article class="card">[\s\S]*?href="\/u\/(heavy_feed_\d+)"[\s\S]*?href="\/t\/([A-Z]+)"/g)].map((m) => ({ handle: m[1], symbol: m[2] }));
+      const distinct = new Set(cards.map((c) => c.handle)).size;
+      console.log(`# feed page ${p}: ${cards.length} heavy cards from ${distinct} distinct heavy traders (${HEAVY} in the fixture, ${total} closes) ${(bytes / 1024).toFixed(0)} KB raw, ${(zipped / 1024).toFixed(0)} KB gzipped`);
+      test.info().annotations.push({ type: `feed-bytes-page-${p}`, description: `${bytes} raw, ${zipped} gzipped, ${distinct} distinct heavy traders` });
+      expect(bytes).toBeLessThan(500_000);
+      expect(cards).toHaveLength(30);
+      expect(distinct).toBeGreaterThanOrEqual(10); // as before; the caps allow up to 6 cards of a trader in 30 (2 per 10)
+      if (p === 1) { raw = bytes; gz = zipped; traders = distinct; }
+      seen.push(...cards);
+      const next = /href="\/\?after=([A-Za-z0-9_-]+)"/.exec(html)?.[1];
+      expect(next).toBeTruthy();
+      url = `/?after=${next}`;
+    }
+    // The caps hold across both page joins; no card repeats.
+    const w = worstWindow(seen.map((c, i) => ({ key: String(i), trader: c.handle, symbol: c.symbol })));
+    expect(w.trader).toBeLessThanOrEqual(2);
+    expect(w.symbol).toBeLessThanOrEqual(2);
+    expect(new Set(seen.map((c) => `${c.handle}|${c.symbol}`)).size).toBe(90);
 
     await page.setViewportSize({ width: 375, height: 667 });
     // Evidence for the log (fix round 8): the measured weight, as an image beside the pane screenshots.
-    await page.setContent(`<main style="font:16px/1.5 system-ui;padding:16px"><h1 style="font-size:20px">Feed weight, 50 heavy cards</h1><p>${traders} distinct heavy traders, ${total.toLocaleString('en-US')} closes in their records</p><p><b>${(raw / 1024).toFixed(0)} KB raw</b> (bound 500 KB), ${(gz / 1024).toFixed(0)} KB gzipped</p><p>Each pane carries a stand-in line; its chart loads on first open.</p></main>`);
+    await page.setContent(`<main style="font:16px/1.5 system-ui;padding:16px"><h1 style="font-size:20px">Feed weight, 30 heavy cards (page 1)</h1><p>${traders} distinct heavy traders on the page, ${HEAVY} in the fixture, ${total.toLocaleString('en-US')} closes in their records</p><p><b>${(raw / 1024).toFixed(0)} KB raw</b> (bound 500 KB), ${(gz / 1024).toFixed(0)} KB gzipped</p><p>Each pane carries a stand-in line; its chart loads on first open.</p></main>`);
     await page.screenshot({ path: test.info().outputPath('fix8-feed-weight-375-light.png') });
     const fetched: string[] = [];
     page.on('request', (r) => { if (r.url().includes('/pane-chart')) fetched.push(new URL(r.url()).pathname); });
     await page.goto('/');
-    await expect(page.locator('.feed .row')).toHaveCount(50);
+    await expect(page.locator('.feed .row')).toHaveCount(30);
     const who = await page.locator('.feed .row .pane .who .muted').allInnerTexts();
-    expect(who).toHaveLength(50);
+    expect(who).toHaveLength(30);
     for (const w of who) expect(w).toMatch(/^@heavy_feed_\d+$/); // every card is a heavy record
     expect(new Set(who).size).toBeGreaterThanOrEqual(10); // spread over at least 10 distinct heavy traders
     // The name equals the handle here: shown once ("@heavy_feed_3", never "heavy_feed_3@heavy_feed_3").
@@ -1015,9 +1038,9 @@ test('fix round 8: 50 heavy cards from 10+ distinct heavy traders weigh under 50
 
     // The page carries only the stand-in line per card (the ALL range, at most FEED_LITE_POINTS points, no closes).
     const counts = await page.locator('.feed .pane path.curve').evaluateAll((ps) => ps.map((p) => (p.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g) ?? []).length / 2));
-    expect(counts).toHaveLength(50);
+    expect(counts).toHaveLength(30);
     for (const c of counts) expect(c).toBeLessThanOrEqual(FEED_LITE_POINTS + 1); // plus the line to the range end
-    await expect(page.locator('.feed .pane figure.chart[data-chart="stand-in"]')).toHaveCount(50);
+    await expect(page.locator('.feed .pane figure.chart[data-chart="stand-in"]')).toHaveCount(30);
     expect(fetched).toEqual([]); // nothing is fetched before a pane opens
     const row0 = page.locator('.feed .row').first();
     const pane = row0.locator('.pane');
@@ -1099,6 +1122,357 @@ test('fix round 8: 50 heavy cards from 10+ distinct heavy traders weigh under 50
     await ctx.close();
   } finally {
     for (const t of made) await t.remove();
+    await release();
+  }
+});
+
+// ---- F-2 PR-1: feed mix and paging (docs/features/logs/F-2/plan.md §1 PR-1) ----
+// Fix round 1: this round's screenshots go to their own folder (the PR-1 build's evidence in pr1/ stays as it was).
+// Fix round 2: pr1-fix2 (pr1-fix1 keeps fix round 1's evidence).
+const PR1_SHOTS = 'docs/features/logs/F-2/screenshots/pr1-fix2';
+// 45 traders × 5 fresh closes (large moves, losses included), one symbol per close: enough for three pages.
+async function pagingFixture() {
+  const now = Date.now();
+  const L = (n: number) => String.fromCharCode(65 + (n % 26));
+  const made: Awaited<ReturnType<typeof makeTrader>>[] = [];
+  for (let h = 0; h < 45; h++) {
+    made.push(await makeTrader(`pg_e2e_${h}`, (i) => ({ closedAt: new Date(now - (h * 5 + i + 1) * 20_000).toISOString(), r: (i + h) % 3 ? 0.3 + ((h * 7 + i) % 10) / 40 : -0.25 - ((h + i) % 5) / 40,
+      symbol: `Y${L(h)}${L(Math.floor(h / 26))}${L(i)}` }), 5));
+  }
+  return { made, remove: async () => { for (const t of made) await t.remove(); } };
+}
+const cardsOf = (page: import('@playwright/test').Page) => page.locator('.feed > .row').evaluateAll((rows) => rows.map((r) => ({
+  trade: r.getAttribute('data-trade')!, handle: r.querySelector('.card .who')!.getAttribute('href')!.slice(3), symbol: r.querySelector('.card .symbol')!.textContent!,
+})));
+
+test('F-2 PR-1: page 2 appends with no tap at card 25; the 30 → 31 join is seamless; ↓ crosses it; SW-1 works on appended cards; no-JS uses the link', async ({ page, browser }) => {
+  test.setTimeout(180_000);
+  const { worstWindow } = await import('../lib/discovery/diversity.ts');
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const fx = await pagingFixture();
+  try {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.goto('/');
+    const rows = page.locator('.feed > .row');
+    await expect(rows).toHaveCount(30);
+    await expect(page.locator('.feed .feed-more a')).toHaveAttribute('href', /^\/\?after=[A-Za-z0-9_-]+$/);
+    await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached(); // hydrated
+    // Reading down to card 20 fetches nothing.
+    const fetched: string[] = [];
+    page.on('request', (r) => { if (r.method() === 'POST') fetched.push(r.url()); });
+    await rows.nth(19).evaluate((el) => el.scrollIntoView());
+    await page.waitForTimeout(400);
+    await expect(rows).toHaveCount(30);
+    expect(fetched).toEqual([]);
+    // Card 25 in view: the next 30 append with no tap.
+    await rows.nth(24).evaluate((el) => el.scrollIntoView());
+    await expect(rows).toHaveCount(60);
+    expect(fetched).toHaveLength(1); // one request
+    const js = await cardsOf(page);
+    expect(new Set(js.map((c) => c.trade)).size).toBe(60); // no card repeats
+    const w = worstWindow(js.map((c) => ({ key: c.trade, trader: c.handle, symbol: c.symbol })));
+    expect(w.trader).toBeLessThanOrEqual(2); // caps hold across the join
+    expect(w.symbol).toBeLessThanOrEqual(2);
+    // Keyboard: ↓ from card 30 lands on card 31 (the first appended card).
+    await rows.nth(29).locator('.card .who').focus();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => rows.nth(30).evaluate((el) => Math.round(el.getBoundingClientRect().top))).toBe(0);
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.screenshot({ path: `${PR1_SHOTS}/join-card31-375-${colorScheme}.png` });
+    }
+    // SW-1 on an appended card: → opens its pane, ← returns.
+    const row31 = rows.nth(30);
+    await expect.poll(async () => { await page.keyboard.press('ArrowRight'); return row31.evaluate((el) => el.scrollLeft); }).toBeGreaterThan(300);
+    await expect(row31.locator('.pane .chart .zero-label')).toHaveText('0%');
+    await expect(row31.locator('.pane').getByRole('link', { name: 'See full profile →' })).toHaveAttribute('href', `/u/${js[30].handle}`);
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(() => row31.evaluate((el) => el.scrollLeft)).toBe(0);
+    await page.emulateMedia({ colorScheme: 'light' });
+
+    // Without JavaScript: the same first 30, then the link to the next 30, which are cards 31 to 60 above.
+    const ctx = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 375, height: 800 } });
+    const nojs = await ctx.newPage();
+    await nojs.goto('/');
+    expect((await cardsOf(nojs)).map((c) => c.trade)).toEqual(js.slice(0, 30).map((c) => c.trade));
+    const more = nojs.getByRole('link', { name: 'Show more' });
+    await more.scrollIntoViewIfNeeded();
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await nojs.emulateMedia({ colorScheme });
+      await nojs.screenshot({ path: `${PR1_SHOTS}/nojs-show-more-375-${colorScheme}.png` });
+    }
+    await more.click();
+    await expect(nojs).toHaveURL(/\/\?after=/);
+    expect((await cardsOf(nojs)).map((c) => c.trade)).toEqual(js.slice(30, 60).map((c) => c.trade));
+    await ctx.close();
+
+    // 1280 wide, light and dark: the join renders the same way.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/');
+    await rows.nth(24).evaluate((el) => el.scrollIntoView());
+    await expect(rows).toHaveCount(60);
+    await rows.nth(30).evaluate((el) => el.scrollIntoView());
+    expect((await cardsOf(page)).map((c) => c.trade)).toEqual(js.map((c) => c.trade)); // the same list for this day
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.screenshot({ path: `${PR1_SHOTS}/join-card31-1280-${colorScheme}.png` });
+    }
+  } finally {
+    await fx.remove();
+    await release();
+  }
+});
+
+test('F-2 PR-1: a failed page shows one inline "Couldn\'t load more. Retry" (44 px) and Retry appends the page', async ({ page }) => {
+  test.setTimeout(120_000);
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const fx = await pagingFixture();
+  try {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto('/');
+    const rows = page.locator('.feed > .row');
+    await expect(rows).toHaveCount(30);
+    await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached();
+    let fail = true;
+    await page.route('**/*', (route) => (fail && route.request().method() === 'POST' ? route.abort() : route.continue()));
+    await rows.nth(24).evaluate((el) => el.scrollIntoView());
+    const status = page.locator('.feed-more [role="status"]');
+    await expect(status).toHaveText('Couldn\u2019t load more. Retry');
+    const retry = status.getByRole('button', { name: 'Retry' });
+    expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expect(rows).toHaveCount(30);
+    await status.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${PR1_SHOTS}/retry-375-light.png` });
+    fail = false;
+    await retry.click();
+    await expect(rows).toHaveCount(60);
+    await expect(status).toHaveCount(0);
+  } finally {
+    await fx.remove();
+    await release();
+  }
+});
+
+test('F-2 PR-1: the end card renders on the demo fixture, signed out; the feed ends without a completeness claim', async ({ page, browser }) => {
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  try {
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/');
+      // Follow the pages to the end, appending with no tap (on the demo fixture alone that is page 1: 3 traders, 2 cards
+      // each per 10; records other tests leave behind can make it a few pages).
+      await expect(page.locator('main.feed')).toBeAttached();
+      for (let i = 0; i < 8 && !(await page.locator('.feed-end').count()); i++) {
+        const n = await page.locator('.feed > .row').count();
+        await page.locator('.feed > .row').last().evaluate((el) => el.scrollIntoView());
+        await expect.poll(async () => (await page.locator('.feed-end').count()) || (await page.locator('.feed > .row').count()) > n, { timeout: 15_000 }).toBeTruthy();
+      }
+      const end = page.locator('.feed-end');
+      await expect(end.getByRole('heading', { level: 2 })).toHaveText('End of today\u2019s feed.');
+      await expect(end.getByRole('link', { name: 'Publish your trades' })).toHaveAttribute('href', '/login');
+      await expect(page.locator('.feed .badge.demo').first()).toHaveText('Demo');
+      await expect(page.locator('.feed-more')).toHaveCount(0);
+      await end.scrollIntoViewIfNeeded();
+      for (const colorScheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme });
+        await page.screenshot({ path: `${PR1_SHOTS}/end-card-${width}-${colorScheme}.png` });
+      }
+      await page.emulateMedia({ colorScheme: 'light' });
+      expect(await end.innerText()).not.toMatch(/\b(all|caught up|every|complete|whole|nothing (more|else))\b/i);
+    }
+    // The disclaimer is unchanged and in the page.
+    await expect(page.locator('#site-footer')).toContainText('Not investment advice. Past performance does not guarantee future results.');
+    // No JS: the end card is in the served page too.
+    const ctx = await browser.newContext({ javaScriptEnabled: false });
+    const nojs = await ctx.newPage();
+    await nojs.goto('/');
+    for (let i = 0; i < 8 && (await nojs.locator('.feed-more a').count()); i++) await nojs.locator('.feed-more a').click();
+    await expect(nojs.locator('.feed-end h2')).toHaveText('End of today\u2019s feed.');
+    await ctx.close();
+  } finally {
+    await release();
+  }
+});
+
+test('F-2 PR-1: a bad or tampered cursor serves page 1 (never a 500); later pages are noindex', async ({ request }) => {
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  try {
+    const ids = (html: string) => [...html.matchAll(/data-trade="(\d+)"/g)].map((m) => m[1]).join();
+    for (const bad of ['x', '%00', 'eyJkIjoxfQ', 'A'.repeat(300), 'eyJkIjoiMjAyNi0xMC0yMyIsImEiOjEsIm8iOjMwfQ']) {
+      const first = await (await request.get('/')).text();
+      expect(first).not.toMatch(/<meta name="robots" content="noindex"/);
+      const res = await request.get(`/?after=${bad}`);
+      expect(res.status()).toBe(200);
+      const html = await res.text();
+      expect(ids(html)).toBe(ids(first));
+      expect(html).toMatch(/<meta name="robots" content="noindex"/);
+    }
+  } finally {
+    await release();
+  }
+});
+
+// ---- F-2 PR-1 fix round 1 (blocking, all three reports): the page join from the control ----
+// The row whose top sits at the top of the feed (0-based), and the POSTs made since `since`.
+const atTop = (page: import('@playwright/test').Page) => page.locator('main.feed').evaluate((feed) => {
+  const top = feed.getBoundingClientRect().top;
+  return [...feed.querySelectorAll(':scope > .row, :scope > .feed-more, :scope > .feed-end')].findIndex((r) => Math.abs(r.getBoundingClientRect().top - top) < 2);
+});
+// The reader is at the control: it is in view (at the end of the list, below the lower part of card 30).
+const controlInView = (page: import('@playwright/test').Page) => page.locator('main.feed').evaluate((feed) =>
+  feed.querySelector(':scope > .feed-more')!.getBoundingClientRect().top < feed.getBoundingClientRect().bottom - 1);
+
+test('F-2 PR-1 fix round 1: Retry from the control makes one request and leaves the reader on card 31, focus on its card; nothing loads at card 24', async ({ page }) => {
+  test.setTimeout(180_000);
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const fx = await pagingFixture();
+  try {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width: 375, height: 800 });
+      await page.emulateMedia({ colorScheme });
+      let fail = true;
+      const posts: string[] = [];
+      await page.route('**/*', (route) => {
+        if (route.request().method() !== 'POST') return route.continue();
+        posts.push(route.request().url());
+        return fail ? route.abort() : route.continue();
+      });
+      await page.goto('/');
+      const rows = page.locator('.feed > .row');
+      await expect(rows).toHaveCount(30);
+      await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached(); // hydrated
+      // Card 24 snapped to the top: card 25 only touches the feed's bottom edge, so nothing loads (it loaded here before).
+      await rows.nth(23).evaluate((el) => el.scrollIntoView());
+      await page.waitForTimeout(500);
+      expect(posts).toEqual([]);
+      await rows.nth(24).evaluate((el) => el.scrollIntoView());
+      const status = page.locator('.feed-more [role="status"]');
+      await expect(status).toHaveText('Couldn\u2019t load more. Retry');
+      expect(posts).toHaveLength(1);
+      // The reader goes to the control and retries by keyboard.
+      await page.locator('main.feed').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      await expect.poll(() => controlInView(page)).toBe(true);
+      fail = false;
+      await status.getByRole('button', { name: 'Retry' }).focus();
+      await page.keyboard.press('Enter');
+      await expect(rows).toHaveCount(60);
+      await page.waitForTimeout(2_000); // a chain would fire within this
+      expect(posts).toHaveLength(2); // the failed one, then exactly one for Retry
+      await expect(rows).toHaveCount(60);
+      expect(await atTop(page)).toBe(30); // card 31
+      await expect(rows.nth(30).locator('.card .who')).toBeFocused();
+      // Fix round 2 (UX follow-up 2): the live line names the positions, so every append reads differently.
+      await expect(page.locator('.feed > p[aria-live="polite"]')).toHaveText('Trades 31 to 60 loaded');
+      await page.screenshot({ path: `${PR1_SHOTS}/after-retry-375-${colorScheme}.png` });
+      await page.unroute('**/*');
+    }
+  } finally {
+    await fx.remove();
+    await release();
+  }
+});
+
+// Fix round 2 (tester B, UX follow-up 1): with a fast server, page 2 arrives while End's smooth scroll is still on its way
+// (card 25 passed, the control not yet in view), so nothing pins; the scroll then stopped at the old end, between cards
+// 30 and 31, unsnapped. Now the reader comes to rest on card 31. The request is not held here (that is the other test).
+test('F-2 PR-1 fix round 2: End or a smooth scroll to the end with a fast server comes to rest on card 31, not between 30 and 31; the live line changes per page; page 1 has an h1', async ({ page }) => {
+  test.setTimeout(240_000);
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const fx = await pagingFixture();
+  try {
+    const cases = [[375, 'light', 'end'], [375, 'dark', 'end'], [1280, 'dark', 'end'], [375, 'light', 'smooth'], [1280, 'light', 'smooth']] as const;
+    for (const [width, colorScheme, how] of cases) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme, reducedMotion: 'no-preference' });
+      const posts: string[] = [];
+      page.on('request', (r) => { if (r.method() === 'POST') posts.push(r.url()); });
+      await page.goto('/');
+      const rows = page.locator('.feed > .row');
+      await expect(rows).toHaveCount(30);
+      await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached(); // hydrated
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Trade feed');
+      await rows.nth(2).evaluate((el) => el.scrollIntoView());
+      await rows.nth(2).locator('.card .who').focus({ preventScroll: true } as never);
+      if (how === 'end') await page.keyboard.press('End');
+      else await page.locator('main.feed').evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }));
+      await expect(rows).toHaveCount(60);
+      // At rest: one request, card 31 exactly at the top (never card 30's lower part over card 31's name).
+      await expect.poll(() => atTop(page), { timeout: 5_000 }).toBe(30);
+      await page.waitForTimeout(1_500);
+      expect(await atTop(page)).toBe(30);
+      expect(posts).toHaveLength(1);
+      await expect(page.locator('.feed > p[aria-live="polite"]')).toHaveText('Trades 31 to 60 loaded');
+      await page.screenshot({ path: `${PR1_SHOTS}/end-fast-server-${how}-${width}-${colorScheme}.png` });
+      // Reading on: page 3 at its card 25, and the live line changes (the same text twice is not announced again).
+      await rows.nth(54).evaluate((el) => el.scrollIntoView());
+      await expect(rows).toHaveCount(90);
+      await expect(page.locator('.feed > p[aria-live="polite"]')).toHaveText('Trades 61 to 90 loaded');
+      expect(posts).toHaveLength(2);
+      page.removeAllListeners('request');
+    }
+  } finally {
+    await fx.remove();
+    await release();
+  }
+});
+
+test('F-2 PR-1 fix round 1: a jump to the control while page 2 is on its way makes one request and lands on card 31; "Loading…" shows meanwhile', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const fx = await pagingFixture();
+  try {
+    for (const [width, colorScheme] of [[375, 'light'], [375, 'dark'], [1280, 'dark']] as const) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme });
+      const posts: string[] = [];
+      let hold = true;
+      await page.route('**/*', async (route) => {
+        if (route.request().method() !== 'POST') return route.continue();
+        posts.push(route.request().url());
+        while (hold) await new Promise((r) => setTimeout(r, 50));
+        return route.continue();
+      });
+      await page.goto('/');
+      const rows = page.locator('.feed > .row');
+      await expect(rows).toHaveCount(30);
+      await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached();
+      // From card 3 straight to the end (End, a fling): the control comes into view and asks for page 2, once.
+      await rows.nth(2).evaluate((el) => el.scrollIntoView());
+      await page.locator('main.feed').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      await expect.poll(() => posts.length).toBe(1);
+      await expect(page.locator('.feed-more a')).toHaveText('Loading\u2026');
+      await expect(page.locator('.feed-more a')).toHaveAttribute('aria-busy', 'true');
+      // Fix round 2 (UX follow-up 4): "Loading…" is drawn as a state (no fill), not as a button to press.
+      expect(await page.locator('.feed-more a').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+      if (width === 375) await page.screenshot({ path: `${PR1_SHOTS}/loading-375-${colorScheme}.png` });
+      expect(await controlInView(page)).toBe(true); // the reader is at the control as the page arrives
+      hold = false;
+      await expect(rows).toHaveCount(60);
+      await page.waitForTimeout(2_000);
+      expect(posts).toHaveLength(1);
+      await expect(rows).toHaveCount(60);
+      expect(await atTop(page)).toBe(30); // card 31, the first new card
+      await page.screenshot({ path: `${PR1_SHOTS}/after-jump-${width}-${colorScheme}.png` });
+      // Reading on from there loads page 3 at its card 25, once.
+      await rows.nth(54).evaluate((el) => el.scrollIntoView());
+      await expect(rows).toHaveCount(90);
+      expect(posts).toHaveLength(2);
+      await page.unroute('**/*');
+    }
+    // Without JavaScript, page 2 says where it starts (a visually hidden heading).
+    const html = await (await request.get('/')).text();
+    const next = /href="\/\?after=([A-Za-z0-9_-]+)"/.exec(html)![1];
+    expect(await (await request.get(`/?after=${next}`)).text()).toContain('<h1 class="sr-only">Trades 31 to 60</h1>');
+  } finally {
+    await fx.remove();
     await release();
   }
 });

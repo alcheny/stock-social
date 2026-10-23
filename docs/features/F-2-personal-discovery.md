@@ -17,6 +17,20 @@ advice. The owner has been told this and the scope below respects it.
   and records they already prefer. Why: the owner wants a recommendation algorithm using AI.
 - 2026-10-22: Suggestions are of traders and closed records only, never of trades to place. Why: POLICY
   F1 and DESIGN §3.4 forbid personalized trade advice; it is also a regulatory line (adviser registration).
+- 2026-10-22 (restored 2026-10-23 from the design-session record; the plan debate found them missing):
+  gestures and weights. Double-tap on a card = private like, affinity +3. Swipe in the opening
+  direction (to the profile, SW-1) = +2. Swipe in the other direction = reject, −4, and the card is not
+  shown again. Why: the owner chose a gesture vocabulary familiar from mainstream social and matching
+  apps (inspirations deliberately not named) and approved the implementation overview with these weights.
+- 2026-10-22 (restored 2026-10-23): likes are private to the viewer. No like count, no list of who
+  liked, nothing on the trader's profile or share card. Why: POLICY F6 and the owner's instruction.
+- 2026-10-22 (restored 2026-10-23): placement. Suggestions appear as a section in the feed and as a
+  row on the trader profile. Why: the owner's placement answer in the design session.
+- 2026-10-22 (restored 2026-10-23): a suggestion opens the same pane as any feed card; the profile is
+  one swipe further (SW-1). Why: one interaction model everywhere.
+- 2026-10-23: the engineer and business lead disagree on the reject gesture (SW-1 reserves left/right
+  on the feed). Recorded below as an owner question; until answered, the engineer builds reject so that
+  it cannot collide with the profile-opening swipe.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
@@ -48,6 +62,12 @@ Each one testable; the pipeline writes a test for every line.
 - Pushing suggestions by notification (Phase 2 "make watching sticky").
 
 ## Open questions
+- Owner: the reject gesture. Left/right on the feed is reserved for opening the profile (SW-1). Options:
+  reject by swipe inside the suggestions section only; reject by a vertical swipe; or reject only via
+  the "Not interested" menu with the same −4. The business lead proposes the menu; the owner chose a
+  swipe in the design session.
+- Owner: the profile row. The business lead proposes cutting it (it routes a trader's shared-link
+  visitors away). The owner's placement decision includes it.
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
   decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.
 

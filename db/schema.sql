@@ -83,6 +83,9 @@ select schema_add_index('activities_user_time', 'create index activities_user_ti
 
 -- F-1 PR-3 (heavy-use): the rebuild reads a trader's activities in (account, symbol, time, id) keyset pages.
 select schema_add_index('activities_user_pair', 'create index activities_user_pair on activities (user_id, account_id, symbol, executed_at, external_id)');
+-- F-2 PR-1 fix round 1: a feed page cursor pins its list to what was imported by its asOf (lib/feed.ts): the closes
+-- whose sell was imported after it are a small, recent set, read through this index.
+select schema_add_index('activities_created', 'create index activities_created on activities (created_at)');
 -- F-1 PR-3: the hourly tick's claim (lib/sync.ts#claimNextUser): each trader is synced by one caller per round.
 select schema_add_column('users', 'sync_claimed_at', 'timestamptz');
 -- F-1 PR-3 fix round 1: the claim's short in-flight lease, cleared when that trader's sync ends or fails.

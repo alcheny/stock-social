@@ -301,6 +301,31 @@ export const LOGIN_MAIL = {
 } as const;
 
 // Everything above, flattened, for the banned-list test.
+// F-2 PR-1: the feed's paging and end card (plan §1 PR-1). "today's": the order is seeded per UTC day; the list is
+// capped (FEED_CANDIDATES), so the end card claims no completeness. The UX lead may rewrite it within that rule.
+export const FEED = {
+  end: 'End of today\u2019s feed.',
+  publish: 'Publish your trades',
+  more: 'Show more',
+  failed: 'Couldn\u2019t load more.',
+  retry: 'Retry',
+  stale: 'Load today\u2019s feed',
+  endLabel: 'End of feed',
+  // Fix round 1 (UX follow-ups 2 and 8).
+  loading: 'Loading\u2026',
+  seeRecord: 'See your record',
+  // Fix round 2 (UX, carried over): page 1's level-1 heading (visually hidden; later pages name their positions).
+  heading: 'Trade feed',
+};
+// Fix round 1 (UX follow-ups 5 and 9): the polite announcement when cards are appended, and the no-JS page's position.
+export const FEED_COUNTS = {
+  added: (n: number) => `${n} more ${n === 1 ? 'trade' : 'trades'} loaded`,
+  position: (from: number, to: number) => `Trades ${from} to ${to}`,
+  // Fix round 2 (UX follow-up 2): the live line names the positions, so it changes on every append (the same text twice
+  // is not announced again) and matches the no-JS page's heading.
+  loaded: (from: number, to: number) => `Trades ${from} to ${to} loaded`,
+};
+
 export function allCopy(): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
@@ -309,6 +334,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS].forEach(walk);
   return out;
 }

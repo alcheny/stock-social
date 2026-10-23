@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { RANGES, nearestIndex, pct, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
 import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { counted } from '@/lib/format.ts';
@@ -64,8 +64,11 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   const series = useMemo(() => (packed ? packed[range] : chartSeries(trades ?? [], range, now)), [packed, trades, range, now]);
   // The full chart has other points than the stand-in: a scrub position held across the swap moves to the point
   // nearest in time (a key press or drag made before the swap keeps its place). `seen` holds the points last drawn.
+  // F-2 PR-1 (found by the heavy-feed e2e): a layout effect, so the remap runs in the swap's own commit. As a passive
+  // effect it could run after a key press that landed on the new points, and remap that press as if it were on the
+  // stand-in's points (resetting it).
   const seen = useRef(series.pts);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const before = seen.current, after = series.pts;
     seen.current = after;
     if (before === after || !after.length) return;

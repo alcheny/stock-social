@@ -1,27 +1,40 @@
-import { stats } from './trades.ts';
+import { headline } from './trades.ts';
 import type { PublicState } from './connections.ts';
 
 type PaneTrade = { returnPct: number; holdingDays: number; closedAt: Date; symbol: string };
 
 // Everything the feed's profile pane shows, from all-time trades. Win rate and avg return come from
-// stats(), the same function the profile page uses, so the two can never disagree.
+// headline(), which stats() (the profile page's) uses too, so the two can never disagree.
+// F-2 PR-1 fix round 2 (render cost, 4,700-close records): one pass, no sort of the whole record. `recent` is the 5 latest
+// closes, newest first, ties in input order (as the stable sort gave).
 export function paneSummary<T extends PaneTrade>(trades: T[]) {
-  const s = stats(trades);
-  const byDate = [...trades].sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime());
+  const { winRate, avgReturn } = headline(trades);
+  let since: Date | null = null;
+  const recent: T[] = [];
+  for (const t of trades) {
+    const at = t.closedAt.getTime();
+    if (!since || at < since.getTime()) since = t.closedAt;
+    if (recent.length === 5 && at <= recent[4].closedAt.getTime()) continue;
+    let i = recent.length;
+    while (i > 0 && recent[i - 1].closedAt.getTime() < at) i--;
+    recent.splice(i, 0, t);
+    if (recent.length > 5) recent.pop();
+  }
   return {
     count: trades.length,
-    winRate: s.winRate,
-    avgReturn: s.avgReturn,
-    since: byDate.length ? byDate[byDate.length - 1].closedAt : null, // first closed trade, not account age
+    winRate,
+    avgReturn,
+    since, // first closed trade, not account age
     worst: trades.reduce<T | null>((w, x) => (!w || x.returnPct < w.returnPct ? x : w), null),
-    recent: byDate.slice(0, 5),
+    recent,
   };
 }
 
 // One batched query for every visible trader, split here instead of one query per feed item.
 export function groupByUser<T extends { userId: number }>(rows: T[]): Map<number, T[]> {
   const m = new Map<number, T[]>();
-  for (const r of rows) m.set(r.userId, [...(m.get(r.userId) ?? []), r]);
+  // F-2 PR-1 load check: push, not copy (copying the array per row was quadratic: ~0.3 s for a few 4,700-close records).
+  for (const r of rows) { const a = m.get(r.userId); if (a) a.push(r); else m.set(r.userId, [r]); }
   return m;
 }
 

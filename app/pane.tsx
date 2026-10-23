@@ -12,7 +12,9 @@ export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
 };
 
-const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+// Fix round 2 (render cost): one formatter, not one per call (same text as toLocaleDateString with these options).
+const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const day = (d: Date) => DAY.format(d);
 
 // Feed profile pane (SW-1), variant C: leads with the chart and an honest one-line summary (length of
 // record, trade count, worst trade), then the headline stats. All-time numbers via paneSummary().

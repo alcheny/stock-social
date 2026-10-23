@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
-import { allCopy, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
+import { allCopy, FEED, FEED_COUNTS, imageTrust, recordCountText, RECORD_BODY, SHARE_CARD, shareCardText, CONSENT, HOW, LEGAL_PLACEHOLDER, RESULT, SETTINGS, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from './copy.ts';
 
 const MARK_RE = new RegExp(`\\b(${MARKS.map((m) => m.replace(/ /g, '[\\s-]?')).join('|')})\\b`, 'i');
 const MINORS_RE = new RegExp(`\\b(${MINORS.map((m) => m.replace(/ /g, '\\s')).join('|')})\\b`, 'i');
@@ -299,4 +299,31 @@ test('fix round 8 (tester re-run 4): exclusion counts are pluralized, never "(s)
   assert.equal(PROFILE.excludedFuture(1), '1 imported trade excluded: dated in the future by the broker.');
   assert.equal(PROFILE.excludedFuture(1_200), '1,200 imported trades excluded: dated in the future by the broker.');
   for (const n of [1, 2]) for (const t of [PROFILE.excludedPositions(n), PROFILE.excludedFuture(n)]) assert.ok(!t.includes('(s)'), t);
+});
+
+test('F-2 PR-1: the feed end card and paging copy; no completeness claim; in the banned-list walk', () => {
+  assert.equal(FEED.end, 'End of today\u2019s feed.');
+  assert.equal(FEED.publish, 'Publish your trades');
+  assert.equal(`${FEED.failed} ${FEED.retry}`, 'Couldn\u2019t load more. Retry');
+  for (const s of Object.values(FEED)) {
+    assert.doesNotMatch(s, /\b(every|all|complete|whole|nothing (else|more)|caught up|that'?s it)\b/i, s);
+    assert.ok(allCopy().includes(s), s);
+  }
+});
+
+test('F-2 PR-1 fix round 1: loading, the appended-cards announcement, the no-JS position heading, the publisher end action', () => {
+  assert.equal(FEED.loading, 'Loading…');
+  assert.equal(FEED.seeRecord, 'See your record');
+  assert.equal(FEED_COUNTS.added(30), '30 more trades loaded');
+  assert.equal(FEED_COUNTS.added(1), '1 more trade loaded');
+  assert.equal(FEED_COUNTS.position(31, 60), 'Trades 31 to 60');
+  assert.equal(FEED.heading, 'Trade feed'); // fix round 2: page 1's (visually hidden) h1
+  // Fix round 2 (UX follow-up 2): the live line differs on every append.
+  assert.equal(FEED_COUNTS.loaded(61, 90), 'Trades 61 to 90 loaded');
+  assert.notEqual(FEED_COUNTS.loaded(31, 60), FEED_COUNTS.loaded(61, 90));
+  assert.doesNotMatch(FEED_COUNTS.loaded(31, 60), /\b(every|all|complete|whole|nothing)\b/i);
+  for (const s of [FEED_COUNTS.added(30), FEED_COUNTS.position(31, 60)]) assert.doesNotMatch(s, /\b(every|all|complete|whole|nothing (else|more)|caught up|that'?s it)\b/i, s);
+  // In the banned-list walk (it calls each function with ('x', 2, 1)).
+  const walked = allCopy(), x = 'x' as unknown as number;
+  assert.ok(walked.includes(FEED_COUNTS.added(x)) && walked.includes(FEED_COUNTS.position(x, 2)));
 });

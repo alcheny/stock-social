@@ -63,3 +63,24 @@ test('row badge (fix round 5, TR-3): stock page trade and thesis rows show no Ve
   assert.equal(rowBadge(false, 'failed'), 'demo');
   assert.equal(rowBadge(false, 'none'), 'demo');
 });
+
+// F-2 PR-1 fix round 2 (render cost): paneSummary is one pass now (no copy-and-sort of a 4,700-close record, no full
+// stats()). Same answers as the sort-based version, ties on closedAt included (the stable sort kept input order), and
+// the headline numbers equal stats()' (the profile's).
+test('fix round 2: the one-pass pane summary equals the sort-based one on 500 generated records, ties included', () => {
+  let seed = 7;
+  const r = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+  for (let f = 0; f < 500; f++) {
+    const n = Math.floor(r() * 40);
+    const rows = Array.from({ length: n }, (_, i) => ({ id: `${f}-${i}`, symbol: `S${i % 4}`, returnPct: Math.round((r() - 0.45) * 100) / 100,
+      holdingDays: 1 + Math.floor(r() * 9), closedAt: new Date(Date.UTC(2026, 0, 1 + Math.floor(r() * 12))) }));
+    const p = paneSummary(rows);
+    const byDate = [...rows].sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime());
+    const s = stats(rows);
+    assert.deepEqual(p.recent.map((t) => t.id), byDate.slice(0, 5).map((t) => t.id), `record ${f}`);
+    assert.equal(p.since?.getTime() ?? null, byDate.length ? byDate[byDate.length - 1].closedAt.getTime() : null);
+    assert.equal(p.winRate, s.winRate);
+    assert.equal(p.avgReturn, s.avgReturn);
+    assert.equal(p.count, n);
+  }
+});

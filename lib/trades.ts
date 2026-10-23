@@ -122,6 +122,15 @@ export function curveDomain(curve: { cumulative: number }[]): { min: number; max
   return { min: Math.min(0, ...v), max: Math.max(0, ...v) };
 }
 
+// The two headline numbers (win rate, average return), in one pass. stats() reads them from here, and so does the feed
+// pane (lib/pane.ts#paneSummary, F-2 PR-1 fix round 2: it needs only these two, not the sorted holds and drawdown curve),
+// so the pane and the profile can never disagree.
+export function headline(trades: Pick<ClosedTrade, 'returnPct'>[]): { winRate: number; avgReturn: number } {
+  let wins = 0, sum = 0;
+  for (const t of trades) { if (t.returnPct > 0) wins++; sum += t.returnPct; }
+  return { winRate: trades.length ? wins / trades.length : 0, avgReturn: trades.length ? sum / trades.length : 0 };
+}
+
 export function stats(trades: Pick<ClosedTrade, 'returnPct' | 'holdingDays' | 'closedAt'>[]): Stats {
   const r = trades.map((t) => t.returnPct);
   const wins = r.filter((x) => x > 0);
@@ -134,10 +143,11 @@ export function stats(trades: Pick<ClosedTrade, 'returnPct' | 'holdingDays' | 'c
   const median = !holds.length ? 0 : holds.length % 2 ? holds[mid] : (holds[mid - 1] + holds[mid]) / 2;
 
   const lossSum = Math.abs(sum(losses));
+  const { winRate, avgReturn } = headline(trades);
   return {
     trades: r.length,
-    winRate: r.length ? wins.length / r.length : 0,
-    avgReturn: avg(r),
+    winRate,
+    avgReturn,
     avgWin: avg(wins),
     avgLoss: avg(losses),
     profitFactor: lossSum ? sum(wins) / lossSum : null,
@@ -221,7 +231,8 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   void today; // reserved for open positions (TR-4)
   const n = trades.length;
   const bySymbol = new Map<string, ConfidenceInput[]>();
-  for (const t of trades) bySymbol.set(t.symbol, [...(bySymbol.get(t.symbol) ?? []), t]);
+  // F-2 PR-1 fix round 1 (load check): push, not copy (a copy per trade was quadratic in a symbol's trade count).
+  for (const t of trades) { const g = bySymbol.get(t.symbol); if (g) g.push(t); else bySymbol.set(t.symbol, [t]); }
   // A cluster = same-symbol trades whose holds overlap (inclusive of the boundary instant): one bet.
   const clusters: Cluster[] = [];
   for (const group of bySymbol.values()) {

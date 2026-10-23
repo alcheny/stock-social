@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import { currentUser } from '@/lib/session.ts';
+import { sql } from '@/lib/db.ts';
 import { NavLogin } from './nav-login.tsx';
 import { FOOTER } from '@/lib/copy.ts';
 import './globals.css';
@@ -13,9 +14,12 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, them
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const me = await currentUser();
+  // F-2 PR-1 fix round 1 (UX follow-up 8): who is viewing, for the feed's end card only (app/feed-rows.tsx#FeedEnd shows
+  // "See your record" to a viewer who publishes). The feed itself reads no session.
+  const viewer = !me ? 'guest' : (await sql`select exists (select 1 from closed_trades where user_id = ${me.id}) as p`)[0].p ? 'publisher' : 'member';
   return (
     <html lang="en">
-      <body>
+      <body data-viewer={viewer}>
         {/* F-1 PR-3 fix round 4 (POLICY F3/A1): the disclaimer and legal links are one Tab away on any page, however long. */}
         <a className="skip-link" href="#site-footer">{FOOTER.skip}</a>
         <nav className="top">

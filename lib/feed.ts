@@ -1,4 +1,9 @@
 import { sql } from './db.ts';
+import { recordStates, type RecordStatus } from './connections.ts';
+import { groupByUser } from './pane.ts';
+import { confidence, evidenceWeight, rankTraders, type ConfidenceInput } from './trades.ts';
+import { mixFeed } from './discovery/explore.ts';
+import { CURSOR_MAX_AGE_MS, encodeCursor, pageOf, readCursor, type Cursor } from './discovery/pager.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
 // score = ln(1 + |r|·100) · exp(-max(0, min(age_hours / RECENCY_HOURS, MAX_DECAY)))
@@ -17,23 +22,263 @@ import { sql } from './db.ts';
 export const RECENCY_HOURS = 48;
 export const MAX_DECAY = 600;
 export const FEED_CANDIDATES = 200;
+// F-2 PR-1 fix round 1 (business lead blocker 2): at most this many of one trader's closes among the candidates. Six is
+// the most the caps let one trader show on a 30-card page (2 per 10), so nothing a page could show is lost; the other
+// closes stay on the profile (TR-1: nothing is hidden there).
+export const FEED_PER_TRADER = 6;
+// Fix round 1 (load check): the candidates are read from the closes of this window first (an index range on
+// closed_at); the full pass runs only when that can't be proven to give the same 200 (see feedCandidates).
+export const RECENT_HOURS = 14 * 24;
+// The largest size term a finite double allows: ln(1 + |r|·100) ≤ ln(1 + Number.MAX_VALUE) ≈ 709.78.
+const SIZE_MAX = Math.log1p(Number.MAX_VALUE);
 
 export type FeedCandidate = {
-  id: number; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
+  id: number; sell_id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number; score: number;
 };
 
+// F-2 PR-1 fix round 2 (tester High A): "this close's sell was imported after asOf". Was `sell_id not in (select
+// external_id from late)` over a CTE: a hashed subplan only while the planner expects the late set to fit in work_mem.
+// Above that (~120,000 activities imported since a cursor's asOf) Postgres rescanned the whole set for every candidate
+// row: 129 s to over 180 s a page. A plain anti-join (`not exists`) is no fix on its own: right after a burst of imports,
+// before autovacuum analyzes them, the planner expects 1 late row and runs the anti-join as a nested loop over the late
+// scan, rescanned per row, whenever the outer side is small (measured: a short recent window, a few traders). So the
+// late filter must not depend on the planner's estimate, nor on a cached plan (a prepared statement's generic plan can
+// be built while `activities` is small and kept after it grows, until autovacuum analyzes it):
+// - `activities` is read once per candidate statement, in `late` (the late sells as one array, an index range on
+//   created_at or one scan), never per row: a per-row probe of its unique index, or a max(created_at) probe, became a
+//   scan per row under a stale or cached plan (73 to 75 s a page);
+// - every filter is `not in` over that array, unnested. The planner always estimates an unnested non-constant array at
+//   10 rows, so it is always a hashed subplan, never rescanned (the 5-close count builds the hash once and keeps it).
+//   Memory grows with the late set (~75,000 sells is a few MB). Fix round 3 (tester Medium E): never a bound array
+//   either (a constant to a custom plan: above hash_mem, rescanned per row); a weight miss reads lateArray itself.
+// Only a sell can be a close's sell_id (closed_trades.sell_id is the closing sell's external_id), so only sells count.
+// F-2 PR-1 review (tester Low G): `a` and `o` are two `array(select …)` InitPlans, not one `array_agg … filter` aggregate:
+// with fresh statistics Postgres runs that aggregate in parallel and merging the workers' partial arrays cost 2× (600,000
+// late sells: 750–940 ms against 400–510 ms for both scans, reviewer's run).
+// ponytail: a page with no kept list (a crafted `?after=`) is linear in the late sells since its asOf, ~2.3 ms per 1,000
+// with the weights kept (fix round 3: 150,000 ~320 ms, 600,000 ~1.3 s); a cap would need a stored import time per close.
+const lateArray = (asOf: Date) => sql`array(select external_id from activities where created_at > ${asOf} and side = 'SELL')`;
+
 // `ids` is a test hook (rank only these traders); the feed passes none.
-export async function feedCandidates(opts: { ids?: number[] } = {}): Promise<FeedCandidate[]> {
-  const score = sql`ln(1 + abs(t.return_pct) * 100) * exp(-greatest(0::float8, least(extract(epoch from now() - t.closed_at) / 3600 / ${RECENCY_HOURS}::float8, ${MAX_DECAY}::float8)))`;
+// F-2 PR-1: `asOf` freezes the ranking clock for a feed session (lib/discovery/pager.ts): the score's age, the
+// eligibility count and the candidate set read only closes at or before it, so a page built later slices the same list.
+// Without it the clock is now() and nothing is filtered (today's behavior). A close dated in the future therefore
+// enters a paged feed when its date arrives (the rebuild quarantines anything more than a day ahead).
+// Ties break on the close's vendor id (unique, kept across rebuilds), not the row id (which a rebuild renumbers).
+// F-2 PR-1 fix round 1 (tester Medium 2): with `asOf`, the list is pinned to what existed at asOf, not only to what was
+// dated by then:
+// - a close whose sell activity was imported after asOf (the hourly sync's normal case: dated before, imported after)
+//   counts nowhere, for the score, the eligibility count or the weights;
+// - a trader deleted after asOf, or whose import started after asOf, keeps their place in the list (the page leaves a
+//   gap: loadFeedPage); a trader whose import was still running at asOf stays out even once it finishes.
+// At most FEED_PER_TRADER closes per trader (fix round 1, business lead blocker 2).
+export async function feedCandidates(opts: { ids?: number[]; asOf?: Date } = {}): Promise<FeedCandidate[]> {
+  return (await candidatesAt(opts)).map(({ pn: _n, pm: _m, pk: _k, ...t }) => t);
+}
+
+// Fix round 2: with asOf, each row also carries its trader's weight fingerprint (pn, pm, pk: see weights()), read in
+// the same statement so the late sells are read once per list, not once per query.
+type Candidate = FeedCandidate & { pn?: number; pm?: string; pk?: number };
+async function candidatesAt(opts: { ids?: number[]; asOf?: Date }): Promise<Candidate[]> {
+  // The recent window first. Exact when it fills the 200 and its 200th score S is above anything an older close can
+  // score: a close older than the window scores at most SIZE_MAX · e^(−RECENT_HOURS/RECENCY_HOURS) (≈ 0.65), so with
+  // S above that, every close scoring ≥ S is in the window and the per-trader ranks of those closes are the same.
+  const recent = await candidateQuery(opts, true);
+  if (recent.length === FEED_CANDIDATES && Number(recent[recent.length - 1].score) > SIZE_MAX * Math.exp(-RECENT_HOURS / RECENCY_HOURS)) return recent;
+  return candidateQuery(opts, false);
+}
+
+async function candidateQuery({ ids, asOf }: { ids?: number[]; asOf?: Date }, recentOnly: boolean): Promise<Candidate[]> {
+  const clock = asOf ? sql`${asOf}::timestamptz` : sql`now()`;
+  // date_part is double precision (extract() is numeric since PostgreSQL 14: the same value, several times slower per
+  // row; F-2 PR-1 load check).
+  const score = sql`ln(1 + abs(t.return_pct) * 100) * exp(-greatest(0::float8, least(date_part('epoch', ${clock} - t.closed_at) / 3600 / ${RECENCY_HOURS}::float8, ${MAX_DECAY}::float8)))`;
+  const order = sql`score desc, least(closed_at, ${clock}) desc, sell_id desc`;
+  const notLateHere = (col: ReturnType<typeof sql>, arr = 'a') => sql`${col} not in (select unnest(${sql(arr)}) from late)`;
+  const lo = sql`${clock} - ${RECENT_HOURS} * interval '1 hour'`;
   return (await sql`
-    select t.id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status,
-           u.handle, u.display_name, u.id as user_id, ${score} as score
-    from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-    where t.user_id in (select user_id from closed_trades group by user_id having count(*) >= 5)
-      ${opts.ids ? sql`and t.user_id in ${sql(opts.ids.length ? opts.ids : [0])}` : sql``}
-      -- F-1 fix round 3 (TR-3): a record with an import still running is not in the feed until it is whole.
-      and not exists (select 1 from connections c where c.user_id = t.user_id and c.state = 'importing' and c.consent_at is not null)
-    order by score desc, least(t.closed_at, now()) desc, t.id desc
-    limit ${FEED_CANDIDATES}`) as unknown as FeedCandidate[];
+    with ${asOf ? sql`late as materialized (select ${lateArray(asOf)} as a, array(select external_id from activities
+      where created_at > ${asOf} and side = 'SELL' and executed_at <= ${lo}) as o),` : sql``}
+    c as materialized (
+      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, ${score} as score
+      from closed_trades t
+      where true ${recentOnly ? sql`and t.closed_at > ${lo}` : sql``}
+        ${asOf ? sql`and t.closed_at <= ${asOf} and ${notLateHere(sql`t.sell_id`)}` : sql``}
+        ${ids ? sql`and t.user_id in ${sql(ids.length ? ids : [0])}` : sql``}
+    ), elig as materialized (
+      -- ≥ 5 closes at asOf (c's own count first, fix round 3), not deleted (by asOf), no import running (at asOf). F-1 fix
+      -- round 3 (TR-3): a record with an import still running is not in the feed until it is whole.
+      select d.user_id, d.n from (select user_id, count(*) as n from c group by user_id) d join users u on u.id = d.user_id
+      where ${asOf ? sql`(u.deleted_at is null or u.deleted_at > ${asOf})` : sql`u.deleted_at is null`}
+        and (d.n >= 5 or (select count(*) from (select 1 from closed_trades x where x.user_id = d.user_id
+             ${asOf ? sql`and x.closed_at <= ${asOf} and ${notLateHere(sql`x.sell_id`)}` : sql``} limit 5) five) = 5)
+        and not exists (select 1 from connections k where k.user_id = d.user_id and k.consent_at is not null and ${asOf
+          ? sql`k.consent_at <= ${asOf} and (k.state = 'importing' or (k.state = 'connected' and k.connected_at > ${asOf}) or (k.state = 'failed' and k.failed_at > ${asOf}))`
+          : sql`k.state = 'importing'`})
+    ), r as (
+      select c.*, row_number() over (partition by c.user_id order by c.score desc, least(c.closed_at, ${clock}) desc, c.sell_id desc) as rk
+      from c join elig using (user_id)
+    ), top as (
+      select * from r where rk <= ${FEED_PER_TRADER} order by ${order} limit ${FEED_CANDIDATES}
+    )${asOf ? sql`, pr as materialized (
+      -- pk, the closes counted at asOf (fix round 3, none probed twice): c's, and the not-late ones older than c's window
+      -- (o: the late sells dated before the window; a close's closed_at is its sell's executed_at, lib/trades.ts)
+      select x.user_id, count(*)::int as pn, max(x.id)::text as pm, (e.n + count(*) filter (where ${recentOnly
+        ? sql`x.closed_at <= ${lo} and ${notLateHere(sql`x.sell_id`, 'o')}` : sql`false`}))::int as pk
+      from closed_trades x join elig e using (user_id) where x.user_id in (select distinct user_id from top) group by x.user_id, e.n
+    )` : sql``}
+    select top.id, top.sell_id, top.symbol, top.return_pct, top.holding_days, top.closed_at, top.verified, top.thesis, top.thesis_status,
+           top.user_id, top.score, u.handle, u.display_name ${asOf ? sql`, pr.pn, pr.pm, pr.pk` : sql``}
+    from top join users u on u.id = top.user_id ${asOf ? sql`left join pr on pr.user_id = top.user_id` : sql``}
+    order by top.score desc, least(top.closed_at, ${clock}) desc, top.sell_id desc`) as unknown as Candidate[];
+}
+
+// ---- F-2 PR-1: feed mix and paging ----
+// The feed is one list per (UTC day, asOf): candidates at asOf → TR-9 ranking (lower bound, losses weigh like gains)
+// → diversity caps and seeded exploration (lib/discovery/explore.ts). Pages are 30-card slices of it. The same list
+// for every viewer, signed in or out; nothing here reads a session or a viewer table (lib/feed.signed-out.test.ts).
+export type FeedItem = FeedCandidate & { explore: boolean };
+export type PaneRow = { userId: number; id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; verified: boolean; thesis: string | null };
+
+// Every page trader's full current record, for the pane's chart and stats.
+// Fix round 1 (load check, tester Medium 3): one JSON text per trader instead of one row per close. A page of heavy
+// traders is ~50,000 closes; the database reads them in ~30 ms, but parsing them as rows took ~200 ms in the client.
+// Values are exact: a float8's text is its shortest round-trip form, and times travel as epoch milliseconds as before.
+async function records(userIds: number[]): Promise<PaneRow[]> {
+  if (!userIds.length) return [];
+  const rows = await sql`
+    select user_id, '[' || string_agg(concat_ws(',', id, to_json(symbol)::text, return_pct, holding_days, verified::int,
+      date_part('epoch', closed_at) * 1000, coalesce(to_json(case when thesis_status = 'published' then thesis end)::text, 'null')), ',') || ']' as j
+    from closed_trades where user_id = any(${userIds}) group by user_id`;
+  const out: PaneRow[] = [];
+  for (const r of rows) {
+    const a = JSON.parse(r.j as string) as (string | number | null)[];
+    for (let k = 0; k < a.length; k += 7) out.push({
+      userId: r.user_id as number, id: String(a[k]), symbol: a[k + 1] as string, returnPct: a[k + 2] as number, holdingDays: a[k + 3] as number,
+      verified: a[k + 4] === 1, closedAt: new Date(a[k + 5] as number), thesis: a[k + 6] as string | null,
+    });
+  }
+  return out;
+}
+
+// F-2 PR-1 fix round 1 (load check, tester Medium 3): a trader's TR-9 weight at asOf, kept in memory. The key is the
+// trader's row count and largest row id (a rebuild renumbers every row; a new close adds one) plus the number of
+// those rows counted at asOf. The counted rows are a subset that only grows with asOf, so the same row set and the same
+// count are the same rows: the same weight. Only a trader whose record changed reads its record again.
+const weightCache = new Map<string, number>();
+const WEIGHT_CACHE_MAX = 20_000;
+
+// Fix round 2: the fingerprints (n, m, k per trader) come with the candidates, from the same statement (candidateQuery).
+type Print = { n: number; m: string; k: number };
+async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  const userIds = [...prints.keys()];
+  if (!userIds.length) return out;
+  const keys = new Map([...prints].map(([id, p]) => [id, `${id}:${p.n}:${p.m}:${p.k}`]));
+  const miss: number[] = [];
+  for (const id of userIds) {
+    const w = weightCache.get(keys.get(id) ?? '');
+    if (w === undefined) miss.push(id); else out.set(id, w);
+  }
+  if (miss.length) {
+    // One JSON text per trader, as in records().
+    const rows = await sql`
+      select user_id, '[' || string_agg(concat_ws(',', to_json(symbol)::text, return_pct, holding_days,
+        date_part('epoch', opened_at) * 1000, date_part('epoch', closed_at) * 1000), ',') || ']' as j
+      from closed_trades where user_id = any(${miss}) and closed_at <= ${asOf}
+        and sell_id not in (select unnest(${lateArray(asOf)})) group by user_id`;
+    const byTrader = new Map<number, ConfidenceInput[]>(miss.map((id) => [id, []]));
+    for (const r of rows) {
+      const a = JSON.parse(r.j as string) as (string | number)[], ts = byTrader.get(r.user_id as number)!;
+      for (let k = 0; k < a.length; k += 5) ts.push({
+        symbol: a[k] as string, returnPct: a[k + 1] as number, holdingDays: a[k + 2] as number,
+        openedAt: new Date(a[k + 3] as number), closedAt: new Date(a[k + 4] as number),
+      });
+    }
+    for (const [id, ts] of byTrader) {
+      const w = ts.length ? evidenceWeight(confidence(ts, asOf)) : 0;
+      out.set(id, w);
+      const key = keys.get(id);
+      if (!key) continue;
+      if (weightCache.size >= WEIGHT_CACHE_MAX) weightCache.delete(weightCache.keys().next().value!);
+      weightCache.set(key, w);
+    }
+  }
+  return out;
+}
+
+export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }): Promise<{ list: FeedItem[] }> {
+  const candidates = await candidatesAt({ asOf: opts.asOf, ids: opts.ids });
+  const prints = new Map<number, Print>();
+  for (const t of candidates) prints.set(t.user_id, { n: t.pn!, m: t.pm!, k: t.pk! });
+  // Rank by the pace-interval lower bound (TR-9): small lucky samples can't top the feed. Losses weigh like gains.
+  // Read at asOf: a close after it, or imported after it, changes no weight.
+  const weight = await weights(prints, opts.asOf);
+  const ranked = rankTraders(candidates.map((t) => ({ t, score: Number(t.score), weight: weight.get(t.user_id) ?? 0 })))
+    .map(({ t }) => ({ ...t, key: t.sell_id, trader: t.user_id }));
+  const list: FeedItem[] = mixFeed(ranked, { day: opts.day }).map(({ card: { key: _k, trader: _t, pn: _n, pm: _m, pk: _p, ...t }, explore }) => ({ ...t, explore }));
+  return { list };
+}
+
+export type FeedPage = {
+  cards: FeedItem[]; offset: number; asOf: Date; next: string | null;
+  // The list positions this page covers (1-based, for the no-JS page's position heading).
+  from: number; to: number;
+  byUser: Map<number, PaneRow[]>; records: Map<number, RecordStatus>;
+};
+
+// F-2 PR-1 fix round 1: the list of each (day, asOf) is kept in memory for its cursor's lifetime, so a later page from
+// the same server slices exactly the list page 1 showed (a trader removed meanwhile leaves a gap, never a shift). Only
+// the order is kept (vendor id, trader, pick); each page reads its cards' current rows. On another server, or after a
+// restart, the list is recomputed from the database, pinned to asOf as feedCandidates describes.
+type Slot = { sell_id: string; user_id: number; explore: boolean; score: number };
+const lists = new Map<string, { asOf: number; slots: Slot[] }>();
+const LIST_CACHE_MAX = 256;
+// Tests: forget every kept list and weight (a cold server), or only the lists (fix round 2: a page whose list this
+// server never built, such as a crafted `?after=`, on a server whose weights are warm).
+export function clearFeedCache(what: 'all' | 'lists' = 'all') { lists.clear(); if (what === 'all') weightCache.clear(); }
+
+async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Slot[]> {
+  const key = `${c.day}|${c.asOf}|${ids ? ids.join(',') : '*'}`;
+  const kept = lists.get(key);
+  if (kept) return kept.slots;
+  const { list } = await feedList({ asOf: new Date(c.asOf), day: c.day, ids });
+  const slots = list.map((t) => ({ sell_id: t.sell_id, user_id: t.user_id, explore: t.explore, score: Number(t.score) }));
+  for (const [k, v] of lists) if (v.asOf < now - CURSOR_MAX_AGE_MS || lists.size >= LIST_CACHE_MAX) lists.delete(k);
+  lists.set(key, { asOf: c.asOf, slots });
+  return slots;
+}
+
+// One page of the feed for a `?after=` value (or the paging action's cursor). Anything invalid is page 1.
+export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: number[] } = {}): Promise<FeedPage> {
+  const now = opts.now ?? Date.now();
+  const c = readCursor(after, now, FEED_CANDIDATES);
+  const slots = await listFor(c, now, opts.ids);
+  const page = pageOf(slots, c);
+  // The page's cards as they are now (a thesis held since page 1 is not shown; a corrected return shows corrected). A
+  // card whose trader was deleted since asOf, or whose close is gone, is a gap. The three reads run side by side.
+  const traders = [...new Set(page.items.map((s) => s.user_id))];
+  const [rows, states, panes] = await Promise.all([
+    page.items.length ? sql`
+      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name
+      from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+      where t.sell_id = any(${page.items.map((s) => s.sell_id)})` : [],
+    // Fix round 4 (TR-3): a failed import stays in the feed (never hidden) but its card and pane say it may be
+    // incomplete. Fix round 1: a trader whose import started after asOf is left out until it is whole (a gap).
+    recordStates(traders),
+    records(traders),
+  ]);
+  const bySell = new Map(rows.map((r) => [r.sell_id as string, r]));
+  const cards: FeedItem[] = page.items.flatMap((s) => {
+    const r = bySell.get(s.sell_id);
+    if (!r || r.user_id !== s.user_id || states.get(s.user_id)?.state === 'importing') return [];
+    return [{ ...(r as unknown as FeedCandidate), score: s.score, explore: s.explore }];
+  });
+  const onPage = new Set(cards.map((t) => t.user_id));
+  const byUser = groupByUser(panes.filter((r) => onPage.has(r.userId)));
+  return {
+    cards, offset: c.offset, asOf: new Date(c.asOf), next: page.next && encodeCursor(page.next),
+    from: c.offset + 1, to: c.offset + page.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
+  };
 }
