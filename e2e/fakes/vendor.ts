@@ -44,6 +44,9 @@ export function generateActivities(accountId: string, n: number): FakeActivity[]
 // PR-3 (heavy-use tests): a reproducible, realistic history from a seed. Several symbols per account, buys of varying
 // size, partial and full sells across lots (FIFO), fees, same-instant ties, and an occasional sell with no recorded entry
 // (excluded, never guessed). Times move forward from 2020-01-01 in steps of minutes to days. Same seed, same rows.
+// F-1 PR-3 fix round 6: a long history (2,500 rows reach about 2030) is shifted back as a whole so its last row is at
+// SEEDED_END, a fixed past date: the import quarantines trades dated in the future (lib/sync.ts#FUTURE_GRACE_HOURS).
+export const SEEDED_END = Date.UTC(2026, 0, 1);
 export function seededActivities(accountId: string, n: number, seed: number): FakeActivity[] {
   let t = seed >>> 0;
   const rnd = () => { t = (t + 0x6d2b79f5) >>> 0; let x = Math.imul(t ^ (t >>> 15), 1 | t); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
@@ -63,6 +66,8 @@ export function seededActivities(accountId: string, n: number, seed: number): Fa
     held.set(symbol, sell ? Math.max(0, have - units) : have + units);
     out.push({ id: `${accountId}-${i}`, symbol, type: sell ? 'SELL' : 'BUY', units, price: Math.round(p * 100) / 100, fee: Math.round(rnd() * 100) / 100, trade_date: new Date(at).toISOString() });
   }
+  const back = Math.max(0, at - SEEDED_END);
+  if (back) for (const r of out) r.trade_date = new Date(new Date(r.trade_date).getTime() - back).toISOString();
   return out;
 }
 
