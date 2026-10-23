@@ -52,6 +52,7 @@ dialog.portal iframe.loading { visibility: hidden; }
 dialog.portal .portal-alt { margin: 0; padding: 4px 16px 8px; border-top: 1px solid var(--line); }
 dialog.portal .portal-alt a { display: inline-flex; align-items: center; min-height: 44px; }
 dialog.portal .portal-alt a.button { display: flex; justify-content: center; margin: 4px 0; }
+dialog.portal .portal-stuck { display: block; padding-top: 8px; }
 html.portal-open { overflow: hidden; }
 .record-failed { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .record-failed .button { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; }

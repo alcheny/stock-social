@@ -1252,3 +1252,30 @@ dbTest('PR-2b: the embedded portal is recorded as such (funnel portal_opened mod
     await cleanup([u.id], [a1, a2, p]);
   }
 });
+
+dbTest('PR-2b fix round 1 (plan §5): the portal coming back without a new link (the embedded dialog closed, or an empty redirect return) records `abandoned`, once per return, with no meta; a real link does not', async () => {
+  const { sql, tag, mkUser, events, cleanup } = await setup();
+  const { startConnection, completeLink } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('ab');
+  const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const a1 = `${tag}-ab1`;
+  try {
+    // No vendor user yet (the portal was never minted): still a return with nothing linked.
+    assert.deepEqual(await completeLink({ userId: u.id, attemptId: attempt }, deps, new Date(), 'embedded'), { kind: 'nothing' });
+    await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps, 'embedded');
+    assert.deepEqual(await completeLink({ userId: u.id, attemptId: attempt }, deps, new Date(), 'embedded'), { kind: 'nothing' }); // closed in the dialog
+    assert.deepEqual(await completeLink({ userId: u.id, attemptId: attempt }, deps), { kind: 'nothing' }); // the redirect flow, back empty
+    assert.deepEqual((await events(attempt)).filter((n) => n === 'abandoned'), ['abandoned', 'abandoned', 'abandoned']);
+    const rows = await sql`select meta::text as meta from funnel_events where attempt_id = ${attempt} and name = 'abandoned'`;
+    for (const r of rows) assert.equal(r.meta, '{}');
+    assert.equal((await sql`select count(*)::int as n from connections where user_id = ${u.id}`)[0].n, 0);
+    v.accounts = [acct(a1)];
+    v.rows.set(a1, pair(a1, 1));
+    const linked = await completeLink({ userId: u.id, attemptId: attempt }, deps, new Date(), 'embedded');
+    assert.equal(linked.kind, 'consent');
+    assert.equal((await events(attempt)).filter((n) => n === 'abandoned').length, 3); // a link is not an abandonment
+  } finally {
+    await cleanup([u.id], [a1]);
+  }
+});

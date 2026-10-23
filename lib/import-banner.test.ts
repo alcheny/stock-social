@@ -3,7 +3,7 @@
 // import continues without them; "Import finished." is one static line; a failed import hands over to the profile.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ANNOUNCE_MS, initBanner, onPoll, onServer, onTick, POLL_MS, SLOW_MS } from './import-banner.ts';
+import { ANNOUNCE_MS, initBanner, onPoll, onServer, onTick, onVisibility, polls, POLL_MS, SLOW_MS } from './import-banner.ts';
 import { RECORD_BODY } from './copy.ts';
 
 const T = 1_000_000;
@@ -92,4 +92,30 @@ test('after 60 s with no new rows the owner sees "You can leave; the import cont
   let v = initBanner({ state: 'importing', closes: 0, read: 0, owner: false }, T);
   v = onTick(v, T + 120_000);
   assert.equal(v.slow, false);
+});
+
+test('fix round 1: a hidden tab does not poll (each poll advances the import) and resumes on return; the 60 s line restarts from the return; visitors never poll', () => {
+  let b = initBanner({ state: 'importing', closes: 0, read: 0, owner: true }, T);
+  assert.equal(b.visible, true);
+  assert.equal(polls(b), true);
+  b = onPoll(b, { state: 'importing', closes: 0, read: 4 }, T + 2_000);
+  b = onVisibility(b, false, T + 3_000);
+  assert.equal(polls(b), false);
+  assert.equal(onVisibility(b, false, T + 4_000), b); // no change, same state
+  b = onTick(b, T + 200_000); // away for minutes: nothing polled, nothing new
+  b = onVisibility(b, true, T + 200_000);
+  assert.equal(polls(b), true);
+  assert.equal(b.slow, false); // back: the leave-line is not shown just because the trader was away
+  b = onTick(b, T + 259_000);
+  assert.equal(b.slow, false);
+  b = onTick(b, T + 260_000); // 60 s after the return with no new rows
+  assert.equal(b.slow, true);
+  // A tab that starts hidden does not poll until shown.
+  const hidden = initBanner({ state: 'importing', closes: 0, read: 0, owner: true, visible: false }, T);
+  assert.equal(polls(hidden), false);
+  assert.equal(polls(onVisibility(hidden, true, T + 1)), true);
+  // Visitors and finished or failed banners never poll, shown or not.
+  assert.equal(polls(initBanner({ state: 'importing', closes: 0, read: 0, owner: false }, T)), false);
+  assert.equal(polls(onPoll(initBanner({ state: 'importing', closes: 0, read: 0, owner: true }, T), { state: 'connected', closes: 0, read: 0 }, T + 2_000)), false);
+  assert.equal(polls(onPoll(initBanner({ state: 'importing', closes: 0, read: 0, owner: true }, T), { state: 'failed', closes: 0, read: 0 }, T + 2_000)), false);
 });

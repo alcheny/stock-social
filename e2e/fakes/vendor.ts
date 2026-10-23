@@ -3,7 +3,11 @@
 // pointed here with SNAPTRADE_BASE_URL; no real vendor is ever contacted. Test controls live under /_ paths:
 //   POST /_scenario {accounts:[{id, authorization?, institution?, paper?, activities?: number | rows, syncDone?}], delayMs?, portalDelayMs?}
 //     the accounts the next portal "Connect" links (one authorization per distinct `authorization`, default 'auth-<n>');
-//     portalDelayMs holds the portal page that long (the S3 loading states)
+//     portalDelayMs holds the portal page that long (the S3 loading states); portalFrameBlocked serves the portal page with
+//     `Content-Security-Policy: frame-ancestors 'none'`, so a browser refuses to frame it (the frame loads blank) while a
+//     top-level visit (the redirect flow) works
+//   GET  /_post?m=<json>                           a page on the vendor's origin that posts `m` to its parent (a second,
+//     vendor-origin frame for the event.source check)
 // The portal page behaves like the vendor's (PR-2b): opened as a page, "Connect" links and redirects to customRedirect;
 // loaded in an iframe it ignores customRedirect, opens the "broker login" in a popup it manages, and posts window
 // messages to its parent: {status:'SUCCESS', authorizationId} after linking, {status:'ERROR', errorCode:'POPUP_BLOCKED'}
@@ -15,7 +19,7 @@ import { createServer, type Server } from 'node:http';
 
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
 export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
-type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number };
+type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean };
 type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: FakeActivity[]; syncDone: boolean }> };
 
 // Deterministic BUY/SELL pairs so `n` activities give n/2 closed trades per account.
@@ -51,6 +55,10 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       return json({ ok: true });
     }
     if (p === '/_fail' && req.method === 'POST') { fail = await body(); return json({ ok: true }); }
+    if (p === '/_post') {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      return res.end(`<!doctype html><title>post</title><script>parent.postMessage(JSON.parse(${JSON.stringify(url.searchParams.get('m') ?? 'null')}), '*');</script>`);
+    }
     if (p === '/_state') {
       const out: Record<string, { connections: Record<string, string[]> }> = {};
       for (const [id, u] of users) {
@@ -79,7 +87,7 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       }
       if (next.portalDelayMs) await new Promise((done) => setTimeout(done, next.portalDelayMs));
       const action = `/portal?u=${encodeURIComponent(u)}&r=${encodeURIComponent(r)}`;
-      res.writeHead(200, { 'content-type': 'text/html' });
+      res.writeHead(200, { 'content-type': 'text/html', ...(next.portalFrameBlocked ? { 'content-security-policy': "frame-ancestors 'none'" } : {}) });
       return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>Fake portal</title>
 <style>body{font:16px system-ui;margin:16px}button{min-height:44px;margin:4px 0}</style>
 <h1>Fake brokerage portal</h1><form method="post" action="${action}"><button>Connect</button></form>

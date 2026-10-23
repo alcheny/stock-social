@@ -182,3 +182,68 @@ every tick's cleanup retries it.
 
 Owner note (tool output, not acted on): the build reports a framework security advisory and recommends an upgrade. This
 needs the owner's dependency bump.
+
+## Fix round 1
+
+Date: 2026-10-23. From the tester's report (`test-pr2b-tester.md`, verdict DEFECTS: three Lows and one note). Every
+finding is fixed with a test. No direction changed, no dependency added, no existing assertion loosened, nothing
+committed.
+
+1. **Low: a portal the vendor refuses to frame left a blank modal.**
+   - **Cause.** A frame refused by `frame-ancestors` still fires `load`, on a blank document. The loading timers
+     stopped at `load`.
+   - **Fix.** "Loaded" no longer means "working". The portal counts as working only after a handshake: any message
+     from the minted origin and the portal's own frame (`event.source`), known or not. If no message arrives within
+     8 s of the load, or if the frame fires `error`, the footer shows "Taking longer than usual." (`role="status"`) and
+     "Open in a new page instead" is promoted to the full-width button. A handshake clears both.
+   - **What stays the same.** Before the load, the 3 s and 8 s rules are unchanged. A button that was promoted while
+     loading stays a button after the load, so it does not flicker.
+   - **Where.** The state is a pure function, `lib/portal.ts#portalView`. A counted message's destination is now
+     `portalTarget`, which returns only one of the two fixed paths `PORTAL_REDIRECT` and `PORTAL_DONE`.
+   - **Fake.** The vendor fake has a scenario flag, `portalFrameBlocked`, that serves the portal with
+     `Content-Security-Policy: frame-ancestors 'none'`. A top-level visit (the redirect flow) still works.
+   - **Screenshots.** `s3-frame-refused-375-{light,dark}.png`.
+2. **Low: `abandoned` was never recorded (plan §5).** `completeLink` now writes `abandoned` (no meta) whenever the
+   portal comes back with no new link: the embedded dialog closed after load, a CLOSED or ABANDONED message, a forged
+   SUCCESS, or an empty redirect return. A real link writes none.
+   - A Close or Escape before the frame has loaded still only closes the dialog. Nothing reaches the server, so nothing
+     is counted: the trader is back on S2 with the primary.
+3. **Low: gaps G1 to G5 had no tests.** Each now has one (table below).
+4. **Note: polling continued while the tab was hidden.** The banner state machine now has `visible`, `onVisibility`
+   and `polls(b)`: only the owner's visible tab on an importing record polls.
+   - On `visibilitychange` to hidden, polling stops.
+   - On return, it polls at once, and the 60 s "You can leave" clock restarts from the return, so the line never
+     appears just because the trader was away.
+   - While no tab is polling, the hourly tick still advances the import.
+
+### Tests added (unit 434 → 438; e2e connect spec 24 → 29)
+
+| Test | Covers |
+|---|---|
+| `lib/portal.test.ts` (+2) | `portalView`: loading lines as before; loaded alone shows nothing; loaded and silent for 8 s, or errored, gives the line and the button; a handshake clears both; no flicker. `portalTarget`: ERROR with an outside URL in `redirect`, `url`, `errorCode`, `detail` or after `ERROR:` always goes to `/connect/start`, and the URL is never carried; the other events go to `/connect/done?m=embedded` (G5). |
+| `lib/import-banner.test.ts` (+1) | Hidden stops polling; return resumes it; the 60 s line restarts from the return; a tab that starts hidden does not poll; visitors, finished and failed never poll. |
+| `lib/connections.test.ts` (+1 DB) | `abandoned` is written once per empty return (no vendor user; embedded; redirect), with `{}` meta and no connection row. A real link writes none. |
+| e2e: defects 1 and 2 | A portal that posts any message is not promoted 8 s later, and Close then lands on S7a with exactly one more `abandoned` row. With framing refused, the frame "loads" blank (no portal heading inside). After 8 s the line and the 44 px button show, with no horizontal scroll. The button completes by redirect (`portal_mode` redirect; modes embedded, embedded, redirect). |
+| e2e: G1 and G3 | A second frame on the vendor's origin posts SUCCESS. The page receives it from the right origin and ignores it, and the dialog stays. A SUCCESS posted by the portal frame before any link lands on S7a with no connection row. A real link followed by five SUCCESS posts gives exactly one top-level navigation to `/connect/done` and one row. |
+| e2e: G5 | ERROR carrying an outside URL, as an object and as `ERROR:<url>`, goes each time to the minted portal for this trader through `/connect/start`, with no request to the outside host. The trader then completes. |
+| e2e: G2 | `POST /connect/portal` returns 401 `no-store` `{error:'unbound'}` with no cookie and with a forged or mis-signed attempt cookie. GET returns 405. |
+| e2e: G4 and hidden tab | While a record imports, a signed-out visitor and another signed-in trader make 0 step requests in 6 s. The owner's tab makes none while hidden and polls again within 3 s of its return. |
+
+### Commands run
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`DATABASE_URL=postgres://stock_social:stock_social@localhost:5432/stock_social`), three runs | 438 pass, 0 fail, 0 skipped, each run |
+| `CI=1 npm run build < /dev/null` | compiles and lists `/connect/portal` (fresh `.next/BUILD_ID`), then exits 1 on the framework's security advisory, as on main. That is tool output, not acted on |
+| `npx playwright test e2e/connect.spec.ts` (`CI=1`, fake vendor variables as above; the spec starts the fakes), two runs | 29 passed, 29 passed |
+| `node scripts/compliance.ts diff origin/main` | only the existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+### Open point for the owner (preview)
+
+The handshake rule assumes that a working vendor portal posts some message soon after it loads. If the real portal
+stays silent until the trader acts, then after 8 s a working portal also shows "Taking longer than usual." and the
+promoted button. That costs a larger fallback button but does not block anything. The real portal can be checked on the
+preview with test credentials (requests #4 and #9). If it turns out to be silent, the 8 s-after-load window can be
+lengthened, or the line kept off until the trader interacts.

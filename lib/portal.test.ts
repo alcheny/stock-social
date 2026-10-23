@@ -2,7 +2,7 @@
 // URL the server accepts from the vendor; which browsers go straight to the redirect flow.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePortalMessage, portalOrigin, prefersRedirect, PORTAL_LINK_MS, PORTAL_SLOW_MS } from './portal.ts';
+import { parsePortalMessage, portalOrigin, portalTarget, portalView, prefersRedirect, PORTAL_DONE, PORTAL_LINK_MS, PORTAL_REDIRECT, PORTAL_SLOW_MS, type PortalFlags } from './portal.ts';
 
 const VENDOR = 'https://portal.vendor.test';
 
@@ -64,4 +64,44 @@ test('in-app browsers and installed (standalone) apps go straight to the redirec
 test('loading timings are the UX lead\'s: 3 s "Taking longer than usual.", 8 s the link is promoted', () => {
   assert.equal(PORTAL_SLOW_MS, 3_000);
   assert.equal(PORTAL_LINK_MS, 8_000);
+});
+
+test('fix round 1 (G5): a counted message only ever picks one of two fixed same-origin paths; an ERROR carrying a URL anywhere still goes to the redirect flow', () => {
+  assert.equal(PORTAL_REDIRECT, '/connect/start');
+  assert.equal(PORTAL_DONE, '/connect/done?m=embedded');
+  const lure = 'https://evil.test/steal';
+  const errors: unknown[] = [
+    { status: 'ERROR', redirect: lure, url: lure, errorCode: lure, detail: lure },
+    { status: 'ERROR', errorCode: 'POPUP_BLOCKED', redirectURI: lure },
+    `ERROR:${lure}`, 'ERROR:javascript:alert(1)', 'ERROR:/\\evil.test',
+  ];
+  for (const data of errors) {
+    const m = parsePortalMessage({ origin: VENDOR, data }, VENDOR)!;
+    assert.equal(m.kind, 'error', JSON.stringify(data));
+    assert.ok(!String((m as { code: string | null }).code).includes('evil') && !String((m as { code: string | null }).code).includes(':'), JSON.stringify(data)); // a URL is dropped, never carried
+    assert.equal(portalTarget(m), PORTAL_REDIRECT);
+  }
+  for (const data of [{ status: 'SUCCESS', authorizationId: lure, url: lure }, `SUCCESS:${lure}`, 'CLOSED', { status: 'ABANDONED', redirect: lure }]) {
+    assert.equal(portalTarget(parsePortalMessage({ origin: VENDOR, data }, VENDOR)!), PORTAL_DONE, JSON.stringify(data));
+  }
+});
+
+test('fix round 1 (tester defect 1): a frame that loads without the portal ever speaking (refused framing loads blank) gets "Taking longer than usual." and the promoted button; an error does too; a handshake clears both', () => {
+  const f = (o: Partial<PortalFlags>): PortalFlags => ({ loaded: false, handshake: false, slow: false, promoted: false, stuck: false, errored: false, ...o });
+  // Loading, as before: "Opening…", the 3 s line, the 8 s promotion.
+  assert.deepEqual(portalView(f({})), { line: 'opening', promote: false });
+  assert.deepEqual(portalView(f({ slow: true })), { line: 'opening-slow', promote: false });
+  assert.deepEqual(portalView(f({ slow: true, promoted: true })), { line: 'opening-slow', promote: true });
+  // Loaded: the load event alone does not end it. Silent for 8 s after the load: the line and the button.
+  assert.deepEqual(portalView(f({ loaded: true })), { line: null, promote: false });
+  assert.deepEqual(portalView(f({ loaded: true, slow: true })), { line: null, promote: false }); // the 3 s line is a loading line
+  assert.deepEqual(portalView(f({ loaded: true, stuck: true })), { line: 'slow', promote: true });
+  assert.deepEqual(portalView(f({ loaded: true, slow: true, promoted: true })), { line: null, promote: true }); // promoted while loading: no flicker back
+  // The frame errored, loaded or not.
+  assert.deepEqual(portalView(f({ errored: true })), { line: 'slow', promote: true });
+  assert.deepEqual(portalView(f({ loaded: true, errored: true })), { line: 'slow', promote: true });
+  // A message from the portal's origin and frame: it is working; nothing more is shown.
+  for (const o of [{ loaded: true, stuck: true }, { loaded: true, slow: true, promoted: true, stuck: true }, { loaded: true }]) {
+    assert.deepEqual(portalView(f({ ...o, handshake: true })), { line: null, promote: false }, JSON.stringify(o));
+  }
 });

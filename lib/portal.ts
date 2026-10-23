@@ -60,3 +60,25 @@ export function prefersRedirect(ua: string, standalone = false): boolean {
   if (/;\s*wv\)/.test(ua)) return true;
   return /\bMobile\/\w+/.test(ua) && !/\bMobile\/\w+ [A-Za-z]+\/[\d.]+/.test(ua);
 }
+
+// Where a counted message may take the app: one of two fixed same-origin paths, never anything the message carries.
+// SUCCESS / CLOSED / ABANDONED → the server decides at /connect/done (consent if a link happened, S7a otherwise);
+// ERROR (a blocked broker popup reports itself this way) → the redirect flow on the same attempt.
+export const PORTAL_REDIRECT = '/connect/start';
+export const PORTAL_DONE = '/connect/done?m=embedded';
+export const portalTarget = (m: PortalEvent): typeof PORTAL_REDIRECT | typeof PORTAL_DONE => (m.kind === 'error' ? PORTAL_REDIRECT : PORTAL_DONE);
+
+// Fix round 1 (tester defect 1): a vendor that refuses framing (CSP frame-ancestors) still fires the frame's load event,
+// on a blank document. So "loaded" alone is not "working": the portal has spoken only once a message from its origin and
+// its frame arrives (any message, known or not: the handshake). What S3 shows, from the timers' and the frame's flags:
+//   before load: "Opening…", plus "Taking longer than usual." from 3 s; the new-page link promoted to a button at 8 s;
+//   loaded but silent for PORTAL_LINK_MS after load (stuck), or the frame errored: "Taking longer than usual." and the
+//   promoted button, whatever the load event said;
+//   a handshake: nothing more, the portal is working (the persistent link goes back to a link).
+export type PortalFlags = { loaded: boolean; handshake: boolean; slow: boolean; promoted: boolean; stuck: boolean; errored: boolean };
+export function portalView(f: PortalFlags): { line: 'opening' | 'opening-slow' | 'slow' | null; promote: boolean } {
+  if (f.handshake) return { line: null, promote: false };
+  if (f.errored || (f.loaded && f.stuck)) return { line: 'slow', promote: true };
+  if (f.loaded) return { line: null, promote: f.promoted }; // a button promoted while loading stays one: no flicker
+  return { line: f.slow ? 'opening-slow' : 'opening', promote: f.promoted };
+}

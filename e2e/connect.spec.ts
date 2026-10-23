@@ -1169,3 +1169,188 @@ test('PR-2b carried: a connected record with no closes unfurls with the empty-re
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id = ${acc}`;
 });
+
+// Fix round 1 (tester defects 1–3 and the note).
+const vendorPortalFrame = async (page: Page) => {
+  await expect(frameOf(page).getByRole('heading', { name: 'Fake brokerage portal' })).toBeVisible();
+  return page.frames().find((f) => f.url().startsWith(`${vendor.base}/portal`))!;
+};
+const openPortal = async (page: Page) => {
+  await page.goto('/connect');
+  await page.getByTestId('connect-primary').click();
+  return vendorPortalFrame(page);
+};
+const abandonedCount = async (attempt: number) => (await sql`select count(*)::int as n from funnel_events where attempt_id = ${attempt} and name = 'abandoned'`)[0].n as number;
+
+test('PR-2b fix round 1 (defects 1, 2): a portal the vendor refuses to frame (CSP frame-ancestors) loads blank; with no message from it 8 s after the load, "Taking longer than usual." shows and "Open in a new page instead" is promoted, completing by redirect; a portal that speaks is never promoted, and closing it records abandoned', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  await page.clock.install();
+  const handle = `csp${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  const modes = await modesFrom(handle);
+  const [u] = await sql`select id, signup_attempt_id as a from users where handle = ${handle}`;
+  const alt = dialogOf(page).getByRole('link', { name: 'Open in a new page instead' });
+  // A working portal that has posted any message: 8 s later nothing is promoted. Closing it is S7a and `abandoned`.
+  await portalScenario([{ id: acc, activities: 2 }]);
+  const portal = await openPortal(page);
+  await portal.evaluate(() => parent.postMessage({ type: 'resize', height: 600 }, '*')); // not an event: only the handshake
+  await page.clock.fastForward(9_000);
+  await expect(alt).not.toHaveClass(/button/);
+  await expect(dialogOf(page).getByRole('status')).toHaveCount(0);
+  const before = await abandonedCount(Number(u.a));
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page).toHaveURL(/\/connect\/result\?k=abandoned$/);
+  expect(await abandonedCount(Number(u.a))).toBe(before + 1);
+  // Framing refused: the load event fires on a blank frame; the timers do not stop at it.
+  await fetch(`${vendor.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: [{ id: acc, activities: 2 }], portalFrameBlocked: true }) });
+  await page.goto('/connect');
+  await page.getByTestId('connect-primary').click();
+  await expect(dialogOf(page).locator('.portal-body')).toHaveAttribute('aria-busy', 'false'); // "loaded"
+  await expect(frameOf(page).getByRole('heading', { name: 'Fake brokerage portal' })).toHaveCount(0); // but blank: refused
+  await expect(dialogOf(page).getByRole('status')).toHaveCount(0);
+  await expect(alt).not.toHaveClass(/button/);
+  await page.clock.fastForward(8_000);
+  await expect(dialogOf(page).getByRole('status')).toHaveText('Taking longer than usual.');
+  await expect(alt).toHaveClass(/button/);
+  expect((await alt.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await shots(page, 's3-frame-refused');
+  await alt.click();
+  await expect(page).toHaveURL(new RegExp(`^${vendor.base}/portal`)); // top level: the header does not apply
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  expect((await sql`select portal_mode from connections where user_id = ${u.id}`).map((r) => r.portal_mode)).toEqual(['redirect']);
+  expect(await modes()).toEqual(['embedded', 'embedded', 'redirect']);
+  await portalScenario([{ id: acc, activities: 2 }]);
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+test('PR-2b fix round 1 (G1, G3): a vendor-origin message from a second frame is ignored (event.source); a SUCCESS the portal posts before any link lands on S7a with no row; five replayed SUCCESS messages after a real link cause one navigation and leave one row', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  const handle = `src${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  const [u] = await sql`select id, signup_attempt_id as a from users where handle = ${handle}`;
+  await portalScenario([{ id: acc, activities: 2 }]);
+  await openPortal(page);
+  // G1: a second frame on the vendor's origin posts SUCCESS; the page receives it (from the right origin) and ignores it.
+  await page.evaluate((base) => new Promise<void>((done) => {
+    const w = window as unknown as { seen: number };
+    w.seen = 0;
+    window.addEventListener('message', (e) => { if (e.origin === base) w.seen++; });
+    const f = document.createElement('iframe');
+    f.id = 'intruder';
+    f.src = `${base}/_post?m=${encodeURIComponent(JSON.stringify({ status: 'SUCCESS', authorizationId: 'forged' }))}`;
+    f.onload = () => done();
+    document.body.appendChild(f);
+  }), vendor.base);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { seen: number }).seen)).toBe(1);
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL(/\/connect$/);
+  await expect(dialogOf(page)).toBeVisible();
+  // G3: the portal's own frame posts SUCCESS before any link: the server finds none (S7a), and no row is written.
+  const portal = page.frames().find((f) => f.url().startsWith(`${vendor.base}/portal`))!;
+  await portal.evaluate(() => parent.postMessage({ status: 'SUCCESS', authorizationId: 'forged' }, '*')).catch(() => {});
+  await expect(page).toHaveURL(/\/connect\/result\?k=abandoned$/);
+  expect((await sql`select count(*)::int as n from connections where user_id = ${u.id}`)[0].n).toBe(0);
+  // Replays: link for real, then post SUCCESS five times: one navigation to /connect/done, one row.
+  const dones: string[] = [];
+  page.on('request', (r) => { if (r.isNavigationRequest() && r.frame() === page.mainFrame() && new URL(r.url()).pathname === '/connect/done') dones.push(r.url()); });
+  const portal2 = await openPortal(page);
+  await portal2.evaluate(async () => {
+    const action = document.querySelector('form')!.getAttribute('action')!;
+    const { authorizationId } = await (await fetch(`${action}&json=1`, { method: 'POST' })).json();
+    for (let i = 0; i < 5; i++) parent.postMessage({ status: 'SUCCESS', authorizationId }, '*');
+  }).catch(() => {});
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  await page.waitForTimeout(500);
+  expect(dones).toHaveLength(1);
+  expect((await sql`select count(*)::int as n from connections where user_id = ${u.id}`)[0].n).toBe(1);
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+test('PR-2b fix round 1 (G5): an ERROR carrying an outside URL (in redirect, url, errorCode or after "ERROR:") never steers the fallback: it goes to /connect/start and the minted portal, and nothing reaches the outside URL', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  const handle = `err${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  const modes = await modesFrom(handle);
+  await portalScenario([{ id: acc, activities: 2 }]);
+  const lure = 'http://evil.example/steal';
+  const outside: string[] = [];
+  page.on('request', (r) => { if (r.url().includes('evil.example')) outside.push(r.url()); });
+  const [vu] = await sql`select snaptrade_user_id from users where handle = ${handle}`;
+  for (const data of [{ status: 'ERROR', redirect: lure, url: lure, errorCode: lure, detail: lure }, `ERROR:${lure}`]) {
+    const portal = await openPortal(page);
+    await portal.evaluate((d) => parent.postMessage(d, '*'), data).catch(() => {});
+    await expect(page).toHaveURL(new RegExp(`^${vendor.base}/portal\\?u=${encodeURIComponent(vu.snaptrade_user_id as string)}&`));
+  }
+  expect(outside).toEqual([]);
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  expect(await modes()).toEqual(['embedded', 'redirect', 'embedded', 'redirect']);
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+test('PR-2b fix round 1 (G2): POST /connect/portal with no session and no bound attempt (no cookie, a forged or mis-signed attempt cookie) is 401 no-store; GET is 405', async ({ playwright, baseURL }) => {
+  const req = await playwright.request.newContext({ baseURL });
+  for (const cookie of [undefined, 'connect_attempt=1', 'connect_attempt=1.forged', `connect_attempt=1.${'A'.repeat(43)}`]) {
+    const r = await req.post('/connect/portal', { headers: cookie ? { cookie } : {} });
+    expect(r.status(), String(cookie)).toBe(401);
+    expect(r.headers()['cache-control']).toContain('no-store');
+    expect(await r.json()).toEqual({ error: 'unbound' });
+  }
+  expect((await req.get('/connect/portal')).status()).toBe(405);
+  await req.dispose();
+});
+
+test('PR-2b fix round 1 (G4, hidden tab): while a record imports, an anonymous visitor and another signed-in trader make no step requests; the owner\'s tab stops polling while hidden and resumes on return', async ({ page, browser }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  const handle = `vis${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  await portalScenario([{ id: acc, activities: 2, syncDone: false }]); // the vendor is still filling: the record stays importing
+  await connectThrough(page);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  const counter = (p: Page) => { const n = { count: 0 }; p.on('request', (r) => { if (new URL(r.url()).pathname === '/api/import/step') n.count++; }); return n; };
+  const own = counter(page);
+  await expect.poll(() => own.count, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+  const setVisibility = (state: 'hidden' | 'visible') => page.evaluate((s) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => s });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, state);
+  await setVisibility('hidden');
+  await page.waitForTimeout(500); // a poll already sent may still answer
+  const atHide = own.count;
+  // Visitors meanwhile: one signed out, one another trader.
+  const anon = await browser.newContext({ viewport: { width: 375, height: 740 } });
+  const other = await browser.newContext({ viewport: { width: 375, height: 740 } });
+  const pa = await anon.newPage();
+  const po = await other.newPage();
+  const otherHandle = `vio${uniq()}`;
+  await devSignIn(po, otherHandle);
+  const [na, no] = [counter(pa), counter(po)];
+  await pa.goto(`/u/${handle}`);
+  await po.goto(`/u/${handle}`);
+  for (const p of [pa, po]) await expect(p.getByRole('status')).toHaveText(/^Importing your record/);
+  await page.waitForTimeout(6_000); // three poll intervals
+  expect(own.count).toBe(atHide);
+  expect(na.count).toBe(0);
+  expect(no.count).toBe(0);
+  await setVisibility('visible');
+  await expect.poll(() => own.count, { timeout: 3_000 }).toBeGreaterThan(atHide);
+  await anon.close();
+  await other.close();
+  await sql`delete from users where handle in ${sql([handle, otherHandle])}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
+});

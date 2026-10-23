@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { PORTAL } from '@/lib/copy.ts';
-import { parsePortalMessage, prefersRedirect, PORTAL_LINK_MS, PORTAL_SLOW_MS } from '@/lib/portal.ts';
+import { parsePortalMessage, portalTarget, portalView, prefersRedirect, PORTAL_DONE, PORTAL_LINK_MS, PORTAL_REDIRECT, PORTAL_SLOW_MS } from '@/lib/portal.ts';
 
 // S3 (docs/features/logs/F-1/plan.md §2, §8 item 1): the vendor's portal in a modal dialog over S2. The primary is a
 // plain link to the redirect flow, so without script, in an in-app browser or installed to the home screen it simply
@@ -11,8 +11,10 @@ import { parsePortalMessage, prefersRedirect, PORTAL_LINK_MS, PORTAL_SLOW_MS } f
 // POST /connect/portal; messages count only from that URL's origin and that frame. SUCCESS / CLOSED / ABANDONED go to
 // /connect/done?m=embedded; ERROR (a blocked broker popup reports itself this way) falls back to the redirect flow on
 // the same attempt, as does the persistent "Open in a new page instead" link, promoted to a button after 8 s of loading.
-const REDIRECT = '/connect/start';
-const DONE = '/connect/done?m=embedded';
+// Fix round 1: a frame the vendor refuses to be framed in still "loads" (blank), so the promotion also happens when no
+// message from the portal arrives within 8 s of the load, or when the frame errors (lib/portal.ts#portalView).
+const REDIRECT = PORTAL_REDIRECT;
+const DONE = PORTAL_DONE;
 const FRAME_SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox';
 
 export function PortalButton({ label }: { label: string }) {
@@ -21,6 +23,9 @@ export function PortalButton({ label }: { label: string }) {
   const [loaded, setLoaded] = useState(false);
   const [slow, setSlow] = useState(false);
   const [promoted, setPromoted] = useState(false);
+  const [handshake, setHandshake] = useState(false);
+  const [stuck, setStuck] = useState(false);
+  const [errored, setErrored] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const primary = useRef<HTMLAnchorElement>(null);
@@ -36,7 +41,7 @@ export function PortalButton({ label }: { label: string }) {
     live.current = { ...live.current, open: false, loaded: false, seq: live.current.seq + 1 };
     if (dialog.current?.open) dialog.current.close();
     document.documentElement.classList.remove('portal-open');
-    setOpen(false); setPortal(null); setLoaded(false); setSlow(false); setPromoted(false);
+    setOpen(false); setPortal(null); setLoaded(false); setSlow(false); setPromoted(false); setHandshake(false); setStuck(false); setErrored(false);
     primary.current?.focus();
   };
   // Escape or Close: before the portal has loaded nothing has started, so the dialog closes and focus returns; after,
@@ -81,12 +86,20 @@ export function PortalButton({ label }: { label: string }) {
     return () => { clearTimeout(a); clearTimeout(b); };
   }, [open, loaded]);
 
+  // Loaded but silent: no message from the portal within 8 s of the load (a refused frame loads blank).
+  useEffect(() => {
+    if (!open || !loaded || handshake) return;
+    const t = setTimeout(() => setStuck(true), PORTAL_LINK_MS);
+    return () => clearTimeout(t);
+  }, [open, loaded, handshake]);
+
   useEffect(() => {
     if (!portal) return;
     const onMessage = (ev: MessageEvent) => {
-      if (!frame.current || ev.source !== frame.current.contentWindow) return;
+      if (!frame.current || ev.source !== frame.current.contentWindow || ev.origin !== portal.origin) return;
+      setHandshake(true); // the portal has spoken: it is working, whatever it said
       const m = parsePortalMessage({ origin: ev.origin, data: ev.data }, portal.origin);
-      if (m) leave(m.kind === 'error' ? REDIRECT : DONE);
+      if (m) leave(portalTarget(m));
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
@@ -102,6 +115,7 @@ export function PortalButton({ label }: { label: string }) {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   };
 
+  const view = portalView({ loaded, handshake, slow, promoted, stuck, errored });
   return (
     <>
       <p>
@@ -117,14 +131,17 @@ export function PortalButton({ label }: { label: string }) {
             <button ref={closeButton} type="button" className="secondary" onClick={dismiss}>{PORTAL.close}</button>
           </header>
           <div className="portal-body" aria-busy={!loaded}>
-            {!loaded && <p className="portal-status" role="status">{PORTAL.opening}{slow && <> {PORTAL.slow}</>}</p>}
+            {view.line === 'opening' || view.line === 'opening-slow'
+              ? <p className="portal-status" role="status">{PORTAL.opening}{view.line === 'opening-slow' && <> {PORTAL.slow}</>}</p>
+              : null}
             {portal && (
               <iframe ref={frame} className={loaded ? undefined : 'loading'} title={PORTAL.frameTitle} src={portal.url} sandbox={FRAME_SANDBOX}
-                referrerPolicy="strict-origin-when-cross-origin" onLoad={() => { live.current.loaded = true; setLoaded(true); }} />
+                referrerPolicy="strict-origin-when-cross-origin" onLoad={() => { live.current.loaded = true; setLoaded(true); }} onError={() => setErrored(true)} />
             )}
           </div>
           <p className="portal-alt">
-            <a href={REDIRECT} className={promoted ? 'button wide' : undefined} onClick={() => { live.current.leaving = true; }}>{PORTAL.newPage}</a>
+            {view.line === 'slow' && <span className="portal-stuck" role="status">{PORTAL.slow}</span>}
+            <a href={REDIRECT} className={view.promote ? 'button wide' : undefined} onClick={() => { live.current.leaving = true; }}>{PORTAL.newPage}</a>
           </p>
         </>}
       </dialog>

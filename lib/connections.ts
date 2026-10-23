@@ -223,12 +223,12 @@ export type LinkOutcome =
 // Back from the portal: zero-depth validation. Lists accounts, records the link and the provisional claims, imports nothing.
 export async function completeLink(who: { userId: number | null; attemptId: number }, deps: Deps = realDeps, now = new Date(), mode: PortalMode = 'redirect'): Promise<LinkOutcome> {
   const bu = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId });
-  if (!bu) return { kind: 'nothing' };
+  if (!bu) return abandoned(who.attemptId);
   const all = await deps.listAccounts(bu);
   const known = who.userId === null ? [] : await sql`select vendor_authorization_id as a from connections where user_id = ${who.userId} and state in ('pending', 'importing', 'connected')`;
   const knownIds = new Set(known.map((k) => k.a as string));
   const fresh = all.filter((a) => !knownIds.has(a.authorizationId));
-  if (!fresh.length) return { kind: 'nothing' };
+  if (!fresh.length) return abandoned(who.attemptId);
   const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted }));
   const [row] = await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, institution, state, pending_at, portal_mode, accounts)
     values (${who.attemptId}, ${who.userId}, ${fresh[0].authorizationId}, ${fresh[0].institution}, 'pending', ${now}, ${mode}, ${sql.json(snapshot as never)}) returning id`;
@@ -261,6 +261,13 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
   }
   await recordFunnel(who.attemptId, 'link_succeeded', { accounts: snapshot.length, paper: snapshot.length - real.length });
   return { kind: 'consent', id };
+}
+
+// Fix round 1 (tester defect 2, plan §5): the portal came back without a new link (the embedded dialog closed, a
+// CLOSED / ABANDONED message, or the redirect flow returning empty): S7a, counted as `abandoned`.
+async function abandoned(attemptId: number): Promise<LinkOutcome> {
+  await recordFunnel(attemptId, 'abandoned');
+  return { kind: 'nothing' };
 }
 
 async function refuse(id: number, attemptId: number, deps: Deps, now: Date): Promise<LinkOutcome> {

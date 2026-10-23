@@ -4,7 +4,8 @@
 // a change inside the window waits and the latest value goes out when it ends. The imported-rows line is not a live
 // region and follows every step. After SLOW_MS with no new rows the owner is told the import continues without them.
 // "Import finished." replaces the status line as one static line until the next navigation; a failed import hands
-// over to the profile's own failed line.
+// over to the profile's own failed line. Fix round 1 (tester note): each poll advances the import, so a hidden tab
+// (visibilitychange) does not poll; on return it polls again at once, and the 60 s clock restarts from the return.
 import { RECORD_BODY } from './copy.ts';
 
 export const POLL_MS = 2_000;
@@ -23,14 +24,15 @@ export type Banner = {
   announcedAt: number;
   slow: boolean;
   refreshes: number; // bumped when the page's server data should be re-read (the list under the banner, the end state)
+  visible: boolean; // the tab is shown (document.visibilityState)
 };
 
 const textFor = (phase: Banner['phase'], closes: number) => (phase === 'finished' ? RECORD_BODY.finished : RECORD_BODY.banner(closes));
 
-export function initBanner(x: Snapshot & { owner: boolean }, now: number): Banner {
+export function initBanner(x: Snapshot & { owner: boolean; visible?: boolean }, now: number): Banner {
   const phase = x.state === 'importing' ? 'importing' : 'hidden';
   const text = textFor(phase, x.closes);
-  return { phase, owner: x.owner, closes: x.closes, read: x.read, changedAt: now, text, want: text, announcedAt: -Infinity, slow: false, refreshes: 0 };
+  return { phase, owner: x.owner, closes: x.closes, read: x.read, changedAt: now, text, want: text, announcedAt: -Infinity, slow: false, refreshes: 0, visible: x.visible ?? true };
 }
 
 function commit(b: Banner, now: number): Banner {
@@ -50,3 +52,12 @@ export function onPoll(b: Banner, r: Snapshot, now: number): Banner {
 }
 export const onServer = onPoll;
 export const onTick = (b: Banner, now: number): Banner => (b.phase === 'hidden' ? b : commit(b, now));
+
+// Only the owner's shown tab on an importing record polls; the hourly tick advances the import otherwise.
+export const polls = (b: Banner): boolean => b.owner && b.phase === 'importing' && b.visible;
+// Hidden: polling stops (the 60 s line is not counted against a tab nobody watches). Shown again: polling resumes and
+// the 60 s clock restarts, so the leave-line never appears just because the trader was away.
+export function onVisibility(b: Banner, visible: boolean, now: number): Banner {
+  if (visible === b.visible) return b;
+  return visible ? { ...b, visible, changedAt: now, slow: false } : { ...b, visible };
+}
