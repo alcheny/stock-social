@@ -1,19 +1,24 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { currentUser, origin, rememberMethod, signIn } from '@/lib/session.ts';
-import { sessionSecret, unsignToken } from '@/lib/auth/sessions.ts';
-import { completeLink, CONNECT_COOKIE } from '@/lib/connections.ts';
+import { sessionSecret } from '@/lib/auth/sessions.ts';
+import { boundAttempt, completeLink, CONNECT_COOKIE, refuseUnbound } from '@/lib/connections.ts';
 
 // Back from the portal: zero-depth validation (F-1). Lists accounts, records the link and the provisional claims,
 // imports nothing, then shows the consent screen. Mechanic (a): a link whose accounts are all one existing trader's
-// signs that trader in and the new link is dropped.
-export async function GET() {
+// signs that trader in and the new link is dropped. Signed out, only the attempt bound to this browser by the signed
+// cookie counts (committee fix, High); an attempt id in the URL that the cookie does not match is refused and counted.
+export async function GET(req: NextRequest) {
   const base = await origin();
   const me = await currentUser();
-  const jar = await cookies();
-  const attempt = Number(unsignToken(jar.get(CONNECT_COOKIE)?.value, sessionSecret()));
-  if (!me && !(attempt > 0)) return NextResponse.redirect(`${base}/login`);
-  const who = me ? { userId: me.id, attemptId: me.signup_attempt_id } : { userId: null, attemptId: attempt };
+  const attempt = me ? null : await boundAttempt((await cookies()).get(CONNECT_COOKIE)?.value, sessionSecret());
+  const presented = req.nextUrl.searchParams.get('attempt');
+  if (!me && presented !== null && presented !== String(attempt)) {
+    await refuseUnbound(presented);
+    return NextResponse.redirect(`${base}/login`);
+  }
+  if (!me && attempt === null) return NextResponse.redirect(`${base}/login`);
+  const who = me ? { userId: me.id, attemptId: me.signup_attempt_id } : { userId: null, attemptId: attempt! };
   const out = await completeLink(who);
   switch (out.kind) {
     case 'consent': return NextResponse.redirect(`${base}/connect/consent?c=${out.id}`);

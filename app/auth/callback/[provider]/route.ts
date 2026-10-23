@@ -5,6 +5,7 @@ import { providersFromEnv } from '@/lib/auth/providers.ts';
 import { sessionSecret, unsignToken } from '@/lib/auth/sessions.ts';
 import { signInWithIdentity } from '@/lib/auth/attempts.ts';
 import { origin, rememberMethod, signIn } from '@/lib/session.ts';
+import { landingFor } from '@/lib/auth/landing.ts';
 import { decodeTx, TX_COOKIE } from '@/lib/auth/tx.ts';
 
 // The provider returns here (GET with a query, or a cross-site POST for form_post). State, nonce and PKCE verifier
@@ -30,7 +31,7 @@ async function finish(params: URLSearchParams, provider: string) {
     const user = await signInWithIdentity(tx.a, { provider: p.key, subject: v.claims.sub, email: verified && v.claims.email ? v.claims.email.toLowerCase() : null });
     await signIn(user.id);
     await rememberMethod(p.key);
-    return NextResponse.redirect(`${base}/u/${user.handle}`, 303);
+    return NextResponse.redirect(`${base}${await landingFor(user)}`, 303) // an empty profile goes straight to S2 (committee item 7);
   } catch {
     return fail('exchange'); // reason only: never the token, the code or the address
   }

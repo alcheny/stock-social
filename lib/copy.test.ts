@@ -37,9 +37,10 @@ test('S1 and S2 copy is the UX lead\'s, verbatim', () => {
 test('PR-2a copy: the trust notice stays the vendor\'s own report of an audit of its controls; consent names the depth; results and settings are as written; /how says what Verified means and what is excluded', () => {
   assert.equal(TRUST_NOTICE.lines[2], 'SnapTrade reports an independent audit of its security controls.');
   assert.doesNotMatch(TRUST_NOTICE.lines.join(' '), /audit(ed)? (of )?(the |your |any )?(record|trade|app)/i);
-  assert.deepEqual(CONSENT.lines(3, 1).slice(0, 3), ['Full trade history your broker provides', 'Every account under this login', '3 accounts found (1 simulated, not imported)']);
-  assert.equal(CONSENT.lines(2, 0)[2], '2 accounts found');
-  assert.equal(CONSENT.lines(1, 0)[2], '1 account found');
+  // Committee fix (item 7): the history and accounts lines are one line; the count line follows it.
+  assert.deepEqual(CONSENT.lines(3, 1).slice(0, 2), ['Full trade history your broker provides, from every account under this login', '3 accounts found (1 simulated, not imported)']);
+  assert.equal(CONSENT.lines(2, 0)[1], '2 accounts found');
+  assert.equal(CONSENT.lines(1, 0)[1], '1 account found');
   // S7b and stale say what happened once pages were read; S7a (no link) still says nothing was saved.
   assert.equal(RESULT.failed, 'Your brokerage stopped the connection before the import finished.');
   assert.equal(RESULT.stale, 'Your brokerage stopped sending history before the import finished.');
@@ -119,4 +120,22 @@ test('fix round 6: a link preview counts trades as verified only for a whole rec
   for (const st of ['importing', 'connected', 'failed', 'none'] as const) assert.equal(c(st, { demo: true, verified: false, trades: 30 }), '30 demo trades');
   assert.equal(c('connected', { verified: false }), '5 closed trades');
   assert.equal(c('connected', { trades: 0 }), '0 closed trades');
+});
+
+test('committee fix (item 7): consent has no lead line, one scope line, and a deadline with no clock time or time zone', () => {
+  assert.equal('linked' in CONSENT, false);
+  const lines = CONSENT.lines(2, 0);
+  assert.equal(lines.length, 5);
+  assert.equal(lines.filter((l) => /trade history|every account/i.test(l)).length, 1);
+  assert.equal(CONSENT.deadline, 'Decide within 24 hours, or this link is removed automatically.');
+  assert.doesNotMatch(CONSENT.deadline, /UTC|GMT|AM|PM|\d:\d/);
+  assert.equal(TRUST_NOTICE.profileLink, 'Your profile');
+});
+
+test('committee fix (item 8): the importing line shows only while no trades are listed', async () => {
+  const { recordBodyCopy } = await import('./copy.ts');
+  assert.equal(recordBodyCopy('importing', 0), RECORD_BODY.importing);
+  for (const n of [1, 5]) for (const s of ['importing', 'connected', 'failed', 'none'] as const) assert.equal(recordBodyCopy(s, n), null, `${s} ${n}`);
+  assert.equal(recordBodyCopy('connected', 0), RECORD_BODY.connected);
+  assert.equal(recordBodyCopy('none', 0), RECORD_BODY.none);
 });

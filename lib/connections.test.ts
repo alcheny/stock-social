@@ -44,7 +44,7 @@ test('cursor: one page per step, next account when a page is short, offsets by t
 
 test('body copy by state (plan §8 item 3): S5 line while importing, S8 line only when connected with no closes', () => {
   assert.equal(recordBodyCopy('importing', 0), RECORD_BODY.importing);
-  assert.equal(recordBodyCopy('importing', 5), RECORD_BODY.importing);
+  assert.equal(recordBodyCopy('importing', 5), null); // committee fix (item 8): trades listed, the banner alone says importing
   assert.equal(recordBodyCopy('connected', 0), 'No closed trades yet. Your record starts with your first close.');
   assert.equal(recordBodyCopy('connected', 1), null);
   assert.equal(recordBodyCopy('none', 0), 'No trades yet.');
@@ -953,5 +953,131 @@ dbTest('fix round 3: with a newer link still pending, the owner poll finishes th
     assert.equal((await conn(id2)).state, 'pending'); // untouched, still the trader's to decide
   } finally {
     await cleanup([u.id], [a1, a2, b1]);
+  }
+});
+
+// Committee fixes (docs/features/logs/F-1/build-pr2a-fix4.md).
+dbTest('committee fix 1 (High): a brokerage-first attempt is found only through its own signed cookie; an id presented without it is refused and counted with no personal data', async () => {
+  const { sql, events } = await setup();
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { boundAttempt, refuseUnbound } = await import('./connections.ts');
+  const secret = 'committee-secret';
+  const mine = await createAttempt({ method: 'brokerage', attested: true });
+  const theirs = await createAttempt({ method: 'brokerage', attested: true });
+  const email = await createAttempt({ method: 'email', attested: true });
+  assert.equal(await boundAttempt(attemptCookieValue(mine, secret), secret), mine);
+  assert.equal(await boundAttempt(undefined, secret), null);
+  assert.equal(await boundAttempt(String(mine), secret), null); // an unsigned id
+  assert.equal(await boundAttempt(`${mine}.forged`, secret), null);
+  assert.equal(await boundAttempt(attemptCookieValue(mine, 'another-secret'), secret), null);
+  assert.equal(await boundAttempt(attemptCookieValue(email, secret), secret), null); // not a brokerage attempt
+  await sql`update signup_attempts set completed_at = now() where id = ${theirs}`;
+  assert.equal(await boundAttempt(attemptCookieValue(theirs, secret), secret), null); // consumed
+  await refuseUnbound(String(mine));
+  const rows = await sql`select name, meta::text as meta from funnel_events where attempt_id = ${mine} and name = 'failed'`;
+  assert.deepEqual(rows.map((r) => [r.name, JSON.parse(r.meta)]), [['failed', { reason: 'unbound' }]]);
+  assert.doesNotMatch(JSON.stringify(rows), /@|\d{7,}/);
+  // Unknown or malformed ids write nothing and never throw.
+  const before = (await sql`select count(*)::int as n from funnel_events where meta->>'reason' = 'unbound' and attempt_id = ${mine}`)[0].n;
+  for (const raw of ['999999999999', 'abc', '-1', '1.5', '', undefined]) await refuseUnbound(raw);
+  assert.equal((await sql`select count(*)::int as n from funnel_events where meta->>'reason' = 'unbound' and attempt_id = ${mine}`)[0].n, before);
+  assert.deepEqual(await events(theirs), ['landed', 'method_chosen', 'attested']);
+});
+
+dbTest('committee fix 1 (Low): a double tap on brokerage-first consent creates exactly one user; the vendor user moves once and is never copied back onto the attempt', async () => {
+  const { sql, tag, conn, cleanup } = await setup();
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { startConnection, completeLink, consent, NotPendingError } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const attempt = await createAttempt({ method: 'brokerage', attested: true });
+  const acc = `${tag}-dt`;
+  v.accounts = [acct(acc)];
+  const mine = () => sql`select id, snaptrade_user_id from users where signup_attempt_id = ${attempt} or snaptrade_user_id = ${`vendor-attempt-${attempt}`}`;
+  let ids: number[] = [];
+  try {
+    await startConnection({ userId: null, attemptId: attempt }, 'r', deps);
+    const { id } = await completeLink({ userId: null, attemptId: attempt }, deps) as { id: number };
+    const results = await Promise.allSettled([consent(id, new Date(), deps), consent(id, new Date(), deps)]);
+    ids = (await mine()).map((u) => u.id as number);
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+    const lost = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    assert.ok(lost.reason instanceof NotPendingError);
+    const users = await mine();
+    assert.equal(users.length, 1); // exactly one user
+    assert.equal(users[0].snaptrade_user_id, `vendor-attempt-${attempt}`);
+    const [a] = await sql`select user_id, completed_at, snaptrade_user_id, snaptrade_secret_enc from signup_attempts where id = ${attempt}`;
+    assert.equal(a.user_id, users[0].id);
+    assert.ok(a.completed_at);
+    assert.deepEqual([a.snaptrade_user_id, a.snaptrade_secret_enc], [null, null]); // never copied back
+    assert.equal((await conn(id)).state, 'importing');
+    assert.deepEqual(v.deletedUsers, []);
+  } finally {
+    await cleanup(ids, [acc]);
+  }
+});
+
+dbTest('committee fix 3 (Medium): after cleanup a declined or expired row keeps no account snapshot or institution (ids and timestamps stay); a declined brokerage-first attempt keeps no vendor user; an abandoned attempt is swept after 24 h', async () => {
+  const { sql, tag, mkUser, conn, cleanup } = await setup();
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { startConnection, completeLink, decline, applyClocks, tick, cleanupAttempts } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('ret');
+  const userAttempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const a1 = `${tag}-ret1`, a2 = `${tag}-ret2`, a3 = `${tag}-ret3`;
+  try {
+    // Signed in, declined.
+    v.accounts = [acct(a1)];
+    await startConnection({ userId: u.id, attemptId: userAttempt }, 'r', deps);
+    const d = await completeLink({ userId: u.id, attemptId: userAttempt }, deps) as { id: number };
+    assert.equal((await conn(d.id)).accounts.length, 1);
+    await decline(d.id, deps);
+    const cd = await conn(d.id);
+    assert.deepEqual([cd.state, cd.accounts, cd.institution], ['declined', [], null]);
+    assert.ok(cd.cleanup_done_at && cd.declined_at && cd.pending_at);
+    assert.equal(Number(cd.attempt_id), userAttempt);
+    assert.equal(cd.user_id, u.id);
+    // Signed in, expired, cleaned by the tick.
+    const t0 = new Date('2026-10-22T10:00:00Z');
+    v.accounts = [acct(a2)];
+    const e = await completeLink({ userId: u.id, attemptId: userAttempt }, deps, t0) as { id: number };
+    await applyClocks(new Date(t0.getTime() + 24 * 3_600_000), { id: e.id });
+    v.accounts = [];
+    await tick(deps, new Date(t0.getTime() + 25 * 3_600_000));
+    const ce = await conn(e.id);
+    assert.deepEqual([ce.state, ce.accounts, ce.institution], ['expired', [], null]);
+    assert.ok(ce.cleanup_done_at && ce.expired_at);
+    // Brokerage-first, declined: the vendor user is deleted with its link and no attempt row keeps it.
+    const bf = await createAttempt({ method: 'brokerage', attested: true });
+    v.accounts = [acct(a3)];
+    await startConnection({ userId: null, attemptId: bf }, 'r', deps);
+    const b = await completeLink({ userId: null, attemptId: bf }, deps) as { id: number };
+    await decline(b.id, deps);
+    const cb = await conn(b.id);
+    assert.deepEqual([cb.accounts, cb.institution], [[], null]);
+    assert.ok(v.deletedUsers.includes(`vendor-attempt-${bf}`));
+    const [ab] = await sql`select snaptrade_user_id, snaptrade_secret_enc from signup_attempts where id = ${bf}`;
+    assert.deepEqual([ab.snaptrade_user_id, ab.snaptrade_secret_enc], [null, null]);
+    // Portal opened, never finished: kept while fresh (the portal may still be open), swept once 24 h old.
+    const fresh = await createAttempt({ method: 'brokerage', attested: true });
+    const old = await createAttempt({ method: 'brokerage', attested: true });
+    await startConnection({ userId: null, attemptId: fresh }, 'r', deps);
+    await startConnection({ userId: null, attemptId: old }, 'r', deps);
+    await sql`update signup_attempts set created_at = now() - interval '25 hours' where id = ${old}`;
+    await cleanupAttempts(deps);
+    assert.ok(v.deletedUsers.includes(`vendor-attempt-${old}`));
+    assert.ok(!v.deletedUsers.includes(`vendor-attempt-${fresh}`));
+    assert.equal((await sql`select snaptrade_user_id from signup_attempts where id = ${old}`)[0].snaptrade_user_id, null);
+    assert.equal((await sql`select snaptrade_user_id from signup_attempts where id = ${fresh}`)[0].snaptrade_user_id, `vendor-attempt-${fresh}`);
+    // An old attempt whose link still waits on consent keeps its vendor user.
+    const waiting = await createAttempt({ method: 'brokerage', attested: true });
+    await startConnection({ userId: null, attemptId: waiting }, 'r', deps);
+    v.accounts = [acct(`${tag}-ret4`)];
+    await completeLink({ userId: null, attemptId: waiting }, deps);
+    await sql`update signup_attempts set created_at = now() - interval '25 hours' where id = ${waiting}`;
+    await cleanupAttempts(deps);
+    assert.ok(!v.deletedUsers.includes(`vendor-attempt-${waiting}`));
+    await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id in (${fresh}, ${waiting})`;
+  } finally {
+    await cleanup([u.id], [a1, a2, a3, `${tag}-ret4`]);
   }
 });

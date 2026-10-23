@@ -44,6 +44,7 @@ export const TRUST_NOTICE = {
   signInFirst: 'Sign in first, then connect.',
   emailOption: 'Sign in with an email link',
   settingsLink: 'Settings',
+  profileLink: 'Your profile',
 } as const;
 // The vendor's own security page, linked from the notice. Configurable so the owner can point at the page the vendor publishes.
 export const VENDOR_SECURITY_URL = process.env.NEXT_PUBLIC_VENDOR_SECURITY_URL || 'https://snaptrade.com/security';
@@ -57,16 +58,16 @@ export const PROFILE = {
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
 export const CONSENT = {
   title: 'Confirm what gets imported',
-  linked: 'Your brokerage is linked. Nothing has been imported yet.',
+  // Committee fix (item 7): no lead line (the notice already said it) and one scope line, so the primary fits 375×667.
   lines: (found: number, paper: number) => [
-    'Full trade history your broker provides',
-    'Every account under this login',
+    'Full trade history your broker provides, from every account under this login',
     `${found} account${found === 1 ? '' : 's'} found${paper > 0 ? ` (${paper} simulated, not imported)` : ''}`,
     'Closed trades are published on your public profile as percent returns. No amounts, quantities or prices.',
     'A broker account can belong to one profile, ever.',
     'Your record stays public if you disconnect; deleting your profile removes it.',
   ],
-  deadline: (when: string) => `Decide by ${when}, or this link is removed automatically.`,
+  // No clock time: a UTC time is in a zone the trader does not live in (committee item 7).
+  deadline: 'Decide within 24 hours, or this link is removed automatically.',
   primary: 'Import my record',
   secondary: "Don't import",
 } as const;
@@ -87,8 +88,9 @@ export const RECORD_BODY = {
 } as const;
 export type RecordState = 'importing' | 'connected' | 'failed' | 'none';
 // The S8 empty-record line belongs to a finished import only; a failed one says so instead.
+// Committee fix (item 8): the importing line only while nothing is listed yet; with trades listed the banner says it.
 export const recordBodyCopy = (state: RecordState, closes: number): string | null =>
-  state === 'importing' ? RECORD_BODY.importing : closes > 0 ? null : state === 'connected' ? RECORD_BODY.connected : RECORD_BODY.none;
+  closes > 0 ? null : state === 'importing' ? RECORD_BODY.importing : state === 'connected' ? RECORD_BODY.connected : RECORD_BODY.none;
 
 // The share card (fix round 3): its states mirror the profile's. "Demo data" only for a demo profile (source='demo');
 // "Broker connected" only for a finished import with no closes; an import still running shows no stats; a failed one

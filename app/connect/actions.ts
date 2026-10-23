@@ -25,7 +25,12 @@ export async function consentAction(form: FormData) {
     if (e instanceof AccountClaimedError) redirect(me ? `/u/${me.handle}?connect=account-claimed` : `/connect/result?c=${c.id}&k=refused`);
     throw e;
   }
-  if (!me) { await signIn(user.userId); await rememberMethod('brokerage'); } // sign-in by completing a connection
+  if (!me) {
+    // Sign-in by completing a connection. The attempt is consumed: its browser binding has no further use.
+    await signIn(user.userId);
+    await rememberMethod('brokerage');
+    (await cookies()).set(CONNECT_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: '/connect', maxAge: 0 });
+  }
   redirect(`/u/${user.handle}`);
 }
 

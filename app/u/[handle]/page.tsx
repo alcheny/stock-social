@@ -89,7 +89,7 @@ export default async function Profile({ params, searchParams }: Params) {
         })),
       })
     : { connected: 0, handles: [] as string[], byVia: {} as Record<string, number> };
-  const sharePromptShowing = isMe && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]);
+  const sharePromptShowing = isMe && state !== 'importing' && state !== 'failed' && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]);
   const nt = isMe
     ? newTradesSince(trades.map((t) => ({ sellId: t.sell_id, symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at })), user.trades_prompt_seen_at)
     : { shown: [], more: 0 };
@@ -104,6 +104,8 @@ export default async function Profile({ params, searchParams }: Params) {
   // Fix round 3 (TR-3): while any consented import runs, the trades so far are listed but nothing is presented as a
   // complete record: no Verified badge, no headline stats or chart, no "Record since · Connected" line.
   const complete = state !== 'importing';
+  // Committee fix (item 5): no share invitation on a record that is importing or failed; "Try again" is the only primary.
+  const shareable = state === 'connected' || state === 'none';
   const connected = allVerified
     ? `Connected: ${brokers.length ? brokers.join(', ') : 'broker'} (${accounts} account${accounts === 1 ? '' : 's'})`
     : 'Demo data';
@@ -134,11 +136,11 @@ export default async function Profile({ params, searchParams }: Params) {
       {claimed && (
         <p role="alert" className="down"><b>{ACCOUNT_CLAIMED_TITLE}</b> {ACCOUNT_CLAIMED_BODY}</p>
       )}
-      {isMe && !claimed && complete && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]) && (
+      {isMe && !claimed && shareable && sharePromptShowing && (
         <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={range} isNew={isNew} />
       )}
       {isMe && !claimed && user.trades_prompt_seen_at === null && <MarkTradesPromptSeen />}
-      {isMe && !claimed && complete && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
+      {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
         <NewTradesPrompt handle={user.handle} trades={nt.shown.map((x) => ({ sellId: x.sellId, symbol: x.symbol, returnPct: x.returnPct, closedAt: x.closedAt.toISOString() }))} more={nt.more} />
       )}
       {isMe && (state === 'none' || claimed) && (
@@ -155,7 +157,7 @@ export default async function Profile({ params, searchParams }: Params) {
           {(await searchParams)?.handle === 'taken' && <p id="handle-err" role="alert" className="down small">That handle is taken or reserved, or not 3–20 lowercase letters, numbers or _.</p>}
         </details>
       )}
-      {isMe && !claimed && complete && trades.length > 0 && !sharePromptShowing && (
+      {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
         <ShareCard handle={user.handle} recapYm={recapYm}
           recapLabel={recapYm ? new Date(`${recapYm}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : null} />
       )}

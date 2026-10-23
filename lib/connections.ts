@@ -11,9 +11,29 @@ import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
 import { replacePositions } from './positions.ts';
 import { ownsAttempt } from './auth/links.ts';
+import { unsignToken } from './auth/sessions.ts';
 
-// Brokerage-first: the signed attempt id, bound to the browser until the user row exists.
+// Brokerage-first: the signed attempt id, bound to the browser at S1 (startSignIn) until the user row exists.
 export const CONNECT_COOKIE = 'connect_attempt';
+export const CONNECT_COOKIE_SECONDS = 86_400;
+
+// Committee fix (High): the ONLY way a signed-out request finds its attempt. The HMAC-signed cookie written when the
+// attempt was created, for an attested brokerage attempt with no user that is not completed. A query-string id is never
+// read: ids are sequential, and an attempt handed to whoever asks is a takeover.
+export async function boundAttempt(cookie: string | undefined | null, secret: string): Promise<number | null> {
+  const id = Number(unsignToken(cookie, secret));
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  const [a] = await sql`select id from signup_attempts where id = ${id} and method = 'brokerage' and user_id is null and completed_at is null`;
+  return a ? id : null;
+}
+// A request that presents an attempt id its cookie does not match: refused, and counted on that attempt (an id and a
+// reason; nothing personal). An unknown or malformed id writes nothing.
+export async function refuseUnbound(raw: unknown): Promise<void> {
+  if (typeof raw !== 'string' || !/^[1-9]\d{0,17}$/.test(raw)) return;
+  const id = Number(raw);
+  const [a] = await sql`select id from signup_attempts where id = ${id}`;
+  if (a) await recordFunnel(id, 'failed', { reason: 'unbound' });
+}
 
 export const STATES = ['pending', 'importing', 'connected', 'declined', 'expired', 'failed'] as const;
 export type State = (typeof STATES)[number];
@@ -238,12 +258,12 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
   if (!c || c.state !== 'pending') throw new NotPendingError();
   let user: { id: number; handle: string };
   const createdHere = c.user_id === null;
-  if (c.user_id === null) {
-    user = await createUserForAttempt(c.attempt_id);
-    // The vendor user registered on the attempt moves to the user it now belongs to.
-    await sql`update users u set snaptrade_user_id = a.snaptrade_user_id, snaptrade_secret_enc = a.snaptrade_secret_enc
-      from signup_attempts a where a.id = ${c.attempt_id} and u.id = ${user.id}`;
-    await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id = ${c.attempt_id}`;
+  if (createdHere) {
+    // Committee fix (Low): one tap wins. The attempt is reserved atomically before any users row exists, so a double
+    // tap finds nothing to reserve and creates no second user.
+    const [r] = await sql`update signup_attempts set completed_at = ${now} where id = ${c.attempt_id} and user_id is null and completed_at is null returning id`;
+    if (!r) throw new NotPendingError();
+    try { user = await createUserForAttempt(c.attempt_id); } catch (e) { await releaseAttempt(c.attempt_id); throw e; }
   } else {
     const [u] = await sql`select id, handle from users where id = ${c.user_id}`;
     user = { id: u.id as number, handle: u.handle as string };
@@ -255,23 +275,28 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
       if (!r.ok) throw new AccountClaimedError();
       const ok = await setState(id, 'pending', 'importing', now, { consent_at: now, user_id: user.id, last_progress_at: now, import_cursor: tx.json(startCursor() as never) }, tx);
       if (!ok) throw new NotPendingError();
+      if (createdHere) {
+        // The vendor user registered on the attempt moves to the user it now belongs to, in this transaction: a failure
+        // leaves it on the attempt (for the refusal's cleanup), and nothing is ever copied back.
+        await tx`update users u set snaptrade_user_id = a.snaptrade_user_id, snaptrade_secret_enc = a.snaptrade_secret_enc
+          from signup_attempts a where a.id = ${c.attempt_id} and u.id = ${user.id}`;
+        await tx`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id = ${c.attempt_id}`;
+      }
     });
   } catch (e) {
-    if (e instanceof AccountClaimedError) {
-      // A brokerage-first consent that lost the race leaves no ghost user: the vendor user goes back onto the attempt,
-      // the users row goes, the attempt is open again, and the refusal's cleanup removes the link and the vendor user.
-      if (createdHere) {
-        await sql`update signup_attempts a set snaptrade_user_id = u.snaptrade_user_id, snaptrade_secret_enc = u.snaptrade_secret_enc, user_id = null, completed_at = null
-          from users u where u.id = ${user.id} and a.id = ${c.attempt_id}`;
-        await sql`delete from users where id = ${user.id}`;
-      }
-      await refuse(id, c.attempt_id, deps, now);
+    // A brokerage-first consent that failed leaves no ghost user: the users row goes and the attempt is open again.
+    if (createdHere) {
+      await sql`delete from users where id = ${user.id}`;
+      await releaseAttempt(c.attempt_id);
     }
+    // Lost the claim race: the refusal's cleanup removes the link and the vendor user still on the attempt.
+    if (e instanceof AccountClaimedError) await refuse(id, c.attempt_id, deps, now);
     throw e;
   }
   await recordFunnel(c.attempt_id, 'consented');
   return { userId: user.id, handle: user.handle };
 }
+const releaseAttempt = (attemptId: number) => sql`update signup_attempts set user_id = null, completed_at = null where id = ${attemptId}`;
 
 // S4 "Don't import": declined, the link removed at the vendor, provisional claims released.
 // Only a pending row can be declined; anything else (a replay, a consented connection) is a no-op (D2).
@@ -314,7 +339,30 @@ export async function cleanup(id: number, deps: Deps = realDeps, now = new Date(
     }
   }
   await sql`delete from broker_accounts where connection_id = ${id} and confirmed_at is null`;
-  await sql`update connections set cleanup_done_at = ${now} where id = ${id}`;
+  // Committee fix (Medium, §3): the account snapshot and institution have no use once the link is gone; ids, states and
+  // timestamps stay for the funnel.
+  await sql`update connections set cleanup_done_at = ${now}, accounts = '[]'::jsonb, institution = null where id = ${id}`;
+}
+
+// Committee fix (Medium, §3): a brokerage-first attempt whose portal was opened but never finished holds a vendor user
+// with no use. After 24 h (the longest a portal or consent can stay open), with no live or uncleaned connection and no
+// users row holding the same vendor user, it is deleted at the vendor and blanked on the attempt. Retried by the tick.
+// Age is read from the database clock (not the tick's `now`), so a simulated clock never sweeps a fresh attempt.
+export async function cleanupAttempts(deps: Deps = realDeps): Promise<number> {
+  const rows = await sql`select id, snaptrade_user_id as u, snaptrade_secret_enc as s from signup_attempts a
+    where snaptrade_user_id is not null and created_at + ${PENDING_HOURS} * interval '1 hour' <= now()
+      and not exists (select 1 from connections c where c.attempt_id = a.id and (c.state in ('pending', 'importing', 'connected') or c.cleanup_done_at is null))
+      and not exists (select 1 from users x where x.snaptrade_user_id = a.snaptrade_user_id)
+    order by id`;
+  let n = 0;
+  for (const r of rows) {
+    try {
+      if (r.s) await ignoreGone(deps.deleteUser({ snaptradeUserId: r.u as string, secretEnc: r.s as string }));
+      await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id = ${r.id} and snaptrade_user_id = ${r.u}`;
+      n++;
+    } catch (e) { console.error('attempt cleanup failed', r.id, errStatus(e)); }
+  }
+  return n;
 }
 async function cleanupQuietly(id: number, deps: Deps) {
   try { await cleanup(id, deps); } catch (e) { console.error('connection cleanup failed', id, errStatus(e)); }
@@ -418,5 +466,6 @@ export async function tick(deps: Deps = realDeps, now = new Date()): Promise<{ e
   for (const r of await sql`select id from connections where cleanup_done_at is null and state in ('declined', 'expired') order by id`) {
     try { await cleanup(Number(r.id), deps, now); cleaned++; } catch (e) { errors.push(Number(r.id)); console.error('connection cleanup failed', r.id, errStatus(e)); }
   }
+  await cleanupAttempts(deps);
   return { expired: clocks.expired.length, failed: clocks.failed.length, advanced, cleaned, errors };
 }

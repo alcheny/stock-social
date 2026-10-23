@@ -24,14 +24,19 @@ test.afterAll(async () => {
 const db = async () => sql;
 const uniq = () => Math.random().toString(36).slice(2, 10);
 const scenario = (accounts: FakeAccount[], delayMs = 0) => fetch(`${vendor.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts, delayMs }) });
-// A brokerage-first attempt as S1 writes it (S1 → S2 itself is covered by signin.spec.ts, whose attempt count is global).
+// A brokerage-first attempt through S1 itself (committee fix): attest, "Connect a brokerage instead", and the attempt is
+// bound to this browser by the signed connect_attempt cookie; S2 shows the primary. Returns the attempt id (from the
+// cookie: the URL carries none).
 const brokerageAttempt = async (page: Page) => {
-  const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('brokerage', now()) returning id`;
-  const id = Number(a.id);
-  for (const [name, meta] of [['landed', { source: 'direct' }], ['method_chosen', { method: 'brokerage' }], ['attested', {}]] as const) await sql`insert into funnel_events (attempt_id, name, meta) values (${id}, ${name}, ${sql.json(meta)})`;
-  await page.goto(`/connect?attempt=${id}`);
-  await expect(page.getByRole('status')).toHaveText('Sign in first, then connect.');
-  return id;
+  await page.goto('/login');
+  await page.getByLabel('I am 18 or older and accept the Terms and Privacy Policy').check();
+  await page.getByRole('button', { name: 'Connect a brokerage instead' }).click();
+  await expect(page).toHaveURL(/\/connect$/);
+  await expect(page.getByRole('link', { name: 'Connect brokerage (read-only)' })).toBeVisible();
+  const cookie = (await page.context().cookies()).find((c) => c.name === 'connect_attempt');
+  expect(cookie?.httpOnly).toBe(true);
+  expect(cookie?.path).toBe('/connect');
+  return Number(cookie!.value.split('.')[0]);
 };
 const devSignIn = async (page: Page, handle: string) => {
   await page.goto('/login/dev');
@@ -118,8 +123,9 @@ test('signed in: S2 → portal → consent (zero depth: no activities) → impor
   await connectThrough(page);
   await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
   await expect(page.getByRole('heading', { name: 'Confirm what gets imported', level: 1 })).toBeVisible();
-  await expect(page.locator('ul.notice li').nth(1)).toHaveText('Every account under this login');
-  await expect(page.locator('ul.notice li').nth(2)).toHaveText('2 accounts found (1 simulated, not imported)');
+  // Committee fix (item 7): the history and accounts scope is one line, the count follows it.
+  await expect(page.locator('ul.notice li').nth(0)).toHaveText('Full trade history your broker provides, from every account under this login');
+  await expect(page.locator('ul.notice li').nth(1)).toHaveText('2 accounts found (1 simulated, not imported)');
   const sql = await db();
   const [u] = await sql`select id from users where handle = ${handle}`;
   const provisional = async () => {
@@ -203,11 +209,11 @@ test('decline: S6 copy, the link is gone at the vendor, the provisional claim is
 
 test('brokerage-first: attested attempt → S2 → portal → consent creates the user, signs in by connection; no real account → S6c and no user row', async ({ page }) => {
   const attempt = await brokerageAttempt(page);
-  const r = await page.request.get(`/connect/start?attempt=${attempt}`, { maxRedirects: 0 });
+  const r = await page.request.get('/connect/start', { maxRedirects: 0 });
   test.skip(!(r.headers()['location'] ?? '').startsWith(vendor.base), 'the server has no vendor fake configured (see the header of this spec)');
   const acc = `e2e-bf-${uniq()}`;
   await scenario([{ id: acc, activities: 2 }]);
-  await page.goto(`/connect/start?attempt=${attempt}`);
+  await page.goto('/connect/start');
   await expect(page).toHaveURL(new RegExp(`^${vendor.base}/portal`));
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
@@ -229,7 +235,7 @@ test('brokerage-first: attested attempt → S2 → portal → consent creates th
   await page.context().clearCookies();
   const attempt2 = await brokerageAttempt(page);
   await scenario([{ id: `e2e-paper-${uniq()}`, paper: true, activities: 2 }]);
-  await page.goto(`/connect/start?attempt=${attempt2}`);
+  await page.goto('/connect/start');
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page).toHaveURL(/\/connect\/result\?c=\d+&k=none$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('No real brokerage account found.');
@@ -252,7 +258,7 @@ test('sign-in by connection: a returning trader whose accounts are all claimed i
   await page.context().clearCookies();
   const attempt = await brokerageAttempt(page);
   await scenario([{ id: acc, activities: 2 }]);
-  await page.goto(`/connect/start?attempt=${attempt}`);
+  await page.goto('/connect/start');
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
   await expect(page.locator('nav.top .me')).toHaveText(`@${handle}`);
@@ -426,7 +432,7 @@ test('fix round 2: a link waiting on consent shows nothing public (signed out: n
   // S6b: a brokerage-first attempt linking the same real account is refused; short heading, explanation as body.
   const attempt = await brokerageAttempt(p2);
   await scenario([{ id: acc, activities: 0 }]);
-  await p2.goto(`/connect/start?attempt=${attempt}`);
+  await p2.goto('/connect/start');
   await p2.getByRole('button', { name: 'Connect' }).click();
   await expect(p2).toHaveURL(/\/connect\/result\?c=\d+&k=refused$/);
   const h1 = p2.locator('h1');
@@ -488,7 +494,9 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   await expect(p2.locator('section.stats')).toHaveCount(0);
   await expect(p2.locator('main')).not.toContainText('win rate');
   await expect(p2.locator('main')).not.toContainText('Connected:');
-  await expect(p2.locator('.record-body')).toHaveText('Your trades appear here as they import.');
+  // Committee fix (item 8): trades are listed, so the importing line is not repeated above them; the banner says it.
+  await expect(p2.locator('.rows:not(.positions) li').first()).toBeVisible();
+  await expect(p2.locator('.record-body')).toHaveCount(0);
   await p2.screenshot({ path: test.info().outputPath('profile-two-imports-importing.png'), fullPage: true });
   // The poll resumes the first import and the record ends whole.
   await sql`update connections set import_cursor = import_cursor - 'retryAt' where id = ${firstRow.id}`;
@@ -636,4 +644,120 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await anon.close();
   await sql`delete from users where handle = ${handle}`;
   await sql`delete from broker_accounts where account_id = any(${[a1, a2, a3]})`;
+});
+
+// Committee fixes (docs/features/logs/F-1/build-pr2a-fix4.md).
+test('committee fix (items 1, 4, 7): brokerage-first from /login reaches the importing profile in four app taps at 375×667, consent primary above the fold; a second browser holding only the attempt id is refused at S2, start and done, and each refusal is counted with no personal data', async ({ page, browser }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  let taps = 0;
+  await page.goto('/login');
+  await page.getByLabel('I am 18 or older and accept the Terms and Privacy Policy').check(); taps++;
+  await page.getByRole('button', { name: 'Connect a brokerage instead' }).click(); taps++;
+  await expect(page).toHaveURL(/\/connect$/);
+  await expect(page.getByRole('heading', { name: 'Before you connect', level: 1 })).toBeVisible();
+  const primary = page.getByRole('link', { name: 'Connect brokerage (read-only)' });
+  await expect(primary).toBeVisible();
+  const attempt = Number((await page.context().cookies()).find((c) => c.name === 'connect_attempt')!.value.split('.')[0]);
+  expect(attempt).toBeGreaterThan(0);
+  const sql = await db();
+  // A second browser that knows (or guesses) the sequential id gets nothing: no primary on S2, no portal, no link.
+  const stranger = await browser.newContext();
+  const p2 = await stranger.newPage();
+  await p2.goto(`/connect?attempt=${attempt}`);
+  await expect(p2.getByRole('status')).toHaveText('Sign in first, then connect.');
+  await expect(p2.getByRole('link', { name: 'Connect brokerage (read-only)' })).toHaveCount(0);
+  for (const path of [`/connect/start?attempt=${attempt}`, `/connect/done?attempt=${attempt}`]) {
+    const r = await p2.request.get(path, { maxRedirects: 0 });
+    expect(r.status(), path).toBe(307);
+    expect(new URL(r.headers()['location']).pathname, path).toBe('/login');
+  }
+  // A forged cookie (the id with a made-up signature) is no better.
+  await stranger.addCookies([{ name: 'connect_attempt', value: `${attempt}.forged`, url: new URL('/connect', page.url()).toString() }]);
+  const forged = await p2.request.get('/connect/start', { maxRedirects: 0 });
+  expect(new URL(forged.headers()['location']).pathname).toBe('/login');
+  await stranger.close();
+  const refusals = await sql`select meta::text as meta from funnel_events where attempt_id = ${attempt} and name = 'failed' order by id`;
+  expect(refusals.map((r) => JSON.parse(r.meta))).toEqual([{ reason: 'unbound' }, { reason: 'unbound' }, { reason: 'unbound' }]);
+  expect(JSON.stringify(refusals)).not.toMatch(/@|\d{7,}/);
+  expect((await sql`select 1 from connections where attempt_id = ${attempt}`).length).toBe(0);
+  expect((await sql`select snaptrade_user_id from signup_attempts where id = ${attempt}`)[0].snaptrade_user_id).toBeNull(); // no portal was opened
+  // The owning browser completes. The vendor portal's own "Connect" is not an app tap.
+  const acc = `e2e-bf4-${uniq()}`;
+  await scenario([{ id: acc, activities: 2 }]);
+  await primary.click(); taps++;
+  test.skip(!page.url().startsWith(vendor.base), 'the server has no vendor fake configured (see the header of this spec)');
+  await expect(page).toHaveURL(new RegExp(`^${vendor.base}/portal`));
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  expect(taps).toBeLessThanOrEqual(4); // sign-in → consent
+  // Consent fits 375×667: the whole primary is in the viewport without scrolling, and the deadline has no clock time.
+  await expect(page.locator('main')).not.toContainText('Your brokerage is linked');
+  await expect(page.locator('main')).toContainText('Decide within 24 hours, or this link is removed automatically.');
+  await expect(page.locator('main')).not.toContainText('UTC');
+  const importBtn = page.getByRole('button', { name: 'Import my record' });
+  const box = (await importBtn.boundingBox())!;
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(667);
+  await page.screenshot({ path: test.info().outputPath('consent-375x667.png') });
+  await importBtn.click(); taps++;
+  await expect(page).toHaveURL(/\/u\/trader_[a-z0-9]{8}$/);
+  expect(taps).toBe(4); // /login → importing profile
+  await expect(page.getByRole('status')).toContainText('Importing your record');
+  const users = await sql`select id, handle from users where signup_attempt_id = ${attempt}`;
+  expect(users).toHaveLength(1);
+  await expect(page.locator('nav.top .me')).toHaveText(`@${users[0].handle}`);
+  expect((await page.context().cookies()).find((c) => c.name === 'connect_attempt')).toBeUndefined(); // consumed
+  await sql`delete from users where id = ${users[0].id}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
+});
+
+test('committee fix (items 5, 6): no share invitation while importing or failed; "Try again" is the only primary and at least 44 px; a retry that reaches connected brings the share prompt back', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  const handle = `shr${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const a1 = `e2e-${handle}-1`, a2 = `e2e-${handle}-2`;
+  await scenario([{ id: a1, activities: 4 }, { id: a2, activities: 4 }]);
+  await connectThrough(page);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  const sql = await db();
+  const [u] = await sql`select id from users where handle = ${handle}`;
+  // As if an hourly sync had run: the share prompt's own rule would show it now; the record state must hold it back.
+  await sql`update users set last_synced_at = now() where id = ${u.id}`;
+  await page.reload();
+  await expect(page.getByRole('status')).toContainText('Importing your record');
+  await expect(page.locator('main')).not.toContainText('Your record is live.');
+  await expect(page.getByRole('button', { name: 'Share my record' })).toHaveCount(0);
+  expect((await step(page.request)).imported).toBe(4);
+  await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
+  expect((await step(page.request)).state).toBe('failed');
+  await page.goto(`/u/${handle}`);
+  await expect(page.locator('.record-failed')).toContainText('may be incomplete');
+  await expect(page.locator('main')).not.toContainText('Your record is live.');
+  await expect(page.locator('main')).not.toContainText('Share my record');
+  await expect(page.locator('main')).not.toContainText('Share your record');
+  const retry = page.locator('.record-failed a');
+  await expect(retry).toHaveText('Try again');
+  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await page.screenshot({ path: test.info().outputPath('failed-owner-375.png'), fullPage: true });
+  // Retry: the same accounts connect again and the import finishes; the record is whole and the prompt is back.
+  await scenario([{ id: a1, activities: 4 }, { id: a2, activities: 4 }]);
+  await retry.click();
+  await expect(page).toHaveURL(/\/connect$/);
+  await page.getByRole('link', { name: 'Connect brokerage (read-only)' }).click();
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  let r = await step(page.request);
+  for (let i = 0; i < 8 && r.state === 'importing'; i++) r = await step(page.request);
+  expect(r.state).toBe('connected');
+  await page.goto(`/u/${handle}`);
+  await expect(page.locator('.record-failed')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Your record is live.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Share my record' })).toBeVisible();
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id in (${a1}, ${a2})`;
 });
