@@ -200,3 +200,90 @@ cascade) are deleted. The database `ss_ux_pr2` is dropped. No product code was c
 scratchpad (`ux/f2pr2`).
 
 USABILITY: PROBLEMS
+
+## Round 2
+
+2026-10-23. Product code at `6fb8952` (fix round 1). The existing `CI=1` build is newer than every file under `app`,
+`lib` and `db` and already holds the new strings ("is back in your feed."), so I did not rebuild and no advisory was
+hit. Setup:
+
+- Port 3112, with the vendor fake on 4192. No sync tick was run.
+- My own database, `ss_ux_pr2r2` (Postgres 16, created as the superuser and owned by the shared role): the schema, the
+  seed (3 demo traders), and 12 test traders with 6 closes each. One of them has a 20-character handle,
+  `uxp2_longhandle_2026`, and a long display name ("Ux Trader With Long Name"), to test the worst case.
+- Reduced motion. Keyboard only, at 320, 375 and 1280, light and dark. A fresh signed-in viewer for each context.
+  Separate runs: signed out, and signed in without JavaScript.
+- Screen reader view: ARIA snapshots, focus after each step, and the live regions. No real screen reader.
+
+Screenshots are in `screenshots/pr2-ux2/`, named `<shot>-<width>-<scheme>`. The launcher and scripts are in the scratchpad (`ux/f2pr2r2`).
+
+### Round 1 items, checked again
+
+| # | Round 1 | Now | Evidence |
+|---|---|---|---|
+| 1 | **blocking**: the "…" item ran off screen at 375 | **Fixed.** "…" sits at the header's right edge and the popover opens leftward. With "Following" on and the 20-character handle, the item spans x 20–300 at 320 (280 × 68, two lines), 20–355 at 375 (335 × 68), and 557–920 at 1280. The full label "Not interested in @uxp2_longhandle_2026" is readable in all 6 contexts, and the page width stays equal to the screen | `pane-menu-20char-*` |
+| 2, 3 | Unfollow claimed to hide, and hid | **Fixed** (the owner can reverse it with `FEED_HIDES_UNFOLLOWED`). After an unfollow, all 3 of the trader's cards stay, there is no line, and the button reads "Follow" again. Nothing appears under "Not interested" | `pane-unfollowed-*` |
+| 4 | Follow and "Not interested" can both be true | Open, and recorded as a follow-up. `@uxp2_longhandle_2026` is listed under both "Following" and "Not interested" | `me-following-hidden-*` |
+| 5 | Undo of an unfollow dropped focus | **Gone.** The unfollow has no Undo now, and focus stays on the button (`Follow`, not pressed) | — |
+| 6 | Undo of a hide put focus off screen | **Fixed.** After Undo, the 3 rows come back, the row is on its pane side, and focus is on that pane's "More for @x" (44 × 44), inside the viewport in 6 of 6 contexts | `not-interested-undone-*` |
+| 7 | The bar timed out under focus | **Fixed for the keyboard.** After a keyboard hide, focus is on Undo (`:focus-visible`), and at 7 s the bar and its 3 hidden rows are still there. Esc closes the bar, and focus goes to the next card's name link, on screen | `not-interested-bar-*` |
+| 8 | Live region with `display: none` | **Fixed.** The paragraph is always rendered as `aria-live="polite"` with a height of 0 when empty. The first follow fills it with "Following @x. Only you can see this." A second follow (another trader) says nothing, so the privacy line comes once | — |
+| 9 | Menu did not close | **Fixed.** Esc closes it and puts focus back on "…". Tab moves to the item, and the next Tab closes it. A click outside closes it. All 6 contexts | — |
+| 10 | Signed-out Follow lost the follow | **Removed.** Signed out, there is no Follow and no "…" on the profile or in the pane. The return path is recorded as a follow-up | `profile-out-*`, `pane-out-*` |
+| 11 | No-JS posts said nothing | **Fixed.** Each form lands on the trader's profile with one line: "Following @x. Only you can see this." (first follow), "Following @x.", "Unfollowed @x.", or "@x is hidden from your feed for 90 days. Their profile stays public." A crafted `?done=hidden` for a trader who is not hidden shows nothing | `nojs-*` |
+| 12 | `/me/following` details | **Mostly fixed.** It is reachable by keyboard from your own profile: Settings is the 7th Tab stop, and "Following and hidden traders" is the 2nd stop on `/settings`. The h1 is "Following and hidden traders", with h2s "Following" and "Not interested". Buttons stay on one line (121 × 45), and "until Jan 21, 2027" has its own line. "Show @x again" gives "@x is back in your feed.", and a crafted `back=` for someone still hidden shows nothing. Open: focus after "Show again", and the menu link (both recorded) | `me-following-*` |
+| 13 | The state is said twice | Open, recorded: `button "Following" [pressed]` | — |
+| 14 | Follow style and width | **Fixed.** Outline in both states, 112 px in both, so neither Follow nor "…" moves when the button flips | `pane-following-*`, `profile-follow-*` |
+
+### What works (new in this round)
+
+- The Undo bar fits at 320, with Undo at 70 × 44 inside the screen.
+- The hide still removes all 3 cards in about 100 ms, without motion.
+- The profile Follow is still the 6th Tab stop.
+- Following text contrast is 5.25:1 (light) and 5.35:1 (dark).
+- The new copy is plain, makes no claim, and names no count. No follower numbers appear anywhere.
+
+### Problems (round 2)
+
+No blocking problems. These follow-ups are new or still open:
+
+1. **follow-up: on `/me/following`, a long name hides the handle at 320 and 375.**
+   - "Ux Trader With Long Name" fills the name column, and the handle is cut off or gone. At 320 the name itself reads
+     "Ux Trader With Long" (`me-following-show-again-320-light`, `me-following-hidden-375-dark`).
+   - On a page whose purpose is to tell people apart before un-hiding them, the handle is the one unique part.
+   - The accessible names are complete ("Show @uxp2_longhandle_2026 again").
+   - **Suggestion.** Wrap the name, or put the handle on its own line, the way the date already is.
+2. **follow-up: focus after "Show again" is on the page body.**
+   - The `role="status"` line "@x is back in your feed." is present when the page loads. A status region that arrives
+     with the page is often not read.
+   - The engineer has already recorded this. Focus the line or the list.
+3. **follow-up: the bar's pause depends on `:focus-visible`.**
+   - A hide made with a click (or the activation a screen reader's browse mode sends, which may count as a click) puts
+     focus on Undo, but the 5 s timer still runs. The keyboard case is fixed.
+   - The hide can be undone on `/me/following`, so nothing is lost.
+   - **Suggestion.** Pause whenever focus is inside the bar, whatever moved it there. I could not check this with a real
+     screen reader.
+4. **follow-up: Tab on Undo closes the bar.** A keyboard user who presses Tab just to move on also dismisses Undo. Esc
+   closing it is enough. Tab could move focus on and let the timer resume.
+5. **follow-up: the "Settings" link on your own profile measures 61 × 20.** Its padding or spacing may already meet the
+   24 px minimum. A 44 px tap area would match the other controls.
+6. **follow-up: the outline Follow has a faint border.** It is 1.26:1 (light) and 1.20:1 (dark). The label carries the
+   meaning, so this is not a contrast failure. The muted "Following" in dark reads close to disabled
+   (`pane-following-375-dark`). Taste, for the designer.
+7. **follow-up: the no-JS hide line offers no way back.** "@x is hidden from your feed for 90 days." could link to
+   `/me/following`, the only place to undo it without JavaScript.
+8. **Still open from round 1** (all recorded by the engineer): item 4 (Follow plus "Not interested"), the sign-in return
+   path, the "Manage hidden traders" link, and item 13 (the state said twice).
+
+### Older issues seen again (not this PR)
+
+- At 320 and 375, the pane header still cuts the name and hides the handle ("Ux Trader Wi", `pane-menu-20char-320-*`).
+- At 320, the "+11.5%" avg-return stat runs past its tile's right edge on the profile and in the pane
+  (`profile-follow-320-light`).
+
+### Environment
+
+The database was my own, `ss_ux_pr2r2`. No product code was changed. The server and the fake are stopped. Test users
+(`uxp2_*`) are deleted, and their follows and exclusions went with them through the cascade. `ss_ux_pr2r2` is dropped.
+
+USABILITY: PASS
