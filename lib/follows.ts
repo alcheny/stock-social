@@ -76,6 +76,14 @@ export async function ownLists(viewer: number): Promise<{ following: Listed[]; h
   return { following: following.map(listed), hidden: hidden.map(listed) };
 }
 
+// /me/following?back=x: "@x is back" only when this viewer ended a "Not interested" on x in the last minute (review:
+// a crafted link claimed it for any handle).
+export async function shownAgainJustNow(viewer: number, handle: string): Promise<boolean> {
+  return (await sql`select 1 from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
+    where x.viewer_id = ${viewer} and u.handle = ${handle} and x.until <= now() and x.until > now() - interval '1 minute'
+    and (x.reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean)`).length > 0;
+}
+
 export async function isHidden(viewer: number, trader: number): Promise<boolean> {
   return (await sql`select 1 from viewer_exclusions where viewer_id = ${viewer} and trader_id = ${trader} and until > now()
     and (reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean)`).length > 0;

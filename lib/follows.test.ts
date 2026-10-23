@@ -232,3 +232,20 @@ dbTest('deletion: as viewer and as trader, zero rows left in follows and viewer_
     await p.sql`delete from handle_reservations where handle = ${p.handle(0)}`;
   }
 });
+
+dbTest('review: "@x is back" (/me/following?back=x) only after this viewer ended a "Not interested" on x in the last minute', async () => {
+  const F = await import('./follows.ts');
+  const p = await people(3, 0);
+  try {
+    const [a, b] = p.traders;
+    assert.equal(await F.shownAgainJustNow(p.viewer, p.handle(1)), false, 'never hidden');
+    assert.equal(await F.shownAgainJustNow(p.viewer, 'no_such_handle_q'), false, 'no such trader');
+    await F.exclude(p.viewer, a, 'not_interested');
+    assert.equal(await F.shownAgainJustNow(p.viewer, p.handle(1)), false, 'still hidden');
+    await F.endExclusion(p.viewer, a);
+    assert.equal(await F.shownAgainJustNow(p.viewer, p.handle(1)), true, 'just shown again');
+    assert.equal(await F.shownAgainJustNow(b, p.handle(1)), false, 'another viewer');
+    await p.sql`update viewer_exclusions set until = now() - interval '2 minutes' where viewer_id = ${p.viewer} and trader_id = ${a}`;
+    assert.equal(await F.shownAgainJustNow(p.viewer, p.handle(1)), false, 'ended earlier');
+  } finally { await p.remove(); }
+});

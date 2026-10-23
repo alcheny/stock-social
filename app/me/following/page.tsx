@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { ownLists } from '@/lib/follows.ts';
+import { ownLists, shownAgainJustNow } from '@/lib/follows.ts';
 import { FOLLOW } from '@/lib/copy.ts';
 import { FollowButton } from '../../follow-button.tsx';
 import { showAgainForm } from '../../discovery-actions.ts';
@@ -14,13 +14,14 @@ const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', y
 // F-2 PR-2: the viewer's own lists, never anyone else's (noindex, signed in only). "Show again" ends an exclusion
 // (until = now) without deleting it; the tick deletes it a day later. Fix round 1: reached from the viewer's own
 // profile (Settings); h1 names both lists; every row has one shape; "Show again" says who is back (`?back=`, checked
-// against the viewer's lists so a crafted link claims nothing).
+// against the viewer's lists so a crafted link claims nothing; review: and only for a "Show again" this viewer made in
+// the last minute).
 export default async function Following({ searchParams }: { searchParams?: Promise<{ back?: string }> }) {
   const me = await currentUser();
   if (!me) redirect('/login');
   const { following, hidden } = await ownLists(me.id);
   const back = (await searchParams)?.back;
-  const isBack = typeof back === 'string' && /^[a-z0-9_]{3,20}$/.test(back) && !hidden.some((t) => t.handle === back);
+  const isBack = typeof back === 'string' && /^[a-z0-9_]{3,20}$/.test(back) && !hidden.some((t) => t.handle === back) && (await shownAgainJustNow(me.id, back));
   return (
     <main className="page">
       <h1>{FOLLOW.title}</h1>

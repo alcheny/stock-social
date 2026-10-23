@@ -182,7 +182,7 @@ export default async function Profile({ params, searchParams }: Params) {
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
       )}
       {/* F-2 PR-2 fix round 1: Settings (sign out, delete my profile, following and hidden traders) is reachable by tapping. */}
-      {isMe && <p><Link className="tap" href="/settings">{SETTINGS.title}</Link></p>}
+      {isMe && <p className="settings-link"><Link className="tap" href="/settings">{SETTINGS.title}</Link></p>}
       {isMe && (
         <details className="handle-edit">
           <summary className="button secondary">{PROFILE.changeHandle}</summary>
