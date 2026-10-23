@@ -34,3 +34,9 @@ export function paneTrust(trades: { verified: boolean }[], state: PublicState): 
   if (state === 'failed') return { badge: verified ? null : 'demo', incomplete: true };
   return { badge: verified ? 'verified' : 'demo', incomplete: false };
 }
+
+// Fix round 5 (TR-3): the feed's trade card applies the same rule to the trade it shows, with the trader's aggregate
+// record state, so the card never shows Verified beside a record the pane and profile present as incomplete.
+export function cardTrust(t: { verified: boolean }, state: PublicState = 'connected') {
+  return paneTrust([t], state);
+}

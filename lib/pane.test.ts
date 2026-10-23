@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { paneSummary, groupByUser, paneTrust } from './pane.ts';
+import { paneSummary, groupByUser, paneTrust, cardTrust } from './pane.ts';
 import { stats } from './trades.ts';
 
 const t = (returnPct: number, day: number, symbol = 'AAA') => ({
@@ -46,4 +46,12 @@ test('pane trust (fix round 4, TR-3): a failed import stays in the feed with no 
   assert.deepEqual(paneTrust(demo, 'none'), { badge: 'demo', incomplete: false });
   assert.deepEqual(paneTrust(demo, 'failed'), { badge: 'demo', incomplete: true });
   assert.deepEqual(paneTrust([], 'connected'), { badge: 'demo', incomplete: false }); // as before: no trades is never Verified
+});
+
+test('card trust (fix round 5, TR-3): the feed trade card shows no Verified badge and the incomplete line for a failed record, Verified for a whole one, Demo for demo data', () => {
+  assert.deepEqual(cardTrust({ verified: true }, 'failed'), { badge: null, incomplete: true });
+  assert.deepEqual(cardTrust({ verified: true }, 'connected'), { badge: 'verified', incomplete: false });
+  assert.deepEqual(cardTrust({ verified: true }), { badge: 'verified', incomplete: false }); // no state read: as before
+  assert.deepEqual(cardTrust({ verified: false }, 'none'), { badge: 'demo', incomplete: false });
+  assert.deepEqual(cardTrust({ verified: false }, 'failed'), { badge: 'demo', incomplete: true });
 });

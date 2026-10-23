@@ -563,6 +563,7 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   const feed = await anon.newPage();
   await feed.setViewportSize({ width: 375, height: 800 });
   const pane = () => feed.locator('.row', { has: feed.locator(`a[href="/u/${handle}"]`) }).first().locator('section.pane');
+  const card = () => feed.locator('.row', { has: feed.locator(`a[href="/u/${handle}"]`) }).first().locator('article.card');
   // First link: 5 closes, finished → in the feed, Verified, no incomplete line.
   await scenario([{ id: a1, activities: recent(a1, 5) }]);
   await connectThrough(page);
@@ -574,6 +575,8 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await feed.goto('/');
   await expect(pane().locator('.badge.verified')).toHaveCount(1);
   await expect(pane().locator('.record-failed')).toHaveCount(0);
+  await expect(card().locator('.badge.verified')).toHaveCount(1);
+  await expect(card().locator('.record-failed')).toHaveCount(0);
   await feed.goto(`/u/${handle}`);
   await expect(feed.locator('.badge.verified')).toHaveCount(1);
   // Second link (2 accounts) consented; one step reads account 1 of 2, then the vendor refuses (403) → failed.
@@ -591,6 +594,10 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await expect(pane().locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');
   await expect(pane().locator('.badge.verified')).toHaveCount(0);
   await expect(pane().locator('section.stats')).toHaveCount(1);
+  // Fix round 5: the trade card (the first screen on a phone) matches the pane: no Verified badge, the same line.
+  await expect(card().locator('.badge.verified')).toHaveCount(0);
+  await expect(card().locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');
+  await expect(feed.locator('article.card', { has: feed.locator(`a[href="/u/${handle}"]`) }).locator('.badge.verified')).toHaveCount(0);
   // The profile matches the pane (fix round 4): no Verified badge, the incomplete line, the stats.
   await feed.goto(`/u/${handle}`);
   await expect(feed.locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');

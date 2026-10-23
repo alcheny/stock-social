@@ -1,4 +1,7 @@
 import Link from 'next/link';
+import type { PublicState } from '@/lib/connections.ts';
+import { RECORD_BODY } from '@/lib/copy.ts';
+import { cardTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 
 export function Badge({ verified }: { verified: boolean }) {
@@ -14,16 +17,19 @@ export type TradeRow = {
 
 const days = (d: number) => (d < 1 ? `${Math.max(1, Math.round(d * 24))}h` : `${d.toFixed(d < 10 ? 1 : 0)}d`);
 
-export function TradeCard({ t }: { t: TradeRow }) {
+// state: the trader's aggregate record state (recordStates); a failed import shows no Verified badge and the short line.
+export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: PublicState }) {
   const up = t.return_pct > 0;
+  const trust = cardTrust(t, state);
   return (
     <article className="card">
       <header>
         <Link href={`/u/${t.handle}`} className="who">
           <strong>{t.display_name}</strong> <span className="muted">@{t.handle}</span>
         </Link>
-        <Badge verified={t.verified} />
+        {trust.badge && <Badge verified={trust.badge === 'verified'} />}
       </header>
+      {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>

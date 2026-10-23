@@ -54,7 +54,7 @@ export default async function Feed() {
       <FeedKeys />
       {ranked.map((t) => (
         <div className="row" key={t.id}>
-          <TradeCard t={t} />
+          <TradeCard t={t} state={records.get(t.user_id)?.state} />
           <ProfilePane handle={t.handle} name={t.display_name} trades={byUser.get(t.user_id) ?? []} now={now} state={records.get(t.user_id)?.state} />
         </div>
       ))}

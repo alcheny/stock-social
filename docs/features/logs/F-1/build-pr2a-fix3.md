@@ -171,3 +171,46 @@ record should be updated by the owner if the wording is accepted.
 
 `lib/connections.ts`, `lib/pane.ts`, `app/pane.tsx`, `app/page.tsx`, `app/u/[handle]/page.tsx`, `lib/copy.ts`; tests
 `lib/pane.test.ts`, `lib/connections.test.ts`, `lib/copy.test.ts`, `e2e/connect.spec.ts`.
+
+## Fix round 5 (tester re-run 4, item 1: TR-3, feed trade card)
+
+Finding: the feed's trade card (`TradeCard`, `app/ui.tsx`) took its badge from the trade's own `verified` flag, so a
+trader whose import failed showed "✓ Verified" on the first screen of the feed, with no incomplete line, while the pane,
+profile and share card withheld it.
+
+Fix:
+- `lib/pane.ts`: `cardTrust(trade, state)` applies the same `paneTrust()` rule to the card's trade with the trader's
+  aggregate record state (default `connected`, as the pane).
+- `app/ui.tsx`: `TradeCard` takes an optional `state`; it shows the badge only when `cardTrust` gives one (none for a
+  failed real record, Demo kept for demo data), and for a failed record the short `RECORD_BODY.failed` line
+  (`.record-failed`, `role="status"`) under the header: the card has room for it, and it is the same sentence the pane
+  and profile show.
+- `app/page.tsx`: the feed passes `records.get(t.user_id)?.state` (the `recordStates` result it already reads; no new
+  query). The feed is the only place `TradeCard` renders (the stock and trade pages use their own rows and `Badge`), so
+  this covers every render of the card.
+
+### Tests and results
+
+- `lib/pane.test.ts` "card trust (fix round 5, TR-3)": failed + verified → no badge and the incomplete line; connected
+  or no state → Verified; demo → Demo (with the line when failed).
+- `e2e/connect.spec.ts` "fix round 4 (TR-3)": while whole, the row's `article.card` has one `.badge.verified` and no
+  line; after the 403, no `.badge.verified` inside `article.card` for that trader (row-scoped and across every card
+  linking to the trader) and the card's line reads "The import did not finish, so this record may be incomplete."
+- Counts: unit 399 (+1), e2e 69 (assertions added).
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, two runs | 399 pass both runs, 0 fail, 0 skipped |
+| `npm run build` | first attempt stopped on the framework's advisory prompt (tool output; nothing upgraded); the retry built cleanly |
+| `SEED=1 node --env-file=.env scripts/db-setup.ts`, then `npm run test:e2e` (`ALLOW_DEV_AUTH=1`, vendor fake 4102 with the three vendor variables, PR-1 issuer and sink variables; fakes started by the specs) | 69 passed, 0 skipped |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+
+### Compliance
+
+- TR-3: a failed import is never presented as whole anywhere in the feed (card and pane), and is not hidden.
+- No new dependency, no schema change, no new copy string (reuses `RECORD_BODY.failed`), no third-party names.
+
+### Files changed
+
+`lib/pane.ts`, `app/ui.tsx`, `app/page.tsx`; tests `lib/pane.test.ts`, `e2e/connect.spec.ts`.
