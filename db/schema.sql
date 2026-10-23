@@ -298,6 +298,10 @@ select schema_add_column('broker_accounts', 'confirmed_at', 'timestamptz');
 select schema_add_column('broker_accounts', 'removed_at', 'timestamptz');
 select schema_add_column('broker_accounts', 'is_paper', 'boolean not null default false');
 select schema_add_column('broker_accounts', 'paper_seen_at', 'timestamptz');
+
+-- F-1 PR-3 fix round 6: activities dated more than a day in the future, quarantined by the rebuild (lib/sync.ts), counted.
+select schema_add_column('users', 'excluded_future', 'int not null default 0');
+
 -- Rows from before F-1 were claimed by a completed sync: confirmed.
 update broker_accounts set confirmed_at = claimed_at where confirmed_at is null and connection_id is null;
 

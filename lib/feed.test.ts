@@ -57,3 +57,44 @@ dbTest('a close dated 2015 does not break the ranking and ranks last; recent clo
     await sql`delete from users where id in ${sql([u.id, v.id])}`;
   }
 });
+
+// F-1 PR-3 fix round 6 (engineer re-sit, Medium): a close dated in the future had a negative age, so exp() grew without
+// bound: a day ahead it topped the feed, about 3.9 years ahead the whole feed query failed with an overflow.
+dbTest('closes dated 2031 and tomorrow do not break the feed query and never score above a close at this instant', async () => {
+  const { sql } = await import('./db.ts');
+  const { feedCandidates } = await import('./feed.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `f${Math.random().toString(36).slice(2, 10)}`;
+  const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}u` });
+  const v = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}v` });
+  const close = (user: number, i: number, closedAt: string, r: number) => ({
+    user_id: user, sell_id: `${tag}-${user}-${i}`, account_id: 'a', symbol: 'AAA', opened_at: new Date(new Date(closedAt).getTime() - 86_400_000),
+    closed_at: new Date(closedAt), return_pct: r, holding_days: 1, verified: true,
+  });
+  const h = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  try {
+    await sql`insert into closed_trades ${sql([
+      // u: real closes, two an hour old (10% and 30% moves).
+      close(u.id, 1, h(1), 0.1), close(u.id, 2, h(2), -0.05), close(u.id, 3, h(30), 0.01), close(u.id, 4, h(100), 0.2), close(u.id, 5, h(1), 0.3),
+      // v: the same moves, one dated 2031 (past the overflow age), one tomorrow, the rest real.
+      close(v.id, 1, '2031-01-02T15:00:00Z', 0.1), close(v.id, 2, h(-24), 0.1), close(v.id, 3, h(3), 0.01), close(v.id, 4, h(4), 0.02), close(v.id, 5, h(5), 0.03),
+    ])}`;
+    // The page's own call (every trader, no hook) answers; before the fix it raised "value out of range: overflow".
+    await feedCandidates();
+    const rows = await feedCandidates({ ids: [u.id, v.id] });
+    assert.equal(rows.length, 10);
+    const size = Math.log1p(0.1 * 100);
+    const future = rows.filter((r) => new Date(r.closed_at).getTime() > Date.now());
+    assert.equal(future.length, 2);
+    // A future close scores like a close at this instant: exactly its size term, never above it.
+    for (const r of future) assert.equal(Number(r.score).toPrecision(12), size.toPrecision(12));
+    for (const r of rows) assert.ok(Number(r.score) <= Math.log1p(Math.abs(Number(r.return_pct)) * 100) + 1e-12, 'no score above its size term');
+    // It never outranks a real close that ranks at least like now: an hour-old 30% move is above both (unclamped, the
+    // close dated tomorrow scored e^0.5 times its size term and took the top).
+    assert.equal(Number(rows[0].return_pct), 0.3);
+    assert.equal(rows[0].user_id, u.id);
+    assert.deepEqual(rows.slice(1, 3).map((r) => r.user_id), [v.id, v.id]);
+  } finally {
+    await sql`delete from users where id in ${sql([u.id, v.id])}`;
+  }
+});

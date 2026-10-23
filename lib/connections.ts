@@ -9,7 +9,7 @@ import { AccountClaimedError, claimIn } from './claims.ts';
 import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
-import { replacePositions } from './positions.ts';
+import { replaceAccountPositions, replacePositions } from './positions.ts';
 import { ownsAttempt } from './auth/links.ts';
 import { unsignToken } from './auth/sessions.ts';
 
@@ -76,7 +76,8 @@ export function clockState(c: ClockRow, now: Date): 'expired' | 'failed' | null 
 
 // Import cursor: account index and page offset of the current pass. A pass re-reads every account; a second pass runs
 // when the vendor's initial sync was still filling during the first one, so the record ends complete (TR-3).
-export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; checkedAt?: number; retries?: number; retryAt?: number };
+// `pos` (fix round 6): after the rebuild, the accounts whose positions are read so far, while some are still unread.
+export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; pos?: number; checkedAt?: number; retries?: number; retryAt?: number };
 export const startCursor = (): Cursor => ({ i: 0, offset: 0, pass: 1 });
 // A vendor 429, 5xx or transport error defers the next step: 30 s doubling per consecutive failure, capped at one hour.
 // Progress is not recorded while waiting, so the 24 h stale clock still ends an import the vendor never resumes.
@@ -451,21 +452,32 @@ export async function cleanup(id: number, deps: Deps = realDeps, now = new Date(
 // users row holding the same vendor user, it is deleted at the vendor and blanked on the attempt. Retried by the tick.
 // Age is read from the database clock (not the tick's `now`), so a simulated clock never sweeps a fresh attempt.
 // `now` exists for tests; the tick passes none. Swept exactly when boundAttempt stops accepting the attempt.
-export async function cleanupAttempts(deps: Deps = realDeps, now?: Date): Promise<number> {
+// F-1 PR-3 fix round 6 (engineer re-sit, Low): each row is one vendor request (up to VENDOR_TIMEOUT_MS), so the sweep
+// checks `until` (epoch ms on `clock`, the instance clock; the cron call's deadline) before every row: none starts at or
+// after it, and the rows left are counted in the log (a number only) and swept by the next call. `ids` is a test hook.
+export type AttemptSweep = { cleaned: number; left: number };
+export async function cleanupAttempts(deps: Deps = realDeps, now?: Date, opts: { until?: number; clock?: () => number; ids?: number[] } = {}): Promise<AttemptSweep> {
+  const { until = Infinity, clock = Date.now, ids } = opts;
   const rows = await sql`select id, snaptrade_user_id as u, snaptrade_secret_enc as s from signup_attempts a
     where snaptrade_user_id is not null and created_at + ${ATTEMPT_HOURS} * interval '1 hour' <= ${now ?? sql`now()`}
+      ${ids ? sql`and a.id in ${sql(ids.length ? ids : [0])}` : sql``}
       and not exists (select 1 from connections c where c.attempt_id = a.id and (c.state in ('pending', 'importing', 'connected') or c.cleanup_done_at is null))
       and not exists (select 1 from users x where x.snaptrade_user_id = a.snaptrade_user_id)
     order by id`;
   let n = 0;
-  for (const r of rows) {
+  for (const [i, r] of rows.entries()) {
+    if (clock() >= until) {
+      const left = rows.length - i;
+      console.log('attempt cleanup stopped', JSON.stringify({ cleaned: n, left })); // counts only
+      return { cleaned: n, left };
+    }
     try {
       if (r.s) await ignoreGone(deps.deleteUser({ snaptradeUserId: r.u as string, secretEnc: r.s as string }));
       await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id = ${r.id} and snaptrade_user_id = ${r.u}`;
       n++;
     } catch (e) { console.error('attempt cleanup failed', r.id, errStatus(e)); }
   }
-  return n;
+  return { cleaned: n, left: 0 };
 }
 async function cleanupQuietly(id: number, deps: Deps) {
   try { await cleanup(id, deps); } catch (e) { console.error('connection cleanup failed', id, errStatus(e)); }
@@ -479,7 +491,12 @@ export type StepResult = { state: State; imported: number; progressed: boolean; 
 
 // One import step: one vendor page in one transaction under the per-user advisory lock, so a step and an hourly sync
 // never interleave and a failure leaves the record exactly as before. Resumable from import_cursor by any caller.
-export async function importStep(id: number, deps: Deps = realDeps, now = new Date()): Promise<StepResult> {
+// F-1 PR-3 fix round 6 (engineer re-sit, Low): the positions read after the rebuild is one vendor request per account,
+// so it is split across steps by time: `readUntil` (epoch ms on `clock`, the instance clock) is when the step's last
+// vendor request must be answered by (the route's limit less the database work). Each step reads at least one account,
+// then starts another only while a whole vendor bound still fits; the rest are read by the next step (cursor `pos`),
+// and the import is not connected until every account's positions are in.
+export async function importStep(id: number, deps: Deps = realDeps, now = new Date(), readUntil = Infinity, clock: () => number = Date.now): Promise<StepResult> {
   const head = await getConnection(id);
   if (!head || head.state !== 'importing' || head.user_id === null) return { state: head?.state ?? 'failed', imported: head?.imported_count ?? 0, progressed: false };
   const retryAt = head.import_cursor?.retryAt;
@@ -503,12 +520,21 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         await insertActivities(c.user_id!, 'snaptrade', page.activities, tx);
         return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
       }
-      if (!cur.rebuilt) {
-        await rebuildTrades(c.user_id!, tx);
+      if (!cur.rebuilt || cur.pos !== undefined) {
+        const first = !cur.rebuilt;
+        if (first) await rebuildTrades(c.user_id!, tx);
         const positions = [];
-        for (const a of real) for (const p of await deps.fetchPositions(bu, a.id)) positions.push({ accountId: a.id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
-        await replacePositions(tx, c.user_id!, positions);
-        return save({ ...cur, rebuilt: true }, true);
+        const read: string[] = [];
+        let k = first ? 0 : cur.pos!;
+        for (; k < real.length; k++) {
+          if (read.length && clock() + vendor.VENDOR_TIMEOUT_MS > readUntil) break;
+          for (const p of await deps.fetchPositions(bu, real[k].id)) positions.push({ accountId: real[k].id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
+          read.push(real[k].id);
+        }
+        if (first) await replacePositions(tx, c.user_id!, positions);
+        else await replaceAccountPositions(tx, c.user_id!, read, positions);
+        const { pos: _pos, ...rest } = cur;
+        return save({ ...rest, rebuilt: true, ...(k < real.length ? { pos: k } : {}) }, true);
       }
       if (cur.checkedAt && now.getTime() - cur.checkedAt < WAIT_RECHECK_MS) return { state: 'importing', imported: c.imported_count, progressed: false };
       const live = new Map((await deps.listAccounts(bu)).map((a) => [a.id, a]));
@@ -554,11 +580,14 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
 export const STEP_ROUTE_MAX_S = 60;
 export const STEP_RESERVE_MS = vendor.VENDOR_TIMEOUT_MS + 5_000;
 export const stepDeadline = (startedAt: number) => startedAt + STEP_ROUTE_MAX_S * 1000 - STEP_RESERVE_MS;
+// Fix round 6: a step's vendor requests answer by one vendor bound after the deadline (the step route: its limit less
+// the 5 s of database work in STEP_RESERVE_MS; the cron call: a vendor bound into its own reserve).
+export const readUntil = (deadline: number) => deadline + vendor.VENDOR_TIMEOUT_MS;
 export async function ownerPoll(userId: number, deps: Deps = realDeps, now = new Date(), deadline = Infinity): Promise<{ state: PublicState; imported: number; closes: number }> {
   await applyClocks(now, { userId });
   for (const id of (await recordStatus(userId)).importing) {
     if (Date.now() >= deadline) break;
-    await importStep(id, deps, now);
+    await importStep(id, deps, now, readUntil(deadline));
   }
   const r = await recordStatus(userId);
   const [{ n }] = await sql`select count(*)::int as n from closed_trades where user_id = ${userId}`;
@@ -573,7 +602,7 @@ export async function importWaiting(userId: number): Promise<boolean> {
 // `until` (epoch ms, the instance clock): no step starts at or after it (PR-3 fix round 4, the cron call's deadline).
 export async function drive(id: number, deps: Deps = realDeps, now = new Date(), max = MAX_STEPS_PER_TICK, until = Infinity): Promise<StepResult> {
   let r: StepResult = { state: 'importing', imported: 0, progressed: true };
-  for (let n = 0; n < max && r.state === 'importing' && r.progressed && Date.now() < until; n++) r = await importStep(id, deps, now);
+  for (let n = 0; n < max && r.state === 'importing' && r.progressed && Date.now() < until; n++) r = await importStep(id, deps, now, readUntil(until));
   return r;
 }
 
@@ -593,6 +622,13 @@ export async function tick(deps: Deps = realDeps, now = new Date(), deadline = I
     if (!left()) break;
     try { await cleanup(Number(r.id), deps, now); cleaned++; } catch (e) { errors.push(Number(r.id)); console.error('connection cleanup failed', r.id, errStatus(e)); }
   }
-  if (left()) await cleanupAttempts(deps);
+  // Fix round 6 (engineer re-sit, Low): the attempt sweep checks the deadline before every row (it used to run to the end
+  // and could take the call past its limit before any sync), and the tick's log line is written whatever it did.
+  let attempts: AttemptSweep | null = null;
+  try { attempts = await cleanupAttempts(deps, undefined, { until: deadline }); } catch (e) { console.error('attempt cleanup failed', errStatus(e)); }
+  console.log('connections tick', JSON.stringify({
+    expired: clocks.expired.length, failed: clocks.failed.length, advanced, cleaned, errors: errors.length,
+    attemptsCleaned: attempts?.cleaned ?? null, attemptsLeft: attempts?.left ?? null, stoppedAtDeadline: !left(),
+  })); // counts only
   return { expired: clocks.expired.length, failed: clocks.failed.length, advanced, cleaned, errors };
 }

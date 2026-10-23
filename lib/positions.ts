@@ -8,6 +8,13 @@ export async function replacePositions(tx: TransactionSql, userId: number, posit
   await tx`delete from open_positions where user_id = ${userId}`;
   if (positions.length) await tx`insert into open_positions ${tx(positions.map((p) => ({ user_id: userId, account_id: p.accountId, symbol: p.symbol, unrealized_pct: p.unrealizedPct })))} on conflict do nothing`;
 }
+// F-1 PR-3 fix round 6: an import step that read only some accounts' positions (its time ran out) adds the rest on the
+// next step: those accounts' rows are replaced, the others' kept.
+export async function replaceAccountPositions(tx: TransactionSql, userId: number, accountIds: string[], positions: OpenPosition[]) {
+  if (!accountIds.length) return;
+  await tx`delete from open_positions where user_id = ${userId} and account_id in ${tx(accountIds)}`;
+  if (positions.length) await tx`insert into open_positions ${tx(positions.map((p) => ({ user_id: userId, account_id: p.accountId, symbol: p.symbol, unrealized_pct: p.unrealizedPct })))} on conflict do nothing`;
+}
 
 // Reviewer fix (PR-2a, finding 5): positions are per account, so one symbol held in two accounts is two positions.
 // They are listed per account, never merged: a size-weighted percent would need amounts we deliberately never store,

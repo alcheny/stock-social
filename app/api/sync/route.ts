@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { sql } from '@/lib/db.ts';
-import { syncAll, syncDeadline, syncTick, type TickReport } from '@/lib/sync.ts';
+import { syncAll, syncDeadline, syncRouteEnd, syncTick, type TickReport } from '@/lib/sync.ts';
 import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
 import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
@@ -13,7 +13,8 @@ import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  const deadline = syncDeadline(Date.now());
+  const startedAt = Date.now();
+  const deadline = syncDeadline(startedAt);
   const got = Buffer.from(req.headers.get('authorization') ?? '');
   const want = Buffer.from(`Bearer ${process.env.CRON_SECRET}`);
   if (!process.env.CRON_SECRET || got.length !== want.length || !timingSafeEqual(got, want)) {
@@ -30,6 +31,6 @@ export async function POST(req: NextRequest) {
   // round (lib/sync.ts#syncTick), so overlapping cron calls split the traders instead of syncing each one twice.
   // ponytail: one caller is sequential, ~5k traders/hour; more concurrent calls add throughput, then a queue (DESIGN §2.7)
   let end: TickReport | null = null;
-  const { ok, skipped, failed } = await syncTick({ deadline, report: (r) => { end = r; } });
+  const { ok, skipped, failed } = await syncTick({ deadline, routeEnd: syncRouteEnd(startedAt), report: (r) => { end = r; } });
   return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions });
 }

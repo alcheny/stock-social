@@ -826,3 +826,87 @@ dbTest('fix round 4 (engineer note): two sources sharing a vendor id at a rebuil
     await cleanup([]);
   }
 });
+
+// F-1 PR-3 fix round 6 (engineer re-sit, Medium): the vendor's trade date is unchecked; a trade dated in the future
+// cannot be a closed trade.
+dbTest('fix round 6: an activity dated 2 days ahead is quarantined: never matched or published, counted with its reason, and it never moves the re-read window', async () => {
+  const { sql, tag, user, connected, cleanup } = await setup();
+  const { syncUser, FUTURE_GRACE_HOURS } = await import('./sync.ts');
+  const acc = `${tag}-acc`;
+  await connected([acc]);
+  const H = 3_600_000;
+  const row = (id: string, symbol: string, side: 'BUY' | 'SELL', price: number, at: number) => ({
+    externalId: `${tag}-${id}`, accountId: acc, symbol, side, units: 1, price, fee: 0, executedAt: new Date(at), verified: true, raw: {},
+  });
+  const now = Date.now();
+  const sinces: Date[] = [];
+  const broker = (acts: ReturnType<typeof row>[]) => ({
+    listAccounts: async () => [{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }],
+    fetchActivities: async (_u: unknown, since: Date) => { sinces.push(since); return acts; },
+  });
+  try {
+    assert.equal(FUTURE_GRACE_HOURS, 24);
+    await syncUser(user, broker([
+      row('b1', 'AAA', 'BUY', 100, now - 10 * 24 * H), row('s1', 'AAA', 'SELL', 110, now - 9 * 24 * H), // a real close
+      row('b2', 'BBB', 'BUY', 100, now - 3 * 24 * H), row('s2', 'BBB', 'SELL', 150, now + 2 * 24 * H), // sold 2 days ahead
+      row('b3', 'CCC', 'BUY', 100, now - 24 * H), row('s3', 'CCC', 'SELL', 90, now + 12 * H), // within the day of grace
+    ]) as never);
+    const trades = await sql`select symbol from closed_trades where user_id = ${user.id} order by symbol`;
+    assert.deepEqual(trades.map((t) => t.symbol), ['AAA', 'CCC']); // BBB is never published
+    const [u] = await sql`select excluded_future, excluded_positions from users where id = ${user.id}`;
+    assert.deepEqual([u.excluded_future, u.excluded_positions], [1, 0]); // counted as future-dated, not as a missing entry
+    // The raw row is kept (activities are immutable).
+    assert.equal((await sql`select count(*)::int as n from activities where external_id = ${`${tag}-s2`}`)[0].n, 1);
+    // The next sync re-reads the week before the newest non-future activity (+12 h), not before the quarantined one.
+    await syncUser(user, broker([]) as never);
+    assert.equal(sinces[1].getTime(), new Date(now + 12 * H).getTime() - 7 * 24 * H);
+    // The feed never sees it: no closed trade dated more than a day ahead exists for this trader.
+    assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${user.id} and closed_at > now() + interval '1 day'`)[0].n, 0);
+  } finally {
+    await cleanup([acc]);
+  }
+});
+
+dbTest('fix round 6: the tick sizes the reserve by account count: a trader whose (1 + 2n) vendor bounds do not fit before the route ends is left unclaimed for the next call', async () => {
+  const h = await roundTicks(3);
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  try {
+    const { S } = h;
+    assert.equal(S.syncCost(2), 5 * VENDOR_TIMEOUT_MS);
+    assert.equal(S.SYNC_FIT_CAP, 4); // (1 + 2 × 4) × 30 s = 270 s fits a 300 s call
+    assert.equal(S.syncRouteEnd(0), S.SYNC_ROUTE_MAX_S * 1000);
+    // Traders with 1, 2 and 6 real accounts (plus a paper account, never read, never counted).
+    const sizes = [1, 2, 6];
+    for (const [i, s] of h.sets.entries()) {
+      const accounts = [...Array.from({ length: sizes[i] }, (_, k) => ({ id: `${s.tag}-acc${k}`, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true })),
+        { id: `${s.tag}-paper`, authorizationId: 'a', institution: 'x', isPaper: true, initialSyncCompleted: true }];
+      await s.sql`update connections set accounts = ${s.sql.json(accounts)} where user_id = ${s.user.id}`;
+    }
+    let wall = 1_000_000;
+    const reports: { ok: number; unclaimed: number | null; stoppedAtDeadline: boolean }[] = [];
+    const call = (minute: number, leftMs: number) => S.syncTick({
+      ids: h.ids, clockShiftMs: () => h.T0 + minute * MIN - Date.now(), clock: () => wall, routeEnd: wall + leftMs,
+      sync: async (u) => { await h.at(minute)(u); return 1; }, report: (r) => reports.push(r),
+    });
+    // 100 s left: only the one-account trader fits (90 s); the others stay unclaimed and are counted.
+    assert.equal((await call(0, 100_000)).ok, 1);
+    assert.deepEqual(h.synced(), [[0], [], []]);
+    assert.deepEqual([reports[0].unclaimed, reports[0].stoppedAtDeadline], [2, true]);
+    // Under 30 s left nobody fits, not even a trader with no account read.
+    assert.equal((await call(5, 29_000)).ok, 0);
+    // A whole call: the two-account trader (150 s) and the six-account one (capped at 270 s) are claimed in the same round.
+    assert.equal((await call(10, S.SYNC_ROUTE_MAX_S * 1000)).ok, 2);
+    assert.deepEqual(h.synced(), [[0], [10], [10]]);
+    assert.deepEqual([reports.at(-1)!.unclaimed, reports.at(-1)!.stoppedAtDeadline], [0, false]);
+    // The clock moves between claims: with 160 s left a one- or two-account trader fits (90 s, 150 s); after a sync of
+    // 80 s, 80 s are left and no trader fits any more (a single account needs 90 s).
+    const timed = await S.syncTick({
+      ids: h.ids, clockShiftMs: () => h.T0 + 60 * MIN - Date.now(), clock: () => wall, routeEnd: wall + 160_000,
+      sync: async (u) => { await h.at(60)(u); wall += 80_000; return 1; }, report: (r) => reports.push(r),
+    });
+    assert.equal(timed.ok, 1);
+    assert.equal(reports.at(-1)!.unclaimed, 2);
+  } finally {
+    await h.cleanup();
+  }
+});

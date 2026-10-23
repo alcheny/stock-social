@@ -848,6 +848,20 @@ test('fix round 4 (business lead blocker): a close dated 2015 does not break the
   }
 });
 
+// F-1 PR-3 fix round 6 (engineer re-sit, Medium): a future-dated close overflowed the feed's score (2031) or topped it.
+test('fix round 6: closes dated 2031 and tomorrow do not break the feed', async ({ page, request }) => {
+  const t = await makeTrader('future_close_e2e', (i) => (i < 5 ? { closedAt: new Date(Date.now() - (i + 1) * 3_600_000).toISOString(), r: 0.01 * (i + 1) }
+    : { closedAt: i === 5 ? '2031-01-02T15:00:00Z' : new Date(Date.now() + 86_400_000).toISOString(), r: 0.5 }), 7);
+  try {
+    const res = await request.get('/');
+    expect(res.status()).toBe(200);
+    await page.goto('/');
+    await expect(page.locator('.card').first()).toBeVisible();
+  } finally {
+    await t.remove();
+  }
+});
+
 test('fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): a 2,828-close profile is paged, short, keyboard-reachable to the disclaimer, and every close stays reachable', async ({ page, request, browser }) => {
   test.setTimeout(120_000);
   const N = 2828;

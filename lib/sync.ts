@@ -17,6 +17,13 @@ type Db = TransactionSql | typeof sql;
 export const INSERT_CHUNK = 1000;
 // PR-3 (heavy-use, memory): the rebuild reads activities a page at a time, never a whole history at once.
 export const REBUILD_PAGE = 1000;
+// F-1 PR-3 fix round 6 (engineer re-sit, Medium): the vendor's trade date reaches the database unchecked, and a trade
+// dated in the future cannot be a closed trade. An activity dated more than FUTURE_GRACE_HOURS after the database clock
+// (a day: time zones and a vendor posting the next session's date) is quarantined: its raw row is kept (activities are
+// immutable), the rebuild never matches or publishes it, and it is counted in `users.excluded_future` (shown on the
+// profile with its reason). It is re-checked on every rebuild, so a date the vendor corrects comes back on the next sync.
+export const FUTURE_GRACE_HOURS = 24;
+const notFuture = (db: Db) => db`executed_at <= now() + ${FUTURE_GRACE_HOURS}::float8 * interval '1 hour'`;
 
 export async function insertActivities(userId: number, source: 'snaptrade' | 'demo', acts: (Activity & { raw: unknown })[], db: Db = sql) {
   for (let i = 0; i < acts.length; i += INSERT_CHUNK) {
@@ -41,7 +48,7 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
 // way and repeated rebuilds give byte-identical rows (defect 3: the read had no order at all). Returns what it wrote and
 // the most activity rows it held at once.
 type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string };
-export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; maxHeld: number }> {
+export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number }> {
   const run = async (tx: TransactionSql) => {
     // Reviewer fix round 2: a rebuild never deletes a thesis. One whose trade is not produced now (its account is flagged
     // simulated, a vendor correction) is kept in kept_theses by sell_id, shown nowhere, and re-attached when the trade
@@ -79,6 +86,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
         from activities a where a.user_id = ${userId}
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+        and ${notFuture(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
       for (const r of page) {
@@ -100,8 +108,10 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status })))}
         on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status`;
     }
-    await tx`update users set excluded_positions = ${excluded}, last_synced_at = now() where id = ${userId}`;
-    return { trades: written, excluded, maxHeld };
+    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)})
+      and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)`;
+    await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
+    return { trades: written, excluded, future: future as number, maxHeld };
   };
   return tx ? run(tx) : sql.begin(run);
 }
@@ -160,21 +170,27 @@ export type ClaimedUser = SyncableUser & { lease: string; prev: string | null };
 // `shiftMs` and `ids` are test hooks: tests run in a past round by shifting the database clock, and claim only their
 // own traders. Production calls pass neither (shift 0: the database clock as is; every syncable trader). `except` is
 // the tick's own list of traders it was skipped on.
-export type ClaimScope = { shiftMs?: number; ids?: number[]; except?: number[] };
+// `maxAccounts` (fix round 6): only traders whose consented real accounts, capped at SYNC_FIT_CAP, are at most this many.
+export type ClaimScope = { shiftMs?: number; ids?: number[]; except?: number[]; maxAccounts?: number };
 // The database clock (shifted by the test hook) and the start of its round; and the claim rule over them.
 const clockSql = (shiftMs: number) => sql`select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
         date_trunc('hour', now() + ${shiftMs}::float8 * interval '1 millisecond' - ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond', 'UTC')
           + ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond' as round_start`;
 const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_until <= clock.t)
         and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)`;
+// A trader's real accounts under its connected connections' snapshots (what a sync reads; paper accounts are not read).
+const accountsOf = () => sql`(select count(*) from connections c, jsonb_array_elements(c.accounts) a
+        where c.user_id = u.id and c.state = 'connected' and coalesce((a->>'isPaper')::boolean, false) = false)`;
 export async function claimNextUser(scope: ClaimScope = {}): Promise<ClaimedUser | null> {
-  const { shiftMs = 0, ids, except } = scope;
+  const { shiftMs = 0, ids, except, maxAccounts } = scope;
   if (ids && !ids.length) return null;
+  if (maxAccounts !== undefined && maxAccounts < 0) return null;
   const [u] = await sql<ClaimedUser[]>`with clock as (${clockSql(shiftMs)})
     update users set sync_claimed_at = clock.t, sync_lease_until = clock.t + ${SYNC_LEASE_MS}::float8 * interval '1 millisecond'
     from clock, (
       select u.id, u.sync_claimed_at::text as prev from users u, clock where ${syncable()} ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
         ${except?.length ? sql`and u.id not in ${sql(except)}` : sql``}
+        ${maxAccounts !== undefined ? sql`and least(${accountsOf()}, ${SYNC_FIT_CAP}) <= ${maxAccounts}` : sql``}
         and ${claimable()}
       order by u.last_synced_at nulls first, u.id limit 1 for update of u skip locked) pick
     where users.id = pick.id
@@ -212,20 +228,36 @@ export async function unclaimedCount(scope: ClaimScope = {}): Promise<number> {
 export const SYNC_ROUTE_MAX_S = 300;
 export const SYNC_RESERVE_MS = 3 * VENDOR_TIMEOUT_MS;
 export const syncDeadline = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000 - SYNC_RESERVE_MS;
+// F-1 PR-3 fix round 6 (engineer re-sit, Low): the fixed reserve fit a one-account sync only. A sync of n accounts makes
+// up to 1 + 2n vendor requests (the account list, then each account's activities and positions), so the tick sizes the
+// reserve per trader: it claims a trader only if (1 + 2n) vendor bounds fit before the route's end (`routeEnd`), and
+// leaves the others unclaimed (counted in the log) for the next call, which starts with the whole budget. n is capped at
+// SYNC_FIT_CAP, the most a whole call fits, so a trader with more accounts is still claimed, at the start of a call.
+// ponytail: past SYNC_FIT_CAP accounts (or an activity read over one vendor page per account) a sync can still overrun;
+// it then rolls back and its lease lapses, as before. Next step: split the sync per account like the import.
+export const syncRouteEnd = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000;
+export const syncCost = (accounts: number) => (1 + 2 * accounts) * VENDOR_TIMEOUT_MS;
+export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / 2);
+export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs / VENDOR_TIMEOUT_MS - 1) / 2);
 
 // `deadline` (epoch ms on `clock`, the instance's own clock: it measures this call's duration only) stops claiming
 // once reached; `report` receives what the end-of-call log line says; `clock`, `release` and the rest are test hooks.
 export type TickReport = { ok: number; skipped: number; failed: number; unclaimed: number | null; stoppedAtDeadline: boolean };
 export async function syncTick<R>(opts: {
   sync?: (u: SyncableUser) => Promise<R>; ids?: number[]; clockShiftMs?: () => number;
-  deadline?: number; clock?: () => number; release?: (u: ClaimedUser) => Promise<void>; report?: (r: TickReport) => void;
+  deadline?: number; routeEnd?: number; clock?: () => number; release?: (u: ClaimedUser) => Promise<void>; report?: (r: TickReport) => void;
 } = {}) {
   const sync = opts.sync ?? ((u: SyncableUser) => syncUser(u));
   const clock = opts.clock ?? Date.now;
   const deadline = opts.deadline ?? Infinity;
   const release = opts.release ?? releaseClaim;
   const passed: number[] = []; // skipped by this tick: the lock's holder syncs them, so they are not claimed again here
-  const claim = () => claimNextUser({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0, except: passed });
+  const routeEnd = opts.routeEnd ?? Infinity;
+  let fit = SYNC_FIT_CAP; // the most accounts the last claim allowed
+  const claim = () => {
+    fit = routeEnd === Infinity ? SYNC_FIT_CAP : Math.min(SYNC_FIT_CAP, accountsThatFit(routeEnd - clock()));
+    return claimNextUser({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0, except: passed, ...(routeEnd === Infinity ? {} : { maxAccounts: fit }) });
+  };
   let ok = 0, skipped = 0, stopped = false;
   const failed: number[] = [];
   for (;;) {
@@ -251,6 +283,8 @@ export async function syncTick<R>(opts: {
   }
   let unclaimed: number | null = null;
   try { unclaimed = await unclaimedCount({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0 }); } catch (e) { console.error('sync unclaimed count failed', e instanceof Error ? e.message : e); }
+  // Traders left because they did not fit the time left are a stop at the deadline too.
+  if (!stopped && fit < SYNC_FIT_CAP && (unclaimed ?? 0) > 0) stopped = true;
   const report: TickReport = { ok, skipped, failed: failed.length, unclaimed, stoppedAtDeadline: stopped };
   console.log('sync tick', JSON.stringify(report)); // counts only
   opts.report?.(report);
@@ -285,7 +319,8 @@ export async function syncUser(
       and not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${tx(accounts.length ? accounts.map((a) => a.id) : [''])})`;
     // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
     if (!accounts.length) return 0;
-    const [{ last }] = await tx`select max(executed_at) as last from activities where user_id = ${user.id} and source = 'snaptrade'`;
+    // Fix round 6: a quarantined future date never sets the re-read window (it would skip the real last week).
+    const [{ last }] = await tx`select max(executed_at) as last from activities where user_id = ${user.id} and source = 'snaptrade' and ${notFuture(tx)}`;
     let read = 0;
     if (!last && broker.fetchActivitiesPage) {
       // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
