@@ -945,3 +945,95 @@ test('fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): a 2,828-close profile 
     await t.remove();
   }
 });
+
+// F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the feed draws each card's chart at screen resolution. Five
+// traders with the heavy-use fixture's record (lib/sync.load.test.ts: 4 accounts × 2,500 seeded activities, about 4,700
+// closes each) fill all 50 cards. Their newest 45 closes are moved into the last 90 minutes with large moves (half of them
+// losses) so they, and only they, make the feed's candidates; the rest is the fixture as matched.
+test('fix round 7: 50 heavy cards weigh under 500 KB; the pane chart is drawn at screen resolution and reads like the profile\'s', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const { seededActivities } = await import('./fakes/vendor.ts');
+  const { matchTrades } = await import('../lib/trades.ts');
+  const { gzipSync } = await import('node:zlib');
+  const now = Date.now();
+  const made: Awaited<ReturnType<typeof makeTrader>>[] = [];
+  try {
+    for (let h = 0; h < 5; h++) {
+      const acts = [];
+      for (let a = 0; a < 4; a++) for (const r of seededActivities(`hf${h}-${a}`, 2_500, 1000 + 10 * h + a)) {
+        acts.push({ externalId: r.id, accountId: `hf${h}-${a}`, symbol: r.symbol, side: r.type, units: r.units, price: r.price, fee: r.fee ?? 0, executedAt: new Date(r.trade_date), verified: true });
+      }
+      const closes = matchTrades(acts).trades.sort((x, y) => y.closedAt.getTime() - x.closedAt.getTime());
+      const shift = now - 3 * 3_600_000 - closes[0].closedAt.getTime();
+      made.push(await makeTrader(`heavy_feed_${h}`, (i) => (i < 45
+        ? { closedAt: new Date(now - (i + 1 + h * 0.2) * 120_000).toISOString(), r: (i % 2 ? -1 : 1) * (0.5 + (i % 5) / 100) }
+        : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length));
+    }
+    const total = made.reduce((s, t) => s + t.ids.length, 0);
+    expect(total).toBeGreaterThan(5 * 4_500);
+
+    const res = await request.get('/');
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+    const raw = Buffer.byteLength(html), gz = gzipSync(html).length;
+    console.log(`# feed: 50 heavy cards (${total} closes) ${(raw / 1024).toFixed(0)} KB raw, ${(gz / 1024).toFixed(0)} KB gzipped`);
+    (await import('node:fs')).writeFileSync(test.info().outputPath('feed.html'), html); // TEMP
+    expect(raw).toBeLessThan(500_000);
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/');
+    await expect(page.locator('.feed .row')).toHaveCount(50);
+    const who = await page.locator('.feed .row .pane .who .muted').allInnerTexts();
+    expect(who).toHaveLength(50);
+    for (const w of who) expect(w).toMatch(/^@heavy_feed_\d$/); // every card is a heavy record
+
+    // Screen resolution: each card's path has at most 400 points (it had one per close), and so does its scrub layer.
+    const counts = await page.locator('.feed .pane path.curve').evaluateAll((ps) => ps.map((p) => (p.getAttribute('d')!.match(/[ML]/g) ?? []).length));
+    expect(counts).toHaveLength(50);
+    for (const c of counts) expect(c).toBeLessThanOrEqual(401); // 400 points, plus the line to the range end
+    const pane = page.locator('.feed .row').first().locator('.pane');
+    await pane.scrollIntoViewIfNeeded();
+    await expect(pane.locator('.chart-hit a').first()).toBeAttached(); // drawn after hydration
+    expect(await pane.locator('.chart-hit a').count()).toBeLessThanOrEqual(400);
+    // The pane's scrubbable chart reaches the newest close and the range tabs work within the bound.
+    await pane.locator('.chart-stack').focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(pane.locator('.chart-head')).toContainText(/\d+\/\d+\/\d{4}/);
+    await page.keyboard.press('Escape');
+    await pane.getByRole('button', { name: '1Y', exact: true }).click();
+    await expect(pane.locator('.chart-head')).toContainText('Past year');
+    expect(await pane.locator('path.curve').evaluate((p) => (p.getAttribute('d')!.match(/[ML]/g) ?? []).length)).toBeLessThanOrEqual(401);
+    await pane.getByRole('button', { name: 'ALL', exact: true }).click();
+
+    // Reads the same: the pane's line spans exactly the box of the profile's full-resolution line (first, last, low and
+    // high kept), with the same header and the same label (count, total, drawdown) from the whole record.
+    const handle = (await pane.locator('.who .muted').innerText()).slice(1);
+    const look = async (fig: ReturnType<typeof page.locator>) => ({
+      box: await fig.locator('path.curve').evaluate((p) => { const b = (p as SVGPathElement).getBBox(); return [b.x, b.y, b.width, b.height]; }),
+      head: await fig.locator('.chart-head').innerText(),
+      label: await fig.locator('svg[role="img"]').getAttribute('aria-label'),
+      points: await fig.locator('path.curve').evaluate((p) => (p.getAttribute('d')!.match(/[ML]/g) ?? []).length),
+    });
+    const small = await look(pane.locator('figure.chart'));
+    const shot = test.info().outputPath('fix7');
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await pane.locator('figure.chart').screenshot({ path: `${shot}-feed-pane-chart-375-${colorScheme}.png` });
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.goto(`/u/${handle}`);
+    const fig = page.locator('figure.chart');
+    const full = await look(fig);
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await fig.screenshot({ path: `${shot}-profile-chart-375-${colorScheme}.png` });
+    }
+    console.log(`# feed: pane chart ${small.points} path points, profile chart ${full.points}`);
+    expect(full.points).toBeGreaterThan(4_000); // the profile keeps full resolution
+    expect(small.head).toBe(full.head);
+    expect(small.label).toBe(full.label);
+    for (let i = 0; i < 4; i++) expect(Math.abs(small.box[i] - full.box[i])).toBeLessThanOrEqual(0.5);
+  } finally {
+    for (const t of made) await t.remove();
+  }
+});
