@@ -405,3 +405,198 @@ All committee items checked here pass.
   alone.
 
 Verdict: DEFECTS
+
+## Re-run 4 (after the engineer's fix rounds 6 and 7)
+
+Postgres 16 on localhost. Code under test: `fc40342` (no product code changed by the tester). Screenshots:
+`docs/features/logs/F-1/screenshots/pr3/rerun4/`.
+
+Another agent was working against the same database at the same time. It used its own servers on 3101 and 3400,
+created about 15 `bl_*` traders between 08:35 and 09:00, and imported most of them as heavy records. That matters for
+the e2e result below. Its traders and servers were left alone.
+
+### 1. Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | Clean both times (exit 0, no errors); seed exit 0 |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×4 | 517 tests: 512 pass, 0 fail, 5 skipped (load) in all four runs (13.0–14.2 s). The user count was unchanged after each run |
+| `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` ×2 | 5/5 both runs (32.6 s, 32.8 s) |
+| `CI=1 npm run build`, stdin closed | Run 1 stopped on the framework's security advisory again. That is tool output asking for an upgrade. Nothing was upgraded or offered on its say-so; the owner decides. Retry: exit 0 |
+| `npm run test:e2e` (`CI=1`, every variable from the spec headers; the specs start the fakes) | Run 1: **95 passed, 1 failed**. `connect.spec.ts:562` "the feed omits a trader whose second import is still running…" failed at line 586: its own trader was not in the feed after its first import. Run 2: **96 passed, 0 failed** (4.2 min). See §3, item 4 |
+| `compliance.ts diff origin/main` | 1 violation, already on `main` (`@img/sharp-wasm32` license). Nothing from this diff |
+| `autopilot.ts guard main` | ok |
+
+Load timings (run 1 / run 2, ms; bounds unchanged):
+- import: 1,266 / 1,457 (bound 15,000);
+- slowest step: 398 / 493 (3,000);
+- rebuild: 691 / 507 (5,000), holding at most 1,341 rows;
+- hourly syncs: 454/466/431 and 438/578/449 (5,000 each), sha256 unchanged;
+- contention: 1 ran, 2 skipped;
+- first sync: 1,128 / 997 (15,000);
+- fleet: 8,419 / 7,687 (60,000), each trader exactly once, 61–63 per caller;
+- heap peak: at most +32.7 MB (bound 160).
+
+The e2e heavy-feed test logged 465 KB raw and 43 KB gzipped in both runs. Path points: 400/310 in the pane, 4,735/511
+on the profile.
+
+### 2. As a user (`next start` on the fresh build, vendor fake started by the tester on 4102, 375 px)
+
+**Future-dated closes in the feed.**
+- Trader `rr4_future`: five closes 1–5 h old, plus one dated 2031-01-02 (+50%) and one dated tomorrow (−33.3%).
+- Trader `rr4_real`: a real +50% close 10 minutes old.
+- `/` answers 200 in light and dark. The server log has no `out of range`.
+- Scores, with the feed's own expression:
+  - the 2031 close: 3.9318 = ln 51 exactly, its size term;
+  - the close dated tomorrow: 3.5361 = ln 34.3, its size term;
+  - the real 10-minute-old +50% close: 3.9180.
+- Neither future close gets the boost the old feed gave. Each scores exactly like a close at this instant.
+- In the rendered feed, the demo trader's 30 cards come first (lower-bound ranking, TR-9). The 2031 card is next (card
+  31), above the real +50% close (card 32). See §3, item 3.
+- Screenshots: `feed-future-closes-375-{light,dark}.png`.
+
+**Activity 2 days ahead, through the import.** Trader `rr4fut` went through the embedded portal, consent and "Import my
+record". The vendor returned 5 past round trips plus a ZZZ buy 3 days ago, with its sell dated 48 h ahead.
+- Result: `connected`, 5 closes, `excluded_future = 1`, `excluded_positions = 0`. The raw sell row is kept, and ZZZ is
+  never shown as a close.
+- The profile, light and dark, reads "1 imported trade(s) excluded: dated in the future by the broker.", next to
+  "✓ Verified".
+- Screenshots: `profile-future-excluded-375-{light,dark}.png`.
+
+**Feed with 50 heavy cards.** Five traders were built the way the e2e test builds them: the heavy fixture, 4 accounts
+× 2,500 activities each, 23,817 closes in all, with the newest 45 closes per trader moved into the last 90 minutes.
+
+| Criterion | Result |
+|---|---|
+| 50 heavy cards, raw | **467,307 bytes** (under 500 KB), 43 KB gzipped. The 50 cards fall on 2 traders (21 + 29) |
+| The same 50-card feed spread over 6 distinct heavy traders (the other agent's imported records, 2,367–4,701 closes each, 6 cards each, plus 14 demo cards) | **535,151 bytes raw**, 81 KB gzipped. Over the bound; see §3, item 2 |
+| Pane path points, ALL / 1Y | 399 / 301 (profile: 4,698 / 462) |
+| Pane vs profile, ALL | Box min y 209.7, max y 30.3, x 0–640, first (0, 30.3), last (640, 209.7): identical. Header "≈-100.0% · All time" and label "4,697 trades, ≈-100% total, max drawdown ≈-100%": identical |
+| Pane vs profile, 1Y | Box identical; first (0, 38.7) and last (640, 206.9) identical; header "-96.0% · Past year" and label "460 trades, -96% total, max drawdown -98%": identical |
+| Visually, 375 px light and dark | The lines read the same: `chart-feed-pane-{ALL,1Y}-375-{light,dark}.png` beside `chart-profile-{ALL,1Y}-375-{light,dark}.png` |
+| Pane scrub | ArrowLeft moves the header to a close ("… · 10/23/2026 · DDD"), and Escape restores "≈-100.0% · All time". A pointer drag scrubs ("-99.9997% · 11/15/2020 · DDD"). Release restores and does not navigate. `feed-pane-scrub-375-light.png` |
+| Pane scrub value near a total loss | **Differs from the profile.** At the same newest closes, the pane reads "-100.0%" and the profile reads "≈-100.0%". See §3, item 1. `feed-pane-scrub-near-total-loss-375-light.png` beside `profile-scrub-near-total-loss-375-light.png` |
+
+**Import headline.** Trader `rr4head`: 2 accounts × 2,500 seeded activities, with each activities read slowed by 2.5 s
+and the page's own poll running. The headline and the status line were sampled every 250 ms (ms after landing):
+
+| ms | Headline seen (`aria-hidden`) | Status line (live region) |
+|---|---|---|
+| 11 | "Importing your record · 0 activities read from your broker" | "… 0 closed trades so far", 1 px wide (visually hidden) |
+| 4,852 | "… 1,000 activities read …" (the step answered at 4,602) | unchanged |
+| 9,295 / 13,911 / 18,679 / 23,269 / 27,852 | 2,000 / 2,500 / 3,500 / 4,500 / 5,000 activities read (each 80–250 ms after its step's answer) | unchanged |
+| 30,151 | removed | "Importing your record · 2,413 closed trades so far", 343 px |
+| 35,168 | none | "Import finished." |
+
+- "0" was seen for 4.85 s, which is inside 5 s.
+- The headline moved within 250 ms of every step and only climbed.
+- "0 closed trades so far" was never seen.
+- Screenshots: `headline-reading-375-{light,dark}.png` and `headline-closes-375-{light,dark}.png`.
+
+**Sync claim by account count.** Scratch script against `lib/sync.ts#syncTick` with its clock hook and the route's own
+`syncDeadline`/`syncRouteEnd`. Traders had 1, 4 and 2 real accounts, plus a paper account each. `SYNC_FIT_CAP` is 4
+and the vendor bound is 30 s.
+- **Call 1**, with 100 s of the 300 s left and each sync taking 80 s: it synced only the 1-account trader. Report:
+  `{"ok":1,"unclaimed":2,"stoppedAtDeadline":true}`. The 4-account trader (270 s worst case) and the 2-account trader
+  (150 s) were not claimed.
+- **Call 2**, a whole call: it synced the 4-account and the 2-account traders. Report:
+  `{"ok":2,"unclaimed":0,"stoppedAtDeadline":false}`.
+- **Call 3**, in the same round: synced none.
+
+**Cleanup deadline.**
+- `cleanupAttempts` was given 3 attempts older than 24 h, a 45 s budget, and 30 s per vendor call. It cleaned 2,
+  logged `attempt cleanup stopped {"cleaned":2,"left":1}`, and the next call cleaned the last one.
+- `tick()` with its deadline already past made no vendor call; its deps throw on any call. It still logged
+  `connections tick {…,"attemptsLeft":1,"stoppedAtDeadline":true}`.
+- The live route (`POST /api/sync`) logged both `connections tick` and `sync tick`.
+
+**Regression.**
+- PR-2a trust rule. The imported record shows "✓ Verified" (every activity `snaptrade`). The demo trader shows "Demo"
+  and no Verified badge.
+- PR-2a consent gating, for `rr4fut` on the consent page:
+  - a cron call answered 200 and imported nothing (0 activities, the link still `pending`, no consent time);
+  - a visitor saw "No trades yet.";
+  - after "Import my record": connected, 5 closes, Verified.
+- PR-2b portal: the portal opened embedded in the dialog (the fake's URL in the frame), and its Connect reached consent.
+  Screenshot: `regress-portal-embedded-375-light.png`.
+- PR-3 paging, without JS, on a 120-close record:
+  - "Showing 50 of 120 closed trades";
+  - "Show 50 more" goes to `?closes=100#trade-…` with 50 rows, "Showing 51–100 of 120";
+  - "Show 20 more" gives 20 rows, "Showing 101–120 of 120", with no further "more" link and "Back to the newest"
+    offered.
+  - Screenshot: `regress-paging-last-window-nojs-375-light.png`.
+
+### 3. Defects
+
+1. **Low · product: the feed pane's scrub reads a near-total loss as an exact total loss.**
+   - `lib/chart-series.ts#packChart` rounds each kept value to 6 decimals (`r6`, line 41). A cumulative value of, for
+     example, −0.9999997 is shipped as −1, so `pct` prints "-100.0%".
+   - The profile computes the same point at full precision and prints "≈-100.0%". The pane header also prints
+     "≈-100.0%". Only the scrubbed point is wrong.
+   - The same rounding can show "-99.9999%" where the profile shows "≈-100.0%".
+   - This breaks round 5's rule that a loss short of −100% never reads as a total loss, and round 7's demand that the
+     pane read like the profile.
+   - Fix (engineer's choice): ship the value with enough precision for `pct`'s four extra digits, or ship the
+     formatted string.
+2. **Medium · product: the 500 KB feed bound holds only when the 50 cards fall on 2–3 traders.**
+   - The e2e and the tester's replica pass (465 and 467 KB) because the ranking puts all 50 cards on 2 heavy traders.
+   - The same 50-card feed spread over 6 distinct heavy records (2,400–4,700 closes each) weighs **535 KB raw**.
+   - Each further distinct heavy trader adds about 50 KB, as the engineer measured, so a feed of 50 distinct heavy
+     traders would be about 2.5 MB. That is the original problem.
+   - The engineer listed lazy pane data as a follow-up. The demand's bound fails on a realistic feed today.
+   - Fix (engineer's choice): load a pane's chart data when it is first swiped to, past the first few traders, as
+     planned. Or cap the packed points per pane lower for traders beyond the first few. Add an e2e with 50 cards over
+     10 or more distinct heavy traders.
+3. **Low · product: a close dated in the future is pinned at age 0.**
+   - It scores exactly its size term (as designed), but it never decays. So it ranks above every real close of the same
+     size for as long as it exists: the 2031 card sits above a 10-minute-old real +50% card.
+   - The business lead's demand was "does not rank first". It does rank first among cards of its size.
+   - The import makes this unreachable past 24 h: the activity is quarantined, as verified above. Within the 24 h
+     grace, an activity dated ahead keeps its full score until its date arrives.
+   - The card also prints "closed Jan 2" with no year for a 2031 date.
+   - Fix (engineer's choice): give `closed_at > now()` the floor score, or leave such rows out of the candidates.
+4. **Low · spec: the connect feed tests are not isolated from other writers, and they leak traders when they fail.**
+   - The feed lock coordinates only the e2e tests. Any other writer to the same database can fill the feed and hide the
+     test's trader: a dev session, another agent, or a seed with heavy records.
+   - Records with a confident edge rank first (TR-9). The other agent's heavy imports took all 50 cards for the
+     duration of this run, including 10-month-old closes, ahead of every fresh record.
+   - Run 1 (08:36:47–08:40:54) overlapped those imports (`bl_h1` and `bl_h2` were created at 08:36).
+   - A targeted repeat (`--repeat-each=4` of the feed tests) failed `connect.spec.ts:562` and `:604` 7 times out of 8.
+     The feed held only those records at the time.
+   - The failed tests delete their traders only on success, at the end. This run left 8 traders, plus 2 from an
+     earlier run. Each one then takes 5 feed cards in later runs.
+   - Verdict on the lock: it keeps the connect tests stable against the heavy-feed test. Both full runs had the heavy
+     test and the three connect feed tests overlapping, and neither failed on that.
+   - The tests are not stable on a shared database.
+   - Fix (engineer's choice):
+     - Clean up in `finally`.
+     - Assert the trader's eligibility through `feedCandidates({ ids })`, or through a feed that ranks only the test's
+       ids, instead of the shared top 50.
+     - Or run e2e on its own database.
+
+Notes (not blocking):
+- The import banner shows "1,000 activities read from your broker" with "1,000 activities imported" right under it.
+  The two lines say the same thing.
+- "0 activities read" was seen for 4.85 s with a 2.5 s vendor page. A slower first page would pass 5 s, because the
+  headline moves only when the first step answers.
+- With the lower-bound ranking, records that already have a confident edge can fill all 50 cards with closes 10 months
+  old, ahead of any fresh record. That is as designed (TR-9), but it is a cold-start question for the business lead.
+
+### 4. Cleanup
+
+- Test traders deleted: `rr4_future`, `rr4_real`, `rr4fut`, `rr4head`, `rr4page`, `rr4_hf0`–`rr4_hf4`, `rr4_fd`,
+  `rr4_hv` and the three claim traders, with their `rr4-*` broker accounts. The 3 sweep attempts were also deleted.
+- The traders the failed e2e tests left were deleted with their `e2e-*` accounts and activities:
+  `fde39ioxty`, `fd26lyb2ui`, `ff2inkblmx`, `ffaj45j3me`, `fdh19ev728`, `ffq5lefbrj`, `fdjybhw0hj` and `ffu2qhfxer`,
+  plus `fdbl6kip5f` and `ffb0hscih3`, which were already there before this run.
+- Claims:
+  - An e2e cron call at 08:37:01 stamped 5 pre-existing traders. They were restored to the values snapshotted before
+    the run.
+  - The claims that this run's cron calls stamped on the other agent's `bl_future` and `bl_h2b` were cleared, only
+    where they were still those values. `bl_h1`'s claim had changed since and was left alone.
+- Every pre-existing row matches the snapshot apart from the two deleted leftovers. No lease is set.
+- The tester's server (3000) and vendor fake (4102) are stopped. The servers on 3101 and 3400 belong to the other
+  agent and were left running.
+
+Verdict: DEFECTS
