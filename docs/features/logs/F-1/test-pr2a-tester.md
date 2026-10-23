@@ -145,3 +145,98 @@ the fake were stopped afterwards.
 Watch item (separate must-fix, test robustness, PR-1): the "attestation first" global-count race, above.
 
 Verdict: DEFECTS (D1–D9 fixed; new: 1 Medium, 2 Low)
+
+## Re-run 2 (after fix round 2)
+
+Date: 2026-10-23. Same branch, at `d5dfbf6` (fix round 2, `build-pr2a-fix2.md`). No product code changed.
+Local Postgres 16; `scripts/db-setup.ts` twice, then with `SEED=1`, all clean.
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test`, four runs | 392 pass every run, 0 fail, 0 skipped (neither the "attestation first" race nor the schema backfill race appeared) |
+| `npm run build` | the first attempt compiled, then stopped on a framework security-advisory prompt. That is tool output and nothing was upgraded. The retry built cleanly with the five F-1 routes present |
+| `npm run test:e2e` (`ALLOW_DEV_AUTH=1`, vendor fake on 4102 with the three `SNAPTRADE_*` variables, PR-1 issuer and sink variables) | 66 passed, 0 skipped; all 10 connect tests ran, the new "fix round 2" test included |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `node_modules/@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+
+Tester scripts (not committed) drove the built app on port 3000 against the in-repo vendor fake in a browser, with
+database and vendor-state checks after each step, then deleted their users and claims. Screenshots at 375 and 360 px,
+light and dark, plus the share card per state, are in `screenshots/pr2a/rerun2/`. The server and the fake were stopped afterwards.
+
+### Re-run 1 findings
+
+| # | Check as a user and in the database | Result |
+|---|---|---|
+| 1 Medium | A signed-in trader linked one real account and one simulated account, then stopped at consent. In the DB: `pending`, no `consent_at`, two provisional claims, 0 activities, and still 0 activities and 0 positions after a tick. Signed out, the profile shows only "No trades yet.": no "simulated" text, no positions, no status or alert line, no "Broker connected" (`profile-pending-signedout-*`). The share card (`card-pending.png`) shows no "Broker connected" either | Fixed |
+| 2 Low | Record copy per state is in the table below. The S8 line appears only for `connected` with no closes. `none`, `pending`, `declined` and `expired` all read "No trades yet." | Fixed |
+| 3 Low | S6b (a provisional claim held by a signed-in trader; a brokerage-first attempt links the same account): the H1 is "We couldn't link that broker account.", 93 px tall at 375 px, with `role="alert"`, `aria-describedby="result-body"` and focus on the heading. The explanation is a paragraph, and the buttons are "Try another login" and "Back to feed". No user row is created, and the attempt is not completed (`result-refused-*`) | Fixed |
+| Watch | "attestation first" no longer uses a global count; it passed in 4 of 4 runs. The schema backfill race also did not appear in 4 runs, and the extra `not exists` filter is idempotent and adds no drop, truncate or delete | Closed |
+
+Record copy per state (`.record-body` / status or alert line / owner's "Connect your broker (read-only)" button):
+
+| State | Owner | Signed out |
+|---|---|---|
+| none | "No trades yet." / "You're in. Next: connect your brokerage." / button | "No trades yet." / none |
+| pending | "No trades yet." / none / button | "No trades yet." / none / no simulated count |
+| declined | "No trades yet." / none / button (leads to `/connect`) | "No trades yet." / none |
+| expired (lazily on the profile read; the tick then released the claims and removed the vendor link) | "No trades yet." / none / button | "No trades yet." / none |
+| importing | "Your trades appear here as they import." / status "Importing your record · 6 trades so far" / no button | same lines, plus "1 simulated account excluded" (confirmed at consent) |
+| connected | stats and closed trades, Verified, no banner / no button | same, "1 simulated account excluded" |
+| failed | "No trades yet." / alert "The import did not finish, so this record may be incomplete." + "Try again" / no button | "No trades yet." / the same line as status, no retry, no Verified |
+
+Result headings: declined "Import not started. Nothing is connected."; expired "The time to decide ran out. Import not
+started. Nothing is connected."
+
+### Stall scenario (the engineer's open note)
+
+A signed-in trader linked 2 real accounts and 1 simulated account, consented, and ran one step (6 activities, cursor
+`{i:1}`). They then opened `/connect` again; it is not blocked while an import runs. A second link landed on its
+consent page, which reads "1 account found", and stayed `pending`.
+- Six owner polls of `POST /api/import/step` all returned `{"state":"pending","imported":0,"closes":0}`. The importing
+  row's cursor, count and `last_progress_at` did not move.
+- The server-rendered profile reads the importing row correctly: the "Importing your record · 6 trades so far" banner
+  shows for the owner and for visitors (`profile-stall-owner-*`). The second link's provisional claim stays unconfirmed
+  and is not public.
+- One tick (`advanced: 1`) finished the first import: `connected`, 10 activities, 5 closes.
+- After that, the owner's poll still answers `{"state":"pending","imported":0,"closes":5}`.
+
+So the hourly tick does finish the import, but the client poll stops driving it and misreports the record's state until
+the newer link expires 24 h later. A variant shows this is more than a stall:
+
+**Variant: the trader consents to the second link while the first import runs.** The first link has 3 real accounts
+with 4 activities each, and one step reads account 1. The second link (1 account, 2 activities) is consented. The polls
+now drive only the newest row, which reaches `connected` within 4 polls. The first row is still `importing` at `{i:1}`,
+with accounts 2 and 3 never read. `publicRecord` takes the newest consented row (`connected`), so signed out the profile
+shows the partial record as whole: Verified, "Connected: broker (2 accounts)", win rate, average return, 3 closed trades
+and the chart, with no importing banner and no incomplete line (`profile-two-imports-signedout-*`). The share card shows
+the same (`card-two-imports.png`). The next tick finished the first row, and the record went from 3 closes to 7.
+
+### New in this re-run
+
+1. **Medium · a newer connection hides a running import, so a partial record shows as complete.** This breaks TR-3 and
+   the meaning of Verified. It reproduces in the browser with the steps above. Cause: two reads take a single
+   "latest" connection, while one trader can hold several connections and more than one can be importing.
+   - `publicRecord` takes the newest consented row.
+   - `POST /api/import/step` uses `latestConnection`, the newest row of any state.
+   - Fix:
+     - The public state is `importing` while any consented connection is importing, and `failed` when any consented
+       connection failed with nothing importing.
+     - The step endpoint drives the trader's importing connection(s), not the newest row, and reports that state.
+   - Tests: a DB test with an importing row and a newer `connected` row, and another with a newer `pending` row, for
+     `publicRecord` and for the step endpoint.
+2. **Low · the engineer's stall note is a defect, the same cause as 1.** With a newer pending link, the owner's poll
+   reports `pending` and never advances the import, even after the tick has finished it. Today the hourly tick limits
+   the harm (up to 200 steps per tick), but PR-2b's 2 s banner built on this endpoint would freeze and never show
+   "Import finished." The endpoint's own contract ("the session user's own import") is not met. Fixed by 1.
+3. **Low · the share card disagrees with the profile on empty records.**
+   - For `failed` the card shows "✓ Broker connected" while the profile says the import did not finish (`card-failed.png`).
+     Fix round 2's `state !== 'none'` counts `failed` as connected.
+   - For a real trader whose state is `none`, `pending`, `declined` or `expired`, the card is labeled "Demo data"
+     (`card-pending.png`) although the trader is not demo data. That label predates this PR for `none`.
+   - Fix: "Broker connected" only for `importing` or `connected`, and no "Demo data" label unless the trader's source is demo.
+
+Note (not blocking): the card's ✓ glyph rendered as a missing-glyph box here because the font download failed offline.
+This is the sandbox, not the build.
+
+Verdict: DEFECTS (re-run 1's three fixed and both test races closed; new: 1 Medium, 2 Low)
