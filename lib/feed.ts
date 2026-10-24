@@ -135,20 +135,20 @@ async function candidateQuery({ ids, asOf, day }: { ids?: number[]; asOf?: Date;
       select top.*, false as x from top${day ? sql` union all (select r.*, true from r where rk = 1 and user_id not in (select user_id from top)
         order by md5(${day} || user_id::text) limit ${EXPLORE_EXTRA})` : sql``}
     )${asOf ? sql`, pr as materialized (
-      -- pk, the closes counted at asOf (fix round 3, none probed twice): c's, and the not-late ones older than c's window
-      -- (o: the late sells dated before the window; a close's closed_at is its sell's executed_at, lib/trades.ts)
-      select x.user_id, count(*)::int as pn, max(x.id)::text as pm, (e.n + count(*) filter (where ${recentOnly
-        ? sql`x.closed_at <= ${lo} and ${notLateHere(sql`x.sell_id`, 'o')}` : sql`false`}))::int as pk
-      from closed_trades x join elig e using (user_id) where x.user_id in (select distinct user_id from top) group by x.user_id, e.n
-    )${day ? sql`, cx as (
-      -- F-2 PR-1b: the outside traders' fingerprint from c alone (counting their whole records cost ~60 ms a list on the
-      -- 50-heavy fixture): closes in c, the newest id in c, the closes counted at asOf. A rebuild or a new close changes it.
-      select c.user_id, count(*)::int as pn, 'c' || max(c.id)::text as pm, max(e.n)::int as pk from c join elig e using (user_id)
-      where c.user_id in (select user_id from src where x) group by c.user_id
-    )` : sql``}` : sql``}
+      -- The weight fingerprint (fix round 2; PR-1b fix round 1, tester Medium 1: from c alone, for every listed trader;
+      -- counting the 200's whole records was ~45 ms of the statement on the 50-heavy fixture). A rebuild renumbers every
+      -- row of a trader and a new close adds one, so the newest id in c changes with either (a listed trader always has a
+      -- close in c); pn and pk change when a close enters or leaves c; ol counts the trader's closes older than c's window
+      -- whose sells are late (o), so a close imported after asOf and dated before the window changes the key once it
+      -- counts. Same rows and the same closes counted at asOf: the same weight.
+      select c.user_id, count(*)::int as pn, ${recentOnly ? 'c' : 'f'} || max(c.id)::text || ':' || coalesce(max(ol.n), 0)::text as pm, max(e.n)::int as pk
+      from c join elig e using (user_id) left join (${recentOnly ? sql`select y.user_id, count(*) as n from closed_trades y
+        where y.sell_id in (select unnest(o) from late) group by y.user_id` : sql`select 0 as user_id, 0 as n where false`}) ol using (user_id)
+      where c.user_id in (select user_id from src) group by c.user_id
+    )` : sql``}
     select top.id, top.sell_id, top.symbol, top.return_pct, top.holding_days, top.closed_at, top.verified, top.thesis, top.thesis_status,
-           top.user_id, top.score, top.x, u.handle, u.display_name ${asOf ? day ? sql`, coalesce(pr.pn, cx.pn) as pn, coalesce(pr.pm, cx.pm) as pm, coalesce(pr.pk, cx.pk) as pk` : sql`, pr.pn, pr.pm, pr.pk` : sql``}
-    from src top join users u on u.id = top.user_id ${asOf ? sql`left join pr on pr.user_id = top.user_id` : sql``}${asOf && day ? sql` left join cx on cx.user_id = top.user_id` : sql``}
+           top.user_id, top.score, top.x, u.handle, u.display_name ${asOf ? sql`, pr.pn, pr.pm, pr.pk` : sql``}
+    from src top join users u on u.id = top.user_id ${asOf ? sql`left join pr on pr.user_id = top.user_id` : sql``}
     order by top.x, top.score desc, least(top.closed_at, ${clock}) desc, top.sell_id desc`) as unknown as Candidate[];
 }
 
@@ -163,7 +163,13 @@ export type PaneRow = { userId: number; id: string; symbol: string; returnPct: n
 // Fix round 1 (load check, tester Medium 3): one JSON text per trader instead of one row per close. A page of heavy
 // traders is ~50,000 closes; the database reads them in ~30 ms, but parsing them as rows took ~200 ms in the client.
 // Values are exact: a float8's text is its shortest round-trip form, and times travel as epoch milliseconds as before.
+// PR-1b fix round 1 (tester Medium 1): read in two halves side by side (two connections): a page with ~20 heavy records
+// spent ~70 ms in one aggregate on one core.
 async function records(userIds: number[]): Promise<PaneRow[]> {
+  if (userIds.length > 8) return (await Promise.all([0, 1].map((h) => records1(userIds.filter((_, i) => i % 2 === h))))).flat();
+  return records1(userIds);
+}
+async function records1(userIds: number[]): Promise<PaneRow[]> {
   if (!userIds.length) return [];
   const rows = await sql`
     select user_id, '[' || string_agg(concat_ws(',', id, to_json(symbol)::text, return_pct, holding_days, verified::int,

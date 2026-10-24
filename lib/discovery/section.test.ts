@@ -205,3 +205,33 @@ test('PR-1b new-record slot: a Demo (unverified) record never takes it', () => {
   const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
   assert.deepEqual(chooseRows(sectionCandidates(pool, list, 0, new Set()))!.map((t) => t.trader), [1, 2, 5]);
 });
+
+// PR-1b fix round 1 (tester Medium 2): untraded-first decides which traders are chosen; the rows read in evidence order.
+test('PR-1b fix 1: the rows read in evidence order whatever group chose them (tester 0.1 / 0.05 / 0.9 construction)', () => {
+  const pool = [T(100, 0.5, 0.9), T(101, 20, 0.8), T(200, 60, 0.1), T(201, 300, 0.05)];
+  const list = [...Array.from({ length: 30 }, (_, i) => ({ trader: i === 12 ? 100 : i === 14 ? 101 : 300 + i })), ...Array.from({ length: 30 }, (_, i) => ({ trader: 400 + i }))];
+  const c = sectionCandidates(pool, list, 30, new Set());
+  assert.deepEqual(c.slice(0, 2).map((t) => t.trader).sort(), [200, 201]); // chosen first: no earlier card
+  const rows = chooseRows(c)!.map((t) => t.trader);
+  assert.deepEqual(rows, [100, 200, 201]);
+});
+
+test('PR-1b fix 1: a Demo record never sits above a verified row, even with more evidence and no earlier card', () => {
+  const V = (id: number, weight: number, verified: boolean, hold = 3) => ({ ...T(id, hold, weight), n: 40, verified });
+  const pool = [V(1, 0.9, false, 0.5), V(2, 0.8, false, 20), V(3, 0.3, true, 60), V(4, 0.2, true, 300), V(5, 0.1, true, 3), V(6, 0.05, true, 0.5)];
+  const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
+  const rows = chooseRows(sectionCandidates(pool, list, 0, new Set()))!;
+  assert.deepEqual(rows.map((t) => t.trader), [3, 4, 5]);
+  // With only two verified candidates the Demo record fills the third row, below both.
+  const two = chooseRows(sectionCandidates(pool.filter((t) => t.trader < 5), list, 0, new Set()))!;
+  assert.deepEqual(two.map((t) => t.trader), [3, 4, 1]);
+  for (const r of [rows, two]) for (let i = 1; i < r.length; i++) assert.ok(!(r[i].verified && r[i - 1].verified === false));
+});
+
+test('PR-1b fix 1: the new-record slot is chosen before the bucket cap (a newcomer sharing the top rows\' bucket still gets a row)', () => {
+  const W = (id: number, weight: number, n: number, hold: number) => ({ ...T(id, hold, weight), n });
+  const pool = [W(1, 0.3, 40, 3), W(2, 0.2, 40, 3), W(3, 0.1, 30, 60), W(4, 0, 30, 300), W(9, 0, 5, 4)];
+  const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
+  const rows = chooseRows(sectionCandidates(pool, list, 0, new Set()))!.map((t) => t.trader);
+  assert.deepEqual(rows, [1, 3, 9]); // 9 shares bucket 1 with 1 and 2: it keeps its row, 2 gives way
+});

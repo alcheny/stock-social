@@ -59,7 +59,7 @@ dbTest('PR-1b acceptance: ≥ 80% of eligible traders and every newcomer seen in
       clearFeedCache();
       const now = base + d * DAY;
       const cards: number[] = [], seen = new Set<number>();
-      let after: string | null | undefined, sections = 0, newRows = 0, rowsTotal = 0;
+      let after: string | null | undefined, sections = 0, newRows = 0, rowsTotal = 0, withNewcomer = 0;
       for (let p = 0; p < 4; p++) {
         const page = await loadFeedPage(after, { now, ids: f.ids });
         const ids = page.cards.map((c) => c.user_id);
@@ -69,6 +69,12 @@ dbTest('PR-1b acceptance: ≥ 80% of eligible traders and every newcomer seen in
           const exists = f.ids.some((id) => !before.has(id) && !near.has(id));
           const fresh = page.section.filter((s) => !before.has(s.userId)).length;
           if (exists) assert.ok(fresh >= 2, `seed ${d} page ${p + 1}: ${fresh} of 3 rows have no earlier card`);
+          // PR-1b fix round 1 (business lead demand 2, measured per section): while a newcomer has neither a card
+          // earlier nor one of the 10 cards around the section, the section carries a newcomer (the slot survives the cap).
+          if (newcomers.some((id) => !before.has(id) && !near.has(id))) {
+            assert.ok(page.section.some((s) => newcomers.includes(s.userId)), `seed ${d} page ${p + 1}: no newcomer row`);
+            withNewcomer++;
+          }
           sections++; newRows += fresh; rowsTotal += page.section.length;
           for (const s of page.section) seen.add(s.userId);
         }
@@ -82,7 +88,7 @@ dbTest('PR-1b acceptance: ≥ 80% of eligible traders and every newcomer seen in
       assert.deepEqual(rep, [], `seed ${d}: repeated 3-trader runs in the first 60`);
       for (const id of seen) seenAll.add(id);
       lines.push(`seed ${new Date(now).toISOString().slice(0, 10)}: ${seen.size} of 105 seen (cards ${new Set(cards.slice(0, 120)).size}), ` +
-        `newcomers ${newcomers.filter((id) => seen.has(id)).length}/5, sections ${sections}, rows with no earlier card ${newRows}/${rowsTotal}, ` +
+        `newcomers ${newcomers.filter((id) => seen.has(id)).length}/5, sections ${sections}, rows with no earlier card ${newRows}/${rowsTotal}, sections with a newcomer ${withNewcomer}, ` +
         `hot ${cards.slice(0, 60).filter((id) => f.ids.indexOf(id) < 40).length}/60, repeated runs ${rep.length}`);
     }
     for (const l of lines) console.log(`# reach: ${l}`);

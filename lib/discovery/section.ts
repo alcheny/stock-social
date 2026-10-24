@@ -39,7 +39,7 @@ export function sectionPool(cards: readonly { trader: number; score: number }[],
     const f = facts.get(trader);
     if (f) out.push({ trader, score, weight: f.weight, hold: f.hold, n: f.n, ...(f.verified === undefined ? {} : { verified: f.verified }) });
   }
-  return out.sort((a, b) => b.weight - a.weight || b.n - a.n || a.trader - b.trader);
+  return out.sort(byEvidence);
 }
 
 // Up to n of the ordered candidates: distinct traders, at most SECTION_PER_BUCKET per holding bucket.
@@ -53,10 +53,16 @@ export function capped<T extends { trader: number; hold: number }>(cands: readon
   }
   return out;
 }
-// The section's rows: the first n under the cap, or null when fewer qualify.
-export function chooseRows<T extends { trader: number; hold: number }>(cands: readonly T[], n = SECTION_ROWS): T[] | null {
+// The section's rows: the first n under the cap, or null when fewer qualify. PR-1b fix round 1 (tester Medium 2): which
+// traders are chosen follows the candidates' order (no earlier card first, the new-record slot first of all); the rows
+// then read in evidence order (weight, closes, id: the pool's order), so "Ordered by how much evidence each record has"
+// is true of every section's verified rows (a Demo row, badged, fills a row only when fewer than 3 verified records
+// qualify, and reads last: business lead demand 1).
+export const byEvidence = (a: { weight: number; n: number; trader: number }, b: { weight: number; n: number; trader: number }) =>
+  b.weight - a.weight || b.n - a.n || a.trader - b.trader;
+export function chooseRows<T extends { trader: number; hold: number; weight: number; n: number; verified?: boolean }>(cands: readonly T[], n = SECTION_ROWS): T[] | null {
   const out = capped(cands, n);
-  return out.length === n ? out : null;
+  return out.length === n ? out.sort((a, b) => +(a.verified === false) - +(b.verified === false) || byEvidence(a, b)) : null;
 }
 
 // The ordered candidates for the section of the page at `offset` of `list` (the slots the viewer's pages slice).
@@ -71,7 +77,9 @@ export function sectionCandidates(pool: readonly SectionTrader[], list: readonly
     // group, those not yet in an earlier section first; each part keeps the pool's order (the TR-9 lower bound).
     const carded = new Set(list.slice(0, o).map((c) => c.trader));
     const ok = pool.filter((t) => !skip.has(t.trader) && !near.has(t.trader));
-    const cands = [false, true].flatMap((c) => [false, true].flatMap((e) => ok.filter((t) => carded.has(t.trader) === c && earlier.has(t.trader) === e)));
+    // Fix round 1 (business lead demand 1): Demo records after every verified candidate.
+    const cands = [true, false].flatMap((v) => [false, true].flatMap((c) => [false, true].flatMap((e) =>
+      ok.filter((t) => (t.verified !== false) === v && carded.has(t.trader) === c && earlier.has(t.trader) === e))));
     newRecordSlot(cands, carded, earlier);
     if (o >= offset) return cands;
     for (const t of chooseRows(cands) ?? []) earlier.add(t.trader);
@@ -83,19 +91,21 @@ export function sectionCandidates(pool: readonly SectionTrader[], list: readonly
 // closes is such a record. The third place goes to the weight-0 trader with no card earlier in the list, not yet in an
 // earlier section while one is left, with the fewest closes counted (then the lower id): the newest record. The rows
 // still read in non-increasing evidence (row 3 has weight 0 and no more closes than rows 1 and 2), so the section's line
-// stays true; no raw average, size of a move or sign is read, and every viewer gets the same slot. Best effort under
-// the bucket cap: when rows 1 and 2 share its holding bucket, the next candidate takes the place. Only a verified
+// stays true; no raw average, size of a move or sign is read, and every viewer gets the same slot. Only a verified
 // record (every close verified) takes the slot: Demo data is never promoted as a new record.
+// Fix round 1 (business lead demand 2): the slot is chosen before the bucket cap. It moves to the front of the
+// candidates, so the cap fills the other two rows around it (it no longer gives way when rows 1 and 2 share its
+// holding bucket); chooseRows then shows the three in evidence order, where it reads last or tied.
 function newRecordSlot(cands: SectionTrader[], carded: ReadonlySet<number>, earlier: ReadonlySet<number>) {
   if (cands.length < SECTION_ROWS) return;
   let at = -1;
-  for (let i = 2; i < cands.length; i++) {
+  for (let i = 0; i < cands.length; i++) {
     const t = cands[i];
     if (t.weight > 0 || t.verified === false || carded.has(t.trader)) continue;
     const u = cands[at];
     if (!u || (+earlier.has(t.trader) - +earlier.has(u.trader) || t.n - u.n || t.trader - u.trader) < 0) at = i;
   }
-  if (at > 2) cands.splice(2, 0, cands.splice(at, 1)[0]);
+  if (at > 0) cands.unshift(cands.splice(at, 1)[0]);
 }
 
 // One reason line per row (fix round 1, business lead demand 2: one template): the trader's typical holding period, true
