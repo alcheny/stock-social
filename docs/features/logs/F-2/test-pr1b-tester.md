@@ -176,3 +176,94 @@ On my server (`/`, 375 px), I compared the section's `outerHTML`:
 - My servers on 3231 and 3232 and the vendor fake stopped. Other servers, including the one on 3000, were left alone.
 - The baseline worktree and scratch copy were removed.
 - No product code changed; no third-party company named.
+
+## Re-run 1 (fix round 1, HEAD `8e1eb07`)
+
+2026-10-24. Scoped re-run. Own database `ss_tst_pr1b2` (created as the superuser, owned by the shared role; the shared
+`stock_social` was never written). A worktree of `8e1eb07` ran the checks and servers (e2e 3241, vendor fake 4241; walk
+3242; single-load copy 3243). A worktree of `350522b` gave the same-machine baseline. Port 3000 was left alone.
+
+**Verdict: CLEAN.** All three findings are fixed. No new defect.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2 | exit 0 both times, no schema change; no `drop`/`truncate`/`delete from` statement |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | **614 tests, 602 pass, 12 skipped (LOAD), 0 fail** in all three (no `lib/reflections.test.ts` failure) |
+| Test count / weakened | 614 (bound ≥ 614). `git diff 8228090 8e1eb07` removes 2 test lines, both in `lib/feed.reach.test.ts` and both replaced by longer versions (a counter added to a `let`, a field added to a log line). 3 tests and 1 assertion were added. Nothing weakened. |
+| `LOAD=1` feed ×2 | **6/6, 6/6.** Section on every page (50 heavy), signed out / signed in: 249 / 238 ms and 250 / 284 ms. One-period: 242 / 232 ms. 50 heavy, all pages: 238–259 ms. 12 heavy: 132–155 ms. |
+| `LOAD=1` sync ×2, follows ×2 | 5/5, 5/5; 1/1, 1/1 |
+| `CI=1 npm run build`, stdin closed | Run 1 stops on the framework's security advisory. That is tool output: nothing was upgraded and its instructions were not followed. The retry exits 0. |
+| `npm run test:e2e` ×2 | **109 passed, 3 skipped, 0 failed** both runs (4.2 / 4.3 min). Section page weight 322 / 329 KB raw, 14–16 KB gzipped. |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | ok |
+
+### Findings, re-checked
+
+- **Medium 1 (budget headroom): fixed.** I ran the LOAD test "section on every page, 50 heavy" back to back on the same
+  machine and the same database, alternating builds, 3 rounds:
+
+  | Round | `350522b` (signed out / signed in) | `8e1eb07` (signed out / signed in) |
+  |---|---|---|
+  | 1 | 365 / 386 ms | 285 / 242 ms |
+  | 2 | 377 / 419 ms | 266 / 260 ms |
+  | 3 | 382 / 433 ms | 268 / 288 ms |
+
+  That is about −100 ms, back to the level before PR-1b, with 110 ms or more of headroom under the 400 ms bound.
+- **Medium 2 (evidence order): fixed.** My 0.1 / 0.05 / 0.9 construction (100 and 101 carded on page 1, 200 and 201 not)
+  now reads **100 (0.9), 200 (0.1), 201 (0.05)**. A randomized check ran 20,000 pools (4 to 13 traders, mixed buckets,
+  25% Demo, random carded traders) and produced 16,367 sections. **0** had verified rows out of evidence order, and 0 had a
+  Demo row above a verified row.
+- **Low 1 (Demo above verified): fixed.** On the walk fixture (the business lead's generator, 105 traders + the 3 Demo
+  traders), pages 1 to 4 have sections tw59, tw0, twnew100 / tw1, tw42, twnew102 / tw2, tw3, twnew101 /
+  tw9, tw69, twnew103. No Demo row appears while 3 verified candidates exist. Before the fix, page 1 led with
+  `@dividend_dan` (Demo).
+
+### Acceptance (business lead), reproduced
+
+- Run of `lib/feed.reach.test.ts`:
+  - Union over 7 seeds: **104 of 105 (99%)**, bound ≥ 80%.
+  - Per seed: 78–81 seen; newcomers 5/5 on 6 seeds and 4/5 on 1.
+  - Rows with no earlier card: 12/12 on every seed.
+  - Repeated 3-trader runs: **0**.
+  - Hot traders in the first 60: 36–37 of 60, unchanged from PR-1b.
+- **Newcomer in sections 2 to 4:** the new per-section assertion holds on every seed. 4 of 4 sections carry a newcomer
+  on 6 seeds. On 2026-10-21 it is 3 of 4, because no unseen newcomer was left for that section, so none was required.
+  The walk fixture shows the slot surviving the cap: page 1's newcomer `twnew100` shares the 1-to-7-day bucket with
+  `tw0` and still gets row 3.
+
+### "Two halves" pane load
+
+- I made a copy of `8e1eb07` with the split threshold raised so that every page reads in one load. I built it and served
+  it on 3243, next to the real build on 3242.
+- On the same DB and the same `asOf` cursor, pages 2 to 4 are **byte-identical** HTML (after removing build chunk names
+  and the flight scripts).
+- Page 1 differs only in the "Show more" cursor timestamp. A cursor with `o: 0` starts a new list, so the two servers'
+  request times differ.
+- In process, the two loads give the same pane rows per trader as sets. The array order inside a trader differs, because
+  `string_agg` has no `order by`, before and after this PR. The rendered HTML is unaffected.
+
+### Regressions
+
+- e2e ×2 is green and covers:
+  - PR-1: paging, cursor, caps, page weight.
+  - PR-2: follow, unfollow, hide, Undo.
+  - PR-3: section position, the sheet, the reject swipe and its guards, no-JS links.
+  - The trust rule: Demo badge, failed import.
+  - Consent and connect against the vendor fake.
+
+### Screenshots (`screenshots/pr1b-test2/`)
+
+`section-signed-out-{375,1280}-{light,dark}.png`: the walk fixture's page 1 section, with three Verified rows in
+evidence order and the newcomer last.
+
+### Cleanup
+
+- The 105 walk traders were deleted.
+- `ss_tst_pr1b2` was dropped.
+- My servers on 3241–3243 and the vendor fake were stopped. Other servers were left alone, including 3000 and another
+  agent's server.
+- The worktrees and the scratch copy were removed.
+- No product code was changed, and no third-party company is named.
