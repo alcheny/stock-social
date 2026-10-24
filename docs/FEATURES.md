@@ -56,9 +56,13 @@ Ask in the chat at any time: "what's decided?", "what's left?", or run `node scr
 ## The pipeline (CI)
 
 - **Switch:** repo variable `FEATURES` (`on`/`off`). Independent of `AUTOPILOT`.
-- **One feature at a time.** `scripts/features.ts next` picks the lowest-numbered `ready`/`rework` feature,
-  or fixes the open feature PR if its checks failed (up to `FEATURE_MAX_ATTEMPTS`, default 5, then it
-  waits for the owner).
+- **Parallel where independent (2026-10-24).** Work items that don't interfere (different files, no
+  dependency, no shared pinned behavior) run at the same time, each in its own worktree, database and
+  ports; the rules are in `docs/IMPLEMENTATION.md` → "Parallel development". Number order decides
+  priority only when two items interfere. Today `scripts/features.ts next` still picks one feature at a
+  time (the lowest-numbered `ready`/`rework` feature, or a fix of the open feature PR if its checks failed,
+  up to `FEATURE_MAX_ATTEMPTS`, default 5, then it waits for the owner); parallel picking is the owner's
+  wiring change, and until then the parallel process runs in the owner's chat session.
 - **Build:** `scripts/team.ts` with `SPEC_FILE` set: no designer/analyst round, the engineer builds the
   owner's file as written, writing a test for each acceptance criterion; the tester and the deterministic
   checks loop until clean. The build and QA record goes to `docs/features/logs/`, never into the owner's

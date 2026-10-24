@@ -25,8 +25,9 @@ violations on every PR. The rules that matter most while working:
 **Stock Social**: public, verified trading records pulled read-only from supported brokers. Traders connect a
 broker, closed trades appear on a public profile and in a swipe feed, and the profile link unfurls as
 a share card. Full reasoning and kill gates: `docs/DESIGN.md`. The phase sequencing there is superseded:
-features decided in design sessions (`docs/features/`) are built in number order by the process in
-`docs/IMPLEMENTATION.md`. Anything POLICY or `docs/COMPLIANCE.md` marks as needing counsel still waits.
+features decided in design sessions (`docs/features/`) are built by the process in `docs/IMPLEMENTATION.md`:
+work items that don't interfere run in parallel (own worktree, database and ports each), and number order
+decides priority when they do ("Parallel development"). Anything POLICY or `docs/COMPLIANCE.md` marks as needing counsel still waits.
 
 ## Commands
 
@@ -106,7 +107,8 @@ runs a design session": record every decision in the same turn in `docs/features
 with the reason; open points under Open questions), turn decisions into testable acceptance criteria,
 set `Status: ready` only when the owner confirms, and turn feedback on built features into new decisions
 plus `Status: rework`. Don't write code in a design session unless asked. The feature pipeline
-(`features.yml`, switch `FEATURES`) builds ready features one at a time; it's separate from the autopilot.
+(`features.yml`, switch `FEATURES`) still builds ready features one at a time until it is wired for
+parallel items; it's separate from the autopilot.
 
 ## Autopilot
 

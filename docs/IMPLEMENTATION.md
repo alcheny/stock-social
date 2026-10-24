@@ -29,8 +29,9 @@ member specs in `team/` (all owner-only paths).
 - 2026-10-22: A failed committee review sends the feature back through the cycle: the demands become
   the next round's plan (business lead ⇄ UX lead ⇄ engineer), then build, tests, review again. The
   cycle repeats until tests, preliminary user testing and the committee all pass. Why: the owner's rule.
-- 2026-10-22: The pipeline continues feature by feature until every feature in `docs/features/` with
-  Status ready or rework is built, then stops. Why: the owner's rule; the design sessions set the
+- 2026-10-22: The pipeline continues until every feature in `docs/features/` with
+  Status ready or rework is built, then stops (amended 2026-10-24: independent items run in parallel, see
+  "Parallel development"). Why: the owner's rule; the design sessions set the
   backlog.
 - 2026-10-22: Every implementation discussion is documented: the plan, each debate round's positions
   and the sign-off, each committee verdict with its demands, and the test and QA record, in
@@ -47,6 +48,72 @@ member specs in `team/` (all owner-only paths).
   Why: the owner wants all of them to user-test, not one role.
 - 2026-10-22: The process is fully autonomous from ready feature to merged PR: no step waits for a
   human unless one of the hard stops below is hit. Why: the owner's rule.
+
+- 2026-10-24: Work that does not interfere runs in parallel. The pipeline no longer finishes one feature
+  (or one PR) before it starts the next: every work item whose dependencies are met and that passes the
+  independence test below starts at once, each in its own isolated process. Number order still decides
+  priority when two items do interfere. Rules: "Parallel development" below. Why: the owner's rule; a
+  hard stop or a long review on one item should not idle the rest of the backlog.
+
+## Parallel development (2026-10-24)
+
+A **work item** is one step of the cycle for one PR: a plan round, a build or fix round, a tester pass,
+one committee member's review, the reviewer's check. The orchestrator (today the owner's chat session;
+later `scripts/features.ts`) starts every item that is ready and independent, and waits only where a rule
+below says so.
+
+**What always runs in parallel**
+- Planning and sign-off rounds of one feature alongside builds of another: they write only to
+  `docs/features/logs/F-<n>/`.
+- Within one round: the business lead's and the UX lead's planning positions; the tester and every
+  committee member on the same build. The fix round starts once all of that round's verdicts are in, so the
+  engineer gets every demand at once.
+- PRs of different features, and later PRs of the same feature, when they pass the independence test.
+
+**Independence test** (both items must pass every line; otherwise the higher-numbered item waits)
+1. Neither is listed in the other's "Waits on" (the plan's PR table) and neither needs the other's
+   unmerged code to be tested.
+2. Their planned file sets do not overlap, except shared append-mostly files (`lib/copy.ts`,
+   `app/globals.css`, `db/schema.sql`, `lib/delete.ts`'s first step, the purge), where each adds its own
+   entries and touches no line the other changes.
+3. Schema changes are additive on different tables or columns.
+4. They do not change the same behavior a pinned test asserts (the feed ranking and section order, the
+   TR-9 confidence model, a guard test). Two items that both move the ranking run one after the other.
+5. Neither touches a protected path the other needs, and neither waits on the same owner hard stop.
+
+The plan for each feature lists, per PR, the files it expects to touch, so the test can be applied before
+any code is written. When a build turns out to need a file outside its list that another live item owns,
+it stops and the orchestrator decides which goes first (lower number first).
+
+**Isolation: every parallel build or fix round gets its own**
+- git worktree and branch (`autopilot/feature-<n>-<slug>`), never a shared working tree. Exactly one
+  build owns the main checkout at a time.
+- database (`stock_social_<slug>`) with the schema and demo seed, so tests, fixtures and load runs never
+  see another item's rows.
+- ports for `next start` and Playwright (3000 belongs to the main checkout; others take 3100 upward), and
+  its own `.next` build output (one per worktree).
+
+Reviews of one build may share that build's running server and database, but each member namespaces its
+fixture users (a distinctive handle prefix), never deletes rows it did not create, and runs heavy fixtures
+(hundreds of traders, `LOAD=1`) in a database of its own. Why: in F-2 PR-4's first run, one member's large
+fixture filled the shared feed and another's was deleted mid-run under a third member.
+
+**Integration**
+- Items merge in the order they finish, never all at once. Before merging, the later item takes in the
+  integration branch (merge commit, never a rewrite), re-runs every deterministic check and e2e on the
+  combined code, and re-runs the committee only if the merge changed its product files.
+- A conflict in a file the independence test said was shared is resolved by the item that merges second;
+  a conflict anywhere else means the test was wrong: the second item goes back to its plan with the
+  overlap as the first item.
+- Every build log names its worktree branch, database and ports, so a reviewer can reproduce it.
+
+**Limits**
+- Concurrency is bounded by the agent budget (`TEAM_BUDGET_USD`) and usage limits, not by a fixed count.
+  When they bind, items start in priority order: fix rounds of open PRs, then the lowest-numbered feature.
+- A hard stop (below) pauses only the items it gates; every independent item keeps running.
+- The CI pipeline (`scripts/features.ts`, `features.yml`) still picks one feature at a time; teaching it to
+  run independent items in parallel is part of the owner's wiring (request #12). Until then, the parallel
+  process runs in the owner's chat session.
 
 ## Hard stops: where the autonomous cycle must wait for the owner
 These are the only points where a human is needed. Each is a rule the owner set elsewhere, so
@@ -145,7 +212,7 @@ pipeline scripts and the workflows. Each is a yes/no for the owner; answers are 
 | 9 | Preview deploys per feature PR (deployments are off today), or accept in-job `npm run start` plus browser screenshots as the committee's "running preview" | The committee and user tests need a running app | |
 | 10 | Placeholder Terms and Privacy pages and the consent-screen copy (what becomes public), supplied by the owner | POLICY P6/F3: the attestation and consent screens must link them | |
 | 11 | A `blocked` status the publish script may set when a feature hits a hard stop | Otherwise the picker returns the blocked feature forever and later features never build | |
-| 12 | Process wiring: owner edits to `scripts/features.ts`, `scripts/team.ts`, `team/*.md`, CODEOWNERS and `features.yml` for the plan round, the UX lead, the committee, per-member user tests and `docs/features/logs/` | All owner-only paths | |
+| 12 | Process wiring: owner edits to `scripts/features.ts`, `scripts/team.ts`, `team/*.md`, CODEOWNERS and `features.yml` for the plan round, the UX lead, the committee, per-member user tests, `docs/features/logs/` and (2026-10-24) parallel work items with a worktree, database and ports each | All owner-only paths | |
 | 13 | Run the heavy-use suite automatically: a `test:load` script in `package.json` (`LOAD=1 node --expose-gc --test lib/sync.load.test.ts`) and a CI job on demand (manual dispatch, with Postgres) | Nothing sets `LOAD=1`, so the F-1 heavy-use criteria are never checked automatically; `package.json` and workflows are owner-only (F-1 PR-3 tester, Low 3) | |
 
 Not needed for the first run (wait): a read replica, object storage, a vector index, a worker or
@@ -207,7 +274,8 @@ Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `li
 
 ## What already exists and is reused
 - Branch team roles and specs in `team/` (business lead, designer, engineer, tester, reviewer).
-- `scripts/features.ts` picks the lowest ready/rework feature, one at a time, and publishes status.
+- `scripts/features.ts` picks the lowest ready/rework feature, one at a time, and publishes status
+  (parallel picking is pending the owner's wiring, request #12).
 - The Gate merges green PRs; protected paths wait for the owner.
 - Deterministic checks and the compliance scanner run before the tester.
 
@@ -216,6 +284,7 @@ Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `li
 - A two-member acceptance committee with a running preview, separate from the reviewer's pass/fail.
 - A preliminary user-testing step.
 - Per-feature implementation logs with the debate positions and committee verdicts.
+- Parallel development of independent work items, each in its own worktree, database and ports.
 
 ## Open questions
 - Committee rounds: a hard cap per feature (today FEATURE_MAX_ATTEMPTS = 5) after which the owner is
