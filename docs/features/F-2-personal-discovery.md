@@ -34,6 +34,12 @@ advice. The owner has been told this and the scope below respects it.
   applies −4 to the trade and a slight negative preference to its trader. This amends DESIGN SW-1,
   which reserved both directions for the profile: only the opening direction is reserved now. The
   section-row swipe (PR-3) stays. Why: owner decision; it matches the gesture vocabulary chosen earlier.
+- 2026-10-24 (O2 resolved): the profile row stays, as a section on the trader's profile titled
+  "Similar trades". Its rows are trades (closed records from other traders with a similar holding
+  period or pattern), and tapping a row opens that trade on its trader's profile (the pane, then the
+  profile one swipe further), the same path as a feed card. It is not the ticker page (`/t/<symbol>`)
+  and does not group by symbol. Same for every viewer until counsel clears personalization; no
+  performance numbers on rows; losses included under the same rules. Build as PR-3b. Why: owner decision.
 - 2026-10-24 (O4): unfollow = slight negative preference on that trader in the recommendation score,
   never a hide. (O5): desktop gets a separate web version later; the current phone-width column stands.
 - 2026-10-23: the engineer and business lead disagree on the reject gesture (SW-1 reserves left/right
@@ -74,8 +80,7 @@ Each one testable; the pipeline writes a test for every line.
 - Owner (O3): hide duration. Business lead backs 90 days (testable, accidental swipes not permanent,
   protects reach); engineer built 90 days as one constant. Suggested split: a rejected trade stays
   hidden permanently, a trader hidden via "Not interested" returns after 90 days.
-- Owner: the profile row. The business lead proposes cutting it (it routes a trader's shared-link
-  visitors away). The owner's placement decision includes it.
+- Resolved 2026-10-24 (O2): see Decisions ("Similar trades" section). Build as PR-3b.
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
   decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.
 - Resolved 2026-10-24 (O4): unfollow is neither a hide nor neutral. The feed is driven by the
