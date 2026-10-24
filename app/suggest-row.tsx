@@ -25,7 +25,8 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
   const timer = useRef(0);
   const rest = () => (signedIn ? box.current?.clientWidth ?? 0 : 0);
   const toRest = (smooth = false) => box.current?.scrollTo({ left: rest(), behavior: smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto' });
-  const open = () => { const d = sheet.current; if (d && !d.open) d.showModal(); };
+  // Reviewer (UX R2-2): the sheet opens on the trader's name, not on its skip link (still the first Tab stop before it).
+  const open = () => { const d = sheet.current; if (d && !d.open) { d.showModal(); d.querySelector<HTMLElement>('.pane .who')?.focus(); } };
   const close = () => sheet.current?.close();
   useEffect(() => setReady(true), []);
   useLayoutEffect(() => { if (ready) toRest(); }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps

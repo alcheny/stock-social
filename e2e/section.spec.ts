@@ -134,6 +134,10 @@ test('F-2 PR-3: signed out, the section sits at position 6 with 3 rows, a true h
     await expect(sheet).toHaveAttribute('open', '');
     // Fix round 1 (UX 5, tester Low 2): the sheet's own skip link, its first stop, reaches the disclaimer (the page's is
     // behind the modal); the line is then focused and on screen.
+    // Reviewer (UX R2-2): the sheet opens on the trader's name; the skip link stays the first Tab stop, before Back.
+    await expect(sheet.locator('.pane header .who')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
     const skip = sheet.getByRole('button', { name: 'Skip to the disclaimer' });
     await expect(skip).toBeFocused();
     await expect(skip).toBeInViewport();
