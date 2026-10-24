@@ -15,8 +15,11 @@ import { canArm, horizontal, swipeOutcome } from '@/lib/discovery/reject.ts';
 // never arms: it fails safe and the "…" menu stays the way.
 let lastClose = 0;
 
-export function SuggestRow({ handle, name, signedIn, pane, actions, children }: { handle: string; name: string; signedIn: boolean; pane: ReactNode; actions: ReactNode; children: ReactNode }) {
+// F-2 PR-3b: `href`, where the row leads without JavaScript (a Similar trades row: that trade's page); `lazy`, the pane
+// enters the page only when its sheet first opens (a profile keeps one chart and one list of closes until then).
+export function SuggestRow({ handle, name, signedIn, pane, actions, children, href = `/u/${handle}`, lazy = false, label }: { label?: string; handle: string; name: string; signedIn: boolean; pane: ReactNode; actions: ReactNode; children: ReactNode; href?: string; lazy?: boolean }) {
   const [ready, setReady] = useState(false);
+  const [shown, setShown] = useState(!lazy);
   const box = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDialogElement>(null);
   const armed = useRef(false);
@@ -26,7 +29,11 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
   const rest = () => (signedIn ? box.current?.clientWidth ?? 0 : 0);
   const toRest = (smooth = false) => box.current?.scrollTo({ left: rest(), behavior: smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto' });
   // Reviewer (UX R2-2): the sheet opens on the trader's name, not on its skip link (still the first Tab stop before it).
-  const open = () => { const d = sheet.current; if (d && !d.open) { d.showModal(); d.querySelector<HTMLElement>('.pane .who')?.focus(); } };
+  const show = () => { const d = sheet.current; if (d && !d.open) { d.showModal(); (d.querySelector<HTMLElement>('.sheet-trade h3') ?? d.querySelector<HTMLElement>('.pane .who'))?.focus(); } };
+  const want = useRef(false);
+  const isShown = useRef(!lazy);
+  const open = () => { if (isShown.current) show(); else { isShown.current = want.current = true; setShown(true); } };
+  useEffect(() => { if (shown && want.current) { want.current = false; show(); } }, [shown]); // eslint-disable-line react-hooks/exhaustive-deps
   const close = () => sheet.current?.close();
   useEffect(() => setReady(true), []);
   useLayoutEffect(() => { if (ready) toRest(); }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -92,7 +99,7 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
         <div className="srow" ref={box}>
           {ready && signedIn && <div className="stray" aria-hidden="true"><span>{SECTION.tray}</span></div>}
           <div className="sitem">
-            <a className="sopen" href={`/u/${handle}`} aria-haspopup={ready ? 'dialog' : undefined}
+            <a className="sopen" href={href} aria-haspopup={ready ? 'dialog' : undefined}
               onClick={(e) => { if (!ready || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); open(); }}>{children}</a>
           </div>
           {ready && <div className="ssentinel" aria-hidden="true" />}
@@ -100,11 +107,11 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children }: 
         {/* Outside the swipe container, so the "…" menu is never clipped by it. */}
         {actions && <div className="sactions">{actions}</div>}
       </div>
-      <dialog className="pane-sheet" ref={sheet} aria-label={`${name}’s record`}
+      <dialog className="pane-sheet" ref={sheet} aria-label={label ?? `${name}’s record`}
         onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).closest('[data-back]')) close(); }}>
         {/* Fix round 1: the page's skip link is behind the modal, so the sheet has its own (shown when focused). */}
         {ready && <button type="button" className="sheet-skip" onClick={() => sheet.current?.querySelector<HTMLElement>('.sheet-note')?.focus()}>{SECTION.skip}</button>}
-        {ready && pane}
+        {ready && shown && pane}
       </dialog>
     </>
   );

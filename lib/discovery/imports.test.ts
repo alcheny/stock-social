@@ -11,7 +11,9 @@ const ROOTS = ['lib/discovery/diversity.ts', 'lib/discovery/explore.ts', 'lib/di
   // F-2 PR-2: added cases (the hide filter and the owner's weights are pure too).
   'lib/discovery/exclusions.ts', 'lib/discovery/weights.ts',
   // F-2 PR-3: added cases (the suggestions section and the reject swipe's recognizer are pure too).
-  'lib/discovery/section.ts', 'lib/discovery/reject.ts'];
+  'lib/discovery/section.ts', 'lib/discovery/reject.ts',
+  // F-2 PR-3b: added case (the Similar trades ordering is pure too).
+  'lib/discovery/similar.ts'];
 // Modules that reach the database, the session cookie or a request's identity.
 const FORBIDDEN = new Set(['lib/db.ts', 'lib/session.ts', 'postgres', 'next/headers', 'next/server', 'lib/connections.ts', 'lib/feed.ts']);
 

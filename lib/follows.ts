@@ -70,6 +70,12 @@ export async function sectionSkips(viewer: number): Promise<number[]> {
     union select trader_id from viewer_exclusions where viewer_id = ${viewer} and until > now()`).map((r) => r.trader_id as number);
 }
 
+// F-2 PR-3b: the traders this viewer hid with "Not interested", still running (Similar trades leaves them out; an
+// unfollow is never a hide: owner decision O4).
+export async function hiddenTraders(viewer: number): Promise<number[]> {
+  return (await sql`select trader_id from viewer_exclusions where viewer_id = ${viewer} and reason = 'not_interested' and until > now()`).map((r) => r.trader_id as number);
+}
+
 // /me/following: the viewer's own lists. `isHidden`: the no-JS "Not interested" message checks the row is there.
 export type Listed = { handle: string; name: string; until?: Date };
 export async function ownLists(viewer: number): Promise<{ following: Listed[]; hidden: Listed[] }> {

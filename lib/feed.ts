@@ -165,7 +165,7 @@ export type PaneRow = { userId: number; id: string; symbol: string; returnPct: n
 // Values are exact: a float8's text is its shortest round-trip form, and times travel as epoch milliseconds as before.
 // PR-1b fix round 1 (tester Medium 1): read in two halves side by side (two connections): a page with ~20 heavy records
 // spent ~70 ms in one aggregate on one core.
-async function records(userIds: number[]): Promise<PaneRow[]> {
+export async function records(userIds: number[]): Promise<PaneRow[]> {
   if (userIds.length > 8) return (await Promise.all([0, 1].map((h) => records1(userIds.filter((_, i) => i % 2 === h))))).flat();
   return records1(userIds);
 }
