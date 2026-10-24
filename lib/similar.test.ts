@@ -97,3 +97,28 @@ dbTest('losses are rows under the same rules (an all-loss fixture fills the sect
     await f.remove();
   }
 });
+
+dbTest('fix round 1 (D2): the profile\'s read (panes: false) reads no row trader\'s record; the rows are the same, with verified and the trade\'s id', async () => {
+  const { loadSimilar, clearSimilarCache } = await import('./similar.ts');
+  const f = await fixture(30);
+  try {
+    clearSimilarCache();
+    const full = await loadSimilar({ trader: f.traders[1], hold: 3, closes: 8, ids: f.traders });
+    clearSimilarCache();
+    const lite = await loadSimilar({ trader: f.traders[1], hold: 3, closes: 8, ids: f.traders, panes: false });
+    assert.deepEqual(lite!.rows, full!.rows);
+    assert.equal(lite!.byUser.size, 0);
+    for (const r of lite!.rows) {
+      assert.equal(r.verified, true);
+      const [x] = await f.sql`select id, return_pct from closed_trades where sell_id = ${r.sellId}`;
+      assert.equal(r.tradeId, String(x.id));
+      assert.equal(r.returnPct, x.return_pct);
+    }
+    await f.sql`update closed_trades set verified = false where user_id = ${lite!.rows[0].trader} and sell_id <> ${lite!.rows[0].sellId}`;
+    clearSimilarCache();
+    const again = await loadSimilar({ trader: f.traders[1], hold: 3, closes: 8, ids: f.traders, panes: false });
+    assert.equal(again!.rows.find((r) => r.trader === lite!.rows[0].trader)?.verified ?? false, false);
+  } finally {
+    await f.remove();
+  }
+});

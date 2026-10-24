@@ -33,6 +33,12 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
     let r: Element | null = after.current, f: HTMLElement | undefined;
     while (r && !(f = target(r))) r = r.nextElementSibling;
     if (!f) { r = source.current; while (r && !(f = target(r))) r = r.previousElementSibling; }
+    // Fix round 1 (UX blocker): on a profile, once every row is hidden the section is hidden too; focus goes to the next
+    // focusable item after it ("← Feed"), never to the page.
+    if (!f && scope !== '.feed') {
+      const box = document.querySelector(scope);
+      f = box ? [...document.querySelectorAll<HTMLElement>('a[href], button, summary, [tabindex="0"]')].find((e) => !box.contains(e) && !!(box.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING) && e.offsetParent) : undefined;
+    }
     (f ?? document.querySelector<HTMLElement>('.feed .row .card .who'))?.focus({ preventScroll: true });
   };
   const close = () => { clearTimeout(timer.current); const had = !!document.activeElement?.closest('.hide-bar'); setBar(null); if (had) toCard(); };
@@ -87,7 +93,7 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
   return (
     <>
       <style>{hidden.map((h) => `${scope} [data-handle="${h}"]{display:none}`).join('')
-        + (hidden.length ? `${scope} .suggest:not(:has(> .suggest-in > ul > li${hidden.map((h) => `:not([data-handle="${h}"])`).join('')})){display:none}` : '')}</style>
+        + (hidden.length ? `:is(${scope} .suggest, .suggest${scope}):not(:has(> .suggest-in > ul > li${hidden.map((h) => `:not([data-handle="${h}"])`).join('')})){display:none}` : '')}</style>
       <div className="hide-bar" role="status"
         onPointerEnter={(e) => { if (e.pointerType === 'mouse') { hover.current = true; pause(); } }}
         onPointerLeave={() => { hover.current = false; resume(); }}

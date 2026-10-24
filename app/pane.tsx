@@ -25,13 +25,13 @@ const day = (d: Date) => DAY.format(d);
 // Fix round 8: on the feed it is `feedPaneChart` (a stand-in line for a long record) and the chart fetches the full one
 // from `paneChartSrc` on its first swipe-open.
 // F-2 PR-2: `viewer`, signed in: Follow and the "…" menu with "Not interested" (fix round 1: nothing signed out).
-export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean } }) {
+export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean }) {
   const p = paneSummary(trades);
   const trust = paneTrust(trades, state);
   return (
     <section className="pane" aria-label={`${name}'s record`}>
       <header>
-        <button type="button" className="back" data-back>← Back</button>
+        {back && <button type="button" className="back" data-back>← Back</button>}
         {/* Fix round 1 (UX 6): room for the whole handle plus the start of the name; the header wraps before it would
             squeeze the name away, and the name ends in an ellipsis. */}
         <Link href={`/u/${handle}`} className="who" style={{ minWidth: `min(100%, ${handle.length + 4}ch)` }}><WhoName name={name} handle={handle} /></Link>
@@ -54,7 +54,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
       <ul className="rows">
         {p.recent.map((t) => (
-          <li key={t.id} className="line">
+          <li key={t.id} className={t.id === highlight ? 'line hl' : 'line'} aria-current={t.id === highlight ? 'true' : undefined}>
             <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
             <b className={t.returnPct > 0 ? 'up' : 'down'}>{pct(t.returnPct)}</b>
           </li>

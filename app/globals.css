@@ -394,3 +394,13 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .similar .suggest-in { height: auto; padding: 0; overflow: visible; }
 .similar h2 { font-size: 1rem; }
 .sopen .strade { font-size: .875rem; }
+/* F-2 PR-3b fix round 1: a Similar trades sheet opens on the row's trade (D1); the trade is marked in the pane's list. */
+.pane-sheet .sheet-trade { padding: 20px max(16px, calc((100% - 560px) / 2)) 0; }
+.pane-sheet .sheet-trade h3 { margin: 8px 0 4px; }
+.pane-sheet .sheet-trade h3:focus { outline: 2px solid var(--text); outline-offset: 2px; }
+.pane-sheet .sheet-trade p { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.pane-sheet .sheet-trade a { min-height: 44px; display: inline-flex; align-items: center; }
+.pane-sheet .sheet-wait { padding: 20px max(16px, calc((100% - 560px) / 2)); margin: 0; }
+.pane .rows .line.hl { outline: 2px solid var(--line); outline-offset: 2px; font-weight: 600; }
+/* UX follow-up (row weight): Similar rows on a profile without the card border, so they sit quieter than the record. */
+.similar .srow-wrap { background: transparent; border-width: 0 0 1px; border-radius: 0; }

@@ -139,3 +139,55 @@ test('signed in: "…" → "Not interested" hides the row with Undo; the viewer\
     await f.remove();
   }
 });
+
+// Fix round 1 (D1, owner decision O2): with JavaScript a row opens its own trade (its symbol and close date first, focused,
+// with a link to the trade page the no-JS row goes to), the trader's pane below it, loaded on first open (D2), and the
+// profile one step further. The profile page itself carries no row trader's pane.
+test('fix round 1: a tap opens the row\'s trade, then its trader\'s pane; the profile HTML carries no pane', async ({ page }) => {
+  const f = await fixture();
+  try {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openProfile(page, `${f.tag}_0`, f.tag);
+    const html = await (await page.request.get(`/u/${f.tag}_0`)).text();
+    expect(html).not.toContain('See full profile →');
+    const row = page.locator('.similar .sopen').first();
+    const text = await row.locator('.strade').innerText(); // "SYMBOL · closed Mon D, YYYY"
+    const href = await row.getAttribute('href');
+    await row.click();
+    const sheet = page.locator('dialog.pane-sheet[open]');
+    await expect(sheet.locator('.sheet-trade h3')).toHaveText(text);
+    await expect(sheet.locator('.sheet-trade h3')).toBeFocused();
+    await expect(sheet.getByRole('link', { name: 'Trade page →' })).toHaveAttribute('href', href!);
+    await expect(sheet.getByRole('link', { name: 'See full profile →' })).toBeAttached();
+    const symbol = text.split(' · ')[0];
+    await expect(sheet.locator('.pane .rows .line.hl')).toContainText(symbol);
+    await page.screenshot({ path: `${SHOTS.replace('pr3b', 'pr3b-fix1')}/sheet-trade-375-light.png` });
+    await page.keyboard.press('Escape');
+    await expect(row).toBeFocused();
+  } finally {
+    await f.remove();
+  }
+});
+
+// Fix round 1 (UX blocker): signed in, hiding all three rows hides the whole section and focus goes to "← Feed".
+test('fix round 1: hiding every row hides the section and moves focus to "← Feed"', async ({ page }) => {
+  const f = await fixture();
+  try {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await signIn(page, `${f.tag}_11`);
+    await openProfile(page, `${f.tag}_0`, f.tag);
+    for (let k = 0; k < 3; k++) {
+      const row = page.locator('.similar > .suggest-in > ul > li:visible').first();
+      await row.locator('.more-menu summary').click();
+      await row.getByRole('button', { name: /Not interested/ }).click();
+      await expect(page.getByRole('button', { name: 'Undo' }), `hide ${k + 1}`).toBeFocused();
+      if (k < 2) await page.keyboard.press('Escape');
+    }
+    await expect(page.locator('.similar')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('link', { name: '← Feed' })).toBeFocused();
+    await page.screenshot({ path: `${SHOTS.replace('pr3b', 'pr3b-fix1')}/all-hidden-375-light.png` });
+  } finally {
+    await f.remove();
+  }
+});

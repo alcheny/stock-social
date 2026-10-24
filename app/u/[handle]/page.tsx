@@ -89,7 +89,7 @@ export default async function Profile({ params, searchParams }: Params) {
   const isMe = me?.id === user.id;
   // F-2 PR-3b: "Similar trades" (lib/similar.ts), only for a whole record with a typical holding period; the same for every
   // viewer, minus a signed-in viewer's own record and hidden traders. Read alongside the rest of the page.
-  const similarP = state !== 'importing' ? loadSimilar({ trader: user.id, hold: median(trades.map((t) => t.holding_days as number)), closes: trades.length, viewer: me?.id }) : null;
+  const similarP = state !== 'importing' ? loadSimilar({ trader: user.id, hold: median(trades.map((t) => t.holding_days as number)), closes: trades.length, viewer: me?.id, panes: false }) : null;
   similarP?.catch(() => {}); // awaited below; never an unhandled rejection meanwhile
   // F-2 PR-2: whether this viewer follows the trader (their own row only); never a count, never on your own profile.
   const following = !!me && !isMe && (await followingAmong(me.id, [user.id])).has(user.id);

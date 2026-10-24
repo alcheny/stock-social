@@ -52,7 +52,7 @@ requests per run after 10 warm-up requests.
 | 50 closes | 32.4 / 27.5 / 35.9 / 28.0 ms | 53.5 / 47.2 / 52.5 ms | about +20 ms |
 | 5,000 closes | 167.6 / 168.1 / 156.2 / 193.7 ms | 187.5 / 175.0 / 167.3 ms | about +10 ms |
 
-The budget is +50 ms, so both traders are inside it. A first version that read records on every view and did not run the reads
+Correction (fix round 1): the plan's budget is **+≤20 ms p95**, not +50 ms; these figures were over it. See Fix round 1. A first version that read records on every view and did not run the reads
 in parallel measured about +40 ms. HTML for the 50-close trader grew from 64 KB to 90 KB, because the 3 sheets carry the panes.
 
 ## Tests (none weakened or deleted)
@@ -88,3 +88,67 @@ renders the panes.
 The checks used my own databases (`ss_pr3b` and `ss_pr3b_e2e`, owned by the shared role) and a server on port 3471, started from
 a temporary Playwright config that has been deleted. Port 3000 was not touched. The fixtures and test users were deleted, both
 databases were dropped, and my servers were stopped.
+
+## Fix round 1 (2026-10-24)
+
+Reports: tester CLEAN; business lead PASS with D1–D3; UX lead 1 blocking + 2 follow-ups.
+
+- **D1 (O2): a tap opens the row's trade.** The sheet now opens on that trade: "SYMBOL · closed <date>" as its heading
+  (focused), the trade's return, "Held <bucket>" and "Trade page →" (the same `/u/<h>/trade/<sell_id>` the no-JS row links
+  to). The trader's pane follows below it with that trade marked in "Last 5 trades" when it is one of them
+  (`ProfilePane highlight`, `aria-current`); the profile stays one step further ("See full profile →"). Esc still returns
+  focus to the row. e2e: the opened view's heading equals the row's symbol and close date, it is focused, its link is the
+  row's no-JS href, and the pane marks the symbol.
+- **D2: no panes on the profile.** The profile calls `loadSimilar({ panes: false })`: it no longer reads the three row
+  traders' records and no longer renders their panes. The row's Verified/Demo badge comes from one `not exists` on the row
+  query. A sheet's pane is read on first open from `GET /u/<h>/pane` (`app/u/[handle]/pane/route.ts`, public, percentages
+  only, `max-age=60`; an importing record is not served) and rendered by `app/lazy-pane.tsx` with a "Loading…" line until
+  it arrives, as the feed fetches its full pane chart. A 5,000-close row trader's pane JSON is ~600 KB uncompressed; it is
+  read only when someone opens that sheet. e2e: the profile HTML has no "See full profile →".
+- **D3 + UX follow-up 2.** `SIMILAR.explain` is one sentence with curly apostrophes: "Other traders’ closed trades held
+  about as long as @x’s typical trade; records with more evidence come first, and losses count the same as gains."
+- **UX blocker.** `FeedHides` moved outside the section (its bar used to be hidden with it). The collapse rule now also
+  matches the scoped section itself (`.suggest.similar`), so hiding all three rows hides heading and explainer too; when
+  the bar closes, the focus fallback picks the next focusable item after the scope ("← Feed") and assumes no feed cards
+  outside `.feed`. e2e: three hides → section hidden, Undo focused each time, Esc → "← Feed" focused.
+- **UX follow-up 3 (row weight).** Trivial CSS, so built: on a profile the rows drop the card box (no background, a bottom
+  rule only). Recorded for the designer to revisit.
+
+### Measurements (D2): profile server time, `next start`, same fixture as above
+
+500 traders × 25 closes, plus the 50-close and 5,000-close traders (bucket 1); 150 sequential requests per run after 10
+warm-ups; three runs each; signed in = another fixture trader's session. "No section" is the commit before PR-3b
+(`4a5ee82`), built and measured on the same database in the same session.
+
+| Trader, viewer | No section p95 | PR-3b p95 | Fix round 1 p95 | Fix vs no section |
+|---|---|---|---|---|
+| 50 closes, signed out | 35.5 / 36.9 / 30.9 | 103.5* / 53.4 / 52.0 | 41.1 / 38.9 / 39.5 | about +5 ms |
+| 50 closes, signed in | 37.5 / 33.9 / 33.7 | 52.6 / 57.8 / 56.1 | 49.5 / 47.3 / 43.6 | about +12 ms |
+| 5,000 closes, signed out | 172.8 / 208.0 / 177.5 | 197.9 / 187.0 / 210.0 | 206.3 / 190.5 / 191.4 | about +10 ms (noise ±20) |
+| 5,000 closes, signed in | 179.0 / 173.4 / 186.6 | 183.1 / 187.2 / 215.6 | 186.7 / 201.0 / 184.9 | about +11 ms |
+
+\* first run after start. All four are inside +≤20 ms; the 5,000-close rows are dominated by the profile's own record.
+
+| Profile HTML | No section | PR-3b | Fix round 1 |
+|---|---|---|---|
+| 50 closes, signed out | 63.3 KB | 90.0 KB | 71.2 KB |
+| 50 closes, signed in | 63.5 KB | 92.2 KB | 73.3 KB |
+| 5,000 closes, signed out | 343.7 KB | 375.8 KB | 351.5 KB |
+
+**Product diff (PR-3b total vs main): +277 / −12** (cap 800).
+
+### Checks
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | **623 tests: 611 pass, 12 skipped (LOAD), 0 fail** each run (+1: `panes: false` reads no record, same rows, `verified`/`tradeId`/`returnPct`) |
+| `LOAD=1` feed, sync, follows | **12 / 12 pass**, one file at a time (run together in one process the sync load test misses its bound from contention; alone it passes) |
+| `CI=1 npm run build` (stdin closed) | exit 0; the first attempt stops on the framework's security advisory (tool output), the retry passes |
+| `npm run test:e2e` ×2 | **114 passed, 3 skipped, 0 failed**, both runs (4.8 min), with the in-repo vendor fake on its own port |
+| `node scripts/compliance.ts diff origin/main` | only the existing wasm license line |
+| `node scripts/autopilot.ts guard main` | ok |
+
+Screenshots: `screenshots/pr3b-fix1/` (sheet on the trade, all rows hidden, lighter rows). Committed screenshots of other
+PRs rewritten by the runs were restored. Environment: own databases `ss_fix1` and `ss_fix1_e2e`, server on 3471/3472, a
+temporary Playwright config (deleted); port 3000 untouched. Fixture and test users deleted, databases dropped, servers stopped.

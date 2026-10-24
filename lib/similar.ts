@@ -39,10 +39,12 @@ function poolAt(now: number, ids?: number[]): Promise<SectionTrader[]> {
   return k.pool;
 }
 
-export type SimilarRow = { trader: number; handle: string; name: string; sellId: string; symbol: string; closedAt: Date; holdingDays: number; bucket: number };
+export type SimilarRow = { trader: number; handle: string; name: string; tradeId: string; sellId: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; bucket: number; verified: boolean };
 export type Similar = { rows: SimilarRow[]; byUser: Map<number, PaneRow[]>; states: Map<number, RecordStatus> };
 
-export async function loadSimilar(o: { trader: number; hold: number; closes: number; viewer?: number; now?: number; ids?: number[] }): Promise<Similar | null> {
+// Fix round 1 (business lead D2): `panes: false` (the profile) skips the row traders' records; a sheet loads its pane on
+// first open from /u/<h>/pane, as the feed loads its full pane chart. `verified` is read with the row instead.
+export async function loadSimilar(o: { trader: number; hold: number; closes: number; viewer?: number; now?: number; ids?: number[]; panes?: boolean }): Promise<Similar | null> {
   if (o.closes < SIMILAR_MIN) return null;
   const [pool, hidden] = await Promise.all([poolAt(o.now ?? Date.now(), o.ids),
     o.viewer ? hiddenTraders(o.viewer) : []]);
@@ -51,17 +53,20 @@ export async function loadSimilar(o: { trader: number; hold: number; closes: num
   if (cands.length < 3) return null;
   const bucket = holdBucket(o.hold);
   const [found, states] = await Promise.all([sql`
-    select u.id, u.handle, u.display_name, t.sell_id, t.symbol, t.closed_at, t.holding_days
-    from users u cross join lateral (select sell_id, symbol, closed_at, holding_days from closed_trades x where x.user_id = u.id
+    select u.id, u.handle, u.display_name, t.id as trade_id, t.sell_id, t.symbol, t.return_pct, t.closed_at, t.holding_days,
+      not exists (select 1 from closed_trades v where v.user_id = u.id and not v.verified) as verified
+    from users u cross join lateral (select id, sell_id, symbol, return_pct, closed_at, holding_days from closed_trades x where x.user_id = u.id
       and (case when holding_days < 1 then 0 when holding_days <= 7 then 1 when holding_days <= 28 then 2 when holding_days <= 183 then 3 else 4 end) = ${bucket}
       order by closed_at desc, sell_id desc limit 1) t
     where u.id = any(${cands.map((c) => c.trader)}) and u.deleted_at is null`, recordStates(cands.map((c) => c.trader))]);
   const trades = new Map(found.filter((r) => states.get(r.id as number)?.state !== 'importing').map((r) => [r.id as number, {
-    trader: r.id as number, handle: r.handle as string, name: r.display_name as string, sellId: r.sell_id as string, symbol: r.symbol as string,
-    closedAt: r.closed_at as Date, holdingDays: r.holding_days as number, bucket }]));
+    trader: r.id as number, handle: r.handle as string, name: r.display_name as string, tradeId: String(r.trade_id), sellId: r.sell_id as string, symbol: r.symbol as string,
+    returnPct: r.return_pct as number, closedAt: r.closed_at as Date, holdingDays: r.holding_days as number, bucket, verified: r.verified as boolean }]));
   const rows = similarRows(cands, trades, bucket);
   if (!rows) return null;
   const now = o.now ?? Date.now();
+  const states1 = new Map(rows.map((r) => [r.trader, states.get(r.trader)!]));
+  if (o.panes === false) return { rows, byUser: new Map(), states: states1 };
   const miss = rows.map((r) => r.trader).filter((id) => !(now - (panes.get(id)?.at ?? -Infinity) < SIMILAR_REFRESH_MS));
   if (miss.length) {
     const read = new Map<number, PaneRow[]>(miss.map((id) => [id, []]));
@@ -69,5 +74,5 @@ export async function loadSimilar(o: { trader: number; hold: number; closes: num
     for (const [id, rs] of read) { panes.delete(id); if (panes.size >= PANES_MAX) panes.delete(panes.keys().next().value!); panes.set(id, { at: now, rows: rs }); }
   }
   const byUser = new Map<number, PaneRow[]>(rows.map((r) => [r.trader, panes.get(r.trader)!.rows]));
-  return { rows, byUser, states: new Map(rows.map((r) => [r.trader, states.get(r.trader)!])) };
+  return { rows, byUser, states: states1 };
 }
