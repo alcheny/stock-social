@@ -55,7 +55,9 @@ Each one testable; the pipeline writes a test for every line.
 - [ ] Every event is written with viewer id, surface, target (trader, trade or symbol), type and
       timestamp only; a test asserts no event row contains personal data or brokerage data.
 - [ ] "Not interested" on a suggestion removes that trader from the viewer's suggestions for 90 days
-      and lowers similar records; unfollow does the same for the trader.
+      and lowers similar records; unfollow applies the unfollow weight (−1, `lib/discovery/weights.ts`) to that
+      trader's score for the viewer and never removes the trader's cards or section rows (restated 2026-10-24 per the
+      business lead's O4 ruling, committee-pr1b §5; built in PR-4, the scoring use waits for PR-5).
 - [ ] Raw events older than 90 days are deleted by a nightly job; deleting an account deletes its
       events and affinities the same day (tested end to end).
 - [ ] Diversity: in any 10 consecutive feed cards no trader or symbol appears more than twice; at
@@ -80,6 +82,9 @@ Each one testable; the pipeline writes a test for every line.
 - Owner (O3): hide duration. Business lead backs 90 days (testable, accidental swipes not permanent,
   protects reach); engineer built 90 days as one constant. Suggested split: a rejected trade stays
   hidden permanently, a trader hidden via "Not interested" returns after 90 days.
+  PR-4 (2026-10-24) builds the committee recommendation while the owner is silent: a rejected trade stays hidden
+  for good (a `trade_exclusions` row, deleted with the account), "Not interested" stays 90 days, and the
+  trader-level −4 of a trade reject counts for 90 days (`TRADE_REJECT_TRADER_DAYS`). Still the owner's to confirm.
 - Resolved 2026-10-24 (O2): see Decisions ("Similar trades" section). Build as PR-3b.
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
   decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.

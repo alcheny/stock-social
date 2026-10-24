@@ -348,3 +348,33 @@ select schema_add_index('viewer_exclusions_until', 'create index viewer_exclusio
 -- Deleting a users row checks users.referred_by_user_id (on delete set null): without an index that is a scan of users
 -- per deleted account (found by the heavy check: removing its 100,000 fixture viewers took minutes).
 select schema_add_index('users_referred_by', 'create index users_referred_by on users (referred_by_user_id) where referred_by_user_id is not null');
+-- F-2 PR-4 (plan §PR-4): a close's stable key across rebuilds. sha256 of the sell id's UTF-8 bytes; doubling every
+-- backslash makes the bytea input read the text literally (no escape or \x parsing); every function is immutable.
+-- Equal to node:crypto's sha256 hex (lib/likes.ts#tradeKey, lib/likes.test.ts).
+select schema_add_column('closed_trades', 'trade_key', $$text generated always as (encode(sha256(replace(sell_id, chr(92), chr(92) || chr(92))::bytea), 'hex')) stored$$);
+select schema_add_index('closed_trades_trade_key', 'create index closed_trades_trade_key on closed_trades (trade_key)');
+-- Private likes (double tap, +3): one row per viewer and close, never counted or shown to anyone else. No foreign key on
+-- trade_key: a rebuild deletes closed_trades rows; a like whose close is gone is kept and ignored on read.
+create table if not exists trade_likes (
+  viewer_id int not null references users on delete cascade,
+  trade_key text not null,
+  trader_id int not null references users on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (viewer_id, trade_key),
+  check (viewer_id <> trader_id)
+);
+select schema_add_index('trade_likes_trader', 'create index trade_likes_trader on trade_likes (trader_id)');
+select schema_add_index('trade_likes_viewer_at', 'create index trade_likes_viewer_at on trade_likes (viewer_id, created_at desc, trade_key desc)');
+-- A rejected trade (the feed card's reject swipe or "Hide this trade"): hidden from this viewer's feed for good (O3,
+-- committee recommendation). The trader-level −4 it also carries counts for 90 days from created_at (PR-5 reads it).
+create table if not exists trade_exclusions (
+  viewer_id int not null references users on delete cascade,
+  trade_key text not null,
+  trader_id int not null references users on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (viewer_id, trade_key),
+  check (viewer_id <> trader_id)
+);
+-- Fix round 1: when the hidden trade was liked, the like's time (Undo restores the like; a hidden trade is never liked).
+select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
+select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');

@@ -355,6 +355,32 @@ export const FOLLOW = {
   settingsLink: 'Following and hidden traders',
 };
 
+// F-2 PR-4: private likes and rejected trades. No count anywhere; a like is a quiet state only the viewer sees.
+export const LIKES = {
+  more: (sym: string) => `More for this ${sym} trade`,
+  like: 'Like',
+  liked: 'Liked',
+  likeLabel: 'Like. Only you can see likes.',
+  saidLiked: 'Liked. Only you can see likes.',
+  saidUnliked: 'Like removed.',
+  mark: 'Liked by you',
+  signIn: 'Sign in to like trades.',
+  signInLink: 'Sign in',
+  close: 'Close',
+  hide: 'Hide this trade',
+  hidden: 'Trade hidden. You won\u2019t see it again.',
+  tray: 'Hide trade',
+  title: 'Liked trades',
+  private: 'Only you can see your likes. Traders are never told, and nothing counts them.',
+  none: 'You haven\u2019t liked a trade yet. Double-tap a trade in the feed to like it.',
+  remove: 'Remove',
+  removeFor: (s: string) => `Remove like on ${s}`,
+  closed: (s: string, d: string) => `${s}, closed ${d}`,
+  older: 'Older likes',
+  back: 'Following and hidden traders',
+  link: 'Liked trades',
+};
+
 // F-2 PR-3: the suggestions section (plan §1 PR-3), the same for every viewer. No performance number on a row (a number
 // would make it a performance screen: the pane it opens carries the record and the disclaimer); reasons are fixed
 // templates with no ticker slot, each true against its inputs (lib/discovery/section.ts#reasonFor). Scanned by
@@ -390,6 +416,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES].forEach(walk);
   return out;
 }

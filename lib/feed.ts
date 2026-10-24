@@ -6,6 +6,7 @@ import { discounted, mixFeed } from './discovery/explore.ts';
 import { CURSOR_MAX_AGE_MS, encodeCursor, pageOf, readCursor, type Cursor } from './discovery/pager.ts';
 import { displayFilter, shapeList, splitExclusions } from './discovery/exclusions.ts';
 import { exclusionsFor, followingAmong, sectionSkips } from './follows.ts';
+import { rejectedAmong } from './likes.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
@@ -263,6 +264,9 @@ export type FeedPage = {
   // F-2 PR-3: the suggestions section after the page's 5th card, or null (fewer than 3 rows). Its traders' records are in
   // byUser and records, for the pane each row opens.
   section: SectionRow[] | null;
+  // F-2 PR-4: signed in, the page's cards this viewer liked (card ids), set by the page and the paging action
+  // (lib/likes.ts); never read here, so loadFeedPage reads no like (lib/feed.signed-out.test.ts).
+  liked?: Set<string>;
 };
 export type SectionRow = { userId: number; handle: string; name: string; reason: Reason };
 
@@ -316,7 +320,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const candIds = cands.map((t) => t.trader);
   const likely = (chooseRows(cands) ?? []).map((t) => t.trader);
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
-  const [rows, states, panes, following, people] = await Promise.all([
+  // F-2 PR-4: signed in, the page's closes this viewer rejected (for good, O3) leave the page as a gap, in place.
+  const [rows, states, panes, following, people, rejected] = await Promise.all([
     page.items.length ? sql`
       select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
@@ -327,11 +332,12 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     records(withSection ? [...new Set([...traders, ...likely])] : traders),
     opts.viewer ? followingAmong(opts.viewer, traders) : null,
     withSection ? sql`select id, handle, display_name from users where id = any(${candIds}) and deleted_at is null` : [],
+    opts.viewer ? rejectedAmong(opts.viewer, page.items.map((s) => s.key)) : null,
   ]);
   const bySell = new Map(rows.map((r) => [r.sell_id as string, r]));
   const cards: FeedItem[] = page.items.flatMap((s) => {
     const r = bySell.get(s.key);
-    if (!r || r.user_id !== s.trader || states.get(s.trader)?.state === 'importing') return [];
+    if (!r || r.user_id !== s.trader || states.get(s.trader)?.state === 'importing' || rejected?.has(s.key)) return [];
     return [{ ...(r as unknown as FeedCandidate), score: s.score, explore: s.explore }];
   });
   const who = new Map(people.map((u) => [u.id as number, u]));

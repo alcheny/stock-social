@@ -3,6 +3,7 @@ import { FEED_LIST_MAX, loadFeedPage } from '@/lib/feed.ts';
 import { decodeCursor } from '@/lib/discovery/pager.ts';
 import { FeedEnd, feedRowNodes } from './feed-rows.tsx';
 import { viewerId } from '@/lib/viewer.ts';
+import { likedAmong } from '@/lib/likes.ts';
 
 // F-2 PR-1: the next 30 server-rendered cards for the auto-append (app/feed-pager.tsx). Public and read-only: it
 // writes nothing, and reads the session only for the viewer's id (F-2 PR-2, lib/viewer.ts: that viewer's own
@@ -11,6 +12,7 @@ import { viewerId } from '@/lib/viewer.ts';
 export async function nextFeedPage(cursor: unknown): Promise<{ rows: { id: string; node: React.ReactNode }[]; end: React.ReactNode; next: string | null; from: number; to: number } | { stale: true }> {
   if (typeof cursor !== 'string' || !decodeCursor(cursor, Date.now(), FEED_LIST_MAX)) return { stale: true };
   const page = await loadFeedPage(cursor, { viewer: await viewerId() }); // F-2 PR-2: the viewer's own exclusions and follows
+  if (page.viewer) page.liked = await likedAmong(page.viewer.id, page.cards.map((c) => c.id)); // F-2 PR-4
   // Fix round 2: the page's list positions, for the live line.
   return { rows: feedRowNodes(page), end: page.next ? null : <FeedEnd />, next: page.next, from: page.from, to: page.to };
 }

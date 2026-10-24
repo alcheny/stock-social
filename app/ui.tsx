@@ -32,7 +32,8 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 // each call, ~0.1 ms). Same locale, options and time zone, so the same text.
 const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
-export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: PublicState }) {
+// F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
+export function TradeCard({ t, state = 'connected', menu }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode }) {
   const up = t.return_pct > 0;
   const trust = cardTrust(t, state);
   return (
@@ -42,6 +43,7 @@ export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: Pub
           <WhoName name={t.display_name} handle={t.handle} />
         </Link>
         <RowBadge kind={trust.badge} />
+        {menu}
       </header>
       {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">

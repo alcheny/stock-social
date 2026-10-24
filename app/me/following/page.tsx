@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { ownLists, shownAgainJustNow } from '@/lib/follows.ts';
-import { FOLLOW } from '@/lib/copy.ts';
+import { FOLLOW, LIKES } from '@/lib/copy.ts';
 import { FollowButton } from '../../follow-button.tsx';
 import { showAgainForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
@@ -47,6 +47,9 @@ export default async function Following({ searchParams }: { searchParams?: Promi
           ))}
         </ul>
       ) : <p>{FOLLOW.noneHidden}</p>}
+      {/* F-2 PR-4: the viewer's likes live on their own paged page. */}
+      <h2>{LIKES.title}</h2>
+      <p><Link href="/me/likes">{LIKES.link}</Link></p>
     </main>
   );
 }
