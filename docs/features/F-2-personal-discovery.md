@@ -28,6 +28,12 @@ advice. The owner has been told this and the scope below respects it.
   row on the trader profile. Why: the owner's placement answer in the design session.
 - 2026-10-22 (restored 2026-10-23): a suggestion opens the same pane as any feed card; the profile is
   one swipe further (SW-1). Why: one interaction model everywhere.
+- 2026-10-24 (O1 resolved): the reject swipe lives on the trade card in the feed. Swiping toward the
+  profile opens it (SW-1); swiping the other way rejects that trade itself (the card), with the same
+  guards as the section swipe (finger travel past half the card, snap stop, 5-second Undo). The reject
+  applies −4 to the trade and a slight negative preference to its trader. This amends DESIGN SW-1,
+  which reserved both directions for the profile: only the opening direction is reserved now. The
+  section-row swipe (PR-3) stays. Why: owner decision; it matches the gesture vocabulary chosen earlier.
 - 2026-10-24 (O4): unfollow = slight negative preference on that trader in the recommendation score,
   never a hide. (O5): desktop gets a separate web version later; the current phone-width column stands.
 - 2026-10-23: the engineer and business lead disagree on the reject gesture (SW-1 reserves left/right
@@ -64,10 +70,10 @@ Each one testable; the pipeline writes a test for every line.
 - Pushing suggestions by notification (Phase 2 "make watching sticky").
 
 ## Open questions
-- Owner: the reject gesture. Left/right on the feed is reserved for opening the profile (SW-1). Options:
-  reject by swipe inside the suggestions section only; reject by a vertical swipe; or reject only via
-  the "Not interested" menu with the same −4. The business lead proposes the menu; the owner chose a
-  swipe in the design session.
+- Resolved 2026-10-24 (O1): see Decisions. Build in PR-4.
+- Owner (O3): hide duration. Business lead backs 90 days (testable, accidental swipes not permanent,
+  protects reach); engineer built 90 days as one constant. Suggested split: a rejected trade stays
+  hidden permanently, a trader hidden via "Not interested" returns after 90 days.
 - Owner: the profile row. The business lead proposes cutting it (it routes a trader's shared-link
   visitors away). The owner's placement decision includes it.
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
