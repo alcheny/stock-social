@@ -407,3 +407,16 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .similar .sitem { padding-left: 0; }
 .similar .srow-wrap .follow-status { padding-left: 0; }
 .tap44 { display: inline-flex; align-items: center; min-height: 44px; }
+/* F-2 PR-4: the feed card's menu, private like mark, double tap and reject swipe. No motion beyond following the finger. */
+.feed .row > .card { touch-action: manipulation; position: relative; }
+.card-menu { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.card header .badge + .card-menu { margin-left: 0; }
+.like-mark { color: var(--muted); font-size: 0.9rem; }
+.more-menu .menu-pop { position: absolute; z-index: 2; right: 0; margin-top: 4px; display: grid; gap: 4px; width: max-content; max-width: calc(100vw - 40px); }
+.more-menu .menu-pop form { position: static; margin: 0; }
+.more-menu .menu-pop button { width: 100%; min-height: 44px; }
+.card[data-rejecting]::before { content: attr(data-rejecting); position: absolute; right: 100%; top: 50%; padding-right: 16px; white-space: nowrap; color: var(--muted); font-weight: 700; }
+.signin-line { position: fixed; z-index: 20; left: 16px; right: 16px; bottom: 16px; max-width: 528px; margin: 0 auto; }
+.signin-line:not(:empty) { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.signin-line button { min-height: 44px; min-width: 44px; margin-left: auto; }
+.likes .who-col { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }

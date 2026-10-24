@@ -64,10 +64,11 @@ export async function followingAmong(viewer: number, traders: number[]): Promise
 }
 
 // F-2 PR-3: the traders the suggestions section leaves out for this viewer: everyone they follow and every running
-// exclusion, "Not interested" and unfollow alike (criterion 4: unfollow removes the trader from suggestions).
+// "Not interested". PR-4 (O4, restated criterion 4): an unfollow is never a hide; its row is the −1 signal only
+// (lib/discovery/weights.ts), so the unfollowed trader stays in the section.
 export async function sectionSkips(viewer: number): Promise<number[]> {
   return (await sql`select trader_id from follows where viewer_id = ${viewer}
-    union select trader_id from viewer_exclusions where viewer_id = ${viewer} and until > now()`).map((r) => r.trader_id as number);
+    union select trader_id from viewer_exclusions where viewer_id = ${viewer} and until > now() and reason = 'not_interested'`).map((r) => r.trader_id as number);
 }
 
 // F-2 PR-3b: the traders this viewer hid with "Not interested", still running (Similar trades leaves them out; an
@@ -100,4 +101,10 @@ export async function shownAgainJustNow(viewer: number, handle: string): Promise
 export async function isHidden(viewer: number, trader: number): Promise<boolean> {
   return (await sql`select 1 from viewer_exclusions where viewer_id = ${viewer} and trader_id = ${trader} and until > now()
     and (reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean)`).length > 0;
+}
+
+// F-2 PR-4 (O4): this viewer's running unfollows, the −1 signal PR-5 reads (lib/likes.ts#signalsFor). Never a hide.
+export async function unfollowsFor(viewer: number): Promise<{ trader: number; at: number }[]> {
+  return (await sql`select trader_id, created_at from viewer_exclusions where viewer_id = ${viewer} and reason = 'unfollow' and until > now()`)
+    .map((r) => ({ trader: r.trader_id as number, at: (r.created_at as Date).getTime() }));
 }

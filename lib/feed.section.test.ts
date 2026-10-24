@@ -1,6 +1,6 @@
 // F-2 PR-3: the suggestions section in the feed (criteria 7, 8, 9, 10), against the database. The same rows for every
-// viewer signed out; signed in, minus the viewer, their follows and every running exclusion (unfollow included: the
-// section honours the `unfollow` row, the feed does not); ordered by the TR-9 lower bound; fewer than 3 → none.
+// viewer signed out; signed in, minus the viewer, their follows and every running "Not interested" (F-2 PR-4, O4: an
+// unfollow is never a hide; it stays in the feed and the section and carries the −1 signal instead); ordered by the TR-9 lower bound; fewer than 3 → none.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -85,8 +85,10 @@ dbTest('losses are suggested under the same rules: a feed of losing records only
   }
 });
 
-dbTest('signed in: the viewer, their follows and every running exclusion leave the section; an unfollow leaves the section but not the feed; 0, 1 or 2 candidates left → no section; all hidden → no section', async () => {
+dbTest('signed in: the viewer, their follows and every running "Not interested" leave the section; an unfollowed trader stays in the section and the feed with the −1 unfollow weight on them (O4, restated criterion 4); 0, 1 or 2 candidates left → no section; all hidden → no section', async () => {
   const { loadFeedPage } = await import('./feed.ts');
+  const { signalsFor } = await import('./likes.ts');
+  const { WEIGHTS, traderPreference } = await import('./discovery/weights.ts');
   const { follow, unfollow, exclude } = await import('./follows.ts');
   const { SECTION_NEAR } = await import('./discovery/section.ts');
   const f = await fixture(40);
@@ -98,8 +100,15 @@ dbTest('signed in: the viewer, their follows and every running exclusion leave t
     await follow(f.viewer, c); await unfollow(f.viewer, c); // an 'unfollow' row
     const signedIn = await loadFeedPage(undefined, { ids: f.traders, viewer: f.viewer });
     const shown = signedIn.section!.map((r) => r.userId);
-    for (const id of [a, b, c, f.viewer]) assert.ok(!shown.includes(id), `${id} left out`);
+    for (const id of [a, b, f.viewer]) assert.ok(!shown.includes(id), `${id} left out`);
     assert.equal(shown.length, 3);
+    // O4: the unfollowed trader is still a section row (it was in the first three, and two of those left), and the
+    // unfollow's effect is the weight: −1 on that trader for this viewer, nothing for the others.
+    assert.ok(shown.includes(c), 'the unfollowed trader stays in the section');
+    const pref = traderPreference(await signalsFor(f.viewer), Date.now());
+    assert.equal(pref.get(c), WEIGHTS.unfollow);
+    assert.equal(pref.get(a), undefined);
+    assert.equal(traderPreference(await signalsFor(f.viewer), Date.now() + 90 * 86_400_000).get(c), undefined, 'ages out at 90 days');
     // The unfollowed trader is still in the feed (FEED_HIDES_UNFOLLOWED = false); the hidden one is not.
     const cards = async () => { const all: number[] = []; let p = await loadFeedPage(undefined, { ids: f.traders, viewer: f.viewer }); for (;;) { all.push(...p.cards.map((x) => x.user_id)); if (!p.next) return all; p = await loadFeedPage(p.next, { ids: f.traders, viewer: f.viewer }); } };
     const all = await cards();
@@ -108,8 +117,9 @@ dbTest('signed in: the viewer, their follows and every running exclusion leave t
     // Leave exactly k candidates (the near cards' traders are not candidates): k < 3 → no section.
     const near = new Set(signedIn.cards.slice(0, SECTION_NEAR).map((x) => x.user_id));
     const rest = f.traders.filter((id) => !near.has(id) && ![a, b, c].includes(id));
+    await follow(f.viewer, c); // followed traders leave the section and stay in the feed
     for (const k of [2, 1, 0]) {
-      for (const id of rest.slice(k)) await exclude(f.viewer, id, 'unfollow'); // unfollow rows: the feed keeps them, so the near cards stay put
+      for (const id of rest.slice(k)) await follow(f.viewer, id); // follows: the feed keeps them, so the near cards stay put
       const p = await loadFeedPage(undefined, { ids: f.traders, viewer: f.viewer, now: signedIn.asOf.getTime() });
       assert.deepEqual(new Set(p.cards.slice(0, SECTION_NEAR).map((x) => x.user_id)), near);
       assert.equal(p.section, null, `${k} candidates`);

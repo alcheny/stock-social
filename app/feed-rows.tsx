@@ -5,6 +5,7 @@ import { FEED } from '@/lib/copy.ts';
 import { ProfilePane } from './pane.tsx';
 import { TradeCard, type TradeRow } from './ui.tsx';
 import { SuggestSection } from './suggest-section.tsx';
+import { CardMenu } from './card-menu.tsx';
 import { SECTION_AT } from '@/lib/discovery/section.ts';
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
@@ -38,7 +39,8 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       id: String(t.id),
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
-          <TradeCard t={row} state={page.records.get(t.user_id)?.state} />
+          <TradeCard t={row} state={page.records.get(t.user_id)?.state}
+            menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
           {paneOf(t)}
         </div>
       ),

@@ -9,6 +9,22 @@ import { notInterestedForm } from './discovery-actions.ts';
 // ("Show again" on /me/following). Fix round 1: the popover opens leftward from the button's right edge, never wider
 // than the screen (it wraps); it closes on Esc (focus back on "…"), a click outside, or focus leaving it.
 export function NotInterested({ handle }: { handle: string }) {
+  return (
+    <MoreMenu label={FOLLOW.more(handle)}>
+      <form action={notInterestedForm.bind(null, handle)} onSubmit={(e) => {
+        e.preventDefault();
+        const d = e.currentTarget.closest('details');
+        if (d) d.open = false;
+        dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, row: e.currentTarget.closest('.row, .suggest') } })); // F-2 PR-3: or a section row
+      }}>
+        <button type="submit" className="secondary">{FOLLOW.notInterested(handle)}</button>
+      </form>
+    </MoreMenu>
+  );
+}
+
+// F-2 PR-4: the popover itself, shared with the feed card's menu (app/card-menu.tsx).
+export function MoreMenu({ label, children }: { label: string; children: React.ReactNode }) {
   const ref = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     const d = ref.current;
@@ -24,15 +40,8 @@ export function NotInterested({ handle }: { handle: string }) {
   }, []);
   return (
     <details className="more-menu" ref={ref}>
-      <summary aria-label={FOLLOW.more(handle)}><span aria-hidden="true">…</span></summary>
-      <form action={notInterestedForm.bind(null, handle)} onSubmit={(e) => {
-        e.preventDefault();
-        const d = e.currentTarget.closest('details');
-        if (d) d.open = false;
-        dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, row: e.currentTarget.closest('.row, .suggest') } })); // F-2 PR-3: or a section row
-      }}>
-        <button type="submit" className="secondary">{FOLLOW.notInterested(handle)}</button>
-      </form>
+      <summary aria-label={label}><span aria-hidden="true">…</span></summary>
+      {children}
     </details>
   );
 }

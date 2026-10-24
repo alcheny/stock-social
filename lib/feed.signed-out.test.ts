@@ -10,7 +10,7 @@ const hasDb = !!process.env.DATABASE_URL;
 const log: string[] = [];
 const params: unknown[][] = []; // F-2 PR-2: each logged query's parameters, for the signed-in cases
 if (hasDb) (globalThis as unknown as { sql: postgres.Sql }).sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {}, debug: (_c, q, p) => { log.push(String(q)); params.push(p as unknown[]); } });
-const VIEWER_TABLES = /\b(follows|viewer_exclusions|trade_likes|discovery_events)\b/i;
+const VIEWER_TABLES = /\b(follows|viewer_exclusions|trade_likes|trade_exclusions|discovery_events)\b/i; // F-2 PR-4: + trade_exclusions
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
 before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
@@ -83,6 +83,10 @@ dbTest('F-2 PR-2, signed in, pages 1 to 3: follows and viewer_exclusions are rea
   }))))}`;
   // Another viewer's rows exist too; this viewer's queries must not reach them.
   await follow(viewer, traders[0]); await exclude(viewer, traders[1], 'not_interested'); await follow(traders[2], traders[3]);
+  // F-2 PR-4: rejected trades, this viewer's and another viewer's.
+  const { rejectTrade } = await import('./likes.ts');
+  const [r1, r2] = await sql`select id::text from closed_trades where user_id = ${traders[5]} order by id limit 2`;
+  await rejectTrade(viewer, r1.id); await rejectTrade(traders[2], r2.id);
   try {
     log.length = 0; params.length = 0;
     const p1 = await loadFeedPage(undefined, { ids: traders, viewer });
@@ -91,8 +95,10 @@ dbTest('F-2 PR-2, signed in, pages 1 to 3: follows and viewer_exclusions are rea
     assert.ok(p1.cards.length && p2.cards.length && p3.cards.length);
     assert.ok([p1, p2, p3].every((p) => p.cards.every((c) => c.user_id !== traders[1])), 'the excluded trader is not shown');
     assert.ok(p1.viewer && [p1, p2, p3].some((p) => p.viewer!.following.has(traders[0])));
-    const reads = log.map((q, i) => ({ q, p: params[i] })).filter((x) => /\b(follows|viewer_exclusions)\b/.test(x.q));
+    const reads = log.map((q, i) => ({ q, p: params[i] })).filter((x) => /\b(follows|viewer_exclusions|trade_exclusions)\b/.test(x.q));
     assert.ok(reads.length >= 6, `${reads.length} viewer reads`);
+    assert.ok(reads.filter((r) => /trade_exclusions/.test(r.q)).length >= 3, 'F-2 PR-4: each page reads the viewer\'s rejected trades');
+    assert.ok([p1, p2, p3].every((p) => p.cards.every((c) => String(c.id) !== r1.id)), 'F-2 PR-4: the rejected trade is not shown');
     for (const r of reads) {
       assert.match(r.q, /where viewer_id = \$1/, r.q);
       assert.equal(Number(r.p[0]), viewer, r.q); // the driver logs parameters serialized
@@ -243,6 +249,41 @@ dbTest('F-2 PR-3b: Similar trades signed out reads no viewer table; signed in on
     assert.match(viewerReads[0][0], /viewer_exclusions/);
     assert.doesNotMatch(viewerReads[0][0], /\bfollows\b/);
     assert.deepEqual(viewerReads[0][1].map(Number), [ids[0]]);
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});
+
+// F-2 PR-4: added cases. The page and its paging action read the viewer's likes only signed in, through
+// lib/likes.ts#likedAmong with the viewer's own id, after loadFeedPage (which reads no trade_likes); the query is keyed
+// by that id.
+test('F-2 PR-4: the feed reads likes only for a signed-in viewer\'s own id, after loadFeedPage', () => {
+  for (const f of ['../app/page.tsx', '../app/feed-actions.tsx']) {
+    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+    assert.match(src, /if \(page\.viewer\) page\.liked = await likedAmong\(page\.viewer\.id, page\.cards\.map\(\(c\) => c\.id\)\);/, f);
+    assert.equal([...src.matchAll(/likedAmong\(/g)].length, 1, f);
+  }
+  assert.doesNotMatch(readFileSync(new URL('./feed.ts', import.meta.url), 'utf8'), /trade_likes|likedAmong/);
+});
+
+dbTest('F-2 PR-4, signed in: likedAmong reads trade_likes only for the given viewer id; another viewer\'s like is never returned', async () => {
+  const { sql } = await import('./db.ts');
+  const { like, likedAmong } = await import('./likes.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `k${Math.random().toString(36).slice(2, 9)}`;
+  const ids: number[] = [];
+  for (let t = 0; t < 3; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
+  const [viewer, other, trader] = ids;
+  const [c1, c2] = await sql`insert into closed_trades ${sql([1, 2].map((i) => ({ user_id: trader, sell_id: `${tag}-${i}`, account_id: 'a', symbol: 'G1',
+    opened_at: new Date(Date.now() - 86_400_000), closed_at: new Date(), return_pct: 0.1, holding_days: 1, verified: true })))} returning id::text`;
+  try {
+    await like(viewer, c1.id); await like(other, c2.id);
+    log.length = 0; params.length = 0;
+    assert.deepEqual([...await likedAmong(viewer, [c1.id, c2.id])], [c1.id]);
+    const reads = log.map((q, i) => ({ q, p: params[i] })).filter((x) => /\btrade_likes\b/.test(x.q));
+    assert.equal(reads.length, 1);
+    assert.match(reads[0].q, /where l\.viewer_id = \$1/);
+    assert.equal(Number(reads[0].p[0]), viewer);
   } finally {
     await sql`delete from users where id in ${sql(ids)}`;
   }

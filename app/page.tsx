@@ -7,6 +7,8 @@ import { FeedEnd, FeedRows } from './feed-rows.tsx';
 import { FeedPager } from './feed-pager.tsx';
 import { FeedHides } from './feed-hides.tsx';
 import { viewerId } from '@/lib/viewer.ts';
+import { likedAmong } from '@/lib/likes.ts';
+import { FeedGestures } from './feed-gestures.tsx';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -22,6 +24,8 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
 export default async function Feed({ searchParams }: Props) {
   // F-2 PR-2: signed in, the viewer's own exclusions and follows (lib/viewer.ts gives the id only).
   const page = await loadFeedPage((await searchParams).after, { viewer: await viewerId() });
+  // F-2 PR-4: signed in, which of the page's cards this viewer liked (their own rows only).
+  if (page.viewer) page.liked = await likedAmong(page.viewer.id, page.cards.map((c) => c.id));
 
   if (!page.cards.length && page.offset === 0) {
     return (
@@ -39,6 +43,7 @@ export default async function Feed({ searchParams }: Props) {
       <h1 className="sr-only">{page.offset > 0 ? FEED_COUNTS.position(page.from, page.to) : FEED.heading}</h1>
       <FeedKeys />
       {page.viewer && <FeedHides />}
+      <FeedGestures signedIn={!!page.viewer} />
       <FeedRows page={page} />
       {page.next ? <FeedPager key={page.next} next={page.next} /> : <FeedEnd />}
     </main>
