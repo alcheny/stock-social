@@ -58,3 +58,47 @@ Test users deleted, server and fake stopped, database dropped. No product code c
    more quietly. This is a taste call for the designer, not a defect.
 
 USABILITY: PROBLEMS
+
+## Round 2 (fix round 1, `bbd48f2`)
+
+Walked on `next start` (port 3122, own database, the in-repo vendor fake on its own port) at 320 and 375 (touch) and 1280
+(keyboard), light and dark, signed out and signed in, on a 60-close profile with 40 fixture traders. The pane request was
+held back by 1.2 s to see the loading state. Screenshots: `screenshots/pr3b-ux2/`.
+
+### What works
+
+- **The new trade sheet.** A tap or Enter on a row opens the sheet on that trade. Focus starts on the heading
+  "QFZ0 · closed Oct 24, 2026", which shows a focus ring for keyboard users and none after a tap. Below it come the return
+  (+32.5%, gain or loss colour), "Held under a day" and "Trade page →" (106×44, the same href as the no-JS row). Then the
+  trader's pane follows, with this trade marked in "Last 5 trades" (`aria-current`). The order is now: the trade you
+  tapped, then who made it, then the profile. That answers the round 1 question about what the sheet is about.
+- **Lazy pane: no jump.** The profile makes no pane request on load. While the pane loads, the sheet shows
+  "Loading Ux Trader 5’s record…" under the trade, and the disclaimer is already visible. When the pane arrives, the heading
+  and the trade line stay at the same y (71 / 102 px at every width), focus stays on the heading, and the sheet does not
+  scroll. Content only grows below. Reopening reuses the loaded pane with no new request and no loading line
+  (`sheet-loading-*`, `sheet-loaded-*`).
+- **Return.** Esc, or a tap on "← Back", closes the sheet and returns focus to the same row. Tab inside the sheet goes
+  "Trade page →" → trader link → chart → range buttons.
+- **Hide all and Undo (the round 1 blocker): fixed.** Each "Not interested" puts focus on Undo, at 320, 375 and 1280.
+  After the third one, the whole section disappears (heading and explainer included), and the bar stays visible because
+  it now sits outside the section. Undo brings back the section with the last row, and focus moves to that row's "…".
+  If you hide it again and press Esc on the bar, focus goes to "← Feed" (visible ring), not the page. After a reload,
+  three new rows appear (`allhidden-bar-*`, `allhidden-after-*`).
+- **Lighter rows.** Rows have no box, only a bottom rule in the same `--line` colour as the closes list (light and dark).
+  They now read as part of the same page, below "Show 10 more" (`rows-with-closes-*`).
+- **Explainer.** It is one sentence with curly apostrophes ("Other traders’ … @uxpb_big’s typical trade; … losses count
+  the same as gains."). It is short enough at 320 (4 lines) and makes no promise or claim.
+- No horizontal scroll at any width. No page errors.
+
+### Problems
+
+1. **follow-up: the dialog's name doesn't match its first heading.** A screen reader announces "Ux Trader 5’s record,
+   dialog", then "QFZ0 · closed Oct 24, 2026, heading". Now that the sheet leads with the trade, name it after the trade,
+   for example "QFZ0 · closed Oct 24, 2026 by Ux Trader 5", or point `aria-labelledby` at the h3.
+2. **follow-up: row text inset.** Without the card box, the row text keeps its 12 px inner padding. It starts at x=28 while
+   the closes list and the heading above start at x=16. Drop the horizontal padding on profile rows so the edges line up.
+   This is cosmetic.
+3. **follow-up (carried over, not this PR): "← Feed"** is now where focus lands after hiding everything, but its target is
+   only 57×20. Give it a 44 px tap height.
+
+USABILITY: PASS
