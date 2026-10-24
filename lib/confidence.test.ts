@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { confidence, evidenceLine, evidenceWeight, isNewRecord, MIN_BETS, rangeText, rankTraders, tCrit95, tooEarlyText, TOO_WIDE, tooWide, type ConfidenceInput, type Confidence } from './trades.ts';
+import { confidence, evidenceLine, evidenceWeight, isNewRecord, MIN_BETS, RANK_MIN_BETS, rangeText, rankTraders, tCrit95, TOO_EARLY_RULE, tooEarlyText, TOO_WIDE, tooWide, type ConfidenceInput, type Confidence } from './trades.ts';
 
 const DAY = 86_400_000;
 const t0 = Date.UTC(2026, 0, 1);
@@ -35,19 +35,24 @@ test('K<5 is too early with no interval or direction; K=0/1 are safe', () => {
 
 test('hand-computed interval', () => {
   // 10 clusters, x = ±0.02 alternating. m = 0; each X_c = x, so Σ(X-m)² = 10·0.0004 = 0.004.
-  // SE = sqrt(10/9 · 0.004)/10 = 0.0066667; half = 2.262 · SE (df=9).
+  // F-4 PR-1 ruling H1: the spread is max(K/(K−1)·S, (PRIOR_BETS·SIGMA_DAY²·Σd + K·S)/(PRIOR_BETS + K − 1)), here
+  // max(10/9·0.004, (5·0.01²·50 + 10·0.004)/14): the floor term binds (0.004643 > 0.004444). half = 2.262 · SE (df=9).
   const c = confidence(spaced(10, (i) => Math.expm1(i % 2 ? 0.02 : -0.02)), today);
-  const half = 2.262 * (Math.sqrt((10 / 9) * 0.004) / 10);
+  const half = 2.262 * (Math.sqrt(Math.max((10 / 9) * 0.004, (5 * 0.01 ** 2 * 50 + 10 * 0.004) / 14)) / 10);
   assert.ok(Math.abs(c.perTrade!.mid) < 1e-12);
   assert.ok(Math.abs(c.perTrade!.low - Math.expm1(-half)) < 1e-6);
   assert.ok(Math.abs(c.perTrade!.high - Math.expm1(half)) < 1e-6);
   assert.equal(c.direction, 'unclear');
 });
 
-test('zero spread collapses to the point estimate', () => {
+// F-4 PR-1 ruling H1: zero spread no longer collapses to a zero-width range (that was an artifact; TR-9's Must is "no
+// division by zero"). The variance floor gives m ± 2.262·√(5·0.01²·50/14)/10 with m = ln 1.05.
+test('zero spread never prints a zero-width range (ruling H1 floor)', () => {
   const c = confidence(spaced(10, () => 0.05), today);
-  assert.ok(Math.abs(c.perTrade!.low - c.perTrade!.high) < 1e-12);
-  assert.ok(Math.abs(c.pace30!.low - c.pace30!.high) < 1e-9);
+  const m = Math.log(1.05), half = 2.262 * (Math.sqrt((5 * 0.01 ** 2 * 50) / 14) / 10);
+  assert.ok(Math.abs(c.perTrade!.low - Math.expm1(m - half)) < 1e-9);
+  assert.ok(Math.abs(c.perTrade!.high - Math.expm1(m + half)) < 1e-9);
+  assert.ok(c.pace30!.high - c.pace30!.low > 0.001);
   assert.equal(c.direction, 'positive');
   assert.ok(Number.isFinite(c.pace30!.low));
 });
@@ -192,6 +197,10 @@ test('F-4 criterion 3: too wide is a half-width over 10 points per trade; exactl
   assert.equal(tooWide({ low: -0.1, mid: 0, high: 0.1 }), false);
   assert.equal(tooWide({ low: 0, mid: 0.1, high: 0.2 }), false);
   assert.equal(tooWide({ low: -0.1 - 1e-9, mid: 0, high: 0.1 + 1e-9 }), true);
+  // Tester L1: exactly 10.0 points is not too wide at any magnitude (0.9 − 0.7 rounds to 0.20000000000000007).
+  assert.equal(tooWide({ low: 0.7, mid: 0.8, high: 0.9 }), false);
+  assert.equal(tooWide({ low: 0.1, mid: 0.2, high: 0.3 }), false);
+  assert.equal(tooWide({ low: -0.9, mid: -0.8, high: -0.7 }), false);
   assert.equal(tooWide({ low: -0.3, mid: 0.1, high: 0.5 }), true);
 });
 
@@ -266,4 +275,85 @@ test('F-4 PR-1: no evidence or too-early line says "edge" or "of 10"', () => {
   }
   assert.ok(lines.includes('Too early to tell (4 of 5 bets)'));
   assert.ok(lines.some((l) => l.startsWith('Too early to tell: the range is still too wide (5 bets, ')));
+});
+
+// ---- F-4 PR-1 fix round 1: business lead ruling H1 (ruling-pr1-h1.md), tester M3, L5, UX lead D4 and D6 ----
+
+// The tester's lucky.ts fixtures. Log mirror: r → 1/(1+r) − 1.
+const mirror = (ts: ConfidenceInput[]) => ts.map((t) => ({ ...t, returnPct: 1 / (1 + t.returnPct) - 1 }));
+const lucky = [0.01, 0.02, 0.03, 0.015, 0.025].map((r, i) => tr(`L${i}`, 390 + i, 391 + i, r));
+const forty = Array.from({ length: 40 }, (_, i) => tr(`F${i}`, i * 4, i * 4 + 2, 0.02 + (((i * 7) % 5) - 2) / 100));
+const long = Array.from({ length: 150 }, (_, i) => tr(`G${i % 40}`, i * 3, i * 3 + 2, 0.008 + (((i * 37) % 13) - 6) / 200));
+
+test('H1: a 5-trade lucky record never outranks a 40-bet or a 150-bet record; mirrored losses rank the same', () => {
+  for (const f of [(x: ConfidenceInput[]) => x, mirror]) {
+    const [l, a, b] = [lucky, forty, long].map((ts) => confidence(f(ts), today));
+    assert.equal(l.k, 5);
+    assert.equal(b.k, 150);
+    assert.equal(evidenceWeight(l), 0);
+    assert.ok(evidenceWeight(a) > 0 && evidenceWeight(b) > 0, `${evidenceWeight(a)} ${evidenceWeight(b)}`);
+    const items = [{ id: 'lucky', weight: evidenceWeight(l), score: 50 }, { id: '150', weight: evidenceWeight(b), score: 1 }, { id: '40', weight: evidenceWeight(a), score: 1 }];
+    assert.deepEqual(rankTraders(items).map((x) => x.id), ['40', '150', 'lucky']);
+    // Display keeps the owner's floor of 5: the lucky record shows its range and tier.
+    assert.equal(l.tier, 'thin');
+    assert.ok(l.perTrade);
+  }
+  // Mirrored records weigh the same as the originals.
+  for (const ts of [lucky, forty, long]) assert.ok(Math.abs(evidenceWeight(confidence(ts, today)) - evidenceWeight(confidence(mirror(ts), today))) < 1e-12);
+});
+
+test('H1: zero spread never gives a zero-width range at any K from 5, for gains and losses', () => {
+  for (const k of [5, 6, 9, 10, 30, 200]) for (const r of [0.02, -0.02, 0]) {
+    const c = confidence(spaced(k, () => r), today);
+    assert.ok(c.perTrade && c.perTrade.high - c.perTrade.low > 1e-4, `K=${k} r=${r} perTrade`);
+    assert.ok(c.pace30 && c.pace30.high - c.pace30.low > 1e-4, `K=${k} r=${r} pace30`);
+  }
+});
+
+test('H1: the ranking floor is 10 bets and the display floor stays 5', () => {
+  assert.equal(RANK_MIN_BETS, 10);
+  const r = (i: number) => 0.02 + (i % 2 ? 0.001 : -0.001);
+  const nine = confidence(spaced(9, r), today);
+  assert.ok(nine.perTrade);
+  assert.equal(nine.tier, 'thin');
+  assert.equal(nine.direction, 'positive');
+  assert.equal(evidenceWeight(nine), 0);
+  assert.ok(evidenceWeight(confidence(spaced(10, r), today)) > 0);
+  // Never a count of trades: 5 bets made of 5,000 overlapping trades weigh 0.
+  const chain = (sym: string) => Array.from({ length: 1000 }, (_, i) => tr(sym, i * 2, i * 2 + 3, i % 2 ? 0.002 : -0.001));
+  const heavy = confidence(['A', 'B', 'C', 'D', 'E'].flatMap(chain), today);
+  assert.equal(heavy.n, 5000);
+  assert.equal(heavy.k, 5);
+  assert.equal(evidenceWeight(heavy), 0);
+});
+
+test('M3: the width rule is sign-blind on the range shown: (low, high) and (−high, −low) agree', () => {
+  for (let a = -1; a <= 1; a += 0.0137) for (let w = 0; w <= 0.4; w += 0.0071) {
+    const iv = { low: a, mid: a + w / 2, high: a + w };
+    assert.equal(tooWide(iv), tooWide({ low: -iv.high, mid: -iv.mid, high: -iv.low }), `${iv.low} ${iv.high}`);
+  }
+});
+
+// (Its log mirror, a ×1e9 gain per trade, is too early by width in simple points: ruling H1 §5 keeps that rule.)
+test('L5: a run of total-loss bets weighs a finite amount', () => {
+  const loss = confidence(spaced(12, () => -1), today);
+  assert.equal(loss.direction, 'negative');
+  assert.ok(Number.isFinite(evidenceWeight(loss)) && evidenceWeight(loss) > 0, `${evidenceWeight(loss)}`);
+  // Two such records tie instead of comparing Infinity with Infinity.
+  assert.equal(evidenceWeight(loss), evidenceWeight(confidence(spaced(20, () => -1), today)));
+  // It ranks among the clear records by weight × score, never as NaN or Infinity.
+  const order = rankTraders([{ id: 'zero', weight: 0, score: 9 }, { id: 'loss', weight: evidenceWeight(loss), score: 1 }]);
+  assert.deepEqual(order.map((x) => x.id), ['loss', 'zero']);
+});
+
+test('D4: too wide with trades outnumbering bets names the trades, as the thin line does', () => {
+  const base: Confidence = { n: 18, k: 6, spanDays: 67.2, tier: 'too-early', direction: null, perTrade: { low: -0.3, mid: 0, high: 0.3 }, pace30: { low: -0.3, mid: 0, high: 0.3 }, tradesPerMonth: 8 };
+  assert.equal(tooEarlyText(base), 'Too early to tell: the range is still too wide (6 bets from 18 trades, 67 days)');
+  assert.equal(tooEarlyText({ ...base, n: 6 }), 'Too early to tell: the range is still too wide (6 bets, 67 days)');
+});
+
+test('D6: the "What\'s this?" rule is built from the constants and carries no banned term', () => {
+  assert.equal(TOO_EARLY_RULE, `It says too early to tell until there are at least ${MIN_BETS} independent bets and the range is no more than ${Math.round(2 * TOO_WIDE * 100)} points wide.`);
+  assert.ok(TOO_EARLY_RULE.includes(' 5 independent bets') && TOO_EARLY_RULE.includes(' 20 points'));
+  assert.doesNotMatch(TOO_EARLY_RULE, /confidence interval|standard error|p-value|alpha|sharpe|\bedge\b|signal|skill|proven|guaranteed/i);
 });
