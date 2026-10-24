@@ -18,7 +18,8 @@ import { UNDO_MS } from './follow-button.tsx';
 type Bar = { handle: string; text: string; undo: boolean };
 const HANDLE = /^[a-z0-9_]{3,20}$/;
 
-export function FeedHides() {
+// F-2 PR-3b: `scope`, the part of the page whose rows a hide collapses (the profile's Similar trades section).
+export function FeedHides({ scope = '.feed' }: { scope?: string }) {
   const [hidden, setHidden] = useState<string[]>([]);
   const [bar, setBar] = useState<Bar | null>(null);
   const timer = useRef(0);
@@ -85,8 +86,8 @@ export function FeedHides() {
   const resume = () => { if (bar && !paused()) run(); };
   return (
     <>
-      <style>{hidden.map((h) => `.feed [data-handle="${h}"]{display:none}`).join('')
-        + (hidden.length ? `.feed .suggest:not(:has(> .suggest-in > ul > li${hidden.map((h) => `:not([data-handle="${h}"])`).join('')})){display:none}` : '')}</style>
+      <style>{hidden.map((h) => `${scope} [data-handle="${h}"]{display:none}`).join('')
+        + (hidden.length ? `${scope} .suggest:not(:has(> .suggest-in > ul > li${hidden.map((h) => `:not([data-handle="${h}"])`).join('')})){display:none}` : '')}</style>
       <div className="hide-bar" role="status"
         onPointerEnter={(e) => { if (e.pointerType === 'mouse') { hover.current = true; pause(); } }}
         onPointerLeave={() => { hover.current = false; resume(); }}

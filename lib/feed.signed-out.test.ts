@@ -214,3 +214,36 @@ dbTest('F-2 PR-1b, signed out: the read of traders outside the candidates touche
     await sql`delete from users where id in ${sql(ids)}`;
   }
 });
+
+// F-2 PR-3b: added cases. "Similar trades" on a profile (lib/similar.ts): signed out it reads no viewer table; signed in
+// only viewer_exclusions, for the session's viewer id (never follows: an unfollow is not a hide).
+dbTest('F-2 PR-3b: Similar trades signed out reads no viewer table; signed in only viewer_exclusions, for the viewer\'s id', async () => {
+  const { sql } = await import('./db.ts');
+  const { loadSimilar, clearSimilarCache } = await import('./similar.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `p${Math.random().toString(36).slice(2, 9)}`;
+  const ids: number[] = [];
+  for (let t = 0; t < 12; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
+  const at = Date.now() - 2 * 86_400_000;
+  await sql`insert into closed_trades ${sql(ids.slice(1).flatMap((u, t) => Array.from({ length: 5 }, (_, i) => ({
+    user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `P${i}`, opened_at: new Date(at - 3 * 86_400_000),
+    closed_at: new Date(at - (t * 5 + i) * 1000), return_pct: (i - 2) / 10 || 0.05, holding_days: 3, verified: true,
+  }))))}`;
+  try {
+    clearSimilarCache();
+    log.length = 0; params.length = 0;
+    const out = await loadSimilar({ trader: ids[1], hold: 3, closes: 5, ids: ids.slice(1) });
+    assert.equal(out?.rows.length, 3);
+    assert.deepEqual(log.filter((q) => VIEWER_TABLES.test(q)), []);
+    assert.ok(log.some((q) => /closed_trades/.test(q)));
+    log.length = 0; params.length = 0;
+    await loadSimilar({ trader: ids[1], hold: 3, closes: 5, ids: ids.slice(1), viewer: ids[0] });
+    const viewerReads = log.map((q, i) => [q, params[i]] as const).filter(([q]) => VIEWER_TABLES.test(q));
+    assert.equal(viewerReads.length, 1);
+    assert.match(viewerReads[0][0], /viewer_exclusions/);
+    assert.doesNotMatch(viewerReads[0][0], /\bfollows\b/);
+    assert.deepEqual(viewerReads[0][1].map(Number), [ids[0]]);
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});

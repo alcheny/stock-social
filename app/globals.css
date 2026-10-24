@@ -389,3 +389,8 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .pane-sheet .sheet-skip:focus-visible { top: 8px; }
 .pane-sheet .sheet-note:focus { outline: 2px solid var(--text); outline-offset: 2px; }
 .profile-follow p a { display: inline-flex; align-items: center; min-height: 44px; }
+/* F-2 PR-3b: "Similar trades" on a profile, after the trader's own trades and quieter than them. */
+.similar { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--line); }
+.similar .suggest-in { height: auto; padding: 0; overflow: visible; }
+.similar h2 { font-size: 1rem; }
+.sopen .strade { font-size: .875rem; }

@@ -372,6 +372,15 @@ export const SECTION = {
   incomplete: 'Import did not finish',
 };
 
+// F-2 PR-3b: "Similar trades" on a profile (owner decision O2). True signed out; no performance number on a row.
+const HOLD_SPANS = ['under a day', '1 to 7 days', '1 to 4 weeks', '1 to 6 months', 'over 6 months'];
+export const SIMILAR = {
+  heading: 'Similar trades',
+  explain: (handle: string) => `Closed trades by other traders, held about as long as @${handle}'s typical trade. Records with more evidence come first. Losses count the same as gains.`,
+  held: HOLD_SPANS.map((b) => `Held ${b}`),
+  closed: (symbol: string, day: string) => `${symbol} · closed ${day}`,
+};
+
 export function allCopy(): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
@@ -380,6 +389,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR].forEach(walk);
   return out;
 }

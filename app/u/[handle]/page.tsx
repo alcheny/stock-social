@@ -30,6 +30,9 @@ import { closesWindow, packPoints } from '@/lib/paging.ts';
 import { RowFocus } from './row-focus.tsx';
 import { FollowButton } from '../../follow-button.tsx';
 import { followingAmong, isHidden } from '@/lib/follows.ts';
+import { loadSimilar } from '@/lib/similar.ts';
+import { median } from '@/lib/discovery/section.ts';
+import { SimilarSection } from './similar-section.tsx';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
@@ -84,6 +87,10 @@ export default async function Profile({ params, searchParams }: Params) {
   const { user, trades, s, c, brokers, accounts, state, positions, paper, read } = data;
   const me = await currentUser();
   const isMe = me?.id === user.id;
+  // F-2 PR-3b: "Similar trades" (lib/similar.ts), only for a whole record with a typical holding period; the same for every
+  // viewer, minus a signed-in viewer's own record and hidden traders. Read alongside the rest of the page.
+  const similarP = state !== 'importing' ? loadSimilar({ trader: user.id, hold: median(trades.map((t) => t.holding_days as number)), closes: trades.length, viewer: me?.id }) : null;
+  similarP?.catch(() => {}); // awaited below; never an unhandled rejection meanwhile
   // F-2 PR-2: whether this viewer follows the trader (their own row only); never a count, never on your own profile.
   const following = !!me && !isMe && (await followingAmong(me.id, [user.id])).has(user.id);
   // Fix round 1 (UX 11): after a no-JS follow, unfollow or "Not interested", one line saying what happened, shown only
@@ -144,6 +151,7 @@ export default async function Profile({ params, searchParams }: Params) {
   // A provisional profile (no display name set yet) shows the handle once, as the heading.
   const provisional = user.display_name === user.handle;
   const fresh = isMe && !claimed && !user.snaptrade_user_id && trades.length === 0;
+  const similar = await similarP;
 
   return (
     <main className="page">
@@ -279,6 +287,7 @@ export default async function Profile({ params, searchParams }: Params) {
           {win.prev !== null && <a className="button secondary" href={`/u/${user.handle}`}>{CLOSES_PAGING.newest}</a>}
         </p>
       )}
+      {similar && <SimilarSection handle={user.handle} similar={similar} signedIn={!!me} />}
       <p><Link href="/">← Feed</Link></p>
     </main>
   );
