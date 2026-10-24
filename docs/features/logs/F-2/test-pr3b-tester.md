@@ -128,3 +128,118 @@ In the walk, the feed's section rendered 18 rows with eager panes.
 
 All `tb_` users (515) deleted. `ss_tst_pr3b` and `ss_tst_pr3bw` dropped. My servers (3474, 3475) stopped. The e2e servers
 stopped with their runs. Only this report and the screenshots are committed.
+
+## Re-run 1 (2026-10-24, product code at `bbd48f2`, fix round 1)
+
+Isolation: two databases of my own, created as the superuser and owned by the shared role: `ss_t2_pr3b` (checks, LOAD, build,
+e2e) and `ss_t2_pr3bw` (the walk and the timings). The shared `stock_social` was never written. Detached worktrees of `bbd48f2`
+and of the parent of PR-3b (`4a5ee82`) in my scratch directory, each with its own `.next`, `.env` and `node_modules`. e2e on
+3473 through a temporary Playwright config (vendor fake 4102); walk server 3474; `4a5ee82` on 3475. Port 3000 was not touched.
+Node 22.22, Postgres 16.
+
+**Verdict: DEFECTS** (one Low). Every check passes, every fix-round behaviour holds, there is no regression; the new pane route
+answers a NUL-byte handle with a 500.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed | exit 0 each time; no schema change; no `drop`/`truncate`/`delete from` |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | **623 tests: 611 pass, 12 skipped (LOAD), 0 fail** each run. 623 ≥ 623. |
+| LOAD, one file at a time | feed 6/6, sync 5/5, follows 1/1 |
+| LOAD, together | see below |
+| `CI=1 npm run build`, stdin closed | exit 0. The framework's security advisory is printed (tool output; nothing upgraded). The `4a5ee82` build stopped on it on the first attempt and passed on the retry, as the engineer saw. |
+| `npm run test:e2e` ×2 | **114 passed, 3 skipped, 0 failed**, both runs (5.3 and 5.5 min) |
+| `node scripts/compliance.ts diff origin/main` | only the existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | ok |
+| Weakened tests | the fix round's diff removes no test, assertion or `expect` line |
+
+**LOAD together, characterised.** Three ways:
+- `node --test` with the three files (separate processes, run in parallel, the default): **12/12 pass**. In my first three
+  such runs the feed suite's p95 sat at the bound (424 and 401 ms against 400 ms) while the sync suite ran beside it. That is
+  CPU contention between processes, not the sync suite.
+- `--test-concurrency=1` (one after another): **12/12 pass**.
+- One process (`--experimental-test-isolation=none`, Node 22): **all 12 tests pass within their bounds** (heavy import 1,365 ms
+  against 15,000; slowest step 433 against 3,000; rebuild 407 against 5,000; three syncs 466/387/417 against 5,000). The
+  run then reports `not ok 13 – sync.load.test.ts`, `hookFailed: write CONNECTION_ENDED`: the feed file's `after` hook has
+  already called `sql.end()` on the shared pool, so the sync file's cleanup hook cannot query, its fixture stays in the
+  database, and the process does not exit (I stopped it after 35 idle minutes).
+  **Tag: [Info, test harness, pre-existing]** the LOAD files are not built to share one process. Not a bound miss and not
+  product code. Its consequence for anyone running it: leftover load users break `section`/`similar` e2e on the same database
+  (my first two e2e passes failed 6 tests that way; after deleting the 502 leftover users both passes were green).
+
+### As a user (375 px, light and dark)
+
+Fixture: 500 traders × 25 closes, plus 50-, 40-, 30- and 5,000-close traders, all held 3 days.
+
+| Check | Result |
+|---|---|
+| Tap a row | The sheet opens on that trade: heading "WA0 · closed Oct 22, 2026" equals the row's text and has focus; then "−2.0%", "Held 1 to 7 days", "Trade page →" whose href equals the no-JS row's (`/u/<h>/trade/<h>-0`). All three rows. |
+| The pane below | Loads under the trade; the trade is marked (`.hl`, one `aria-current`) in "Last 5 trades"; "See full profile →" goes to `/u/<h>`; POLICY's disclaimer is in the sheet. Esc returns focus to the row. |
+| Trade not in the last 5 | Given 6 newer closes in another holding period, the sheet still opens on the row's trade and the pane marks nothing (no `aria-current`); nothing breaks (`sheet-not-in-last5`). |
+| Lazy load | No `/pane` request before a sheet opens; one per row trader on first open; reopening does not refetch. The profile HTML carries no "See full profile →". |
+| 5,000-close row trader | `/pane` is 591,694 bytes; server time 41–52 ms, p95 37 ms over 150 requests; click to rendered pane 193 ms (40-/30-close traders: 62–110 ms). Read only on that sheet's open. |
+| Explain line | One sentence, curly apostrophes, matches fix round 1. |
+| Hide all three (signed in) | Undo is focused after each hide; after the third the whole section (heading, explainer, rows) is hidden, the bar stays (`all-hidden-bar`). Undo brings the section back with that row. Hiding it again and Esc puts focus on "← Feed" (`all-hidden-focus`). |
+
+### `GET /u/<h>/pane`
+
+| Case | Result |
+|---|---|
+| Known trader | 200, `cache-control: public, max-age=60`; keys `state`, `trades[{id, symbol, returnPct, holdingDays, closedAt, thesis, verified}]`. No price, quantity, account, trust score or interval; theses only when published (`thesis_status = 'published'` in `records`). |
+| Impersonal | Signed in and signed out bodies identical byte for byte; no viewer data. |
+| Unknown, case-changed, `%2F..%2F` handles; soft-deleted trader | 404 `{"error":"not found"}`, `no-store` |
+| POST, PUT, DELETE, PATCH | 405 |
+| Rate limit | None, like the profile and `/pane-chart`: 60 requests in a row all 200. The shared 60 s cache is the only shield. Stance unchanged from the feed's pane chart; no finding. |
+| NUL byte (`/u/%00/pane`, `/u/tw_%00/pane`) | **500**, server log `invalid byte sequence for encoding "UTF8": 0x00`. The profile and trade pages answer the same handles with 404. |
+
+### Cost: profile p95 server time (time to first byte), `next start`, 150 sequential requests after 10 warm-ups, 3 runs
+
+Same database, both builds up at once, requests interleaved per case. Signed in = a fixture trader's session.
+
+| Profile, viewer | `4a5ee82` (no section) | `bbd48f2` | Change (mean) |
+|---|---|---|---|
+| 50 closes, signed out | 39.7 / 38.5 / 37.8 | 45.6 / 44.4 / 43.8 | +6 |
+| 50 closes, signed in | 44.7 / 35.5 / 35.3 | 46.4 / 47.9 / 44.9 | +8 |
+| 5,000 closes, signed out | 182.5 / 193.7 / 187.4 | 207.3 / 194.9 / 197.9 | +12 |
+| 5,000 closes, signed in | 185.0 / 195.0 / 200.1 | 220.4 / 217.9 / 197.2 | +18 |
+
+All four inside the +≤20 ms budget; the signed-in 5,000-close case is the closest (runs vary ±15 ms).
+
+| Profile HTML | `4a5ee82` | `bbd48f2` |
+|---|---|---|
+| 50 closes, signed out / in | 64.7 / 64.9 KB | 72.7 / 74.9 KB |
+| 5,000 closes, signed out / in | 324.3 / 324.4 KB | 332.3 / 334.4 KB |
+
+### Regressions
+
+Profile paging, the F-1 chart, the feed section, follow and hide: the `app`, `section`, `follow` and `similar` e2e suites pass in
+both green runs.
+
+### Defects
+
+- **[Low] `/u/<h>/pane` returns 500 for a handle containing a NUL byte.** `app/u/[handle]/pane/route.ts` queries before
+  checking the handle; Postgres rejects `0x00`. The profile and trade pages return 404 for the same input, and F-1 fixed the
+  same 500 elsewhere by checking the handle against the pattern first (`lib/follows.ts`). No data leaks. Fix: the same
+  pattern check (or a 404 on a handle that cannot exist) before the query.
+
+### Observations (not defects of this fix round)
+
+- **[Info, pre-existing]** Under `next start` the pane JSON is not compressed (592 KB on the wire for a 5,000-close trader;
+  48 KB gzipped); `/pane-chart` behaves the same, while pages are gzipped. A hosting layer that compresses would remove it.
+- **[Info, pre-existing, fixture-driven]** In the 5,000-close trader's pane the headline "Return if every trade were the same
+  size" printed an unformatted, very long number that runs off the 375 px screen (`sheet-big-375`). My fixture compounds
+  5,000 gains of about 3%, which no real record reaches; the pane component predates PR-3b. Recorded for the designer.
+- **[Info]** The 5,000-close trader only entered the rows once its closes were recent (the section pool comes from the feed's
+  cards for the hour); with closes spread over 200+ days it never qualified. Expected, noted for future fixtures.
+
+### Screenshots
+
+`screenshots/pr3b-test2/`, light and dark unless noted: `section-375`, `sheet-trade-375`, `sheet-big-375`,
+`sheet-not-in-last5-375` (light), `all-hidden-bar-375`, `after-undo-375`, `all-hidden-focus-375`.
+
+### Cleanup
+
+All 504 `tw_` users deleted (the e2e database's leftovers went with it). `ss_t2_pr3b` and `ss_t2_pr3bw` dropped. My servers
+(3473 via Playwright, 3474, 3475) stopped; worktrees removed. Only this report and the screenshots are committed.
