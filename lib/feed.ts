@@ -223,7 +223,8 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
       });
     }
     for (const [id, ts] of byTrader) {
-      const w: TraderFacts = { weight: ts.length ? evidenceWeight(confidence(ts, asOf)) : 0, hold: median(ts.map((t) => t.holdingDays)), n: ts.length, verified: verified.get(id) ?? false };
+      const c = ts.length ? confidence(ts, asOf) : null; // F-4 C3: the tier from the same call, for the new-record slot
+      const w: TraderFacts = { weight: c ? evidenceWeight(c) : 0, hold: median(ts.map((t) => t.holdingDays)), n: ts.length, verified: verified.get(id) ?? false, tier: c?.tier };
       out.set(id, w);
       const key = keys.get(id);
       if (!key) continue;

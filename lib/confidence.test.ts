@@ -117,9 +117,9 @@ test('rankTraders: confident direction beats wide interval; zero weights keep sc
   assert.equal(evidenceWeight(confidence([], today)), 0);
 });
 
-// F-1 PR-3 fix round 4 (UX lead note 3): "Too early to tell (9 of 10 bets)" beside 2,828 trades (the floor was 10 then; 5 since F-4). The seeded heavy record
-// trades the same symbols in four accounts from one start date with partial sells, so each symbol's holds chain into one
-// overlapping position: K = 9 is the rule working. The line now says so, and K never depends on input order or paging.
+// F-1 PR-3 fix round 4 (UX lead note 3): "Too early to tell (9 of 10 bets)" beside 2,828 trades (the floor was 10 then,
+// 5 since F-4 PR-1). The seeded heavy record trades the same symbols in four accounts from one start date with partial
+// sells, so each symbol's holds chain into one overlapping position: K = 9 is the rule working. The line now says so, and K never depends on input order or paging.
 test('evidence line explains overlapping positions when trades outnumber bets; unchanged when each trade is a bet', () => {
   const chain = (sym: string, n: number) => Array.from({ length: n }, (_, i) => tr(sym, i * 2, i * 2 + 3, i % 3 ? 0.01 : -0.01));
   const heavy = [...chain('A', 400), ...chain('B', 400), ...chain('C', 2028)];

@@ -212,6 +212,12 @@ export type Direction = 'positive' | 'negative' | 'unclear';
 export const directionText = (e: Direction | null) => (e === 'positive' ? 'above zero' : e === 'negative' ? 'below zero' : 'unclear');
 
 export type Interval = { low: number; mid: number; high: number };
+// F-4 (owner, 2026-10-22): "too early" is a model state, never a count of trades. Fewer than MIN_BETS independent bets,
+// or a per-trade interval whose half-width exceeds TOO_WIDE (simple-return points per trade). These are the threshold
+// "recorded in the design record" (IMPLEMENTATION conflict 8); DESIGN TR-9 states the same rule.
+export const MIN_BETS = 5;
+export const TOO_WIDE = 0.10;
+export const tooWide = (iv: Interval) => (iv.high - iv.low) / 2 > TOO_WIDE; // exactly 10 points is not too wide
 export type Confidence = {
   n: number; k: number; spanDays: number;
   tier: Tier; direction: Direction | null;
@@ -254,7 +260,7 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   const k = clusters.length;
   const spanDays = n ? (Math.max(...trades.map((t) => t.closedAt.getTime())) - Math.min(...trades.map((t) => t.openedAt.getTime()))) / DAY : 0;
   const tradesPerMonth = (n / Math.max(spanDays, 30)) * 30; // display only
-  const tier: Tier = k < 10 ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
+  const tier: Tier = k < MIN_BETS ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
   const base = { n, k, spanDays, tradesPerMonth };
   if (tier === 'too-early') return { ...base, tier, direction: null, perTrade: null, pace30: null };
 
@@ -270,6 +276,8 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   if (![...Object.values(perTrade), ...Object.values(pace30)].every(Number.isFinite)) {
     return { ...base, tier: 'too-early', direction: null, perTrade: null, pace30: null };
   }
+  // Too early by width: the range is still shown (it is the honest statement of how little is known), with no direction.
+  if (tooWide(perTrade)) return { ...base, tier: 'too-early', direction: null, perTrade, pace30 };
   const direction: Direction = pace30.low > 0 ? 'positive' : pace30.high < 0 ? 'negative' : 'unclear';
   return { ...base, tier, direction, perTrade, pace30 };
 }
@@ -282,18 +290,23 @@ const plural = (n: number, w: string) => counted(n, w);
 // several accounts, has few independent bets however many trades: "2,828 trades in 9 overlapping positions".
 export function evidenceLine(c: Confidence): string {
   const grouped = c.n > c.k;
-  if (c.tier === 'too-early' || !c.direction) {
-    return grouped
-      ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (10 independent bets needed)`
-      : `Too early to tell (${count(c.k)} of 10 bets)`;
-  }
+  if (c.tier === 'too-early' || !c.direction) return tooEarlyText(c);
   return `Past results: ${directionText(c.direction)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
+}
+
+// The one "too early" sentence, for every page. Too early by width (K ≥ MIN_BETS) names the width, never "12 of 5 bets".
+export function tooEarlyText(c: Confidence): string {
+  if (c.k >= MIN_BETS) return `Too early to tell: the range is still too wide (${plural(c.k, 'bet')}, ${plural(Math.round(c.spanDays), 'day')})`;
+  return c.n > c.k
+    ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (${MIN_BETS} independent bets needed)`
+    : `Too early to tell (${count(c.k)} of ${MIN_BETS} bets)`;
 }
 
 export const rangeText = (c: Confidence): string | null =>
   c.perTrade ? `(${pct(c.perTrade.low)} to ${pct(c.perTrade.high)})` : null;
 
-// TR-7: under 30 days of history or fewer than 10 closed trades.
+// TR-7: under 30 days of history or fewer than 10 closed trades. The 10 is TR-7's (decided 2026-10-13), not the TR-9
+// floor (MIN_BETS), and counts closed trades, not independent bets.
 export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, today: Date): boolean {
   if (!trades.length) return true;
   const first = Math.min(...trades.map((t) => t.openedAt.getTime()));
@@ -302,7 +315,8 @@ export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, t
 
 // Feed order: traders with a clear direction first (weight > 0), by weight × score; the rest keep score order.
 // weight = log-distance of the pace interval from zero in either direction, so equal losses and gains tie.
-export const evidenceWeight = (c: Confidence): number => (c.pace30 ? Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high)) : 0);
+// F-4: a too-early record weighs 0, including one too early by width that keeps its intervals.
+export const evidenceWeight = (c: Confidence): number => (c.pace30 && c.tier !== 'too-early' ? Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high)) : 0);
 
 export function rankTraders<T extends { weight: number; score: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => {

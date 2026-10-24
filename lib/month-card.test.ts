@@ -8,7 +8,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 const base = (o: { label: string; monthSoFar: boolean; state?: 'importing' | 'connected' | 'failed' | 'none'; demo?: boolean; count?: number }) => ({
   handle: 'a-long-handle-name-xx', displayName: 'A rather long display name', demo: o.demo ?? false, verified: !(o.demo ?? false), state: o.state ?? 'connected',
   recap: { label: o.label, monthSoFar: o.monthSoFar, count: o.count ?? 12, showHeadline: true, winRate: 0.58, avgReturn: -0.123, best: { symbol: 'ABCDE', returnPct: 1.234 }, worst: { symbol: 'VWXYZ', returnPct: -0.876 } },
-  record: { trades: 120, winRate: 0.55, avgReturn: 0.012, evidence: 'Too early to tell (8 of 10 bets)', range: '-3.0% to +5.0%', newRecord: true },
+  record: { trades: 120, winRate: 0.55, avgReturn: 0.012, evidence: 'Too early to tell: the range is still too wide (8 bets, 40 days)', range: '-3.0% to +5.0%', newRecord: true },
 });
 
 test('fix round 6 (POLICY F3): the month card keeps the disclaimer in view with the longest month label, in every record state', () => {

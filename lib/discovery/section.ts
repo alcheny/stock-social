@@ -28,7 +28,8 @@ export function median(xs: readonly number[]): number {
 }
 
 // Per trader, read at asOf: the evidence weight, the median holding days and the number of closes counted.
-export type TraderFacts = { weight: number; hold: number; n: number; verified?: boolean };
+// tier: lib/trades.ts#Tier, spelled out because this module imports only pure discovery modules (imports.test.ts).
+export type TraderFacts = { weight: number; hold: number; n: number; verified?: boolean; tier?: 'too-early' | 'thin' | 'moderate' | 'strong' };
 export type SectionTrader = TraderFacts & { trader: number; score: number };
 
 export function sectionPool(cards: readonly { trader: number; score: number }[], facts: ReadonlyMap<number, TraderFacts>): SectionTrader[] {
@@ -91,7 +92,10 @@ export function sectionCandidates(pool: readonly SectionTrader[], list: readonly
 // closes is such a record. The third place goes to the weight-0 trader with no card earlier in the list, not yet in an
 // earlier section while one is left, with the fewest closes counted (then the lower id): the newest record. The rows
 // still read in non-increasing evidence (row 3 has weight 0 and no more closes than rows 1 and 2), so the section's line
-// stays true; no raw average, size of a move or sign is read, and every viewer gets the same slot. Only a verified
+// stays true; no raw average, size of a move or sign is read, and every viewer gets the same slot.
+// F-4 PR-1 (business lead C3): under the owner's 5-bet floor a newcomer whose first closes agree can have a small weight,
+// so the slot is for the newest record: weight 0 or tier thin. Moderate and strong records (and facts without a tier)
+// with weight compete on weight alone; chooseRows still shows the rows in evidence order. Only a verified
 // record (every close verified) takes the slot: Demo data is never promoted as a new record.
 // Fix round 1 (business lead demand 2): the slot is chosen before the bucket cap. It moves to the front of the
 // candidates, so the cap fills the other two rows around it (it no longer gives way when rows 1 and 2 share its
@@ -101,7 +105,7 @@ function newRecordSlot(cands: SectionTrader[], carded: ReadonlySet<number>, earl
   let at = -1;
   for (let i = 0; i < cands.length; i++) {
     const t = cands[i];
-    if (t.weight > 0 || t.verified === false || carded.has(t.trader)) continue;
+    if ((t.weight > 0 && t.tier !== 'thin') || t.verified === false || carded.has(t.trader)) continue;
     const u = cands[at];
     if (!u || (+earlier.has(t.trader) - +earlier.has(u.trader) || t.n - u.n || t.trader - u.trader) < 0) at = i;
   }

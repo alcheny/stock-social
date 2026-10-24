@@ -189,7 +189,8 @@ dbTest('F-2 PR-1: pages 1 to 3 concatenated equal the unpaged list; caps hold ac
 
 dbTest('F-2 PR-1: losses rank equal to gains: negating every return leaves the feed order unchanged', async () => {
   const { feedList, feedCandidates } = await import('./feed.ts');
-  // Records under 10 bets (TR-9 "too early"), so the order is the feed's size-of-move × recency score and the mix.
+  // 6 bets with ±30% swings: TR-9 "too early" by width (F-4 PR-1; under 10 bets before), weight 0, so the order is the
+  // feed's size-of-move × recency score and the mix.
   const f = await fixture(30, 6, (t, i) => ((t * 11 + i * 7) % 19 - 9) / 30 || 0.01);
   try {
     const asOf = new Date();
