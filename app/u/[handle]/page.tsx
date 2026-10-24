@@ -288,7 +288,7 @@ export default async function Profile({ params, searchParams }: Params) {
         </p>
       )}
       {similar && <SimilarSection handle={user.handle} similar={similar} signedIn={!!me} />}
-      <p><Link href="/">← Feed</Link></p>
+      <p><Link href="/" className="tap44">← Feed</Link></p>
     </main>
   );
 }

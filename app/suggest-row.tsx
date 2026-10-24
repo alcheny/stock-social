@@ -17,7 +17,7 @@ let lastClose = 0;
 
 // F-2 PR-3b: `href`, where the row leads without JavaScript (a Similar trades row: that trade's page); `lazy`, the pane
 // enters the page only when its sheet first opens (a profile keeps one chart and one list of closes until then).
-export function SuggestRow({ handle, name, signedIn, pane, actions, children, href = `/u/${handle}`, lazy = false }: { handle: string; name: string; signedIn: boolean; pane: ReactNode; actions: ReactNode; children: ReactNode; href?: string; lazy?: boolean }) {
+export function SuggestRow({ handle, name, signedIn, pane, actions, children, href = `/u/${handle}`, lazy = false, label }: { label?: string; handle: string; name: string; signedIn: boolean; pane: ReactNode; actions: ReactNode; children: ReactNode; href?: string; lazy?: boolean }) {
   const [ready, setReady] = useState(false);
   const [shown, setShown] = useState(!lazy);
   const box = useRef<HTMLDivElement>(null);
@@ -107,7 +107,7 @@ export function SuggestRow({ handle, name, signedIn, pane, actions, children, hr
         {/* Outside the swipe container, so the "…" menu is never clipped by it. */}
         {actions && <div className="sactions">{actions}</div>}
       </div>
-      <dialog className="pane-sheet" ref={sheet} aria-label={`${name}’s record`}
+      <dialog className="pane-sheet" ref={sheet} aria-label={label ?? `${name}’s record`}
         onClick={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).closest('[data-back]')) close(); }}>
         {/* Fix round 1: the page's skip link is behind the modal, so the sheet has its own (shown when focused). */}
         {ready && <button type="button" className="sheet-skip" onClick={() => sheet.current?.querySelector<HTMLElement>('.sheet-note')?.focus()}>{SECTION.skip}</button>}

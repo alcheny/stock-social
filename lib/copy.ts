@@ -376,7 +376,7 @@ export const SECTION = {
 const HOLD_SPANS = ['under a day', '1 to 7 days', '1 to 4 weeks', '1 to 6 months', 'over 6 months'];
 export const SIMILAR = {
   heading: 'Similar trades',
-  explain: (handle: string) => `Other traders’ closed trades held about as long as @${handle}’s typical trade; records with more evidence come first, and losses count the same as gains.`,
+  explain: (handle: string) => `Other traders’ closed trades, held about as long as @${handle}’s typical trade, losses included.`,
   trade: 'Trade page →',
   held: HOLD_SPANS.map((b) => `Held ${b}`),
   closed: (symbol: string, day: string) => `${symbol} · closed ${day}`,

@@ -404,3 +404,6 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .pane .rows .line.hl { outline: 2px solid var(--line); outline-offset: 2px; font-weight: 600; }
 /* UX follow-up (row weight): Similar rows on a profile without the card border, so they sit quieter than the record. */
 .similar .srow-wrap { background: transparent; border-width: 0 0 1px; border-radius: 0; }
+.similar .sitem { padding-left: 0; }
+.similar .srow-wrap .follow-status { padding-left: 0; }
+.tap44 { display: inline-flex; align-items: center; min-height: 44px; }

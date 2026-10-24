@@ -9,6 +9,8 @@ import { recordStates } from '@/lib/connections.ts';
 // record is not whole, so it is not served.
 export async function GET(_req: Request, { params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
+  // Reviewer (tester Low): a handle outside the signup pattern (a NUL byte made Postgres throw, a 500) is a 404 before any query.
+  if (!/^[a-z0-9_]{3,20}$/.test(handle)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const no = () => NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const [user] = await sql`select id from users where handle = ${handle} and deleted_at is null`;
   if (!user) return no();
