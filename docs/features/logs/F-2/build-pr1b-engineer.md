@@ -60,7 +60,7 @@ live in pure modules lib/feed.ts uses).
 | `npx tsc --noEmit` | clean |
 | `npm test` ×3 (+1) | **610 tests, 598 pass, 12 skipped (LOAD), 0 fail** on runs 2, 3, 4. Run 1: 11 failures in `lib/reflections.test.ts`, its `before` hook hit a foreign key on `broker_accounts` (a user removed by another file running in parallel); not touched by this PR, not seen again in three runs. Reported, not fixed here. |
 | `LOAD=1` feed | **6/6** (numbers in §2; late-import cases p95 274 ms, cold median under 1 s) |
-| `LOAD=1` sync, follows | see the closing note below |
+| `LOAD=1` sync, follows | **5/5, 1/1** |
 | `CI=1 npm run build`, stdin closed | first run stops on the framework's security advisory (tool output; nothing upgraded); retry exit 0 |
 | `npm run test:e2e` ×2 | **109 passed, 3 skipped, 0 failed** both runs (4.0 / 4.0 min). Port 3000 was held by a server this session did not start, so the runs used a throwaway config on port 3105 (deleted). Committed screenshots the runs rewrite were restored. |
 | `node scripts/compliance.ts diff origin/main` | only the pre-existing `@img/sharp-wasm32` license line |
