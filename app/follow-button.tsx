@@ -6,8 +6,8 @@ import { follow, followForm, unfollow, unfollowForm, type DiscoveryResult } from
 // F-2 PR-2: "Follow" / "Following" on the profile header and the feed pane, signed in only (fix round 1: signed out
 // there is no control, since sign-in cannot return to the trader). Private: no count anywhere. Optimistic (feedback on
 // the tap; reverted with one line if the server refuses); the other copies of the same trader's pane on the page follow
-// along. Without JavaScript the form posts the same action. Unfollow says nothing and hides nothing (fix round 1:
-// FEED_HIDES_UNFOLLOWED); "Follow" coming back is the feedback, and tapping it again is the undo. The status paragraph
+// along. Without JavaScript the form posts the same action. Unfollow says nothing and hides nothing (fix round 1;
+// F-2 PR-4, O4: it only ranks the trader slightly lower for this viewer); "Follow" coming back is the feedback, and tapping it again is the undo. The status paragraph
 // is an always-rendered polite live region (registered before it speaks; no status role, so it never competes with a
 // page's own status line), and says "Only you can see this." once per viewer.
 const EVENT = 'ss:follow';

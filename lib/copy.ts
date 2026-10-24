@@ -3,7 +3,7 @@
 // F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
 import { count, counted } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
-import { EXCLUSION_DAYS } from './discovery/weights.ts';
+import { EXCLUSION_DAYS, TRADE_REJECT_DAYS } from './discovery/weights.ts';
 
 export const SIGNIN = {
   title: 'Publish your trades',
@@ -355,6 +355,23 @@ export const FOLLOW = {
   settingsLink: 'Following and hidden traders',
 };
 
+// F-2 PR-4: likes (private, no count anywhere) and the feed card's reject (O1). The hide line changes with
+// TRADE_REJECT_DAYS (O3 is the owner's: permanent reads "Hidden.").
+export const LIKES = {
+  like: 'Like. Only you can see likes.',
+  signin: 'Sign in to like records. Only you can see likes.',
+  signinLink: 'Sign in',
+  hide: 'Hide this trade',
+  tray: 'Hide trade',
+  hidden: Number.isFinite(TRADE_REJECT_DAYS) ? `Hidden for ${TRADE_REJECT_DAYS} days.` : 'Hidden.',
+  heading: 'Liked records',
+  explain: 'Only you can see likes. Traders are never told.',
+  none: 'No liked records yet. Double-tap a trade in the feed, or use its heart.',
+  closed: (symbol: string, day: string, h: string) => `${symbol} · closed ${day} · @${h}`,
+  unlike: 'Unlike',
+  unlikeFor: (symbol: string, h: string) => `Unlike ${symbol} by @${h}`,
+};
+
 // F-2 PR-3: the suggestions section (plan §1 PR-3), the same for every viewer. No performance number on a row (a number
 // would make it a performance screen: the pane it opens carries the record and the disclaimer); reasons are fixed
 // templates with no ticker slot, each true against its inputs (lib/discovery/section.ts#reasonFor). Scanned by
@@ -390,6 +407,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES].forEach(walk);
   return out;
 }

@@ -24,14 +24,19 @@ export async function purgeDiscovery(opts: { boxMs?: number; batch?: number; clo
     try {
       await opts.hold?.();
       let deleted = 0;
-      for (;;) {
-        if (clock() >= end) return { ran: true, deleted, done: false };
-        const gone = await conn`delete from viewer_exclusions where (viewer_id, trader_id) in (
+      // F-2 PR-4: then trade rejects ended over a day ago (a permanent one, until = 'infinity', is never purged).
+      const steps = [() => conn`delete from viewer_exclusions where (viewer_id, trader_id) in (
           select viewer_id, trader_id from viewer_exclusions where until < now() - ${EXCLUSION_KEEP_ENDED_DAYS} * interval '1 day'
-          order by until limit ${batch})`;
+          order by until limit ${batch})`, () => conn`delete from trade_rejects where (viewer_id, trade_key) in (
+          select viewer_id, trade_key from trade_rejects where until < now() - ${EXCLUSION_KEEP_ENDED_DAYS} * interval '1 day'
+          order by until limit ${batch})`];
+      for (const step of steps) for (;;) {
+        if (clock() >= end) return { ran: true, deleted, done: false };
+        const gone = await step();
         deleted += gone.count;
-        if (gone.count < batch) return { ran: true, deleted, done: true };
+        if (gone.count < batch) break;
       }
+      return { ran: true, deleted, done: true };
     } finally {
       await conn`select pg_advisory_unlock(${PURGE_LOCK}, 0)`;
     }

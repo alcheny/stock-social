@@ -329,9 +329,10 @@ create table if not exists follows (
   check (viewer_id <> trader_id)
 );
 select schema_add_index('follows_trader', 'create index follows_trader on follows (trader_id)');
--- "Not interested" and unfollow: 90-day exclusions. The feed honors only 'not_interested' (fix round 1; the owner can
--- switch it, lib/discovery/weights.ts#FEED_HIDES_UNFOLLOWED); 'unfollow' is kept for PR-3's suggestions. Undo and "Show again"
--- end it (until = now()) without deleting; the sync tick deletes rows ended over a day ago (lib/discovery/purge.ts).
+-- "Not interested" and unfollow: 90-day rows. 'not_interested' hides the trader from the viewer's feed and suggestions;
+-- 'unfollow' is never a hide (F-2 PR-4, owner decision O4): a slight negative on that trader (lib/discovery/prefs.ts).
+-- Undo and "Show again" end it (until = now()) without deleting; the sync tick deletes rows ended over a day ago
+-- (lib/discovery/purge.ts).
 create table if not exists viewer_exclusions (
   viewer_id int not null references users on delete cascade,
   trader_id int not null references users on delete cascade,
@@ -348,3 +349,33 @@ select schema_add_index('viewer_exclusions_until', 'create index viewer_exclusio
 -- Deleting a users row checks users.referred_by_user_id (on delete set null): without an index that is a scan of users
 -- per deleted account (found by the heavy check: removing its 100,000 fixture viewers took minutes).
 select schema_add_index('users_referred_by', 'create index users_referred_by on users (referred_by_user_id) where referred_by_user_id is not null');
+
+-- F-2 PR-4: likes and trade rejects, private to the viewer like follows (no page counts or lists them for anyone else;
+-- no event rows). Keyed by the closing sell's id hashed (sha256 of its UTF-8 bytes, hex), which survives rebuildTrades,
+-- so a like or reject re-attaches when its trade comes back; one whose trade is gone is kept and ignored on read.
+-- Doubling every backslash makes the bytea input read the text literally (no escape or \x hex parsing).
+select schema_add_column('closed_trades', 'trade_key', $d$text generated always as (encode(sha256(replace(sell_id, chr(92), chr(92) || chr(92))::bytea), 'hex')) stored$d$);
+select schema_add_index('closed_trades_trade_key', 'create index closed_trades_trade_key on closed_trades (trade_key)');
+create table if not exists trade_likes (
+  viewer_id int not null references users on delete cascade,
+  trade_key text not null check (trade_key ~ '^[0-9a-f]{64}$'),
+  trader_id int not null references users on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (viewer_id, trade_key),
+  check (viewer_id <> trader_id)
+);
+select schema_add_index('trade_likes_trader', 'create index trade_likes_trader on trade_likes (trader_id)');
+-- The reject swipe on a feed card (owner decision O1): that trade is hidden from the viewer's feed until `until`
+-- (lib/discovery/weights.ts#TRADE_REJECT_DAYS; 'infinity' if the owner makes it permanent, O3), and its trader gets a
+-- slight negative for 90 days. Undo ends it (until = now()); the tick deletes rows ended over a day ago.
+create table if not exists trade_rejects (
+  viewer_id int not null references users on delete cascade,
+  trade_key text not null check (trade_key ~ '^[0-9a-f]{64}$'),
+  trader_id int not null references users on delete cascade,
+  created_at timestamptz not null default now(),
+  until timestamptz not null,
+  primary key (viewer_id, trade_key),
+  check (viewer_id <> trader_id)
+);
+select schema_add_index('trade_rejects_trader', 'create index trade_rejects_trader on trade_rejects (trader_id)');
+select schema_add_index('trade_rejects_until', 'create index trade_rejects_until on trade_rejects (until)');

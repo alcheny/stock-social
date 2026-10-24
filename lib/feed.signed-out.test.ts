@@ -247,3 +247,44 @@ dbTest('F-2 PR-3b: Similar trades signed out reads no viewer table; signed in on
     await sql`delete from users where id in ${sql(ids)}`;
   }
 });
+
+// F-2 PR-4: added cases. Signed out the feed reads no trade_rejects (nor trade_likes); signed in, its one read of
+// trade_rejects is keyed by the session's viewer id, and the feed's own read never reads likes (the like buttons' pressed
+// state comes from GET /me/liked, signed in only).
+dbTest('F-2 PR-4: signed out, pages 1 to 3 read neither trade_rejects nor trade_likes; signed in, trade_rejects is read only for the viewer\'s id and trade_likes never', async () => {
+  const { sql } = await import('./db.ts');
+  const { loadFeedPage } = await import('./feed.ts');
+  const { rejectTrade, like } = await import('./likes.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `k${Math.random().toString(36).slice(2, 9)}`;
+  const ids: number[] = [];
+  for (let t = 0; t < 41; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
+  const [viewer, ...traders] = ids;
+  const at = Date.now() - 600_000;
+  await sql`insert into closed_trades ${sql(traders.flatMap((u, t) => Array.from({ length: 5 }, (_, i) => ({
+    user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `K${(t * 5 + i) % 41}`, opened_at: new Date(at - 86_400_000),
+    closed_at: new Date(at - (t * 5 + i) * 1000), return_pct: ((t + i) % 7 - 3) / 10 || 0.05, holding_days: 1, verified: true,
+  }))))}`;
+  const key = async (u: number) => (await sql`select trade_key from closed_trades where user_id = ${u} limit 1`)[0].trade_key as string;
+  await rejectTrade(viewer, await key(traders[0])); await like(viewer, await key(traders[1])); await rejectTrade(traders[2], await key(traders[3]));
+  const TRADE_TABLES = /\b(trade_rejects|trade_likes)\b/;
+  try {
+    log.length = 0; params.length = 0;
+    let p = await loadFeedPage(undefined, { ids: traders });
+    for (let i = 0; i < 2 && p.next; i++) p = await loadFeedPage(p.next, { ids: traders });
+    assert.deepEqual(log.filter((q) => TRADE_TABLES.test(q)), []);
+    log.length = 0; params.length = 0;
+    const p1 = await loadFeedPage(undefined, { ids: traders, viewer });
+    const p2 = await loadFeedPage(p1.next!, { ids: traders, viewer });
+    assert.ok(p1.cards.length && p2.cards.length);
+    const reads = log.map((q, i) => ({ q, p: params[i] })).filter((x) => TRADE_TABLES.test(x.q));
+    assert.equal(reads.length, 2, 'one per page');
+    for (const r of reads) {
+      assert.match(r.q, /from trade_rejects where viewer_id = \$1/, r.q);
+      assert.equal(Number(r.p[0]), viewer);
+    }
+    assert.deepEqual(log.filter((q) => /\btrade_likes\b/.test(q)), []);
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});

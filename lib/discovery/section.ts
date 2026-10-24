@@ -29,7 +29,8 @@ export function median(xs: readonly number[]): number {
 
 // Per trader, read at asOf: the evidence weight, the median holding days and the number of closes counted.
 export type TraderFacts = { weight: number; hold: number; n: number; verified?: boolean };
-export type SectionTrader = TraderFacts & { trader: number; score: number };
+// `pref`: F-2 PR-4, signed in only, the viewer's negative preference on this trader (lib/discovery/prefs.ts).
+export type SectionTrader = TraderFacts & { trader: number; score: number; pref?: number };
 
 export function sectionPool(cards: readonly { trader: number; score: number }[], facts: ReadonlyMap<number, TraderFacts>): SectionTrader[] {
   const best = new Map<number, number>();
@@ -58,8 +59,9 @@ export function capped<T extends { trader: number; hold: number }>(cands: readon
 // then read in evidence order (weight, closes, id: the pool's order), so "Ordered by how much evidence each record has"
 // is true of every section's verified rows (a Demo row, badged, fills a row only when fewer than 3 verified records
 // qualify, and reads last: business lead demand 1).
-export const byEvidence = (a: { weight: number; n: number; trader: number }, b: { weight: number; n: number; trader: number }) =>
-  b.weight - a.weight || b.n - a.n || a.trader - b.trader;
+// F-2 PR-4 (O4): between equal evidence, a trader with a negative preference reads after one without.
+type Ev = { weight: number; n: number; trader: number; pref?: number };
+export const byEvidence = (a: Ev, b: Ev) => b.weight - a.weight || b.n - a.n || (b.pref ?? 0) - (a.pref ?? 0) || a.trader - b.trader;
 export function chooseRows<T extends { trader: number; hold: number; weight: number; n: number; verified?: boolean }>(cands: readonly T[], n = SECTION_ROWS): T[] | null {
   const out = capped(cands, n);
   return out.length === n ? out.sort((a, b) => +(a.verified === false) - +(b.verified === false) || byEvidence(a, b)) : null;
@@ -103,7 +105,7 @@ function newRecordSlot(cands: SectionTrader[], carded: ReadonlySet<number>, earl
     const t = cands[i];
     if (t.weight > 0 || t.verified === false || carded.has(t.trader)) continue;
     const u = cands[at];
-    if (!u || (+earlier.has(t.trader) - +earlier.has(u.trader) || t.n - u.n || t.trader - u.trader) < 0) at = i;
+    if (!u || (+earlier.has(t.trader) - +earlier.has(u.trader) || t.n - u.n || (u.pref ?? 0) - (t.pref ?? 0) || t.trader - u.trader) < 0) at = i;
   }
   if (at > 0) cands.unshift(cands.splice(at, 1)[0]);
 }

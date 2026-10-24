@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { PublicState } from '@/lib/connections.ts';
-import { RECORD_BODY } from '@/lib/copy.ts';
+import { LIKES, RECORD_BODY } from '@/lib/copy.ts';
 import { cardTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 
@@ -32,7 +32,22 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 // each call, ~0.1 ms). Same locale, options and time zone, so the same text.
 const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
-export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: PublicState }) {
+// F-2 PR-4: `act` (feed cards that are not the viewer's own): the like button (the keyboard and screen-reader route of
+// the double tap; pressed state from GET /me/liked) and, signed in, "Hide this trade" (the route of the reject swipe).
+// Behavior: app/card-gestures.tsx. Signed out a like shows one sign-in line. No count anywhere.
+export function CardActions({ act }: { act: { key: string; signedIn: boolean } }) {
+  return (
+    <>
+      <span className="card-acts">
+        <button type="button" className="like" aria-pressed={false} aria-label={LIKES.like} data-like={act.key}><span aria-hidden="true" /></button>
+        {act.signedIn && <button type="button" className="secondary hide-trade" data-reject={act.key}>{LIKES.hide}</button>}
+      </span>
+      {!act.signedIn && <p className="like-signin small" hidden>{LIKES.signin} <Link href="/login">{LIKES.signinLink}</Link></p>}
+    </>
+  );
+}
+
+export function TradeCard({ t, state = 'connected', act }: { t: TradeRow; state?: PublicState; act?: { key: string; signedIn: boolean } }) {
   const up = t.return_pct > 0;
   const trust = cardTrust(t, state);
   return (
@@ -52,6 +67,7 @@ export function TradeCard({ t, state = 'connected' }: { t: TradeRow; state?: Pub
       <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
       <footer className="muted">
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
+        {act && <CardActions act={act} />}
       </footer>
     </article>
   );

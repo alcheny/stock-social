@@ -25,3 +25,17 @@ export function swipeOutcome(scrollLeft: number, rest: number, width: number, ar
   if (-d > width / 2) return 'open';
   return 'back';
 }
+
+// F-2 PR-4 (O1): the reject swipe on a feed card. The card rests at the row's start (SW-1 keeps the opening direction:
+// the pane); the other direction is a drag of the card itself, armed by canArm on a touch that starts with the row at
+// rest (so a fling back from the pane can never carry into a reject: the snap stop), and it commits only when the
+// finger travelled at least half the card toward the reject. Anything else snaps back.
+export const cardOutcome = (armed: boolean, travel: number, card: number): 'reject' | 'back' => (armed && travel >= card / 2 ? 'reject' : 'back');
+
+// F-2 PR-4: double tap on a card's body = a private like. Two taps on the same card within DOUBLE_TAP_MS and
+// DOUBLE_TAP_PX of each other; `plain`: the tap is on the card's body, not a link, button or chart.
+export const DOUBLE_TAP_MS = 300;
+export const DOUBLE_TAP_PX = 24;
+export type Tap = { t: number; x: number; y: number; card: string; plain: boolean };
+export const isDoubleTap = (prev: Tap | null, cur: Tap): boolean =>
+  !!prev && prev.plain && cur.plain && prev.card === cur.card && cur.t - prev.t <= DOUBLE_TAP_MS && Math.hypot(cur.x - prev.x, cur.y - prev.y) <= DOUBLE_TAP_PX;

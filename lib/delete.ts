@@ -24,6 +24,9 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
     tx`update users set deleted_at = coalesce(deleted_at, now()) where id = ${u.id}`,
     tx`delete from follows where viewer_id = ${u.id} or trader_id = ${u.id}`,
     tx`delete from viewer_exclusions where viewer_id = ${u.id} or trader_id = ${u.id}`,
+    // F-2 PR-4: likes and trade rejects too.
+    tx`delete from trade_likes where viewer_id = ${u.id} or trader_id = ${u.id}`,
+    tx`delete from trade_rejects where viewer_id = ${u.id} or trader_id = ${u.id}`,
   ]);
   if (u.snaptrade_user_id && u.snaptrade_secret_enc) await deps.deleteVendorUser({ snaptradeUserId: u.snaptrade_user_id, secretEnc: u.snaptrade_secret_enc });
   await sql.begin(async (tx) => {

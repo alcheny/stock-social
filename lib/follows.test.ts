@@ -137,8 +137,10 @@ dbTest('the signed-in feed honors exclusions (excluded at 89 d 23 h 59 m, back a
 // not the feed; the privacy line shows once per viewer, ever.
 dbTest('fix round 1: an unfollow keeps its 90-day row but neither the feed nor "Not interested" honors it; it never replaces a running "Not interested"; the privacy line is flagged once per viewer, even after the list empties', async () => {
   const F = await import('./follows.ts');
-  const { FEED_HIDES_UNFOLLOWED } = await import('./discovery/weights.ts');
-  assert.equal(FEED_HIDES_UNFOLLOWED, false);
+  // F-2 PR-4 (O4): restated. FEED_HIDES_UNFOLLOWED is retired: an unfollow is a slight negative (−1), never a hide.
+  const W = await import('./discovery/weights.ts');
+  assert.ok(!('FEED_HIDES_UNFOLLOWED' in W));
+  assert.equal(W.WEIGHTS.unfollow, -1);
   const { loadFeedPage } = await import('./feed.ts');
   const p = await people(6);
   const [a, b] = p.traders;
@@ -150,7 +152,7 @@ dbTest('fix round 1: an unfollow keeps its 90-day row but neither the feed nor "
     const [x] = await p.sql`select reason, until > now() as running from viewer_exclusions where viewer_id = ${p.viewer} and trader_id = ${a}`;
     assert.deepEqual({ ...x }, { reason: 'unfollow', running: true }); // kept for PR-3's section
     assert.ok((await all(p.viewer)).includes(a), 'an unfollowed trader stays in the feed');
-    assert.deepEqual(await all(p.viewer), await all());
+    assert.deepEqual([...await all(p.viewer)].sort(), [...await all()].sort()); // O4: the same cards, the unfollowed ranked lower
     assert.deepEqual((await F.ownLists(p.viewer)).hidden, []); // never listed under "Not interested"
     assert.equal(await F.isHidden(p.viewer, a), false);
     assert.deepEqual(await F.follow(p.viewer, b), { first: false }); // shown once per viewer, not per empty list

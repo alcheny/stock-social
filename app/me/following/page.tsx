@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { ownLists, shownAgainJustNow } from '@/lib/follows.ts';
-import { FOLLOW } from '@/lib/copy.ts';
+import { ownLikes } from '@/lib/likes.ts';
+import { FOLLOW, LIKES } from '@/lib/copy.ts';
 import { FollowButton } from '../../follow-button.tsx';
-import { showAgainForm } from '../../discovery-actions.ts';
+import { showAgainForm, unlikeForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
 
 export const metadata: Metadata = { title: `${FOLLOW.title} · Stock Social`, robots: { index: false, follow: false } };
@@ -19,7 +20,7 @@ const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', y
 export default async function Following({ searchParams }: { searchParams?: Promise<{ back?: string }> }) {
   const me = await currentUser();
   if (!me) redirect('/login');
-  const { following, hidden } = await ownLists(me.id);
+  const [{ following, hidden }, liked] = await Promise.all([ownLists(me.id), ownLikes(me.id)]);
   const back = (await searchParams)?.back;
   const isBack = typeof back === 'string' && /^[a-z0-9_]{3,20}$/.test(back) && !hidden.some((t) => t.handle === back) && (await shownAgainJustNow(me.id, back));
   return (
@@ -47,6 +48,19 @@ export default async function Following({ searchParams }: { searchParams?: Promi
           ))}
         </ul>
       ) : <p>{FOLLOW.noneHidden}</p>}
+      {/* F-2 PR-4: the viewer's likes, never anyone else's; no return shown (the trade page carries the record). */}
+      <h2 id="liked">{LIKES.heading}</h2>
+      <p className="muted">{LIKES.explain}</p>
+      {liked.length ? (
+        <ul className="rows people">
+          {liked.map((t) => (
+            <li key={t.key} className="line">
+              <span className="who-col"><Link href={`/u/${t.handle}/trade/${encodeURIComponent(t.sellId)}`}>{LIKES.closed(t.symbol, DAY.format(t.closedAt), t.handle)}</Link></span>
+              <form action={unlikeForm.bind(null, t.key)}><button className="secondary" aria-label={LIKES.unlikeFor(t.symbol, t.handle)}>{LIKES.unlike}</button></form>
+            </li>
+          ))}
+        </ul>
+      ) : <p>{LIKES.none}</p>}
     </main>
   );
 }

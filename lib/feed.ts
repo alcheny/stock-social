@@ -4,8 +4,10 @@ import { groupByUser } from './pane.ts';
 import { confidence, evidenceWeight, rankTraders, type ConfidenceInput } from './trades.ts';
 import { discounted, mixFeed } from './discovery/explore.ts';
 import { CURSOR_MAX_AGE_MS, encodeCursor, pageOf, readCursor, type Cursor } from './discovery/pager.ts';
-import { displayFilter, shapeList, splitExclusions } from './discovery/exclusions.ts';
+import { displayFilter, shapeList, splitExclusions, splitRejects } from './discovery/exclusions.ts';
 import { exclusionsFor, followingAmong, sectionSkips } from './follows.ts';
+import { rejectsFor, tradeKey } from './likes.ts';
+import { preferPool, prefRows, prefsAt } from './discovery/prefs.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
@@ -157,6 +159,9 @@ async function candidateQuery({ ids, asOf, day }: { ids?: number[]; asOf?: Date;
 // → diversity caps and seeded exploration (lib/discovery/explore.ts). Pages are 30-card slices of it. The same list
 // for every viewer, signed in or out; nothing here reads a session or a viewer table (lib/feed.signed-out.test.ts).
 export type FeedItem = FeedCandidate & { explore: boolean };
+// F-2 PR-4: a page's card carries its trade_key (closed_trades.trade_key, computed here from the sell id), the key the
+// viewer's like and reject use; the vendor id itself stays on the server.
+export type FeedCard = FeedItem & { trade_key: string };
 export type PaneRow = { userId: number; id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; verified: boolean; thesis: string | null };
 
 // Every page trader's full current record, for the pane's chart and stats.
@@ -236,7 +241,10 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
 
 // `ranked`: the list before the mix (F-2 PR-2: a viewer's exclusions are taken out of it, then it is mixed again).
 // `pool`: F-2 PR-3, the section's traders, ordered by the TR-9 lower bound (lib/discovery/section.ts#sectionPool).
-export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }): Promise<{ list: FeedItem[]; ranked: FeedCandidate[]; pool: SectionTrader[] }> {
+// F-2 PR-4: `ranked` carries each card's TR-9 weight and impersonal rank (a viewer's preferences re-order it:
+// lib/discovery/prefs.ts#rerank), and `extra` the exploration-only cards (kept for a viewer's re-shaped list).
+type Ranked = FeedCandidate & { weight: number; rank: number };
+export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }): Promise<{ list: FeedItem[]; ranked: Ranked[]; extra: FeedCandidate[]; pool: SectionTrader[] }> {
   const all = await candidatesAt({ asOf: opts.asOf, ids: opts.ids, day: opts.day });
   const candidates = all.filter((t) => !t.x), extra = all.filter((t) => t.x);
   const prints = new Map<number, Print>();
@@ -246,15 +254,15 @@ export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }
   for (const t of extra) prints.set(t.user_id, { n: t.pn!, m: t.pm!, k: t.pk! });
   const weight = await weights(prints, opts.asOf);
   const ranked = discounted(rankTraders(candidates.map((t) => ({ t, score: Number(t.score), weight: weight.get(t.user_id)?.weight ?? 0 })))
-    .map(({ t }) => ({ ...t, key: t.sell_id, trader: t.user_id })));
+    .map(({ t, weight: w }, rank) => ({ ...t, key: t.sell_id, trader: t.user_id, weight: w, rank })));
   const list: FeedItem[] = mixFeed(ranked, { day: opts.day, extra: extra.map((t) => ({ ...t, key: t.sell_id, trader: t.user_id })) })
     .map(({ card: { key: _k, trader: _t, pn: _n, pm: _m, pk: _p, x: _x, ...t }, explore }) => ({ ...t, explore }));
   const pool = sectionPool([...candidates, ...extra].map((t) => ({ trader: t.user_id, score: Number(t.score) })), weight);
-  return { list, ranked: ranked.map(({ key: _k, trader: _t, pn: _n, pm: _m, pk: _p, x: _x, ...t }) => t), pool };
+  return { list, ranked: ranked.map(({ key: _k, trader: _t, pn: _n, pm: _m, pk: _p, x: _x, ...t }) => t), extra: extra.map(({ pn: _n, pm: _m, pk: _p, x: _x, ...t }) => t), pool };
 }
 
 export type FeedPage = {
-  cards: FeedItem[]; offset: number; asOf: Date; next: string | null;
+  cards: FeedCard[]; offset: number; asOf: Date; next: string | null;
   // The list positions this page covers (1-based, for the no-JS page's position heading).
   from: number; to: number;
   byUser: Map<number, PaneRow[]>; records: Map<number, RecordStatus>;
@@ -272,8 +280,10 @@ export type SectionRow = { userId: number; handle: string; name: string; reason:
 // restart, the list is recomputed from the database, pinned to asOf as feedCandidates describes.
 // F-2 PR-2: a slot is a mix card (key = the close's vendor id, trader = its user id); the ranked list before the mix is
 // kept too, for a viewer whose exclusions shape the list.
-type Slot = { key: string; trader: number; symbol: string; explore: boolean; score: number };
-type Kept = { asOf: number; mixed: Slot[]; ranked: Slot[]; pool: SectionTrader[] };
+// F-2 PR-4: `weight` and `rank` for a viewer's preferences, `extra` (PR-1b's outside traders) for a re-shaped list, and
+// `sell` (trade_key → vendor id) for the viewer's trade rejects.
+type Slot = { key: string; trader: number; symbol: string; explore: boolean; score: number; weight: number; rank: number };
+type Kept = { asOf: number; mixed: Slot[]; ranked: Slot[]; extra: Slot[]; sell: Map<string, string>; pool: SectionTrader[] };
 const lists = new Map<string, Kept>();
 const LIST_CACHE_MAX = 256;
 // Tests: forget every kept list and weight (a cold server), or only the lists (fix round 2: a page whose list this
@@ -284,10 +294,12 @@ async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Kept> {
   const key = `${c.day}|${c.asOf}|${ids ? ids.join(',') : '*'}`;
   const kept = lists.get(key);
   if (kept) return kept;
-  const { list, ranked, pool } = await feedList({ asOf: new Date(c.asOf), day: c.day, ids });
-  const slot = (t: FeedCandidate, explore: boolean): Slot => ({ key: t.sell_id, trader: t.user_id, symbol: t.symbol, explore, score: Number(t.score) });
+  const { list, ranked, extra, pool } = await feedList({ asOf: new Date(c.asOf), day: c.day, ids });
+  const slot = (t: FeedCandidate & { weight?: number; rank?: number }, explore: boolean): Slot =>
+    ({ key: t.sell_id, trader: t.user_id, symbol: t.symbol, explore, score: Number(t.score), weight: t.weight ?? 0, rank: t.rank ?? Infinity });
   for (const [k, v] of lists) if (v.asOf < now - CURSOR_MAX_AGE_MS || lists.size >= LIST_CACHE_MAX) lists.delete(k);
-  const out = { asOf: c.asOf, mixed: list.map((t) => slot(t, t.explore)), ranked: ranked.map((t) => slot(t, false)), pool };
+  const out = { asOf: c.asOf, mixed: list.map((t) => slot(t, t.explore)), ranked: ranked.map((t) => slot(t, false)), extra: extra.map((t) => slot(t, false)),
+    sell: new Map([...ranked, ...extra].map((t) => [tradeKey(t.sell_id), t.sell_id])), pool };
   lists.set(key, out);
   return out;
 }
@@ -295,15 +307,22 @@ async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Kept> {
 // One page of the feed for a `?after=` value (or the paging action's cursor). Anything invalid is page 1.
 // F-2 PR-2: `viewer` (lib/viewer.ts, signed in only): that viewer's exclusions shape the list (made by asOf) or filter
 // the page in place (made since), lib/discovery/exclusions.ts; never on a profile (TR-1).
+// F-2 PR-4: the viewer's trade rejects do the same per card (O1), and their preferences (unfollow, a reject's trader
+// part: lib/discovery/prefs.ts) re-order the list made at asOf and the section's pool, hiding nothing (O4).
 export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: number[]; viewer?: number } = {}): Promise<FeedPage> {
   const now = opts.now ?? Date.now();
   const c = readCursor(after, now, FEED_LIST_MAX);
-  const [kept, mine, skips] = await Promise.all([listFor(c, now, opts.ids), opts.viewer ? exclusionsFor(opts.viewer, new Date(Math.min(c.asOf, now))) : [],
-    opts.viewer ? sectionSkips(opts.viewer) : []]);
+  const since = new Date(Math.min(c.asOf, now));
+  const [kept, mine, skips, rejects] = await Promise.all([listFor(c, now, opts.ids), opts.viewer ? exclusionsFor(opts.viewer, since) : [],
+    opts.viewer ? sectionSkips(opts.viewer) : [], opts.viewer ? rejectsFor(opts.viewer, since) : []]);
   const { shaping, hidden } = splitExclusions(mine, c.asOf, now);
-  const slots = kept.ranked.some((s) => shaping.has(s.trader)) ? shapeList(kept.ranked, shaping, c.day).map(({ card, explore }) => ({ ...card, explore })) : kept.mixed;
+  const rj = splitRejects(rejects.flatMap((r) => { const key = kept.sell.get(r.key); return key ? [{ ...r, key }] : []; }), c.asOf, now);
+  const prefs = prefsAt(prefRows(mine, rejects), c.asOf);
+  const out = (s: Slot) => shaping.has(s.trader) || rj.shaping.has(s.key);
+  const slots = kept.ranked.some((s) => out(s) || prefs.has(s.trader)) || kept.extra.some(out)
+    ? shapeList(kept.ranked, shaping, c.day, { keys: rj.shaping, prefs, extra: kept.extra }).map(({ card, explore }) => ({ ...card, explore })) : kept.mixed;
   const sliced = pageOf(slots, c);
-  const page = { ...sliced, items: displayFilter(sliced.items, hidden) };
+  const page = { ...sliced, items: displayFilter(sliced.items, hidden, rj.hidden) };
   // The page's cards as they are now (a thesis held since page 1 is not shown; a corrected return shows corrected). A
   // card whose trader was deleted since asOf, or whose close is gone, is a gap. The three reads run side by side.
   const traders = [...new Set(page.items.map((s) => s.trader))];
@@ -312,7 +331,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   // Nothing is read for it when the candidates cannot make 3 rows even before that check (it only removes candidates).
   // Fix round 1: the spares are chosen from every candidate under the bucket cap (tester Medium 1: a fixed slice of 8
   // sharing one holding period made no section), and the 10 cards around it are the displayed ones (tester Low 1).
-  const cands = capped(sectionCandidates(kept.pool, slots, c.offset, new Set(opts.viewer ? [opts.viewer, ...skips] : []), page.items), SECTION_SPARES);
+  const cands = capped(sectionCandidates(preferPool(kept.pool, prefs), slots, c.offset, new Set(opts.viewer ? [opts.viewer, ...skips] : []), page.items), SECTION_SPARES);
   const candIds = cands.map((t) => t.trader);
   const likely = (chooseRows(cands) ?? []).map((t) => t.trader);
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
@@ -329,10 +348,10 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     withSection ? sql`select id, handle, display_name from users where id = any(${candIds}) and deleted_at is null` : [],
   ]);
   const bySell = new Map(rows.map((r) => [r.sell_id as string, r]));
-  const cards: FeedItem[] = page.items.flatMap((s) => {
+  const cards: FeedCard[] = page.items.flatMap((s) => {
     const r = bySell.get(s.key);
     if (!r || r.user_id !== s.trader || states.get(s.trader)?.state === 'importing') return [];
-    return [{ ...(r as unknown as FeedCandidate), score: s.score, explore: s.explore }];
+    return [{ ...(r as unknown as FeedCandidate), score: s.score, explore: s.explore, trade_key: tradeKey(s.key) }];
   });
   const who = new Map(people.map((u) => [u.id as number, u]));
   const near = new Set(cards.slice(0, SECTION_NEAR).map((t) => t.user_id)); // a card dropped as a gap moves the next one in

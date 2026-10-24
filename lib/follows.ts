@@ -1,11 +1,12 @@
 // F-2 PR-2: follows and "not interested", private to the viewer (POLICY F6). Every read here is keyed by the viewer's
 // own id; nothing counts follows or lists who follows a trader (lib/follows.test.ts scans the app for that).
-// "Not interested" and unfollow both write a 90-day exclusion (criterion 4); the feed and the lists read only
-// "Not interested" unless FEED_HIDES_UNFOLLOWED (fix round 1; 'unfollow' rows wait for PR-3's section). Undo, "Show again" and a new follow end
-// it (until = now()) without deleting it, so a same-day feed cursor never changes (lib/discovery/exclusions.ts).
+// "Not interested" and unfollow both write a 90-day row (criterion 4). Only "Not interested" hides (feed, section,
+// lists); an unfollow is a slight negative on that trader, never a hide (F-2 PR-4, owner decision O4:
+// lib/discovery/prefs.ts). Undo, "Show again" and a new follow end it (until = now()) without deleting it, so a same-day
+// feed cursor never changes (lib/discovery/exclusions.ts).
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
-import { EXCLUSION_DAYS, FEED_HIDES_UNFOLLOWED } from './discovery/weights.ts';
+import { EXCLUSION_DAYS } from './discovery/weights.ts';
 import type { ExclusionRow } from './discovery/exclusions.ts';
 
 type Tx = typeof sql | TransactionSql;
@@ -43,7 +44,7 @@ export async function exclude(viewer: number, trader: number, reason: 'not_inter
   await tx`insert into viewer_exclusions (viewer_id, trader_id, until, reason)
     values (${viewer}, ${trader}, now() + ${EXCLUSION_DAYS} * interval '1 day', ${reason})
     on conflict (viewer_id, trader_id) do update set until = excluded.until, reason = excluded.reason,
-      created_at = case when viewer_exclusions.until > now() and (viewer_exclusions.reason = excluded.reason or ${FEED_HIDES_UNFOLLOWED}::boolean)
+      created_at = case when viewer_exclusions.until > now() and viewer_exclusions.reason = excluded.reason
         then viewer_exclusions.created_at else now() end
     where not (viewer_exclusions.viewer_id = ${viewer} and viewer_exclusions.until > now() and viewer_exclusions.reason = 'not_interested' and excluded.reason = 'unfollow')`;
 }
@@ -52,11 +53,11 @@ export async function endExclusion(viewer: number, trader: number, tx: Tx = sql)
   await tx`update viewer_exclusions set until = now() where viewer_id = ${viewer} and trader_id = ${trader} and until > now()`;
 }
 
-// The feed's reads: the viewer's exclusions running at `since` or later, and which of the page's traders they follow.
+// The feed's reads: the viewer's rows running at `since` or later (hides and, F-2 PR-4, unfollows as preferences), and
+// which of the page's traders they follow.
 export async function exclusionsFor(viewer: number, since: Date): Promise<ExclusionRow[]> {
-  const rows = await sql`select trader_id, created_at, until from viewer_exclusions where viewer_id = ${viewer} and until > ${since}
-    and (reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean)`;
-  return rows.map((r) => ({ trader: r.trader_id as number, createdAt: (r.created_at as Date).getTime(), until: (r.until as Date).getTime() }));
+  const rows = await sql`select trader_id, created_at, until, reason from viewer_exclusions where viewer_id = ${viewer} and until > ${since}`;
+  return rows.map((r) => ({ trader: r.trader_id as number, createdAt: (r.created_at as Date).getTime(), until: (r.until as Date).getTime(), reason: r.reason as ExclusionRow['reason'] }));
 }
 export async function followingAmong(viewer: number, traders: number[]): Promise<Set<number>> {
   if (!traders.length) return new Set();
@@ -64,10 +65,10 @@ export async function followingAmong(viewer: number, traders: number[]): Promise
 }
 
 // F-2 PR-3: the traders the suggestions section leaves out for this viewer: everyone they follow and every running
-// exclusion, "Not interested" and unfollow alike (criterion 4: unfollow removes the trader from suggestions).
+// "Not interested". F-2 PR-4 (O4): an unfollow no longer leaves the section; it ranks the trader lower.
 export async function sectionSkips(viewer: number): Promise<number[]> {
   return (await sql`select trader_id from follows where viewer_id = ${viewer}
-    union select trader_id from viewer_exclusions where viewer_id = ${viewer} and until > now()`).map((r) => r.trader_id as number);
+    union select trader_id from viewer_exclusions where viewer_id = ${viewer} and until > now() and reason = 'not_interested'`).map((r) => r.trader_id as number);
 }
 
 // F-2 PR-3b: the traders this viewer hid with "Not interested", still running (Similar trades leaves them out; an
@@ -83,7 +84,7 @@ export async function ownLists(viewer: number): Promise<{ following: Listed[]; h
     sql`select u.handle, u.display_name from follows f join users u on u.id = f.trader_id and u.deleted_at is null
       where f.viewer_id = ${viewer} order by f.created_at desc`,
     sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
-      where x.viewer_id = ${viewer} and x.until > now() and (x.reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean) order by x.created_at desc`,
+      where x.viewer_id = ${viewer} and x.until > now() and x.reason = 'not_interested' order by x.created_at desc`,
   ]);
   const listed = (r: Record<string, unknown>): Listed => ({ handle: r.handle as string, name: r.display_name as string, ...(r.until ? { until: r.until as Date } : {}) });
   return { following: following.map(listed), hidden: hidden.map(listed) };
@@ -94,10 +95,10 @@ export async function ownLists(viewer: number): Promise<{ following: Listed[]; h
 export async function shownAgainJustNow(viewer: number, handle: string): Promise<boolean> {
   return (await sql`select 1 from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
     where x.viewer_id = ${viewer} and u.handle = ${handle} and x.until <= now() and x.until > now() - interval '1 minute'
-    and (x.reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean)`).length > 0;
+    and x.reason = 'not_interested'`).length > 0;
 }
 
 export async function isHidden(viewer: number, trader: number): Promise<boolean> {
   return (await sql`select 1 from viewer_exclusions where viewer_id = ${viewer} and trader_id = ${trader} and until > now()
-    and (reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean)`).length > 0;
+    and reason = 'not_interested'`).length > 0;
 }

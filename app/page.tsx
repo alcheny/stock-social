@@ -6,6 +6,7 @@ import { FeedKeys } from './feed-keys.tsx';
 import { FeedEnd, FeedRows } from './feed-rows.tsx';
 import { FeedPager } from './feed-pager.tsx';
 import { FeedHides } from './feed-hides.tsx';
+import { CardGestures } from './card-gestures.tsx';
 import { viewerId } from '@/lib/viewer.ts';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -39,6 +40,7 @@ export default async function Feed({ searchParams }: Props) {
       <h1 className="sr-only">{page.offset > 0 ? FEED_COUNTS.position(page.from, page.to) : FEED.heading}</h1>
       <FeedKeys />
       {page.viewer && <FeedHides />}
+      <CardGestures signedIn={!!page.viewer} />
       <FeedRows page={page} />
       {page.next ? <FeedPager key={page.next} next={page.next} /> : <FeedEnd />}
     </main>

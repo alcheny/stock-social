@@ -122,3 +122,26 @@ dbTest('fix round 1 (D2): the profile\'s read (panes: false) reads no row trader
     await f.remove();
   }
 });
+
+// F-2 PR-4: added case (owner decision O1: a rejected trade is not shown again). Signed in, a row whose trade the viewer
+// rejected shows that trader's next most recent close in the bucket instead; signed out and other viewers unchanged.
+dbTest('PR-4: a trade the viewer rejected is never a Similar trades row for them; the trader stays with their next close in the bucket', async () => {
+  const { loadSimilar, clearSimilarCache } = await import('./similar.ts');
+  const { rejectTrade } = await import('./likes.ts');
+  const f = await fixture(30);
+  try {
+    clearSimilarCache();
+    const self = f.traders[1];
+    const base = await loadSimilar({ trader: self, hold: 3, closes: 8, ids: f.traders, viewer: f.viewer });
+    const row = base!.rows[0];
+    const [k] = await f.sql`select trade_key from closed_trades where sell_id = ${row.sellId}`;
+    assert.equal(await rejectTrade(f.viewer, k.trade_key), true);
+    const mine = await loadSimilar({ trader: self, hold: 3, closes: 8, ids: f.traders, viewer: f.viewer });
+    const again = mine!.rows.find((r) => r.trader === row.trader)!;
+    assert.ok(again && again.sellId !== row.sellId, 'the next close of that trader');
+    assert.ok(mine!.rows.every((r) => r.sellId !== row.sellId));
+    assert.deepEqual((await loadSimilar({ trader: self, hold: 3, closes: 8, ids: f.traders }))!.rows.map((r) => r.sellId), base!.rows.map((r) => r.sellId));
+  } finally {
+    await f.remove();
+  }
+});

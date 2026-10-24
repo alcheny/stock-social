@@ -19,7 +19,8 @@ function generate(seed: number): MixCard[] {
 const DAYS = ['2026-10-23', '2026-10-24', '2027-01-01', '2026-02-28'];
 
 test('the owner\'s weights are pinned: "not interested" is −4 (the reject swipe\'s weight), like +3, opening swipe +2; exclusions last 90 days', () => {
-  assert.deepEqual({ ...WEIGHTS }, { like: 3, swipeOpen: 2, notInterested: -4 });
+  // F-2 PR-4: restated with the owner's O1 and O4 weights (the reject on a feed card, its trader, and unfollow).
+  assert.deepEqual({ ...WEIGHTS }, { like: 3, swipeOpen: 2, notInterested: -4, reject: -4, rejectTrader: -1, unfollow: -1 });
   assert.equal(EXCLUSION_DAYS, 90);
 });
 

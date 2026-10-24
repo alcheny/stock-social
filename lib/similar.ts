@@ -5,6 +5,7 @@
 //   "Not interested" rows (an unfollow is never a hide: owner decision O4).
 import { sql } from './db.ts';
 import { hiddenTraders } from './follows.ts';
+import { rejectedKeys } from './likes.ts';
 import { feedList, records, type PaneRow } from './feed.ts';
 import { recordStates, type RecordStatus } from './connections.ts';
 import { utcDay } from './discovery/pager.ts';
@@ -46,8 +47,9 @@ export type Similar = { rows: SimilarRow[]; byUser: Map<number, PaneRow[]>; stat
 // first open from /u/<h>/pane, as the feed loads its full pane chart. `verified` is read with the row instead.
 export async function loadSimilar(o: { trader: number; hold: number; closes: number; viewer?: number; now?: number; ids?: number[]; panes?: boolean }): Promise<Similar | null> {
   if (o.closes < SIMILAR_MIN) return null;
-  const [pool, hidden] = await Promise.all([poolAt(o.now ?? Date.now(), o.ids),
-    o.viewer ? hiddenTraders(o.viewer) : []]);
+  // F-2 PR-4: signed in, a trade the viewer rejected in the feed (O1) is never a row; its trader's next close is.
+  const [pool, hidden, rejected] = await Promise.all([poolAt(o.now ?? Date.now(), o.ids),
+    o.viewer ? hiddenTraders(o.viewer) : [], o.viewer ? rejectedKeys(o.viewer) : []]);
   const skip = new Set<number>([...(o.viewer ? [o.viewer] : []), ...hidden]);
   const cands = similarCandidates(pool, o.trader, o.hold, skip).slice(0, SIMILAR_SPARES);
   if (cands.length < 3) return null;
@@ -57,6 +59,7 @@ export async function loadSimilar(o: { trader: number; hold: number; closes: num
       not exists (select 1 from closed_trades v where v.user_id = u.id and not v.verified) as verified
     from users u cross join lateral (select id, sell_id, symbol, return_pct, closed_at, holding_days from closed_trades x where x.user_id = u.id
       and (case when holding_days < 1 then 0 when holding_days <= 7 then 1 when holding_days <= 28 then 2 when holding_days <= 183 then 3 else 4 end) = ${bucket}
+      ${rejected.length ? sql`and x.trade_key <> all(${rejected})` : sql``}
       order by closed_at desc, sell_id desc limit 1) t
     where u.id = any(${cands.map((c) => c.trader)}) and u.deleted_at is null`, recordStates(cands.map((c) => c.trader))]);
   const trades = new Map(found.filter((r) => states.get(r.id as number)?.state !== 'importing').map((r) => [r.id as number, {

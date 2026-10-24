@@ -407,3 +407,18 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .similar .sitem { padding-left: 0; }
 .similar .srow-wrap .follow-status { padding-left: 0; }
 .tap44 { display: inline-flex; align-items: center; min-height: 44px; }
+/* F-2 PR-4: the card's like (outline to filled, no motion, no count: the shape carries the state, not color alone) and
+   "Hide this trade"; the reject swipe's tray sits behind the card and shows only while the card is dragged. */
+.feed .row { position: relative; }
+.feed .row > .card { position: relative; z-index: 1; background: var(--bg); touch-action: manipulation; }
+.card footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.card-acts { display: inline-flex; gap: 8px; margin-left: auto; }
+.card .like, .card .hide-trade { min-height: 44px; min-width: 44px; }
+.card .like { background: var(--surface); color: var(--text); border: 1px solid var(--line); font-size: 22px; line-height: 1; padding: 0 10px; }
+.card .like span::before { content: '\2661'; }
+.card .like[aria-pressed="true"] span::before { content: '\2665'; }
+.card .hide-trade { background: var(--surface); color: var(--text); border: 1px solid var(--line); font-weight: 600; }
+.card .like-signin { flex-basis: 100%; margin: 0; color: var(--text); }
+.card .like-signin a { display: inline-flex; align-items: center; min-height: 44px; }
+.feed .row > .ctray { position: absolute; inset: 0 auto 0 0; width: 100%; padding: 0 20px; display: flex; align-items: center; visibility: hidden; font-weight: 600; color: var(--text); background: color-mix(in srgb, var(--muted) 22%, var(--bg)); }
+.feed .row.dragging > .ctray { visibility: visible; }

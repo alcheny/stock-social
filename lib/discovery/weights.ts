@@ -5,13 +5,22 @@
 export const WEIGHTS = {
   like: 3, // double tap, private (PR-4)
   swipeOpen: 2, // the opening swipe to the pane (SW-1)
-  notInterested: -4, // "Not interested" (PR-2) and the reject swipe (PR-4)
+  notInterested: -4, // "Not interested" (PR-2) and the reject swipe on section rows (PR-3)
+  // F-2 PR-4 (O1, 2026-10-24): the reject swipe on a feed card rejects that trade (−4: not shown again for
+  // TRADE_REJECT_DAYS) and is a slight negative on its trader for PREF_DAYS. (O4): unfollow is a slight negative on that
+  // trader for the exclusion period, never a hide. Both read by lib/discovery/prefs.ts.
+  reject: -4,
+  rejectTrader: -1,
+  unfollow: -1,
 } as const;
 
 // O3 default (plan §3): 90 days. The Undo line says "Hidden for 90 days."; the copy changes with this constant.
 export const EXCLUSION_DAYS = 90;
 
-// Fix round 1 (committee, owner may reverse): the feed honors only "Not interested". An unfollow still writes its
-// 90-day 'unfollow' exclusion, which PR-3's suggestions section honors (criterion 4: unfollow affects suggestions).
-// true restores the plan's reading (unfollow also hides from the feed and lists the trader as hidden).
-export const FEED_HIDES_UNFOLLOWED = false;
+// F-2 PR-4: O3 is still open with the owner. One constant for how long a rejected trade stays hidden, with its copy
+// (lib/copy.ts#LIKES.hidden). The committee recommends permanent for a rejected trade (business lead, committee PR-1b
+// §5): Infinity flips it (stored as until = 'infinity'); the trader part still ends at PREF_DAYS.
+export const TRADE_REJECT_DAYS: number = EXCLUSION_DAYS;
+export const PREF_DAYS = 90;
+// How a negative preference p (a sum of WEIGHTS, ≤ 0) enters the score before PR-5: × PREF_BASE^(−p). −1 → ×0.8.
+export const PREF_BASE = 0.8;

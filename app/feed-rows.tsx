@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { FeedPage } from '@/lib/feed.ts';
 import { feedPaneChart } from '@/lib/chart-series.ts';
-import { FEED } from '@/lib/copy.ts';
+import { FEED, LIKES } from '@/lib/copy.ts';
 import { ProfilePane } from './pane.tsx';
 import { TradeCard, type TradeRow } from './ui.tsx';
 import { SuggestSection } from './suggest-section.tsx';
@@ -37,8 +37,10 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     return {
       id: String(t.id),
       node: (
-        <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
-          <TradeCard t={row} state={page.records.get(t.user_id)?.state} />
+        <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle} data-key={t.trade_key}>
+          {/* F-2 PR-4: the reject swipe's tray, behind the card while it is dragged (signed in only). */}
+          {page.viewer && page.viewer.id !== t.user_id && <div className="ctray" aria-hidden="true"><span>{LIKES.tray}</span></div>}
+          <TradeCard t={row} state={page.records.get(t.user_id)?.state} act={page.viewer?.id === t.user_id ? undefined : { key: t.trade_key, signedIn: !!page.viewer }} />
           {paneOf(t)}
         </div>
       ),

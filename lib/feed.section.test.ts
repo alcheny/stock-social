@@ -1,6 +1,6 @@
 // F-2 PR-3: the suggestions section in the feed (criteria 7, 8, 9, 10), against the database. The same rows for every
-// viewer signed out; signed in, minus the viewer, their follows and every running exclusion (unfollow included: the
-// section honours the `unfollow` row, the feed does not); ordered by the TR-9 lower bound; fewer than 3 → none.
+// viewer signed out; signed in, minus the viewer, their follows and every running "Not interested" (F-2 PR-4, O4: an
+// unfollow is a slight negative, never a hide); ordered by the TR-9 lower bound; fewer than 3 → none.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -85,34 +85,46 @@ dbTest('losses are suggested under the same rules: a feed of losing records only
   }
 });
 
-dbTest('signed in: the viewer, their follows and every running exclusion leave the section; an unfollow leaves the section but not the feed; 0, 1 or 2 candidates left → no section; all hidden → no section', async () => {
+// F-2 PR-4 (owner decision O4, business lead committee PR-1b §5): restated. An unfollow no longer leaves the section: it
+// is a slight negative on that trader for the viewer (WEIGHTS.unfollow), never a hide. Follows still leave the section
+// (not the feed), so they now leave exactly k candidates in the loop below.
+dbTest('signed in: the viewer, their follows and every running "Not interested" leave the section; an unfollow leaves neither the section nor the feed but ranks the trader below otherwise identical records; 1 or 2 candidates left → no section; all hidden → no section', async () => {
   const { loadFeedPage } = await import('./feed.ts');
   const { follow, unfollow, exclude } = await import('./follows.ts');
-  const { SECTION_NEAR } = await import('./discovery/section.ts');
+  const { SECTION_NEAR, holdBucket } = await import('./discovery/section.ts');
   const f = await fixture(40);
   try {
     const out = await loadFeedPage(undefined, { ids: f.traders });
     const [a, b, c] = out.section!.map((r) => r.userId);
     await follow(f.viewer, a);
     await exclude(f.viewer, b, 'not_interested');
-    await follow(f.viewer, c); await unfollow(f.viewer, c); // an 'unfollow' row
+    await follow(f.viewer, c); await unfollow(f.viewer, c); // an 'unfollow' row: a preference, never a hide
     const signedIn = await loadFeedPage(undefined, { ids: f.traders, viewer: f.viewer });
     const shown = signedIn.section!.map((r) => r.userId);
-    for (const id of [a, b, c, f.viewer]) assert.ok(!shown.includes(id), `${id} left out`);
+    for (const id of [a, b, f.viewer]) assert.ok(!shown.includes(id), `${id} left out`);
+    assert.ok(!shown.includes(c), 'every record here has the same evidence: the unfollowed one reads after all of them');
     assert.equal(shown.length, 3);
-    // The unfollowed trader is still in the feed (FEED_HIDES_UNFOLLOWED = false); the hidden one is not.
+    // The unfollowed trader is still in the feed; the hidden one is not.
     const cards = async () => { const all: number[] = []; let p = await loadFeedPage(undefined, { ids: f.traders, viewer: f.viewer }); for (;;) { all.push(...p.cards.map((x) => x.user_id)); if (!p.next) return all; p = await loadFeedPage(p.next, { ids: f.traders, viewer: f.viewer }); } };
     const all = await cards();
     assert.ok(all.includes(c));
     assert.ok(!all.includes(b));
-    // Leave exactly k candidates (the near cards' traders are not candidates): k < 3 → no section.
+    // Leave exactly k candidates besides c (follows leave the section but not the feed, so the near cards stay put): with
+    // 2, c is still a row (never a hide) and reads last among its equals; with 1 or 0 → no section.
     const near = new Set(signedIn.cards.slice(0, SECTION_NEAR).map((x) => x.user_id));
+    assert.ok(!near.has(c));
+    const bucket = (id: number) => holdBucket(HOLDS[f.traders.indexOf(id) % 5]);
     const rest = f.traders.filter((id) => !near.has(id) && ![a, b, c].includes(id));
+    const keep = rest.filter((id) => bucket(id) !== bucket(c));
     for (const k of [2, 1, 0]) {
-      for (const id of rest.slice(k)) await exclude(f.viewer, id, 'unfollow'); // unfollow rows: the feed keeps them, so the near cards stay put
+      for (const id of rest.filter((x) => !keep.slice(0, k).includes(x))) await follow(f.viewer, id);
       const p = await loadFeedPage(undefined, { ids: f.traders, viewer: f.viewer, now: signedIn.asOf.getTime() });
       assert.deepEqual(new Set(p.cards.slice(0, SECTION_NEAR).map((x) => x.user_id)), near);
-      assert.equal(p.section, null, `${k} candidates`);
+      if (k === 2) {
+        const rows = p.section!.map((r) => r.userId);
+        assert.deepEqual(new Set(rows), new Set([...keep.slice(0, 2), c]));
+        assert.equal(rows[2], c, 'below its equals');
+      } else assert.equal(p.section, null, `${k} candidates and the unfollowed one`);
     }
     // Every trader hidden by the viewer: no cards, no section.
     for (const id of f.traders) await exclude(f.viewer, id, 'not_interested');
