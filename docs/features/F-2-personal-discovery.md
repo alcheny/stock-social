@@ -28,6 +28,8 @@ advice. The owner has been told this and the scope below respects it.
   row on the trader profile. Why: the owner's placement answer in the design session.
 - 2026-10-22 (restored 2026-10-23): a suggestion opens the same pane as any feed card; the profile is
   one swipe further (SW-1). Why: one interaction model everywhere.
+- 2026-10-24 (O4): unfollow = slight negative preference on that trader in the recommendation score,
+  never a hide. (O5): desktop gets a separate web version later; the current phone-width column stands.
 - 2026-10-23: the engineer and business lead disagree on the reject gesture (SW-1 reserves left/right
   on the feed). Recorded below as an owner question; until answered, the engineer builds reject so that
   it cannot collide with the profile-opening swipe.
@@ -70,8 +72,12 @@ Each one testable; the pipeline writes a test for every line.
   visitors away). The owner's placement decision includes it.
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
   decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.
-- Owner (F-2 PR-2 fix round 1, 2026-10-23, committee deviation): unfollow does not hide the trader from the feed; its
-  90-day `unfollow` row is kept for PR-3's suggestions (criterion 4). Reverse with one constant,
-  `lib/discovery/weights.ts#FEED_HIDES_UNFOLLOWED = true`.
+- Resolved 2026-10-24 (O4): unfollow is neither a hide nor neutral. The feed is driven by the
+  recommendation score, and an unfollow applies a slight negative preference to that trader (a small
+  negative weight, smaller than "Not interested" −4; the engineer pins the value in
+  `lib/discovery/weights.ts` and records it). The feed never removes the trader's cards on unfollow.
+  Why: the owner's decision in the design session of 2026-10-24.
+- Resolved 2026-10-24 (O5): the desktop layout stays a phone-width column for now. A separate web
+  version will be designed later as its own feature. Why: owner decision.
 
 ## Rework notes
