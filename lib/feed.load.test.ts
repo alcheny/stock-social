@@ -26,7 +26,8 @@ after(async () => {
 
 // F-2 PR-1 fix round 1 (tester Medium 3): the plan's heavy fixture too, 50 heavy traders with 5 fresh closes each, so
 // most of the candidates are heavy records (as in production: heavy traders are the ones with fresh closes).
-async function fixture(FIX: { traders: number; heavy: number; heavyCloses: number; closes: number; fresh: number }) {
+// F-2 PR-3: `hold` (optional) sets each close's holding period; the default is the PR-1 fixture's.
+async function fixture(FIX: { traders: number; heavy: number; heavyCloses: number; closes: number; fresh: number; hold?: (u: number, i: number) => number }) {
   const { sql } = await import('./db.ts');
   const tag = `fl${Math.random().toString(36).slice(2, 8)}`;
   const t0 = performance.now();
@@ -42,7 +43,7 @@ async function fixture(FIX: { traders: number; heavy: number; heavyCloses: numbe
     const rows = Array.from({ length: n }, (_, i) => {
       // Fresh closes spread over the last 3 days, older ones back over years for the heavy records.
       const closed = now - (heavy ? (i < FIX.fresh ? i * 3_600_000 + u * 60_000 : 3 * 86_400_000 + i * 6 * 3_600_000) : ((u * 37 + i * 101) % 4320) * 60_000 + 60_000);
-      const hold = 1 + ((u + i) % 30);
+      const hold = FIX.hold ? FIX.hold(u, i) : 1 + ((u + i) % 30);
       return { user_id: made[u], sell_id: `${tag}-${u}-${i}`, account_id: 'a', symbol: `L${(u * 7 + i) % 300}`, opened_at: new Date(closed - hold * 86_400_000),
         closed_at: new Date(closed), return_pct: (((u * 31 + i * 17) % 401) - 200) / 1000, holding_days: hold, verified: true };
     });
@@ -259,6 +260,73 @@ loadTest('fix round 3: page 2 with no kept list after 15 listed traders import 1
     log(`page 2 with no kept list after ${n.toLocaleString('en-US')} listed traders' late closes (budget ${FEED_BOUNDS.p95Ms} ms): weights kept ${fmt(warm)} ms (p95 ${p95.toFixed(0)}); cold server ${fmt(cold)} ms`);
   } finally {
     await sql`delete from activities where user_id = any(${made})`;
+    await fx.remove();
+  }
+});
+
+// F-2 PR-3 (plan §1 PR-3 budgets): the suggestions section is computed inside the feed budget. 50 heavy traders (most
+// candidates are heavy records, so the section's rows and their panes are heavy too): every page has a section;
+// signed-out p95 < 400 ms (measure() above times loadFeedPage, section included); signed in (follows and exclusions
+// read) p95 < 800 ms (plan §4).
+loadTest('F-2 PR-3: with the section on every page, 50 heavy traders: signed-out p95 < 400 ms, signed-in p95 < 800 ms', async () => {
+  // Holding periods spread over the five buckets (the section shows at most 2 traders of one bucket).
+  const fx = await fixture({ traders: 500, heavy: 50, heavyCloses: 4_700, closes: 20, fresh: 5, hold: (u) => [0.5, 3, 14, 60, 300][u % 5] });
+  const heavy = new Set(made.slice(0, 50));
+  const { loadFeedPage, clearFeedCache } = await import('./feed.ts');
+  const { follow, exclude } = await import('./follows.ts');
+  try {
+    const p95 = await measure(FIX.rounds);
+    clearFeedCache();
+    let after: string | null | undefined, rows = 0, heavyRows = 0;
+    for (let p = 0; p < 3; p++) {
+      const page = await loadFeedPage(after);
+      assert.equal(page.section?.length, 3, `page ${p + 1} has a section`);
+      rows += 3; heavyRows += page.section!.filter((r) => heavy.has(r.userId)).length;
+      after = page.next;
+    }
+    const viewer = made[made.length - 1];
+    for (const t of made.slice(0, 5)) await follow(viewer, t);
+    for (const t of made.slice(5, 10)) await exclude(viewer, t, 'not_interested');
+    const times: number[] = [];
+    for (let r = 0; r < FIX.rounds; r++) {
+      let next: string | null | undefined;
+      for (let p = 0; p < 3; p++) { const s = performance.now(); const page = await loadFeedPage(next, { viewer }); times.push(performance.now() - s); next = page.next; if (!next) break; }
+    }
+    const signedIn = [...times].sort((a, b) => a - b)[Math.ceil(times.length * 0.95) - 1];
+    log(`section: ${rows} rows on pages 1-3, ${heavyRows} of them heavy records; signed-out p95 ${p95.toFixed(0)} ms; signed-in p95 ${signedIn.toFixed(0)} ms (${times.length} pages)`);
+    assert.ok(p95 < FEED_BOUNDS.p95Ms, `p95 ${p95.toFixed(0)} ms`);
+    assert.ok(signedIn < 800, `signed-in p95 ${signedIn.toFixed(0)} ms`);
+  } finally {
+    await fx.remove();
+  }
+});
+
+// F-2 PR-3 fix round 1 (tester Medium 1): 50 heavy traders, 45 of them sharing one holding period (1 to 7 days), so the
+// first candidates of page 1 are all in that period. The section is still on page 1 (and 2 and 3): 2 rows of that period
+// at most, the third from another, chosen from every candidate; the signed-out budget holds.
+loadTest('F-2 PR-3 fix round 1: 50 heavy traders, 45 in one holding period: a section on page 1 with at most 2 of that period; p95 < 400 ms', async () => {
+  const fx = await fixture({ traders: 500, heavy: 50, heavyCloses: 4_700, closes: 20, fresh: 5, hold: (u) => (u < 50 ? (u < 45 ? 3 : [0.5, 14, 60, 300, 300][u - 45]) : 1 + (u % 30)) });
+  const heavy = new Set(made.slice(0, 50));
+  const { loadFeedPage, clearFeedCache } = await import('./feed.ts');
+  const { holdBucket } = await import('./discovery/section.ts');
+  const { sql } = await import('./db.ts');
+  try {
+    const p95 = await measure(FIX.rounds);
+    clearFeedCache();
+    let after: string | null | undefined;
+    for (let p = 0; p < 3; p++) {
+      const page = await loadFeedPage(after);
+      assert.equal(page.section?.length, 3, `page ${p + 1} has a section`);
+      const ids = page.section!.map((r) => r.userId);
+      const holds = await sql`select user_id, percentile_cont(0.5) within group (order by holding_days) as h from closed_trades where user_id = any(${ids}) group by user_id`;
+      const buckets = holds.map((r) => holdBucket(Number(r.h)));
+      assert.ok(buckets.filter((b) => b === 1).length <= 2, `page ${p + 1}: ${buckets}`);
+      log(`one-period fixture page ${p + 1}: rows in buckets ${buckets.join(', ')}, ${ids.filter((id) => heavy.has(id)).length} heavy`);
+      after = page.next;
+    }
+    log(`one-period fixture: signed-out p95 ${p95.toFixed(0)} ms`);
+    assert.ok(p95 < FEED_BOUNDS.p95Ms, `p95 ${p95.toFixed(0)} ms`);
+  } finally {
     await fx.remove();
   }
 });

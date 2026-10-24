@@ -32,7 +32,9 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
     <section className="pane" aria-label={`${name}'s record`}>
       <header>
         <button type="button" className="back" data-back>← Back</button>
-        <Link href={`/u/${handle}`} className="who"><WhoName name={name} handle={handle} /></Link>
+        {/* Fix round 1 (UX 6): room for the whole handle plus the start of the name; the header wraps before it would
+            squeeze the name away, and the name ends in an ellipsis. */}
+        <Link href={`/u/${handle}`} className="who" style={{ minWidth: `min(100%, ${handle.length + 4}ch)` }}><WhoName name={name} handle={handle} /></Link>
         {trust.badge && <Badge verified={trust.badge === 'verified'} />}
         {viewer?.signedIn && <div className="pane-actions"><FollowButton handle={handle} following={viewer.following} signedIn /><NotInterested handle={handle} /></div>}
       </header>

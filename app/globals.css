@@ -350,3 +350,41 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .people .until { white-space: nowrap; }
 .people button { white-space: nowrap; flex-shrink: 0; }
 .people a { display: inline-flex; align-items: center; gap: .35em; min-height: 44px; }
+
+/* F-2 PR-3: the suggestions section, a full-height feed card after the 5th card. Rows carry no performance number. */
+.feed .suggest { height: 100dvh; scroll-snap-align: start; overflow: hidden; border-bottom: 1px solid var(--line); }
+.suggest-in { height: 100%; box-sizing: border-box; padding: 64px max(16px, calc((100% - 560px) / 2)) 28px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.suggest h2 { margin: 0; font-size: 1.25rem; }
+.suggest-in > p { margin: 0; }
+.suggest ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.srow { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; border-radius: 11px 0 0 11px; }
+.srow::-webkit-scrollbar { display: none; }
+.srow > * { flex: 0 0 100%; box-sizing: border-box; scroll-snap-align: start; }
+.srow-wrap .follow-status { padding-left: 12px; }
+.srow-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; padding: 4px 8px 4px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.srow-wrap > .srow { flex: 1 1 0; min-width: 0; }
+.sitem { scroll-snap-stop: always; display: flex; align-items: center; padding: 4px 0 4px 12px; min-width: 0; }
+.stray { display: flex; align-items: center; justify-content: flex-end; padding: 0 20px; border-radius: 12px; font-weight: 600; color: var(--text); background: color-mix(in srgb, var(--muted) 22%, var(--bg)); }
+.sopen { flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; flex-direction: column; justify-content: center; gap: 2px; color: inherit; text-decoration: none; }
+.sopen .sname { display: flex; flex-direction: column; min-width: 0; } /* the name, then the handle, each cut only if it alone is too wide */
+.sopen .sname > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sopen .sfacts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sopen .sreason { font-size: .875rem; color: var(--muted); }
+.sactions { display: contents; } /* Follow, its status line (a full-width line below when it speaks) and "…" */
+.pane-sheet { width: 100%; max-width: 600px; height: 100dvh; max-height: 100dvh; margin: 0 auto; padding: 0; border: 0; background: var(--bg); color: var(--text); }
+.pane-sheet::backdrop { background: color-mix(in srgb, var(--bg) 70%, transparent); }
+.pane-sheet .sheet-note { margin: 0; padding: 0 max(16px, calc((100% - 560px) / 2)) 28px; }
+.pane-sheet .pane { box-sizing: border-box; padding: 20px max(16px, calc((100% - 560px) / 2)) 28px; }
+/* F-2 PR-3 (UX follow-up, PR-1 and PR-2): a long name gives way first; the handle stays whole in the pane header. */
+.pane .who strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane .who .muted { flex: none; }
+/* Fix round 1: the tray label shows only once it is wholly revealed (never cut mid-swipe); no motion. */
+@supports (animation-timeline: view()) {
+  .stray span { animation: stray-whole linear both; animation-timeline: view(inline); animation-range: exit 0% exit 100%; }
+}
+@keyframes stray-whole { 0% { opacity: 1; } 0.1%, 100% { opacity: 0; } } /* exit 0%: its start edge at the row's start edge */
+/* The sheet's skip link (its page's one is behind the modal): shown only while focused from the keyboard. */
+.pane-sheet .sheet-skip { position: absolute; left: 8px; top: -100px; z-index: 1; min-height: 44px; }
+.pane-sheet .sheet-skip:focus-visible { top: 8px; }
+.pane-sheet .sheet-note:focus { outline: 2px solid var(--text); outline-offset: 2px; }
+.profile-follow p a { display: inline-flex; align-items: center; min-height: 44px; }

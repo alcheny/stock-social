@@ -355,6 +355,23 @@ export const FOLLOW = {
   settingsLink: 'Following and hidden traders',
 };
 
+// F-2 PR-3: the suggestions section (plan §1 PR-3), the same for every viewer. No performance number on a row (a number
+// would make it a performance screen: the pane it opens carries the record and the disclaimer); reasons are fixed
+// templates with no ticker slot, each true against its inputs (lib/discovery/section.ts#reasonFor). Scanned by
+// lib/copy.test.ts against PROMO and the suggestion word list (no buy, sell, hold, pick, signal, advice, price target;
+// no "Suggested", "Recommended", "Top", "Best", "AI").
+// Fix round 1: the UX lead's heading and line (true signed in or out; the order is the TR-9 lower bound, losses equal);
+// one reason, the holding period (business lead demand 2); the tray says "Hide" so it is whole once revealed.
+export const SECTION = {
+  heading: "Other traders' records",
+  explain: 'Ordered by how much evidence each record has. Losses count the same as gains.',
+  holds: ['under a day', '1 to 7 days', '1 to 4 weeks', '1 to 6 months', 'over 6 months'].map((b) => `Typical holding period: ${b}`),
+  skip: 'Skip to the disclaimer',
+  tray: 'Hide',
+  close: 'Close',
+  incomplete: 'Import did not finish',
+};
+
 export function allCopy(): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
@@ -363,6 +380,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION].forEach(walk);
   return out;
 }

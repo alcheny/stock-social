@@ -29,7 +29,7 @@ export function NotInterested({ handle }: { handle: string }) {
         e.preventDefault();
         const d = e.currentTarget.closest('details');
         if (d) d.open = false;
-        dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, row: e.currentTarget.closest('.row') } }));
+        dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, row: e.currentTarget.closest('.row, .suggest') } })); // F-2 PR-3: or a section row
       }}>
         <button type="submit" className="secondary">{FOLLOW.notInterested(handle)}</button>
       </form>

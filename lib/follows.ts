@@ -63,6 +63,13 @@ export async function followingAmong(viewer: number, traders: number[]): Promise
   return new Set((await sql`select trader_id from follows where viewer_id = ${viewer} and trader_id = any(${traders})`).map((r) => r.trader_id as number));
 }
 
+// F-2 PR-3: the traders the suggestions section leaves out for this viewer: everyone they follow and every running
+// exclusion, "Not interested" and unfollow alike (criterion 4: unfollow removes the trader from suggestions).
+export async function sectionSkips(viewer: number): Promise<number[]> {
+  return (await sql`select trader_id from follows where viewer_id = ${viewer}
+    union select trader_id from viewer_exclusions where viewer_id = ${viewer} and until > now()`).map((r) => r.trader_id as number);
+}
+
 // /me/following: the viewer's own lists. `isHidden`: the no-JS "Not interested" message checks the row is there.
 export type Listed = { handle: string; name: string; until?: Date };
 export async function ownLists(viewer: number): Promise<{ following: Listed[]; hidden: Listed[] }> {
