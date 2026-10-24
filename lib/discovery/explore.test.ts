@@ -233,3 +233,53 @@ test('fix round 1: a trader appears twice in a row only when no other trader\'s 
   // Generated feeds: no avoidable repeat anywhere (the property test checks the same rule card by card).
   for (let f = 0; f < 200; f++) check(generate(7000 + f, f % 4 ? 'realistic' : 'adversarial'), `feed ${f}`);
 });
+
+// F-2 PR-1b (business lead §5 items 1 and 3).
+test('PR-1b discounted: each trader\'s best card keeps its rank order; the k-th card moves to (rank + 1) × 3^k; pure and sign-blind', async () => {
+  const { discounted, CARD_DISCOUNT } = await import('./explore.ts');
+  assert.equal(CARD_DISCOUNT, 2);
+  const ranked = ['A', 'A', 'B', 'A', 'C', 'B', 'D', 'E', 'F', 'G'].map((trader, i) => ({ key: `k${i}`, trader, symbol: `S${i}` }));
+  // keys: A1 1, A2 6, B1 3, A3 36, C1 5, B2 18, D 7, E 8, F 9, G 10
+  assert.deepEqual(discounted(ranked).map((c) => c.key), ['k0', 'k2', 'k4', 'k1', 'k6', 'k7', 'k8', 'k9', 'k5', 'k3']);
+  const firsts = (l: typeof ranked) => l.filter((c, i) => l.findIndex((d) => d.trader === c.trader) === i).map((c) => c.key);
+  assert.deepEqual(firsts(discounted(ranked)), firsts(ranked));
+  assert.deepEqual(discounted(ranked, 0), ranked);
+  assert.deepEqual(discounted([]), []);
+});
+
+test('PR-1b extra pool: exploration slots reach traders outside the ranked list (new ones first); ranked slots never take them; caps hold', async () => {
+  for (let seed = 1; seed <= 50; seed++) {
+    const ranked = skewed(seed);
+    const extra = Array.from({ length: 40 }, (_, i) => ({ key: `x${i}`, trader: 1000 + i, symbol: `X${i}`, score: 0 }));
+    const list = mixFeed(ranked, { day: DAYS[seed % DAYS.length], extra });
+    const ex = new Set(extra.map((c) => c.key));
+    list.forEach((x) => { if (ex.has(x.card.key)) assert.ok(x.explore, `seed ${seed}: an extra card in a ranked slot`); });
+    const w = worstWindow(list.map((x) => x.card));
+    assert.ok(w.trader <= 2 && w.symbol <= 2);
+    const reached = new Set(list.slice(0, 120).filter((x) => ex.has(x.card.key)).map((x) => x.card.trader));
+    assert.ok(reached.size >= 5, `seed ${seed}: ${reached.size} outside traders in the first 120`);
+    // Every exploration pick in the first 120 is a trader new to the list (the pool still has new ones).
+    const seen = new Set<MixCard['trader']>();
+    for (const x of list.slice(0, 120)) { if (x.explore) assert.ok(!seen.has(x.card.trader), `seed ${seed}`); seen.add(x.card.trader); }
+    // Without extra the list is exactly PR-1's.
+    assert.deepEqual(mixFeed(ranked, { day: DAYS[seed % DAYS.length], extra: [] }), mixFeed(ranked, { day: DAYS[seed % DAYS.length] }));
+  }
+});
+
+test('PR-1b: on 50 skewed fixtures, the discounted ranking breaks the hyperactive cycle (no 3-trader run repeats in the first 60 on most) and keeps PR-1\'s pinned shares', async () => {
+  const { discounted } = await import('./explore.ts');
+  const runs = (l: MixCard['trader'][]) => { const s = new Set<string>(); let rep = 0; for (let i = 0; i + 3 <= l.length; i++) { const k = l.slice(i, i + 3).join(); if (s.has(k)) rep++; s.add(k); } return rep; };
+  let before = 0, after = 0;
+  for (let seed = 1; seed <= 50; seed++) {
+    const ranked = skewed(seed), day = DAYS[seed % DAYS.length];
+    const old = mixFeed(ranked, { day }), now = mixFeed(discounted(ranked), { day });
+    if (runs(old.slice(0, 60).map((x) => x.card.trader))) before++;
+    if (runs(now.slice(0, 60).map((x) => x.card.trader))) after++;
+    const w = worstWindow(now.map((x) => x.card));
+    assert.ok(w.trader <= 2 && w.symbol <= 2);
+    assert.ok(now.slice(0, 60).filter((x) => (x.card.trader as number) < 5).length <= 27, `seed ${seed}`);
+    assert.ok(now.length >= 198);
+  }
+  console.log(`# discount: fixtures with a repeated 3-trader run in the first 60: ${before} of 50 before, ${after} of 50 after`);
+  assert.ok(after <= 2 && after < before, `${after} of 50`);
+});
