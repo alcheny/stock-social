@@ -403,10 +403,13 @@ Follow-up outside F-4, for the owner's backlog:
 
 ## Sign-off
 
-Business lead: pending.
+Business lead: SIGNED 2026-10-24 with changes C1–C7 (`plan-signoff-business-lead.md`), applied by the builder as written.
 
-UX lead: pending.
+UX lead: SIGNED 2026-10-24 with 7 changes and check D7 (`plan-signoff-ux-lead.md`), applied by the builder as written.
 
 Engineer: SIGNED 2026-10-24. I would stake my name on building every PR as written. My positions on the three
 disputed points (52 px count, tint kept, period under the chart) are measured in `plan-round1-engineer.md` §4. I
 re-sign without another round if a lead changes one of them on the rendered preview.
+
+Plan signed 2026-10-24 by all three members. Where a business-lead change (C1–C7) and a UX-lead change overlap
+(both drop "range" from the never-on-card list), they agree. Build starts with PR 1.
