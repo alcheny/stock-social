@@ -64,7 +64,9 @@ elements that catch the eye and travel, and leave detail for the profile.
   keeps the hedged lines. Direction is read from the per-trade range printed on the card, so the line can never
   contradict the range beside it. Why: the owner's answer to the committee's question O1 (the hedged line next to an
   all-negative range softened losses and contradicted the card). The wording of the two new lines was proposed in
-  the same session; see Open questions.
+  the same session and confirmed by the owner the same day: thin "Still early, and so far the average trade is a
+  loss.", moderate "A fair sample, and the average trade is a loss." They describe the record, not the trader
+  (POLICY F3b), mirror the strong tier's "consistent losses", and use no banned term.
 - 2026-10-22: The minimum for showing the range is 5 independent bets (the t multiplier at K = 5 is
   about 2.8). Why: the owner set the floor at five; below that the variance estimate is too unstable
   to mean anything even with the t correction.
@@ -105,10 +107,7 @@ Each one testable; the pipeline writes a test for every line.
 - Per-trade cards (`/u/[handle]/trade`) keep their own design; this file is the record card.
 
 ## Open questions
-- Wording of the two negative lines added 2026-10-24 (proposed by Claude, owner to confirm or rewrite): thin
-  "Still early, and so far the average trade is a loss."; moderate "A fair sample, and the average trade is a loss."
-  They describe the record, not the trader (POLICY F3b), mirror the strong tier's "consistent losses", and use no
-  banned term. The build uses them until the owner says otherwise.
+- None.
 - Later depth: which per-trade elements, and whether they appear on the record card or only on
   per-trade cards.
 
