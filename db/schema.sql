@@ -375,4 +375,6 @@ create table if not exists trade_exclusions (
   primary key (viewer_id, trade_key),
   check (viewer_id <> trader_id)
 );
+-- Fix round 1: when the hidden trade was liked, the like's time (Undo restores the like; a hidden trade is never liked).
+select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');

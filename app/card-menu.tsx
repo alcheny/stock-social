@@ -26,7 +26,7 @@ export function CardMenu({ id, symbol, handle, liked: first }: { id: string; sym
             if (!r.ok) { setLiked(!now); setSaid(''); }
           }}>
             <button type="submit" className="secondary" data-like aria-pressed={liked} aria-label={LIKES.likeLabel}>
-              <span aria-hidden="true">{liked ? '♥' : '♡'}</span> {LIKES.like}
+              <span aria-hidden="true">{liked ? '♥' : '♡'}</span> {liked ? LIKES.liked : LIKES.like}
             </button>
           </form>
           <form action={rejectTradeForm.bind(null, id)} onSubmit={(e) => {

@@ -70,6 +70,30 @@ dbTest('trade_key equals node:crypto sha256 (UTF-8) for a\\b, \\x41, \\\\, \\001
   }
 });
 
+dbTest('fix round 1: rejecting a liked trade removes the like (the likes list is empty); Undo restores it at its place; an unliked trade stays unliked after Undo; another viewer is untouched', async () => {
+  const { sql } = await import('./db.ts');
+  const { like, rejectTrade, undoRejectTrade, ownLikes, likedAmong } = await import('./likes.ts');
+  const { tag, ids: [viewer, trader, other] } = await people(3);
+  try {
+    const [a, b, c] = await closes(trader, [`${tag}-r1`, `${tag}-r2`, `${tag}-r3`]);
+    await like(viewer, a.id); await like(viewer, b.id); await like(other, a.id);
+    await sql`update trade_likes set created_at = now() - interval '1 hour' where viewer_id = ${viewer} and trade_key = ${a.key}`;
+    const before = (await ownLikes(viewer)).rows.map((r) => r.key);
+    assert.deepEqual(before, [b.key, a.key]);
+    assert.equal(await rejectTrade(viewer, a.id), true);
+    assert.deepEqual((await ownLikes(viewer)).rows.map((r) => r.key), [b.key]);
+    assert.deepEqual([...await likedAmong(viewer, [a.id])], []);
+    assert.deepEqual([...await likedAmong(other, [a.id])], [a.id]);
+    assert.equal(await undoRejectTrade(viewer, a.id), true);
+    assert.deepEqual((await ownLikes(viewer)).rows.map((r) => r.key), before);
+    assert.equal((await sql`select 1 from trade_exclusions where viewer_id = ${viewer}`).length, 0);
+    await rejectTrade(viewer, c.id); await undoRejectTrade(viewer, c.id);
+    assert.deepEqual([...await likedAmong(viewer, [c.id])], []);
+  } finally {
+    await sql`delete from users where handle like ${tag + '%'}`;
+  }
+});
+
 dbTest('like, unlike, reject: one row each, never your own trade; a like and a reject survive rebuildTrades and re-attach to the rebuilt close; the feed drops a rejected trade for that viewer only', async () => {
   const { sql } = await import('./db.ts');
   const { like, unlike, rejectTrade, undoRejectTrade, likedAmong, rejectedAmong, ownLikes } = await import('./likes.ts');
@@ -82,11 +106,12 @@ dbTest('like, unlike, reject: one row each, never your own trade; a like and a r
     await rebuildTrades(trader);
     const [t1] = await sql`select id::text, trade_key from closed_trades where user_id = ${trader}`;
     assert.equal(t1.trade_key, sha(`${tag}-s\\1`));
+    // Fix round 1: a reject removes the like, so the reject comes first here and the like after it (both rows kept).
+    assert.equal(await rejectTrade(viewer, t1.id), true);
     assert.equal(await like(viewer, t1.id), true);
     assert.equal(await like(viewer, t1.id), true); // idempotent
     assert.equal(await like(trader, t1.id), false); // never your own
     for (const bad of ['1; drop', '', 'x', -1, null, '9'.repeat(19)]) assert.equal(await like(viewer, bad), false);
-    assert.equal(await rejectTrade(viewer, t1.id), true);
     assert.equal((await sql`select 1 from trade_likes where viewer_id = ${viewer}`).length, 1);
     await rebuildTrades(trader);
     const [t2] = await sql`select id::text, trade_key, sell_id from closed_trades where user_id = ${trader}`;

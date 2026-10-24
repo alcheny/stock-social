@@ -31,12 +31,18 @@ export async function unlike(viewer: number, ref: { id?: unknown; key?: unknown 
 }
 export async function rejectTrade(viewer: number, id: unknown): Promise<boolean> {
   const c = await close(viewer, id);
-  if (c) await sql`insert into trade_exclusions (viewer_id, trade_key, trader_id) values (${viewer}, ${c.key}, ${c.trader}) on conflict do nothing`;
+  // Fix round 1 (business lead 1): a hidden trade is not also a liked one. The like moves into the exclusion (its time
+  // kept in liked_at), so Undo puts it back where it was in the likes list.
+  if (c) await sql`with d as (delete from trade_likes where viewer_id = ${viewer} and trade_key = ${c.key} returning created_at)
+    insert into trade_exclusions (viewer_id, trade_key, trader_id, liked_at) values (${viewer}, ${c.key}, ${c.trader}, (select created_at from d))
+    on conflict (viewer_id, trade_key) do update set liked_at = coalesce(trade_exclusions.liked_at, excluded.liked_at)`;
   return !!c;
 }
 export async function undoRejectTrade(viewer: number, id: unknown): Promise<boolean> {
   const c = await close(viewer, id);
-  if (c) await sql`delete from trade_exclusions where viewer_id = ${viewer} and trade_key = ${c.key}`;
+  if (c) await sql`with d as (delete from trade_exclusions where viewer_id = ${viewer} and trade_key = ${c.key} returning trader_id, liked_at)
+    insert into trade_likes (viewer_id, trade_key, trader_id, created_at) select ${viewer}, ${c.key}, trader_id, liked_at from d where liked_at is not null
+    on conflict do nothing`;
   return !!c;
 }
 

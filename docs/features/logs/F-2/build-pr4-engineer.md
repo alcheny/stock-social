@@ -102,3 +102,37 @@ servers stopped.
 - Likes and the reject swipe are on feed cards only (not on profile rows or Similar trades rows).
 - A rejected trade leaves a gap on its page (fewer than 30 cards), like any card that disappears between pages.
 - The sign-in line for a signed-out double tap stays until closed or the page changes.
+
+## Fix round 1 (2026-10-24)
+
+From `committee-pr4-business-lead.md` (demands 1–3) and `committee-pr4-ux-lead.md` (follow-ups 1–5, 7).
+
+- **A hidden trade is never also liked (BL 1).** `rejectTrade` moves the viewer's like into the exclusion row (new
+  nullable `trade_exclusions.liked_at`, added through `schema_add_column`); `undoRejectTrade` puts it back with its
+  original time, so it returns to its place in `/me/likes`. Another viewer's like is untouched. The card's menu keeps
+  showing "Liked" after Undo (the client state was never changed; the server now agrees).
+- **Visible state (BL 2, UX 2).** The menu item reads "♥ Liked" (filled) when liked, "♡ Like" otherwise; `aria-pressed`
+  and the accessible name ("Like. Only you can see likes.") are unchanged.
+- **Permanence stated (BL 3, UX 4).** Card toast: "Trade hidden. You won’t see it again." (the trader hide keeps
+  "Hidden for 90 days.").
+- **Touch Undo bar times out (UX 3).** Focus on Undo now pauses the bar only when the reader last used the keyboard;
+  after a touch swipe or tap the programmatic focus no longer holds it, so it closes after 5 s like the mouse path.
+  Hover, keyboard focus and a finger put on the bar itself still pause it. Deviation from the brief ("resume after
+  pointer up"): an existing e2e (`e2e/section.spec.ts`, UX 7 of PR-3 round 1) pins that a tap on the bar keeps it
+  for 5.6 s; that test is not weakened, so a touch on the bar still holds it.
+- **No-JS confirmation (UX 5).** "Hide this trade" without JavaScript lands on `/?done=trade-hidden`, which shows the
+  same line (signed in only).
+- **320 polish (UX 1, 7).** `/me/likes` links wrap instead of clipping the date; the signed-out line's × is a quiet,
+  transparent 44 px button.
+- **Owner call (UX 6):** nothing in the feed teaches the double tap (the menu's Like and the likes list's empty state
+  are the routes). Left quiet by design; the owner decides whether PR-5 data warrants a hint.
+- **Planner item for PR-5 (BL 4):** once likes or rejects shape the ranking, `/me/likes` and the hide toast say so in
+  one plain line; no such copy until then.
+
+Tests: `lib/likes.test.ts` +1 (reject removes the like, Undo restores it in place; an unliked trade stays unliked;
+other viewer untouched). The existing like/reject/rebuild case now rejects first and likes after (every assertion
+kept),
+since a reject now removes an earlier like. `e2e/likes.spec.ts` +2: keyboard 1280 (Like → "♥ Liked", hide removes the
+like, toast text, Undo restores the like, the likes list empty after a final hide); touch 375 bar times out after a
+swipe; no-JS 320 hide line, likes list date whole; signed-out × transparent and 44 px.
+Screenshots: `screenshots/pr4-fix1/` (light and dark). Checks: tsc clean; `npm test` ×3 638 tests, 626 pass, 12 skipped (LOAD), 0 fail; LOAD feed 6/6, follows 1/1, sync 5/5 one file at a time; `CI=1 npm run build` exit 0 (first attempt stops on the framework advisory, retry passes); `npm run test:e2e` ×2 on own database and port 3490 with the vendor fake: 120 passed, 3 skipped, 0 failed (a run without the vendor fake env skips 29 more and its leftover-free section test then saw other rows; not a product issue); compliance diff only the pre-existing wasm line; guard ok. Product diff vs main 548 lines. Own databases dropped, server stopped, test users deleted.

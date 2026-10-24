@@ -90,7 +90,7 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
   }, [signedIn]);
   return (
     <p className="signin-line" role="status">
-      {askSignIn && <>{LIKES.signIn} <Link href="/login">{LIKES.signInLink}</Link> <button type="button" className="secondary" aria-label={LIKES.close} onClick={() => setAskSignIn(false)}>×</button></>}
+      {askSignIn && <>{LIKES.signIn} <Link href="/login">{LIKES.signInLink}</Link> <button type="button" className="quiet-x" aria-label={LIKES.close} onClick={() => setAskSignIn(false)}>×</button></>}
     </p>
   );
 }

@@ -245,3 +245,110 @@ test('F-2 PR-4: without JavaScript the card\'s menu posts Like and lands on the 
     await ctx.close(); await removeUser(me); await release();
   }
 });
+
+// F-2 PR-4 fix round 1: a hidden trade is never also liked (Undo restores the like); the menu reads "Liked" when liked;
+// the toast says the hide is permanent; on touch the Undo bar times out; no-JS hide confirms; the likes list wraps at 320.
+const FIX1 = 'docs/features/logs/F-2/screenshots/pr4-fix1';
+const shoot1 = async (page: Page, name: string) => {
+  for (const colorScheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme }); await page.screenshot({ path: `${FIX1}/${name}-${colorScheme}.png` }); }
+  await page.emulateMedia({ colorScheme: 'light' });
+};
+test('F-2 PR-4 fix round 1: hiding a liked trade removes the like and Undo restores it; the menu reads "Liked" when liked; the toast says it is for good', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const release = await feedLock('shared');
+  const me = handle();
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await ctx.newPage();
+  try {
+    await signIn(page, me);
+    await page.goto('/');
+    const row = firstRow(page);
+    const summary = row.locator('.card .more-menu summary');
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    const likeBtn = row.locator('[data-like]');
+    await expect(likeBtn).toHaveText(/♡\s*Like$/);
+    await likeBtn.focus();
+    await page.keyboard.press('Enter');
+    await expect(likeBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(likeBtn).toHaveText(/♥\s*Liked$/);
+    await expect(likeBtn).toHaveAccessibleName(/^Like\. Only you can see likes\.$/);
+    await expect.poll(() => count('trade_likes', me)).toBe(1);
+    await shoot1(page, 'liked-menu-1280');
+    await row.getByRole('button', { name: 'Hide this trade' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(row).toBeHidden();
+    await expect(page.locator('.hide-bar')).toContainText('Trade hidden. You won’t see it again.');
+    await expect.poll(() => count('trade_exclusions', me)).toBe(1);
+    await expect.poll(() => count('trade_likes', me)).toBe(0);
+    await shoot1(page, 'hide-toast-1280');
+    await page.keyboard.press('Enter'); // Undo has focus
+    await expect(row).toBeVisible();
+    await expect.poll(() => count('trade_exclusions', me)).toBe(0);
+    await expect.poll(() => count('trade_likes', me)).toBe(1);
+    await expect(likeBtn).toHaveAttribute('aria-pressed', 'true');
+    // Hidden for good: the likes list is empty.
+    await summary.click();
+    await row.getByRole('button', { name: 'Hide this trade' }).click();
+    await expect.poll(() => count('trade_likes', me)).toBe(0);
+    await page.waitForTimeout(5_500);
+    await page.goto('/me/likes');
+    await expect(page.locator('.likes li')).toHaveCount(0);
+  } finally {
+    await ctx.close(); await removeUser(me); await release();
+  }
+});
+
+test('F-2 PR-4 fix round 1: on touch the Undo bar times out after the reject swipe; without JavaScript a hide shows a line; the likes list date is whole at 320; the signed-out close is quiet', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const release = await feedLock('shared');
+  const me = handle(), me2 = handle();
+  const { ctx, page } = await touchPage(browser);
+  const nojs = await browser.newContext({ viewport: { width: 320, height: 700 }, javaScriptEnabled: false });
+  try {
+    await signIn(page, me);
+    await page.goto('/');
+    const row = firstRow(page);
+    const card = row.locator('.card');
+    const w = await card.evaluate((c) => c.clientWidth);
+    await page.waitForTimeout(500);
+    await swipe(page, card, Math.round(w * 0.6));
+    await expect(page.locator('.hide-bar')).toContainText('Trade hidden.');
+    await expect(page.locator('.hide-bar').getByRole('button', { name: 'Undo' })).toBeFocused();
+    await page.waitForTimeout(6_000);
+    await expect(page.locator('.hide-bar p')).toHaveCount(0);
+    // Without JavaScript, at 320: hide, then a line; like, then the likes list with its date whole.
+    const p2 = await nojs.newPage();
+    await p2.goto('/login/dev');
+    await p2.getByLabel('Handle').fill(me2);
+    await p2.getByLabel('I am 18 or older').check();
+    await p2.getByRole('button', { name: 'Continue' }).click();
+    await p2.goto('/');
+    await firstRow(p2).locator('.card .more-menu summary').click();
+    await firstRow(p2).getByRole('button', { name: 'Hide this trade' }).click();
+    await expect(p2).toHaveURL(/\/\?done=trade-hidden$/);
+    await expect(p2.locator('.nojs-done')).toHaveText('Trade hidden. You won’t see it again.');
+    expect(await count('trade_exclusions', me2)).toBe(1);
+    await shoot1(p2, 'nojs-hide-line-320');
+    await firstRow(p2).locator('.card .more-menu summary').click();
+    await firstRow(p2).locator('[data-like]').click();
+    await expect(p2).toHaveURL(/\/me\/likes$/);
+    const link = p2.locator('.likes .who-col a').first();
+    await expect(link).toHaveText(/, closed \w{3} \d{1,2}, \d{4}$/);
+    expect(await link.evaluate((a) => a.scrollWidth <= a.clientWidth + 1)).toBe(true);
+    await shoot1(p2, 'likes-320');
+    // Signed out at 320: the line's close is a quiet × (no filled background), still 44 px.
+    const out = await browser.newContext({ viewport: { width: 320, height: 700 }, hasTouch: true, isMobile: true });
+    const p3 = await out.newPage();
+    await p3.goto('/');
+    await doubleTap(p3, firstRow(p3).locator('.card .hero .ret'));
+    const x = p3.locator('.signin-line button');
+    await expect(x).toBeVisible();
+    expect(await x.evaluate((b) => getComputedStyle(b).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+    expect((await x.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await shoot1(p3, 'signedout-line-320');
+    await out.close();
+  } finally {
+    await ctx.close(); await nojs.close(); await removeUser(me); await removeUser(me2); await release();
+  }
+});

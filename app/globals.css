@@ -420,3 +420,9 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .signin-line:not(:empty) { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
 .signin-line button { min-height: 44px; min-width: 44px; margin-left: auto; }
 .likes .who-col { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+/* F-2 PR-4 fix round 1: the likes list's link wraps at 320 instead of clipping its date; the signed-out line's close is
+   a quiet ×; the no-JavaScript hide's confirmation line. */
+.likes .who-col a { white-space: normal; overflow: visible; }
+.likes .who-col a > * { white-space: normal; }
+.signin-line .quiet-x { background: transparent; color: var(--muted); border: 0; font-weight: 400; font-size: 1.25rem; padding: 0; }
+.nojs-done { position: fixed; z-index: 20; left: 16px; right: 16px; bottom: 16px; max-width: 528px; margin: 0 auto; padding: 12px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }

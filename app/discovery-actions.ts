@@ -56,7 +56,7 @@ export async function likeForm(id: unknown, liked: boolean): Promise<void> {
   const r = await (liked ? unlikeTrade(id) : likeTrade(id));
   if (r.ok) redirect('/me/likes');
 }
-export async function rejectTradeForm(id: unknown): Promise<void> { if ((await rejectTradeAction(id)).ok) redirect('/'); }
+export async function rejectTradeForm(id: unknown): Promise<void> { if ((await rejectTradeAction(id)).ok) redirect('/?done=trade-hidden'); }
 // /me/likes "Remove": by the like's key (its close may be gone after a rebuild).
 export async function removeLikeForm(key: unknown, after: unknown): Promise<void> {
   const me = await currentUser();

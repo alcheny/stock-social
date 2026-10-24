@@ -48,7 +48,10 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
   const run = () => { clearTimeout(timer.current); timer.current = window.setTimeout(close, UNDO_MS); };
   const hover = useRef(false);
   const pressed = useRef(false); // a pointer went down on the bar since it opened
-  const paused = () => hover.current || pressed.current || !!undoBtn.current?.matches(':focus-visible');
+  // Fix round 1 (UX 3): focus pauses the bar only when the reader is on the keyboard; on touch, focus moved to Undo by
+  // the hide itself no longer holds it (it times out like the mouse path unless the finger touches the bar).
+  const keys = useRef(false);
+  const paused = () => hover.current || pressed.current || (keys.current && !!undoBtn.current?.matches(':focus-visible'));
   const show = (b: Bar | null) => {
     clearTimeout(timer.current);
     pressed.current = false;
@@ -79,8 +82,10 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
       const r = await notInterested(handle).catch(() => ({ ok: false }));
       if (!r.ok) { setHidden((h) => h.filter((x) => x !== handle)); show({ handle, text: FOLLOW.failed, undo: false }); }
     };
+    const onKey = () => { keys.current = true; }, onPtr = () => { keys.current = false; };
+    addEventListener('keydown', onKey, true); addEventListener('pointerdown', onPtr, true);
     addEventListener('ss:hide', onHide);
-    return () => { removeEventListener('ss:hide', onHide); clearTimeout(timer.current); };
+    return () => { removeEventListener('keydown', onKey, true); removeEventListener('pointerdown', onPtr, true); removeEventListener('ss:hide', onHide); clearTimeout(timer.current); };
   }, []);
   useLayoutEffect(() => {
     const feed = document.querySelector('.feed'), a = anchor.current;

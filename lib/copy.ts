@@ -359,6 +359,7 @@ export const FOLLOW = {
 export const LIKES = {
   more: (sym: string) => `More for this ${sym} trade`,
   like: 'Like',
+  liked: 'Liked',
   likeLabel: 'Like. Only you can see likes.',
   saidLiked: 'Liked. Only you can see likes.',
   saidUnliked: 'Like removed.',
@@ -367,7 +368,7 @@ export const LIKES = {
   signInLink: 'Sign in',
   close: 'Close',
   hide: 'Hide this trade',
-  hidden: 'Trade hidden.',
+  hidden: 'Trade hidden. You won\u2019t see it again.',
   tray: 'Hide trade',
   title: 'Liked trades',
   private: 'Only you can see your likes. Traders are never told, and nothing counts them.',
