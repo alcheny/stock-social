@@ -102,7 +102,7 @@ test('without JavaScript a row links to that trade\'s page', async ({ browser })
     await page.locator('.similar').evaluate((e) => e.scrollIntoView({ block: 'center' }));
     await shoot(page, 'no-js-375');
     await page.locator('.similar .sopen').first().click();
-    await expect(page).toHaveURL(new RegExp(href!.replace(/[/]/g, '\\/') + '$'));
+    await expect(page).toHaveURL(new RegExp(href!.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + '$'));
   } finally {
     await ctx.close();
     await f.remove();
