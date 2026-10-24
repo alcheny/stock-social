@@ -69,7 +69,8 @@ export default async function RecapPage({ params }: Params) {
               <p className="muted small" style={{ marginTop: 0 }}>Too few trades for a win rate. The month&apos;s trades are listed below.</p>
             </>
           )}
-          <p className="small">{m.evidence}{m.range ? ` ${m.range}` : ''}</p>
+          {m.range && <p className="small range">{m.range} · 95% range</p>}
+          <p className="small">{m.evidence}</p>
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>
@@ -78,8 +79,9 @@ export default async function RecapPage({ params }: Params) {
           {whole.stats ? <>
             <p className="big">{(w.winRate * 100).toFixed(0)}%</p>
             <p className="muted small" style={{ marginTop: 0 }}>win rate · {plural(w.trades)} · {pct(w.avgReturn)} avg return</p>
-            <p className="small">{w.evidence}{w.range ? ` ${w.range}` : ''}</p>
-            {w.newRecord && <p className="muted small">Short record: {plural(w.trades)} so far. A short record shows wide uncertainty.</p>}
+            {w.range && <p className="small range">{w.range} · 95% range</p>}
+            <p className="small">{w.evidence}</p>
+            {w.newRecord && <p className="muted small">Short record: {plural(w.trades)} so far.{w.tooEarly ? ' A short record shows wide uncertainty.' : ''}</p>}
           </> : <p role="status" className="muted importing">{whole.line}</p>}
         </section>
       </div>

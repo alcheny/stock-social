@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
 import { COMPARE_COPY, compareDescription, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
-import { evidenceLine, pct, rangeText, tooEarlyText } from '@/lib/trades.ts';
+import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
 import { Badge } from '../../ui.tsx';
 import Spread from '../[symbol]/Spread.tsx';
 
@@ -71,12 +71,12 @@ function Column({ symbol, side, id, shared }: { symbol: string; side: CompareSid
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : s.avgReturn! < 0 ? 'down' : ''}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
-          <small className="range">{range ? `${range} · 95% range` : tooEarlyText(c)}</small>
+          {range && <small className="range">{range} · 95% range</small>}
         </div>
       </div>
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
       <div className="evidence">
-        <p style={{ margin: 0 }}>{side.tier === 'too-early' && <b>{COMPARE_COPY.tooEarly}. </b>}{evidenceLine(c)}</p>
+        <p style={{ margin: 0 }}>{evidenceLine(c)}</p>
       </div>
       <Spread spread={side.spread} returns={side.returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} shared={shared} bare />
     </section>

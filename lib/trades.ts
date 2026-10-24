@@ -217,7 +217,15 @@ export type Interval = { low: number; mid: number; high: number };
 // "recorded in the design record" (IMPLEMENTATION conflict 8); DESIGN TR-9 states the same rule.
 export const MIN_BETS = 5;
 export const TOO_WIDE = 0.10;
-export const tooWide = (iv: Interval) => (iv.high - iv.low) / 2 > TOO_WIDE; // exactly 10 points is not too wide
+// Exactly 10 points is not too wide at any magnitude: the 1e-12 absorbs rounding (0.9 − 0.7 is 0.20000000000000007).
+export const tooWide = (iv: Interval) => (iv.high - iv.low) / 2 > TOO_WIDE + 1e-12;
+// F-4 PR-1 ruling H1 (business lead, ruling-pr1-h1.md): a variance floor and a ranking floor. The spread never falls
+// below a 1% move per √day held, weighted as PRIOR_BETS bets, so 5 identical trades never print a zero-width range; a
+// record ranks on weight only from RANK_MIN_BETS bets (display keeps MIN_BETS).
+export const SIGMA_DAY = 0.01, PRIOR_BETS = 5;
+export const RANK_MIN_BETS = 10;
+// Shown on the profile under "What's this?" (UX lead D6), built from the constants.
+export const TOO_EARLY_RULE = `It says too early to tell until there are at least ${MIN_BETS} independent bets and the range is no more than ${Math.round(2 * TOO_WIDE * 100)} points wide.`;
 export type Confidence = {
   n: number; k: number; spanDays: number;
   tier: Tier; direction: Direction | null;
@@ -268,9 +276,12 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   const sumX = clusters.reduce((a, c) => a + c.x, 0);
   const sumD = clusters.reduce((a, c) => a + c.d, 0);
   const m = sumX / n;
-  const seM = Math.sqrt((k / (k - 1)) * clusters.reduce((a, c) => a + (c.x - c.n * m) ** 2, 0)) / n;
+  // Ruling H1: S is the sum of squared cluster residuals; the spread is the larger of the sample's own and the sample
+  // moderated toward SIGMA_DAY per √day held (as if PRIOR_BETS bets at that spread had been seen). Both SEs use it.
+  const spread = (S: number) => Math.sqrt(Math.max((k / (k - 1)) * S, (PRIOR_BETS * SIGMA_DAY ** 2 * sumD + k * S) / (PRIOR_BETS + k - 1)));
+  const seM = spread(clusters.reduce((a, c) => a + (c.x - c.n * m) ** 2, 0)) / n;
   const R = sumX / sumD;
-  const seR = Math.sqrt((k / (k - 1)) * clusters.reduce((a, c) => a + (c.x - R * c.d) ** 2, 0)) / sumD;
+  const seR = spread(clusters.reduce((a, c) => a + (c.x - R * c.d) ** 2, 0)) / sumD;
   const perTrade = { low: Math.expm1(m - t * seM), mid: Math.expm1(m), high: Math.expm1(m + t * seM) };
   const pace30 = { low: Math.expm1(30 * (R - t * seR)), mid: Math.expm1(30 * R), high: Math.expm1(30 * (R + t * seR)) };
   if (![...Object.values(perTrade), ...Object.values(pace30)].every(Number.isFinite)) {
@@ -296,7 +307,8 @@ export function evidenceLine(c: Confidence): string {
 
 // The one "too early" sentence, for every page. Too early by width (K ≥ MIN_BETS) names the width, never "12 of 5 bets".
 export function tooEarlyText(c: Confidence): string {
-  if (c.k >= MIN_BETS) return `Too early to tell: the range is still too wide (${plural(c.k, 'bet')}, ${plural(Math.round(c.spanDays), 'day')})`;
+  // UX lead D4: when trades outnumber bets the sentence names them, as the thin line does.
+  if (c.k >= MIN_BETS) return `Too early to tell: the range is still too wide (${plural(c.k, 'bet')}${c.n > c.k ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
   return c.n > c.k
     ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (${MIN_BETS} independent bets needed)`
     : `Too early to tell (${count(c.k)} of ${MIN_BETS} bets)`;
@@ -315,8 +327,13 @@ export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, t
 
 // Feed order: traders with a clear direction first (weight > 0), by weight × score; the rest keep score order.
 // weight = log-distance of the pace interval from zero in either direction, so equal losses and gains tie.
-// F-4: a too-early record weighs 0, including one too early by width that keeps its intervals.
-export const evidenceWeight = (c: Confidence): number => (c.pace30 && c.tier !== 'too-early' ? Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high)) : 0);
+// F-4: a too-early record weighs 0, including one too early by width that keeps its intervals. Ruling H1: so does any
+// record under RANK_MIN_BETS bets, so ranking is unchanged from main for 5 to 9 bets (small lucky samples can't top it).
+// Tester L5: capped at WEIGHT_CAP, a pace of e^30 per 30 days either way that no real record reaches; a run of total
+// losses (pace −100%, log1p = −∞) then weighs a finite amount instead of Infinity.
+const WEIGHT_CAP = 30;
+export const evidenceWeight = (c: Confidence): number => (c.pace30 && c.tier !== 'too-early' && c.k >= RANK_MIN_BETS
+  ? Math.min(WEIGHT_CAP, Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high))) : 0);
 
 export function rankTraders<T extends { weight: number; score: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => {

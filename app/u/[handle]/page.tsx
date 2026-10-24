@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
-import { confidence, directionText, evidenceLine, isNewRecord, pct, rangeText, stats } from '@/lib/trades.ts';
+import { confidence, directionText, evidenceLine, isNewRecord, pct, rangeText, stats, TOO_EARLY_RULE } from '@/lib/trades.ts';
 import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
@@ -224,7 +224,7 @@ export default async function Profile({ params, searchParams }: Params) {
         </p>
         <details>
           <summary>What&apos;s this?</summary>
-          95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence.
+          95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence. {TOO_EARLY_RULE}
         </details>
       </div>
       <section className="stats">

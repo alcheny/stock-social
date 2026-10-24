@@ -23,8 +23,9 @@ export default function Concentration({ rows, symbol, demoOnly, mixed }: { rows:
           <p style={{ marginTop: 0 }}>The most active trader made {c.top} of {c.n} trades ({y}%).</p>
           <p data-testid="concentration-rest">
             Without them: {Math.round(rest.winRate! * 100)}% win rate, avg{' '}
-            <span className={rest.avgReturn! > 0 ? 'up' : rest.avgReturn! < 0 ? 'down' : undefined}>{pct(rest.avgReturn!)}</span>,{' '}
-            {rest.conf && rangeText(rest.conf) ? `${rangeText(rest.conf)} · 95% range` : rest.conf ? tooEarlyText(rest.conf) : `Too early to tell (0 of ${MIN_BETS} bets)`} over {rest.n} trades.
+            <span className={rest.avgReturn! > 0 ? 'up' : rest.avgReturn! < 0 ? 'down' : undefined}>{pct(rest.avgReturn!)}</span> over {rest.n} trades.
+            {rest.conf && rangeText(rest.conf) && ` ${rangeText(rest.conf)} · 95% range.`}
+            {(!rest.conf || rest.conf.tier === 'too-early') && ` ${rest.conf ? tooEarlyText(rest.conf) : `Too early to tell (0 of ${MIN_BETS} bets)`}.`}
           </p>
         </>
       )}

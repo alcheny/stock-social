@@ -134,7 +134,8 @@ export default async function Ticker({ params, searchParams }: Params) {
       <section className="stats" aria-label="Summary">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : 'down'}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
-          <small className="range">{range ? `${range} · 95% range` : tooEarlyText(c)}</small>
+          {range && <small className="range">{range} · 95% range</small>}
+          {c.tier === 'too-early' && <small className="range">{tooEarlyText(c)}</small>}
           <small className="median">median {pct(spread.median! / 100)}</small>
         </div>
       </section>
@@ -151,7 +152,6 @@ export default async function Ticker({ params, searchParams }: Params) {
       {spread.n > 0 && (
         <>
           <Spread spread={spread} returns={returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
-          {c.tier === 'too-early' && <p className="muted small">{tooEarlyText(c)}</p>}
         </>
       )}
 

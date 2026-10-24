@@ -17,7 +17,7 @@ export function tradeSharePayload(i: TradeShareInput, today: Date) {
     closedAt: i.closedAt.toISOString(),
     thesis: i.thesisStatus === 'published' && i.thesis ? i.thesis : null,
     demo: i.demo,
-    record: { trades: s.trades, winRate: s.winRate, avgReturn: s.avgReturn, evidence: evidenceLine(c), range: rangeText(c) },
+    record: { trades: s.trades, winRate: s.winRate, avgReturn: s.avgReturn, evidence: evidenceLine(c), range: rangeText(c), tooEarly: c.tier === 'too-early' },
     newRecord: isNewRecord(i.allTrades, i.allTrades.length, today),
   };
 }
