@@ -54,3 +54,11 @@ for (const file of ROOTS) {
     for (const m of g) assert.ok(m.startsWith('lib/discovery/') || m.startsWith('node:'), `${file} imports ${m}`);
   });
 }
+
+// F-2 PR-1b: added case. The per-card discount and the "new record" slot are in the pure modules, and lib/feed.ts orders
+// its list with them (so the walk above covers them).
+test('PR-1b: the per-card discount and the new-record slot live in pure discovery modules that lib/feed.ts uses', () => {
+  assert.match(readFileSync(resolve(root, 'lib/discovery/explore.ts'), 'utf8'), /export function discounted</);
+  assert.match(readFileSync(resolve(root, 'lib/discovery/section.ts'), 'utf8'), /function newRecordSlot\(/);
+  assert.match(readFileSync(resolve(root, 'lib/feed.ts'), 'utf8'), /import \{ discounted, mixFeed \} from '\.\/discovery\/explore\.ts'/);
+});

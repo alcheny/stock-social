@@ -474,3 +474,17 @@ Engineer: SIGNED 2026-10-23 (author; I would stake my name on building every PR 
 Plan signed 2026-10-23. Build starts with PR-1.
 
 SIGNED: business lead (round 2 condition met), engineer
+
+## Amendment: PR-1b (2026-10-24, engineer; accepted by the business lead in committee PR-3 §5 before PR-4)
+
+Appended; the signed text above is unchanged. PR-1b "exploration and reach" adds, for every viewer alike: (1) one best
+recent close of each eligible trader outside the 200 candidates (at most `EXPLORE_EXTRA` = 150 per list, in an order
+seeded by the UTC day) joins the exploration pool only, so exploration and the section reach every eligible trader;
+the cursor admits offsets up to `FEED_LIST_MAX`; (2) the section puts traders with no card earlier in the list first,
+each group in TR-9 lower-bound order, and gives its third row to the newest verified record with no evidence weight yet
+(the "new record" slot: rows still read in non-increasing evidence); (3) a per-card discount at the head of the ranking
+breaks the hyperactive traders' fixed 10-card cycle. Known limits: past 150 outside traders a day the rest wait for
+another day's seed; a trader with no close in the last 14 days is reached only when the full pass runs; the outside
+traders' weight-cache key is read from the recent window (a rebuild or a new close changes it); the new-record slot
+gives way to the bucket cap. Owner decision O4 (unfollow as a small negative weight, never a hide) is not in PR-1b:
+it changes the pinned section test for criterion 4 and belongs with PR-4's viewer-specific score.

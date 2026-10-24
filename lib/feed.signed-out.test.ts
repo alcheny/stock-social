@@ -167,3 +167,50 @@ dbTest('F-2 PR-3, signed in: the section\'s read of follows and exclusions is ke
     await sql`delete from users where id in ${sql(ids)}`;
   }
 });
+
+// F-2 PR-1b: added cases. The exploration and section pool now reach eligible traders outside the 200 candidates through
+// one more read (one best recent close each, in a day-seeded order). Signed out it touches no viewer table; signed in it
+// is byte for byte the signed-out read (text and parameters): nothing about the viewer reaches it.
+dbTest('F-2 PR-1b, signed out: the read of traders outside the candidates touches no viewer table, and such traders reach pages 1 to 3', async () => {
+  const { sql } = await import('./db.ts');
+  const { loadFeedPage, FEED_CANDIDATES, clearFeedCache } = await import('./feed.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `x${Math.random().toString(36).slice(2, 9)}`;
+  const ids: number[] = [];
+  for (let t = 0; t < 61; t++) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${t}` })).id);
+  const [viewer, ...traders] = ids;
+  const at = Date.now() - 600_000;
+  await sql`insert into closed_trades ${sql(traders.flatMap((u, t) => Array.from({ length: 8 }, (_, i) => ({
+    user_id: u, sell_id: `${tag}-${t}-${i}`, account_id: 'a', symbol: `X${(t * 8 + i) % 53}`, opened_at: new Date(at - 86_400_000 * (1 + (t % 5) * 20)),
+    closed_at: new Date(at - (t < 34 ? i * 60_000 : 5 * 86_400_000 + i * 60_000)), return_pct: t < 34 ? ((t + i) % 2 ? 0.3 : -0.3) : 0.02,
+    holding_days: 1 + (t % 5) * 20, verified: true,
+  }))))}`;
+  const outsideRead = (q: string) => /order by md5\(/.test(q);
+  try {
+    clearFeedCache('lists');
+    log.length = 0; params.length = 0;
+    const p1 = await loadFeedPage(undefined, { ids: traders });
+    const p2 = await loadFeedPage(p1.next!, { ids: traders });
+    const p3 = await loadFeedPage(p2.next!, { ids: traders });
+    const reads = log.map((q, i) => ({ q, p: params[i] })).filter((x) => outsideRead(x.q));
+    assert.equal(reads.length, 1, 'one read of the traders outside the candidates per list');
+    assert.deepEqual(log.filter((q) => VIEWER_TABLES.test(q)), []);
+    const { feedCandidates } = await import('./feed.ts');
+    const inCands = new Set((await feedCandidates({ ids: traders, asOf: p1.asOf })).map((c) => c.user_id));
+    const nc = (await feedCandidates({ ids: traders, asOf: p1.asOf })).length;
+    assert.ok(inCands.size < traders.length && nc === FEED_CANDIDATES, `${inCands.size} traders, ${nc} candidates`);
+    const shown = new Set([p1, p2, p3].flatMap((p) => [...p.cards.map((c) => c.user_id), ...(p.section ?? []).map((s) => s.userId)]));
+    assert.ok([...shown].some((id) => !inCands.has(id)), 'a trader outside the candidates is shown');
+    // Signed in, the same read: same text, same parameters.
+    clearFeedCache('lists');
+    log.length = 0; params.length = 0;
+    await loadFeedPage(undefined, { ids: traders, viewer, now: p1.asOf.getTime() });
+    const mine = log.map((q, i) => ({ q, p: params[i] })).filter((x) => outsideRead(x.q));
+    assert.equal(mine.length, 1);
+    assert.equal(mine[0].q, reads[0].q);
+    assert.deepEqual(JSON.stringify(mine[0].p), JSON.stringify(reads[0].p));
+    assert.ok(!mine[0].p.some((v) => Number(v) === viewer), 'the viewer id is not a parameter');
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});

@@ -172,3 +172,36 @@ test('reject swipe recognizer: 49% snaps back, 51% commits; never commits unarme
   assert.equal(horizontal(40, 20), true);
   assert.equal(horizontal(39, 20), false);
 });
+
+// F-2 PR-1b (business lead §5 item 2): traders with no card earlier in the list first; the "new record" slot.
+test('PR-1b: traders with no card earlier in the list come first, each group in pool order', () => {
+  const pool = Array.from({ length: 8 }, (_, i) => ({ ...T(i + 1, [0.5, 3, 20, 60][i % 4], 1 - i / 10), n: 40 }));
+  const list = [...Array.from({ length: 30 }, (_, i) => ({ trader: i < 3 ? i + 1 : 100 + i })), ...Array.from({ length: 30 }, (_, i) => ({ trader: 200 + i }))];
+  const c = sectionCandidates(pool, list, 30, new Set()).map((t) => t.trader);
+  // Page 1's section took 4, 5, 6 (1 to 3 are its near cards); on page 2, 7 and 8 have neither a card nor a row yet.
+  assert.deepEqual(c, [7, 8, 4, 5, 6, 1, 2, 3]);
+});
+
+test('PR-1b new-record slot: the third place goes to the weight-0 trader with no earlier card and the fewest closes; rows stay in non-increasing weight', () => {
+  const W = (id: number, weight: number, n: number, hold = 3) => ({ ...T(id, hold, weight), n });
+  const pool = [W(1, 0.3, 40, 0.5), W(2, 0.2, 40, 20), W(3, 0.1, 30, 60), W(4, 0, 30, 300), W(5, 0, 6), W(6, 0, 5)];
+  const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
+  const rows = chooseRows(sectionCandidates(pool, list, 0, new Set()))!;
+  assert.deepEqual(rows.map((t) => t.trader), [1, 2, 6]);
+  for (let i = 1; i < rows.length; i++) assert.ok(rows[i].weight <= rows[i - 1].weight && (rows[i].weight < rows[i - 1].weight || rows[i].n <= rows[i - 1].n));
+  // Page 2: 6 was shown, so the slot goes to 5; page 3: both shown, the fewest closes again.
+  const long = [...list, ...Array.from({ length: 60 }, (_, i) => ({ trader: 200 + i }))];
+  assert.deepEqual(chooseRows(sectionCandidates(pool, long, 30, new Set()))!.map((t) => t.trader), [3, 4, 5]);
+  // A newcomer with a card earlier in the list is not given the slot.
+  const carded = [...Array.from({ length: 30 }, (_, i) => ({ trader: i === 20 ? 6 : 100 + i })), ...Array.from({ length: 30 }, (_, i) => ({ trader: 200 + i }))];
+  assert.ok(!chooseRows(sectionCandidates(pool, carded, 30, new Set()))!.some((t) => t.trader === 6));
+  // Sign-blind: the slot reads weight, closes and id only.
+  assert.deepEqual(chooseRows(sectionCandidates(pool.map((t) => ({ ...t, score: -t.score })), list, 0, new Set()))!.map((t) => t.trader), [1, 2, 6]);
+});
+
+test('PR-1b new-record slot: a Demo (unverified) record never takes it', () => {
+  const W = (id: number, weight: number, n: number, verified?: boolean) => ({ ...T(id, [0.5, 20, 60, 300, 3][id % 5], weight), n, ...(verified === undefined ? {} : { verified }) });
+  const pool = [W(1, 0.3, 40), W(2, 0.2, 40), W(3, 0.1, 30), W(4, 0, 6, false), W(5, 0, 8, true)];
+  const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
+  assert.deepEqual(chooseRows(sectionCandidates(pool, list, 0, new Set()))!.map((t) => t.trader), [1, 2, 5]);
+});

@@ -26,6 +26,24 @@ import { fits, FEED_CAPS, type Caps, type MixCard } from './diversity.ts';
 
 export const EXPLORE_TOP = 30;
 export const EXPLORE_EVERY = 5;
+// F-2 PR-1b (business lead §5 item 3): a per-card discount for the traders at the head of the ranking (a card in the top
+// EXPLORE_TOP), where the hyperactive records form a cycle: each returns exactly 10 cards later, in the same order,
+// because its next card always outranks everyone outside the last 9 cards. The k-th card of such a trader (k = 0 for its
+// best) moves to the key (rank + 1) × (1 + CARD_DISCOUNT)^k and the list is re-sorted by key (ties keep rank order), so
+// its later cards fall in among other traders' and the cycle shifts. Every trader's best card keeps its rank order, so
+// the best-evidenced records still lead; traders outside the head keep their natural order (discounting them too
+// spread the ranked slots over every trader and left exploration with no new trader to show). A discount on the score
+// could not do this: at every k the order would still be weight × score. Reads the order and the trader ids, never a
+// return.
+export const CARD_DISCOUNT = 2;
+export function discounted<T extends { trader: number | string }>(ranked: readonly T[], d = CARD_DISCOUNT, top = EXPLORE_TOP): T[] {
+  const head = new Set(ranked.slice(0, top).map((c) => c.trader)), held = new Map<T['trader'], number>();
+  return ranked.map((c, i) => {
+    const k = held.get(c.trader) ?? 0;
+    held.set(c.trader, k + 1);
+    return { c, key: (i + 1) * (1 + d) ** (head.has(c.trader) ? k : 0) };
+  }).sort((a, b) => a.key - b.key).map((x) => x.c);
+}
 
 // FNV-1a over the day string, then mulberry32: small, fast, reproducible on any runtime.
 export function daySeed(day: string): number {
@@ -61,13 +79,16 @@ export function pick<T extends MixCard>(from: readonly T[], used: ReadonlySet<T>
   return notPrev ?? any;
 }
 
-export function mixFeed<T extends MixCard>(ranked: readonly T[], opts: { day: string; caps?: Caps; top?: number; every?: number }): Mixed<T>[] {
-  const { caps = FEED_CAPS, top = EXPLORE_TOP, every = EXPLORE_EVERY } = opts;
+// F-2 PR-1b (business lead §5 item 1): `extra`, one card each of eligible traders outside the ranked candidates, joins
+// the exploration pool only (ranked slots never take one), so exploration reaches every eligible trader, not only the
+// candidates' traders; traders not yet in the list still go first, in the same seeded shuffle.
+export function mixFeed<T extends MixCard>(ranked: readonly T[], opts: { day: string; caps?: Caps; top?: number; every?: number; extra?: readonly T[] }): Mixed<T>[] {
+  const { caps = FEED_CAPS, top = EXPLORE_TOP, every = EXPLORE_EVERY, extra = [] } = opts;
   const rand = prng(daySeed(opts.day));
   const phase = Math.floor(rand() * every);
   // The pool by trader: each trader's pool cards in rank order; the traders in a seeded shuffle.
   const byTrader = new Map<T['trader'], T[]>();
-  for (const c of ranked.slice(top)) { const a = byTrader.get(c.trader); if (a) a.push(c); else byTrader.set(c.trader, [c]); }
+  for (const c of [...ranked.slice(top), ...extra]) { const a = byTrader.get(c.trader); if (a) a.push(c); else byTrader.set(c.trader, [c]); }
   const traders = [...byTrader.keys()];
   for (let i = traders.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [traders[i], traders[j]] = [traders[j], traders[i]]; }
   const pool = traders.map((t) => byTrader.get(t)!);

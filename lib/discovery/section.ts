@@ -28,7 +28,7 @@ export function median(xs: readonly number[]): number {
 }
 
 // Per trader, read at asOf: the evidence weight, the median holding days and the number of closes counted.
-export type TraderFacts = { weight: number; hold: number; n: number };
+export type TraderFacts = { weight: number; hold: number; n: number; verified?: boolean };
 export type SectionTrader = TraderFacts & { trader: number; score: number };
 
 export function sectionPool(cards: readonly { trader: number; score: number }[], facts: ReadonlyMap<number, TraderFacts>): SectionTrader[] {
@@ -37,7 +37,7 @@ export function sectionPool(cards: readonly { trader: number; score: number }[],
   const out: SectionTrader[] = [];
   for (const [trader, score] of best) {
     const f = facts.get(trader);
-    if (f) out.push({ trader, score, weight: f.weight, hold: f.hold, n: f.n });
+    if (f) out.push({ trader, score, weight: f.weight, hold: f.hold, n: f.n, ...(f.verified === undefined ? {} : { verified: f.verified }) });
   }
   return out.sort((a, b) => b.weight - a.weight || b.n - a.n || a.trader - b.trader);
 }
@@ -67,11 +67,35 @@ export function sectionCandidates(pool: readonly SectionTrader[], list: readonly
   const earlier = new Set<number>();
   for (let o = 0; ; o += PAGE_SIZE) {
     const near = new Set((o >= offset && shown ? shown : list.slice(o)).slice(0, SECTION_NEAR).map((c) => c.trader));
+    // F-2 PR-1b (business lead §5 item 2): traders with no card earlier in the list come first, then the rest; inside each
+    // group, those not yet in an earlier section first; each part keeps the pool's order (the TR-9 lower bound).
+    const carded = new Set(list.slice(0, o).map((c) => c.trader));
     const ok = pool.filter((t) => !skip.has(t.trader) && !near.has(t.trader));
-    const cands = [...ok.filter((t) => !earlier.has(t.trader)), ...ok.filter((t) => earlier.has(t.trader))];
+    const cands = [false, true].flatMap((c) => [false, true].flatMap((e) => ok.filter((t) => carded.has(t.trader) === c && earlier.has(t.trader) === e)));
+    newRecordSlot(cands, carded, earlier);
     if (o >= offset) return cands;
     for (const t of chooseRows(cands) ?? []) earlier.add(t.trader);
   }
+}
+
+// F-2 PR-1b: the "new record" slot. A record whose 30-day interval still spans zero has evidence weight 0 and, ordered by
+// the lower bound alone, never reaches a row while records with evidence (or more closes) exist; a newcomer with 5 or 6
+// closes is such a record. The third place goes to the weight-0 trader with no card earlier in the list, not yet in an
+// earlier section while one is left, with the fewest closes counted (then the lower id): the newest record. The rows
+// still read in non-increasing evidence (row 3 has weight 0 and no more closes than rows 1 and 2), so the section's line
+// stays true; no raw average, size of a move or sign is read, and every viewer gets the same slot. Best effort under
+// the bucket cap: when rows 1 and 2 share its holding bucket, the next candidate takes the place. Only a verified
+// record (every close verified) takes the slot: Demo data is never promoted as a new record.
+function newRecordSlot(cands: SectionTrader[], carded: ReadonlySet<number>, earlier: ReadonlySet<number>) {
+  if (cands.length < SECTION_ROWS) return;
+  let at = -1;
+  for (let i = 2; i < cands.length; i++) {
+    const t = cands[i];
+    if (t.weight > 0 || t.verified === false || carded.has(t.trader)) continue;
+    const u = cands[at];
+    if (!u || (+earlier.has(t.trader) - +earlier.has(u.trader) || t.n - u.n || t.trader - u.trader) < 0) at = i;
+  }
+  if (at > 2) cands.splice(2, 0, cands.splice(at, 1)[0]);
 }
 
 // One reason line per row (fix round 1, business lead demand 2: one template): the trader's typical holding period, true
