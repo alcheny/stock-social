@@ -43,3 +43,12 @@ test('winRateDelta is null when either side is null', () => {
   assert.equal(baselineVerdict(summary({ winRate: null }), base()).winRateDelta, null);
   assert.equal(baselineVerdict(summary(), base({ winRate: null })).winRateDelta, null);
 });
+
+// F-4 PR-1: a record too early by width keeps its range (shown from 5 bets), but "too early" draws no verdict.
+test('too early by width: the range is kept and no verdict is drawn', () => {
+  const wide = summary({ conf: { ...conf(-0.15, 0.04, 0.3)!, k: 7, tier: 'too-early', direction: null } });
+  assert.equal(baselineVerdict(wide, base({ perTrade: -0.5 })).kind, 'too_few_trades');
+  assert.equal(baselineVerdict(wide, base({ perTrade: 0.9 })).kind, 'too_few_trades');
+  // The same interval at tier thin compares as before.
+  assert.equal(baselineVerdict(summary({ conf: { ...conf(-0.15, 0.04, 0.3)!, k: 7 } }), base({ perTrade: -0.5 })).kind, 'clearly_higher');
+});

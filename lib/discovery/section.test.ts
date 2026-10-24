@@ -30,12 +30,13 @@ const facts = (ts: ConfidenceInput[]): TraderFacts => ({ weight: ts.length ? evi
 // is now ordered by the TR-9 weight alone, ties by closes counted then user id. Restated, not loosened: the expected
 // order is the stricter one.
 test('the pool is ordered by the TR-9 lower-bound weight alone (never a raw average or the size of a move), ties by closes counted then id; a losing record weighs exactly like the mirrored winning one', () => {
-  const recs = new Map<number, ConfidenceInput[]>([[1, record(40, 0.02)], [2, record(40, 0.02, 3, -1)], [3, record(6, 0.3)], [4, record(40, 0.002)], [5, record(12, 0.05)]]);
+  const recs = new Map<number, ConfidenceInput[]>([[1, record(40, 0.02)], [2, record(40, 0.02, 3, -1)], [3, record(4, 0.3)], [4, record(40, 0.002)], [5, record(12, 0.05)]]);
   const f = new Map([...recs].map(([id, ts]) => [id, facts(ts)]));
   // Mirrored in log space: the same weight.
   assert.ok(f.get(1)!.weight > 0);
   assert.ok(Math.abs(f.get(1)!.weight - f.get(2)!.weight) < 1e-12, `${f.get(1)!.weight} vs ${f.get(2)!.weight}`);
-  // Trader 3 has the highest raw average (+35% a trade) but too few bets: weight 0, so it ranks below every confident record.
+  // Trader 3 has the highest raw average (+35% a trade) but too few bets (4, under the owner's floor of 5; F-4 PR-1): weight
+  // 0, so it ranks below every confident record.
   assert.equal(f.get(3)!.weight, 0);
   const cards = [1, 2, 3, 4, 5].flatMap((trader) => [{ trader, score: trader === 3 ? 9 : 1 + trader / 10 }, { trader, score: 0.5 }]);
   const pool = sectionPool(cards, f);
@@ -114,7 +115,8 @@ test('TR-9 order: a lower raw average with a higher lower bound ranks first, wha
   const pool = sectionPool([{ trader: 1, score: 9 }, { trader: 2, score: 0.1 }], f);
   assert.deepEqual(pool.map((t) => t.trader), [2, 1]);
   // Equal weights (two weight-0 records): more closes first, then the lower id, never the bigger move.
-  const g = new Map([[3, facts(record(6, 0.3))], [4, facts(record(9, 0.01))], [5, facts(record(9, 0.02))]]);
+  // F-4 PR-1: under the 5-bet floor (2, 4 and 4 closes; they were 6, 9 and 9 under the floor of 10).
+  const g = new Map([[3, facts(record(2, 0.3))], [4, facts(record(4, 0.01))], [5, facts(record(4, 0.02))]]);
   assert.ok([3, 4, 5].every((id) => g.get(id)!.weight === 0));
   assert.deepEqual(sectionPool([{ trader: 3, score: 9 }, { trader: 5, score: 1 }, { trader: 4, score: 0.1 }], g).map((t) => t.trader), [4, 5, 3]);
 });
@@ -234,4 +236,22 @@ test('PR-1b fix 1: the new-record slot is chosen before the bucket cap (a newcom
   const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
   const rows = chooseRows(sectionCandidates(pool, list, 0, new Set()))!.map((t) => t.trader);
   assert.deepEqual(rows, [1, 3, 9]); // 9 shares bucket 1 with 1 and 2: it keeps its row, 2 gives way
+});
+
+// F-4 PR-1 (business lead ruling C3): under the owner's 5-bet floor a newcomer whose first closes agree gets a small
+// weight, so weight 0 no longer stands for "the newest record". The slot takes a record whose weight is 0 or whose tier
+// is thin; moderate and strong records, and facts without a tier, compete on weight alone, as before.
+test('F-4 C3 new-record slot: a verified thin record with weight 0.03 and 5 closes takes it over a weight-0 record with 30 closes; weight > 0 without a thin tier never does', () => {
+  const W = (id: number, weight: number, n: number, hold: number, tier?: TraderFacts['tier']) => ({ ...T(id, hold, weight), n, verified: true, ...(tier ? { tier } : {}) });
+  const list = Array.from({ length: 30 }, (_, i) => ({ trader: 100 + i }));
+  const rows = (pool: SectionTrader[]) => chooseRows(sectionCandidates(pool, list, 0, new Set()))!.map((t) => t.trader);
+  const top = [W(1, 0.3, 40, 0.5, 'moderate'), W(2, 0.2, 40, 20, 'moderate'), W(3, 0.1, 30, 60, 'moderate')];
+  const old = W(4, 0, 30, 300, 'too-early');
+  assert.deepEqual(rows([...top, W(7, 0.03, 5, 3, 'thin'), old]), [1, 2, 7]);
+  // The rows still read in non-increasing evidence: the thin record sits last.
+  // Without a tier (or with a moderate one) the same weight competes on weight alone: the weight-0 record takes the slot.
+  assert.deepEqual(rows([...top, W(7, 0.03, 5, 3), old]), [1, 2, 4]);
+  assert.deepEqual(rows([...top, W(7, 0.03, 5, 3, 'moderate'), old]), [1, 2, 4]);
+  // Among slot records, fewest closes first, whatever the weight: a weight-0 newcomer with 5 closes beats a thin one with 8.
+  assert.deepEqual(rows([...top, W(8, 0.05, 8, 3, 'thin'), W(9, 0, 5, 300, 'too-early')]), [1, 2, 9]);
 });

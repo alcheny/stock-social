@@ -156,6 +156,52 @@ test('profile shows honest evidence, record-since and demo label at 360px', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+// F-4 PR-1 (criteria 2 and 3): the range is shown from 5 independent bets; "too early" is K < 5 or a range wider than
+// ±10 points, and a too-wide record keeps its range. No page says "of 10" (the old floor).
+test('F-4 PR-1: a 6-bet record shows its range and "Evidence: thin"; 4 bets read "4 of 5 bets"; a wide 6-bet record keeps its range and reads too wide', async ({ page }) => {
+  const { sql } = await import('../lib/db.ts');
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive'); // 6-close records join the feed while they exist
+  const ids: number[] = [];
+  const make = async (handle: string, rets: number[]) => {
+    const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+      insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, ${handle}, now(), a.id from a
+      on conflict (handle) do update set handle = excluded.handle returning id`;
+    ids.push(u.id as number);
+    await sql`delete from closed_trades where user_id = ${u.id}`;
+    const rows = rets.map((r, i) => ({ user_id: u.id, sell_id: `${handle}-${i}`, account_id: 'a', symbol: `TRN${i}`,
+      opened_at: new Date(Date.now() - (60 - i * 8) * 864e5), closed_at: new Date(Date.now() - (57 - i * 8) * 864e5), return_pct: r, holding_days: 3, verified: true }));
+    await sql`insert into closed_trades ${sql(rows)}`;
+  };
+  try {
+    await make('tr9_six', [0.012, 0.018, 0.009, 0.015, 0.011, 0.016]);
+    await make('tr9_four', [0.012, -0.018, 0.009, 0.015]);
+    await make('tr9_wide', [0.4, -0.35, 0.3, -0.3, 0.45, -0.25]);
+    await page.setViewportSize({ width: 360, height: 800 });
+
+    await page.goto('/u/tr9_six');
+    const six = page.locator('main');
+    await expect(six.locator('.stats .range')).toHaveText(/^\([-+]\d+\.\d% to [-+]\d+\.\d%\) · 95% range$/);
+    await expect(six.locator('.evidence p').first()).toHaveText(/^Past results: \w+( \w+)? · Evidence: thin \(6 bets, \d+ days\)$/);
+    expect(await six.innerText()).not.toMatch(/of 10 bets|10 independent|\bedge\b/i);
+
+    await page.goto('/u/tr9_four');
+    await expect(page.locator('main .evidence p').first()).toHaveText('Too early to tell (4 of 5 bets)');
+    await expect(page.locator('main .stats .range')).toHaveCount(0);
+
+    await page.goto('/u/tr9_wide');
+    await expect(page.locator('main .stats .range')).toHaveText(/ · 95% range$/);
+    await expect(page.locator('main .evidence p').first()).toHaveText(/^Too early to tell: the range is still too wide \(6 bets, \d+ days\)$/);
+    const wide = await page.locator('main').innerText();
+    expect(wide.match(/Too early to tell/g)?.length).toBe(1);
+    expect(wide).not.toMatch(/of 10 bets|10 independent|\bedge\b/i);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  } finally {
+    if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
+    await release();
+  }
+});
+
 test('unknown profile is a 404', async ({ page }) => {
   expect((await page.goto('/u/nobody_here'))?.status()).toBe(404);
 });
