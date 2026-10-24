@@ -355,21 +355,21 @@ export const FOLLOW = {
   settingsLink: 'Following and hidden traders',
 };
 
-// F-2 PR-4: likes (private, no count anywhere) and the feed card's reject (O1). The hide line changes with
-// TRADE_REJECT_DAYS (O3 is the owner's: permanent reads "Hidden.").
+// F-2 PR-4: likes (private, no count anywhere; signed in only, as Follow) and the feed card's reject (O1). One name for
+// the action: "Hide this trade" (menu item and tray). The bar changes with TRADE_REJECT_DAYS (O3: permanent reads
+// "Trade hidden.").
 export const LIKES = {
-  like: 'Like. Only you can see likes.',
-  signin: 'Sign in to like records. Only you can see likes.',
-  signinLink: 'Sign in',
+  like: (symbol: string, h: string) => `Like ${symbol} by @${h}. Only you can see likes.`,
+  more: (symbol: string, h: string) => `More for ${symbol} by @${h}`,
   hide: 'Hide this trade',
-  tray: 'Hide trade',
-  hidden: Number.isFinite(TRADE_REJECT_DAYS) ? `Hidden for ${TRADE_REJECT_DAYS} days.` : 'Hidden.',
+  hidden: Number.isFinite(TRADE_REJECT_DAYS) ? `Trade hidden for ${TRADE_REJECT_DAYS} days.` : 'Trade hidden.',
   heading: 'Liked records',
-  explain: 'Only you can see likes. Traders are never told.',
   none: 'No liked records yet. Double-tap a trade in the feed, or use its heart.',
-  closed: (symbol: string, day: string, h: string) => `${symbol} · closed ${day} · @${h}`,
+  closed: (symbol: string, day: string) => `${symbol} · closed ${day}`,
   unlike: 'Unlike',
   unlikeFor: (symbol: string, h: string) => `Unlike ${symbol} by @${h}`,
+  unliked: (symbol: string, h: string) => `Unliked ${symbol} by @${h}.`,
+  capped: (n: number) => `Showing your ${n} most recent likes.`,
 };
 
 // F-2 PR-3: the suggestions section (plan §1 PR-3), the same for every viewer. No performance number on a row (a number

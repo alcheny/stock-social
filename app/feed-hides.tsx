@@ -16,8 +16,12 @@ import { UNDO_MS } from './follow-button.tsx';
 // row's "…". Fix round 1: when no row is left the section collapses (no empty full-height stop) and card 6 takes its
 // place; the bar also pauses once the reader touches or clicks it (any pointer), not only on hover or keyboard focus.
 // F-2 PR-4: a hide with `trade` (the feed card's reject, O1) hides that one card ([data-key]) and calls rejectTrade;
-// Undo returns to that card's "Hide this trade".
-type Bar = { handle: string; trade?: string; text: string; undo: boolean };
+// Undo returns to that card's "…". Fix round 1 (UX D1, tester High 1): `via` says how the hide was asked for. From a
+// pointer (a swipe, a tap) the 5 s run and Undo takes focus without a ring; from the keyboard they pause while Undo has
+// focus (WCAG 2.2.1). Before, a programmatic focus after a swipe matched :focus-visible and paused the bar for good.
+// While the bar is open the feed cards' footers sit above it (tester Medium 1: Undo no longer lies under the next
+// card's controls, so the second tap of a double tap on "Hide this trade" cannot land on it).
+type Bar = { handle: string; trade?: string; text: string; undo: boolean; via?: 'key' | 'pointer' };
 type Hide = { handle: string; trade?: string };
 const HANDLE = /^[a-z0-9_]{3,20}$/, KEY = /^[0-9a-f]{64}$/;
 const sel = (h: Hide) => (h.trade ? `[data-key="${h.trade}"]` : `[data-handle="${h.handle}"]`);
@@ -50,16 +54,18 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
   const run = () => { clearTimeout(timer.current); timer.current = window.setTimeout(close, UNDO_MS); };
   const hover = useRef(false);
   const pressed = useRef(false); // a pointer went down on the bar since it opened
-  const paused = () => hover.current || pressed.current || !!undoBtn.current?.matches(':focus-visible');
+  const via = useRef<Bar['via']>(undefined);
+  const paused = () => hover.current || pressed.current || (via.current === 'key' && document.activeElement === undoBtn.current);
   const show = (b: Bar | null) => {
     clearTimeout(timer.current);
     pressed.current = false;
+    via.current = b?.via;
     setBar(b);
     if (b) run();
   };
   useEffect(() => {
     const onHide = async (e: Event) => {
-      const { handle, row, trade } = (e as CustomEvent<{ handle: string; row: Element | null; trade?: string }>).detail;
+      const { handle, row, trade, via: how } = (e as CustomEvent<{ handle: string; row: Element | null; trade?: string; via?: 'key' }>).detail;
       if (!HANDLE.test(handle) || (trade !== undefined && !KEY.test(trade))) return;
       const h: Hide = { handle, trade };
       const inSection = !!row?.matches('.suggest');
@@ -69,7 +75,7 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
       after.current = inSection ? row : n;
       source.current = row;
       setHidden((x) => [...x, h]);
-      show({ ...h, text: trade ? LIKES.hidden : FOLLOW.hidden, undo: true });
+      show({ ...h, text: trade ? LIKES.hidden : FOLLOW.hidden, undo: true, via: how === 'key' ? 'key' : 'pointer' });
       const r = await (trade ? rejectTrade(trade) : notInterested(handle)).catch(() => ({ ok: false }));
       if (!r.ok) { setHidden((x) => x.filter((y) => !same(h)(y))); show({ ...h, text: FOLLOW.failed, undo: false }); }
     };
@@ -83,14 +89,17 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
     refocus.current?.focus({ preventScroll: true });
     refocus.current = null;
   }, [hidden]);
-  useEffect(() => { if (bar?.undo) { undoBtn.current?.focus({ preventScroll: true }); if (paused()) clearTimeout(timer.current); } }, [bar]);
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-hide-bar', !!bar);
+    if (bar?.undo) { undoBtn.current?.focus({ preventScroll: true, focusVisible: bar.via === 'key' } as FocusOptions); if (paused()) clearTimeout(timer.current); }
+  }, [bar]);
   const undo = async ({ handle, trade }: Hide) => {
     show(null);
     const first = source.current ?? document.querySelector(`.feed .row${sel({ handle, trade })}`);
     const r = await (trade ? undoRejectTrade(trade) : undoNotInterested(handle)).catch(() => ({ ok: false }));
     if (!r.ok) { show({ handle, trade, text: FOLLOW.failed, undo: false }); return; }
     anchor.current = first;
-    refocus.current = (trade ? first?.querySelector<HTMLElement>('[data-reject]') : null) ?? first?.querySelector<HTMLElement>(`li[data-handle="${handle}"] .more-menu summary`) ?? first?.querySelector<HTMLElement>(`li[data-handle="${handle}"] .sopen`)
+    refocus.current = (trade ? first?.querySelector<HTMLElement>('.card .more-menu summary') : null) ?? first?.querySelector<HTMLElement>(`li[data-handle="${handle}"] .more-menu summary`) ?? first?.querySelector<HTMLElement>(`li[data-handle="${handle}"] .sopen`)
       ?? first?.querySelector<HTMLElement>('.pane .more-menu summary') ?? first?.querySelector<HTMLElement>('.card .who') ?? null;
     setHidden((x) => x.filter((y) => !same({ handle, trade })(y)));
   };
@@ -101,7 +110,7 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
     <>
       <style>{hidden.map((h) => `${scope} ${sel(h)}{display:none}`).join('')
         + (traders.length ? `:is(${scope} .suggest, .suggest${scope}):not(:has(> .suggest-in > ul > li${traders.map((h) => `:not([data-handle="${h.handle}"])`).join('')})){display:none}` : '')}</style>
-      <div className="hide-bar" role="status"
+      <div className="hide-bar" role="status" data-via={bar?.via}
         onPointerEnter={(e) => { if (e.pointerType === 'mouse') { hover.current = true; pause(); } }}
         onPointerLeave={() => { hover.current = false; resume(); }}
         onPointerDown={() => { pressed.current = true; pause(); }}

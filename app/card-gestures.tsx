@@ -7,15 +7,18 @@ import { like, unlike } from './discovery-actions.ts';
 // - Like (private, +3 for PR-5): a double tap on the card's body (two taps within 300 ms and 24 px, never on a link,
 //   button or chart: lib/discovery/reject.ts#isDoubleTap) likes once; the heart button toggles (aria-pressed, the
 //   keyboard and screen-reader route). Optimistic, reverted if the server refuses. Outline to filled: no burst, motion,
-//   vibration or count; a like on a loss is the same as on a gain. Signed out either shows the card's sign-in line.
+//   vibration or count; a like on a loss is the same as on a gain. Signed in only (fix round 1, business lead D2: no
+//   heart signed out, as Follow; this component is mounted only for a signed-in viewer).
 // - Reject (owner decision O1): signed in, a drag of the card away from the pane (SW-1 keeps the opening direction). It
 //   arms only on a touch that starts with the row at rest, no sheet open and not within 400 ms after the row came back
 //   from its pane; a fling can never carry into it (the card is moved by the finger, not by scrolling). It commits when
-//   the finger travelled half the card ("Hide this trade" is its button); app/feed-hides.tsx hides the card with Undo.
-// - The pressed state is read once per card from GET /me/liked (the feed's own read never reads likes).
+//   the finger travelled half the card ("Hide this trade" in the card's "…" is its button); past half the tray darkens;
+//   app/feed-hides.tsx hides the card with Undo.
+// - The pressed state is read once per card from GET /me/liked (the feed's own read never reads likes). Fix round 1
+//   (UX D4): the heart stays invisible (its space kept) until that answer, or 1 s, so a liked card never shows ♡ first.
 let lastBack = 0; // when a row last came back from its pane to the card
 
-export function CardGestures({ signedIn }: { signedIn: boolean }) {
+export function CardGestures() {
   useEffect(() => {
     const feed = document.querySelector<HTMLElement>('.feed');
     if (!feed) return;
@@ -28,25 +31,29 @@ export function CardGestures({ signedIn }: { signedIn: boolean }) {
       const r = await (on ? like : unlike)(key).catch(() => ({ ok: false }));
       if (!r.ok) set(key, !on);
     };
-    const signin = (card: Element | null) => { const p = card?.querySelector<HTMLElement>('.like-signin'); if (p) p.hidden = false; };
+    const ready = (keys: string[]) => keys.forEach((k) => feed.querySelectorAll(`[data-like="${k}"]`).forEach((b) => b.setAttribute('data-ready', '')));
     const load = async () => {
       const keys = [...feed.querySelectorAll('[data-like]')].map((b) => b.getAttribute('data-like')!).filter((k) => !asked.has(k));
       keys.forEach((k) => asked.add(k));
-      for (let i = 0; i < keys.length; i += 60) {
-        const r = await fetch(`/me/liked?k=${keys.slice(i, i + 60).join(',')}`, { cache: 'no-store' }).then((x) => x.json()).catch(() => ({ liked: [] }));
+      const late = setTimeout(() => ready(keys), 1000);
+      await Promise.all(Array.from({ length: Math.ceil(keys.length / 60) }, async (_, i) => {
+        const part = keys.slice(i * 60, i * 60 + 60);
+        const r = await fetch(`/me/liked?k=${part.join(',')}`, { cache: 'no-store' }).then((x) => x.json()).catch(() => ({ liked: [] }));
         for (const k of r.liked as string[]) if (!touched.has(k)) set(k, true);
-      }
+        ready(part);
+      }));
+      clearTimeout(late);
     };
-    const mo = signedIn ? new MutationObserver(() => void load()) : null;
-    if (mo) { void load(); mo.observe(feed, { childList: true, subtree: true }); }
+    const mo = new MutationObserver(() => void load());
+    void load();
+    mo.observe(feed, { childList: true, subtree: true });
     const reject = (row: Element | null) => {
       const key = row?.getAttribute('data-key');
-      if (row && key) dispatchEvent(new CustomEvent('ss:hide', { detail: { handle: row.getAttribute('data-handle'), trade: key, row } }));
+      if (row && key) dispatchEvent(new CustomEvent('ss:hide', { detail: { handle: row.getAttribute('data-handle'), trade: key, row, via: 'pointer' } }));
     };
     const onClick = (e: MouseEvent) => {
-      const el = e.target as HTMLElement, b = el.closest<HTMLElement>('[data-like]');
-      if (b) { if (signedIn) void toggle(b.dataset.like!, b.getAttribute('aria-pressed') !== 'true'); else signin(b.closest('.card')); return; }
-      if (el.closest('[data-reject]')) reject(el.closest('.row'));
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-like]');
+      if (b) void toggle(b.dataset.like!, b.getAttribute('aria-pressed') !== 'true');
     };
     // Double tap.
     let last: Tap | null = null, down: { x: number; y: number } | null = null;
@@ -59,8 +66,7 @@ export function CardGestures({ signedIn }: { signedIn: boolean }) {
       const tap = { t: e.timeStamp, x: e.clientX, y: e.clientY, card: key, plain: plain(el) };
       if (!isDoubleTap(last, tap)) { last = tap; return; }
       last = null;
-      if (!signedIn) signin(card);
-      else if (card.querySelector('[data-like]')?.getAttribute('aria-pressed') !== 'true') void toggle(key, true);
+      if (card.querySelector('[data-like]')?.getAttribute('aria-pressed') !== 'true') void toggle(key, true);
     };
     const noSelect = (e: MouseEvent) => { if (e.detail > 1 && cardOf(e.target as Element) && plain(e.target as Element)) e.preventDefault(); };
     // The reject drag.
@@ -75,11 +81,12 @@ export function CardGestures({ signedIn }: { signedIn: boolean }) {
       d.card.style.transition = smooth && !reduce() ? 'transform .2s ease-out' : '';
       d.card.style.transform = dx ? `translateX(${dx}px)` : '';
       d.row.classList.toggle('dragging', dx > 0);
+      d.row.classList.toggle('past', dx >= d.card.clientWidth / 2);
     };
     const onStart = (e: TouchEvent) => {
       const card = (e.target as Element).closest<HTMLElement>('.feed > .row > .card'), row = card?.parentElement;
       drag = null;
-      if (!signedIn || !card || !row?.hasAttribute('data-key') || !row.querySelector('[data-reject]') || e.touches.length !== 1) return;
+      if (!card || !row?.hasAttribute('data-key') || !row.querySelector('[data-like]') || e.touches.length !== 1) return;
       const t = e.touches[0];
       drag = { row, card, x: t.clientX, y: t.clientY, locked: false,
         armed: canArm({ atRest: row.scrollLeft < 2, paneOpen: !!document.querySelector('dialog[open]'), sinceClose: Date.now() - lastBack }) };
@@ -117,6 +124,6 @@ export function CardGestures({ signedIn }: { signedIn: boolean }) {
       feed.removeEventListener('touchstart', onStart); feed.removeEventListener('touchmove', onMove);
       feed.removeEventListener('touchend', onEnd); feed.removeEventListener('touchcancel', onEnd);
     };
-  }, [signedIn]);
+  }, []);
   return null;
 }

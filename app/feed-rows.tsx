@@ -39,8 +39,8 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle} data-key={t.trade_key}>
           {/* F-2 PR-4: the reject swipe's tray, behind the card while it is dragged (signed in only). */}
-          {page.viewer && page.viewer.id !== t.user_id && <div className="ctray" aria-hidden="true"><span>{LIKES.tray}</span></div>}
-          <TradeCard t={row} state={page.records.get(t.user_id)?.state} act={page.viewer?.id === t.user_id ? undefined : { key: t.trade_key, signedIn: !!page.viewer }} />
+          {page.viewer && page.viewer.id !== t.user_id && <div className="ctray" aria-hidden="true"><span>{LIKES.hide}</span></div>}
+          <TradeCard t={row} state={page.records.get(t.user_id)?.state} act={page.viewer && page.viewer.id !== t.user_id ? t.trade_key : undefined} />
           {paneOf(t)}
         </div>
       ),

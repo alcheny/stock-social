@@ -3,6 +3,7 @@ import type { PublicState } from '@/lib/connections.ts';
 import { LIKES, RECORD_BODY } from '@/lib/copy.ts';
 import { cardTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
+import { HideTrade } from './not-interested.tsx';
 
 export function Badge({ verified }: { verified: boolean }) {
   return verified
@@ -32,22 +33,19 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 // each call, ~0.1 ms). Same locale, options and time zone, so the same text.
 const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
-// F-2 PR-4: `act` (feed cards that are not the viewer's own): the like button (the keyboard and screen-reader route of
-// the double tap; pressed state from GET /me/liked) and, signed in, "Hide this trade" (the route of the reject swipe).
-// Behavior: app/card-gestures.tsx. Signed out a like shows one sign-in line. No count anywhere.
-export function CardActions({ act }: { act: { key: string; signedIn: boolean } }) {
+// F-2 PR-4: `act` (signed in, cards that are not the viewer's own): the like button (the keyboard and screen-reader
+// route of the double tap) and the card's "…" with "Hide this trade" (the route of the reject swipe). The heart stays
+// invisible until its pressed state is known (app/card-gestures.tsx; without JavaScript it never shows). No count.
+export function CardActions({ t, tradeKey }: { t: TradeRow; tradeKey: string }) {
   return (
-    <>
-      <span className="card-acts">
-        <button type="button" className="like" aria-pressed={false} aria-label={LIKES.like} data-like={act.key}><span aria-hidden="true" /></button>
-        {act.signedIn && <button type="button" className="secondary hide-trade" data-reject={act.key}>{LIKES.hide}</button>}
-      </span>
-      {!act.signedIn && <p className="like-signin small" hidden>{LIKES.signin} <Link href="/login">{LIKES.signinLink}</Link></p>}
-    </>
+    <span className="card-acts">
+      <button type="button" className="like" aria-pressed={false} aria-label={LIKES.like(t.symbol, t.handle)} data-like={tradeKey}><span aria-hidden="true" /></button>
+      <HideTrade tradeKey={tradeKey} handle={t.handle} label={LIKES.more(t.symbol, t.handle)} />
+    </span>
   );
 }
 
-export function TradeCard({ t, state = 'connected', act }: { t: TradeRow; state?: PublicState; act?: { key: string; signedIn: boolean } }) {
+export function TradeCard({ t, state = 'connected', act }: { t: TradeRow; state?: PublicState; act?: string }) {
   const up = t.return_pct > 0;
   const trust = cardTrust(t, state);
   return (
@@ -67,7 +65,7 @@ export function TradeCard({ t, state = 'connected', act }: { t: TradeRow; state?
       <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
       <footer className="muted">
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
-        {act && <CardActions act={act} />}
+        {act && <CardActions t={t} tradeKey={act} />}
       </footer>
     </article>
   );

@@ -55,3 +55,4 @@ export async function unlike(key: unknown): Promise<DiscoveryResult> { return by
 export async function rejectTrade(key: unknown): Promise<DiscoveryResult> { return byKey(key, L.rejectTrade); }
 export async function undoRejectTrade(key: unknown): Promise<DiscoveryResult> { return byKey(key, L.undoReject); }
 export async function unlikeForm(key: unknown): Promise<void> { if ((await unlike(key)).ok) refresh(); }
+export async function rejectTradeForm(key: unknown): Promise<void> { if ((await rejectTrade(key)).ok) redirect('/'); }

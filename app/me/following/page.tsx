@@ -3,10 +3,11 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { ownLists, shownAgainJustNow } from '@/lib/follows.ts';
-import { ownLikes } from '@/lib/likes.ts';
+import { LIKES_MAX, ownLikes } from '@/lib/likes.ts';
+import { LikedList } from './liked-list.tsx';
 import { FOLLOW, LIKES } from '@/lib/copy.ts';
 import { FollowButton } from '../../follow-button.tsx';
-import { showAgainForm, unlikeForm } from '../../discovery-actions.ts';
+import { showAgainForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
 
 export const metadata: Metadata = { title: `${FOLLOW.title} · Stock Social`, robots: { index: false, follow: false } };
@@ -48,19 +49,10 @@ export default async function Following({ searchParams }: { searchParams?: Promi
           ))}
         </ul>
       ) : <p>{FOLLOW.noneHidden}</p>}
-      {/* F-2 PR-4: the viewer's likes, never anyone else's; no return shown (the trade page carries the record). */}
-      <h2 id="liked">{LIKES.heading}</h2>
-      <p className="muted">{LIKES.explain}</p>
-      {liked.length ? (
-        <ul className="rows people">
-          {liked.map((t) => (
-            <li key={t.key} className="line">
-              <span className="who-col"><Link href={`/u/${t.handle}/trade/${encodeURIComponent(t.sellId)}`}>{LIKES.closed(t.symbol, DAY.format(t.closedAt), t.handle)}</Link></span>
-              <form action={unlikeForm.bind(null, t.key)}><button className="secondary" aria-label={LIKES.unlikeFor(t.symbol, t.handle)}>{LIKES.unlike}</button></form>
-            </li>
-          ))}
-        </ul>
-      ) : <p>{LIKES.none}</p>}
+      {/* F-2 PR-4: the viewer's likes, never anyone else's; no return shown (the trade page carries the record). The
+          page's own line already says only the viewer sees these lists (fix round 1, business lead D3). */}
+      <h2 id="liked" tabIndex={-1}>{LIKES.heading}</h2>
+      <LikedList capped={liked.length >= LIKES_MAX ? LIKES_MAX : null} rows={liked.map((t) => ({ key: t.key, href: `/u/${t.handle}/trade/${encodeURIComponent(t.sellId)}`, symbol: t.symbol, day: DAY.format(t.closedAt), handle: t.handle }))} />
     </main>
   );
 }

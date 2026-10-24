@@ -4,11 +4,17 @@
 // docs/features/logs/F-2/screenshots/pr3b/.
 import { expect, test, type Page } from '@playwright/test';
 import postgres from 'postgres';
+import { feedLock } from './feed-lock.ts';
 
 const SHOTS = 'docs/features/logs/F-2/screenshots/pr3b';
 const DAY = 86_400_000;
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 test.afterAll(async () => { await sql.end({ timeout: 1 }); });
+// F-2 PR-4 fix round 1 (tester Note 3): the fixtures are feed-eligible traders, so every test holds the feed lock (shared,
+// e2e/feed-lock.ts) and never puts rows into a test that holds the feed exclusively.
+let held: (() => Promise<void>) | null = null;
+test.beforeEach(async () => { held = await feedLock('shared'); });
+test.afterEach(async () => { await held?.(); held = null; });
 
 test.setTimeout(120_000);
 const shoot = async (page: Page, name: string) => {

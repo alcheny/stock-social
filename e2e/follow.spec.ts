@@ -20,7 +20,12 @@ const rowsOf = (sql: Awaited<ReturnType<typeof db>>, handle: string) => sql`sele
   (select count(*) from follows f join users u on u.id = f.viewer_id where u.handle = ${handle})::int as follows,
   (select count(*) from viewer_exclusions x join users u on u.id = x.viewer_id where u.handle = ${handle})::int as exclusions`.then((r) => r[0]);
 
+// F-2 PR-4 fix round 1 (tester Note 3): this test expects the demo traders on page 1, so it holds the feed lock (shared)
+// and waits while a heavy fixture fills the feed; released after the test, pass or fail.
+let held: (() => Promise<void>) | null = null;
+test.afterEach(async () => { await held?.(); held = null; });
 test('F-2 PR-2: follow and unfollow from the profile and the pane, keyboard only; the first follow says only you can see it; /me/following reached by tapping; signed out there is no control; no public page or route shows follow data; deletion leaves zero rows', async ({ page, browser, request }) => {
+  held = await (await import('./feed-lock.ts')).feedLock('shared');
   test.setTimeout(180_000);
   const sql = await db();
   const me = `f2v${Math.random().toString(36).slice(2, 8)}`;

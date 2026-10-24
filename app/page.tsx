@@ -39,8 +39,7 @@ export default async function Feed({ searchParams }: Props) {
           own level-1 heading too (visually hidden; the cards are the page). */}
       <h1 className="sr-only">{page.offset > 0 ? FEED_COUNTS.position(page.from, page.to) : FEED.heading}</h1>
       <FeedKeys />
-      {page.viewer && <FeedHides />}
-      <CardGestures signedIn={!!page.viewer} />
+      {page.viewer && <><FeedHides /><CardGestures /></>}
       <FeedRows page={page} />
       {page.next ? <FeedPager key={page.next} next={page.next} /> : <FeedEnd />}
     </main>

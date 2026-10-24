@@ -36,12 +36,14 @@ export async function likedAmong(viewer: number, keys: string[]): Promise<Set<st
   return new Set((await sql`select trade_key from trade_likes where viewer_id = ${viewer} and trade_key = any(${ok})`).map((r) => r.trade_key as string));
 }
 
-// /me/following "Liked records": the viewer's likes whose trade exists now, newest like first. No return shown there.
+// /me/following "Liked records": the viewer's likes whose trade exists now, newest like first, at most LIKES_MAX (the
+// page says so when the cap is reached: tester Low 3). No return shown there.
+export const LIKES_MAX = 200;
 export type Liked = { key: string; sellId: string; symbol: string; closedAt: Date; handle: string; name: string };
 export async function ownLikes(viewer: number): Promise<Liked[]> {
   const rows = await sql`select l.trade_key, t.sell_id, t.symbol, t.closed_at, u.handle, u.display_name from trade_likes l
     join closed_trades t on t.trade_key = l.trade_key join users u on u.id = t.user_id and u.deleted_at is null
-    where l.viewer_id = ${viewer} order by l.created_at desc, t.closed_at desc limit 200`;
+    where l.viewer_id = ${viewer} order by l.created_at desc, t.closed_at desc limit ${LIKES_MAX}`;
   return rows.map((r) => ({ key: r.trade_key as string, sellId: r.sell_id as string, symbol: r.symbol as string, closedAt: r.closed_at as Date, handle: r.handle as string, name: r.display_name as string }));
 }
 

@@ -1,14 +1,48 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { FOLLOW } from '@/lib/copy.ts';
-import { notInterestedForm } from './discovery-actions.ts';
+import type { ReactNode } from 'react';
+import { FOLLOW, LIKES } from '@/lib/copy.ts';
+import { notInterestedForm, rejectTradeForm } from './discovery-actions.ts';
 
 // F-2 PR-2: the "…" menu with "Not interested in @x", the single negative action (a 90-day exclusion, weight −4).
 // Never on a feed card. With JavaScript the feed (app/feed-hides.tsx) hides the trader's cards in place and offers Undo
 // for 5 s; without it the form posts the action and the reader lands on the trader's profile with a line saying so
 // ("Show again" on /me/following). Fix round 1: the popover opens leftward from the button's right edge, never wider
 // than the screen (it wraps); it closes on Esc (focus back on "…"), a click outside, or focus leaving it.
+// F-2 PR-4 (business lead D1): the same "…" on a signed-in feed card, with "Hide this trade" (the reject swipe's button).
+// `via`: how the hide was asked for (app/feed-hides.tsx runs the 5 s Undo for a pointer, pauses it under the keyboard).
+const via = (e: React.FormEvent) => ((e.nativeEvent as SubmitEvent).submitter?.matches(':focus-visible') ? 'key' : 'pointer');
+export function HideTrade({ tradeKey, handle, label }: { tradeKey: string; handle: string; label: string }) {
+  return (
+    <MoreMenu label={label}>
+      <form action={rejectTradeForm.bind(null, tradeKey)} onSubmit={(e) => {
+        e.preventDefault();
+        const d = e.currentTarget.closest('details');
+        if (d) d.open = false;
+        dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, trade: tradeKey, row: e.currentTarget.closest('.row'), via: via(e) } }));
+      }}>
+        <button type="submit" className="secondary">{LIKES.hide}</button>
+      </form>
+    </MoreMenu>
+  );
+}
+
 export function NotInterested({ handle }: { handle: string }) {
+  return (
+    <MoreMenu label={FOLLOW.more(handle)}>
+      <form action={notInterestedForm.bind(null, handle)} onSubmit={(e) => {
+        e.preventDefault();
+        const d = e.currentTarget.closest('details');
+        if (d) d.open = false;
+        dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, row: e.currentTarget.closest('.row, .suggest'), via: via(e) } })); // F-2 PR-3: or a section row
+      }}>
+        <button type="submit" className="secondary">{FOLLOW.notInterested(handle)}</button>
+      </form>
+    </MoreMenu>
+  );
+}
+
+function MoreMenu({ label, children }: { label: string; children: ReactNode }) {
   const ref = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     const d = ref.current;
@@ -24,15 +58,8 @@ export function NotInterested({ handle }: { handle: string }) {
   }, []);
   return (
     <details className="more-menu" ref={ref}>
-      <summary aria-label={FOLLOW.more(handle)}><span aria-hidden="true">…</span></summary>
-      <form action={notInterestedForm.bind(null, handle)} onSubmit={(e) => {
-        e.preventDefault();
-        const d = e.currentTarget.closest('details');
-        if (d) d.open = false;
-        dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, row: e.currentTarget.closest('.row, .suggest') } })); // F-2 PR-3: or a section row
-      }}>
-        <button type="submit" className="secondary">{FOLLOW.notInterested(handle)}</button>
-      </form>
+      <summary aria-label={label}><span aria-hidden="true">…</span></summary>
+      {children}
     </details>
   );
 }

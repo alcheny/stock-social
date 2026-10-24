@@ -194,3 +194,48 @@ Screenshots (375 px, light and dark) in `screenshots/pr4/`: `card-liked`, `rejec
 11. Checkout: no.
 POLICY F6: no counts, no celebration on a like, nothing tied to trade frequency. F1: nothing about a security is
 suggested; a trader-level negative only lowers a trader for the viewer who chose it.
+
+## Fix round 1 (2026-10-24)
+
+Reports: UX lead COMPLIANCE FAIL (A1: focus after Unlike; signed-out "Sign in" link) + demands; business lead PASS with
+D1 to D4 (all seven of my decisions accepted); tester 1 High, 2 Medium, 3 Low. Process: "Parallel development"
+(IMPLEMENTATION.md) is in effect. This round owns the main checkout: branch `claude/peaceful-dirac-33bucv`, database
+`stock_social`, `next start` and Playwright on port 3000, the vendor fake on 4102.
+
+| Demand | Change | How verified |
+|---|---|---|
+| UX 2 (A1, WCAG 2.4.3): Unlike drops focus, announces nothing | "Liked records" is a client list (`app/me/following/liked-list.tsx`): Unlike moves focus to the next row's Unlike, else the previous one, else the "Liked records" heading (`tabIndex=-1`), and a `role="status"` line says "Unliked SYMBOL by @handle." Without JavaScript the form still posts (`refresh()`). | e2e: Enter on the first of two Unlikes → focus on the remaining Unlike and the status line; Enter again → focus on the heading, "No liked records yet." and the status names the handle; `document.activeElement` is never `body`. |
+| UX 1 / tester High 1: Undo after a swipe never closes | `FeedHides` no longer reads `:focus-visible`. Each hide carries `via` (`'key'` when the menu item was activated from the keyboard, else `'pointer'`; swipes are `'pointer'`). Pointer: the 5 s run, Undo is focused with `focusVisible: false` and no ring (`.hide-bar[data-via=pointer]`). Keyboard: paused while Undo has focus, as before (WCAG 2.2.1). Hover and a press on the bar still pause (PR-3's pinned behavior). The section-row swipe goes through the same path. | e2e, card swipe and **section-row swipe** (new test): Undo focused with computed `outline-style: none`, the bar still open at 4.8 s and gone by 5.8 s, focus on the next card's name. Keyboard "Hide this trade": Undo still focused after 5.8 s. PR-2's `follow.spec.ts` keyboard-pause test passes unchanged. |
+| Tester Medium 1: Undo where "Hide this trade" was; the bar covers the next card's controls; a double tap or two hides in a row undo the first | While the bar is open, feed cards get 100 px of bottom padding (`[data-hide-bar]`), so the next card's heart and "…" sit above it. "Hide this trade" is now in a popover above the footer (D1), never under Undo. | e2e: with the bar open, `elementFromPoint` at the next card's heart and "…" is not the bar; a double tap (120 ms) on "Hide this trade" leaves the trade hidden with 1 reject; a second hide right after keeps both (2 rejects). |
+| BL D1: "Hide this trade" behind the card's "…"; footer one line at 375 | `HideTrade` reuses the pane's "…" menu (`MoreMenu` in `app/not-interested.tsx`), opening upward. Accessible name "More for SYMBOL by @handle". Works without JavaScript (`rejectTradeForm` posts and returns to `/`). Footer: link (13 px), heart, "…", one row at a fixed 44 px. | e2e: footer ≤ 46 px tall and the link in one line box at 375; keyboard "…" → Enter → Tab → Enter hides, Undo focused, Undo returns focus to "…". Screenshots `card-footer`, `card-menu`. |
+| BL D2 (and UX 3, tester Low 2): no heart signed out | Signed out there is no heart, no sign-in line, no "…" and no tray; `CardGestures` is mounted only for a signed-in viewer, so a double tap does nothing. The unclear "Sign in" link no longer exists. | e2e: signed out, no `[data-like]`, `.card .more-menu`, `.ctray` or `.like-signin`; a double tap and a swipe send no non-GET request; footer height the same 44 px as signed in. |
+| BL D3 + tester Medium 2: liked rows clip the handle; repeated privacy line | Each row's link wraps: "SYMBOL · closed DATE", then "@handle" on its own line, never clipped. `LIKES.explain` deleted (the page's line already says it). | e2e with a 20-character handle at 375: every link `scrollWidth ≤ clientWidth`; "Only you can see likes." absent. Screenshot `liked-list`. |
+| BL D4: "Trade hidden for 90 days."; one name | `LIKES.hidden` = "Trade hidden for 90 days." (follows `TRADE_REJECT_DAYS`; "Trade hidden." if permanent). The tray, the menu item and the docs all say "Hide this trade" (`LIKES.tray` removed). | e2e text matches; copy scan (`allCopy`) passes. |
+| UX 4 (should fix): the liked heart fills after first paint | The heart is invisible, with its space kept and not focusable, until `/me/liked` answers for that card, or after 1 s. A liked card never shows ♡ first. Batches of 60 keys now run in parallel. The guard tests are unchanged. | e2e: with `/me/liked` delayed 700 ms, glyph samples every 60 ms from reload read only "hidden" or "pressed", never "not pressed". |
+| Tester Low 1: inert controls without JavaScript | The heart stays invisible without JavaScript (it shows only once its state is known). The "…" → "Hide this trade" is a real form. | By construction (`.like:not([data-ready])`); the no-JS form uses the same server action. |
+| Tester Low 3: list stops at 200 | `LIKES_MAX = 200`, and when it is reached the list says "Showing your 200 most recent likes." Older likes appear as newer ones are removed. No paging. | Code path; the honest limit as asked. |
+| Tester Note 3: e2e isolation | `e2e/similar.spec.ts` takes the shared feed lock around every test; `e2e/follow.spec.ts:23` takes it for that test (released in `afterEach`). No assertion changed. | Full e2e run: 0 failures (the tester's `section.spec.ts:439` run included). |
+| Follow-ups also done (small) | Button names carry the trade ("Like SYMBOL by @handle. Only you can see likes.", BL F2 / UX 10). The tray darkens past half the card (UX 6 / BL F1; no motion, no new words). | e2e: the heart's name pattern; `.past` absent at 40% and present at 60%. |
+
+Not done (follow-ups, the designer's call): a "Liked" text next to the heart after a double tap (UX 5); stopping the row
+from scrolling toward the pane while a reject drag is cancelled (UX 7); renaming "Liked records" to "Liked trades" and
+mentioning likes in the page title (UX 9 / BL F3: the h1 is pinned by `follow.spec.ts`); a lighter "…".
+
+**Product diff, PR total vs main: +655 / −113 (768 lines; cap 800).** This round: +178 / −88.
+
+### Checks (fix round 1)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` ×2 | **643 tests: 631 pass, 12 skipped (LOAD), 0 fail** both runs (this round added e2e tests, no unit tests) |
+| `LOAD=1` `lib/sync.load.test.ts` | **5 / 5 pass**. Heavy import 935 ms, rebuild 269 ms, heap +23 MB. Fleet: 500 × 2 accounts, 8 callers, 4,430 ms (bound 60,000). No sync, connection, trade or broker file changed this round. |
+| `LOAD=1` `lib/feed.load.test.ts`, `lib/follows.load.test.ts` (run because PR-4 touches feed and follows) | **6 / 6 and 1 / 1 pass**. Feed p95 at 500 traders: page 1 125 to 254 ms. |
+| `node scripts/autopilot.ts guard main` | ok |
+| `node scripts/compliance.ts diff origin/main` | ok |
+| `CI=1 npm run build` | exit 0 on the retry (the first attempt stops on the framework's security advisory, which is tool output) |
+| `npm run test:e2e` (full) | **118 passed, 3 skipped, 0 failed** (4.7 min). The run before it had 4 failures, all caused by a 400 ms "second tap" guard on Undo that swallowed quick deliberate taps PR-2 and PR-3 pin. The guard was removed: the layout fix makes it unnecessary. `e2e/likes.spec.ts`: 4 / 4. |
+
+Screenshots (375 px, light and dark) in `screenshots/pr4-fix1/`: `card-footer`, `card-menu`, `reject-mid-drag`
+(marked past half), `reject-bar` (the next card's controls above the bar), `liked-list` (20-character handle),
+`liked-list-after-unlike`, `signed-out-card`. Committed screenshots of other PRs that the e2e run rewrote were restored.
