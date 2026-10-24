@@ -413,3 +413,10 @@ re-sign without another round if a lead changes one of them on the rendered prev
 
 Plan signed 2026-10-24 by all three members. Where a business-lead change (C1–C7) and a UX-lead change overlap
 (both drop "range" from the never-on-card list), they agree. Build starts with PR 1.
+
+## Amendment: O1 answered (2026-10-24)
+
+The owner answered O1: a range entirely below 0 gets its own line in the thin and moderate tiers (F-4 file,
+Decisions 2026-10-24; wording in its Open questions, used by the build until the owner rewrites it). PR 2's merge
+no longer waits on O1. The trust-line table grows from 8 to 10 cells; "tested for every cell" covers both new rows,
+for losses as for gains. Direction stays as planned: from the per-trade interval on the card.

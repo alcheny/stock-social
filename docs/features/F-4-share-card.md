@@ -45,9 +45,11 @@ elements that catch the eye and travel, and leave detail for the profile.
   |---|---|---|
   | Too early | any | "Based on N trades. The range is still too wide to say much." |
   | Thin | positive | "Based on N separate bets over D days. Still early." |
-  | Thin | unclear or negative | "Based on N separate bets over D days. Still early, and results could go either way." |
+  | Thin | unclear | "Based on N separate bets over D days. Still early, and results could go either way." |
+  | Thin | negative, interval entirely below 0 | "Based on N separate bets over D days. Still early, and so far the average trade is a loss." (added 2026-10-24) |
   | Moderate | positive | "Based on N bets over M months. A fair sample." |
-  | Moderate | unclear or negative | "Based on N bets over M months. A fair sample, with no clear pattern yet." |
+  | Moderate | unclear | "Based on N bets over M months. A fair sample, with no clear pattern yet." |
+  | Moderate | negative, interval entirely below 0 | "Based on N bets over M months. A fair sample, and the average trade is a loss." (added 2026-10-24) |
   | Strong | positive, interval entirely above 0 | "Based on N bets over Y years. A long, consistent record." |
   | Strong | unclear | "Based on N bets over Y years. A long record, with no clear pattern." |
   | Strong | negative, interval entirely below 0 | "Based on N bets over Y years. A long record, with consistent losses." |
@@ -56,6 +58,13 @@ elements that catch the eye and travel, and leave detail for the profile.
   the trader, which keeps it inside POLICY F3b (labels describe evidence, never skill or a future
   outcome) and outside the F2 banned list. Why: the owner wants "consistent" for strong performers and
   "a fair sample" for the moderate tier; symmetry and the evidence-only wording keep it compliant.
+- 2026-10-24: Negative performance gets its own trust line in the thin and moderate tiers. When the range lies
+  entirely below 0, the card no longer says "results could go either way" or "no clear pattern yet"; it states
+  plainly that the average trade so far is a loss (rows added to the table above). "Unclear" (the range spans 0)
+  keeps the hedged lines. Direction is read from the per-trade range printed on the card, so the line can never
+  contradict the range beside it. Why: the owner's answer to the committee's question O1 (the hedged line next to an
+  all-negative range softened losses and contradicted the card). The wording of the two new lines was proposed in
+  the same session; see Open questions.
 - 2026-10-22: The minimum for showing the range is 5 independent bets (the t multiplier at K = 5 is
   about 2.8). Why: the owner set the floor at five; below that the variance estimate is too unstable
   to mean anything even with the t correction.
@@ -96,7 +105,10 @@ Each one testable; the pipeline writes a test for every line.
 - Per-trade cards (`/u/[handle]/trade`) keep their own design; this file is the record card.
 
 ## Open questions
-- None.
+- Wording of the two negative lines added 2026-10-24 (proposed by Claude, owner to confirm or rewrite): thin
+  "Still early, and so far the average trade is a loss."; moderate "A fair sample, and the average trade is a loss."
+  They describe the record, not the trader (POLICY F3b), mirror the strong tier's "consistent losses", and use no
+  banned term. The build uses them until the owner says otherwise.
 - Later depth: which per-trade elements, and whether they appear on the record card or only on
   per-trade cards.
 
