@@ -181,7 +181,7 @@ test('F-4 PR-1: a 6-bet record shows its range and "Evidence: thin"; 4 bets read
 
     await page.goto('/u/tr9_six');
     const six = page.locator('main');
-    await expect(six.locator('.stats .range')).toHaveText(/^\([-+]\d+\.\d% to [-+]\d+\.\d%\) · 95% range$/);
+    await expect(six.locator('.stats .range')).toHaveText(/^\([-+]?\d+\.\d% to [-+]?\d+\.\d%\) · 95% range$/);
     await expect(six.locator('.evidence p').first()).toHaveText(/^Past results: \w+( \w+)? · Evidence: thin \(6 bets, \d+ days\)$/);
     expect(await six.innerText()).not.toMatch(/of 10 bets|10 independent|\bedge\b/i);
 
@@ -243,7 +243,7 @@ test('F-4 PR-1 fix 1: trade, month, ticker and compare pages say "too early" whe
       await page.goto(path);
       await expect(whole).toContainText('Short record: 5 closed trades so far.');
       await expect(whole).not.toContainText('wide uncertainty');
-      await expect(whole.getByText(/^\([-+]\d+\.\d% to [-+]\d+\.\d%\) · 95% range$/)).toBeVisible();
+      await expect(whole.getByText(/^\([-+]?\d+\.\d% to [-+]?\d+\.\d%\) · 95% range$/)).toBeVisible();
       expect(await page.locator('main').innerText()).not.toContain(') (');
       await noScroll();
     }
@@ -268,7 +268,7 @@ test('F-4 PR-1 fix 1: trade, month, ticker and compare pages say "too early" whe
       if (cell.includes('95% range')) expect(cell).toContain('Too early to tell'); // every shown bucket here is too wide
     }
     const rest = await page.getByTestId('concentration-rest').innerText();
-    expect(rest).toMatch(/^Without them: \d+% win rate, avg [-+]\d+\.\d% over 12 trades\. \([-+]\d+\.\d% to [-+]\d+\.\d%\) · 95% range\. Too early to tell: the range is still too wide \(12 bets, \d+ days\)\.$/);
+    expect(rest).toMatch(/^Without them: \d+% win rate, avg [-+]?\d+\.\d% over 12 trades\. \([-+]?\d+\.\d% to [-+]?\d+\.\d%\) · 95% range\. Too early to tell: the range is still too wide \(12 bets, \d+ days\)\.$/);
     expect(rest.match(/over 12 trades/g)?.length).toBe(1);
     await noScroll();
     // A thin ticker's summary never says too early; a 4-bet ticker says it once.
