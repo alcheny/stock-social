@@ -147,3 +147,50 @@ All three of my databases are dropped. My two `next start` servers (3482 on HEAD
 
 Screenshots (`screenshots/pr4-test/`, light and dark): `liked-375`, `reject-bar-375`, `keyboard-hide-1280`,
 `signed-out-line-375`, `likes-list-375`.
+
+## Re-run 1 (2026-10-24, product code at `75d5816`, engineer's fix round 1)
+
+**Verdict: CLEAN.** Every check passes and every fix-round behaviour holds as a user. No defect found.
+
+Isolation: own databases `ss_tst_r1` (unit, LOAD, the walk) and `ss_tst_r1e` (the two e2e runs, fresh schema + seed),
+created as the superuser and owned by the shared role; the shared database was never written. Worktree of `HEAD` in my
+scratch directory; e2e on 3485 (vendor fake 4112, through a temporary Playwright config), walk server 3486. Ports 3000,
+3482, 3483 untouched.
+
+| Check | Result |
+|---|---|
+| Schema ×2, seed, on each database | exit 0 each time; `trade_exclusions.liked_at` (`timestamptz`, nullable) added once, the second run a no-op. `db/schema.sql` gains no `drop`/`truncate`/`delete from` (two existing comments only). |
+| `npx tsc --noEmit` | clean |
+| `npm test` ×3 | **638 tests: 626 pass, 12 skipped (LOAD), 0 fail** each run. 638 ≥ 638. |
+| Weakened? | No. `git diff 8bb09bf HEAD -- '*.test.ts' e2e/` removes one line: `assert.equal(await rejectTrade(viewer, t1.id), true)` in the like/reject/rebuild case, re-added verbatim before the first `like` (a reject now removes an earlier like). Every other assertion of that case is unchanged; the case still ends with one like row and one exclusion row through both rebuilds. Added: 1 unit case, 2 e2e tests. |
+| `LOAD=1`, one file at a time | feed **6/6** (12 heavy p95 page 1 137 ms; 50 heavy 294 ms), follows **1/1**, sync **5/5** |
+| `CI=1 npm run build`, stdin closed | run 1 stops on the framework's security advisory (tool output; nothing upgraded); retry exit 0 |
+| `npm run test:e2e` ×2 (vendor fake env set) | **120 passed, 3 skipped, 0 failed** both runs (5.2 / 5.1 min) |
+| `node scripts/compliance.ts diff origin/main` | only the pre-existing `@img/sharp-wasm32` license line |
+| `node scripts/autopilot.ts guard main` | ok |
+
+### As a user
+
+| Case | Result |
+|---|---|
+| 375 touch: double tap three cards, hide the middle like with the reject swipe | that like leaves `trade_likes` (2 left), one exclusion row; `/me/likes` in another tab shows 2 |
+| Toast | "Trade hidden. You won’t see it again." with Undo |
+| Undo | the like is back with its original time: `trade_likes` order and the `/me/likes` list text are identical to before the hide; the card's Like stays `aria-pressed="true"` |
+| Menu label | "♥ Liked" when liked (accessible name unchanged, checked by the e2e) |
+| Touch Undo bar after a swipe, no further touch | closes after 5.4 s |
+| A finger put on the bar | holds it past 6.5 s |
+| 1280 keyboard: hide from the menu, focus on Undo, pointer away | held past 7 s; Enter on Undo restores (0 exclusions) |
+| No JS, signed in: "Hide this trade" | lands on `/?done=trade-hidden`, line "Trade hidden. You won’t see it again.", the card gone |
+| `?done=` `x`, `trade-hidden2`, empty, `<b>hi</b>`, `follow`, and a repeated `done` | no line |
+| Signed out `/?done=trade-hidden` | no line |
+| Signed out double tap, 375 | "Sign in to like trades." line; × transparent, 44 × 44, named "Close"; it closes the line |
+| Regressions: slow second tap (360 ms), second tap 40 px away, double tap on the menu | no like each |
+| Short reject swipe (30%) / opening swipe | snaps back / opens the pane; no exclusion either way |
+
+Feed paging, the suggestions section, follow and trader hide, and account deletion end to end are covered by both
+green e2e runs (my walk database had only four visible cards, too few to page by hand; not a product issue).
+
+Screenshots: `screenshots/pr4-test2/` (light and dark): likes before the hide, likes while hidden, likes after Undo,
+hide toast 375, no-JS hide line 375, signed-out line 375, keyboard Undo held 1280.
+
+Test users deleted (0 left), both databases dropped, my servers stopped. No product code changed.
