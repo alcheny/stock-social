@@ -981,7 +981,7 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
         ? { closedAt: new Date(now - (i + 1 + h * 0.05) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5, symbol: `Z${L(h)}${L(Math.floor(h / 26))}${L(i)}` }
         : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length);
       made.push(t);
-      // Each ranks with a confident edge (TR-9), as the feed computes it, so its 5 fresh cards outrank every older close.
+      // Each ranks with a clear direction (TR-9), as the feed computes it, so its 5 fresh cards outrank every older close.
       const rows = await t.sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${t.id}`;
       expect(evidenceWeight(confidence(rows.map((r) => ({ symbol: r.symbol, openedAt: r.opened_at, closedAt: r.closed_at, returnPct: r.return_pct, holdingDays: r.holding_days })), new Date()))).toBeGreaterThan(0);
     }

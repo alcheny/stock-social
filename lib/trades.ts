@@ -208,13 +208,13 @@ export function rangeReturn(trades: { returnPct: number; closedAt: Date }[], key
 
 export type ConfidenceInput = Pick<ClosedTrade, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct' | 'holdingDays'>;
 export type Tier = 'too-early' | 'thin' | 'moderate' | 'strong';
-export type Edge = 'positive' | 'negative' | 'unclear';
-export const edgeText = (e: Edge | null) => (e === 'positive' ? 'above zero' : e === 'negative' ? 'below zero' : 'unclear');
+export type Direction = 'positive' | 'negative' | 'unclear';
+export const directionText = (e: Direction | null) => (e === 'positive' ? 'above zero' : e === 'negative' ? 'below zero' : 'unclear');
 
 export type Interval = { low: number; mid: number; high: number };
 export type Confidence = {
   n: number; k: number; spanDays: number;
-  tier: Tier; edge: Edge | null;
+  tier: Tier; direction: Direction | null;
   perTrade: Interval | null; // simple returns (0.013 = +1.3%)
   pace30: Interval | null; // per 30 days invested
   tradesPerMonth: number;
@@ -256,7 +256,7 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   const tradesPerMonth = (n / Math.max(spanDays, 30)) * 30; // display only
   const tier: Tier = k < 10 ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
   const base = { n, k, spanDays, tradesPerMonth };
-  if (tier === 'too-early') return { ...base, tier, edge: null, perTrade: null, pace30: null };
+  if (tier === 'too-early') return { ...base, tier, direction: null, perTrade: null, pace30: null };
 
   const t = tCrit95(k - 1);
   const sumX = clusters.reduce((a, c) => a + c.x, 0);
@@ -268,26 +268,26 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   const perTrade = { low: Math.expm1(m - t * seM), mid: Math.expm1(m), high: Math.expm1(m + t * seM) };
   const pace30 = { low: Math.expm1(30 * (R - t * seR)), mid: Math.expm1(30 * R), high: Math.expm1(30 * (R + t * seR)) };
   if (![...Object.values(perTrade), ...Object.values(pace30)].every(Number.isFinite)) {
-    return { ...base, tier: 'too-early', edge: null, perTrade: null, pace30: null };
+    return { ...base, tier: 'too-early', direction: null, perTrade: null, pace30: null };
   }
-  const edge: Edge = pace30.low > 0 ? 'positive' : pace30.high < 0 ? 'negative' : 'unclear';
-  return { ...base, tier, edge, perTrade, pace30 };
+  const direction: Direction = pace30.low > 0 ? 'positive' : pace30.high < 0 ? 'negative' : 'unclear';
+  return { ...base, tier, direction, perTrade, pace30 };
 }
 
 const plural = (n: number, w: string) => counted(n, w);
 
-// Plain text shared by the profile, the share card and page metadata. Negative edges read the same as positive.
+// Plain text shared by the profile, the share card and page metadata. Negative directions read the same as positive.
 // F-1 PR-3 fix round 4 (UX lead note 3): when trades outnumber bets, the line says why. Same-stock trades whose holds
 // overlap (in any account) are one bet, so a trader who scales in and out of a held position, or holds one stock in
 // several accounts, has few independent bets however many trades: "2,828 trades in 9 overlapping positions".
 export function evidenceLine(c: Confidence): string {
   const grouped = c.n > c.k;
-  if (c.tier === 'too-early' || !c.edge) {
+  if (c.tier === 'too-early' || !c.direction) {
     return grouped
       ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (10 independent bets needed)`
       : `Too early to tell (${count(c.k)} of 10 bets)`;
   }
-  return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
+  return `Past results: ${directionText(c.direction)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
 }
 
 export const rangeText = (c: Confidence): string | null =>
@@ -300,7 +300,7 @@ export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, t
   return (today.getTime() - first) / DAY < 30 || closedCount < 10;
 }
 
-// Feed order: traders with a confident edge first (weight > 0), by weight × score; the rest keep score order.
+// Feed order: traders with a clear direction first (weight > 0), by weight × score; the rest keep score order.
 // weight = log-distance of the pace interval from zero in either direction, so equal losses and gains tie.
 export const evidenceWeight = (c: Confidence): number => (c.pace30 ? Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high)) : 0);
 

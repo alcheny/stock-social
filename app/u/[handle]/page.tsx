@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
-import { confidence, edgeText, evidenceLine, isNewRecord, pct, rangeText, stats } from '@/lib/trades.ts';
+import { confidence, directionText, evidenceLine, isNewRecord, pct, rangeText, stats } from '@/lib/trades.ts';
 import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
@@ -218,8 +218,8 @@ export default async function Profile({ params, searchParams }: Params) {
       </section>
       <div className="evidence">
         <p style={{ margin: 0 }}>
-          {c.edge
-            ? <>Past results: <b className={c.edge === 'positive' ? 'up' : c.edge === 'negative' ? 'down' : ''}>{edgeText(c.edge)}</b>{evidenceLine(c).slice(`Past results: ${edgeText(c.edge)}`.length)}</>
+          {c.direction
+            ? <>Past results: <b className={c.direction === 'positive' ? 'up' : c.direction === 'negative' ? 'down' : ''}>{directionText(c.direction)}</b>{evidenceLine(c).slice(`Past results: ${directionText(c.direction)}`.length)}</>
             : evidenceLine(c)}
         </p>
         <details>

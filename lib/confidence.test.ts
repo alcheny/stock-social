@@ -27,7 +27,7 @@ test('K<10 is too early with no interval or edge; K=0/1 are safe', () => {
     assert.equal(c.tier, 'too-early');
     assert.equal(c.perTrade, null);
     assert.equal(c.pace30, null);
-    assert.equal(c.edge, null);
+    assert.equal(c.direction, null);
     assert.ok(Number.isFinite(c.tradesPerMonth) && Number.isFinite(c.spanDays));
   }
 });
@@ -40,21 +40,21 @@ test('hand-computed interval', () => {
   assert.ok(Math.abs(c.perTrade!.mid) < 1e-12);
   assert.ok(Math.abs(c.perTrade!.low - Math.expm1(-half)) < 1e-6);
   assert.ok(Math.abs(c.perTrade!.high - Math.expm1(half)) < 1e-6);
-  assert.equal(c.edge, 'unclear');
+  assert.equal(c.direction, 'unclear');
 });
 
 test('zero spread collapses to the point estimate', () => {
   const c = confidence(spaced(10, () => 0.05), today);
   assert.ok(Math.abs(c.perTrade!.low - c.perTrade!.high) < 1e-12);
   assert.ok(Math.abs(c.pace30!.low - c.pace30!.high) < 1e-9);
-  assert.equal(c.edge, 'positive');
+  assert.equal(c.direction, 'positive');
   assert.ok(Number.isFinite(c.pace30!.low));
 });
 
 test('total loss does not produce NaN', () => {
   const c = confidence(spaced(10, () => -1), today);
   assert.ok(c.perTrade && Number.isFinite(c.perTrade.low));
-  assert.equal(c.edge, 'negative');
+  assert.equal(c.direction, 'negative');
 });
 
 test('tier boundaries', () => {
@@ -69,12 +69,12 @@ test('tier boundaries', () => {
   assert.equal(tier(100, 365), 'strong');
 });
 
-test('edge classification, negative as prominent as positive', () => {
+test('direction classification, negative as prominent as positive', () => {
   const mk = (r: number) => confidence(spaced(12, (i) => r + (i % 2 ? 0.001 : -0.001)), today);
   const pos = mk(0.05);
   const neg = mk(-0.05);
-  assert.equal(pos.edge, 'positive');
-  assert.equal(neg.edge, 'negative');
+  assert.equal(pos.direction, 'positive');
+  assert.equal(neg.direction, 'negative');
   assert.equal(evidenceLine(pos).replace('above zero', 'X'), evidenceLine(neg).replace('below zero', 'X'));
   assert.match(evidenceLine(neg), /^Past results: below zero · Evidence: thin \(12 bets, \d+ days\)$/);
 });
@@ -86,8 +86,8 @@ test('copy: too early, range, banned words', () => {
   const iv = { low: -0.001, mid: 0.013, high: 0.027 };
   const all: Confidence[] = [];
   for (const tier of ['too-early', 'thin', 'moderate', 'strong'] as const)
-    for (const edge of ['positive', 'negative', 'unclear', null] as const)
-      all.push({ ...base, tier, edge, perTrade: iv, pace30: iv });
+    for (const direction of ['positive', 'negative', 'unclear', null] as const)
+      all.push({ ...base, tier, direction, perTrade: iv, pace30: iv });
   assert.equal(rangeText(all[4]), '(-0.1% to +2.7%)');
   const text = all.map((c) => evidenceLine(c) + (rangeText(c) ?? '')).join('\n');
   assert.doesNotMatch(text, /skill|proven|guaranteed|all of their trades/i);
@@ -102,7 +102,7 @@ test('isNewRecord boundaries', () => {
   assert.equal(isNewRecord(open(90), 10, tn), false);
 });
 
-test('rankTraders: confident edge beats wide interval; zero weights keep score order; mirrors tie', () => {
+test('rankTraders: confident direction beats wide interval; zero weights keep score order; mirrors tie', () => {
   const confident = { id: 'c', weight: 0.02, score: 1 };
   const wide = { id: 'w', weight: 0, score: 5 };
   assert.deepEqual(rankTraders([wide, confident]).map((x) => x.id), ['c', 'w']);
