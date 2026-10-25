@@ -126,3 +126,80 @@ wait. If the owner says no, it costs ~3 lines plus a tighter T1.3, as the plan s
 Business lead signs with changes C1 to C9 (§3) binding on PR-7 and PR-8.
 
 SIGNED
+
+## Round 2
+
+Date: 2026-10-25. Reviewed: `plan-guardrails.md` round 2 and its "Round 2 changes" table, against my C1 to C9 above,
+the F-2 Decision "guardrails Q1, reversed the same day" (`F-2-personal-discovery.md:65-70`), and the tree
+(`lib/auth/sessions.ts:31-48`, `app/actions.ts:52-92`, `app/me/record/page.tsx:23-28`, `app/u/[handle]/page.tsx:105-106,185`,
+`app/connect/page.tsx:26-27`, `lib/connections.ts:241-249`). Not legal advice.
+
+**Verdict in one line:** every change landed or was superseded for a stated, stricter reason; the wider reading of the
+reversal is the one the owner's recorded words require; nothing security-relevant breaks. Three build conditions below.
+
+### 1. My changes, as landed
+
+| # | Landed? | Note |
+|---|---|---|
+| C1 demo defined positively | **Yes, as written** | §1.1 query is `exists(...) and not exists(... source <> 'demo')`, by session id; T3.2 has the three non-demo cases; T3.4 adds the `explain`. The reviewer still reads the query, not the test name. |
+| C2 bound T1.3 | **Superseded, correctly** | The owner's reversal removes the one write I allowed. `/t/<sym>` watched and unwatched are in T1.3, T1.3a is added, and the ranking-path guard on `last_seen_at` is kept (T1.7). |
+| C3 T3.3 behavioral | **Yes, with one gap** | Scope and named allow-list landed. The behavioral pair is in §13, not in `plan.md` (the engineer can't edit it). Condition R2. |
+| C4a / C4b | **Yes, as written** | One outcome per `?likes=` input; URLs by path, `_rsc` only, written into the spec, re-run with `?done=`. |
+| C5 Privacy follows sentence | **Yes** | §7 item 5. |
+| C6 split deletion copy | **Superseded, accepted** | The UX list is better than my three sentences: scannable at 320 px, and it adds the backups truth the H4 Decision requires. |
+| C7 one confirmation | **Yes** | One shared `role="status"` element; T6.3. |
+| C8 effect-first copy | **Partially, accepted** | "the order everyone sees signed out" is plain words, not the internal term I objected to, and it is literally true. `RESET.explain` leads with "Deletes"; on a destructive confirmation, naming what is deleted first is the honest order, and the effect follows in the same sentence. "Don't reset" fixes the "them" referent. On/Off labels kept: UX's call, accepted. |
+| C9 PR-5b section when off | **Yes, pending R2** | §13. |
+
+PR-7 then PR-8 in sequence: **accept.** Rule 2 fails on seven files; a third PR to win back parallelism costs a full
+committee cycle to save less than one build. PR-7 is the urgent one (POLICY F1's last sentence is false until it lands).
+
+### 2. Ruling: the wider reading of the Q1 reversal
+
+**The wider reading is required, not optional. Keep it as the default; no owner question is needed.**
+
+- The recorded Decision is not limited to the watch stamp: "nothing about the viewer's activity is recorded. That
+  includes the watched symbol's 'last opened' time (and, from PR-5, any share or reading activity)". "Includes" lists
+  examples, and "any share … activity" names the share stamps directly. The owner's own words ("we shouldn't track user
+  activity if they opt out") carry no limit to feed or discovery activity.
+- Each §1.1 row is activity by that test: when you last used the app (session last-use), how often you open your own
+  record (record views), that you opened your own profile (funnel event), that a prompt was displayed to you, that you
+  saved or shared an image. None is a choice the viewer made and can see and delete, which is the Decision's line for
+  what is kept.
+- The narrow reading would make the Privacy sentence in §7 item 7 false, so it would cost a Privacy rewrite, not 20
+  lines.
+- Cost of the wide reading, checked: an opted-out viewer loses the watchlist "new" marker, the record "since your last
+  visit" marker and the new-trades prompt (all hidden, not guessed, which is right). Funnel and record-view measurement
+  lose opted-out viewers; the switch defaults on and `own_profile_viewed` fires right after sign-up, before anyone is
+  likely to find Settings, so the bias to the F-1 funnel is negligible. Accept.
+- One product cost I accept: with the switch off the share prompt shows on each own-profile visit until the trader
+  dismisses or uses it (`app/actions.ts:52` can't stamp). It has a one-tap dismiss that is stored. Hiding it would cut
+  the Phase 1 share lever for these traders; a repeat with a dismiss is the smaller harm.
+
+### 3. Security check
+
+- **Session last-use: safe to gate.** Expiry is absolute, set once at creation (`lib/auth/sessions.ts:33`); validity
+  reads only `expires_at` (`:44`); nothing in `app/` or `lib/` reads `last_seen_at`. No idle timeout, purge or rate
+  limit depends on it. The G6 purge walks `expires_at`. Gating it changes no authentication behavior.
+- **The one thing that must not be gated: connection-attempt rate limiting.** `lib/connections.ts:241-249` counts
+  `portal_opened` funnel rows to cap portal opens, and writes `failed` / `abandoned` / `expired` rows the error paths
+  read (`:34`). These are security and integrity controls, not tracking. §1.1's exemption ("a deliberate step of
+  connecting (consent, connected)") is too vague to protect them. Condition R1.
+
+### 4. Build conditions (binding on PR-7; the reviewer checks each)
+
+- **R1 (security, first).** §1.1's exempt list names every funnel event the connection flow and its rate limit write
+  (`portal_opened`, `link_succeeded`, `consented`, `declined`, `failed`, `abandoned`, `expired`, `import_finished`,
+  `no_real_account`) as exempt, and T1.7's scan must not flag them. Add to T1.3 or `lib/connections.test.ts`: with the
+  switch off, the portal-open cap still trips at its existing limit. Verify by running it.
+- **R2.** The orchestrator copies §13 into `plan.md` PR-5a and PR-5b before PR-5's plan round starts; PR-5's plan is
+  not signed without them. Verify in `plan.md`.
+- **R3.** `lib/auth/sessions.test.ts:44-45` (last-use updates) stays unchanged and passing with the switch on (the
+  default); the switch-off case is added beside it, not in its place. Verify the test count and that file's diff.
+
+Owner note, not a condition: nothing reads `sessions.last_seen_at` at all. The P3 minimum would stop writing it for
+everyone; that would rewrite a pinned test, so it is the owner's call, not this PR's.
+
+Business lead signs round 2 with R1 to R3 binding on PR-7.
+
+SIGNED
