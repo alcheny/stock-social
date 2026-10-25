@@ -254,3 +254,61 @@ suggested task, not part of this PR.
 
 A fresh `next start -p 3600` (ALLOW_DEV_AUTH=1, the vendor fake not attached) is left running from this build for the
 committee's second look.
+
+## Fix round 2 (2026-10-25)
+
+Inputs: "## Round 2" in `committee-pr1-business-lead.md` and `committee-pr1-ux-lead.md` (both COMPLIANCE: PASS).
+Branch `autopilot/feature-4-tr9`, database `stock_social_f4` (only the demo seed after the Postgres restart), port
+3600, vendor fake on 4602. The LOAD runs used their own database, `stock_social_f4_load`, with the schema and demo seed.
+
+Commits:
+- `fe2c3f6`: tests first (failing), plus the restored e2e patterns;
+- `cd60013`: the code;
+- `f2123c0`: one pinned expectation moved;
+- the last commit: this log and the PR body.
+
+**A test I weakened in round 1, restored.** In `6182f57` I loosened three e2e range patterns to `[-+]?`, so they would
+accept the display's unsigned "0.0%" bound. That was wrong: loosening an assertion to admit a display bug weakens the
+test, and the repo forbids it. The fix belonged in the display, and D9 now makes it. The patterns require a sign again
+(`[-+]`). The only widening is "1 or 2 decimals" on range bounds, because D9 prints a near-zero bound to 2 decimals.
+The headline average in the concentration pattern keeps its strict 1-decimal form.
+
+| Demand | Change | How verified |
+|---|---|---|
+| **UX D9** | `rangeText` (`lib/trades.ts`): a non-zero bound that rounds to 0.0% prints with 2 decimals and its sign ("-0.02%", "+0.02%"; below that, "-0.00%"). An exact zero stays "0.0%". The headline keeps `pct()` | New unit test: both signs, the exact zero, and the UX lead's 6-small-loss fixture (no unsigned "0.0%"; upper bound starts with "-"). A sweep of K = 5 to 30 (over 100 records with a direction word, asserted) finds none printing a bound as "0.0%". Moved: `lib/trades.test.ts` pinned `rangeText({−0.008, −0.0001})` as "(-0.8% to 0.0%)"; it is now "(-0.8% to -0.01%)" (`f2123c0`). Its rule, never "-0.0%", and its other seven assertions are unchanged |
+| **Restore the `6182f57` patterns** | e2e range patterns require a sign again (see above) | The round-1 F-4 e2e and fix-1 e2e pass strictly; the 6-bet fixture that read "(0.0% to +2.7%)" now prints a signed bound |
+| **BL demand 8** | `HoldTime.tsx`: a too-early bucket prints the short "Too early to tell" under its range, if it has one. The stock's full sentence is under the summary | New e2e at 360 and 375 px on the committee's shape (3 + 2 overlapping 20-day trades in one stock). The cell says "Too early to tell" and not "independent bets needed". Every word in the hold-time table body has exactly one client rect, so no word is split. The header "Trades" break is older than F-4 and logged as a follow-up |
+| **BL demand 9** | `pr1-body.md` compliance item 1: "Records under 10 bets can no longer top the feed (ruling H1); from 10 bets this holds in probability, as on main (Known limits)." | File |
+| **UX N4** | Profile preview: `${(s.winRate * 100).toFixed(0)}% win rate`. `pct(0, 0).slice(1)` gave "%" for an all-loss record. One line, in a file this PR touches | Same e2e: an all-loss profile's `meta[name=description]` contains "· 0% win rate ·" |
+
+**Product lines** (`git diff --numstat 0666990 -- app lib`, without tests): **+85 / −46 = 131** (cap 800).
+**Tests:** 640 → **641** (+1, D9). e2e: 119 → 120 (+1 fix-2 test).
+
+### Checks (fix round 2)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`stock_social_f4`) | **641 tests: 629 pass, 0 fail, 12 skipped (LOAD)**. `feed.reach.test.ts` unchanged and passing (union 104 of 105) |
+| `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` (`stock_social_f4_load`) | **5 / 5 pass**. Heavy import 894 ms (bound 15000), slowest step 331 ms (bound 3000), rebuild 249 ms (bound 5000), held at most 1341 rows, heap +25.4 MB (bound 160). Three syncs 241 / 238 / 271 ms, sha256 unchanged. Contention: 1 ran, 2 skipped, 592 ms. First sync: 4709 closes in 916 ms. Fleet: 500 traders, 8 callers, each synced once in 6901 ms (bound 60000) |
+| `LOAD=1 node --expose-gc --test lib/feed.load.test.ts` (`stock_social_f4_load`) | **6 / 6 pass**. It ran in its own database this time, so its leak (a queued task) can't reach the shared one |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+| `node scripts/compliance.ts diff origin/main` | `compliance: ok (diff vs origin/main)` |
+| `CI=1 npm run build` (stdin closed) | exit 0 on the retry; the first attempt stops on the framework's security-upgrade notice (tool output, ignored) |
+| e2e, port 3600, vendor fake on 4602 (connect tests run) | **116 passed, 1 failed, 3 skipped** of 120 (4.4 min). Every F-4 test passes, including the new fix-2 test. The failure is explained below. The committed screenshots that the run rewrites were restored |
+
+**The one e2e failure is not this PR's.**
+- **What fails.** "fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders…" (`e2e/app.spec.ts:1146`) counts
+  29 heavy cards on feed page 1, not 30.
+- **It fails on main too.** I checked out the product files of `7ec3c28` and then of `0666990` (main), rebuilt each
+  time, and ran the test alone on the same database. Both fail identically ("29 heavy cards from 18 distinct heavy
+  traders"). I then restored HEAD and rebuilt.
+- **Cause.** After the Postgres restart, `stock_social_f4` was reseeded about 1.5 hours before the run.
+  `scripts/seed.ts` dates demo closes relative to seeding time, and another e2e test had just added a close 7 minutes
+  old to `momentum_maya`. So one demo card outranks the heavy traders' fresh cards.
+- **Why it passed before.** In earlier rounds the seed was hours older, and the test passed.
+- **Follow-up.** Queued as a suggested task: make the test independent of seed age without loosening its heavy-card
+  assertions.
+
+A fresh `next start -p 3600` with ALLOW_DEV_AUTH=1 is running from this build for the committee. The vendor fake is not
+attached, and the 2-hour background limit stops the server.

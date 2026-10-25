@@ -42,7 +42,7 @@ like gains. A record competes for the top of the feed only from 10 bets.
 
 ## Tests
 
-- 623 → 640 unit and DB tests, all passing, 12 LOAD skipped. Added:
+- 623 → 641 unit and DB tests, all passing, 12 LOAD skipped. Added:
   - t at K = 5/10/30/100;
   - the K = 5 hand-computed interval;
   - the range from 5 bets;
@@ -54,16 +54,20 @@ like gains. A record competes for the top of the feed only from 10 bets.
   - the width rule sign-blind;
   - the total-loss weight;
   - the banned-word scan;
-  - the trade and month `tooEarly` flag.
+  - the trade and month `tooEarly` flag;
+  - a near-zero range bound keeps its sign, for both signs and over a sweep (fix round 2).
 - Seven expectations moved to the owner's floor of 5. Two moved to the ruling's variance floor. None is deleted or
   loosened. `lib/feed.reach.test.ts` is unchanged and passes.
-- e2e 116 passed, 3 skipped, 0 failed. Two new F-4 tests at 360 px cover the profile, trade, month, ticker and compare
-  pages.
+- e2e: 117 of 120 run, 116 passed, 1 failed, 3 skipped. Three new F-4 tests at 360 and 375 px cover the profile, trade,
+  month, ticker and compare pages, the hold-time table with no split word, and an all-loss profile's "0% win rate".
+  The 1 failure is the existing heavy-feed test, which also fails on `main` on the same freshly seeded database
+  (see Known limits).
 
 ## Checks
 
-`tsc` clean · `npm test` 640 / 628 pass / 0 fail · `LOAD=1` sync 5/5 and feed 6/6 · `guard: ok` · `compliance: ok` ·
-`CI=1 npm run build` ok · e2e 116 / 0 failed (vendor fake attached). Product diff +81 / −45 (cap 800).
+`tsc` clean · `npm test` 641 / 629 pass / 0 fail · `LOAD=1` sync 5/5 and feed 6/6 (in their own database) ·
+`guard: ok` · `compliance: ok` · `CI=1 npm run build` ok · e2e 116 passed, 1 failed (also fails on `main`, see Known
+limits), 3 skipped, vendor fake attached. Product diff +85 / −46 (cap 800).
 
 ## Known limits
 
@@ -77,6 +81,10 @@ like gains. A record competes for the top of the feed only from 10 bets.
   the leader), so they can say "too early" in addition to the stock's own line.
 - **Test isolation.** `lib/feed.load.test.ts` can leave 10,000 rows on a demo trader when run against a seeded
   database. This is pre-existing and queued as its own task.
+- **Heavy-feed e2e and seed age.** On a database seeded about 1.5 hours earlier, feed page 1 carries one demo card,
+  so the heavy-feed e2e counts 29 heavy cards, not 30. It fails the same way on `main` (`0666990`), so this PR doesn't
+  cause it. It's queued as its own task.
+- **Follow-ups.** The hold-time header "Trades" breaks at 375 px. This is pre-existing.
 
 ## Compliance
 
@@ -87,7 +95,9 @@ Answers to `docs/COMPLIANCE.md` §1 for this PR.
    - **F3b:** labels describe evidence only ("thin", "too early", "the range is still too wide"). "edge" is gone from
      identifiers and from every string (scan test), and "signal" is gone from the hold-time note.
    - **F4 / TR-9:** the range shows from 5 bets and stays when wide. Losses mirror gains in tests, and the ranking
-     stays on the pace lower bound in log space. Small samples can no longer top the feed (ruling H1).
+     stays on the pace lower bound in log space. Records under 10 bets can no longer top the feed (ruling H1); from
+     10 bets this holds in probability, as on main (Known limits). A range bound that rounds to zero keeps its sign
+     ("-0.02%"), so a range never appears to reach zero beside "below zero" or "above zero".
    - **F1:** no advice. The ticker baseline no longer draws a verdict from a too-early range.
 2. **Personal data: no.** No new field, read, log or tracker. Percentages only (P3).
 3. **Money: no.** No trades, funds, payments or rewards.
