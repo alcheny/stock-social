@@ -91,7 +91,9 @@ Each one testable; the pipeline writes a test for every line.
       minus their own hides, and nothing about their reading is stored (tested); on by default.
 - [ ] G2: "Reset my feed" (confirmed) leaves zero trade hides, unfollow notes and reading activity for that viewer,
       and changes nothing for any other viewer (tested).
-- [ ] G3: no implicit reading signal is stored or used for a non-demo viewer while the switch is off (tested).
+- [ ] G3: no implicit reading signal is stored or used for a non-demo viewer until the owner lifts G3 (tested;
+      G3 is a standing rule, independent of the G1 switch). Corrected 2026-10-25: the first wording tied it to the
+      switch by mistake.
 - [ ] G4: the delete-profile screen names follows, likes, hidden traders and trades, the watchlist and reading
       activity; the watchlist is deleted in deletion's first step (tested with a failed vendor call).
 - [ ] G5: every like is reachable from "Liked records" (paging past 200; likes on removed trades listed with Unlike).
