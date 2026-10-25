@@ -401,7 +401,7 @@ tracker or cookie beyond the existing session cookie.
 | # | Request | Status | Needed before |
 |---|---|---|---|
 | P1 | Amend POLICY F1 (H1) | **Approved 2026-10-25**; text in `hardstops-resolution-business-lead.md` §1, owner applies it to POLICY | PR-5 merge |
-| P2 | Counsel's opinion (H2, packet §7); send now, in parallel with PR-1 to PR-4 | Open | PR-5 build |
+| P2 | Counsel's opinion (H2) | **Owner sends** `counsel-request.md` (2026-10-25); answer pending | PR-5 build |
 | P5 | Suggestion-copy word list in `scripts/compliance.ts` (`lib/copy.test.ts` enforces it meanwhile) | Open | PR-3 (not blocking) |
 | P4 | Privacy text for §5 | Folded into item #10 | real viewers (H4) |
 | P8 | Heavy suite in CI (`test:load` also runs the F-2 load test) | Folded into item #13 | PR-6 |

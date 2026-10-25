@@ -233,7 +233,8 @@ The owner can reasonably accept Q2, Q3, Q6 and Q7 on this analysis. Q8 is a code
 | G5 | **Reachable likes.** "Liked records" lists every like: paging past the newest 200, and "Record no longer available · Unlike" for likes on trades a rebuild removed. Or add "Remove all likes". | Today some likes can be removed only by deleting the account (D3). | ~30 to 50 lines. |
 | G6 | **Small log and retention fixes.** `GET /me/liked?k=…` becomes a POST. No-JS confirmations carry no handle in the URL. Expired sessions get purged in the tick. | Viewer actions reach the host's request logs (D12), and expired sessions are kept forever (engineer §1.2). | ~40 lines; the purge needs item #7. |
 
-Owner approves: ____ (yes/no). Guardrails adopted: G1 ____ G2 ____ G3 ____ G4 ____ G5 ____ G6 ____
+Owner decision (2026-10-25): **send to counsel** rather than accept this analysis in its place. The request is
+`counsel-request.md`; the PR-5 build waits for the answer (H2 stays a hard stop). Guardrails adopted: G1 ____ G2 ____ G3 ____ G4 ____ G5 ____ G6 ____
 
 ---
 
