@@ -73,7 +73,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: profileCardAlt(user.handle, card) }] };
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete); with no
   // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
-  const statsText = `${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
+  const statsText = `${(s.winRate * 100).toFixed(0)}% win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
     description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }),

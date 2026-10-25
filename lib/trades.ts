@@ -314,8 +314,11 @@ export function tooEarlyText(c: Confidence): string {
     : `Too early to tell (${count(c.k)} of ${MIN_BETS} bets)`;
 }
 
+// UX lead D9: a non-zero bound that rounds to 0.0% keeps its sign with 2 decimals ("-0.02%"), so a range beside
+// "below zero" never appears to reach zero. Range bounds only; the headline keeps pct().
+const bound = (x: number) => (x !== 0 && Number((x * 100).toFixed(1)) === 0 ? `${x > 0 ? '+' : '-'}${Math.abs(x * 100).toFixed(2)}%` : pct(x));
 export const rangeText = (c: Confidence): string | null =>
-  c.perTrade ? `(${pct(c.perTrade.low)} to ${pct(c.perTrade.high)})` : null;
+  c.perTrade ? `(${bound(c.perTrade.low)} to ${bound(c.perTrade.high)})` : null;
 
 // TR-7: under 30 days of history or fewer than 10 closed trades. The 10 is TR-7's (decided 2026-10-13), not the TR-9
 // floor (MIN_BETS), and counts closed trades, not independent bets.

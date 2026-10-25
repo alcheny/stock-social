@@ -1,5 +1,5 @@
 import { holdCaption, MIN_HOLD_BUCKET, type HoldBuckets } from '@/lib/ticker.ts';
-import { pct, rangeText, tooEarlyText } from '@/lib/trades.ts';
+import { pct, rangeText } from '@/lib/trades.ts';
 import { Badge } from '../../ui.tsx';
 
 // Fixed time order, no bars, no highlight, no ranking. A rate appears only for a group with enough trades.
@@ -26,7 +26,7 @@ export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: Ho
                   <td>
                     <span className={b.avgReturn! > 0 ? 'up' : b.avgReturn! < 0 ? 'down' : undefined}>{pct(b.avgReturn!)}</span>
                     {rangeText(b.conf!) && <small className="muted range">{rangeText(b.conf!)} · 95% range</small>}
-                    {b.conf!.tier === 'too-early' && <small className="muted range">{tooEarlyText(b.conf!)}</small>}
+                    {b.conf!.tier === 'too-early' && <small className="muted range">Too early to tell</small>}
                   </td>
                 </>
               ) : (
