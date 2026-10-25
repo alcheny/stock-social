@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CANVAS_WIDTH, CARD_POINTS, cardDirection, cardHeadline, cardPct, cardStrings, evidenceLabel, FLOORS, FORMATS, PALETTE,
+  CANVAS_WIDTH, CARD_POINTS, cardBounds, cardDirection, cardHeadline, cardPct, cardStrings, evidenceLabel, FLOORS, FORMATS, PALETTE,
   parseFormat, periodText, recordCard, SCALE, TINT, trustLine, type CardModel, type CardTrade, type RecordCardInput,
 } from './record-card.ts';
 import { covered } from './card-glyphs.ts';
@@ -53,9 +53,12 @@ const FIXTURES: [string, RecordCardInput][] = [
   ['unverified closes', input(trades(wave(12, 0.02, 0.01), { verified: false }))],
   ['one trade', input(trades([0.05]))],
   ['40-character name', input(WIN, { displayName: 'A'.repeat(19) + ' ' + 'B'.repeat(20) })],
+  // Tester M2: verified closes with no consented connection (unreachable today, but the badge and alt must agree).
+  ['none with closes', input(WIN, { state: 'none' })],
+  ['name outside the font', input(WIN, { displayName: '山田太郎' })],
 ];
 const MODELS = FIXTURES.map(([name, i]) => [name, recordCard(i)] as const);
-const allText = (m: CardModel) => [...cardStrings(m, 'wide'), ...cardStrings(m, 'tall'), m.alt];
+const allText = (m: CardModel) => [...cardStrings(m, 'wide'), ...cardStrings(m, 'tall'), m.alt.wide, m.alt.tall];
 
 test('criterion 1: the ALL series from 0% (0% on the axis), the trade count, the period, name and handle', () => {
   const m = card(WIN);
@@ -179,7 +182,7 @@ test('C1: "95%" and "confidence" never appear on the card; "range" appears only 
 });
 
 test('criterion 6: the model has no per-trade field; no symbol, closing time or holding period appears in any string', () => {
-  const KEYS = ['body', 'name', 'handle', 'badge', 'headline', 'range', 'evidence', 'trust', 'count', 'lossesIncluded', 'period', 'chart', 'message', 'link', 'disclaimer', 'alt'];
+  const KEYS = ['body', 'name', 'handle', 'badge', 'headline', 'range', 'rangeParts', 'evidence', 'trust', 'count', 'lossesIncluded', 'period', 'periodParts', 'chart', 'message', 'link', 'disclaimer', 'alt'];
   for (const [name, m] of MODELS) {
     assert.deepEqual(Object.keys(m).sort(), [...KEYS].sort(), name);
     const json = JSON.stringify(m);
@@ -191,7 +194,7 @@ test('criterion 6: the model has no per-trade field; no symbol, closing time or 
 
 test('criterion 7 and U6: a losing record has the same layout and prominence as the mirrored winning one; the line is down when the record ends below 0', () => {
   const win = card(WIN), lose = card(LOSE);
-  const norm = (m: CardModel) => JSON.stringify({ ...m, trust: m.trust && { ...m.trust, text: 'CELL' }, chart: m.chart && { ...m.chart, end: 0, min: 0, max: 0, geometry: Object.keys(m.chart.geometry) }, alt: m.alt.replace(m.trust!.text, 'CELL') })
+  const norm = (m: CardModel) => JSON.stringify({ ...m, trust: m.trust && { ...m.trust, text: 'CELL' }, chart: m.chart && { ...m.chart, end: 0, min: 0, max: 0, geometry: Object.keys(m.chart.geometry) }, alt: { wide: m.alt.wide.replace(m.trust!.text, 'CELL'), tall: m.alt.tall.replace(m.trust!.text, 'CELL') } })
     .replace(/[+\u2212-]?\d[\d,]*(\.\d+)?%/g, 'P').replace(/"(up|down)"/g, '"dir"');
   assert.equal(norm(lose), norm(win));
   assert.equal(win.chart!.tone, 'up');
@@ -297,14 +300,30 @@ test('U2 (scale half): every type-scale entry, scaled to a 375 px preview, meets
   assert.equal(parseFormat('x'), 'square');
 });
 
-test('U14: the alt text starts with the profile card alt and carries every visible string and the chart sentence', () => {
+// Fix round 1 (business lead B1, UX lead U-3, tester M2): the prefix names no label (the model's badge follows once);
+// the figure comes before its label; no sentence repeats; no lone "0%"; the link only on the tall image's alt.
+test('U14: the alt text carries every visible string and the chart sentence, figure first, the badge and handle once', () => {
+  const plain = (h: string) => profileCardAlt(h, shareCardText({ state: 'none', demo: false, verified: false, empty: true }));
   for (const [name, m] of MODELS) {
     const inp = FIXTURES.find(([n]) => n === name)![1];
-    const label = shareCardText({ state: inp.state, demo: inp.demo, verified: inp.trades.length > 0 && inp.trades.every((t) => t.verified), empty: inp.trades.length === 0 });
-    assert.ok(m.alt.startsWith(profileCardAlt(inp.handle, label)), `${name}: ${m.alt}`);
-    for (const s of cardStrings(m, 'wide')) assert.ok(m.alt.includes(s.replace(/\.$/, '')), `${name}: alt lacks "${s}"`);
-    if (m.chart) assert.ok(m.alt.includes(`Line from 0% to ${cardHeadline(m.chart.end).text} total, lowest ${cardHeadline(m.chart.min).text}`), `${name}: ${m.alt}`);
+    for (const layout of ['wide', 'tall'] as const) {
+      const alt = m.alt[layout];
+      assert.ok(alt.startsWith(`${plain(inp.handle)}. `), `${name}: ${alt}`);
+      for (const s of cardStrings(m, layout)) assert.ok(alt.includes(s.replace(/\.$/, '')), `${name} ${layout}: alt lacks "${s}"`);
+      if (m.chart) assert.ok(alt.includes(`Line from 0% to ${cardHeadline(m.chart.end).text} total, lowest ${cardHeadline(m.chart.min).text}`), `${name}: ${alt}`);
+      const sentences = alt.split('. ');
+      assert.equal(new Set(sentences).size, sentences.length, `${name}: a sentence repeats in ${alt}`);
+      assert.ok(!sentences.includes('0%'), `${name}: lone 0%`);
+      assert.equal(alt.split(m.badge.text).length - 1, 1, `${name}: the badge "${m.badge.text}" once`);
+      assert.equal(alt.split(`@${inp.handle}`).length - 1, 1, `${name}: the handle once`);
+      assert.equal(alt.includes(m.link), layout === 'tall', `${name} ${layout}: the link`);
+      if (m.headline) assert.ok(alt.includes(`${m.headline.value} ${m.headline.label}`), `${name}: figure first`);
+    }
   }
+  // Tester M2: state none with closes never says Verified, on the image or in its alt.
+  const none = Object.fromEntries(MODELS)['none with closes'];
+  assert.equal(none.badge.text, 'No broker connected');
+  assert.doesNotMatch(none.alt.wide + none.alt.tall, /Verified/);
 });
 
 test('D4 and U15: every string the model produces is in the font; a name outside it shows as @handle, never altered; NFC first', () => {
@@ -387,7 +406,74 @@ test('tester fixtures: a 40-character name, a five-digit count with the longest 
   assert.ok(c.perTrade && c.perTrade.high < 0.15, `range ${vol.range}`);
   assert.equal(vol.evidence, 'Evidence: strong');
   assert.match(vol.trust!.text, /A long record, with no clear pattern\.$/);
+  // Fix round 1 (business lead B2): the exact printed strings, so the owner reads them as the card prints them.
+  assert.equal(vol.range, 'likely between \u221213.3% and +3.8%');
+  assert.equal(vol.trust!.text, 'Based on 200 bets over 1 year. A long record, with no clear pattern.');
+  // UX lead U-1: 1,000 bets alternating −30% and +35% over 400 days: a green "+2.5%" headline over a record whose range
+  // and trust line say it loses. O2 is the owner's to answer (before PR 3 merges); the headline method is unchanged here.
+  const praise = card(trades(Array.from({ length: 1000 }, (_, i) => (i % 2 ? 0.35 : -0.3)), { step: 0.4, hold: 0.3 }));
+  assert.deepEqual(praise.headline, { label: 'average return per trade', value: '+2.5%', tone: 'up' });
+  assert.equal(praise.range, 'likely between \u22124.8% and \u22120.8%');
+  assert.deepEqual(praise.trust, { text: 'Based on 1,000 bets over 1 year. A long record, with consistent losses.', tone: 'text' });
+  assert.equal(praise.chart!.tone, 'down');
+  assert.equal(cardHeadline(praise.chart!.end).text, '\u2248\u2212100.0%');
   const year = card(trades(wave(12, 0.02, 0.01), { start: Date.UTC(2025, 6, 1) }));
   assert.match(year.period!, /^Record since Jul 2025 · 15 months$/);
   assert.match(year.trust!.text, /over \d+ days/);
+});
+
+// ---- F-4 PR 2 fix round 1 ----
+
+test('M1: a strong record never reads "over 0 years": Y = max(1, ⌊days / 365.25⌋)', () => {
+  const pos = { low: 0.002, mid: 0.01, high: 0.02 };
+  assert.equal(trustLine(conf({ tier: 'strong', k: 100, spanDays: 365, perTrade: pos }), 100), 'Based on 100 bets over 1 year. A long, consistent record.');
+  assert.equal(trustLine(conf({ tier: 'strong', k: 100, spanDays: 365.1, perTrade: pos }), 100), 'Based on 100 bets over 1 year. A long, consistent record.');
+  // The tester's repro through the model: 100 bets over 365.1 days.
+  const ts = Array.from({ length: 100 }, (_, i) => ({ ...trades([0.01 + (i % 2 ? 0.003 : -0.003)])[0], symbol: `CRD${i}`, openedAt: new Date(T0 + i * ((365.1 - 2) / 99) * DAY), closedAt: new Date(T0 + i * ((365.1 - 2) / 99) * DAY + 2 * DAY) }));
+  assert.equal(confidence(ts, NOW).tier, 'strong');
+  assert.equal(card(ts).trust!.text, 'Based on 100 bets over 1 year. A long, consistent record.');
+});
+
+test('L1 and L2: both range bounds print with the same decimals; an all −100% record reads one value, not two approximations', () => {
+  assert.deepEqual(cardBounds(-0.001, 0.0004), ['\u22120.10%', '+0.04%']);
+  assert.deepEqual(cardBounds(-0.00004, 0.027), ['\u22120.004%', '+2.700%']);
+  assert.deepEqual(cardBounds(-0.026, 0.0004), ['\u22122.60%', '+0.04%']);
+  assert.deepEqual(cardBounds(-0.001, 0.027), ['\u22120.1%', '+2.7%']);
+  assert.deepEqual(cardBounds(0, 0.027), ['0.0%', '+2.7%']);
+  const dead = card(trades(Array(6).fill(-1)));
+  assert.equal(dead.range, 'likely about \u2212100.0%');
+  assert.deepEqual(dead.rangeParts, ['likely about', '\u2212100.0%']);
+  for (const [, m] of MODELS) if (m.range) {
+    const b = m.range.match(/[\d.]+%/g)!;
+    if (b.length === 2) assert.equal(b[0].split('.')[1].length, b[1].split('.')[1].length, m.range);
+  }
+});
+
+test('U-2: the period and the range come as two pieces each, from the copy, joining to the printed string', () => {
+  for (const [name, m] of MODELS) {
+    if (m.period) assert.equal(m.periodParts!.join(' '), m.period, name); else assert.equal(m.periodParts, null, name);
+    if (m.range) assert.equal(m.rangeParts!.join(' '), m.range, name); else assert.equal(m.rangeParts, null, name);
+  }
+  const m = card(trades(wave(12, 0.02, 0.01), { start: Date.UTC(2026, 8, 10) }));
+  assert.deepEqual(m.periodParts, ['Record since Sep 2026', '· 1 month']);
+  assert.equal(m.rangeParts![0], 'likely between');
+  assert.equal(card(trades([0.01, 0.02], { start: Date.UTC(2026, 9, 5) })).periodParts![1], '· under a month');
+});
+
+test('U-4: the chart\'s time axis is the printed period: 0% at the first entry, the last value held flat to the period\'s end', () => {
+  const old = card(trades(wave(12, 0.02, 0.01), { start: Date.UTC(2025, 9, 1) })); // last close ~13 months ago
+  for (const layout of ['wide', 'tall'] as const) {
+    const g = old.chart!.geometry[layout];
+    const pts = [...g.line.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((x) => [Number(x[1]), Number(x[2])]);
+    assert.deepEqual(pts[0], [g.gutter, g.baseline], 'the 0% point at the first entry, at the left edge');
+    assert.equal(pts[pts.length - 1][0], g.width, 'the last x is the right edge (the period\'s end)');
+    assert.equal(pts[pts.length - 1][1], pts[pts.length - 2][1], 'the last segment is horizontal: no closes since');
+    // The last close sits well left of the edge: about 1 month of trading in a 12-month period.
+    assert.ok(pts[pts.length - 2][0] < g.gutter + 0.2 * (g.width - g.gutter), `${pts[pts.length - 2][0]}`);
+  }
+  // A frozen record's axis ends at the disconnect.
+  const frozen = card(WIN, { frozenEnd: new Date(Date.UTC(2025, 5, 1)) });
+  const f = frozen.chart!.geometry.wide;
+  assert.equal(Number(f.line.split(' L').pop()!.split(' ')[0]), f.width);
+  assert.ok(old.chart!.points <= CARD_POINTS);
 });
