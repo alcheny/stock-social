@@ -239,3 +239,40 @@ mentioning likes in the page title (UX 9 / BL F3: the h1 is pinned by `follow.sp
 Screenshots (375 px, light and dark) in `screenshots/pr4-fix1/`: `card-footer`, `card-menu`, `reject-mid-drag`
 (marked past half), `reject-bar` (the next card's controls above the bar), `liked-list` (20-character handle),
 `liked-list-after-unlike`, `signed-out-card`. Committed screenshots of other PRs that the e2e run rewrote were restored.
+
+## Fix round 2 (2026-10-25)
+
+Reports: business lead round 2 COMPLIANCE PASS, D5; UX lead round 2 COMPLIANCE PASS, N1 and N2 ("no further review
+once these land with e2e assertions"). Same checkout, branch `claude/peaceful-dirac-33bucv`, database `stock_social`,
+port 3000.
+
+| Demand | Change | How verified |
+|---|---|---|
+| D5 / N1: the card being read jumps 36–72 px when the bar opens or closes | The 100 px above the bar is reserved for good on a signed-in viewer's feed cards (`body:not([data-viewer="guest"]) .feed .row > .card`). A signed-in viewer is the only one who gets a bar. The `[data-hide-bar]` toggle is gone, so nothing reflows when the bar opens or closes. Signed out, cards are unchanged. Also done: business lead F5 (signed out the footer link keeps its size; 13 px only next to the heart and "…"). | New e2e at 375 px. **Feed card:** the next card's return, heart and "…" have the same offsets in their row before the hide, and the same screen position with the bar open, 3 s later and after it closes (0 px). `elementFromPoint` at the heart and "…" is not the bar. **Section row:** after a row swipe, the section's box and heading do not move, and a remaining row does not move from bar open to after close. Pixel diff of `card-bar-open` against `card-bar-closed` is confined to the bar. |
+| N2: a ring on the next card's or row's name after a touch hide | When the bar closes, `toCard()` focuses with `focusVisible: via === 'key'`. This covers the feed and the section path, which share the code. Keyboard behavior is unchanged. | Same e2e: after a card swipe and after a section-row swipe, the focused element is not the body and has no `:focus-visible`. After keyboard "…" → "Hide this trade" → Esc, the focused name has `:focus-visible`. |
+
+**Product diff, PR total vs main: +656 / −113 (769 lines; cap 800).** This round: +10 / −7 (`app/globals.css`,
+`app/feed-hides.tsx`).
+
+### Checks (fix round 2)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` ×2 (the second after the database outage) | **643 tests: 631 pass, 12 skipped (LOAD), 0 fail** both runs |
+| `node scripts/autopilot.ts guard main` | ok |
+| `node scripts/compliance.ts diff origin/main` | ok |
+| `CI=1 npm run build` | exit 0 on the retry (the first attempt stops on the framework's security advisory, which is tool output); re-run after the outage |
+| `npm run test:e2e` (full) | **118 passed, 1 failed, 3 skipped** (4.6 min, on a clean run after the outage). `e2e/likes.spec.ts` passes 5 / 5, including the new test. The failure is `app.spec.ts:959` (PR-1, heavy feed: "30 heavy cards on page 1"): 29 of 30. It is not this round's code. A local, reverted print shows card 18 is the demo trader `dividend_dan` as an exploration pick. The list is seeded by the UTC day (2026-10-25 now) and drawn from PR-1b's outside traders. That list is built server-side in `lib/feed.ts`; this round changed only CSS and a client-side focus call. It fails the same way when run alone, twice. The test asserts that every page-1 card is a fixture card, which today's seed doesn't give. I left the test as it is (changing it would weaken it); it needs a PR-1/PR-1b owner's call, for example running it with the demo traders out of the feed. |
+
+Environment this round:
+- The container restarted, and the restored database lacked PR-4's schema, so the server returned 500s until I applied
+  `db/schema.sql` (idempotent) with the seed.
+- Postgres crashed during the first full e2e run (the coordinator confirmed an outage: `/tmp/claude-0` permissions were
+  reset, and it restarted from `/srv/pg/data`). That run's 84 failures were connection errors.
+- I deleted the 9 fixture users that the interrupted run left in my own database. I restored a demo close that
+  `app.spec.ts:478` (new trade prompt) moves to `now()` and never puts back.
+- Every check above was re-run after the outage.
+
+Screenshots: `screenshots/pr4-fix2/card-bar-open-375-*`, `card-bar-closed-375-*`. Committed screenshots of other PRs
+that the runs rewrote were restored.

@@ -352,3 +352,83 @@ test('F-2 PR-4: signed out there is no heart, no "…", no tray (business lead D
     await release();
   }
 });
+
+// Fix round 2 (business lead D5, UX N1 and N2): the card or section being read never moves when the bar opens or closes,
+// and after a touch hide the next card or row takes focus without a ring (the keyboard keeps its ring).
+const SHOTS2 = 'docs/features/logs/F-2/screenshots/pr4-fix2';
+const tops = (l: Loc) => l.evaluate((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom), Math.round(r.left)]; });
+const shoot2 = async (page: Page, name: string) => {
+  for (const colorScheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme }); await page.screenshot({ path: `${SHOTS2}/${name}-${colorScheme}.png` }); }
+  await page.emulateMedia({ colorScheme: 'light' });
+};
+const ringless = (page: Page) => page.evaluate(() => { const a = document.activeElement as HTMLElement | null; return !!a && a !== document.body && !a.matches(':focus-visible'); });
+test('F-2 PR-4 fix round 2: nothing being read moves when the Undo bar opens or closes (feed card, section row); no ring after a touch hide, a ring after the keyboard', async ({ browser }) => {
+  test.setTimeout(180_000);
+  const release = await feedLock('exclusive');
+  const fx = await fixture();
+  const me = `p4m${Math.random().toString(36).slice(2, 7)}`;
+  const { ctx, page } = await touchPage(browser);
+  try {
+    await signIn(page, me);
+    await page.goto('/');
+    await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached();
+    // Feed card: the next card's return, heart and "…", measured in its row before the hide, then on screen with the bar
+    // open and after it closes.
+    const key = (await page.locator('.feed > .row').first().getAttribute('data-key'))!;
+    const key2 = (await page.locator('.feed > .row').nth(1).getAttribute('data-key'))!;
+    const next = page.locator(`.feed > .row[data-key="${key2}"]`);
+    const parts = [next.locator('.ret'), heartOf(next), next.locator('.card .more-menu summary')];
+    const inRow = async () => Promise.all(parts.map(async (p) => { const [t] = await tops(p); const [r] = await tops(next); return t - r; }));
+    const before = await inRow();
+    await swipe(page, page.locator(`.feed > .row[data-key="${key}"] .card`), 230);
+    await expect(bar(page)).toContainText('Trade hidden for 90 days.');
+    expect(await inRow()).toEqual(before);
+    const open = await Promise.all(parts.map(tops));
+    for (const c of parts.slice(1)) {
+      const b = (await c.boundingBox())!;
+      expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.hide-bar'), [b.x + b.width / 2, b.y + b.height / 2])).toBe(false);
+    }
+    await shoot2(page, 'card-bar-open-375');
+    await page.waitForTimeout(3_000);
+    expect(await Promise.all(parts.map(tops))).toEqual(open); // through the bar's life
+    await expect(bar(page)).toHaveText('', { timeout: 4_000 });
+    expect(await Promise.all(parts.map(tops))).toEqual(open); // and after it closes: 0 px
+    await expect(next.locator('.card .who')).toBeFocused();
+    expect(await ringless(page)).toBe(true); // N2: no ring after a swipe
+    await shoot2(page, 'card-bar-closed-375');
+    // The keyboard keeps its ring: "…" → Hide → Esc puts a ringed focus on the next card's name.
+    const summary = next.locator('.card .more-menu summary');
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    await expect(bar(page).getByRole('button', { name: 'Undo' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.feed .card .who:focus')).toHaveCount(1);
+    expect(await page.evaluate(() => document.activeElement!.matches(':focus-visible'))).toBe(true);
+    // Section row: the section never moves, and a remaining row stays put from bar open to after close; no ring after.
+    const s = page.locator('.feed > .suggest').first();
+    await s.evaluate((el) => el.scrollIntoView());
+    await page.waitForTimeout(400);
+    const items = s.locator('.suggest-in > ul > li');
+    const keep = items.nth(1);
+    const sBefore = await tops(s), hBefore = await tops(s.locator('h2').first());
+    const cardW = await items.first().locator('.srow-wrap').evaluate((el) => el.clientWidth);
+    await swipe(page, items.first().locator('.srow'), Math.round(cardW * 0.55));
+    await expect(bar(page)).toContainText('Hidden for 90 days.');
+    expect(await tops(s)).toEqual(sBefore);
+    expect(await tops(s.locator('h2').first())).toEqual(hBefore);
+    const rowOpen = await tops(keep);
+    await page.waitForTimeout(2_500);
+    expect(await tops(keep)).toEqual(rowOpen);
+    await expect(bar(page)).toHaveText('', { timeout: 4_000 });
+    expect(await tops(keep)).toEqual(rowOpen);
+    expect(await tops(s)).toEqual(sBefore);
+    expect(await ringless(page)).toBe(true); // N2 on the section path too
+  } finally {
+    await ctx.close();
+    await sql`delete from users where handle = ${me}`;
+    await fx.remove();
+    await release();
+  }
+});

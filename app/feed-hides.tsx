@@ -19,8 +19,8 @@ import { UNDO_MS } from './follow-button.tsx';
 // Undo returns to that card's "…". Fix round 1 (UX D1, tester High 1): `via` says how the hide was asked for. From a
 // pointer (a swipe, a tap) the 5 s run and Undo takes focus without a ring; from the keyboard they pause while Undo has
 // focus (WCAG 2.2.1). Before, a programmatic focus after a swipe matched :focus-visible and paused the bar for good.
-// While the bar is open the feed cards' footers sit above it (tester Medium 1: Undo no longer lies under the next
-// card's controls, so the second tap of a double tap on "Hide this trade" cannot land on it).
+// The feed cards' footers always sit above where the bar opens (tester Medium 1; fix round 2: room reserved for good, so
+// nothing moves when the bar opens or closes), so the second tap of a double tap on "Hide this trade" cannot hit Undo.
 type Bar = { handle: string; trade?: string; text: string; undo: boolean; via?: 'key' | 'pointer' };
 type Hide = { handle: string; trade?: string };
 const HANDLE = /^[a-z0-9_]{3,20}$/, KEY = /^[0-9a-f]{64}$/;
@@ -48,7 +48,8 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
       const box = document.querySelector(scope);
       f = box ? [...document.querySelectorAll<HTMLElement>('a[href], button, summary, [tabindex="0"]')].find((e) => !box.contains(e) && !!(box.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING) && e.offsetParent) : undefined;
     }
-    (f ?? document.querySelector<HTMLElement>('.feed .row .card .who'))?.focus({ preventScroll: true });
+    // Fix round 2 (UX N2): after a pointer hide (a swipe, a tap) the next card or row takes focus without a ring.
+    (f ?? document.querySelector<HTMLElement>('.feed .row .card .who'))?.focus({ preventScroll: true, focusVisible: via.current === 'key' } as FocusOptions);
   };
   const close = () => { clearTimeout(timer.current); const had = !!document.activeElement?.closest('.hide-bar'); setBar(null); if (had) toCard(); };
   const run = () => { clearTimeout(timer.current); timer.current = window.setTimeout(close, UNDO_MS); };
@@ -90,7 +91,6 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
     refocus.current = null;
   }, [hidden]);
   useEffect(() => {
-    document.documentElement.toggleAttribute('data-hide-bar', !!bar);
     if (bar?.undo) { undoBtn.current?.focus({ preventScroll: true, focusVisible: bar.via === 'key' } as FocusOptions); if (paused()) clearTimeout(timer.current); }
   }, [bar]);
   const undo = async ({ handle, trade }: Hide) => {

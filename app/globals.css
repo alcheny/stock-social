@@ -420,12 +420,15 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .feed .row > .ctray { position: absolute; inset: 0 auto 0 0; width: 100%; padding: 0 20px; display: flex; align-items: center; visibility: hidden; font-weight: 600; color: var(--text); background: color-mix(in srgb, var(--muted) 22%, var(--bg)); }
 .feed .row.dragging > .ctray { visibility: visible; }
 /* Fix round 1: Undo focused after a pointer hide shows no ring; the cards' footers sit above the open bar; the tray marks
-   the commit point (past half the card) with a darker fill, no motion; the liked list wraps instead of clipping. */
+   the commit point (past half the card) with a darker fill, no motion; the liked list wraps instead of clipping.
+   Fix round 2 (business lead D5, UX N1): the room above the bar is reserved for good on a signed-in viewer's cards (the
+   only viewer who gets a bar), so the card being read never moves when the bar opens or closes. */
 .hide-bar[data-via="pointer"] button:focus-visible { outline: none; }
-[data-hide-bar] .feed .row > .card { padding-bottom: 100px; }
+body:not([data-viewer="guest"]) .feed .row > .card { padding-bottom: 100px; }
 .feed .row.past > .ctray { background: color-mix(in srgb, var(--muted) 45%, var(--bg)); }
 .card .like:not([data-ready]) { visibility: hidden; }
-.card footer > a { font-size: 13px; flex: 1 1 0; min-width: 0; }
+.card footer > a { flex: 1 1 0; min-width: 0; }
+.card footer:has(.card-acts) > a { font-size: 13px; } /* business lead F5: signed out the link keeps its size */
 .card .more-menu summary { min-height: 44px; min-width: 44px; }
 .people .liked a { display: flex; flex-direction: column; white-space: normal; overflow-wrap: anywhere; }
 .card .more-menu form { bottom: 100%; margin: 0 0 4px; } /* opens upward: the row clips below the card */
