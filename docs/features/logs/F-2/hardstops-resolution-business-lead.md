@@ -82,7 +82,9 @@ What each added sentence guards (nothing is loosened):
 **How to apply:** the owner edits `docs/POLICY.md`; no agent may. Scanner enforcement of the template rule is plan
 request P5.
 
-Owner approves: ____ (yes/no)
+Owner approves: **yes** (2026-10-25, in the chat: "of course there should be personalized suggestions"). The
+"After" text above is approved, without the optional opt-out clause (added if G1 ships). Pending: the owner applies it
+to `docs/POLICY.md` (owner-only).
 
 ---
 
