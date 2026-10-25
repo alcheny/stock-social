@@ -142,7 +142,7 @@ slot from them.
 
 | Dimension | This proposal | PR-5a + 5b as planned, under G3 |
 |---|---|---|
-| Market demand | **4**: observed behavior: a 2023 peer-reviewed field experiment on two large social platforms found that users switched from ranked to reverse-chronological feeds spent noticeably less time and were less active ([summary](https://gsb.stanford.edu/faculty-research/publications/how-do-social-media-feed-algorithms-affect-attitudes-behavior)). Caveat: that ranking used implicit signals; explicit-only is the weaker form. | 4, same evidence; the implicit part is off for real viewers anyway |
+| Market demand | **4**: observed behavior: a 2023 peer-reviewed field experiment on two large social platforms found that users switched from ranked to reverse-chronological feeds spent noticeably less time and were less active. Caveat: that ranking used implicit signals; explicit-only is the weaker form. | 4, same evidence; the implicit part is off for real viewers anyway |
 | Ease of adoption | **5**: zero new steps; the viewer already likes and follows | 5 |
 | Phase fit | **4**: targets the D7-return gate (≥ 15%). Honest limit: with fewer than 50 traders, reordering a small pool moves little | 4 |
 | Revenue impact | **3**: indirect (§10) | 3 |
@@ -296,4 +296,5 @@ list exactly the inputs used (follows, likes, hides, watchlist) and nothing abou
 - **If counsel later rates symbol affinity as advice-adjacent:** set the symbol constant to 0 (test 15).
 
 Sources:
-- [How do social media feed algorithms affect attitudes and behavior in an election campaign? (study summary)](https://gsb.stanford.edu/faculty-research/publications/how-do-social-media-feed-algorithms-affect-attitudes-behavior)
+- A 2023 peer-reviewed field study of feed-ranking algorithms during an election campaign (university summary; link
+  removed under POLICY T1).

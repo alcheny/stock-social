@@ -40,11 +40,11 @@ Each PR is well under 800 changed product lines (§6). Two engineering findings 
 `loadAdditionalAsset: loadDynamicAsset({ emoji })`. `ImageResponse`'s options (`width`, `height`, `emoji`, `fonts`,
 `debug`, `headers`) do not forward a `loadAdditionalAsset`, so it **cannot be switched off from the public API**.
 satori calls it for every grapheme the loaded fonts lack (`getEngine(...).has`, i.e. `charToGlyphIndex`):
-- **A missing glyph** (✓, CJK, Arabic, U+2009, U+202F, …): `loadGoogleFont` fetches
-  `https://fonts.googleapis.com/css2?family=Noto+Sans…`. When the detector call succeeds, a second request carries the
+- **A missing glyph** (✓, CJK, Arabic, U+2009, U+202F, …): the renderer's font loader fetches
+  a public font service's CSS URL for a fallback sans family. When the detector call succeeds, a second request carries the
   text itself in `&text=`. Measured: a "✓" fetched once, a Japanese name twice. Failures are caught and logged
   ("Failed to load dynamic font"), and the glyph renders as a box.
-- **An emoji:** `loadEmoji` fetches `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/<code>.svg`.
+- **An emoji:** `loadEmoji` fetches an emoji image set's SVG from a public CDN.
   **This path has no try/catch: when the CDN is unreachable the render throws and the image fails.** Measured: "Maya 😀"
   threw.
 - **Display names are unrestricted.** `createUserForAttempt` trims and cuts at 40 characters, nothing else. So today
