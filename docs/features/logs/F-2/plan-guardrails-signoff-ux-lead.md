@@ -98,3 +98,107 @@ REVISE:
     only after a tap (item 18).
 11. Add 360 px to every e2e matrix (T1.5, T2.3, T5.2), plus the no-horizontal-scroll and animation checks in items 21
     and 22. Re-run the PR-4 heart check over `POST /me/liked` (item 19).
+
+## Round 2
+
+Date: 2026-10-25. Re-sat on `plan-guardrails.md` round 2 (its "Round 2 changes" table), from the viewer's side. Also
+read: `app/t/page.tsx` (the per-row marker), `app/me/record/page.tsx`, `app/u/[handle]/new-trades-prompt.tsx`,
+`db/schema.sql` (stamp nullability), `lib/copy.test.ts` (`BANNED`, `SUGGESTION_WORDS`). No product code changed.
+
+### R2.1 My 11 demands, checked against the plan
+
+| Demand | Landed as written? | Where |
+|---|---|---|
+| 1 Reset in Settings, `/settings/reset`, link before `#liked` | Yes | §1.1 order item 5, §2.1, T2.5 |
+| 2 "Don’t reset" → `/settings`, done state at the same URL, focus, one POST | Yes | §2.1, T2.3 |
+| 3 Followed section row shows "Following", pressed | Yes | §1.1, T1.1(b) |
+| 4 `SECTION.personal` + "Feed settings" → `/settings#your-feed`, nothing signed out or off | Yes, strings verbatim | §1.1, §6, T1.9 |
+| 5 Both explain lines always, `aria-describedby`, status after the server, empty status on load | Yes, strings verbatim | §1.1, T1.5. Copy change in R2.3 because of the Q1 reversal |
+| 6 Deletion list with backups sentence, T4.1 regexes | Yes, verbatim | §1.1 G4, §6, T4.1 |
+| 7 `RESET.explain`, `LIKES.gone`, `LIKES.unlikeGone`, no trade link on a gone row | Yes, verbatim | §6, T5.2 |
+| 8 Unlike keeps page *n*; "No older likes." | Written, **but T6.1 as written fails it** (R2.2 (a)) | §2.1, T5.2 vs T6.1 |
+| 9 `/me/following` status from stored state + "Back to the feed" | Yes | §2.1, T6.3 |
+| 10 Watch cap static + `aria-describedby`, `role="status"` only after a tap | Yes | §2.1, T6.5 |
+| 11 360 px everywhere, no horizontal scroll, animations, heart check over POST | Yes | §0 matrix, T6.2 |
+
+Copy scan of every new or changed string in §6 against `BANNED`, `SUGGESTION_WORDS` (`buy|sell|hold|pick|signal|
+advice|price target`) and `PROMO`: clean. "held" (deletion) does not match `\bhold\b`. No string claims that nothing
+is recorded (item 4's regex still holds, and I agree it should: request logs make a blanket claim untrue). A1: the
+switch, section link, reset page, likes paging and watch cap meet §9 as written.
+
+### R2.2 Findings
+
+- **(a) T6.1 contradicts demand 8.** §2.1 says Unlike on page *n* re-renders `/me/following?likes=n`, and T6.1 lists
+  "Unlike on page 2" among its actions. But T6.1's rule allows no query key except `_rsc`, and `/me/following` is not
+  in the "public page by its own path" list. As written, either T6.1 fails or the build drops page *n*. `likes=<n>`
+  names no target and no handle, so it belongs in the allowed set.
+- **(b) "since you last looked" turns false after the switch goes back on.** §1.1: "Switching off clears no existing
+  stamp. The markers resume from the old stamps." While off, the viewer keeps opening symbol pages, their record and
+  their profile, and none of it is stamped (T1.3a). When they turn the switch on, `/t` counts trades "since you last
+  looked" from a stamp older than their real last look, so it counts trades they have already seen. The same holds for
+  "Since your last visit" on `/me/record` and "New closed trades since your last visit" on the profile. Every one of
+  those markers states a fact about the viewer's last visit, and after an off period we don't know it. Hidden rather
+  than guessed has to hold after the switch comes back on, not only while it is off.
+- **(c) `WATCH.markerOff` isn't in the viewer's words, and its placement is unclear.** "New-trade counts" is our name.
+  The viewer saw "2 new verified closed trades since you last looked". The plan says the marker "is replaced by"
+  `WATCH.markerOff` but the marker is per row. Repeating the line on each of 25 rows is noise, and leaving each row's
+  fallback in place would show "No new trades", which is a guess and may be false. The "Feed settings" link on `/t`
+  has no stated target.
+- **(d) Two of the three hidden markers go unexplained.** `/t` gets a line. The record page's "Since your last visit"
+  section just disappears, and nothing at the switch says it will. That is F-E again: a visible change with no reason
+  looks like a bug. The profile's new-trades prompt is a prompt that comes and goes, so it needs no line of its own,
+  but the switch's Off line has to cover it.
+- **(e) The other "while the switch is off" lines are plain and true:** the §1.1 rule and its list of deliberate
+  actions, "Watching a symbol while off stores the watch row" (it is the action's own row), the exempt pre-sign-in
+  events, the share prompt that keeps showing, and the §12 "Opting out is complete" line. Privacy §7 is for that PR's
+  reviewer, but items 3, 6 and 7 read correctly next to item 1 (request logs).
+
+### R2.3 Copy (exact)
+
+- `SETTINGS.orderOffExplain` = "Off: your feed and suggestions use the order everyone sees signed out, minus the traders
+  and trades you hid. Your watchlist and record don’t show what’s new since your last visit. Nothing you follow, like
+  or hide is deleted."
+- `WATCH.markerOff` = "New closed trades since you last looked aren’t shown while “Order my feed by my activity” is off."
+- `RECORD.markerOff` (new, in `allCopy`) = "“Since your last visit” isn’t shown while “Order my feed by my activity”
+  is off."
+- `WATCH.settings` and `RECORD.settings` = "Feed settings", both to `/settings#your-feed`.
+- Unchanged: `orderLabel`, `orderOnExplain`, `orderSavedOn`, `orderSavedOff`, `SECTION.*`, `RESET.*`, `LIKES.*`,
+  `FOLLOW.backToFeed`, `deleteLead`, `deleteItems`, `deleteAfter`.
+
+### R2.4 Notes (not demands)
+
+- With the switch off, the feed has no link back to Settings (demand 4 renders nothing when off, and C9 keeps the
+  signed-out section). The way back is the profile's Settings link, plus the new "Feed settings" links on `/t` and
+  `/me/record`. That's acceptable for PR-7. PR-5b's plan round should decide whether a switched-off viewer also gets
+  a bare "Feed settings" link under the section, which is not a reason line, so it fits C9.
+- Making stamps unknown (R2.2 (b)) also changes `trades_prompt_seen_at`, which the business lead's new-trades-prompt
+  measure reads. The business lead should confirm the measure can live with it.
+
+### Sign-off
+
+REVISE:
+1. **Let T6.1 allow `likes=<n>`.** Allow `likes` with digits only, on `/me/following`, when it equals the page the
+   action was taken on, or when it comes from the "Older likes" and "Newer likes" links. Allow the fragments `#liked`
+   and `#your-feed`. Everything else in C4b stays. *Test:* T6.1 passes on Unlike on page 2 and still fails when
+   `?done=` is reintroduced or `likes=abc` appears.
+2. **No marker may count from a visit we didn't record.** After the switch goes back on, no "since you last looked"
+   or "since your last visit" marker or prompt counts from a stamp written before or during the off period. Each comes
+   back only after a visit recorded with the switch on. The mechanism is the engineer's choice. One way within the
+   schema rules: `setOrder(on)`, in its own write, sets `ticker_watches.last_seen_at` to `'infinity'` (the column is
+   `not null`; the tree already uses `'infinity'` for rejects) and nulls `record_last_viewed_at`,
+   `record_prev_viewed_at` and `trades_prompt_seen_at`. Markers treat those values as "no marker", the way they treat
+   a first visit, and the next recorded visit writes a real stamp. Replace §1.1's "Switching off clears no existing
+   stamp" line to match. *Test:* T1.4 extended. A trade closes, the viewer turns the switch off, opens `/t/<sym>`,
+   turns it on, then opens `/t`. No count appears on that row. Then a new trade closes and the viewer opens
+   `/t/<sym>`, then `/t`, and the count is 1. The same applies to `/me/record` and the profile prompt.
+3. **`/t` while off.** Use `WATCH.markerOff` from R2.3, once, directly under the h2 "Your watched stocks", followed by
+   "Feed settings" → `/settings#your-feed`. Each row shows no count line at all, so neither the count nor "No new
+   trades" appears. Render it only when the viewer is signed in, the switch is off and they have at least one watch.
+   *Test:* T1.4 asserts exactly one `WATCH.markerOff`, no "No new trades" and no "since you last looked", at 320, 360
+   and 375 with no horizontal scroll.
+4. **Explain the other hidden markers.** `/me/record` shows `RECORD.markerOff` + "Feed settings" where the "Since your
+   last visit" section would sit, and `SETTINGS.orderOffExplain` becomes the R2.3 string. *Test:* T1.4 and T1.5 import
+   both strings, and `allCopy` scans them.
+
+Everything else in round 2 I accept as written. A round 3 that applies these four can be confirmed without a full
+re-sit.
