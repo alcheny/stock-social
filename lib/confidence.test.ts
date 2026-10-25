@@ -357,3 +357,28 @@ test('D6: the "What\'s this?" rule is built from the constants and carries no ba
   assert.ok(TOO_EARLY_RULE.includes(' 5 independent bets') && TOO_EARLY_RULE.includes(' 20 points'));
   assert.doesNotMatch(TOO_EARLY_RULE, /confidence interval|standard error|p-value|alpha|sharpe|\bedge\b|signal|skill|proven|guaranteed/i);
 });
+
+// ---- F-4 PR-1 fix round 2: UX lead D9 ----
+
+test('D9: a non-zero range bound that rounds to 0.0% prints with 2 decimals and its sign, for losses and gains', () => {
+  const iv = (low: number, high: number): Confidence => ({ n: 6, k: 6, spanDays: 30, tier: 'thin', direction: null, perTrade: { low, mid: (low + high) / 2, high }, pace30: null, tradesPerMonth: 6 });
+  assert.equal(rangeText(iv(-0.026, -0.00018)), '(-2.6% to -0.02%)');
+  assert.equal(rangeText(iv(0.00018, 0.026)), '(+0.02% to +2.6%)');
+  assert.equal(rangeText(iv(-0.00004, 0.00004)), '(-0.00% to +0.00%)'); // signed even below 2 decimals
+  assert.equal(rangeText(iv(0, 0.026)), '(0.0% to +2.6%)'); // an exact zero stays 0.0%
+  assert.equal(rangeText(iv(-0.0004, 0.0004)), '(-0.04% to +0.04%)');
+  // The UX lead's fixture: 6 small losses, −0.9% to −1.8%, 3-day holds. The range never reaches a printed 0.0%.
+  const neg = confidence([-0.009, -0.018, -0.012, -0.015, -0.01, -0.017].map((r, i) => tr(`N${i}`, i * 5, i * 5 + 3, r)), today);
+  const negRange = rangeText(neg)!;
+  assert.doesNotMatch(negRange, /(\(| )0\.0%/, negRange);
+  assert.match(negRange, / to -\d/, negRange);
+  // A sweep: no record with a direction word prints a bound as an unsigned 0.0%.
+  let seen = 0;
+  for (let k = 5; k <= 30; k++) for (let s = 0; s < 40; s++) {
+    const mean = (s - 20) / 1500, c = confidence(spaced(k, (i) => mean + ((i * 7) % 5 - 2) / 400), today);
+    if (c.direction !== 'positive' && c.direction !== 'negative') continue;
+    seen++;
+    assert.doesNotMatch(rangeText(c)!, /(\(| )0\.0%/, `${k} ${s}: ${rangeText(c)}`);
+  }
+  assert.ok(seen > 100, `${seen} records with a direction`);
+});
