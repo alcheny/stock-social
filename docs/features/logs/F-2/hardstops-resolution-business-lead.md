@@ -233,8 +233,9 @@ The owner can reasonably accept Q2, Q3, Q6 and Q7 on this analysis. Q8 is a code
 | G5 | **Reachable likes.** "Liked records" lists every like: paging past the newest 200, and "Record no longer available · Unlike" for likes on trades a rebuild removed. Or add "Remove all likes". | Today some likes can be removed only by deleting the account (D3). | ~30 to 50 lines. |
 | G6 | **Small log and retention fixes.** `GET /me/liked?k=…` becomes a POST. No-JS confirmations carry no handle in the URL. Expired sessions get purged in the tick. | Viewer actions reach the host's request logs (D12), and expired sessions are kept forever (engineer §1.2). | ~40 lines; the purge needs item #7. |
 
-Owner decision (2026-10-25): **send to counsel** rather than accept this analysis in its place. The request is
-`counsel-request.md`; the PR-5 build waits for the answer (H2 stays a hard stop). Guardrails adopted: G1 ____ G2 ____ G3 ____ G4 ____ G5 ____ G6 ____
+Owner decision (2026-10-25): **send to counsel**; then, the same day, **the owner has no outside counsel**. The request
+stays in `counsel-request.md` for when counsel is available; the analysis above and the guardrails are the
+mitigation. Guardrails adopted (all, 2026-10-25): G1 yes G2 yes G3 yes G4 yes G5 yes G6 yes. Original line: G1 ____ G2 ____ G3 ____ G4 ____ G5 ____ G6 ____
 
 ---
 
@@ -256,6 +257,13 @@ funnel, contact) is outside this section and still the owner's to write.
    them.
 3. **If O3 makes trade hides permanent,** "Hide this trade" becomes "until you remove it", and G2 is required.
 4. **Fix Q8 first,** or add a disclosure of the outside font fetch to the broader policy.
+
+**Owner decision (2026-10-25): approved, with the conditions above.** Answers to the "owner fills" items:
+**backups of the database are stored** (the text states it: deleted data can remain in backups until they are
+replaced); the privacy contact comes from an environment variable; request-log retention is still the hosting
+provider's default and is stated without a number until the owner gives one. All six guardrails are adopted, so the
+[bracketed] lines for G1 to G6 replace the sentences they name when the guardrails PR merges. The text goes live only
+once item #7 (the regular clean-up) is scheduled.
 
 ### Part A (paste once item #7 is scheduled)
 

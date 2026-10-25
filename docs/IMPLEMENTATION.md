@@ -115,6 +115,54 @@ fixture filled the shared feed and another's was deleted mid-run under a third m
   run independent items in parallel is part of the owner's wiring (request #12). Until then, the parallel
   process runs in the owner's chat session.
 
+- 2026-10-25: Hard stops that need an owner answer on policy, law or privacy are prepared by the team, so the owner
+  decides from a short yes/no table instead of researching. Steps and reasons: "Resolving hard stops with the team"
+  below. Why: the owner asked for the process that resolved F-2's H1, H2 and H4 to be kept as part of how the product
+  is developed.
+
+## Resolving hard stops with the team (2026-10-25)
+
+Used first for F-2's H1 (POLICY F1), H2 (counsel questions) and H4 (Privacy text). The owner said to keep doing it.
+The team prepares; only the owner decides, and only the owner edits owner-only files (POLICY, Terms, Privacy
+approval, deploy settings).
+
+**The steps**
+1. **Draft (business lead).** One packet per feature, `docs/features/logs/F-<n>/hardstops-resolution-business-lead.md`:
+   for a policy rule, the exact current text and the exact replacement; for a legal question, the team's position,
+   the guardrail behind it and the residual risk, marked "not legal advice" with evidence tiers (found / inferred);
+   for user-facing legal text, final copy ready to paste.
+2. **Verify against the code (engineer, in parallel).** `hardstops-resolution-engineer.md`: the real data inventory
+   (every table, who writes and reads it, retention, deletion), discrepancies with the plan and the draft, and the
+   cost of each proposed guardrail. Read-only, so it runs alongside builds.
+3. **Revise the draft against the verified facts (business lead).** Every sentence the owner will approve must be
+   true of the code as built. In F-2 this caught eight claims the first draft got wrong (likes kept with no time
+   limit, six cookies not one, a clean-up job that was not yet scheduled, a missing table, request logs, among others).
+4. **Decision table for the owner.** At the top of the packet: item, what approving does, what stays open. Each
+   section ends with an "Owner approves" line. Guardrails are listed with what each protects and its size.
+5. **Owner decides in the chat.** Claude explains any item in plain words on request and records each answer in the
+   same turn: in the feature file's Decisions (dated, with the reason), in the packet's approval line, and in the
+   plan's pre-authorization table.
+6. **Mitigation when an outside answer isn't available.** If the owner has no counsel (F-2, 2026-10-25), the open
+   questions stay recorded in a standalone request (`counsel-request.md`) for later, and the team's guardrails become
+   the mitigation: each guardrail is a decision in the feature file with a testable acceptance criterion, planned and
+   built through the normal cycle (plan, build, tester, committee, reviewer).
+7. **Owner-only edits stay with the owner.** Approved text for POLICY or deploy settings is handed back with the exact
+   change; agents do not apply it (the session's guard blocked an agent edit of POLICY, which is correct).
+
+**Why this is good for the development process**
+- **The owner's time goes to decisions, not research.** H1, H2 and H4 were each settled in one or two chat replies.
+- **Approved text is true by construction.** The engineer's check against the code comes before the owner sees the
+  text, so a privacy promise can't outrun what the code does, which is the failure that creates legal exposure.
+- **Nothing is waived silently.** Every residual risk is written down next to its guardrail, and every open question
+  is kept for counsel even when counsel isn't available yet.
+- **The autonomous cycle keeps moving.** Drafting and verification run in parallel with builds (they touch only
+  `docs/features/logs/`), and an answer immediately becomes a decision plus acceptance criteria the pipeline can
+  build, so the hard stop costs hours, not a stalled backlog.
+- **Rules about who decides are kept.** Agents identify and prepare; only the owner authorizes (AUTOPILOT.md hard
+  rules; an agent never loosens a rule it is judged by).
+- **It leaves a record.** The packet, the verified inventory, the counsel request and the dated decisions together
+  explain why the product handles personal data and personalization the way it does.
+
 ## Hard stops: where the autonomous cycle must wait for the owner
 These are the only points where a human is needed. Each is a rule the owner set elsewhere, so
 removing a stop is the owner's change, not the pipeline's.

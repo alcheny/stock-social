@@ -392,6 +392,7 @@ not reachable before H1 and H2 clear, since criteria 1 (ranking), 2, 3, 4 (lower
 | Likes | `trade_likes` | PR-4 | the viewer only | by the viewer; account deletion |
 | Explicit and implicit events | `discovery_events` | **PR-5 only** | nobody; the viewer's own ranking | 90 days (tick purge); account deletion |
 | Trader holding and symbol features | `discovery_trader_features` | PR-5 | nobody (derived from public records) | rebuilt; trader deletion |
+| Database backups | the database host's backups (owner, 2026-10-25: backups are stored) | all of the above | nobody in the product | deleted data can remain until the backup is replaced; disclosed on the Privacy page |
 
 No behavioral event rows exist before PR-5. Signed out: nothing is stored. No third-party script,
 tracker or cookie beyond the existing session cookie.
@@ -401,9 +402,9 @@ tracker or cookie beyond the existing session cookie.
 | # | Request | Status | Needed before |
 |---|---|---|---|
 | P1 | Amend POLICY F1 (H1) | **Approved 2026-10-25**; text in `hardstops-resolution-business-lead.md` §1, owner applies it to POLICY | PR-5 merge |
-| P2 | Counsel's opinion (H2) | **Owner sends** `counsel-request.md` (2026-10-25); answer pending | PR-5 build |
+| P2 | Counsel's opinion (H2) | **No outside counsel** (owner, 2026-10-25); questions kept in `counsel-request.md`; guardrails G1–G6 adopted as mitigation | PR-5 build |
 | P5 | Suggestion-copy word list in `scripts/compliance.ts` (`lib/copy.test.ts` enforces it meanwhile) | Open | PR-3 (not blocking) |
-| P4 | Privacy text for §5 | Folded into item #10 | real viewers (H4) |
+| P4 | Privacy text for §5 | **Approved 2026-10-25** with conditions (packet §3); backups are stored and disclosed; live once item #7 is scheduled | real viewers (H4) |
 | P8 | Heavy suite in CI (`test:load` also runs the F-2 load test) | Folded into item #13 | PR-6 |
 | P3 | Nightly schedule | Withdrawn: the purge rides item #7's tick | — |
 | P9 | Playwright clock | Withdrawn: tests backdate `at` and `until` | — |
