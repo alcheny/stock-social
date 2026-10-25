@@ -54,7 +54,7 @@ parallel-fixture race in the demo-only section test, which passes alone. Product
   profile. The range is centred on the geometric mean, so on a volatile record the headline can sit outside its own
   range, or point the other way from the trust line.
 
-  Here is what the model prints today for three fixtures, each pinned by a test:
+  Here is what the model prints today for three fixtures (the first two are pinned word for word by tests; the 10,000-trade strings were reproduced by hand in committee round 2):
 
   | Fixture | Headline | Range | Trust line |
   |---|---|---|---|

@@ -145,3 +145,29 @@ Nothing here is legal advice.
 - **Data.** No per-trade field, percentages only, no new data.
 
 COMPLIANCE: PASS · USABILITY: DEMANDS (U-1 pin the green-headline "consistent losses" fixture and send O2 to the owner as blocking PR 3; U-2 period and range as model pieces for the planned wraps; U-3 alt text figure-first, no repeated badge or lone "0%"; U-4 chart x-domain equals the printed period, flat after the last close)
+
+## Round 2
+
+Date: 2026-10-25. Fix round under review: `bcccf37..0921504` (`c2b459d` tests first, `60b3384` code and snapshot,
+`0921504` log and PR body). I read the diff and the "Fix round 1" table in `build-pr2-engineer.md`, and checked the
+committed snapshot. No repo file was touched other than this one.
+
+**Tests.** `node --test lib/record-card.test.ts lib/card-glyphs.test.ts lib/copy.test.ts`: 45 pass, 0 fail (Node 24).
+The diff adds no new test file. The four new tests are in `lib/record-card.test.ts` (M1, L1/L2, U-2, U-4), and the U14
+and O2 tests were rewritten. Nothing was deleted or loosened.
+
+| Demand | Verdict | Evidence |
+|---|---|---|
+| **U-1** (pin the green-headline fixture, O2 to the owner before PR 3) | **Met** | The O2 test pins the 1,000-bet −30%/+35% card exactly as I quoted it: headline `{ '+2.5%', up }`, "likely between −4.8% and −0.8%", "Based on 1,000 bets over 1 year. A long record, with consistent losses.", chart tone down, end "≈−100.0%". The 200-bet strings are pinned too. In `pr2-body.md` Known limits, O2 is marked as needing an answer before PR 3 merges. It quotes all three fixtures (200, 1,000 and 10,000 bets) and gives my recommendation as the owner's choice. The headline method is unchanged. I make no ruling on it: O2 is the owner's |
+| **U-2** (period and range as pieces from the copy) | **Met** | `SHARE_CARD` now holds `since`, `underAMonth`, `months`, `rangeLead`, `rangeBounds` and `rangeOneLead`. `periodParts()` and `rangeParts()` build the pairs, and `period` and `range` are their space-joins. Snapshot: ["Record since Mar 2025", "· 19 months"] and ["likely between", "+0.7% and +3.3%"]. The test checks for every fixture that each pair joins to the printed string, and that both are null together. The renderer has nothing left to split. L2's "likely about −100.0%" also comes as a pair |
+| **U-3** (alt per layout, figure first, badge and handle once, no stray 0%) | **Met** | `alt` is now `{ wide, tall }`. The prefix carries no label, then name (only when it's a display name), badge, "+2.0% average return per trade", range, "6 trades, losses included", period, pill, trust line, chart sentence, caption, disclaimer, and the link on tall only. The rewritten U14 checks, over every fixture and both layouts: every visible string is present, no sentence repeats, no lone "0%", the badge and `@handle` each appear exactly once, and the link appears exactly on tall. The figure is about 110 characters in, and the full wide alt is about 470, so a cut at about 420 loses only the caption and disclaimer tail. Tester M2 is covered: `none` with closes reads "No broker connected" and never "Verified" |
+| **U-4** (chart axis = printed period) | **Met** | The geometry now runs from the first entry (0% at the gutter, on the baseline) to `max(frozenEnd ?? now, last close)`. The last value is held flat to that end. The series is downsampled to 399 points, so the added end point keeps it at 400 or fewer. The test uses a record whose last close was about 13 months ago, on both layouts: the first point is at (gutter, baseline), the last x is the right edge, the last segment is horizontal, and the last close sits in the left fifth. A frozen record's axis ends at its right edge. The snapshot now runs 17 days of closes across the "19 months" axis |
+
+**Notes.** These are not blocking and need no change.
+- The period's second piece starts with "· ", for example "· 19 months". That is what I asked for: the wide card's second line starts with the separator.
+- N1 to N4 are logged for PR 3 and the owner, as agreed.
+- O2 must still be answered, or handled, before PR 3 merges. That is a gate on PR 3, not on this PR.
+
+COMPLIANCE: PASS · USABILITY: PASS
+
+Ready to merge: yes

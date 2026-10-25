@@ -103,3 +103,46 @@ log's 10,000-close example is the other face: a 0.0% average next to "consistent
 | Aesthetics | n/a | nothing rendered; PR 3 |
 
 COMPLIANCE: PASS · USABILITY: DEMANDS (B1 alt text without repeats, number before label, no orphan "0%"; B2 pin the O2 range string and quote the printed O2 and 10,000-close strings in the PR body)
+
+## Round 2
+
+Date: 2026-10-25. Reviews the fix round `bcccf37..0921504` (`lib/record-card.ts`, `lib/copy.ts`, `lib/record-card.test.ts`
+and its snapshot, the build log's "Fix round 1" table, `pr2-body.md`). Read-only: `node --test lib/record-card.test.ts
+lib/card-glyphs.test.ts lib/copy.test.ts` 45/45 pass (the 4 new tests included), `npx tsc --noEmit` clean,
+`node scripts/compliance.ts diff origin/main` ok. I printed the tall alt and the headline, range and trust strings for 7
+fixtures (winning, losing, `none` with closes, demo, empty, a name outside the font, the 200-bet O2 record) and re-ran the
+10,000-close fixture by hand. Nothing here is legal advice.
+
+**Decision: accept. Both demands landed as written, and so did the tester's M1, M2, L1 and L2.**
+
+| Item | Landed | Evidence |
+|---|---|---|
+| **B1** alt text | Yes | Printed: "Trading record card for @h on Stock Social. Card Tester. Verified from broker. +1.9% average return per trade. likely between +0.6% and +3.2%. 12 trades, losses included. …". The badge and the handle are each read once, the number comes before its label, and there is no lone "0%" (the chart sentence carries it). The display name is skipped when the name slot already shows `@handle`. U14 now asserts all of these per layout over 23 fixtures, plus no repeated sentence. The link is read only on the tall alt, which matches what that image draws |
+| **B2** O2 in the owner's words | Yes | `vol.range` is pinned to "likely between −13.3% and +3.8%", and the trust line to "Based on 200 bets over 1 year. A long record, with no clear pattern." The UX lead's 1,000-bet case ("+2.5%" in up over "likely between −4.8% and −0.8%" and "…consistent losses") is also pinned. The PR body's Known limits quotes all three verbatim, the 10,000-close case included. The headline method is unchanged, so O2 stays the owner's decision, and I don't rule on it |
+| **M2** alt follows the badge | Yes | The alt now uses the model's `badge.text`. The prefix carries no label. `none` with closes reads "No broker connected" in the image and in both alts, and the test asserts no "Verified" |
+| **M1** "over 0 years" | Yes | Y = max(1, ⌊days / 365.25⌋). Tests at 365 and 365.1 days, and the tester's repro runs through `recordCard` |
+| **L1 / L2** | Yes | Both bounds share the larger decimal count ("−0.10% and +0.04%"). An all −100% record reads "likely about −100.0%". The U7 single-bound rules are unchanged |
+| L3, L4 | Not changed, per spec | Noted for the owner, as the tester asked |
+
+The model stays one model. U-2's pieces are built from `SHARE_CARD` and join to the printed strings, and U-4's axis is the
+printed period. Neither changes any owner wording. No test was deleted or loosened (662 → 666). Product lines are +284 / −3 (cap 800).
+
+**One accuracy note (non-blocking; fold in before merge, no re-review needed).** The Known limits table says "each pinned by a
+test", but the 10,000-trade row ("0.0%", "likely between −0.13% and −0.02%", "…with consistent losses.") is not asserted:
+criterion 10 checks only points, count and time. I reproduced those exact strings with the test's seed, so the quote is
+true. Either add the three `assert.equal`s to criterion 10 or change the wording to "the first two pinned by tests, the third reproduced".
+
+**Carried to PR 3 (unchanged from round 1):** the C4 render of O2 on both canvases; the "19 months" vs "over 35 days"
+read at 375 px; the K < 5 "range is still too wide" line on the render; N1's five-digit headline in D7.
+
+| Dimension | Score | Evidence |
+|---|---|---|
+| Owner fidelity | 5 | no owner string changed; O2 in front of the owner verbatim |
+| Trust and compliance | 5 | the alt can no longer say Verified when the badge doesn't (F3a); no "0 years" |
+| Simplicity | 5 | +43 product lines for 9 fixes; one model |
+| Craft (parts nobody sees) | 5 | the alt reads once, figure first |
+| Aesthetics | n/a | nothing rendered; PR 3 |
+
+COMPLIANCE: PASS · USABILITY: PASS
+
+Ready to merge: yes
