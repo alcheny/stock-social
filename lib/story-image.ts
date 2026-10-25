@@ -2,9 +2,8 @@
 import { pct, rangeText, type Confidence, type Stats } from './trades.ts';
 import { imageTrust, SHARE_CARD, type RecordState } from './copy.ts';
 
-export type ImageFormat = 'story' | 'square';
-export const FORMATS = { story: { width: 1080, height: 1920 }, square: { width: 1080, height: 1080 } };
-export const parseFormat = (v: string | null | undefined): ImageFormat => (v === 'story' ? 'story' : 'square');
+// F-4 PR 2: the canvases moved to the card model; this file is removed in PR 3.
+export { FORMATS, parseFormat, type ImageFormat } from './record-card.ts';
 
 export type StoryModel = {
   empty: boolean;

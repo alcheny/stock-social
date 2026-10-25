@@ -130,6 +130,42 @@ export const SHARE_CARD = {
   failed: 'Import did not finish',
   demo: 'Demo data',
   empty: 'No closed trades yet',
+  // F-4 PR 2: the record card (lib/record-card.ts). The badge is never blank: a record with no consented connection
+  // reads "No broker connected" (never Verified, POLICY F3a).
+  noBroker: 'No broker connected',
+  emptyBody: 'The record starts with the first closed trade.',
+  headlineLabel: 'average return per trade',
+  // UX lead U-2: the range and the period in two pieces each (the wide card wraps between them); joined with a space.
+  rangeLead: 'likely between',
+  rangeBounds: (low: string, high: string) => `${low} and ${high}`,
+  rangeOneLead: 'likely about', // both bounds print the same value (an all −100% record)
+  lossesIncluded: 'losses included',
+  caption: 'Return if every trade were the same size',
+  evidence: (tier: string) => `Evidence: ${tier}`,
+  since: (month: string) => `Record since ${month}`,
+  underAMonth: '· under a month',
+  months: (months: number) => `· ${counted(months, 'month')}`,
+  // The owner's trust lines (F-4 Decisions, 2026-10-22 and 2026-10-24), one per evidence tier and direction of the
+  // per-trade range printed on the card. They describe the sample, never the trader (POLICY F3b); "consistent" only in
+  // the strong tier with the range on one side of 0, for losses exactly as for gains.
+  trust: {
+    tooEarly: (trades: number) => `Based on ${counted(trades, 'trade')}. The range is still too wide to say much.`,
+    thin: {
+      positive: (bets: number, days: number) => `Based on ${counted(bets, 'separate bet')} over ${counted(days, 'day')}. Still early.`,
+      unclear: (bets: number, days: number) => `Based on ${counted(bets, 'separate bet')} over ${counted(days, 'day')}. Still early, and results could go either way.`,
+      negative: (bets: number, days: number) => `Based on ${counted(bets, 'separate bet')} over ${counted(days, 'day')}. Still early, and so far the average trade is a loss.`,
+    },
+    moderate: {
+      positive: (bets: number, months: number) => `Based on ${counted(bets, 'bet')} over ${counted(months, 'month')}. A fair sample.`,
+      unclear: (bets: number, months: number) => `Based on ${counted(bets, 'bet')} over ${counted(months, 'month')}. A fair sample, with no clear pattern yet.`,
+      negative: (bets: number, months: number) => `Based on ${counted(bets, 'bet')} over ${counted(months, 'month')}. A fair sample, and the average trade is a loss.`,
+    },
+    strong: {
+      positive: (bets: number, years: number) => `Based on ${counted(bets, 'bet')} over ${counted(years, 'year')}. A long, consistent record.`,
+      unclear: (bets: number, years: number) => `Based on ${counted(bets, 'bet')} over ${counted(years, 'year')}. A long record, with no clear pattern.`,
+      negative: (bets: number, years: number) => `Based on ${counted(bets, 'bet')} over ${counted(years, 'year')}. A long record, with consistent losses.`,
+    },
+  },
 } as const;
 export type ShareCardText = { label: string | null; tone: 'ok' | 'muted' | 'warn'; body: string | null; note: string | null };
 // body null = show the stats; note null = show the evidence line.
