@@ -202,3 +202,7 @@ REVISE:
 
 Everything else in round 2 I accept as written. A round 3 that applies these four can be confirmed without a full
 re-sit.
+
+## Round 3
+
+Date 2026-10-25. Demands 1, 3 and 4 landed as written. I accept clearing at switch-off. One gap remains: §1.1 still stores a watch added while off with `last_seen_at` = the moment of watching. Later visits to that symbol while off aren't recorded, so once the switch is back on that row counts from the watch moment, which is a guess. REVISE: a watch created while the switch is off stores `last_seen_at = 'infinity'`, and T1.4 adds the case (off, watch, visit, on, open `/t`: no count line on that row). Once that is applied I sign without a re-sit.

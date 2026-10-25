@@ -725,3 +725,12 @@ SIGNED: engineer. PENDING: business lead (confirm the measure point), UX lead (c
 | UX R2-3 · `/t` while off | `WATCH.markerOff` once under "Your watched stocks", with "Feed settings" → `/settings#your-feed`. No per-row count line, no "No new trades". Only when signed in, off, and ≥ 1 watch (T1.4) | — |
 | UX R2-4 · `RECORD.markerOff` and the longer `orderOffExplain` | `RECORD` copy object added to `allCopy`. `/me/record` shows it with "Feed settings". `orderOffExplain` is the UX R2.3 string (§6, T1.4, T1.5) | — |
 | Line estimates | PR-7 ~340 → ~365 product, ~560 → ~630 test (clearing in `setOrder`, `watchSummary` null, the two off lines, R1 and R3 tests, `e2e/markers.spec.ts`). PR-8 unchanged at ~390 / ~720 | Both ≤ 800. The order is unchanged: PR-7, then PR-8 |
+
+## Round 4 (2026-10-25, UX lead's round-3 demand, applied by the orchestrator)
+
+| Demand | Change |
+|---|---|
+| UX R3: a watch added while the switch is off gets `last_seen_at` = the moment of watching, so after the switch is back on its count includes trades already seen | A watch created while the switch is off stores `last_seen_at = 'infinity'` (no count until a visit is recorded with the switch on). T1.4 gains the case "off → watch → visit → on → `/t` shows no count line". |
+
+With this applied the UX lead signs without a re-sit (`plan-guardrails-signoff-ux-lead.md`, Round 3). The business lead
+signed round 3. **Plan signed by all three.**

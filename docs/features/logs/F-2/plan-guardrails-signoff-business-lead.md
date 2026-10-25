@@ -203,3 +203,7 @@ everyone; that would rewrite a pinned test, so it is the owner's call, not this 
 Business lead signs round 2 with R1 to R3 binding on PR-7.
 
 SIGNED
+
+## Round 3
+
+R1–R3 applied. Measurement cost confirmed: restarting the new-trades-prompt and first-record-view measures only for viewers who opted out is the price of "not measured", it is negligible (the switch defaults on), and treating a cleared stamp as "no marker" instead of guessing is correct; any metric built on `record_first_viewed_at` must say it restarts after an opt-out. SIGNED
