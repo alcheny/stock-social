@@ -88,8 +88,15 @@ owner has it reviewed by counsel (see **Before a public launch**).
 ## F. Financial regulation and consumer protection
 
 - **F1.** Stock Social publishes records; it never gives advice. No recommendations to buy, sell or hold
-  anything, no signals, no "top picks", no price targets, no personalized suggestions. Rankings are
-  ordered by the documented method and never presented as endorsement.
+  anything, no signals, no "top picks" or "AI picks", no price targets, and nothing personalized about a
+  trade, a security or an action to take. Discovery may personalize only what to read: a signed-in
+  viewer's feed and suggestions of records and traders may be ordered by that viewer's own actions
+  (follows, likes, hides, watchlist, what they read). That ordering never uses another viewer's data or
+  the sign or size of a return, so losses are found like gains. Every reason shown is a fixed, scanned
+  template stating a fact about the record or the viewer's own actions; it names no security. Suggestions
+  show no performance figure unless the F3 disclaimer is in plain view. Signed out, everyone gets the
+  same documented order. A viewer can turn personal ordering off in Settings. Rankings are ordered by the
+  documented method and never presented as endorsement.
 - **F2.** No promissory, misleading or exaggerated performance language anywhere in the product:
   "guaranteed", "risk-free", "can't lose", "proven strategy", "beat the market", "get rich", "easy
   money", "copy their trades". The scanner blocks these in product code.

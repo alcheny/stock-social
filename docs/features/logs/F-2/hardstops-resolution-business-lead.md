@@ -85,6 +85,7 @@ request P5.
 Owner approves: **yes** (2026-10-25, in the chat: "of course there should be personalized suggestions"). The
 "After" text above is approved, without the optional opt-out clause (added if G1 ships). Pending: the owner applies it
 to `docs/POLICY.md` (owner-only).
+**Applied 2026-10-25** by Claude with the owner's permission, including the opt-out clause (G1 is adopted).
 
 ---
 

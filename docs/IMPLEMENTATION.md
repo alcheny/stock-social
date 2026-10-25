@@ -271,7 +271,8 @@ and the reason line's model call is behind an injected interface with its fallba
 1. ~~F-2 is a Phase 2 feature~~ Resolved 2026-10-22: phase limitations scratched by the owner; F-2
    builds in full in its number order. POLICY H's "Phase 2/3 features" clause and DESIGN §3.2 are the
    owner's to edit to match.
-2. **POLICY F1 says "no personalized suggestions"** literally. F-2 suggests records to read, not trades,
+2. ~~**POLICY F1 says "no personalized suggestions"** literally.~~ Resolved 2026-10-25: F1 amended with the
+   owner's approval (discovery personalizes what to read, never a trade, security or action). F-2 suggests records to read, not trades,
    but the reviewer reads the policy as written. The owner amends the F1 wording (owner-only) or the
    reviewer fails F-2.
 3. **F-2 depends on features that do not exist**: follow and unfollow, "not interested", account
