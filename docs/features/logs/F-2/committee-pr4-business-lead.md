@@ -164,3 +164,65 @@ If the like rate is under 1 per 100 cards, the double tap is not being found: te
 session, which the owner would have to approve as onboarding text.
 
 COMPLIANCE: PASS · USABILITY: DEMANDS (D1 move "Hide this trade" behind the card's "…", footer one line at 375; D2 no heart signed out, same rule as Follow, since sign-in lands on the trader page with no return; D3 "Liked records" clips the handle at 375, drop the repeated privacy line; D4 trade-reject bar "Trade hidden for 90 days.", one name for the action)
+
+## Round 2
+
+2026-10-24. Commit e4c989f (fix round 1, `git diff 06b90b2 e4c989f`; the engineer's table at the end of
+`build-pr4-engineer.md`). I re-used the app on the shared production server on port 3000 at 375 px with real touch
+events, signed out, signed in and without JavaScript, in light and dark. Fixture: 12 verified traders (`bl2p4_t1..11`
+and the 20-character `bl2p4_long_handle_xx`, 5 fresh closes each) and the viewer `bl2p4_viewer`. All 13 users, their
+trades, likes and rejects were deleted afterwards (no orphan rows). Nothing was rebuilt, restarted or synced.
+Screenshots are in `screenshots/pr4-bl2/`.
+
+| Demand | Verdict | Evidence |
+|---|---|---|
+| D1 "Hide this trade" behind the card's "…", footer one line at 375 | **Met** | Footer is 44 px tall on all 8 measured cards, both signed in and signed out. The link is on one line (one client rect, 19 px). Heart 45×44 and "…" 44×44 sit right of the link (`si-01-card-footer`). Keyboard: from the heart, Tab goes to "More for L1 by @…", then Enter, Tab, "Hide this trade", Enter. That card is hidden, the trader's other cards stay, the bar says "Trade hidden for 90 days.", Undo has focus, and there is 1 reject row. The bar is still open at 6.3 s (the keyboard pause). Undo brings the card back, 0 rejects, and focus is on "…" (`kb-01`). Esc closes the menu with focus on "…". The popover opens upward inside the screen, and its button is the top element at its centre (`si-02`). Without JavaScript, "…" and "Hide this trade" post. You land on `/` with the card gone and 1 reject (`nojs-01/02`). |
+| D2 No heart signed out | **Met** | Signed-out page-1 HTML (306 KB) has 0 `data-like`, 0 `like-signin` and 0 `ctray`. The DOM has no heart, card "…" or tray. A double tap on the return and a 220 px drag the reject way did nothing: no transform, no navigation and 0 non-GET requests (`so-01/02`). The footer is the same 44 px as signed in. |
+| D3 "Liked records" fits at 375 | **Met** | Three rows, including `@bl2p4_long_handle_xx`, read "SYMBOL · closed Oct 24, 2026", with the handle on its own line. Every link has scrollWidth 256 = clientWidth 256. "Only you can see likes." is gone, and the page's own line says it once (`list-01`). Unlike by keyboard moves focus to the next row's Unlike and the status says "Unliked QBH0 by @bl2p4_t7." (`list-02`). The public profile HTML has no like word or attribute. |
+| D4 One name for one action | **Met** | Tray, menu item and copy all read "Hide this trade" (`LIKES.tray` deleted). The bar reads "Trade hidden for 90 days." after a swipe, a menu tap and the keyboard, so it differs from the trader hide. |
+| Follow-ups F1, F2 (taken) | Done | The tray is not marked at 40% and is darker at 60% (`sw-01`, `sw-02`). Button names carry the trade: "Like L1 by @yolo_yuki. Only you can see likes." and "More for L1 by @yolo_yuki". |
+
+Also re-verified: a 40% drag snaps back with no write, and 60% commits. After a swipe or a menu tap, Undo has focus
+with no ring, the bar is open at 4.8 s and gone by 6.0 s, so the PR-4 High is fixed. The next card's heart is not under
+the open bar. A double tap writes one like. No `/api/event*` request was made.
+
+**New, introduced this round: the card on screen jumps when the bar closes.** `[data-hide-bar] .feed .row > .card
+{ padding-bottom: 100px }` pads every feed card while any hide bar is open: trade hides, and PR-2/PR-3's "Not
+interested" too. The card stays 799 px tall, so its contents move up. When the bar closes at 5 s, the card the viewer is
+reading drops back with no input from them. Measured on the next card after a menu-tap hide, the return moved 318 → 354
+(36 px) and the heart and footer moved 655 → 727 (72 px). It is the same after a swipe (`sw-03` against `sw-04`). The
+headline number moving on its own reads as a glitch, every time someone hides anything. A tap aimed at the heart around
+the 5 s mark lands 72 px above it. That is harmless today, because a single tap on the body does nothing, but it is
+sloppy. The fix for the tester's Medium 1 was right to keep the controls clear of the bar. It should not move the card
+being read.
+
+### New demand
+
+5. **D5 The card on screen never moves because the bar opens or closes.** Keep the controls clear of the bar, but by a
+   means that does not reflow the visible card when the bar goes away. Options: keep the extra room until that card
+   leaves the screen, place the bar where it covers no control, or reserve the room permanently if the UX lead prefers.
+   The method is the builder's and UX lead's call. Verify (e2e, 375 px): after a swipe hide and after a "Not
+   interested" hide, the next card's `.ret` and heart `top` are unchanged within 1 px from bar open, through 6 s, to
+   after close, and `elementFromPoint` at its heart and "…" is still not the bar.
+
+Follow-ups (not blocking):
+- **F5** The footer link went from about 15 px to 13 px for everyone. That was needed only where the heart and "…" share
+  the line. Signed out, where shared links land, nothing else is on the line. Keep the old size there (for example
+  `.card footer:not(:has(.card-acts)) > a`).
+- **F6** When the bar closes after a touch hide, focus goes to the next card's name with a visible ring (`sw-04`). That
+  is right for the keyboard, but after a touch the ring is noise. The UX lead decides.
+- Environment note, not PR-4: the seed user `yolo_yuki` has 10,030 closed trades in the shared DB from other fixtures,
+  including −199.0%. That is impossible long-only, and it overflows the 375 px gutter on the first card. Clean the
+  shared DB before the next demo.
+
+Scorecard changes: Ease of adoption 4 → 5 (D2: no dead end from a shared link). Aesthetics & clarity 3 → 4 (one footer
+line, the list fits). Craft & taste stays 3 until D5. Trust & compliance stays 5.
+
+Compliance re-check of the round: no new data, table, vendor, number or claim. The new strings ("Trade hidden for 90
+days.", "More for SYMBOL by @x", "Unliked SYMBOL by @x.", "Showing your 200 most recent likes.") contain no advice,
+signal or completeness claim. The 200-row cap is stated honestly. Every new control is 44 px and reachable by keyboard,
+and Unlike keeps focus (WCAG 2.4.3). **Pass.**
+
+COMPLIANCE: PASS · USABILITY: DEMANDS (D5 the card being read jumps 36 to 72 px when the hide bar closes, because every feed card is padded while any bar is open; keep the controls clear of the bar without reflowing the visible card)
+
+Ready to merge: no. D1 to D4 are met. Only D5 remains, a regression introduced this round on every hide.
