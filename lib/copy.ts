@@ -135,12 +135,16 @@ export const SHARE_CARD = {
   noBroker: 'No broker connected',
   emptyBody: 'The record starts with the first closed trade.',
   headlineLabel: 'average return per trade',
-  range: (low: string, high: string) => `likely between ${low} and ${high}`,
+  // UX lead U-2: the range and the period in two pieces each (the wide card wraps between them); joined with a space.
+  rangeLead: 'likely between',
+  rangeBounds: (low: string, high: string) => `${low} and ${high}`,
+  rangeOneLead: 'likely about', // both bounds print the same value (an all −100% record)
   lossesIncluded: 'losses included',
   caption: 'Return if every trade were the same size',
   evidence: (tier: string) => `Evidence: ${tier}`,
-  sinceUnderAMonth: (since: string) => `Record since ${since} · under a month`,
-  since: (since: string, months: number) => `Record since ${since} · ${counted(months, 'month')}`,
+  since: (month: string) => `Record since ${month}`,
+  underAMonth: '· under a month',
+  months: (months: number) => `· ${counted(months, 'month')}`,
   // The owner's trust lines (F-4 Decisions, 2026-10-22 and 2026-10-24), one per evidence tier and direction of the
   // per-trade range printed on the card. They describe the sample, never the trader (POLICY F3b); "consistent" only in
   // the strong tier with the range on one side of 0, for losses exactly as for gains.

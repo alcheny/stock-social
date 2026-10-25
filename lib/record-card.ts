@@ -50,16 +50,18 @@ export type CardModel = {
   badge: { text: string; tone: CardTone };
   headline: { label: string; value: string; tone: CardTone } | null;
   range: string | null;
+  rangeParts: [string, string] | null; // ["likely between", "−0.1% and +2.7%"]: the wide card's two lines (U-2)
   evidence: string | null; // the pill
   trust: { text: string; tone: CardTone } | null; // the owner's trust line, or the incomplete-import line in warn
   count: string | null;
   lossesIncluded: string | null;
   period: string | null;
+  periodParts: [string, string] | null; // ["Record since Sep 2026", "· under a month"] (U-2)
   chart: { tone: CardTone; caption: string; zeroLabel: '0%'; points: number; end: number; min: number; max: number; geometry: Record<CardLayout, ChartGeometry> } | null;
   message: { title: string; body: string } | null; // empty and importing bodies
   link: string; // host/u/handle, drawn on the tall layouts only
   disclaimer: typeof DISCLAIMER;
-  alt: string;
+  alt: Record<CardLayout, string>; // the link is read on the tall image only
 };
 
 const MINUS = '−';
@@ -73,40 +75,61 @@ export function cardHeadline(x: number): { text: string; tone: CardTone } {
 }
 
 // Range bounds (U7): a non-zero bound never prints "0.0%": 2, then 3, then 4 decimals, sign kept; past 4 decimals it
-// prints its sign with 4 zeros. U+2212 for minus.
-export function cardPct(x: number): string {
-  if (x === 0) return '0.0%';
-  const s = pct(x);
-  if (Number(s.replace('%', '')) !== 0) return signed(s);
-  for (let d = 2; d <= 4; d++) { const v = (x * 100).toFixed(d); if (Number(v) !== 0) return signed(`${x > 0 ? '+' : ''}${v}%`); }
-  return `${x > 0 ? '+' : MINUS}0.0000%`;
+// prints its sign with 4 zeros. A loss short of −100% never prints as −100% (up to 5 decimals, then "≈−100.0%", as
+// pct() does). U+2212 for minus. Fix round 1 (tester L1): both bounds of a range share the larger decimal count.
+const NEAR_TOTAL = -1; // marks a bound printed as "≈−100.0%"
+function decimals(x: number): number {
+  if (x === 0) return 1;
+  for (let d = 1; d <= 5; d++) {
+    const v = Number((x * 100).toFixed(d));
+    if (x > -1 && v <= -100) continue; // short of a total loss: more digits
+    if (v !== 0) return d;
+    if (d === 4) return 4; // a tiny bound: its sign and 4 zeros
+  }
+  return NEAR_TOTAL;
+}
+function boundAt(x: number, d: number): string {
+  if (decimals(x) === NEAR_TOTAL) return `\u2248${MINUS}100.0%`;
+  if (x === 0) return `${(0).toFixed(d)}%`;
+  return `${x > 0 ? '+' : MINUS}${Math.abs(x * 100).toFixed(d)}%`;
+}
+export const cardPct = (x: number): string => boundAt(x, Math.max(1, decimals(x)));
+export function cardBounds(low: number, high: number): [string, string] {
+  const d = Math.max(1, decimals(low), decimals(high));
+  return [boundAt(low, d), boundAt(high, d)];
+}
+function rangeParts(iv: Interval): [string, string] {
+  const [low, high] = cardBounds(iv.low, iv.high);
+  // Tester L2: an all −100% record would read "≈−100.0% and ≈−100.0%"; one value says it.
+  if (low === high) return [SHARE_CARD.rangeOneLead, low.replace('\u2248', '')];
+  return [SHARE_CARD.rangeLead, SHARE_CARD.rangeBounds(low, high)];
 }
 
 // The trust line's direction comes from the per-trade range printed beside it, so the words never contradict it.
 export const cardDirection = (iv: Interval | null): Direction => (!iv ? 'unclear' : iv.low > 0 ? 'positive' : iv.high < 0 ? 'negative' : 'unclear');
 
 // The owner's table, cell by cell. N is closed trades when too early, independent bets otherwise; D = max(1, ⌊days⌋),
-// M = ⌊days / 30.44⌋, Y = ⌊days / 365.25⌋.
+// M = ⌊days / 30.44⌋ (moderate needs 90 days, so M ≥ 2), Y = max(1, ⌊days / 365.25⌋) (strong starts at 365 days).
 export function trustLine(c: Confidence, closes: number): string {
   const t = SHARE_CARD.trust;
   if (c.tier === 'too-early') return t.tooEarly(closes);
   const dir = cardDirection(c.perTrade);
   if (c.tier === 'thin') return t.thin[dir](c.k, Math.max(1, Math.floor(c.spanDays)));
   if (c.tier === 'moderate') return t.moderate[dir](c.k, Math.floor(c.spanDays / 30.44));
-  return t.strong[dir](c.k, Math.floor(c.spanDays / 365.25));
+  return t.strong[dir](c.k, Math.max(1, Math.floor(c.spanDays / 365.25))); // fix round 1 (M1): never "over 0 years"
 }
 
 export const evidenceLabel = (c: Confidence) => SHARE_CARD.evidence(c.tier === 'too-early' ? 'too early' : c.tier);
 
 // "Record since Mar 2025 · 19 months": whole calendar months in UTC (a month counts once its day and time are reached).
 const MONTH = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-export function periodText(start: Date, end: Date): string {
+export function periodParts(start: Date, end: Date): [string, string] {
   let m = (end.getUTCFullYear() - start.getUTCFullYear()) * 12 + end.getUTCMonth() - start.getUTCMonth();
   const inMonth = (d: Date) => d.getTime() - Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
   if (inMonth(end) < inMonth(start)) m--;
-  const since = MONTH.format(start);
-  return m <= 0 ? SHARE_CARD.sinceUnderAMonth(since) : SHARE_CARD.since(since, m);
+  return [SHARE_CARD.since(MONTH.format(start)), m <= 0 ? SHARE_CARD.underAMonth : SHARE_CARD.months(m)];
 }
+export const periodText = (start: Date, end: Date): string => periodParts(start, end).join(' ');
 
 function badgeFor(i: RecordCardInput, verified: boolean): { text: string; tone: CardTone } {
   const t = shareCardText({ state: i.state, demo: i.demo, verified, empty: i.trades.length === 0 });
@@ -118,6 +141,9 @@ function badgeFor(i: RecordCardInput, verified: boolean): { text: string; tone: 
 }
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
+// Fix round 1 (UX lead U-4): the x-axis is the printed period (first entry to now, or to the disconnect), so the line
+// never stretches a few weeks of trading across a "19 months" label: 0% at the first entry, the last value held flat
+// to the period's end (CH-1 steps only at closes, so a flat stretch means no closes).
 function geometry(pts: { at: number; value: number }[], min: number, max: number, layout: CardLayout): ChartGeometry {
   const { width, height, gutter } = CHART[layout];
   const t0 = pts[0].at, t1 = pts[pts.length - 1].at;
@@ -145,8 +171,8 @@ export function recordCard(i: RecordCardInput): CardModel {
   const nameOk = nfc.length > 0 && covered(nfc);
   const base: Omit<CardModel, 'body'> = {
     name: nameOk ? nfc : `@${i.handle}`, handle: nameOk ? `@${i.handle}` : null, badge: badgeFor(i, verified),
-    headline: null, range: null, evidence: null, trust: null, count: null, lossesIncluded: null, period: null, chart: null,
-    message: null, link: `${i.host}/u/${i.handle}`, disclaimer: DISCLAIMER, alt: '',
+    headline: null, range: null, rangeParts: null, evidence: null, trust: null, count: null, lossesIncluded: null, period: null,
+    periodParts: null, chart: null, message: null, link: `${i.host}/u/${i.handle}`, disclaimer: DISCLAIMER, alt: { wide: '', tall: '' },
   };
   let m: CardModel;
   if (i.state === 'importing' && !i.demo) {
@@ -155,28 +181,41 @@ export function recordCard(i: RecordCardInput): CardModel {
     m = { ...base, body: 'empty', message: { title: SHARE_CARD.empty, body: SHARE_CARD.emptyBody } };
   } else {
     const c = confidence(i.trades, i.now);
-    const s = chartSeries(i.trades.map((t, k) => ({ id: String(k), symbol: t.symbol, returnPct: t.returnPct, closedAt: t.closedAt, holdingDays: t.holdingDays, thesis: null, index: k })), 'ALL', i.now, CARD_POINTS);
+    const s = chartSeries(i.trades.map((t, k) => ({ id: String(k), symbol: t.symbol, returnPct: t.returnPct, closedAt: t.closedAt, holdingDays: t.holdingDays, thesis: null, index: k })), 'ALL', i.now, CARD_POINTS - 1);
     const h = cardHeadline(headline(i.trades).avgReturn);
     const start = new Date(Math.min(...i.trades.map((t) => t.openedAt.getTime())));
+    const end = new Date(Math.max((i.frozenEnd ?? i.now).getTime(), s.t1));
+    const pts = [{ at: start.getTime(), value: 0 }, ...s.pts.slice(1), ...(end.getTime() > s.t1 ? [{ at: end.getTime(), value: s.last }] : [])];
+    const period = periodParts(start, i.frozenEnd ?? i.now), range = c.perTrade ? rangeParts(c.perTrade) : null;
     m = {
       ...base, body: 'record',
       headline: { label: SHARE_CARD.headlineLabel, value: h.text, tone: h.tone },
-      range: c.perTrade ? SHARE_CARD.range(cardPct(c.perTrade.low), cardPct(c.perTrade.high)) : null,
+      range: range && range.join(' '), rangeParts: range,
       evidence: evidenceLabel(c),
       trust: i.state === 'failed' && !i.demo ? { text: RECORD_BODY.failed, tone: 'warn' } : { text: trustLine(c, n), tone: 'text' },
       count: counted(n, 'trade'),
       lossesIncluded: SHARE_CARD.lossesIncluded,
-      period: periodText(start, i.frozenEnd ?? i.now),
+      period: period.join(' '), periodParts: period,
       chart: {
-        tone: s.last > 0 ? 'up' : s.last < 0 ? 'down' : 'text', caption: SHARE_CARD.caption, zeroLabel: '0%', points: s.pts.length,
+        tone: s.last > 0 ? 'up' : s.last < 0 ? 'down' : 'text', caption: SHARE_CARD.caption, zeroLabel: '0%', points: pts.length,
         end: s.last, min: s.min, max: s.max,
-        geometry: { wide: geometry(s.pts, s.min, s.max, 'wide'), tall: geometry(s.pts, s.min, s.max, 'tall') },
+        geometry: { wide: geometry(pts, s.min, s.max, 'wide'), tall: geometry(pts, s.min, s.max, 'tall') },
       },
     };
   }
-  // U14: the profile card's alt, then every word on the card and the chart sentence.
-  const parts = [profileCardAlt(i.handle, shareCardText({ state: i.state, demo: i.demo, verified, empty: n === 0 })), ...cardStrings(m, 'tall')];
-  if (m.chart) parts.push(`Line from 0% to ${cardHeadline(m.chart.end).text} total, lowest ${cardHeadline(m.chart.min).text}`);
-  m.alt = `${parts.map((p) => p.replace(/\.$/, '')).join('. ')}.`;
+  // U14, fix round 1 (business lead B1, UX lead U-3, tester M2): every word on the card, read once, in the order that
+  // loses least if a consumer cuts the alt short. The prefix names no label: the model's own badge follows (never
+  // shareCardText's, which can say Verified for a record the badge does not). The handle is in the prefix, so the name
+  // is read only when it is a display name; the figure comes before its label; the chart sentence covers "0%".
+  const chart = m.chart && `Line from 0% to ${cardHeadline(m.chart.end).text} total, lowest ${cardHeadline(m.chart.min).text}`;
+  const body = [
+    profileCardAlt(i.handle, shareCardText({ state: 'none', demo: false, verified: false, empty: true })),
+    m.handle ? m.name : null, m.badge.text,
+    m.headline && `${m.headline.value} ${m.headline.label}`, m.range,
+    m.count && `${m.count}, ${m.lossesIncluded}`, m.period,
+    m.evidence, m.trust?.text, m.message?.title, m.message?.body,
+    chart, m.chart?.caption, m.disclaimer,
+  ].filter((s): s is string => !!s).map((s) => s.replace(/\.$/, ''));
+  m.alt = { wide: `${body.join('. ')}.`, tall: `${[...body, m.link].join('. ')}.` };
   return m;
 }
