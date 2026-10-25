@@ -27,7 +27,7 @@ and nothing else, so the card can't say something the model's tests haven't chec
 
 ## Tests
 
-- 641 → 662 unit and DB tests, all passing (12 LOAD skipped). The added checks:
+- 641 → 666 unit and DB tests, all passing (12 LOAD skipped). The added checks:
   - every trust-line cell, for gains and losses;
   - the reader test;
   - win/loss parity;
@@ -38,18 +38,32 @@ and nothing else, so the card can't say something the model's tests haven't chec
   - the period cases;
   - a 10,000-close model;
   - model snapshots.
-- e2e unchanged: 116 passed, 3 skipped. The 1 failure is the known heavy-feed test, which also fails on `main` on the
-  reseeded database.
+- No e2e test changes, because no route changes.
+  - The heavy-feed test is a known failure; it also fails on `main` on the reseeded database.
+  - In the fix-round run, the demo-only section test hit a parallel-fixture race; it passes alone.
 
 ## Checks
 
-`tsc` clean · `npm test` 662 / 650 pass / 0 fail · `guard: ok` · `compliance: ok` · `CI=1 npm run build` ok ·
-e2e 116 passed, 1 known failure, 3 skipped (vendor fake attached). Product diff +241 / −3 (cap 800).
+`tsc` clean · `npm test` 666 / 654 pass / 0 fail · `guard: ok` · `compliance: ok` · `CI=1 npm run build` ok ·
+e2e 115 passed, 2 failed, 3 skipped (vendor fake attached). The failures are the known heavy-feed test and a
+parallel-fixture race in the demo-only section test, which passes alone. Product diff +284 / −3 (cap 800).
 
 ## Known limits
 
-- **O2 (owner, before real users).** The headline is the arithmetic average, as on the profile. The range is centred on
-  the geometric mean, so a volatile record's headline can sit outside its own range. The tests pin a 200-bet example.
+- **O2 (owner; the UX lead asks for an answer before PR 3 merges).** The headline is the arithmetic average, as on the
+  profile. The range is centred on the geometric mean, so on a volatile record the headline can sit outside its own
+  range, or point the other way from the trust line.
+
+  Here is what the model prints today for three fixtures, each pinned by a test:
+
+  | Fixture | Headline | Range | Trust line |
+  |---|---|---|---|
+  | 200 bets alternating −50% and +80% | "+15.0%" (green) | "likely between −13.3% and +3.8%" | "Based on 200 bets over 1 year. A long record, with no clear pattern." |
+  | 1,000 bets alternating −30% and +35% over 400 days | "+2.5%" (green) | "likely between −4.8% and −0.8%" | "Based on 1,000 bets over 1 year. A long record, with consistent losses." (the line ends at "≈−100.0%") |
+  | 10,000 trades, returns uniform between −5% and +5% | "0.0%" | "likely between −0.13% and −0.02%" | "Based on 10,000 bets over 1 year. A long record, with consistent losses." |
+
+  This PR does not change the headline method. The UX lead's recommendation, which is the owner's choice: headline the
+  centre the range is built on, so the figure, the range, the line and the trust line cannot disagree.
 - **Tall count size.** The tall count is 47 px, not the plan's 46, which missed the plan's own 16 px floor at 375 px.
 - **Plot heights.** These are first values; PR 3 tunes them under its render checks.
 

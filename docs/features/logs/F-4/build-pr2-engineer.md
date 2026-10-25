@@ -157,3 +157,48 @@ the profile; the owner answers before real users.
 
 A fresh `next start -p 3600` with ALLOW_DEV_AUTH=1 is running from this build, without the vendor fake. It stops when
 the 2-hour background limit runs out.
+
+## Fix round 1 (2026-10-25)
+
+Inputs:
+- `committee-pr2-business-lead.md` (B1, B2);
+- `committee-pr2-ux-lead.md` (U-1 to U-4, notes N1 to N4);
+- `test-pr2-tester.md` (M1, M2, L1 to L4).
+
+All three pass compliance.
+
+Commits: `c2b459d` tests first (failing), `60b3384` the code with the regenerated snapshot, then this log and the PR
+body.
+
+| Demand | Change | How verified |
+|---|---|---|
+| **B1 / U-3** (alt text) | `alt` is now `{ wide, tall }`. It is read once, in this order: plain prefix "Trading record card for @h on Stock Social"; the display name (skipped when the name slot already shows `@handle`); the badge; "+2.0% average return per trade"; the range; "12 trades, losses included"; the period; the pill and trust line; the chart sentence and caption; the disclaimer; the link on tall only. The lone "0%" is gone, because the chart sentence says "Line from 0% to …" | U14, rewritten per layout over 23 fixtures. Every visible string is contained. The sentence after the prefix starts as specified. No sentence repeats. No lone "0%". The badge and the handle each appear exactly once. "‹figure› ‹label›" is present. The link appears exactly on tall |
+| **M2** (the alt follows the model's badge) | The prefix names no label, and the badge in the body is the model's `badge.text`, never `shareCardText`'s label | New fixtures "none with closes" (badge "No broker connected"; neither alt says "Verified") and "name outside the font", both in the U10, U14 and D4 matrices |
+| **B2 / U-1** (O2 in the owner's words) | Test and PR body only; the headline method is unchanged (O2 is the owner's) | The exact strings are pinned. 200-bet: "likely between −13.3% and +3.8%" with "…A long record, with no clear pattern." 1,000-bet −30%/+35% over 400 days: headline "+2.5%" in up, "likely between −4.8% and −0.8%", "Based on 1,000 bets over 1 year. A long record, with consistent losses.", the line in down ending "≈−100.0%". `pr2-body.md` Known limits quotes these two and the 10,000-trade case: "0.0%", "likely between −0.13% and −0.02%", "…with consistent losses." |
+| **M1** | Y = max(1, ⌊days / 365.25⌋), as D already does | `spanDays` 365 and 365.1 read "over 1 year". The tester's repro (100 bets over 365.1 days, through `recordCard`) is now a test |
+| **L1** | `cardBounds(low, high)`: both bounds take the larger decimal count. U7's per-bound rules stay (2 to 4 decimals; a tiny bound reads its sign and 4 zeros; short of −100% reads "≈−100.0%") | "−0.10% and +0.04%", "−0.004% and +2.700%", "−2.60% and +0.04%", "0.0% and +2.7%". Every two-bound range over the fixture matrix has equal decimals. The U7 single-bound test passes unchanged |
+| **L2** | When both bounds print the same value, the range reads "likely about ‹value›" (the "≈" is dropped, because "about" says it) | An all −100% record reads "likely about −100.0%", parts ["likely about", "−100.0%"] |
+| **U-2** | `periodParts` ["Record since Sep 2026", "· under a month"] and `rangeParts` ["likely between", "−0.1% and +2.7%"], both built from new `SHARE_CARD` pieces (`since`, `underAMonth`, `months`, `rangeLead`, `rangeBounds`, `rangeOneLead`). `period` and `range` stay as the joined strings | Each pair joins with a space to the printed string, for every fixture; both are null exactly when the string is null; exact pieces checked |
+| **U-4** | The chart's x-domain is the printed period: the 0% point sits at the first entry, and the last value is held flat to now or to the disconnect. The series is downsampled to 399 points, so the added end point keeps it ≤ 400 | A record that stopped trading 12 months ago: the first point is at the gutter on the baseline, the last x is the right edge, the last segment is horizontal, and the last close sits in the left fifth. A frozen record's axis ends at its right edge. The snapshot is regenerated, and its line now runs 17 days of closes across the 19-month axis |
+| **N1** (not blocking; for PR 3's D7) | Logged | A five-digit average, "+12345.6%", is 541 px against the 480 px wide headline column at 108 px (UX lead's measure). Nothing caps it (F3c excludes unpriceable trades, so it is unlikely). PR 3's D7 adds it as a fixture and says what the row does (for example, the headline spans the full width above the chart). Text never shrinks |
+| N2 to N4, L3, L4 | Not changed | Notes for the owner or PR 3, and per spec. N2: a connected record whose closes aren't all verified gets "Broker connected" in up; it is unreachable today, and muted would be safer if it ever becomes reachable. L3: the card floors days, the profile rounds them |
+
+**Product lines** (`git diff --numstat autopilot/feature-4-tr9 -- app lib`, without tests): **+284 / −3 = 287** (cap
+800). By file: `lib/record-card.ts` +221, `lib/copy.ts` +36, `lib/card-glyphs.ts` +25, `lib/story-image.ts` +2/−3.
+
+**Tests:** 662 → **666** (+4: M1, L1/L2, U-2, U-4). The U14 test is rewritten per layout, as the demands require. The
+O2 test gains the exact strings and the 1,000-bet card. Nothing is deleted or loosened.
+
+### Checks (fix round 1)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm test` (`stock_social_f4`) | **666 tests: 654 pass, 0 fail, 12 skipped (LOAD)** |
+| LOAD runs | not required (`lib/trades.ts`, `lib/sync.ts`, `lib/connections.ts`, `lib/broker.ts` unchanged) |
+| `node scripts/autopilot.ts guard main` | `guard: ok` |
+| `node scripts/compliance.ts diff origin/main` | `compliance: ok (diff vs origin/main)` |
+| `CI=1 npm run build` (stdin closed) | exit 0 on the retry (the first attempt stops on the framework's upgrade notice; tool output, ignored) |
+| e2e, port 3600, vendor fake on 4602 | **115 passed, 2 failed, 3 skipped** of 120 (4.1 min). (1) The heavy-feed test is the known failure that is pre-existing on `main`. (2) `section.spec.ts:78` "the demo-only feed renders no section" saw another test's fixture user (`livviwbxex4`) in the feed during the parallel run; run alone, it passes (1/1). PR 2 changes no route or feed code. The committed screenshots the run rewrites were restored |
+
+A fresh `next start -p 3600` with ALLOW_DEV_AUTH=1 is running from this build, without the vendor fake.
