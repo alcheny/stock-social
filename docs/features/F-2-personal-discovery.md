@@ -62,6 +62,9 @@ advice. The owner has been told this and the scope below respects it.
   scheduled (IMPLEMENTATION item #7) before the text goes live, the privacy contact comes from an environment
   variable, and the share-image font fetch is fixed or disclosed. **Backups of the database are stored**, and the
   Privacy text says so: deleted data can remain in backups until they are replaced. Why: the owner's answer.
+- 2026-10-25 (guardrails Q1): with "Order my feed by my activity" off, opening a watched symbol's page still records
+  when the viewer last opened it. Why: the owner ("yes"); it belongs to the watchlist the viewer set, not to feed
+  ordering, and the Privacy text already discloses it.
 - 2026-10-23: the engineer and business lead disagree on the reject gesture (SW-1 reserves left/right
   on the feed). Recorded below as an owner question; until answered, the engineer builds reject so that
   it cannot collide with the profile-opening swipe.

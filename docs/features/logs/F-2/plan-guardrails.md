@@ -517,3 +517,8 @@ links and the removed-record row; that no-JS actions from section rows and the p
 instead of the trader's profile (G6); the static watch-cap line.
 
 SIGNED: engineer. PENDING: business lead, UX lead.
+
+## Owner answer (2026-10-25)
+
+Q1: **yes**, keep recording a watched symbol's last-opened time while personal ordering is off (the plan's
+default). Recorded in the F-2 file's Decisions.
