@@ -1,4 +1,7 @@
-# F-2 · Guardrails G1 to G6 · Implementation plan (engineer), round 2
+# F-2 · Guardrails G1 to G6 · Implementation plan (engineer), round 3
+
+Round 3 applies the business lead's build conditions R1 to R3 and the UX lead's four round-2 demands. See "Round 3
+changes" at the end. Rounds 1 and 2 stand except where that table says otherwise.
 
 Date: 2026-10-25. Role: engineer.
 
@@ -32,7 +35,7 @@ This plan decides how, not what. It changes no decision in the feature file. Not
 
 | # | PR | Guardrails | Product lines | Test lines | Waits on |
 |---|---|---|---|---|---|
-| 7 | Feed controls · `autopilot/feature-2-feed-controls` | G1 (with the Q1 reversal), G3, G4 | ~340 | ~560 | PR-4 landed on the branch |
+| 7 | Feed controls · `autopilot/feature-2-feed-controls` | G1 (with the Q1 reversal), G3, G4 | ~365 | ~630 | PR-4 landed on the branch |
 | 8 | Reachable and unlogged · `autopilot/feature-2-reach` | G2, G5, G6 | ~390 | ~720 | **PR-7 merged** |
 
 - **The independence test between PR-7 and PR-8 no longer holds, so they build one after the other: PR-7, then PR-8.**
@@ -74,7 +77,7 @@ Every PR follows these rules:
   - keyboard-only use shows a visible ring at each stop;
   - `getAnimations()` is empty under reduced motion, and otherwise holds at most the 120 ms switch-knob change.
 
-## 1. PR-7 · Feed controls (G1, G3, G4) · ~340 product lines
+## 1. PR-7 · Feed controls (G1, G3, G4) · ~365 product lines
 
 Branch `autopilot/feature-2-feed-controls`, database `stock_social_f2_controls`, ports 3110 and 3111.
 
@@ -148,23 +151,64 @@ sign-out. Every passive write a signed-in reader causes today gets `recording(id
 
 | Passive write today | Where | Gated in | Marker hidden while off |
 |---|---|---|---|
-| `ticker_watches.last_seen_at` (the owner's named case) | `app/t/[symbol]/Watch.tsx#markSeen` | the update statement | `/t` "N new … since you last looked" is replaced by `WATCH.markerOff`, with a "Feed settings" link |
+| `ticker_watches.last_seen_at` (the owner's named case) | `app/t/[symbol]/Watch.tsx#markSeen` | the update statement | `/t` rows show no count line; `WATCH.markerOff` appears once under the h2, with "Feed settings" (round 3, below) |
 | `sessions.last_seen_at`, hourly | `lib/auth/sessions.ts#userIdForSession` | the update statement (a join to `users`) | none: nothing reads it (checked: no reader in `app/` or `lib/`) |
 | `users.record_first/last/prev_viewed_at`, `record_view_count` | `app/me/record/page.tsx` | both updates | the record page's "since your last visit" marker |
 | `funnel_events` `own_profile_viewed` | `app/u/[handle]/page.tsx` | the call is skipped when `orderOff` | none |
 | `share_prompt_seen_at`, `trades_prompt_seen_at` (on display) | `app/actions.ts#markSharePromptSeen`, `#markTradesPromptSeen` | the update statements | the new-trades prompt (it depends on the seen stamp). The share prompt keeps showing until the trader dismisses or uses it; that choice is a deliberate action and is stored |
 | `share_image_saved_at`, `trade_shared_at`, and any other share or adoption stamp the guard finds (e.g. `badge_copied_at`) | `app/actions.ts` and wherever the guard finds them | the update statements | none |
 
-- **Exempt:** funnel events written before sign-in (`landed`, `method_chosen`), since no account exists to read the
-  switch from, and events that record a deliberate step of connecting (consent, connected).
+- **Exempt, named (R1).** These are never gated, and T1.7's scan must not flag them:
+  - funnel events written before sign-in (`landed`, `method_chosen`), since no account exists to read the switch from;
+  - every funnel event the connection flow and its rate limit write: `portal_opened`, `link_succeeded`, `consented`,
+    `declined`, `failed`, `abandoned`, `expired`, `import_finished`, `no_real_account`.
+
+  Those connection events are security and integrity controls, not tracking: `lib/connections.ts:241-249` counts
+  `portal_opened` rows to cap portal opens, and the error paths read `failed` / `abandoned` / `expired` (`:34`). T1.7
+  holds this list as `EXEMPT_EVENTS`. Any other funnel event written while signed in must carry `recording(`.
 - **Signed in with the switch off, `/connect`'s `notice_seen` is gated too.**
 - **Watching a symbol while off** stores the watch row with `created_at` and `last_seen_at` at the moment of watching.
   That is the deliberate action's own row.
-- **Switching off clears no existing stamp.** The markers resume from the old stamps when the switch is turned on again.
-  Clearing them is a later option if the owner wants it.
+- **Turning the switch off clears every marker stamp (UX R2 demand 2).** This replaces round 2's "clears no existing
+  stamp".
+  - **The write.** `setOrder(false)`, in the same transaction as the flag:
+    - sets `ticker_watches.last_seen_at = 'infinity'` for the viewer's watches (the column is `not null`; the tree
+      already stores `'infinity'` for rejects);
+    - nulls `users.record_first_viewed_at`, `record_last_viewed_at`, `record_prev_viewed_at` and
+      `trades_prompt_seen_at`.
+  - **Why at switch-off, not switch-on.** The viewer sees the same result after turning the switch back on. Clearing at
+    switch-off also means the stale stamps aren't stored at all during the off period, which is the P3 minimum and the
+    stricter option.
+  - **Why `record_first_viewed_at` is nulled too.** `lib/insights.ts#visitDecision` falls back to it when `last` is
+    null (`baseline: last ?? first`). Nulling only `last` and `prev` would count from the first visit ever, which is a
+    guess.
+  - **How the markers read the cleared values.** They treat them as "no marker", the way they treat a first visit:
+    - `lib/ticker.ts#watchSummary` returns `newCount: null` for an invalid `lastSeenAt` (`'infinity'` reads as an
+      invalid Date), and `/t` then shows no count line for that row. Without this the row would read "No new trades",
+      which is a guess.
+    - The record page's "Since your last visit" has no baseline, so it is hidden.
+    - The profile's new-trades prompt has no seen stamp, so it takes its first-time path.
+  - **After the switch is back on,** the next visit writes a real stamp, and each marker counts only from a visit
+    recorded with the switch on.
+  - **`record_view_count`** is kept (it is no marker input) and isn't incremented while the switch is off.
+  - **Measurement cost, for the business lead to confirm.** Nulling `trades_prompt_seen_at` and
+    `record_first_viewed_at` restarts the new-trades-prompt measure and the first-record-view measure for a viewer who
+    turned the switch off. Their next stamp is written at their first visit with the switch on, so the measure counts
+    them as first-time from then. The switch defaults on, so this touches only viewers who opted out, and those viewers
+    asked not to be measured.
+- **`/t` while off (UX R2 demand 3).**
+  - Rendered only when the viewer is signed in, the switch is off, and they have at least one watch.
+  - It shows `WATCH.markerOff` **once**, directly under the h2 "Your watched stocks", followed by `WATCH.settings`
+    "Feed settings" to `/settings#your-feed`.
+  - Rows show **no count line at all**: neither a count nor "No new trades".
+- **`/me/record` while off (UX R2 demand 4).** `RECORD.markerOff`, then `RECORD.settings` "Feed settings" to
+  `/settings#your-feed`, where the "Since your last visit" section would sit.
+- **The profile's new-trades prompt** comes and goes on its own, so it gets no line of its own. `orderOffExplain`
+  covers it (§6).
 - **A static guard (T1.7)** keeps the list complete. Any SQL template under `app/` or `lib/` that writes a column in
   `PASSIVE_COLUMNS`, or inserts `own_profile_viewed` / `notice_seen`, must include `recording(`.
-  `PASSIVE_COLUMNS` holds the columns above plus `badge_copied_at`.
+  `PASSIVE_COLUMNS` holds the columns above plus `badge_copied_at`. The `setOrder(false)` statements that clear stamps
+  are exempt by name, because clearing is not recording.
 - **C2's other condition, kept:** no file under `lib/feed.ts`, `lib/similar.ts` or `lib/discovery/**` reads
   `ticker_watches.last_seen_at`.
 
@@ -209,9 +253,10 @@ Product:
 - `app/settings/actions.ts` (new)
 - `app/settings/focus-hash.tsx` (new)
 - `app/suggest-section.tsx`
-- `app/t/page.tsx`
+- `lib/ticker.ts` (`watchSummary`: `newCount: null` for a cleared stamp)
+- `app/t/page.tsx` (the off line, and no count line for a cleared row)
 - `app/t/[symbol]/Watch.tsx` (`markSeen` only)
-- `app/me/record/page.tsx`
+- `app/me/record/page.tsx` (the gates and `RECORD.markerOff`)
 - `app/u/[handle]/page.tsx` (the funnel call and the trades-prompt condition only)
 - `app/actions.ts` (the measurement stamps only)
 - `app/connect/page.tsx` (`notice_seen` only)
@@ -225,8 +270,12 @@ Tests:
 - `lib/feed.signed-out.test.ts`
 - `lib/delete.test.ts`
 - `lib/copy.test.ts`
+- `lib/ticker.test.ts` (the `newCount: null` case)
+- `lib/connections.test.ts` (R1: the portal-open cap with the switch off)
+- `lib/auth/sessions.test.ts` (R3: a switch-off case added beside `:44-45`, which stays unchanged)
 - `e2e/settings.spec.ts` (new)
 - `e2e/section.spec.ts` (the section line and the following-state cases)
+- `e2e/markers.spec.ts` (new: T1.4)
 
 ### 1.3 Tests first
 
@@ -234,11 +283,12 @@ Tests:
 |---|---|---|
 | **G1** · off → feed and section equal the signed-out order minus own hides | **T1.1.** (a) A switch-off viewer with no hides gets pages 1 to 3 and the section equal to the signed-out ones, with the viewer left out. (b) Viewer A is switched off with 3 follows, 2 unfollows, 3 rejects and 1 Not interested. A gets the same pages and section as B, who has only the same hides and the switch off. A followed trader of A's sits in A's section exactly where it sits signed out, **and its button reads "Following", `aria-pressed="true"`** (UX item 5). | DB + e2e |
 | G1 · the switch matters | **T1.2.** A with the switch on gets a different order. Off then on round-trips. | DB |
-| **G1** · no activity recorded (amended criterion, Q1 reversed) | **T1.3.** A query-logging client watches a switch-off viewer render: feed pages 1 to 3; another trader's profile, pane, trade page and Similar trades; their own profile and `/me/record`; `/t`; **`/t/<sym>` for a watched and for an unwatched symbol**; `/me/following`; `/settings`; `/connect`. **Every `insert`, `update` and `delete` fails the test.** No write is allowed, `sessions.last_seen_at` included (the session is older than an hour, so the update would otherwise run). | DB, `lib/recording.test.ts` |
+| **G1** · no activity recorded (amended criterion, Q1 reversed) | **T1.3.** A query-logging client watches a switch-off viewer render: feed pages 1 to 3; another trader's profile, pane, trade page and Similar trades; their own profile and `/me/record`; `/t`; **`/t/<sym>` for a watched and for an unwatched symbol**; `/me/following`; `/settings`; `/connect`. **Every `insert`, `update` and `delete` fails the test.** No write is allowed, `sessions.last_seen_at` included (the session is older than an hour, so the update would otherwise run). **R3:** `lib/auth/sessions.test.ts:44-45` stays unchanged and passes with the switch on, the default. The switch-off case is a new test beside it: with the switch off, a lookup two hours later leaves `last_seen_at` unchanged. The file's test count goes up by one. | DB, `lib/recording.test.ts`, `lib/auth/sessions.test.ts` |
+| G1 · the connection flow's controls still work (R1) | **T1.10.** With the switch off, the portal-open cap trips at its existing limit: open the portal up to the cap and the next open is refused, as with the switch on. `failed`, `abandoned` and `expired` rows are still written on their paths. The build log records that the test was run. | DB, `lib/connections.test.ts` |
 | G1 · `/t/<sym>` writes nothing (owner's named test) | **T1.3a.** The switch is off and the viewer watches the symbol, with a backdated `last_seen_at`. Rendering `/t/<sym>` leaves `ticker_watches` byte-identical. With the switch on, it updates. | DB |
-| G1 · markers hidden, not guessed | **T1.4.** With the switch off: `/t` shows no "since you last looked" and shows `WATCH.markerOff`; `/me/record` shows no "since your last visit"; the own profile shows no new-trades prompt. Switching back on shows them again. | e2e |
+| G1 · markers hidden, not guessed, off and after (UX R2 demands 2 to 4) | **T1.4**, `e2e/markers.spec.ts`, full matrix. **While off:** `/t` (signed in, ≥ 1 watch) has exactly one `WATCH.markerOff`, directly under "Your watched stocks", followed by "Feed settings" → `/settings#your-feed`. There is no "No new trades" and no "since you last looked" on any row, and no horizontal scroll at 320, 360 or 375. A viewer with no watches gets no line. `/me/record` shows `RECORD.markerOff` and "Feed settings" in place of "Since your last visit". The own profile shows no new-trades prompt. **After switching back on:** a trade in a watched symbol closes; the viewer turns the switch off, opens `/t/<sym>`, turns it on and opens `/t`. **No count line appears on that row.** Then a new trade closes, the viewer opens `/t/<sym>` and then `/t`, and the count is **1**. The same sequence runs on `/me/record` (no "Since your last visit" until a visit recorded with the switch on, then one fresh trade) and on the profile prompt (first-time path, then one new trade). **DB half:** after `setOrder(false)`, the viewer's `ticker_watches.last_seen_at` are `'infinity'`, the four `users` stamps are null, and another viewer's are unchanged. `watchSummary` returns `newCount: null` for an invalid date (`lib/ticker.test.ts`). The strings are imported from `WATCH` and `RECORD`. | e2e + DB + unit |
 | G1 · passive actions write nothing | **T1.6.** With the switch off, `markSharePromptSeen`, `markTradesPromptSeen`, `markShareImageSaved`, `recordTradeShared` and the badge-copy stamp each leave `users` unchanged. A deliberate action (follow, watch, dismissing the share prompt) still writes its own row. | DB |
-| G1 · the list stays complete | **T1.7.** Static: every SQL template writing a `PASSIVE_COLUMNS` column, or inserting `own_profile_viewed` / `notice_seen`, contains `recording(`. No file in `lib/feed.ts`, `lib/similar.ts` or `lib/discovery/**` reads `ticker_watches.last_seen_at` (C2). | unit |
+| G1 · the list stays complete | **T1.7.** Static: every SQL template writing a `PASSIVE_COLUMNS` column, or inserting `own_profile_viewed` / `notice_seen`, contains `recording(`. No file in `lib/feed.ts`, `lib/similar.ts` or `lib/discovery/**` reads `ticker_watches.last_seen_at` (C2). **R1:** the scan doesn't flag the `EXEMPT_EVENTS` list (§1.1), and the test asserts that list exactly, so an event can't be added to it silently. The `setOrder(false)` clearing statements are exempt by name. | unit |
 | G1 · on by default | **T1.8.** A new account reads `personal_order_off = false`, and `/settings` shows "On" with `aria-checked="true"`. | DB + e2e |
 | G1 · the switch UI | **T1.5**, `e2e/settings.spec.ts`, full matrix. **DOM order** as in §1.1. At 360×640 the switch is in the first viewport. **Accessibility tree:** name "Order my feed by my activity", checked true or false, and the description. **Label tap** flips it. The row is ≥ 44 px, and at 320 the switch is ≥ 44×44. **Status:** `[role=status]` is present and empty on load; with the action delayed 700 ms it stays empty until the reply; a forced failure reverts the switch and never shows a saved string. **Both explain lines** are rendered in both states. **Contrast:** the off-state track is ≥ 3:1 against the page in both themes. **No-JS:** the form posts and `/settings` renders again with the new state, with no query. **A second tab** that changed the switch causes no duplicated card in the first tab's feed (UX item 7). | e2e |
 | G1 · section line (UX item 2) | **T1.9.** With the switch on, signed in: `SECTION.personal` and "Feed settings" are present. Following the link makes `#your-feed` the active element, and the next Tab reaches the switch. With the switch off or signed out, neither is present, and signed-out page-1 HTML is byte-identical to before PR-7. Two taps reach the switch from the feed. | e2e |
@@ -321,7 +371,11 @@ Branch `autopilot/feature-2-reach`, from PR-7's merge commit. Database `stock_so
 - **The rule T6.1 enforces (C4b).**
   - A viewer action may lead only to: the page it was taken on; `/`, `/me/following`, `/settings` or `/settings/reset`;
     or `/_next/…`.
-  - URLs are compared **by path**. The only query key allowed is the framework's router key `_rsc`.
+  - URLs are compared **by path**. The only query keys allowed are:
+    - the framework's router key `_rsc`;
+    - **`likes`, digits only (`^[0-9]+$`), on `/me/following` only** (UX R2 demand 1), and only where it equals the
+      `likes` value of the page the action was taken on, or comes from the "Older likes" or "Newer likes" link.
+  - The only fragments allowed are `#liked` and `#your-feed`.
   - Any other query key fails, as do `done`, `first`, `back`, `k`, `watch` and a 64-hex key anywhere in the URL.
   - Reading a public page by its own path is allowed (`/u/<h>`, `/u/<h>/pane`, `/u/<h>/trade/<id>`, `/t/<sym>`, and
     `/login?next=` set to the page already loaded).
@@ -379,7 +433,7 @@ Tests:
 | G2 · PR-5 can't skip it | **T2.4.** Every `viewer_id` table is in `RESET_DELETES` or `RESET_KEEPS`. | unit |
 | **G5** · paging past 200 | **T5.1.** 450 likes, 3 of them on removed trades. Pages 1 to 3 list each like once, newest first. The removed ones have `gone: true` and a handle. Unlike on a gone row deletes it. | DB |
 | G5 · UI | **T5.2**, full matrix. "Older likes" and "Newer likes" work, and are placed as in §2.1. **`?likes=abc`, `?likes=0` and `?likes=9999999` each render page 1. `?likes=4` with 450 likes renders "No older likes." with "Newer likes".** Unliking the last row of page 3 keeps the path at `/me/following?likes=3`, with and without JS. After paging, the next Tab reaches the first row's link. A gone row has no `a[href*="/trade/"]`, has one `a[href="/u/h"]`, and its button's name equals `LIKES.unlikeGone(h)`. At 360, `scrollWidth ≤ clientWidth` on the row. | e2e |
-| **G6** · no URL carries an action target or handle | **T6.1**, `e2e/urls.spec.ts`. The C4b rule, with and without JS, over every viewer action: follow, unfollow and Not interested from the profile, a section row and the pane; Show again; like and unlike; hide this trade and its Undo; Unlike on page 2; watch, unwatch and watch at the cap; the switch; Reset. | e2e |
+| **G6** · no URL carries an action target or handle | **T6.1**, `e2e/urls.spec.ts`. The C4b rule with UX R2 demand 1's two allowances, with and without JS. It passes on Unlike on page 2 (`/me/following?likes=2#liked`). It fails when `?done=` is reintroduced, when `likes=abc` appears, and when `likes=2` appears on any other path. It runs over every viewer action: follow, unfollow and Not interested from the profile, a section row and the pane; Show again; like and unlike; hide this trade and its Undo; Unlike on page 2; watch, unwatch and watch at the cap; the switch; Reset. | e2e |
 | G6 · the liked lookup | **T6.2.** A GET gets 405. A POST validates keys, caps at 60, keys the read to the session, and returns `[]` signed out with no query run. **The PR-4 heart check over POST (UX item 19):** with `POST /me/liked` delayed 700 ms, a liked card never shows ♡ before ♥. | e2e + DB |
 | G6 · confirmations from state | **T6.3.** `recentAction` and `lastAction` show 59 s and not 61 s, the viewer's own rows only, and nothing for another viewer within 60 s. **C7:** after a JS follow on the profile, exactly one `role="status"` element carries "Following @h.", announced once, and the same holds on `/me/following`. **UX item 17:** with JS off, Not interested from a section row lands on `/me/following` with no query; the status reads `FOLLOW.hiddenFrom(h)`; "Back to the feed" is present; the trader is listed with "Show again". | DB + e2e |
 | G6 · watch cap | **T6.5.** At `WATCH_CAP` on an unwatched symbol, the line is visible on load, the button's description equals the cap message, and no URL has `watch=`. With JS, a tap fills a `role="status"` region and sends no POST. | e2e |
@@ -440,7 +494,8 @@ but the host's request logs still record the addresses of pages opened. That sen
   - `orderOnExplain` "On: traders you unfollowed, or whose trades you hid, appear a little lower in your feed and
     suggestions, and suggestions leave out traders you follow."
   - `orderOffExplain` "Off: your feed and suggestions use the order everyone sees signed out, minus the traders and
-    trades you hid. Nothing you follow, like or hide is deleted."
+    trades you hid. Your watchlist and record don’t show what’s new since your last visit. Nothing you follow, like or
+    hide is deleted." (Round 3, UX R2.3.)
   - `orderSavedOn` "Saved. Your feed is ordered by your activity again."
   - `orderSavedOff` "Saved. Your feed now uses the order everyone sees signed out."
   - `deleteLead` "Deleting removes:"
@@ -455,9 +510,12 @@ but the host's request logs still record the addresses of pages opened. That sen
   - `personal` "Traders you unfollowed, or whose trades you hid, are placed a little lower, and traders you follow are
     left out."
   - `settings` "Feed settings"
-- **`WATCH`** (new; the UX lead to rule on the words):
-  - `markerOff` "New-trade counts are hidden while “Order my feed by my activity” is off."
-  - `settings` "Feed settings"
+- **`WATCH`** (new; round 3, the UX lead's exact words):
+  - `markerOff` "New closed trades since you last looked aren’t shown while “Order my feed by my activity” is off."
+  - `settings` "Feed settings" (to `/settings#your-feed`)
+- **`RECORD`** (new, in `allCopy`):
+  - `markerOff` "“Since your last visit” isn’t shown while “Order my feed by my activity” is off."
+  - `settings` "Feed settings" (to `/settings#your-feed`)
 
 **PR-8.**
 - **`RESET`:**
@@ -493,8 +551,9 @@ Packet §3 Part A and Part B, with the bracketed G1 to G6 lines filled in, and t
 5. **Follows (C5):** "While “Order my feed by my activity” is on, followed traders are left out of your suggestions,
    since you already follow them."
 6. **Watchlist (owner, Q1 reversed):** "We store which symbols you watch, when you added each, and when you last opened
-   each symbol's page. While “Order my feed by my activity” is off, we stop recording when you open a symbol's page,
-   and the watchlist doesn't show what's new since you last looked."
+   each symbol's page. When you turn “Order my feed by my activity” off, we delete those last-opened times and stop
+   recording when you open a symbol's page, and the watchlist doesn't show what's new since you last looked until you
+   open a symbol's page with it back on."
 7. **Opt-out:** Part B's bracketed line, plus a Part A line:
    - "With “Order my feed by my activity” off, your follows, unfollows and hidden trades don't change the order of your
      feed or suggestions (what you hid stays hidden). We record nothing about what you do in the app beyond the choices
@@ -502,7 +561,8 @@ Packet §3 Part A and Part B, with the bracketed G1 to G6 lines filled in, and t
    - The "beyond the choices you make" clause is needed because request logs are covered in item 1 and the explicit
      choices stay stored.
 8. **Outside Part A, for the owner's broader policy:** the trader's own record-view counters and prompt stamps also stop
-   while the switch is off (§1.1).
+   while the switch is off. Turning the switch off deletes the record's visit times and the new-trades prompt's seen
+   time (§1.1). The connection flow's own records (§1.1, R1) keep being written, because they enforce its limits.
 
 The Privacy PR's reviewer checks every sentence against PR-7 and PR-8 as merged.
 
@@ -596,7 +656,10 @@ None open.
 
 ## 13. Binding additions to `plan.md` PR-5a and PR-5b (C3, C9, the Q1 reversal)
 
-I can edit only this file. The orchestrator copies these into `plan.md`, or PR-5's plan round settles them first.
+I can edit only this file. **R2 (round 3):** the PR-5 amendment of `plan.md` adopts these items, and PR-5's plan isn't
+signed without them. The reviewer verifies this in `plan.md`. Also for PR-5b's plan round, from the UX lead's R2.4
+note: decide whether a switched-off viewer gets a bare "Feed settings" link under the section. It is not a reason
+line, so it fits C9.
 - **PR-5a tests (C3).** A non-demo viewer POSTing each implicit type to `/api/events` stores 0 rows. Implicit demo rows
   seeded for a real viewer are absent from that viewer's `viewerProfile` input. A switch-off viewer POSTing any type,
   explicit share included, stores 0 rows. A switch-off viewer's explicit actions write their state row and no
@@ -609,16 +672,17 @@ I can edit only this file. The orchestrator copies these into `plan.md`, or PR-5
 
 ## Sign-off
 
-Engineer: **SIGNED** 2026-10-25 (round 2). I would stake my name on building PR-7 and then PR-8 as written, with every
+Engineer: **SIGNED** 2026-10-25 (round 3). I would stake my name on building PR-7 and then PR-8 as written, with every
 criterion G1 to G6 (G1 as amended) mapped to a test in §1.3 and §2.3.
 
-Business lead: SIGNED round 1 with C1 to C9. Round 2 applies all nine, but drops C2's allowance because the owner
-reversed Q1. Please confirm.
+Business lead: SIGNED round 2 with R1 to R3. All three are applied in round 3. Please confirm one point: clearing the
+stamps when the switch goes off restarts the new-trades-prompt and first-record-view measures for viewers who opt out
+(§1.1).
 
-UX lead: REVISE in round 1. Round 2 applies all 11 demands. Please re-sit, mainly on: the `WATCH.markerOff` wording,
-the hidden markers (§1.1), and the strings where your wording was taken over the business lead's.
+UX lead: REVISE in round 2. All four demands are applied in round 3. The UX lead said a confirmation without a full
+re-sit would do.
 
-SIGNED: engineer. PENDING: business lead (confirm round 2), UX lead (re-sit).
+SIGNED: engineer. PENDING: business lead (confirm the measure point), UX lead (confirm round 3).
 
 ## Round 2 changes
 
@@ -648,3 +712,16 @@ SIGNED: engineer. PENDING: business lead (confirm round 2), UX lead (re-sit).
 | UX items 1, 3, 7, 22 (within the demands) | DOM order and first viewport; label tap, contrast in both states; second-tab duplicates; axe | — |
 | Owner · Q1 reversed | §1.1: every passive write is gated by `recording(id)` and its marker hidden. T1.3 now forbids every write. T1.3a, T1.4, T1.6, T1.7. Privacy §7 items 3, 6, 7, 8 | Applied to every passive write in the tree, not only the watch stamp (stricter). The owner can narrow it (§8) |
 | Line estimates | PR-7 ~170 → ~340 (the switch's UX, section state and line, deletion list, C1, the Q1 gates). PR-8 ~320 → ~390 (reset page with done state, status lines, watch cap, gone rows) | Both ≤ 800 |
+
+## Round 3 changes
+
+| Demand | Change | Conflict and ruling |
+|---|---|---|
+| BL R1 · name the connection-flow events as exempt; the portal-open cap still trips with the switch off | §1.1 names `EXEMPT_EVENTS` (`portal_opened`, `link_succeeded`, `consented`, `declined`, `failed`, `abandoned`, `expired`, `import_finished`, `no_real_account`, plus the pre-sign-in `landed` and `method_chosen`). T1.7 asserts the list exactly. T1.10 in `lib/connections.test.ts` checks the cap with the switch off, and it is run | — |
+| BL R2 · §13 adopted by the PR-5 amendment | §13 records the adoption and the reviewer's check in `plan.md`. The UX lead's R2.4 note goes to PR-5b's plan round | — |
+| BL R3 · `lib/auth/sessions.test.ts:44-45` unchanged | The switch-off case is a new test beside it, and the test count goes up by one (T1.3, §1.2) | — |
+| UX R2-1 · T6.1 allows `?likes=<n>` and two fragments | Digits only, on `/me/following` only, equal to the page acted on or from Older/Newer. Fragments `#liked` and `#your-feed`. It still fails on `?done=`, on `likes=abc` and on `likes` on another path (§2.1, T6.1) | — |
+| UX R2-2 · no marker counts from an unrecorded visit after the switch is back on | `setOrder(false)` sets watch stamps to `'infinity'` and nulls `record_first/last/prev_viewed_at` and `trades_prompt_seen_at`. `watchSummary` returns `newCount: null`, and markers take their first-visit path. T1.4 runs the off → visit → on sequence (no count), then a new trade (count 1), on `/t`, `/me/record` and the profile prompt | UX suggested clearing at switch-on. **I clear at switch-off instead:** the outcome is the same, and stale stamps aren't stored during the off period (P3; stricter). `record_first_viewed_at` is nulled too, because `visitDecision` falls back to it. Restarting the BL's prompt and first-view measures for opted-out viewers is for the BL to confirm |
+| UX R2-3 · `/t` while off | `WATCH.markerOff` once under "Your watched stocks", with "Feed settings" → `/settings#your-feed`. No per-row count line, no "No new trades". Only when signed in, off, and ≥ 1 watch (T1.4) | — |
+| UX R2-4 · `RECORD.markerOff` and the longer `orderOffExplain` | `RECORD` copy object added to `allCopy`. `/me/record` shows it with "Feed settings". `orderOffExplain` is the UX R2.3 string (§6, T1.4, T1.5) | — |
+| Line estimates | PR-7 ~340 → ~365 product, ~560 → ~630 test (clearing in `setOrder`, `watchSummary` null, the two off lines, R1 and R3 tests, `e2e/markers.spec.ts`). PR-8 unchanged at ~390 / ~720 | Both ≤ 800. The order is unchanged: PR-7, then PR-8 |
