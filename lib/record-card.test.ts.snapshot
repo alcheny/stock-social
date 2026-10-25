@@ -1,0 +1,144 @@
+exports[`criterion 10: model snapshots (winning, losing, empty) 1`] = `
+{
+  "name": "Card Tester",
+  "handle": "@card_tester",
+  "badge": {
+    "text": "Verified from broker",
+    "tone": "up"
+  },
+  "headline": {
+    "label": "average return per trade",
+    "value": "+2.0%",
+    "tone": "up"
+  },
+  "range": "likely between +0.7% and +3.3%",
+  "evidence": "Evidence: thin",
+  "trust": {
+    "text": "Based on 6 separate bets over 17 days. Still early.",
+    "tone": "text"
+  },
+  "count": "6 trades",
+  "lossesIncluded": "losses included",
+  "period": "Record since Mar 2025 · 19 months",
+  "chart": {
+    "tone": "up",
+    "caption": "Return if every trade were the same size",
+    "zeroLabel": "0%",
+    "points": 7,
+    "end": 0.12583772082700007,
+    "min": 0,
+    "max": 0.12583772082700007,
+    "geometry": {
+      "wide": {
+        "width": 620,
+        "height": 176,
+        "gutter": 70,
+        "baseline": 172,
+        "line": "M70 172 L70 158.6 L180 118.2 L290 104.3 L400 62.2 L510 47.8 L620 4",
+        "area": "M70 172 L70 158.6 L180 118.2 L290 104.3 L400 62.2 L510 47.8 L620 4 L620 172 L70 172 Z",
+        "stop": 0.9772727272727273
+      },
+      "tall": {
+        "width": 952,
+        "height": 180,
+        "gutter": 70,
+        "baseline": 176,
+        "line": "M70 176 L70 162.3 L246.4 120.9 L422.8 106.7 L599.2 63.6 L775.6 48.8 L952 4",
+        "area": "M70 176 L70 162.3 L246.4 120.9 L422.8 106.7 L599.2 63.6 L775.6 48.8 L952 4 L952 176 L70 176 Z",
+        "stop": 0.9777777777777777
+      }
+    }
+  },
+  "message": null,
+  "link": "stocksocial.example/u/card_tester",
+  "disclaimer": "Not investment advice. Past performance does not guarantee future results.",
+  "alt": "Trading record card for @card_tester on Stock Social: Verified from broker. Card Tester. @card_tester. Verified from broker. average return per trade. +2.0%. likely between +0.7% and +3.3%. Evidence: thin. Based on 6 separate bets over 17 days. Still early. 0%. Return if every trade were the same size. 6 trades. losses included. Record since Mar 2025 · 19 months. stocksocial.example/u/card_tester. Not investment advice. Past performance does not guarantee future results. Line from 0% to +12.6% total, lowest 0.0%.",
+  "body": "record"
+}
+`;
+
+exports[`criterion 10: model snapshots (winning, losing, empty) 2`] = `
+{
+  "name": "Card Tester",
+  "handle": "@card_tester",
+  "badge": {
+    "text": "Verified from broker",
+    "tone": "up"
+  },
+  "headline": {
+    "label": "average return per trade",
+    "value": "−2.0%",
+    "tone": "down"
+  },
+  "range": "likely between −3.2% and −0.7%",
+  "evidence": "Evidence: thin",
+  "trust": {
+    "text": "Based on 6 separate bets over 17 days. Still early, and so far the average trade is a loss.",
+    "tone": "text"
+  },
+  "count": "6 trades",
+  "lossesIncluded": "losses included",
+  "period": "Record since Mar 2025 · 19 months",
+  "chart": {
+    "tone": "down",
+    "caption": "Return if every trade were the same size",
+    "zeroLabel": "0%",
+    "points": 7,
+    "end": -0.1117725214736669,
+    "min": -0.1117725214736669,
+    "max": 0,
+    "geometry": {
+      "wide": {
+        "width": 620,
+        "height": 176,
+        "gutter": 70,
+        "baseline": 4,
+        "line": "M70 4 L70 18.9 L180 62.2 L290 76.5 L400 118.2 L510 131.9 L620 172",
+        "area": "M70 4 L70 18.9 L180 62.2 L290 76.5 L400 118.2 L510 131.9 L620 172 L620 4 L70 4 Z",
+        "stop": 0.022727272727272728
+      },
+      "tall": {
+        "width": 952,
+        "height": 180,
+        "gutter": 70,
+        "baseline": 4,
+        "line": "M70 4 L70 19.2 L246.4 63.6 L422.8 78.3 L599.2 120.9 L775.6 135 L952 176",
+        "area": "M70 4 L70 19.2 L246.4 63.6 L422.8 78.3 L599.2 120.9 L775.6 135 L952 176 L952 4 L70 4 Z",
+        "stop": 0.022222222222222223
+      }
+    }
+  },
+  "message": null,
+  "link": "stocksocial.example/u/card_tester",
+  "disclaimer": "Not investment advice. Past performance does not guarantee future results.",
+  "alt": "Trading record card for @card_tester on Stock Social: Verified from broker. Card Tester. @card_tester. Verified from broker. average return per trade. −2.0%. likely between −3.2% and −0.7%. Evidence: thin. Based on 6 separate bets over 17 days. Still early, and so far the average trade is a loss. 0%. Return if every trade were the same size. 6 trades. losses included. Record since Mar 2025 · 19 months. stocksocial.example/u/card_tester. Not investment advice. Past performance does not guarantee future results. Line from 0% to −11.2% total, lowest −11.2%.",
+  "body": "record"
+}
+`;
+
+exports[`criterion 10: model snapshots (winning, losing, empty) 3`] = `
+{
+  "name": "Card Tester",
+  "handle": "@card_tester",
+  "badge": {
+    "text": "No broker connected",
+    "tone": "muted"
+  },
+  "headline": null,
+  "range": null,
+  "evidence": null,
+  "trust": null,
+  "count": null,
+  "lossesIncluded": null,
+  "period": null,
+  "chart": null,
+  "message": {
+    "title": "No closed trades yet",
+    "body": "The record starts with the first closed trade."
+  },
+  "link": "stocksocial.example/u/card_tester",
+  "disclaimer": "Not investment advice. Past performance does not guarantee future results.",
+  "alt": "Trading record card for @card_tester on Stock Social. Card Tester. @card_tester. No broker connected. No closed trades yet. The record starts with the first closed trade. stocksocial.example/u/card_tester. Not investment advice. Past performance does not guarantee future results.",
+  "body": "empty"
+}
+`;

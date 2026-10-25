@@ -380,9 +380,13 @@ test('tester fixtures: a 40-character name, a five-digit count with the longest 
   const f = card(WIN, { state: 'failed' });
   assert.equal(f.trust!.tone, 'warn');
   // O2 (logged, owner question): the arithmetic headline can sit outside the range centred on the geometric mean.
-  const vol = card(trades(Array.from({ length: 30 }, (_, i) => (i % 3 ? -0.3 : 0.9))));
-  const c = confidence(trades(Array.from({ length: 30 }, (_, i) => (i % 3 ? -0.3 : 0.9))), NOW);
-  assert.ok(vol.headline && vol.range && c.perTrade);
+  // 200 bets alternating −50% and +80%: the arithmetic average is +15.0%, the range around the geometric mean ends below.
+  const volatile = trades(Array.from({ length: 200 }, (_, i) => (i % 2 ? 0.8 : -0.5)));
+  const vol = card(volatile), c = confidence(volatile, NOW);
+  assert.equal(vol.headline!.value, '+15.0%');
+  assert.ok(c.perTrade && c.perTrade.high < 0.15, `range ${vol.range}`);
+  assert.equal(vol.evidence, 'Evidence: strong');
+  assert.match(vol.trust!.text, /A long record, with no clear pattern\.$/);
   const year = card(trades(wave(12, 0.02, 0.01), { start: Date.UTC(2025, 6, 1) }));
   assert.match(year.period!, /^Record since Jul 2025 · 15 months$/);
   assert.match(year.trust!.text, /over \d+ days/);
