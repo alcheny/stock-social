@@ -156,9 +156,9 @@ and the reason line's model call is behind an injected interface with its fallba
 1. ~~F-2 is a Phase 2 feature~~ Resolved 2026-10-22: phase limitations scratched by the owner; F-2
    builds in full in its number order. POLICY H's "Phase 2/3 features" clause and DESIGN §3.2 are the
    owner's to edit to match.
-2. **POLICY F1 says "no personalized suggestions"** literally. F-2 suggests records to read, not trades,
-   but the reviewer reads the policy as written. The owner amends the F1 wording (owner-only) or the
-   reviewer fails F-2.
+2. ~~**POLICY F1 says "no personalized suggestions"** literally.~~ Resolved 2026-10-25: the owner amended
+   F1 (new F1a): personalized discovery of traders and records to read is allowed; personalized
+   suggestions of securities or trades stay forbidden. Counsel (F-2 plan H2) still gates PR-5's build.
 3. **F-2 depends on features that do not exist**: follow and unfollow, "not interested", account
    deletion. Resolved 2026-10-22 as scope: F-2 includes a `follows` table with follow/unfollow on the
    profile, the "not interested" control, and account deletion (POLICY P6) with event tables cascading

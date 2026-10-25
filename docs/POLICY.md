@@ -88,8 +88,16 @@ owner has it reviewed by counsel (see **Before a public launch**).
 ## F. Financial regulation and consumer protection
 
 - **F1.** Stock Social publishes records; it never gives advice. No recommendations to buy, sell or hold
-  anything, no signals, no "top picks", no price targets, no personalized suggestions. Rankings are
-  ordered by the documented method and never presented as endorsement.
+  anything, no signals, no "top picks", no price targets, no personalized suggestions of securities or
+  trades. Rankings are ordered by the documented method and never presented as endorsement.
+  - **F1a** (amended by the owner 2026-10-25). Personalized discovery is allowed: the feed, sections and
+    profile rows may order **traders and closed records to read** per viewer, by that viewer's own
+    actions (what they read, followed, liked, hid or rejected). It never names a security to buy, sell or
+    hold, never ranks or scores a security, and is never phrased as a prompt to act. Every reason line
+    is a fact about the trader's record or the viewer's own actions ("You follow @x", "Similar holding
+    periods"), never a judgment of skill or a forecast (F3b). Copy never says buy, sell, hold, pick,
+    signal or advice. Counsel's opinion on the publisher's exclusion (COMPLIANCE §2) is still required
+    before behavior-based scoring is built and before real viewers see it.
 - **F2.** No promissory, misleading or exaggerated performance language anywhere in the product:
   "guaranteed", "risk-free", "can't lose", "proven strategy", "beat the market", "get rich", "easy
   money", "copy their trades". The scanner blocks these in product code.
