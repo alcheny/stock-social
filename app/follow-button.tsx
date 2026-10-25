@@ -33,7 +33,7 @@ export function FollowButton({ handle, following, signedIn }: { handle: string; 
   return (
     <>
       <form action={(on ? unfollowForm : followForm).bind(null, handle)} onSubmit={(e) => { e.preventDefault(); void set(!on); }} className="follow-form">
-        <button type="submit" className="secondary follow" aria-pressed={on}>{on ? FOLLOW.following : FOLLOW.follow}</button>
+        <button type="submit" className="secondary follow" aria-pressed={on} data-widest={FOLLOW.following}>{on ? FOLLOW.following : FOLLOW.follow}</button>
       </form>
       <p aria-live="polite" className="follow-status small">{said}</p>
     </>
