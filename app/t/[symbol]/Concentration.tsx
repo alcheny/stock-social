@@ -1,5 +1,5 @@
 import { concentration, MIN_REST, type TickerRow } from '@/lib/ticker.ts';
-import { pct, rangeText } from '@/lib/trades.ts';
+import { MIN_BETS, pct, rangeText, tooEarlyText } from '@/lib/trades.ts';
 import { Badge } from '../../ui.tsx';
 
 // Counts only: no handles, no links, no ranking. Says how much of the record rests on one trader.
@@ -23,8 +23,9 @@ export default function Concentration({ rows, symbol, demoOnly, mixed }: { rows:
           <p style={{ marginTop: 0 }}>The most active trader made {c.top} of {c.n} trades ({y}%).</p>
           <p data-testid="concentration-rest">
             Without them: {Math.round(rest.winRate! * 100)}% win rate, avg{' '}
-            <span className={rest.avgReturn! > 0 ? 'up' : rest.avgReturn! < 0 ? 'down' : undefined}>{pct(rest.avgReturn!)}</span>,{' '}
-            {rest.conf && rangeText(rest.conf) ? `${rangeText(rest.conf)} · 95% range` : `Too early to tell (${rest.conf?.k ?? 0} of 10 bets)`} over {rest.n} trades.
+            <span className={rest.avgReturn! > 0 ? 'up' : rest.avgReturn! < 0 ? 'down' : undefined}>{pct(rest.avgReturn!)}</span> over {rest.n} trades.
+            {rest.conf && rangeText(rest.conf) && ` ${rangeText(rest.conf)} · 95% range.`}
+            {(!rest.conf || rest.conf.tier === 'too-early') && ` ${rest.conf ? tooEarlyText(rest.conf) : `Too early to tell (0 of ${MIN_BETS} bets)`}.`}
           </p>
         </>
       )}

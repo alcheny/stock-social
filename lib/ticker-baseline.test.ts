@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { baselineVerdict, type Baseline, type TickerSummary } from './ticker.ts';
 
 const conf = (low: number, mid: number, high: number): TickerSummary['conf'] =>
-  ({ n: 20, k: 12, spanDays: 100, tier: 'thin', edge: 'unclear', perTrade: { low, mid, high }, pace30: null, tradesPerMonth: 5 });
+  ({ n: 20, k: 12, spanDays: 100, tier: 'thin', direction: 'unclear', perTrade: { low, mid, high }, pace30: null, tradesPerMonth: 5 });
 const summary = (over: Partial<TickerSummary> = {}): TickerSummary =>
   ({ n: 20, wins: 12, losses: 8, winRate: 0.6, avgReturn: 0.02, traders: 12, demoOnly: false, mixed: false, conf: conf(0.01, 0.03, 0.05), ...over });
 const base = (over: Partial<Baseline> = {}): Baseline => ({ n: 100, winRate: 0.5, perTrade: 0.02, demoOnly: false, ...over });
@@ -14,7 +14,7 @@ test('empty baseline', () => {
 });
 
 test('too few bets: no verdict, win rate delta still computed', () => {
-  const r = baselineVerdict(summary({ conf: { ...conf(0, 0, 0)!, perTrade: null, k: 3, tier: 'too-early', edge: null } }), base());
+  const r = baselineVerdict(summary({ conf: { ...conf(0, 0, 0)!, perTrade: null, k: 3, tier: 'too-early', direction: null } }), base());
   assert.equal(r.kind, 'too_few_trades');
   assert.ok(Math.abs(r.winRateDelta! - 0.1) < 1e-9);
   assert.equal(baselineVerdict(summary({ conf: null }), base()).kind, 'too_few_trades');
@@ -42,4 +42,13 @@ test('demo-only ticker never gets a verdict; mixed uses the interval', () => {
 test('winRateDelta is null when either side is null', () => {
   assert.equal(baselineVerdict(summary({ winRate: null }), base()).winRateDelta, null);
   assert.equal(baselineVerdict(summary(), base({ winRate: null })).winRateDelta, null);
+});
+
+// F-4 PR-1: a record too early by width keeps its range (shown from 5 bets), but "too early" draws no verdict.
+test('too early by width: the range is kept and no verdict is drawn', () => {
+  const wide = summary({ conf: { ...conf(-0.15, 0.04, 0.3)!, k: 7, tier: 'too-early', direction: null } });
+  assert.equal(baselineVerdict(wide, base({ perTrade: -0.5 })).kind, 'too_few_trades');
+  assert.equal(baselineVerdict(wide, base({ perTrade: 0.9 })).kind, 'too_few_trades');
+  // The same interval at tier thin compares as before.
+  assert.equal(baselineVerdict(summary({ conf: { ...conf(-0.15, 0.04, 0.3)!, k: 7 } }), base({ perTrade: -0.5 })).kind, 'clearly_higher');
 });

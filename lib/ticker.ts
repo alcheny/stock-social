@@ -18,7 +18,7 @@ export function baselineVerdict(summary: TickerSummary, baseline: Baseline): Bas
   if (baseline.n === 0 || baseline.perTrade === null) return out('empty');
   if (summary.demoOnly) return out('demo_only');
   const pt = summary.conf?.perTrade;
-  if (!pt) return out('too_few_trades');
+  if (!pt || summary.conf?.tier === 'too-early') return out('too_few_trades'); // F-4: too early by width keeps its range, draws no verdict
   if (baseline.perTrade > pt.high) return out('clearly_lower');
   if (baseline.perTrade < pt.low) return out('clearly_higher');
   return out('no_clear_difference');

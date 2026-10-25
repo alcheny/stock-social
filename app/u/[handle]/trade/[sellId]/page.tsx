@@ -60,8 +60,9 @@ export default async function TradePage({ params }: Params) {
           {whole.stats ? <>
             <p className="big">{(t.record.winRate * 100).toFixed(0)}%</p>
             <p className="muted small" style={{ marginTop: 0 }}>win rate · {n} closed trade{n === 1 ? '' : 's'} · {pct(t.record.avgReturn)} avg return</p>
-            <p className="small">{t.record.evidence}{t.record.range ? ` ${t.record.range}` : ''}</p>
-            {t.newRecord && <p className="muted small">Short record: {n} closed trade{n === 1 ? '' : 's'} so far. A short record shows wide uncertainty.</p>}
+            {t.record.range && <p className="small range">{t.record.range} · 95% range</p>}
+            <p className="small">{t.record.evidence}</p>
+            {t.newRecord && <p className="muted small">Short record: {n} closed trade{n === 1 ? '' : 's'} so far.{t.record.tooEarly ? ' A short record shows wide uncertainty.' : ''}</p>}
           </> : <p role="status" className="muted importing">{whole.line}</p>}
           <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
         </section>

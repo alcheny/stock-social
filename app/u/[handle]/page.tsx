@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
-import { confidence, edgeText, evidenceLine, isNewRecord, pct, rangeText, stats } from '@/lib/trades.ts';
+import { confidence, directionText, evidenceLine, isNewRecord, pct, rangeText, stats, TOO_EARLY_RULE } from '@/lib/trades.ts';
 import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
@@ -73,7 +73,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: profileCardAlt(user.handle, card) }] };
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete); with no
   // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
-  const statsText = `${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
+  const statsText = `${(s.winRate * 100).toFixed(0)}% win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
     description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }),
@@ -218,13 +218,13 @@ export default async function Profile({ params, searchParams }: Params) {
       </section>
       <div className="evidence">
         <p style={{ margin: 0 }}>
-          {c.edge
-            ? <>Past results: <b className={c.edge === 'positive' ? 'up' : c.edge === 'negative' ? 'down' : ''}>{edgeText(c.edge)}</b>{evidenceLine(c).slice(`Past results: ${edgeText(c.edge)}`.length)}</>
+          {c.direction
+            ? <>Past results: <b className={c.direction === 'positive' ? 'up' : c.direction === 'negative' ? 'down' : ''}>{directionText(c.direction)}</b>{evidenceLine(c).slice(`Past results: ${directionText(c.direction)}`.length)}</>
             : evidenceLine(c)}
         </p>
         <details>
           <summary>What&apos;s this?</summary>
-          95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence.
+          95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence. {TOO_EARLY_RULE}
         </details>
       </div>
       <section className="stats">

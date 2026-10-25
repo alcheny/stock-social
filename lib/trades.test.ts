@@ -130,7 +130,7 @@ test('pct: a value that rounds to zero never reads "-0.0%" or "+0.0%"', () => {
   assert.equal(pct(-0.004, 0), '0%');
   assert.equal(pct(-0.0005), '-0.1%');
   assert.equal(pct(0.0005), '+0.1%');
-  assert.equal(rangeText({ perTrade: { low: -0.008, high: -0.0001 } } as Parameters<typeof rangeText>[0]), '(-0.8% to 0.0%)');
+  assert.equal(rangeText({ perTrade: { low: -0.008, high: -0.0001 } } as Parameters<typeof rangeText>[0]), '(-0.8% to -0.01%)'); // F-4 PR-1 fix round 2 (UX lead D9): a non-zero bound keeps its sign, never "-0.0%"
 });
 
 test('pct: a loss short of -100% never rounds to a total loss', () => {

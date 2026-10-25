@@ -156,6 +156,193 @@ test('profile shows honest evidence, record-since and demo label at 360px', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+// F-4 PR-1 (criteria 2 and 3): the range is shown from 5 independent bets; "too early" is K < 5 or a range wider than
+// ±10 points, and a too-wide record keeps its range. No page says "of 10" (the old floor).
+test('F-4 PR-1: a 6-bet record shows its range and "Evidence: thin"; 4 bets read "4 of 5 bets"; a wide 6-bet record keeps its range and reads too wide', async ({ page }) => {
+  const { sql } = await import('../lib/db.ts');
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive'); // 6-close records join the feed while they exist
+  const ids: number[] = [];
+  const make = async (handle: string, rets: number[]) => {
+    const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+      insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, ${handle}, now(), a.id from a
+      on conflict (handle) do update set handle = excluded.handle returning id`;
+    ids.push(u.id as number);
+    await sql`delete from closed_trades where user_id = ${u.id}`;
+    const rows = rets.map((r, i) => ({ user_id: u.id, sell_id: `${handle}-${i}`, account_id: 'a', symbol: `TRN${i}`,
+      opened_at: new Date(Date.now() - (60 - i * 8) * 864e5), closed_at: new Date(Date.now() - (57 - i * 8) * 864e5), return_pct: r, holding_days: 3, verified: true }));
+    await sql`insert into closed_trades ${sql(rows)}`;
+  };
+  try {
+    await make('tr9_six', [0.012, 0.018, 0.009, 0.015, 0.011, 0.016]);
+    await make('tr9_four', [0.012, -0.018, 0.009, 0.015]);
+    await make('tr9_wide', [0.4, -0.35, 0.3, -0.3, 0.45, -0.25]);
+    await page.setViewportSize({ width: 360, height: 800 });
+
+    await page.goto('/u/tr9_six');
+    const six = page.locator('main');
+    await expect(six.locator('.stats .range')).toHaveText(/^\([-+]\d+\.\d{1,2}% to [-+]\d+\.\d{1,2}%\) · 95% range$/);
+    await expect(six.locator('.evidence p').first()).toHaveText(/^Past results: \w+( \w+)? · Evidence: thin \(6 bets, \d+ days\)$/);
+    expect(await six.innerText()).not.toMatch(/of 10 bets|10 independent|\bedge\b/i);
+
+    await page.goto('/u/tr9_four');
+    await expect(page.locator('main .evidence p').first()).toHaveText('Too early to tell (4 of 5 bets)');
+    await expect(page.locator('main .stats .range')).toHaveCount(0);
+
+    await page.goto('/u/tr9_wide');
+    await expect(page.locator('main .stats .range')).toHaveText(/ · 95% range$/);
+    await expect(page.locator('main .evidence p').first()).toHaveText(/^Too early to tell: the range is still too wide \(6 bets, \d+ days\)$/);
+    const wide = await page.locator('main').innerText();
+    expect(wide.match(/Too early to tell/g)?.length).toBe(1);
+    expect(wide).not.toMatch(/of 10 bets|10 independent|\bedge\b/i);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  } finally {
+    if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
+    await release();
+  }
+});
+
+// F-4 PR-1 fix round 1: UX lead D1–D3, D5, D7, D8; business lead demands 2, 3 and 7; tester M1 and M2.
+test('F-4 PR-1 fix 1: trade, month, ticker and compare pages say "too early" where the record is, label every range, and draw no count as the reason', async ({ page }) => {
+  const { sql } = await import('../lib/db.ts');
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive'); // 5+-close records join the feed while they exist
+  const ids: number[] = [];
+  const DAY = 864e5, now = Date.now();
+  type Row = { symbol: string; ret: number; ago: number; hold: number };
+  const make = async (handle: string, rows: Row[]) => {
+    const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+      insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, ${handle}, now(), a.id from a
+      on conflict (handle) do update set handle = excluded.handle returning id`;
+    ids.push(u.id as number);
+    await sql`delete from closed_trades where user_id = ${u.id}`;
+    await sql`insert into closed_trades ${sql(rows.map((r, i) => ({ user_id: u.id, sell_id: `${handle}-${i}`, account_id: 'a', symbol: r.symbol,
+      opened_at: new Date(now - (r.ago + r.hold) * DAY), closed_at: new Date(now - r.ago * DAY), return_pct: r.ret, holding_days: r.hold, verified: true })))}`;
+    return `${handle}-${rows.length - 1}`;
+  };
+  const series = (sym: (i: number) => string, rets: number[], hold = 1, step = 1.5) => rets.map((ret, i) => ({ symbol: sym(i), ret, ago: 0.5 + i * step, hold }));
+  const swing = (n: number, a = 0.35) => Array.from({ length: n }, (_, i) => (i % 2 ? a : -a + 0.05));
+  try {
+    const five = await make('f4x_five', series((i) => `F4XP${i}`, [0.012, 0.018, 0.009, 0.015, 0.011]));
+    const four = await make('f4x_four', series((i) => `F4XQ${i}`, [0.012, -0.018, 0.009, 0.015]));
+    const wide = await make('f4x_wide', series((i) => `F4XR${i}`, swing(8, 0.4)));
+    // Ticker F4XW: one leader (8 trades, 3-day holds) and two others (6 each, 10-day holds), all wide. F4XN: 6 narrow bets
+    // by one trader. F4XF: 4 bets.
+    await make('f4x_ta', series(() => 'F4XW', swing(8), 3, 4));
+    await make('f4x_tb', series(() => 'F4XW', swing(6), 10, 11));
+    await make('f4x_tc', series(() => 'F4XW', swing(6, 0.3), 10, 11));
+    await make('f4x_tn', series(() => 'F4XN', [0.012, 0.018, 0.009, 0.015, 0.011, 0.014], 1, 2));
+    await make('f4x_tf', series(() => 'F4XF', [0.012, -0.018, 0.009, 0.015], 1, 2));
+    await page.setViewportSize({ width: 360, height: 800 });
+    const noScroll = async () => expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const whole = page.locator('section[aria-labelledby="whole-record"]');
+
+    // D1, D7: the trade and month pages. A 5-bet narrow record shows its labelled range and no "wide uncertainty".
+    const ym = new Date(now - 0.5 * DAY).toISOString().slice(0, 7);
+    for (const path of [`/u/f4x_five/trade/${five}`, `/u/f4x_five/month/${ym}`]) {
+      await page.goto(path);
+      await expect(whole).toContainText('Short record: 5 closed trades so far.');
+      await expect(whole).not.toContainText('wide uncertainty');
+      await expect(whole.getByText(/^\([-+]\d+\.\d{1,2}% to [-+]\d+\.\d{1,2}%\) · 95% range$/)).toBeVisible();
+      expect(await page.locator('main').innerText()).not.toContain(') (');
+      await noScroll();
+    }
+    for (const [h, sell] of [['f4x_four', four], ['f4x_wide', wide]]) {
+      await page.goto(`/u/${h}/trade/${sell}`);
+      await expect(whole).toContainText('A short record shows wide uncertainty.');
+      expect(await page.locator('main').innerText()).not.toContain(') (');
+    }
+    await expect(whole.getByText(/ · 95% range$/)).toBeVisible(); // the wide record's range is labelled
+
+    // D5, D8, M1, M2, BL 2/3/7: the wide ticker.
+    await page.goto('/t/F4XW');
+    const main = page.locator('main');
+    await expect(main.locator('.stats')).toContainText('· 95% range');
+    await expect(main.locator('.stats')).toContainText('Too early to tell: the range is still too wide (');
+    const text = await main.innerText();
+    expect(text.match(/Too early to tell: the range is still too wide \(20 bets/g)?.length).toBe(1); // the stock's own record, once
+    expect(text).not.toMatch(/Not enough independent bets|\bsignal/i);
+    await expect(page.getByTestId('baseline')).toContainText('Not enough evidence for a comparison yet.');
+    for (const row of await page.getByTestId('hold-time').locator('tbody tr').all()) {
+      const cell = await row.innerText();
+      if (cell.includes('95% range')) expect(cell).toContain('Too early to tell'); // every shown bucket here is too wide
+    }
+    const rest = await page.getByTestId('concentration-rest').innerText();
+    expect(rest).toMatch(/^Without them: \d+% win rate, avg [-+]\d+\.\d% over 12 trades\. \([-+]\d+\.\d{1,2}% to [-+]\d+\.\d{1,2}%\) · 95% range\. Too early to tell: the range is still too wide \(12 bets, \d+ days\)\.$/);
+    expect(rest.match(/over 12 trades/g)?.length).toBe(1);
+    await noScroll();
+    // A thin ticker's summary never says too early; a 4-bet ticker says it once.
+    await page.goto('/t/F4XN');
+    await expect(main.locator('.stats')).toContainText('· 95% range');
+    await expect(main.locator('.stats')).not.toContainText('Too early');
+    await page.goto('/t/F4XF');
+    expect((await main.innerText()).match(/Too early to tell/g)?.length).toBe(1);
+
+    // D3, BL 7: compare columns say it once each, from the evidence line.
+    await page.goto('/t/compare?a=F4XW&b=F4XF');
+    const cmp = await main.innerText();
+    expect(cmp).not.toMatch(/too early\. Too early/i);
+    for (const col of await main.locator('section .evidence p').all()) await expect(col).toHaveText(/^Too early to tell/);
+    expect(cmp.match(/Too early to tell/g)?.length).toBe(2);
+    await noScroll();
+  } finally {
+    if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
+    await release();
+  }
+});
+
+// F-4 PR-1 fix round 2: business lead demand 8 (no word split in the hold-time table at 360 and 375 px) and UX lead N4
+// (an all-loss record's preview text reads "0% win rate").
+test('F-4 PR-1 fix 2: the hold-time cell says "Too early to tell" without splitting a word; an all-loss profile previews "0% win rate"', async ({ page }) => {
+  const { sql } = await import('../lib/db.ts');
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('exclusive');
+  const ids: number[] = [];
+  const DAY = 864e5, now = Date.now();
+  const make = async (handle: string, rows: { symbol: string; ret: number; ago: number; hold: number }[]) => {
+    const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+      insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, ${handle}, now(), a.id from a
+      on conflict (handle) do update set handle = excluded.handle returning id`;
+    ids.push(u.id as number);
+    await sql`delete from closed_trades where user_id = ${u.id}`;
+    await sql`insert into closed_trades ${sql(rows.map((r, i) => ({ user_id: u.id, sell_id: `${handle}-${i}`, account_id: 'a', symbol: r.symbol,
+      opened_at: new Date(now - (r.ago + r.hold) * DAY), closed_at: new Date(now - r.ago * DAY), return_pct: r.ret, holding_days: r.hold, verified: true })))}`;
+  };
+  try {
+    // The committee's bl2f4_cb shape: 3 + 2 overlapping 20-day trades in one stock, so the bucket has 5 trades in 2 bets.
+    await make('f4y_ca', [0, 1, 2].map((i) => ({ symbol: 'F4YC', ret: 0.02 - i * 0.01, ago: 1 + i, hold: 20 })));
+    await make('f4y_cb', [0, 1].map((i) => ({ symbol: 'F4YC', ret: 0.015 - i * 0.02, ago: 1 + i, hold: 20 })));
+    await make('f4y_loss', [-0.01, -0.02, -0.015, -0.012, -0.018, -0.011].map((ret, i) => ({ symbol: `F4YL${i}`, ret, ago: 1 + i * 4, hold: 3 })));
+    for (const width of [360, 375]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/t/F4YC');
+      const cells = page.getByTestId('hold-time').locator('tbody');
+      await expect(cells).toContainText('Too early to tell');
+      await expect(cells).not.toContainText('independent bets needed'); // the short form in the cell
+      // Every word in the table body sits on one line box: a word split across lines has more than one client rect.
+      const split = await cells.evaluate((root) => {
+        const out: string[] = [];
+        const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          for (const m of (n.textContent ?? '').matchAll(/\S+/g)) {
+            const r = document.createRange();
+            r.setStart(n, m.index!); r.setEnd(n, m.index! + m[0].length);
+            if (r.getClientRects().length > 1) out.push(m[0]);
+          }
+        }
+        return out;
+      });
+      expect(split, `split words at ${width} px`).toEqual([]);
+    }
+    await page.goto('/u/f4y_loss');
+    const desc = await page.locator('meta[name="description"]').getAttribute('content');
+    expect(desc).toMatch(/· 0% win rate · /);
+  } finally {
+    if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
+    await release();
+  }
+});
+
 test('unknown profile is a 404', async ({ page }) => {
   expect((await page.goto('/u/nobody_here'))?.status()).toBe(404);
 });
@@ -981,7 +1168,7 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
         ? { closedAt: new Date(now - (i + 1 + h * 0.05) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5, symbol: `Z${L(h)}${L(Math.floor(h / 26))}${L(i)}` }
         : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length);
       made.push(t);
-      // Each ranks with a confident edge (TR-9), as the feed computes it, so its 5 fresh cards outrank every older close.
+      // Each ranks with a clear direction (TR-9), as the feed computes it, so its 5 fresh cards outrank every older close.
       const rows = await t.sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${t.id}`;
       expect(evidenceWeight(confidence(rows.map((r) => ({ symbol: r.symbol, openedAt: r.opened_at, closedAt: r.closed_at, returnPct: r.return_pct, holdingDays: r.holding_days })), new Date()))).toBeGreaterThan(0);
     }

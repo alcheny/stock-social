@@ -1,5 +1,5 @@
 import type { BaselineResult, TickerSummary } from '@/lib/ticker.ts';
-import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
+import { pct, rangeText } from '@/lib/trades.ts';
 import { Badge } from '../../ui.tsx';
 
 const wr = (x: number | null) => (x === null ? 'n/a' : `${Math.round(x * 100)}%`);
@@ -36,7 +36,7 @@ export default function Baseline({ result, summary, symbol }: { result: Baseline
           {kind === 'clearly_lower' && <p data-testid="baseline-verdict">This stock&apos;s per-trade return range {range} sits below the average for all other stocks ({base}).</p>}
           {kind === 'clearly_higher' && <p data-testid="baseline-verdict">This stock&apos;s per-trade return range {range} sits above the average for all other stocks ({base}).</p>}
           {kind === 'no_clear_difference' && <p data-testid="baseline-verdict">No clear difference: the average for all other stocks ({base}) falls inside this stock&apos;s range {range}.</p>}
-          {kind === 'too_few_trades' && <p>{c ? evidenceLine(c) : 'Too early to tell'}. Not enough independent bets for a comparison yet.</p>}
+          {kind === 'too_few_trades' && <p>Not enough evidence for a comparison yet.</p>}
           {demo && <p>Sample data. No comparison verdict is drawn from sample data.</p>}
           <p className="muted small">Win rate is shown for context. No range exists for it, so no verdict is drawn from it.</p>
           <p className="muted small">Baseline = {demo ? 'sample' : 'verified'} closed trades in all other stocks, pooled, as the geometric per-trade mean. {symbol} is excluded. Different traders, sizes and timing. This is context, not a prediction.</p>

@@ -43,3 +43,11 @@ test('newRecord: fewer than 10 trades, or under 30 days', () => {
   assert.equal(tradeSharePayload(input({}, 10), TODAY).newRecord, false);
   assert.equal(tradeSharePayload(input({}, 10), new Date('2026-01-20T00:00:00Z')).newRecord, true);
 });
+
+// F-4 PR-1 fix round 1 (UX lead D1): the "wide uncertainty" sentence follows the TR-9 state, not the closed count.
+test('D1: record.tooEarly is the TR-9 too-early state (5 narrow bets: no; 4 bets or a wide record: yes)', () => {
+  assert.equal(tradeSharePayload(input({}, 5), TODAY).record.tooEarly, false);
+  assert.equal(tradeSharePayload(input({}, 4), TODAY).record.tooEarly, true);
+  const wide = Array.from({ length: 8 }, (_, i) => mk(i, i % 2 ? 0.4 : -0.3));
+  assert.equal(tradeSharePayload(input({ allTrades: wide }), TODAY).record.tooEarly, true);
+});

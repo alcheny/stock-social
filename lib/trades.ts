@@ -208,13 +208,27 @@ export function rangeReturn(trades: { returnPct: number; closedAt: Date }[], key
 
 export type ConfidenceInput = Pick<ClosedTrade, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct' | 'holdingDays'>;
 export type Tier = 'too-early' | 'thin' | 'moderate' | 'strong';
-export type Edge = 'positive' | 'negative' | 'unclear';
-export const edgeText = (e: Edge | null) => (e === 'positive' ? 'above zero' : e === 'negative' ? 'below zero' : 'unclear');
+export type Direction = 'positive' | 'negative' | 'unclear';
+export const directionText = (e: Direction | null) => (e === 'positive' ? 'above zero' : e === 'negative' ? 'below zero' : 'unclear');
 
 export type Interval = { low: number; mid: number; high: number };
+// F-4 (owner, 2026-10-22): "too early" is a model state, never a count of trades. Fewer than MIN_BETS independent bets,
+// or a per-trade interval whose half-width exceeds TOO_WIDE (simple-return points per trade). These are the threshold
+// "recorded in the design record" (IMPLEMENTATION conflict 8); DESIGN TR-9 states the same rule.
+export const MIN_BETS = 5;
+export const TOO_WIDE = 0.10;
+// Exactly 10 points is not too wide at any magnitude: the 1e-12 absorbs rounding (0.9 − 0.7 is 0.20000000000000007).
+export const tooWide = (iv: Interval) => (iv.high - iv.low) / 2 > TOO_WIDE + 1e-12;
+// F-4 PR-1 ruling H1 (business lead, ruling-pr1-h1.md): a variance floor and a ranking floor. The spread never falls
+// below a 1% move per √day held, weighted as PRIOR_BETS bets, so 5 identical trades never print a zero-width range; a
+// record ranks on weight only from RANK_MIN_BETS bets (display keeps MIN_BETS).
+export const SIGMA_DAY = 0.01, PRIOR_BETS = 5;
+export const RANK_MIN_BETS = 10;
+// Shown on the profile under "What's this?" (UX lead D6), built from the constants.
+export const TOO_EARLY_RULE = `It says too early to tell until there are at least ${MIN_BETS} independent bets and the range is no more than ${Math.round(2 * TOO_WIDE * 100)} points wide.`;
 export type Confidence = {
   n: number; k: number; spanDays: number;
-  tier: Tier; edge: Edge | null;
+  tier: Tier; direction: Direction | null;
   perTrade: Interval | null; // simple returns (0.013 = +1.3%)
   pace30: Interval | null; // per 30 days invested
   tradesPerMonth: number;
@@ -254,55 +268,75 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   const k = clusters.length;
   const spanDays = n ? (Math.max(...trades.map((t) => t.closedAt.getTime())) - Math.min(...trades.map((t) => t.openedAt.getTime()))) / DAY : 0;
   const tradesPerMonth = (n / Math.max(spanDays, 30)) * 30; // display only
-  const tier: Tier = k < 10 ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
+  const tier: Tier = k < MIN_BETS ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
   const base = { n, k, spanDays, tradesPerMonth };
-  if (tier === 'too-early') return { ...base, tier, edge: null, perTrade: null, pace30: null };
+  if (tier === 'too-early') return { ...base, tier, direction: null, perTrade: null, pace30: null };
 
   const t = tCrit95(k - 1);
   const sumX = clusters.reduce((a, c) => a + c.x, 0);
   const sumD = clusters.reduce((a, c) => a + c.d, 0);
   const m = sumX / n;
-  const seM = Math.sqrt((k / (k - 1)) * clusters.reduce((a, c) => a + (c.x - c.n * m) ** 2, 0)) / n;
+  // Ruling H1: S is the sum of squared cluster residuals; the spread is the larger of the sample's own and the sample
+  // moderated toward SIGMA_DAY per √day held (as if PRIOR_BETS bets at that spread had been seen). Both SEs use it.
+  const spread = (S: number) => Math.sqrt(Math.max((k / (k - 1)) * S, (PRIOR_BETS * SIGMA_DAY ** 2 * sumD + k * S) / (PRIOR_BETS + k - 1)));
+  const seM = spread(clusters.reduce((a, c) => a + (c.x - c.n * m) ** 2, 0)) / n;
   const R = sumX / sumD;
-  const seR = Math.sqrt((k / (k - 1)) * clusters.reduce((a, c) => a + (c.x - R * c.d) ** 2, 0)) / sumD;
+  const seR = spread(clusters.reduce((a, c) => a + (c.x - R * c.d) ** 2, 0)) / sumD;
   const perTrade = { low: Math.expm1(m - t * seM), mid: Math.expm1(m), high: Math.expm1(m + t * seM) };
   const pace30 = { low: Math.expm1(30 * (R - t * seR)), mid: Math.expm1(30 * R), high: Math.expm1(30 * (R + t * seR)) };
   if (![...Object.values(perTrade), ...Object.values(pace30)].every(Number.isFinite)) {
-    return { ...base, tier: 'too-early', edge: null, perTrade: null, pace30: null };
+    return { ...base, tier: 'too-early', direction: null, perTrade: null, pace30: null };
   }
-  const edge: Edge = pace30.low > 0 ? 'positive' : pace30.high < 0 ? 'negative' : 'unclear';
-  return { ...base, tier, edge, perTrade, pace30 };
+  // Too early by width: the range is still shown (it is the honest statement of how little is known), with no direction.
+  if (tooWide(perTrade)) return { ...base, tier: 'too-early', direction: null, perTrade, pace30 };
+  const direction: Direction = pace30.low > 0 ? 'positive' : pace30.high < 0 ? 'negative' : 'unclear';
+  return { ...base, tier, direction, perTrade, pace30 };
 }
 
 const plural = (n: number, w: string) => counted(n, w);
 
-// Plain text shared by the profile, the share card and page metadata. Negative edges read the same as positive.
+// Plain text shared by the profile, the share card and page metadata. Negative directions read the same as positive.
 // F-1 PR-3 fix round 4 (UX lead note 3): when trades outnumber bets, the line says why. Same-stock trades whose holds
 // overlap (in any account) are one bet, so a trader who scales in and out of a held position, or holds one stock in
 // several accounts, has few independent bets however many trades: "2,828 trades in 9 overlapping positions".
 export function evidenceLine(c: Confidence): string {
   const grouped = c.n > c.k;
-  if (c.tier === 'too-early' || !c.edge) {
-    return grouped
-      ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (10 independent bets needed)`
-      : `Too early to tell (${count(c.k)} of 10 bets)`;
-  }
-  return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
+  if (c.tier === 'too-early' || !c.direction) return tooEarlyText(c);
+  return `Past results: ${directionText(c.direction)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
 }
 
-export const rangeText = (c: Confidence): string | null =>
-  c.perTrade ? `(${pct(c.perTrade.low)} to ${pct(c.perTrade.high)})` : null;
+// The one "too early" sentence, for every page. Too early by width (K ≥ MIN_BETS) names the width, never "12 of 5 bets".
+export function tooEarlyText(c: Confidence): string {
+  // UX lead D4: when trades outnumber bets the sentence names them, as the thin line does.
+  if (c.k >= MIN_BETS) return `Too early to tell: the range is still too wide (${plural(c.k, 'bet')}${c.n > c.k ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
+  return c.n > c.k
+    ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (${MIN_BETS} independent bets needed)`
+    : `Too early to tell (${count(c.k)} of ${MIN_BETS} bets)`;
+}
 
-// TR-7: under 30 days of history or fewer than 10 closed trades.
+// UX lead D9: a non-zero bound that rounds to 0.0% keeps its sign with 2 decimals ("-0.02%"), so a range beside
+// "below zero" never appears to reach zero. Range bounds only; the headline keeps pct().
+const bound = (x: number) => (x !== 0 && Number((x * 100).toFixed(1)) === 0 ? `${x > 0 ? '+' : '-'}${Math.abs(x * 100).toFixed(2)}%` : pct(x));
+export const rangeText = (c: Confidence): string | null =>
+  c.perTrade ? `(${bound(c.perTrade.low)} to ${bound(c.perTrade.high)})` : null;
+
+// TR-7: under 30 days of history or fewer than 10 closed trades. The 10 is TR-7's (decided 2026-10-13), not the TR-9
+// floor (MIN_BETS), and counts closed trades, not independent bets.
 export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, today: Date): boolean {
   if (!trades.length) return true;
   const first = Math.min(...trades.map((t) => t.openedAt.getTime()));
   return (today.getTime() - first) / DAY < 30 || closedCount < 10;
 }
 
-// Feed order: traders with a confident edge first (weight > 0), by weight × score; the rest keep score order.
+// Feed order: traders with a clear direction first (weight > 0), by weight × score; the rest keep score order.
 // weight = log-distance of the pace interval from zero in either direction, so equal losses and gains tie.
-export const evidenceWeight = (c: Confidence): number => (c.pace30 ? Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high)) : 0);
+// F-4: a too-early record weighs 0, including one too early by width that keeps its intervals. Ruling H1: so does any
+// record under RANK_MIN_BETS bets, so ranking is unchanged from main for 5 to 9 bets (small lucky samples can't top it).
+// Tester L5: capped at WEIGHT_CAP, a pace of e^30 per 30 days either way that no real record reaches; a run of total
+// losses (pace −100%, log1p = −∞) then weighs a finite amount instead of Infinity.
+const WEIGHT_CAP = 30;
+export const evidenceWeight = (c: Confidence): number => (c.pace30 && c.tier !== 'too-early' && c.k >= RANK_MIN_BETS
+  ? Math.min(WEIGHT_CAP, Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high))) : 0);
 
 export function rankTraders<T extends { weight: number; score: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => {

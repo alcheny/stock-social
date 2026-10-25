@@ -80,3 +80,10 @@ test('wholeRecord newRecord uses isNewRecord', () => {
     assert.equal(w.trades, n);
   }
 });
+
+// F-4 PR-1 fix round 1 (UX lead D1): the whole record carries the TR-9 too-early state for the month page.
+test('D1: wholeRecord().tooEarly is the TR-9 too-early state', () => {
+  assert.equal(wholeRecord(sept(5), NOW).tooEarly, false);
+  assert.equal(wholeRecord(sept(4), NOW).tooEarly, true);
+  assert.equal(wholeRecord(sept(8).map((t, i) => ({ ...t, returnPct: i % 2 ? 0.4 : -0.3 })), NOW).tooEarly, true);
+});

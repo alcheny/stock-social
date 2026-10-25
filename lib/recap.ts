@@ -50,7 +50,7 @@ export function monthRecap(all: RecapTrade[], ym: string, now: Date) {
 export function wholeRecord(all: RecapTrade[], now: Date) {
   const s = stats(all.map(toStat));
   const c = confidence(all, now);
-  return { trades: s.trades, winRate: s.winRate, avgReturn: s.avgReturn, evidence: evidenceLine(c), range: rangeText(c), newRecord: isNewRecord(all, all.length, now) };
+  return { trades: s.trades, winRate: s.winRate, avgReturn: s.avgReturn, evidence: evidenceLine(c), range: rangeText(c), tooEarly: c.tier === 'too-early', newRecord: isNewRecord(all, all.length, now) };
 }
 
 export function latestRecapYm(trades: { closedAt: Date }[]): string | null {
