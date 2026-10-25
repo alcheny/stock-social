@@ -184,3 +184,80 @@ one sentence."
   question, never as a quiet weight change.
 
 COMPLIANCE: PASS · USABILITY: DEMANDS (1 restate the reach assertion with no section row counted as unseen, plus per-seed newcomer-seen and ≥3-sections assertions [blocking]; 2 baseline too-wide line drops the "independent bets" reason; 3 concentration sentence count once, too-early as its own sentence; 4 log: branch name, share-range claim; 5 PR body ## Compliance; 6 merge F-2 PR-4 first, re-check the combined slot line; 7 follow-up: one "too early" per ticker/compare surface)
+
+## Round 2
+
+Date: 2026-10-25. Build: `autopilot/feature-4-tr9` at `7ec3c28` (fix round 1 = `8c27c88..7ec3c28`). Read: the fix-round
+diff, `ruling-pr1-h1.md`, the "Fix round 1" table in `build-pr1-engineer.md`, `pr1-body.md`, `committee-pr1-ux-lead.md`,
+`test-pr1-tester.md`, F-4 owner decisions (the 2026-10-24 negative trust lines are PR 2's; this diff has none of them,
+correctly). User test on the running server at http://localhost:3600, database `stock_social_f4`, 13 fixture users
+`bl2f4_*` created under the exclusive feed lock and deleted (0 left). Midway through, Postgres on 5432 stopped answering
+(not caused by this test; I didn't start or restart anything), so one follow-up screenshot was made by cropping the
+375 px capture already taken. Nothing here is legal advice.
+
+**Verdict: the ruling is applied exactly, every round-1 demand is met, and one new small demand (a 375 px word break this
+round introduced) stands between this PR and merge.**
+
+### Ruling H1, checked line by line
+
+| Ruling item | Verdict | Evidence |
+|---|---|---|
+| §1 constants `SIGMA_DAY = 0.01, PRIOR_BETS = 5`, `RANK_MIN_BETS = 10` | Applied exactly | `lib/trades.ts` (both lines as ruled; comment cites the ruling) |
+| §1 one `spread(S)` helper feeds both SEs | Applied exactly | The expression is character-for-character the ruling's; `seM` and `seR` both call it |
+| §1 `evidenceWeight` 0 below 10 bets | Applied, plus the L5 cap | `c.k >= RANK_MIN_BETS` guard as ruled. Also `Math.min(30, …)`, the tester's L5 that I had put out of scope; the coordinator asked for it. It changes no weight below a pace of e^30 per 30 days, so no reachable ranking moves, and it turns an Infinity into a finite number. Accepted |
+| §3 tests first, failing | Verified | I ran `lib/confidence.test.ts` (unchanged since `35f322f`) against `lib/` at `35f322f`. It fails at import (`RANK_MIN_BETS`); with stub exports, 9 tests fail, including all 3 H1 tests and both moved expectations. At HEAD: 51/51 pass across confidence, ticker-baseline, recap, trade-share and month-card |
+| §4 C3 deleted; PR no longer touches `lib/feed.ts`, `lib/discovery/section.ts` | Verified | `git diff 0666990 7ec3c28 --stat` lists neither; `git diff 0666990 -- lib/feed.ts lib/discovery lib/feed.reach.test.ts` is empty (0 bytes) |
+| §3 `lib/feed.reach.test.ts` byte-identical and passing | Verified | 3/3 pass on `stock_social_f4`; `# reach:` newcomers 5/5 on 6 seeds, 4/5 on one, sections with a newcomer 3–4, rows with no earlier card 12/12, union 104 of 105, repeated runs 0, hot 36–37/60. These match the ruling's scratch figures |
+| §5 M3 symmetry test; L1 | Delivered | Sweep test present and passing. L1 uses `1e-12` rather than my suggested `1e-9`, so the existing boundary assertion (`0.10 + 1e-9` is too wide) stays as written. That reason holds |
+| §7.3 log hygiene and §2 table from the real build | Delivered | The Weight line reads "ranking unchanged from main for 5 to 9 bets". The measured table matches §2 row for row, demo dan included (0.021, +0.3% to +1.4%) |
+
+**Measured on the running app (375 px, signed out):**
+
+| Fixture | What the page shows | Ruled |
+|---|---|---|
+| 5 identical +2% trades, 3-day holds | "(+0.4% to +3.6%) · 95% range", "Evidence: thin (5 bets, 19 days)"; the same on its trade and month pages | (+0.4% to +3.6%): exact. Tester demand 5's `zerovar` check passes |
+| Tester's lucky 5 | "(+0.9% to +3.2%)", thin | Exact |
+| 40 bets / 150 bets | (+1.5% to +2.4%) moderate / (+0.5% to +1.1%) strong | Exact |
+| 6 losses | "(-5.9% to -4.1%) · 95% range", "below zero", thin | Mirrors the gains |
+| `feedList()` and `/` | 150-bet record is card 1, 40-bet card 2, **lucky card 17** | Lucky never tops the feed |
+
+### Round-1 demands
+
+| # | Demand | Verdict | Evidence |
+|---|---|---|---|
+| 1 | Restate the reach assertion | Withdrawn by the ruling | The original passes unchanged (above) |
+| 2 | Baseline gives no count as the reason when too wide | **Met, different words** | Reads "Not enough evidence for a comparison yet." for both reasons (UX D2). It is true in both cases and drops a third "too early" from the page, so it is better than my wording. Seen on `/t/BLZW` (wide) and `/t/BLZF` (4 bets); "Not enough independent bets" appears nowhere |
+| 3 | Concentration count once; too early as its own sentence | **Met** | ZQC shape (`/t/BLZC`): "Without them: 100% win rate, avg +1.2% over 5 trades. Too early to tell: 5 trades in 2 overlapping positions (5 independent bets needed)." Wide shape: "… over 6 trades. (-33.4% to +41.8%) · 95% range. Too early to tell: the range is still too wide (6 bets, 65 days)." |
+| 4 | Branch name; share-range claim | **Met** | HEAD is on `autopilot/feature-4-tr9`; the log names the branch, DB and ports and corrects the claim (unfurl image: evidence line only; card range in PR 2/3) |
+| 5 | PR body `## Compliance`, 11 answers | **Met, one overstatement** | All 11 answers are present. Item 1 says "Small samples can no longer top the feed". That is true only below 10 bets, and the body's own Known limits says so. New demand 9 |
+| 6 | Merge F-2 PR-4 first | Withdrawn by the ruling | No file overlap (above) |
+| 7 | One "too early" per surface (follow-up) | **Done early for the stock's own record** | Ticker: the stock's sentence appears once, under its range. Compare: the bold "too early." prefix is gone; one sentence per column (2 on the page). `/t/BLZF` says it exactly once. On `/t/BLZW` the page still shows 4: stock, the rest without the leader, and 2 hold-time buckets. Each is a different record, as the log argues. It is still dense for a first-time reader; UX lead's follow-up, not this PR |
+
+Every page checked returned 200 in 39–285 ms with `scrollWidth` 375. None contained "of 10 bets", "10 independent", "edge",
+"signal" or "Not enough independent bets". The disclaimer is in every footer.
+
+### New demand
+
+8. **Engineer: the hold-time cell must not break a word at 375 px.** On `/t/BLZC` the "7 to under 28 days" row prints
+   the bucket's `tooEarlyText` in the ~65 px Avg return column. At 375 px it reads "(5 **independen / t** bets
+   needed)" over 8 lines. The cause is `.hold-table small.range { overflow-wrap: anywhere }` meeting the long sentence
+   that M1 put into this cell; the old "(4 of 10 bets)" never had a word that long. It is reachable whenever a bucket has
+   5 or more trades in fewer than 5 positions.
+   - Fix: in this cell only, print the short form ("Too early to tell"). The full sentence already appears for the
+     stock under the summary. Alternatively, find any layout where no word breaks at 360 and 375 px; UX lead's call.
+   - Verify: an e2e line at 360 px on a bucket shaped like `bl2f4_cb` (3 + 2 overlapping 20-day trades) asserts that no
+     word in the hold-time table is split. One way is to compare each text node's word count against
+     `getClientRects()`; a visual check of the screenshot also works.
+   - The header "Trade/s" break in the same table is older than F-4: follow-up.
+9. **Engineer, PR body, text only:** compliance item 1 reads "Records under 10 bets can no longer top the feed (ruling
+   H1); from 10 bets this holds in probability, as on main (Known limits)." A completeness claim in our own compliance
+   answer is the habit POLICY bans in product copy.
+
+### Scorecard change
+
+Trust and compliance stays 5. Craft and taste stays 4 until demand 8: one broken word on a trust surface at the width
+most users read. Simplicity stays 5: +81/−45 product lines, C3's machinery deleted rather than patched.
+
+COMPLIANCE: PASS · USABILITY: DEMANDS (8 hold-time cell breaks "independen/t" at 375 px: short form in the cell or a no-break layout, with a 360 px e2e check; 9 PR body compliance item 1 scoped to "under 10 bets")
+
+Ready to merge: no. Both demands are fix-round size; once 8 and 9 are met as worded, no committee round 3 is needed from me. A green e2e line plus the edited body is enough.

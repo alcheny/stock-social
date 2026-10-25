@@ -131,3 +131,91 @@ PR already edits. None changes an owner decision, the model, the ranking or a te
 direction. After the fix round, I re-check F1–F8 on the same preview with the same fixture shapes.
 
 COMPLIANCE: PASS · USABILITY: DEMANDS (D1 short-record sentence contradicts a narrow range on trade/month pages; D2 baseline "not enough independent bets" false when too wide; D3 compare "too early. Too early"; D4 too-wide line drops "from N trades"; D5 ticker first screen lacks "too early"; D6 explain when "too wide" ends; D7 unlabelled range on trade/month pages; D8 "signal" in hold-time note)
+
+## Round 2
+
+Date: 2026-10-25. Build under review: fix round 1, `8c27c88..7ec3c28`, on branch `autopilot/feature-4-tr9`. Read:
+`ruling-pr1-h1.md`, `test-pr1-tester.md`, and the "Fix round 1" table in `build-pr1-engineer.md`.
+
+### Method
+
+- **Preview and viewer.** The same preview on :3600 (`stock_social_f4`), not rebuilt or stopped. A signed-out
+  first-time viewer.
+- **Browser.** Playwright Chromium at 360 px (light) and 375 px (dark), full-page screenshots with every `<details>`
+  open, saved in `screenshots/pr1-ux2/` as `<page>-<width>-<scheme>.png`.
+- **Fixtures.** 15 users under `ux2f4_`, with the same shapes as round 1 (four, five, neg, wide, grp, grpw, big, and
+  t1–t7 behind U2TW wide, U2TN thin, U2T4 4 bets, U2TO overlapping). I added one: `same`, 5 identical +2% bets
+  (ruling H1). I deleted them all afterwards along with their `signup_attempts` rows. Count after the delete: 0 users,
+  0 closes.
+- **Pages.** 24 pages at each width: 8 profiles, 4 tickers, 3 compares, 5 trade pages, 3 month pages, and the feed.
+- **Text scan on every page.** Each page was checked for:
+  - the banned terms in the page text and the meta tags;
+  - the stale patterns "of 10 bets", "10 independent", "Not enough independent bets", "too early. Too early", ") (",
+    and any range without "· 95% range" next to it;
+  - horizontal scroll;
+  - the F3 disclaimer.
+- **Results of the scan.**
+  - 0 banned terms.
+  - 0 horizontal scroll.
+  - The disclaimer is on all 48 page views.
+  - 0 stale patterns. The one regex hit was the ticker's baseline verdict, which quotes the range inside a sentence;
+    that is correct.
+
+### Demands from round 1
+
+| # | Verdict | Evidence |
+|---|---|---|
+| D1 | **Met** | The 5-bet trade and month pages read "Short record: 5 closed trades so far." with no "wide uncertainty" (`trade-five-*`, `month-five-*`). The same holds for the 5 identical bets (`trade-same-*`). The 4-bet pages (`trade-four-*`, `month-four-*`) and the wide 8-bet pages (`trade-wide-*`, `month-wide-*`) still print the sentence, and it is true there |
+| D2 | **Met** | The wide ticker reads "Not enough evidence for a comparison yet." with no count as the reason. The tickers with 4 bets and with overlapping trades read the same. No page says "Not enough independent bets" (`t-*`) |
+| D3 | **Met** | No "too early. Too early" anywhere. Each compare column says it once, and only in the evidence line: "Too early to tell: the range is still too wide (9 bets, 28 days)", "Too early to tell (4 of 5 bets)", "Too early to tell: 7 trades in 2 overlapping positions (5 independent bets needed)". The thin column beside it reads "Past results: above zero · Evidence: thin (8 bets, 28 days)" (`cmp-*`) |
+| D4 | **Met** | The profile and trade page read "Too early to tell: the range is still too wide (6 bets from 18 trades, 67 days)", next to "18 closed trades" (`p-grpw-*`, `trade-grpw-*`). It matches the thin line's form. When trades equal bets, the line is unchanged ("(8 bets, 45 days)") |
+| D5 | **Met** | The ticker's first screen holds "(−22.2% to +32.1%) · 95% range", then "Too early to tell: the range is still too wide (9 bets, 28 days)" in the same stat card. The line under the spread chart is gone. The thin ticker's stats carry no "Too early" (`t-wide-*`, `t-thin-*`) |
+| D6 | **Met** | "What's this?" ends: "It says too early to tell until there are at least 5 independent bets and the range is no more than 20 points wide." It is built from the constants. On the pages, the 40-bet record's range (−18.2% to +10.0%) is 28 points wide and reads too early, so the sentence is true against what is shown (`p-big-*`) |
+| D7 | **Met** | On the trade and month pages, the range is on its own line, "‹range› · 95% range", above the evidence line. This holds for the month and the whole record. No page text contains ") (" (`trade-*`, `month-*`) |
+| D8 | **Met** | The hold-time note reads "Hold time alone says little about results." No page has `\bsignal` (`t-*`) |
+
+### Regressions in the changed "too early" lines
+
+- **Hold time.** A shown bucket prints its range, then its own "too early" line when it is too early (wide ticker,
+  U2TW). A thin bucket prints only the range (U2TN). A bucket with overlapping trades prints the overlap sentence
+  (U2TO). The wide ticker's single bucket holds all 9 trades, so it repeats the stock's own sentence word for word.
+  That is consistent, not a contradiction.
+- **Concentration.** Two shapes, both clean, with one too-early sentence each:
+  - "Without them: 50% win rate, avg +2.5% over 6 trades. (−32.6% to +40.9%) · 95% range. Too early to tell: the range
+    is still too wide (6 bets, 23 days).";
+  - "… over 5 trades. (0.0% to +3.3%) · 95% range." This rest is thin and draws no verdict.
+- **Variance floor (ruling H1), on the page.**
+  - 5 identical +2% bets read "(+0.4% to +3.6%) · 95% range", not a zero-width range (`p-same-*`).
+  - 5 narrow gains now read "(−0.3% to +3.0%) · Past results: unclear", where round 1 showed "above zero". It is more
+    cautious, and true.
+- **One new contradiction: see D9 below.**
+
+### New demand
+
+| # | Where | What a viewer meets | Demand | Verify |
+|---|---|---|---|---|
+| D9 | `rangeText` (`lib/trades.ts`), every range next to a direction | The profile of 6 small losses reads "(−2.6% to **0.0%**) · 95% range", and directly under it "Past results: **below zero**" (`p-neg-*`). The true upper bound is −0.018%, so the word is right but the printed range contradicts it: a reader sees the range reach zero. The variance floor makes this case common at 5 to 9 bets. A sweep in my scratchpad gave 126 of 7,800 records (5 to 30 bets) with a direction word and a bound printed as "0.0%". The engineer met the same case in `6182f57` and loosened the e2e pattern ("an unsigned 0.0% bound") instead of the display | When a bound is non-zero but rounds to 0.0%, print it to 2 decimals with its sign: "(−2.6% to −0.02%)". One condition in `rangeText` or `pct`. This changes the display only; the model, the tiers and the ranking stay as they are | Unit test in `confidence.test.ts`. On the neg fixture (6 bets, −0.9% to −1.8%, 3-day holds), `rangeText` contains no "0.0%", and its upper bound starts with "-". A sweep over records with direction `positive` or `negative` finds no bound printed as "0.0%". The existing e2e patterns stay valid |
+
+### Notes, not demands
+
+- **N4.** The profile meta for an all-loss record reads "6 verified trades · **%** win rate". A 0 win rate prints as
+  empty. This was already present in round 1 (`uxf4p1_neg`), so it does not come from this PR. It goes to the owner's
+  backlog.
+- **N5.** D6's "It says…" follows "A wider range means less evidence.", so "It" could be read as the range. "We say too
+  early to tell until…" would be clearer. This is my own wording, so it can wait for PR 2's copy review.
+- **N1 to N3** stand as written in round 1. N1 is mostly moot, because a 5 to 9-bet record now weighs 0 (ruling H1).
+
+### Compliance (round 2)
+
+- **F1/F3b: PASS.** The banned terms appear nowhere in the UI or the meta tags, and the D8 hit is gone.
+- **F3 disclaimer: PASS.** It is on every page.
+- **F4/TR-9: PASS.**
+  - The whole record is shown, and losses read like gains.
+  - The range is never zero-width.
+  - "Too early" is never decided by a count alone.
+- **A1: PASS.** No horizontal scroll at 360 or 375, in light or dark. Direction is given in words as well as colour.
+  The long lines wrap and are never cut.
+
+COMPLIANCE: PASS · USABILITY: DEMANDS (D9 a range bound printed as "0.0%" beside "below zero"/"above zero"; print a non-zero bound that rounds to 0.0% to 2 decimals with its sign)
+
+Ready to merge: no. D1–D8 are met. D9 is a one-condition display fix with a unit test, and after it, yes.
