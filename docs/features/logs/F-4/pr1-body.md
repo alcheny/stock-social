@@ -56,8 +56,8 @@ like gains. A record competes for the top of the feed only from 10 bets.
   - the banned-word scan;
   - the trade and month `tooEarly` flag;
   - a near-zero range bound keeps its sign, for both signs and over a sweep (fix round 2).
-- Seven expectations moved to the owner's floor of 5. Two moved to the ruling's variance floor. None is deleted or
-  loosened. `lib/feed.reach.test.ts` is unchanged and passes.
+- Four expectations moved to the owner's floor of 5, two to the ruling's variance floor, and one assertion in
+  `lib/trades.test.ts` to the near-zero range bound (fix round 2). None is deleted or loosened. `lib/feed.reach.test.ts` is unchanged and passes.
 - e2e: 117 of 120 run, 116 passed, 1 failed, 3 skipped. Three new F-4 tests at 360 and 375 px cover the profile, trade,
   month, ticker and compare pages, the hold-time table with no split word, and an all-loss profile's "0% win rate".
   The 1 failure is the existing heavy-feed test, which also fails on `main` on the same freshly seeded database

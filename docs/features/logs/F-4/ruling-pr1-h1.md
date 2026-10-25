@@ -54,8 +54,8 @@ What it means:
 **Why 1% per √day.** A broad US stock index moves about 1% a day: roughly 14.5% to 18.6% annualized, depending on the
 window, and 1% × √252 ≈ 15.9%. Single stocks move more. So the floor sits at or below nearly every position a trader can
 hold. It binds only when a sample is implausibly calm, which happens mostly when the sample is small. This is
-analyst-tier evidence: [an adviser commentary citing 18.6% over 93 years and 14.5% over 20 years](https://www.wealthspire.com/blog/the-one-thing-the-market-almost-never-does),
-and [a preprint on a large-cap US index: rolling daily volatility mostly 0.5% to 2%](https://arxiv.org/pdf/2403.01088).
+analyst-tier evidence: an adviser commentary citing 18.6% over 93 years and 14.5% over 20 years, and a preprint on a
+large-cap US index finding rolling daily volatility mostly 0.5% to 2%.
 
 **Why not the alternatives.**
 
