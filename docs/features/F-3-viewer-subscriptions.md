@@ -19,6 +19,11 @@ opinion lands.
   today (headline stats, chart, full trade list, losses, open positions summary, share card). Why:
   POLICY (records are public and complete), TR-1..TR-8, Standing direction 2 ("Trust is the brand")
   and 4 (shared links must work signed out).
+- 2026-10-25: The viewer subscription costs $9.99 a month. Why: the owner's decision, in line with
+  comparable copy-trading and charting products ($10 to $15 a month). At this price the base-case
+  projection still loses money until about 2.8% of monthly viewers pay or connected traders stay near
+  5 per 100 viewers, because broker data costs about $1 a month per connected trader (projection
+  dashboard, Oct 25).
 
 ## What viewers pay for (candidates; each needs the counsel opinion before build)
 - Delayed "ride-along" view of a trader's open positions with entry percentages (DESIGN §3.3).
@@ -150,7 +155,7 @@ Each one testable; the pipeline writes a test for every line.
 - Building any of this before Phase 1's supply gate passes.
 
 ## Open questions
-- Price point and whether there is a free trial.
+- Annual price (if any), and whether there is a free trial. The monthly price is decided ($9.99).
 - Which paid feature ships first (recommended: alerts).
 - Revenue-share percentage for creator payouts, and whether payouts launch with the first plan.
 - Which billing vendor (named in the private checklist; must offer hosted checkout, portal, tax and
