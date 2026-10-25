@@ -1,12 +1,30 @@
-# F-2 · Guardrails G1 to G6 · Implementation plan (engineer)
+# F-2 · Guardrails G1 to G6 · Implementation plan (engineer), round 2
 
-Date: 2026-10-25. Role: engineer. Process: `docs/IMPLEMENTATION.md` step 1 (plan), "Parallel development" (file sets
-per PR, independence test) and "Resolving hard stops with the team" step 6 (each adopted guardrail is planned and
-built through the normal cycle). Inputs: `docs/features/F-2-personal-discovery.md` (Decisions 2026-10-25 "guardrails",
-H1, H2, H4; acceptance criteria G1 to G6), `hardstops-resolution-business-lead.md` §2 "Extra guardrails" and §3 (the
-Privacy text), `hardstops-resolution-engineer.md` (D1 to D14, §3.3), `plan.md` (PR-5a/5b, §4 budgets, §8 policy
-checks), POLICY as amended in `bcaac14` (F1 now ends "A viewer can turn personal ordering off in Settings."). Tree read:
-`claude/peaceful-dirac-33bucv` at `bcaac14` plus PR-4's uncommitted fix round 2.
+Date: 2026-10-25. Role: engineer.
+
+**Process.** `docs/IMPLEMENTATION.md` step 1 (plan), "Parallel development" (file sets per PR, the independence test)
+and "Resolving hard stops with the team" step 6 (each adopted guardrail is planned and built through the normal cycle).
+
+**Inputs.**
+- `docs/features/F-2-personal-discovery.md`: the Decisions of 2026-10-25 ("guardrails", H1, H2, H4, and **Q1 as
+  reversed the same day**) and criteria G1 to G6, with G1 as amended.
+- `hardstops-resolution-business-lead.md` §2 and §3, and `hardstops-resolution-engineer.md`.
+- `plan.md`.
+- POLICY as amended in `bcaac14`.
+- Round 1's reviews:
+  - `plan-guardrails-signoff-business-lead.md`: SIGNED with changes C1 to C9.
+  - `plan-guardrails-signoff-ux-lead.md`: REVISE, 11 demands, built on 22 numbered items.
+- The tree: `claude/peaceful-dirac-33bucv` plus PR-4's uncommitted fix round 2.
+
+**How round 2 was applied.**
+- Every C1 to C9 and every UX demand is applied. The "Round 2 changes" table at the end maps each one to the change it
+  made.
+- Where the two members conflict, I took the stricter option and say so in that table.
+- Copy for C6 and C8 uses the UX lead's wording, as the coordinator directed.
+
+**The owner reversed Q1.** With the switch off, *nothing about the viewer's activity is recorded*. C2's one allowed
+watchlist write is therefore dropped. §1.1 applies the reversal to every passive write the tree makes while a signed-in
+viewer reads, not only the watched-symbol stamp. Each of those writes is listed there, so the owner can narrow the list.
 
 This plan decides how, not what. It changes no decision in the feature file. Nothing here is legal advice.
 
@@ -14,267 +32,325 @@ This plan decides how, not what. It changes no decision in the feature file. Not
 
 | # | PR | Guardrails | Product lines | Test lines | Waits on |
 |---|---|---|---|---|---|
-| 7 | Feed controls · `autopilot/feature-2-feed-controls` | G1, G3, G4 | ~170 | ~380 | PR-4 landed on the branch |
-| 8 | Reachable and unlogged · `autopilot/feature-2-reach` | G2, G5, G6 | ~320 | ~600 | PR-4 landed on the branch |
+| 7 | Feed controls · `autopilot/feature-2-feed-controls` | G1 (with the Q1 reversal), G3, G4 | ~340 | ~560 | PR-4 landed on the branch |
+| 8 | Reachable and unlogged · `autopilot/feature-2-reach` | G2, G5, G6 | ~390 | ~720 | **PR-7 merged** |
 
-- **PR-7 and PR-8 pass the independence test against each other (§3), so they build in parallel**, each in its own
-  worktree, database and ports. If a build finds it needs a file the other owns, PR-7 goes first (lower number).
-- **Both wait on PR-4.** PR-4's last fix round is in this working tree and it owns files both PRs change: `lib/feed.ts`,
-  `app/me/following/*`, `app/me/liked/route.ts`, `app/card-gestures.tsx`, `lib/delete.ts`, `e2e/likes.spec.ts`. The
-  builds start from the branch after PR-4's merge commit, not from the working tree.
-- **PR-5a and PR-5b now wait on PR-7 and PR-8.** PR-7 holds the gate PR-5 must call (G1, G3), and PR-8 holds the
-  reset registry PR-5a must extend (G2). That is in addition to `plan.md`'s H1, H2 and H4, which are now cleared:
-  H1 applied in `bcaac14`, H2 accepted by the owner with these guardrails as the mitigation, H4 approved with conditions.
-- **The Privacy page PR** (another worktree) states the guardrails as shipped. It merges after PR-7 and PR-8, and its
-  text has to match §7 below.
-- **Why two PRs, not one.** About 490 product lines would fit under one 800-line cap. Splitting them keeps the
-  one change to the ranking (G1, independence rule 4) away from five changes that don't touch it. Each committee review
-  stays small, and the two build at the same time.
-- **Urgency.** POLICY F1's last sentence, "A viewer can turn personal ordering off in Settings", is false on this branch
-  until PR-7 merges: PR-4's unfollow and trade-reject demotions run with no switch. No real viewer is affected, since
-  real viewers stay gated by H4's conditions. But a reviewer who reads F1 as written can fail PR-4 on it. PR-7 is the
-  first item after PR-4, and PR-4's review should cite this plan.
+- **The independence test between PR-7 and PR-8 no longer holds, so they build one after the other: PR-7, then PR-8.**
+  - Round 2 puts "Reset my feed" in `app/settings/page.tsx` (UX demand 1), a file PR-7 owns.
+  - The Q1 reversal puts five more of PR-8's files in PR-7: `app/t/[symbol]/Watch.tsx`, `app/u/[handle]/page.tsx`,
+    `app/actions.ts`, `lib/auth/sessions.ts`, `app/t/page.tsx`.
+  - Rule 2 fails on all of them (§3). By the rule, the higher-numbered item waits, so PR-8 branches from PR-7's merge
+    commit.
+  - Reshuffling into a third PR to win back parallelism would add a full committee cycle, and the business lead
+    accepted the two-PR split. PR-7 is also the urgent one: POLICY F1's last sentence is false until it merges.
+- **Both still wait on PR-4.** PR-4's last fix round owns `lib/feed.ts`, `app/me/following/*`, `app/me/liked/route.ts`,
+  `app/card-gestures.tsx`, `lib/delete.ts` and `e2e/likes.spec.ts`.
+- **PR-5a and PR-5b wait on PR-7 and PR-8.** PR-7 holds the gate PR-5 must call (G1, G3), and PR-8 the reset registry
+  PR-5a must extend (G2). H1, H2 and H4 are cleared: H1 is applied in `bcaac14`, the owner accepted H2 with these
+  guardrails as the mitigation, and H4 is approved with conditions.
+- **Binding on PR-5's plan round, which I can't write myself.** I may edit only this file, so the additions C3 and C9
+  make to `plan.md`'s PR-5a and PR-5b are recorded in §13. The orchestrator copies them into `plan.md`, or the PR-5
+  plan round adopts them as the first items it settles.
+- **The Privacy page PR** merges after PR-7 and PR-8. Its text has to match §7.
+- **Urgency.** POLICY F1's last sentence ("A viewer can turn personal ordering off in Settings") is false on this branch
+  until PR-7 merges. PR-4's review cites this plan.
 
 Every PR follows these rules:
 - ≤ 800 product lines.
 - Tests are written first and fail before the code.
-- Schema changes are additive and idempotent (`schema_add_column`, `schema_add_index`), with no `drop`, `truncate` or
-  `delete from` in `db/schema.sql`.
-- The engineer reads `node_modules/next/dist/docs/` before using an API (AGENTS.md). For these PRs that means
-  `01-getting-started/07-mutating-data.md` and `02-guides/forms.md`: server actions, no-JS submission, `refresh()`,
-  and route handlers.
-- No protected path, no dependency, no vendor.
-- No test is weakened or deleted. §5 lists every pinned assertion that the owner's G6 decision makes obsolete. Each one
-  is rewritten to assert the new behavior, and the test count never drops.
+- Schema changes are additive and idempotent.
+- No protected path is touched, and no dependency or vendor is added.
+- The engineer reads `node_modules/next/dist/docs/` before using an API (AGENTS.md):
+  - `01-getting-started/07-mutating-data.md` and `02-guides/forms.md`: server actions, no-JS submission and
+    `refresh()`;
+  - `02-guides/preserving-ui-state.md`;
+  - React's `useActionState` with a server action, which shows the action's returned state before hydration.
+- No test is weakened or deleted. §5 lists the pinned assertions the G6 decision makes obsolete. Each is rewritten,
+  and the test count never drops.
+- **e2e matrix (UX demand 11).** 320, 360 and 375 px; light and dark; with and without JS. On every new or changed
+  view:
+  - axe is clean;
+  - there is no horizontal scroll (`scrollWidth ≤ clientWidth`);
+  - keyboard-only use shows a visible ring at each stop;
+  - `getAnimations()` is empty under reduced motion, and otherwise holds at most the 120 ms switch-knob change.
 
-## 1. PR-7 · Feed controls (G1, G3, G4) · ~170 product lines
+## 1. PR-7 · Feed controls (G1, G3, G4) · ~340 product lines
 
-Branch `autopilot/feature-2-feed-controls`, database `stock_social_f2_controls`, ports 3110 (`next start`) and 3111.
+Branch `autopilot/feature-2-feed-controls`, database `stock_social_f2_controls`, ports 3110 and 3111.
 
 ### 1.1 Scope
 
-**G1: "Order my feed by my activity" on `/settings`, on by default.**
-- **Stored state.** `users.personal_order_off boolean not null default false`. A boolean rather than a timestamp,
-  because we store the minimum (POLICY P3): nothing records when the switch was changed. Existing and new accounts read
-  `false`, which means on.
+**G1, the switch on `/settings` (UX items 1, 3, 4, 6).**
+- **Stored state.** `users.personal_order_off boolean not null default false`. No timestamp, because we store the
+  minimum (P3).
 - **Server side.**
-  - `lib/feed-settings.ts` (new, ~15 lines): `personalOrderOff(viewer)` and `setPersonalOrder(viewer, on)`, both keyed by
-    the session's id.
-  - `app/settings/actions.ts` (new, `'use server'`, ~20 lines): `setOrder(on)` for signed-in viewers only. It returns
-    `{ ok, on }` for the optimistic switch. Without JavaScript the form posts to `/settings`, the action calls
-    `refresh()` and the page renders again at the same URL, with no redirect and no query.
-- **The switch.**
-  - `app/settings/order-switch.tsx` (new, client, ~40 lines) renders `<button role="switch" aria-checked>` inside a
-    `<form>`.
-  - The visible label is the owner's text, "Order my feed by my activity". The state is shown as the text "On" or "Off",
-    never by color alone.
-  - The explanation line changes with the state (copy in §6). A `role="status"` line confirms each change.
-  - Optimistic toggle with rollback: this is a display preference, neither money nor a record. If the save fails, the
-    switch goes back to its old state and the line reads `FOLLOW.failed`.
-  - `app/settings/page.tsx` (~20 lines) gets a "Your feed" heading holding the switch, placed above the existing
-    "Following and hidden traders" link.
-- **`lib/feed.ts#loadFeedPage` (~12 lines).** The flag is read inside the existing `Promise.all`, signed in only. When it
-  is off:
-  - **Preferences are empty.** `prefs = new Map()`, so the unfollow −1 and each trade reject's trader part −1 are not
-    applied to the feed or to the section's `preferPool`.
-  - **Hides still apply.** "Not interested" traders and rejected trades are removed by the existing shaping and
-    display-filter paths.
-  - **The section leaves out only hides and the viewer.** Its skips are the running `not_interested` rows already read
-    in `mine`, plus the viewer themself. Followed traders are not left out, because the criterion reads "the signed-out
-    order minus their own hides". No new query is needed.
-  - **No preference, no hide: the shared list.** That viewer gets `kept.mixed`, the list signed-out viewers get, without
-    a re-rank. The code already does this today.
-- **Not changed:** Similar trades on profiles (`lib/similar.ts`) is already the impersonal pool minus hides, so it meets
-  G1 whether the switch is on or off.
-- **What "records nothing about their reading" means today, and from PR-5 on.**
-  - **Today.** No event table exists, and reading writes nothing to any F-2 table. With the switch off, PR-7 asserts
-    that by query log (§1.3, T1.3).
-  - **Two existing writes happen while reading.** `sessions.last_seen_at` (hourly, needed for sign-in) and
-    `ticker_watches.last_seen_at` (the watchlist's own "new since you last looked") both keep running with the switch
-    off. That default needs the owner (§8 Q1).
-  - **From PR-5.** The switch also turns off scoring, the logger and `/api/events`, through the gate in G3 below.
+  - `lib/feed-settings.ts` (new):
+    - `viewerFlags(viewer)` returns `{ orderOff, demo }` in one query (C1, below);
+    - `setPersonalOrder(viewer, on)`;
+    - the SQL fragment `recording(id)` = `not exists (select 1 from users where id = ${id} and personal_order_off)`.
+      Each gated passive write appends it, so no extra round trip is needed.
+  - `app/settings/actions.ts` (new): `setOrder(on)`, signed in only. It returns `{ ok, on }`. Without JS the form posts
+    to `/settings` and the page renders again there through `refresh()`, with no query.
+- **Order on `/settings` (UX item 1):**
+  1. h1
+  2. Sign out
+  3. **h2 "Your feed"** (`id="your-feed"`, `tabIndex=-1`)
+  4. the switch row, then both description lines
+  5. [PR-8 adds the "Reset my feed" link here]
+  6. the "Following and hidden traders" link
+  7. h2 "Delete my profile"
 
-**G3: implicit reading signals off for real viewers, as a pinned constant with a test.**
-- **`lib/discovery/signals.ts` (new, pure, ~30 lines):**
-  - `IMPLICIT_SIGNALS = false`. Its comment cites the F-2 Decision of 2026-10-25 and counsel questions Q4 and Q5.
-  - `IMPLICIT_TYPES = ['impression', 'dwell_short', 'dwell_long', 'skip', 'swipe_open', 'profile_open']`. These are
-    `plan.md` PR-5a's implicit types.
-  - `mayRecord({ demo, orderOff }, type)`:
-    - false for every type when `orderOff` is set (G1);
-    - false for an implicit type unless `IMPLICIT_SIGNALS || demo`;
-    - true for the explicit types (follow, unfollow, not_interested and its undo, like, unlike, share, watch, unwatch,
-      reject and its undo).
-  - `usableTypes({ demo, orderOff })`: the same rule applied to reads. PR-5b's `viewerProfile` filters its events
-    through it, so stored demo implicit events never shape a real viewer's order.
-- **A constant, not an environment flag or a database setting.**
-  - An environment variable can be flipped in the deploy settings with no PR, no review and no test.
-  - Turning the constant on needs a PR that edits the pinned test, so the change shows in the diff. The reviewer fails
-    that PR unless the F-2 file records the owner's decision.
-- **Demo viewers are exempt** so that PR-5's logger can be built and measured on fictional accounts. Demo data always
-  carries the Demo badge (P2).
-- **What the owner's +2 opening-swipe weight means while G3 holds.** `WEIGHTS.swipeOpen` stays pinned in
-  `lib/discovery/weights.ts`. But the opening swipe is an implicit "open" under the G3 decision, so it is stored and
-  used only for demo viewers. A follow, a like or a hide counts for every viewer.
-- **Why this holds PR-5 now.** The static guard in §1.3 (T3.3) fails any module that names `discovery_events` or
-  `/api/events` without importing `mayRecord` or `usableTypes`. PR-5 cannot record or use an implicit signal for a
-  real viewer without failing CI first.
+  At 360×640 the switch is inside the first viewport.
+- **The switch** (`app/settings/order-switch.tsx`, client):
+  - `<button role="switch" aria-checked>` with `id`, inside a `<form>`. `<label for>` names it "Order my feed by my
+    activity", and tapping the label toggles it.
+  - The whole row is ≥ 44 px tall. At 320 the label wraps, and the switch keeps ≥ 44×44.
+  - `aria-describedby` points to the two description lines.
+  - "On" and "Off" are shown as text, so the state never depends on color.
+  - Space and Enter toggle it, with a visible focus ring.
+  - The knob doesn't move under reduced motion; otherwise it changes over at most 120 ms.
+  - Text contrast is ≥ 4.5:1, and the track against its background is ≥ 3:1 **in both states and both themes**.
+- **Both description lines are always shown (UX item 4).** "On: …" and "Off: …" are the lines' own labels, and the
+  switch's text shows the current state.
+- **The status line (UX item 3).**
+  - An empty `role="status"` element is in the server HTML on load.
+  - Its text is written only after `setOrder` resolves. The switch flips at once, so the < 100 ms feedback budget holds.
+  - On failure, `aria-checked` reverts and the status reads `FOLLOW.failed`. The "saved" string never appears.
+- **`lib/feed.ts#loadFeedPage`.** `viewerFlags` replaces the separate flag read, inside the existing `Promise.all`.
+  With the switch off:
+  - `prefs` is empty, so no demotion from an unfollow or from a reject's trader part applies;
+  - hides still apply: "Not interested" traders and rejected trades;
+  - the section leaves out only the viewer and their running "Not interested" traders, taken from the rows already
+    loaded in `mine`;
+  - with no hide, the viewer gets `kept.mixed`.
 
-**G4: what deletion names, and deletion's first step.**
-- **Copy.** `SETTINGS.deleteExplain` names follows, likes, hidden traders and trades, unfollow notes, the watchlist and
-  reading activity (§6). It is a copy-only change: the page markup stays the same.
-- **Code.** `lib/delete.ts` first step gains
-  `` tx`delete from ticker_watches where user_id = ${u.id}` ``, in the same transaction as the `deleted_at` mark and
-  before the vendor call (D14). That is 2 lines.
+  The page result exposes `viewer.orderOff`.
+- **A followed trader shows "Following" in the section (UX item 5, F-C).**
+  - `followingAmong` is read for the page's card traders and the section's candidates together: `[...traders,
+    ...candIds]`, in the same `Promise.all`.
+  - `app/suggest-section.tsx` passes `following={page.viewer.following.has(r.userId)}`.
+  - Tapping it unfollows, as it does on cards.
+- **The section names its personal rules (UX item 2, F-B, F-D).**
+  - When signed in with the switch on, the section shows `SECTION.personal` under `SECTION.explain`, then the link
+    `SECTION.settings` "Feed settings" to `/settings#your-feed`. A fragment, not a query, so it meets G6.
+  - A 3-line client effect on `/settings` focuses `#your-feed` when the hash names it, since browsers don't move
+    `activeElement` to a fragment target on their own.
+  - Signed out, or with the switch off, nothing new renders. Signed-out HTML stays byte-identical, under the existing
+    guard.
 
-**Test hardening (D13).**
-- `lib/feed.signed-out.test.ts`: `VIEWER_TABLES` gains `trade_rejects`, `ticker_watches` and `personal_order_off`.
-  This makes an existing guard stricter.
-- `lib/discovery/imports.test.ts`: `ROOTS` gains `lib/discovery/signals.ts`, which must stay pure.
+**G1, recording nothing while the switch is off (owner, Q1 reversed; amended criterion).**
+
+The rule: while the switch is off, no request writes anything except a deliberate action's own row. A deliberate action
+here means follow, unfollow, like, unlike, a hide or Not interested and their undo, watch and unwatch, a thesis, a
+reflection or rule, setting the switch, Reset, deletion, a prompt the viewer dismisses or acts on, and sign-in and
+sign-out. Every passive write a signed-in reader causes today gets `recording(id)`, and the marker each one feeds is
+**hidden rather than guessed** while the switch is off:
+
+| Passive write today | Where | Gated in | Marker hidden while off |
+|---|---|---|---|
+| `ticker_watches.last_seen_at` (the owner's named case) | `app/t/[symbol]/Watch.tsx#markSeen` | the update statement | `/t` "N new … since you last looked" is replaced by `WATCH.markerOff`, with a "Feed settings" link |
+| `sessions.last_seen_at`, hourly | `lib/auth/sessions.ts#userIdForSession` | the update statement (a join to `users`) | none: nothing reads it (checked: no reader in `app/` or `lib/`) |
+| `users.record_first/last/prev_viewed_at`, `record_view_count` | `app/me/record/page.tsx` | both updates | the record page's "since your last visit" marker |
+| `funnel_events` `own_profile_viewed` | `app/u/[handle]/page.tsx` | the call is skipped when `orderOff` | none |
+| `share_prompt_seen_at`, `trades_prompt_seen_at` (on display) | `app/actions.ts#markSharePromptSeen`, `#markTradesPromptSeen` | the update statements | the new-trades prompt (it depends on the seen stamp). The share prompt keeps showing until the trader dismisses or uses it; that choice is a deliberate action and is stored |
+| `share_image_saved_at`, `trade_shared_at`, and any other share or adoption stamp the guard finds (e.g. `badge_copied_at`) | `app/actions.ts` and wherever the guard finds them | the update statements | none |
+
+- **Exempt:** funnel events written before sign-in (`landed`, `method_chosen`), since no account exists to read the
+  switch from, and events that record a deliberate step of connecting (consent, connected).
+- **Signed in with the switch off, `/connect`'s `notice_seen` is gated too.**
+- **Watching a symbol while off** stores the watch row with `created_at` and `last_seen_at` at the moment of watching.
+  That is the deliberate action's own row.
+- **Switching off clears no existing stamp.** The markers resume from the old stamps when the switch is turned on again.
+  Clearing them is a later option if the owner wants it.
+- **A static guard (T1.7)** keeps the list complete. Any SQL template under `app/` or `lib/` that writes a column in
+  `PASSIVE_COLUMNS`, or inserts `own_profile_viewed` / `notice_seen`, must include `recording(`.
+  `PASSIVE_COLUMNS` holds the columns above plus `badge_copied_at`.
+- **C2's other condition, kept:** no file under `lib/feed.ts`, `lib/similar.ts` or `lib/discovery/**` reads
+  `ticker_watches.last_seen_at`.
+
+**G3, implicit signals off for real viewers (C1, C3).**
+- **`lib/discovery/signals.ts`** (new, pure, added to `imports.test.ts` ROOTS):
+  - `IMPLICIT_SIGNALS = false`, pinned;
+  - `IMPLICIT_TYPES`;
+  - `mayRecord({ demo, orderOff }, type)`: false for every type when `orderOff`; false for an implicit type unless
+    `IMPLICIT_SIGNALS || demo`; true for the explicit types;
+  - `usableTypes({ demo, orderOff })` for reads.
+- **A constant, not an environment flag.** Turning it on needs a reviewed diff that edits the pinned test.
+- **C1, demo defined positively, on the server.**
+  - `demo` means the viewer has **at least one activity, and every one of them has `source = 'demo'`**.
+  - It is read by `viewerFlags` with the session's id, never from request input:
+    `exists(select 1 from activities where user_id = $1) and not exists(select 1 from activities where user_id = $1
+    and source <> 'demo')`, from the `activities_user_time` index.
+  - A viewer with no broker is therefore **not** demo.
+  - Today only PR-5's paths need `demo`. The feed reads `orderOff` from the same row, so no query is added to the hot
+    path (T3.4 checks the plan).
+- **The +2 opening-swipe weight.** It stays pinned in `weights.ts`. While G3 holds, it applies to demo viewers only.
+
+**G4, deletion copy and first step (UX item 9; it supersedes C6's three sentences, as the coordinator directed).**
+- `SETTINGS.deleteLead` "Deleting removes:" leads a `<ul>` from `SETTINGS.deleteItems` in view 1. Then
+  `SETTINGS.deleteAfter`, the handle-and-backups sentence. Copy is in §6.
+- `lib/delete.ts`'s first step gains `delete from ticker_watches where user_id = ${u.id}`.
+
+**Test hardening (D13).** `lib/feed.signed-out.test.ts` `VIEWER_TABLES` gains `trade_rejects`, `ticker_watches` and
+`personal_order_off`.
 
 ### 1.2 Files PR-7 expects to touch
 
 Product:
-- `db/schema.sql` (append: one `schema_add_column` on `users`)
+- `db/schema.sql` (append)
 - `lib/discovery/signals.ts` (new)
 - `lib/feed-settings.ts` (new)
-- `lib/feed.ts` (`loadFeedPage` only)
-- `lib/delete.ts` (first step, one statement)
-- `lib/copy.ts` (`SETTINGS` keys only)
+- `lib/feed.ts`
+- `lib/delete.ts`
+- `lib/auth/sessions.ts` (the `last_seen_at` gate only)
+- `lib/copy.ts` (`SETTINGS`, `SECTION`, new `WATCH`; `allCopy`)
 - `app/settings/page.tsx`
 - `app/settings/order-switch.tsx` (new)
 - `app/settings/actions.ts` (new)
-- `app/globals.css` (append: `.switch`)
+- `app/settings/focus-hash.tsx` (new)
+- `app/suggest-section.tsx`
+- `app/t/page.tsx`
+- `app/t/[symbol]/Watch.tsx` (`markSeen` only)
+- `app/me/record/page.tsx`
+- `app/u/[handle]/page.tsx` (the funnel call and the trades-prompt condition only)
+- `app/actions.ts` (the measurement stamps only)
+- `app/connect/page.tsx` (`notice_seen` only)
+- `app/globals.css` (append)
 
 Tests:
 - `lib/discovery/signals.test.ts` (new)
-- `lib/discovery/imports.test.ts` (add a root)
+- `lib/discovery/imports.test.ts`
 - `lib/feed.order-off.test.ts` (new)
-- `lib/feed.signed-out.test.ts` (add cases)
-- `lib/delete.test.ts` (add a case)
-- `lib/copy.test.ts` (add a case)
+- `lib/recording.test.ts` (new)
+- `lib/feed.signed-out.test.ts`
+- `lib/delete.test.ts`
+- `lib/copy.test.ts`
 - `e2e/settings.spec.ts` (new)
+- `e2e/section.spec.ts` (the section line and the following-state cases)
 
-### 1.3 Tests first (one or more per acceptance criterion)
+### 1.3 Tests first
 
 | Criterion | Test | Kind |
 |---|---|---|
-| **G1** · off → feed and section equal the signed-out order minus own hides | **T1.1**, two equivalences at a fixed `now`, 3 seeded days. (a) A switch-off viewer with no hides gets pages 1 to 3 and the section equal to signed-out pages 1 to 3 and section: card ids in order, section rows in order, with the viewer left out. (b) Viewer A is switched off and has 3 follows, 2 unfollows, 3 trade rejects and 1 "Not interested". Viewer B has only the same rejects and "Not interested", no follows and no unfollows, and has the switch off too. A's pages 1 to 3 and section equal B's. A followed trader of A's appears in A's section exactly where it appears in the signed-out section. | DB, `lib/feed.order-off.test.ts` |
-| G1 · the switch matters | **T1.2.** The same viewer A with the switch on gets a different order, because the demotions apply. Switching off and on round-trips. | DB |
-| G1 · nothing about reading stored | **T1.3.** A query-logging client (the existing `debug` hook) watches a switch-off viewer render feed pages 1 to 3, a profile, a pane and Similar trades. The only writes allowed are `update sessions set last_seen_at` and, under §8 Q1's default, `update ticker_watches set last_seen_at`. Every other `insert`, `update` or `delete` fails the test. | DB |
-| G1 · on by default | **T1.4.** A new account reads `personal_order_off = false`. `/settings` shows "On" with `aria-checked="true"`. | DB + e2e |
-| G1 · UI | **T1.5**, `e2e/settings.spec.ts`, at 375 and 320 px, light and dark. The switch toggles, the status line speaks, and the state persists after a reload. Keyboard (Tab, Space, Enter) works with focus visible. With JavaScript disabled the form posts and `/settings` renders again with the new state, and no request URL carries a query (G6's rule applied to this action). Touch target ≥ 44 px. axe finds no violation. | e2e |
-| **G3** · no implicit signal stored or used for a non-demo viewer | **T3.1:** `IMPLICIT_SIGNALS === false`, pinned. **T3.2:** `mayRecord` and `usableTypes` over the whole matrix: demo or not × order on or off × every type. The implicit types are false for non-demo viewers, every type is false when the order is off, and the explicit types are true otherwise. **T3.3**, a static guard: every file under `app/` and `lib/` that names `discovery_events` or `/api/events` imports `mayRecord` or `usableTypes` from `lib/discovery/signals.ts`. Today it passes with no such file, and it is written to be extended by PR-5. | unit, `lib/discovery/signals.test.ts` |
-| **G4** · the screen names everything it deletes | **T4.1.** `SETTINGS.deleteExplain` matches each of `/follows/`, `/likes/`, `/hidden traders/`, `/trades/`, `/unfollow notes/`, `/watchlist/` and `/reading activity/`. T1.5 asserts it on the rendered view 1. | unit + e2e |
-| G4 · watchlist in the first step | **T4.2.** The vendor call is made to throw. The users row stays marked, and the viewer has zero `ticker_watches` rows, as for follows, likes, exclusions and rejects. Another account's watchlist is unchanged. | DB, `lib/delete.test.ts` |
-| Heavy use | **T7.L** (`LOAD=1`): 500 traders, one opted-out viewer with no hides. Its signed-in p95 is no more than the signed-out p95 plus 20 ms over pages 1 to 3. | load |
+| **G1** · off → feed and section equal the signed-out order minus own hides | **T1.1.** (a) A switch-off viewer with no hides gets pages 1 to 3 and the section equal to the signed-out ones, with the viewer left out. (b) Viewer A is switched off with 3 follows, 2 unfollows, 3 rejects and 1 Not interested. A gets the same pages and section as B, who has only the same hides and the switch off. A followed trader of A's sits in A's section exactly where it sits signed out, **and its button reads "Following", `aria-pressed="true"`** (UX item 5). | DB + e2e |
+| G1 · the switch matters | **T1.2.** A with the switch on gets a different order. Off then on round-trips. | DB |
+| **G1** · no activity recorded (amended criterion, Q1 reversed) | **T1.3.** A query-logging client watches a switch-off viewer render: feed pages 1 to 3; another trader's profile, pane, trade page and Similar trades; their own profile and `/me/record`; `/t`; **`/t/<sym>` for a watched and for an unwatched symbol**; `/me/following`; `/settings`; `/connect`. **Every `insert`, `update` and `delete` fails the test.** No write is allowed, `sessions.last_seen_at` included (the session is older than an hour, so the update would otherwise run). | DB, `lib/recording.test.ts` |
+| G1 · `/t/<sym>` writes nothing (owner's named test) | **T1.3a.** The switch is off and the viewer watches the symbol, with a backdated `last_seen_at`. Rendering `/t/<sym>` leaves `ticker_watches` byte-identical. With the switch on, it updates. | DB |
+| G1 · markers hidden, not guessed | **T1.4.** With the switch off: `/t` shows no "since you last looked" and shows `WATCH.markerOff`; `/me/record` shows no "since your last visit"; the own profile shows no new-trades prompt. Switching back on shows them again. | e2e |
+| G1 · passive actions write nothing | **T1.6.** With the switch off, `markSharePromptSeen`, `markTradesPromptSeen`, `markShareImageSaved`, `recordTradeShared` and the badge-copy stamp each leave `users` unchanged. A deliberate action (follow, watch, dismissing the share prompt) still writes its own row. | DB |
+| G1 · the list stays complete | **T1.7.** Static: every SQL template writing a `PASSIVE_COLUMNS` column, or inserting `own_profile_viewed` / `notice_seen`, contains `recording(`. No file in `lib/feed.ts`, `lib/similar.ts` or `lib/discovery/**` reads `ticker_watches.last_seen_at` (C2). | unit |
+| G1 · on by default | **T1.8.** A new account reads `personal_order_off = false`, and `/settings` shows "On" with `aria-checked="true"`. | DB + e2e |
+| G1 · the switch UI | **T1.5**, `e2e/settings.spec.ts`, full matrix. **DOM order** as in §1.1. At 360×640 the switch is in the first viewport. **Accessibility tree:** name "Order my feed by my activity", checked true or false, and the description. **Label tap** flips it. The row is ≥ 44 px, and at 320 the switch is ≥ 44×44. **Status:** `[role=status]` is present and empty on load; with the action delayed 700 ms it stays empty until the reply; a forced failure reverts the switch and never shows a saved string. **Both explain lines** are rendered in both states. **Contrast:** the off-state track is ≥ 3:1 against the page in both themes. **No-JS:** the form posts and `/settings` renders again with the new state, with no query. **A second tab** that changed the switch causes no duplicated card in the first tab's feed (UX item 7). | e2e |
+| G1 · section line (UX item 2) | **T1.9.** With the switch on, signed in: `SECTION.personal` and "Feed settings" are present. Following the link makes `#your-feed` the active element, and the next Tab reaches the switch. With the switch off or signed out, neither is present, and signed-out page-1 HTML is byte-identical to before PR-7. Two taps reach the switch from the feed. | e2e |
+| **G3** | **T3.1:** `IMPLICIT_SIGNALS === false`. **T3.2:** the `mayRecord` / `usableTypes` matrix. **C1:** `viewerFlags` returns `demo: false` for a viewer with zero activities, one with only `snaptrade` activities and one with mixed sources, and `demo: true` only for all-`demo`. For each non-demo case `mayRecord(implicit) === false`. **T3.3 (C3, behavioral scope):** every SQL template matching `insert into discovery_events` or a `select … from discovery_events`, and the file `app/api/events/route.ts` if it exists, imports `mayRecord` or `usableTypes`. The named allow-list `lib/delete.ts`, `lib/discovery/purge.ts`, `lib/likes.ts#resetFeed` is exempt, and the test prints the list. **T3.4:** `explain` of the `viewerFlags` query uses `users_pkey` and an `activities_user_*` index, with no seq scan. | unit + DB |
+| **G4** · the screen names what it deletes | **T4.1** (UX item 9's regexes, read through `SETTINGS`): `/follows/`, `/likes/`, `/hid/`, `/unfollowed/`, `/watchlist/`, `/reading activity/`, `/backups/`. View 1 renders a `<ul>`, with no horizontal scroll at 320. | unit + e2e |
+| G4 · watchlist in the first step | **T4.2.** The vendor call throws, and the viewer has zero `ticker_watches` rows. Another account's watchlist is unchanged. | DB |
+| Heavy use | **T7.L** (`LOAD=1`). A switch-off viewer with no hides has a p95 no more than the signed-out p95 plus 20 ms. `viewerFlags` takes < 2 ms for a trader with 10,000 activities. | load |
 
-## 2. PR-8 · Reachable and unlogged (G2, G5, G6) · ~320 product lines
+## 2. PR-8 · Reachable and unlogged (G2, G5, G6) · ~390 product lines
 
-Branch `autopilot/feature-2-reach`, database `stock_social_f2_reach`, ports 3120 and 3121.
+Branch `autopilot/feature-2-reach`, from PR-7's merge commit. Database `stock_social_f2_reach`, ports 3120 and 3121.
 
 ### 2.1 Scope
 
-**G2: "Reset my feed" on the Following page, with one confirmation.**
-- **What it deletes.** `resetFeed(viewer)` in `lib/likes.ts` runs one transaction:
-  - `delete from trade_rejects where viewer_id = ${viewer}`: every one, running, ended or permanent if O3 makes them
-    permanent;
-  - `clearUnfollowNotes(viewer, tx)` in `lib/follows.ts`: `delete from viewer_exclusions where viewer_id = ${viewer}
-    and reason = 'unfollow'`.
-- **What it keeps:** follows, likes, "Not interested" (which has its own Show again) and the watchlist, as the
-  decision lists them.
-- **Hard delete rather than ending the rows.** The criterion says "leaves zero", and that is the stronger privacy
-  promise. The Privacy text's "Reset my feed also ends it" stays true.
-- **Placement.** The function lives in `lib/likes.ts` and `lib/follows.ts` because the existing privacy scans
-  (`lib/likes.test.ts:24`, `lib/follows.test.ts:22`) allow only those files, `lib/delete.ts` and the purge to name these
-  tables. Nothing has to be added to an allow-list.
-- **The reset registry.** In `lib/likes.ts`: `RESET_DELETES = { trade_rejects: 'all', viewer_exclusions: 'unfollow' }`
-  and `RESET_KEEPS = { follows, viewer_exclusions: 'not_interested', trade_likes }`. A test (T2.4) forces every table
-  with a `viewer_id` column into one of them, so PR-5a's `discovery_events` fails CI until it is added to the reset.
-- **UI.**
-  - At the bottom of `/me/following`, a "Reset my feed" heading, its explanation and a link button to
-    `/me/following/reset`.
-  - That page (new, `noindex`, signed in only) says what will be deleted and what stays, then "This cannot be undone."
-    It shows the primary "Reset my feed" and a secondary "Keep them" that goes back to the list.
-  - **No counts.** The scans in `lib/likes.test.ts` forbid `count(` on these tables. The page describes what is deleted
-    instead of counting it.
-  - After the reset, the viewer goes to `/me/following`, which has no query. With JavaScript, a `role="status"` line
-    says "Your feed is reset.", and focus moves to it. Without JavaScript, the page renders after the POST. An open
-    feed tab picks up the change at its next page 1 (bound in §4).
+**G2, Reset in Settings → "Your feed", with its confirmation at `/settings/reset` (UX demand 1, items 11 to 13).**
+- **`resetFeed(viewer)`** in `lib/likes.ts` runs one transaction:
+  - `delete from trade_rejects where viewer_id = ${viewer}`;
+  - `clearUnfollowNotes(viewer, tx)` in `lib/follows.ts`.
 
-**G5: every like reachable from "Liked records".**
-- **`ownLikes(viewer, page)`.**
-  - Left join from `trade_likes` to `closed_trades`, ordered by `l.created_at desc, l.trade_key`, in pages of
-    `LIKES_MAX` = 200. It reads one extra row to know whether an older page exists.
-  - A like whose trade a rebuild removed comes back with `gone: true` and its trader's handle, from
-    `trade_likes.trader_id`. A deleted trader's likes are already removed by cascade.
-- **Paging.**
-  - `/me/following?likes=<n>#liked` with an integer page number. It names no trade, so it meets G6.
-  - Bad values (non-numeric, ≤ 0, above 10^6) read as page 1 and never return a 500.
-  - The links are "Older likes" and "Newer likes", each ≥ 44 px.
-- **A removed record.** Its row reads "Record no longer available · @handle" and keeps the Unlike button. The
-  accessible name is "Unlike a record by @handle that is no longer available". PR-4's focus rule after Unlike stays.
-- **Copy.** `LIKES.capped` is replaced by the paging links. The assertion that pins it is rewritten (§5).
+  It keeps follows, likes, Not interested and the watchlist.
+- **The reset registry.** `RESET_DELETES` and `RESET_KEEPS` are as in round 1. T2.4 forces every `viewer_id` table into
+  one of them.
+- **Entry points.**
+  - The Settings link "Reset my feed" (secondary style) sits right below the switch's description lines, as one line in
+    `app/settings/page.tsx`.
+  - `/me/following` gets one link to `/settings/reset`, **right after the Not interested list and before Liked
+    records**, never after the liked list.
+- **The confirmation page `/settings/reset`** (`page.tsx` server, signed in, `noindex`; `reset-form.tsx` client;
+  `actions.ts`):
+  - The h1 "Reset my feed" takes focus on load.
+  - It shows `RESET.explain`, then "This cannot be undone.", the primary "Reset my feed" and the secondary `RESET.keep`
+    "Don’t reset", which goes to `/settings`.
+  - No counts.
+- **The done state renders at the same URL.**
+  - `useActionState`, with JS and without. The POST goes to `/settings/reset`, the page the action was taken on.
+  - The explanation and both buttons are replaced by a focused `role="status"` "Your feed is reset." (`tabIndex=-1`),
+    plus "Back to Settings" (`/settings`) and "Go to the feed" (`/`).
+  - No Reset button remains.
+  - The primary is `aria-disabled` while pending, so a double click sends one POST.
+  - There is no celebration: text only, no motion.
 
-**G6: no viewer action or handle in a URL; expired sessions purged.**
-- **The rule the tests enforce.** Taking a viewer action never requests a URL other than one of these:
-  - the page the action was taken on;
-  - a fixed path with no query: `/`, `/me/following`, `/settings`;
-  - a static asset.
+**G5, every like reachable (C4a, UX items 14 and 15).**
+- **`ownLikes(viewer, page)`:** a left join, `created_at desc, trade_key`, pages of 200 plus one look-ahead row.
+- **Paging by `?likes=<n>#liked`.**
+  - A non-numeric, ≤ 0 or > 10^6 value renders **page 1**.
+  - A valid number past the last page renders **"No older likes."** with "Newer likes".
+  - Each input has one outcome (C4a).
+- **Unlike keeps page *n*.**
+  - Without JS, `unlikeForm`'s `refresh()` renders `/me/following?likes=n` again.
+  - With JS, the row is removed and PR-4's focus rule holds.
+  - A page that becomes empty shows "No older likes." and keeps "Newer likes".
+- **Arriving by paging.** The `#liked` heading is in view, and the next Tab reaches the first liked row's link.
+- **Where the links sit.** "Older likes" is at the end of the list. On pages > 1, "Newer likes" is at both its start and
+  its end. All are ≥ 44 px.
+- **A removed trade.** `LIKES.gone(h)` "This trade is no longer in @h’s record." The row has **no link to a trade page**,
+  `@h` links to `/u/h`, and Unlike has the accessible name `LIKES.unlikeGone(h)`. At 360 the line wraps and never
+  truncates the handle.
 
-  No URL carries `done`, `first`, `back`, `k`, `watch` or a trade key. Reading a public page by its own path is a page
-  view and stays allowed: `/u/<h>`, `/u/<h>/pane`, `/u/<h>/trade/<id>`, `/t/<sym>`, and `/login?next=<the page already
-  loaded>`.
-- **`/me/liked` becomes a POST.**
-  - `app/me/liked/route.ts` exports `POST` only, so a GET gets 405. The body is `{"k": [...]}`, with at most 60 keys,
-    each checked against `KEY`.
-  - Signed out it returns `{ liked: [] }` and runs no query, with `Cache-Control: private, no-store`.
-  - `app/card-gestures.tsx` sends `fetch('/me/liked', { method: 'POST', body })`.
-- **No-JS confirmations carry no handle.**
-  - **Profile forms.** `followForm`, `unfollowForm` and `notInterestedForm` take a bound `from: 'profile' | 'list'`.
-    From a profile the action calls `refresh()`: the POST goes to the profile's own URL, and the profile renders again
-    with no redirect.
-  - **Section rows and the pane** redirect to `/me/following`, which has no query. The lists there confirm the change,
-    and Undo or "Show again" is there too.
-  - **`showAgainForm`** redirects to `/me/following`.
-  - **Where the confirmation line comes from: stored state only.** `recentAction(viewer, trader)` in `lib/follows.ts`
-    reads this viewer's own rows from the last 60 seconds:
-    - a follow's `created_at`, with "first" from `users.follow_notice_at`;
-    - an unfollow note's `created_at` while not following;
-    - a running "Not interested" row's `created_at`.
-
-    `lastShownAgain(viewer)` replaces `?back=`. It names the trader whose "Not interested" this viewer ended in the last
-    minute. A visit by anyone else claims nothing, because every read is keyed by the session's id.
-- **Watch cap.** `toggleWatch` redirects to `/t/<sym>` without `?watch=cap`. `loadWatch` also reads the viewer's watch
-  count, and `Watch` shows the cap line whenever the viewer is not watching that symbol and is at `WATCH_CAP`.
-- **Expired sessions.**
-  - `purgeExpiredSessions({ boxMs = 5_000, batch = 10_000 })` in `lib/auth/sessions.ts` runs
-    `delete … where token_hash in (select token_hash from sessions where expires_at <= now() order by expires_at limit
-    $batch)` until a batch comes back short or the time box ends.
-  - It is called in `app/api/sync/route.ts` right after `purgeExpiredLinks`, in a `try`, and it never changes which
-    branch the route takes, the same pattern as `purgeDiscovery`.
-  - New index `sessions (expires_at)`.
-  - It runs only once IMPLEMENTATION item #7 is scheduled, which is the owner's deploy setting (§8).
+**G6, no action or handle in a URL (C4b, C7, UX items 16 to 19).**
+- **`/me/liked`** takes POST only, with the body `{ k: [...] }`, at most 60 keys, validated. Signed out it returns `[]`.
+  A GET gets 405. `card-gestures.tsx` sends a POST.
+- **Profile forms** (`from: 'profile'`): `refresh()` renders `/u/<h>` again. The line comes from
+  `recentAction(viewer, trader)`, which reads this viewer's own rows from the last 60 s.
+- **Section and pane forms** (`from` defaults to `'list'`, so `suggest-section.tsx` and `pane.tsx` don't change) and
+  `showAgainForm` redirect to `/me/following`, which has no query.
+  - Its existing `role="status"` line shows the confirmation for the viewer's most recent action in the last 60 s:
+    `lastAction(viewer)` returns `FOLLOW.followed`, `.first`, `.hiddenFrom`, `.unfollowed` or `.back`.
+  - Next to it is `FOLLOW.backToFeed` "Back to the feed" (`/`). `lastShownAgain` folds into `lastAction`.
+- **Exactly one confirmation (C7).**
+  - On the profile and on `/me/following`, the server line renders inside the **same** `role="status"` element the
+    client writes to.
+  - With JS, the client replaces that element's text and never adds a second element, so the line is announced once.
+- **Watch cap (UX item 18).**
+  - `toggleWatch` redirects to `/t/<sym>` with no `?watch=`.
+  - The cap line is plain text with an `id` on load, and the Watch button has `aria-describedby` pointing to it.
+  - With JS, a tap at the cap is caught by `watch-cap.tsx` (client), which writes the same text into a `role="status"`
+    region. Nothing is posted, since the server would refuse.
+- **Expired sessions.** `purgeExpiredSessions` runs in the tick after `purgeExpiredLinks`, in a `try`, ≤ 5 s per call,
+  in batches of 10,000, on a new index `sessions (expires_at)`. It needs IMPLEMENTATION item #7 to be scheduled.
+- **The rule T6.1 enforces (C4b).**
+  - A viewer action may lead only to: the page it was taken on; `/`, `/me/following`, `/settings` or `/settings/reset`;
+    or `/_next/…`.
+  - URLs are compared **by path**. The only query key allowed is the framework's router key `_rsc`.
+  - Any other query key fails, as do `done`, `first`, `back`, `k`, `watch` and a 64-hex key anywhere in the URL.
+  - Reading a public page by its own path is allowed (`/u/<h>`, `/u/<h>/pane`, `/u/<h>/trade/<id>`, `/t/<sym>`, and
+    `/login?next=` set to the page already loaded).
+  - This definition is written into `docs/specs/` for the build, so the test can't be loosened to let a framework
+    request pass. The reviewer re-runs T6.1 with `?done=` reintroduced, and it must fail.
 
 ### 2.2 Files PR-8 expects to touch
 
 Product:
-- `db/schema.sql` (append: one `schema_add_index` on `sessions`)
+- `db/schema.sql` (append)
 - `lib/likes.ts`
 - `lib/follows.ts`
-- `lib/auth/sessions.ts`
-- `lib/copy.ts` (`FOLLOW`, `LIKES`, new `RESET`, and the `allCopy` line)
+- `lib/auth/sessions.ts` (the purge)
+- `lib/copy.ts` (`FOLLOW`, `LIKES`, new `RESET`; `allCopy`)
 - `app/discovery-actions.ts`
 - `app/follow-button.tsx`
 - `app/not-interested.tsx`
-- `app/suggest-section.tsx`
-- `app/u/[handle]/similar-section.tsx`
 - `app/u/[handle]/page.tsx`
+- `app/u/[handle]/similar-section.tsx`
+- `app/settings/page.tsx` (one line)
+- `app/settings/reset/page.tsx` (new)
+- `app/settings/reset/reset-form.tsx` (new)
+- `app/settings/reset/actions.ts` (new)
 - `app/me/following/page.tsx`
 - `app/me/following/liked-list.tsx`
-- `app/me/following/reset/page.tsx` (new)
 - `app/me/liked/route.ts`
 - `app/card-gestures.tsx`
 - `app/t/[symbol]/Watch.tsx`
+- `app/t/[symbol]/watch-cap.tsx` (new)
 - `app/t/[symbol]/page.tsx`
 - `app/actions.ts` (`toggleWatch` only)
 - `app/api/sync/route.ts`
@@ -290,235 +366,285 @@ Tests:
 - `e2e/section.spec.ts`
 - `e2e/reset.spec.ts` (new)
 - `e2e/urls.spec.ts` (new)
+- `e2e/settings.spec.ts` (the Reset link's DOM position)
 
 ### 2.3 Tests first
 
 | Criterion | Test | Kind |
 |---|---|---|
-| **G2** · zero hides, notes and reading activity for that viewer | **T2.1.** Viewer A has rejects (running, ended, and one stored as `'infinity'`), unfollow notes (running and ended), one "Not interested", follows and likes. Viewer B has the same kinds, including rows that name A as the trader. After `resetFeed(A)`, A has zero `trade_rejects` and zero `viewer_exclusions` with reason `unfollow`. A's "Not interested", follows and likes are unchanged. B's rows are unchanged row for row (a snapshot comparison). | DB, `lib/reset.test.ts` |
-| G2 · nothing for any other viewer | Covered by T2.1's snapshot of B, plus a third viewer with no rows: still none. | DB |
-| G2 · confirmed, signed in | **T2.2.** Signed out, the action does nothing and redirects to `/login`. It takes no argument, so it can't name another viewer. The reset is reachable only through the confirmation page. | DB + e2e |
-| G2 · UI | **T2.3**, `e2e/reset.spec.ts`, at 375 and 320 px, light and dark. Hide a trade, unfollow, then Reset → confirm. Back in the feed at page 1, the trade is shown again and the trader's demotion is gone. "Not interested" and likes stay. Keyboard only, focus on the status line, no-JS path, axe clean. | e2e |
-| G2 · PR-5 can't skip it | **T2.4.** Every table in `db/schema.sql` with a `viewer_id` column is a key of `RESET_DELETES` or `RESET_KEEPS`. | unit |
-| **G5** · paging past 200 | **T5.1.** A viewer has 450 likes, 3 of them on trades a rebuild removed. Pages 1 to 3 of `ownLikes` together list every like exactly once, newest first. The removed ones carry `gone: true` and their trader's handle. Unliking a removed one deletes its row. | DB, `lib/likes.test.ts` |
-| G5 · UI | **T5.2**, `e2e/likes.spec.ts`. "Older likes" reaches page 2 and "Newer likes" returns. A removed record's row shows "Record no longer available" and its Unlike works with and without JavaScript. The focus rule holds. `?likes=abc`, `?likes=0` and `?likes=9999999` return 200 at page 1 or an empty page. | e2e |
-| **G6** · no request URL carries an action target or handle | **T6.1**, `e2e/urls.spec.ts`. Every request URL is recorded (`page.on('request')`) during each viewer action, with JavaScript and without: follow, unfollow and "Not interested" from the profile, a section row and the pane; Show again; like and unlike; hide this trade and its Undo; Unlike on `/me/following`; watch, unwatch and watch at the cap; Reset. Each URL must be the page the action was taken on, `/`, `/me/following`, `/settings` or `/_next/…`. None contains `done=`, `first=`, `back=`, `k=`, `watch=` or a 64-hex trade key. | e2e |
-| G6 · the liked lookup | **T6.2.** A GET to `/me/liked` returns 405. A POST validates keys, caps at 60, returns the session's own likes, and returns `[]` signed out with no query run (the behavioral guard). | e2e + DB |
-| G6 · confirmations from state | **T6.3.** `recentAction` returns follow, first, unfollow or hidden only for this viewer's own row from the last 60 s (backdated rows: 59 s is shown, 61 s is not). Another viewer's action never shows. `lastShownAgain` behaves the same way. | DB, `lib/follows.test.ts` |
-| G6 · expired sessions purged | **T6.4.** Expired rows are deleted and live rows kept. A row expiring exactly at `now` is deleted. The time box holds (a fake clock). A static check confirms the route calls it after `purgeExpiredLinks` inside a `try`. | DB, `lib/auth/sessions.test.ts` |
-| Heavy use | **T8.L** (`LOAD=1`). A reset for a viewer with 10,000 rejects and 5,000 unfollow notes takes < 300 ms. `/me/following` with 5,000 likes, page 25: p95 < 300 ms. POST `/me/liked` with 60 keys: p95 < 50 ms. 1,000,000 expired sessions drain in ≤ 20 ticks at ≤ 5 s each, with zero live sessions deleted. | load |
+| **G2** · zero hides and notes for that viewer, nothing for others | **T2.1.** As in round 1. A's rejects (running, ended, `'infinity'`) and unfollow notes go to zero. Not interested, follows and likes are unchanged. B's rows are unchanged row for row. A third viewer still has none. | DB |
+| G2 · confirmed, signed in | **T2.2.** Signed out, it does nothing and goes to `/login`. It takes no argument. It is reachable only through `/settings/reset`. | DB + e2e |
+| G2 · UI | **T2.3**, `e2e/reset.spec.ts`, full matrix. Hide a trade and unfollow, then Settings → Reset → confirm. **The response is at `/settings/reset`, with no query, shows `RESET.done` and has no Reset button.** With JS, `activeElement` is the status line. A double click sends one POST. "Don’t reset" lands on `/settings`, with the viewer's rows unchanged. On page 1 of the feed, the trade is back and the demotion is gone. No rendered card is duplicated in a feed tab that was already open. | e2e |
+| G2 · placement | **T2.5.** In Settings, the Reset link comes after the switch's description and before "Following and hidden traders". On `/me/following`, the reset link comes before `#liked` in the DOM. With 200 likes, its top is above `#liked`'s. | e2e |
+| G2 · PR-5 can't skip it | **T2.4.** Every `viewer_id` table is in `RESET_DELETES` or `RESET_KEEPS`. | unit |
+| **G5** · paging past 200 | **T5.1.** 450 likes, 3 of them on removed trades. Pages 1 to 3 list each like once, newest first. The removed ones have `gone: true` and a handle. Unlike on a gone row deletes it. | DB |
+| G5 · UI | **T5.2**, full matrix. "Older likes" and "Newer likes" work, and are placed as in §2.1. **`?likes=abc`, `?likes=0` and `?likes=9999999` each render page 1. `?likes=4` with 450 likes renders "No older likes." with "Newer likes".** Unliking the last row of page 3 keeps the path at `/me/following?likes=3`, with and without JS. After paging, the next Tab reaches the first row's link. A gone row has no `a[href*="/trade/"]`, has one `a[href="/u/h"]`, and its button's name equals `LIKES.unlikeGone(h)`. At 360, `scrollWidth ≤ clientWidth` on the row. | e2e |
+| **G6** · no URL carries an action target or handle | **T6.1**, `e2e/urls.spec.ts`. The C4b rule, with and without JS, over every viewer action: follow, unfollow and Not interested from the profile, a section row and the pane; Show again; like and unlike; hide this trade and its Undo; Unlike on page 2; watch, unwatch and watch at the cap; the switch; Reset. | e2e |
+| G6 · the liked lookup | **T6.2.** A GET gets 405. A POST validates keys, caps at 60, keys the read to the session, and returns `[]` signed out with no query run. **The PR-4 heart check over POST (UX item 19):** with `POST /me/liked` delayed 700 ms, a liked card never shows ♡ before ♥. | e2e + DB |
+| G6 · confirmations from state | **T6.3.** `recentAction` and `lastAction` show 59 s and not 61 s, the viewer's own rows only, and nothing for another viewer within 60 s. **C7:** after a JS follow on the profile, exactly one `role="status"` element carries "Following @h.", announced once, and the same holds on `/me/following`. **UX item 17:** with JS off, Not interested from a section row lands on `/me/following` with no query; the status reads `FOLLOW.hiddenFrom(h)`; "Back to the feed" is present; the trader is listed with "Show again". | DB + e2e |
+| G6 · watch cap | **T6.5.** At `WATCH_CAP` on an unwatched symbol, the line is visible on load, the button's description equals the cap message, and no URL has `watch=`. With JS, a tap fills a `role="status"` region and sends no POST. | e2e |
+| G6 · expired sessions purged | **T6.4.** As in round 1: the boundary at `now`, the time box and the route placement. | DB |
+| Heavy use | **T8.L.** As in round 1: reset < 300 ms; 5,000 likes page 25 at p95 < 300 ms; `POST /me/liked` p95 < 50 ms; 1 M expired sessions drain in ≤ 20 ticks. | load |
 
 ## 3. Independence test (IMPLEMENTATION "Parallel development")
 
 | Rule | PR-7 vs PR-8 | Either vs PR-4 | Either vs the Privacy PR |
 |---|---|---|---|
-| 1 Waits on / needs unmerged code | Neither waits on the other. Each one's tests run on its own code. | **Fail: both wait on PR-4.** | The Privacy PR waits on both (its text states them) |
-| 2 File sets | Shared only in append-mostly files: `db/schema.sql` (different tables), `lib/copy.ts` (PR-7 `SETTINGS`; PR-8 `FOLLOW`, `LIKES`, `RESET`, `allCopy`), `app/globals.css` (own classes). Otherwise disjoint. | Overlap (see §0) | `lib/copy.ts` only (it adds `PRIVACY` and touches `allCopy`; whoever merges second resolves that line) |
-| 3 Schema additive on different tables or columns | `users.personal_order_off` vs index `sessions_expires` | — | none |
-| 4 Same pinned behavior | Only PR-7 moves the ranking (for switched-off viewers). PR-8 changes no ranking code. | — | — |
-| 5 Protected path or the same owner stop | Neither touches a protected path. Neither waits on an owner stop to build. §8 Q1 has a default. | — | — |
+| 1 Waits on | PR-8 waits on PR-7 (result of rule 2) | Both wait on PR-4 | The Privacy PR waits on both |
+| 2 File sets | **Fail:** `app/settings/page.tsx`, `app/t/[symbol]/Watch.tsx`, `app/u/[handle]/page.tsx`, `app/actions.ts`, `lib/auth/sessions.ts`, `e2e/section.spec.ts`, `e2e/settings.spec.ts` are in both. The shared append-mostly files (`db/schema.sql`, `lib/copy.ts`, `app/globals.css`) would be fine. | Overlap | `lib/copy.ts` only (append; the second to merge resolves the `allCopy` line) |
+| 3 Schema | Different tables: a `users` column vs a `sessions` index | — | none |
+| 4 Pinned behavior | Only PR-7 moves the ranking | — | — |
+| 5 Protected paths or owner stops | none | — | — |
 
-Result: PR-7 and PR-8 start together once PR-4 has landed.
+**Result:** PR-7 goes first and PR-8 builds from its merge. Number order decides it.
 
 ## 4. Schema (additive only)
 
 ```sql
--- PR-7 (G1): null-free boolean, false = "Order my feed by my activity" on (the default). No timestamp: nothing records
--- when the viewer changed it (POLICY P3). Deleted with the users row.
+-- PR-7 (G1): false = "Order my feed by my activity" on (the default); no timestamp (P3).
 select schema_add_column('users', 'personal_order_off', 'boolean not null default false');
 -- PR-8 (G6): the expired-session purge walks this index in batches.
 select schema_add_index('sessions_expires', 'create index sessions_expires on sessions (expires_at)');
 ```
 
-- **Optional third change, only if T8.L misses its budget:** `schema_add_index('trade_likes_viewer_created', 'create index
-  trade_likes_viewer_created on trade_likes (viewer_id, created_at desc)')`.
-- No new table and no dropped column. `lib/likes.test.ts`'s "no discovery event table" check still passes.
-- **Known bound after a Reset or a switch change.** A feed tab that was already open may, on its next page, repeat cards
-  or skip a few. The cursor stays pinned to the old `asOf`, but the rows that shaped the list have been deleted (Reset)
-  or the preferences no longer apply (the switch).
-  - Repeats are already dropped by the pager (`feed-pager.tsx`, `shown`).
-  - The next page 1 is exact.
-  - We store no extra column to detect this, since data minimization outweighs a one-time reorder. T2.3 asserts that no
-    rendered card is duplicated.
+- **Optional, only if T8.L misses:** `trade_likes (viewer_id, created_at desc)`.
+- No new table. No `drop`, `truncate` or `delete from`.
+- **Known bound, as in round 1.** After a Reset or a switch change, an already open feed tab may repeat cards, which
+  the pager drops, or skip a few. The next page 1 is exact. Tested in T1.5 and T2.3.
 
 ## 5. Pinned assertions the G6 decision makes obsolete (rewritten, never deleted)
 
-Each one keeps its test and asserts the owner's new behavior instead. The reviewer checks this list against the diff.
-
 | Where | Today | Rewritten to |
 |---|---|---|
-| `e2e/follow.spec.ts:133` | no-JS follow lands on `/u/<h>?done=follow` | lands on `/u/<h>` with no query, and the line "Following @h." is visible |
-| `e2e/follow.spec.ts:137` | a crafted `?done=unfollow` link claims nothing | another viewer opening the profile within 60 s sees no line |
-| `e2e/section.spec.ts:424` | no-JS "Not interested" lands on `/u/<x>?done=hidden` | lands on `/me/following`, and the trader is listed under Not interested |
-| `e2e/likes.spec.ts:143,154,349` | `GET /me/liked?k=` (the route intercept and the signed-out read) | `POST /me/liked` (intercept by method), signed out → `{ liked: [] }`, GET → 405 |
-| `lib/follows.test.ts:238` | "@x is back" via `?back=x` | via `lastShownAgain(viewer)`, the same 60-second rule |
-| Any assertion of `LIKES.capped` text | "Showing your 200 most recent likes." | the "Older likes" link on a viewer with 201 likes |
+| `e2e/follow.spec.ts:133` | no-JS follow → `/u/<h>?done=follow` | `/u/<h>` with no query; one status line reads "Following @h." |
+| `e2e/follow.spec.ts:137` | a crafted `?done=unfollow` claims nothing | another viewer within 60 s sees no line |
+| `e2e/section.spec.ts:424` | → `/u/<x>?done=hidden` | → `/me/following` with no query; the status reads `FOLLOW.hiddenFrom(x)`; listed with Show again |
+| `e2e/likes.spec.ts:143,154,349` | `GET /me/liked?k=` | `POST /me/liked`; GET → 405 |
+| `lib/follows.test.ts:238` | "@x is back" via `?back=x` | via `lastAction(viewer)`, same 60-second rule |
+| `LIKES.capped` assertions | "Showing your 200 most recent likes." | "Older likes" on a viewer with 201 likes |
 
 ## 6. Copy (scanned)
 
-All of it goes in `lib/copy.ts`, inside objects already listed in `allCopy()` (`RESET` is added to the list). That runs
-it through `PROMO`, `BANNED` (endorse, recommend, guarantee, secure, safe, "audit of the record") and
-`SUGGESTION_WORDS` (buy, sell, hold, pick, signal, advice, price target). I checked every string below against those
-lists. None contains a word they ban, a completeness claim, a count of anyone's follows or likes, or a ticker slot.
-"held" in the existing deletion copy doesn't match `\bholds?\b`.
+All of it goes in `lib/copy.ts` objects listed in `allCopy()`. That runs it through `PROMO`, `BANNED` and
+`SUGGESTION_WORDS`. I checked every string against them. None contains a banned word, a completeness claim, a count, a
+ticker slot, or the claim that nothing is recorded. The amended criterion makes "no activity recorded" true by test,
+but the host's request logs still record the addresses of pages opened. That sentence belongs in the Privacy text
+(§7), not here. The tests import the strings rather than repeating them. C6 and C8 use the UX lead's wording.
 
-**PR-7, `SETTINGS`:**
-- `feedTitle`: "Your feed"
-- `orderLabel`: "Order my feed by my activity" (the owner's text)
-- `on`: "On"
-- `off`: "Off"
-- `orderOnExplain`: "On: traders you unfollowed, and traders whose trades you hid, appear a little lower in your feed
-  and suggestions." This is true of the code today, where follows and likes order nothing. PR-5b rewrites it when they
-  start to.
-- `orderOffExplain`: "Off: your feed and suggestions use the order everyone sees signed out, minus the traders and
-  trades you hid."
-- `orderSavedOn`: "Your feed is ordered by your activity."
-- `orderSavedOff`: "Your feed now uses the signed-out order."
-- `deleteExplain` (G4): "Deleting removes your profile, record, sign-in details and the brokerage link at the vendor,
-  and your follows, likes, hidden traders and trades, unfollow notes, watchlist and reading activity. Your handle is
-  held for a year."
+**PR-7.**
+- **`SETTINGS`:**
+  - `feedTitle` "Your feed"
+  - `orderLabel` "Order my feed by my activity"
+  - `on` "On"
+  - `off` "Off"
+  - `orderOnExplain` "On: traders you unfollowed, or whose trades you hid, appear a little lower in your feed and
+    suggestions, and suggestions leave out traders you follow."
+  - `orderOffExplain` "Off: your feed and suggestions use the order everyone sees signed out, minus the traders and
+    trades you hid. Nothing you follow, like or hide is deleted."
+  - `orderSavedOn` "Saved. Your feed is ordered by your activity again."
+  - `orderSavedOff` "Saved. Your feed now uses the order everyone sees signed out."
+  - `deleteLead` "Deleting removes:"
+  - `deleteItems`:
+    - "your profile, record and sign-in details"
+    - "the brokerage link at the vendor"
+    - "your follows, likes and watchlist"
+    - "the traders and trades you hid, and our note of who you unfollowed"
+    - "any reading activity we stored"
+  - `deleteAfter` "Your handle is held for a year. Copies in our backups remain until those backups are replaced."
+- **`SECTION`:**
+  - `personal` "Traders you unfollowed, or whose trades you hid, are placed a little lower, and traders you follow are
+    left out."
+  - `settings` "Feed settings"
+- **`WATCH`** (new; the UX lead to rule on the words):
+  - `markerOff` "New-trade counts are hidden while “Order my feed by my activity” is off."
+  - `settings` "Feed settings"
 
-**PR-8:**
-- `RESET.heading`: "Reset my feed"
-- `RESET.explain`: "Deletes the trades you hid and the notes we keep when you unfollow someone. Your follows, likes,
-  “Not interested” list and watchlist stay." PR-5a appends "It also deletes your reading activity."
-- `RESET.confirm`: "This cannot be undone." (the same string as `SETTINGS.confirm`)
-- `RESET.action`: "Reset my feed"
-- `RESET.keep`: "Keep them"
-- `RESET.done`: "Your feed is reset."
-- `LIKES.gone`: "Record no longer available"
-- `LIKES.unlikeGone(h)`: "Unlike a record by @h that is no longer available"
-- `LIKES.older`: "Older likes"
-- `LIKES.newer`: "Newer likes"
-- `FOLLOW.*` lines are unchanged (only where they come from changes).
-
-The UX lead may reword any of these within the same scans. The tests import the strings rather than repeating them.
+**PR-8.**
+- **`RESET`:**
+  - `heading` "Reset my feed"
+  - `explain` "Deletes the trades you hid and our note of who you unfollowed, so those trades can show again and those
+    traders are no longer placed lower. Your follows, likes, “Not interested” list and watchlist stay." PR-5a appends
+    its sentence.
+  - `confirm` "This cannot be undone."
+  - `action` "Reset my feed"
+  - `keep` "Don’t reset"
+  - `done` "Your feed is reset."
+  - `backToSettings` "Back to Settings"
+  - `toFeed` "Go to the feed"
+- **`LIKES`:**
+  - `gone(h)` "This trade is no longer in @h’s record."
+  - `unlikeGone(h)` "Unlike a trade no longer in @h’s record"
+  - `older` "Older likes"
+  - `newer` "Newer likes"
+  - `noneOlder` "No older likes."
+- **`FOLLOW`:** `backToFeed` "Back to the feed".
 
 ## 7. What the Privacy page PR must state (it merges after PR-7 and PR-8)
 
-Packet §3, Part A and Part B, with the bracketed lines for G1 to G6 filled in. Three sentences must change, because
-these PRs make them false or incomplete:
-1. **The request-log sentence** ("a few of those addresses show an action, such as which trader you just followed or
-   which records were on your screen") is false after PR-8. Replace it with: "Those addresses show which pages you
+Packet §3 Part A and Part B, with the bracketed G1 to G6 lines filled in, and these changes:
+1. **Request logs:** replace "a few of those addresses show an action, …" with "Those addresses show which pages you
    opened, not what you did on them."
 2. **Likes:** "Your Liked records list shows every like, each with Unlike, which deletes it at once."
-3. **Sessions:** "Ended sessions are deleted by our regular clean-up." **Deletion:** the watchlist moves into the first
-   sentence. **Opt-out:** Part B's bracketed line, plus a Part A line saying that today the switch turns off the
-   demotions from unfollows and hidden trades.
+3. **Sessions:**
+   - "Ended sessions are deleted by our regular clean-up."
+   - The last-use sentence gains: "While “Order my feed by my activity” is off, we don't record when you last used the
+     app."
+4. **Deletion:** the watchlist moves into the first sentence.
+5. **Follows (C5):** "While “Order my feed by my activity” is on, followed traders are left out of your suggestions,
+   since you already follow them."
+6. **Watchlist (owner, Q1 reversed):** "We store which symbols you watch, when you added each, and when you last opened
+   each symbol's page. While “Order my feed by my activity” is off, we stop recording when you open a symbol's page,
+   and the watchlist doesn't show what's new since you last looked."
+7. **Opt-out:** Part B's bracketed line, plus a Part A line:
+   - "With “Order my feed by my activity” off, your follows, unfollows and hidden trades don't change the order of your
+     feed or suggestions (what you hid stays hidden). We record nothing about what you do in the app beyond the choices
+     you make, such as follows, likes, hides and your watchlist."
+   - The "beyond the choices you make" clause is needed because request logs are covered in item 1 and the explicit
+     choices stay stored.
+8. **Outside Part A, for the owner's broader policy:** the trader's own record-view counters and prompt stamps also stop
+   while the switch is off (§1.1).
 
-Under §8 Q1's default, the Watchlist row ("when you last opened each symbol's page") stays as written, since the switch
-doesn't stop that stamp. The Privacy PR's reviewer checks its text against the code as merged (IMPLEMENTATION, "true by
-construction").
+The Privacy PR's reviewer checks every sentence against PR-7 and PR-8 as merged.
 
-## 8. Owner question (each has a default; the build proceeds with it)
+## 8. Owner questions
 
-| # | Question | Default |
-|---|---|---|
-| Q1 | With "Order my feed by my activity" off, should opening a watched symbol's page still record when you last opened it (`ticker_watches.last_seen_at`, which drives "new since you last looked")? | **Yes, keep it.** It is the watchlist's own state, disclosed under Watchlist in the Privacy text, and it orders nothing today. The switch stops discovery activity (PR-5) and the demotions. If the owner says no, the watchlist counts new trades from when you started watching (~3 lines, plus T1.3 tightened). |
-
-Standing, not new:
-- **O3 (hide duration):** still open, default 90 days. No part of this plan changes with it. If trade hides become
-  permanent, G2 is the way to end them, and T2.1 already covers `'infinity'`.
-- **Owner actions with no question:** schedule IMPLEMENTATION item #7 (the expired-session purge and every clean-up line
-  in the Privacy text depend on it).
-- **A note for the UX lead, not the owner:** G6 changes where a no-JS action from a section row or the pane lands. It
-  goes to `/me/following` instead of the trader's profile.
+None open.
+- **Q1 is answered and reversed.** With the switch off, nothing about the viewer's activity is recorded, and the
+  watchlist marker is hidden. §1.1 applies that to every passive write the tree makes today: the watch stamp, session
+  last use, own-record views, the own-profile funnel event, prompt-seen and share stamps.
+- **If the owner wants a narrower reading** (only the watch stamp and PR-5's events), the change is to drop rows from
+  §1.1's table and their T1.3 pages. About −20 lines.
+- **Standing:** O3 (hide duration) is still open, default 90 days, and doesn't change this plan.
+- **Owner action:** schedule IMPLEMENTATION item #7.
 
 ## 9. Accessibility (POLICY A1, WCAG 2.2 AA)
 
-- **The switch (G1):**
-  - a native `<button role="switch" aria-checked>` with the visible label as its accessible name (`aria-labelledby`);
-  - the state is also visible as the text "On" or "Off", never color alone;
-  - ≥ 44 × 44 px, visible focus ring (the existing token), Space and Enter toggle it;
-  - a `role="status"` line confirms the change;
-  - no animation on the knob under `prefers-reduced-motion`, and only a 120 ms color and transform change otherwise;
-  - text contrast ≥ 4.5:1, and the track against its background ≥ 3:1 (non-text contrast).
-- **Reset (G2):**
-  - the confirmation page's `h1` takes focus on load;
-  - the primary and secondary actions are both ≥ 44 px, and their meaning comes from their text;
-  - after the reset, focus moves to the `role="status"` line;
-  - it works with JavaScript off.
-- **Liked records (G5):**
-  - the paging links are real links ≥ 44 px, and focus lands on the "Liked records" heading (`#liked`, `tabIndex=-1`)
-    after paging;
-  - a removed record's Unlike has a distinct accessible name;
-  - the row's text says "no longer available", so nothing depends on dimmed styling alone.
-- **No-JS confirmations (G6):** stay `role="status"`. The watch-cap line becomes static text next to the button
-  (`role="status"` only right after a tap).
-- **Checks:** every new view is tested at 375 and 320 px in light and dark, with keyboard only and with axe
-  (T1.5, T2.3, T5.2).
+- **The switch (G1).** As §1.1:
+  - name from `<label for>`, description through `aria-describedby`;
+  - state shown as text;
+  - the row ≥ 44 px and the switch ≥ 44×44 at 320;
+  - Space and Enter toggle it, with a visible ring;
+  - a status that speaks only what the server confirmed, with its element present on load;
+  - reduced motion respected;
+  - text ≥ 4.5:1 and the track ≥ 3:1 in both states and both themes.
+- **The section line:** a link with visible text. `#your-feed` takes focus.
+- **Reset:** the h1 takes focus on load. After the reset, focus moves to the status line. The primary is `aria-disabled`
+  while pending. Both actions are ≥ 44 px and named by their text. It works without JS.
+- **Liked records:** paging links ≥ 44 px, at the end, and at the start on pages > 1. Focus and Tab order are handled
+  after paging. A gone row's Unlike has a distinct name that starts with the visible "Unlike" (WCAG 2.5.3), and the
+  row is marked by text, not dimming.
+- **Confirmations:** exactly one `role="status"` per page (C7).
+- **Watch cap:** a static description on load, and `role="status"` only after a tap.
+- **Every view:** the §0 e2e matrix (320, 360, 375; axe; no horizontal scroll; animations).
 
 ## 10. Performance budgets
 
 | Budget | Value | Test |
 |---|---|---|
-| Signed-in feed, switch on | p95 < 800 ms (unchanged, `plan.md` §4). The flag read is one PK lookup inside the existing `Promise.all` | existing load test |
-| Signed-in feed, switch off, no hides | ≤ signed-out p95 + 20 ms (it serves `kept.mixed`) | T7.L |
-| Switch tap to feedback | < 100 ms (optimistic) | T1.5 |
-| Reset, 10,000 rejects + 5,000 notes | < 300 ms, one transaction | T8.L |
-| `/me/following`, 5,000 likes, page 25 | p95 < 300 ms (fallback index in §4) | T8.L |
+| Signed-in feed, switch on | p95 < 800 ms. `viewerFlags` is one PK read in the existing `Promise.all`; the demo probes are index-only | existing load test, T3.4 |
+| Signed-in feed, switch off, no hides | ≤ signed-out p95 + 20 ms | T7.L |
+| `viewerFlags` | < 2 ms for a trader with 10,000 activities | T7.L |
+| Switch tap to feedback | < 100 ms (it flips at once; the status waits for the server) | T1.5 |
+| Passive-write gate | 0 extra round trips (a fragment inside each statement) | T1.3 |
+| Reset (10,000 rejects + 5,000 notes) | < 300 ms | T8.L |
+| `/me/following`, 5,000 likes, page 25 | p95 < 300 ms | T8.L |
 | `POST /me/liked`, 60 keys | p95 < 50 ms | T8.L |
-| Session purge | ≤ 5 s per tick under its box; 1 M expired rows drain in ≤ 20 ticks; zero live rows touched | T8.L |
-| Feed raw HTML | ≤ 500 KB per page (unchanged; the switch adds nothing to the feed) | existing |
+| Session purge | ≤ 5 s a tick; 1 M rows in ≤ 20 ticks; 0 live rows touched | T8.L |
 
 ## 11. Compliance checklist (COMPLIANCE §1)
 
-1. **Performance shown, ranked or described?**
-   - G1 changes ordering only by removing demotions, and only for the viewer who chose it. It reads no return, so it is
-     sign-invariant by construction (T1.1 compares against the signed-out order, which is already sign-invariant).
-   - No new performance number is shown. The new pages (Settings, the reset confirmation, Liked records) show no
-     return. A liked row still shows symbol and date only.
-   - F1 as amended now requires the opt-out, and PR-7 supplies it.
-2. **Personal data?**
-   - New: `users.personal_order_off` (a boolean; only the viewer sees it, on `/settings`; deleted with the users row).
-   - Removed:
-     - trade hides and unfollow notes, on demand (G2);
-     - expired sessions, by the tick (G6);
-     - the watchlist, moved to deletion's first step (G4).
-   - Viewer actions leave the request URLs (G6).
-   - Nothing is stored signed out. The Privacy PR's text must match §7.
-   - Retention lines depend on item #7 (owner).
-3. **Money, rewards, points?** No.
-4. **Email, push, SMS, tracking?** None added. G3 keeps implicit tracking off for real viewers. No third party.
-5. **User text?** None new.
-6. **Sign-up, age, identity, accounts?** No change to sign-up or 18+. Deletion gains one table in its first step.
-7. **Vendor, dependency, font, outside asset?** None.
-8. **Screen reader and keyboard?** §9.
-9. **Security posture?**
-   - Every new action is session-bound with no target argument (`resetFeed`, `setOrder`).
-   - `/me/liked` moves to POST, validated and capped, `private, no-store`.
-   - The session purge runs under the existing cron bearer.
-   - Paging input is validated (`?likes=`).
-   - No new public endpoint.
-10. **Claims in copy?** Each explanation is true of the code as built. The "On" line names only today's demotions, and
-    PR-5b must rewrite it (test T1.5 pins the string to `SETTINGS`). No "every trade", no "AI".
-11. **Checkout?** No.
+1. **Performance.**
+   - G1 only removes demotions, and it reads no return.
+   - No new number is shown, and the new pages show no return.
+   - F1's opt-out sentence becomes true with PR-7.
+2. **Personal data.**
+   - **New:** `users.personal_order_off`.
+   - **Less is recorded:** with the switch off, every passive write stops: the watch stamp, session last use,
+     own-record views, the own-profile funnel event, and prompt and share stamps.
+   - **Removed on demand:** trade hides and unfollow notes (G2).
+   - **Removed by the tick:** expired sessions (G6).
+   - **Moved:** the watchlist goes into deletion's first step (G4).
+   - **Out of URLs:** actions (G6).
+   - The Privacy PR's text must match §7. Retention lines depend on item #7.
+3. **Money:** none.
+4. **Email, push, SMS, tracking:** less tracking. G3 is a pinned constant, `demo` is defined positively (C1), and there
+   is no third party.
+5. **User text:** none new.
+6. **Accounts:** deletion gains one table in its first step. No sign-up change.
+7. **Vendor, dependency or asset:** none.
+8. **Screen reader and keyboard:** §9.
+9. **Security:**
+   - Every action is session-bound and takes no target argument.
+   - `/me/liked` is POST only.
+   - The purge runs under the cron bearer.
+   - `?likes=` is validated.
+   - `demo` comes only from the database.
+10. **Claims:**
+    - Every string is true of the code as built.
+    - No copy claims that nothing is recorded; the Privacy text carries the exact claim, with request logs named.
+    - PR-5b rewrites `orderOnExplain` and `SECTION.personal`.
+11. **Checkout:** none.
 
-## 12. Policy checks for both PRs (from `plan.md` §8, applied)
+## 12. Policy checks for both PRs
 
-- **Likes, follows and hides stay private:** no count anywhere, and the reset page counts nothing (the privacy scans
-  stay as they are).
-- **Losses are never hidden:** a hide is the viewer's own filter. TR-1 holds, since no profile changes.
-- **Signed-out behavior is unchanged:** the feed, profiles and shared links behave exactly as today, and the behavioral
-  guard is stricter (D13).
-- **No celebration** on reset, the switch or likes (F6).
-- **Implicit signals:** off for real viewers by a pinned constant until the owner decides otherwise (G3).
+- **Privacy:** no counts anywhere.
+- **TR-1:** a hide never touches a profile.
+- **Signed out:** unchanged, with the guard stricter.
+- **No celebration:** none on the switch, Reset or likes (F6).
+- **G3:** a pinned constant.
+- **Opting out is complete:** the switch off records nothing beyond deliberate choices.
+
+## 13. Binding additions to `plan.md` PR-5a and PR-5b (C3, C9, the Q1 reversal)
+
+I can edit only this file. The orchestrator copies these into `plan.md`, or PR-5's plan round settles them first.
+- **PR-5a tests (C3).** A non-demo viewer POSTing each implicit type to `/api/events` stores 0 rows. Implicit demo rows
+  seeded for a real viewer are absent from that viewer's `viewerProfile` input. A switch-off viewer POSTing any type,
+  explicit share included, stores 0 rows. A switch-off viewer's explicit actions write their state row and no
+  `discovery_events` row.
+- **PR-5a:** `discovery_events` goes into `RESET_DELETES` (T2.4 fails until it does) and into deletion's first step.
+  `RESET.explain` gains its sentence.
+- **PR-5b (C9).** With the switch off, the section keeps the signed-out heading and explanation, with no personal reason
+  line. PR-5b rewrites `orderOnExplain` and `SECTION.personal` once follows and likes order the feed (T1.5 and T1.9 pin
+  the strings).
 
 ## Sign-off
 
-Engineer: **SIGNED** 2026-10-25. I would stake my name on building PR-7 and PR-8 as written, within the stated line
-counts, with every acceptance criterion G1 to G6 mapped to a test in §1.3 and §2.3.
+Engineer: **SIGNED** 2026-10-25 (round 2). I would stake my name on building PR-7 and then PR-8 as written, with every
+criterion G1 to G6 (G1 as amended) mapped to a test in §1.3 and §2.3.
 
-Business lead: pending. Please check: that the two-PR split and the order after PR-4 are right; §8 Q1's default; the
-Privacy coordination in §7; that the section shows followed traders when the switch is off (the strict reading of G1).
+Business lead: SIGNED round 1 with C1 to C9. Round 2 applies all nine, but drops C2's allowance because the owner
+reversed Q1. Please confirm.
 
-UX lead: pending. Please check: the switch's placement and copy (§1.1, §6); the reset confirmation page; the paging
-links and the removed-record row; that no-JS actions from section rows and the pane now land on `/me/following`
-instead of the trader's profile (G6); the static watch-cap line.
+UX lead: REVISE in round 1. Round 2 applies all 11 demands. Please re-sit, mainly on: the `WATCH.markerOff` wording,
+the hidden markers (§1.1), and the strings where your wording was taken over the business lead's.
 
-SIGNED: engineer. PENDING: business lead, UX lead.
+SIGNED: engineer. PENDING: business lead (confirm round 2), UX lead (re-sit).
 
-## Owner answer (2026-10-25)
+## Round 2 changes
 
-Q1: **yes**, keep recording a watched symbol's last-opened time while personal ordering is off (the plan's
-default). Recorded in the F-2 file's Decisions.
+| Demand | Change | Conflict and ruling |
+|---|---|---|
+| BL C1 · define demo | `viewerFlags`: ≥ 1 activity, all `source='demo'`, from the database by session id. T3.2 gets three non-demo cases, T3.4 the explain check | — |
+| BL C2 · bound T1.3 | `/t/<sym>` watched and unwatched added to T1.3. The static guard on `last_seen_at` in ranking paths is kept (T1.7). **The one allowed watchlist write is dropped** | Superseded by the owner's Q1 reversal: no write is allowed (stricter). T1.3a added as the owner asked |
+| BL C3 · T3.3 behavioral | Scoped to `insert into` / `select … from discovery_events` and the events route, with a named exempt list. PR-5a's behavioral pair is in §13 | — |
+| BL C4a · one outcome per `?likes=` | Invalid → page 1; past the end → "No older likes." with Newer (T5.2) | — |
+| BL C4b · URLs by path, `_rsc` only | T6.1's rule, written into the spec; the reviewer re-runs it with `?done=` | — |
+| BL C5 · Privacy follows sentence | §7 item 5 | — |
+| BL C6 · split the deletion sentence | Replaced by the UX list (item 9) with the backups sentence | BL three sentences vs UX list → **UX wording** (coordinator), and stricter: it adds backups. T4.1 uses UX's regexes |
+| BL C7 · exactly one confirmation | One shared `role="status"` element on the profile and `/me/following` (T6.3) | — |
+| BL C8 · effect-first copy, no internal terms | `orderOffExplain`, `orderSavedOff`, `RESET.explain`, `RESET.keep` | BL "same order as everyone" / "Cancel" vs UX "order everyone sees signed out" / "Don’t reset" → **UX wording** (coordinator). The BL point (lead with the effect) is kept in `RESET.explain`. BL's "drop the On/Off prefixes" vs UX's "keep both lines with their labels": **UX**, the stricter one, since the viewer can read what Off does before choosing |
+| BL C9 · PR-5b section when off | §13 | — |
+| UX 1 · Reset in Settings, `/settings/reset`; link on `/me/following` after Not interested | §2.1, T2.5. PR-8 adds the Settings line | Breaks the PR-7/PR-8 independence (§3): **PR-8 now waits on PR-7** |
+| UX 2 · confirmation page wording and done state | `RESET.keep` "Don’t reset" → `/settings`; `useActionState` done state at the same URL; focus; `aria-disabled`; one POST (T2.3) | — |
+| UX 3 · Following on a followed section row | `followingAmong` covers section candidates; the button is pressed (T1.1b) | — |
+| UX 4 · section line and "Feed settings" link | `SECTION.personal`, `/settings#your-feed`, focus effect; nothing signed out or off (T1.9) | — |
+| UX 5 · both explain lines always; status after the server | §1.1, T1.5, with the UX strings | — |
+| UX 6 · deletion list | `deleteLead`, `deleteItems`, `deleteAfter`; T4.1 regexes | Applied over C6 (above) |
+| UX 7 · `RESET.explain`, `LIKES.gone`, `unlikeGone`, no trade link | §6, T5.2 | — |
+| UX 8 · Unlike keeps page *n*; "No older likes." | §2.1, T5.2 | — |
+| UX 9 · `/me/following` status for no-JS section and pane actions; "Back to the feed" | `lastAction`, `FOLLOW.backToFeed` (T6.3) | — |
+| UX 10 · watch cap described statically; status only after a tap | `aria-describedby`, `watch-cap.tsx` (T6.5) | — |
+| UX 11 · 360 px everywhere; no horizontal scroll; animations; heart check over POST | §0 matrix; T6.2 | — |
+| UX items 1, 3, 7, 22 (within the demands) | DOM order and first viewport; label tap, contrast in both states; second-tab duplicates; axe | — |
+| Owner · Q1 reversed | §1.1: every passive write is gated by `recording(id)` and its marker hidden. T1.3 now forbids every write. T1.3a, T1.4, T1.6, T1.7. Privacy §7 items 3, 6, 7, 8 | Applied to every passive write in the tree, not only the watch stamp (stricter). The owner can narrow it (§8) |
+| Line estimates | PR-7 ~170 → ~340 (the switch's UX, section state and line, deletion list, C1, the Q1 gates). PR-8 ~320 → ~390 (reset page with done state, status lines, watch cap, gone rows) | Both ≤ 800 |
