@@ -49,6 +49,12 @@ export const buildQueue = (fs: Feature[]) => fs.filter((f) => f.status === 'read
 export const nextFeature = (fs: Feature[]): Feature | null => buildQueue(fs)[0] ?? null;
 
 export const setStatus = (text: string, s: Status) => text.replace(/^Status:\s*[a-z]+/m, `Status: ${s}`);
+// Pure: mark a feature blocked with its reason (the `Blocked:` line under the status, replaced if present).
+export function setBlocked(text: string, reason: string): string {
+  const line = `Blocked: ${reason.replace(/\s+/g, ' ').trim()}`;
+  const t = setStatus(text, 'blocked');
+  return /^Blocked:.*$/m.test(t) ? t.replace(/^Blocked:.*$/m, line) : t.replace(/^(Status:\s*[a-z]+)$/m, `$1\n${line}`);
+}
 export const branchOf = (f: Feature) => `feature/${f.id.toLowerCase()}`;
 
 // ---------- parallel rounds (pure; tested in scripts/features.test.ts) ----------
@@ -259,19 +265,39 @@ const handoff = () => (existsSync('.autopilot/handoff.md') ? readFileSync('.auto
 
 function publish() {
   const file = env('FILE');
-  const r = JSON.parse(readFileSync('.autopilot/result.json', 'utf8')) as { done?: boolean; summary?: string; title?: string };
+  const r = JSON.parse(readFileSync('.autopilot/result.json', 'utf8')) as { done?: boolean; summary?: string; title?: string; blocked?: string; committeePath?: string };
   const text = readFileSync(file, 'utf8');
   const f = parseFeature(file, text);
   const branch = branchOf(f);
+  if (r.blocked) return publishBlocked(f, r.blocked, r.committeePath);
   const log = `\n- ${new Date().toISOString().slice(0, 10)}: built on \`${branch}\`${r.done ? '' : ' (unfinished: CI and the fix loop take it from here)'}. ${(r.summary ?? '').split('\n')[0]}`;
   writeFileSync(file, setStatus(text, 'built') + (text.includes('## Build log') ? log : `\n## Build log\n${log}`) + '\n');
   if (sh('git', ['status', '--porcelain'])) { sh('git', ['add', '-A']); sh('git', ['commit', '-m', `${f.id}: ${f.title}`]); }
   sh('git', ['push', '--force', authUrl(), `HEAD:refs/heads/${branch}`]);
-  const body = withNotes(`Implements **${f.id} · ${f.title}** as decided in design sessions ([\`${file}\`](../blob/main/${file})). Merges when CI and the reviewer confirm every acceptance criterion and it contains the latest main; then the owner tries it and marks it accepted or rework in chat.\n\n${r.summary ?? ''}`,
+  const body = withNotes(`Implements **${f.id} · ${f.title}** as decided in design sessions ([\`${file}\`](../blob/main/${file})). Merges when CI and the reviewer confirm every acceptance criterion and it contains the latest main; then the owner tries it and marks it accepted or rework in chat.\n\n${r.summary ?? ''}` +
+      (r.committeePath ? `\n\nCommittee record (plan debate, user tests, verdicts): [\`${r.committeePath}\`](../blob/${branch}/${r.committeePath})` : ''),
     handoff(), sharedTouched());
   const url = gh('pr', 'create', '--head', branch, '--base', 'main', '--label', 'feature', '--title', `${f.id}: ${f.title}`, '--body', body);
   gh('workflow', 'run', 'ci.yml', '--ref', branch);
   console.log(`published ${url}`);
+}
+
+// The committee hit a hard stop or disagreed with a decision: record it on main (status, reason and the committee's
+// record), never the half-built code, so the pipeline skips the feature until the owner clears it.
+function publishBlocked(f: Feature, reason: string, committeePath?: string) {
+  const record = committeePath && existsSync(committeePath) ? readFileSync(committeePath, 'utf8') : '';
+  sh('git', ['fetch', authUrl(), '+refs/heads/main:refs/remotes/origin/main']);
+  sh('git', ['checkout', '-B', branchOf(f), 'origin/main']);
+  if (record && committeePath) { mkdirSync(committeePath.slice(0, committeePath.lastIndexOf('/')), { recursive: true }); writeFileSync(committeePath, record); }
+  writeFileSync(f.file, setBlocked(readFileSync(f.file, 'utf8'), reason));
+  sh('git', ['add', '-A']);
+  sh('git', ['commit', '-m', `${f.id}: blocked: ${reason.split('\n')[0].slice(0, 60)}`]);
+  sh('git', ['push', '--force', authUrl(), `HEAD:refs/heads/${branchOf(f)}`]);
+  const url = gh('pr', 'create', '--head', branchOf(f), '--base', 'main', '--label', 'feature', '--title', `${f.id}: blocked`, '--body',
+    `The ${f.id} committee stopped before building: this PR only records it (\`Status: blocked\` with the reason, and the committee's record). ` +
+    `The pipeline skips ${f.id} until the owner clears the stop in a design session.\n\n**Reason:** ${reason}` + (committeePath ? `\n\nRecord: \`${committeePath}\`` : ''));
+  gh('workflow', 'run', 'ci.yml', '--ref', branchOf(f));
+  console.log(`published ${url} (blocked)`);
 }
 
 function notes() {

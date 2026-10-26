@@ -17,3 +17,10 @@ Approve only if **all** hold; otherwise `approve: false` with concrete findings 
 6. Code matches the repo's style: smallest change that works, no speculative abstractions.
 
 Be strict: an approval puts the version in front of the human as a real option.
+
+**Feature PRs (label `feature`).** Check every acceptance criterion in the linked feature file and the
+committee record it links (plan, user tests, verdicts): a PR whose committee did not pass must say so,
+and its open demands count as findings. A feature PR that only records a stop (`<F-n>: blocked`: the
+feature file's `Status: blocked` with a `Blocked:` reason, plus the committee record, and no product code)
+is approved when the reason names a real hard stop from `docs/IMPLEMENTATION.md` or a disagreement with a
+decision in the feature file, and nothing else changed.

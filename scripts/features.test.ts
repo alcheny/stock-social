@@ -36,7 +36,7 @@ test('features: only F-<n> files count; the template and logs are ignored', () =
 });
 
 // ---------- parallel builds (docs/FEATURES.md → "Parallel builds") ----------
-import { blockedOn, buildQueue, coordinationBrief, notesOf, planRound, SHARED, withNotes, type FeaturePr, type FeatureTask } from './features.ts';
+import { blockedOn, buildQueue, coordinationBrief, notesOf, planRound, setBlocked, SHARED, withNotes, type FeaturePr, type FeatureTask } from './features.ts';
 import { productLines } from './autopilot.ts';
 
 const ft = (id: string, status: Feature['status']): Feature => ({ file: `docs/features/${id}-x.md`, id, title: id, status });
@@ -124,4 +124,15 @@ test('features: the diff cap for feature PRs counts product lines, not tests, e2
     { path: 'lib/share.test.ts', additions: 400, deletions: 0 }, { path: 'e2e/f-4-share.spec.ts', additions: 300, deletions: 0 },
     { path: 'docs/features/logs/F-4/plan.md', additions: 200, deletions: 0 }, { path: 'docs/features/logs/F-4/screenshots/a.png', additions: 0, deletions: 0 },
   ]), 200);
+});
+
+test('features: a blocked feature gets the status and one Blocked line under it, replaced on the next block', () => {
+  const t = doc('F-5', 'Alerts', 'ready');
+  const once = setBlocked(t, 'counsel  must clear\nalerts first');
+  assert.match(once, /^Status: blocked\nBlocked: counsel must clear alerts first\n/m);
+  assert.equal(parseFeature('x.md', once).status, 'blocked');
+  assert.equal(blockedOn(once), 'counsel must clear alerts first');
+  const twice = setBlocked(once, 'a new dependency');
+  assert.equal(twice.match(/^Blocked:/gm)?.length, 1);
+  assert.equal(blockedOn(twice), 'a new dependency');
 });

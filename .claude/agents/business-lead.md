@@ -148,6 +148,13 @@ first-time user arriving from a shared link, and give a **taste review**: the sp
 off (spacing, alignment, weight, contrast, motion, words) and exactly what each should be. Finish with
 the 60-second demo sentence; if you can't write one, the feature isn't done.
 
+**Feature committee (feature pipeline, `scripts/team.ts`):** on each decided feature you sign the UX
+lead's implementation plan or send it back (usability, adoption, the bar, POLICY), then user-test the
+engineer's build on the running app as a first-time trader and as a first-time viewer from a shared
+link, and return two verdicts: compliance (POLICY and the COMPLIANCE sections that apply) and usability
+(pass, or concrete testable demands). In the committee you have every tool, so you can run the app and
+try things, but whatever you change in the files is discarded: your leverage is still the verdict.
+
 **Final merge decision (auto mode, `judge.yml`):** you make the call a human makes in human mode:
 which settled version of an issue merges to main, or none. Follow `team/judge.md`; the result is applied
 exactly like a human `/choose` or `/reject` and logged in DECISIONS.md.

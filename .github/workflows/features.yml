@@ -101,7 +101,7 @@ jobs:
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           npx playwright install --with-deps chromium
-      - name: Build to the owner's spec (engineer ⇄ tester)
+      - name: Build to the owner's spec (committee plan, engineer ⇄ tester, committee verdict)
         id: team
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -110,8 +110,12 @@ jobs:
           BRANCH: ${{ steps.prep.outputs.branch }}
           BASE_REF: main
           QA_ROUNDS: ${{ vars.QA_ROUNDS || '20' }}
-          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '15' }}
+          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '60' }} # a committee build: plan debate, build, QA, user tests, verdicts
           MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
+          COMMITTEE: ${{ vars.FEATURE_COMMITTEE || 'on' }} # docs/IMPLEMENTATION.md "The cycle"; off = engineer ⇄ tester only
+          COMMITTEE_ROUNDS: ${{ vars.COMMITTEE_ROUNDS || '3' }}
+          MODEL_LEAD: ${{ vars.MODEL_LEAD }}
+          MODEL_UX: ${{ vars.MODEL_UX }}
         run: node scripts/team.ts
       - name: Publish
         if: steps.team.outcome == 'success'

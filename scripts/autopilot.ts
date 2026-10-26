@@ -210,7 +210,7 @@ export function guardFindings(baseTests: number, headTests: number, schemaDiff: 
 
 // The variant PR body: these headings are parsed back by section() when a choice is recorded.
 export const DOC_HEADINGS = ['Direction', 'Design choices', 'Business rationale', 'Trade-offs', 'What to measure'] as const;
-export type BuildResult = { done?: boolean; title?: string; summary?: string; direction?: string; design?: string; business?: string; tradeoffs?: string; measure?: string; specPath?: string; costUsd?: number; limit?: boolean };
+export type BuildResult = { done?: boolean; title?: string; summary?: string; direction?: string; design?: string; business?: string; tradeoffs?: string; measure?: string; specPath?: string; costUsd?: number; limit?: boolean; blocked?: string; committeePath?: string };
 
 export function prBody(v: Variant, issue: number, r: BuildResult): string {
   const head = v.key ? `**Variant ${v.key.toUpperCase()} · ${v.title}** for #${issue}\n\n> ${v.brief}\n\n` : '';

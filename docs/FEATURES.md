@@ -90,10 +90,23 @@ Ask in the chat at any time: "what's decided?", "what's left?", or run `node scr
   - A PR whose conflicts come back twice serializes the pipeline: no new build starts until it merges.
   - Fix and conflict attempts share `FEATURE_MAX_ATTEMPTS` (default 5); then the PR is labeled `needs-human` and
     waits for a design session.
-- **Build:** `scripts/team.ts` with `SPEC_FILE` set: no designer/analyst round, the engineer builds the owner's file
-  as written, writing a test for each acceptance criterion; the tester and the deterministic checks loop until
-  clean. The build and QA record goes to `docs/features/logs/`, never into the owner's file. Agents can't edit
-  `docs/features/` (only the publish script updates status and the build log).
+- **Build (the committee cycle, `docs/IMPLEMENTATION.md`):** `scripts/team.ts` with `SPEC_FILE` set.
+  1. Plan: the UX lead drafts the implementation plan (with the compliance checklist and the owner-only items);
+     the business lead and the engineer sign it or send it back, up to `PLAN_ROUNDS` (3).
+  2. Build: the engineer writes the test for each acceptance criterion first, then the code.
+  3. QA: the deterministic checks and the tester loop until clean.
+  4. User tests and verdicts: the business lead and the UX lead each use the running app as a first-time trader
+     and a first-time viewer from a shared link, then return a compliance and a usability verdict.
+  5. Both pass → publish. Otherwise the demands (compliance first) become the next round's plan, build and QA, up
+     to `COMMITTEE_ROUNDS` (3); a PR whose committee did not pass says so, and the reviewer counts its open
+     demands.
+
+  Committee members have every tool, but their file changes are discarded after each call. A disagreement with a
+  decision, or a hard stop the build must not pass (counsel, a secret, an unauthorized dependency or vendor), ends
+  the build: publish opens a small `<F-n>: blocked` PR that sets `Status: blocked` with the reason and the
+  committee record, and the pipeline moves on. Every round is logged in `docs/features/logs/<F-n>/`; the QA record
+  in `docs/features/logs/`; never in the owner's file. `FEATURE_COMMITTEE=off` falls back to engineer ⇄ tester
+  only. Agents can't edit `docs/features/` (only the publish script updates status and the build log).
 - **Merge:** the Gate merges a green feature PR (CI, plus the reviewer checking every acceptance criterion against
   the feature file), provided it is up to date with main, then starts the next round. The 800-line cap
   (`MAX_DIFF`) counts product lines only for feature PRs: tests, end-to-end specs, docs and screenshots don't count
