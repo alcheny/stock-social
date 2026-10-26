@@ -26,6 +26,11 @@ jobs:
       DATABASE_URL: postgres://stock_social:stock_social@localhost:5432/stock_social
       APP_SECRET_KEY: ci-only
       CRON_SECRET: ci-only
+      # The in-repo vendor fake (e2e/fakes/vendor.ts, started by e2e/connect.spec.ts on this port): without these the
+      # server has no vendor and the connection-flow tests skip themselves. Test values only, never a real key.
+      SNAPTRADE_BASE_URL: http://127.0.0.1:4102
+      SNAPTRADE_CLIENT_ID: e2e
+      SNAPTRADE_CONSUMER_KEY: e2e
     permissions:
       contents: read
       pull-requests: read # the policy scan looks up a dispatched branch's PR base
