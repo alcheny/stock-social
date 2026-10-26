@@ -1,6 +1,6 @@
 # F-4 · Share card: simple first, the eye-catching elements
 
-Status: rework
+Status: built
 
 ## Why
 The share card (the image a profile link unfurls into, also used by the one-click Share button) is
@@ -102,3 +102,6 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Rework notes
 - 2026-10-22: Owner wants the card to lead with chart, trade count and period; detail later.
+
+## Build log
+- 2026-10-26: Built to these decisions (record card for the unfurl and the Share button picture, 5-bet floor, ±10-point threshold, trust-line table); details, test results and open items in `docs/features/logs/F-4/build-engineer.md`.
