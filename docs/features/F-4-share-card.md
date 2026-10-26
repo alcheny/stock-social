@@ -96,7 +96,20 @@ Each one testable; the pipeline writes a test for every line.
 - Per-trade cards (`/u/[handle]/trade`) keep their own design; this file is the record card.
 
 ## Open questions
-- None.
+- From committee round 1 (2026-10-26, `docs/features/logs/F-4/committee-round-1.md`), for the owner:
+  - A. The chart series: compounded growth of equal stakes, or the running sum of per-trade returns; and the
+    caption's wording either way.
+  - B. Whether the range is built for the arithmetic mean, so the headline average always sits inside it (the
+    4,200-trade fixture reads "+0.3%, likely between +0.1% and +0.3%").
+  - C. The trust-line table: negative rows worded symmetrically with the positive ones, and the under-5-bets
+    wording ("Too few to say much yet").
+  - The link unfurl's chart is 23.7% of the card against the committee's 30%: reaching it needs one more element
+    removed (for example the chart caption, or the handle that AC1 requires).
+  - Win rate in the link-preview text under the card: keep or drop.
+  - Ranking floor: stays at 10 bets unless changed.
+  - A bundled font file (OFL) would need license sign-off; none is added now.
+  - The period line's unit follows the trust line's tier (days when thin, years when strong) where AC1's example
+    reads months.
 - Later depth: which per-trade elements, and whether they appear on the record card or only on
   per-trade cards.
 
