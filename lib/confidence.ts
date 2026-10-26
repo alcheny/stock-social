@@ -33,25 +33,46 @@ export function trustSign(c: Pick<Confidence, 'edge' | 'perTrade'>): TrustSign {
   return 'unclear';
 }
 
-const DAY_SPAN = (d: number) => counted(Math.max(1, Math.round(d)), 'day');
-const MONTH_SPAN = (d: number) => counted(Math.floor(d / 30), 'month'); // whole months: never overstates the sample
-const YEAR_SPAN = (d: number) => counted(Math.floor(d / 365), 'year');
+// Committee round 1, demand 1: one duration per card. The share card's period line and its trust line both print
+// spanText(spanBetween(first entry, now), unit), so they cannot disagree ("1 month" beside "60 days"). Whole units
+// (floors, so the sample is never overstated), calendar months in UTC, years = whole months / 12.
+const DAY = 86_400_000;
+export type Span = { days: number; months: number; years: number };
+export function spanBetween(start: Date, end: Date): Span {
+  const days = Math.max(0, Math.floor((end.getTime() - start.getTime()) / DAY));
+  let months = (end.getUTCFullYear() - start.getUTCFullYear()) * 12 + end.getUTCMonth() - start.getUTCMonth();
+  if (end.getUTCDate() < start.getUTCDate()) months--;
+  months = Math.max(0, months);
+  return { days, months, years: Math.floor(months / 12) };
+}
+export type SpanUnit = 'days' | 'months' | 'years';
+// The owner's table names the unit per tier: thin "D days", moderate "M months", strong "Y years". A record with no
+// duration in its trust line (too early) reads in months, as the period line's format has it.
+export const spanUnit = (tier: Confidence['tier']): SpanUnit => (tier === 'thin' ? 'days' : tier === 'strong' ? 'years' : 'months');
+export function spanText(s: Span, unit: SpanUnit): string {
+  if (unit === 'days') return counted(Math.max(1, s.days), 'day');
+  if (unit === 'years') return counted(Math.max(1, s.years), 'year');
+  return s.months < 1 ? 'under 1 month' : counted(s.months, 'month');
+}
+// Without a span from the card, the record's own span (first entry to last exit) is measured the same way.
+const ownSpan = (c: Confidence): Span => spanBetween(new Date(0), new Date(c.spanDays * DAY));
 
 // The owner's approved table (F-4, 2026-10-22). It describes the sample, never the trader (POLICY F3b): no skill, no
 // future outcome, and "consistent" only in the strong tier with the range on one side of 0, losses exactly as gains.
 // N is closed trades in the too-early row and independent bets (K) elsewhere. null for an empty record.
-export function trustLine(c: Confidence): string | null {
+export function trustLine(c: Confidence, span: Span = ownSpan(c)): string | null {
   if (c.n === 0) return null;
   if (c.tier === 'too-early') return `Based on ${counted(c.n, 'trade')}. The range is still too wide to say much.`;
   const sign = trustSign(c);
+  const over = spanText(span, spanUnit(c.tier));
   if (c.tier === 'thin') {
-    return `Based on ${counted(c.k, 'separate bet')} over ${DAY_SPAN(c.spanDays)}. ${sign === 'positive' ? 'Still early.' : 'Still early, and results could go either way.'}`;
+    return `Based on ${counted(c.k, 'separate bet')} over ${over}. ${sign === 'positive' ? 'Still early.' : 'Still early, and results could go either way.'}`;
   }
   if (c.tier === 'moderate') {
-    return `Based on ${counted(c.k, 'bet')} over ${MONTH_SPAN(c.spanDays)}. ${sign === 'positive' ? 'A fair sample.' : 'A fair sample, with no clear pattern yet.'}`;
+    return `Based on ${counted(c.k, 'bet')} over ${over}. ${sign === 'positive' ? 'A fair sample.' : 'A fair sample, with no clear pattern yet.'}`;
   }
   const end = sign === 'positive' ? 'A long, consistent record.' : sign === 'negative' ? 'A long record, with consistent losses.' : 'A long record, with no clear pattern.';
-  return `Based on ${count(c.k)} bets over ${YEAR_SPAN(c.spanDays)}. ${end}`;
+  return `Based on ${count(c.k)} bets over ${over}. ${end}`;
 }
 
 // AC5's reader test: words a person with no finance or statistics background should never meet in the trust line.

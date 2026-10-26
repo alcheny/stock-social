@@ -141,6 +141,9 @@ export const SHARE_CARD = {
   lossesIncluded: 'losses included',
   chartCaption: 'If every trade were the same size',
 } as const;
+// The profile's link-preview text (app/u/[handle]/page.tsx). Committee round 1, demand 10: "0% win rate" when there are
+// no wins (the old `pct(0, 0).slice(1)` dropped the digit and printed "% win rate").
+export const winRateText = (winRate: number) => `${(winRate * 100).toFixed(0)}% win rate`;
 export type ShareCardText = { label: string | null; tone: 'ok' | 'muted' | 'warn'; body: string | null; note: string | null };
 // body null = show the stats; note null = show the evidence line.
 export function shareCardText(x: { state: RecordState; demo: boolean; verified: boolean; empty: boolean }): ShareCardText {

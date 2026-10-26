@@ -11,7 +11,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   const { handle } = await params;
   const url = new URL(req.url);
   const format = parseFormat(url.searchParams.get('format'));
-  const m = await loadRecordCard(handle, format, `${url.host}/u/${handle}`);
+  const m = await loadRecordCard(handle, format); // the printed link comes from the configured origin, not url.host
   if (!m) return new Response('Not found', { status: 404 });
   return new ImageResponse(<RecordCardImage m={m} disclaimer={DISCLAIMER} />, { ...FORMATS[format], headers: { 'Cache-Control': 'public, max-age=300' } });
 }
