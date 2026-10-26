@@ -135,7 +135,7 @@ pipeline scripts and the workflows. Each is a yes/no for the owner; answers are 
 | # | Request | Why it stops the cycle | Owner's answer |
 |---|---|---|---|
 | 1 | Carve-out in CODEOWNERS and the Gate for `lib/session.ts`, `lib/broker.ts`, `package.json`, `package-lock.json`, scoped to feature PRs | Gate labels any PR touching them needs-human | pre-authorized (decision above); owner edits the files |
-| 2 | Raise the Gate's diff cap (`MAX_DIFF`, 800 lines) to ~4000 for `feature` PRs, or let the plan split F-1 into three sequential PRs (sign-in; connection state machine + consent + import; heavy tests) | F-1 with tests is 2k to 4k lines; every PR would go needs-human | pre-authorized 2026-10-24: the 800-line cap counts product lines only (not tests, e2e, docs or screenshots); owner edits `scripts/autopilot.ts` to match |
+| 2 | Raise the Gate's diff cap (`MAX_DIFF`, 800 lines) to ~4000 for `feature` PRs, or let the plan split F-1 into three sequential PRs (sign-in; connection state machine + consent + import; heavy tests) | F-1 with tests is 2k to 4k lines; every PR would go needs-human | pre-authorized 2026-10-24: the 800-line cap counts product lines only (not tests, e2e, docs or screenshots); done 2026-10-25 in `scripts/autopilot.ts` (`productLines`, feature PRs) |
 | 3 | Repo variables: `TEAM_BUDGET_USD` ≈ 60 (now 15), `BUDGET_ENGINEER` ≈ 10, `FEATURE_MAX_ATTEMPTS` 10 for F-1 then 5 | F-1's size exhausts the current budgets and attempt cap | |
 | 4 | Test-mode secrets created and passed to the build and CI jobs (names only): the vendor's test key pair, the email-provider sign-in client id and secret, the phone-maker sign-in team id, key id and private key, the email-sending key and from-address, a session secret, the public site URL | Only the owner creates secrets; without them the committee's running-preview test of sign-in and the portal is mocks only | |
 | 5 | One new dependency: the vendor's web SDK for the embedded portal. Everything else built without dependencies (sign-in via standard OIDC with the runtime's crypto, email via one HTTPS call, the t multiplier inline) | POLICY H: new dependencies are the owner's | |
@@ -144,7 +144,7 @@ pipeline scripts and the workflows. Each is a yes/no for the owner; answers are 
 | 8 | Function duration limit ≥ 60 s in the deploy settings, for the chunked import (one vendor page per step, client-polled; no worker or queue yet) | Deploy settings are owner-only | |
 | 9 | Preview deploys per feature PR (deployments are off today), or accept in-job `npm run start` plus browser screenshots as the committee's "running preview" | The committee and user tests need a running app | |
 | 10 | Placeholder Terms and Privacy pages and the consent-screen copy (what becomes public), supplied by the owner | POLICY P6/F3: the attestation and consent screens must link them | |
-| 11 | A `blocked` status the publish script may set when a feature hits a hard stop | Otherwise the picker returns the blocked feature forever and later features never build | |
+| 11 | A `blocked` status the publish script may set when a feature hits a hard stop | Otherwise the picker returns the blocked feature forever and later features never build | done 2026-10-25: `Status: blocked` with a `Blocked:` line, set in the chat; the picker skips it (F-2 is the first) |
 | 12 | Process wiring: owner edits to `scripts/features.ts`, `scripts/team.ts`, `team/*.md`, CODEOWNERS and `features.yml` for the plan round, the UX lead, the committee, per-member user tests and `docs/features/logs/` | All owner-only paths | |
 | 13 | Run the heavy-use suite automatically: a `test:load` script in `package.json` (`LOAD=1 node --expose-gc --test lib/sync.load.test.ts`) and a CI job on demand (manual dispatch, with Postgres) | Nothing sets `LOAD=1`, so the F-1 heavy-use criteria are never checked automatically; `package.json` and workflows are owner-only (F-1 PR-3 tester, Low 3) | |
 
@@ -207,7 +207,8 @@ Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `li
 
 ## What already exists and is reused
 - Branch team roles and specs in `team/` (business lead, designer, engineer, tester, reviewer).
-- `scripts/features.ts` picks the lowest ready/rework feature, one at a time, and publishes status.
+- `scripts/features.ts` plans rounds of up to `FEATURE_PARALLEL` builds, fixes and conflict resolutions, briefs
+  each builder on the others, and publishes status (2026-10-25: parallel builds, docs/FEATURES.md).
 - The Gate merges green PRs; protected paths wait for the owner.
 - Deterministic checks and the compliance scanner run before the tester.
 

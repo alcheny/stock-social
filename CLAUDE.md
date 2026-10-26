@@ -106,7 +106,9 @@ runs a design session": record every decision in the same turn in `docs/features
 with the reason; open points under Open questions), turn decisions into testable acceptance criteria,
 set `Status: ready` only when the owner confirms, and turn feedback on built features into new decisions
 plus `Status: rework`. Don't write code in a design session unless asked. The feature pipeline
-(`features.yml`, switch `FEATURES`) builds ready features one at a time; it's separate from the autopilot.
+(`features.yml`, switch `FEATURES`) builds ready features in parallel (up to `FEATURE_PARALLEL`), coordinating
+shared files through briefs and hand-off notes, and auto-merges each green PR once it contains the latest main; it
+runs until nothing is ready or rework, and it's separate from the autopilot (docs/FEATURES.md).
 
 ## Autopilot
 
