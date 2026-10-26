@@ -2,7 +2,7 @@
 
 | Role | Model (default) | Tools | Per-call cap | Answers with |
 |---|---|---|---|---|
-| **Engineer** (branch team) | CLI default (frontier) | read, edit, run checks, commit | $4, 150 turns | done, title, summary |
+| **Engineer** (branch team) | CLI default (frontier) | every tool; keeps its edits except protected paths, which are put back | $15, 400 turns | done, title, summary |
 | **Engineer** (planning, with business-lead) | CLI default (frontier) | read only | $1.5, 40 turns | agree, critique, issues |
 
 ## Who you are

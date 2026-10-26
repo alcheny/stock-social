@@ -78,3 +78,24 @@ test('no workflow or agent call turns on verbose logging (public logs)', () => {
   }
   assert.ok(VERBOSE.some((re) => re.test('        show_full_output: true')), 'the detector works');
 });
+
+// Agents get every tool (docs/FEATURES.md → "Permissions and the failure budget"), so the one thing that keeps them
+// inside the design's boundary on GitHub is that the job running them never hands them a GitHub credential.
+test('the agent step (scripts/team.ts) never gets a GitHub token, and its job\'s checkouts keep none', () => {
+  let found = 0;
+  for (const f of files) {
+    const jobs = readFileSync(new URL(f, dir), 'utf8').split(/\n(?=  [\w-]+:\s*\n)/); // top-level jobs (two-space keys)
+    for (const job of jobs) {
+      if (!/node [^\n]*scripts\/team\.ts/.test(job)) continue;
+      const steps = job.split(/\n(?=\s*- (?:name|uses|id|run|if):)/);
+      for (const step of steps.filter((st) => /node [^\n]*scripts\/team\.ts/.test(st))) {
+        found++;
+        assert.doesNotMatch(step, /GH_TOKEN|GITHUB_TOKEN|github\.token|secrets\.(?!CLAUDE_CODE_OAUTH_TOKEN\b)\w+/, `${f}: the agent step must not get a GitHub token or other secret:\n${step.trim()}`);
+      }
+      for (const co of steps.filter((st) => st.includes('actions/checkout@'))) {
+        assert.match(co, /persist-credentials:\s*false/, `${f}: a checkout in a job that runs agents must not keep the token in .git/config`);
+      }
+    }
+  }
+  assert.ok(found >= 2, `found ${found} agent steps (features.yml and build.yml run scripts/team.ts)`);
+});

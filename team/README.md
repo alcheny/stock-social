@@ -11,10 +11,10 @@ they're held to. No member grades their own work.
 | **Business lead** | [business-lead.md](business-lead.md) | Planning (with the engineer); auto mode: the final merge decision (`judge.yml`); on request as a subagent | What gets built and whether it delivered the business case; pushes every other member | No (read-only) |
 | **Planner** (business lead ⇄ engineer) | [planner.md](planner.md) | Autopilot, when there's no work queued | The issue format and planning rules both follow while they debate the next issues (`scripts/plan.ts`) | No (writes issues) |
 | **UX lead** | [ux-lead.md](ux-lead.md) | Feature pipeline, per feature (committee) | The implementation plan for a decided feature; user tests and the usability and compliance verdict | Every tool, edits discarded |
-| **Designer** | [designer.md](designer.md) | Autopilot branch team, per version | The spec the engineer builds from | No (read-only) |
-| **Business analyst** | [business-analyst.md](business-analyst.md) | Autopilot branch team, per version | Ease of use, retention and virality of the spec | No (read-only) |
-| **Engineer** | [engineer.md](engineer.md) | Planning (with business lead) and every branch team | Feasibility, size and engagement mechanics in planning; tests first, then the code, to the spec | Yes, on its branch only |
-| **Tester** | [tester.md](tester.md) | Autopilot branch team, per version | Spec conformance, edge cases, 360px usability | No (runs checks only) |
+| **Designer** | [designer.md](designer.md) | Autopilot branch team, per version | The spec the engineer builds from | Every tool, edits discarded |
+| **Business analyst** | [business-analyst.md](business-analyst.md) | Autopilot branch team, per version | Ease of use, retention and virality of the spec | Every tool, edits discarded |
+| **Engineer** | [engineer.md](engineer.md) | Planning (with business lead) and every branch team | Feasibility, size and engagement mechanics in planning; tests first, then the code, to the spec | Yes, on its branch only; protected paths are put back |
+| **Tester** | [tester.md](tester.md) | Autopilot branch team, per version | Spec conformance, edge cases, 360px usability | Every tool, edits discarded |
 | **Reviewer** | [reviewer.md](reviewer.md) | Autopilot, on every PR | Independent pass/fail against acceptance criteria and product rules | No (read-only) |
 | **Judge** | [judge.md](judge.md) | Auto mode, once a variant set settles | The rules business-lead follows for the final merge decision | No (read-only) |
 | **Doctor** | [doctor.md](doctor.md) | Lines mode, hourly, when a line is stuck | Fixing the loop itself (workflows, loop scripts, specs, docs) so lines keep going; never its own constraints | Loop files only, via a PR the Gate merges |
@@ -41,8 +41,17 @@ Features the owner decided in design sessions (`docs/FEATURES.md`) are built by 
 (`docs/IMPLEMENTATION.md`, "The cycle"): the UX lead plans, the business lead and the engineer sign; the
 engineer builds tests first; the tester loop runs; then the business lead and the UX lead user-test the
 running app and each return a compliance and a usability verdict. Demands go back to the plan, up to
-`COMMITTEE_ROUNDS` (3). Committee members have every tool, but their file changes are discarded after each
+`COMMITTEE_ROUNDS` (5). Committee members have every tool, but their file changes are discarded after each
 call, so no member grades work it changed. Every round is logged in `docs/features/logs/<F-n>/`.
+
+## Permissions: every tool, inside the design
+
+Every branch-team and committee member gets every tool (`ALL_TOOLS` in `scripts/team.ts`): shell, files, web.
+What a member may keep is set by the design, checked after every call: only the engineer's build calls keep
+their edits, and any protected path (`PROTECTED` in `scripts/team.ts`: the loop, the policy, the owner's
+feature files, agent settings) is put back and noted in the PR. No member holds a GitHub credential; the
+workflow pushes, and the Gate decides what merges. Details and the failure budget: `docs/FEATURES.md` →
+"Permissions and the failure budget".
 
 ## Lines mode
 
