@@ -4,6 +4,7 @@
 // docs/features/logs/F-2/screenshots/pr3b/.
 import { expect, test, type Page } from '@playwright/test';
 import postgres from 'postgres';
+import { feedLock } from './feed-lock.ts';
 
 const SHOTS = 'docs/features/logs/F-2/screenshots/pr3b';
 const DAY = 86_400_000;
@@ -16,7 +17,10 @@ const shoot = async (page: Page, name: string) => {
   await page.emulateMedia({ colorScheme: 'light' });
 };
 // 12 traders × 6 closes held 3 days (a mix of gains and losses), dated two days ago (before the pool's hour).
+// They are feed-eligible, so the fixture holds the feed lock shared (e2e/feed-lock.ts) until it is removed: a test that
+// holds it exclusively (the heavy-feed test) never finds them in its pages.
 async function fixture() {
+  const release = await feedLock('shared');
   const tag = `r3${Math.random().toString(36).slice(2, 6)}`;
   const ids: number[] = [];
   const at = Date.now() - 2 * DAY;
@@ -30,7 +34,7 @@ async function fixture() {
       return_pct: (i + t) % 3 ? 0.04 + i / 100 : -0.05 - t / 100, holding_days: 3, verified: true,
     })))}`;
   }
-  return { tag, ids, remove: () => sql`delete from users where id = any(${ids})` };
+  return { tag, ids, remove: async () => { try { await sql`delete from users where id = any(${ids})`; } finally { await release(); } } };
 }
 // The pool is rebuilt in the background (lib/similar.ts#SIMILAR_REFRESH_MS): reload until the fixture's traders are in it.
 async function openProfile(page: Page, handle: string, tag: string) {

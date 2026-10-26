@@ -1,6 +1,7 @@
 # F-2 · Personalized discovery of traders and records
 
-Status: ready
+Status: blocked
+Blocked: PR-5 needs counsel's opinion (plan H2) before it is built and the Privacy Policy update (H4) before real viewers; PR-6 follows PR-5. PR-1 to PR-4 and PR-3b are merged.
 
 ## Why
 A viewer who has looked at or followed certain traders and records should see more of what they like:
@@ -17,6 +18,12 @@ advice. The owner has been told this and the scope below respects it.
   and records they already prefer. Why: the owner wants a recommendation algorithm using AI.
 - 2026-10-22: Suggestions are of traders and closed records only, never of trades to place. Why: POLICY
   F1 and DESIGN §3.4 forbid personalized trade advice; it is also a regulatory line (adviser registration).
+- 2026-10-25: Status blocked (new status, docs/FEATURES.md): everything buildable is merged; the rest waits on
+  H2 and H4. Why: the pipeline now builds features in parallel and would otherwise start PR-5 without counsel.
+- 2026-10-25: The owner amended POLICY F1 (F1a): per-viewer ordering of traders and records to read, by
+  the viewer's own actions, is allowed; personalized suggestions of securities or trades stay forbidden.
+  Why: the owner wants personalized discovery; this clears plan hard stop H1 (P1). H2 (counsel, before
+  PR-5's build) and H4 (Privacy Policy, before real viewers) still hold.
 - 2026-10-22 (restored 2026-10-23 from the design-session record; the plan debate found them missing):
   gestures and weights. Double-tap on a card = private like, affinity +3. Swipe in the opening
   direction (to the profile, SW-1) = +2. Swipe in the other direction = reject, −4, and the card is not

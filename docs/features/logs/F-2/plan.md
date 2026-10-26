@@ -488,3 +488,10 @@ another day's seed; a trader with no close in the last 14 days is reached only w
 traders' weight-cache key is read from the recent window (a rebuild or a new close changes it); the new-record slot
 gives way to the bucket cap. Owner decision O4 (unfollow as a small negative weight, never a hide) is not in PR-1b:
 it changes the pinned section test for criterion 4 and belongs with PR-4's viewer-specific score.
+
+## Amendment: H1 cleared (2026-10-25, owner)
+
+Appended; the signed text above is unchanged. The owner amended POLICY F1 (new F1a): per-viewer ordering of
+traders and closed records to read, by the viewer's own actions, is allowed; personalized suggestions of
+securities or trades stay forbidden. H1 and P1 are cleared, so PR-5 may merge once built. PR-5's build still
+waits on H2 (counsel, packet §7) and H4 (Privacy Policy covers §5), as F1a itself repeats.

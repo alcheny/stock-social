@@ -7,6 +7,14 @@
 // role-limited tools, a JSON-schema answer, and per-call turn and dollar caps. This script owns the
 // loops, the caps and the record. Agents hold no GitHub credentials; Publish pushes afterwards.
 //
+// Feature pipeline builds (SPEC_FILE, docs/FEATURES.md; docs/IMPLEMENTATION.md "The cycle") add a committee: the UX
+// lead drafts the implementation plan and the business lead and the engineer sign it (debate rounds, capped); the
+// engineer builds it tests first; the QA loop runs; then the business lead and the UX lead each user-test the
+// running app (first-time trader, first-time viewer) and return a compliance and a usability verdict. A failed
+// verdict's demands become the next round's plan (COMMITTEE_ROUNDS, default 3). Reviewers have every tool, but
+// whatever they change is discarded: no member grades their own work. A hard stop or a disagreement with the
+// owner's decisions ends the build as `blocked` (features.ts publish records it). COMMITTEE=off skips it.
+//
 //   MODE=build|fix NUMBER=<issue|pr> VARIANT='{"key":"a",...}' BRANCH=... node scripts/team.ts
 //   → commits on the current branch, writes .autopilot/result.json for `autopilot.ts publish`.
 import { spawnSync } from 'node:child_process';
@@ -66,13 +74,48 @@ export function renderSpecDoc(d: {
   ].join('\n');
 }
 
+export type PlanRound = { round: number; plan: string; lead: { approve: boolean; feedback: string } | null; engineer: { approve: boolean; feedback: string } | null };
+export type Verdict = { member: 'business lead' | 'UX lead'; compliance_pass: boolean; compliance_failures: string[]; usability_pass: boolean; demands: string[];
+  user_test: { as: string; problems: string[] }[]; summary: string };
+export type CommitteeRound = { round: number; plan: PlanRound[]; signed: boolean; verdicts: Verdict[] };
+export const committeePassed = (vs: Verdict[]) => vs.length === 2 && vs.every((v) => v.compliance_pass && v.usability_pass);
+
+// The committee record (docs/IMPLEMENTATION.md: every plan round, user test and verdict is logged), beside the
+// QA record in docs/features/logs/<F-n>/.
+export function renderCommitteeDoc(d: { title: string; date: string; rounds: CommitteeRound[]; blocked?: string; calls: CallLog[] }): string {
+  const out = [`# Committee record: ${d.title}`, '', `${d.date} · ${d.rounds.length} round(s)` +
+    (d.blocked ? ` · **blocked**: ${d.blocked}` : d.rounds.length && committeePassed(d.rounds.at(-1)!.verdicts) ? ' · **passed**' : ' · not passed'), ''];
+  for (const r of d.rounds) {
+    out.push(`## Round ${r.round}`, '', `### Plan (${r.signed ? 'signed by the business lead and the engineer' : 'finalized after the round cap, unsigned'})`, '');
+    for (const p of r.plan) {
+      out.push(`#### Plan round ${p.round}`, '', p.plan.trim(), '',
+        `- **Business lead:** ${p.lead ? `${p.lead.approve ? 'signed' : 'changes requested'}. ${esc(p.lead.feedback)}` : 'no answer'}`,
+        `- **Engineer:** ${p.engineer ? `${p.engineer.approve ? 'signed' : 'changes requested'}. ${esc(p.engineer.feedback)}` : 'no answer'}`, '');
+    }
+    if (r.verdicts.length) out.push('### User tests and verdicts', '');
+    for (const v of r.verdicts) {
+      out.push(`#### ${v.member}: compliance ${v.compliance_pass ? 'pass' : 'FAIL'}, usability ${v.usability_pass ? 'pass' : 'demands'}`, '', esc(v.summary), '');
+      for (const u of v.user_test) out.push(`- As ${esc(u.as)}: ${u.problems.length ? u.problems.map(esc).join('; ') : 'nothing stopped or confused them'}`);
+      if (v.compliance_failures.length) out.push('', '**Compliance failures:**', ...v.compliance_failures.map((f) => `- ${esc(f)}`));
+      if (v.demands.length) out.push('', '**Demands:**', ...v.demands.map((f) => `- ${esc(f)}`));
+      out.push('');
+    }
+  }
+  const total = d.calls.reduce((s, c) => s + c.costUsd, 0);
+  out.push('## Cost', '', `${d.calls.length} role calls, $${total.toFixed(2)} total.`, '');
+  return out.join('\n');
+}
+
 // ---------- roles ----------
 
-type Role = 'designer' | 'business' | 'engineer' | 'tester';
+type Role = 'designer' | 'business' | 'engineer' | 'tester' | 'lead' | 'ux';
 const PROTECTED_EDITS = ['./.github/**', './docs/AUTOPILOT.md', './docs/DECISIONS.md', './docs/DESIGN.md', './scripts/autopilot.ts', './scripts/team.ts', './scripts/plan.ts', './scripts/doctor.ts', './scripts/invariants.test.ts', './docs/POLICY.md', './SECURITY.md', './scripts/compliance.ts', './scripts/compliance.test.ts', './scripts/policy.test.ts', './scripts/workflow-security.test.ts', './scripts/features.ts', './docs/FEATURES.md', './docs/features/**', './CLAUDE.md', './team/**', './.claude/agents/**', './playwright.config.ts']
   .flatMap((p) => [`Edit(${p})`, `Write(${p})`]).join(',');
 const READ = 'Read,Glob,Grep';
 const RUN = 'Bash(npm:*),Bash(npx tsc:*),Bash(npx playwright:*),Bash(node:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)';
+// Committee members (owner's rule, docs/IMPLEMENTATION.md): every tool an agent here can use. Their edits are
+// discarded after each call (discardEdits), so a member can try things but never changes the build it judges.
+const FULL = `${READ},Edit,Write,${RUN},Bash(curl:*),Bash(sleep:*),WebSearch,WebFetch`;
 const env = (k: string, d = '') => process.env[k] || d;
 // LOOP_DIR: main's copy of the loop (build.yml snapshots it before switching to a line branch), so agents
 // always follow the current team specs. BASE_REF: what this branch is compared against (main or its line).
@@ -86,6 +129,8 @@ const ROLES: Record<Role, { model: string; tools: string; budget: number; turns:
   business: { model: env('MODEL_BUSINESS', 'sonnet'), tools: READ, budget: Number(env('BUDGET_BUSINESS', '0.5')), turns: 20 },
   engineer: { model: env('MODEL_ENGINEER', ''), tools: `${READ},Edit,Write,${RUN},Bash(git add:*),Bash(git commit:*)`, budget: Number(env('BUDGET_ENGINEER', '4')), turns: 150 },
   tester: { model: env('MODEL_TESTER', 'sonnet'), tools: `${READ},${RUN}`, budget: Number(env('BUDGET_TESTER', '1.5')), turns: 60 },
+  lead: { model: env('MODEL_LEAD', 'sonnet'), tools: FULL, budget: Number(env('BUDGET_LEAD', '2')), turns: 80 },
+  ux: { model: env('MODEL_UX', 'sonnet'), tools: FULL, budget: Number(env('BUDGET_UX', '2')), turns: 80 },
 };
 
 const SCHEMAS: Record<Role, object> = {
@@ -98,7 +143,16 @@ const SCHEMAS: Record<Role, object> = {
   tester: { type: 'object', required: ['pass', 'findings'], properties: { pass: { type: 'boolean' }, findings: { type: 'array', items: {
     type: 'object', required: ['severity', 'where', 'problem'], properties: {
       severity: { type: 'string', enum: ['bug', 'usability', 'spec', 'note'] }, where: { type: 'string' }, problem: { type: 'string' } } } } } },
+  lead: { type: 'object', required: ['approve', 'feedback', 'disagreement'], properties: { approve: { type: 'boolean' }, feedback: { type: 'string' }, disagreement: { type: 'string' } } },
+  ux: { type: 'object', required: ['plan', 'summary', 'compliance', 'preauth', 'disagreement'], properties: {
+    plan: { type: 'string' }, summary: { type: 'string' }, compliance: { type: 'string' }, preauth: { type: 'array', items: { type: 'string' } }, disagreement: { type: 'string' } } },
 };
+// Plan review (business lead, engineer) and the committee verdict (business lead, UX lead).
+const REVIEW_SCHEMA = SCHEMAS.lead;
+const VERDICT_SCHEMA = { type: 'object', required: ['compliance_pass', 'compliance_failures', 'usability_pass', 'demands', 'user_test', 'summary'], properties: {
+  compliance_pass: { type: 'boolean' }, compliance_failures: { type: 'array', items: { type: 'string' } }, usability_pass: { type: 'boolean' },
+  demands: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' },
+  user_test: { type: 'array', items: { type: 'object', required: ['as', 'problems'], properties: { as: { type: 'string' }, problems: { type: 'array', items: { type: 'string' } } } } } } };
 
 const calls: CallLog[] = [];
 const spent = () => calls.reduce((s, c) => s + c.costUsd, 0);
@@ -108,13 +162,14 @@ let hitLimit = false; // Claude usage limit: stop calling, and tell the loop to 
 // dontAsk: exactly the allowlisted tools, no AI permission classifier. On the throwaway CI runner (no write
 // credentials; the Gate rejects loop-file changes) the classifier only added false positives, e.g. it blocked
 // a legitimate `git commit` as a "CI bypass", which lost the work and stalled a line.
-function ask<T>(role: Role, round: number, prompt: string): T | null {
+function ask<T>(role: Role, round: number, prompt: string, schema?: object): T | null {
   if (hitLimit) return null;
   if (spent() >= TEAM_BUDGET) { console.log(`team budget $${TEAM_BUDGET} reached; skipping ${role}`); return null; }
   const r = ROLES[role];
-  const args = ['-p', `${prompt}\n\nYour role and rules: ${at(`team/${role === 'business' ? 'business-analyst' : role}.md`)} (team overview: ${at('team/README.md')}). Product rules: CLAUDE.md.`,
+  const spec = role === 'business' ? 'business-analyst' : role === 'lead' ? 'business-lead' : role === 'ux' ? 'ux-lead' : role;
+  const args = ['-p', `${prompt}\n\nYour role and rules: ${at(`team/${spec}.md`)} (team overview: ${at('team/README.md')}). Product rules: CLAUDE.md.`,
     ...(LOOP ? ['--add-dir', LOOP] : []),
-    '--output-format', 'json', '--json-schema', JSON.stringify(SCHEMAS[role]),
+    '--output-format', 'json', '--json-schema', JSON.stringify(schema ?? SCHEMAS[role]),
     '--allowedTools', r.tools, '--disallowedTools', PROTECTED_EDITS, '--permission-mode', 'dontAsk', '--max-turns', String(r.turns), '--max-budget-usd', String(r.budget),
     ...(r.model ? ['--model', r.model] : [])];
   console.log(`→ ${role} (round ${round})`);
@@ -175,7 +230,100 @@ function fixWithThree(round: number) {
   console.log(`fix: no approach passed this round (${tried.join(' | ')})`);
 }
 
+// QA loop: cheap checks → tester → engineer, until clean or the round cap. Rounds continue across calls (the
+// committee sends a build back through it).
+function qaLoop(qa: QaRound[], docPath: string): boolean {
+  const maxRounds = qa.length + Number(env('QA_ROUNDS', '20'));
+  for (let round = qa.length + 1; round <= maxRounds; round++) {
+    let findings = checks();
+    let by: QaRound['by'] = 'checks';
+    if (!findings.length) {
+      by = 'tester';
+      const t = ask<{ pass: boolean; findings: Finding[] }>('tester', round,
+        `You are the TESTER. Test the change on this branch (git diff origin/${BASE_REF}...HEAD) against the spec in ${existsSync(docPath) ? docPath : '.autopilot/task.md'}: functionality, edge cases, and usability on a 360px phone screen. Report every problem; use severity "note" only for non-blocking suggestions.`);
+      findings = t ? t.findings : [{ severity: 'bug', where: 'tester', problem: 'tester call failed' }];
+    }
+    qa.push({ round, by, pass: blocking(findings).length === 0, findings });
+    if (!blocking(findings).length) return true;
+    if (round === maxRounds || spent() >= TEAM_BUDGET) return false;
+    writeFileSync('.autopilot/feedback.md', `# QA findings (round ${round}, by ${by})\n\n${blocking(findings).map((f) => `- [${f.severity}] ${f.where}: ${f.problem}`).join('\n')}\n`);
+    if (by === 'checks') fixWithThree(round + 1); // deterministic failure: three different engineers, keep the first that passes
+    else ask('engineer', round + 1, `You are the ENGINEER (${FIXERS[0].brief}) Fix every finding in .autopilot/feedback.md, keeping to the spec. Commit your work.`);
+  }
+  return false;
+}
+
 function git(...args: string[]) { return spawnSync('git', args, { encoding: 'utf8' }).stdout.trim(); }
+// A committee member may edit to try things; none of it reaches the build it judges.
+function discardEdits() {
+  spawnSync('sh', ['-c', 'lsof -ti tcp:3000 | xargs -r kill -9'], { stdio: 'ignore' });
+  git('reset', '--hard', 'HEAD');
+  git('clean', '-fd', '-e', '.autopilot');
+}
+
+// ---------- committee (feature pipeline builds; docs/IMPLEMENTATION.md "The cycle") ----------
+
+const PLAN_ROUNDS = Number(env('PLAN_ROUNDS', '3'));
+const COMMITTEE_ROUNDS = Number(env('COMMITTEE_ROUNDS', '3'));
+type Review = { approve: boolean; feedback: string; disagreement: string };
+type Plan = { plan: string; summary: string; compliance: string; preauth: string[]; disagreement: string };
+
+// The UX lead drafts the plan; the business lead and the engineer sign it or send it back, until both sign or the
+// cap. A disagreement with the owner's decisions, or a hard stop the build can't pass, ends it as blocked.
+function planDebate(round: number, demands: string): { rounds: PlanRound[]; signed: boolean; blocked?: string } {
+  const rounds: PlanRound[] = [];
+  let feedback = demands ? `# Committee demands from the last review (compliance first)\n\n${demands}\n` : '';
+  for (let r = 1; r <= PLAN_ROUNDS; r++) {
+    writeFileSync('.autopilot/feedback.md', feedback);
+    const u = ask<Plan>('ux', round * 10 + r,
+      `You are the UX LEAD on this feature's committee (committee round ${round}, plan round ${r}). Read .autopilot/task.md (the owner's decided feature and the coordination brief) and .autopilot/feedback.md (` +
+      `${demands ? 'the committee demands to answer, then ' : ''}the business lead's and engineer's feedback; empty at first). Write the implementation plan in "plan": screen flow and every state, components, data model, copy, rollout, ` +
+      `and the test for every acceptance criterion. It decides how, never what: a decision in the feature file is never changed. Answer the per-change checklist (docs/COMPLIANCE.md Section 1) in "compliance". ` +
+      `List in "preauth" what only the owner can clear (protected paths, secrets, new dependencies or vendors, external approvals, counsel). Put in "disagreement" (empty otherwise) a disagreement with a decision in the feature file, ` +
+      `or a hard stop that means the feature must not be built yet (counsel's opinion, a secret or a new dependency or vendor not authorized in docs/IMPLEMENTATION.md); a protected path alone is not one, the owner merges those.`);
+    if (!u) break;
+    if (u.disagreement.trim()) { rounds.push({ round: r, plan: u.plan, lead: null, engineer: null }); return { rounds, signed: false, blocked: u.disagreement.trim() }; }
+    writeFileSync('.autopilot/plan.md', `${u.plan}\n\n## Compliance checklist\n\n${u.compliance}\n${u.preauth.length ? `\n## Owner-only items\n\n${u.preauth.map((x) => `- ${x}`).join('\n')}\n` : ''}`);
+    const review = (role: Role, who: string, focus: string) => ask<Review>(role, round * 10 + r,
+      `You are the ${who} on this feature's committee. Read .autopilot/task.md and the UX lead's plan in .autopilot/plan.md. ${focus} ` +
+      `Sign it ("approve") only if you would build exactly this; otherwise say in "feedback" what must change. Put in "disagreement" (empty otherwise) a disagreement with a decision in the feature file, or a hard stop the plan misses that means it must not be built yet.`,
+      REVIEW_SCHEMA);
+    const lead = review('lead', 'BUSINESS LEAD', 'Judge usability, ease of adoption and the quality bar within the decided design, and every rule in docs/POLICY.md.');
+    const eng = review('engineer', 'ENGINEER (planning only: change no files)', 'Judge feasibility, size, risk, performance under heavy use, and whether the test plan covers every acceptance criterion.');
+    discardEdits();
+    rounds.push({ round: r, plan: u.plan, lead: lead && { approve: lead.approve, feedback: lead.feedback }, engineer: eng && { approve: eng.approve, feedback: eng.feedback } });
+    const block = [lead?.disagreement, eng?.disagreement].map((x) => x?.trim()).find(Boolean);
+    if (block) return { rounds, signed: false, blocked: block };
+    if (lead?.approve && eng?.approve) return { rounds, signed: true };
+    if (!lead || !eng) break;
+    feedback = `${demands ? `# Committee demands from the last review (compliance first)\n\n${demands}\n\n` : ''}# Plan feedback (round ${r})\n\n## Business lead\n\n${lead.feedback}\n\n## Engineer\n\n${eng.feedback}\n`;
+  }
+  return { rounds, signed: false };
+}
+
+// Each committee member user-tests the running app, then judges compliance and usability.
+function committeeReview(round: number): Verdict[] {
+  const vs: Verdict[] = [];
+  const members: [Role, Verdict['member'], string][] = [
+    ['lead', 'business lead', 'judge usability, adoption and whether it is built completely and cleanly to the highest bar'],
+    ['ux', 'UX lead', 'judge the interface: every state, readability, tap targets, gestures, keyboard and screen-reader use at 360px'],
+  ];
+  for (const [role, member, lens] of members) {
+    const v = ask<Omit<Verdict, 'member'>>(role, 100 + round,
+      `You are the ${member.toUpperCase()} on this feature's committee, reviewing the engineer's build on this branch (git diff origin/${BASE_REF}...HEAD) against the owner's feature in .autopilot/task.md and the signed plan in .autopilot/plan.md. ` +
+      `First user-test it on the running app: build and start it (npm run build, then npm run start in the background; the database is up), and with Playwright at 360px use it as a first-time trader (sign in through /login/dev) ` +
+      `and as a first-time viewer arriving signed out from a shared profile link. In "user_test", one entry per persona, write in plain words what confused or stopped you. ` +
+      `Then judge compliance against docs/POLICY.md and the docs/COMPLIANCE.md sections that apply ("compliance_pass", "compliance_failures"), and ${lens} ("usability_pass", "demands": concrete, testable changes). ` +
+      `Pass only what you would put in front of real users. Anything you change in the files is discarded.`, VERDICT_SCHEMA);
+    discardEdits();
+    if (v) vs.push({ member, ...v });
+  }
+  return vs;
+}
+export const demandsOf = (vs: Verdict[]) => [
+  ...vs.flatMap((v) => v.compliance_failures.map((f) => `- [compliance, ${v.member}] ${f}`)),
+  ...vs.flatMap((v) => v.demands.map((d) => `- [${v.member}] ${d}`)),
+].join('\n');
 function commitAll(msg: string) { if (git('status', '--porcelain')) { git('add', '-A'); git('commit', '-m', msg); } }
 
 function main() {
@@ -199,13 +347,30 @@ function main() {
   let agreed = false;
   let title = `#${issue}`;
 
+  const committeeOn = mode === 'build' && !!specFile && env('COMMITTEE', 'on') !== 'off';
+  const committee: CommitteeRound[] = [];
+  const featureId = specFile ? /^#\s+(F-\d+)/m.exec(readFileSync(specFile, 'utf8'))?.[1] ?? 'feature' : '';
+  const committeePath = `docs/features/logs/${featureId}/committee-${new Date().toISOString().slice(0, 10)}.md`;
+  const writeCommittee = (blocked?: string) => {
+    mkdirSync(committeePath.slice(0, committeePath.lastIndexOf('/')), { recursive: true });
+    writeFileSync(committeePath, renderCommitteeDoc({ title, date: new Date().toISOString().slice(0, 10), rounds: committee, blocked, calls }));
+    commitAll(`Committee record for ${title}`);
+  };
   if (mode === 'build' && specFile) {
-    // Decided in a design session: no designer or analyst round; the engineer builds the owner's spec as written.
+    // Decided in a design session: no designer or analyst round. The owner's file is the spec; the committee plans how.
     const spec = readFileSync(specFile, 'utf8');
     title = /^#\s+(.+)$/m.exec(spec)?.[1] ?? title;
     agreed = true;
     writeFileSync(docPath, renderSpecDoc({ title, variant: 'feature (decided by the owner)', spec, agreed, discussion, qa: [], calls }));
     commitAll(`Spec for ${title}`);
+    if (committeeOn) {
+      const p = planDebate(1, '');
+      committee.push({ round: 1, plan: p.rounds, signed: p.signed, verdicts: [] });
+      if (p.blocked || !existsSync('.autopilot/plan.md')) {
+        writeCommittee(p.blocked ?? 'the plan round produced no plan');
+        return finish({ done: false, blocked: p.blocked ?? 'the plan round produced no plan', summary: `Blocked before the build: ${p.blocked ?? 'no plan'}`, docPath, committeePath });
+      }
+    }
   }
   if (mode === 'build' && !specFile) {
     // 1. Spec: designer drafts, business analyst reviews; repeat until agreement or the round cap.
@@ -234,8 +399,9 @@ function main() {
   }
   if (mode === 'build') {
     // 2. Build to the spec.
-    const e = ask<{ done: boolean; title: string; summary: string }>('engineer', 1,
-      `You are the ENGINEER. Implement the agreed spec in ${docPath} for the task in .autopilot/task.md. Write tests for the acceptance criteria first. Commit your work.`);
+    const e = ask<{ done: boolean; title: string; summary: string }>('engineer', 1, committeeOn
+      ? `You are the ENGINEER. Implement the committee's signed plan in .autopilot/plan.md for the owner's feature in .autopilot/task.md (follow its coordination brief). Write the test for every acceptance criterion first, then the code. Commit your work.`
+      : `You are the ENGINEER. Implement the agreed spec in ${docPath} for the task in .autopilot/task.md. Write tests for the acceptance criteria first. Commit your work.`);
     if (!e?.done) return finish({ done: false, summary: e?.summary ?? 'The engineer could not complete the build.', design, docPath });
     title = e.title;
   } else {
@@ -248,23 +414,25 @@ function main() {
 
   // 3. QA loop: cheap checks → tester → engineer, until clean or the round cap.
   const qa: QaRound[] = [];
-  const maxRounds = Number(env('QA_ROUNDS', '20'));
-  let clean = false;
-  for (let round = 1; round <= maxRounds; round++) {
-    let findings = checks();
-    let by: QaRound['by'] = 'checks';
-    if (!findings.length) {
-      by = 'tester';
-      const t = ask<{ pass: boolean; findings: Finding[] }>('tester', round,
-        `You are the TESTER. Test the change on this branch (git diff origin/${BASE_REF}...HEAD) against the spec in ${existsSync(docPath) ? docPath : '.autopilot/task.md'}: functionality, edge cases, and usability on a 360px phone screen. Report every problem; use severity "note" only for non-blocking suggestions.`);
-      findings = t ? t.findings : [{ severity: 'bug', where: 'tester', problem: 'tester call failed' }];
+  let clean = qaLoop(qa, docPath);
+
+  // 4–5. Committee: user tests and verdicts; failed → the demands become the next round's plan, build and QA.
+  let blocked: string | undefined;
+  if (committeeOn) {
+    for (let c = 1; ; c++) {
+      const vs = committeeReview(c);
+      committee.at(-1)!.verdicts = vs;
+      if (committeePassed(vs) || c >= COMMITTEE_ROUNDS || hitLimit || spent() >= TEAM_BUDGET) break;
+      const demands = demandsOf(vs);
+      const p = planDebate(c + 1, demands || '- (a member could not answer; review the build again)');
+      committee.push({ round: c + 1, plan: p.rounds, signed: p.signed, verdicts: [] });
+      if (p.blocked) { blocked = p.blocked; break; }
+      const e = ask<{ done: boolean; title: string; summary: string }>('engineer', 100 + c,
+        `You are the ENGINEER. The committee sent the build back. Implement the revised plan in .autopilot/plan.md; it answers these demands (compliance first):\n${demands}\nKeep every acceptance test passing. Commit your work.`);
+      if (!e?.done) break;
+      clean = qaLoop(qa, docPath);
     }
-    qa.push({ round, by, pass: blocking(findings).length === 0, findings });
-    if (!blocking(findings).length) { clean = true; break; }
-    if (round === maxRounds || spent() >= TEAM_BUDGET) break;
-    writeFileSync('.autopilot/feedback.md', `# QA findings (round ${round}, by ${by})\n\n${blocking(findings).map((f) => `- [${f.severity}] ${f.where}: ${f.problem}`).join('\n')}\n`);
-    if (by === 'checks') fixWithThree(round + 1); // deterministic failure: three different engineers, keep the first that passes
-    else ask('engineer', round + 1, `You are the ENGINEER (${FIXERS[0].brief}) Fix every finding in .autopilot/feedback.md, keeping to the spec. Commit your work.`);
+    writeCommittee(blocked);
   }
 
   const prior = existsSync(docPath) ? readFileSync(docPath, 'utf8') : '';
@@ -275,10 +443,14 @@ function main() {
   // Always publish once the engineer has built something: a version with open findings still becomes a PR,
   // where CI and the fix loop (MAX_ATTEMPTS) keep working on it, so the human always gets every version to compare.
   const open = blocking(qa.at(-1)?.findings ?? []);
+  const last = committee.at(-1)?.verdicts ?? [];
+  const verdict = !committeeOn ? '' : blocked ? ` Blocked by the committee: ${blocked}.` : committeePassed(last)
+    ? ` Committee: passed in round ${committee.length} (business lead and UX lead).` : ` Committee: not passed after ${committee.length} round(s); open demands below.`;
   finish({
-    done: true, title, docPath, design,
-    summary: `${clean ? 'Clean: all checks passed and the tester found no blocking problems' : `${open.length} open finding(s) after ${qa.length} QA round(s)`}. Team cost $${spent().toFixed(2)}.`
-      + (open.length ? `\n\nOpen findings:\n${open.map((f) => `- [${f.severity}] ${f.where}: ${headline(f.problem)}`).join('\n')}` : ''),
+    done: !blocked, blocked, title, docPath, design, committeePath: committeeOn ? committeePath : undefined,
+    summary: `${clean ? 'Clean: all checks passed and the tester found no blocking problems' : `${open.length} open finding(s) after ${qa.length} QA round(s)`}.${verdict} Team cost $${spent().toFixed(2)}.`
+      + (open.length ? `\n\nOpen findings:\n${open.map((f) => `- [${f.severity}] ${f.where}: ${headline(f.problem)}`).join('\n')}` : '')
+      + (committeeOn && !blocked && !committeePassed(last) && demandsOf(last) ? `\n\nOpen committee demands:\n${demandsOf(last)}` : ''),
   });
 }
 
@@ -288,9 +460,9 @@ export const headline = (log: string) => {
   return (lines.find((l) => /✘|error|failed|fail\b/i.test(l)) ?? lines.at(-1) ?? '').slice(0, 300);
 };
 
-function finish(r: { done: boolean; summary: string; title?: string; docPath?: string; design?: { direction: string; design: string; business: string; tradeoffs: string; measure: string } | null }) {
+function finish(r: { done: boolean; summary: string; title?: string; docPath?: string; blocked?: string; committeePath?: string; design?: { direction: string; design: string; business: string; tradeoffs: string; measure: string } | null }) {
   const result: BuildResult = {
-    done: r.done, title: r.title, summary: r.summary, specPath: r.docPath, costUsd: spent(), limit: hitLimit,
+    done: r.done, title: r.title, summary: r.summary, specPath: r.docPath, costUsd: spent(), limit: hitLimit, blocked: r.blocked, committeePath: r.committeePath,
     direction: r.design?.direction, design: r.design?.design, business: r.design?.business, tradeoffs: r.design?.tradeoffs, measure: r.design?.measure,
   };
   writeFileSync('.autopilot/result.json', JSON.stringify(result));

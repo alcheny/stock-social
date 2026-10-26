@@ -956,6 +956,11 @@ test('fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): a 2,828-close profile 
 // The page carries a stand-in line per trader; a pane loads its full chart on its first swipe-open.
 // F-2 PR-1 (plan §1 PR-1, §4): 50 distinct heavy traders in the fixture (was 12) and 30-card pages; pages 1 to 3 are
 // each measured. The diversity caps put at most 2 cards of one trader in any 10 (the joins included). The fresh closes carry one symbol per trader and close, so the symbol cap never ends the list early.
+// Exploration slots (2 in 10) draw from every eligible trader with a close in the feed's recent window, in a shuffle
+// seeded by the day (lib/feed.ts#candidateQuery, lib/discovery/explore.ts), whatever that close's age or size. A database
+// seeded less than RECENT_HOURS ago (demo closes are dated from seeding time), or holding another test's fresh close,
+// could put one of those traders on a page. So while the exclusive lock is held, every other record's closes in that
+// window are moved just before it and restored by id afterwards.
 test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each weigh under 500 KB; a pane loads its chart on first open and reads like the profile\'s', async ({ page, request, browser }) => {
   test.setTimeout(600_000);
   const { seededActivities } = await import('./fakes/vendor.ts');
@@ -964,9 +969,12 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
   const { worstWindow } = await import('../lib/discovery/diversity.ts');
   const { gzipSync } = await import('node:zlib');
   const { feedLock } = await import('./feed-lock.ts');
+  const { RECENT_HOURS } = await import('../lib/feed.ts');
+  const { sql } = await import('../lib/db.ts');
   const release = await feedLock('exclusive'); // the connect tests that look for their trader in the feed wait meanwhile
   const now = Date.now();
   const made: Awaited<ReturnType<typeof makeTrader>>[] = [];
+  let aside: { id: string; closed_at: string }[] = [];
   const HEAVY = 50;
   const L = (n: number) => String.fromCharCode(65 + (n % 26));
   try {
@@ -987,6 +995,11 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
     }
     const total = made.reduce((s, t) => s + t.ids.length, 0);
     expect(total).toBeGreaterThan(HEAVY * 4_500);
+    // Only the fixture's traders have a close in the recent window (see above); the old dates come back in `finally`.
+    aside = await sql`update closed_trades t set closed_at = least(o.closed_at, now()) - ${RECENT_HOURS + 24} * interval '1 hour'
+      from (select id, closed_at from closed_trades where closed_at > now() - ${RECENT_HOURS} * interval '1 hour'
+        and user_id not in ${sql(made.map((t) => t.id))} for update) o
+      where t.id = o.id returning t.id, o.closed_at::text` as unknown as typeof aside; // text both ways: a Date drops the microseconds
 
     // Pages 1 to 3, each as served (the no-JS link carries the cursor), each under 500 KB raw.
     let url = '/';
@@ -1121,6 +1134,9 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
     await expect(np.getByText('win rate', { exact: true })).toBeAttached();
     await ctx.close();
   } finally {
+    if (aside.length) await sql`update closed_trades t set closed_at = v.closed_at
+      from (select unnest(${aside.map((r) => r.id)}::bigint[]) as id, unnest(${aside.map((r) => r.closed_at)}::text[])::timestamptz as closed_at) v
+      where t.id = v.id`;
     for (const t of made) await t.remove();
     await release();
   }

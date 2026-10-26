@@ -262,6 +262,9 @@ label.check { display: flex; gap: 8px; align-items: center; }
 @media (min-width: 720px) { .rec-buckets { grid-template-columns: repeat(4, 1fr); } }
 
 /* F-1 sign-in and trust notice (S1, S2): one column, 44px controls, visible focus, no motion. */
+/* Sign-in and connection screens lead with a short heading. At the browser's default 32px and the body's 1.45 line
+   height it took three lines (139px) at 375px in wider fallback fonts; it scales down on phones and keeps 32px from 640px. */
+.auth h1 { font-size: clamp(1.5rem, 1rem + 2.5vw, 2rem); line-height: 1.2; }
 .auth .stack { display: grid; gap: 12px; margin-top: 16px; }
 .auth .stack > div { display: grid; gap: 8px; }
 .auth button, .auth .button, .auth input:not([type="checkbox"]) { min-height: 44px; }
@@ -321,6 +324,10 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    opens leftward from there, never wider than the screen, wrapping. */
 .follow, .more-menu summary { min-height: 44px; min-width: 44px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; }
 .follow { min-width: 112px; }
+/* The same width in both states whatever the font ("…" never moves under the finger): the longer label sits under the
+   shown one, zero height and hidden, so the column takes its width. Not in the text or the accessible name. */
+.follow[data-widest] { flex-direction: column; }
+.follow[data-widest]::after { content: attr(data-widest); height: 0; overflow: hidden; visibility: hidden; }
 .follow.secondary, .more-menu .secondary, .people .secondary, .pane-actions .button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--line); min-height: 44px; }
 .follow[aria-pressed="true"] { color: var(--muted); }
 .follow-form { display: inline; margin: 0; }

@@ -1,12 +1,17 @@
 name: Features
 
-# Feature pipeline (docs/FEATURES.md): builds the features the owner decided in design sessions, one at a time,
-# until each is accepted. Separate from the autopilot (own switch FEATURES, own label `feature`, own queue in
-# docs/features/). Started from the chat, and again by the Gate after each feature PR merges or fails.
+# Feature pipeline (docs/FEATURES.md): builds the features the owner decided in design sessions, several at a time
+# (FEATURE_PARALLEL, default 3), until each is accepted. Separate from the autopilot (own switch FEATURES, own label
+# `feature`, own queue in docs/features/). Started from the chat, again by the Gate after each feature PR merges, is
+# updated or fails, and by an hourly heartbeat that resumes it after a lost event.
 run-name: Features
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "23 * * * *" # recovery heartbeat only: the pick is a no-op when nothing needs doing
 
+# One round at a time: the pick plans the whole round (so two legs never take the same feature), then each task runs
+# as its own matrix leg. A run started while a round is going waits and plans the next round.
 concurrency:
   group: features
 
@@ -26,10 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      mode: ${{ steps.next.outputs.mode }}
-      file: ${{ steps.next.outputs.file }}
-      number: ${{ steps.next.outputs.number }}
-      branch: ${{ steps.next.outputs.branch }}
+      tasks: ${{ steps.next.outputs.tasks }}
+      count: ${{ steps.next.outputs.count }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,13 +45,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FEATURES: ${{ vars.FEATURES }}
           FEATURE_MAX_ATTEMPTS: ${{ vars.FEATURE_MAX_ATTEMPTS || '5' }}
+          FEATURE_PARALLEL: ${{ vars.FEATURE_PARALLEL || '3' }}
         run: node scripts/features.ts next
 
   build:
     needs: pick
-    if: needs.pick.outputs.mode == 'build' || needs.pick.outputs.mode == 'fix'
+    if: needs.pick.outputs.count != '0' && needs.pick.outputs.count != ''
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    strategy:
+      fail-fast: false # one leg failing never stops the others
+      matrix:
+        task: ${{ fromJSON(needs.pick.outputs.tasks) }}
     services:
       postgres: # the team runs the same build and e2e checks as CI
         image: postgres:17
@@ -62,9 +70,12 @@ jobs:
       DATABASE_URL: postgres://stock_social:stock_social@localhost:5432/stock_social
       APP_SECRET_KEY: ci-only
       CRON_SECRET: ci-only
-      MODE: ${{ needs.pick.outputs.mode }}
-      FILE: ${{ needs.pick.outputs.file }}
-      NUMBER: ${{ needs.pick.outputs.number }}
+      KIND: ${{ matrix.task.kind }}
+      MODE: ${{ matrix.task.kind == 'build' && 'build' || 'fix' }} # team.ts and autopilot.ts: a conflict is a fix
+      FILE: ${{ matrix.task.file }}
+      NUMBER: ${{ matrix.task.kind == 'build' && matrix.task.id || matrix.task.number }}
+      TASK: ${{ toJSON(matrix.task) }}
+      TASKS: ${{ needs.pick.outputs.tasks }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -82,24 +93,29 @@ jobs:
         run: |
           git config user.name "stock-social-autopilot"
           git config user.email "autopilot@users.noreply.github.com"
-          if [ "$MODE" = "build" ]; then node scripts/features.ts prepare; else node scripts/autopilot.ts prepare; fi
+          if [ "$KIND" = "fix" ]; then node scripts/autopilot.ts prepare; else node scripts/features.ts prepare; fi
+          node scripts/features.ts brief
       - run: npm ci
       - name: Install Claude Code and a test browser
         run: |
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           npx playwright install --with-deps chromium
-      - name: Build to the owner's spec (engineer ⇄ tester)
+      - name: Build to the owner's spec (committee plan, engineer ⇄ tester, committee verdict)
         id: team
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: ${{ vars.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || '1' }}
-          SPEC_FILE: ${{ needs.pick.outputs.file }}
+          SPEC_FILE: ${{ matrix.task.file }}
           BRANCH: ${{ steps.prep.outputs.branch }}
           BASE_REF: main
           QA_ROUNDS: ${{ vars.QA_ROUNDS || '20' }}
-          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '15' }}
+          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '60' }} # a committee build: plan debate, build, QA, user tests, verdicts
           MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
+          COMMITTEE: ${{ vars.FEATURE_COMMITTEE || 'on' }} # docs/IMPLEMENTATION.md "The cycle"; off = engineer ⇄ tester only
+          COMMITTEE_ROUNDS: ${{ vars.COMMITTEE_ROUNDS || '3' }}
+          MODEL_LEAD: ${{ vars.MODEL_LEAD }}
+          MODEL_UX: ${{ vars.MODEL_UX }}
         run: node scripts/team.ts
       - name: Publish
         if: steps.team.outcome == 'success'
@@ -107,4 +123,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.prep.outputs.branch }}
         run: |
-          if [ "$MODE" = "build" ]; then node scripts/features.ts publish; else node scripts/autopilot.ts publish; fi
+          if [ "$KIND" = "build" ]; then node scripts/features.ts publish; exit; fi
+          node scripts/features.ts resolved
+          node scripts/autopilot.ts publish
+          node scripts/features.ts notes

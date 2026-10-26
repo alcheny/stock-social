@@ -1,6 +1,7 @@
 # Implementation process for decided features (draft, being hashed out with the owner)
 
-Status: draft. This file records how a feature that the owner decided in a design session
+Status: wired into the pipeline 2026-10-26 (`scripts/team.ts` committee cycle, `team/ux-lead.md`,
+`docs/FEATURES.md`); the decisions below still hold. This file records how a feature that the owner decided in a design session
 (`docs/features/F-<n>-*.md`, Status `ready` or `rework`) is implemented. It takes its shape from the
 autopilot's branch-team process (`docs/AUTOPILOT.md`, `team/README.md`) and replaces the current
 "engineer builds the owner's file as written" step of the feature pipeline (`docs/FEATURES.md`).
@@ -135,8 +136,8 @@ pipeline scripts and the workflows. Each is a yes/no for the owner; answers are 
 | # | Request | Why it stops the cycle | Owner's answer |
 |---|---|---|---|
 | 1 | Carve-out in CODEOWNERS and the Gate for `lib/session.ts`, `lib/broker.ts`, `package.json`, `package-lock.json`, scoped to feature PRs | Gate labels any PR touching them needs-human | pre-authorized (decision above); owner edits the files |
-| 2 | Raise the Gate's diff cap (`MAX_DIFF`, 800 lines) to ~4000 for `feature` PRs, or let the plan split F-1 into three sequential PRs (sign-in; connection state machine + consent + import; heavy tests) | F-1 with tests is 2k to 4k lines; every PR would go needs-human | pre-authorized 2026-10-24: the 800-line cap counts product lines only (not tests, e2e, docs or screenshots); owner edits `scripts/autopilot.ts` to match |
-| 3 | Repo variables: `TEAM_BUDGET_USD` ≈ 60 (now 15), `BUDGET_ENGINEER` ≈ 10, `FEATURE_MAX_ATTEMPTS` 10 for F-1 then 5 | F-1's size exhausts the current budgets and attempt cap | |
+| 2 | Raise the Gate's diff cap (`MAX_DIFF`, 800 lines) to ~4000 for `feature` PRs, or let the plan split F-1 into three sequential PRs (sign-in; connection state machine + consent + import; heavy tests) | F-1 with tests is 2k to 4k lines; every PR would go needs-human | pre-authorized 2026-10-24: the 800-line cap counts product lines only (not tests, e2e, docs or screenshots); done 2026-10-25 in `scripts/autopilot.ts` (`productLines`, feature PRs) |
+| 3 | Repo variables: `TEAM_BUDGET_USD` ≈ 60 (now 15), `BUDGET_ENGINEER` ≈ 10, `FEATURE_MAX_ATTEMPTS` 10 for F-1 then 5 | F-1's size exhausts the current budgets and attempt cap | 2026-10-26: the feature pipeline's default is now 60 (`features.yml`); the variables override it |
 | 4 | Test-mode secrets created and passed to the build and CI jobs (names only): the vendor's test key pair, the email-provider sign-in client id and secret, the phone-maker sign-in team id, key id and private key, the email-sending key and from-address, a session secret, the public site URL | Only the owner creates secrets; without them the committee's running-preview test of sign-in and the portal is mocks only | |
 | 5 | One new dependency: the vendor's web SDK for the embedded portal. Everything else built without dependencies (sign-in via standard OIDC with the runtime's crypto, email via one HTTPS call, the t multiplier inline) | POLICY H: new dependencies are the owner's | |
 | 6 | One new vendor: an email-sending service for the magic link (the single Phase 1 exception to "no new vendor") | DESIGN §3 and Standing direction 3 | |
@@ -144,8 +145,8 @@ pipeline scripts and the workflows. Each is a yes/no for the owner; answers are 
 | 8 | Function duration limit ≥ 60 s in the deploy settings, for the chunked import (one vendor page per step, client-polled; no worker or queue yet) | Deploy settings are owner-only | |
 | 9 | Preview deploys per feature PR (deployments are off today), or accept in-job `npm run start` plus browser screenshots as the committee's "running preview" | The committee and user tests need a running app | |
 | 10 | Placeholder Terms and Privacy pages and the consent-screen copy (what becomes public), supplied by the owner | POLICY P6/F3: the attestation and consent screens must link them | |
-| 11 | A `blocked` status the publish script may set when a feature hits a hard stop | Otherwise the picker returns the blocked feature forever and later features never build | |
-| 12 | Process wiring: owner edits to `scripts/features.ts`, `scripts/team.ts`, `team/*.md`, CODEOWNERS and `features.yml` for the plan round, the UX lead, the committee, per-member user tests and `docs/features/logs/` | All owner-only paths | |
+| 11 | A `blocked` status the publish script may set when a feature hits a hard stop | Otherwise the picker returns the blocked feature forever and later features never build | done 2026-10-25: `Status: blocked` with a `Blocked:` line, set in the chat; the picker skips it (F-2 is the first) |
+| 12 | Process wiring: owner edits to `scripts/features.ts`, `scripts/team.ts`, `team/*.md`, CODEOWNERS and `features.yml` for the plan round, the UX lead, the committee, per-member user tests and `docs/features/logs/` | All owner-only paths | done 2026-10-26 at the owner's request: plan debate, committee user tests and verdicts, `team/ux-lead.md`, committee records in `docs/features/logs/<F-n>/`, blocked-feature PRs (no CODEOWNERS change needed: `docs/features/` isn't protected) |
 | 13 | Run the heavy-use suite automatically: a `test:load` script in `package.json` (`LOAD=1 node --expose-gc --test lib/sync.load.test.ts`) and a CI job on demand (manual dispatch, with Postgres) | Nothing sets `LOAD=1`, so the F-1 heavy-use criteria are never checked automatically; `package.json` and workflows are owner-only (F-1 PR-3 tester, Low 3) | |
 
 Not needed for the first run (wait): a read replica, object storage, a vector index, a worker or
@@ -156,9 +157,9 @@ and the reason line's model call is behind an injected interface with its fallba
 1. ~~F-2 is a Phase 2 feature~~ Resolved 2026-10-22: phase limitations scratched by the owner; F-2
    builds in full in its number order. POLICY H's "Phase 2/3 features" clause and DESIGN §3.2 are the
    owner's to edit to match.
-2. **POLICY F1 says "no personalized suggestions"** literally. F-2 suggests records to read, not trades,
-   but the reviewer reads the policy as written. The owner amends the F1 wording (owner-only) or the
-   reviewer fails F-2.
+2. ~~**POLICY F1 says "no personalized suggestions"** literally.~~ Resolved 2026-10-25: the owner amended
+   F1 (new F1a): personalized discovery of traders and records to read is allowed; personalized
+   suggestions of securities or trades stay forbidden. Counsel (F-2 plan H2) still gates PR-5's build.
 3. **F-2 depends on features that do not exist**: follow and unfollow, "not interested", account
    deletion. Resolved 2026-10-22 as scope: F-2 includes a `follows` table with follow/unfollow on the
    profile, the "not interested" control, and account deletion (POLICY P6) with event tables cascading
@@ -207,7 +208,8 @@ Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `li
 
 ## What already exists and is reused
 - Branch team roles and specs in `team/` (business lead, designer, engineer, tester, reviewer).
-- `scripts/features.ts` picks the lowest ready/rework feature, one at a time, and publishes status.
+- `scripts/features.ts` plans rounds of up to `FEATURE_PARALLEL` builds, fixes and conflict resolutions, briefs
+  each builder on the others, and publishes status (2026-10-25: parallel builds, docs/FEATURES.md).
 - The Gate merges green PRs; protected paths wait for the owner.
 - Deterministic checks and the compliance scanner run before the tester.
 
@@ -218,8 +220,8 @@ Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `li
 - Per-feature implementation logs with the debate positions and committee verdicts.
 
 ## Open questions
-- Committee rounds: a hard cap per feature (today FEATURE_MAX_ATTEMPTS = 5) after which the owner is
-  asked, or unlimited?
+- ~~Committee rounds: a hard cap per feature?~~ Wired 2026-10-26 as `COMMITTEE_ROUNDS` (3) inside one build,
+  then the PR's fix attempts (`FEATURE_MAX_ATTEMPTS`, 5) before the owner is asked.
 - Does the business lead's "market demand" debate apply to a feature the owner already decided, or
   only to how it is implemented (recommendation: only how; demand was settled in the design session)?
 - How the process is run: extend `scripts/features.ts` and `scripts/team.ts` (owner-only files) or a

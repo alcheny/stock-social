@@ -10,6 +10,7 @@ they're held to. No member grades their own work.
 |---|---|---|---|---|
 | **Business lead** | [business-lead.md](business-lead.md) | Planning (with the engineer); auto mode: the final merge decision (`judge.yml`); on request as a subagent | What gets built and whether it delivered the business case; pushes every other member | No (read-only) |
 | **Planner** (business lead ⇄ engineer) | [planner.md](planner.md) | Autopilot, when there's no work queued | The issue format and planning rules both follow while they debate the next issues (`scripts/plan.ts`) | No (writes issues) |
+| **UX lead** | [ux-lead.md](ux-lead.md) | Feature pipeline, per feature (committee) | The implementation plan for a decided feature; user tests and the usability and compliance verdict | Every tool, edits discarded |
 | **Designer** | [designer.md](designer.md) | Autopilot branch team, per version | The spec the engineer builds from | No (read-only) |
 | **Business analyst** | [business-analyst.md](business-analyst.md) | Autopilot branch team, per version | Ease of use, retention and virality of the spec | No (read-only) |
 | **Engineer** | [engineer.md](engineer.md) | Planning (with business lead) and every branch team | Feasibility, size and engagement mechanics in planning; tests first, then the code, to the spec | Yes, on its branch only |
@@ -33,6 +34,15 @@ auto mode: Business lead picks the version instead (same process, same record); 
       ▼
 Business lead ─ reviews what shipped against the business case; demands for the next round
 ```
+
+## Feature pipeline committee
+
+Features the owner decided in design sessions (`docs/FEATURES.md`) are built by a committee
+(`docs/IMPLEMENTATION.md`, "The cycle"): the UX lead plans, the business lead and the engineer sign; the
+engineer builds tests first; the tester loop runs; then the business lead and the UX lead user-test the
+running app and each return a compliance and a usability verdict. Demands go back to the plan, up to
+`COMMITTEE_ROUNDS` (3). Committee members have every tool, but their file changes are discarded after each
+call, so no member grades work it changed. Every round is logged in `docs/features/logs/<F-n>/`.
 
 ## Lines mode
 
@@ -64,6 +74,7 @@ member behaves on its next run, on the cloud runners and in Claude Code sessions
 | `reviewer.md`, `judge.md` | `review.yml`, `judge.yml` prompts |
 | `business-lead.md` (final merge, auto mode) | `judge.yml` prompt |
 | `designer.md`, `business-analyst.md`, `engineer.md`, `tester.md` | `scripts/team.ts`, on every branch-team call |
+| `ux-lead.md`, `business-lead.md`, `engineer.md` (committee) | `scripts/team.ts`, on feature-pipeline builds |
 
 `team/` and `.claude/agents/` are protected (`.github/CODEOWNERS`) and blocked from agent edits, so no
 member can rewrite its own spec or another's. Changes need the human's approval.

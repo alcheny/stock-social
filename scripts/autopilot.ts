@@ -165,6 +165,11 @@ export function gateDecision(g: GateInput): { action: GateAction; reason: string
   return { action: 'merge', reason: 'all gates green' };
 }
 
+// Feature PRs (owner's pre-authorization, docs/IMPLEMENTATION.md request 2, 2026-10-24): the diff cap counts product
+// lines only, not tests, end-to-end specs, docs or screenshots.
+export const productLines = (files: { path: string; additions: number; deletions: number }[]) =>
+  files.filter((f) => !/\.test\.ts$|^e2e\/|^docs\/|\.(png|jpe?g|gif|webp)$/i.test(f.path)).reduce((s, f) => s + f.additions + f.deletions, 0);
+
 export type OpenPr = { number: number; labels: string[]; failing: boolean; attempts: number; issue: number | null };
 export type ReadyIssue = { number: number; labels: string[]; author: string; attempts: number };
 export type Task = { mode: 'fix' | 'build'; number: number } | { mode: 'idle'; reason: string; plan: boolean };
@@ -205,7 +210,7 @@ export function guardFindings(baseTests: number, headTests: number, schemaDiff: 
 
 // The variant PR body: these headings are parsed back by section() when a choice is recorded.
 export const DOC_HEADINGS = ['Direction', 'Design choices', 'Business rationale', 'Trade-offs', 'What to measure'] as const;
-export type BuildResult = { done?: boolean; title?: string; summary?: string; direction?: string; design?: string; business?: string; tradeoffs?: string; measure?: string; specPath?: string; costUsd?: number; limit?: boolean };
+export type BuildResult = { done?: boolean; title?: string; summary?: string; direction?: string; design?: string; business?: string; tradeoffs?: string; measure?: string; specPath?: string; costUsd?: number; limit?: boolean; blocked?: string; committeePath?: string };
 
 export function prBody(v: Variant, issue: number, r: BuildResult): string {
   const head = v.key ? `**Variant ${v.key.toUpperCase()} · ${v.title}** for #${issue}\n\n> ${v.brief}\n\n` : '';
@@ -625,7 +630,7 @@ function gate() {
   // PR comes from the workflow_run payload, or (for dispatched CI/Review runs) from the branch name.
   const n = Number(env('PR')) || ghJson<{ number: number }[]>('pr', 'list', '--head', env('HEAD_BRANCH'), '--state', 'open', '--json', 'number')[0]?.number;
   if (!n) return console.log(`no open PR for ${env('HEAD_BRANCH')}`);
-  const pr = ghJson<{ files: { path: string }[]; headRefOid: string; headRefName: string; baseRefName: string; labels: { name: string }[]; isDraft: boolean; state: string; additions: number; deletions: number; author: { login: string } }>(
+  const pr = ghJson<{ files: { path: string; additions: number; deletions: number }[]; headRefOid: string; headRefName: string; baseRefName: string; labels: { name: string }[]; isDraft: boolean; state: string; additions: number; deletions: number; author: { login: string } }>(
     'pr', 'view', String(n), '--json', 'files,headRefOid,headRefName,baseRefName,labels,isDraft,state,additions,deletions,author');
   const line = lineOf(pr.baseRefName);
   const labels = pr.labels.map((l) => l.name);
@@ -647,9 +652,17 @@ function gate() {
     approved: approvedBy, line: !!line, doctor,
     enabled: feature ? env('FEATURES') === 'on' : env('AUTOPILOT') === 'on', automerge: feature || modeOf(env('AUTOPILOT_MODE')) === 'auto', variant: labels.includes(L.variant),
     files: pr.files.map((f) => f.path), patterns: parseCodeowners(readFileSync('.github/CODEOWNERS', 'utf8')),
-    ci: ciState(pr.headRefOid), review: reviewState, diffLines: pr.additions + pr.deletions, maxDiff: Number(env('MAX_DIFF', '800')),
+    ci: ciState(pr.headRefOid), review: reviewState, diffLines: feature ? productLines(pr.files) : pr.additions + pr.deletions, maxDiff: Number(env('MAX_DIFF', '800')),
   });
   console.log(`PR #${n}: ${d.action} (${d.reason})`);
+  // Parallel feature builds (docs/FEATURES.md): merge only a PR that contains the latest main, so the combination
+  // with every feature merged meanwhile was tested. Otherwise update it in place; CI and the review re-run on it.
+  if (d.action === 'merge' && feature && Number(gh('api', `repos/${repo()}/compare/main...${pr.headRefOid}`, '--jq', '.behind_by')) > 0) {
+    try { gh('api', '-X', 'PUT', `repos/${repo()}/pulls/${n}/update-branch`, '-f', `expected_head_sha=${pr.headRefOid}`); }
+    catch { return dispatch('features.yml', '--ref', 'main'); } // conflicts with main: the pipeline resolves them
+    console.log(`PR #${n}: behind main; updated in place, waits for CI on the combined code`);
+    return dispatch('ci.yml', '--ref', pr.headRefName);
+  }
   if (d.action === 'merge' && feature) { // the next decided feature starts building
     gh('pr', 'merge', String(n), '--squash', '--delete-branch', '--match-head-commit', pr.headRefOid);
     dispatch('ci.yml', '--ref', 'main');
