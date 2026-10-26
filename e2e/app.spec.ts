@@ -430,7 +430,12 @@ test('fix round 6: the demo trader\'s trade link preview says demo trades, never
   expect(profileDescription).toMatch(/^\d+ demo trades? · /);
   expect(profileDescription).not.toMatch(/verified/i);
   // Reviewer fix (POLICY F3a, A1): the card's alt text follows the record state; the card URL is unchanged.
-  expect(await page.locator('meta[property="og:image:alt"]').getAttribute('content')).toBe('Trading record card for @momentum_maya on Stock Social: Demo data');
+  // F-4 committee round 1, demand 9: the alt is the card in words, from the card's model (label first, disclaimer last).
+  const alt = (await page.locator('meta[property="og:image:alt"]').getAttribute('content'))!;
+  expect(alt).toMatch(/^Trading record card for Maya \(@momentum_maya\) on Stock Social\. Demo data, not a real broker record\. The average per trade is [+-]?\d+\.\d%, (a gain|a loss|about even)/);
+  expect(alt).toMatch(/\d+ closed trades · losses included\. Record since [A-Z][a-z]{2} \d{4} · /);
+  expect(alt).not.toMatch(/verified/i);
+  expect(alt).toMatch(/Not investment advice\. Past performance does not guarantee future results\.$/);
   expect(new URL((await page.locator('meta[property="og:image"]').first().getAttribute('content'))!).pathname).toBe('/u/momentum_maya/opengraph-image');
 });
 

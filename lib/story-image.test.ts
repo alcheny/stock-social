@@ -45,7 +45,7 @@ test('no best-trade, quantity or price fields; no $ in values', () => {
 test('demo never carries the verified label', () => {
   assert.doesNotMatch(model([0.05], true).label, /Verified|Imported/);
   assert.equal(model([0.05], true).label, 'Demo data, not a real broker record');
-  assert.equal(model([0.05]).label, 'Imported read-only from the broker');
+  assert.equal(model([0.05]).label, 'Verified from broker'); // round 1, demand 4: one label at every size
 });
 
 test('0 trades: no throw, empty headline, null stats', () => {
@@ -78,7 +78,7 @@ test('fix round 6 (TR-3): a failed record carries the incomplete line and never 
   assert.equal(i.chart, null);
   assert.equal(i.count, null);
   assert.doesNotMatch(i.label, /Imported read-only|Verified/);
-  assert.equal(run('connected').label, 'Imported read-only from the broker');
+  assert.equal(run('connected').label, 'Verified from broker');
   assert.equal(run('connected').note, null);
   for (const st of ['importing', 'connected', 'failed', 'none'] as const) {
     const d = run(st, true);
