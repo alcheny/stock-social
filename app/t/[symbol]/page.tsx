@@ -5,6 +5,7 @@ import { recordStates, type PublicState } from '@/lib/connections.ts';
 import { rowBadge } from '@/lib/pane.ts';
 import { baselineVerdict, decodeSymbolParam, holdBuckets, isIndexableTicker, monthlyTimeline, outcomeSpread, relatedSymbols, selectTheses, tickerSummary, toSpreadPct, toTicker } from '@/lib/ticker.ts';
 import { pct, rangeText } from '@/lib/trades.ts';
+import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
 import Spread from './Spread.tsx';
 import Timeline from './Timeline.tsx';
@@ -134,7 +135,7 @@ export default async function Ticker({ params, searchParams }: Params) {
       <section className="stats" aria-label="Summary">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : 'down'}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
-          <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of 10 bets)`}</small>
+          <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
           <small className="median">median {pct(spread.median! / 100)}</small>
         </div>
       </section>
@@ -151,7 +152,7 @@ export default async function Ticker({ params, searchParams }: Params) {
       {spread.n > 0 && (
         <>
           <Spread spread={spread} returns={returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
-          {c.k < 10 && <p className="muted small">Too early to tell ({c.k} of 10 bets)</p>}
+          {c.k < MIN_BETS && <p className="muted small">Too early to tell ({c.k} of {MIN_BETS} bets)</p>}
         </>
       )}
 

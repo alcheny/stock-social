@@ -130,6 +130,16 @@ export const SHARE_CARD = {
   failed: 'Import did not finish',
   demo: 'Demo data',
   empty: 'No closed trades yet',
+  // F-4: the record card's own words (lib/record-card.ts). The card always names its trust state (Verified, Demo,
+  // or the reason it is neither); the square and story pictures travel without a link preview, so their demo label
+  // says what demo means.
+  notVerified: 'Not verified',
+  noBroker: 'No broker connected',
+  demoImage: 'Demo data, not a real broker record',
+  perTrade: 'average per trade',
+  likely: (low: string, high: string) => `likely between ${low} and ${high}`,
+  lossesIncluded: 'losses included',
+  chartCaption: 'If every trade were the same size',
 } as const;
 export type ShareCardText = { label: string | null; tone: 'ok' | 'muted' | 'warn'; body: string | null; note: string | null };
 // body null = show the stats; note null = show the evidence line.
