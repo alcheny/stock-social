@@ -29,8 +29,20 @@ To be written once the open questions are settled.
   are counted.
 - Consent: a new line in the connect consent and a one-time re-consent of existing traders, or a separate
   opt-in.
-- Legal review: the statutes and limits in the owner's review of 2026-10-31 (three independent passes), the
-  data vendor's written permission to use balances, and counsel's sign-off before real users.
+- Legal review (2026-10-31, three independent passes: law by law, data lifecycle, misuse and enforcement; the
+  full review is the owner's private document). Limits all three found, for the owner to confirm:
+  - bands rather than exact percentages (an exact share plus one dollar figure reveals account value);
+  - size on closed trades only, or after a fixed delay; never in alerts, feed ranking, discovery or a paid tier;
+  - the data vendor's written permission (re-packaging and market-data clauses) before any build;
+  - a separate opt-in from every trader, no backfill without it (current consent promises no amounts);
+  - labelled an estimate of connected accounts at entry, outside "Verified"; unsizable trades excluded and
+    counted;
+  - store the band, never balances; an append-only display log of what was shown;
+  - insider and registered-representative warnings; Terms ban adviser advertising and paid promotion; size
+    hidden for thinly traded, OTC or halted securities;
+  - owner rule changes: POLICY P3, DESIGN CH-1, and a size-only withdrawal exception to TR-1/TR-5.
+- Found during the review, outside F-5: open-position percentages are computed from the vendor's prices, which
+  its market-data clause may not allow publicly; and records can't show what they displayed on a past date.
 - The share card's chart (F-4 question A) waits on this feature's answers.
 
 ## Rework notes

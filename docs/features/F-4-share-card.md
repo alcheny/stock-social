@@ -61,6 +61,27 @@ elements that catch the eye and travel, and leave detail for the profile.
   to mean anything even with the t correction.
 - 2026-10-22: The owner confirmed F-4 is decided; it stays Status: rework (the card is built and is
   rebuilt to these decisions by the pipeline).
+- 2026-10-31: The "likely between" range is a 95% range around the arithmetic average per trade, the same
+  average the headline shows, so the headline always sits inside its range. Why: the owner's answer to committee
+  question B; the built range could put the headline at its own edge ("+0.3%, likely between +0.1% and +0.3%").
+- 2026-10-31: The trust lines use the same words for gains and losses; this table replaces the one approved on
+  2026-10-22:
+  | Tier | Edge | Line |
+  |---|---|---|
+  | Under 5 bets | any | "Based on N trades. Too few trades to say much yet." |
+  | Too early (range wider than ±10 points) | any | "Based on N trades. The range is still too wide to say much." |
+  | Thin | any | "Based on N separate bets over D days. Still early, and results could go either way." |
+  | Moderate | interval entirely above 0 | "Based on N bets over M months. A fair sample, with a clear pattern of gains." |
+  | Moderate | interval entirely below 0 | "Based on N bets over M months. A fair sample, with a clear pattern of losses." |
+  | Moderate | unclear | "Based on N bets over M months. A fair sample, with no clear pattern yet." |
+  | Strong | interval entirely above 0 | "Based on N bets over Y years. A long record, with consistent gains." |
+  | Strong | interval entirely below 0 | "Based on N bets over Y years. A long record, with consistent losses." |
+  | Strong | unclear | "Based on N bets over Y years. A long record, with no clear pattern." |
+  The words describe the evidence, never the trader (POLICY F3b). Why: the owner's answer to committee question
+  C; the old thin and moderate lines gave gains a softer line than losses.
+- 2026-10-31: The link preview (1200×630) keeps every element and its chart stays at about 24% of the card;
+  the square and story cards keep 30%. Why: the owner's answer to committee demand 3; reaching 30% on the
+  preview meant dropping the handle or the chart caption.
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
@@ -101,12 +122,6 @@ Each one testable; the pipeline writes a test for every line.
     caption's wording either way. 2026-10-31: the owner finds equal-stake views misleading because they hide
     position size, and real dollars were set aside for privacy; this waits on F-5 (position size per trade),
     which may make the chart account-weighted.
-  - B. Whether the range is built for the arithmetic mean, so the headline average always sits inside it (the
-    4,200-trade fixture reads "+0.3%, likely between +0.1% and +0.3%").
-  - C. The trust-line table: negative rows worded symmetrically with the positive ones, and the under-5-bets
-    wording ("Too few to say much yet").
-  - The link unfurl's chart is 23.7% of the card against the committee's 30%: reaching it needs one more element
-    removed (for example the chart caption, or the handle that AC1 requires).
   - Win rate in the link-preview text under the card: keep or drop.
   - Ranking floor: stays at 10 bets unless changed.
   - A bundled font file (OFL) would need license sign-off; none is added now.
