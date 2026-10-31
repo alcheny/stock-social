@@ -98,7 +98,9 @@ Each one testable; the pipeline writes a test for every line.
 ## Open questions
 - From committee round 1 (2026-10-26, `docs/features/logs/F-4/committee-round-1.md`), for the owner:
   - A. The chart series: compounded growth of equal stakes, or the running sum of per-trade returns; and the
-    caption's wording either way.
+    caption's wording either way. 2026-10-31: the owner finds equal-stake views misleading because they hide
+    position size, and real dollars were set aside for privacy; this waits on F-5 (position size per trade),
+    which may make the chart account-weighted.
   - B. Whether the range is built for the arithmetic mean, so the headline average always sits inside it (the
     4,200-trade fixture reads "+0.3%, likely between +0.1% and +0.3%").
   - C. The trust-line table: negative rows worded symmetrically with the positive ones, and the under-5-bets
