@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
 import { COMPARE_COPY, compareDescription, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
+import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
 import Spread from '../[symbol]/Spread.tsx';
 
@@ -71,7 +72,7 @@ function Column({ symbol, side, id, shared }: { symbol: string; side: CompareSid
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : s.avgReturn! < 0 ? 'down' : ''}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
-          <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of 10 bets)`}</small>
+          <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
         </div>
       </div>
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>

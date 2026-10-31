@@ -51,7 +51,7 @@ jobs:
       - id: next
         env:
           GH_TOKEN: ${{ github.token }}
-          MAX_ATTEMPTS: ${{ vars.MAX_ATTEMPTS || '3' }}
+          MAX_ATTEMPTS: ${{ vars.MAX_ATTEMPTS || '10' }}
           DAILY_PR_CAP: ${{ vars.DAILY_PR_CAP || '0' }} # 0 = no cap
           LINE_MAX_ATTEMPTS: ${{ vars.LINE_MAX_ATTEMPTS || '10' }}
           STALL_MINUTES: ${{ vars.STALL_MINUTES || '45' }}
@@ -72,7 +72,7 @@ jobs:
     needs: pick
     if: needs.pick.outputs.mode == 'build' || needs.pick.outputs.mode == 'fix'
     runs-on: ubuntu-latest
-    timeout-minutes: 300 # QA_ROUNDS=20 can take hours; a timeout publishes nothing
+    timeout-minutes: 350 # GitHub's limit is 360; team.ts stops starting calls at TEAM_MINUTES so it still publishes
     services:
       postgres: # lets the team run the same build and e2e checks as CI
         image: postgres:17
@@ -150,8 +150,8 @@ jobs:
           BASE_REF: ${{ steps.prep.outputs.base }}
           VARIANT: ${{ toJSON(matrix.variant) }}
           SPEC_ROUNDS: ${{ vars.SPEC_ROUNDS || '2' }}
-          QA_ROUNDS: ${{ vars.QA_ROUNDS || '20' }}
-          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '15' }}
+          QA_ROUNDS: ${{ vars.QA_ROUNDS || '40' }}
+          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '100' }}
           MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
         run: node "$LOOP_DIR/scripts/team.ts"
       - name: Publish

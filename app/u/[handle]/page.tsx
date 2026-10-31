@@ -8,7 +8,9 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileCardAlt, profileDescription, RECORD_BODY, recordBodyCopy, shareCardText } from '@/lib/copy.ts';
+import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy, winRateText } from '@/lib/copy.ts';
+import { cardAlt } from '@/lib/record-card.ts';
+import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
@@ -67,13 +69,14 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   // unverified record, "demo" for demo data, "verified" only for a whole record from the broker).
   const verified = data.trades.length > 0 && data.trades.every((t) => t.verified);
   const demo = await isDemoUser(user.id);
-  // Reviewer fix (POLICY F3a, A1): the share card's alt text comes from the same record state as the card's label, so
-  // it never says "Verified" for a demo, importing or failed record. Declared here because a file-level alt is static.
-  const card = shareCardText({ state, demo, verified, empty: data.trades.length === 0 });
-  const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: profileCardAlt(user.handle, card) }] };
+  // F-4 committee round 1, demand 9 (POLICY A1): the share card's alt text is the card in words, built from the same
+  // model the image draws (its label, so never "Verified" for a demo, importing or failed record). Declared here
+  // because a file-level alt is static.
+  const card = await loadRecordCard(user.handle, 'unfurl');
+  const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: card ? cardAlt(card) : '' }] };
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete); with no
   // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
-  const statsText = `${pct(s.winRate, 0).slice(1)} win rate · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
+  const statsText = `${winRateText(s.winRate)} · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
     description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }),
@@ -180,7 +183,8 @@ export default async function Profile({ params, searchParams }: Params) {
         <p role="alert" className="down"><b>{ACCOUNT_CLAIMED_TITLE}</b> {ACCOUNT_CLAIMED_BODY}</p>
       )}
       {isMe && !claimed && shareable && sharePromptShowing && (
-        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={range} isNew={isNew} />
+        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={range} isNew={isNew}
+          previewAlt={`Preview of your share card. ${cardAlt((await loadRecordCard(user.handle, 'unfurl'))!)}`} />
       )}
       {isMe && !claimed && user.trades_prompt_seen_at === null && <MarkTradesPromptSeen />}
       {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (

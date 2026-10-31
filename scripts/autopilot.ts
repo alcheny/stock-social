@@ -419,12 +419,12 @@ function next() {
     })),
     issues.map((i) => ({ number: i.number, labels: i.labels.map((l) => l.name), author: i.author.login, attempts: countMarker(i.comments) })),
     // Request mode builds only what a human filed; other modes also accept issues from the Planner.
-    { trusted: mode === 'request' ? [env('GITHUB_REPOSITORY_OWNER')] : [env('GITHUB_REPOSITORY_OWNER'), 'app/github-actions', BOT], maxAttempts: mode === 'lines' ? Number(env('LINE_MAX_ATTEMPTS', '10')) : Number(env('MAX_ATTEMPTS', '3')) },
+    { trusted: mode === 'request' ? [env('GITHUB_REPOSITORY_OWNER')] : [env('GITHUB_REPOSITORY_OWNER'), 'app/github-actions', BOT], maxAttempts: mode === 'lines' ? Number(env('LINE_MAX_ATTEMPTS', '10')) : Number(env('MAX_ATTEMPTS', '10')) },
   );
 
   for (const s of stuck) {
     label(s.kind, s.number, L.stuck, L.human);
-    comment(s.kind, s.number, `Autopilot gave up after ${env('MAX_ATTEMPTS', '3')} attempts. A human needs to look at this.`);
+    comment(s.kind, s.number, `Autopilot gave up after ${env('MAX_ATTEMPTS', '10')} attempts. A human needs to look at this.`);
   }
   // Budget guard: at most DAILY_PR_CAP autopilot PRs opened per rolling 24h.
   const since = new Date(Date.now() - 86_400_000).toISOString().slice(0, 19) + 'Z';

@@ -15,8 +15,9 @@ on:
 concurrency:
   group: features
 
-# Agents never get a write credential: the build step gets only the Claude token; the deterministic
-# prepare/publish steps use GITHUB_TOKEN to push, open the PR and start CI.
+# Agents get every tool on this throwaway runner but never a write credential: the build step gets only the Claude
+# token (scrubbed from the agents' shell commands); the deterministic prepare/publish steps use GITHUB_TOKEN to push,
+# open the PR and start CI, and the Gate decides what merges (docs/FEATURES.md → "Permissions and the failure budget").
 permissions:
   contents: write
   pull-requests: write
@@ -44,7 +45,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FEATURES: ${{ vars.FEATURES }}
-          FEATURE_MAX_ATTEMPTS: ${{ vars.FEATURE_MAX_ATTEMPTS || '5' }}
+          FEATURE_MAX_ATTEMPTS: ${{ vars.FEATURE_MAX_ATTEMPTS || '15' }}
           FEATURE_PARALLEL: ${{ vars.FEATURE_PARALLEL || '3' }}
         run: node scripts/features.ts next
 
@@ -52,7 +53,7 @@ jobs:
     needs: pick
     if: needs.pick.outputs.count != '0' && needs.pick.outputs.count != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 350 # GitHub's job limit is 360; a later attempt's larger budget needs the room
     strategy:
       fail-fast: false # one leg failing never stops the others
       matrix:
@@ -109,11 +110,14 @@ jobs:
           SPEC_FILE: ${{ matrix.task.file }}
           BRANCH: ${{ steps.prep.outputs.branch }}
           BASE_REF: main
-          QA_ROUNDS: ${{ vars.QA_ROUNDS || '20' }}
-          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '60' }} # a committee build: plan debate, build, QA, user tests, verdicts
+          QA_ROUNDS: ${{ vars.QA_ROUNDS || '40' }}
+          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '150' }} # attempt 1; later attempts get more (team.ts budgetScale, up to 4×)
+          ATTEMPT: ${{ matrix.task.attempt }}
+          ESCALATE_AFTER: ${{ vars.ESCALATE_AFTER || '3' }}
+          MODEL_ESCALATE: ${{ vars.MODEL_ESCALATE }}
           MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
           COMMITTEE: ${{ vars.FEATURE_COMMITTEE || 'on' }} # docs/IMPLEMENTATION.md "The cycle"; off = engineer ⇄ tester only
-          COMMITTEE_ROUNDS: ${{ vars.COMMITTEE_ROUNDS || '3' }}
+          COMMITTEE_ROUNDS: ${{ vars.COMMITTEE_ROUNDS || '5' }}
           MODEL_LEAD: ${{ vars.MODEL_LEAD }}
           MODEL_UX: ${{ vars.MODEL_UX }}
         run: node scripts/team.ts

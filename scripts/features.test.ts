@@ -93,8 +93,8 @@ test('features: a PR whose conflicts came back twice serializes the pipeline unt
 });
 
 test('features: the coordination brief names every other build, their files and notes, and the shared-file rules', () => {
-  const me: FeatureTask = { kind: 'build', id: 'F-5', file: 'docs/features/F-5-x.md', branch: 'feature/f-5', number: 0 };
-  const other: FeatureTask = { kind: 'build', id: 'F-6', file: 'docs/features/F-6-x.md', branch: 'feature/f-6', number: 0 };
+  const me: FeatureTask = { kind: 'build', id: 'F-5', file: 'docs/features/F-5-x.md', branch: 'feature/f-5', number: 0, attempt: 1 };
+  const other: FeatureTask = { kind: 'build', id: 'F-6', file: 'docs/features/F-6-x.md', branch: 'feature/f-6', number: 0, attempt: 1 };
   const b = coordinationBrief(me, [me, other], [pr({ number: 30, branch: 'feature/f-4', files: ['lib/copy.ts', 'app/share.tsx'], notes: 'Added SHARE copy keys in a block "F-4: share card".' })]);
   assert.match(b, /one of 2 build\(s\)/);
   assert.match(b, /F-6 \(build\) on `feature\/f-6`/);
@@ -135,4 +135,13 @@ test('features: a blocked feature gets the status and one Blocked line under it,
   const twice = setBlocked(once, 'a new dependency');
   assert.equal(twice.match(/^Blocked:/gm)?.length, 1);
   assert.equal(blockedOn(twice), 'a new dependency');
+});
+
+test('features: every task carries its attempt number, which grows the failure budget (1 for a build, +1 per earlier try)', () => {
+  const fs = [ft('F-4', 'built'), ft('F-5', 'built'), ft('F-6', 'ready')];
+  const r = round(fs, [
+    pr({ number: 30, branch: 'feature/f-4', failing: true, fixAttempts: 2, conflictAttempts: 1 }),
+    pr({ number: 31, branch: 'feature/f-5', conflicting: true }),
+  ], 3);
+  assert.deepEqual(r.tasks.map((t) => `${t.id}:${t.kind}:${t.attempt}`), ['F-4:fix:4', 'F-5:conflict:1', 'F-6:build:1']);
 });
