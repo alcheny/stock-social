@@ -35,6 +35,15 @@ Set by the owner in the orchestrating chat on 2026-11-01 and relayed by the orch
 8. **Fill spare capacity.** When the spend rate falls below the baseline, fill the spare capacity with market
    research, business and design work, then shift back to development to build what those councils approve.
 
+## Collaborator sessions
+
+The rules above govern the owner's plan: the orchestrator's sessions and what it admits. A collaborator's
+desktop/CLI session runs on the collaborator's own plan, which is theirs to manage. Every push still spends the
+owner's GitHub Actions minutes: one full CI run per push, about 12.5 job-minutes on the sharded layout
+([Actions minutes](#actions-minutes)). So push only after the local gates pass
+([quality.md → Before every push](quality.md#before-every-push)), not to see what CI says (process-docs lead,
+usability pass 5, 2026-11-01).
+
 ## Admission procedure
 
 The orchestrator runs this on each scheduled check-in (see [architecture.md](architecture.md#actors)) and
@@ -184,7 +193,7 @@ cross-checking.
 - 10 merges in 07:53–08:56, and 6 in 09:13–09:23.
 - The orchestrator's earlier "12 PRs merged between 07:50 and 09:00" counts #26 and #27, which merged at
   07:05. It holds as "12 in 07:05–08:56".
-- The FACTS figure of 18 merges in 07:05–09:23 (18 / 2.3 h ≈ 7.8/h) was taken before #30 and #47 merged.
+- The orchestrator's figure (orchestrator report, 2026-11-01) of 18 merges in 07:05–09:23 (18 / 2.3 h ≈ 7.8/h) was taken before #30 and #47 merged.
 
 ## Bottlenecks
 

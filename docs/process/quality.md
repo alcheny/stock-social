@@ -7,8 +7,18 @@ themselves are in [CLAUDE.md → Commands](../../CLAUDE.md); legal and security 
 ## Local environment
 
 Start from CLAUDE.md → Commands. Deltas for cloud and desktop sessions:
+- **Node.** `node -v` must print v24 or later (CLAUDE.md: "Node ≥ 24 runs `.ts` directly (type stripping)"; CI pins
+  `node-version: 24` in both `ci.yml` jobs). A cloud container on 2026-11-01 had v22.23, where type stripping also
+  ran (`guard: ok`, usability pass 5), but only v24 matches CI.
+- **Commit email.** Before your first commit, set a GitHub noreply address: `git config user.email
+  "<id>+<login>@users.noreply.github.com"` (POLICY P1: "Commits use a GitHub noreply address"). The compliance scan
+  reads the tree, not commit metadata, so CI does not catch a personal address.
 - **Postgres.** `npm run db:up` needs docker. Without it, point `DATABASE_URL` at any Postgres (CLAUDE.md) and apply the
   schema with `node --env-file=.env scripts/db-setup.ts` (no `psql` needed; `SEED=1` also seeds).
+- **`DATABASE_URL` in the shell.** `npm test` is plain `node --test` and does not read `.env`; `lib/db.ts` reads
+  `process.env.DATABASE_URL`. Export it before `npm test` and `db:schema`: `set -a; . ./.env; set +a`. The
+  docker-compose database is `postgres://stock_social:stock_social@localhost:5432/stock_social` (`.env.example`);
+  port 5432 clashes with a Postgres already running on the machine.
 - **`.env`.** `cp .env.example .env`, then set `APP_SECRET_KEY` and `CRON_SECRET` to random strings (CLAUDE.md). For the
   connection-flow e2e tests set the vendor-fake values CI uses: `SNAPTRADE_BASE_URL=http://127.0.0.1:4102`,
   `SNAPTRADE_CLIENT_ID=e2e`, `SNAPTRADE_CONSUMER_KEY=e2e` (`.github/workflows/ci.yml`, both jobs; test values only).
@@ -16,10 +26,16 @@ Start from CLAUDE.md → Commands. Deltas for cloud and desktop sessions:
 - **Browser.** `npx playwright install --with-deps chromium` (the step CI runs).
 - **Font.** DejaVu Sans must be installed. Check the pin with an absolute path:
   `FONTCONFIG_FILE="$PWD/e2e/fonts.conf" fc-match system-ui` must print `DejaVu Sans` (checked in a cloud session,
-  2026-11-01; a relative path fails to load the file and falls back to the system font). macOS lacks the font by
-  default. Why: [Rendering determinism](#rendering-determinism).
+  2026-11-01; a relative path fails to load the file and falls back to the system font). Why:
+  [Rendering determinism](#rendering-determinism). Linux: `apt install fonts-dejavu-core fontconfig`. **macOS:**
+  Chromium there does not read fontconfig, so `FONTCONFIG_FILE` has no effect even with the font installed. Run e2e
+  in a Linux container (with the repo mounted, the Playwright version from `package.json`) or rely on CI for the fit
+  tests (usability pass 5, from reading the config; not run on a Mac).
 - **e2e.** `npm run test:e2e` needs a prior `npm run build` and a seeded database (CLAUDE.md); the config starts
-  `npm run start` with `ALLOW_DEV_AUTH=1` (`playwright.config.ts` `webServer`).
+  `npm run start` with `ALLOW_DEV_AUTH=1` (`playwright.config.ts` `webServer`). To rerun one of CI's four slices
+  (`scripts/e2e-shard.ts`, header comment): `npx playwright test --list --reporter=json > list.json`, then
+  `node scripts/e2e-shard.ts pick list.json <shard 1-4> 4 > shard.txt`, then
+  `npx playwright test --workers=1 --test-list shard.txt`. The local duration of the full suite was not measured.
 
 ## Before every push
 
@@ -65,7 +81,7 @@ than once and a test must not depend on an earlier test in its file.
 feature PR and logs "not an open autopilot or feature PR" (`scripts/autopilot.ts` gate: a lane-B feature PR needs a
 `feature/` head and the bot as author). It merges nothing in lane C.
 
-**Duration, measured:** 84 successful `ci.yml` runs created on 2026-11-01 (REST `actions/workflows/ci.yml/runs?created=2026-11-01&status=success`,
+**Duration, measured** (background; skip on a first read): 84 successful `ci.yml` runs created on 2026-11-01 (REST `actions/workflows/ci.yml/runs?created=2026-11-01&status=success`,
 then `actions/runs/<id>/timing` → `run_duration_ms`; layout from `actions/runs/<id>/jobs`; queried 09:41 UTC by
 fact-checker FC2). Sharded layout (71 runs): median 222 s (3 min 42 s), range 181–421 s; first job start to last job
 end (jobs API): median 213 s. Old one-job layout (10 runs): median 363.5 s, range 309–381 s. Excluded: 2 old-layout
@@ -130,7 +146,14 @@ skill of that name; it is the convention behind CLAUDE.md → Known limits ("mar
 - Every known limit left in code gets, at the exact place, `// ponytail: <what is limited> — <what would fix it>`
   (`-- ponytail:` in SQL; example `db/schema.sql`).
 - The PR body carries one `## Known limits` line per note.
-- A PR that touches a file resolves its existing ponytail notes, or makes them precise.
+- A PR resolves, or makes precise, the existing ponytail notes **on the lines its change touches**. It leaves the
+  other notes in the file alone, so parallel PRs do not rewrite the same comment lines (process-docs lead, usability
+  pass 5, 2026-11-01; this narrows the earlier "notes in touched files", orchestrator report, 2026-11-01).
+- A **sweep** (a work item whose job is the notes themselves, such as the known-limits sweep) edits notes in a file
+  that an open PR owns only after that PR merges, or after the owner of that row agrees through the orchestrator.
+  Notes in owner-only files (CODEOWNERS paths such as `lib/broker.ts`) are not edited: the sweep lists them for the
+  owner in its PR body. In shared files the sweep's edits follow
+  [collaboration.md → Shared files](collaboration.md#shared-files).
 - Docs-only work ends with a `## Known limits` section in the same form (every file in `docs/process/` does).
 
 ## Compliance
@@ -150,10 +173,10 @@ Each list lives in one file; this table names the list and what it does, and lis
 | List | What it does | Applies to |
 |---|---|---|
 | `.github/CODEOWNERS` | The Gate's `gateDecision` sends a PR touching these paths to `needs-human` | Lanes A and B. Lane C: no branch protection enforces it (docs/AUTOPILOT.md → Known limits) |
-| `scripts/team.ts` `PROTECTED` | Agents' Edit/Write to these paths is refused; anything else that reaches them is put back after each call | Lanes A and B agents |
+| `scripts/team.ts` `PROTECTED` | Agents' Edit/Write to these paths is refused; anything else that reaches them is put back after each call | Lanes A and B agents. Lane C keeps away from these paths by rule ([collaboration.md → Never do](collaboration.md#never-do)), with one exception: records in `docs/features/logs/` |
 | `scripts/autopilot.ts` `LOOP_PATHS` | A line PR that changes loop files is sent back to be reverted | Lane A lines |
 | `scripts/doctor.ts` `DOCTOR_FORBIDDEN` | Files the doctor may never change | The doctor |
-| `scripts/handoff.ts` `verify` | Refuses a build hand-off with a protected path (except the team's own logs), a symlink, a submodule, CODEOWNERS or an agent-instruction file | Lane B publish |
+| `scripts/handoff.ts` `verify` | Refuses a build hand-off with a protected path (except the team's own logs under `docs/features/logs/`, `TEAM_RECORDS`), a symlink, a submodule, CODEOWNERS or an agent-instruction file | Lane B publish |
 
 Who may merge a lane-C PR that touches these paths: [decisions-and-authority.md](decisions-and-authority.md#owner-only)
 (open question Q6). A `/approve` comment on a lane-C PR runs `autopilot.ts approve`, which posts an approval
@@ -166,6 +189,8 @@ only (owner pre-authorization 2026-10-24, docs/IMPLEMENTATION.md request 2; `pro
 cap; the orchestrator and the reviewer judge size.
 
 ## Red CI on 2026-11-01
+
+Background (a dated record; no action); skip on a first read.
 
 - **Count (REST, fact-checker FC2, 09:47 UTC):** 32 `ci.yml` runs with `conclusion=failure` created on 2026-11-01, of
   126 runs (`actions/workflows/ci.yml/runs?created=2026-11-01&status=failure`). Layout and failed jobs per run from
@@ -190,5 +215,7 @@ cap; the orchestrator and the reviewer judge size.
   removes this.
 - The ≥ 15 % headroom rule and the "test twice" gate are written only here, from the orchestrator's report — a test
   helper that enforces the headroom removes the first.
+- Lines-touched ponytail rule: notes outside the changed lines stay stale until a sweep reaches them — a
+  scheduled sweep after each batch of merges removes the backlog.
 - Red-CI root causes are the orchestrator's reading — tagging each red run with its cause in the item's log removes
   this.

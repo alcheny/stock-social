@@ -12,7 +12,7 @@ Terms are defined in the [glossary](README.md#glossary).
 | **Owner's own session** | A Claude session the owner drives directly, not started by the orchestrator (for example a design session) | Desktop, CLI or chat | Owner in the chat; the repo and GitHub | [docs/FEATURES.md](../FEATURES.md) → How Claude runs a design session |
 | **Orchestrator** | The owner's orchestrating Claude session; one at a time, the orchestrator of record in [coordination.md](coordination.md) | Claude chat with the remote-session tools | All channels below | This folder |
 | **Child session** | A cloud Claude Code session the orchestrator started for one work item: a feature build, cross-cutting build, fix or council | Claude Code cloud container | Its `create_session` prompt; `send_message` to `@parent`; its own branch and PR | [lifecycle.md](lifecycle.md); [collaboration.md](collaboration.md) |
-| **Collaborator's desktop/CLI session** | A Claude client on someone's own computer, started outside the orchestrator | That computer | GitHub (draft-PR claim, PR comments) and the repo ([coordination.md](coordination.md)) only | [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work) |
+| **Collaborator's desktop/CLI session** | A Claude client on someone's own computer, started outside the orchestrator | That computer | GitHub only: its draft PR and comments on it, or a `Claim request` issue before it has a PR; the repo ([coordination.md](coordination.md)). No session tools ([collaboration.md → Messaging](collaboration.md#messaging)) | [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work) |
 | **In-session committee roles** | Fresh-context subagents inside a child session, one per role: UX lead, business lead, engineer, tester, reviewer (legal where relevant) | Inside the child session | Their parent session only | [team/ux-lead.md](../../team/ux-lead.md), [team/business-lead.md](../../team/business-lead.md), [team/engineer.md](../../team/engineer.md), [team/tester.md](../../team/tester.md), [team/reviewer.md](../../team/reviewer.md); lane-C differences in [lifecycle.md](lifecycle.md#stages) stage 7 |
 | **Councils run as sessions** | Child sessions whose output is a record, not code: idea board, direction councils (market research, creative, design), approval council, business, design system, game design | Claude Code cloud container | Like any child; the record goes to `docs/ideas/` or `docs/direction/` in its PR | [team/idea-board.md](../../team/idea-board.md), [team/direction-councils.md](../../team/direction-councils.md), [team/approval-council.md](../../team/approval-council.md) |
 | **Orchestrator's reviewer subagent** | The independent review: one fresh-context subagent per PR, started by the orchestrator before it merges; sometimes a focused re-review of a fix round | Inside the orchestrator | Reads the PR; its verdict goes on the PR as a review marker | [team/reviewer.md](../../team/reviewer.md); [quality.md → Review standards](quality.md#review-standards) |
@@ -23,13 +23,17 @@ Terms are defined in the [glossary](README.md#glossary).
 | **The Doctor** | `doctor.yml` at minute 11 of every hour, `scripts/doctor.ts`; runs only when `AUTOPILOT=on` and `AUTOPILOT_MODE=lines` (`doctor.yml` job condition) | GitHub Actions | A PR into main from `autopilot/doctor-*` labeled `doctor`, merged by the Gate; or a note on the line issue when a human is needed | [team/doctor.md](../../team/doctor.md); [docs/AUTOPILOT.md](../AUTOPILOT.md) → Doctor: the loop fixes itself |
 
 The orchestrator's duties, as activities (orchestrator report, 2026-11-01):
+- before each `create_session`, write the row with the exact branch name and re-check open PRs and unregistered
+  `claude/*` branches ([lifecycle.md](lifecycle.md#6-build-session-start) stage 6; process-docs lead, usability
+  pass 5, 2026-11-01);
 - start child sessions with a full prompt (`create_session`) and message them (`send_message`);
 - check them (`list_sessions`, `get_session`: status, usage and `rate_limit_info`);
 - subscribe to each PR's GitHub events (`subscribe_pr_activity`);
 - run one independent reviewer subagent per PR before merging, and forward findings to the session;
 - merge through the GitHub API (squash), one PR at a time;
 - archive a session once its work is complete;
-- keep one scheduled check-in every 30 minutes that re-runs these duties.
+- keep one scheduled check-in every 30 minutes that re-runs these duties and reads new draft PRs, their comments and
+  new issues, the channel of clients without session tools.
 
 ## Diagram
 
@@ -122,7 +126,7 @@ Etiquette for all channels: [collaboration.md → Messaging](collaboration.md#me
 |---|---|---|
 | Repo (main and branches) | Rules and these docs; feature files; records under `docs/features/logs/`, `docs/ideas/`, `docs/direction/`; [coordination.md](coordination.md) rows | Every client |
 | GitHub | Branches; PRs (draft or ready), labels, PR bodies (claims, hand-off notes); comments (review markers); check-runs; merge commits; repo variables (`AUTOPILOT`, `FEATURES`) | Every client, except the variables: their values are inferred from heartbeat runs ([collaboration.md → Tool recipes](collaboration.md#tool-recipes)) |
-| Orchestrator only (private) | Session ids, the queue file, usage snapshots, the scheduled check-in | The orchestrator and the owner; a new client asks them (FACTS "Private", orchestrator report 2026-11-01) |
+| Orchestrator only (private) | Session ids, the queue file, usage snapshots, the scheduled check-in | The orchestrator and the owner; a new client asks them (orchestrator report, 2026-11-01) |
 
 Rule: anything another client needs must be on GitHub or in the repo, never only in a session (owner's request,
 2026-11-01: the process "should be in github so multiple claude clients can collaborate and develop

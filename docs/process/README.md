@@ -13,7 +13,7 @@ restated: product and code rules in [CLAUDE.md](../../CLAUDE.md), legal and secu
 | [lifecycle.md](lifecycle.md) | One work item from idea to archive: kinds, stages, States, lane-C hard-stop additions |
 | [collaboration.md](collaboration.md) | Working in parallel: branches, the lane collision, file ownership, claims, merge order, conflicts, messaging, tool recipes, never-do list |
 | [quality.md](quality.md) | Local environment, gates before every push, CI layout and duration, rendering determinism, test rules (incl. privacy maps), review standards, ponytail convention, compliance heading, protected-path mechanics, diff size, the red-CI record of 2026-11-01 |
-| [budget-and-rate.md](budget-and-rate.md) | Budget rules, admission, the token-budget governor, lanes A/B budgets, Actions minutes, measured spend and throughput, bottlenecks, how to re-measure |
+| [budget-and-rate.md](budget-and-rate.md) | Budget rules, collaborator sessions, admission, the token-budget governor, lanes A/B budgets, Actions minutes, measured spend and throughput, bottlenecks, how to re-measure |
 | [decisions-and-authority.md](decisions-and-authority.md) | Precedence, owner-only items, delegations, who decides what, records, trust, escalation, open questions for the owner |
 | [coordination.md](coordination.md) | The live snapshot: orchestrator of record, budget line, work items with file ownership and State, merge order, known overlaps, switch state, feature-file Status after lane-C merges |
 | [review-2026-11-01.md](review-2026-11-01.md) | How these docs were made and checked, and the traceability of every moved rule |
@@ -40,13 +40,13 @@ Read in the order given. Every reader starts with [CLAUDE.md](../../CLAUDE.md) a
 
 | Reader | Then read, in order |
 |---|---|
-| New build session (child of the orchestrator) | Its task prompt; [Quick start](#quick-start); [lifecycle.md](lifecycle.md); [collaboration.md](collaboration.md); [quality.md](quality.md); the feature file and its `docs/features/logs/F-<n>/` |
+| New build session (child of the orchestrator) | Its task prompt; [Quick start](#quick-start); lifecycle.md [Work-item kinds](lifecycle.md#work-item-kinds), [stage 7](lifecycle.md#7-committee-cycle), [stage 8](lifecycle.md#8-pull-request), [stage 15](lifecycle.md#15-interrupted-work) and [States](lifecycle.md#states); [collaboration.md](collaboration.md); quality.md [Local environment](quality.md#local-environment), [Before every push](quality.md#before-every-push), [Test rules](quality.md#test-rules), [Ponytail convention](quality.md#ponytail-convention) and [Compliance](quality.md#compliance); [IMPLEMENTATION.md → The cycle](../IMPLEMENTATION.md#the-cycle-draft) only; the feature file and its `docs/features/logs/F-<n>/`, or for a cross-cutting build its coordination row and `docs/features/logs/<topic>/` |
 | Council session | Its task prompt; the council's spec in [team/](../../team/README.md) (`idea-board.md`, `direction-councils.md` or `approval-council.md`); [lifecycle.md](lifecycle.md#stages) stages 1–5; [decisions-and-authority.md](decisions-and-authority.md#records); [collaboration.md](collaboration.md#messaging) |
 | Orchestrator | [architecture.md](architecture.md); [budget-and-rate.md](budget-and-rate.md); [coordination.md](coordination.md); [collaboration.md](collaboration.md#merge-order); [lifecycle.md](lifecycle.md#stages) stage 12; [decisions-and-authority.md](decisions-and-authority.md#who-decides-what) |
 | Replacement orchestrator | [architecture.md](architecture.md#taking-over-as-orchestrator) first, then the orchestrator's list |
 | Owner's own session (design session, owner decision) | [docs/FEATURES.md](../FEATURES.md) → "How Claude runs a design session"; [decisions-and-authority.md](decisions-and-authority.md); [coordination.md](coordination.md) to see what is running |
-| Collaborator's desktop/CLI session | [Quick start](#quick-start); [collaboration.md](collaboration.md) (all of it); [quality.md](quality.md#local-environment) |
-| Desktop/CLI session with the orchestrator unreachable | [collaboration.md](collaboration.md#claiming-and-releasing-work) (the no-orchestrator fallback); [lifecycle.md](lifecycle.md#stages) stage 9 (review without an orchestrator); [decisions-and-authority.md](decisions-and-authority.md#escalation) |
+| Collaborator's desktop/CLI session (needs write access to the repo; without it see [collaboration.md → Known limits](collaboration.md#known-limits)) | [Quick start](#quick-start); [collaboration.md](collaboration.md) (all of it); [quality.md](quality.md#local-environment); [budget-and-rate.md → Collaborator sessions](budget-and-rate.md#collaborator-sessions) |
+| Desktop/CLI session with the orchestrator unreachable | [collaboration.md](collaboration.md#claiming-and-releasing-work) (the no-orchestrator fallback); [lifecycle.md](lifecycle.md#9-independent-review) stage 9 (review without an orchestrator); [decisions-and-authority.md](decisions-and-authority.md#escalation) |
 | Reviewer subagent | [team/reviewer.md](../../team/reviewer.md); [quality.md](quality.md#review-standards); the PR's feature file and acceptance criteria |
 
 ## Quick start
@@ -56,21 +56,26 @@ For a new Claude client joining work in lane C, end to end. Each step names its 
 1. **Read.** [CLAUDE.md](../../CLAUDE.md) and [docs/POLICY.md](../POLICY.md), then this file (the
    [glossary](#glossary)) and the docs for your row in [Who reads what](#who-reads-what), in that order.
 2. **Set up.** [quality.md → Local environment](quality.md#local-environment).
-3. **Look at what is running.** First GitHub: open PRs, remote `claude/*` branches and the switch state
-   ([collaboration.md → Tool recipes](collaboration.md#tool-recipes)). Then [coordination.md](coordination.md).
-   GitHub wins where they disagree ([coordination.md → Update rule](coordination.md#update-rule)). If `AUTOPILOT` or
-   `FEATURES` is on, start nothing and tell the orchestrator or the owner
+3. **Look at what is running.** First GitHub: open PRs (drafts included), open issues, unregistered `claude/*`
+   branches and the switch state ([collaboration.md → Tool recipes](collaboration.md#tool-recipes)); for each PR in
+   [coordination.md → Merge order](coordination.md#merge-order-current), check whether it merged and drop the merged
+   ones from your reading. Then [coordination.md](coordination.md). GitHub wins where they disagree
+   ([coordination.md → Update rule](coordination.md#update-rule)). If `AUTOPILOT` or `FEATURES` is on, start
+   nothing and tell the orchestrator or the owner
    ([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on)).
-4. **Pick one unclaimed work item.** A child session's task prompt names it; a desktop/CLI session asks the
-   orchestrator (or the owner) which item to take; with the orchestrator unreachable, follow the
-   [no-orchestrator fallback](collaboration.md#claiming-and-releasing-work).
-5. **Branch** `claude/<topic>` from `origin/main`: [collaboration.md → Branches](collaboration.md#branches).
-6. **Claim:** push the branch, open a draft PR with the claim line, and edit only your own row in coordination.md:
-   [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work).
+4. **Pick one unclaimed work item.** A child session's task prompt names it (with its branch). A desktop/CLI session
+   asks the orchestrator (or the owner) which item to take, in a `Claim request: <item>` issue
+   ([collaboration.md → Messaging](collaboration.md#messaging)); with no reply within one check-in (about 30
+   minutes), follow the [no-orchestrator fallback](collaboration.md#claiming-and-releasing-work).
+5. **Branch** `claude/<topic>` from `origin/main` (a child uses the name in its row):
+   [collaboration.md → Branches](collaboration.md#branches).
+6. **Claim:** push the branch, open a draft PR with the claim line, edit only your own row in coordination.md, and
+   send the claim notice: [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work).
+   Until #50 merges, coordination.md is not on main: the claim is the draft PR and the notice only.
 7. **Run the stages for your work-item kind:** [lifecycle.md](lifecycle.md).
 8. **Pass the gates before every push**, after merging `origin/main`: [quality.md → Before every push](quality.md#before-every-push).
-9. **Mark the PR ready and report** to `@parent` (child session) or, without an orchestrator, in the PR for the owner:
-   [collaboration.md → Messaging](collaboration.md#messaging).
+9. **Mark the PR ready and send the full report** to `@parent` (child session) or, without session tools, as a
+   comment on the PR: [collaboration.md → Messaging](collaboration.md#messaging).
 10. **Stop and wait** for review findings or the merge; fix findings on the same branch; never merge your own PR
     ([lifecycle.md → Stages](lifecycle.md#stages) 9–12).
 
@@ -99,6 +104,7 @@ The single glossary. Terms owned elsewhere are defined there and only linked her
 | **Status** | The `Status:` line of a feature file (`draft`, `ready`, `built`, `accepted`, `rework`, `blocked`): [docs/FEATURES.md](../FEATURES.md). Used only for feature files. The idea register's lowercase status (`proposed`, `adopted`, …) belongs to [docs/IDEAS.md](../IDEAS.md) and is neither. |
 | **Cross-cutting build** | A build that changes behavior across features without a feature file of its own (privacy groundwork, sharded sync). Logs go to `docs/features/logs/<topic>/`. |
 | **Draft-PR claim** | An open draft PR on a `claude/<topic>` branch. It is the claim on a work item ([collaboration.md](collaboration.md#claiming-and-releasing-work)). |
+| **Claim notice** | The one-line message sent right after the draft-PR claim opens; the full report follows at ready ([collaboration.md → Messaging](collaboration.md#messaging)). |
 | **Claim / release** | Taking a work item (draft-PR claim plus your own coordination row) and giving it up: [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work). |
 | **File ownership** | The files a work item may change freely, assigned by the orchestrator in [coordination.md](coordination.md). |
 | **Shared file** | A file several work items change: [collaboration.md → Shared files](collaboration.md#shared-files). |
@@ -108,7 +114,7 @@ The single glossary. Terms owned elsewhere are defined there and only linked her
 | **Merge main** | `git merge origin/main` into your own branch. Never rebase or force-push. |
 | **Behind main** | A head that lacks commits on main: `behind_by > 0` in the REST compare API. |
 | **Fresh-context subagent** | A subagent started with no memory of the builder's work, so no one grades their own work (team/README.md). |
-| **Independent review** | The orchestrator's fresh-context reviewer subagent, one per PR, before the merge ([lifecycle.md](lifecycle.md#stages) stage 9; standard in [quality.md → Review standards](quality.md#review-standards)). |
+| **Independent review** | A fresh-context reviewer subagent, one per PR, before the merge, never run in the context that built the change: the orchestrator's, or without an orchestrator one the client starts ([lifecycle.md](lifecycle.md#9-independent-review) stage 9; standard in [quality.md → Review standards](quality.md#review-standards)). |
 | **In-session review** | The build session's own fresh-context reviewer subagent, after the committee and before the PR ([lifecycle.md](lifecycle.md#stages) stage 7). It does not replace the independent review. |
 | **Build committee** | The fresh-context role subagents (UX lead, business lead, engineer, tester) that run the committee cycle inside a build session ([lifecycle.md](lifecycle.md#stages) stage 7). |
 | **Gate** | `gate.yml` running main's copy of `scripts/autopilot.ts gate`: merges or labels lane-A and lane-B PRs; logs "not an open autopilot or feature PR" for lane C. |
@@ -122,7 +128,8 @@ The single glossary. Terms owned elsewhere are defined there and only linked her
 | **Overage / rejected** | The rate-limit status that alone stops admissions ([budget-and-rate.md](budget-and-rate.md#rules-owner-2026-11-01)). |
 | **Token-budget governor** | `scripts/token-budget.ts`, a planner that computes admission from a usage snapshot; status and scope in [budget-and-rate.md → Token-budget governor](budget-and-rate.md#token-budget-governor). |
 | **Archive** | Ending a child session once its work is complete ([lifecycle.md](lifecycle.md#stages) stage 13). |
-| **Orchestrator report** | A fact the orchestrator relayed (task prompt or message) that is not yet written in the repo; cited as "(orchestrator report, <date>)". It binds only as [decisions-and-authority.md → Trust and relayed decisions](decisions-and-authority.md#trust-and-relayed-decisions) allows. |
+| **Orchestrator report** | A fact the orchestrator relayed (task prompt or message, including the fact sheet it gave the process-docs session) that is not yet written in the repo; cited as "(orchestrator report, <date>)". It binds only as [decisions-and-authority.md → Trust and relayed decisions](decisions-and-authority.md#trust-and-relayed-decisions) allows. |
+| **Process-docs lead decision** | A process rule decided by the lead session of the process-docs PR (#50) while writing these docs, cited as "(process-docs lead, usability pass 5, 2026-11-01)" and recorded in [review-2026-11-01.md](review-2026-11-01.md). It binds like any rule first written here; the owner can change it. |
 | **Demo data** | Seed traders with `source='demo'`; always shown with a Demo badge, never Verified (CLAUDE.md → Product rules). |
 
 Defined by link only:
@@ -133,9 +140,10 @@ Defined by link only:
 - **Verified finding**, **Blocking finding**, **Review marker**, **Dispute:** [quality.md → Review standards](quality.md#review-standards).
 - **Delegation:** [decisions-and-authority.md → Delegations and process decisions by the owner](decisions-and-authority.md#delegations-and-process-decisions-by-the-owner).
 - **Folding** (an item into a running session): [lifecycle.md → Stages](lifecycle.md#stages), stage 6.
+- **Unreachable** (orchestrator), **No-orchestrator fallback:** [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work); open for the owner as Q12.
 - **Merge preconditions:** [lifecycle.md → Stages](lifecycle.md#stages), stage 12.
 - **Hard stop:** [docs/IMPLEMENTATION.md](../IMPLEMENTATION.md) → Hard stops, plus lane C's two in [lifecycle.md → Hard stops](lifecycle.md#hard-stops).
-- **Open question (Q1–Q11):** [decisions-and-authority.md → Open questions for the owner](decisions-and-authority.md#open-questions-for-the-owner).
+- **Open question (Q1–Q12):** [decisions-and-authority.md → Open questions for the owner](decisions-and-authority.md#open-questions-for-the-owner).
 - **Ponytail note**, **Known limits:** [quality.md → Ponytail convention](quality.md#ponytail-convention).
 
 ## Precedence

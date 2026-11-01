@@ -17,7 +17,7 @@ stateDiagram-v2
     [*] --> planned: coordination row exists (stage 6)
     planned --> queued_budget: admission says queue (budget-and-rate.md)
     queued_budget --> planned: resetsAt passed or capacity frees
-    planned --> claimed: branch pushed + draft PR open (stage 8)
+    planned --> claimed: branch pushed + draft PR open (stage 8 claim step, before stage 7)
     claimed --> building: committee cycle starts (stage 7)
     building --> pr_ready: gates pass, draft marked ready (stage 8)
     pr_ready --> in_review: orchestrator's reviewer starts (stage 9)
@@ -39,20 +39,33 @@ stateDiagram-v2
 ```
 
 `queued_budget` and `pr_ready` are written `queued-budget` and `pr-ready` everywhere else (Mermaid state ids
-cannot hold a hyphen).
+cannot hold a hyphen). Order in time: stage 6 (row, session) → the claim step of stage 8 (branch, draft PR, claim
+notice) → stage 7 (committee) → the ready step of stage 8 → stage 9. Stage 8 is listed after 7 because the PR is
+finished there.
 
 ## Work-item kinds
 
 | Kind | Stages it passes | One PR or three variants |
 |---|---|---|
 | Feature build | 5–14 (1–4 already passed by the approval council or a design session) | One PR per session in practice. **Pending owner: CLAUDE.md "Three versions per product change" asks for three variants for any product change; lane C builds one. Open question Q1** ([decisions-and-authority.md → Open questions](decisions-and-authority.md#open-questions-for-the-owner)) |
-| Cross-cutting build (privacy, security, sync, CI speed …) | 6–14 | One PR. **Pending owner, CLAUDE.md three-versions rule, Q1** (for the parts that change the product) |
+| Cross-cutting build (privacy, security, sync, CI speed, a known-limits sweep …) | 6–14 (stage 7 as in [Cross-cutting build without a feature file](#cross-cutting-build-without-a-feature-file)) | One PR. **Pending owner, CLAUDE.md three-versions rule, Q1** (for the parts that change the product) |
 | Fix | 6, 8–13 | One PR. Exempt from the three-versions rule by the rule's own text ("not fixes, tests or chores", CLAUDE.md) |
 | Dependency bump | 8–13 | One PR, opened by the code host's dependency bot (#26, #27, #28 on 2026-11-01). A bump of an installed package is not a *new* dependency; adding one is owner-only (POLICY H). Who reviews bumps: orchestrator report, 2026-11-01, not recorded in the repo |
 | Council or record (idea board, direction councils, approval council, business) | 6, 8–13 (the council's own rounds replace stage 7) | One PR |
 | Docs | 6, 8–13 | One PR |
 
 Where each kind files its log or record: [decisions-and-authority.md → Records](decisions-and-authority.md#records).
+
+### Cross-cutting build without a feature file
+
+Current practice (orchestrator report, 2026-11-01), not an owner rule. [IMPLEMENTATION.md → The cycle](../IMPLEMENTATION.md#the-cycle-draft)
+starts from a feature file and its acceptance criteria. A cross-cutting build has neither, so stage 7 differs:
+- The **plan debate runs on the brief**: the task prompt and the coordination row. The plan it signs states the
+  checks that stand in for acceptance criteria (for a sweep: each note resolved or rewritten as
+  `<limit> — <fix>`, and a test for each behavior change). Tests first still applies to those checks.
+- **User tests** (The cycle, step 4) run only when the change alters what a user sees.
+- Everything else in stage 7 applies, including the in-session review and the verdict step. The record goes to
+  `docs/features/logs/<topic>/`.
 
 ## Stages
 
@@ -101,8 +114,11 @@ Each stage: **Who acts · Input · Output · Exit criterion · Source.**
 ### 6. Build session start
 - **Who:** the orchestrator.
 - **Input:** a `ready` feature file or a cross-cutting topic. **Output:** a row in
-  [coordination.md → Work items](coordination.md#work-items) with files owned, merge position and depends-on; then a
-  session started with `create_session` and a full prompt.
+  [coordination.md → Work items](coordination.md#work-items) with the exact branch name, files owned, merge position
+  and depends-on; then a session started with `create_session` and a full prompt that names the row and the branch.
+- **Check GitHub first:** right before `create_session`, the orchestrator re-runs the Open PRs and Unregistered
+  branches recipes ([collaboration.md → Tool recipes](collaboration.md#tool-recipes)) and skips an item that a draft
+  PR or a pushed branch already claims (process-docs lead, usability pass 5, 2026-11-01).
 - **Exit:** the row exists **before** `create_session` (team/approval-council.md "After approval"; coordination log
   2026-11-01: approved features "join this map with their owned files and merge position before their build session
   starts"). Admission against the usage window is checked first
@@ -129,6 +145,7 @@ here. **Lane-C differences only:**
 - The branch is the session's own `claude/<topic>`, not the lane-B branch named in The cycle
   ([collaboration.md → Branches](collaboration.md#branches)).
 - The cycle ends in a PR the orchestrator merges, not "Gate merges → Status: built" (stages 12 and 14).
+- Without a feature file: [Cross-cutting build without a feature file](#cross-cutting-build-without-a-feature-file).
 
 **Committee verdict step: kept.** Checked 2026-11-01 in the lane-C logs: each records a compliance verdict and a
 usability verdict per committee member, and a re-sit until both pass (`docs/features/logs/F-6/committee-ux-lead.md`
@@ -143,14 +160,17 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
   with lane B when `FEATURES` is on ([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on));
   not every lane-C PR carries it (current labels: [coordination.md](coordination.md#work-items)); label policy is
   open question Q4.
-- **Open it early as a draft: the draft PR is the claim** ([collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work)).
+- **Claim step (before stage 7): open it early as a draft; the draft PR is the claim**, followed by the claim
+  notice ([collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work)). Write
+  recipes: [collaboration.md → Tool recipes](collaboration.md#tool-recipes).
   The Gate ignores draft PRs (`scripts/autopilot.ts` gate: `pr.isDraft` → "not an open autopilot or feature PR").
 - **Body:** `## Compliance` (COMPLIANCE §1 answers; [quality.md → Compliance](quality.md#compliance)),
   `## Known limits` ([quality.md → Ponytail convention](quality.md#ponytail-convention)), `## Hand-off notes`
   (format: docs/FEATURES.md "How builders coordinate").
 - **Exit (draft → ready, State `pr-ready`):** every gate in [quality.md → Before every push](quality.md#before-every-push)
   passed on the head, the committee passed, the in-session review's blocking findings are fixed, and the session has
-  reported to `@parent` ([collaboration.md → Messaging](collaboration.md#messaging)).
+  sent the full report: to `@parent`, or, for a client without session tools, as a comment on the PR
+  ([collaboration.md → Messaging](collaboration.md#messaging)).
 
 ### 9. Independent review
 - **Who:** the orchestrator runs one fresh-context reviewer subagent per PR (sometimes a focused re-review of a fix
@@ -159,8 +179,11 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
   findings ([quality.md → Review standards](quality.md#review-standards), the single home of the marker format and of
   "verified" and "blocking").
 - **Exit:** a `pass` marker at the current head, or findings forwarded to the session (State `fixing`).
-- **Without an orchestrator:** the client runs a fresh-context reviewer subagent per `team/reviewer.md`, posts the
-  marker itself, and the owner merges.
+- **Never by the author's own context.** The independent review is never run in the context that built the change.
+- **Without an orchestrator:** the client starts a fresh-context reviewer subagent per `team/reviewer.md`; it posts
+  the marker, and the orchestrator (when it next runs) or the owner merges. Collaborators never merge (process-docs
+  lead, usability pass 5, 2026-11-01). When markers from that subagent and from the orchestrator's or owner's
+  reviewer exist at the same head, the orchestrator's or owner's marker counts.
 
 ### 10. Fix rounds
 - **Who:** the build session.
@@ -179,13 +202,17 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
   - `check` green on that exact head;
   - `Independent review: pass at <head sha>` posted for that head;
   - the PR's merge position in [coordination.md → Merge order (current)](coordination.md#merge-order-current) is
-    reached, or it may go early under [collaboration.md → Merge order](collaboration.md#merge-order);
+    reached, or it may go early under [collaboration.md → Merge order](collaboration.md#merge-order); a PR with no
+    position merges when the orchestrator or the owner gives it one;
   - merged one PR at a time ([collaboration.md → Merge order](collaboration.md#merge-order));
   - squash merge with `sha` set to the reviewed head (the merge API's `sha` field), so a push after the review
     cannot slip in.
 - **After the merge:** the orchestrator checks `check` on main's new commit. If it is red: stop merges, open a fix
   item at merge position 1, and tell sessions not to merge main until it is green. Otherwise it sends every open
-  session "main moved to `<sha>`, merge it" (collaboration.md [Messaging](collaboration.md#messaging)).
+  session "main moved to `<sha>`, merge it" (collaboration.md [Messaging](collaboration.md#messaging)). After a merge
+  the orchestrator did not make (for example the owner's), it sends the same message at its next check-in. Clients
+  without session tools check main's head themselves before each push (recipe "Main's head" in
+  [collaboration.md → Tool recipes](collaboration.md#tool-recipes)).
 - Whether the orchestrator may merge a PR that touches a CODEOWNERS path is open question Q6 (the practice so far
   is recorded there).
 
@@ -213,7 +240,7 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
 |---|---|---|---|
 | `planned` | A coordination row exists with files owned, merge position and depends-on | A session claims it (`claimed`), the admission check queues it (`queued-budget`), or it is dropped (`released`) | 5–6 |
 | `queued-budget` | Admission says the work clearly exceeds the window ([budget-and-rate.md](budget-and-rate.md#admission-procedure)) | `rate_limit_info.resetsAt` has passed or capacity frees → `planned` | 6 |
-| `claimed` | Branch `claude/<topic>` pushed and a draft PR open with the claim line | The committee cycle starts → `building` | 8 (claim), 6 |
+| `claimed` | Branch `claude/<topic>` pushed and a draft PR open with the claim line | The committee cycle starts → `building` | 8 (claim step, after 6 and before 7) |
 | `building` | Committee cycle running on the branch | Gates pass and the draft is marked ready → `pr-ready` | 7 |
 | `pr-ready` | Draft PR marked ready for review, report sent | The orchestrator's reviewer starts → `in-review` | 8 |
 | `in-review` | A reviewer subagent is reviewing a named head | `pass` marker at head and `check` green → `green`; `fail` or red CI → `fixing` | 9, 11 |
@@ -243,6 +270,8 @@ A session at a hard stop sets its row to `blocked`, says what the owner should d
 ## Known limits
 
 - Lane C builds one PR per product change where CLAUDE.md asks for three variants — the owner answers Q1.
+- The cross-cutting variant of stage 7 is current practice reported by the orchestrator, not an owner rule — the
+  owner confirming it (or IMPLEMENTATION.md → The cycle naming it) removes this.
 - No lane-C step sets a feature file's `Status: built`, so lane B would rebuild merged features when switched on — the
   owner answers Q8, or a publish step for lane C is added.
 - The review marker of stage 9 was defined on 2026-11-01; before it, review findings went to sessions by message, so

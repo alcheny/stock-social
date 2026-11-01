@@ -127,8 +127,9 @@ The single list of where each kind of decision and record is filed:
 When an item needs an owner-only decision, hits a hard stop, or two rules conflict:
 1. Stop that part of the work. Do not work around the rule (POLICY intro: "the rule wins and the agent says
    so").
-2. Say what the owner should do, in one message to `@parent` (or the owner directly without an orchestrator)
-   and in the PR body.
+2. Say what the owner should do, in one message to `@parent` and in the PR body. A client without session tools
+   writes it as a comment on its PR (or in an issue) that mentions the owner's handle
+   ([collaboration.md → Messaging](collaboration.md#messaging)).
 3. Set the item's State to `blocked` in coordination.md ([lifecycle.md → States](lifecycle.md#states)). A
    feature file goes to `Status: blocked` only through the paths FEATURES.md allows.
 4. Carry on with other work the item does not block.
@@ -147,6 +148,9 @@ recommendation is a recommendation, not a decision.
   (the direction is already chosen) and keeps three versions for open-direction changes such as D23; (c) drop
   the rule.
 - Recommendation: (b), stated in CLAUDE.md.
+- Interim (not an answer): until the owner answers, current practice is what the orchestrator's task prompt
+  specifies, which so far is one PR per session (orchestrator report, 2026-11-01). The CLAUDE.md rule above stays
+  as written.
 
 **Q2. Who writes the idea register?**
 - Rules: "Anyone (the owner, a design session, a committee, an agent) adds it to the register below"
@@ -166,6 +170,8 @@ recommendation is a recommendation, not a decision.
 - Options: (a) the delegation covers points the owner left open, not disagreements with decided points,
   which still wait; (b) it covers both.
 - Recommendation: (a).
+- Also open: whether the delegation covers a committee in a collaborator's desktop/CLI session, or only the
+  orchestrator's child sessions it was relayed to (usability pass 5, 2026-11-01).
 
 **Q4. The `feature` label in lane C.**
 - Code: `featurePrs()` in `scripts/features.ts` takes every open PR labeled `feature`, whatever its head branch;
@@ -237,6 +243,15 @@ recommendation is a recommendation, not a decision.
 - Options: (a) add it to T1 now; (b) add it when `LIVE_BILLING` turns on.
 - Recommendation: (a), since the code already names it.
 
+**Q12. When is the orchestrator "unreachable"?**
+- Rule first written in [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work)
+  (process-docs lead, usability pass 5, 2026-11-01): a client without session tools counts the orchestrator as
+  unreachable when its claim notice or `Claim request` issue gets no reply within one orchestrator check-in, about
+  30 minutes; then the no-orchestrator fallback applies.
+- Options: (a) confirm the one-check-in window; (b) a longer window, or the owner's reply only; (c) no fallback:
+  desktop/CLI sessions wait for the orchestrator or the owner.
+- Recommendation: (a), since the check-in reads new draft PRs and issues every 30 minutes.
+
 ## Known limits
 
 - Owner decisions made in the chat bind only once relayed; a session cannot verify a relay itself — owner
@@ -246,4 +261,4 @@ recommendation is a recommendation, not a decision.
 - This file is not a protected path, so any client can edit the precedence and authority it states — Q7.
 - The orchestrator merges with the owner's GitHub account, so GitHub cannot tell an owner merge from an
   orchestrator merge — a separate bot account, or the Q6 approval comment, would remove it.
-- Open questions Q1–Q11 keep conflicting rules in force side by side — the owner's answers remove them.
+- Open questions Q1–Q12 keep conflicting rules in force side by side — the owner's answers remove them.
