@@ -1470,6 +1470,9 @@ test('PR-2b fix round 2 (business lead 1): a vendor whose headers refuse framing
   const modes = await modesFrom(handle);
   await fetch(`${vendor.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: [{ id: acc, activities: 2 }], portalFrameHeaders: true }) });
   const refusing = vendor.base.replace('127.0.0.1', 'localhost');
+  // The probe's answers are shared through the database (security hardening): forget an earlier run's answer for this
+  // origin, so this test sees the server probe it.
+  await sql`delete from portal_probes where origin = ${refusing}`;
   const minted = await (await page.request.post('/connect/portal')).json();
   expect(minted.mode).toBe('redirect');
   expect(minted.origin).toBe(refusing);
@@ -1681,6 +1684,32 @@ test('PR-2b S5 (PR-3 fix round 7): before the first close the headline counts ac
   const [u] = await sql`select id from users where handle = ${handle}`;
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id in ${sql(a)}`;
+});
+
+test('security hardening (F26, F27): a cross-site navigation to /connect/start lands on S2 and mints nothing; pages carry one nonce CSP and the static security headers', async ({ page, baseURL }) => {
+  const attempt = await brokerageAttempt(page);
+  const cross = await page.request.get('/connect/start', { maxRedirects: 0, headers: { 'sec-fetch-site': 'cross-site' } });
+  expect(cross.status()).toBe(303);
+  expect(cross.headers()['location']).toBe(`${baseURL}/connect`);
+  expect((await sql`select 1 from funnel_events where attempt_id = ${attempt} and name = 'portal_opened'`).length).toBe(0);
+  expect((await sql`select snaptrade_user_id from signup_attempts where id = ${attempt}`)[0].snaptrade_user_id).toBeNull();
+  // The same request from the app itself still mints.
+  const same = await page.request.get('/connect/start', { maxRedirects: 0, headers: { 'sec-fetch-site': 'same-origin' } });
+  expect(same.status()).toBe(307);
+  expect(same.headers()['location']).toMatch(new RegExp(`^${vendor.base}/portal`));
+  // Headers: exactly one CSP on a page, with a nonce that the page's own scripts carry.
+  const r = await page.request.get('/connect');
+  const csp = r.headersArray().filter((h) => h.name.toLowerCase() === 'content-security-policy');
+  expect(csp.length).toBe(1);
+  const nonce = csp[0].value.match(/'nonce-([^']+)'/)![1];
+  expect(csp[0].value).toContain("frame-ancestors 'none'");
+  expect(csp[0].value).toContain("'strict-dynamic'");
+  expect(await r.text()).toContain(`nonce="${nonce}"`);
+  const h = r.headers();
+  expect(h['x-content-type-options']).toBe('nosniff');
+  expect(h['referrer-policy']).toBe('strict-origin-when-cross-origin');
+  expect(h['cross-origin-opener-policy']).toBe('same-origin-allow-popups');
+  expect(h['permissions-policy']).toContain('camera=()');
 });
 
 test('privacy work (committee D9): at 360×640 the consent screen shows the owner\'s public/private scope line and "Import my record" sits above the fold; the deadline is under the buttons', async ({ page }) => {

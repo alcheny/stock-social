@@ -1,7 +1,5 @@
 // In-memory sliding-window rate limit for sign-in sends (COMPLIANCE §7: rate limits on sign-in). Per process;
 // a second instance has its own window, which is enough for the Phase 1 scale.
-// ponytail: per process, so N servers allow N times the sign-in sends and a restart forgets them — keep the windows in
-// a Postgres table keyed by (key, time).
 const hits = new Map<string, number[]>();
 
 export function allow(key: string, limit: number, windowMs: number, now = Date.now()): boolean {

@@ -1182,7 +1182,9 @@ dbTest('committee fix 3 (Medium): after cleanup a declined or expired row keeps 
     await startConnection({ userId: null, attemptId: fresh }, 'r', deps);
     await startConnection({ userId: null, attemptId: old }, 'r', deps);
     await sql`update signup_attempts set created_at = now() - interval '25 hours' where id = ${old}`;
-    await cleanupAttempts(deps);
+    // Scoped to this test's attempts (known-limits sweep 2026-11-01): unscoped, it also cleared other files' vendor-held
+    // attempts, and lib/privacy-purge.test.ts then saw its vendor-held attempt purged (flaky in parallel runs).
+    await cleanupAttempts(deps, undefined, { ids: [fresh, old] });
     assert.ok(v.deletedUsers.includes(`vendor-attempt-${old}`));
     assert.ok(!v.deletedUsers.includes(`vendor-attempt-${fresh}`));
     assert.equal((await sql`select snaptrade_user_id from signup_attempts where id = ${old}`)[0].snaptrade_user_id, null);
@@ -1193,7 +1195,7 @@ dbTest('committee fix 3 (Medium): after cleanup a declined or expired row keeps 
     v.accounts = [acct(`${tag}-ret4`)];
     await completeLink({ userId: null, attemptId: waiting }, deps);
     await sql`update signup_attempts set created_at = now() - interval '25 hours' where id = ${waiting}`;
-    await cleanupAttempts(deps);
+    await cleanupAttempts(deps, undefined, { ids: [waiting] });
     assert.ok(!v.deletedUsers.includes(`vendor-attempt-${waiting}`));
     await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id in (${fresh}, ${waiting})`;
   } finally {
@@ -1240,7 +1242,7 @@ dbTest('committee fix round 6 (Low): a bound attempt older than 24 h is refused 
     await age(young, 23.9);
     await age(aged, 24);
     await age(held, 30);
-    await cleanupAttempts(deps, clock);
+    await cleanupAttempts(deps, clock, { ids: [young, aged, held] });
     const vu = async (id: number) => (await sql`select snaptrade_user_id from signup_attempts where id = ${id}`)[0].snaptrade_user_id;
     assert.ok(v.deletedUsers.includes(`vendor-attempt-${aged}`));
     assert.equal(await vu(aged), null);

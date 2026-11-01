@@ -13,6 +13,8 @@ import { insertCorporateActions } from './corporate-actions.ts';
 import { replaceAccountPositions, replacePositions } from './positions.ts';
 import { ownsAttempt } from './auth/links.ts';
 import { unsignToken } from './auth/sessions.ts';
+import { capReached, hit } from './rate-limit.ts';
+import { portalOrigin } from './portal.ts';
 
 // Brokerage-first: the signed attempt id, bound to the browser at S1 (startSignIn) until the user row exists.
 export const CONNECT_COOKIE = 'connect_attempt';
@@ -37,13 +39,29 @@ export async function boundAttempt(cookie: string | undefined | null, secret: st
   return null;
 }
 // A request that presents an attempt id its cookie does not match: refused, and counted on that attempt (an id and a
-// reason; nothing personal). An unknown or malformed id writes nothing.
+// reason; nothing personal). An unknown or malformed id writes nothing. Security hardening (2026-11-01), F03: counted at
+// most UNBOUND_MAX times per attempt (one per refusing surface: S2, start, done), so a loop over ?attempt=N cannot write
+// rows without end; the conditional insert runs under a per-id lock, so parallel refusals cannot slip past either.
+export const UNBOUND_MAX = 3;
 export async function refuseUnbound(raw: unknown): Promise<void> {
   if (typeof raw !== 'string' || !/^[1-9]\d{0,17}$/.test(raw)) return;
   const id = Number(raw);
-  const [a] = await sql`select id from signup_attempts where id = ${id}`;
-  if (a) await recordFunnel(id, 'failed', { reason: 'unbound' });
+  const e = funnelEvent('failed', { reason: 'unbound' });
+  await sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtextextended(${`unbound:${id}`}, 0))`; // any bigint id
+    await tx`insert into funnel_events (attempt_id, name, meta) select id, ${e.name}, ${tx.json(e.meta)} from signup_attempts a where a.id = ${id}
+      and (select count(*) from funnel_events where attempt_id = ${id} and name = 'failed' and meta->>'reason' = 'unbound') < ${UNBOUND_MAX}`;
+  });
 }
+
+// Security hardening (2026-11-01), F26: GET /connect/start mints a portal (and may register a vendor user), so a
+// cross-site navigation (a link or form on another site) never reaches it. A missing header (older browsers) passes.
+export const crossSiteNavigation = (h: Headers) => h.get('sec-fetch-site') === 'cross-site';
+
+// F21: every GET of /connect/done asks the vendor for the account list: 20 per attempt (signed out) or user in 10 minutes.
+export const LINK_CHECK_LIMIT = [20, 600] as const;
+export const linkCheckAllowed = (who: { userId: number | null; attemptId: number }) =>
+  hit(who.userId !== null ? `link-check:u${who.userId}` : `link-check:a${who.attemptId}`, ...LINK_CHECK_LIMIT);
 
 export const STATES = ['pending', 'importing', 'connected', 'declined', 'expired', 'failed'] as const;
 export type State = (typeof STATES)[number];
@@ -101,9 +119,12 @@ export type Connection = {
   import_cursor: Cursor; imported_count: number; accounts: SnapAccount[]; cleanup_done_at: Date | null; failure_reason: string | null;
   disconnected_at: Date | null;
 };
-export type Deps = Pick<typeof vendor, 'registerUser' | 'connectUrl' | 'listAccounts' | 'fetchActivitiesPage' | 'fetchPositions' | 'deleteConnection' | 'deleteUser'> & { pageLimit?: number }
-  & { fetchShareMoves?: typeof vendor.fetchShareMoves }; // corporate actions (F3c): optional, so test deps without it import trades only
-export const realDeps: Deps = vendor;
+export type Deps = Pick<typeof vendor, 'registerUser' | 'connectUrl' | 'listAccounts' | 'fetchActivitiesPage' | 'fetchPositions' | 'deleteConnection' | 'deleteUser'> & {
+  pageLimit?: number;
+  // F20: the global vendor-user cap. Only the real vendor carries it; a test's fake vendor registers nobody and is uncapped.
+  registerAllowed?: () => Promise<boolean>; registered?: () => Promise<unknown>;
+} & { fetchShareMoves?: typeof vendor.fetchShareMoves }; // corporate actions (F3c): optional, so test deps without it import trades only
+export const realDeps: Deps = { ...vendor, registered: countVendorRegistration };
 
 const norm = (c: Record<string, unknown>): Connection => ({ ...(c as Connection), id: Number(c.id), attempt_id: Number(c.attempt_id) });
 export async function getConnection(id: number, db: TransactionSql | typeof sql = sql): Promise<Connection | null> {
@@ -208,8 +229,11 @@ async function brokerUserFor(c: { user_id: number | null; attempt_id: number }, 
 // fallback, the persistent link, S7a's "Continue in a new page", in-app browsers). Either way the URL is minted here,
 // server side, for this user or bound attempt only; nothing a browser sends is ever used as a portal URL.
 export type PortalMode = 'embedded' | 'redirect';
+// Security hardening (2026-11-01), F13: the redirect flow refuses what the embedded flow refuses (not an https vendor
+// URL; plain http only on loopback while the test fake is configured), before the open is counted.
+export const portalAccepted = (url: string) => portalOrigin(url, { allowLoopback: !!process.env.SNAPTRADE_BASE_URL }) !== null;
 export async function startConnection(who: { userId: number | null; attemptId: number }, returnTo: string, deps: Deps = realDeps, mode: PortalMode = 'redirect'): Promise<string> {
-  return (await mintPortal(who, returnTo, mode, deps)).url;
+  return (await mintPortal(who, returnTo, mode, deps, portalAccepted)).url;
 }
 
 // Fix round 2 (engineer, Medium and Low): every mint runs under a transaction-scoped advisory lock, the per-user lock for
@@ -227,6 +251,13 @@ export const ATTEMPT_LOCK = 2; // USER_LOCK (lib/sync.ts) is 1
 export const MINT_MAX = 10;
 export const MINT_WINDOW_MIN = 10;
 export class RateLimitedError extends Error { constructor() { super('too many portal opens'); } }
+export const VENDOR_REGISTER_LIMIT = [300, 3_600] as const;
+// Counted after the mint's transaction commits, only for a registration that happened, so no shared row is locked while
+// the vendor registers. Past the cap it only alerts the operator: refusing would lock every new trader out at once; the
+// per-client attempt limit (lib/auth/send-limits.ts#attemptAllowed) bounds any one client.
+export async function countVendorRegistration(): Promise<void> {
+  if (!(await hit('vendor_register', ...VENDOR_REGISTER_LIMIT))) capReached('vendor_register', VENDOR_REGISTER_LIMIT[1]);
+}
 // PR-3 (carried Info 3): the vendor answered with a URL the caller refuses (not an https vendor URL): the route answers 502.
 export class PortalRefusedError extends Error { constructor() { super('the vendor returned no usable portal URL'); } }
 // PR-3 (carried Low 2 and Info 3): only what needs the lock runs under it: the limit's count, the vendor user's
@@ -241,16 +272,20 @@ export async function mintPortal(
   accept: (url: string) => boolean = () => true,
 ): Promise<{ url: string; mode: PortalMode }> {
   const provisional: PortalMode = typeof decide === 'string' ? decide : 'embedded';
-  const { bu, eventId } = await sql.begin(async (tx) => {
+  // F20: a registration gate a caller may inject (tests); asked only when no vendor user is stored yet. The real deps
+  // only count registrations (countVendorRegistration).
+  if (deps.registerAllowed && !(await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId })) && !(await deps.registerAllowed())) throw new RateLimitedError();
+  const { bu, registered, eventId } = await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(${who.userId !== null ? USER_LOCK : ATTEMPT_LOCK}, ${who.userId ?? who.attemptId})`;
     const [{ n }] = await tx`select count(*)::int as n from funnel_events where attempt_id = ${who.attemptId} and name = 'portal_opened'
       and at > now() - ${MINT_WINDOW_MIN} * interval '1 minute'`;
     if ((n as number) >= MINT_MAX) throw new RateLimitedError();
-    const bu = await ensureBrokerUser(who, deps, tx);
+    const { bu, registered } = await ensureBrokerUser(who, deps, tx);
     const e = funnelEvent('portal_opened', { mode: provisional });
     const [row] = await tx`insert into funnel_events (attempt_id, name, meta) values (${who.attemptId}, ${e.name}, ${tx.json(e.meta)}) returning id`;
-    return { bu, eventId: String(row.id) };
-  }) as { bu: BrokerUser; eventId: string };
+    return { bu, registered, eventId: String(row.id) };
+  }) as { bu: BrokerUser; registered: boolean; eventId: string };
+  if (registered) await deps.registered?.(); // counted after the commit (F20)
   const unreserve = () => sql`delete from funnel_events where id = ${eventId}`;
   let url: string;
   try {
@@ -272,18 +307,18 @@ export async function mintPortal(
 // The stored vendor user, or a new one. Called under the mint lock, so parallel first mints register once. The store is
 // still conditional: if a writer outside the lock stored one first, the one just registered is deleted at the vendor
 // (never left orphaned there, P6) and the stored one is used.
-async function ensureBrokerUser(who: { userId: number | null; attemptId: number }, deps: Deps, tx: TransactionSql): Promise<BrokerUser> {
+async function ensureBrokerUser(who: { userId: number | null; attemptId: number }, deps: Deps, tx: TransactionSql): Promise<{ bu: BrokerUser; registered: boolean }> {
   const stored = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId }, tx);
-  if (stored) return stored;
+  if (stored) return { bu: stored, registered: false };
   const bu = await deps.registerUser(who.userId ?? `attempt-${who.attemptId}`);
   const kept = who.userId !== null
     ? await tx`update users set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.userId} and snaptrade_user_id is null returning id`
     : await tx`update signup_attempts set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.attemptId} and snaptrade_user_id is null returning id`;
-  if (kept.length) return bu;
+  if (kept.length) return { bu, registered: true };
   await ignoreGone(deps.deleteUser(bu));
   const winner = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId }, tx);
   if (!winner) throw new Error('vendor user vanished while minting');
-  return winner;
+  return { bu: winner, registered: true }; // one was registered (and deleted again): it counts
 }
 
 export type LinkOutcome =
