@@ -58,6 +58,8 @@ const DATE_KEYS = 'closedAt|closed_at|openedAt|opened_at|at|t0|t1|base|day|since
 const ISO = /\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:?\d\d)?/g;
 const MIDNIGHT = /T00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?$/;
 const rateOk = (v: number) => Number(v.toFixed(2)) === v;
+// Every regex metacharacter escaped (CodeQL: escape them all, not only the first dot).
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const pctOk = (v: number) => wirePct(v) === v;
 // A drawdown prints negated ("max drawdown -99.999%"), so it is rounded as printed: -wirePct(-dd).
 const ddOk = (v: number) => (-wirePct(-v) || 0) === v;
@@ -200,7 +202,7 @@ function scan(s: Surface): string[] {
 
 // Page metadata: og/twitter alt and the <title>.
 const metaOf = (html: string, attr: 'property' | 'name', key: string) =>
-  [...html.matchAll(new RegExp(`<meta ${attr}="${key.replace(/[.:]/g, '\\$&')}" content="([^"]*)"`, 'g'))].map((m) => m[1]);
+  [...html.matchAll(new RegExp(`<meta ${attr}="${escapeRe(key)}" content="([^"]*)"`, 'g'))].map((m) => m[1]);
 const titleOf = (html: string) => /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? '';
 
 test.describe.configure({ mode: 'serial' });
@@ -234,7 +236,7 @@ test('F-23 scan self-check: the planted digits are not in the rounded values, an
       expect(printed.includes(p), `${p} is in the print of ${v}`).toBe(false);
     }
   }
-  for (const c of CLOSES) expect(String(Number(c.hold.toFixed(1)))).not.toMatch(new RegExp(PLANT_DEC.concat(PLANT_BARE).map((p) => p.replace('.', '\\.')).join('|')));
+  for (const c of CLOSES) expect(String(Number(c.hold.toFixed(1)))).not.toMatch(new RegExp(PLANT_DEC.concat(PLANT_BARE).map(escapeRe).join('|')));
   // Old pane JSON: full returns, ms closedAt, ISO openAsOf.
   const oldPane = JSON.stringify({ trades: [{ id: 'f23-x-a', returnPct: 0.123456789, closedAt: A_AT.getTime(), holdingDays: 2.3456 }], open: [OPEN_PCT], openAsOf: OPEN_AT.toISOString() });
   const f1 = scan({ name: 'old pane', kind: 'json', body: oldPane, fixture: true });
