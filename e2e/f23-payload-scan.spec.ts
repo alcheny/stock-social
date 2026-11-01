@@ -70,7 +70,7 @@ const neutral = (s: string) => s
   // Ids and links (a serial trade id can hold any digits): id-named fields and id/link attributes.
   .replace(/"(id|userId|user_id|tradeId|trade_id|sellId|sell_id|key|href)":("[^"]*"|\d+)/g, '"$1":ID')
   .replace(/\b(id|data-trade|data-key|data-id|href|for|aria-controls|aria-labelledby|aria-describedby)=("[^"]*")/g, '$1=ID')
-  .replace(/\b[0-9a-f]{16,}\b/g, 'HEX').replace(/eyJ[A-Za-z0-9_-]{8,}/g, 'B64')
+  .replace(/(?<![\d.])\b(?=[0-9a-f]*[a-f])[0-9a-f]{16,}\b/g, 'HEX') /* a hash has a letter; a float's fraction does not */.replace(/eyJ[A-Za-z0-9_-]{8,}/g, 'B64')
   .replace(/\b(d|points|viewBox|transform|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|width|height|stroke-width|stroke-dasharray|offset)=("[^"]*")/g, '$1=G')
   .replace(/"(d|points|viewBox|transform|x|y|x1|x2|y1|y2|cx|cy|r|width|height|strokeWidth|strokeDasharray|offset)":("[^"]*"|-?[\d.e+-]+)/g, '"$1":G');
 
@@ -138,7 +138,8 @@ function packedIn(text: string): Record<string, unknown>[] {
       if (inStr) { if (ch === '\\') i++; else if (ch === '"') inStr = false; continue; }
       if (ch === '"') inStr = true; else if (ch === '{') depth++; else if (ch === '}' && --depth === 0) break;
     }
-    try { out.push(JSON.parse(text.slice(m.index!, i + 1))); } catch { /* a fragment split across rows: (b) regex still runs */ }
+    // A chart that does not parse is a finding (it would otherwise hide its values from the schema check).
+    try { out.push(JSON.parse(text.slice(m.index!, i + 1))); } catch { out.push({ unparsed: text.slice(m.index!, Math.min(i + 1, m.index! + 120)) }); }
   }
   return out;
 }
@@ -246,6 +247,11 @@ test('F-23 scan self-check: the planted digits are not in the rounded values, an
   expect(f3.some((f) => f.includes(`time ${A_AT.toISOString()}`))).toBe(true);
   expect(f3.some((f) => f.includes(`time ${B_AT.toISOString()}`))).toBe(true);
   expect(f3.some((f) => f.includes('planted 14:31'))).toBe(true);
+  // Float noise in a computed stat (no planted digits) is caught in flight and in a packed chart.
+  const noisy = `<html><body><script>self.__next_f.push([1,${JSON.stringify('6:{"avg":0.024499999000000005}\n')}])</script></body></html>`;
+  expect(scan({ name: 'noisy avg', kind: 'html', body: noisy, fixture: false }).some((f) => f.includes('avg=0.024499999000000005'))).toBe(true);
+  const noisyChart = JSON.stringify({ v: 2, base: 20375, trades: [], ranges: { ALL: { t0: 20375, t1: 20376, last: 0.30000000000000004, n: 0, dd: 0, min: 0, max: 0, p: [] } } });
+  expect(scan({ name: 'noisy chart', kind: 'json', body: noisyChart, fixture: false }).some((f) => f.includes('0.30000000000000004'))).toBe(true);
   // The whole hour outside a record-status line is still a finding.
   expect(scan({ name: 'hour', kind: 'flight', body: '5:["$","time","1",{"dateTime":"2026-10-14T09:00Z"}]', fixture: false }).some((f) => f.includes('time 2026-10-14T09:00Z'))).toBe(true);
   // An accessible name finer than the screen.
