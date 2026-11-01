@@ -96,7 +96,10 @@ matcher returns per-cause counts (BL10); the counters store two groups.
   - `traderOptionsPublic(userId)` = `optionsPublic()` AND every connection of the trader whose `accounts` hold an
     account with rows in `option_activities` or `open_option_positions` covers options (round 4 E1). A frozen
     connection counts too, so option data imported under an old consent stays gated; an old share-only connection
-    does not block. Exception: a demo trader (every source row `demo`) skips the per-trader check.
+    does not block. Round 5 (legal): the check is written from the option rows' side, so an empty set can never pass:
+    every distinct `account_id` in the trader's `option_activities` and `open_option_positions` must map to at least
+    one connection, and every connection holding that account must carry a covering hash; an account that maps to no
+    connection keeps the trader gated. Exception: a demo trader (every source row `demo`) skips the per-trader check.
   - Older consents stay gated until the trader consents again; re-consent is required (committee finding). The
     re-consent prompt is not built in this PR (K10); gated is the safe state. The owner words the prompt.
 - **One reader:** `lib/options-load.ts` is the only reader of option tables for display. It exports
@@ -238,7 +241,8 @@ Gate:
     a re-consented trader gets everything; a demo trader gets everything. The consent write stores the current hash.
     Round 4: an old share-only connection doesn't block a re-consented option connection; a frozen connection holding
     option rows under an old hash does block. In one `optionHeadline` batch, an old-hash trader and a re-consented
-    trader each get their own state.
+    trader each get their own state. Round 5: gate open, the trader re-consented on one connection, one option row on
+    an account linked to no connection → count line only.
 23. T (round 3 L4, round 4 E2): an inventory test scans `app/` and `lib/` (`scripts/` is out of scope) and finds no
     file other than `lib/options-load.ts` reading `option_trades`, `open_option_positions`, `option_activities` or
     any `option_` table. The only allowlisted file is `lib/options-sync.ts`: writes, `lastOptionActivityAt`, the taint
@@ -286,8 +290,9 @@ option, future and future_option kinds; every D4 case. The fake honours the `typ
   can remove an unrelated trade, and it keeps delivered buys. It is conservative and counted. Fix: the exact rule
   inside the matcher once PR #40 has merged.
 - K9: consents before this PR have no wording version; those traders stay gated until they consent again.
-- K10: existing traders stay gated until they reconnect. Fix: a re-consent prompt on /me that rewrites
-  `consent_scope_hash` (owner words it).
+- K10: existing traders stay gated until they consent again. Reconnecting alone may not open the gate (a frozen
+  connection holding the same account under an old hash still blocks), so no copy promises it. Fix: a re-consent
+  prompt on /me that rewrites `consent_scope_hash` on every connection holding the account (owner words it).
 
 ## Files
 - **New:** `lib/options.ts`, `lib/options-gate.ts`, `lib/options-sync.ts` (insert, `rebuildOptionTrades`,
@@ -344,3 +349,4 @@ option, future and future_option kinds; every D4 case. The fake honours the `typ
 | R4 E3 open-gate surface tests | Adopted (`renderToStaticMarkup` + `page.setContent` with `app/globals.css`, 360×740, light and dark). |
 | R4 legal condition | Adopted: `optionHeadline` gates per trader, never per batch (D5, AC 22). |
 | R4 size note | Recorded in Files. |
+| R5 legal: account with no covering connection | Adopted by the orchestrator as a text edit (D5 written from the option rows' side; AC 22 case; K10 wording no longer promises reconnecting opens the gate). Legal signs with it. |
