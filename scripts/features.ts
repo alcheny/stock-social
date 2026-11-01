@@ -146,7 +146,8 @@ export const notesOf = (body: string) => { const at = body.indexOf(NOTES); retur
 // ---------- side effects ----------
 
 const env = (k: string, d = '') => process.env[k] || d;
-const sh = (cmd: string, a: string[]) => execFileSync(cmd, a, { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
+// git never runs hooks here: an agent on the same runner could have planted one, and these commands carry GH_TOKEN.
+const sh = (cmd: string, a: string[]) => execFileSync(cmd, cmd === 'git' ? ['-c', 'core.hooksPath=/dev/null', ...a] : a, { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
 const gh = (...a: string[]) => sh('gh', a);
 const ghJson = <T>(...a: string[]) => JSON.parse(gh(...a) || 'null') as T;
 const output = (k: string, v: string | number) => process.env.GITHUB_OUTPUT && appendFileSync(process.env.GITHUB_OUTPUT, `${k}=${v}\n`);
