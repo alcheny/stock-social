@@ -314,10 +314,12 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
   // that day would let a loss be hidden by choice of day. Try the day in two readings, the stamped exercises and
   // assignments before the day's closes and after them. Show the day when both readings give every row the same result
   // and no close finds the position flat or would take it past flat (short); otherwise count the day as before.
-  // ponytail: a narrower steerable case remains: lots L1 @5 then L2 @1, and on one day an exercise of 1 and a close of 1
-  // @2; exercise-first gives +100%, close-first -60%, the readings differ and the close is counted, so a trader willing
-  // to spend an exercise can still have a loss counted — fix: an exercise-order field from the vendor or a per-contract
-  // lot id (owner item).
+  // ponytail: still steerable for any position held in lots at more than one cost (two fills of one order are enough):
+  // buy 5 @5.00 and 5 @4.80, sell 9 @2 and exercise 1 on one day: the readings differ (the exercise takes the @5.00 or the
+  // @4.80 contract first), so the close is counted (contradict 2), while on another day it shows -59.1%; a trader can keep
+  // a loss off the record by exercising on the closing day. The options line is off today; decide before it opens (owner
+  // item): show the lower of the two figures, price the day's closes at the average cost of the lots either reading could
+  // draw, or wait for a vendor exercise-order field (lib/options.test.ts pins today's behaviour).
   const settleDay = (day: OptionRow[], st: WalkState): OptionRow[] | null => {
     const stamped = (r: OptionRow) => (r.kind === 'OPTIONEXERCISE' || r.kind === 'OPTIONASSIGNMENT') && r.executedAt!.getTime() % DAY !== 0;
     const ev = day.filter(stamped), rest = day.filter((r) => !stamped(r));

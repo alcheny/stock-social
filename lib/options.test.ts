@@ -63,7 +63,9 @@ function ledger(seed: number, opts: { fees?: boolean } = {}): Gen {
 }
 
 // ---- Independent reference model (fix round 1, QA 6): a plain signed-position walk, written from the plan's words
-// without the matcher's helpers. Each contract is a signed position `pos` (+ long, - short) and a queue holding the
+// without the matcher's helpers. Note (fixes cycle 4 re-review): its same-day exercise rule (the early and late readings
+// below) follows the matcher's settleDay logic, so the property tests check that rule for consistency, not independently;
+// the hand cases ("F4-2 review …") are its independent check. Each contract is a signed position `pos` (+ long, - short) and a queue holding the
 // cost of every long contract one by one. Every row gets one label: 'open' (an opening row, never counted), 'shown',
 // or the cause it is counted under.
 type Label = 'open' | 'shown' | Cause;
@@ -495,6 +497,19 @@ test('F4-2 review (finding 2): an exercise cannot hide a loss by its day: buy 10
   // Same for an assignment of a short lot: both readings give the same short counts, so nothing moves to contradict.
   const sto = row('1', 'SELL', 'SELL_TO_OPEN', { units: 2, executedAt: at('2026-11-10T15:00:00Z') });
   assert.deepEqual(only([sto, row('2', 'BUY', 'BUY_TO_CLOSE', { executedAt: at('2026-11-14T15:00:00Z') }), row('3', 'OPTIONASSIGNMENT', null, { executedAt: at('2026-11-14T13:00:00Z') })]), { shown: 0, short: 2 });
+});
+
+test('F4-2 re-review (pinned, ponytail in lib/options.ts settleDay): a position in two fills at different costs, closed and exercised on one day, is counted, not shown', () => {
+  // ponytail: this pins today's behaviour, which a trader can steer (exercising on the closing day keeps the -59.1% off the
+  // record); the owner decides the rule before the options line opens (lower figure, average cost, or a vendor field).
+  const at = (iso: string) => new Date(iso);
+  const b1 = row('1', 'BUY', 'BUY_TO_OPEN', { units: 5, price: 5, executedAt: at('2026-11-10T15:00:00Z') });
+  const b2 = row('2', 'BUY', 'BUY_TO_OPEN', { units: 5, price: 4.8, executedAt: at('2026-11-10T15:00:00Z') });
+  const sell = row('3', 'SELL', 'SELL_TO_CLOSE', { units: 9, price: 2, executedAt: at('2026-11-14T15:00:00Z') });
+  const other = matchOptions([b1, b2, sell, row('4', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-13T14:00:00Z') })], new Date('2026-11-30'));
+  assert.equal(other.trades.length, 1);
+  assert.ok(Math.abs(other.trades[0].returnPct - (18 / (4 * 5 + 5 * 4.8) - 1)) < 1e-9, String(other.trades[0].returnPct)); // -59.1% on another day
+  assert.deepEqual(only([b1, b2, sell, row('4', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T16:00:00Z') })]), { shown: 0, contradict: 2 });
 });
 
 test('F4-2 an assignment dated before expiry keeps its order: a later trade of the same contract opens and closes normally', () => {
