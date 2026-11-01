@@ -1,6 +1,6 @@
 # F-6 · Open positions in every number: realized and unrealized
 
-Status: ready
+Status: built
 
 ## Why
 A record that counts only closed trades lets a trader sell winners and hold losers, so realized numbers look
@@ -66,3 +66,6 @@ account divided between realized and unrealized gains and losses.
   govern.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #33 (0d42f65) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.

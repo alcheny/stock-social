@@ -4,6 +4,7 @@ import { records } from '@/lib/feed.ts';
 import { recordStates } from '@/lib/connections.ts';
 import { statusForOrNull as statusFor } from '@/lib/record-status-load.ts'; // FIXES-LABELS: status (QA round 2 N3: guarded, null on error)
 import { paneSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
+import { optionHeadline, paneView } from '@/lib/options-load.ts'; // OPTIONS (AC 24): the pane's label and line, gated per trader
 import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
@@ -18,8 +19,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const [user] = await sql`select id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
   if (!user) return no();
   // F-6: the trader's open positions (unrealized percent only), served for a connected or failed record only, as on the feed.
-  const [rows, states, positions] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),
-    sql`select unrealized_pct, fetched_at from open_positions where user_id = ${user.id as number}`]);
+  const [rows, states, positions, options] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),
+    sql`select unrealized_pct, fetched_at from open_positions where user_id = ${user.id as number}`, optionHeadline([user.id as number])]);
   const state = states.get(user.id as number)?.state ?? 'connected';
   if (state === 'importing') return no();
   const trades = rows.map((r) => ({ id: r.id, symbol: r.symbol, returnPct: r.returnPct, holdingDays: r.holdingDays, closedAt: r.closedAt.getTime(), thesis: r.thesis, verified: r.verified, openedAt: r.openedAt.getTime() /* FIXES-LABELS (code review) */ }));
@@ -28,5 +29,5 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const openAsOf = shown.length ? Math.min(...shown.map((p) => (p.fetched_at as Date).getTime())) : null;
   // FIXES-LABELS: status (F-11): the pane's status as static segments (absolute dates; this JSON is cached 60 s).
   const status = paneSegments((await statusFor(user.id as number, state)) ?? undefined, new Date()) ?? null;
-  return NextResponse.json({ state, trades, open, openAsOf, status }, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
+  return NextResponse.json({ state, trades, open, openAsOf, status, options: paneView(options.get(user.id as number)!) /* the flag and the line only (QA 2) */ }, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
 }

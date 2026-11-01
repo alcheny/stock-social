@@ -37,7 +37,7 @@ export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: Ho
         ))}
         </tbody>
       </table>
-      <p className="muted small">Different traders, different sizes and timing. Hold time is not a signal on its own.</p>
+      <p className="muted small">Different traders, different sizes and timing. How long a trade stayed open doesn&apos;t explain its result on its own.</p>{/* A11Y-FIXES #11 */}
     </section>
   );
 }

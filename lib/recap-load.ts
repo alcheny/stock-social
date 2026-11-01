@@ -6,6 +6,7 @@ import { filerVisibleSql } from './public-gate.ts';
 import { openPercents } from './trade-share-load.ts';
 import { routeHandle } from './params.ts';
 import { statusForOrNull as statusFor } from './record-status-load.ts'; // FIXES-LABELS: status (QA round 2 N3: guarded, null on error)
+import { optionHeadline, paneView } from './options-load.ts'; // OPTIONS: the strip's "Excluding options", gated per trader
 
 // The only query behind the recap page and card. Reads closed_trades (so recaps stay public after disconnect), plus the
 // open positions' unrealized percents for the strip's open count on a connected or failed record (F-12).
@@ -19,7 +20,8 @@ export async function loadRecap(handle: string, ym: string) {
   const recap = monthRecap(all, ym, now);
   if (!recap) return null;
   const state = (await publicRecord(Number(u.id))).state;
+  const excludingOptions = paneView((await optionHeadline([Number(u.id)])).get(Number(u.id))!).label; // OPTIONS
   const record = wholeRecord(all, now); // F-7 (C17): a public record never shows New record.
   // FIXES-LABELS: status (F-11): the status-line facts beside the state (the page renders live, the image static).
-  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: { ...record, newRecord: record.newRecord && !u.public_filer_id }, open: await openPercents(Number(u.id), state), months: monthsOnRecord(all) /* FIXES-LABELS (D-24) */, status: await statusFor(Number(u.id), state) } satisfies RecapView;
+  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: { ...record, newRecord: record.newRecord && !u.public_filer_id }, open: await openPercents(Number(u.id), state), excludingOptions, months: monthsOnRecord(all) /* FIXES-LABELS (D-24) */, status: await statusFor(Number(u.id), state) } satisfies RecapView;
 }

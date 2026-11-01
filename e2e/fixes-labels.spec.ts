@@ -183,8 +183,9 @@ test('C1 (AC7): the feed: the fixture card with a 280-character thesis, its open
     await row.evaluate((el) => el.scrollIntoView());
     await expect(row.locator('.thesis')).toContainText(THESIS);
     const box = await inPlainView(page, row.locator('article.card [data-disclaimer]'), 'fixture card', 0);
-    // Room under it for the fixed bars (16 + 62 + 16 px), so neither can cover it.
-    expect(box.y + box.height).toBeLessThanOrEqual(VIEW.height - 78);
+    // Merge with main (#71): the room for the fixed bars (16 + 62 + 16 px) is made while a bar is raised (main's 94 px
+    // padding moves the card's content up), not reserved at rest; "never covered by a bar" is the raised-bar test below.
+    expect(box.y + box.height).toBeLessThanOrEqual(VIEW.height);
     // The card's content fits its row: the hero gives way, nothing overflows.
     expect(await row.locator('article.card').evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
     // D-05: the card's date follows the year rule.
@@ -524,7 +525,7 @@ test('QA round 2 (N4): with the sign-in line raised at a phone height (481-699 p
       await expect(page.locator('.signin-line')).toContainText('Sign in to like trades.');
       await expect(page.locator('html')).toHaveClass(/\bbar-signin\b/);
       const card = row.locator('article.card');
-      expect(await card.evaluate((el) => getComputedStyle(el).paddingBottom), `${height}`).toBe('96px');
+      expect(await card.evaluate((el) => getComputedStyle(el).paddingBottom), `${height}`).toBe('94px'); // merge with main #71: its 94 px room
       // The card's last line (the F3 line) is inside the card and the row, not cut by the row's hidden overflow.
       const line = card.locator('[data-disclaimer]');
       const [l, c, r] = [(await line.boundingBox())!, (await card.boundingBox())!, (await row.boundingBox())!];

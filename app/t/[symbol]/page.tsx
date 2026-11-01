@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { notFound } from 'next/navigation'; // A11Y-FIXES #21
 import { sql } from '@/lib/db.ts';
 import { visibleUser, visibleUserIds } from '@/lib/visible-users.ts';
 import { recordStates, type PublicState } from '@/lib/connections.ts';
@@ -11,6 +12,7 @@ import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
 import { pct, rangeText } from '@/lib/trades.ts';
+import { toneClass } from '@/lib/open-split.ts'; // A11Y-FIXES #23
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
 import Spread from './Spread.tsx';
@@ -45,7 +47,7 @@ async function load(raw: string): Promise<{ symbol: string | null; d: (TickerPag
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const symbol = decodeSymbolParam((await params).symbol);
-  if (!symbol) return { title: 'Ticker not found · Stock Social', robots: { index: false } };
+  if (!symbol) notFound(); // A11Y-FIXES #21: an invalid symbol is a real 404
   const head = await tickerHeadline(symbol);
   const s = head.summary;
   const title = FL.tickerTitle[trustKind(s)](symbol);
@@ -60,6 +62,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 export default async function Ticker({ params, searchParams }: Params) {
   const { symbol, rows, d } = await load((await params).symbol);
+  if (!symbol) notFound(); // A11Y-FIXES #21: an invalid symbol is a real 404
   const w = (await searchParams)?.watch;
   const capHit = (Array.isArray(w) ? w[0] : w) === 'cap';
   // Session is read only here, never in generateMetadata, sitemap, robots or the OG image.
@@ -92,18 +95,18 @@ export default async function Ticker({ params, searchParams }: Params) {
   const spread = d.spread;
   // Held text is never selected: status is filtered in SQL, and selectTheses re-checks it.
   const thesisRows = (await sql`
-    select t.id, t.user_id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status
+    select t.id, t.sell_id, t.user_id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.thesis_written_at, t.thesis_edited_at -- A11Y-FIXES #22
     from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
     where t.symbol = ${symbol} and t.filing_url is null and t.thesis_status = 'published' and t.thesis is not null
     order by t.closed_at desc, t.id desc
-    limit 20`) as unknown as { id: number; user_id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null }[];
+    limit 20`) as unknown as { id: number; sell_id: string; user_id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null; thesis_written_at: Date | null; thesis_edited_at: Date | null }[]; // A11Y-FIXES #22
   // Fix round 5 (TR-3): one batched read of the record state of every trader named on the page (listed rows and
   // theses); a failed record shows no Verified badge.
   const named = [...rows, ...thesisRows];
   const states = await recordStates([...new Set(named.map((r) => r.user_id))]);
   const stateByHandle = new Map<string, PublicState>(named.map((r) => [r.handle, states.get(r.user_id)?.state ?? 'connected']));
   const badgeFor = (verified: boolean, handle: string) => rowBadge(verified, stateByHandle.get(handle));
-  const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified })));
+  const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, sellId: r.sell_id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified, writtenAt: r.thesis_written_at, editedAt: r.thesis_edited_at }))); // A11Y-FIXES #22
   // Cohort follows the ticker: verified rows if it has any, otherwise the Demo rows, this symbol excluded; on a mixed
   // stock this stock's side is its verified rows too (app/t/ticker-sql.ts#tickerPageWithBaseline, same snapshot).
   const baseline = d.baseline;
@@ -119,7 +122,7 @@ export default async function Ticker({ params, searchParams }: Params) {
 
       <section className="stats" aria-label="Summary">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
-        <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : 'down'}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
+        <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>{/* A11Y-FIXES #23 */}
           <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
           <small className="median">median {pct(spread.median! / 100)}</small>
         </div>
@@ -171,7 +174,7 @@ export default async function Ticker({ params, searchParams }: Params) {
               aria-label={`@${r.handle}, ${symbol}, ${pct(r.return_pct)}, held ${heldWords(r.holding_days)}, closed ${date(r.closed_at)}`}
             >
               <span className="who">@{r.handle} <RowBadge kind={badgeFor(r.verified, r.handle)} /></span>
-              <b className={r.return_pct > 0 ? 'up' : 'down'}>{pct(r.return_pct)}</b>
+              <b className={toneClass(r.return_pct)}>{pct(r.return_pct)}</b>{/* A11Y-FIXES #23 */}
               <span className="muted">held {held(r.holding_days)} · {date(r.closed_at)}</span>
             </Link>
           </li>

@@ -5,6 +5,7 @@
 import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { headline, pct, type ConfidenceInput, type Tier } from './trades.ts';
 import { imageLabel, isPublicRecord, PUBLIC, RECORD_BODY, RECORD_STRIP, SHARE_CARD, shareCardText, WHOLE_RECORD, type RecordState } from './copy.ts';
+import { OPTIONS } from './copy.ts'; // OPTIONS
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
 import { DISCLAIMER_SIZE } from './image-fit.ts'; // FIXES-LABELS (D-09, DS-19)
@@ -53,11 +54,15 @@ export const forgetFeedStrips = () => memo.clear();
 export type StripInput = StripFigures & {
   state: RecordState; demo: boolean; verified: boolean; handle: string;
   open?: number[]; // unrealized percent per open position (F-6): only the count is shown
+  // OPTIONS (docs/features/logs/options/plan.md D5, AC 24; legal round 3 demand 5): the trader has option closes or
+  // exclusions (lib/options-load.ts#paneView's label, gated per trader). The strip's average leaves options out, so it
+  // says so; no option figure is ever passed in or shown.
+  excludingOptions?: boolean;
 };
 export type StripSurface = 'feed' | 'page' | 'figures' | 'image';
 export type StripTone = 'up' | 'down' | 'warn' | 'ok' | 'muted' | null;
 // sep: what goes before the part when the figures are read as one line.
-export type StripPart = { role: 'count' | 'average' | 'early' | 'range' | 'rangeLabel' | 'losses' | 'open'; text: string; tone: StripTone; sep: '' | ' ' | ' · ' };
+export type StripPart = { role: 'count' | 'average' | 'early' | 'range' | 'rangeLabel' | 'losses' | 'open' | /* OPTIONS */ 'options'; text: string; tone: StripTone; sep: '' | ' ' | ' · ' };
 export type Strip = {
   surface: StripSurface;
   label: { text: string; tone: StripTone } | null; // trust state (pages and images; the feed card has its badge)
@@ -103,10 +108,14 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
       figures.push({ role: 'rangeLabel', text: RECORD_STRIP.rangeLabel, tone: null, sep: ' · ' });
       altParts.push(`${SHARE_CARD.perTrade} ${pct(i.avg)}, ${words(i.evidence.perTrade!.low, i.evidence.perTrade!.high)}`);
     }
+    // OPTIONS (legal re-sign): the alt text says exactly "excluding options" right after the figures it qualifies.
+    if (i.excludingOptions && surface !== 'figures') altParts.push(OPTIONS.altQualifier);
     if (full) {
       figures.push({ role: 'losses', text: SHARE_CARD.lossesIncluded, tone: null, sep: ' · ' });
       if (i.open?.length) figures.push({ role: 'open', text: SHARE_CARD.openShort(i.open.length), tone: null, sep: ' · ' });
     }
+    // OPTIONS: the qualifier closes the record's figures (not the month's own figures: the record strip below them says it).
+    if (i.excludingOptions && surface !== 'figures') figures.push({ role: 'options', text: OPTIONS.shareLabel, tone: null, sep: ' · ' });
   }
   const text = figures.map((p) => p.sep + p.text).join('');
   const alt = [
@@ -199,6 +208,20 @@ export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolea
     }
     const tail = s.figures.filter((p) => p.role === 'losses' || p.role === 'open').map((p) => p.text).join(' · ');
     if (tail) L.push({ role: 'losses', text: tail, size: Math.max(STRIP_BAND.minPx, fitPx(tail, 30)), tone: 'muted', weight: 400 });
+    // OPTIONS: "Excluding options" on its own line under the record's figures, inside the band; when that line would not
+    // fit the band (a failed import's note and open positions), it joins the count line instead ("12 closed trades ·
+    // Excluding options", drawn smaller to fit the width). Never dropped.
+    const options = get('options');
+    if (options) {
+      const own: ImageLine = { role: 'options', text: options.text, size: Math.max(STRIP_BAND.minPx, fitPx(options.text, 30)), tone: 'muted', weight: 400 };
+      const rest: ImageLine[] = [];
+      if (s.note) for (const [k, part] of noteLines(s.note).entries()) rest.push({ role: `note${k}`, text: part, size: STRIP_BAND.minPx, tone: 'warn', weight: 400 });
+      // Merge with OPTIONS: the probe uses the disclaimer size this call draws (FIXES-LABELS D-09), not the floor.
+      rest.push(...disclaimerImageLines(o.disclaimerPx ?? DISCLAIMER_BAND_PX));
+      const k = L.findIndex((l) => l.role === 'count');
+      if (layoutBand([...L, own, ...rest]).fits || k < 0) L.push(own);
+      else { const text = `${L[k].text} · ${options.text}`; L[k] = { ...L[k], text, size: Math.max(STRIP_BAND.minPx, fitPx(text, STRIP_BAND.recordPx)) }; }
+    }
   }
   // FIXES-LABELS: status. Beside a failed import's two note lines the band may have no room for it: there (only) it is
   // optional, and the page keeps the full status line.

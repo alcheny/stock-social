@@ -47,6 +47,15 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // - `excludedCorporate`: a sell drawing a unit an unpriceable corporate action touched (an oversell included), one
 //   dated within LATE_POSTING_DAYS before a repricing action on its pair, or one on the same day as such an action
 //   (the vendor may date the row on another day of the event than the trade's prices assume: lib/corporate-actions.ts).
+// - Unusable trade rows (fixes cycle 3, F3-1): a vendor BUY/SELL with no usable price, units or date, never dropped. A
+//   sell with units and a date consumes its units from the oldest lots and is counted in `excludedCorporate`; a buy with
+//   units and a date opens a lot with no basis (a sell drawing it is counted). With no usable units or date, the pair's
+//   ledger is unknown from that row on (from the start when undated): its lots and every later lot of the pair are
+//   tainted, and a sell is counted. They are not repricing actions (no late-posting window, no same-day rule).
+// - Same instant (F3-5): symbol changes, then other corporate actions, then buys, then sells. In a long-only ledger a
+//   sell is filled from shares held, so a same-instant buy before it is the only order that can be true when the sell
+//   needs it; when older lots cover the sell, FIFO draws them first and the order changes nothing. A sell is never
+//   matched to a buy dated after it.
 // Corporate actions (lib/corporate-actions.ts) adjust the lots: a split or stock dividend multiplies units by p/q and
 // divides price and fee per unit by it (total cost and fees conserved, holding period from the original buy); a symbol
 // change moves the lots, FIFO order kept by date; an unpriceable action taints them. At the same instant, actions apply
@@ -66,13 +75,17 @@ export function openLots(activities: Activity[], actions: CorporateAction[] = []
 }
 
 type Book = { lots: Lot[] };
-type Event = { at: number; order: number; i: number; act?: Activity; ca?: CorporateAction };
+type Event = { at: number; order: number; src: number; i: number; act?: Activity; ca?: CorporateAction };
+type TradeRow = Extract<CorporateAction, { reason: 'trade' }>;
+const isTradeRow = (ca: CorporateAction): ca is TradeRow => ca.kind === 'unpriceable' && ca.reason === 'trade';
 
 function replay(activities: Activity[], actions: CorporateAction[]): { result: MatchResult; books: Map<string, Book> } {
+  // Same-instant order (F3-5): renames, other actions, buys, sells; then actions before activities, then input order.
+  const sideOrder = (side: 'BUY' | 'SELL') => (side === 'BUY' ? 2 : 3);
   const events: Event[] = [
-    ...actions.map((ca, i) => ({ at: ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : 1, i, ca })),
-    ...activities.map((act, i) => ({ at: act.executedAt.getTime(), order: 2, i, act })),
-  ].sort((a, b) => a.at - b.at || a.order - b.order || a.i - b.i);
+    ...actions.map((ca, i) => ({ at: ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : isTradeRow(ca) ? sideOrder(ca.side) : 1, src: 0, i, ca })),
+    ...activities.map((act, i) => ({ at: act.executedAt.getTime(), order: sideOrder(act.side), src: 1, i, act })),
+  ].sort((a, b) => a.at - b.at || a.order - b.order || a.src - b.src || a.i - b.i);
   const books = new Map<string, Book>();
   const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
@@ -82,6 +95,7 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
   // account-wide ones, per account, sorted once; each sell looks up the first time after it.
   const times = new Map<string, number[]>();
   for (const ca of actions) {
+    if (isTradeRow(ca)) continue; // an unusable trade row reprices nothing (F3-1)
     if (ca.kind === 'symbol-change' && Math.abs(ca.inUnits - ca.outUnits) <= RATIO_TOLERANCE * ca.outUnits) continue;
     const k = ca.kind === 'unpriceable' && ca.scope === 'account' ? `${ca.accountId}|` : `${ca.accountId}|${ca.symbol}`;
     const list = times.get(k);
@@ -124,6 +138,11 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
   // Pairs a rename with a share exchange filled, by instant: a split on that pair at the same instant may be the same
   // event reported twice (tester round 2), so it taints instead of scaling again.
   const exchangedInto = new Map<string, number>();
+  // Pairs whose ledger an unusable trade row with no units or date made unknown (F3-1): every later lot is tainted.
+  // ponytail: the mark never clears, so a ticker the exchange later recycles for another company is counted, never shown,
+  // in that account for good (over-counts, never publishes a wrong figure) — fix: clear it at a vendor-confirmed zero
+  // position (the positions read) for the pair.
+  const unknownFrom = new Set<string>();
   const held = (lots: Lot[]) => lots.reduce((s, l) => s + l.units, 0);
   const taint = (lots: Lot[]) => { for (const l of lots) l.tainted = true; };
   // Removes `units` from the oldest lots (a cash-in-lieu fraction, shares removed by an unpriceable action).
@@ -143,6 +162,18 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
       const key = `${ca.accountId}|${ca.symbol}`;
       const b = book(key);
       const moved = movedTo.get(key);
+      if (isTradeRow(ca)) {
+        // F3-1: an unusable vendor trade row (see the header). Counted when it is a sell, never priced.
+        if (ca.side === 'SELL') excludedCorporate++;
+        if (ca.units !== undefined && !ca.undated) {
+          if (ca.side === 'SELL') removeOldest(b.lots, ca.units);
+          else b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
+        } else {
+          taint(b.lots);
+          unknownFrom.add(key);
+        }
+        continue;
+      }
       if (!b.lots.length && moved?.at === e.at && ca.kind !== 'symbol-change') { taint(book(moved.to).lots); }
       if (ca.kind === 'split' || ca.kind === 'stock-dividend') {
         if (exchangedInto.get(key) === e.at) { taint(b.lots); continue; }
@@ -153,6 +184,13 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         if (r.leftover > 0) removeOldest(b.lots, r.leftover); // cash in lieu: not a trade, not counted
         if (openedInWindow(b.lots, e.at)) taint(b.lots);
       } else if (ca.kind === 'symbol-change') {
+        // F3-1: an unknown ledger stays unknown under its new symbol, whether or not lots move (a unit-less or undated buy
+        // leaves none; a share count that doesn't match leaves them behind, tainted).
+        if (unknownFrom.has(key) && ca.newSymbol !== ca.symbol) {
+          const unknownTo = `${ca.accountId}|${ca.newSymbol}`;
+          unknownFrom.add(unknownTo);
+          taint(book(unknownTo).lots);
+        }
         if (!b.lots.length) continue;
         const h = held(b.lots);
         const r = ca.newSymbol !== ca.symbol && Math.abs(h - ca.outUnits) <= RATIO_TOLERANCE * Math.max(1, h) ? renameRatio(ca.outUnits, ca.inUnits) : null;
@@ -162,6 +200,7 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
         const to = book(toKey);
         to.lots = [...to.lots, ...b.lots].sort((x, y) => x.at.getTime() - y.at.getTime());
+        if (unknownFrom.has(toKey)) taint(to.lots); // F3-1: lots moved into a pair whose ledger is unknown
         books.set(key, { lots: [] }); // a recycled ticker starts fresh lots
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
         if (r.p !== r.q) exchangedInto.set(toKey, e.at);
@@ -182,7 +221,7 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     const open = b.lots;
     if (a.side === 'BUY') {
       // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
-      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) ? { tainted: true } : {}) });
+      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) ? { tainted: true } : {}) });
       continue;
     }
 
@@ -207,7 +246,8 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
 
     if (!tiny(remaining, a.units)) {
       // Oversold: this sell only. Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
-      if (tainted) excludedCorporate++; else excluded++;
+      // An oversell in a pair whose ledger an unusable trade row made unknown (F3-1) is that cause, not missing history.
+      if (tainted || unknownFrom.has(key)) excludedCorporate++; else excluded++;
       continue;
     }
     if (tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;

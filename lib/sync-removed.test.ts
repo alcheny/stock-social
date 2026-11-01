@@ -64,7 +64,13 @@ dbTest('removed_at: the vendor list throws → nothing stamped (and nothing else
     await syncUser(h.user, h.broker([vacc(h.ids[0]), vacc(h.ids[1])]));
     await assert.rejects(syncUser(h.user, h.broker(() => { throw new Error('vendor down'); })));
     assert.deepEqual(await h.removed(), { [h.ids[0]]: null, [h.ids[1]]: null });
+    // Merge with main (#79, F3-3): an empty list only marks the connection missing; a second one FREEZE_CONFIRM_HOURS
+    // later freezes it. Neither is a removal.
+    const later = new Date(Date.now() + 25 * 3_600_000);
     await syncUser(h.user, h.broker([]));
+    assert.deepEqual(await h.removed(), { [h.ids[0]]: null, [h.ids[1]]: null });
+    assert.equal((await h.sql`select disconnected_at from connections where id = ${h.connectionId}`)[0].disconnected_at, null);
+    await syncUser(h.user, h.broker([]), undefined, later);
     assert.deepEqual(await h.removed(), { [h.ids[0]]: null, [h.ids[1]]: null });
     assert.ok((await h.sql`select disconnected_at from connections where id = ${h.connectionId}`)[0].disconnected_at);
   } finally {

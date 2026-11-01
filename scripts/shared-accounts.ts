@@ -8,7 +8,10 @@
 // Marking and rebuilding change what public records show, so they are the owner's calls (committee 2026-11-01).
 import { sql } from '../lib/db.ts';
 import { markedProfiles, markShared, sharedReport } from '../lib/shared-accounts.ts';
-import { rebuildTrades, USER_LOCK } from '../lib/sync.ts';
+import { USER_LOCK } from '../lib/sync.ts';
+// OPTIONS fix round 6: every record rebuild is rebuildRecord (rebuildTrades, then the option steps), or option rows on the
+// share path and the exercise-day removals would come back.
+import { rebuildRecord } from '../lib/options-sync.ts';
 
 // `scope` is a test hook (only these profiles); the command line passes none.
 export async function run(args: string[], out: (line: string) => void = console.log, scope?: number[]): Promise<void> {
@@ -22,8 +25,15 @@ export async function run(args: string[], out: (line: string) => void = console.
       // The trader's lock, as the hourly sync takes it: never two rebuilds of one record at once.
       await sql.begin(async (tx) => {
         await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${userId})`;
-        await rebuildTrades(userId, tx);
+        await rebuildRecord(userId, tx);
         await tx`delete from open_positions p using shared_account_marks m
+          where p.user_id = ${userId} and m.user_id = p.user_id and m.account_id = p.account_id`;
+        await tx`delete from unlisted_positions p using shared_account_marks m
+          where p.user_id = ${userId} and m.user_id = p.user_id and m.account_id = p.account_id`;
+        // The option positions of a marked account leave the profile too (merge of fixes cycle 3 with options).
+        await tx`delete from open_option_positions p using shared_account_marks m
+          where p.user_id = ${userId} and m.user_id = p.user_id and m.account_id = p.account_id`;
+        await tx`delete from unlisted_option_positions p using shared_account_marks m
           where p.user_id = ${userId} and m.user_id = p.user_id and m.account_id = p.account_id`;
       });
       n++;

@@ -34,11 +34,15 @@ export type TradeView = ReturnType<typeof tradeSharePayload> & {
   handle: string; displayName: string; state: RecordState; verified: boolean;
   open?: number[]; // unrealized percents, read for a connected or failed record only
   status?: StatusFacts | null; // FIXES-LABELS: status (F-11): the status-line facts beside the state
+  // F-9 (fix-user-text): the note's dates and the trade id for the Report control; never part of the share image data.
+  note?: { tradeId: string; writtenAt: Date | null; editedAt: Date | null };
+  excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
   filings?: { sold: string; bought: string[] } | null; // F-7: a public record's filing links
 };
 
 export const tradeStripInput = (t: TradeView): StripInput => ({
   ...t.strip, state: t.state, demo: t.demo, verified: t.verified, handle: t.handle, open: t.open,
+  excludingOptions: t.excludingOptions, // OPTIONS
 });
 
 // FIXES-LABELS (D-05): the one date text, always with its year (an image and its share text outlive the year).

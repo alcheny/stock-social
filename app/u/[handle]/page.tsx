@@ -9,12 +9,15 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
+import { CLOSES_PAGING, connectedLine, DEMO_PROFILE, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
 import { cardAlt, cardDescription, cardEvidence, evidenceRangeText } from '@/lib/record-card.ts';
 import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
+import { UserNote } from '../../user-note.tsx';
+import { heldLine } from '@/lib/report-copy.ts';
+import { HANDLE_RULE, profileHandleError } from '@/lib/handles.ts';
 // F-7 public-record traders.
 import { isPublicRecord, PUBLIC, publicExclusions } from '@/lib/copy.ts';
 import { filerInfo, filerVisible, PUBLIC_STALE_DAYS } from '@/lib/public-gate.ts';
@@ -52,8 +55,15 @@ import { segments, statusParts } from '@/lib/record-status.ts';
 import { STATUS_LINE } from '@/lib/copy.ts';
 import { StatusList, StatusText } from '../../status-line.tsx';
 import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' dates follow the year rule
+// OPTIONS (docs/features/logs/options/plan.md D5, D6): the one reader and its pure renders.
+import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
+import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
+import { OPTIONS } from '@/lib/copy.ts';
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
+// The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
+// in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
+
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
 
 // ponytail: generateMetadata and the page each call load() (and the record card reads the record again), so one view
 // reads the whole record 3–4 times — wrap load and loadRecordCard in React cache() so each runs once per request.
@@ -65,7 +75,8 @@ async function load(handle: string) {
   const filer = user.public_filer_id ? await filerInfo(user.id) : null;
   if (!filerVisible(filer)) return null;
   const trades = await sql`
-    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url
+    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
+      thesis_written_at, thesis_edited_at, thesis_hold_rule
     from closed_trades where user_id = ${user.id} order by closed_at desc, id desc`; // list order (lib/paging.ts)
   if (filer && !trades.length) return null; // F-7 (plan Round 4 item 2): no page without a priced closed trade
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
@@ -84,9 +95,14 @@ async function load(handle: string) {
   const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${user.id} order by symbol, account_id` : [];
   // F-6: open positions summarized beside the realized record for a connected or failed record (TR-3: nothing while
   // importing); null without positions, so such a record renders exactly as before. "As of": the oldest read.
-  const open = state === 'connected' || state === 'failed' ? openSummary(positions.map((p) => p.unrealized_pct as number)) : null;
-  const openAsOf = open ? new Date(Math.min(...positions.map((p) => (p.fetched_at as Date).getTime()))) : null;
-  return { user, filer, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  // OPTIONS: the option record (counts only while the consent gate is closed); long open options join the open block's
+  // aggregate only once the gate is open (D6, TR-4).
+  const opt = await loadOptionRecord(user.id);
+  const optOpen = opt.gate === 'open' && state !== 'importing' ? opt.open : [];
+  const open = state === 'connected' || state === 'failed' ? openSummary([...positions.map((p) => p.unrealized_pct as number), ...optOpen.map((o) => o.pct)]) : null;
+  // OPTIONS fix round 1 (review 3): the oldest read across share and option positions; unset when there are none.
+  const openAsOf = open ? oldestRead(positions.map((p) => p.fetched_at as Date), optOpen.length && opt.gate === 'open' ? opt.openAsOf : null) : null;
+  return { opt, optOpen, user, filer, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -126,14 +142,15 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
-  const { user, filer, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf } = data;
+  const { user, filer, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf, opt, optOpen } = data;
   // F-7: a public record shows its top block, exclusions, open symbols and filing links; never Follow, theses, a share
   // prompt, a join CTA, Similar trades or New record (legal C10, C15-C17).
   const pub = isPublicRecord(state);
   const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   const stale = !!filer && (!filer.lastChecked || Date.now() - filer.lastChecked.getTime() > PUBLIC_STALE_DAYS * 86_400_000);
   const long = open ? longValues(pct(s.avgReturn), pct(open.avg), String(open.n)) : undefined;
-  const both = open && combined(trades.map((t) => t.return_pct as number), positions.map((p) => p.pct));
+  // OPTIONS fix round 1 (review 3): the combined line counts the same open positions as the grid (option percents too).
+  const both = open && combined(trades.map((t) => t.return_pct as number), [...positions.map((p) => p.pct), ...optOpen.map((o) => o.pct)]);
   const me = await currentUser();
   const isMe = me?.id === user.id;
   // F-2 PR-3b: "Similar trades" (lib/similar.ts), only for a whole record with a typical holding period; the same for every
@@ -197,14 +214,16 @@ export default async function Profile({ params, searchParams }: Params) {
   const shareable = state === 'connected' || state === 'none';
   // F-4 rework: the share prompt quotes the card's own range (around the average it prints) and alt, from its model.
   const promptCard = isMe && !claimed && shareable && sharePromptShowing ? await loadRecordCard(user.handle, 'unfurl') : null;
-  const connected = allVerified ? connectedLine(brokers, accounts) : 'Demo data';
+  // A11Y-FIXES #10 (POLICY P2, F3a): a demo profile says so and never mentions connected accounts (mixed records count as demo).
+  const connected = allVerified ? `${connectedLine(brokers, accounts)}. ${DEMO_PROFILE.connectedOnly}` : DEMO_PROFILE.line;
   // FIXES-LABELS: status. Live mode: this page is rendered per request; "updated" is the last successful sync.
   const statusF = await statusFor(user.id, state);
   const now = new Date(); // QA round 2 (N12): one request time for the rows' dates
-  const status = statusF ? statusParts(statusF, now, 'live') : null;
+  const status = statusF ? statusParts(statusF, now, 'live', DEMO_PROFILE.line /* #10: the demo line names Demo, not a broker */) : null;
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
+  const handleError = isMe ? profileHandleError((await searchParams)?.handle) : undefined;
   const listed = trades.slice(win.start, win.start + win.shown);
   const firstNew = win.next !== null ? trades[win.end] : null;
 
@@ -215,7 +234,8 @@ export default async function Profile({ params, searchParams }: Params) {
 
   return (
     <main className="page profile-page">{/* QA round 2 (B2): .profile-page tightens the h1 on a phone (globals.css) */}
-      <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
+      {/* fix-user-text fix round 5 (item 5): the name is isolated (<bdi>), like WhoName. */}
+      <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : <bdi>{user.display_name}</bdi>}</h1>
       {/* PR-2b: one line reserved, so the badge arriving when an import finishes does not push the banner down. */}
       <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
         {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge kind={trust.badge} />}{pub && <span className="muted"> {PUBLIC.kind}</span>} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
@@ -245,7 +265,7 @@ export default async function Profile({ params, searchParams }: Params) {
         </div>
       ) : complete && first && !pub && (
         <p className="muted small" style={{ marginTop: 0 }}>
-          Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.
+          Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}
         </p>
       )}
 
@@ -268,14 +288,17 @@ export default async function Profile({ params, searchParams }: Params) {
       {/* F-2 PR-2 fix round 1: Settings (sign out, delete my profile, following and hidden traders) is reachable by tapping. */}
       {isMe && <p className="settings-link"><Link className="tap" href="/settings">{SETTINGS.title}</Link></p>}
       {isMe && (
-        <details className="handle-edit">
+        // Fix round 2 (D): with a rejection the panel renders open and the field takes focus, so the error is seen; the
+        // rule is a visible hint and the field's title, so a pattern failure explains itself.
+        <details className="handle-edit" open={!!handleError}>
           <summary className="button secondary">{PROFILE.changeHandle}</summary>
           <form action={setHandle} className="inline">
             <label htmlFor="new-handle" className="sr-only">New handle</label>
-            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" defaultValue={user.handle} aria-describedby={(await searchParams)?.handle === 'taken' ? 'handle-err' : undefined} />
+            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} defaultValue={user.handle} autoFocus={!!handleError} aria-describedby={handleError ? 'handle-hint handle-err' : 'handle-hint'} />
             <button>Save</button>
           </form>
-          {(await searchParams)?.handle === 'taken' && <p id="handle-err" role="alert" className="down small">That handle is taken or reserved, or not 3–20 lowercase letters, numbers or _.</p>}
+          <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>
+          {handleError && <p id="handle-err" role="alert" className="down small">{handleError}</p>}
         </details>
       )}
       {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
@@ -284,6 +307,11 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
 
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
+      {/* OPTIONS (D5, D6): "Share trades" over the share-only headline; the count line (gated) or the options lines. */}
+      {complete && (trades.length > 0 || hasOptions(opt.counts)) && <ShareTradesLabel counts={opt.counts} />}
+      {complete && trades.length === 0 && shareLabel(opt.counts) && <p className="stat-empty">{OPTIONS.noShareCloses}</p>}
+      {complete && trades.length === 0 && <OptionsLines m={opt} />}
+      {complete && trades.length === 0 && opt.gate === 'open' && hasOptions(opt.counts) && <p className="muted small">{OPTIONS.chartNone}</p>}
       {complete && trades.length > 0 && <>
       <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
         {open && <RealizedLabel />}
@@ -312,13 +340,15 @@ export default async function Profile({ params, searchParams }: Params) {
           95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence.
         </details>
       </div>
+      {/* OPTIONS fix round 3 (item 3): the options block after the evidence line, before the secondary stats. */}
+      <OptionsLines m={opt} long={long} />
       <section className="stats">
         <div className="stat"><b>{count(s.trades)}</b><small>closed trades</small></div>
         <div className="stat"><b>{s.profitFactor === null ? '—' : s.profitFactor.toFixed(2)}</b><small>profit factor</small></div>
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
-      <PerformanceChart points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
+      <PerformanceChart shareOnly={shareLabel(opt.counts)} points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} noteBy={user.handle} />
       {open && <ChartNote o={open} />}
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
@@ -342,15 +372,13 @@ export default async function Profile({ params, searchParams }: Params) {
 
       {/* FIXES-LABELS: status. ponytail: open-position rows number accounts per symbol, not "Account i of n" — map rows through accountLabels with an f6 spec update */}
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
-      {positions.length > 0 && <>
-        <h2>{RECORD_BODY.positionsTitle}</h2>
-        {open && openAsOf && <p className="muted small" data-open>{OPEN.asOf(asOfDay(openAsOf))}</p>}
-        <ul className="rows positions">
-          {positions.map((p) => (
-            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={toneClass(p.pct)}>{pct(p.pct)}</b></div></li>
-          ))}
-        </ul>
-      </>}
+      {complete && <UnsupportedLine counts={opt.counts} />}
+      {/* OPTIONS fix round 3 (item 1): one "Open positions" heading and one list, share rows first, option rows after. */}
+      <OpenPositionsBlock title={RECORD_BODY.positionsTitle} hasShares={positions.length > 0} open={optOpen}
+        asOf={open && openAsOf && <p className="muted small" data-open={positions.length > 0 ? true : undefined}>{OPEN.asOf(asOfDay(openAsOf))}</p>}
+        shareRows={positions.map((p) => (
+          <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={toneClass(p.pct)}>{pct(p.pct)}</b></div></li>
+        ))} />
 
       {showJoin && <JoinCta handle={user.handle} via={ctaVia((await searchParams)?.via)} />}
 
@@ -368,8 +396,9 @@ export default async function Profile({ params, searchParams }: Params) {
               </Link>
             </div>
             {t.filing_url && <a className="filing-link" href={t.filing_url} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.filingName(t.symbol, day(t.closed_at))}>{PUBLIC.filing}</a>}
-            {t.thesis_status === 'published' && <p style={{ margin: '4px 0 0' }}>“{t.thesis}”</p>}
-            {isMe && t.thesis_status === 'held' && <p className="muted" style={{ margin: '4px 0 0' }}>Thesis held for review.</p>}
+            {/* F-9: UserNote (Report only for a signed-in reader who is not the author); the author sees the hold and its reason in plain words, muted (fix round 2: lib/report-copy.ts#heldLine). */}
+            {t.thesis_status === 'published' && <UserNote text={t.thesis} handle={user.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={me && !isMe ? String(t.id) : undefined} symbol={t.symbol} />}
+            {isMe && t.thesis_status === 'held' && <p className="muted thesis-held">{heldLine(t.thesis_hold_rule)}</p>}
             {isMe && (
               <form action={saveThesis} className="inline">
                 <input type="hidden" name="tradeId" value={t.id} />
@@ -387,6 +416,7 @@ export default async function Profile({ params, searchParams }: Params) {
           {win.prev !== null && <a className="button secondary" href={`/u/${user.handle}`}>{CLOSES_PAGING.newest}</a>}
         </p>
       )}
+      {opt.gate === 'open' && complete && <OptionTradesSection trades={opt.trades} start={Number((await searchParams)?.options) || 0} handle={user.handle} />}
       {similar && <SimilarSection handle={user.handle} similar={similar} signedIn={!!me} />}
       <p><Link href="/" className="tap44">← Feed</Link></p>
     </main>

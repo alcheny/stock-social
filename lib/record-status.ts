@@ -92,7 +92,9 @@ export function recordFrozen(connections: StatusConnection[]): Frozen | null {
 // the year shows on every date of the line when any of them needs it (static mode, a record date the council writes
 // with the year, or a date outside now's year), else on none.
 type Lazy = { text: string } | { d: Date; words: (abs: string) => string; year?: boolean; rel?: boolean };
-export function statusParts(f: StatusFacts, now: Date, mode: Mode): StatusLine {
+// Merge with main (#10, A11Y-FIXES): `demoText` names a Demo record on line 1; the profile passes DEMO_PROFILE.line (it says
+// "not a real broker record"), the trade and month pages keep "Demo data" (their strip label says the rest).
+export function statusParts(f: StatusFacts, now: Date, mode: Mode, demoText: string = S.demoLink): StatusLine {
   if (f.state === 'importing' || f.state === 'failed' || f.source === 'none' || f.source === 'filing' || !f.firstEntry) return NONE;
   const yearOf = (d: Date) => d.getUTCFullYear();
   const render = (line: Lazy[]): Part[] => {
@@ -108,7 +110,7 @@ export function statusParts(f: StatusFacts, now: Date, mode: Mode): StatusLine {
   const long = (d: Date, words: (abs: string) => string): Lazy => ({ d, words, year: true });
   const since = long(f.firstEntry, S.since);
   const lastClose: Lazy[] = f.lastClose ? [{ d: f.lastClose, words: S.lastClose }] : [];
-  if (f.source === 'demo') return { ...NONE, show: true, line1: render([since, { text: S.demoLink }]) };
+  if (f.source === 'demo') return { ...NONE, show: true, line1: render([since, { text: demoText }]) };
 
   const frozen = recordFrozen(f.connections);
   const idleRef = frozen ? null : idleSince(f, now);
@@ -176,14 +178,29 @@ export function segments(parts: Part[]): Segment[] {
 export const timeText = (s: Segment): string => (s.title ? `${s.text} (${s.title})` : s.text);
 
 // QA round 2 (N8): each date stays on one line with the word before it ("Disconnected Nov 1, 2026", "removed Oct 28,
-// 2026", "updated 2 hours ago (Nov 1)"): the shown time's spaces and the space right before it are no-break spaces, so
-// a row wraps only at " · " and between other words. Pure, so the rendered text is unit-tested.
-export const NBSP = '\u00a0';
-export function glued(segs: Segment[]): Segment[] {
-  return segs.map((s, i) => {
-    if (s.iso) return { ...s, text: s.text.replace(/ /g, NBSP), ...(s.title ? { title: s.title.replace(/ /g, NBSP) } : {}) };
-    return segs[i + 1]?.iso && s.text.endsWith(' ') ? { ...s, text: `${s.text.slice(0, -1)}${NBSP}` } : s;
+// 2026", "updated 2 hours ago (Nov 1)"), so a row wraps only at " · " and between other words. Merge with main (#59
+// a11y e2e reads "Record since Mon D, YYYY" with plain spaces): the glue is a `glue` group, rendered in one no-wrap
+// span (app/status-line.tsx, .status-glue), never no-break space characters, so the text keeps ordinary spaces. A text
+// segment right before a date is split at its last word: the head stays free, the last word joins the date's group.
+// Pure, so the grouping is unit-tested.
+export type GluedSegment = Segment & { glue?: number };
+export function glued(segs: Segment[]): GluedSegment[] {
+  const out: GluedSegment[] = [];
+  segs.forEach((s, i) => {
+    if (s.iso) {
+      const prev = out.at(-1);
+      out.push(prev?.glue === i ? { ...s, glue: i } : s);
+      return;
+    }
+    if (segs[i + 1]?.iso && s.text.endsWith(' ')) {
+      const cut = s.text.slice(0, -1).lastIndexOf(' ') + 1;
+      if (cut > 0) out.push({ text: s.text.slice(0, cut) });
+      out.push({ text: s.text.slice(cut), glue: i + 1 });
+      return;
+    }
+    out.push(s);
   });
+  return out;
 }
 
 // The feed card's segments (static: the feed page's rows are also sent by the paging action and may be shown later):

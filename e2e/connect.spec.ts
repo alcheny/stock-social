@@ -9,6 +9,7 @@ import type { Server } from 'node:http';
 import postgres from 'postgres';
 import { startVendorFake, type FakeAccount, type FakeActivity, type FakeCorporateRow } from './fakes/vendor.ts';
 import { feedLock } from './feed-lock.ts';
+import { vendorLock } from './vendor-lock.ts';
 import { cronLock } from './cron-lock.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
@@ -17,7 +18,9 @@ const cronSecret = process.env.CRON_SECRET ?? readFileSync(new URL('../.env', im
 
 // Own pool (as app.spec.ts): the shared lib/db.ts pool is ended by signin.spec.ts's afterAll in the same worker.
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
-test.beforeAll(async () => { vendor = await startVendorFake(VENDOR_PORT); });
+// The fake's port is shared with e2e/options.spec.ts, taken in turn (e2e/vendor-lock.ts).
+let releaseVendor: (() => Promise<void>) | null = null;
+test.beforeAll(async () => { releaseVendor = await vendorLock(); vendor = await startVendorFake(VENDOR_PORT); });
 // PR-2b: an owner's open profile now polls POST /api/import/step every 2 s (S5). The tests written before it drive the
 // steps themselves through page.request and assert each step's exact effect (forced vendor failures, backoff windows),
 // so the page's own background poll is held off for them: only requests from the page are blocked, never the test's.
@@ -43,7 +46,8 @@ test.afterEach(async () => {
   created = [];
 });
 test.afterAll(async () => {
-  vendor?.server.close();
+  if (vendor) await new Promise<void>((done) => { vendor.server.close(() => done()); vendor.server.closeAllConnections(); });
+  await releaseVendor?.();
   await sql.end({ timeout: 1 });
 });
 
@@ -559,7 +563,7 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
     await expect(whole.locator('.badge.new'), path).toHaveCount(0);
     const description = await p2.locator('meta[name="description"]').getAttribute('content');
     expect(description!, path).toContain('so far · Import in progress');
-    expect(description!, path).not.toMatch(/whole record: .*win rate|avg return|verified/i);
+    expect(description!, path).not.toMatch(/record to date: .*win rate|avg return|verified/i); // A11Y-FIXES #8: the recap label (was "whole record:")
   }
   // The poll resumes the first import and the record ends whole.
   await sql`update connections set import_cursor = import_cursor - 'retryAt' where id = ${firstRow.id}`;
@@ -1772,7 +1776,7 @@ test('corporate actions (F3c): an import reads the vendor\'s split, reverse spli
     await page.setViewportSize({ width: 375, height: 740 });
     await page.goto(`/u/${handle}`);
     await expect(page.locator('.rows:not(.positions) li')).toHaveCount(4);
-    await expect(page.getByText('1 trade excluded: a stock split or other corporate action the importer can\'t price exactly.', { exact: true })).toBeVisible();
+    await expect(page.getByText('1 trade excluded: a share move, corporate action or broker row the importer can\'t price.', { exact: true })).toBeVisible();
     const main = await page.locator('main').innerText();
     expect(main).not.toMatch(/-45(\.0)?%|−45|\+1,?000(\.0)?%|\+900(\.0)?%/);
     expect(main).toContain('+10.0%');

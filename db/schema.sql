@@ -673,6 +673,78 @@ select schema_add_index('signup_attempts_referred_by', 'create index signup_atte
 -- sync load test: quadratic at 100,000 traders; profile deletions too).
 select schema_add_index('broker_accounts_connection', 'create index broker_accounts_connection on broker_accounts (connection_id) where connection_id is not null');
 
+-- fix-user-text A: handles and stored-text cleanup
+-- Rename hold (fix committee 2026-11-01, decision 8): a renamed handle is reserved for a year with the renaming
+-- account, so that trader can take it back; the link goes null when the account is deleted, leaving the bare
+-- reservation (handle and date only).
+select schema_add_column('handle_reservations', 'user_id', 'bigint references users(id) on delete set null');
+-- Look-alike handles (decision 7): the handle skeleton (lower, rn→m, 0→o, 1→l), same expression as lib/handles.ts#hskel.
+select schema_add_index('users_handle_skel', $d$create index users_handle_skel on users ((replace(replace(replace(lower(handle), 'rn', 'm'), '0', 'o'), '1', 'l')))$d$);
+-- Fix round 5 (item 8): the same skeleton on reservations (lib/handles.ts#checkHandle reads both), and the end of the
+-- hold, which the purge reads (lib/privacy-purge.ts: ended reservations are removed on the tick).
+select schema_add_index('handle_reservations_skel', $d$create index handle_reservations_skel on handle_reservations ((replace(replace(replace(lower(handle), 'rn', 'm'), '0', 'o'), '1', 'l')))$d$);
+select schema_add_index('handle_reservations_until', 'create index handle_reservations_until on handle_reservations (until)');
+-- Stored-text cleanup (decision 1): direction controls, zero-width/invisible format characters (never U+200D) and
+-- control characters (never \n or tab) leave stored theses and display names. Guarded, so a clean table is untouched.
+-- Fix round 1: the class is lib/text-safety.ts#STRIP_CLASS_SQL (every default-ignorable character except the joiner and
+-- the variation selectors, plus the braille blank); lib/text-safety.test.ts proves the two agree.
+-- Fix round 3 (item 13): a thesis made only of stripped characters becomes no thesis (NULL, no status), never an empty
+-- published one. The status is decided from the same expression (an UPDATE reads the old row on its right-hand side).
+-- Fix round 5 (item 1): stored text is kept as typed. The class no longer holds the non-joiner U+200C (Persian, Indic)
+-- or the tags U+E0020–E007F; a tag goes only outside an emoji tag sequence (lib/text-safety.ts#STRAY_TAG_SQL: a whole
+-- sequence is put back through group 1, a stray tag is replaced by the empty group). Guarded: only rows it changes.
+update closed_trades set thesis = nullif(btrim(regexp_replace(regexp_replace(thesis, '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E001F\U000E0080-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g'), '(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0020-\U000E007F]', '\1', 'g')), ''),
+    thesis_status = case when btrim(regexp_replace(regexp_replace(thesis, '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E001F\U000E0080-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g'), '(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0020-\U000E007F]', '\1', 'g')) = '' then null else thesis_status end
+  where (thesis ~ '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E001F\U000E0080-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]' or regexp_replace(thesis, '(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0020-\U000E007F]', '\1', 'g') <> thesis);
+-- kept_theses.thesis is not null: an emptied kept copy keeps '' with no status, so it never shows.
+update kept_theses set thesis = regexp_replace(regexp_replace(thesis, '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E001F\U000E0080-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g'), '(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0020-\U000E007F]', '\1', 'g'),
+    thesis_status = case when btrim(regexp_replace(regexp_replace(thesis, '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E001F\U000E0080-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g'), '(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0020-\U000E007F]', '\1', 'g')) = '' then null else thesis_status end
+  where (thesis ~ '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E001F\U000E0080-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]' or regexp_replace(thesis, '(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0020-\U000E007F]', '\1', 'g') <> thesis);
+update users set display_name = coalesce(nullif(btrim(regexp_replace(regexp_replace(display_name, '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E001F\U000E0080-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g'), '(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0020-\U000E007F]', '\1', 'g')), ''), handle)
+  where (display_name ~ '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E001F\U000E0080-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]' or regexp_replace(display_name, '(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0020-\U000E007F]', '\1', 'g') <> display_name);
+
+-- fix-user-text B: F-9 thesis safety (docs/features/F-9-thesis-safety.md). Additive and idempotent.
+-- When a thesis was first written and last edited (no defaults: a thesis written before these columns shows no date,
+-- never an invented one), the label of the rule that held it ('reports' for a report hold) and when the owner released
+-- it (scripts/review-theses.ts; an edit clears it, so moderation runs again). Carried with the thesis by sell_id through
+-- rebuildTrades and kept_theses (lib/sync.ts).
+select schema_add_column('closed_trades', 'thesis_written_at', 'timestamptz');
+select schema_add_column('closed_trades', 'thesis_edited_at', 'timestamptz');
+select schema_add_column('closed_trades', 'thesis_hold_rule', 'text check (char_length(thesis_hold_rule) <= 60)');
+select schema_add_column('closed_trades', 'thesis_reviewed_at', 'timestamptz');
+select schema_add_column('kept_theses', 'thesis_written_at', 'timestamptz');
+select schema_add_column('kept_theses', 'thesis_edited_at', 'timestamptz');
+select schema_add_column('kept_theses', 'thesis_hold_rule', 'text check (char_length(thesis_hold_rule) <= 60)');
+select schema_add_column('kept_theses', 'thesis_reviewed_at', 'timestamptz');
+-- Fix round 1: reports count only from this time (set by an owner release, never cleared by an edit or a clear), so a
+-- released note that is edited is not held again by the reports made before the release (lib/reports.ts).
+select schema_add_column('closed_trades', 'thesis_reports_from', 'timestamptz');
+select schema_add_column('kept_theses', 'thesis_reports_from', 'timestamptz');
+-- Fix round 5 (item 3): the moderation rules version a note was last checked at (lib/moderation.ts#MODERATION_VERSION;
+-- null = main's rules). The start-up re-check holds a note only on rules added after it, and never re-hides a note the
+-- owner released. Carried with the thesis by lib/sync.ts like the columns above.
+select schema_add_column('closed_trades', 'thesis_checked_version', 'smallint');
+select schema_add_column('kept_theses', 'thesis_checked_version', 'smallint');
+-- Fix round 4 (block A's cleanup, placed here because it needs the columns above): a thesis the cleanup emptied carries
+-- nothing else, like a thesis its author cleared (lib/thesis-save.ts): no status, hold rule or dates (the report
+-- baseline, thesis_reports_from, stays). An emptied kept copy is never re-attached (lib/theses.ts#reattachTheses).
+-- Guarded, so a clean table is untouched.
+update closed_trades set thesis_status = null, thesis_hold_rule = null, thesis_written_at = null, thesis_edited_at = null, thesis_reviewed_at = null
+  where thesis is null and (thesis_status is not null or thesis_hold_rule is not null or thesis_written_at is not null or thesis_edited_at is not null or thesis_reviewed_at is not null);
+update kept_theses set thesis = '', thesis_status = null, thesis_hold_rule = null, thesis_written_at = null, thesis_edited_at = null, thesis_reviewed_at = null
+  where btrim(thesis) = '' and (thesis <> '' or thesis_status is not null or thesis_hold_rule is not null or thesis_written_at is not null or thesis_edited_at is not null or thesis_reviewed_at is not null);
+-- One report per signed-in reader per thesis, keyed by the trader and the closing sell's id (no foreign key to
+-- closed_trades on purpose: rebuildTrades deletes and rewrites those rows, and a report must survive it). Both user
+-- links cascade, so deleting a profile removes the reports it made and the reports on its notes (lib/reports.ts).
+create table if not exists thesis_reports (
+  reporter_id int not null references users on delete cascade,
+  trader_id int not null references users on delete cascade,
+  sell_id text not null,
+  created_at timestamptz not null default now(),
+  unique (reporter_id, trader_id, sell_id)
+);
+select schema_add_index('thesis_reports_note', 'create index thesis_reports_note on thesis_reports (trader_id, sell_id, created_at)');
+
 -- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md): the vendor's split,
 -- stock-dividend, symbol-change and other share-moving rows, raw and immutable like `activities`, mapped by
 -- lib/corporate-actions.ts#fromVendorRows. The rebuild applies them to the FIFO lots (lib/trades.ts#matchTrades).
@@ -774,3 +846,147 @@ begin
 end $t$;
 -- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
 select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');
+
+-- Fixes cycle 3 (docs/direction/cycle3-2026-11-01.md F3-3): a freeze (TR-5) needs confirmed absence. Set by the sync on
+-- the first successful account list that lists none of the connection's accounts, cleared when one is listed again;
+-- `disconnected_at` is stamped only by a later list, at least lib/sync.ts#FREEZE_CONFIRM_HOURS after, that still lists none.
+select schema_add_column('connections', 'missing_since', 'timestamptz');
+-- F3-4: open positions are replaced per account read. The last positions of an account the latest read did not list are
+-- kept here with their read time, private and rendered nowhere, until the owner decides OD-9 (owner question Q2); an
+-- account listed again gets fresh rows in open_positions and its rows here are removed. Deleted with the profile.
+create table if not exists unlisted_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  symbol text not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null,
+  unlisted_at timestamptz not null default now(),
+  primary key (user_id, account_id, symbol)
+);
+-- OPTIONS (docs/features/logs/options/plan.md D1, D5, D7). Raw option activities, append-only like `activities`: one
+-- row per vendor row, parsed columns nullable so a malformed row is stored and counted, never guessed. Strike, units,
+-- price, fee, amount and the OCC ticker are private (never read by a public surface).
+create table if not exists option_activities (
+  id bigint generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  source text not null check (source in ('snaptrade', 'demo')),
+  external_id text not null,
+  account_id text,
+  contract_key text,
+  kind text,
+  open_close text,
+  underlying text,
+  underlying_type text,
+  option_right text,
+  expiry date,
+  strike_milli bigint,
+  multiplier int,
+  occ_ticker text,
+  contract_units double precision,
+  share_price double precision,
+  fee double precision,
+  cash_amount double precision,
+  currency text,
+  executed_at timestamptz,
+  raw jsonb not null,
+  created_at timestamptz not null default now(),
+  unique (source, external_id)
+);
+select schema_add_index('option_activities_keyset', 'create index option_activities_keyset on option_activities (user_id, account_id, contract_key, executed_at, external_id)');
+-- OPTIONS: derived long option closes, rebuilt per user (lib/options-sync.ts#rebuildOptionTrades). Percent only: no
+-- strike, units, prices or fees, on purpose.
+create table if not exists option_trades (
+  id bigint generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  close_id text not null unique,
+  account_id text not null,
+  verified boolean not null,
+  underlying text not null,
+  option_right text not null check (option_right in ('CALL', 'PUT')),
+  option_expiry date not null,
+  opened_at timestamptz not null,
+  closed_at timestamptz not null,
+  return_pct double precision not null,
+  holding_days double precision not null
+);
+select schema_add_index('option_trades_user', 'create index option_trades_user on option_trades (user_id, closed_at desc)');
+-- OPTIONS: long open option positions (percent per share, D7). Shorts and futures-type kinds are counts on users.
+create table if not exists open_option_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  position_key text not null,
+  underlying text not null,
+  option_right text not null check (option_right in ('CALL', 'PUT')),
+  option_expiry date not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null default now(),
+  primary key (user_id, account_id, position_key)
+);
+select schema_add_column('users', 'excluded_options_short', 'int not null default 0');
+select schema_add_column('users', 'excluded_options_other', 'int not null default 0');
+select schema_add_column('users', 'open_options_short', 'int not null default 0');
+select schema_add_column('users', 'open_unsupported', 'int not null default 0');
+-- OPTIONS (D5): sha256 of the consent scope line the trader consented under (lib/consent-versions.ts). Null for every
+-- consent before this column existed: those stay gated (K9).
+select schema_add_column('connections', 'consent_scope_hash', 'text');
+-- OPTIONS (D6, L9): the options line or the gated count line the profile displayed, as lib/options-load.ts returned it.
+select schema_add_column('display_log', 'options_line', 'text');
+-- OPTIONS fix round 1: share closes removed by the exercise-day rule are counted on their own (QA 8); malformed or
+-- unsupported-underlying option positions are an options count, not a futures one (QA 9).
+select schema_add_column('users', 'excluded_exercise_shares', 'int not null default 0');
+select schema_add_column('users', 'open_options_other', 'int not null default 0');
+-- OPTIONS fix round 1 (review 4): one-time per-connection option backfill. Null until the connection's whole activity
+-- history has been read with the option types (lib/options-sync.ts); the cursor holds each account's next offset.
+select schema_add_column('connections', 'options_backfilled_at', 'timestamptz');
+select schema_add_column('connections', 'options_backfill_cursor', $d$jsonb not null default '{}'$d$);
+-- OPTIONS fix round 1 (QA 12): a close is unique per trader. The earlier unique(close_id) stays (it can't be dropped
+-- here); a collision across traders is counted, never silently dropped (lib/options-sync.ts#rebuildOptionTrades).
+select schema_add_index('option_trades_user_close', 'create unique index option_trades_user_close on option_trades (user_id, close_id)');
+-- Fixes cycle 3, F3-4 (merge with options): the last option positions of an account the latest sync read did not list,
+-- kept with their read time, private and rendered nowhere until the owner decides OD-9 (Q2), like unlisted_positions.
+create table if not exists unlisted_option_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  position_key text not null,
+  underlying text not null,
+  option_right text not null check (option_right in ('CALL', 'PUT')),
+  option_expiry date not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null,
+  unlisted_at timestamptz not null default now(),
+  primary key (user_id, account_id, position_key)
+);
+-- F-14 × OPTIONS: the open option counts per vendor account ({account id: {short, unsupported, other}}), so a cadence
+-- sync that reads one account's positions replaces that account's counts; the users totals are their sum. Null until
+-- the first user-wide positions write (lib/options-sync.ts#replaceAccountOptionPositions).
+select schema_add_column('users', 'open_options_by_account', 'jsonb');
+
+-- ---- F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts, first slice ----
+-- One row per day and class, counted by one upsert per beacon (lib/views.ts#recordView). Aggregate only: no IP, user
+-- agent, viewer id, session id, cookie, referrer URL, path, query or time of day. user_id is the viewed trader (profile,
+-- trade and month surfaces; null elsewhere), keyed by id, never by handle text, so the counts go with the account
+-- (cascade) and never follow a stranger who later takes the handle. surface and via have no CHECK on purpose (adding a
+-- code later would need a drop constraint, which CI forbids): both are validated against the closed registry in code
+-- (lib/views.ts SURFACES, lib/referral.ts VIA_CODES). Never read by any page or by ordering (lib/f15-isolation.test.ts).
+-- Rows older than VIEW_RETENTION_DAYS are purged by the privacy tick (lib/privacy-purge.ts, step 'views').
+create table if not exists view_rollup (
+  day date not null,
+  surface text not null,
+  user_id int references users on delete cascade,
+  ref_class text not null check (ref_class in ('internal', 'external', 'none')),
+  via text not null default 'none',
+  signed_in boolean not null,
+  self_view boolean not null,
+  n int not null default 0
+);
+select schema_add_index('view_rollup_key', 'create unique index view_rollup_key on view_rollup (day, surface, user_id, ref_class, via, signed_in, self_view) nulls not distinct');
+select schema_add_index('view_rollup_user', 'create index view_rollup_user on view_rollup (user_id) where user_id is not null');
+-- Beacons the bot filter dropped, per day, surface (or 'other') and reason (no user id): the false-count rate stays
+-- readable in weeks 1-8. reason has no CHECK for the same reason as surface (lib/views.ts DROP_REASONS).
+create table if not exists view_drops (
+  day date not null,
+  surface text not null,
+  reason text not null,
+  n int not null default 0,
+  primary key (day, surface, reason)
+);

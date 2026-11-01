@@ -75,6 +75,8 @@ dbTest('N2 guards: after a relisting with a trade, a vendor error stamps nothing
     await assert.rejects(syncUser(h.user, h.broker(() => { throw new Error('vendor down'); }), undefined, new Date(t1.getTime() + 2 * DAY)));
     assert.equal((await h.removedAt(h.ids[1]))?.getTime(), t1.getTime());
     await syncUser(h.user, h.broker([]), undefined, new Date(t1.getTime() + 3 * DAY));
+    // Merge with main (#79, F3-3): the freeze needs a second empty list at least FREEZE_CONFIRM_HOURS later.
+    await syncUser(h.user, h.broker([]), undefined, new Date(t1.getTime() + 4 * DAY));
     assert.equal((await h.removedAt(h.ids[1]))?.getTime(), t1.getTime());
     assert.equal(await h.removedAt(h.ids[0]), null);
     assert.ok((await h.sql`select disconnected_at from connections where user_id = ${h.uid}`)[0].disconnected_at);

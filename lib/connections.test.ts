@@ -251,6 +251,34 @@ dbTest('signed in: link writes a pending row and provisional claims only (no act
   }
 });
 
+// Fixes cycle 3, F3-4 (docs/direction/cycle3-2026-11-01.md): an import replaced every position of the trader with the new
+// connection's, deleting an earlier connection's open positions.
+dbTest('F3-4: a second connection\'s import replaces only its own accounts\' positions; the first connection\'s stay', async () => {
+  const { sql, tag, mkUser, cleanup } = await setup();
+  const { completeLink, consent, startConnection, drive } = await import('./connections.ts');
+  const { v, deps } = fakeVendor();
+  const u = await mkUser('a');
+  const att = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const one = `${tag}-one`, two = `${tag}-two`;
+  try {
+    v.accounts = [acct(one)];
+    v.positions.set(one, [{ symbol: 'ONE', unrealizedPct: 0.1 }]);
+    await startConnection({ userId: u.id, attemptId: att }, 'r', deps);
+    const first = await completeLink({ userId: u.id, attemptId: att }, deps) as { id: number };
+    await consent(first.id, new Date(), deps);
+    assert.equal((await drive(first.id, deps)).state, 'connected');
+    v.accounts = [acct(one), acct(two)];
+    v.positions.set(two, [{ symbol: 'TWO', unrealizedPct: -0.1 }]);
+    const second = await completeLink({ userId: u.id, attemptId: att }, deps) as { kind: string; id: number };
+    assert.equal(second.kind, 'consent');
+    await consent(second.id, new Date(), deps);
+    assert.equal((await drive(second.id, deps)).state, 'connected');
+    assert.deepEqual((await sql`select symbol from open_positions where user_id = ${u.id} order by symbol`).map((r) => r.symbol), ['ONE', 'TWO']);
+  } finally {
+    await cleanup([u.id], [one, two]);
+  }
+});
+
 dbTest('decline: declined with its timestamp, the link removed at the vendor, provisional claims released so the same account can be claimed by another trader; confirmed claims are never released', async () => {
   const { sql, tag, mkUser, events, conn, claims, cleanup } = await setup();
   const { completeLink, decline, consent, startConnection, drive } = await import('./connections.ts');

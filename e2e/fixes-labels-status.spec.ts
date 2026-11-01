@@ -72,7 +72,12 @@ const now = () => new Date();
 // Design system R3: the disconnect date is ‹Mon D, YYYY› on every surface.
 const frozenLive = () => `Disconnected ${dateText(DISCONNECTED, now(), { year: 'always' })} · record frozen`;
 const frozenStatic = frozenLive;
-const nb = (s: string) => s.replace(/ /g, '\u00a0'); // dates never break inside
+// Merge with main: dates never break inside and keep their word through a no-wrap .status-glue group (ordinary spaces).
+const glue = async (l: Locator, text: string) => {
+  const g = l.locator('.status-glue').filter({ hasText: text });
+  await expect(g).toHaveCount(1);
+  expect(await g.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('nowrap');
+};
 const said = async (l: Locator) => (await l.first().textContent())!.replace(/\u00a0/g, ' ').trim();
 async function narrow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
@@ -86,7 +91,8 @@ test('F-11 frozen record: the profile says "Disconnected ‹date› · record fr
   expect(await said(line1)).toMatch(new RegExp(`^Record since .+ · ${frozenLive()}$`));
   // Words in <time datetime>: the disconnect date carries its ISO instant.
   const disc = line1.locator(`time[datetime="${DISCONNECTED.toISOString()}"]`);
-  expect(await disc.textContent()).toBe(nb(dateText(DISCONNECTED, now(), { year: 'always' })));
+  expect(await disc.textContent()).toBe(dateText(DISCONNECTED, now(), { year: 'always' }));
+  await glue(line1, `Disconnected ${dateText(DISCONNECTED, now(), { year: 'always' })}`);
   expect(await said(block.locator('[data-status="line2"]'))).toMatch(/^Last close [A-Z][a-z]{2} \d{1,2}(, \d{4})?$/); // frozen wins: no "updated", no idle
   await expect(page.locator('main')).not.toContainText('Connected:');
   await expect(page.locator('main')).not.toContainText('not updated since');
@@ -194,7 +200,7 @@ test('QA round 2 (N7, N8): every account removed: "No account connected since �
   await expect(block.getByRole('list', { name: 'Accounts in this record' }).locator('li')).toHaveText([`Account removed ${dateText(REMOVED, now(), { year: 'always' })}`]);
   for (const t of ['Connected:', '0 accounts', 'updated', 'Disconnected']) await expect(page.locator('main')).not.toContainText(t);
   // N8: the word before a date and the date are joined by no-break spaces (one line at 360).
-  expect(await block.locator('[data-status="line1"]').textContent()).toContain(`since\u00a0${nb(dateText(REMOVED, now(), { year: 'always' }))}`);
+  await glue(block.locator('[data-status="line1"]'), `since ${dateText(REMOVED, now(), { year: 'always' })}`);
   await narrow(page);
   // The pane JSON and the trade page say the same.
   const json = await (await request.get('/u/fls_gone/pane')).json();
@@ -206,5 +212,5 @@ test('QA round 2 (N7, N8): every account removed: "No account connected since �
   await expect(page.locator('main')).not.toContainText('Connected:');
   // The frozen record's own Disconnected line keeps "Disconnected" and its date together too.
   await page.goto('/u/fls_frozen');
-  expect(await page.locator('.record-status-block [data-status="line1"]').textContent()).toContain(`Disconnected\u00a0${nb(dateText(DISCONNECTED, now(), { year: 'always' }))}`);
+  await glue(page.locator('.record-status-block [data-status="line1"]'), `Disconnected ${dateText(DISCONNECTED, now(), { year: 'always' })}`);
 });

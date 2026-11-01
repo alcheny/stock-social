@@ -3,6 +3,9 @@ import type { Metadata } from 'next';
 // F-2 PR-5: lib/feed.ts#loadFeedPage plus, signed in, the viewer's own profile and switches.
 import { loadFeedPage } from '@/lib/discovery/personal-feed.ts';
 import { FEED, FEED_COUNTS, LIKES, FEED_EMPTY } from '@/lib/copy.ts';
+// CHORES-3 (K20): the home link preview.
+import { siteOrigin } from '@/lib/site-origin.ts';
+import { demoShown, homePreview } from '@/lib/home-preview.ts';
 import { FeedKeys } from './feed-keys.tsx';
 import { FeedEnd, FeedRows } from './feed-rows.tsx';
 import { FeedPager } from './feed-pager.tsx';
@@ -14,12 +17,23 @@ import { FeedGestures } from './feed-gestures.tsx';
 import { hiddenTradeCount } from '@/lib/likes.ts';
 import { FeedNotes } from './feed-notes.tsx';
 import { DiscoveryLog } from './discovery-log.tsx';
+// F-13: the signed-out twin of the notes slot (it renders only signed out, page 1).
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 // A later page (`?after=`) is a slice of one day's list: not a page of its own for search engines.
+// CHORES-3 (K20): every feed page carries the home link preview (lib/home-preview.ts); the page sets no title.
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
-  return (await searchParams).after ? { robots: { index: false } } : {};
+  const after = (await searchParams).after;
+  const p = homePreview(await demoShown());
+  const image = { url: '/home-card', width: 1200, height: 630, type: 'image/png', alt: p.cardText };
+  const preview: Metadata = {
+    metadataBase: new URL(siteOrigin()),
+    description: p.metaDescription,
+    openGraph: { type: 'website', url: '/', title: p.title, description: p.description, images: [image] },
+    twitter: { card: 'summary_large_image', title: p.title, description: p.description, images: [image] },
+  };
+  return { ...preview, ...(after ? { robots: { index: false } } : {}) };
 }
 
 // Public, no signup: every shared link lands here (DESIGN §2 BL feedback).

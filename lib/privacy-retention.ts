@@ -6,7 +6,7 @@
 //   account   kept until the account is deleted (deletion removes every row, lib/delete.ts and the users cascade)
 //   session   kept until it expires, then purged by the tick (lib/privacy-purge.ts, lib/auth/links.ts)
 //   short     unfinished or orphaned rows purged by the tick after a fixed window (lib/privacy-purge.ts)
-//   reserved  no personal data; kept for a fixed period (a deleted handle's reservation)
+//   reserved  kept for a fixed period (a deleted or renamed handle's reservation; no personal data once the account is gone)
 //   none      no personal data; operational rows
 export type RetentionClass = 'account' | 'session' | 'short' | 'reserved' | 'none';
 export type TableEntry = { personal: boolean; retention: RetentionClass; holds: string };
@@ -14,7 +14,7 @@ export type TableEntry = { personal: boolean; retention: RetentionClass; holds: 
 export const SCHEMA_MAP: Record<string, TableEntry> = {
   users: { personal: true, retention: 'account', holds: 'handle, display name, 18+ attestation time, vendor user id and encrypted secret, referral' },
   activities: { personal: true, retention: 'account', holds: 'raw broker activities: symbols, quantities, prices, fees, account ids' },
-  corporate_actions: { personal: true, retention: 'account', holds: 'raw broker corporate-action rows (splits, stock dividends, renames): symbols, share counts, account ids; deleted with the profile' },
+  corporate_actions: { personal: true, retention: 'account', holds: 'raw broker corporate-action rows (splits, stock dividends, renames) and broker trade rows with no usable price, share count or date: symbols, share counts, prices, account ids; deleted with the profile' },
   closed_trades: { personal: true, retention: 'account', holds: 'derived public record: symbols, dates, percent returns, holding periods, theses' },
   // Sharded sync (docs/SYNC.md): one row per shard: its lease, heartbeat and last run's counts. No user ids.
   sync_shards: { personal: false, retention: 'none', holds: 'per-shard sync lease, heartbeat and run counters (numbers only)' },
@@ -27,10 +27,13 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   identities: { personal: true, retention: 'account', holds: 'sign-in provider subject and email address' },
   sessions: { personal: true, retention: 'session', holds: 'hashed session token and user id; purged at expiry' },
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },
-  handle_reservations: { personal: false, retention: 'reserved', holds: 'a deleted handle and its release date' },
+  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 3 per account (a further rename ends the oldest hold); purged by the tick once the hold has ended' },
   funnel_events: { personal: false, retention: 'short', holds: 'sign-up step names and times per attempt; purged with an unfinished attempt' },
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
+  // Fixes cycle 3, F3-4: kept while the owner decides OD-9; rendered nowhere.
+  unlisted_option_positions: { personal: true, retention: 'account', holds: 'private last-read long option positions (underlying, call or put, expiry, unrealized percent, read time) of an account the broker no longer lists; deleted with the profile' },
+  unlisted_positions: { personal: true, retention: 'account', holds: 'private last-read open positions (symbol, unrealized percent, read time) of an account the broker no longer lists; deleted with the profile' },
   follows: { personal: true, retention: 'account', holds: 'private follows' },
   viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; rows the viewer ended and ended unfollows purged after a day; a "not interested" that ran its 90 days is kept until removed (F-2 PR-5)' },
   trade_likes: { personal: true, retention: 'account', holds: 'private likes (preference data, kept indefinitely); a like whose trade is gone for 30 days is purged' },
@@ -59,10 +62,20 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   public_import_state: { personal: false, retention: 'none', holds: 'import cursor and last successful run per source' },
   public_filer_log: { personal: true, retention: 'account', holds: 'corrections log: filer id, action, reason code and time; no requester details' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
+  // fix-user-text B (F-9): who reported which note; both user links cascade, so a deleted profile leaves no reporter id.
+  thesis_reports: { personal: true, retention: 'account', holds: 'which signed-in reader reported which trader\'s note (by sell id) and when' },
+  // OPTIONS (docs/features/logs/options/plan.md D1, L8): deleted with the account (the users cascade).
+  option_activities: { personal: true, retention: 'account', holds: 'raw broker option activities: contract terms, strikes, quantities, prices, fees, cash, account ids' },
+  option_trades: { personal: true, retention: 'account', holds: 'derived long option closes: underlying, call or put, expiry, dates, percent returns; public only through the consent gate' },
+  open_option_positions: { personal: true, retention: 'account', holds: 'long open option positions: underlying, call or put, expiry, unrealized percent; public only through the consent gate' },
   // Security hardening (2026-11-01): pseudonymous (keyed hashes, never the address or IP itself), so counted as personal.
   rate_limits: { personal: true, retention: 'short', holds: 'rate-limit counters per window, keyed by a scope and a keyed hash of an email address, client IP or id; pruned by lib/rate-limit.ts after 2 days' },
   portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },
   rate_marks: { personal: true, retention: 'short', holds: 'the last import-poll time per user id; pruned by lib/rate-limit.ts after a day' },
+  // F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts. No IP, user agent, viewer or session
+  // id, cookie, referrer URL, path or time of day. Counted as personal because a row names the viewed trader's id.
+  view_rollup: { personal: true, retention: 'short', holds: 'daily view counts per surface, viewed trader id (record pages), referrer class, source class, signed-in and self-view flags; deleted with the trader\'s account; purged after 120 days (lib/views.ts VIEW_RETENTION_DAYS)' },
+  view_drops: { personal: false, retention: 'short', holds: 'daily counts of beacons the bot filter dropped, per surface and reason (no user id); purged after 120 days' },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.

@@ -9,9 +9,8 @@ import { startVendorFake, type FakeActivity, type FakeCorporateRow } from '../e2
 
 const hasDb = !!process.env.DATABASE_URL;
 let fake: Awaited<ReturnType<typeof startVendorFake>>;
-const PORT = 4800 + Math.floor(Math.random() * 400);
 before(async () => {
-  fake = await startVendorFake(PORT);
+  fake = await startVendorFake(0);
   process.env.SNAPTRADE_BASE_URL = fake.base;
   process.env.SNAPTRADE_CLIENT_ID = 'test';
   process.env.SNAPTRADE_CONSUMER_KEY = 'test-consumer';

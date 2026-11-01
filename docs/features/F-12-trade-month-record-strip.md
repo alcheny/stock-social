@@ -1,6 +1,6 @@
 # F-12 · Record strip on trade and month pages and their images
 
-Status: ready
+Status: built
 
 ## Why
 A shared trade or month page or image shows one result without the record behind it. That is the cherry-picked
@@ -71,3 +71,6 @@ the stock image, reusing F-10's `RecordStrip`. Approved by the approval council
   council's ≥35 px at 1200 for the record line as the target.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #54 (50774a9) and #60 (cce9669) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.

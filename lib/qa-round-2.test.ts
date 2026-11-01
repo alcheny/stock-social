@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cardSegments, glued, imageFrozenText, idleSince, NBSP, paneSegments, recordFrozen, recordRows, segments, statusParts, type StatusConnection, type StatusFacts, type Part } from './record-status.ts';
+import { cardSegments, glued, imageFrozenText, idleSince, paneSegments, timeText, recordFrozen, recordRows, segments, statusParts, type StatusConnection, type StatusFacts, type Part } from './record-status.ts';
 import { statusForOrNull } from './record-status-load.ts';
 import { baselineKind, baselineLines } from './ticker.ts';
 import { FIXES_LABELS as FL, STATUS_LINE as S } from './copy.ts';
@@ -15,6 +15,7 @@ import type { Confidence } from './trades.ts';
 const NOW = new Date('2026-11-01T12:00:00Z');
 const DAY = 86_400_000, HOUR = 3_600_000;
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
+const NBSP = '\u00a0';
 const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const acct = (id: string, removedAt: Date | null = null) => ({ id, isPaper: false, removedAt, institution: 'Fake Brokerage' });
 const conn = (id: number, accounts: StatusConnection['accounts'], disconnectedAt: Date | null = null): StatusConnection =>
@@ -107,18 +108,23 @@ test('N8: "Account 2 of 2 removed ‹date›" (no second "Account"); the trade a
   assert.equal(recordRows(facts({ state: 'importing' }), NOW), undefined);
   // Glued: the date keeps its word ("Disconnected Oct 30, 2026", "removed Oct 28, 2026", "updated 3 hours ago").
   const frozen = statusParts(facts({ connections: [conn(1, [acct('a1')], new Date('2026-10-30T09:00:00Z'))] }), NOW, 'live');
+  // Merge with main: ordinary spaces (the text reads the same to tests and copy), the glue is a no-wrap group.
+  const groups = (gs: ReturnType<typeof glued>) => { const m = new Map<number, string>(); for (const s of gs) if (s.glue !== undefined) m.set(s.glue, (m.get(s.glue) ?? '') + (s.iso && s.title ? timeText(s) : s.text)); return [...m.values()]; };
   const g = glued(segments(frozen.line1));
-  assert.equal(g.map((s) => s.text).join(''), `Record since${NBSP}Jan${NBSP}5,${NBSP}2026 · Disconnected${NBSP}Oct${NBSP}30,${NBSP}2026 · record frozen`);
+  assert.equal(g.map((s) => s.text).join(''), 'Record since Jan 5, 2026 · Disconnected Oct 30, 2026 · record frozen');
+  assert.doesNotMatch(g.map((s) => s.text).join(''), new RegExp(NBSP));
+  assert.deepEqual(groups(g), ['since Jan 5, 2026', 'Disconnected Oct 30, 2026']);
   const up = glued(segments(statusParts(facts(), NOW, 'live').line2));
-  assert.ok(up.some((s) => s.text === `updated${NBSP}` ), up.map((s) => s.text).join('|'));
-  assert.ok(up.some((s) => s.iso && s.text === `3${NBSP}hours${NBSP}ago` && s.title === 'Nov' + NBSP + '1'));
+  assert.ok(groups(up).includes('updated 3 hours ago (Nov 1)'), groups(up).join('|'));
+  assert.ok(up.some((s) => s.iso && s.text === '3 hours ago' && s.title === 'Nov 1'));
   const acc = glued(segments([l.accounts[1]]));
-  assert.equal(acc.map((s) => s.text).join(''), `Account 2 of 2 removed${NBSP}${dateText(r, NOW, { year: 'always' }).replace(/ /g, NBSP)}`);
+  assert.deepEqual(groups(acc), [`removed ${dateText(r, NOW, { year: 'always' })}`]);
   // A text segment not followed by a date is left alone; the renderer uses glued() and keeps timeText for relative times.
   assert.deepEqual(glued([{ text: 'a b ' }, { text: 'c' }]), [{ text: 'a b ' }, { text: 'c' }]);
   const tsx = src('app/status-line.tsx');
   assert.match(tsx, /glued\(segments\)/);
   assert.match(tsx, /s\.title \? timeText\(s\)/);
+  assert.match(tsx, /className="status-glue"/);
   for (const p of ['app/u/[handle]/trade/[sellId]/page.tsx', 'app/u/[handle]/month/[ym]/page.tsx']) assert.match(src(p), /recordRows\(/, p);
 });
 
@@ -198,7 +204,7 @@ test('N12: the profile\'s trade rows print dateText (the year rule), not a numer
 
 test('N4, N11, B1, B2: no-:has fallback classes, the pane\'s F3 spacing, the F3 line before F-7\'s line in the pane and before the evidence on the profile, the profile h1 on a phone', () => {
   const css = src('app/globals.css');
-  assert.match(css, /html\.bar-hide \.feed \.row > \.card, html\.bar-signin \.feed \.row > \.card \{ padding-bottom: 96px; \}/);
+  assert.match(css, /html\.bar-hide \.feed \.row > \*, html\.bar-signin \.feed \.row > \* \{ padding-bottom: 94px; \}/); // merge with main #71: its 94 px room
   assert.match(src('app/feed-hides.tsx'), /classList\.toggle\('bar-hide', !!bar\)/);
   assert.match(src('app/feed-gestures.tsx'), /classList\.toggle\('bar-signin', askSignIn\)/);
   assert.match(css, /\.pane \[data-disclaimer\] \{ margin: 8px 0 12px; \}/);

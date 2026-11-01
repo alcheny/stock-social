@@ -13,6 +13,7 @@ import { publicRecordDetail, recordInstitutions, type PublicState } from './conn
 import { paneTrust } from './pane.ts';
 import { ownLists, traderId } from './follows.ts';
 import { exportSubscription } from './billing.ts';
+import { toneClass } from './open-split.ts';
 
 // F-3: set by /tools/signin, read once by the sign-in landing (lib/auth/landing.ts) to come back to Record tools.
 export const AFTER_SIGNIN_COOKIE = 'after_signin';
@@ -201,7 +202,7 @@ export async function compareCards(traders: ViewTrader[], now = new Date()): Pro
 // ponytail: each card reads the trader's whole closed_trades, exactly as the profile does (up to 4 profile reads per
 // view) — share a cached per-trader summary once the profile has one.
 async function card(t: ViewTrader, now: Date): Promise<Card> {
-  const [u] = await sql`select excluded_positions, excluded_future from users where id = ${t.id}`;
+  const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate from users where id = ${t.id}`;
   const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id}`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${t.id} and source = 'snaptrade'`;
   const { public: { state, paper } } = await publicRecordDetail(t.id);
@@ -222,7 +223,7 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
     closed: trades.length,
     figures: show ? {
       winRate: `${(s.winRate * 100).toFixed(0)}%`,
-      avg: pct(s.avgReturn), avgSign: s.avgReturn > 0 ? 'up' : 'down',
+      avg: pct(s.avgReturn), avgSign: toneClass(s.avgReturn) ?? '', // A11Y-FIXES #23: 0.0% is neutral
       range: rangeText(c), low: c.perTrade ? pct(c.perTrade.low) : null,
       evidence: evidenceLine(c),
       drawdown: pct(-s.maxDrawdown),
@@ -230,6 +231,7 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
     excluded: [
       ...((u?.excluded_positions as number) > 0 ? [PROFILE.excludedPositions(u.excluded_positions as number)] : []),
       ...((u?.excluded_future as number) > 0 ? [PROFILE.excludedFuture(u.excluded_future as number)] : []),
+      ...((u?.excluded_corporate as number) > 0 ? [PROFILE.excludedCorporate(u.excluded_corporate as number)] : []), // F3-13
       ...(paper > 0 ? [RECORD_BODY.paperExcluded(paper)] : []),
     ],
   };

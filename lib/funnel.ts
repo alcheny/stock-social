@@ -1,13 +1,14 @@
 // Sign-up funnel events (docs/features/logs/F-1/plan.md §5): per signup_attempts row, method and step only.
 // No personal data, ever: names are enumerated, meta keys are allow-listed and values are short scalars.
 import { sql } from './db.ts';
+import { pathCode } from './referral.ts'; // F-15
 
 export const FUNNEL_EVENTS = ['landed', 'method_chosen', 'attested', 'notice_seen', 'portal_opened', 'link_succeeded',
   'no_real_account', 'consented', 'declined', 'expired', 'abandoned', 'failed', 'import_finished', 'own_profile_viewed'] as const;
 export type FunnelEvent = (typeof FUNNEL_EVENTS)[number];
 
 export const META_KEYS: Partial<Record<FunnelEvent, readonly string[]>> = {
-  landed: ['source'], method_chosen: ['method'], portal_opened: ['mode'], link_succeeded: ['accounts', 'paper'],
+  landed: ['source'], method_chosen: ['method', 'path'], portal_opened: ['mode'], link_succeeded: ['accounts', 'paper'],
   failed: ['reason'], import_finished: ['trades', 'seconds'],
 };
 
@@ -23,6 +24,8 @@ export function funnelEvent(name: string, meta: Record<string, unknown> = {}): {
     const v = meta[k];
     if (v === undefined || v === null) continue;
     if (typeof v === 'number' || typeof v === 'boolean') { out[k] = v; continue; }
+    // F-15: the sign-in path is a closed code (lib/referral.ts#PATH_CODES); anything else is dropped, not stored.
+    if (name === 'method_chosen' && k === 'path') { const p = pathCode(v); if (p) out[k] = p; continue; }
     if (typeof v !== 'string' || v.length > 40 || PERSONAL.test(v)) throw new Error(`funnel meta ${k} is not a step value`);
     out[k] = v;
   }

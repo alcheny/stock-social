@@ -1,9 +1,10 @@
 // Fixed product copy for F-1 (docs/features/logs/F-1/plan.md §2, the UX lead's strings verbatim).
 // Every string here is tested against the banned-claims list (lib/copy.test.ts). Change copy here only.
 // F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
-import { count, counted } from './format.ts';
+import { count, counted, toneWord } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
 import { EXCLUSION_DAYS } from './discovery/weights.ts';
+import { tone, type Tone } from './open-split.ts'; // A11Y-FIXES #23 (group 3)
 
 export const SIGNIN = {
   title: 'Publish your trades',
@@ -71,7 +72,9 @@ export const PROFILE = {
   // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
   // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
   // excluded_corporate to the session user row (lib/session.ts, protected) and a line there.
-  excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a stock split or other corporate action the importer can't price exactly.`,
+  // Fixes cycle 3 (F3-15, F3-1): neutral cause words; the count also holds broker trade rows with no usable price, share
+  // count or date (lib/trades.ts).
+  excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a share move, corporate action or broker row the importer can't price.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -386,9 +389,15 @@ export const HOW = {
   ],
   excludedTitle: 'What is excluded, and counted',
   excluded: [
-    'Options, short sales and other activity the importer cannot price correctly.',
+    // OPTIONS (docs/features/logs/options/plan.md D8): the options bullets replace "Options, short sales and other
+    // activity the importer cannot price correctly." (word order kept so "short sales" and "Options" still lead).
+    'Short options and short sales: their risk has no fixed amount to measure a percent against.',
+    'Exercised or assigned options, and share trades held over the day of an exercise or assignment in that stock. These are left out of the options average, so it does not include contracts that ended in the money.',
+    'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
+    // Fixes cycle 3, F3-1 (lib/trades.ts): unusable broker trade rows are counted, never dropped.
+    'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.',
     'A sell of more shares than the imported history holds (for example after a stock split the broker did not report) is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
@@ -419,6 +428,54 @@ export const CLOSES_PAGING = {
 
 export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated', skip: 'Skip to disclaimer and legal links' } as const;
 
+// F-13 (first-visit line, swipe hint, nav)
+// D27's line and SW-1's hint verbatim (lib/f13-copy.test.ts); a decided line changes only by the owner or a council
+// amendment. The design system council (PR #48, §2.5 R5) proposes new wording for the line: an owner item in the PR.
+// `demo`, `how` and `dismiss` follow that council's labels (not part of D27's decided text).
+// If F-7 public profiles enter the feed, `line` becomes false for them and goes back to the idea board (2026-11-01).
+export const FIRST_VISIT = {
+  line: 'Verified trades, straight from the broker. Losses included.',
+  how: FOOTER.how, // the arrow is drawn aria-hidden (app/first-visit.tsx)
+  dismiss: 'Dismiss this note',
+  demo: 'Demo records are marked Demo.',
+  hint: 'Swipe ← for profile',
+} as const;
+export const NAV = { stocks: 'Trades by stock' } as const;
+// Fix #9 (POLICY F3a): the Verified badge's title and the footer's Verified sentence share this one definition.
+export const VERIFIED_MEANING = 'Imported read-only from the trader’s broker. It doesn’t verify identity or imply endorsement.';
+export const verifiedMeansFooter = () => `“Verified” means ${VERIFIED_MEANING[0].toLowerCase()}${VERIFIED_MEANING.slice(1)}`;
+// end F-13
+
+
+
+// A11Y-FIXES: feed (group 2)
+// #18 (WCAG 2.5.3, 4.1.2): the card's Like button is named by its visible text ("Like" / "Liked", state in aria-pressed);
+// this note is its accessible description.
+// ponytail: LIKES.likeLabel is now unused but kept in place (shared block of the feed's copy) — delete it with the next LIKES edit.
+export const A11Y_FEED = {
+  likeNote: 'Only you can see likes.',
+} as const;
+// end A11Y-FIXES feed
+
+
+
+// A11Y-FIXES: copy, titles (group 3)
+// #5: the join and share copy now come from fix cycle 2 (#59, PUBLIC_SHORT and the share prompt).
+// #8 (POLICY F3a): the trade and month images' alts, the recap description and the back links now come from F-10/F-12
+// (lib/trade-share.ts, lib/recap.ts, RECORD_STRIP.link), which carry no completeness claim (lib/a11y-fixes.test.ts).
+// #10 (POLICY P2, F3a): a demo profile says it is demo data; "connected accounts" only on a broker record.
+export const DEMO_PROFILE = {
+  line: 'Demo data, not a real broker record.',
+  connectedOnly: 'Only trades from connected accounts are shown.',
+} as const;
+// #23 (POLICY A1; WCAG 1.4.1, 1.3.1): the word beside a percent, from the printed sign (lib/open-split.ts#tone), so
+// "0.0%" is never called a gain or a loss.
+// F-19 (#57): the words live in lib/format.ts (toneWord), one vocabulary; signWord reads them by the printed sign.
+export const SIGN_WORD: Record<Tone, string> = { up: toneWord('up'), down: toneWord('down'), flat: toneWord('flat') };
+export const signWord = (x: number): string => toneWord(tone(x));
+// #20, #21: route titles and the root 404 page now come from fix cycle 2 (#59); app/t/[symbol] calls notFound().
+// end A11Y-FIXES copy
+
 // Privacy work (2026-11-01): the launch gate's closed states (lib/launch-gate.ts, committee D6–D8). No date, no promise.
 export const LAUNCH = {
   closed: "Sign-up isn't open yet. Existing accounts can still sign in.",
@@ -438,6 +495,63 @@ export const LOGIN_MAIL = {
   subject: 'Your Stock Social sign-in link',
   text: (url: string) => `Open this link to sign in to Stock Social. It works once, for 15 minutes.\n\n${url}\n\nIf you did not ask for it, ignore this email.`,
 } as const;
+
+// OPTIONS (docs/features/logs/options/plan.md D5, D6, D8): the option words, the plan's own. Functions take numbers and
+// already formatted percents only (this file does not format returns). No direction, outcome or urgency words, and no
+// countdown: an expiry is an absolute date (expiryText).
+const optionPart = (n: number, one: string) => counted(n, one);
+const OPTION_LINE_HEAD = (n: number, winPct: string) => `Options: ${counted(n, 'trade')} · ${winPct} wins · `;
+export const OPTIONS = {
+  // Fix round 3 (user test, business lead B4): the headline's qualifier reads "Excluding options" everywhere.
+  shareLabel: 'Excluding options',
+  // D5: the one line while the consent gate is closed. Zero parts are dropped.
+  gated: (closes: number, open: number) => {
+    const parts = [closes > 0 ? optionPart(closes, 'option trade') : '', open > 0 ? optionPart(open, 'open option') : ''].filter(Boolean);
+    // Fix round 3 (UX N6): plain words; the link to /how is its own short link (howLink).
+    // Legal re-sign (fix round 4): these words exactly.
+    return `${parts.join(' and ')} imported. Option results aren't shown on this record.`;
+  },
+  howLink: 'How options are counted',
+  // Fix round 3 (business lead B2): the options grid's row label.
+  gridLabel: (n: number) => `Options · ${counted(n, 'trade')}`,
+  // Fix round 3 (item 8): an option row's link names the whole row and where it goes.
+  rowName: (underlying: string, chip: string, exp: string, figure: string) => `${underlying} ${String(chip).toLowerCase()}, ${exp}, ${figure}, stock page`,
+  // D6: "Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)".
+  line: (n: number, winPct: string, avg: string, range: string | null) => `${OPTION_LINE_HEAD(n, winPct)}${avg} avg${range ? ` ${range}` : ''}`,
+  lineHead: (n: number, winPct: string) => OPTION_LINE_HEAD(n, winPct),
+  short: (closed: number, open: number) => `Short options not shown: ${count(closed)} closed, ${count(open)} open. Their risk has no fixed amount to measure a percent against.`,
+  // Fix round 1 (QA 8): share closes removed by the exercise-day rule are named as share trades, never option trades.
+  technical: (n: number, shares = 0) => `${counted(n, 'option trade')} excluded: exercised, assigned or adjusted contracts and others the importer can't price exactly${shares > 0 ? `, and ${counted(shares, 'share trade')} held over an exercise or assignment day` : ''}.`,
+  exerciseShares: (n: number) => `Excluded: ${counted(n, 'share trade')} held over an exercise or assignment day.`,
+  // Fix round 1 (QA 9): open options the importer can't price exactly (not futures).
+  openOther: (n: number) => `${counted(n, 'open option')} not shown: the importer can't price ${n === 1 ? 'it' : 'them'} exactly.`,
+  listTitle: 'Option trades',
+  // Fix round 2 (re-review C): the pane's closing note follows the gate: options are not shown while gated (or absent),
+  // and summarized in the options line once open.
+  paneNote: (open: boolean) => open
+    ? "Closed share trades from connected accounts are published, losses included; option trades are summarized above. Positions with no recorded entry aren't shown."
+    : "Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.",
+  call: 'Call option',
+  put: 'Put option',
+  unsupported: (n: number) => `Plus ${counted(n, 'open position')} not shown: futures and similar contracts are out of scope.`,
+  noShareCloses: 'No closed share trades yet',
+  chartNone: 'The chart shows share trades. None yet.',
+  chartShareOnly: ' · excluding options',
+  howTitle: 'Options',
+  // Legal re-sign (fix round 4): these words exactly.
+  how: 'Option results are shown only on records whose trader has consented to publishing them. Until then a record shows how many option trades and open options were imported, and its headline stats exclude options.',
+  // Legal re-sign (fix round 4): alt text says exactly this phrase, lower case, after the figures it qualifies.
+  altQualifier: 'excluding options',
+  howMath: [
+    // Fix round 1 (QA 7): per-contract fees can take a very cheap contract far below -100%.
+    'An option trade\u2019s return is on what the contracts cost, fees included: a contract that expires worthless shows \u2212100%, and fees can take it lower, by a lot on very cheap contracts.',
+    // Fix round 3: the summary is its own stats row; the headline excludes options (the label's words).
+    'Option trades are summarized in their own row, with a range once there are 5 independent bets. The headline stats, chart, range and the order of traders exclude options.',
+  ],
+} as const;
+const EXPIRY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+/** D6 (BL5, L6): the one expiry format, everywhere: "exp Dec 19, 2026". An absolute date only. */
+export const expiryText = (isoDay: string) => `exp ${EXPIRY.format(new Date(`${isoDay.slice(0, 10)}T00:00:00Z`))}`;
 
 // Everything above, flattened, for the banned-list test.
 // F-2 PR-1: the feed's paging and end card (plan §1 PR-1). "today's": the order is seeded per UTC day; the list is
@@ -607,7 +721,10 @@ export const PERSONALIZE = {
 // /how (Q12: the documented method, POLICY F1): how a signed-in viewer's feed is ordered.
 export const HOW_PERSONAL = {
   title: 'How your feed is ordered',
-  text: `Signed out, everyone gets the same order. Signed in, your own follows, likes and hides move traders up or down in your feed; with "Personalize with my activity" on, so do the records you look at, open or skip. Each choice counts for ${F2_DAYS} days, fading over that time. Nothing about a return's size or sign is used, so losses count the same as gains. With "Personalize my feed" off you get the order everyone gets, minus what you hid. No security is ever suggested.`,
+  // Fixes cycle 3, F3-7 (POLICY F1): the base order first. 48 and 10 are lib/feed.ts#RECENCY_HOURS and
+  // lib/confidence.ts#RANK_MIN_BETS, written out so this client-safe file never imports the feed's database code; the test
+  // in lib/fixes-cycle3.test.ts ties them.
+  text: `Sign is never used, so a loss ranks like a gain of the same size. The base order uses how large each return is and how recent the close is (a close counts about a third as much after each 48 hours). Records with at least 10 independent bets whose likely range sits clearly above or below zero come first, a clear loss as much as a clear gain. Signed out, everyone gets the same order. Signed in, your own follows, likes and hides move traders up or down in your feed; with "Personalize with my activity" on, so do the records you look at, open or skip. Each choice counts for ${F2_DAYS} days, fading over that time. With "Personalize my feed" off you get the order everyone gets, minus what you hid. No security is ever suggested.`,
 };
 // H4 (business lead demand 6): the facts the Privacy Policy must state about F-2's preference data, from the same
 // constants as the code. lib/discovery/f2-privacy.test.ts checks the policy page once it has text.
@@ -693,7 +810,7 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy(), /* OPTIONS */ OPTIONS].forEach(walk);
   return out;
 }
 
@@ -886,3 +1003,18 @@ export const STATUS_LINE = {
   demoLink: 'Demo data',
   accountsLabel: 'Accounts in this record',
 };
+// ---- CHORES-3 (approval council cycle 3 chores; docs/features/logs/chores-cycle3/plan.md) ----
+// K20: the home link preview. The design system council's positioning line (docs/direction/design-system-2026-11-01.md
+// :27) and, while demo records exist, its Demo sentence (:441). No product name, logo, figure or completeness claim
+// before the name is cleared (POLICY T5a). D27's first-visit line (FIRST_VISIT.line) is not changed.
+// C3-39: Record tools' entry points while checkout is closed for the viewer (each matches /tools' own line).
+export const CHORES_3 = {
+  position: 'Closed trades imported read-only from connected broker accounts. Losses included.',
+  homeTitle: 'Closed trades imported read-only from connected broker accounts.',
+  losses: 'Losses included.',
+  demo: 'Demo records are marked Demo.',
+  seeToolsNotOpen: 'See Record tools (not open yet)',
+  seeToolsUnavailable: 'See Record tools (not available right now)',
+  backToFeed: 'Back to the feed',
+} as const;
+// end CHORES-3

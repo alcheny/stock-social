@@ -13,6 +13,8 @@ import { rejectedAmong } from './likes.ts';
 // F-10: the feed card's record strip figures (lib/record-strip.ts), computed per page from the rows already read.
 import { feedStrips, type StripFigures } from './record-strip.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
+import { optionHeadline, paneView, type PaneOptionsView } from './options-load.ts'; // OPTIONS
+
 // F-2 PR-5: personal ordering (pure) and the loader type; the loader itself is passed in by the page (lib/discovery/personal-load.ts).
 import { personalList, personalPool, personalReason, relevanceOf, type PersonalReason, type TraderShape, type Uses } from './discovery/personal.ts';
 import type { Personal, PersonalLoader } from './discovery/personal-load.ts';
@@ -55,6 +57,7 @@ const SIZE_MAX = Math.log1p(Number.MAX_VALUE);
 export type FeedCandidate = {
   id: number; sell_id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number; score: number;
+  thesis_written_at?: Date | null; thesis_edited_at?: Date | null; // F-9: the shown card's note dates (UserNote)
 };
 
 // F-2 PR-1 fix round 2 (tester High A): "this close's sell was imported after asOf". Was `sell_id not in (select
@@ -313,6 +316,9 @@ export type FeedPage = {
   openAsOf?: Map<number, Date>;
   // FIXES-LABELS: status (F-11): each page trader's status-line facts (lib/record-status.ts), with the page's states.
   status?: Map<number, StatusFacts>;
+  // OPTIONS (docs/features/logs/options/plan.md AC 24): each page trader's option headline (the pane's label and line),
+  // from the one reader, gated per trader.
+  options?: Map<number, PaneOptionsView>;
   // F-10: each card trader's record strip figures (average per trade + the profile's evidence), from byUser.
   strips?: Map<number, StripFigures>;
 };
@@ -395,7 +401,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const statusP = statusRowsOrEmpty(withSection ? [...new Set([...traders, ...candIds])] : traders);
   const [rows, states, panes, following, people, rejected, opens] = await Promise.all([
     page.items.length ? sql`
-      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name
+      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name,
+        t.thesis_written_at, t.thesis_edited_at
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null and ${filerVisibleSql('u')}
       where t.sell_id = any(${page.items.map((s) => s.key)})` : [],
     // Fix round 4 (TR-3): a failed import stays in the feed (never hidden) but its card and pane say it may be
@@ -434,6 +441,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     ...(profile ? { personal: { signals: profile.signals, uses: profile.uses } } : {}),
     ...openOf(opens, onPage, states),
     status, // FIXES-LABELS: status
+    options: new Map([...await optionHeadline([...onPage])].map(([id, h]) => [id, paneView(h)])), // OPTIONS: flag and line only
     strips: feedStrips(new Map([...byUser].filter(([id]) => cards.some((t) => t.user_id === id))), new Date(now)), // F-10
   };
 }

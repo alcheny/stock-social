@@ -8,9 +8,13 @@ import type { BrokerUser, VendorAccount } from './broker.ts';
 import { AccountClaimedError, accountIdentity, claimIn, identityOwners } from './claims.ts';
 import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
-import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
+import { insertActivities, USER_LOCK } from './sync.ts';
 import { insertCorporateActions } from './corporate-actions.ts';
-import { replaceAccountPositions, replacePositions } from './positions.ts';
+import { replaceAccountPositions } from './positions.ts';
+// OPTIONS (docs/features/logs/options/plan.md D1, D5, D7): option rows, the record rebuild and the consent line's hash.
+import { insertOptionActivities, rebuildRecord, replaceImportedOptionPositions } from './options-sync.ts';
+import { CURRENT_CONSENT_HASH } from './consent-versions.ts';
+import type { OptionRow } from './options.ts';
 import { ownsAttempt } from './auth/links.ts';
 import { unsignToken } from './auth/sessions.ts';
 import { capReached, hit } from './rate-limit.ts';
@@ -428,7 +432,7 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
       await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${user.id})`;
       const r = await claimIn(tx, user.id, c.accounts.map((a) => ({ id: a.id, isPaper: a.isPaper, identity: a.identity ?? null })), { connectionId: id, confirmed: true, now });
       if (!r.ok) throw new AccountClaimedError();
-      const ok = await setState(id, 'pending', 'importing', now, { consent_at: now, user_id: user.id, last_progress_at: now, import_cursor: tx.json(startCursor() as never) }, tx);
+      const ok = await setState(id, 'pending', 'importing', now, { consent_at: now, /* OPTIONS (D5) */ consent_scope_hash: CURRENT_CONSENT_HASH, user_id: user.id, last_progress_at: now, import_cursor: tx.json(startCursor() as never) }, tx);
       if (!ok) throw new NotPendingError();
       if (createdHere) {
         // The vendor user registered on the attempt moves to the user it now belongs to, in this transaction: a failure
@@ -568,8 +572,11 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
       };
       if (cur.i < real.length) {
         const limit = deps.pageLimit ?? vendor.PAGE_LIMIT;
-        const page = await deps.fetchActivitiesPage(bu, real[cur.i].id, cur.offset, limit);
+        const options: (OptionRow & { raw: unknown })[] = []; // OPTIONS
+        const page = await deps.fetchActivitiesPage(bu, real[cur.i].id, cur.offset, limit, (rows) => { options.push(...rows); });
         await insertActivities(c.user_id!, 'snaptrade', page.activities, tx);
+        await insertCorporateActions(tx, c.user_id!, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
+        await insertOptionActivities(c.user_id!, 'snaptrade', options, tx); // OPTIONS
         return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
       }
       // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.
@@ -584,17 +591,20 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
       }
       if (!cur.rebuilt || cur.pos !== undefined) {
         const first = !cur.rebuilt;
-        if (first) await rebuildTrades(c.user_id!, tx);
+        if (first) await rebuildRecord(c.user_id!, tx); // OPTIONS: rebuildTrades, then the option steps
         const positions = [];
         const read: string[] = [];
+        const splits = new Map<string, import('./broker.ts').PositionSplit>(); // OPTIONS
         let k = first ? 0 : cur.pos!;
         for (; k < real.length; k++) {
           if (read.length && clock() + vendor.VENDOR_TIMEOUT_MS > readUntil) break;
-          for (const p of await deps.fetchPositions(bu, real[k].id)) positions.push({ accountId: real[k].id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
-          read.push(real[k].id);
+          const id = real[k].id;
+          for (const p of await deps.fetchPositions(bu, id, (s) => { splits.set(id, s); })) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
+          read.push(id);
         }
-        if (first) await replacePositions(tx, c.user_id!, positions);
-        else await replaceAccountPositions(tx, c.user_id!, read, positions);
+        // F3-4: per account read, so an import never deletes an earlier connection's positions (options too).
+        await replaceAccountPositions(tx, c.user_id!, read, positions);
+        await replaceImportedOptionPositions(tx, c.user_id!, real.map((a) => a.id), read, splits); // OPTIONS (D7), per account read (F3-4)
         const { pos: _pos, ...rest } = cur;
         return save({ ...rest, rebuilt: true, ...(k < real.length ? { pos: k } : {}) }, true);
       }
@@ -604,7 +614,7 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
       if (!done) return save({ ...cur, checkedAt: now.getTime() }, false);
       // Complete at link time, or re-read once after the vendor finished: the record is whole (TR-3).
       if (cur.pass >= 2 || real.every((a) => a.initialSyncCompleted)) {
-        await setState(id, 'importing', 'connected', now, { last_progress_at: now }, tx);
+        await setState(id, 'importing', 'connected', now, { last_progress_at: now, /* OPTIONS: whole history read */ options_backfilled_at: now }, tx);
         const [{ n }] = await tx`select count(*)::int as n from closed_trades where user_id = ${c.user_id}`;
         await recordFunnel(c.attempt_id, 'import_finished', { trades: n as number, seconds: Math.round((now.getTime() - (c.consent_at ?? now).getTime()) / 1000) });
         return { state: 'connected', imported: c.imported_count, progressed: true };

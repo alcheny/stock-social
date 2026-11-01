@@ -2,8 +2,10 @@ import Link from 'next/link';
 import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
 import { THESIS_CAP, type ThesisList } from '@/lib/ticker.ts';
 import { pct } from '@/lib/trades.ts';
+import { toneClass } from '@/lib/open-split.ts'; // A11Y-FIXES #23
 import type { rowBadge } from '@/lib/pane.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
+import { UserNote } from '@/lib/user-note.ts';
 
 const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
@@ -23,12 +25,14 @@ export default function Theses({ list, symbol, badgeFor = (v) => (v ? 'verified'
         <ul className="rows thesis-rows">
           {list.items.map((r) => (
             <li key={r.id}>
-              <Link href={`/u/${r.handle}#trade-${r.id}`} className="trow">
+              <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`} className="trow">{/* A11Y-FIXES #22 */}
                 <span className="who">@{r.handle} <RowBadge kind={badgeFor(r.verified, r.handle)} /></span>
-                <b className={r.returnPct > 0 ? 'up' : 'down'}>{pct(r.returnPct)}</b>
-                <span style={{ flexBasis: '100%', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{r.thesis}</span>
+                <b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b>{/* A11Y-FIXES #23 */}
                 <span className="muted">held {held(r.holdingDays)} · {date(r.closedAt)}</span>
               </Link>
+              {/* F-9: UserNote (no Report here yet). Fix round 2 (E): a sibling under the row link, not inside it, so the
+                  link's name stays short (handle, badge, figure, held time, date). */}
+              <UserNote text={r.thesis} handle={r.handle} writtenAt={r.writtenAt} editedAt={r.editedAt} />
             </li>
           ))}
         </ul>

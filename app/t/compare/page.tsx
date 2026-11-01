@@ -86,7 +86,8 @@ function Column({ symbol, side, id, shared, open, note = true }: { symbol: strin
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
       {open && <p className="small" data-open>{OPEN.compare(OPEN.line(open.o, pct), asOfDay(open.asOf))}</p>}
       <div className="evidence">
-        <p style={{ margin: 0 }}>{side.tier === 'too-early' && <b>{COMPARE_COPY.tooEarly}. </b>}{compareEvidenceText(c) /* QA round 1 (finding 13): no verdict */}</p>
+        {/* QA round 1 (finding 13): no verdict. A11Y-FIXES #25: the line already starts "Too early to tell", so no prefix. */}
+        <p style={{ margin: 0 }}>{compareEvidenceText(c)}</p>
       </div>
       <Spread spread={side.spread} returns={side.returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} shared={shared} bare />
     </section>

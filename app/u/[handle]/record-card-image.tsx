@@ -7,6 +7,7 @@
 // Committee round 1: the chart, the count and the period lead (count and period at 1.5× body, in the text color); the
 // trust state is an outlined badge (Demo in its own tone, as strong as Verified); "New record" is a badge at the count's
 // size; the evidence label shares the trust line's row; the 0% label sits in a gutter left of the line.
+import { OPTIONS } from '@/lib/copy.ts';
 import { CARD_LAYOUT, disclaimerLines, noOrphan, UNFURL_COLUMN_GAP, unfurlHeadlineSize, unfurlWide, type CardModel } from '@/lib/record-card.ts';
 
 const C = { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#22c55e', down: '#f43f5e', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78' };
@@ -37,6 +38,9 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   );
   const badge = pill(m.label, f.label, TONE[m.tone]);
   const newRecord = m.newRecord ? pill('New record', f.newRecord, C.text) : null;
+  // OPTIONS fix round 1 (AC 24, QA 12), round 3: an explicit "Excluding options" label beside the trust badge (the display name gives
+  // way first, as for the other badges).
+  const shareOnly = m.shareLabel ? pill(OPTIONS.shareLabel, f.label, C.muted) : null;
   const toneColor = (tone: 'up' | 'down' | 'flat') => (tone === 'up' ? C.up : tone === 'down' ? C.down : C.text);
   const lineColor = toneColor(m.headlineTone ?? 'flat'); // the line agrees with the headline it sums to
 
@@ -140,7 +144,9 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
     // An empty record with open positions (F-6) still shows its unrealized part, at the body's size.
     main = (
       <div style={{ ...col, gap: L.gap * 3 }}>
-        <span style={t(o ? f.line : m.kind === 'unfurl' ? 72 : 88)}>{m.body}</span>
+        <span style={t(o || m.optionsLine ? f.line : m.kind === 'unfurl' ? 72 : 88)}>{m.body}</span>
+        {/* OPTIONS fix round 4 (N1): an options-only record draws its options line, as its alt text says. */}
+        {m.optionsLine && <span style={t(f.body, C.muted)}>{m.optionsLine}</span>}
         {openBlock}
       </div>
     );
@@ -157,7 +163,10 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
           </div>
           {plot}
         </div>
-        <span style={{ ...t(f.body, C.muted), lineHeight: 1, whiteSpace: 'nowrap', marginTop: 4, flexShrink: 0 }}>{m.caption}</span>
+        {/* OPTIONS: the options line takes the caption's row (two lines at most; the model gave the chart's row up). */}
+        {m.optionsLine
+          ? <span style={{ ...t(f.body, C.muted), lineHeight: 1, marginTop: 4, flexShrink: 0 }}>{m.optionsLine}</span>
+          : <span style={{ ...t(f.body, C.muted), lineHeight: 1, whiteSpace: 'nowrap', marginTop: 4, flexShrink: 0 }}>{m.caption}</span>}
         {o && <div style={{ display: 'flex', marginTop: L.gap, flexShrink: 0 }}>{openRow(f.body, true)}</div>}
       </div>
     );
@@ -167,20 +176,21 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
         <div style={m.kind === 'square' ? { ...row, gap: 28 } : col}>{average}</div>
         {plot}
         <div style={{ display: 'flex', gap: 48 }}>{count}{period}</div>
+        {m.optionsLine && <span style={t(f.body, C.muted)}>{m.optionsLine}</span>/* OPTIONS */}
         {openBlock}
       </div>
     );
   }
 
   const head = m.kind === 'unfurl'
-    ? <div style={{ ...row, justifyContent: 'space-between', gap: 16 }}>{who}<div style={{ ...row, gap: 12, flexShrink: 0 }}>{newRecord}{badge}</div></div>
+    ? <div style={{ ...row, justifyContent: 'space-between', gap: 16 }}>{who}<div style={{ ...row, gap: 12, flexShrink: 0 }}>{newRecord}{shareOnly}{badge}</div></div>
     : (
       <div style={{ ...col, gap: L.gap }}>
         <div style={{ ...row, justifyContent: 'space-between', gap: 24 }}>
           <span style={{ ...t(f.brand), fontWeight: 700, flexShrink: 0 }}>Stock Social</span>
           {badge}
         </div>
-        <div style={{ ...row, justifyContent: 'space-between', gap: 16 }}>{who}{newRecord}</div>
+        <div style={{ ...row, justifyContent: 'space-between', gap: 16 }}>{who}<div style={{ ...row, gap: 12, flexShrink: 0 }}>{shareOnly}{newRecord}</div></div>
       </div>
     );
 

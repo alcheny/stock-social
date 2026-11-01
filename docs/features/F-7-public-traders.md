@@ -1,6 +1,6 @@
 # F-7 · Public traders: profiles built from publicly available trading records
 
-Status: ready
+Status: built
 
 ## Why
 Some of the most-watched traders never connect a broker, but their trades are public: large investors, legislators,
@@ -37,6 +37,10 @@ Standing rules that apply unchanged (not owner choices for this feature; listed 
   their trades" language (POLICY F2/F3).
 - POLICY T1/T2: no real people's names or third-party trademarks in the repository, issues, PRs or logs. Test
   fixtures use fictional filers; real names exist only in production data imported at runtime.
+- 2026-11-01: AC20's footer string is amended by F-25 (`docs/features/F-25-one-link-rule-for-trade-rows.md`): the
+  footer's profile link reads "Record, wins and losses →" on connected and public-record cards alike, from one copy
+  constant. AC20 below is left as written. Why: decided by the committee under the owner's instruction of 2026-11-01
+  (design council cycle 3); both footer links fit on one line at 360 px only with the shorter text.
 
 ## Acceptance criteria
 Written by the committee in the build's plan debate (`docs/features/logs/F-7/plan.md`, rounds 3-5, on
@@ -123,3 +127,6 @@ Written by the committee in the build's plan debate (`docs/features/logs/F-7/pla
 - A launch switch for showing real filers in production, and what the e2e and demo data use.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #56 (d98f32d) and #67 (3d66114) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.
