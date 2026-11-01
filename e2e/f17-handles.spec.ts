@@ -5,8 +5,10 @@
 // images. Fixture rows are this file's own (a random tag), removed by handle at the end.
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-const db = async () => (await import('../lib/db.ts')).sql;
-test.afterAll(async () => { await (await db()).end({ timeout: 1 }); });
+// This file's own pool: ending lib/db.ts's shared pool here would end it for the next spec in the same worker.
+let pool: import('postgres').Sql | undefined;
+const db = async () => (pool ??= (await import('postgres')).default(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} }));
+test.afterAll(async () => { await pool?.end({ timeout: 1 }); });
 
 const tag = () => `f17${Math.random().toString(36).replace(/[^a-z]/g, '').slice(0, 6).padEnd(6, 'q')}`;
 const made: string[] = [];
