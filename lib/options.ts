@@ -45,8 +45,10 @@ export type OptionRow = {
 // users.excluded_options_short; every other cause fills users.excluded_options_other.
 // ponytail: K7 per-cause counts are returned by matchOptions but not stored — store them (a jsonb on users or a counts
 // table) once real data flows, and revisit if the share counted passes about 10%.
+// Fix round 1 (QA 5): the multiplier is part of the contract key, so mini and standard contracts never share a ledger
+// and there is no multiplier mismatch to count. `duplicate`: a close whose id another trader's close already holds.
 export const CAUSES = ['short', 'exercise', 'expiryCash', 'noContract', 'contradict', 'flip', 'noOpen', 'dangling', 'adjusted',
-  'multiplier', 'currency', 'underlying', 'malformed', 'cashScale'] as const;
+  'currency', 'underlying', 'malformed', 'cashScale', 'duplicate'] as const;
 export type Cause = (typeof CAUSES)[number];
 export type Counts = Record<Cause, number>;
 export const zeroCounts = (): Counts => Object.fromEntries(CAUSES.map((c) => [c, 0])) as Counts;
@@ -86,14 +88,19 @@ export function contractKey(r: Pick<OptionRow, 'accountId' | 'underlying' | 'exp
   if (!r.accountId || !r.underlying || !r.expiry || (r.right !== 'CALL' && r.right !== 'PUT') || r.strikeMilli === null || !r.multiplier) return null;
   return [r.accountId, r.underlying, r.expiry, r.right, r.strikeMilli, r.multiplier].join('|');
 }
-const baseKey = (r: OptionRow) => [r.accountId, r.underlying, r.expiry, r.right, r.strikeMilli].join('|');
 
 const isEvent = (k: string | null) => k === 'OPTIONEXPIRATION' || k === 'OPTIONASSIGNMENT' || k === 'OPTIONEXERCISE';
 const isOpenType = (oc: string | null) => oc === 'BUY_TO_OPEN' || oc === 'SELL_TO_OPEN';
-// D4 order: at equal instants opens first, then rows whose side the ledger infers, then closes and events; then by id.
-const rank = (r: OptionRow) => (isOpenType(r.openClose) ? 0 : (r.kind === 'BUY' || r.kind === 'SELL') && !r.openClose ? 1 : 2);
+// D4 order: at equal instants opens first, then rows whose side the ledger infers, then explicit closes, then events
+// (fix round 1, review 1); then by id. An event dated at midnight UTC exactly is a date-only row: it orders at the end of
+// its UTC day, after that day's trades (an expiry is the day's last act).
+const rank = (r: OptionRow) => (isOpenType(r.openClose) ? 0 : (r.kind === 'BUY' || r.kind === 'SELL') && !r.openClose ? 1 : isEvent(r.kind) ? 3 : 2);
+export const orderTime = (r: Pick<OptionRow, 'kind' | 'executedAt'>) => {
+  const t = r.executedAt!.getTime();
+  return isEvent(r.kind) && t % DAY === 0 ? t + DAY - 1 : t;
+};
 export function orderRows(rows: OptionRow[]): OptionRow[] {
-  return [...rows].sort((a, b) => (a.executedAt!.getTime() - b.executedAt!.getTime()) || (rank(a) - rank(b)) || (a.externalId < b.externalId ? -1 : a.externalId > b.externalId ? 1 : 0));
+  return [...rows].sort((a, b) => (orderTime(a) - orderTime(b)) || (rank(a) - rank(b)) || (a.externalId < b.externalId ? -1 : a.externalId > b.externalId ? 1 : 0));
 }
 
 const finitePos = (x: number | null): x is number => x !== null && Number.isFinite(x) && x > 0;
@@ -123,7 +130,7 @@ export function matchOptions(rows: OptionRow[], asOf: Date): { trades: OptionTra
       else if (!isOpenType(r.openClose)) counts.malformed++;
       continue;
     }
-    const k = baseKey(r);
+    const k = contractKey(r)!;
     const g = groups.get(k);
     if (g) g.push(r); else groups.set(k, [r]);
   }
@@ -132,18 +139,22 @@ export function matchOptions(rows: OptionRow[], asOf: Date): { trades: OptionTra
   return { trades, counts, short, other: Object.values(counts).reduce((a, b) => a + b, 0) - short };
 }
 
-// One contract (account, underlying, expiry, right, strike; the multiplier and currency are checked to agree).
+// One contract (account, underlying, expiry, right, strike, multiplier). Fix round 1 (QA 4): only conflicting non-null
+// values count: a currency, OCC ticker or underlying type missing on a row (an event row often has none) is no mismatch.
 function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: OptionTrade[]) {
   const first = rows[0];
   // Contract-level exclusions: every long result of this contract is counted under the first that applies.
   let excluded: Cause | null = null;
-  if (new Set(rows.map((r) => r.multiplier)).size > 1) excluded = 'multiplier';
-  else if (new Set(rows.map((r) => r.currency ?? '')).size > 1) excluded = 'currency';
-  else if (!first.underlyingType || !(UNDERLYING_ALLOWLIST as readonly string[]).includes(first.underlyingType)
-    || new Set(rows.map((r) => r.underlyingType)).size > 1) excluded = 'underlying';
+  const present = <T,>(xs: (T | null)[]) => [...new Set(xs.filter((x): x is T => x !== null && x !== ''))];
+  const types = present(rows.map((r) => r.underlyingType));
+  if (present(rows.map((r) => r.currency)).length > 1) excluded = 'currency';
+  // A missing type on every row is outside the allowlist (L3); conflicting types too.
+  else if (types.length !== 1 || !(UNDERLYING_ALLOWLIST as readonly string[]).includes(types[0])) excluded = 'underlying';
   // ponytail: K5 a corporate action on the underlying during a hold is caught only when the OCC root changes — taint the
   // contract from the corporate-action rows once that importer (PR #40) is wired.
-  else if (rows.some((r) => { const o = parseOcc(r.occTicker); return !o || bare(o.root) !== bare(r.underlying!); })) excluded = 'adjusted';
+  // ponytail: a mini contract's conventional root (the underlying plus a trailing digit, e.g. XYZ7) counts as adjusted —
+  // accept it only once the vendor marks such roots explicitly (never guessed from the digit).
+  else if (rows.some((r) => { if (!r.occTicker) return false; const o = parseOcc(r.occTicker); return !o || bare(o.root) !== bare(r.underlying!); })) excluded = 'adjusted';
   else if (rows.some((r) => (r.kind === 'BUY' || r.kind === 'SELL') && (!finitePos(r.units) || !finiteNonNeg(r.price) || (r.fee !== null && !Number.isFinite(r.fee))))) excluded = 'malformed';
   else if (rows.some((r) => (r.kind === 'BUY' || r.kind === 'SELL') && cashScaleFails(r))) excluded = 'cashScale';
 
@@ -221,12 +232,17 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
         if (Math.abs(net) < 1e-12) net = 0;
       } else { taint('contradict', -u); }
     } else if (r.kind === 'OPTIONEXPIRATION') {
+      // Fix round 1 (review 1): an expiry closes min(row units, net), like an exercise.
       if (net > 0) {
-        const n = net;
-        if (r.amount !== null && Number.isFinite(r.amount) && r.amount !== 0) { counts.expiryCash++; longLots = []; }
-        else longResult(r, n, 0);
-        net = 0; longLots = [];
-      } else if (net < 0) { counts.short++; net = 0; }
+        const n = Math.min(u || net, net);
+        if (r.amount !== null && Number.isFinite(r.amount) && r.amount !== 0) {
+          counts.expiryCash++;
+          let left = n;
+          while (left > 1e-12 && longLots.length) { const take = Math.min(longLots[0].units, left); longLots[0].units -= take; left -= take; if (longLots[0].units <= 1e-12) longLots.shift(); }
+        } else longResult(r, n, 0);
+        net -= n;
+        if (Math.abs(net) < 1e-12) { net = 0; longLots = []; }
+      } else if (net < 0) { counts.short++; net += Math.min(u || -net, -net); if (Math.abs(net) < 1e-12) net = 0; }
       else counts.noOpen++;
     } else if (r.kind === 'OPTIONEXERCISE') {
       if (net > 0) {
@@ -240,9 +256,9 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
       } else if (net < 0) taint('contradict', 0);
       else counts.noOpen++;
     } else if (r.kind === 'OPTIONASSIGNMENT') {
-      counts.short++;
-      if (net < 0) { net += Math.min(u || -net, -net); if (Math.abs(net) < 1e-12) net = 0; }
-      else if (net > 0) { tainted = true; longLots = []; }
+      // Fix round 1 (QA 6): an assignment of a long lot contradicts the ledger: other, and tainted until flat.
+      if (net > 0) taint('contradict', 0);
+      else { counts.short++; if (net < 0) { net += Math.min(u || -net, -net); if (Math.abs(net) < 1e-12) net = 0; } }
     }
   }
   // D4: a dangling contract: long lots still open more than DANGLING_DAYS whole days after expiry.

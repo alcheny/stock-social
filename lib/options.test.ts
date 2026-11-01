@@ -15,7 +15,8 @@ const T0 = Date.UTC(2026, 0, 5, 15);
 type Gen = { rows: OptionRow[]; asOf: Date };
 // A random ledger: 1–2 accounts, 1–4 contracts, up to 12 rows each, ties at the same instant, every row kind, missing
 // open/close types, contradictions and flips, now and then an excluded underlying, an adjusted root, an event with no
-// contract or an expiry with cash.
+// contract or an expiry with cash. Fix round 1: events are often date-only (midnight UTC) on a day with trades, carry
+// partial units, and often lack currency, OCC ticker or underlying type; a mini and a standard contract can share a strike.
 function ledger(seed: number, opts: { fees?: boolean } = {}): Gen {
   const r = prng(seed);
   const pick = <T>(xs: readonly T[]) => xs[Math.floor(r() * xs.length)];
@@ -28,8 +29,8 @@ function ledger(seed: number, opts: { fees?: boolean } = {}): Gen {
     const right = pick(['CALL', 'PUT'] as const);
     const expiryMs = T0 + Math.floor(r() * 60) * DAY;
     const expiry = new Date(expiryMs).toISOString().slice(0, 10);
-    const strike = pick([50, 123.45, 7.5]);
-    const mini = r() < 0.15;
+    const strike = pick([50, 123.45]);
+    const mini = r() < 0.2;
     const type = r() < 0.08 ? pick(['fut', 'idx', null]) : pick(['cs', 'et', 'ad']);
     const root = r() < 0.06 ? `${underlying.replace('.', '')}1` : underlying;
     const occ = `${root.padEnd(6, ' ')}${expiry.slice(2).replace(/-/g, '')}${right[0]}${String(Math.round(strike * 1000)).padStart(8, '0')}`;
@@ -38,111 +39,121 @@ function ledger(seed: number, opts: { fees?: boolean } = {}): Gen {
     for (let i = 0; i < n; i++) {
       if (r() > 0.2) t += Math.floor(r() * 4) * 3_600_000; // 20% share the previous row's instant
       const kind = pick(['BUY', 'BUY', 'SELL', 'SELL', 'OPTIONEXPIRATION', 'OPTIONEXERCISE', 'OPTIONASSIGNMENT'] as const);
+      const event = kind !== 'BUY' && kind !== 'SELL';
       const explicit = r() < 0.7;
       const oc = kind === 'BUY' ? (explicit ? pick(['BUY_TO_OPEN', 'BUY_TO_OPEN', 'BUY_TO_CLOSE']) : null)
         : kind === 'SELL' ? (explicit ? pick(['SELL_TO_CLOSE', 'SELL_TO_CLOSE', 'SELL_TO_OPEN']) : null) : null;
       const units = 1 + Math.floor(r() * 4);
-      const price = kind === 'BUY' || kind === 'SELL' ? Math.round((0.05 + r() * 12) * 100) / 100 : 0;
-      const noContract = (kind === 'OPTIONEXPIRATION' || kind === 'OPTIONASSIGNMENT' || kind === 'OPTIONEXERCISE') && r() < 0.05;
+      const price = event ? 0 : Math.round((0.05 + r() * 12) * 100) / 100;
+      const noContract = event && r() < 0.05;
       const cash = kind === 'OPTIONEXPIRATION' && r() < 0.1 ? 37.5 : kind === 'OPTIONEXPIRATION' ? 0 : null;
+      // Half the events are date-only: midnight UTC of the current trading day (they order after that day's trades).
+      const at = event && r() < 0.5 ? Math.floor(t / DAY) * DAY : t;
+      const bare = event && r() < 0.4; // an event row without currency, OCC ticker or underlying type
       rows.push({
         externalId: `r${String(id++).padStart(4, '0')}`, accountId: account, kind, openClose: oc,
-        underlying: noContract ? null : underlying, underlyingType: noContract ? null : type, right: noContract ? null : right,
+        underlying: noContract ? null : underlying, underlyingType: noContract || bare ? null : type, right: noContract ? null : right,
         expiry: noContract ? null : expiry, strikeMilli: noContract ? null : Math.round(strike * 1000), multiplier: noContract ? null : mini ? 10 : 100,
-        occTicker: noContract ? null : occ, units: kind === 'OPTIONEXPIRATION' && r() < 0.5 ? null : units, price,
-        fee: opts.fees === false ? 0 : Math.round(r() * 300) / 100, amount: cash, currency: 'USD', executedAt: new Date(t), verified: r() < 0.9,
+        occTicker: noContract || bare ? null : occ, units: event && r() < 0.4 ? null : units, price,
+        fee: opts.fees === false ? 0 : Math.round(r() * 300) / 100, amount: cash, currency: bare ? null : 'USD', executedAt: new Date(at), verified: r() < 0.9,
       });
     }
   }
   return { rows, asOf: new Date(T0 + Math.floor(r() * 90) * DAY) };
 }
 
-// ---- Independent reference model: a written-out reading of D2–D4 in a different shape (each contract is a list of
-// single contracts, each with its own cost; every row gets a label).
+// ---- Independent reference model (fix round 1, QA 6): a plain signed-position walk, written from the plan's words
+// without the matcher's helpers. Each contract is a signed position `pos` (+ long, - short) and a queue holding the
+// cost of every long contract one by one. Every row gets one label: 'open' (an opening row, never counted), 'shown',
+// or the cause it is counted under.
 type Label = 'open' | 'shown' | Cause;
 type RefOut = { labels: Map<string, Label>; returns: Map<string, number>; dangling: number };
+const ALLOW = new Set(['cs', 'et', 'ad', 'ps', 'cef', 'ut']);
 function reference(rows: OptionRow[], asOf: Date): RefOut {
   const labels = new Map<string, Label>(), returns = new Map<string, number>();
   let dangling = 0;
-  const contracts: Record<string, OptionRow[]> = {};
+  const byContract = new Map<string, OptionRow[]>();
   for (const x of rows) {
-    const complete = x.accountId && x.underlying && x.expiry && (x.right === 'CALL' || x.right === 'PUT') && x.strikeMilli !== null && x.multiplier && x.executedAt;
-    if (!complete) {
+    const keyed = x.accountId && x.underlying && x.expiry && (x.right === 'CALL' || x.right === 'PUT') && x.strikeMilli !== null && x.multiplier && x.executedAt;
+    if (!keyed) {
       const event = x.kind === 'OPTIONEXPIRATION' || x.kind === 'OPTIONASSIGNMENT' || x.kind === 'OPTIONEXERCISE';
       labels.set(x.externalId, event ? 'noContract' : x.openClose === 'BUY_TO_OPEN' || x.openClose === 'SELL_TO_OPEN' ? 'open' : 'malformed');
       continue;
     }
-    (contracts[JSON.stringify([x.accountId, x.underlying, x.expiry, x.right, x.strikeMilli])] ??= []).push(x);
+    const k = `${x.accountId}/${x.underlying}/${x.expiry}/${x.right}/${x.strikeMilli}/${x.multiplier}`;
+    byContract.set(k, [...(byContract.get(k) ?? []), x]);
   }
-  const order = (x: OptionRow) => (x.openClose === 'BUY_TO_OPEN' || x.openClose === 'SELL_TO_OPEN' ? 0 : !x.openClose && (x.kind === 'BUY' || x.kind === 'SELL') ? 1 : 2);
-  for (const list of Object.values(contracts)) {
-    list.sort((a, b) => a.executedAt!.getTime() - b.executedAt!.getTime() || order(a) - order(b) || a.externalId.localeCompare(b.externalId));
-    const mults = new Set(list.map((x) => x.multiplier)), curs = new Set(list.map((x) => x.currency ?? ''));
-    const types = new Set(list.map((x) => x.underlyingType));
-    const bad: Cause | null = mults.size > 1 ? 'multiplier' : curs.size > 1 ? 'currency'
-      : types.size > 1 || !['cs', 'et', 'ad', 'ps', 'cef', 'ut'].includes(list[0].underlyingType ?? '') ? 'underlying'
-      : list.some((x) => { const o = parseOcc(x.occTicker); return !o || o.root.replace(/\W/g, '') !== x.underlying!.replace(/\W/g, ''); }) ? 'adjusted'
-      : list.some((x) => cashScaleFails(x)) ? 'cashScale' : null;
+  for (const list of byContract.values()) {
+    // Order: time (a midnight event at the end of its day), then opens, inferred, closes, events; then id.
+    const when = (x: OptionRow) => { const t = x.executedAt!.getTime(); const ev = x.kind !== 'BUY' && x.kind !== 'SELL'; return ev && t % DAY === 0 ? t + DAY - 1 : t; };
+    const tier = (x: OptionRow) => x.openClose === 'BUY_TO_OPEN' || x.openClose === 'SELL_TO_OPEN' ? 0 : x.kind !== 'BUY' && x.kind !== 'SELL' ? 3 : x.openClose ? 2 : 1;
+    list.sort((a, b) => when(a) - when(b) || tier(a) - tier(b) || (a.externalId < b.externalId ? -1 : 1));
+    // Contract-level exclusion, from the non-null values only.
+    const vals = (f: (x: OptionRow) => string | null) => new Set(list.map(f).filter((v) => v));
+    const typeSet = vals((x) => x.underlyingType);
+    const rootOk = list.every((x) => { if (!x.occTicker) return true; const m = /^(.*?)\s*\d{6}[CP]\d{8}$/.exec(x.occTicker.trim()); return !!m && m[1].replace(/[^A-Z0-9]/g, '') === x.underlying!.replace(/[^A-Z0-9]/g, ''); });
+    const badCash = list.some((x) => {
+      if ((x.kind !== 'BUY' && x.kind !== 'SELL') || !x.amount || !x.units || !x.price) return false;
+      const per = x.units * x.price, a = Math.abs(x.amount);
+      return a >= per / 3 && a <= per * 3 && !(a >= (per * x.multiplier!) / 3 && a <= per * x.multiplier! * 3);
+    });
+    const bad: Cause | null = vals((x) => x.currency).size > 1 ? 'currency'
+      : typeSet.size !== 1 || !ALLOW.has([...typeSet][0]!) ? 'underlying' : !rootOk ? 'adjusted' : badCash ? 'cashScale' : null;
     const m = list[0].multiplier!;
-    let held: { cost: number; at: Date; v: boolean }[] = []; // one entry per long contract
-    let shorts = 0; // short contracts
-    let dirty = 0; // net while tainted (0 = clean)
-    const fee = (x: OptionRow) => Math.abs(x.fee ?? 0);
-    const sell = (x: OptionRow, k: number, price: number) => {
-      const used = held.splice(0, k);
-      const basis = used.reduce((a, u) => a + u.cost, 0);
-      if (bad) { labels.set(x.externalId, bad); return; }
-      labels.set(x.externalId, 'shown');
-      returns.set(x.externalId, (k * price * m - fee(x) - basis) / basis);
-    };
-    const toDirty = (x: OptionRow, cause: Cause, signed: number) => {
-      labels.set(x.externalId, cause);
-      dirty = held.length - shorts + signed;
-      held = []; shorts = 0;
-    };
+    let pos = 0;
+    let costs: { c: number; at: Date }[] = [];
+    let dirty = false;
     for (const x of list) {
-      const k = Math.abs(x.units ?? 0);
-      if (dirty !== 0) {
-        const s = x.kind === 'BUY' ? k : x.kind === 'SELL' ? -k : dirty > 0 ? -Math.min(k || dirty, dirty) : Math.min(k || -dirty, -dirty);
-        labels.set(x.externalId, x.kind === 'OPTIONASSIGNMENT' ? 'short' : x.openClose === 'BUY_TO_OPEN' || x.openClose === 'SELL_TO_OPEN' ? 'open' : 'contradict');
-        dirty += s;
+      const q = Math.abs(x.units ?? 0);
+      const fee = Math.abs(x.fee ?? 0);
+      const set = (l: Label) => labels.set(x.externalId, l);
+      const spoil = (l: Label, after: number) => { set(l); pos = after; costs = []; dirty = pos !== 0; };
+      if (dirty) {
+        // Unknown basis until flat: buys add, sells subtract, events close toward zero.
+        if (x.kind === 'BUY') pos += q; else if (x.kind === 'SELL') pos -= q;
+        else { const k = Math.min(q || Math.abs(pos), Math.abs(pos)); pos += pos > 0 ? -k : k; }
+        set(x.kind === 'OPTIONASSIGNMENT' ? 'short' : x.openClose === 'BUY_TO_OPEN' || x.openClose === 'SELL_TO_OPEN' ? 'open' : 'contradict');
+        if (pos === 0) { dirty = false; costs = []; }
         continue;
       }
-      const net = held.length - shorts;
       if (x.kind === 'BUY') {
-        const oc = x.openClose ?? (shorts > 0 ? 'BUY_TO_CLOSE' : 'BUY_TO_OPEN');
-        if (oc === 'BUY_TO_OPEN') {
-          if (shorts > 0) { toDirty(x, 'contradict', k); continue; }
-          for (let i = 0; i < k; i++) held.push({ cost: x.price! * m + fee(x) / k, at: x.executedAt!, v: x.verified });
-          labels.set(x.externalId, 'open');
-        } else if (net === 0) labels.set(x.externalId, 'noOpen');
-        else if (held.length) toDirty(x, 'contradict', k);
-        else if (k > shorts) toDirty(x, 'flip', k);
-        else { shorts -= k; labels.set(x.externalId, 'short'); }
+        const opening = x.openClose ? x.openClose === 'BUY_TO_OPEN' : pos >= 0;
+        if (x.openClose && x.openClose !== 'BUY_TO_OPEN' && x.openClose !== 'BUY_TO_CLOSE') spoil('contradict', pos + q);
+        else if (opening) {
+          if (pos < 0) spoil('contradict', pos + q);
+          else { for (let i = 0; i < q; i++) costs.push({ c: x.price! * m + fee / q, at: x.executedAt! }); pos += q; set('open'); }
+        } else if (pos === 0) set('noOpen');
+        else if (pos > 0) spoil('contradict', pos + q);
+        else if (q > -pos) spoil('flip', pos + q);
+        else { pos += q; set('short'); }
       } else if (x.kind === 'SELL') {
-        const oc = x.openClose ?? (held.length > 0 ? 'SELL_TO_CLOSE' : 'SELL_TO_OPEN');
-        if (oc === 'SELL_TO_OPEN') {
-          if (held.length) { toDirty(x, 'contradict', -k); continue; }
-          shorts += k; labels.set(x.externalId, 'open');
-        } else if (net === 0) labels.set(x.externalId, 'noOpen');
-        else if (shorts) toDirty(x, 'contradict', -k);
-        else if (k > held.length) toDirty(x, 'flip', -k);
-        else sell(x, k, x.price!);
+        const opening = x.openClose ? x.openClose === 'SELL_TO_OPEN' : pos <= 0;
+        if (x.openClose && x.openClose !== 'SELL_TO_OPEN' && x.openClose !== 'SELL_TO_CLOSE') spoil('contradict', pos - q);
+        else if (opening) { if (pos > 0) spoil('contradict', pos - q); else { pos -= q; set('open'); } }
+        else if (pos === 0) set('noOpen');
+        else if (pos < 0) spoil('contradict', pos - q);
+        else if (q > pos) spoil('flip', pos - q);
+        else {
+          const used = costs.splice(0, q), basis = used.reduce((a, u) => a + u.c, 0);
+          pos -= q;
+          if (bad) set(bad); else { set('shown'); returns.set(x.externalId, (q * x.price! * m - fee - basis) / basis); }
+        }
       } else if (x.kind === 'OPTIONEXPIRATION') {
-        if (held.length) { if (x.amount) { labels.set(x.externalId, 'expiryCash'); held = []; } else sell(x, held.length, 0); }
-        else if (shorts) { labels.set(x.externalId, 'short'); shorts = 0; }
-        else labels.set(x.externalId, 'noOpen');
+        if (pos > 0) {
+          const k = Math.min(q || pos, pos);
+          const used = costs.splice(0, k), basis = used.reduce((a, u) => a + u.c, 0);
+          pos -= k;
+          if (x.amount) set('expiryCash'); else if (bad) set(bad); else { set('shown'); returns.set(x.externalId, (-fee - basis) / basis); }
+        } else if (pos < 0) { pos += Math.min(q || -pos, -pos); set('short'); } else set('noOpen');
       } else if (x.kind === 'OPTIONEXERCISE') {
-        if (held.length) { labels.set(x.externalId, 'exercise'); held.splice(0, Math.min(k || held.length, held.length)); }
-        else if (shorts) { labels.set(x.externalId, 'contradict'); dirty = -shorts; shorts = 0; }
-        else labels.set(x.externalId, 'noOpen');
+        if (pos > 0) { const k = Math.min(q || pos, pos); costs.splice(0, k); pos -= k; set('exercise'); }
+        else if (pos < 0) spoil('contradict', pos); else set('noOpen');
       } else {
-        labels.set(x.externalId, 'short');
-        if (shorts) shorts -= Math.min(k || shorts, shorts);
-        else if (held.length) { dirty = held.length; held = []; }
+        if (pos > 0) spoil('contradict', pos);
+        else { set('short'); if (pos < 0) pos += Math.min(q || -pos, -pos); }
       }
     }
-    if (dirty === 0 && held.length && Math.floor((asOf.getTime() - Date.parse(`${list[0].expiry}T00:00:00Z`)) / DAY) > 5) dangling++;
+    if (!dirty && pos > 0 && Math.floor((asOf.getTime() - Date.parse(`${list[0].expiry}T00:00:00Z`)) / DAY) > 5) dangling++;
   }
   return { labels, returns, dangling };
 }
@@ -170,10 +181,10 @@ test('AC1 (property, 1,000 ledgers): shown + every per-cause count = closing row
     assert.equal(got.short + got.other, sumCounts(got.counts));
   }
   // The generator reaches every rule the random ledgers can express (not a vacuous property).
-  for (const c of ['shown', 'short', 'exercise', 'expiryCash', 'noContract', 'contradict', 'flip', 'noOpen', 'dangling', 'adjusted', 'multiplier', 'underlying']) assert.ok(seen[c] > 0, `${c}: ${seen[c]}`);
+  for (const c of ['shown', 'short', 'exercise', 'expiryCash', 'noContract', 'contradict', 'flip', 'noOpen', 'dangling', 'adjusted', 'underlying']) assert.ok(seen[c] > 0, `${c}: ${seen[c]}`);
 });
 
-test('AC2 (property): no shown trade comes from a short lot; every short close, assignment and short expiry is in the short count', () => {
+test('AC2 (property): no shown trade comes from a short lot; every short close, short assignment and short expiry is in the short count; an assignment of a long lot is not', () => {
   for (let s = 1; s <= RUNS; s++) {
     const { rows, asOf } = ledger(s + 10_000);
     const got = matchOptions(rows, asOf);
@@ -185,9 +196,8 @@ test('AC2 (property): no shown trade comes from a short lot; every short close, 
       assert.notEqual(r.openClose, 'BUY_TO_CLOSE');
     }
     assert.equal(got.short, [...ref.labels.values()].filter((l) => l === 'short').length, `seed ${s}`);
-    // Every assignment is short, wherever it falls.
-    const assignments = rows.filter((r) => r.kind === 'OPTIONASSIGNMENT' && contractKey(r) !== null).length;
-    assert.ok(got.short >= assignments, `seed ${s}`);
+    // Every assignment the reference finds on a short or flat ledger is in the short count; one on a long lot is not.
+    for (const r of rows) if (r.kind === 'OPTIONASSIGNMENT' && contractKey(r) !== null) assert.ok(['short', 'contradict'].includes(ref.labels.get(r.externalId)!), `seed ${s}`);
   }
 });
 
@@ -259,8 +269,9 @@ test('AC5: one hand case per D4 rule', () => {
   // Punctuation in the OCC root matches the underlying; a changed root is an adjusted contract.
   assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN', { underlying: 'B.C', occTicker: 'BC    261219P00123450' }), row('2', 'SELL', 'SELL_TO_CLOSE', { underlying: 'B.C', occTicker: 'BC    261219P00123450' })]), { shown: 1 });
   assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN', { occTicker: 'XYZ1  261219P00123450' }), row('2', 'SELL', 'SELL_TO_CLOSE', { occTicker: 'XYZ1  261219P00123450' })]), { shown: 0, adjusted: 1 });
-  // Multiplier and currency mismatches within one contract.
-  assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN'), row('2', 'SELL', 'SELL_TO_CLOSE', { multiplier: 10 })]), { shown: 0, multiplier: 1 });
+  // Fix round 1 (QA 5): mini and standard contracts on one strike are two ledgers (the sell closes nothing), and a
+  // currency mismatch within one contract.
+  assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN'), row('2', 'SELL', 'SELL_TO_CLOSE', { multiplier: 10 })]), { shown: 0, noOpen: 1 });
   assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN'), row('2', 'SELL', 'SELL_TO_CLOSE', { currency: 'CAD' })]), { shown: 0, currency: 1 });
   // Underlying types outside the allowlist, missing or unknown included.
   for (const t of ['fut', null, 'zz']) assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN', { underlyingType: t }), row('2', 'SELL', 'SELL_TO_CLOSE', { underlyingType: t })]), { shown: 0, underlying: 1 });
@@ -321,4 +332,44 @@ test('AC7: optionSummary gives the hand-computed example, no range under 5 bets,
   assert.equal(optionSummary([]), null);
   const src = readFileSync(new URL('./options.ts', import.meta.url), 'utf8').replace(/\/\/[^\n]*/g, '');
   assert.doesNotMatch(src, /'[^']*\b(edge|skill|signal|beat|above zero|below zero|winner)\b[^']*'/i);
+});
+
+// ---- Fix round 1 (docs/features/logs/options/review-round1.md, qa-round1.md).
+test('fix round 1 A (review 1): a date-only expiry orders after the same day\'s trades and closes min(units, net): buy 2 at 1.00, sell 1 at 3.00, 1 expires → +200% and -100%', () => {
+  const at = (iso: string) => new Date(iso);
+  const rows = [
+    row('1', 'BUY', 'BUY_TO_OPEN', { units: 2, price: 1, executedAt: at('2026-12-10T15:00:00Z') }),
+    row('2', 'SELL', 'SELL_TO_CLOSE', { units: 1, price: 3, executedAt: at('2026-12-19T15:00:00Z') }),
+    row('3', 'OPTIONEXPIRATION', null, { units: 1, price: 0, amount: 0, executedAt: at('2026-12-19T00:00:00Z') }), // date-only
+  ];
+  const m = matchOptions(rows, new Date('2026-12-30'));
+  assert.deepEqual(m.trades.map((t) => [t.closeId, t.returnPct]), [['2', 2], ['3', -1]]);
+  // At one instant, an event comes after a sell too.
+  const same = matchOptions([rows[0], { ...rows[1], executedAt: at('2026-12-19T15:00:00Z') }, { ...rows[2], executedAt: at('2026-12-19T15:00:00Z') }], new Date('2026-12-30'));
+  assert.deepEqual(same.trades.map((t) => t.returnPct), [2, -1]);
+  // An expiry with no units closes what is left.
+  assert.deepEqual(matchOptions([rows[0], rows[1], { ...rows[2], units: null }], new Date('2026-12-30')).trades.map((t) => t.returnPct), [2, -1]);
+});
+
+test('fix round 1 H (QA 4): a missing currency, OCC ticker or underlying type on an event row is no mismatch; an expiry with no currency shows -100%', () => {
+  const ev = row('2', 'OPTIONEXPIRATION', null, { price: 0, amount: 0, currency: null, occTicker: null, underlyingType: null });
+  assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN'), ev]), { shown: 1 });
+  assert.equal(matchOptions([row('1', 'BUY', 'BUY_TO_OPEN'), ev], new Date('2026-12-30')).trades[0].returnPct, -1);
+  // Conflicting non-null values still count.
+  assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN'), { ...ev, currency: 'CAD' }]), { shown: 0, currency: 1 });
+  assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN'), { ...ev, underlyingType: 'et' }]), { shown: 0, underlying: 1 });
+});
+
+test('fix round 1 I (QA 5): a mini root with a trailing digit stays counted as adjusted (never guessed)', () => {
+  const mini = { multiplier: 10, occTicker: 'XYZ7  261219P00123450' };
+  assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN', mini), row('2', 'SELL', 'SELL_TO_CLOSE', mini)]), { shown: 0, adjusted: 1 });
+});
+
+test('fix round 1 J (QA 6): an assignment of a long lot is other (contradict), not short; a short close after a taint stays counted as contradict until flat', () => {
+  assert.deepEqual(only([row('1', 'BUY', 'BUY_TO_OPEN'), row('2', 'OPTIONASSIGNMENT', null)]), { shown: 0, contradict: 1 });
+  // A contradicting buy-to-open while short taints the contract (net 0 → flat? no: short 2, buy 1 → -1, tainted); the
+  // buy-to-close that brings it flat is counted as contradict, not short (its lot's history is unknown).
+  assert.deepEqual(only([row('1', 'SELL', 'SELL_TO_OPEN', { units: 2 }), row('2', 'BUY', 'BUY_TO_OPEN'), row('3', 'BUY', 'BUY_TO_CLOSE')]), { shown: 0, contradict: 2 });
+  // Flat again: the next short close is short.
+  assert.deepEqual(only([row('1', 'SELL', 'SELL_TO_OPEN', { units: 2 }), row('2', 'BUY', 'BUY_TO_OPEN'), row('3', 'BUY', 'BUY_TO_CLOSE'), row('4', 'SELL', 'SELL_TO_OPEN'), row('5', 'BUY', 'BUY_TO_CLOSE')]), { shown: 0, contradict: 2, short: 1 });
 });
