@@ -78,6 +78,10 @@ export const PROFILE = {
   // Fixes cycle 3 (F3-15, F3-1): neutral cause words; the count also holds broker trade rows with no usable price, share
   // count or date (lib/trades.ts).
   excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a share move, corporate action or broker row the importer can't price.`,
+  // F-24 (council cycle 5 RT-2; final review: POLICY F3c "excluded and counted" requires the line): sells counted, not
+  // priced, while a broker row that may repeat an earlier one is checked (users.excluded_held). Neutral cause words, no
+  // claim. ponytail: the committee's wording; the owner's final wording is an owner item.
+  excludedHeld: (n: number) => `${counted(n, 'sell')} excluded while the importer checks a broker row that may repeat an earlier one.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.

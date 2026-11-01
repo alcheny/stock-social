@@ -405,6 +405,10 @@ export default async function Profile({ params, searchParams }: Params) {
       {user.excluded_corporate > 0 && (
         <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>
       )}
+      {/* F-24 RT-2: sells counted while a possible re-issue in their pair is checked (shown only when there are any). */}
+      {user.excluded_held > 0 && (
+        <p className="muted" data-excluded-held>{PROFILE.excludedHeld(user.excluded_held)}</p>
+      )}
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
       {filer && publicExclusions(filer.excluded).map((l) => <p key={l} className="muted" data-public-excluded>{l}</p>)}
       {filer && filer.openSymbols.length > 0 && <section aria-labelledby="public-open" data-public-open>

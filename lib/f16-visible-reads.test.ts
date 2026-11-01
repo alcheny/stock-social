@@ -128,7 +128,7 @@ export const ALLOW: Allow[] = [
   { file: 'lib/positions.ts', count: 3, reason: 'sync write of the open positions snapshot (E4)' },
   { file: 'lib/public-trades.ts', count: 1, reason: 'F-7 import rebuild (write)' },
   { file: 'lib/sync.ts', count: 4, reason: 'rebuild and sync (writes; owned by the sync sessions)' },
-  { file: 'lib/options-sync.ts', count: 6, reason: 'options rebuild and sync (writes; owned by the sync sessions)' },
+  { file: 'lib/options-sync.ts', count: 7, reason: 'options rebuild and sync (writes; owned by the sync sessions); F-24 D4: the close-change snapshot, one trader by id' },
   { file: 'lib/feed.ts', count: 1, reason: 'olderThan: a window probe that returns one timestamp (no trader data); elig applies the predicate to every row it can rank' },
   { file: 'lib/thesis-fixtures.ts', count: 1, reason: 'test fixture helper' },
   { file: 'lib/likes.ts', count: 3, reason: "viewer's own signals (E12): likedAmong marks ids already on a visible page; likesAt and rejectsAt read only trader id and symbol for this viewer's own ordering, never shown (ownLikes, hiddenTradeCount and ownHiddenTrades apply visibleUser)" },

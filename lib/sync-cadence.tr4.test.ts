@@ -200,3 +200,63 @@ dbTest('re-check 1: an unlisted option whose close never arrives goes after 3 da
     assert.equal(await open(), 0, 'unlisted past 3 days: gone');
   } finally { await t.cleanup(); }
 });
+
+dbTest('F-24 (plan §3): a multi-page pass page day takes the positions-only rule and keeps "Updated"; a one-page complete pass counts as the week read', async () => {
+  const { syncUser, insertActivities } = await import('./sync.ts');
+  const run = async (pageLimit: number) => {
+    const t = await trader(true);
+    const buy = { externalId: `${t.tag}-b`, accountId: t.acc.id, symbol: 'XX', side: 'BUY' as const, units: 1, price: 10, fee: 0, executedAt: new Date(base - 20 * DAY), verified: true as const, raw: { type: 'BUY' } };
+    const sell = { externalId: `${t.tag}-s`, accountId: t.acc.id, symbol: 'XX', side: 'SELL' as const, units: 1, price: 8, fee: 0, executedAt: new Date(base + 1 * DAY + HOUR), verified: true as const, raw: { type: 'SELL' } };
+    await insertActivities(t.user.id, 'snaptrade', [buy]);
+    let sold = false, weekReads = 0, pages = 0;
+    const broker = {
+      pageLimit,
+      listAccounts: async () => [t.acc],
+      fetchActivities: async () => { weekReads++; return sold ? [sell] : []; },
+      // A history of 100 rows: one page when the limit covers it, otherwise the pass's first page holds older rows only
+      // (the sell is not on it).
+      fetchActivitiesPage: async (_u: unknown, _id: string, offset: number, limit = pageLimit) => {
+        pages++;
+        const all = sold ? [buy, sell] : [buy];
+        return limit >= 100 ? { activities: all, done: true } : { activities: offset === 0 ? [buy] : [], done: offset + limit >= 100 };
+      },
+      fetchPositions: async () => (sold ? [] : [{ symbol: 'XX', unrealizedPct: -0.2 }]),
+    };
+    const state = async () => {
+      const [r] = await t.sql`select (select count(*)::int from open_positions where user_id = ${t.user.id} and symbol = 'XX') as open,
+        (select count(*)::int from closed_trades where user_id = ${t.user.id} and symbol = 'XX') as closed,
+        (select last_synced_at from users where id = ${t.user.id}) as synced`;
+      return r;
+    };
+    const day = (d: number) => syncUser(t.user, broker as never, undefined, undefined, { cadence: true, shiftMs: shiftAt(d * 25) });
+    await day(0); // the week read; no pass is due (a new account's first pass is at least a period after its claim)
+    const s0 = await state();
+    assert.equal(s0.open, 1);
+    assert.ok(s0.synced, 'day 0: "Updated" set by the week read');
+    assert.deepEqual([weekReads, pages], [1, 0]);
+    sold = true; // sold on day 1: the vendor stops listing the position; the sell is in the week read and the full history
+    await t.sql`update broker_accounts set reconcile_due_at = now() - interval '100 days' where account_id = ${t.acc.id}`;
+    await t.sql`update open_positions set fetched_at = now() - interval '4 days' where user_id = ${t.user.id}`; // unlisted past 3 days
+    await day(1);
+    assert.deepEqual([weekReads, pages], [1, 1], 'day 1: the pass page is the daily activities read, in place of the week');
+    return { t, state, s0 };
+  };
+
+  const multi = await run(60);
+  try {
+    const s = await multi.state();
+    const [b] = await multi.t.sql`select reconcile_offset from broker_accounts where account_id = ${multi.t.acc.id}`;
+    assert.equal(b.reconcile_offset, 10, 'the pass is running (page 0 of several)');
+    assert.deepEqual([s.open, s.closed], [1, 0], 'a history page, not the week: the sold position is never removed before its close is imported');
+    assert.deepEqual(s.synced, multi.s0.synced, '"Updated" keeps its value while the recent week is unread');
+  } finally { await multi.t.cleanup(); }
+
+  const one = await run(1000);
+  try {
+    const s = await one.state();
+    const [b] = await one.t.sql`select reconcile_offset from broker_accounts where account_id = ${one.t.acc.id}`;
+    assert.equal(b.reconcile_offset, null, 'the pass ended on its first page');
+    assert.deepEqual([s.open, s.closed], [0, 1], 'the whole history in one call: the position goes with its closed trade');
+    assert.ok(s.synced > one.s0.synced, '"Updated" moves: a one-page pass is a superset of the week read');
+  } finally { await one.t.cleanup(); }
+});

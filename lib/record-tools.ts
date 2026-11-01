@@ -214,7 +214,7 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
     return { id: t.id, handle: t.handle, name: t.name, notice: HIDDEN_NOTICE.line, state: 'none', badge: null, isNew: false,
       since: null, connected: null, closed: 0, figures: null, excluded: [] };
   }
-  const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate from users where id = ${t.id}`;
+  const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate, excluded_held from users where id = ${t.id}`;
   const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id} and ${visibleId(t.id)}`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${t.id} and source = 'snaptrade'`;
   const { public: { state, paper } } = await publicRecordDetail(t.id);
@@ -244,6 +244,7 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
       ...((u?.excluded_positions as number) > 0 ? [PROFILE.excludedPositions(u.excluded_positions as number)] : []),
       ...((u?.excluded_future as number) > 0 ? [PROFILE.excludedFuture(u.excluded_future as number)] : []),
       ...((u?.excluded_corporate as number) > 0 ? [PROFILE.excludedCorporate(u.excluded_corporate as number)] : []), // F3-13
+      ...((u?.excluded_held as number) > 0 ? [PROFILE.excludedHeld(u.excluded_held as number)] : []), // F-24 RT-2
       ...(paper > 0 ? [RECORD_BODY.paperExcluded(paper)] : []),
     ],
   };

@@ -111,14 +111,14 @@ export const backoffMs = (failures: number) => failures < 1 ? 0 : Math.min(BACKO
 // vendor refused this trader's link (401/403/404): backed off and counted on its own (the owner decides its TR-5 rule).
 // `trader`: anything else specific to this trader (another 4xx, AccountClaimedError, a record the rebuild rejects).
 export type FailureKind = 'transient' | 'refused' | 'trader';
-const TRANSPORT_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE', 'ECONNABORTED', 'EHOSTUNREACH', 'ENETUNREACH',
+export const TRANSPORT_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE', 'ECONNABORTED', 'EHOSTUNREACH', 'ENETUNREACH',
   'ERR_NETWORK', 'ERR_SOCKET_CONNECTION_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
   // postgres.js connection errors and SQLSTATE: connection exceptions (08…), admin shutdown, serialization, deadlock.
   'CONNECTION_CLOSED', 'CONNECTION_ENDED', 'CONNECTION_DESTROYED', 'CONNECT_TIMEOUT', '57P01', '57P02', '57P03', '40001', '40P01']);
 // SQLSTATE classes that describe the database, not the trader: connection exceptions (08), insufficient resources (53:
 // too many connections, out of memory or disk), lock not available (55P03), a statement timeout or cancel (57014),
 // idle-in-transaction timeout (25P03), and syntax or access errors (42: a bug in our SQL).
-const DB_WIDE = /^(?:08|53|42)[0-9A-Z]{3}$|^(?:55P03|57014|25P03)$/;
+export const DB_WIDE = /^(?:08|53|42)[0-9A-Z]{3}$|^(?:55P03|57014|25P03)$/;
 export const errStatus = (e: unknown): number | undefined => {
   const x = e as { status?: unknown; response?: { status?: unknown } } | null;
   const s = x?.status ?? x?.response?.status;

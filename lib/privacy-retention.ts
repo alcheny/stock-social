@@ -21,11 +21,13 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   closed_trades: { personal: true, retention: 'account', holds: 'derived public record: symbols, dates, percent returns, holding periods, theses' },
   // Sharded sync (docs/SYNC.md): one row per shard: its lease, heartbeat and last run's counts. No user ids.
   // F-14 sync cadence: per account (vendor account id), the last successful vendor reads, whatever the sync's outcome.
-  sync_read_marks: { personal: true, retention: 'account', holds: 'vendor account id, the time of its last successful activities read and its last 4 positions reads (written after every hourly sync, whatever its outcome)' },
+  sync_read_marks: { personal: true, retention: 'account', holds: 'vendor account id, the time of its last successful activities read and its last 4 positions reads, and (F-24) counts of failed late-postings page steps and widened confirm reads in a row (written after every hourly sync, whatever its outcome)' },
   // F-14: vendor reads per hour, counts only.
   sync_read_counts: { personal: false, retention: 'none', holds: 'hourly counts of vendor reads (numbers only)' },
   sync_shards: { personal: false, retention: 'none', holds: 'per-shard sync lease, heartbeat and run counters (numbers only)' },
-  broker_accounts: { personal: true, retention: 'account', holds: 'vendor account ids claimed by a profile, with a keyed hash of the institution account identity (never the identifier itself)' },
+  broker_accounts: { personal: true, retention: 'account', holds: 'vendor account ids claimed by a profile, with a keyed hash of the institution account identity (never the identifier itself); F-24: the late-postings read cursor (vendor activity ids listed by a running pass, cleared when it ends; the stored ids the last pass did not list, kept until a later pass lists them or the account stops being read)' },
+  // F-24: possible re-issued vendor rows (ids only), held from the record until a complete read decides them.
+  activity_reissues: { personal: true, retention: 'account', holds: 'vendor activity ids of a possible re-issue and its original, the account id and the decision state; deleted with the profile' },
   ticker_watches: { personal: true, retention: 'account', holds: 'private watchlist symbols' },
   kept_theses: { personal: true, retention: 'account', holds: 'theses whose trade is excluded' },
   trade_reflections: { personal: true, retention: 'account', holds: 'private trade reason tags' },

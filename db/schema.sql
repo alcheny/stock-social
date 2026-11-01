@@ -1160,3 +1160,60 @@ create table if not exists trust_audit (
 );
 select schema_add_index('trust_audit_item', 'create index trust_audit_item on trust_audit (user_id, kind, sell_id, at desc)');
 -- end F-16 / F-17
+-- ---- F-24 (docs/features/F-24-late-sell-reconciliation.md; plan docs/features/logs/F-24/plan.md): late-posted trades ----
+-- A periodic full-history read per account (a "pass", one vendor page per due daily read in place of the week read)
+-- inserts the rows the week re-read missed; inserts stay `on conflict do nothing`, so no raw row is ever updated or
+-- removed. The cursor lives on broker_accounts and is written only inside the sync's transaction (a rollback never
+-- advances it). No volatile default: a null reconcile_due_at is staggered in code by a hash of the account id
+-- (lib/reconcile.ts), so the deploy never rewrites the table under a lock.
+select schema_add_column('broker_accounts', 'reconcile_due_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'reconcile_offset', 'int');
+select schema_add_column('broker_accounts', 'reconcile_page_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'reconcile_started_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'reconcile_pages', 'int not null default 0');
+select schema_add_column('broker_accounts', 'reconcile_expect', 'int not null default 0');
+-- The previous page's vendor ids (the overlap check: exactly RECONCILE_OVERLAP of them must come back) and, for a pass of more than one page, every id it listed so far
+-- (the re-issue decision at the pass end). Set to null when the pass ends or restarts.
+select schema_add_column('broker_accounts', 'reconcile_tail', 'text[]');
+select schema_add_column('broker_accounts', 'reconcile_seen', 'text[]');
+select schema_add_column('broker_accounts', 'reconcile_valid', 'boolean not null default true'); -- no overlap break so far
+-- The stored ids the last ended pass did not list (a stable shortfall decides on the next pass), and passes in a row
+-- that ended without deciding (shown to the owner: docs/SYNC.md).
+select schema_add_column('broker_accounts', 'reconcile_missing', 'text[]');
+select schema_add_column('broker_accounts', 'reconcile_invalid', 'int not null default 0');
+-- Possible re-issues (D5): a row with a new vendor id whose account, symbol, side, time, units and price equal an older
+-- stored row's. Activities stay raw and immutable (no flag column): this side table holds the state, and the rebuild
+-- leaves out every row not 'genuine'. 'pending' = held until a complete read decides it; 'genuine' = a read listed both
+-- ids (kept); 'suspected' = no single read listed it with its unheld twins (held, counted for the owner; a later read
+-- that lists both still clears it).
+create table if not exists activity_reissues (
+  user_id int not null references users on delete cascade,
+  source text not null,
+  external_id text not null,                         -- the newer row (N)
+  account_id text not null,
+  original_id text not null,                         -- the older stored twin (E)
+  -- confirm: a complete pass listed this row and its twins on different pages; the account's next daily activities read,
+  -- widened to a day before its trade date, decides it (genuine if that one read lists both, else suspected). Only
+  -- genuine is published.
+  state text not null check (state in ('pending', 'confirm', 'genuine', 'suspected')),
+  found_at timestamptz not null default now(),
+  decided_at timestamptz,
+  primary key (source, external_id)
+);
+select schema_add_index('activity_reissues_user', 'create index activity_reissues_user on activity_reissues (user_id, account_id, state)');
+-- D4: closes already shown that a rebuild changed or removed, summed per trader (owner-visible count; shown nowhere).
+select schema_add_column('users', 'closes_rewritten', 'int not null default 0');
+-- Failed syncs in a row that were to read a reconcile page for this account (written after the transaction, like the
+-- F-14 marks): at 2 the pass is given up and the week is read instead.
+select schema_add_column('sync_read_marks', 'reconcile_failures', 'int not null default 0');
+-- Failed syncs in a row that were to make the widened confirm read (any cause): at 2 the account's 'confirm' rows become
+-- 'suspected' and the plain week is read.
+select schema_add_column('sync_read_marks', 'confirm_failures', 'int not null default 0');
+-- Council cycle 5 RT-2: sells counted, not priced, because a possible re-issue in their pair is held (lib/trades.ts
+-- `excludedHeld`). Their own count, never excluded_positions (whose public reason is "no recorded entry"). Shown nowhere
+-- yet: its public wording is an owner question.
+select schema_add_column('users', 'excluded_held', 'int not null default 0');
+-- Final review R1: a 'suspected' row the count rule decided is the excess beyond what one vendor response showed (a
+-- duplicate: left out of the rebuild); one suspected by a give-up (a busy account, failed or multi-page widened reads)
+-- was never decided, so it stays held (its pair's later sells counted).
+select schema_add_column('activity_reissues', 'undecided', 'boolean not null default false');

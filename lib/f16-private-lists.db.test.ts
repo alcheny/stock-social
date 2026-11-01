@@ -60,7 +60,7 @@ dbTest("a hidden trader's name, symbol and return reach no liker's or follower's
 });
 
 // Orchestrator review item 1: a Record tools comparison card for a hidden trader reads nothing of theirs (exclusion
-// counts, paper accounts, record state, institutions, account count) and claims no "Demo data": a neutral card.
+// counts, F-24's excluded_held among them, paper accounts, record state, institutions, account count) and claims no "Demo data": a neutral card.
 dbTest("a hidden trader's comparison card is neutral: no figures, exclusions, connected line or record state", async () => {
   const { sql } = await import('./db.ts');
   const { hideProfile, unhideProfile } = await import('./trust-hide.ts');
@@ -69,11 +69,11 @@ dbTest("a hidden trader's comparison card is neutral: no figures, exclusions, co
   const { tag, ids: [trader] } = await people(1, 'f16c');
   try {
     await trades(trader, tag, 2);
-    await sql`update users set excluded_positions = 2, excluded_future = 1, excluded_corporate = 1 where id = ${trader}`;
+    await sql`update users set excluded_positions = 2, excluded_future = 1, excluded_corporate = 1, excluded_held = 1 where id = ${trader}`;
     const [{ handle }] = await sql`select handle from users where id = ${trader}`;
     const [shown] = await tools.compareCards([{ id: trader, handle, name: 'x' }]);
     assert.equal(shown.notice, null);
-    assert.equal(shown.excluded.length, 3);
+    assert.equal(shown.excluded.length, 4); // F-24's excluded_held line too
     assert.ok(await hideProfile(trader, 'abusive'));
     const [c] = await tools.compareCards([{ id: trader, handle, name: HIDDEN_NOTICE.name }]);
     assert.deepEqual(c, {
