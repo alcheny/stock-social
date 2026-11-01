@@ -11,7 +11,7 @@ import { connectedLine, PROFILE, RECORD_BODY } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { publicRecordDetail, recordInstitutions, type PublicState } from './connections.ts';
 import { paneTrust } from './pane.ts';
-import { ownLists, traderId } from './follows.ts';
+import { followHandles, traderId } from './follows.ts';
 import { exportSubscription } from './billing.ts';
 import { toneClass } from './open-split.ts';
 
@@ -129,11 +129,13 @@ export async function moveTrader(owner: number, viewId: unknown, trader: unknown
 
 const touch = (id: string) => sql`update record_views set updated_at = now() where id = ${id}`;
 
-// The owner's follow list for the "Or choose someone you follow" select: alphabetical by handle only (K1). Read through
-// lib/follows.ts, the only module that reads the follows table.
-export async function followOptions(owner: number): Promise<{ handle: string }[]> {
-  const { following } = await ownLists(owner);
-  return following.map((f) => ({ handle: f.handle })).sort((a, b) => a.handle.localeCompare(b.handle));
+// The owner's follow list for the "Or choose someone you follow" select: alphabetical by handle only (K1), at most
+// FOLLOW_OPTIONS_MAX (the exact-handle input covers anyone else; `more` shows a line saying so), leaving out `exclude`
+// (the view's traders). Read through lib/follows.ts, the only module that reads the follows table.
+export const FOLLOW_OPTIONS_MAX = 100;
+export async function followOptions(owner: number, exclude: readonly string[] = []): Promise<{ options: { handle: string }[]; more: boolean }> {
+  const { handles, more } = await followHandles(owner, FOLLOW_OPTIONS_MAX, exclude);
+  return { options: handles.map((handle) => ({ handle })), more };
 }
 
 // ---- notes ----------------------------------------------------------------------------------------------------------

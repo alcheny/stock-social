@@ -530,6 +530,10 @@ export const FOLLOW = {
   noneFollowing: 'You don\u2019t follow anyone yet.',
   noneHidden: 'No one is hidden.',
   settingsLink: 'Following and hidden traders',
+  // Known-limits sweep (lists): each list pages 50 at a time; "Back to the newest" reuses CLOSES_PAGING.newest.
+  olderFollowing: 'Older follows',
+  olderHidden: 'Older hidden traders',
+  olderExpired: 'Older expired hides',
 };
 
 // F-2 PR-4: private likes and rejected trades. No count anywhere; a like is a quiet state only the viewer sees.
@@ -769,6 +773,9 @@ export const RECORD_TOOLS = {
   addButton: 'Add',
   followLabel: 'Or choose someone you follow',
   followChoose: 'Choose…',
+  // Known-limits sweep (lists): shown only when more than FOLLOW_OPTIONS_MAX (lib/record-tools.ts) are followed.
+  followMore: 'Showing the first 100 you follow, A to Z. Type a handle above to add anyone else.',
+  followMoreNew: 'Showing the first 100 you follow, A to Z. Add anyone else by handle after you create the view.',
   addHint: 'Add 2 to 4 traders to compare.',
   addOneMore: 'Add one more trader to compare.',
   full: 'This view has 4 traders, the maximum. Remove one to add another.',

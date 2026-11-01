@@ -511,15 +511,20 @@ export async function cleanup(id: number, deps: Deps = realDeps, now = new Date(
 // F-1 PR-3 fix round 6 (engineer re-sit, Low): each row is one vendor request (up to VENDOR_TIMEOUT_MS), so the sweep
 // checks `until` (epoch ms on `clock`, the instance clock; the cron call's deadline) before every row: none starts at or
 // after it, and the rows left are counted in the log (a number only) and swept by the next call. `ids` is a test hook.
+// Known-limits sweep 2: stalest first and bounded. The read takes at most `limit` (ATTEMPT_SWEEP_LIMIT) rows, never-tried
+// first, then the oldest try (sweep_tried_at, index signup_attempts_sweep); each row is claimed (claimTry) before its
+// vendor request, so a delete that keeps failing goes to the back instead of ahead of every newer attempt, and an
+// overlapping tick that read the same stamp skips the row. `left` counts the rows of this read not reached.
+export const ATTEMPT_SWEEP_LIMIT = 100; // 100 × a 30 s vendor bound is far past the cron call's budget: the deadline stops a call first
 export type AttemptSweep = { cleaned: number; left: number };
-export async function cleanupAttempts(deps: Deps = realDeps, now?: Date, opts: { until?: number; clock?: () => number; ids?: number[] } = {}): Promise<AttemptSweep> {
-  const { until = Infinity, clock = Date.now, ids } = opts;
-  const rows = await sql`select id, snaptrade_user_id as u, snaptrade_secret_enc as s from signup_attempts a
+export async function cleanupAttempts(deps: Deps = realDeps, now?: Date, opts: { until?: number; clock?: () => number; ids?: number[]; limit?: number } = {}): Promise<AttemptSweep> {
+  const { until = Infinity, clock = Date.now, ids, limit = ATTEMPT_SWEEP_LIMIT } = opts;
+  const rows = await sql`select id, snaptrade_user_id as u, snaptrade_secret_enc as s, ${STAMP('sweep_tried_at')} as stamp from signup_attempts a
     where snaptrade_user_id is not null and created_at + ${ATTEMPT_HOURS} * interval '1 hour' <= ${now ?? sql`now()`}
       ${ids ? sql`and a.id in ${sql(ids.length ? ids : [0])}` : sql``}
       and not exists (select 1 from connections c where c.attempt_id = a.id and (c.state in ('pending', 'importing', 'connected') or c.cleanup_done_at is null))
       and not exists (select 1 from users x where x.snaptrade_user_id = a.snaptrade_user_id)
-    order by id`; // ponytail: no limit and lowest id first, so a vendor delete that keeps failing is retried ahead of every newer attempt each tick — add a last-tried time, order by it and limit the read
+    order by sweep_tried_at nulls first, id limit ${limit}`;
   let n = 0;
   for (const [i, r] of rows.entries()) {
     if (clock() >= until) {
@@ -527,6 +532,7 @@ export async function cleanupAttempts(deps: Deps = realDeps, now?: Date, opts: {
       console.log('attempt cleanup stopped', JSON.stringify({ cleaned: n, left })); // counts only
       return { cleaned: n, left };
     }
+    if (!(await claimTry('attempt', Number(r.id), r.stamp as string | null))) continue; // another tick took it
     try {
       if (r.s) await ignoreGone(deps.deleteUser({ snaptradeUserId: r.u as string, secretEnc: r.s as string }));
       await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id = ${r.id} and snaptrade_user_id = ${r.u}`;
@@ -534,6 +540,20 @@ export async function cleanupAttempts(deps: Deps = realDeps, now?: Date, opts: {
     } catch (e) { console.error('attempt cleanup failed', r.id, errStatus(e)); }
   }
   return { cleaned: n, left: 0 };
+}
+// The try stamp as integer microseconds (a JS Date would drop the microseconds and never match again).
+const STAMP = (col: 'tick_tried_at' | 'sweep_tried_at') => sql.unsafe(`(extract(epoch from ${col}) * 1000000)::bigint`);
+// A tick's (or the sweep's) claim on a row before it tries it: compare-and-set of the stamp the caller read to the
+// database clock, still due. True when this caller won it; false when another tick moved the stamp first (it skips the row).
+// Stamped before the try, so a throw, a vendor timeout or a crash still sends the row to the back of the order.
+export async function claimTry(kind: 'import' | 'cleanup' | 'attempt', id: number, stamp: string | null): Promise<boolean> {
+  const rows = kind === 'attempt'
+    ? await sql`update signup_attempts set sweep_tried_at = clock_timestamp() where id = ${id} and snaptrade_user_id is not null
+        and ${STAMP('sweep_tried_at')} is not distinct from ${stamp}::bigint returning id`
+    : await sql`update connections set tick_tried_at = clock_timestamp() where id = ${id}
+        and ${kind === 'import' ? sql`state = 'importing'` : sql`cleanup_done_at is null and state in ('declined', 'expired')`}
+        and ${STAMP('tick_tried_at')} is not distinct from ${stamp}::bigint returning id`;
+  return rows.length === 1;
 }
 async function cleanupQuietly(id: number, deps: Deps) {
   try { await cleanup(id, deps); } catch (e) { console.error('connection cleanup failed', id, errStatus(e)); }
@@ -672,34 +692,48 @@ export async function importWaiting(userId: number): Promise<boolean> {
 
 // Runs steps for one row until it stops progressing, finishes, or hits the per-tick bound.
 // `until` (epoch ms, the instance clock): no step starts at or after it (PR-3 fix round 4, the cron call's deadline).
-export async function drive(id: number, deps: Deps = realDeps, now = new Date(), max = MAX_STEPS_PER_TICK, until = Infinity): Promise<StepResult> {
+// `clock` (default Date.now) is the instance clock `until` is on; tests pass a simulated one.
+export async function drive(id: number, deps: Deps = realDeps, now = new Date(), max = MAX_STEPS_PER_TICK, until = Infinity, clock: () => number = Date.now): Promise<StepResult> {
   let r: StepResult = { state: 'importing', imported: 0, progressed: true };
-  for (let n = 0; n < max && r.state === 'importing' && r.progressed && Date.now() < until; n++) r = await importStep(id, deps, now, readUntil(until));
+  for (let n = 0; n < max && r.state === 'importing' && r.progressed && clock() < until; n++) r = await importStep(id, deps, now, readUntil(until), clock);
   return r;
 }
 
 // The hourly tick's connection work: clocks, every importing row advanced (a closed tab never stalls an import), cleanups retried.
 // PR-3 fix round 4 (business lead 3): it runs first in the cron call, so it stops starting vendor work at the call's
 // `deadline` (epoch ms, the instance clock); what it did not reach waits for the next call (5 minutes) or an owner's poll.
-export async function tick(deps: Deps = realDeps, now = new Date(), deadline = Infinity): Promise<{ expired: number; failed: number; advanced: number; cleaned: number; errors: number[] }> {
+// Known-limits sweep 2: both loops read stalest first (never tried, then the oldest try: tick_tried_at, indexes
+// connections_tick_import / connections_tick_cleanup) and claim each row (claimTry) before trying it, so rows that keep
+// failing go to the back and a due row with P rows ahead of it is reached within ceil((P + 1) / k) ticks, k the rows a
+// tick reaches; an overlapping tick that read the same stamp skips the row instead of repeating its vendor work.
+// Test hooks: `ids` limits both loops to those connections and `attemptIds` the attempt sweep; `clock` is the instance
+// clock the deadline is on (default Date.now), passed through drive and the sweep.
+// ponytail: the import loop runs before the cleanup loop and the attempt sweep, so imports that fill the whole deadline
+// delay every cleanup that tick (kept: imports are what a trader waits on) — split the budget per loop if cleanups lag.
+// ponytail: never-tried rows go first, so a burst of new rows delays older retried rows by the burst's size — order by
+// coalesce(tick_tried_at, the row's due time) if that shows.
+export type TickHooks = { ids?: number[]; attemptIds?: number[]; clock?: () => number };
+export async function tick(deps: Deps = realDeps, now = new Date(), deadline = Infinity, hooks: TickHooks = {}): Promise<{ expired: number; failed: number; advanced: number; cleaned: number; errors: number[] }> {
+  const { ids, attemptIds, clock = Date.now } = hooks;
   const clocks = await applyClocks(now);
   const errors: number[] = [];
   let advanced = 0, cleaned = 0;
-  const left = () => Date.now() < deadline;
-  // ponytail: both loops restart from the lowest id each tick, so rows that keep failing go first and newer imports and
-  // cleanups past the deadline wait — order by a last-attempted time with a backoff.
-  for (const r of await sql`select id from connections where state = 'importing' order by id`) {
+  const left = () => clock() < deadline;
+  const only = ids ? sql`and id in ${sql(ids.length ? ids : [0])}` : sql``;
+  for (const r of await sql`select id, ${STAMP('tick_tried_at')} as stamp from connections where state = 'importing' ${only} order by tick_tried_at nulls first, id`) {
     if (!left()) break;
-    try { await drive(Number(r.id), deps, now, MAX_STEPS_PER_TICK, deadline); advanced++; } catch (e) { errors.push(Number(r.id)); console.error('import step failed', r.id, errStatus(e)); }
+    if (!(await claimTry('import', Number(r.id), r.stamp as string | null))) continue;
+    try { await drive(Number(r.id), deps, now, MAX_STEPS_PER_TICK, deadline, clock); advanced++; } catch (e) { errors.push(Number(r.id)); console.error('import step failed', r.id, errStatus(e)); }
   }
-  for (const r of await sql`select id from connections where cleanup_done_at is null and state in ('declined', 'expired') order by id`) {
+  for (const r of await sql`select id, ${STAMP('tick_tried_at')} as stamp from connections where cleanup_done_at is null and state in ('declined', 'expired') ${only} order by tick_tried_at nulls first, id`) {
     if (!left()) break;
+    if (!(await claimTry('cleanup', Number(r.id), r.stamp as string | null))) continue;
     try { await cleanup(Number(r.id), deps, now); cleaned++; } catch (e) { errors.push(Number(r.id)); console.error('connection cleanup failed', r.id, errStatus(e)); }
   }
   // Fix round 6 (engineer re-sit, Low): the attempt sweep checks the deadline before every row (it used to run to the end
   // and could take the call past its limit before any sync), and the tick's log line is written whatever it did.
   let attempts: AttemptSweep | null = null;
-  try { attempts = await cleanupAttempts(deps, undefined, { until: deadline }); } catch (e) { console.error('attempt cleanup failed', errStatus(e)); }
+  try { attempts = await cleanupAttempts(deps, undefined, { until: deadline, clock, ids: attemptIds }); } catch (e) { console.error('attempt cleanup failed', errStatus(e)); }
   console.log('connections tick', JSON.stringify({
     expired: clocks.expired.length, failed: clocks.failed.length, advanced, cleaned, errors: errors.length,
     attemptsCleaned: attempts?.cleaned ?? null, attemptsLeft: attempts?.left ?? null, stoppedAtDeadline: !left(),
