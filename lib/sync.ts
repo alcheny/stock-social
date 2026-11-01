@@ -376,6 +376,11 @@ export async function syncUser(
       // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
       if (!accounts.length) return 0;
       // F-14: which accounts are due (every real account without `cadence`).
+      // ponytail: the account list (listAccounts, above) is still read every round: it carries the claim and TR-5's
+      // disconnect check, and the vendor guidance the council cited does not cover it — whether it may be throttled is a
+      // vendor question (MR-1) for the owner.
+      // ponytail: the future-date quarantine is re-checked only when activities are read (about every 25 h), so a date
+      // the vendor corrects appears up to a day later — a nightly rebuild-only pass would close it.
       let actIds = real, posIds = real, deferred = 0;
       const t = tx`now() + ${shiftMs}::float8 * interval '1 millisecond'`;
       if (opts.cadence && real.length) {
