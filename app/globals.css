@@ -880,4 +880,6 @@ h1 { overflow-wrap: anywhere; }
 /* Shape R (the whole row is the link): the pane's last trades are 44 px rows inside the same 12 px padding. */
 .pane .rows a.line { color: inherit; text-decoration: none; align-items: center; min-height: 44px; margin-block: -12px; }
 /* The focus ring (F-20's :focus-visible rule) draws around the whole row: a block-level link, inside the pane's padding. */
+/* The highlighted pane row already draws the focus colour (.pane .rows .line.hl); focus thickens it so focus stays visible. */
+.pane .rows a.line.hl:focus-visible { outline: 4px solid var(--focus); }
 /* end F-25 */

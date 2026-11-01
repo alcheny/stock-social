@@ -299,7 +299,7 @@ async function pickQuery(q: Q, { ids, asOf, day }: CandOpts, top: number[]): Pro
 export type FeedItem = FeedCandidate & { explore: boolean };
 export type PaneRow = { userId: number; id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; verified: boolean; thesis: string | null;
   openedAt: Date; // F-10: the entry time, so the strip's bets (K) are the profile's (lib/record-strip.db.test.ts)
-  tradeKey?: string }; // F-25: set on the trader's 5 latest rows only (the pane's "Last 5 trades" links), never the vendor id // F-10: the entry time, so the strip's bets (K) are the profile's (lib/record-strip.db.test.ts)
+  tradeKey?: string }; // F-25: set on the trader's 5 latest rows only (the pane's "Last 5 trades" links), never the vendor id
 
 // Every page trader's full current record, for the pane's chart and stats.
 // Fix round 1 (load check, tester Medium 3): one JSON text per trader instead of one row per close. A page of heavy
