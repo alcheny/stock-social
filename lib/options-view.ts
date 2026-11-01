@@ -43,8 +43,9 @@ export function oldestRead(shareReads: Date[], optionAsOf: Date | null): Date | 
 
 /** Fix round 1 (QA 2): what the pane and the record card receive — the label flag and the one rendered line, never the
  *  per-kind counts (a client fetches the pane as JSON). */
-export type PaneOptionsView = { label: boolean; line: string | null };
-export const paneView = (m: OptionHeadline): PaneOptionsView => ({ label: shareLabel(m.counts), line: optionDisplayText(m) });
+// `open`: the gate is open for this trader (the pane's closing note follows it, fix round 4 N7); never a count.
+export type PaneOptionsView = { label: boolean; line: string | null; open: boolean };
+export const paneView = (m: OptionHeadline): PaneOptionsView => ({ label: shareLabel(m.counts), line: optionDisplayText(m), open: m.gate === 'open' && hasOptions(m.counts) });
 /** Whether a pane line is the open-gate options line (the gated count line never starts with it). */
 export const isOptionsLine = (line: string | null | undefined) => !!line && line.startsWith(OPTIONS.lineHead(0, '').slice(0, 'Options:'.length));
 
@@ -53,5 +54,10 @@ export const isOptionsLine = (line: string | null | undefined) => !!line && line
 export function optionDisplayText(m: OptionHeadline): string | null {
   if (!hasOptions(m.counts)) return null;
   if (m.gate === 'closed') return OPTIONS.gated(closesOf(m.counts), openOf(m.counts));
-  return m.summary ? optionsLineText(m.summary) : null;
+  if (m.summary) return optionsLineText(m.summary);
+  // Fix round 4 (N7): open with no long close to summarize: the profile's short and technical lines, in their words.
+  const c = m.counts;
+  const lines = [c.short + c.openShort > 0 ? OPTIONS.short(c.short, c.openShort) : null, c.other > 0 ? OPTIONS.technical(c.other) : null,
+    c.openOther > 0 ? OPTIONS.openOther(c.openOther) : null].filter(Boolean);
+  return lines.length ? lines.join(' ') : null;
 }

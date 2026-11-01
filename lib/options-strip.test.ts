@@ -21,7 +21,7 @@ test('the strip says "Excluding options" on the feed card, page and image surfac
     if (surface === 'figures') { assert.equal(parts.length, 0); continue; }
     assert.deepEqual(parts.map((p) => p.text), [OPTIONS.shareLabel], surface);
     assert.ok(s.text.endsWith(` · ${OPTIONS.shareLabel}`), surface);
-    assert.match(s.alt, /Excluding options\./, surface);
+    assert.match(s.alt, /, excluding options\./, surface);
     // No option figure: the qualifier is the only addition.
     assert.equal(s.text, `${recordStrip(base, surface).text} · ${OPTIONS.shareLabel}`);
   }

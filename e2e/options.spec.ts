@@ -20,6 +20,8 @@ import { vendorLock } from './vendor-lock.ts';
 import { OpenOptionRows, OpenPositionsBlock, OptionsLines, OptionTradesSection, PaneOptions, ShareTradesLabel, UnsupportedLine } from '../app/u/[handle]/options-block.tsx';
 import { PerformanceChart } from '../app/u/[handle]/chart.tsx';
 import { packPoints } from '../lib/paging.ts';
+import { RecordCardImage } from '../app/u/[handle]/record-card-image.tsx';
+import { recordCard } from '../lib/record-card.ts';
 import { OPTIONS } from '../lib/copy.ts';
 import { paneView, type OptionCounts, type OptionHeadline } from '../lib/options-view.ts';
 
@@ -37,7 +39,7 @@ test('AC17: signed out, the demo trader with options shows the "Excluding option
   test.skip(!u, 'the demo data is not seeded (npm run db:seed)');
   const [{ shown, open }] = await sql`select (select count(*)::int from option_trades where user_id = ${u.id}) as shown, (select count(*)::int from open_option_positions where user_id = ${u.id}) as open`;
   const line = OPTIONS.gated(shown + u.excluded_options_short + u.excluded_options_other, open + u.open_options_short);
-  expect(line).toBe("4 option trades and 1 open option imported. Options aren't published yet.");
+  expect(line).toBe("4 option trades and 1 open option imported. Option results aren't shown on this record.");
   const optionPcts = (await sql`select return_pct from option_trades where user_id = ${u.id}`).map((r) => Math.abs(Number(r.return_pct) * 100).toFixed(1));
   const sharePcts = new Set((await sql`select return_pct from closed_trades where user_id = ${u.id}`).map((r) => Math.abs(Number(r.return_pct) * 100).toFixed(1)));
   const startedAt = new Date(Date.now() - 5_000);
@@ -84,7 +86,7 @@ test('AC17: signed out, the demo trader with options shows the "Excluding option
     for (const p of optionPcts) if (!sharePcts.has(p)) expect(text, `${where}: option return ${p}%`).not.toContain(`${p}%`);
   }
   expect(alt).toContain(line);
-  expect(alt).toContain('Excluding options.');
+  expect(alt).toContain(', excluding options');
 });
 
 test('AC17/AC24: a record with no options renders exactly as before (no label, no line)', async ({ page }) => {
@@ -379,7 +381,7 @@ test('fix round 4: the record strip says "Excluding options" on the demo trader\
     const strip = page.locator('section[aria-labelledby="whole-record"] [data-strip]');
     await expect(strip).toContainText(`losses included · ${OPTIONS.shareLabel}`);
     const alt = (await page.locator('meta[property="og:image:alt"]').first().getAttribute('content')) ?? '';
-    expect(alt, path).toContain('Excluding options.');
+    expect(alt, path).toContain(', excluding options');
     const html = await page.content();
     for (const bad of ['Call option', 'Put option', '123.45', 'Options:']) expect(html, path).not.toContain(bad);
     expect(html, path).not.toMatch(OCC);
@@ -388,4 +390,25 @@ test('fix round 4: the record strip says "Excluding options" on the demo trader\
   const [m] = await sql`select c.sell_id from closed_trades c join users u on u.id = c.user_id where u.handle = 'momentum_maya' order by c.closed_at desc limit 1`;
   await page.goto(`/u/momentum_maya/trade/${encodeURIComponent(m.sell_id)}`);
   await expect(page.locator('section[aria-labelledby="whole-record"] [data-strip]')).not.toContainText(OPTIONS.shareLabel);
+});
+
+// ---- Fix round 4 (tester re-check): markup cases.
+test('fix round 4 N1: an options-only record\'s card image draws "No closed share trades yet" and the options line', () => {
+  for (const kind of ['unfurl', 'square', 'story'] as const) {
+    const m = recordCard({ kind, handle: 'opt_only', name: null, trades: [], state: 'connected', demo: false, verified: true, now: new Date('2026-11-01T12:00:00Z'), link: null, options: { shareLabel: true, line: OPTIONS.gated(3, 1) } });
+    const markup = renderToStaticMarkup(h(RecordCardImage, { m, disclaimer: m.disclaimer }));
+    expect(markup, kind).toContain(OPTIONS.noShareCloses);
+    expect(markup, kind).toContain(OPTIONS.gated(3, 1).replace(/'/g, '&#x27;'));
+    expect(markup, kind).toContain(OPTIONS.shareLabel);
+  }
+});
+
+test('fix round 4 N5: the colour follows the printed sign: a return that prints 0.0% is never coloured', () => {
+  const tiny = { ...trades[0], returnPct: -0.00001 };
+  const row = renderToStaticMarkup(h(OptionTradesSection, { trades: [tiny], handle: 'h_x' }));
+  expect(row).toContain('<b class="">0.0%</b>');
+  const grid = renderToStaticMarkup(h(OptionsLines, { m: { ...openModel, summary: { ...summary, avg: -0.00001 } } as OptionHeadline }));
+  expect(grid).not.toMatch(/class="down">0\.0%/);
+  const open = renderToStaticMarkup(h(OpenOptionRows, { open: [{ underlying: 'XYZ', right: 'CALL', expiry: '2026-12-19', pct: 0.00001 }] }));
+  expect(open).not.toMatch(/class="up">0\.0%/);
 });

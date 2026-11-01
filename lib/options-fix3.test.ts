@@ -14,15 +14,15 @@ test('item 4: the label reads "Excluding options" everywhere; the chart caption 
   const trades = Array.from({ length: 6 }, (_, i) => ({ symbol: `S${i}`, openedAt: new Date(now.getTime() - (20 - i) * 86_400_000), closedAt: new Date(now.getTime() - (10 - i) * 86_400_000), returnPct: 0.02, holdingDays: 10 }));
   const m = recordCard({ kind: 'square', handle: 'h_x', name: null, trades, state: 'connected', demo: false, verified: true, now, link: null, options: { shareLabel: true, line: OPTIONS.gated(2, 0) } });
   assert.equal(m.headlineLabel, 'average per trade'); // the card's own words, back as they were
-  assert.match(cardAlt(m), /Excluding options\./);
+  assert.match(cardAlt(m), /, excluding options\./);
   const image = readFileSync(new URL('../app/u/[handle]/record-card-image.tsx', import.meta.url), 'utf8');
   assert.match(image, /pill\(OPTIONS\.shareLabel/);
 });
 
 test('item 6: the gated sentence in plain words, every count kept, and its own short link', () => {
-  assert.equal(OPTIONS.gated(4, 1), "4 option trades and 1 open option imported. Options aren't published yet.");
-  assert.equal(OPTIONS.gated(1, 0), "1 option trade imported. Options aren't published yet.");
-  assert.equal(OPTIONS.gated(0, 3), "3 open options imported. Options aren't published yet.");
+  assert.equal(OPTIONS.gated(4, 1), "4 option trades and 1 open option imported. Option results aren't shown on this record.");
+  assert.equal(OPTIONS.gated(1, 0), "1 option trade imported. Option results aren't shown on this record.");
+  assert.equal(OPTIONS.gated(0, 3), "3 open options imported. Option results aren't shown on this record.");
   assert.equal(OPTIONS.howLink, 'How options are counted');
 });
 

@@ -196,7 +196,9 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
   for (const r of rows) {
     const u = units(r);
     if (tainted) {
-      // Every row while tainted moves the net; a non-opening one is counted (its basis is unknown).
+      // Every row while tainted moves the net; a non-opening one is counted (its basis is unknown). Plan D4 (orchestrator
+      // decision 2026-11-01): a short close while tainted stays counted under "other" (contradict), not "short": the
+      // contract is tainted until flat, whatever the side of the close.
       const signed = r.kind === 'BUY' ? u : r.kind === 'SELL' ? -u : net > 0 ? -Math.min(u || net, net) : net < 0 ? Math.min(u || -net, -net) : 0;
       if (r.kind === 'OPTIONASSIGNMENT') counts.short++;
       else if (!isOpenType(r.openClose)) counts.contradict++;

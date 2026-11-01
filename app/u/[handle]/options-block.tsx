@@ -6,9 +6,11 @@
 import type { ReactNode } from 'react';
 import { expiryText, OPTIONS } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
+import { tone } from '@/lib/format.ts';
 import { closesOf, hasOptions, openOf, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView, type PaneOptionsView, isOptionsLine } from '@/lib/options-view.ts';
 
-const sign = (x: number) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
+// Fix round 4 (N5): the colour follows the printed sign (lib/format.ts#tone): "0.0%" is never coloured.
+const sign = (x: number) => { const t = tone(x); return t === 'flat' ? '' : t; };
 const chip = (right: 'CALL' | 'PUT') => (right === 'CALL' ? OPTIONS.call : OPTIONS.put);
 const closedDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 

@@ -214,6 +214,10 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
   // `localhost` (portalFrameHeaders) may resolve to ::1 first on some machines: listen there too when the host has IPv6.
   const v6 = createServer((req, res) => server.emit('request', req, res));
   v6.on('error', () => {});
-  server.on('close', () => v6.close());
+  // OPTIONS fix round 4 (N8): closing the fake closes the IPv6 listener and its connections too, so the next spec's fake
+  // binds ::1 cleanly.
+  server.on('close', () => { v6.close(); v6.closeAllConnections(); });
+  const closeAll = server.closeAllConnections.bind(server);
+  server.closeAllConnections = () => { closeAll(); v6.closeAllConnections(); };
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => { v6.listen(port, '::1'); resolve({ server, base }); }));
 }

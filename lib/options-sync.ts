@@ -241,7 +241,9 @@ export async function saveBackfill(tx: Db, userId: number, listed: string[], pro
     const cursor = { ...((c.cursor ?? {}) as Record<string, number>) };
     const mine = (c.accounts as { id: string; isPaper?: boolean }[]).filter((a) => !a.isPaper);
     for (const a of mine) if (progress.has(a.id)) cursor[a.id] = progress.get(a.id)!;
-    const done = mine.filter((a) => listed.includes(a.id)).every((a) => cursor[a.id] === -1);
+    // Fix round 4 (N4): a connection with no listed account read is never stamped (an empty set is not "all read").
+    const read = mine.filter((a) => listed.includes(a.id));
+    const done = read.length > 0 && read.every((a) => cursor[a.id] === -1);
     await tx`update connections set options_backfill_cursor = ${tx.json(cursor as never)}, options_backfilled_at = ${done ? tx`now()` : null}
       where id = ${c.id as number}`;
   }

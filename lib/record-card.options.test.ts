@@ -22,7 +22,7 @@ test('AC24 (fix round 3): the card shows the "Excluding options" pill (headline 
     assert.equal(m.shareLabel, true);
     assert.equal(m.optionsLine, gated);
     assert.ok(cardAlt(m).includes(gated));
-    assert.match(cardAlt(m), /Excluding options\./);
+    assert.match(cardAlt(m), /, excluding options\./);
     assert.doesNotMatch(cardAlt(m), /Call option|Put option|exp |123\.45/);
     // The unfurl gives the chart's row to the line; the square and story keep theirs.
     if (kind === 'unfurl') assert.ok(m.chart!.h < plain.chart!.h);

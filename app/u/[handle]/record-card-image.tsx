@@ -144,7 +144,9 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
     // An empty record with open positions (F-6) still shows its unrealized part, at the body's size.
     main = (
       <div style={{ ...col, gap: L.gap * 3 }}>
-        <span style={t(o ? f.line : m.kind === 'unfurl' ? 72 : 88)}>{m.body}</span>
+        <span style={t(o || m.optionsLine ? f.line : m.kind === 'unfurl' ? 72 : 88)}>{m.body}</span>
+        {/* OPTIONS fix round 4 (N1): an options-only record draws its options line, as its alt text says. */}
+        {m.optionsLine && <span style={t(f.body, C.muted)}>{m.optionsLine}</span>}
         {openBlock}
       </div>
     );

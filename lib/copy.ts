@@ -375,7 +375,8 @@ export const OPTIONS = {
   gated: (closes: number, open: number) => {
     const parts = [closes > 0 ? optionPart(closes, 'option trade') : '', open > 0 ? optionPart(open, 'open option') : ''].filter(Boolean);
     // Fix round 3 (UX N6): plain words; the link to /how is its own short link (howLink).
-    return `${parts.join(' and ')} imported. Options aren't published yet.`;
+    // Legal re-sign (fix round 4): these words exactly.
+    return `${parts.join(' and ')} imported. Option results aren't shown on this record.`;
   },
   howLink: 'How options are counted',
   // Fix round 3 (business lead B2): the options grid's row label.
@@ -404,7 +405,10 @@ export const OPTIONS = {
   chartNone: 'The chart shows share trades. None yet.',
   chartShareOnly: ' · excluding options',
   howTitle: 'Options',
-  how: 'Option trades are imported and counted. They are shown once the consent wording covers them.',
+  // Legal re-sign (fix round 4): these words exactly.
+  how: 'Option results are shown only on records whose trader has consented to publishing them. Until then a record shows how many option trades and open options were imported, and its headline stats exclude options.',
+  // Legal re-sign (fix round 4): alt text says exactly this phrase, lower case, after the figures it qualifies.
+  altQualifier: 'excluding options',
   howMath: [
     // Fix round 1 (QA 7): per-contract fees can take a very cheap contract far below -100%.
     'An option trade\u2019s return is on what the contracts cost, fees included: a contract that expires worthless shows \u2212100%, and fees can take it lower, by a lot on very cheap contracts.',

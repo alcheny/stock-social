@@ -180,12 +180,13 @@ dbTest('F: the record rebuild never writes an OCC symbol to closed_trades', asyn
 
 test('G (QA 2): the pane and the record card get the label flag and the one rendered line, never the per-kind counts', () => {
   const v = paneView({ gate: 'closed', counts: C({ shown: 3, short: 1, other: 2, openLong: 1, openShort: 1, openOther: 1, unsupported: 2, exerciseShares: 1 }) });
-  assert.deepEqual(v, { label: true, line: OPTIONS.gated(6, 3) });
-  assert.deepEqual(Object.keys(v).sort(), ['label', 'line']);
+  // Fix round 4 (N7): plus the gate flag (never a count).
+  assert.deepEqual(v, { label: true, line: OPTIONS.gated(6, 3), open: false });
+  assert.deepEqual(Object.keys(v).sort(), ['label', 'line', 'open']);
   for (const f of ['../app/u/[handle]/pane/route.ts', '../lib/feed.ts', '../app/u/[handle]/record-card-data.ts']) assert.match(readFileSync(new URL(f, import.meta.url), 'utf8'), /paneView\(/, f);
   assert.doesNotMatch(readFileSync(new URL('../app/u/[handle]/pane/route.ts', import.meta.url), 'utf8'), /options: options\.get/);
   const open = paneView({ gate: 'open', counts: C({ shown: 14 }), summary: { n: 14, winRate: 0.5, avg: 0.1, range: null, bets: 3 } });
-  assert.deepEqual(open, { label: true, line: 'Options: 14 trades · 50% wins · +10.0% avg' });
+  assert.deepEqual(open, { label: true, line: 'Options: 14 trades · 50% wins · +10.0% avg', open: true });
 });
 
 test('K (QA 7) and L (QA 8): /how no longer says "slightly"; share closes held over an exercise day have their own words and counter', () => {

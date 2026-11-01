@@ -76,10 +76,10 @@ test('AC24 (model): the "Excluding options" label and the count line follow opti
   assert.equal(closesOf(C({ shown: 3, short: 1, other: 2 })), 6);
   assert.equal(openOf(C({ openLong: 1, openShort: 2 })), 3);
   assert.equal(optionDisplayText({ gate: 'closed', counts: C({ shown: 3, short: 1, openLong: 1 }) }),
-    "4 option trades and 1 open option imported. Options aren't published yet.");
+    "4 option trades and 1 open option imported. Option results aren't shown on this record.");
   // Zero parts are dropped.
-  assert.equal(OPTIONS.gated(1, 0), "1 option trade imported. Options aren't published yet.");
-  assert.equal(OPTIONS.gated(0, 2), "2 open options imported. Options aren't published yet.");
+  assert.equal(OPTIONS.gated(1, 0), "1 option trade imported. Option results aren't shown on this record.");
+  assert.equal(OPTIONS.gated(0, 2), "2 open options imported. Option results aren't shown on this record.");
   const summary = { n: 14, winRate: 5 / 14, avg: -0.22, range: { low: -0.41, high: -0.03 }, bets: 9 };
   assert.equal(optionsLineText(summary), 'Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)');
   assert.equal(optionDisplayText({ gate: 'open', counts: C({ shown: 14 }), summary }), 'Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)');
@@ -136,7 +136,7 @@ dbTest('AC16/21 (DB): the loader returns counts only while gated; the display lo
     const h = (await optionHeadline([u.id])).get(u.id)!;
     assert.equal(h.gate, 'closed');
     const text = await loadOptionDisplayText(u.id);
-    assert.equal(text, "1 option trade imported. Options aren't published yet.");
+    assert.equal(text, "1 option trade imported. Option results aren't shown on this record.");
     const now = new Date();
     await writeDisplayLog({ now, ids: [u.id] });
     const [d] = await sql`select options_line, headline from display_log where user_id = ${u.id}`;

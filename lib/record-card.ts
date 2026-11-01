@@ -269,6 +269,9 @@ export function recordCard(i: CardInput): CardModel {
     open: i.state !== 'none' && t.stats ? cardOpen(i.open ?? []) : null,
     ...(i.options ? { shareLabel: i.options.shareLabel, optionsLine: t.stats ? i.options.line : null } : {}), // OPTIONS
   };
+  // OPTIONS fix round 4 (N1): an options-only record says "No closed share trades yet", as the profile does, and the
+  // picture draws its options line under it.
+  if (card.body === SHARE_CARD.empty && (i.options?.shareLabel || i.options?.line)) card.body = OPTIONS.noShareCloses;
   if (body !== null) return card;
 
   const avg = headline(i.trades).avgReturn; // the profile's "avg return / trade", the same number
@@ -312,12 +315,11 @@ export function cardAlt(m: CardModel): string {
   if (m.body) parts.push(`${m.body}.`);
   else {
     const sign = m.headlineTone === 'up' ? 'a gain' : m.headlineTone === 'down' ? 'a loss' : 'about even';
-    parts.push(`The ${m.headlineLabel} is ${m.headline}, ${sign}${m.range ? `, ${m.range}` : ''}.`);
+    parts.push(`The ${m.headlineLabel} is ${m.headline}, ${sign}${m.range ? `, ${m.range}` : ''}${m.shareLabel ? `, ${OPTIONS.altQualifier}` /* OPTIONS (legal re-sign) */ : ''}.`);
     if (m.newRecord) parts.push('New record.');
     parts.push(`${m.count}.`, `${m.period}.`, `Chart: ${m.caption}.`, `${m.evidence}.`);
     if (m.trust) parts.push(m.trust);
   }
-  if (m.shareLabel) parts.push(`${OPTIONS.shareLabel}.`); // OPTIONS: the explicit label
   if (m.optionsLine) parts.push(m.optionsLine); // OPTIONS
   if (m.open) parts.push(`${SHARE_CARD.openAlt} ${[counted(m.open.count, 'position'), m.open.split, m.open.spread].filter(Boolean).join(', ')}.`);
   if (m.link) parts.push(`${m.link}.`);

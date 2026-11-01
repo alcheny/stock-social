@@ -107,6 +107,8 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
       figures.push({ role: 'rangeLabel', text: RECORD_STRIP.rangeLabel, tone: null, sep: ' · ' });
       altParts.push(`${SHARE_CARD.perTrade} ${pct(i.avg)}, ${words(i.evidence.perTrade!.low, i.evidence.perTrade!.high)}`);
     }
+    // OPTIONS (legal re-sign): the alt text says exactly "excluding options" right after the figures it qualifies.
+    if (i.excludingOptions && surface !== 'figures') altParts.push(OPTIONS.altQualifier);
     if (full) {
       figures.push({ role: 'losses', text: SHARE_CARD.lossesIncluded, tone: null, sep: ' · ' });
       if (i.open?.length) figures.push({ role: 'open', text: SHARE_CARD.openShort(i.open.length), tone: null, sep: ' · ' });
@@ -122,7 +124,6 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
     altParts.length ? altParts.join(', ') : null,
     !importing && full ? 'Losses included' : null,
     !importing && full && i.open?.length ? `${counted(i.open.length, 'open position')}, unrealized` : null,
-    !importing && i.excludingOptions && surface !== 'figures' ? OPTIONS.shareLabel : null, // OPTIONS
     full ? DISCLAIMER.replace(/\.$/, '') : null,
   ].filter(Boolean).map((s) => `${s!.replace(/\.$/, '')}.`).join(' ');
   return {
