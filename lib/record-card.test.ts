@@ -9,7 +9,7 @@ import {
 } from './record-card.ts';
 import { DISCLAIMER } from './share.ts';
 import { FORMATS } from './story-image.ts';
-import { equityCurve, type ConfidenceInput } from './trades.ts';
+import { type ConfidenceInput } from './trades.ts';
 import { winRateText, type RecordState } from './copy.ts';
 
 const DAY = 86_400_000;
@@ -36,12 +36,13 @@ test('F-4 AC1: chart, total closed trades, period, name and handle', () => {
   assert.equal(m.name, 'Test Trader');
   assert.equal(m.handle, 'card_test');
   assert.equal(m.count, '12 closed trades · losses included');
-  assert.equal(m.period, 'Record since Jan 2026 · 298 days'); // R1: the trust line's unit (thin: days), one span
+  // R1: the trust line's unit (thin: days), one span; F-4 2026-11-01: first trade (Jan 1) to last close (Apr 26), not to now.
+  assert.equal(m.period, 'Record since Jan 2026 · 115 days');
   const c = m.chart!;
   assert.match(c.d, /^M[\d. -]+l[\d. -]+$/); // one path: a move, then one run of line segments (a single line)
   assert.ok(c.zeroY >= 0 && c.zeroY <= c.h, '0% is on the axis, inside the chart box');
   assert.equal(c.points, 13); // the 0% start and one point per close
-  assert.equal(m.caption, 'If every trade were the same size'); // CH-1: the label says what is plotted
+  assert.equal(m.caption, 'Sum of trade returns, in order · position size not shown'); // CH-1 + F-4 2026-11-01: says what is plotted
   assert.equal(card(winning, { name: null }).name, '@card_test');
 });
 
@@ -69,9 +70,10 @@ test('F-4 AC3: "too early" follows the model, not a count', () => {
 test('F-4 AC4: the evidence label and one plain-language trust line from the fixed table', () => {
   const w = card(winning), l = card(losing);
   assert.equal(w.evidence, 'Evidence: thin');
-  assert.equal(w.trust, 'Based on 12 separate bets over 298 days. Still early.');
-  assert.equal(l.trust, 'Based on 12 separate bets over 298 days. Still early, and results could go either way.');
-  assert.equal(card(winning.slice(0, 3)).trust, 'Based on 3 trades. The range is still too wide to say much.');
+  // The 2026-10-31 table: one thin line for gains and losses alike; under 5 bets its own line.
+  assert.equal(w.trust, 'Based on 12 separate bets over 115 days. Still early, and results could go either way.');
+  assert.equal(l.trust, 'Based on 12 separate bets over 115 days. Still early, and results could go either way.');
+  assert.equal(card(winning.slice(0, 3)).trust, 'Based on 3 trades. Too few trades to say much yet.');
 });
 
 test('F-4 AC5: nothing the card says uses a banned term', () => {
@@ -153,20 +155,20 @@ test('F-4 AC10: snapshots of the three states (winning, losing, empty)', () => {
     kind: 'unfurl', name: 'Test Trader', handle: 'card_test', label: 'Verified from broker', tone: 'ok', note: null, body: null,
     headline: '+3.0%', headlineTone: 'up', headlineLabel: 'average per trade', range: 'likely between +2.3% and +3.7%',
     count: '12 closed trades · losses included', countValue: '12 closed trades', countNote: 'losses included',
-    period: 'Record since Jan 2026 · 298 days', periodSince: 'Record since Jan 2026', periodLength: '298 days',
+    period: 'Record since Jan 2026 · 115 days', periodSince: 'Record since Jan 2026', periodLength: '115 days',
     evidence: 'Evidence: thin', newRecord: false,
-    trust: 'Based on 12 separate bets over 298 days. Still early.', caption: 'If every trade were the same size', link: null, disclaimer: DISCLAIMER,
+    trust: 'Based on 12 separate bets over 115 days. Still early, and results could go either way.',
+    caption: 'Sum of trade returns, in order · position size not shown', link: null, disclaimer: DISCLAIMER, open: null,
   });
   const { chart: _l, ...loseText } = card(losing);
   assert.deepEqual(loseText, {
     ...winText, headline: '-2.9%', headlineTone: 'down', range: 'likely between -3.5% and -2.3%',
-    trust: 'Based on 12 separate bets over 298 days. Still early, and results could go either way.',
   });
   assert.deepEqual(card([]), {
     kind: 'unfurl', name: 'Test Trader', handle: 'card_test', label: 'Broker connected', tone: 'ok', note: null, body: 'No closed trades yet',
     headline: null, headlineTone: null, headlineLabel: null, range: null, count: null, countValue: null, countNote: null,
     period: null, periodSince: null, periodLength: null, evidence: null, newRecord: false,
-    trust: null, caption: null, link: null, disclaimer: DISCLAIMER, chart: null,
+    trust: null, caption: null, link: null, disclaimer: DISCLAIMER, chart: null, open: null,
   });
 });
 
@@ -190,7 +192,9 @@ test('F-4 AC10: thousands of trades: the chart is downsampled (low and high kept
   assert.equal(m.count, '5,000 closed trades · losses included');
   const kept = cardSeries(many);
   assert.ok(kept.length <= CARD_CHART_POINTS, `${kept.length} points`);
-  const all = [0, ...equityCurve(many).map((p) => p.cumulative)];
+  // F-4 2026-11-01: the running sum of per-trade returns in close order (it ends at count × average).
+  let run = 0;
+  const all = [0, ...[...many].sort((a, b) => a.closedAt.getTime() - b.closedAt.getTime()).map((t) => (run += t.returnPct))];
   const values = kept.map((p) => p.value);
   assert.equal(Math.min(...values), Math.min(...all));
   assert.equal(Math.max(...values), Math.max(...all));
@@ -232,12 +236,15 @@ test('R1: one duration per card: the period and the trust line give the same spa
     compared++;
   }
   assert.ok(compared >= 9, `${compared} records compared`);
-  assert.equal(card(demoLike).periodLength, '60 days'); // never "1 month" beside "60 days"
+  // Never "1 month" beside "62 days"; F-4 2026-11-01: first trade (60 days before `now`) to the last close (2 days after:
+  // the last 4-day hold opens 2 days before), as the profile's evidence line counts it (the demo-seed check is in
+  // lib/record-card.rework.test.ts).
+  assert.equal(card(demoLike).periodLength, '62 days');
   assert.equal(card(spanRecord(29, 8)).periodLength, '29 days');
   assert.equal(card(spanRecord(364, 40)).periodLength, '11 months');
   assert.equal(card(spanRecord(365, 120)).periodLength, '1 year');
   assert.equal(card(spanRecord(400, 40)).periodLength, '13 months');
-  assert.equal(card(winning.slice(0, 3)).periodLength, '9 months'); // too early: months (no duration in the trust line)
+  assert.equal(card(winning.slice(0, 3)).periodLength, 'under 1 month'); // under 5 bets: months (no duration in the trust line)
 });
 
 test('R2: every text is at least 10 CSS px at 343 px wide (the 0% label and body text included)', () => {
@@ -253,7 +260,9 @@ test('R3: hierarchy: the chart leads (square ≥ 360 px, story ≥ 560 px, ≥ 3
   for (const kind of KINDS) {
     const L = CARD_LAYOUT[kind];
     assert.ok(L.font.line >= 1.5 * L.font.body, `${kind}: count/period ${L.font.line} vs body ${L.font.body}`);
-    assert.ok(L.font.newRecord >= L.font.line, `${kind}: New record at least the count line's size`);
+    // Committee 2026-11-01 (plan v2, engineer demand 4; user test, business lead): the New record pill takes the trust
+    // badge's size at every size, as strong as the badge beside it and no louder (round 1 had it at the count line's).
+    assert.equal(L.font.newRecord, L.font.label, `${kind}: New record the trust badge's size`);
     assert.ok(L.font.headline > L.font.line && Object.values(L.font).every((s) => s <= L.font.headline), `${kind}: the average is the one big number`);
   }
   assert.ok(CARD_LAYOUT.square.chart.h >= 360);
