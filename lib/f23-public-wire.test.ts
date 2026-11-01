@@ -101,3 +101,18 @@ test('wire rounding is monotone, so wired min and max bound the wired points', (
     prev = r; prevV = v;
   }
 });
+
+test('code review 3: near -100% the wire value carries at most one digit past what pct() prints', () => {
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+  for (let i = 0; i < 200_000; i++) {
+    const v = -1 + rnd() * 2e-4;
+    const r = wirePct(v);
+    same(v, r);
+    const printed = (pct(v, 1).split('.')[1] ?? '').replace('%', '').length; // decimals of the percent shown
+    const sent = Math.max(0, places(r) - 2); // decimals of the percent sent
+    assert.ok(sent <= printed + 1 || r === -0.99999999, `${v} → ${r} (shown ${pct(v, 1)})`);
+  }
+  assert.equal(pct(wirePct(-0.999995000230581), 1), pct(-0.999995000230581, 1));
+  assert.ok(places(wirePct(-0.999995000230581)) <= 8);
+});

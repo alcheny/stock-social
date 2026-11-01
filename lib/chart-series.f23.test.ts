@@ -110,3 +110,26 @@ test('ALL runs edge to edge with no tail (a 2-close record and a same-day pair);
   const w = unpackChart(paneChart([A, B], now))['1W'];
   for (const p of w.pts) assert.ok(p.at >= w.t0 && p.at <= w.t1);
 });
+
+test('code review 1 and 2: a drawdown near 100% keeps its printed (negated) accessible name; a dated range starts at its left edge', async () => {
+  const { pct } = await import('./format.ts');
+  for (const dd of [0.9995, 0.99951, 0.9999, 0.99996, 0.99999, 0.5, 0]) {
+    const rec = [t('1', 0, '2026-10-12T10:00:00Z'), t('2', -dd, '2026-10-13T10:00:00Z')];
+    const s = chartSeries(chartPoints(rec), 'ALL', now);
+    const u = unpackChart(JSON.parse(JSON.stringify(paneChart(rec, now)))).ALL;
+    assert.equal(pct(-u.drawdown, 0), pct(-s.drawdown, 0), String(dd));
+    assert.equal(pct(-u.drawdown, 1), pct(-s.drawdown, 1), String(dd));
+  }
+  const w = unpackChart(paneChart([t('1', 0.01, '2026-10-09T10:00:00Z'), t('2', 0.02, '2026-10-12T10:00:00Z')], now))['1W'];
+  assert.equal(w.pts[0].trade, null);
+  assert.equal(w.pts[0].at, w.t0);
+});
+
+test('user test UX 1: closes at the same instant run in list order (the larger id is newer): the last step is the list top row', () => {
+  const at = '2026-10-13T10:00:00Z';
+  const rec = [t('5', 0.01, at), t('7', 0.02, at), t('6', -0.03, at)];
+  const listTop = chartPoints(rec)[0].id; // list order: newest first, ties by the larger id
+  assert.equal(listTop, '7');
+  for (const c of [paneChart(rec, now), profileChart(rec, now)]) assert.deepEqual(unpackChart(c).ALL.pts.slice(1).map((p) => p.trade!.id), ['5', '6', '7']);
+  assert.deepEqual(chartSeries(chartPoints(rec), 'ALL', now).pts.slice(1).map((p) => p.trade!.id), ['5', '6', '7']);
+});

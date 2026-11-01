@@ -86,7 +86,7 @@ test('the feed pane\'s chart: every range at most 400 points, the same numbers a
     assert.equal(small.n, full.n);
     // F-23: the full record's figures, at the printed precision (wirePct of the stored-value figure).
     assert.equal(small.last, wirePct(full.last));
-    assert.equal(small.drawdown, wirePct(full.drawdown));
+    assert.equal(small.drawdown, -wirePct(-full.drawdown) || 0); // printed negated: rounded as printed
     assert.deepEqual([small.min, small.max], [wirePct(full.min), wirePct(full.max)]);
     // F-23: range ends are UTC days: the start of t0's day, the end of t1's day.
     // F-23: range ends on their UTC days: a dated range from the start of t0's day to the end of t1's; ALL from its

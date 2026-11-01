@@ -18,7 +18,11 @@ export type Series = { pts: SeriesPt[]; t0: number; t1: number; last: number; n:
 
 export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxPoints = Infinity): Series {
   const spec = RANGES.find((r) => r.key === key)!;
-  const curve = equityCurve(rangeTrades(trades, key, now));
+  // F-23 (user test, UX 1): closes at the same instant run in list order, oldest row first (the list's tie-break: the
+  // larger id is newer), so the last key step and the right edge land on the list's top row. equityCurve's sort is
+  // stable, so this order holds through it.
+  const ordered = [...rangeTrades(trades, key, now)].sort((a, b) => a.closedAt.getTime() - b.closedAt.getTime() || b.index - a.index);
+  const curve = equityCurve(ordered);
   const last = curve.length ? curve[curve.length - 1].cumulative : 0;
   const t0 = spec.days === null ? (curve[0]?.trade.closedAt.getTime() ?? 0) : now.getTime() - spec.days * DAY;
   const t1 = spec.days === null ? (curve[curve.length - 1]?.trade.closedAt.getTime() ?? 0) : now.getTime();
@@ -74,7 +78,7 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, li
       if (lite) p.push(wireDay(pt.at) - base, wirePct(pt.value)); // no close: pairs
       else p.push(wireDay(pt.at) - base, wirePct(pt.value), i);
     }
-    ranges[key] = { t0: wireDay(s.t0), t1: wireDay(s.t1), last: wirePct(s.last), n: s.n, dd: wirePct(s.drawdown), min: wirePct(s.min), max: wirePct(s.max), p };
+    ranges[key] = { t0: wireDay(s.t0), t1: wireDay(s.t1), last: wirePct(s.last), n: s.n, dd: -wirePct(-s.drawdown) || 0 /* printed negated ("max drawdown -99.999%"): rounded as printed */, min: wirePct(s.min), max: wirePct(s.max), p };
   }
   return lite ? { v: PAYLOAD_V, base, trades: out, ranges, lite: 1 } : { v: PAYLOAD_V, base, trades: out, ranges };
 }
@@ -122,6 +126,11 @@ export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
       pts.push({ at, value: r.p[i + 1], trade });
       }
     }
+    // A dated range's start point (0%, no close) sits on the range's left edge (code review 2), not spread in its day.
+    if (key !== 'ALL' && pts.length && !pts[0].trade) pts[0] = { ...pts[0], at: r.t0 * DAY };
+    // ponytail: a dated range ends at the end of today's UTC day, not at the request time (the wire carries no time
+    // finer than a day), so its flat tail after the last close runs up to a day longer than before F-23 — an x-axis
+    // shift of at most 1/7 of the 1W width; sending `now` to the minute would undo it at the cost of a sub-day time.
     // ALL spans its first point to its last (edge to edge, no tail, as before F-23); a dated range ends at today's end.
     const all = key === 'ALL' && pts.length > 0;
     out[key] = { pts, t0: all ? pts[0].at : r.t0 * DAY, t1: all ? pts[pts.length - 1].at : (r.t1 + 1) * DAY - 1, last: r.last, n: r.n, drawdown: r.dd, min: r.min, max: r.max };

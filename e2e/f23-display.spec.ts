@@ -284,3 +284,37 @@ test('F-23 AC 3/5 feed: the card and its swiped-open pane print the stored-value
     await ctx.close();
   }
 });
+
+// Business lead demand 2 (user test): on the seeded demo records shared links land on, the last key step and a release
+// at the chart's right edge open the list's top row, and the header then shows the range total; in UTC and Auckland.
+for (const timezoneId of ['UTC', 'Pacific/Auckland']) {
+  test(`F-23 AC 4 demo records (${timezoneId}): the last key step and the right-edge release open the list top row`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 360, height: 800 }, timezoneId });
+    const page = await ctx.newPage();
+    try {
+      for (const handle of ['momentum_maya', 'dividend_dan', 'yolo_yuki']) {
+        await page.goto(`/u/${handle}`);
+        const top = (await page.locator('ul.rows.closes li').first().locator('.line b').first().innerText()).trim();
+        const fig = page.locator('figure.chart');
+        await expect(fig.locator('.chart-hit')).toHaveCount(1); // hydrated
+        const totalText = (await fig.locator('.chart-value').innerText()).trim();
+        // Keys: from rest, ArrowLeft lands on the last point.
+        await fig.locator('.chart-stack').focus();
+        await page.keyboard.press('ArrowLeft');
+        await expect(fig.locator('.chart-head'), handle).toContainText(` · ${top}`);
+        await expect(fig.locator('.chart-value'), handle).toHaveText(totalText);
+        await page.keyboard.press('Enter');
+        await expect(fig.locator('.sheet .line b').first(), handle).toHaveText(top);
+        await page.keyboard.press('Escape');
+        // Pointer: press and release at the right edge.
+        const box = (await fig.locator('.chart-stack').boundingBox())!;
+        await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.up();
+        await expect(fig.locator('.sheet .line b').first(), `${handle} edge release`).toHaveText(top);
+      }
+    } finally {
+      await ctx.close();
+    }
+  });
+}

@@ -1028,3 +1028,10 @@ export const CHORES_3 = {
   backToFeed: 'Back to the feed',
 } as const;
 // end CHORES-3
+
+// F-23 · Public payload precision (docs/features/F-23-public-payload-precision.md)
+export const F23_COPY = {
+  // The chart's end line when the first and last close fall on one UTC day (one date, not the same date twice).
+  chartEndsOne: (a: string) => `First and last close ${a}`,
+} as const;
+// end F-23

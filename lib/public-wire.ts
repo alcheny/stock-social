@@ -30,6 +30,15 @@ export function wirePct(v: number): number {
   const first = ok(s1) ?? ok(away(-0.04)) ?? ok(away(0.04));
   if (first !== null) return first;
   if (prints(NEAR_TOTAL_LOSS) === want) return NEAR_TOTAL_LOSS;
+  // The extra digits pct() prints near -100% (code review 3): the printed number itself, its neighbours in the last
+  // printed digit, then one more digit (5): never the stored digits beyond what the screen shows.
+  for (const shown of [pct(v, 1), pct(v, 0)]) {
+    const m = /^-?\d+\.(\d+)%$/.exec(shown);
+    if (!m) continue;
+    const d = m[1].length, n = Number(shown.slice(0, -1)), u = 10 ** -d;
+    const r = ok(n.toFixed(d)) ?? ok((n - u).toFixed(d)) ?? ok((n + u).toFixed(d)) ?? ok(`${n.toFixed(d)}5`) ?? ok(`${(n + u).toFixed(d)}5`) ?? ok(`${(n - u).toFixed(d)}5`);
+    if (r !== null) return r;
+  }
   for (let d = 2; d <= 8; d++) {
     const r = ok(p.toFixed(d)) ?? ok((Math.trunc(p * 10 ** d) / 10 ** d).toFixed(d));
     if (r !== null) return r;
