@@ -4,7 +4,6 @@
 // and a polite live region confirms; the page has no horizontal scroll at 360 px and 320 px; the review queue is a 404.
 import { expect, test, type Page } from '@playwright/test';
 
-const db = async () => (await import('../lib/db.ts')).sql;
 const rand = () => Math.random().toString(36).slice(2, 8);
 async function signIn(page: Page, handle: string) {
   await page.goto('/login/dev');
@@ -25,7 +24,8 @@ async function tabTo(page: Page, name: RegExp, max = 80): Promise<boolean> {
 
 test('F-9: a published note shows its author and date; Report is keyboard reachable, confirms politely, and is absent signed out; 360/320 px reflow; review queue 404', async ({ page, request }) => {
   test.setTimeout(120_000);
-  const sql = await db();
+  // Its own pool: a worker runs several spec files, and another may already have ended the shared one (lib/db.ts).
+  const sql = (await import('postgres')).default(process.env.DATABASE_URL!, { onnotice: () => {} });
   const tag = rand();
   const trader = `f9t${tag}`, reader = `f9r${tag}`;
   const sell = `f9-sell-${tag}`;
@@ -91,7 +91,7 @@ test('F-9: a published note shows its author and date; Report is keyboard reacha
 // colour); a reader-report hold says readers reported it, with no count. Signed out and as a reader neither line shows.
 test('fix round 2: the author sees why a note is held; a reported note names no count; nobody else sees either', async ({ page }) => {
   test.setTimeout(90_000);
-  // Its own pool: the test above ends the shared one (lib/db.ts) when it finishes.
+  // Its own pool (see the first test).
   const sql = (await import('postgres')).default(process.env.DATABASE_URL!, { onnotice: () => {} });
   const tag = rand();
   const trader = `f9h${tag}`;
