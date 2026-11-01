@@ -26,15 +26,15 @@ the cap is estimated.
   "config": {
     "capUsd": 1200,                // optional: a known cap; otherwise it is calibrated (below)
     "warnFraction": 0.75,          // the share of the cap at which status turns "allowed_warning"
-    "safety": 1.5,                 // multiplier on running sessions' remaining-cost estimates
-    "priors": { "build": 50, "council:fixing": 15 }   // overrides, see Priors
+    "safety": 1.5,                 // widens running sessions' high remaining-cost figure (reported, not used to admit)
+    "priors": { "build": { "low": 20, "point": 40, "high": 55 }, "council:fixing": 15 }   // overrides, see Priors
   },
   "sessions": [
     { "id": "f3-build", "kind": "build", "phase": "fixing", "priority": 5, "costUsd": 38.17,
       "startedAt": "2026-11-01T05:10:00Z", "lastActiveAt": "2026-11-01T08:54:00Z", "done": false,
       "recent": { "costUsd": 33.0, "at": "2026-11-01T08:24:00Z" } }   // optional earlier reading: recent burn
   ],
-  "queue": [ { "id": "f5-build", "kind": "build", "priority": 4, "estimateUsd": 50 } ],
+  "queue": [ { "id": "f5-build", "kind": "build", "priority": 4, "estimateLowUsd": 25, "estimateUsd": 40, "estimateHighUsd": 55 } ],
   "history": [ { "at": "2026-11-01T07:55:00Z", "totalCostUsd": 520, "status": "allowed" } ]
 }
 ```
@@ -58,48 +58,60 @@ and `isUsingOverage` are stale and ignored (reported), since the provider clears
 that started before the window starts (the orchestrator) is counted pro rata: its cost times the share of
 its active span (`startedAt` to `lastActiveAt`) that falls inside the window.
 
-**Priors** (expected total cost of a whole session, USD), calibrated on 2026-11-01's runs:
+**Priors** (expected total cost of a whole session, USD, as low / point / high), calibrated on
+2026-11-01's runs:
 
-| kind | prior | typical hours | tail hours | floor | from |
-|---|---|---|---|---|---|
-| build | 50 | 5 | 1 | 4 | committee feature builds: done $28.00, $20.78; running up to $38.17; fix rounds add more |
-| build:small | 12 | 2 | 0.5 | 2 | a small dev task: $8.70 |
-| council | 45 | 4 | 1 | 4 | done $31.36, $32.77, $40.90; one at $48.31 still fixing |
-| review | 4 | 0.5 | 0.25 | 1 | independent review subagents: $1-4 |
-| orchestrator | none | until reset | 1 | 2 | runs for the whole window: about $30/day |
+| kind | low | point | high | typical hours | tail hours | floor | from |
+|---|---|---|---|---|---|---|---|
+| build | 20 | 40 | 55 | 5 | 1 | 4 | committee feature builds: done $28.00, $20.78; running up to $38.17; fix rounds add more |
+| build:small | 5 | 9 | 12 | 2 | 0.5 | 2 | a small dev task: $8.70 |
+| council | 30 | 40 | 50 | 4 | 1 | 4 | done $31.36, $32.77, $40.90; one at $48.31 still fixing |
+| review | 1 | 3 | 4 | 0.5 | 0.25 | 1 | independent review subagents: $1-4 |
+| orchestrator | - | - | - | until reset | 1 | 2 | runs for the whole window: about $30/day |
 
 A key `kind:phase` overrides `kind` for sessions in that phase; `config.priors` overrides the defaults by
-the same keys.
+the same keys, as a number (low = point = high) or `{ "low", "point", "high" }`.
 
-**Remaining cost of a running session** = the largest of
+**Remaining cost of a running session**, computed three times (with the low, point and high prior) as
+the largest of
 1. prior − spent (what the session would cost if it ends at its prior);
 2. burn × remaining hours, where burn is its recent rate (`recent` reading at least 5 minutes old) or
    else its lifetime average (cost over active hours, at least 15 minutes), and remaining hours =
    max(typical − elapsed, tail). The orchestrator's remaining hours are the hours until reset;
 3. the floor.
 
-So a session above its prior keeps a margin of its own burn over the tail (at least the floor), never 0
-while it is not done. Done sessions count in spend and reserve nothing.
+The high figure is also multiplied by `safety`. A session above its prior keeps a margin of its own burn
+over the tail (at least the floor), never 0 while it is not done. Done sessions count in spend and
+reserve nothing. **Reserve** is Σ remaining (point) over the running sessions: admission only uses what
+is left after it, so running work can finish.
 
-**Reserve** = Σ remaining × safety over every running session. It is always kept: admission only uses
-what is left after it, so running work can finish before 100% of the cap.
+**New item estimate**: `estimateLowUsd` / `estimateUsd` / `estimateHighUsd` when given (one number alone
+is used for all three), else the prior range for its kind.
 
-**Cap.**
-1. `config.capUsd` when given (source `config`).
+**Cap** (low / point / high).
+1. `config.capUsd` when given: all three (source `config`).
 2. Otherwise calibrated: in the most recent window in which status turned `allowed_warning` (history or
-   the snapshot itself), the first warning reading's spend W gives cap ≈ W / warnFraction (source
-   `calibrated`; it carries over to later windows). A `rejected` reading at spend R caps it at R.
-3. Otherwise unknown (source `unknown`, `usd: null`). `lowerBoundUsd` reports, for information only, the
+   the snapshot itself), the first warning reading at spend W gives high = point = W / warnFraction; the
+   last `allowed` reading before it in that window, at spend A, gives low = A / warnFraction (with no such
+   reading, low = W: the cap is at least the spend already seen). Source `calibrated`; it carries over to
+   later windows. A `rejected` reading at spend R lowers both to at most R.
+3. Otherwise unknown (source `unknown`, values null). `lowerBoundUsd` reports, for information only, the
    largest A / warnFraction over `allowed` readings at spend A in this window (the cap is above it).
 
-**Admission: the one rule.** Queued work is admitted while
+**Admission: the one rule.** When unsure whether new work goes over the cap, the owner's call is to admit
+it and accept the risk of going over. So queued work is admitted while
 
-    window spend + reserve (running) + Σ estimates of the newly admitted items ≤ 100% of the cap
+    window spend + Σ running remaining (point) + Σ admitted items' LOW estimate ≤ cap HIGH
 
 Items are taken in priority order (then id); the first item that does not fit stops admission, so a large
-important item is not starved by smaller ones. An item's estimate is its `estimateUsd` or the prior for its
-kind, with no safety multiplier: the safety factor protects running sessions, it is not a lower ceiling.
-While the cap is unknown, every queued item is admitted while status is `allowed`.
+important item is not starved by smaller ones. Work is queued only when it would clearly exceed 100% even
+under these optimistic figures. While the cap is unknown, every queued item is admitted while status is
+`allowed`. `safety` is not in the admission check; it only widens the reported high figures.
+
+**Overshoot risk** (`projection.overshoot`): worst case = spend + Σ running high + Σ admitted high,
+compared with the cap's low end. `none` when the worst case fits under cap low; `possible` when it does not
+but the point case (spend + Σ running point + Σ admitted point) fits under cap high; `likely` when even
+the point case is over cap high.
 
 The governor never limits rate: it has no per-hour limits, pacing or concurrency caps, in code or in its
 default config. It only keeps running sessions' reserves and queues work that would not fit under 100%.
@@ -113,13 +125,12 @@ default config. It only keeps running sessions' reserves and queues work that wo
 - status missing or unrecognised: treated as a brake until a valid status is read.
 
 **Next admission time.** A queued item gets `nextAdmitAt`: the projected finish time of the running
-session after which it would fit (each finish frees the unused part of its safety margin), if that is
-before reset; otherwise `resetsAt`. Under a brake, `resetsAt`.
+session after which it would fit under the same rule, if that is before reset; otherwise `resetsAt`. Under a brake, `resetsAt`.
 
 **Projection.** Burn rate is the window-spend slope over history readings in the last 2 hours of this
 window (at least 15 minutes apart), else the sum of the running sessions' burns. Time to cap =
-(cap − spend) / burn, compared with the hours to reset. `runningFits` says whether spend + Σ remaining
-fits under the cap; `runningFitsWithSafety` uses the reserve.
+(cap high − spend) / burn, compared with the hours to reset. `runningFits` says whether spend + Σ
+running point fits under cap high; `runningFitsWithSafety` uses the running high figures and cap low.
 
 ## Plan (output)
 
