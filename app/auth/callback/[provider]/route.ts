@@ -7,6 +7,7 @@ import { signInWithIdentity } from '@/lib/auth/attempts.ts';
 import { origin, rememberMethod, signIn } from '@/lib/session.ts';
 import { landingFor } from '@/lib/auth/landing.ts';
 import { decodeTx, TX_COOKIE } from '@/lib/auth/tx.ts';
+import { SignUpClosedError, signUpOpen } from '@/lib/launch-gate.ts';
 
 // The provider returns here (GET with a query, or a cross-site POST for form_post). State, nonce and PKCE verifier
 // come from the signed transaction cookie set by startSignIn; the id_token is verified against the provider's JWKS.
@@ -28,7 +29,15 @@ async function finish(params: URLSearchParams, provider: string) {
     const v = await verifyWithProvider(d, p, idToken, tx.n);
     if (!v.ok) return fail(v.reason);
     const verified = v.claims.email_verified === true || v.claims.email_verified === 'true';
-    const user = await signInWithIdentity(tx.a, { provider: p.key, subject: v.claims.sub, email: verified && v.claims.email ? v.claims.email.toLowerCase() : null });
+    const email = verified && v.claims.email ? v.claims.email.toLowerCase() : null;
+    let user;
+    try {
+      user = await signInWithIdentity(tx.a, { provider: p.key, subject: v.claims.sub, email }, { allowNew: signUpOpen(email) });
+    } catch (e) {
+      // Launch gate (D4): a new account while sign-up is closed; caught before the generic provider failure below.
+      if (e instanceof SignUpClosedError) return NextResponse.redirect(`${base}/login?error=closed`, 303);
+      throw e;
+    }
     await signIn(user.id);
     await rememberMethod(p.key);
     return NextResponse.redirect(`${base}${await landingFor(user)}`, 303); // an empty profile goes straight to S2 (committee item 7)

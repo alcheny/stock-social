@@ -23,6 +23,18 @@ account divided between realized and unrealized gains and losses.
   decided by the committee in the build's plan debate, with losses shown like gains and the disclaimer on every
   performance surface. Why: the owner asked the committee to decide open questions with its recommended
   option.
+- 2026-11-01: Realized (closed trades) leads the headline; the unrealized grid sits directly beneath it at the same size (profile and feed pane). Why: decided by the committee under the owner's instruction of 2026-11-01; TR-4 asks for open positions as prominent as the headline, TR-9 keeps its range on the headline average, and a record without open positions keeps today's page.
+- 2026-11-01: One combined figure, a single line: "Including open positions at current value: X avg / result (N results)"; no combined win rate. Why: decided by the committee under the owner's instruction of 2026-11-01; one number counting every result answers the sell-winners, hold-losers problem; an open position has not "won".
+- 2026-11-01: Unrealized aggregate: each position counted once (one symbol in two accounts is two), up / down / flat by the printed sign, equal-weight average; up and down always printed. Why: decided by the committee under the owner's instruction of 2026-11-01; no amounts are stored (P3), and both counts keep losses visible.
+- 2026-11-01: The chart stays closed trades only (CH-1) with a note under it naming what is not plotted. Why: decided by the committee under the owner's instruction of 2026-11-01; CH-1 Must.
+- 2026-11-01: The 95% range (TR-9) stays closed trades only and says so in words; including open positions is a follow-up (Open questions). Why: decided by the committee under the owner's instruction of 2026-11-01; open_positions has no opened date, and the change moves feed ranking.
+- 2026-11-01: Stock pages show open positions as an aggregate only, never who holds the stock. Why: decided by the committee under the owner's instruction of 2026-11-01; a live roster is a cue to act (POLICY F1/F3b).
+- 2026-11-01: Feed card: one line "Also open: …" with counts and the average unrealized percent, no symbols. Why: decided by the committee under the owner's instruction of 2026-11-01; a card is about one close; the line keeps the open record in view.
+- 2026-11-01: Positions show only for connected or failed records; the profile list says "as of" the oldest read. Why: decided by the committee under the owner's instruction of 2026-11-01; TR-3 and the existing consent rule.
+- 2026-11-01: The disclaimer is the site footer on every page. Why: decided by the committee under the owner's instruction of 2026-11-01; F-1 precedent; asserted by e2e.
+- 2026-11-01: The feed pane leads with the figures (realized, unrealized, combined) when the trader has open positions, then the chart. Why: decided by the committee under the owner's instruction of 2026-11-01; the pane is where most viewers meet a record (SW-1).
+- 2026-11-01: The evidence line is scoped first ("Closed trades: …"), and the unrealized row is dated ("as of" the oldest read). Why: decided by the committee under the owner's instruction of 2026-11-01; no contradiction under a negative combined figure, and a stale read never reads as current.
+- 2026-11-01: The share card images reflect open positions in the F-4 build, which reuses lib/open-split.ts; the F-6 PR covers every other surface. Why: decided by the committee under the owner's instruction of 2026-11-01; the F-4 session owns the card.
 
 ## Acceptance criteria
 - [ ] Every surface that shows a trader's performance (profile headline and stats, chart, feed card and pane,
@@ -42,6 +54,15 @@ account divided between realized and unrealized gains and losses.
 - Position size (F-5) and dollar amounts.
 
 ## Open questions
-- Resolved by the committee during the build (owner's instruction of 2026-11-01).
+- Resolved by the committee during the build (owner's instruction of 2026-11-01); record: docs/features/logs/F-6/committee-2026-11-01.md.
+- Follow-up (own feature): include open positions in the 95% range (TR-9) at days held so far: needs an additive
+  `open_positions.opened_at` (the earliest unmatched FIFO lot) and changes feed ranking, so it needs its own plan.
+- Idea board 2026-11-01 (idea 9): add the market-data gate: unrealized values reach real users only after the
+  vendor's written answer or a separately licensed price source (its terms bar redistributing market data). Chart:
+  realized-only line with a labeled unrealized marker (fits CH-1); "Open: N positions · X% unrealized" beside each
+  headline; "prices as of ‹time›"; image URL changes with the figure; per-security pages show aggregate counts only.
+- Idea board 2026-11-01 (idea 9): owner's call: withhold the symbol on thin names or delay new positions, and one
+  "Open" line instead of splitting every stat. The range has three definitions (TR-9, F-4, F-6); one rule must
+  govern.
 
 ## Rework notes

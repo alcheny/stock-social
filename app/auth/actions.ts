@@ -18,6 +18,7 @@ import { deleteProfile as deleteRow } from '@/lib/delete.ts';
 import { CONNECT_COOKIE, CONNECT_COOKIE_SECONDS } from '@/lib/connections.ts';
 import { isDemoUser } from '@/lib/demo.ts';
 import { normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
+import { handleReserved, signUpOpen } from '@/lib/launch-gate.ts';
 
 async function referral(form: FormData) {
   const refHandle = normalizeHandle(form.get('ref'));
@@ -69,6 +70,8 @@ export async function startSignIn(form: FormData) {
     redirect(`/login/sent?a=${attemptId}${await sendOrFail(attemptId, email)}`);
   }
   if (method === 'brokerage') {
+    // Launch gate (D6): brokerage-first only ever creates an account; while sign-up is closed no attempt is written.
+    if (!signUpOpen()) return back({ ref: r.ref, via: r.via, error: 'closed' });
     // Committee fix (High): the attempt is bound to this browser the moment it is created (signed cookie, path /connect);
     // the connect routes read only that cookie, never an id from the URL. Straight to the trust notice (S2).
     const attemptId = await createAttempt(base);
@@ -118,6 +121,9 @@ export async function setHandle(form: FormData) {
   const user = await currentUser();
   if (!user) redirect('/login');
   const { changeHandle, HandleTakenError } = await import('@/lib/auth/attempts.ts');
+  // Launch gate (code review 6, tester 5): a handle on the testing allowlist can't be taken by a rename while closed.
+  const wanted = normalizeHandle(form.get('handle'));
+  if (wanted && wanted !== user.handle && handleReserved(wanted)) redirect(`/u/${user.handle}?handle=taken`);
   try {
     const h = await changeHandle(user.id, form.get('handle'));
     revalidatePath('/', 'layout'); // the root-layout nav shows the handle; without this it keeps the old one (now a 404) until a reload

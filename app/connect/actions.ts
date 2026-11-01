@@ -6,6 +6,7 @@ import { AccountClaimedError } from '@/lib/claims.ts';
 import { CONNECT_COOKIE, consent, decline, getConnection, NotPendingError, ownsConnection, parseConnectionId } from '@/lib/connections.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser, rememberMethod, signIn } from '@/lib/session.ts';
+import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 
 async function owned(form: FormData) {
   const id = parseConnectionId(form.get('c'));
@@ -17,6 +18,9 @@ async function owned(form: FormData) {
 
 export async function consentAction(form: FormData) {
   const { c, me } = await owned(form);
+  // Launch gate (D8): re-checked at consent (a link opened before the gate closed); the pending link is left to its clock
+  // or to "Don't import".
+  if (!(await connectAllowed(me))) redirect('/connect?closed=1');
   let user: { userId: number; handle: string };
   try {
     user = await consent(c.id);
