@@ -52,7 +52,9 @@ test('the image draws "Excluding options" on its own line inside the band, and t
     // Its own line when it fits; else on the count line (the failed import's two note lines take the room). Never dropped.
     const own = laid.lines.find((l) => l.role === 'options'), count = laid.lines.find((l) => l.role === 'count')!;
     if (state === 'connected') assert.equal(own?.text, OPTIONS.shareLabel);
-    else { assert.equal(own, undefined); assert.match(count.text, / · Excluding options$/); assert.ok(count.size >= 26); }
+    // Merge with #60: the failed note's layout now leaves room, so either placement is valid; it is never dropped.
+    else if (own) assert.equal(own.text, OPTIONS.shareLabel);
+    else { assert.match(count.text, / · Excluding options$/); assert.ok(count.size >= 26); }
     // The disclaimer stays the band's last lines.
     assert.deepEqual(laid.lines.slice(-3).map((l) => l.role), ['disclaimer0', 'disclaimer1', 'disclaimer2']);
   }
