@@ -1,13 +1,31 @@
 // CHORES-3 (C3-34): what GET /api/health answers. Public: `ok` or `degraded` only. Behind the cron bearer: booleans,
 // ISO times and hours only (legal veto: no ids, handles, user counts, figures or error text).
-// The threshold is the sync round (lib/sync.ts ROUND_MS: every connected trader is due once a round, and the 5-minute
-// cron stamps the shard heartbeat on every run), never a fixed number of minutes, so a cadence change moves it too.
+// The threshold comes from the cron schedule, never a fixed number of minutes. Every run stamps its shard's heartbeat
+// (lib/sync-shard.ts). On the documented schedule (docs/SYNC.md → Cron setup: every 5 minutes, never at :30, so the
+// longest gap is 10 minutes) a heartbeat older than MISSING_SHARD_MS is the same "missing" the sync coverage line
+// counts. A deploy that ticks hourly (SYNC_CRON_EVERY_MIN=60) waits a whole round plus that margin instead.
 import { sql } from './db.ts';
 import { logSafe } from './privacy-log.ts';
 import { ROUND_MS, syncable } from './sync.ts';
+import { MISSING_SHARD_MS } from './sync-shard.ts';
 import { cronAuthorized } from './cron-auth.ts';
 
-export const THRESHOLD_MS = ROUND_MS;
+export const DOCUMENTED_TICK_MS = 5 * 60_000; // docs/SYNC.md's schedule
+export const LONGEST_GAP_FACTOR = 2; // one tick may be skipped (the documented schedule skips :30)
+export const LONGEST_GAP_MS = LONGEST_GAP_FACTOR * DOCUMENTED_TICK_MS;
+// Below a round: the longest healthy gap is two ticks (one skipped, as the :30 tick is), plus half a tick for a run
+// that starts late, and never less than the coverage line's MISSING_SHARD_MS (5 min → 15 min, 10 → 25, 20 → 50,
+// 30 → 75). Hourly or slower: a whole round plus that margin.
+export function thresholdFor(tickMs: number): number {
+  if (tickMs >= ROUND_MS) return ROUND_MS + MISSING_SHARD_MS;
+  return Math.max(MISSING_SHARD_MS, LONGEST_GAP_FACTOR * tickMs + tickMs / 2);
+}
+// The deploy's cron interval in minutes (default: the documented 5). Anything unparsable falls back to the default.
+export function cronTickMs(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.SYNC_CRON_EVERY_MIN);
+  return Number.isInteger(n) && n > 0 && n <= 24 * 60 ? n * 60_000 : DOCUMENTED_TICK_MS;
+}
+export const THRESHOLD_MS = thresholdFor(cronTickMs());
 const HOUR_MS = 3_600_000;
 
 export type HealthReading = { dbOk: boolean; last: Date | null; stalest: Date | null };
@@ -15,19 +33,19 @@ export type HealthDetails = { status: 'ok' | 'degraded'; db: boolean; lastRunAt:
 
 const hours = (ms: number) => Math.round(Math.max(0, ms) / HOUR_MS * 100) / 100;
 
-// Degraded when the database cannot be read, no run was ever recorded, or the newest run is older than a round. The
+// Degraded when the database cannot be read, no run was ever recorded, or the newest run is older than the threshold. The
 // stalest trader's sync is reported, never a cause: backoff and quarantine legitimately hold a trader for up to 24 h.
 // ponytail: `last` is the newest heartbeat across all shards, so one dead shard among live ones still reads ok — the
 // sync route's coverage line reports it (`missingShards`); a per-shard check would need the schedule's shard count.
-export function healthStatus(r: HealthReading, now: number): HealthDetails {
-  const ok = r.dbOk && !!r.last && now - r.last.getTime() <= THRESHOLD_MS;
+export function healthStatus(r: HealthReading, now: number, thresholdMs = THRESHOLD_MS): HealthDetails {
+  const ok = r.dbOk && !!r.last && now - r.last.getTime() <= thresholdMs;
   return {
     status: ok ? 'ok' : 'degraded',
     db: r.dbOk,
     lastRunAt: r.dbOk && r.last ? r.last.toISOString() : null,
     lastRunAgeHours: r.dbOk && r.last ? hours(now - r.last.getTime()) : null,
     stalestSyncAgeHours: r.dbOk && r.stalest ? hours(now - r.stalest.getTime()) : null,
-    thresholdHours: hours(THRESHOLD_MS),
+    thresholdHours: hours(thresholdMs),
   };
 }
 
