@@ -47,8 +47,8 @@ test('N1: an options-only record\'s card says "No closed share trades yet" and c
   assert.equal(m.optionsLine, OPTIONS.gated(3, 1));
   assert.match(cardAlt(m), /No closed share trades yet\./);
   assert.ok(cardAlt(m).includes(OPTIONS.gated(3, 1)));
-  const image = readFileSync(new URL('../app/u/[handle]/record-card-image.tsx', import.meta.url), 'utf8');
-  assert.match(image, /\{m\.optionsLine && <span style=\{t\(f\.body, C\.muted\)\}>\{m\.optionsLine\}<\/span>\}/);
+  // (The picture itself is rendered in e2e/options.spec.ts "fix round 4 N1".) Every size carries it.
+  for (const kind of ['unfurl', 'story'] as const) assert.equal(recordCard({ kind, handle: 'h_x', name: null, trades: [], state: 'connected', demo: false, verified: true, now, link: null, options: { shareLabel: true, line: OPTIONS.gated(3, 1) } }).optionsLine, OPTIONS.gated(3, 1));
   // No options: the empty card is as before.
   assert.equal(recordCard({ kind: 'square', handle: 'h_x', name: null, trades: [], state: 'connected', demo: false, verified: true, now, link: null }).body, 'No closed trades yet');
 });
@@ -58,13 +58,28 @@ test('N7: open gate with no long close to summarize: the pane gets the profile\'
   assert.equal(v.line, `${OPTIONS.short(2, 1)} ${OPTIONS.technical(3)}`);
   assert.equal(v.open, true);
   assert.equal(paneView({ gate: 'closed', counts: C({ short: 2 }) }).open, false);
-  assert.match(readFileSync(new URL('../app/pane.tsx', import.meta.url), 'utf8'), /OPTIONS\.paneNote\(!!options\?\.open\)/);
+  // The pane's closing note reads the view's gate flag: open → options are summarized above; closed → not shown.
+  assert.equal(OPTIONS.paneNote(v.open), OPTIONS.paneNote(true));
+  assert.match(OPTIONS.paneNote(v.open), /option trades are summarized above/);
+  assert.match(OPTIONS.paneNote(paneView({ gate: 'closed', counts: C({ short: 2 }) }).open), /Options and positions with no recorded entry aren't shown/);
 });
 
-test('N2: the trade and month pages and their images build the strip with the qualifier (the one strip function)', () => {
-  for (const f of ['../app/u/[handle]/trade/[sellId]/page.tsx', '../app/u/[handle]/trade/[sellId]/opengraph-image.tsx', '../app/u/[handle]/month/[ym]/page.tsx', '../app/u/[handle]/month/[ym]/opengraph-image.tsx']) {
-    assert.match(readFileSync(new URL(f, import.meta.url), 'utf8'), /recordStrip\((tradeStripInput|recordStripInput)\(/, f);
-  }
+dbTest('N2: the trade and month pages (and their images) read the qualifier for a trader with options, and not for one without', async () => {
+  const f = await strippedTraders();
+  try {
+    const { loadTradeShare } = await import('./trade-share-load.ts');
+    const { loadRecap } = await import('./recap-load.ts');
+    const { tradeStripInput } = await import('./trade-share.ts');
+    const { recordStripInput } = await import('./recap.ts');
+    for (const [who, want] of [[f.withOptions, true], [f.without, false]] as const) {
+      const t = (await loadTradeShare(who.handle, who.sellId))!;
+      assert.equal(!!t.excludingOptions, want, `${who.handle} trade`);
+      for (const surface of ['page', 'image'] as const) assert.equal(recordStrip(tradeStripInput(t), surface).text.endsWith(` · ${OPTIONS.shareLabel}`), want, surface);
+      const r = (await loadRecap(who.handle, who.ym))!;
+      assert.equal(!!r.excludingOptions, want, `${who.handle} month`);
+      assert.equal(recordStrip(recordStripInput(r), 'image').alt.includes(OPTIONS.altQualifier), want);
+    }
+  } finally { await f.cleanup(); }
 });
 
 test('N8: closing the vendor fake closes its IPv6 listener and connections too', async () => {
@@ -75,7 +90,14 @@ test('N8: closing the vendor fake closes its IPv6 listener and connections too',
   // The same port binds again at once, both stacks.
   const b = await startVendorFake(port);
   await new Promise<void>((done) => { b.server.close(() => done()); b.server.closeAllConnections(); });
-  assert.match(readFileSync(new URL('../e2e/fakes/vendor.ts', import.meta.url), 'utf8'), /v6\.closeAllConnections\(\)/);
+  // Nothing is left listening on the IPv6 side (where the host has IPv6 loopback at all).
+  const { connect } = await import('node:net');
+  const refused = await new Promise<boolean | null>((done) => {
+    const c = connect({ host: '::1', port });
+    c.once('connect', () => { c.destroy(); done(false); });
+    c.once('error', (e: NodeJS.ErrnoException) => done(e.code === 'ECONNREFUSED' ? true : null));
+  });
+  if (refused !== null) assert.equal(refused, true);
 });
 
 dbTest('N4: a connection whose listed accounts are none of this sync\'s is never marked backfilled', async () => {
@@ -94,6 +116,39 @@ dbTest('N4: a connection whose listed accounts are none of this sync\'s is never
   } finally { await sql`delete from users where id = ${u.id}`; }
 });
 
-test('decision recorded: a short close while a contract is tainted stays under "other", noted at the taint', () => {
+test('decision recorded: a short close while a contract is tainted stays under "other", noted at the taint', async () => {
+  const { matchOptions } = await import('./options.ts');
+  const row = (id: string, kind: string, oc: string, units = 1) => ({ externalId: id, accountId: 'a', kind, openClose: oc, underlying: 'XYZ', underlyingType: 'cs', right: 'PUT', expiry: '2026-12-19',
+    strikeMilli: 1000, multiplier: 100, occTicker: 'XYZ   261219P00001000', units, price: 1, fee: 0, amount: null, currency: 'USD', executedAt: new Date(`2026-11-0${id}T15:00:00Z`), verified: true });
+  // Short 2, a contradicting buy to open (tainted, net -1), then the buy to close that brings it flat: "other", not short.
+  const m = matchOptions([row('1', 'SELL', 'SELL_TO_OPEN', 2), row('2', 'BUY', 'BUY_TO_OPEN'), row('3', 'BUY', 'BUY_TO_CLOSE')], new Date('2026-11-30'));
+  assert.equal(m.short, 0);
+  assert.equal(m.counts.contradict, 2);
+  // And the decision is written at the taint (a comment pin, in addition to the behaviour above).
   assert.match(readFileSync(new URL('./options.ts', import.meta.url), 'utf8'), /a short close while tainted stays counted under "other"/);
 });
+
+// A trader with options and one without, each with one share close this month: the loaders' fixtures.
+async function strippedTraders() {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const { insertActivities } = await import('./sync.ts');
+  const { insertOptionActivities, rebuildRecord } = await import('./options-sync.ts');
+  const tag = `s${Math.random().toString(36).slice(2, 9)}`;
+  const at = (d: number) => new Date(Date.now() - d * DAY);
+  const ym = at(1).toISOString().slice(0, 7);
+  const mk = async (n: string, options: boolean) => {
+    const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${n}` });
+    const acc = `${tag}${n}-a`;
+    await insertActivities(u.id, 'snaptrade', [
+      { externalId: `${tag}${n}-b`, accountId: acc, symbol: 'ABC', side: 'BUY', units: 1, price: 10, fee: 0, executedAt: at(1.2), verified: true, raw: {} },
+      { externalId: `${tag}${n}-s`, accountId: acc, symbol: 'ABC', side: 'SELL', units: 1, price: 11, fee: 0, executedAt: at(1), verified: true, raw: {} },
+    ]);
+    if (options) await insertOptionActivities(u.id, 'snaptrade', [{ externalId: `${tag}${n}-o`, accountId: acc, kind: 'SELL', openClose: 'SELL_TO_CLOSE', underlying: 'XYZ', underlyingType: 'cs',
+      right: 'CALL', expiry: '2026-12-19', strikeMilli: 1000, multiplier: 100, occTicker: 'XYZ   261219C00001000', units: 1, price: 1, fee: 0, amount: null, currency: 'USD', executedAt: at(2), verified: true, raw: {} }]);
+    await rebuildRecord(u.id);
+    return { id: u.id, handle: u.handle, sellId: `${tag}${n}-s`, ym };
+  };
+  const withOptions = await mk('w', true), without = await mk('n', false);
+  return { withOptions, without, cleanup: async () => { await sql`delete from users where id in ${sql([withOptions.id, without.id])}`; } };
+}

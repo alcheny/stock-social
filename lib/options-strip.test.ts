@@ -3,12 +3,17 @@
 // and their images, and never an option figure; with no options it is exactly as before.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { after, before } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { layoutBand, recordStrip, stripFigures, stripImageLines, type StripInput, type StripSurface } from './record-strip.ts';
 import { OPTIONS } from './copy.ts';
 import { tradeHero } from './trade-share.ts';
 
 const DAY = 86_400_000;
+const hasDb = !!process.env.DATABASE_URL;
+const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
+before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
+after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 const now = new Date('2026-11-01T12:00:00Z');
 const trades = Array.from({ length: 12 }, (_, i) => ({ symbol: `S${i % 7}`, openedAt: new Date(now.getTime() - (90 - i * 6) * DAY), closedAt: new Date(now.getTime() - (88 - i * 6) * DAY), returnPct: [0.12, -0.08, 0.03, -0.2][i % 4], holdingDays: 2 }));
 const base: StripInput = { ...stripFigures(trades, now), state: 'connected', demo: false, verified: true, handle: 'opt_strip', open: [0.1, -0.05] };
@@ -53,10 +58,49 @@ test('the image draws "Excluding options" on its own line inside the band, and t
   }
 });
 
-test('every strip surface reads the qualifier through the one reader (gated per trader), passing no gate argument', () => {
-  const read = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
-  for (const f of ['./trade-share-load.ts', './recap-load.ts']) assert.match(read(f), /paneView\(\(await optionHeadline\(\[Number\([^)]*\)\]\)\)\.get\(/, f);
-  assert.match(read('../app/feed-rows.tsx'), /excludingOptions: page\.options\?\.get\(t\.user_id\)\?\.label/);
-  assert.match(read('./trade-share.ts'), /excludingOptions: t\.excludingOptions/);
-  assert.match(read('./recap.ts'), /excludingOptions: r\.excludingOptions/);
+dbTest('every strip surface reads the qualifier through the one reader (gated per trader): the feed page, the trade page and the month page, for a trader with options and not for one without', async () => {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const { insertActivities } = await import('./sync.ts');
+  const { insertOptionActivities, rebuildRecord } = await import('./options-sync.ts');
+  const { loadFeedPage } = await import('./feed.ts');
+  const { loadTradeShare } = await import('./trade-share-load.ts');
+  const { loadRecap } = await import('./recap-load.ts');
+  const { tradeStripInput } = await import('./trade-share.ts');
+  const { recordStripInput } = await import('./recap.ts');
+  const tag = `q${Math.random().toString(36).slice(2, 9)}`;
+  const t = Date.now();
+  const ids: number[] = [];
+  // Five closes within the last day each (feed-eligible), a connected record; one trader also has an option close.
+  const mk = async (n: string, options: boolean) => {
+    const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${n}` });
+    ids.push(u.id);
+    await sql`update users set created_at = now() - interval '60 days' where id = ${u.id}`; // past the feed's new-account wait
+    const acc = `${tag}${n}-a`;
+    await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, connected_at, accounts)
+      select signup_attempt_id, id, 'connected', now(), now(), now(), ${sql.json([{ id: acc, isPaper: false }])} from users where id = ${u.id}`;
+    await insertActivities(u.id, 'snaptrade', Array.from({ length: 5 }, (_, i) => [
+      { externalId: `${tag}${n}-b${i}`, accountId: acc, symbol: `S${i}`, side: 'BUY' as const, units: 1, price: 10, fee: 0, executedAt: new Date(t - (6 + i) * 3_600_000), verified: true, raw: {} },
+      { externalId: `${tag}${n}-s${i}`, accountId: acc, symbol: `S${i}`, side: 'SELL' as const, units: 1, price: 10 + i, fee: 0, executedAt: new Date(t - (1 + i) * 3_600_000), verified: true, raw: {} },
+    ]).flat());
+    if (options) await insertOptionActivities(u.id, 'snaptrade', [{ externalId: `${tag}${n}-o`, accountId: acc, kind: 'SELL', openClose: 'SELL_TO_CLOSE', underlying: 'XYZ', underlyingType: 'cs',
+      right: 'CALL', expiry: '2026-12-19', strikeMilli: 1000, multiplier: 100, occTicker: 'XYZ   261219C00001000', units: 1, price: 1, fee: 0, amount: null, currency: 'USD', executedAt: new Date(t - 3 * DAY), verified: true, raw: {} }]);
+    await rebuildRecord(u.id);
+    return { id: u.id, handle: u.handle, sellId: `${tag}${n}-s0`, ym: new Date(t - 3_600_000).toISOString().slice(0, 7) };
+  };
+  try {
+    const w = await mk('w', true), n = await mk('n', false);
+    const page = await loadFeedPage(undefined, { ids: [w.id, n.id], now: Date.now() }); // after the rows were stored (late rows wait)
+    assert.ok(page.cards.some((c) => c.user_id === w.id) && page.cards.some((c) => c.user_id === n.id), 'both traders have feed cards');
+    assert.deepEqual([page.options?.get(w.id)?.label, page.options?.get(n.id)?.label], [true, false]);
+    assert.ok(page.strips?.get(w.id));
+    for (const [who, want] of [[w, true], [n, false]] as const) {
+      const tv = (await loadTradeShare(who.handle, who.sellId))!;
+      assert.equal(!!tv.excludingOptions, want);
+      assert.equal(recordStrip(tradeStripInput(tv), 'page').figures.some((p) => p.role === 'options'), want);
+      const r = (await loadRecap(who.handle, who.ym))!;
+      assert.equal(!!r.excludingOptions, want);
+      assert.equal(recordStrip(recordStripInput(r), 'page').figures.some((p) => p.role === 'options'), want);
+    }
+  } finally { await sql`delete from users where id in ${sql(ids)}`; }
 });

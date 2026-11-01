@@ -4,7 +4,8 @@
 // in turn, never at once. Session-level, on its own connection, released by `release()` or when the connection ends.
 import postgres from 'postgres';
 
-const VENDOR_LOCK = 7_310_002;
+// Its own key (fix round 5: 7_310_002 is e2e/cron-lock.ts's, and connect.spec's tick() waited on its own vendor lock).
+export const VENDOR_LOCK = 7_310_003;
 
 export async function vendorLock(): Promise<() => Promise<void>> {
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
