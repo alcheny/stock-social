@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { ownLists, shownAgainJustNow } from '@/lib/follows.ts';
-import { FOLLOW, LIKES } from '@/lib/copy.ts';
+import { expiredHides, ownLists, shownAgainJustNow } from '@/lib/follows.ts';
+import { FOLLOW, HIDDEN_TRADES, LIKES, PERSONALIZE } from '@/lib/copy.ts';
+import { removeExpiredHideForm } from './actions.ts';
 import { FollowButton } from '../../follow-button.tsx';
 import { showAgainForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
@@ -19,7 +20,7 @@ const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', y
 export default async function Following({ searchParams }: { searchParams?: Promise<{ back?: string }> }) {
   const me = await currentUser();
   if (!me) redirect('/login');
-  const { following, hidden } = await ownLists(me.id);
+  const [{ following, hidden }, expired] = await Promise.all([ownLists(me.id), expiredHides(me.id)]);
   const back = (await searchParams)?.back;
   const isBack = typeof back === 'string' && /^[a-z0-9_]{3,20}$/.test(back) && !hidden.some((t) => t.handle === back) && (await shownAgainJustNow(me.id, back));
   return (
@@ -47,6 +48,23 @@ export default async function Following({ searchParams }: { searchParams?: Promi
           ))}
         </ul>
       ) : <p>{FOLLOW.noneHidden}</p>}
+      {/* F-2 PR-5 (business lead demand 2): hides that ran their 90 days, stored until removed. Absent when none. */}
+      {expired.length > 0 && <>
+        <h3>{PERSONALIZE.expiredHeading}</h3>
+        <p className="muted small">{PERSONALIZE.expiredExplain}</p>
+        <ul className="rows people">
+          {expired.map((t) => (
+            <li key={t.handle} className="line">
+              <span className="who-col"><Link href={`/u/${t.handle}`}><WhoName name={t.name} handle={t.handle} /></Link><span className="muted small until">{PERSONALIZE.ended(DAY.format(t.until!))}</span></span>
+              <form action={removeExpiredHideForm.bind(null, t.handle)}><button className="secondary" aria-label={PERSONALIZE.removeFor(t.handle)}>{PERSONALIZE.remove}</button></form>
+            </li>
+          ))}
+        </ul>
+      </>}
+      {/* F-2 PR-5: the viewer's hidden trades and personalization switches. */}
+      <h2>{HIDDEN_TRADES.title}</h2>
+      <p><Link href="/me/hidden">{HIDDEN_TRADES.title} →</Link></p>
+      <p><Link href="/me/personalize">{PERSONALIZE.link} →</Link></p>
       {/* F-2 PR-4: the viewer's likes live on their own paged page. */}
       <h2>{LIKES.title}</h2>
       <p><Link href="/me/likes">{LIKES.link}</Link></p>
