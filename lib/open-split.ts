@@ -27,10 +27,10 @@ export function openSummary(unrealized: number[]): OpenSummary | null {
 // open positions at current value. Only when there are both: with no open positions it would repeat the realized
 // average, with no closes the open one.
 export function combined(closed: number[], unrealized: number[]): { n: number; avg: number } | null {
-  const open = unrealized.filter(Number.isFinite);
-  if (!closed.length || !open.length) return null;
+  const done = closed.filter(Number.isFinite), open = unrealized.filter(Number.isFinite);
+  if (!done.length || !open.length) return null;
   let sum = 0;
-  for (const x of closed) sum += x;
+  for (const x of done) sum += x;
   for (const x of open) sum += x;
-  return { n: closed.length + open.length, avg: sum / (closed.length + open.length) };
+  return { n: done.length + open.length, avg: sum / (done.length + open.length) };
 }

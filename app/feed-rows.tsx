@@ -28,7 +28,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     const trades = page.byUser.get(t.user_id) ?? [];
     // F-2 PR-2: no Follow or "…" on the viewer's own record.
     const viewer = page.viewer?.id === t.user_id ? undefined : { signedIn: !!page.viewer, following: !!page.viewer?.following.has(t.user_id) };
-    if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id) })));
+    if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id) })));
     return p;
   };
   const out = page.cards.map((t) => {

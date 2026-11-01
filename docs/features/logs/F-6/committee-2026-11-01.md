@@ -31,3 +31,37 @@ draft, business lead REVISE, engineer REVISE), plan.md (round 2, with point-by-p
    importing, TR-3). The profile's open list adds "as of {oldest read date}".
 10. **The disclaimer is the site footer on every page** (F-1 PR-3 precedent), asserted by e2e on every page touched.
 11. **Feed ranking and the TR-9 lower bound are unchanged by F-6** (lib/feed.open.test.ts pins the order).
+
+## Fix round 1 (after user tests, tester and independent review)
+Sources: committee-ux-lead.md (D1–D5), committee-business-lead.md (D1–D4), test-tester.md (2 Medium, 2 Low),
+review.md (B1, B2, N1–N8). Every blocking item is fixed; decisions taken:
+
+12. **The feed pane leads with the figures when the trader has open positions** (realized grid, unrealized grid,
+    combined line, then the chart and its note); without open positions, today's order. Why: SW-1 makes the pane the
+    main way viewers meet a record; leading with the closed-only chart hid the open losses below the fold (business
+    lead D1). Supersedes the plan's "under the two existing stats" for the pane.
+13. **The evidence line is scoped first: "Closed trades: …"** in place of "Past results: " (or before "Too early to
+    tell"), and the trailing "The range covers closed trades only…" sentence is removed. Why: a bold "above zero" right
+    under a negative combined figure read as a contradiction; one fewer sentence (business lead D2; resolves UX lead D4).
+14. **The unrealized row is dated: "… at current value · as of Oct 30"** (oldest read, UTC; the year only when not the
+    current one) on the profile and the pane. Why: a failed record stops refreshing, so "current value" alone can be
+    stale (business lead D3, review N3).
+15. **The unrealized tile shows the count once** ("3" over "open positions · 1 up, 1 down, 1 flat"), each count joined
+    to its word with a no-break space. Why: "4 4" for screen readers and an orphaned "0" at 360 px (UX lead D2, BL D4).
+16. **Each grid is one named region** (aria-label with its row label; the visible label hidden from screen readers).
+    Why: both rows announced the same way, label read once (UX lead D3).
+17. **/how says what stock pages show:** "Stock pages show only a total of open positions in that stock, never who
+    holds them; each trader's open positions are on their profile." Why: the earlier sentence was false (UX lead D1).
+18. **On /t the open-positions section follows the closed-trade caveat;** with no closes in the stock (and on an empty
+    compare column) it does not point to "the figures above". Why: each caveat sits with its own figures (UX D5, N2).
+19. **The Similar trades pane (/u/<h>/pane) carries open positions** for connected or failed records, as the feed's
+    pane does (review B2).
+20. **The profile unfurl text adds the open-positions line only when the record has closes;** a record with no closes
+    keeps its empty-record line (PR-2b behaviour pinned by e2e/connect.spec.ts). The profile page shows the positions.
+21. **The share card images (AC1 "share card at every size", AC6 share-card e2e) ship with F-4,** which reuses
+    lib/open-split.ts and OPEN; this PR does not mark them done (tester Medium 2, review N7).
+22. Also fixed: the e2e fixture holds the shared feed lock while it exists (B1); a large unrealized percent wraps in its
+    card at 360 px (tester Medium 1); compare with both stocks empty still shows each stock's open line (tester Low 1);
+    `combined()` drops non-finite closes (N5); one `toneClass` (N6); an index on open_positions(symbol) (N4); the
+    duplicate "no closed trades" line removed (N1). Not changed: a long symbol in the open list widening the page
+    predates F-6 (tester Low 2, follow-up); an axe check needs a new dependency (owner only, UX lead note).

@@ -8,6 +8,8 @@ import { OPEN } from './copy.ts';
 import { pct } from './trades.ts';
 
 const close = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-12, `${a} ≈ ${b}`);
+// Copy keeps each count and its word together with a no-break space (business lead D4); compared as plain spaces.
+const L = (x: string) => x.replace(/\u00a0/g, ' ');
 const counts = (o: ReturnType<typeof openSummary>) => o && { n: o.n, up: o.up, down: o.down, flat: o.flat };
 
 test('F-6: no open positions gives no open summary and no combined figure (AC3: realized-only stays as today)', () => {
@@ -20,7 +22,7 @@ test('F-6: all open positions winning', () => {
   const o = openSummary([0.2, 0.04, 0.1])!;
   assert.deepEqual(counts(o), { n: 3, up: 3, down: 0, flat: 0 });
   close(o.avg, 0.34 / 3);
-  assert.equal(OPEN.line(o, pct), '3 open positions · 3 up, 0 down · +11.3% avg unrealized');
+  assert.equal(L(OPEN.line(o, pct)), '3 open positions · 3 up, 0 down · +11.3% avg unrealized');
   const c = combined([0.1, -0.05], [0.2, 0.04, 0.1])!;
   assert.equal(c.n, 5);
   close(c.avg, (0.1 - 0.05 + 0.34) / 5);
@@ -32,7 +34,7 @@ test('F-6: all open positions losing read down, with "0 up" printed, and pull th
   assert.deepEqual(counts(o), { n: 5, up: 0, down: 5, flat: 0 });
   close(o.avg, -0.23);
   assert.equal(tone(o.avg), 'down');
-  assert.equal(OPEN.line(o, pct), '5 open positions · 0 up, 5 down · -23.0% avg unrealized');
+  assert.equal(L(OPEN.line(o, pct)), '5 open positions · 0 up, 5 down · -23.0% avg unrealized');
   assert.ok(combined([0.1, 0.08, 0.12], open)!.avg < 0);
 });
 
@@ -52,14 +54,17 @@ test('F-6: open positions and no closes have an open summary but no combined fig
   const o = openSummary([-0.04])!;
   assert.equal(o.n, 1);
   assert.equal(combined([], [-0.04]), null);
-  assert.equal(OPEN.line(o, pct), '1 open position · 0 up, 1 down · -4.0% unrealized');
+  assert.equal(L(OPEN.line(o, pct)), '1 open position · 0 up, 1 down · -4.0% unrealized');
 });
 
 test('F-6: one symbol in two accounts is two positions; a value printed as 0.0% is flat and named', () => {
   const o = openSummary([-0.0004, 0.0004, 0.12, 0.12])!;
   assert.deepEqual(counts(o), { n: 4, up: 2, down: 0, flat: 2 });
-  assert.equal(OPEN.line(o, pct), '4 open positions · 2 up, 0 down, 2 flat · +6.0% avg unrealized');
+  assert.equal(L(OPEN.line(o, pct)), '4 open positions · 2 up, 0 down, 2 flat · +6.0% avg unrealized');
   assert.equal(openSummary([Number.NaN]), null, 'a non-finite value is never a position');
+  assert.match(OPEN.line(o, pct), /2\u00a0up, 0\u00a0down, 2\u00a0flat/);
+  assert.equal(L(OPEN.positions(o)), 'open positions · 2 up, 0 down, 2 flat');
+  assert.deepEqual(combined([Number.NaN, 0.1], [0.3]), { n: 2, avg: 0.2 }, 'a non-finite close never prints NaN');
 });
 
 test('F-6: tone agrees with the sign pct() prints, over 1,000 seeded values including near -100%', () => {

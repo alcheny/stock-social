@@ -64,7 +64,7 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
   const head = (
     <h2 id={id}><Link href={`/t/${encodeURIComponent(symbol)}`}>{symbol}</Link> {!s.mixed && !side.empty && <Badge verified={!s.demoOnly} />}</h2>
   );
-  if (side.empty) return <section aria-labelledby={id}>{head}<p>{COMPARE_COPY.emptySide(symbol)}</p>{open && <p className="small" data-open>{OPEN.compare(OPEN.line(open.o, pct))}</p>}</section>;
+  if (side.empty) return <section aria-labelledby={id}>{head}<p>{COMPARE_COPY.emptySide(symbol)}</p>{open && <p className="small" data-open>{OPEN.compareBare(OPEN.line(open.o, pct))}</p>}</section>;
   const c = s.conf!;
   const range = rangeText(c);
   return (
@@ -98,6 +98,8 @@ export default async function Compare({ searchParams }: Props) {
   if (compare.a.empty && compare.b.empty) {
     return (
       <Message text={COMPARE_COPY.bothEmpty(a, b)}>
+        {/* F-6 (tester Low 1): open positions per stock even when neither has closed trades. */}
+        {[a, b].map((x) => { const o = open?.get(x); return o && <p key={x} className="small" data-open>{x}: {OPEN.compareBare(OPEN.line(o.o, pct))}</p>; })}
         <p><Link href={`/t/${encodeURIComponent(a)}`}>{a}</Link> · <Link href={`/t/${encodeURIComponent(b)}`}>{b}</Link></p>
       </Message>
     );

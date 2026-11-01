@@ -270,6 +270,8 @@ export type FeedPage = {
   // F-6: each page trader's open positions (unrealized percents, one per position), for a connected or failed record
   // only (never a record with no consented connection, TR-3 importing never reaches the page). Percent only.
   open?: Map<number, number[]>;
+  // F-6: the oldest read of each of those traders' positions ("as of").
+  openAsOf?: Map<number, Date>;
 };
 export type SectionRow = { userId: number; handle: string; name: string; reason: Reason };
 
@@ -360,22 +362,25 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     cards, offset: c.offset, asOf: new Date(c.asOf), next: page.next && encodeCursor(page.next),
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
     viewer: following && { id: opts.viewer!, following }, section,
-    open: openOf(opens, onPage, states),
+    ...openOf(opens, onPage, states),
   };
 }
 
 // F-6: open positions (unrealized percent only) per trader, kept for page traders whose record is connected or failed.
-async function openPositions(userIds: number[]): Promise<{ user_id: number; unrealized_pct: number }[]> {
+type OpenRow = { user_id: number; unrealized_pct: number; fetched_at: Date };
+async function openPositions(userIds: number[]): Promise<OpenRow[]> {
   if (!userIds.length) return [];
-  return (await sql`select user_id, unrealized_pct from open_positions where user_id = any(${userIds})`) as unknown as { user_id: number; unrealized_pct: number }[];
+  return (await sql`select user_id, unrealized_pct, fetched_at from open_positions where user_id = any(${userIds})`) as unknown as OpenRow[];
 }
-function openOf(rows: { user_id: number; unrealized_pct: number }[], onPage: Set<number>, states: Map<number, RecordStatus>): Map<number, number[]> {
-  const out = new Map<number, number[]>();
+function openOf(rows: OpenRow[], onPage: Set<number>, states: Map<number, RecordStatus>): { open: Map<number, number[]>; openAsOf: Map<number, Date> } {
+  const open = new Map<number, number[]>(), openAsOf = new Map<number, Date>();
   for (const r of rows) {
     const state = states.get(r.user_id)?.state;
     if (!onPage.has(r.user_id) || (state !== 'connected' && state !== 'failed')) continue;
-    const a = out.get(r.user_id);
-    if (a) a.push(r.unrealized_pct); else out.set(r.user_id, [r.unrealized_pct]);
+    const a = open.get(r.user_id);
+    if (a) a.push(r.unrealized_pct); else open.set(r.user_id, [r.unrealized_pct]);
+    const d = openAsOf.get(r.user_id);
+    if (!d || r.fetched_at < d) openAsOf.set(r.user_id, r.fetched_at);
   }
-  return out;
+  return { open, openAsOf };
 }

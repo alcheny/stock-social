@@ -8,16 +8,19 @@ import { pct } from '@/lib/trades.ts';
 
 export const toneClass = (x: number) => { const t = tone(x); return t === 'flat' ? undefined : t; };
 
-// The realized grid's row label (first child of the existing grid, spanning it).
+// The realized grid's row label (first child of the existing grid, spanning it). The grid itself carries the same
+// words as its region name (UX lead D3), so the visible label is not read twice.
 export function RealizedLabel() {
-  return <p className="row-label" data-open>{OPEN.realizedLabel}</p>;
+  return <p className="row-label" data-open aria-hidden="true">{OPEN.realizedLabel}</p>;
 }
 
 // The unrealized grid: same size as the realized headline directly above it (TR-4: "as prominent as the headline").
-export function OpenGrid({ o }: { o: OpenSummary }) {
+// `asOf`: the oldest read of the positions, so a record that stopped refreshing never reads as current (D3).
+export function OpenGrid({ o, asOf }: { o: OpenSummary; asOf?: Date }) {
+  const label = OPEN.unrealizedLabel + (asOf ? OPEN.asOfLabel(asOf, new Date()) : '');
   return (
-    <section className="stats open-stats" data-open aria-label={OPEN.unrealizedLabel}>
-      <p className="row-label">{OPEN.unrealizedLabel}</p>
+    <section className="stats open-stats" data-open aria-label={label}>
+      <p className="row-label" aria-hidden="true">{label}</p>
       <div className="stat big"><b>{count(o.n)}</b><small>{OPEN.positions(o)}</small></div>
       <div className="stat big"><b className={toneClass(o.avg)}>{pct(o.avg)}</b><small>{OPEN.avgUnrealized}</small></div>
     </section>

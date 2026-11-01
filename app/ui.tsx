@@ -3,7 +3,8 @@ import type { PublicState } from '@/lib/connections.ts';
 import { OPEN, RECORD_BODY } from '@/lib/copy.ts';
 import { cardTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
-import { openSummary, tone } from '@/lib/open-split.ts';
+import { openSummary } from '@/lib/open-split.ts';
+import { toneClass } from './open-rows.tsx';
 
 export function Badge({ verified }: { verified: boolean }) {
   return verified
@@ -55,7 +56,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized }: { 
         <div className="muted">held {days(t.holding_days)} · closed {CLOSED_DAY.format(t.closed_at)}</div>
       </div>
       <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
-      {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={tone(open.avg) === 'flat' ? undefined : tone(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n)}</p>}
+      {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n)}</p>}
       <footer className="muted">
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
       </footer>

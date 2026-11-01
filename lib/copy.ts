@@ -425,7 +425,8 @@ export const SIMILAR = {
 // Percent and counts only (POLICY P3). Up and down are always printed, so an all-losing set reads "0 up, 5 down" (TR-4).
 // `fmt` is lib/trades.ts#pct, passed in so this file keeps no dependency on the trade math.
 type OpenCounts = { n: number; up: number; down: number; flat: number };
-const upDown = (o: OpenCounts) => `${count(o.up)} up, ${count(o.down)} down${o.flat > 0 ? `, ${count(o.flat)} flat` : ''}`;
+// A count and its word never wrap apart (business lead D4: no orphaned "0" at 360 px).
+const upDown = (o: OpenCounts) => `${count(o.up)}\u00a0up, ${count(o.down)}\u00a0down${o.flat > 0 ? `, ${count(o.flat)}\u00a0flat` : ''}`;
 export const OPEN = {
   realizedLabel: 'Realized · closed trades',
   unrealizedLabel: 'Unrealized · open positions at current value',
@@ -433,25 +434,31 @@ export const OPEN = {
   // "6 open positions · 1 up, 5 down · −23.0% avg unrealized"; one position: "… · −4.0% unrealized".
   line: (o: OpenCounts & { avg: number }, fmt: (x: number) => string = String) =>
     `${counted(o.n, 'open position')} · ${upDown(o)} · ${fmt(o.avg)} ${o.n === 1 ? 'unrealized' : 'avg unrealized'}`,
-  positions: (o: OpenCounts) => `${counted(o.n, 'open position')}, ${upDown(o)}`,
+  // The tile's caption under the big count (UX lead D2: the number is not repeated).
+  positions: (o: OpenCounts) => `${o.n === 1 ? 'open position' : 'open positions'} · ${upDown(o)}`,
   combinedLabel: 'Including open positions at current value:',
   combinedTail: (n: number) => ` avg / result (${counted(n, 'result')})`,
-  evidence: 'The range covers closed trades only; open positions aren’t in it.',
+  // The evidence line's scope, first (business lead D2): in place of "Past results: ", or before "Too early to tell".
+  evidencePrefix: 'Closed trades: ',
+  // The unrealized row's date: the oldest read, UTC; the year only when it is not the current one (business lead D3).
+  asOfLabel: (d: Date, now: Date) => ` · as of ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC', ...(d.getUTCFullYear() === now.getUTCFullYear() ? {} : { year: 'numeric' }) })}`,
   chartNote: 'Chart: closed trades only. Not plotted: ',
   asOf: (day: string) => `Unrealized, at current value, as of ${day}. Not in the closed-trade figures or the chart.`,
-  noCloses: 'No closed trades, so there are no realized results.',
   feedLabel: 'Also open:',
   feedCounts: (o: OpenCounts) => ` ${counted(o.n, 'position')} · ${upDown(o)} · `,
   feedTail: (n: number) => (n === 1 ? ' unrealized' : ' avg unrealized'),
   tickerTitle: (symbol: string) => `Open positions in ${symbol}`,
   tickerTraders: (traders: number) => `, held by ${counted(traders, 'trader')}.`,
   tickerNote: 'Not included in the figures above, which cover closed trades. This is what is open now, not a prediction or a rating of the stock.',
+  // No closed trades in the stock: there are no figures above to point to (review N2).
+  tickerNoteBare: 'This is what is open now, not a prediction or a rating of the stock.',
   compare: (line: string) => `Open positions: ${line} (not in the figures above).`,
+  compareBare: (line: string) => `Open positions: ${line}.`,
   how: [
     'Open positions are shown at current value from the broker, each account’s holding separately, averaged with equal weight.',
     'The combined figure counts each closed trade and each open position as one result.',
     'The chart and the range cover closed trades only.',
-    'Open positions are listed on each trader’s profile, not on stock pages.',
+    'Stock pages show only a total of open positions in that stock, never who holds them; each trader’s open positions are on their profile.',
   ],
 };
 

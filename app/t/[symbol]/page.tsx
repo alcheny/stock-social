@@ -77,7 +77,7 @@ export default async function Ticker({ params, searchParams }: Params) {
         <p>{symbol
           ? `No verified closed trades in ${symbol} yet. Trades appear here when traders connect a broker and close a position in this stock.`
           : "That doesn't look like a ticker symbol."}</p>
-        {symbol && open && <OpenPositions symbol={symbol} open={open} />}
+        {symbol && open && <OpenPositions symbol={symbol} open={open} closes={false} />}
         <p><Link href="/">Back to the feed</Link> · <Link href="/t">All stocks</Link></p>
       </main>
     );
@@ -146,11 +146,12 @@ export default async function Ticker({ params, searchParams }: Params) {
         </div>
       </section>
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
-      {open && <OpenPositions symbol={symbol} open={open} />}
       {/* docs/POLICY.md F3b: a page about a security never rates or scores the security, so no verdict line here */}
       <div className="evidence">
         <p className="muted small" style={{ margin: 0 }}>Different traders, different sizes and timing. This is what happened, not a prediction or a rating of the stock.</p>
       </div>
+      {/* F-6 (UX lead D5): after the closed-trade figures' caveat, so each caveat sits with its own figures. */}
+      {open && <OpenPositions symbol={symbol} open={open} />}
 
       <Concentration rows={rows.map(toTicker)} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
 

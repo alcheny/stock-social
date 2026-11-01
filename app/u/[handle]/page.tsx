@@ -87,8 +87,9 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const statsText = `${winRateText(s.winRate)} · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
-    // F-6: with open positions, the unfurl text says so beside the closed-trade stats.
-    description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }) + (data.open ? ` · ${OPEN.line(data.open, pct)}` : ''),
+    // F-6: with open positions, the unfurl text says so beside the closed-trade stats (a record with no closes keeps its
+    // empty-record line, PR-2b; its profile shows the open positions).
+    description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }) + (data.open && s.trades > 0 ? ` · ${OPEN.line(data.open, pct)}` : ''),
     openGraph,
   };
 }
@@ -223,7 +224,7 @@ export default async function Profile({ params, searchParams }: Params) {
 
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
       {complete && trades.length > 0 && <>
-      <section className="stats">
+      <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined}>
         {open && <RealizedLabel />}
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn > 0 ? 'up' : 'down'}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
@@ -232,14 +233,13 @@ export default async function Profile({ params, searchParams }: Params) {
         </div>
       </section>
       {/* F-6: the unrealized grid directly under the realized one, same size (TR-4), then the combined average. */}
-      {open && <OpenGrid o={open} />}
+      {open && <OpenGrid o={open} asOf={openAsOf ?? undefined} />}
       {both && <CombinedLine c={both} />}
       <div className="evidence">
         <p style={{ margin: 0 }}>
           {c.edge
-            ? <>Past results: <b className={c.edge === 'positive' ? 'up' : c.edge === 'negative' ? 'down' : ''}>{edgeText(c.edge)}</b>{evidenceLine(c).slice(`Past results: ${edgeText(c.edge)}`.length)}</>
-            : evidenceLine(c)}
-          {open && <span data-open> {OPEN.evidence}</span>}
+            ? <>{open ? <span data-open>{OPEN.evidencePrefix}</span> : 'Past results: '}<b className={c.edge === 'positive' ? 'up' : c.edge === 'negative' ? 'down' : ''}>{edgeText(c.edge)}</b>{evidenceLine(c).slice(`Past results: ${edgeText(c.edge)}`.length)}</>
+            : <>{open && <span data-open>{OPEN.evidencePrefix}</span>}{evidenceLine(c)}</>}
         </p>
         <details>
           <summary>What&apos;s this?</summary>
@@ -255,11 +255,8 @@ export default async function Profile({ params, searchParams }: Params) {
       <PerformanceChart points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
       {open && <ChartNote o={open} />}
       </>}
-      {/* F-6: open positions and no closes: the unrealized grid alone, and why there is no realized figure. */}
-      {complete && trades.length === 0 && open && <>
-        <OpenGrid o={open} />
-        <p className="muted" data-open>{OPEN.noCloses}</p>
-      </>}
+      {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
+      {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} />}
       {user.excluded_positions > 0 && (
         <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
       )}
