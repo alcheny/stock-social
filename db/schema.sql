@@ -201,7 +201,6 @@ create table if not exists signup_attempts (
   user_id int references users(id) on delete set null,
   completed_at timestamptz
 );
--- ponytail: users.signup_attempt_id has no index, so the purge's per-attempt check and attempt deletes scan users — add one.
 select schema_add_column('users', 'signup_attempt_id', 'bigint references signup_attempts(id)');
 select schema_add_column('users', 'deleted_at', 'timestamptz');
 -- Backfill, once: rows from before F-1 attested through the dev form at created_at; one attempt each, then the column is
@@ -217,18 +216,21 @@ begin
     alter table users alter column signup_attempt_id set not null;
   end if;
 end $b$;
+-- The attempt purge's "no users row" check and the foreign-key check on every signup_attempts delete (lib/privacy-purge.ts).
+select schema_add_index('users_signup_attempt', 'create index users_signup_attempt on users (signup_attempt_id)');
 
 -- One row per sign-in method a user has used. subject is the provider's stable id (or the address for 'email').
 create table if not exists identities (
   user_id int not null references users on delete cascade,
   provider text not null check (provider in ('provider_a', 'provider_b', 'email')),
   subject text not null,
-  -- ponytail: no index, so sign-in by email scans identities — add an index (email).
   email text,
   created_at timestamptz not null default now(),
   unique (provider, subject)
 );
 select schema_add_index('identities_user', 'create index identities_user on identities (user_id)');
+-- Sign-in by email (lib/auth/attempts.ts#signInWithIdentity).
+select schema_add_index('identities_email', 'create index identities_email on identities (email) where email is not null');
 
 -- Sessions: the cookie holds a signed random token; only its sha256 is stored.
 create table if not exists sessions (
@@ -243,13 +245,14 @@ select schema_add_index('sessions_user', 'create index sessions_user on sessions
 -- Passwordless email links: single use, 15 minutes, hashed token.
 create table if not exists login_links (
   token_hash text primary key,
-  -- ponytail: no index, so account deletion's email match scans login_links — add a partial index (email) where email <> ''.
   email text not null,
   attempt_id bigint not null references signup_attempts(id),
   expires_at timestamptz not null,
   used_at timestamptz
 );
 select schema_add_index('login_links_attempt', 'create index login_links_attempt on login_links (attempt_id)');
+-- Account deletion's email match (lib/delete.ts#LOGIN_LINKS_DELETE states email <> ''); claimed links are blanked to ''.
+select schema_add_index('login_links_email', $$create index login_links_email on login_links (email) where email <> ''$$);
 
 -- A deleted profile's handle stays unavailable for a year. Handle and date only: no personal data.
 create table if not exists handle_reservations (
@@ -274,7 +277,6 @@ select schema_add_index('funnel_events_attempt', 'create index funnel_events_att
 -- provisional claim of a brokerage-first attempt that has no users row yet (confirmed into broker_accounts at consent).
 create table if not exists connections (
   id bigint generated always as identity primary key,
-  -- ponytail: no index, so the attempt purge's per-attempt check and attempt deletes scan connections — add an index (attempt_id).
   attempt_id bigint not null references signup_attempts(id),
   user_id int references users(id) on delete cascade,
   vendor_authorization_id text,
@@ -298,6 +300,8 @@ create table if not exists connections (
 );
 select schema_add_index('connections_user', 'create index connections_user on connections (user_id)');
 select schema_add_index('connections_state', 'create index connections_state on connections (state)');
+-- The attempt purge's per-attempt checks and deletes, and the foreign-key check on every signup_attempts delete.
+select schema_add_index('connections_attempt', 'create index connections_attempt on connections (attempt_id)');
 -- Committee fix (Low, PR-2a round 6): rows cleaned before cleanup blanked the snapshot still hold one. A declined or
 -- expired row that cleanup has finished and that ended over 24 h ago keeps no account snapshot or institution; ids,
 -- states and timestamps stay for the funnel. Idempotent (a blanked row no longer matches); never deletes a row.
@@ -494,7 +498,6 @@ create table if not exists subscriptions (
   id int generated always as identity primary key,
   user_id int not null references users on delete cascade,
   vendor_subscription_id text unique not null,
-  -- ponytail: no index, so each dispute webhook's update by customer scans subscriptions — add an index (vendor_customer_id).
   vendor_customer_id text not null,
   plan text not null check (plan in ('monthly', 'annual')),
   status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused', 'incomplete')),
@@ -511,6 +514,8 @@ create table if not exists subscriptions (
 -- refuses a second checkout while one exists — add it to the index (a new index name) to enforce it in the database.
 select schema_add_index('subscriptions_one_live', $$create unique index subscriptions_one_live on subscriptions (user_id) where status in ('trialing', 'active', 'past_due')$$);
 select schema_add_index('subscriptions_user', 'create index subscriptions_user on subscriptions (user_id)');
+-- The dispute webhooks' updates by customer (lib/billing.ts).
+select schema_add_index('subscriptions_customer', 'create index subscriptions_customer on subscriptions (vendor_customer_id)');
 -- The webhook inbox: one row per processor event id (duplicates are no-ops). No payload (committee condition 20); the
 -- handler fetches the object from the processor by id. Purged 35 days after receipt by the nightly reconciliation.
 create table if not exists billing_events (
