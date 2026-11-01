@@ -147,7 +147,8 @@ test('F-26 identity: for a viewer (signed out, and another signed-in user) every
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     await signIn(page, READER);
-    const viewers: [string, APIRequestContext, Page][] = [['signed out', out, await (await browser.newContext()).newPage()], ['reader', ctx.request, page]];
+    const guest = await browser.newContext();
+    const viewers: [string, APIRequestContext, Page][] = [['signed out', out, await guest.newPage()], ['reader', ctx.request, page]];
     for (const [who, api, p] of viewers) {
       await unhold(target.id);
       // The profile's "Similar trades" pool is kept per process and rebuilt in the background once 10 s old
@@ -158,20 +159,27 @@ test('F-26 identity: for a viewer (signed out, and another signed-in user) every
       await p.waitForTimeout(1_000);
       const paging = await recordPaging(p);
       // Charts are drawn to the minute (lib/chart-series.ts: ranges end now, times floored to the minute), so the pair
-      // runs inside one minute: start just after a minute turns.
-      await p.waitForTimeout(60_000 - (Date.now() % 60_000) + 300);
-      const started = Date.now();
-      const ym = ymNow();
-      const before = new Map<string, Grab>();
-      for (const s of surfaces(ym)) before.set(s, await grab(api, s));
-      before.set('paging', await grab(api, '/', { method: 'POST', ...paging }));
-      // The trade page's metadata on its own (AC: <main>, <title>, description, og:image).
+      // runs inside one minute: start just after a minute turns. A pair that a slow runner stretches past the minute is
+      // run again (up to 3 tries): the clock changed, not the hold.
       const tradeMeta = (b: string) => ({ main: b.match(/<main[\s\S]*<\/main>/)?.[0], title: b.match(/<title>[^<]*<\/title>/)?.[0],
         desc: b.match(/<meta name="description"[^>]*>/)?.[0], og: b.match(/<meta property="og:image"[^>]*>/)?.[0] });
-      await hold(target.id);
+      let ym = '', before = new Map<string, Grab>(), after = new Map<string, Grab>(), inMinute = false;
+      for (let attempt = 0; attempt < 3 && !inMinute; attempt++) {
+        await unhold(target.id);
+        await p.waitForTimeout(60_000 - (Date.now() % 60_000) + 300);
+        const started = Date.now();
+        ym = ymNow();
+        before = new Map(); after = new Map();
+        for (const s of surfaces(ym)) before.set(s, await grab(api, s));
+        before.set('paging', await grab(api, '/', { method: 'POST', ...paging }));
+        await hold(target.id);
+        for (const s of surfaces(ym)) after.set(s, await grab(api, s));
+        after.set('paging', await grab(api, '/', { method: 'POST', ...paging }));
+        inMinute = Math.floor(Date.now() / 60_000) === Math.floor(started / 60_000);
+      }
+      expect(inMinute, 'the pair ran inside one minute').toBe(true);
       for (const s of [...surfaces(ym), 'paging']) {
-        const a = s === 'paging' ? await grab(api, '/', { method: 'POST', ...paging }) : await grab(api, s);
-        const b = before.get(s)!;
+        const a = after.get(s)!, b = before.get(s)!;
         expect(a.status, `${who} ${s} status`).toBe(b.status);
         expect(a.cc, `${who} ${s} Cache-Control`).toBe(b.cc);
         expect(firstDiff(a.body, b.body), `${who} ${s} body identical`).toBe('');
@@ -180,15 +188,15 @@ test('F-26 identity: for a viewer (signed out, and another signed-in user) every
         expect(a.body, `${who} ${s}`).not.toContain('Thesis held for review');
         expect(a.body, `${who} ${s}`).not.toMatch(/"thesis_status":"held"|thesis-held|data-own-held/);
       }
-      expect(Math.floor(Date.now() / 60_000), 'the pair ran inside one minute').toBe(Math.floor(started / 60_000));
       const t = surfaces(ym).find((s) => s.includes('/trade/') && !s.endsWith('opengraph-image'))!;
       const tb = before.get(t)!.body;
       expect(tradeMeta(tb).main, 'the trade page has a <main>').toBeTruthy();
-      expect(tradeMeta((await grab(api, t)).body)).toEqual(tradeMeta(tb));
+      expect(tradeMeta(after.get(t)!.body)).toEqual(tradeMeta(tb));
       // The paging response is a real page of cards.
       expect(before.get('paging')!.body).toContain('data-trade');
     }
     await ctx.close();
+    await guest.close();
     await out.dispose();
   } finally {
     await unhold(target.id);

@@ -89,7 +89,7 @@ test('F-26 AC3: a published note renders UserNote; a public filer card keeps its
 
 test('F-26 AC4: the author\'s own held card shows heldLine(rule) in the note slot, in .thesis-held, never the loss or warn colour', () => {
   for (const rule of RULES) {
-    const html = card({}, { ownHeld: heldLine(rule) });
+    const html = card({}, { ownHeld: { rule } });
     const s = slot(html);
     const p = s.match(/^<p class="([^"]*)"[^>]*>([^<]*)<\/p>$/);
     assert.ok(p, s);
@@ -99,9 +99,9 @@ test('F-26 AC4: the author\'s own held card shows heldLine(rule) in the note slo
     assert.match(p[2], /^Thesis held for review\./); // DS: always begins with "Thesis" (never the holding period's "held")
   }
   // A published note wins over a stale held line (the author sees what everyone sees).
-  assert.match(slot(card({ thesis: NOTE, thesis_status: 'published' }, { ownHeld: heldLine('link') })), /^<figure class="user-note"/);
+  assert.match(slot(card({ thesis: NOTE, thesis_status: 'published' }, { ownHeld: { rule: 'link' } })), /^<figure class="user-note"/);
   // A public filer's card never carries one.
-  assert.doesNotMatch(renderToStaticMarkup(createElement(TradeCard, { t: base, state: 'public', now, ownHeld: heldLine('link') })), /thesis-held/);
+  assert.doesNotMatch(renderToStaticMarkup(createElement(TradeCard, { t: base, state: 'public', now, ownHeld: { rule: 'link' } })), /thesis-held/);
 });
 
 test('F-26 AC (F-13): with the first-visit line on card 1 and no published note, the slot holds only the first-visit line', () => {
@@ -174,7 +174,7 @@ test('F-26: the feed\'s two statements that select a note null it unless publish
   assert.match(f, /case when t\.user_id = \$\{own\} and t\.thesis_status = 'held' and t\.thesis is not null then t\.thesis_hold_rule end as own_hold_rule/);
   // The feed rows set the author's line from the existing viewer check only.
   const rows = code('app/feed-rows.tsx');
-  assert.match(rows, /ownHeld=\{page\.viewer && page\.viewer\.id === t\.user_id && t\.own_held \? heldLine\(t\.own_hold_rule\) : undefined\}/);
+  assert.match(rows, /ownHeld=\{page\.viewer && page\.viewer\.id === t\.user_id && t\.own_held \? \{ rule: t\.own_hold_rule \?\? null \} : undefined\}/);
 });
 
 test('F-26: the profile renders a held note to its author only, and its load runs the same statements whatever the note\'s state', () => {

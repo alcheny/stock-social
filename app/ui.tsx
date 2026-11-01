@@ -5,7 +5,7 @@ import { cardTrust, type TrustBadge } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
-import { UserNote } from '@/lib/user-note.ts';
+import { HeldNote, UserNote } from '@/lib/user-note.ts';
 // F-13: the SW-1 hint and the Verified definition (fix #9).
 import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
 import { SwipeHint } from './first-visit-client.tsx';
@@ -60,11 +60,12 @@ export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.get
 // F-7: a public filer's card carries its own line, never a note. F-9: UserNote renders a published thesis (no byline:
 // the card's header already names the trader; `report` is the Report control the feed passes for a signed-in reader).
 // F-26: no published note, no line (no element): the same for no note and a held one. `ownHeld`, the author's own held
-// line (lib/report-copy.ts#heldLine), set by the feed only for the signed-in trader's own card.
-const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode, ownHeld?: string | null) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
+// line (lib/user-note.ts#HeldNote, the same markup as the trade page's), set by the feed only for the signed-in trader's own card.
+export type OwnHeld = { rule: string | null };
+const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode, ownHeld?: OwnHeld | null) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
   : t.thesis_status === 'published' && t.thesis
     ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} textClass="thesis" />
-    : ownHeld ? <p className="muted thesis-held" data-own-held>{ownHeld}</p> : null;
+    : ownHeld ? <HeldNote rule={ownHeld.rule} /> : null;
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
 // F-10: `strip`, the trader's record strip (lib/record-strip.ts#recordStrip, 'feed'): it takes the place of the
@@ -76,8 +77,8 @@ const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode, ownHeld
 // renders it outside Next).
 // F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
 // F-13: `hint`, page 1's first card: the SW-1 line and the dismiss focus target; `notice`, the first-visit line.
-// F-26: `ownHeld`, the held line for the author's own card (the held line or nothing), never a status.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, ownHeld }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; ownHeld?: string | null }) {
+// F-26: `ownHeld`, set only on the author's own held card (its rule; HeldNote words it), never a status.
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, ownHeld }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; ownHeld?: OwnHeld | null }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
