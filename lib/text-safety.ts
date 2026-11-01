@@ -86,6 +86,7 @@ export function sanitizeUserText(s: string, max = 280): string {
 const LOOKALIKE: Record<string, string> = {
   а: 'a', в: 'b', е: 'e', ё: 'e', к: 'k', м: 'm', н: 'h', о: 'o', п: 'n', р: 'p', с: 'c', т: 't', у: 'y', х: 'x',
   ѕ: 's', і: 'i', ї: 'i', ј: 'j', ԁ: 'd', ԛ: 'q', ԝ: 'w', һ: 'h', ӏ: 'l', ь: 'b',
+  ɡ: 'g', // fix round 6: the Latin script g (U+0261)
   α: 'a', β: 'b', ε: 'e', η: 'n', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', γ: 'y', ω: 'w', ς: 'c',
 };
 const LOOKALIKE_RE = new RegExp(`[${Object.keys(LOOKALIKE).join('')}]`, 'gu');
@@ -123,18 +124,41 @@ export function leet(s: string): [string, string] {
 // keeps other punctuation there, so a clause break is never squashed away ("didn't join; my plan" stays apart).
 const SINGLE = /^\.*[\p{L}\p{N}]?\.*$/u;
 const word = (t: string) => t.replace(/(?<=[\p{L}\p{N}])[^\p{L}\p{N}]+(?=[\p{L}\p{N}])/gu, '').replace(/^[.\-_'\u2019]+|[.\-_'\u2019]+$/g, '');
-function squashLine(line: string): string {
+// Fix round 6 (item 2): squashSpans also reports where each joined run of single characters sits in the squashed
+// text, so the phrase rules with their spaces made optional (lib/moderation.ts) only see words that were spelled out
+// letter by letter; ordinary words are never joined, so they never meet those variants.
+function squashLine(line: string): { text: string; joined: [number, number][] } {
   const toks = line.replace(/[\p{Extended_Pictographic}\p{S}]/gu, ' ').split(/\s+/).filter(Boolean);
   const out: string[] = [];
+  const joined: [number, number][] = [];
+  let at = 0;
+  const push = (t: string, run: boolean) => {
+    if (!t) return;
+    if (out.length) at += 1;
+    if (run) joined.push([at, at + t.length]);
+    out.push(t);
+    at += t.length;
+  };
   for (let i = 0; i < toks.length;) {
     let j = i;
     while (j < toks.length && SINGLE.test(toks[j])) j++;
-    if (j - i >= 2) { out.push(toks.slice(i, j).join('').replace(/^\.+|\.+$/g, '')); i = j; continue; }
-    out.push(word(toks[i]));
+    if (j - i >= 2) { push(toks.slice(i, j).join('').replace(/^\.+|\.+$/g, ''), true); i = j; continue; }
+    push(word(toks[i]), false);
     i = Math.max(i + 1, j);
   }
-  return out.filter(Boolean).join(' ');
+  return { text: out.join(' '), joined };
+}
+export function squashSpans(s: string): { text: string; joined: [number, number][] } {
+  let text = '';
+  const joined: [number, number][] = [];
+  s.split('\n').forEach((l, n) => {
+    if (n) text += '\n';
+    const r = squashLine(l);
+    for (const [a, b] of r.joined) joined.push([text.length + a, text.length + b]);
+    text += r.text;
+  });
+  return { text, joined };
 }
 export function squash(s: string): string {
-  return s.split('\n').map(squashLine).join('\n');
+  return squashSpans(s).text;
 }

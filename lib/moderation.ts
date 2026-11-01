@@ -2,7 +2,7 @@
 // node:child_process; its CLI runs only under `import.meta.main`, lib/moderation-v2.test.ts proves the import runs
 // nothing). Never import this file from a client component.
 import { PROMO } from '../scripts/compliance.ts';
-import { leet, skeleton, squash } from './text-safety.ts';
+import { leet, skeleton, squash, squashSpans } from './text-safety.ts';
 
 export type ThesisStatus = 'held' | 'published';
 // Fix round 2: the plain explanation of each label, shown to the author (lib/report-copy.ts#heldLine).
@@ -34,7 +34,10 @@ export type HoldRule = {
 // saved before this branch was checked with them); version 1 is every rule in this file. Raise it, and give each rule
 // added after it `since: <the new version>`, whenever a rule is added, so the re-check holds only on the new rules
 // and leaves notes already checked (and notes the owner released) alone.
-export const MODERATION_VERSION = 1;
+// Fix round 6: version 2 adds the period-rate rules (since: 2), the spelled-out phrase variants, the narrower call-to-act
+// exemption and the script g look-alike (lib/text-safety.ts); lib/moderation-v2.test.ts pins a hash of the rules per
+// version, so a rule change without a new version fails there.
+export const MODERATION_VERSION = 2;
 
 // A closed list of top-level domains: "BRK.B", "3.5x", "v2.0", "10-K", "Q3/FY25", "approx.5", "U.S.", "e.g." and
 // "Inc." never look like a domain (the name needs 2+ characters with a letter, the ending must be on this list).
@@ -69,6 +72,13 @@ const RATE = String.raw`(?:doing|pulling(?:\s+in)?|averag(?:e|es|ing|ed)|avg)`;
 // The start of the text or of a sentence. Fix round 2: a stop right after a digit is a decimal point ("3.2% a year"),
 // never a sentence break.
 const CLAUSE = String.raw`(?:^|[.!?;:\n]\s+|(?<!\d)[.!?;]|\n)`;
+
+// Fix round 6 (item 1): a period ("weekly", "a month", "per wk", "/mo"), a rate word, and a period adjective.
+// ponytail: a rate word reaches its figure across at most 4 words ("my avg over the last few weeks is 5% a week" with
+// more words between publishes); widen it if the review queue shows such claims.
+const PERIOD = String.raw`(?:weekly|monthly|yearly|daily|annually|annuali[sz]ed|p\.a\.|(?:a|per|each|every)\s+(?:week|wk|month|mo|year|yr|day|annum|quarter|qtr)\b|\/\s*(?:wk|week|mo|month|yr|year|day)\b)(?!\s*(?:range|moves?|swings?|volatility|vol|volume|candles?|bars?|closes?|trend|limit|cap|charts?)\b)`;
+const AVG = String.raw`(?:avg|average|averag(?:es|ed|ing))`;
+const PER_ADJ = String.raw`(?:weekly|monthly|yearly|daily|annually|annual)`;
 
 // Fix round 2: "verified" as a claim. VF is the word (also "verifled"); the shapes: the word followed by an agent (by,
 // via, on, through), an adjective on the trader, the record or the returns ("verified trader", "verified returns"), a
@@ -171,6 +181,11 @@ export const HOLD_V2: HoldRule[] = [
   // Fix round 5 (item 4): a rate verb ("I average 30% a month", "Avg 30% per month on my system", "Doing 30% monthly"),
   // with or without the subject: held with a time total, or a span plus context (claim: 'timed').
   { rule: 'return-rate', label: 'return claim', claim: 'timed', re: new RegExp(String.raw`(?:${CLAUSE}|\b${FP}\s+(?:[\w']+\s+)?)${RATE}\s+(?:about\s+|around\s+|over\s+|~)?${NUM_ANY}`, 'i') },
+  // Fix round 6 (item 1): a return figure tied to a period is a claim with or without a subject or a verb ("my avg is
+  // 30% a month", "avg return 8%/wk", "avg monthly 30%", "I make 5% weekly", "Avg 5% weekly"). Held unless a third-party
+  // subject comes before it with no first person, or a third-party noun sits in it or right after it (rateHolds below):
+  // "Revenue averaged 12% a year", "Dividend growth averaged 6% annually" and "5% a year revenue growth" publish.
+  { rule: 'return-period', label: 'return claim', since: 2, when: rateHolds, re: new RegExp(String.raw`\b${AVG}\b(?:\s+[a-z']+|\s*[=:]){0,4}?\s*${NUM_ANY}\s*${PERIOD}|\b${AVG}\s+${PER_ADJ}\s+(?:(?:returns?|gains?|profits?|is|of|was|=|:)\s*){0,2}${NUM_ANY}|\b${FP}\s+(?:[\w']+\s+){0,2}?${GAIN}\s+(?:[\w']+\s+){0,2}?${NUM_ANY}\s*${PERIOD}|\b(?:my|our)\s+(?:[\w']+\s+){0,2}?(?:returns?|gains?|profits?|performance|account|portfolio|port|p&l|pnl|equity)(?![\w&])[^.\n%]{0,30}?${NUM_ANY}\s*${PERIOD}|${CLAUSE}(?:${GAIN}\s+(?:[\w']+\s+){0,2}?|(?:up|\+)\s*)?${NUM_ANY}\s*(?:(?:returns?|gains?|profits?)\s+)?${PERIOD}`, 'i') },
   // Fix round 2: a multiple of the trader's own money, no figure needed ("Doubled my money", "Tripled the account").
   { rule: 'return-multiple', label: 'return claim', re: /\b(?:doubled|tripled|quadrupled)\s+(?:my|our|the)\s+(?:money|account|portfolio|port|capital|savings|stack|equity|net worth)\b|\b(?:my|our)\s+(?:money|account|portfolio|port|capital|savings|stack|equity|net worth)\s+(?:has\s+|have\s+|just\s+)?(?:doubled|tripled|quadrupled)\b/i },
 ];
@@ -241,6 +256,16 @@ const OTHER = new RegExp(String.raw`${THIRD_PARTY.source}|\b(?:trials?|study|stu
 function winRateHolds(sentence: string, m: RegExpMatchArray): boolean {
   if (FIRST.test(sentence)) return true;
   return !OTHER.test(sentence.slice(0, Math.max(sentence.indexOf(m[0]), 0)));
+}
+// Fix round 6 (item 1): third-party subjects and the nouns a macro or fundamental rate is attached to.
+const TP_NOUN = String.raw`(?:revenues?|sales|earnings|eps|ebitda|fcf|cash\s+flow|margins?|yields?|dividends?|cpi|ppi|pce|inflation|gdp|rates?|wages?|unemployment|payrolls?|volatility|vol|volume|shares|stocks?|index|indices|indexes|sector|sectors|company|companies|name|names|analysts?|consensus|street|fund|funds|etfs?|market|markets|economy|prices?|bonds?|treasur(?:y|ies)|benchmark|beta|growth|costs?|users|subscribers|customers|housing|rents?|interest|coupon|semis|it|they|their|its|he|she|his|her)`;
+const TP_RE = new RegExp(String.raw`\b${TP_NOUN}\b`, 'i');
+const TP_AFTER = new RegExp(String.raw`^\s*(?:(?:for|of|from)\s+)?(?:(?:the|this|that|a|an)\s+)?${TP_NOUN}\b`, 'i');
+function rateHolds(sentence: string, m: RegExpMatchArray): boolean {
+  if (TP_RE.test(m[0])) return false;
+  const at = Math.max(sentence.indexOf(m[0]), 0);
+  if (TP_AFTER.test(sentence.slice(at + m[0].length))) return false;
+  return FIRST.test(sentence) || !TP_RE.test(sentence.slice(0, at));
 }
 const OFFER = /\b(?:load(?:ing)?|buy(?:ing)?|grab|get\s+in|own|don'?t\s+miss|before\s+it|now|today)\b/i;
 const DOUBT = /\b(?:doubt\w*|never|unlikely|hardly|isn'?t|wasn'?t|ain'?t|not\s+(?:the|a|my)|no\s+way)\b/i;
@@ -323,13 +348,96 @@ const unOverride = (s: string) => s.replace(/‮([^‬⁩\n]*)/g, (_, run: strin
 // oneself whether to repeat a trade); the offer and claim forms (promised or riskless returns, getting wealthy fast,
 // passive earnings, ranked pick lists, telling readers what to purchase, completeness claims, verified-by) still hold.
 const HOLD_TALK = new Map<RegExp, RegExp>([[HOLD[6], /^buy\snow\s+pay\s+later\b/i]]);
-const PROMO_TALK = /^(?:out[p]erform(?:s|ed|ing)?|make\smoney|hot\sstock|buy\snow|copy\sthis\strades?|time\sto\s(?:buy|sell))\b/i;
-function matchesExcept(re: RegExp, f: string, talk: RegExp | undefined): boolean {
+// Version 1's exemption: the phrase anywhere. Kept so the re-check can tell what version 2 newly holds.
+const PROMO_TALK_V1 = /^(?:out[p]erform(?:s|ed|ing)?|make\smoney|hot\sstock|buy\snow|copy\sthis\strades?|time\sto\s(?:buy|sell))\b/i;
+// Fix round 6 (item 3): the exemption holds only where the phrase is not a call to act. A call: words to the reader
+// (second person, a crowd word), an alert, a colon or "!" right after the phrase, a system or strategy said to beat
+// something, a person beating something in the present, or money made every period. The timing phrase is talk only as
+// the trader's own past or reflective choice ("decided it was", "thought it was", "was it") or a question to oneself, and
+// so is the copy phrase; the popular-name, earning and sector phrases are talk unless a call cue is there (third-person
+// commentary about a sector or a company publishes).
+const PROMO_TALK = /^(?:(out[p]erform(?:s|ed|ing)?)|(make\smoney)|(hot\sstock)|buy\snow|(copy\sthis\strades?)|(time\sto\s(?:buy|sell)))\b/i;
+const CALL = /\b(?:you|your|yours|you're|youre|y'all|yall|ya|everyone|everybody|guys|folks|people|fam|alerts?)\b/i;
+const CALL_AFTER = /^\s*[:!]/;
+const PAST = /\b(?:was|were|had|thought|decided|felt|figured|seemed|knew|realized|realised|believed|wondered|whether|if|looked)\b/i;
+const SYSTEM = /\b(?:this|my|our|the)\s+(?:[\w-]+\s+)?(?:strategy|system|method|setup|approach|model|algo|bot|service|picks?|signals?|portfolio)\b|\b(?:i|we)\s+(?:\w+\s+)?$/i;
+const EVERY = /^\s*(?:every|each|daily|weekly|monthly|consistently|all\s+the\s+time|fast|quick(?:ly)?|easy|easily)\b/i;
+// ponytail: the rules hash in lib/moderation-v2.test.ts covers these patterns and every rule source, not the code of
+// promoTalk or claimShape; a change to that code alone needs a version raise by hand.
+export const TALK_RULES: RegExp[] = [HOLD_TALK.get(HOLD[6])!, PROMO_TALK_V1, PROMO_TALK, CALL, CALL_AFTER, PAST, SYSTEM, EVERY];
+function sentenceSides(text: string, at: number, len: number): [string, string] {
+  const s = sentenceAt(text, at, text.slice(at, at + len));
+  const head = text.slice(0, at);
+  const before = head.slice(Math.max(head.search(/(?:[.!?](?=\s)|\n)(?!.*(?:[.!?](?=\s)|\n))/s) + 1, 0));
+  return [before, s.slice(before.length + len)];
+}
+function promoTalk(f: string, at: number): boolean {
+  const pm = f.slice(at).match(PROMO_TALK);
+  if (!pm) return false;
+  const [before, after] = sentenceSides(f, at, pm[0].length);
+  if (CALL.test(before + ' ' + after) || CALL_AFTER.test(after)) return false;
+  if (pm[1]) return !SYSTEM.test(before);
+  if (pm[2]) return !EVERY.test(after);
+  const asked = /^[^.!?\n]*\?/.test(f.slice(at + pm[0].length));
+  if (pm[4] || pm[5]) return asked || PAST.test(before);
+  return true; // the popular-name phrase as commentary; the "buy" phrase (the frozen HOLD holds its calls)
+}
+type Talk = (f: string, at: number) => boolean;
+const regexTalk = (re: RegExp | undefined): Talk | undefined => re && ((f, at) => re.test(f.slice(at)));
+function matchesExcept(re: RegExp, f: string, talk: Talk | undefined): boolean {
   if (!talk) return re.test(f);
   let g = globalCopy.get(re);
   if (!g) globalCopy.set(re, (g = new RegExp(re.source, re.flags.replace('g', '') + 'g')));
-  for (const m of f.matchAll(g)) if (!talk.test(f.slice(m.index))) return true;
+  for (const m of f.matchAll(g)) if (!talk(f, m.index!)) return true;
   return false;
+}
+// Version 2 only (the re-check of a version 1 note): a match version 1 let through as talk and version 2 does not.
+const promoTalkV2Only: Talk = (f, at) => !(PROMO_TALK_V1.test(f.slice(at)) && !promoTalk(f, at));
+
+// Fix round 6 (item 2): a phrase spelled out letter by letter is joined by the squash ("t o t h e m o o n" →
+// "tothemoon"), but the phrase rules need the space. Each phrase rule (the frozen HOLD, the scanner's PROMO, and the
+// HOLD_V2 word rules with no claim or per-match check) is also read with every separator made optional, derived from
+// its source (the arrays stay unchanged), and run on the squashed forms only, counting only a match that overlaps a
+// joined run of single characters: ordinary words are never joined, so they never meet these variants.
+const SEP = String.raw`[\s.\-_]*`;
+const SEP_CLASS = /^(?:\\s| |-|\\-|_|\.|\\\.)+$/;
+export function optionalSpaces(re: RegExp): RegExp {
+  const src = re.source;
+  let out = '';
+  for (let i = 0; i < src.length;) {
+    let tok = src[i], sep = false;
+    if (tok === '\\') { tok = src.slice(i, i + 2); sep = tok === '\\s'; } else if (tok === '[') {
+      let j = i + 1;
+      if (src[j] === '^') j++;
+      if (src[j] === ']') j++;
+      while (j < src.length && src[j] !== ']') j += src[j] === '\\' ? 2 : 1;
+      tok = src.slice(i, j + 1);
+      sep = SEP_CLASS.test(tok.slice(1, -1)) && /\\s| /.test(tok);
+    } else sep = tok === ' ';
+    i += tok.length;
+    if (!sep) { out += tok; continue; }
+    const q = src.slice(i).match(/^(?:[?*+]|\{\d+(?:,\d*)?\})\??/);
+    if (q) i += q[0].length;
+    out += SEP;
+  }
+  return new RegExp(out, re.flags.replace('g', '') + 'g');
+}
+const PHRASE_VARIANTS: { re: RegExp; label: string }[] = [
+  ...HOLD_V2.filter((r) => r.words && !r.claim && !r.when).map((r) => ({ re: optionalSpaces(r.re), label: r.label })),
+  ...HOLD.map((re) => ({ re: optionalSpaces(re), label: 'promotion' })),
+  ...PROMO.map((re) => ({ re: optionalSpaces(re), label: 'promotion' })),
+];
+function variantLabel(forms: { text: string; joined: [number, number][] }[]): string | null {
+  for (const v of PHRASE_VARIANTS) {
+    for (const { text, joined } of forms) {
+      if (!joined.length) continue;
+      for (const m of text.matchAll(v.re)) {
+        const a = m.index!, b = a + m[0].length;
+        if (joined.some(([s, e]) => a < e && b > s)) return v.label;
+      }
+    }
+  }
+  return null;
 }
 
 // The full verdict: status plus the label of the first rule that matched (null when published). Matching runs on the
@@ -338,9 +446,13 @@ function matchesExcept(re: RegExp, f: string, talk: RegExp | undefined): boolean
 // "g.u.a.r.a.n.t.e.e.d", "join🔥my🔥group").
 // Fix round 5 (item 3): `after` (the start-up re-check) applies only the rules added after that version: HOLD on the raw
 // text is version 0 (main's rules), everything else version 1 unless the rule says otherwise (HoldRule.since).
+// Fix round 6: version 2 adds the period-rate rules, the spelled-out phrase variants, the narrower exemption (on a
+// version 1 note only what version 1 let through as talk) and the script g look-alike: a version 1 note holding that
+// letter is matched by every version 1 rule again, since its skeleton changed.
 export function moderateDetail(text: string, opts: { after?: number } = {}): { status: ThesisStatus; rule: string | null } {
-  const on = (since = 1) => opts.after === undefined || since > opts.after;
   const raw = String(text ?? '');
+  const remapped = opts.after !== undefined && opts.after < 2 && /ɡ/.test(raw);
+  const on = (since = 1) => opts.after === undefined || since > opts.after || (remapped && since >= 1);
   const sk = figures(skeleton(raw));
   const forms = [...new Set([raw, sk, figures(skeleton(unOverride(raw)))])];
   const wordForms = [...new Set([...forms, ...[sk, ...leet(sk)].flatMap((f) => [f, squash(f)])])];
@@ -348,16 +460,20 @@ export function moderateDetail(text: string, opts: { after?: number } = {}): { s
   const spelt = on() ? speltLabel(sk) : null;
   if (spelt) return { status: 'held', rule: spelt };
   for (const re of HOLD) {
-    if (on(0) && matchesExcept(re, raw, HOLD_TALK.get(re))) return { status: 'held', rule: 'promotion' };
-    if (on() && wordForms.some((f) => matchesExcept(re, f, HOLD_TALK.get(re)))) return { status: 'held', rule: 'promotion' };
+    const talk = regexTalk(HOLD_TALK.get(re));
+    if (on(0) && matchesExcept(re, raw, talk)) return { status: 'held', rule: 'promotion' };
+    if (on() && wordForms.some((f) => matchesExcept(re, f, talk))) return { status: 'held', rule: 'promotion' };
   }
   // Fix round 3 (QA item 2): the scanner's list also names a singular top-ranked pick; in a note that is talk about the
   // trader's own choice ("Not my best one, cut it"), so PROMO sees it as "choice". The offer forms (plural, dated, free)
   // were held by the picks rule above.
   const promoForms = wordForms.map((f) => f.replace(SINGLE_PICK, '$1 choice'));
-  if (on()) for (const re of PROMO) if (promoForms.some((f) => matchesExcept(re, f, PROMO_TALK))) return { status: 'held', rule: 'promotion' };
+  const promoTalkNow = on() ? promoTalk : on(2) ? promoTalkV2Only : null;
+  if (promoTalkNow) for (const re of PROMO) if (promoForms.some((f) => matchesExcept(re, f, promoTalkNow))) return { status: 'held', rule: 'promotion' };
   const long = [sk, ...leet(sk)].flatMap((f) => [f, squash(f)]);
   if (on()) for (const r of LONG_WORDS) if (long.some((f) => r.re.test(f))) return { status: 'held', rule: r.label };
+  const variant = on(2) ? variantLabel([sk, ...leet(sk)].map(squashSpans)) : null;
+  if (variant) return { status: 'held', rule: variant };
   return { status: 'published', rule: null };
 }
 

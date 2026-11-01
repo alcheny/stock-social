@@ -448,11 +448,97 @@ test('fix round 5: generic words from the scanner list, the payment-plan phrase 
 
 test('fix round 5: the start-up re-check applies only rules newer than the version a note was checked at', async () => {
   const { MODERATION_VERSION } = await import('./moderation.ts');
-  assert.equal(MODERATION_VERSION, 1);
+  assert.equal(MODERATION_VERSION, 2); // fix round 6 raised it (the round 6 tests below pin what version 2 adds)
   assert.ok(HOLD_V2.every((r) => (r.since ?? 1) <= MODERATION_VERSION));
   // A note checked at the current version matches nothing new; a note from main's rules (version 0) is matched by
   // every rule of this branch, but not by the frozen HOLD on its raw text (it passed that when it was saved).
   assert.deepEqual(moderateDetail('DM me, join my group', { after: MODERATION_VERSION }), { status: 'published', rule: null });
   assert.equal(moderateDetail('see example.com', { after: 0 }).status, 'held');
   assert.equal(moderateDetail('see example.com').status, 'held');
+});
+
+// ---- Fix round 6 (independent re-check: period rates, spelled-out phrases, calls to act) ----
+
+// [text, expected label]
+const BYPASS_R6: [string, string][] = [
+  // item 1: a return figure tied to a period is a claim, with or without a subject or a verb
+  ['my avg is 30% a month', 'return claim'], ['my average is 40% a year', 'return claim'], ['my avg is 30% monthly', 'return claim'],
+  ['avg is 30% a month', 'return claim'], ['my avg = 30%/mo', 'return claim'], ['avg return 8%/wk', 'return claim'],
+  ['average of 4% a week', 'return claim'], ['avg 5% weekly', 'return claim'], ['averaging 5% weekly', 'return claim'],
+  ['I avg 5% per wk', 'return claim'], ['avg monthly 30%', 'return claim'], ['I make 5% weekly', 'return claim'],
+  ['Avg 5% weekly', 'return claim'], ['5% weekly, every week.', 'return claim'], ['We average 2% daily.', 'return claim'],
+  ['My returns are 5% weekly.', 'return claim'], ['Making 3% a day on this setup.', 'return claim'], ['8%/wk. Ask how.', 'return claim'],
+  ['I make 12% annually', 'return claim'], ['avg yearly return: 60%', 'return claim'],
+  // item 2: multi-word phrases spelled out letter by letter
+  ['t o t h e m o o n', 'promotion'], ['g e t r i c h', 'promotion'], ['e a s y m o n e y', 'promotion'],
+  ['b e a t t h e m a r k e t', 'promotion'], ['f i n a n c i a l a d v i c e', 'promotion'], ['d m m e', 'contact details'],
+  ['j o i n m y group', 'promotion'], ['r i s k f r e e', 'promotion'], ['m y p i c k s', 'picks or tips'],
+  // item 3: calls to act
+  ['Time to buy $XYZ, everyone.', 'promotion'], ['Time to buy!', 'promotion'], ['time to sell your shares now', 'promotion'],
+  ['Copy this trade.', 'promotion'], ['hot stock alert: $XYZ', 'promotion'], ['This strategy outperforms the market', 'promotion'],
+  ['I make money every week with this', 'promotion'], ["It's time to buy.", 'promotion'], ['Guys, time to sell.', 'promotion'],
+  ['Hot stock: $XYZ', 'promotion'], ['You make money each month with this', 'promotion'], ['My system outperforms, folks.', 'promotion'],
+  // nit 4: the Latin script g
+  ['ɡet rich quick', 'promotion'],
+];
+// Ordinary talk that must keep publishing next to the round 6 rules.
+const NEGATIVE_R6: string[] = [
+  // item 1: third-party rates, figures attached to third-party nouns, and rate words with no period
+  'Revenue averaged 12% a year for a decade.', 'The index averages 7% a year over long periods.', 'CPI averaged 0.3% a month.',
+  'Dividend growth averaged 6% annually.', 'Analysts average 10% a year for earnings.', 'Shares averaged 2% daily moves this week.',
+  'My average loss is 2% per trade.', 'My avg hold is 5 days.', 'Average daily volume rose 40%.', 'the 1.5% daily range held',
+  'Sales grew 5% weekly through the holidays.', 'The fund made 8% a year, I only watched.', 'Wages up 4% a year, rates at 5%.',
+  'Avg 5% weekly for the index, mostly beta.', 'Inflation is 3% annually; I stayed in cash.', 'Yield is 4% a year on the bond.',
+  // item 3: the trader's own past action, reflection and third-person commentary
+  'I thought it was time to buy', 'Decided it was time to sell after the second miss.', 'It was a hot stock in 2021 and I bought late.',
+  'Semis outperform when rates fall, so I sized up.', 'The company does not make money yet; sold.', 'Copy this trade? No.',
+  'Felt like time to sell once volume dried up.', 'Was it time to buy? I thought so.', 'Small caps outperformed in the spring; I was early.',
+  'I wondered whether to copy this trade again.',
+  // item 2: ordinary words never join (squash joins only runs of single characters)
+  'I bought a 5 x 2 grid of strikes.', 'Plan B: wait for a retest, then add.', 'A B test of two entries, sold both.',
+];
+
+test('fix round 6: period rates, spelled-out phrases, calls to act and the script g are held with the expected label', () => {
+  for (const [t, label] of BYPASS_R6) {
+    assert.deepEqual(moderateDetail(t), { status: 'held', rule: label }, JSON.stringify(t));
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(sanitizeUserText(t)));
+  }
+});
+
+test('fix round 6: third-party rates, past or reflective calls and ordinary spacing publish (no rule)', () => {
+  for (const t of NEGATIVE_R6) {
+    assert.deepEqual(moderateDetail(t), { status: 'published', rule: null }, JSON.stringify(t));
+    assert.deepEqual(moderateDetail(sanitizeUserText(t)), { status: 'published', rule: null }, JSON.stringify(t));
+  }
+});
+
+test('fix round 6: the start-up re-check holds version 1 notes only on what version 2 added', () => {
+  for (const t of ['my avg is 30% a month', 'Time to buy!', 'Copy this trade.', 't o t h e m o o n', 'd m m e', 'ɡet rich quick']) {
+    assert.equal(moderateDetail(t, { after: 1 }).status, 'held', t);
+    assert.deepEqual(moderateDetail(t, { after: 2 }), { status: 'published', rule: null }, t);
+  }
+  // a version 1 rule is not re-applied to a version 1 note (it passed it when saved)
+  assert.deepEqual(moderateDetail('see example.com', { after: 1 }), { status: 'published', rule: null });
+  // version 2 rules carry since: 2
+  assert.ok(HOLD_V2.some((r) => r.since === 2));
+});
+
+// Rules fingerprint: changing a rule without raising MODERATION_VERSION would leave already-checked notes unchecked
+// against it. Each version pins the hash of every rule source; a change needs a new version and a new entry here.
+const RULE_HASHES: Record<number, string> = {
+  2: '713b08cb0d5c66fad954435cfe51b57bd41a13ff60c87b85a3d25477bc709893',
+};
+test('fix round 6: rules cannot change without raising MODERATION_VERSION', async () => {
+  const { createHash } = await import('node:crypto');
+  const m = await import('./moderation.ts');
+  const { PROMO } = await import('../scripts/compliance.ts');
+  const src = JSON.stringify([
+    m.HOLD.map(String), PROMO.map(String), m.LONG_WORDS.map((r) => [r.rule, r.label, String(r.re)]),
+    m.HOLD_V2.map((r) => [r.rule, r.label, String(r.re), r.words ?? false, r.claim ?? false, r.since ?? 1, r.when ? String(r.when) : '']),
+    m.TALK_RULES.map(String),
+  ]);
+  const hash = createHash('sha256').update(src).digest('hex');
+  const pinned = RULE_HASHES[m.MODERATION_VERSION];
+  assert.ok(pinned, `no rules hash pinned for MODERATION_VERSION ${m.MODERATION_VERSION}: add { ${m.MODERATION_VERSION}: '${hash}' } to RULE_HASHES`);
+  assert.equal(hash, pinned, `the moderation rules changed: bump MODERATION_VERSION (give new rules since: <new version>) and pin { <new version>: '${hash}' } in RULE_HASHES`);
 });

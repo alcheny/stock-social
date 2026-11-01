@@ -112,6 +112,29 @@ trimmed; only its overlap with D-08 is built here). Every role was a separate su
     reservation first releases its oldest one (its hold ends at once; ended reservations are purged by the tick). Why:
     repeated renames could park many handles for a year each. OD-12 (b) permanent retirement and (c) a rename limit
     remain the owner's call; this cap is neither.
+23. **A return figure tied to a period is a claim, with or without a subject or a verb** (2026-11-01, fix round 6,
+    independent re-check). A figure with weekly, monthly, yearly, daily, annually, "a/per/each/every week|wk|month|mo|
+    year|yr|day" or "/wk", "/mo", "/yr", "/day" is held after a rate word ("my avg is 30% a month", "avg monthly 30%"),
+    a first-person gain ("I make 5% weekly"), the trader's returns or account, or at the start of a sentence ("Avg 5%
+    weekly"). It publishes when a third-party subject (revenue, sales, earnings, margin, yield, dividend, CPI, inflation,
+    GDP, rates, volatility, shares, the index, a sector, the company or name, analysts, a fund and the like) comes
+    before it with no first person, or such a noun sits in it or right after it ("Revenue averaged 12% a year",
+    "Dividend growth averaged 6% annually", "Avg 5% weekly for the index"). Rules version 2. Why: the re-check showed
+    rate claims publishing whenever the subject or the verb was left out.
+24. **A phrase spelled out letter by letter is read as the phrase** (2026-11-01, fix round 6). Each phrase rule (the
+    frozen HOLD list, the scanner's PROMO list and the HOLD_V2 word rules with no claim or per-match check) is also read
+    with every separator made optional, derived from its source without editing the lists, and only on the squashed
+    text where the match overlaps a run of single characters the squash joined ("t o t h e m o o n", "d m m e",
+    "j o i n m y group"). Ordinary words are never joined, so ordinary text never meets these variants. Rules version 2.
+    Why: the squash joined such runs into one word, and every phrase rule needed a space.
+25. **Phrases that urge a trade are exempt only as the trader's own past or reflective choice** (2026-11-01, fix round
+    6; narrows the PROMO exemption of decision 20). The timing and copy phrases publish only with a past or reflective
+    word before them ("Decided it was time to sell", "I thought it was time to buy") or as a question ("Copy this
+    trade? No."); the popular-name, earning and sector phrases publish as third-person commentary ("Semis outperform when
+    rates fall, so I sized up.", "The company does not make money yet"). Any of them is held with a call cue: words to
+    the reader (you, your, everyone, guys, folks), an alert, a colon or "!" right after it, a system or strategy said to
+    beat something, a person beating something in the present, or money made every period. Rules version 2. Why: the
+    exemption let sentence-start calls ("Time to buy!", "Copy this trade.") and alerts publish.
 
 ## Build, QA, review
 
@@ -141,6 +164,8 @@ trimmed; only its overlap with D-08 is built here). Every role was a separate su
   path. The CLI lists 200 held notes at a time.
 - The three-reporter hold means little while the dev sign-in stub makes accounts cheap.
 - Report control not on `/t` rows or the chart sheet.
+- A rate word reaches its figure across at most 4 words; the rules hash covers rule patterns, not the code of the
+  exemption and claim checks (a change there needs a version raise by hand).
 - Phrase rules are English only; a first-person gain under 20% with no time total publishes; spaced "@ plainword",
   spaced endings that are English words, phone digits spelt as words and a bare "name com" publish.
 - Handles: other users' handles are compared with the basic skeleton only (1→l, underscores kept).

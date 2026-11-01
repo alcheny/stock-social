@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cutCodePoints, isStripped, leet, neutralizeFigures, sanitizeUserText, skeleton, squash } from './text-safety.ts';
+import { cutCodePoints, isStripped, leet, neutralizeFigures, sanitizeUserText, skeleton, squash, squashSpans } from './text-safety.ts';
 
 // Every character decision 1 says is removed from stored text.
 const STRIPPED: number[] = [
@@ -197,6 +197,30 @@ test('fix round 5: emoji and symbols separate words in the matching forms; dashe
   assert.equal(squash('e x a m p l e . c o m'), 'example.com');
   assert.equal(squash('g.u.a.r.a.n.t.e.e.d'), 'guaranteed');
   assert.equal(squash("didn't join; my plan"), 'didnt join; my plan');
+});
+
+test('fix round 6: the Latin script g (U+0261) reads as g', () => {
+  assert.equal(skeleton('\u0261et rich'), 'get rich');
+  assert.equal(skeleton('\u0261uarantee\u0261'), 'guaranteeg');
+  assert.equal(sanitizeUserText('\u0261et'), '\u0261et'); // matching only: stored as typed
+});
+
+test('fix round 6: squashSpans joins only runs of single characters and reports where each joined run sits', () => {
+  const a = squashSpans('t o t h e m o o n');
+  assert.equal(a.text, 'tothemoon');
+  assert.deepEqual(a.joined, [[0, 9]]);
+  const b = squashSpans('j o i n m y group');
+  assert.equal(b.text, 'joinmy group');
+  assert.deepEqual(b.joined, [[0, 6]]);
+  // ordinary words are never joined: no joined run, and the text is squash's
+  for (const t of ['cover if i edit', 'Decided it was time to sell after the second miss.', "didn't join; my plan", 'buy a dip']) {
+    assert.deepEqual(squashSpans(t).joined, [], t);
+    assert.equal(squashSpans(t).text, squash(t), t);
+  }
+  // the text always equals squash's, line by line
+  const c = squashSpans('d m m e\nsee e x a m p l e . c o m now');
+  assert.equal(c.text, squash('d m m e\nsee e x a m p l e . c o m now'));
+  assert.deepEqual(c.joined.map(([s, e]) => c.text.slice(s, e)), ['dmme', 'example.com']);
 });
 
 test('fix round 5: the stray-tag cleanup is the same in Postgres', { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' }, async () => {
