@@ -4,6 +4,7 @@ import { BILLING, FOOTER, RECORD_TOOLS, billingDate } from '@/lib/copy.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { nextCharge, type Plan } from '@/lib/billing.ts';
 import { subscribe } from './actions.ts';
+import { FocusMessage } from './focus.tsx';
 
 // Committee K8: the disclaimer in plain view at the top of every surface, with the three legal links.
 export function Disclaimer() {
@@ -41,6 +42,7 @@ export function SubscribeBlock({ signedIn, testMode, error, chosen, now }: { sig
       <p>{BILLING.refund}</p>
       <p>{BILLING.card}</p>
       {errText && <p role="alert" className="down" id="sub-err">{errText}</p>}
+      {errText && <FocusMessage target={error === 'agree' && chosen ? `agree-${chosen}` : 'sub-err'} />}
       {plans.map((p) => (
         <form key={p.plan} action={subscribe} className="rt-plan-form" aria-labelledby={`plan-${p.plan}`}>
           <h3 id={`plan-${p.plan}`}>{p.label}</h3>
@@ -48,12 +50,12 @@ export function SubscribeBlock({ signedIn, testMode, error, chosen, now }: { sig
           {signedIn && <>
             <input type="hidden" name="plan" value={p.plan} />
             <input type="hidden" name="shown" value={now.toISOString()} />
-            <label className="rt-check"><input type="checkbox" name="agreed" value={p.plan} aria-invalid={error === 'agree' && chosen === p.plan ? true : undefined} aria-describedby={error === 'agree' && chosen === p.plan ? 'sub-err' : undefined} /> {p.agree}</label>
+            <label className="rt-check"><input type="checkbox" id={`agree-${p.plan}`} name="agreed" value={p.plan} aria-invalid={error === 'agree' && chosen === p.plan ? true : undefined} aria-describedby={error === 'agree' && chosen === p.plan ? 'sub-err' : undefined} /> {p.agree}</label>
             <button className="button wide choice">{p.button}</button>
           </>}
         </form>
       ))}
-      {!signedIn && <Link className="button wide choice" href="/login">{BILLING.signIn}</Link>}
+      {!signedIn && <a className="button wide choice" href="/tools/signin">{BILLING.signIn}</a>}
       <Link className="button wide choice" href="/">{BILLING.notNow}</Link>
     </section>
   );

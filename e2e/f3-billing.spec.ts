@@ -43,6 +43,12 @@ async function makeTrader(userId: number, state = 'connected') {
   await sql`insert into connections (attempt_id, user_id, state, consent_at) values (${u.signup_attempt_id}, ${userId}, ${state}, ${state === 'pending' ? null : sql`now()`})`;
 }
 const demo = async () => (await sql`select u.handle from users u where exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo') and u.deleted_at is null order by u.handle limit 3`).map((r) => r.handle as string);
+// Notes fold away on comparison cards (business lead demand 2): open the fold first.
+const note = async (page: Page, h: string) => {
+  const fold = page.locator(`summary`, { hasText: new RegExp(`private note about @${h}$`) });
+  if (await fold.count()) { const d = fold.locator('xpath=..'); if (!(await d.getAttribute('open') !== null)) await fold.click(); }
+  return page.getByLabel(`Private note about @${h} (only you can see it)`);
+};
 const noPrice = async (page: Page) => {
   const text = await page.locator('main').innerText();
   expect(text).not.toMatch(/\$\d|per month|per year|Subscribe:|Subscribe to|plus tax|card details|Plan:|Manage subscription|Cancel subscription/i);
@@ -95,10 +101,31 @@ test('F-3 Subscribe screen: every disclosure visible above the buttons, no plan 
   await block.getByRole('button', { name: 'Subscribe: $9.99/month' }).click();
   await expect(page.locator('#sub-err')).toHaveText('Tick the box to agree to automatic renewal.');
   await expect(page).toHaveURL(/\/tools\?e=agree&p=monthly#subscribe$/);
+  await expect(page.locator('#agree-monthly')).toBeFocused(); // UX lead U2
   const sub = await block.getByRole('button', { name: 'Subscribe: $9.99/month' }).evaluate((e) => getComputedStyle(e).fontWeight + getComputedStyle(e).backgroundColor + getComputedStyle(e).minHeight);
   const notNow = await block.getByRole('link', { name: 'Not now' }).evaluate((e) => getComputedStyle(e).fontWeight + getComputedStyle(e).backgroundColor + getComputedStyle(e).minHeight);
   expect(notNow).toBe(sub);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
+test('F-3 "Sign in to subscribe" brings a new viewer back to Record tools, not the broker-connect screen', async ({ page }) => {
+  test.skip(!billingOn, 'needs the server started with the fake processor env (see the header)');
+  await page.goto('/tools');
+  await page.getByRole('link', { name: 'Sign in to subscribe' }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  const h = handle();
+  created.push(h);
+  await page.goto('/login/dev');
+  await page.getByLabel('Handle').fill(h);
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(/\/tools$/);
+  await expect(page.locator('#subscribe')).toBeVisible();
+  await page.goto('/login/dev'); // the cookie is read once
+  await page.getByLabel('Handle').fill(h);
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${h}$`));
 });
 
 test('F-3 traders never see a price: connected, frozen (failed after consent) and expired-after-consent traders have Record tools included; a pending connection is still a viewer', async ({ page }) => {
@@ -163,7 +190,12 @@ test('F-3 Record tools: compare in the chosen order with each range and its lowe
   await page.getByRole('button', { name: `Move @${traders[2]} down` }).click();
   await expect(page.locator('#rt-msg')).toHaveText('Trader moved to position 2 of 3.');
   expect(await order()).toEqual([`@${traders[0]}`, `@${traders[2]}`, `@${traders[1]}`]);
-  await expect(page.locator('#rt-msg')).toBeFocused();
+  await expect(page.locator('#card-2')).toBeFocused(); // the moved card, scrolled into view (UX lead U3)
+  await page.getByRole('button', { name: `Move @${traders[2]} up` }).click();
+  await expect(page.locator('#rt-msg')).toHaveText('Trader moved to position 1 of 3.');
+  await expect(page.locator('#card-1')).toBeFocused(); // a second action on the same page moves focus again
+  await page.getByRole('button', { name: `Move @${traders[2]} down` }).click();
+  await expect(page.locator('#rt-msg')).toHaveText('Trader moved to position 2 of 3.');
   // Figures equal the profile's own text; the lower end sits inside the range row only.
   const card = page.locator('.rt-card').first();
   const profile = await browser.newPage();
@@ -185,10 +217,10 @@ test('F-3 Record tools: compare in the chosen order with each range and its lowe
   expect(text).not.toMatch(/\bbest\b|\btop\b|winner|who to follow|Open positions|unrealized|leader|higher than|lower than/i);
   await expect(page.getByRole('button', { name: /share/i })).toHaveCount(0);
   // A private note, saved and shown only to its owner.
-  await page.getByLabel(`Private note about @${traders[0]} (only you can see it)`).fill('Looks at holding periods <b>x</b>');
+  await (await note(page, traders[0])).fill('Looks at holding periods <b>x</b>');
   await page.getByRole('button', { name: `Save note about @${traders[0]}` }).click();
   await expect(page.locator('#rt-msg')).toHaveText('Note saved.');
-  await expect(page.getByLabel(`Private note about @${traders[0]} (only you can see it)`)).toHaveValue('Looks at holding periods <b>x</b>');
+  await expect(await note(page, traders[0])).toHaveValue('Looks at holding periods <b>x</b>');
   await page.goto(`/u/${traders[0]}`);
   expect(await page.locator('body').innerText()).not.toContain('Looks at holding periods');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
@@ -223,7 +255,7 @@ test('F-3 lapsed: views and notes stay readable, editable and downloadable; only
   await page.getByRole('button', { name: 'Create view' }).click();
   await page.getByLabel('Add a trader by exact handle').fill(traders[0]);
   await page.getByRole('button', { name: 'Add', exact: true }).first().click();
-  await page.getByLabel(`Private note about @${traders[0]} (only you can see it)`).fill('kept after a lapse');
+  await (await note(page, traders[0])).fill('kept after a lapse');
   await page.getByRole('button', { name: `Save note about @${traders[0]}` }).click();
   const viewUrl = page.url().split('&')[0];
   await sql`update subscriptions set status = 'past_due', grace_until = null, cancel_at_period_end = false where vendor_subscription_id = ${sub}`;
@@ -235,11 +267,12 @@ test('F-3 lapsed: views and notes stay readable, editable and downloadable; only
   await expect(page.getByText('Your subscription has ended. The comparison is off; your saved views and notes stay here to read, edit, download or delete.')).toBeVisible();
   await expect(page.locator('.rt-figures')).toHaveCount(0);
   expect(await page.locator('.rt-card').innerText()).not.toMatch(/%/);
-  await expect(page.getByLabel(`Private note about @${traders[0]} (only you can see it)`)).toHaveValue('kept after a lapse');
-  await page.getByLabel(`Private note about @${traders[0]} (only you can see it)`).fill('edited after a lapse');
+  await expect(await note(page, traders[0])).toHaveValue('kept after a lapse');
+  await (await note(page, traders[0])).fill('edited after a lapse');
   await page.getByRole('button', { name: `Save note about @${traders[0]}` }).click();
   await expect(page.locator('#rt-msg')).toHaveText('Note saved.');
   await expect(page.getByLabel('Add a trader by exact handle')).toHaveCount(0);
+  await expect(page.getByText('Adding and comparing traders needs a subscription. Your views and notes stay yours.')).toBeVisible();
   const data = await (await page.request.get('/account/export')).json();
   expect(data.notes[0].text).toBe('edited after a lapse');
   await page.goto('/account');
@@ -256,7 +289,7 @@ test('F-3 a trader who deletes their account leaves the subscriber\'s views and 
   await page.getByRole('button', { name: 'Create view' }).click();
   await page.getByLabel('Add a trader by exact handle').fill(gone);
   await page.getByRole('button', { name: 'Add', exact: true }).first().click();
-  await page.getByLabel(`Private note about @${gone} (only you can see it)`).fill('about them');
+  await (await note(page, gone)).fill('about them');
   await page.getByRole('button', { name: `Save note about @${gone}` }).click();
   await other.goto('/settings?confirm=1');
   await other.getByTestId('delete-final').click();

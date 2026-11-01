@@ -43,6 +43,7 @@ export function createBillingFake(o: BillingFakeOptions) {
   const delivered: { id: string; status: number }[] = [];
   const calls: { method: string; path: string; body: string }[] = [];
   let fail = { status: 500, times: 0 };
+  let failPath: { re: RegExp; method: string; status: number; times: number } | null = null; // targeted failures (unit tests)
 
   const periodEnd = (start: number, priceId: string) => {
     const d = new Date(start * 1000);
@@ -71,9 +72,10 @@ export function createBillingFake(o: BillingFakeOptions) {
   function pay(sub: FakeSub, amountCents?: number, ok = true) {
     const price = sub.items.data[0].price.id;
     const pi = id('pi');
-    const ch = { id: id('ch'), object: 'charge', customer: sub.customer, amount: amountCents ?? amounts[price], amount_refunded: 0, payment_intent: pi, paid: ok };
+    const invId = id('in');
+    const ch = { id: id('ch'), object: 'charge', customer: sub.customer, invoice: invId, amount: amountCents ?? amounts[price], amount_refunded: 0, payment_intent: pi, paid: ok };
     charges.set(ch.id, ch);
-    const inv = { id: id('in'), object: 'invoice', customer: sub.customer, subscription: sub.id, amount_paid: ok ? ch.amount : 0, payment_intent: pi, charge: ch.id, status: ok ? 'paid' : 'open' };
+    const inv = { id: invId, object: 'invoice', customer: sub.customer, subscription: sub.id, amount_paid: ok ? ch.amount : 0, payment_intent: pi, charge: ch.id, status: ok ? 'paid' : 'open' };
     invoices.set(inv.id, inv);
     sub.latest_invoice = inv.id;
     return inv;
@@ -131,6 +133,7 @@ export function createBillingFake(o: BillingFakeOptions) {
       if (!/^Bearer (sk|rk)_test_/.test(headers.authorization ?? '')) return json(401, { error: { code: 'invalid_api_key' } });
       if (headers['stripe-version'] !== API_VERSION) return json(400, { error: { code: 'api_version_invalid' } });
       if (fail.times > 0) { fail.times--; return json(fail.status, { error: { code: 'fake_failure' } }); }
+      if (failPath && failPath.times > 0 && failPath.method === method && failPath.re.test(p)) { failPath.times--; return json(failPath.status, { error: { code: 'fake_failure' } }); }
       const key = headers['idempotency-key'];
       if (key && idem.has(key)) { const r = idem.get(key)!; return json(r.status, r.body); }
       const out = await api(method, p, form);
@@ -252,6 +255,7 @@ export function createBillingFake(o: BillingFakeOptions) {
     handle, fetch: fakeFetch, lifecycle, emit, send, state, events, subs, charges, refunds, calls,
     setNow: (ms: number) => { clock = () => ms; },
     fail: (status: number, times: number) => { fail = { status, times }; },
+    failOn: (method: string, re: RegExp, status: number, times: number) => { failPath = { method, re, status, times }; },
     newPaidSubscription: async (customer: string, plan: 'monthly' | 'annual') => {
       const sub = newSub(customer, o.prices[plan]); const inv = pay(sub);
       await emit('customer.subscription.created', sub); await emit('invoice.paid', inv); return sub;

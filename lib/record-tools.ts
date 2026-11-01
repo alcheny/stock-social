@@ -14,6 +14,9 @@ import { paneTrust } from './pane.ts';
 import { ownLists, traderId } from './follows.ts';
 import { exportSubscription } from './billing.ts';
 
+// F-3: set by /tools/signin, read once by the sign-in landing (lib/auth/landing.ts) to come back to Record tools.
+export const AFTER_SIGNIN_COOKIE = 'after_signin';
+
 export const MAX_TRADERS = 4;
 export const MAX_VIEWS = 20;
 export const NOTE_MAX = 2000;
@@ -54,10 +57,13 @@ export type CreateResult = { ok: true; id: string } | { ok: false; reason: 'name
 export async function createView(owner: number, rawName: unknown): Promise<CreateResult> {
   if (rawName !== undefined && rawName !== null && typeof rawName !== 'string') return { ok: false, reason: 'name' };
   const name = cleanName(rawName);
-  // One statement: the limit holds under concurrent creates from the same owner (the count is read in the insert).
-  const [v] = await sql`insert into record_views (owner_id, name)
-    select ${owner}, coalesce(${name}::text, 'View ' || (count(*) + 1)) from record_views where owner_id = ${owner}
-    having count(*) < ${MAX_VIEWS} returning id`;
+  // One create at a time per owner, so the limit holds under concurrent creates (a count in the insert alone did not).
+  const [v] = await sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtext(${`record_views:${owner}`}))`;
+    return tx`insert into record_views (owner_id, name)
+      select ${owner}, coalesce(${name}::text, 'View ' || (count(*) + 1)) from record_views where owner_id = ${owner}
+      having count(*) < ${MAX_VIEWS} returning id`;
+  });
   return v ? { ok: true, id: v.id as string } : { ok: false, reason: 'limit' };
 }
 

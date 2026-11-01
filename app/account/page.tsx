@@ -31,6 +31,7 @@ export default async function Account({ searchParams }: { searchParams?: Promise
       {sp.e === 'portal' && <p role="alert" className="down">{BILLING.errPortal}</p>}
       {a.kind === 'trader' && <>
         <p>{RECORD_TOOLS.trader}</p>
+        <p><a className="button wide" href="/tools">{RECORD_TOOLS.open}</a></p>
         {await canceledOnConnect(me.id) && <p className="muted">{BILLING.traderCanceled}</p>}
       </>}
       {a.kind !== 'trader' && sp.activating === '1' && !live && <Activating waiting={BILLING.activating} slow={BILLING.activatingSlow} checkAgain={BILLING.checkAgain} />}
@@ -40,8 +41,9 @@ export default async function Account({ searchParams }: { searchParams?: Promise
         {a.row.cancel_at_period_end && a.row.current_period_end
           ? <><p>{BILLING.endsOn(a.row.current_period_end)}</p><p>{BILLING.keepIt}</p></>
           : a.row.current_period_end && <p>{BILLING.renewsOn(a.row.current_period_end, a.row.plan)}</p>}
+        <p><a className="button wide" href="/tools">{RECORD_TOOLS.open}</a></p>
         <p className="muted">{BILLING.receipt}</p>
-        <p>{BILLING.cancelHow}</p>
+        {!a.row.cancel_at_period_end && <p>{BILLING.cancelHow}</p>}
         <p>{BILLING.refund}</p>
         {contact && <p>{BILLING.contact(contact)}</p>}
         <form action={openPortal} className="rt-actions">
@@ -52,8 +54,6 @@ export default async function Account({ searchParams }: { searchParams?: Promise
       {a.kind === 'none' && sp.activating !== '1' && (row && !rowEntitles(row, now)
         ? <><p>{row.ended_reason === 'refund' ? BILLING.refunded : BILLING.lapsed}</p><p><Link className="button" href="/tools#subscribe">{BILLING.subscribeAgain}</Link></p></>
         : <><p>{BILLING.none}</p><p><Link className="button" href="/tools">{BILLING.seeTools}</Link></p></>)}
-      <h2>{RECORD_TOOLS.title}</h2>
-      <p><Link href="/tools">{RECORD_TOOLS.title}</Link></p>
       <p><a className="button secondary" href="/account/export" download>{RECORD_TOOLS.download}</a></p>
       <p className="muted small">{BILLING.downloadHelp}</p>
     </main>

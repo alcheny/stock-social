@@ -469,3 +469,6 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .rt-note textarea { white-space: pre-wrap; }
 .rt-inline { display: inline-block; margin: 4px 8px 4px 0; }
 .rt-actions { display: grid; gap: 0; }
+.rt button, .rt .button, .rt summary { min-height: 44px; }
+.rt-back a, .rt-card h2 a, .rt-rename summary, .rt-note-fold summary, .rt-confirm summary { display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; }
+.rt-card:focus { outline: 2px solid var(--accent); outline-offset: 2px; }

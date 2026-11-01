@@ -66,7 +66,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
       <main className="page rt">
         <h1>{RECORD_TOOLS.title}</h1>
         <Disclaimer />
-        <p>{RECORD_TOOLS.what}</p>
+        {!billing && <p>{RECORD_TOOLS.what}</p>}
         {billing
           ? <SubscribeBlock signedIn={!!me} testMode={testMode(billing)} error={me ? sp.e ?? null : null} chosen={isPlan(sp.p) ? sp.p : null} now={now} />
           : <p className="muted">{BILLING.unavailable}</p>}
@@ -82,7 +82,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
       {lapsed && <p className="rt-banner">{RECORD_TOOLS.lapsed}</p>}
       {removed && <form action={dismissNoticeAction} className="rt-banner"><p role="status" style={{ margin: 0 }}>{RECORD_TOOLS.removedNotice}</p><button className="button secondary">{RECORD_TOOLS.dismiss}</button></form>}
       <p id="rt-msg" tabIndex={-1} role={msg?.error ? 'alert' : 'status'} className={msg?.error ? 'down rt-msg' : 'rt-msg'}>{msg?.text ?? ''}</p>
-      {msg && <FocusMessage />}
+      {msg && <FocusMessage target={sp.m === 'moved' && sp.i ? `card-${sp.i}` : 'rt-msg'} />}
     </>
   );
 
@@ -163,7 +163,7 @@ async function ViewPage({ view, entitled, status }: { view: View; entitled: bool
   const n = view.traders.length;
   return (
     <main className="page rt">
-      <p><Link href="/tools">← {RECORD_TOOLS.allViews}</Link></p>
+      <p className="rt-back"><Link href="/tools">← {RECORD_TOOLS.allViews}</Link></p>
       <h1 id="view-h">{view.name}</h1>
       <Disclaimer />
       {status}
@@ -197,13 +197,14 @@ async function ViewPage({ view, entitled, status }: { view: View; entitled: bool
           )}
         </div>
       ))}
+      {!entitled && <p className="muted">{RECORD_TOOLS.lockedAdd}</p>}
       {entitled && n === 0 && <p className="muted">{RECORD_TOOLS.addHint}</p>}
       {entitled && n === 1 && <p className="muted">{RECORD_TOOLS.addOneMore}</p>}
       <ol className={`rt-cards rt-n${n}`}>
         {view.traders.map((t, i) => {
           const c = cards[i];
           return (
-            <li key={t.id} id={`card-${i + 1}`} className="rt-card" aria-labelledby={`card-h-${i + 1}`}>
+            <li key={t.id} id={`card-${i + 1}`} tabIndex={-1} className="rt-card" aria-labelledby={`card-h-${i + 1}`}>
               <p className="muted small rt-pos">{RECORD_TOOLS.position(i + 1, n)}</p>
               <h2 id={`card-h-${i + 1}`}><Link href={`/u/${t.handle}`}>@{t.handle}</Link>{' '}
                 {c?.badge && <Badge verified={c.badge === 'verified'} />}{' '}
@@ -215,7 +216,13 @@ async function ViewPage({ view, entitled, status }: { view: View; entitled: bool
                 {i < n - 1 && <form action={moveAction}><input type="hidden" name="view" value={view.id} /><input type="hidden" name="trader" value={t.id} /><input type="hidden" name="dir" value="down" /><button className="button secondary" aria-label={`Move @${t.handle} down`}>{RECORD_TOOLS.moveDown}</button></form>}
                 <form action={removeAction}><input type="hidden" name="view" value={view.id} /><input type="hidden" name="trader" value={t.id} /><button className="button secondary" aria-label={`Remove @${t.handle} from this view`}>{RECORD_TOOLS.remove}</button></form>
               </div>
-              {t.id !== owner.id && <div id={`note-${t.id}`}><NoteForm trader={t.id} handle={t.handle} body={notes.get(t.id) ?? ''} view={view.id} /></div>}
+              {t.id !== owner.id && (
+                // Business lead demand 2: the note folds away so cards sit close together at 360 px.
+                <details id={`note-${t.id}`} className="rt-note-fold" open={!!notes.get(t.id) && n <= 1}>
+                  <summary>{RECORD_TOOLS.noteSummary(t.handle, !!notes.get(t.id))}</summary>
+                  <NoteForm trader={t.id} handle={t.handle} body={notes.get(t.id) ?? ''} view={view.id} />
+                </details>
+              )}
             </li>
           );
         })}

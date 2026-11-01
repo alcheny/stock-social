@@ -225,7 +225,7 @@ dbTest('export: exactly the disclaimer, views, notes and subscription; no figure
 test('static rules: no entitlement under app/t or keyed by a symbol; Record tools writes no discovery_events, sends nothing, offers no share; notes are read only by Record tools, deletion and export', () => {
   for (const f of sources('app/t')) assert.doesNotMatch(read(f), /lib\/billing|entitled\(|access\(/, f);
   const billingUsers = [...sources('app'), ...sources('lib')].filter((f) => /from ['"][^'"]*\/billing\.ts['"]/.test(read(f)));
-  assert.deepEqual(billingUsers.sort(), ['app/account/actions.ts', 'app/account/page.tsx', 'app/api/billing/reconcile/route.ts', 'app/api/billing/webhook/route.ts', 'app/api/sync/route.ts', 'app/connect/actions.ts', 'app/settings/page.tsx', 'app/tools/actions.ts', 'app/tools/page.tsx', 'app/tools/parts.tsx', 'lib/delete.ts', 'lib/record-tools.ts']);
+  assert.deepEqual(billingUsers.sort(), ['app/account/actions.ts', 'app/account/page.tsx', 'app/api/billing/reconcile/route.ts', 'app/api/billing/webhook/route.ts', 'app/api/sync/route.ts', 'app/connect/actions.ts', 'app/settings/page.tsx', 'app/tools/actions.ts', 'app/tools/page.tsx', 'app/tools/parts.tsx', 'app/tools/signin/route.ts', 'lib/delete.ts', 'lib/record-tools.ts']);
   assert.doesNotMatch(read('lib/billing.ts'), /symbol/);
   const tools = [...sources('app/tools'), ...sources('app/account'), 'lib/record-tools.ts', 'lib/billing.ts'];
   for (const f of tools) {
@@ -246,4 +246,15 @@ test('static rules: no entitlement under app/t or keyed by a symbol; Record tool
   for (const f of sources('lib').filter((x) => /follow|ticker/.test(x))) assert.doesNotMatch(read(f), /billing|entitled/, f);
   // No public surface names a price or plan (profiles, trade and stock pages, the feed, share cards, connect, settings).
   for (const f of [...sources('app/u'), ...sources('app/t'), ...sources('app/connect'), 'app/page.tsx', 'app/settings/page.tsx', 'app/layout.tsx']) assert.doesNotMatch(read(f), /\$\d|BILLING\.(plan|subscribe|renew|agree|what)/, f);
+});
+
+dbTest('concurrent adds never put a fifth trader in a view (engineer E7)', async () => {
+  const rt = await import('./record-tools.ts');
+  const me = await user();
+  const ts = await Promise.all(Array.from({ length: 8 }, () => user()));
+  const v = await rt.createView(me.id, 'race'); assert.ok(v.ok);
+  const r = await Promise.all(ts.map((t) => rt.addTrader(me.id, v.id, t.handle)));
+  assert.equal(r.filter((x) => x.ok).length, 4);
+  const view = (await rt.getView(me.id, v.id))!;
+  assert.equal(view.traders.length, 4);
 });

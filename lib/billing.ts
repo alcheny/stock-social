@@ -20,7 +20,7 @@ export const PLANS: Record<Plan, { cents: number; label: string; interval: 'mont
   annual: { cents: 9999, label: '$99.99', interval: 'year' },
 };
 export const isPlan = (v: unknown): v is Plan => v === 'monthly' || v === 'annual';
-export type Status = 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid' | 'paused';
+export type Status = 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid' | 'paused' | 'incomplete';
 
 export const GRACE_DAYS = 7; // condition 19
 export const ANNUAL_REFUND_DAYS = 14; // condition 15's refund line
@@ -49,6 +49,8 @@ export function billingConfig(env: Record<string, string | undefined> = process.
   const monthly = env.STRIPE_PRICE_MONTHLY?.trim(), annual = env.STRIPE_PRICE_ANNUAL?.trim();
   const webhookSecrets = (env.STRIPE_WEBHOOK_SECRET ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (!monthly || !annual || !webhookSecrets.length) throw new BillingConfigError('Billing needs STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL and STRIPE_WEBHOOK_SECRET.');
+  // A live key only ever goes to the processor itself: the test-only base override is refused with it (code review nit 7).
+  if (live && env.STRIPE_API_BASE?.trim()) throw new BillingConfigError('STRIPE_API_BASE is for the in-repo fake only; it is refused with a live key.');
   return { key, live, base: (env.STRIPE_API_BASE?.trim() || 'https://api.stripe.com').replace(/\/$/, ''), webhookSecrets, prices: { monthly, annual } };
 }
 
@@ -170,7 +172,7 @@ export async function startCheckout(i: { userId: number; plan: Plan; agreed: boo
   const c = cfg();
   if (!i.agreed) throw new CheckoutRefused('consent');
   if (await isTrader(i.userId)) throw new CheckoutRefused('trader');
-  const [live] = await sql`select 1 from subscriptions where user_id = ${i.userId} and status in ('trialing', 'active', 'past_due')`;
+  const [live] = await sql`select 1 from subscriptions where user_id = ${i.userId} and status in ('trialing', 'active', 'past_due', 'incomplete')`;
   if (live) throw new CheckoutRefused('subscribed');
   // D3: an ended row whose subscription the processor still holds (unpaid, paused) is canceled there first, so an old
   // invoice can never succeed beside the new subscription.
@@ -324,7 +326,8 @@ export function mapStatus(vendorStatus: string): Status {
   switch (vendorStatus) {
     case 'trialing': case 'active': case 'past_due': case 'canceled': case 'unpaid': case 'paused': return vendorStatus;
     case 'incomplete_expired': return 'canceled';
-    default: return 'unpaid'; // incomplete: not paid yet, no access
+    case 'incomplete': return 'incomplete'; // a first payment still being confirmed: no access, never canceled by the app
+    default: return 'unpaid';
   }
 }
 const secs = (v: unknown): Date | null => (typeof v === 'number' ? new Date(v * 1000) : null);
@@ -368,7 +371,12 @@ async function upsertFromVendor(sub: VendorSub): Promise<'unchanged' | 'changed'
         current_period_start = excluded.current_period_start, current_period_end = excluded.current_period_end,
         cancel_at_period_end = excluded.cancel_at_period_end, grace_until = excluded.grace_until, updated_at = now()`;
   } catch (e) {
-    if ((e as { code?: string }).code === '23505') throw new ApplyError('second_live_subscription');
+    if ((e as { code?: string }).code === '23505') {
+      // Code review (blocking 2): a second paid subscription (two tabs, a double submit) would renew with no access
+      // attached. It is canceled at once with a full refund, and the event is flagged for a human.
+      await cancelWithRefund(owner.user_id as number, sub, 1, 'duplicate');
+      throw new ApplyError('second_live_subscription');
+    }
     throw e;
   }
   await applyRefundPolicy(owner.user_id as number, sub, d);
@@ -402,32 +410,42 @@ async function applyRefundPolicy(userId: number, sub: VendorSub, d: ReturnType<t
 
 // Cancels now, then refunds `share` of the latest paid invoice (rounded down to the cent) unless that charge already
 // carries a refund (engineer D4: cancel first, so a retry never refunds twice). Idempotent per subscription.
-async function cancelWithRefund(userId: number, sub: VendorSub, share: number, reason: 'trader' | 'refund' | 'deletion' | 'dispute' | 'grace') {
+// Code review (blocking 1): the refund comes first, while the subscription is still live, so a failure anywhere leaves
+// it live and every retry path (the next event, cancelIfTrader, the reconciliation, deletion) runs this again; the
+// metadata tag on the app's own refund means a retry never refunds twice (and engineer D4's double-refund risk is
+// closed the same way). Then the cancel; a retry after a failed cancel finds the refund and only cancels.
+async function cancelWithRefund(userId: number, sub: VendorSub, share: number, reason: 'trader' | 'refund' | 'deletion' | 'dispute' | 'grace' | 'duplicate') {
+  const inv = idOf(sub.latest_invoice);
+  if (share > 0 && inv) await refundShareOf(sub.id, inv, share);
   try { await vendor('DELETE', `/v1/subscriptions/${enc(sub.id)}`); } catch (e) { if (!(e instanceof VendorError && e.status === 404)) throw e; }
   await sql`update subscriptions set status = 'canceled', ended_reason = coalesce(ended_reason, ${ENDED[reason]}), cancel_at_period_end = false, updated_at = now()
     where vendor_subscription_id = ${sub.id} and user_id = ${userId}`;
-  const inv = idOf(sub.latest_invoice);
-  if (!(share > 0) || !inv) return;
+}
+async function refundShareOf(subId: string, inv: string, share: number) {
   const invoice = await vendor('GET', `/v1/invoices/${enc(inv)}`);
   const chargeId = idOf(invoice.charge);
   const pi = idOf(invoice.payment_intent);
   if (!chargeId || !pi) return;
-  const charge = await vendor('GET', `/v1/charges/${enc(chargeId)}`);
-  const paid = Number(invoice.amount_paid ?? 0), refunded = Number(charge.amount_refunded ?? 0);
   // E3: an earlier refund made by someone else (a partial goodwill refund) lowers what is left, never blocks this one;
   // a refund this app already made for this subscription (tagged in its metadata) is never made twice.
   const ours = await vendor('GET', '/v1/refunds', { payment_intent: pi, limit: 100 });
-  if (((ours.data ?? []) as Obj[]).some((r) => (r.metadata as Obj | undefined)?.subscription === sub.id)) return;
+  if (((ours.data ?? []) as Obj[]).some((r) => (r.metadata as Obj | undefined)?.subscription === subId)) return;
+  const charge = await vendor('GET', `/v1/charges/${enc(chargeId)}`);
+  const paid = Number(invoice.amount_paid ?? 0), refunded = Number(charge.amount_refunded ?? 0);
   const amount = Math.min(Math.floor(paid * share), paid - refunded);
-  if (amount > 0) await vendor('POST', '/v1/refunds', { payment_intent: pi, amount, metadata: { subscription: sub.id } }, `refund-${sub.id}`);
+  if (amount > 0) await vendor('POST', '/v1/refunds', { payment_intent: pi, amount, metadata: { subscription: subId } }, `refund-${subId}`);
 }
-const ENDED: Record<string, string | null> = { trader: 'trader', refund: 'refund', deletion: 'deletion', dispute: null, grace: null };
+const ENDED: Record<string, string | null> = { trader: 'trader', refund: 'refund', deletion: 'deletion', dispute: null, grace: null, duplicate: null };
 
 // Condition 19: a full refund ends access at once (the subscription is canceled); a partial refund changes nothing.
 async function applyRefund(charge: Obj) {
   if (!(Number(charge.amount) > 0 && Number(charge.amount_refunded) >= Number(charge.amount))) return;
-  const customer = idOf(charge.customer);
-  const rows = await sql`select s.user_id, s.vendor_subscription_id from subscriptions s where s.vendor_customer_id = ${customer} and s.status in ('trialing', 'active', 'past_due')`;
+  // Only the subscription that charge paid for: charge → invoice → subscription (never every subscription of the
+  // customer: the full refund of a canceled duplicate must not end the live one).
+  const inv = idOf(charge.invoice);
+  if (!inv) return;
+  const subId = invoiceSubscription(await vendor('GET', `/v1/invoices/${enc(inv)}`));
+  const rows = await sql`select s.user_id, s.vendor_subscription_id from subscriptions s where s.vendor_subscription_id = ${subId} and s.status in ('trialing', 'active', 'past_due')`;
   for (const r of rows) {
     const sub = (await vendor('GET', `/v1/subscriptions/${enc(r.vendor_subscription_id)}`)) as VendorSub;
     await cancelWithRefund(r.user_id as number, sub, 0, 'refund');
@@ -535,7 +553,10 @@ export async function reconcileIfDue(): Promise<ReconcileReport | null> {
 // hourly tick retries. No processor configured and no customer row: nothing to do.
 export async function endBillingForDeletion(userId: number): Promise<void> {
   const [cust] = await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`;
-  if (cust) {
+  // Code review (should-fix 3): billing never blocks deletion. With billing switched off there is no processor to call:
+  // the local rows go, and a counted alert asks for a manual cleanup at the processor (no ids logged).
+  if (cust && !billingAvailable()) console.error('billing: account deleted while billing is not configured; processor cleanup needed (1)');
+  if (cust && billingAvailable()) {
     const live = await sql`select vendor_subscription_id from subscriptions where user_id = ${userId} and status <> 'canceled'`;
     for (const s of live) {
       let sub: VendorSub | null = null;

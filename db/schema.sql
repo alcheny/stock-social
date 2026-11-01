@@ -394,7 +394,7 @@ create table if not exists subscriptions (
   vendor_subscription_id text unique not null,
   vendor_customer_id text not null,
   plan text not null check (plan in ('monthly', 'annual')),
-  status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused')),
+  status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused', 'incomplete')),
   current_period_start timestamptz,
   current_period_end timestamptz,
   cancel_at_period_end boolean not null default false,

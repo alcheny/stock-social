@@ -1,8 +1,8 @@
 'use server';
 // F-3 · Record tools and Subscribe (docs/features/logs/F-3/plan.md). Every action reads the signed-in user on the
 // server and passes only that id to lib/record-tools.ts, which checks ownership on every row (committee K4). Messages
-// travel as short codes in the URL: never a handle, a view name or note text (K1, K4). Paid actions (adding traders,
-// reordering) check the entitlement from the app's own rows; reading, editing, exporting and deleting one's own views
+// travel as short codes in the URL: never a handle, a view name or note text (K1, K4). Paid actions (creating a view,
+// adding traders) check the entitlement from the app's own rows; reading, editing, exporting and deleting one's own views
 // and notes never does (K10). Nothing here writes discovery_events or sends anything (K7, K13).
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';

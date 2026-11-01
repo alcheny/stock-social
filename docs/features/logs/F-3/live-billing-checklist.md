@@ -24,6 +24,10 @@ item below is done. Sources: the F-3 decision of 2026-11-01 and the legal commit
 - [ ] Processor settings: automatic tax on; the hosted checkout shows the total with tax before payment; the portal
       cancels at period end, switches plans with proration shown, and offers at most one retention offer naming price
       and plan only.
+- [ ] `BILLING_CONTACT` is set to a role address (never a person's email, POLICY P1): the account page shows it only when
+      set, and condition 17 requires it after purchase (business lead and UX lead user tests).
+- [ ] The Terms name the cancel path exactly as the app does: "Account → Cancel subscription" (the app's own wording of
+      condition 15's cancel line, since the account page has a direct "Cancel subscription" button).
 - [ ] Live secrets created by the owner in the deploy platform only (never in the repository or CI logs).
 - [ ] The data vendor's answer on market data, if Record tools ever adds open-position values (it shows none today;
       adding them returns to the legal committee first).

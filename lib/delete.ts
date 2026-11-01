@@ -41,7 +41,8 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
     tx`delete from record_view_traders where trader_id = ${u.id}`,
     tx`delete from record_views where owner_id = ${u.id}`,
   ]);
-  // F-3: billing ends before anything else is deleted; a processor error throws and the hourly tick retries.
+  // F-3: billing ends before the account's own rows and the vendor user go (Record tools rows naming it went just above,
+  // with the mark); a processor error throws, the account stays marked, and the hourly tick retries.
   await (deps.endBilling ?? endBillingForDeletion)(u.id);
   if (u.snaptrade_user_id && u.snaptrade_secret_enc) await deps.deleteVendorUser({ snaptradeUserId: u.snaptrade_user_id, secretEnc: u.snaptrade_secret_enc });
   await sql.begin(async (tx) => {

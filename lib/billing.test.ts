@@ -65,7 +65,7 @@ test('test mode only: a live key is refused unless LIVE_BILLING=on; a key of nei
   assert.equal(billingConfig(ENV)!.live, false);
   assert.throws(() => billingConfig({ ...ENV, STRIPE_SECRET_KEY: LIVE }), BillingConfigError);
   assert.throws(() => billingConfig({ ...ENV, STRIPE_SECRET_KEY: LIVE, LIVE_BILLING: '1' }), /LIVE_BILLING=on/);
-  assert.equal(billingConfig({ ...ENV, STRIPE_SECRET_KEY: LIVE, LIVE_BILLING: 'on' })!.live, true);
+  assert.equal(billingConfig({ ...ENV, STRIPE_API_BASE: '', STRIPE_SECRET_KEY: LIVE, LIVE_BILLING: 'on' })!.live, true);
   assert.throws(() => billingConfig({ ...ENV, STRIPE_SECRET_KEY: 'pk_test_x' }), /neither a test nor a live key/);
   assert.throws(() => billingConfig({ ...ENV, STRIPE_PRICE_ANNUAL: '' }), BillingConfigError);
   assert.throws(() => billingConfig({ ...ENV, STRIPE_WEBHOOK_SECRET: ' , ' }), BillingConfigError);
@@ -106,7 +106,8 @@ test('pure rules: entitlement by status, grace and dispute; refund shares; statu
   assert.equal(refundShare('monthly', start, new Date(Date.UTC(2026, 11, 1)), new Date(start.getTime() + DAY), 'cancel'), 0);
   assert.ok(Math.abs(refundShare('monthly', start, new Date(start.getTime() + 30 * DAY), new Date(start.getTime() + 10 * DAY), 'trader') - 2 / 3) < 1e-9);
   assert.equal(refundShare('annual', start, end, end, 'trader'), 0);
-  assert.equal(mapStatus('incomplete'), 'unpaid');
+  assert.equal(mapStatus('incomplete'), 'incomplete');
+  assert.equal(mapStatus('something_new'), 'unpaid');
   assert.equal(mapStatus('incomplete_expired'), 'canceled');
   assert.equal(mapStatus('past_due'), 'past_due');
   assert.equal(formEncode({ a: 1, b: { c: 'x y' }, l: [{ price: 'p', quantity: 1 }], u: undefined }), 'a=1&b%5Bc%5D=x%20y&l%5B0%5D%5Bprice%5D=p&l%5B0%5D%5Bquantity%5D=1');
@@ -451,4 +452,69 @@ dbTest('an earlier partial refund lowers the pro-rata refund but never blocks it
   await b.reconcile(); // the backstop finds nothing left to do
   await b.cancelIfTrader(u);
   assert.equal(fake.refunds.filter((r) => (r.metadata as { subscription?: string }).subscription === sub.id).length, 1);
+});
+
+dbTest('a failure between the refund and the cancel never loses the refund and never refunds twice (code review blocking 1)', async () => {
+  const b = await import('./billing.ts');
+  for (const step of [/^\/v1\/refunds$/, /^\/v1\/subscriptions\//]) {
+    const u = await user();
+    const sub = await subscribe(u);
+    now += 10 * DAY;
+    await makeTrader(u);
+    fake.failOn(step.source.includes('refunds') ? 'POST' : 'DELETE', step, 503, 1);
+    await assert.rejects(b.cancelIfTrader(u));
+    assert.equal((await row(u))!.status, 'active', 'still live, so every retry path runs again');
+    await b.reconcile(); // the backstop
+    const ours = fake.refunds.filter((r) => (r.metadata as { subscription?: string }).subscription === sub.id);
+    assert.equal(ours.length, 1, `exactly one refund (failed step: ${step})`);
+    assert.equal(fake.subs.get(sub.id)!.status, 'canceled');
+    assert.equal((await row(u))!.status, 'canceled');
+    await b.cancelIfTrader(u);
+    await b.reconcile();
+    assert.equal(fake.refunds.filter((r) => (r.metadata as { subscription?: string }).subscription === sub.id).length, 1);
+  }
+});
+
+dbTest('a second paid subscription (two tabs, a double submit) is canceled at once with a full refund and flagged (code review blocking 2)', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  const u = await user();
+  const urls = await Promise.all([1, 2].map(() => b.startCheckout({ userId: u, plan: 'monthly', agreed: true, disclosure: 'd', origin: 'http://app.test' })));
+  for (const url of urls) await fake.handle('POST', `/checkout/${url.split('/checkout/')[1]}/pay`, '', {});
+  const theirs = [...fake.subs.values()].filter((s) => s.customer === fake.state().checkouts.find((c) => c.url === urls[0])!.customer);
+  assert.equal(theirs.length, 2);
+  assert.equal(theirs.filter((s) => s.status === 'active').length, 1, 'only one stays live at the processor');
+  const dup = theirs.find((s) => s.status === 'canceled')!;
+  assert.equal(fake.refunds.find((r) => (r.metadata as { subscription?: string }).subscription === dup.id)!.amount, 999);
+  assert.equal(await ent(u), true);
+  assert.equal((await sql`select count(*)::int as n from subscriptions where user_id = ${u} and status = 'active'`)[0].n, 1);
+  assert.ok((await sql`select count(*)::int as n from billing_events where vendor_customer_id = ${dup.customer} and error_code = 'second_live_subscription' and flagged`)[0].n >= 1);
+});
+
+test('a live key never goes to an overridden base; an incomplete first payment has no access and is never canceled by the app', async () => {
+  const { billingConfig, mapStatus, rowEntitles } = await import('./billing.ts');
+  assert.throws(() => billingConfig({ ...ENV, STRIPE_SECRET_KEY: LIVE, LIVE_BILLING: 'on' }), /refused with a live key/);
+  const { STRIPE_API_BASE: _drop, ...noBase } = ENV;
+  void _drop;
+  assert.equal(billingConfig({ ...noBase, STRIPE_SECRET_KEY: LIVE, LIVE_BILLING: 'on' })!.base, 'https://api.stripe.com');
+  assert.equal(mapStatus('incomplete'), 'incomplete');
+  assert.equal(rowEntitles({ status: 'incomplete', grace_until: null, disputed_at: null, current_period_end: null, cancel_at_period_end: false }, new Date()), false);
+  const src = readFileSync(new URL('./billing.ts', import.meta.url), 'utf8');
+  for (const m of src.matchAll(/update subscriptions set status = 'unpaid'[^`]*`/g)) assert.doesNotMatch(m[0], /incomplete/);
+});
+
+dbTest('deletion is never blocked by billing switched off: local billing rows go, the consent is kept (code review should-fix 3)', async () => {
+  const { sql } = await import('./db.ts');
+  const { deleteProfile } = await import('./delete.ts');
+  const u = await user();
+  await subscribe(u);
+  const [{ handle }] = await sql`select handle from users where id = ${u}`;
+  const key = process.env.STRIPE_SECRET_KEY;
+  delete process.env.STRIPE_SECRET_KEY;
+  const errs: string[] = []; const orig = console.error; console.error = (...a: unknown[]) => { errs.push(a.join(' ')); };
+  try { await deleteProfile({ id: u, handle, snaptrade_user_id: null, snaptrade_secret_enc: null }); } finally { console.error = orig; process.env.STRIPE_SECRET_KEY = key; }
+  assert.equal((await sql`select count(*)::int as n from users where id = ${u}`)[0].n, 0);
+  assert.equal((await sql`select count(*)::int as n from subscriptions where user_id = ${u}`)[0].n, 0);
+  assert.ok(errs.some((e) => /processor cleanup needed/.test(e)));
+  assert.doesNotMatch(errs.join('\n'), /cus_|sub_|ss_/);
 });
