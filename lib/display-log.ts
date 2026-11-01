@@ -7,7 +7,8 @@
 // UTC day, which may be later than midnight. Wherever a past display is shown, it says "as of <asOf> (UTC)", never "all
 // day"; a later change the same day appears in the next day's row (code review 9, orchestrator review 3).
 import { sql } from './db.ts';
-import { confidence, evidenceLine, pct, rangeText, stats } from './trades.ts';
+import { evidenceLine, pct, stats } from './trades.ts';
+import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { winRateText } from './copy.ts';
 import { counted } from './format.ts';
 import { positionRows } from './positions.ts';
@@ -22,11 +23,13 @@ export type Snapshot = { headline: string; rangeText: string | null; tradeCount:
 
 export function snapshotText(closes: Close[], positions: Position[], today: Date): Snapshot {
   const s = stats(closes);
-  const c = confidence(closes, today);
+  // F-4 rework: the profile displays the share card's evidence (lib/record-card.ts#cardEvidence: the range around the
+  // average it prints, its tier and verdict), so the log records that same text.
+  const c = cardEvidence(closes, today);
   const rows = positionRows(positions);
   return {
     headline: closes.length ? `${winRateText(s.winRate)} · ${pct(s.avgReturn)} avg return / trade` : 'No closed trades yet',
-    rangeText: closes.length ? rangeText(c) : null,
+    rangeText: closes.length ? evidenceRangeText(c) : null,
     tradeCount: closes.length,
     openSummary: rows.length
       ? `${counted(rows.length, 'open position')}: ${rows.map((r) => `${r.symbol}${r.account ? ` (account ${r.account})` : ''} ${pct(r.pct)}`).join(', ')}`

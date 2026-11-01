@@ -1,5 +1,7 @@
 'use server';
-import { FEED_LIST_MAX, loadFeedPage } from '@/lib/feed.ts';
+import { FEED_LIST_MAX } from '@/lib/feed.ts';
+// F-2 PR-5: lib/feed.ts#loadFeedPage plus, signed in, the viewer's own profile at the cursor's asOf (the same list).
+import { loadFeedPage } from '@/lib/discovery/personal-feed.ts';
 import { decodeCursor } from '@/lib/discovery/pager.ts';
 import { FeedEnd, feedRowNodes } from './feed-rows.tsx';
 import { viewerId } from '@/lib/viewer.ts';

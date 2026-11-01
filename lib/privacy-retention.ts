@@ -14,6 +14,7 @@ export type TableEntry = { personal: boolean; retention: RetentionClass; holds: 
 export const SCHEMA_MAP: Record<string, TableEntry> = {
   users: { personal: true, retention: 'account', holds: 'handle, display name, 18+ attestation time, vendor user id and encrypted secret, referral' },
   activities: { personal: true, retention: 'account', holds: 'raw broker activities: symbols, quantities, prices, fees, account ids' },
+  corporate_actions: { personal: true, retention: 'account', holds: 'raw broker corporate-action rows (splits, stock dividends, renames): symbols, share counts, account ids; deleted with the profile' },
   closed_trades: { personal: true, retention: 'account', holds: 'derived public record: symbols, dates, percent returns, holding periods, theses' },
   broker_accounts: { personal: true, retention: 'account', holds: 'vendor account ids claimed by a profile, with a keyed hash of the institution account identity (never the identifier itself)' },
   ticker_watches: { personal: true, retention: 'account', holds: 'private watchlist symbols' },
@@ -29,11 +30,16 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
   follows: { personal: true, retention: 'account', holds: 'private follows' },
-  viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; ended rows purged after a day' },
+  viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; rows the viewer ended and ended unfollows purged after a day; a "not interested" that ran its 90 days is kept until removed (F-2 PR-5)' },
   trade_likes: { personal: true, retention: 'account', holds: 'private likes (preference data, kept indefinitely); a like whose trade is gone for 30 days is purged' },
   trade_exclusions: { personal: true, retention: 'account', holds: 'private rejected trades (preference data, kept indefinitely); one whose trade is gone for 30 days is purged' },
   privacy_orphans: { personal: true, retention: 'short', holds: 'when a like or reject first had no trade; removed when the trade returns or the row is purged' },
   shared_account_marks: { personal: true, retention: 'account', holds: 'which profile held activities of an account claimed by another profile (vendor account id, user id), marked by the owner' },
+  // F-2 PR-5: the opt-in activity log (stored until the viewer clears it or deletes the account, owner 2026-11-01) and its
+  // lookup tables.
+  discovery_events: { personal: true, retention: 'account', holds: 'opt-in activity log: viewer, surface, target (trader, trade or symbol), type and time; kept until cleared ("Clear my activity") or the account is deleted' },
+  discovery_event_types: { personal: false, retention: 'none', holds: 'event type names' },
+  discovery_surfaces: { personal: false, retention: 'none', holds: 'surface names' },
   // F-3 (docs/features/logs/F-3/committee-2026-11-01.md, conditions 16 and 20). The processor is the record holder for
   // charges, refunds and tax; the app keeps ids, plan, status and dates only.
   billing_customers: { personal: true, retention: 'account', holds: 'the processor customer id of a subscriber; deleted with the account after the processor customer is deleted' },

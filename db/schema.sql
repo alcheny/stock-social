@@ -393,6 +393,64 @@ create table if not exists trade_exclusions (
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
 
+-- ---- F-2 PR-5 (docs/features/logs/F-2/plan-pr5-ux-lead.md): the viewer's activity log and personalization settings ----
+-- Two per-viewer switches. personalize_feed (default on): ordering may use the viewer's own follows, likes and hides;
+-- off, the viewer gets the order everyone gets minus their own hides. activity_log_on_at (default null = off, owner
+-- 2026-11-01): when set, the implicit logger runs and its events shape ordering; off, nothing is logged or used.
+select schema_add_column('users', 'personalize_feed', 'boolean not null default true');
+select schema_add_column('users', 'activity_log_on_at', 'timestamptz');
+-- Lookup tables, not CHECKs (widening a CHECK needs a drop). Seeded idempotently.
+create table if not exists discovery_event_types (code smallint primary key, name text not null unique);
+create table if not exists discovery_surfaces (code smallint primary key, name text not null unique);
+insert into discovery_event_types (code, name) values (1, 'impression'), (2, 'dwell_short'), (3, 'dwell_long'), (4, 'skip'),
+  (5, 'swipe_open'), (6, 'profile_open'), (7, 'share'), (8, 'watch'), (9, 'unwatch') on conflict do nothing;
+insert into discovery_surfaces (code, name) values (1, 'feed'), (2, 'pane'), (3, 'profile'), (4, 'section'), (5, 'me') on conflict do nothing;
+-- One row per implicit event: viewer, surface, target (trader, trade or symbol), type and time only. No address, device,
+-- IP, user agent, amount, price or broker field (criterion 3, lib/f2-personal.db.test.ts). A trade target keeps its
+-- trader too (the close's stable trade_key; no foreign key: a rebuild deletes closed_trades rows). Stored until the
+-- viewer clears it or deletes the account (owner 2026-11-01); only the last 90 days are read, fading.
+create table if not exists discovery_events (
+  id bigint generated always as identity primary key,
+  viewer_id int not null references users on delete cascade,
+  at timestamptz not null default now(),
+  surface smallint not null references discovery_surfaces,
+  type smallint not null references discovery_event_types,
+  target_kind text not null check (target_kind in ('trader', 'trade', 'symbol')),
+  target_user_id int references users on delete cascade,
+  target_trade_key text,
+  target_symbol text,
+  check ((target_kind = 'trader' and target_user_id is not null and target_trade_key is null and target_symbol is null)
+    or (target_kind = 'trade' and target_user_id is not null and target_trade_key is not null and target_symbol is null)
+    or (target_kind = 'symbol' and target_user_id is null and target_trade_key is null and target_symbol is not null)),
+  check (viewer_id <> target_user_id)
+);
+select schema_add_index('discovery_events_viewer_at', 'create index discovery_events_viewer_at on discovery_events (viewer_id, at desc)');
+select schema_add_index('discovery_events_target_user', 'create index discovery_events_target_user on discovery_events (target_user_id)');
+select schema_add_index('discovery_events_trade_key', 'create index discovery_events_trade_key on discovery_events (target_trade_key) where target_trade_key is not null');
+-- Likes and rejected trades looked up by key (lib/privacy-purge.ts orphans, lib/discovery/personal-load.ts).
+select schema_add_index('trade_likes_key', 'create index trade_likes_key on trade_likes (trade_key)');
+select schema_add_index('trade_exclusions_key', 'create index trade_exclusions_key on trade_exclusions (trade_key)');
+select schema_add_index('trade_exclusions_viewer_at', 'create index trade_exclusions_viewer_at on trade_exclusions (viewer_id, created_at desc, trade_key desc)');
+-- The events route's per-viewer gate (one batch per 2 s, held by a row lock, so it holds across server instances).
+select schema_add_column('users', 'activity_batch_at', 'timestamptz');
+-- F-2 PR-5 (owner 2026-11-01: preference data is stored until the viewer removes it): when the viewer ended an
+-- exclusion themselves (Undo, "Show again", a new follow). The purge deletes only those, a day later, and ended 'unfollow'
+-- rows (the system's −1 record of a removed follow); a "Not interested" that ran its 90 days stays stored, unread.
+-- Backfill once, when the column is added (deletes nothing): rows that ended before their 90 days were ended by the viewer.
+-- Never on a later apply: every test file applies this file, and an update here would touch rows other sessions hold.
+do $f$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'viewer_exclusions' and column_name = 'ended_at') then
+    alter table viewer_exclusions add column ended_at timestamptz;
+    update viewer_exclusions set ended_at = until where until <= now() and until < created_at + interval '90 days' - interval '1 minute';
+  end if;
+end $f$;
+-- Orphaned likes and hidden trades are marked in privacy_orphans and purged by lib/privacy-purge.ts (one mechanism).
+-- Review fix 5: the purge reads only the rows it may delete through a partial index (expired "Not interested" rows are
+-- kept, so a scan over every exclusion would grow with history).
+select schema_add_index('viewer_exclusions_purgeable', $$create index viewer_exclusions_purgeable on viewer_exclusions (until) where reason = 'unfollow' or ended_at is not null$$);
+-- Tester finding 1: the events gate is a window (at most 3 batches per 10 s), so a page-leave batch right after the
+-- periodic one is kept.
+select schema_add_column('users', 'activity_batch_n', 'smallint not null default 0');
 -- ---- F-3 · Viewer subscriptions and Record tools (docs/features/F-3-viewer-subscriptions.md; legal committee record
 -- docs/features/logs/F-3/committee-2026-11-01.md). The processor holds charges, refunds, tax and card data; the app
 -- keeps ids, plan, status and dates only (committee condition 20). No card, name, email, address or tax-location column.
@@ -538,6 +596,27 @@ end $t$;
 -- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
 select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
 
+-- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md): the vendor's split,
+-- stock-dividend, symbol-change and other share-moving rows, raw and immutable like `activities`, mapped by
+-- lib/corporate-actions.ts#fromVendorRows. The rebuild applies them to the FIFO lots (lib/trades.ts#matchTrades).
+-- Deleted with the profile (cascade). Filled by the sync and the import step (lib/broker.ts#fetchShareMoves).
+create table if not exists corporate_actions (
+  id bigint generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  source text not null check (source in ('snaptrade', 'demo')),
+  external_id text not null,
+  account_id text not null,
+  symbol text not null,
+  kind text not null check (kind in ('split', 'stock-dividend', 'symbol-change', 'unpriceable')),
+  detail jsonb not null,                            -- the mapped fields: ratio, units, newSymbol, reason, scope
+  executed_at timestamptz not null,
+  raw jsonb not null,                               -- full vendor payload, kept for re-derivation
+  created_at timestamptz not null default now(),
+  unique (source, external_id)
+);
+select schema_add_index('corporate_actions_user', 'create index corporate_actions_user on corporate_actions (user_id, executed_at)');
+-- Sells the importer can't price exactly because of a corporate action, counted by the rebuild (shown on the profile).
+select schema_add_column('users', 'excluded_corporate', 'int not null default 0');
 -- Known limits 2026-11-01 (docs/features/logs/known-limits/committee-2026-11-01.md).
 -- TR-6, a stable account identity: a keyed hash of the institution and the vendor's institution account id
 -- (lib/claims.ts#accountIdentity; never the raw identifier). Not unique: one profile may hold the same brokerage account
