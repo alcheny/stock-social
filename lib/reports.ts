@@ -6,7 +6,8 @@
 // ponytail: distinct reporters mean little while accounts are cheap (the dev sign-in stub) — the count becomes meaningful
 // with real authentication; until then the owner releases any brigaded note (scripts/review-theses.ts).
 import { sql } from './db.ts';
-import { minInterval } from './rate-limit.ts';
+import type { TransactionSql } from 'postgres';
+import { hit, limitKey } from './rate-limit.ts';
 import { REPORT_COPY } from './report-copy.ts';
 export { REPORT_COPY, type ReportState } from './report-copy.ts';
 
@@ -16,10 +17,10 @@ export const REPORT_RULE = 'reports';
 const ID = /^[0-9]{1,18}$/;
 
 export type ReportOutcome = 'reported' | 'held' | 'signed-out' | 'invalid' | 'not-found' | 'own' | 'already' | 'rate';
-export type ReportDeps = { allow: (key: string) => boolean };
-// ponytail: this fast check is per server process — the shared one-per-minute rule is the database check below.
-const perProcess = minInterval(REPORT_INTERVAL_MS);
-export const defaultReportDeps: ReportDeps = { allow: (key) => perProcess(key) };
+export type ReportDeps = { allow: (key: string, tx: TransactionSql) => boolean | Promise<boolean> };
+// The shared limiter (lib/rate-limit.ts#hit, keyed hash, counted inside this transaction) backs the per-reader check on
+// thesis_reports below: one report per reader per minute window on every instance.
+export const defaultReportDeps: ReportDeps = { allow: (key, tx) => hit(limitKey('report', key), 1, REPORT_INTERVAL_MS / 1000, new Date(), tx) };
 
 export async function reportThesis(reporterId: number | null | undefined, tradeId: unknown, deps: ReportDeps = defaultReportDeps): Promise<ReportOutcome> {
   if (!reporterId) return 'signed-out';
@@ -39,7 +40,7 @@ export async function reportThesis(reporterId: number | null | undefined, tradeI
       where reporter_id = ${reporterId} and trader_id = ${t.user_id} and sell_id = ${t.sell_id}`;
     if (dup?.counts) return 'already';
     const [recent] = await tx`select 1 from thesis_reports where reporter_id = ${reporterId} and created_at > now() - ${REPORT_INTERVAL_MS / 1000} * interval '1 second' limit 1`;
-    if (recent || !deps.allow(String(reporterId))) return 'rate';
+    if (recent || !(await deps.allow(String(reporterId), tx))) return 'rate';
     if (dup) {
       // A reader who reported this note before its release reports it again: the one row (unique per reader and note)
       // is re-dated, so it counts after the release. Nothing is deleted.
