@@ -153,6 +153,8 @@ test('the agents\' job holds no write token: `permissions: contents: read` only,
       assert.doesNotMatch(job, PUBLISH, `${f}: the agents' job never publishes`);
       assert.doesNotMatch(job, /git push|\bgh (pr|issue|api|workflow|release)\b/, `${f}: the agents' job never pushes or calls GitHub`);
       assert.match(job, /actions\/upload-artifact@[0-9a-f]{40}[^\n]*\n(?:.*\n){0,2}\s*name: agent-/, `${f}: the agents' job hands its work over as an agent-<key> artifact`);
+      assert.match(job, /\n    name: \S+ \$\{\{/, `${f}: each agents' leg has its own job name, which Publish looks its artifact up by`);
+      assert.match(job, /node "\$LOOP_DIR\/scripts\/team\.ts"/, `${f}: the agents run main's team.ts, not the branch's copy`);
     }
   }
   assert.ok(found >= 2, `found ${found} agent jobs (features.yml and build.yml)`);
@@ -185,14 +187,22 @@ test('Publish verifies the downloaded hand-off before any step pushes', () => {
   for (const f of PIPELINES) {
     for (const job of jobsOf(f).filter((j) => PUBLISH.test(j))) {
       const steps = stepsOf(job);
-      const download = steps.findIndex((st) => /actions\/download-artifact@[0-9a-f]{40}/.test(st) && /name: agent-/.test(st));
+      const lookup = steps.findIndex((st) => /loop\/scripts\/handoff\.ts" artifact/.test(st));
+      const download = steps.findIndex((st) => /actions\/download-artifact@[0-9a-f]{40}/.test(st));
+      // Bound to its leg: the download takes the artifact ID found in that leg's own job log, never a bare name.
+      assert.ok(lookup >= 0 && download > lookup, `${f}: the leg's artifact is looked up (${lookup}) before the download (${download})`);
+      assert.match(steps[download], /artifact-ids: \$\{\{ steps\.artifact\.outputs\.id \}\}/, `${f}: the download is by the looked-up ID`);
+      assert.doesNotMatch(steps[download], /\n\s+name: agent-/, `${f}: never download a hand-off by name alone`);
+      const agentName = /\n    name: (.+)/.exec(jobsOf(f).find((j) => AGENT.test(j)) ?? '')?.[1]?.split(' #')[0].trim();
+      assert.ok(agentName && steps[lookup].includes(`JOB_NAME: ${agentName}`), `${f}: the lookup names the agents' leg job exactly (${agentName})`);
       const verify = steps.findIndex((st) => /loop\/scripts\/handoff\.ts" verify/.test(st));
       const publish = steps.findIndex((st) => PUBLISH.test(st));
       assert.ok(download >= 0 && verify > download && publish > verify, `${f}: download (${download}) → verify (${verify}) → publish (${publish})`);
       assert.match(steps[verify], /if: steps\.download\.outcome == 'success'/, `${f}: verify runs on the downloaded artifact`);
       assert.match(steps[verify], /id: verify/, `${f}: the verify step has the id the publish step checks`);
       assert.match(steps[publish], /if: steps\.verify\.outcome == 'success'/, `${f}: publish runs only after verify passed`);
-      for (const st of steps.slice(0, verify)) assert.doesNotMatch(st, /GH_TOKEN|github\.token/, `${f}: no token before the hand-off is verified`);
+      // Before the hand-off is verified, only the lookup (main's script, reading GitHub's job list and log) holds a token.
+      for (const st of steps.slice(0, verify).filter((x) => x !== steps[lookup])) assert.doesNotMatch(st, /GH_TOKEN|github\.token/, `${f}: no token before the hand-off is verified`);
       assert.match(job, /\n    needs: \[[^\]]*\b(build|variant)\b/, `${f}: Publish waits for the agents' job`);
     }
   }

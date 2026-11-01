@@ -113,10 +113,13 @@ jobs:
         run: |
           node "$GITHUB_WORKSPACE/loop/scripts/handoff.ts" prep
           tar -czf "$RUNNER_TEMP/workspace.tgz" .
+          tar -czf "$RUNNER_TEMP/loop.tgz" -C "$GITHUB_WORKSPACE/loop" scripts team
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: prep-${{ matrix.task.key }}
-          path: ${{ runner.temp }}/workspace.tgz
+          path: |
+            ${{ runner.temp }}/workspace.tgz
+            ${{ runner.temp }}/loop.tgz
           if-no-files-found: error
           retention-days: 1
 
@@ -124,6 +127,7 @@ jobs:
   # GitHub token in any step. It ends by handing back a bundle of its branch and .autopilot/ results as an artifact.
   build:
     needs: [pick, prepare]
+    name: build ${{ matrix.task.key }} # Publish finds this leg's job, and the artifact it uploaded, by this name
     if: ${{ !cancelled() && needs.pick.outputs.count != '0' && needs.pick.outputs.count != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350 # GitHub's job limit is 360; a later attempt's larger budget needs the room
@@ -155,10 +159,12 @@ jobs:
         with:
           name: prep-${{ matrix.task.key }}
           path: ${{ runner.temp }}/prep
-      - name: Restore the prepared workspace
+      - name: Restore the prepared workspace and main's loop # a fix branch carries its own (possibly older) loop; always run main's
         id: prep
         run: |
           tar -xzf "$RUNNER_TEMP/prep/workspace.tgz" -C "$GITHUB_WORKSPACE"
+          mkdir -p "$RUNNER_TEMP/loop" && tar -xzf "$RUNNER_TEMP/prep/loop.tgz" -C "$RUNNER_TEMP/loop"
+          echo "LOOP_DIR=$RUNNER_TEMP/loop" >> "$GITHUB_ENV"
           node -e 'const p = require("./.autopilot/prep.json"); console.log("branch=" + p.branch + "\nbase_sha=" + p.base + "\nbase=" + p.baseRef)' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -188,7 +194,7 @@ jobs:
           COMMITTEE_ROUNDS: ${{ vars.COMMITTEE_ROUNDS || '5' }}
           MODEL_LEAD: ${{ vars.MODEL_LEAD }}
           MODEL_UX: ${{ vars.MODEL_UX }}
-        run: node scripts/team.ts
+        run: node "$LOOP_DIR/scripts/team.ts"
       - name: Hand off to Publish
         if: steps.team.outcome == 'success'
         env:
@@ -200,7 +206,8 @@ jobs:
           if [ -n "$(git status --porcelain)" ] || git rev-parse -q --verify MERGE_HEAD >/dev/null; then git add -A && git commit -q --no-verify -m "Work left uncommitted at the end of the run"; fi
           if [ "$(git rev-list --count "$BASE_SHA..HEAD")" != "0" ]; then git bundle create "$RUNNER_TEMP/handoff/branch.bundle" HEAD "^$BASE_SHA"; fi
           for f in result.json handoff.md plan.json; do if [ -f ".autopilot/$f" ]; then cp ".autopilot/$f" "$RUNNER_TEMP/handoff/"; fi; done
-      - if: steps.team.outcome == 'success'
+      - name: Upload the hand-off
+        if: steps.team.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-${{ matrix.task.key }}
@@ -219,9 +226,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      actions: write
-      checks: read
-      statuses: read
+      actions: write # dispatch CI on the pushed branch; read the legs' jobs and logs
     strategy:
       fail-fast: false
       matrix:
@@ -242,12 +247,20 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      - name: Find this leg's hand-off # the artifact ID upload-artifact logged in this leg's own job, never just a name
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_NAME: build ${{ matrix.task.key }}
+          ARTIFACT_NAME: agent-${{ matrix.task.key }}
+        run: node "$GITHUB_WORKSPACE/loop/scripts/handoff.ts" artifact
       - name: Download the agents' hand-off
         id: download
-        continue-on-error: true # none: the agents' leg failed, so there is nothing to publish
+        if: steps.artifact.outputs.id != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: agent-${{ matrix.task.key }}
+          artifact-ids: ${{ steps.artifact.outputs.id }}
+          merge-multiple: true # the files directly in path, not in a folder named after the artifact
           path: ${{ runner.temp }}/handoff
       - name: Verify the hand-off
         id: verify
@@ -255,6 +268,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_DIR: ${{ runner.temp }}/handoff
+          REFUSAL_FILE: ${{ runner.temp }}/refused.md
           GIT_CONFIG_GLOBAL: /dev/null # never the runner image's git config (lfs filters, credential helpers)
           GIT_CONFIG_NOSYSTEM: '1'
           BRANCH: ${{ matrix.task.kind == 'build' && matrix.task.branch || '' }}
@@ -283,3 +297,10 @@ jobs:
           node "$GITHUB_WORKSPACE/loop/scripts/features.ts" resolved
           node "$GITHUB_WORKSPACE/loop/scripts/autopilot.ts" publish
           node "$GITHUB_WORKSPACE/loop/scripts/features.ts" notes
+      - name: Record a refused build on the feature # no PR or issue to tell; otherwise it would rebuild every round
+        if: failure() && steps.verify.outcome == 'failure' && matrix.task.kind == 'build'
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REFUSAL_FILE: ${{ runner.temp }}/refused.md
+        run: node "$GITHUB_WORKSPACE/loop/scripts/features.ts" refused

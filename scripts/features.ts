@@ -108,7 +108,9 @@ export function planRound(fs: Feature[], prs: FeaturePr[], o: { parallel: number
 
 // Pure: a task with `key`, its legs' artifact names (prep-<key>, agent-<key>): the branch, with what artifact names
 // can't hold replaced. Unique within a round (one task per branch).
-export const withKey = (t: FeatureTask) => ({ ...t, key: t.branch.replace(/[^A-Za-z0-9._-]+/g, '-') });
+// One-to-one: every character outside [A-Za-z0-9.-] (and `_` itself) becomes `_` plus its hex code, so two branches never
+// share a key.
+export const withKey = (t: FeatureTask) => ({ ...t, key: t.branch.replace(/[^A-Za-z0-9.-]/g, (c) => `_${c.charCodeAt(0).toString(16).padStart(2, '0')}`) });
 
 // Pure: the coordination brief one builder gets: who else is building right now, what they changed, what they
 // told the others, and the rules that keep parallel builds from blocking or overwriting each other.
@@ -294,7 +296,7 @@ function publish() {
 
 // The committee hit a hard stop or disagreed with a decision: record it on main (status, reason and the committee's
 // record), never the half-built code, so the pipeline skips the feature until the owner clears it.
-function publishBlocked(f: Feature, reason: string, committeePath?: string) {
+function publishBlocked(f: Feature, reason: string, committeePath?: string, who = 'committee') {
   // committeePath comes from the agents' result.json: only a committee record path, never a symlink (it is read here and
   // committed to a public branch, so /proc/self/environ or a link to it would publish the token).
   if (!(committeePath && COMMITTEE_PATH.test(committeePath) && existsSync(committeePath) && lstatSync(committeePath).isFile())) committeePath = undefined;
@@ -307,10 +309,20 @@ function publishBlocked(f: Feature, reason: string, committeePath?: string) {
   sh('git', ['commit', '-m', `${f.id}: blocked: ${reason.split('\n')[0].slice(0, 60)}`]);
   sh('git', ['push', '--force', authUrl(), `HEAD:refs/heads/${branchOf(f)}`]);
   const url = gh('pr', 'create', '--head', branchOf(f), '--base', 'main', '--label', 'feature', '--title', `${f.id}: blocked`, '--body',
-    `The ${f.id} committee stopped before building: this PR only records it (\`Status: blocked\` with the reason, and the committee's record). ` +
+    `The ${f.id} ${who} stopped ${who === 'committee' ? 'before building' : 'this build'}: this PR only records it (\`Status: blocked\` with the reason, and the committee's record). ` +
     `The pipeline skips ${f.id} until the owner clears the stop in a design session.\n\n**Reason:** ${reason}` + (committeePath ? `\n\nRecord: \`${committeePath}\`` : ''));
   gh('workflow', 'run', 'ci.yml', '--ref', branchOf(f));
   console.log(`published ${url} (blocked)`);
+}
+
+// Publish refused a build's hand-off (scripts/handoff.ts): record it on the feature like a committee stop, so the planner
+// doesn't rebuild it at full budget every round; the owner clears it. REFUSAL_FILE holds the (defanged) findings.
+function refused() {
+  const file = env('FILE');
+  sh('git', ['fetch', authUrl(), '+refs/heads/main:refs/remotes/origin/main']);
+  const f = parseFeature(file, sh('git', ['show', `origin/main:${file}`])); // the worktree may hold nothing: verify refused it
+  const findings = existsSync(env('REFUSAL_FILE')) ? readFileSync(env('REFUSAL_FILE'), 'utf8').trim() : '';
+  publishBlocked(f, `Publish refused the agents' hand-off, nothing was pushed (docs/AUTOPILOT.md → Security): ${findings.split('\n').slice(0, 5).join('; ') || 'see the run log'}`, undefined, 'Publish check');
 }
 
 function notes() {
@@ -320,7 +332,7 @@ function notes() {
 }
 
 if (import.meta.main) {
-  const run: Record<string, () => void> = { list, next, prepare, brief, resolved, publish, notes };
+  const run: Record<string, () => void> = { list, next, prepare, brief, resolved, publish, notes, refused };
   const cmd = process.argv[2];
   if (!run[cmd]) { console.error(`unknown command: ${cmd}`); process.exit(2); }
   run[cmd]();

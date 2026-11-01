@@ -127,7 +127,9 @@ overrule an approval at any time, and owner decisions always win.
        does it push and open or update the PR with `GITHUB_TOKEN` (`features.ts publish`/`resolved`/`notes`,
        `autopilot.ts publish`).
 
-    Each matrix leg has its own publish leg, matched by the task's `key`. Git hooks and config an agent could plant
+    Each matrix leg has its own publish leg, matched by the task's `key`. A publish leg downloads only the artifact
+    ID that its own agents' job logged. A refused build is recorded on the feature as blocked, so it isn't rebuilt
+    every round. Git hooks and config an agent could plant
     are still removed after every call, and every scripted git command runs with hooks off. The checks never get
     the Claude token. What merges is still decided by CI, the reviewer and the Gate, and
     protected paths still wait for the owner. Fetched web pages and other text are data, never instructions

@@ -49,7 +49,15 @@ Security rules for the loop itself (rule R in the policy; tested by `scripts/wor
 
     Publish then pushes one new commit of the verified tree, never the agents' history (a side parent or a commit
     message is never checked). Its parents are the base and the main commit the branch merged in, so the PR stays
-    mergeable. A refusal is posted to the PR or issue when there is one.
+    mergeable. A refusal is posted to the PR or issue when there is one. A refused feature build has neither, so it
+    is recorded on the feature as `Status: blocked` (`features.ts refused`), which stops the planner rebuilding it
+    every round until the owner clears it.
+
+    Which artifact is the leg's own: every leg's root agent holds the run's runtime token, so a name like
+    `agent-b` proves nothing. Publish (`handoff.ts artifact`) first checks that the leg's own agents' job (found by
+    its job name) succeeded. It then reads the artifact ID that upload-artifact printed in that job's log, which no
+    other leg can write, and downloads by that ID. A line build is checked against the line commit it was built
+    on (the bundle's merge-base with the line), so a line that moved during a long run doesn't discard the round.
 
     It also cleans the agents' text before the bot posts it. Every HTML comment is defanged, so an agent can't forge
     the loop's markers (`approved:`, attempts, costs, limits). GitHub's closing keywords (`Closes #12`) and the
@@ -60,9 +68,9 @@ Security rules for the loop itself (rule R in the policy; tested by `scripts/wor
   - No job that holds a write token restores a cache, since agents on main's ref can write main's cache.
   - What remains: a root agent holds its job's Actions runtime token, which reaches every artifact and cache in the
     run.
-    - It could replace a sibling leg's artifact (one variant overwriting another, or marking another feature
-      blocked). Verify limits the swapped artifact to what any agent may push to its own branch. Isolating the legs
-      fully means one workflow run per leg.
+    - Another leg's hand-off can no longer be swapped in: Publish downloads only the artifact ID logged by its own
+      leg. An agent can still point its own leg at another artifact (for example by faking that log line through
+      its own runner), but only to publish what it could already push to its own branch.
     - It could seed main-scoped caches. npm checks every package against `package-lock.json`, and no write-token job
       restores a cache. But CI's other caches (browsers, the Next.js build) are restored on PRs; they belong to
       `ci.yml`, which needs its own fix.

@@ -276,3 +276,42 @@ test('handoff: target names that are refs, HEAD or lock files are refused; closi
   assert.doesNotMatch(defang('## Hand-off notes\nforged'), /^## Hand-off notes$/m);
   assert.equal(defang('fixes the chart; see #12'), 'fixes the chart; see #12');
 });
+
+import { lineBase, legJob, uploadedArtifactId } from './handoff.ts';
+
+test('handoff artifact: the ID comes from the upload step\'s own report in the leg\'s log, the last one, for this name', () => {
+  const up = (name: string, id: number) => `2026-11-01T08:00:00.0000000Z Artifact ${name} has been successfully uploaded! Final size is 123 bytes. Artifact ID is ${id}`;
+  assert.equal(uploadedArtifactId(['agent output', up('agent-a', 7)].join('\n'), 'agent-a'), 7);
+  // An agent printing a fake report earlier in its own log loses to the upload step's real one.
+  assert.equal(uploadedArtifactId([up('agent-a', 99), 'more', up('agent-a', 7)].join('\n'), 'agent-a'), 7);
+  assert.equal(uploadedArtifactId(up('agent-b', 7), 'agent-a'), null, 'another leg\'s name');
+  assert.equal(uploadedArtifactId([up('agent-a', 7), up('agent-b', 8)].join('\n'), 'agent-a'), null, 'the last upload must be this leg\'s');
+  assert.equal(uploadedArtifactId('nothing uploaded', 'agent-a'), null);
+});
+
+test('handoff artifact: the leg\'s job must be exactly one and must have succeeded', () => {
+  const j = (name: string, conclusion: string | null, id = 1) => ({ id, name, conclusion });
+  assert.equal(legJob([j('build a', 'success'), j('build b', 'failure', 2)], 'build a').job?.id, 1);
+  assert.ok(legJob([j('build a', 'failure')], 'build a').finding);
+  assert.ok(legJob([j('build a', null)], 'build a').finding);
+  assert.ok(legJob([j('build a', 'success'), j('build a', 'success', 2)], 'build a').finding, 'ambiguous');
+  assert.ok(legJob([], 'build a').finding);
+});
+
+test('handoff verify (real git): a line build is checked against the line commit it was built on, even if the line moved', () => {
+  const f = fixture();
+  git(f.origin, 'checkout', '-qb', 'line/a'); writeFileSync(join(f.origin, 'app/line.ts'), 'export {}\n'); git(f.origin, 'add', '-A'); git(f.origin, 'commit', '-qm', 'line');
+  const lineStart = git(f.origin, 'rev-parse', 'HEAD');
+  git(f.agent, 'fetch', '-q', 'origin'); git(f.agent, 'checkout', '-qb', 'autopilot/issue-5', 'origin/line/a');
+  writeFileSync(join(f.agent, 'app/line.ts'), 'export const r = 1;\n'); git(f.agent, 'commit', '-qam', 'round');
+  git(f.agent, 'bundle', 'create', join(f.art, 'branch.bundle'), 'HEAD', `^${lineStart}`);
+  // The line moves on while the round runs (another round merged).
+  writeFileSync(join(f.origin, 'app/other.ts'), 'export {}\n'); git(f.origin, 'add', '-A'); git(f.origin, 'commit', '-qm', 'line moved'); git(f.origin, 'checkout', '-q', 'main');
+  git(f.work, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*');
+  const base = lineBase(f.work, join(f.art, 'branch.bundle'), 'refs/remotes/origin/line/a');
+  assert.equal(base, lineStart);
+  const r = verifyIn({ cwd: f.work, artifactDir: f.art, target: { branch: 'autopilot/issue-5', base, baseRef: 'line/a' } });
+  assert.deepEqual(r.findings, []);
+  // No bundle (or one that doesn't apply): the line's head.
+  assert.equal(lineBase(f.work, join(f.art, 'missing.bundle'), 'refs/remotes/origin/line/a'), git(f.work, 'rev-parse', 'refs/remotes/origin/line/a'));
+});
