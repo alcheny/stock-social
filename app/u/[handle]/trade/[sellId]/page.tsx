@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
@@ -21,6 +20,8 @@ import { paneTrust } from '@/lib/pane.ts';
 import { recordRows, segments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 import { UserNote } from '../../../../user-note.tsx';
+
+const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
 type Params = { params: Promise<{ handle: string; sellId: string }> };
 

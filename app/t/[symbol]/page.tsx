@@ -11,6 +11,7 @@ import { relatedSymbolsSql, tickerHeadline, tickerPageWithBaseline, type TickerB
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
+import { dateText } from '@/lib/date-text.ts';
 import { pct, rangeText } from '@/lib/trades.ts';
 import { toneClass } from '@/lib/open-split.ts'; // A11Y-FIXES #23
 import { MIN_BETS } from '@/lib/confidence.ts';
@@ -31,7 +32,8 @@ type Params = { params: Promise<{ symbol: string }>; searchParams?: Promise<{ wa
 
 const CAP = 500;
 const EXPLAINER = 'Verified closed trades in this stock from connected accounts, newest first. Percentages only. Few trades means a wide range, and that is expected.';
-const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+// FIXES-LABELS (PR #85 review, nit 3): row dates in UTC, the year always (lib/date-text.ts), not the server's zone.
+const date = (d: Date) => dateText(d, d, { year: 'always' });
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
 const heldWords = (d: number) => (d < 1 ? 'less than a day' : `${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
 
@@ -120,7 +122,7 @@ export default async function Ticker({ params, searchParams }: Params) {
       <Watch symbol={symbol} state={watchState} capHit={capHit} />
       <p className="muted" style={{ marginTop: 0 }}>{FL.tickerExplainer[trustKind(s)]}</p>
 
-      <section className="stats" aria-label="Summary">
+      <section className="stats ticker-stats" aria-label="Summary">{/* FIXES-LABELS (PR #85 review, nit 1): ticker-stats tightens at 320 */}
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>{/* A11Y-FIXES #23 */}
           <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>

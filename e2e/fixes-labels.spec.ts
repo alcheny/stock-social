@@ -114,7 +114,9 @@ function routes(dir = 'app', base = ''): string[] {
   return out.sort();
 }
 
-test('C1 (AC7): every route that shows a percent figure has the F3 line in plain view at 360×740; /connect and /login show none; an unmapped dynamic route fails', async ({ browser }) => {
+// PR #85 review (nit 1): the walk runs at 320×740 too, and covers the owner's own profile (signed in: the share block
+// and the owner's tools sit below the figures), each with the F3 line on the first screen and 15% headroom.
+for (const VIEW of [{ width: 360, height: 740 }, { width: 320, height: 740 }]) test(`C1 (AC7): every route that shows a percent figure has the F3 line in plain view at ${VIEW.width}×${VIEW.height}, the owner's own profile too; /connect and /login show none; an unmapped dynamic route fails`, async ({ browser }) => {
   test.setTimeout(180_000);
   const MAP: Record<string, string> = {
     '/u/[handle]': '/u/momentum_maya',
@@ -154,6 +156,9 @@ test('C1 (AC7): every route that shows a percent figure has the F3 line in plain
     }
     // The walk covered the performance routes it must (the list is generated, so a new one is walked too).
     for (const r of ['/', '/u/[handle]', '/u/[handle]/trade/[sellId]', '/u/[handle]/month/[ym]', '/t/[symbol]', '/t/compare', '/me/record', '/me/likes']) expect(shown, r).toContain(r);
+    // The owner's own profile, signed in.
+    await signedIn.goto(`/u/${OWNER}`);
+    await inPlainView(signedIn, signedIn.locator('main [data-disclaimer]').first(), `own profile at ${VIEW.width}`);
   } finally {
     await out.close(); await inn.close();
   }

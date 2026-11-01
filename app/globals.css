@@ -610,6 +610,16 @@ html.bar-hide .feed .row > *, html.bar-signin .feed .row > * { padding-bottom: 9
   .profile-page .stat.big { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
   .profile-page .stat.big small.range { flex-basis: 100%; }
 }
+/* FIXES-LABELS (PR #85 review, nit 1): the stock page's summary tiles stack below 341 px too; like the profile's, each
+   sets its figure and label on one line (range and median under them), so the F3 line right after them is on the first
+   screen at 320×740 with 15% to spare. */
+@media (max-width: 340px) {
+  .ticker-stats { margin: 8px 0; }
+  .ticker-stats .stat { padding: 10px; }
+  .ticker-stats .stat.big b { font-size: 28px; }
+  .ticker-stats .stat.big { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+  .ticker-stats .stat.big small.range, .ticker-stats .stat.big small.median { flex-basis: 100%; }
+}
 /* D-05: the chart's first and last close, under the plot. */
 /* position: relative holds its sr-only sentence inside it (in the off-screen pane it would widen the page). */
 .chart-ends { position: relative; display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin: 4px 0 0; }
