@@ -3,6 +3,7 @@ import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo
 import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
+import { toneClass } from '../../open-rows.tsx';
 
 // Fixed time order, no bars, no highlight, no ranking. A rate appears only for a group with enough trades.
 export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: HoldBuckets; symbol: string; demoOnly: boolean; mixed: boolean }) {
@@ -26,7 +27,7 @@ export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: Ho
                 <>
                   <td>{Math.round(b.winRate! * 100)}%</td>
                   <td>
-                    <span className={b.avgReturn! > 0 ? 'up' : b.avgReturn! < 0 ? 'down' : undefined}>{pct(b.avgReturn!)}</span>
+                    <span className={toneClass(b.avgReturn!)}>{pct(b.avgReturn!)}</span>
                     <small className="muted range">{rangeText(b.conf!) ? `${rangeText(b.conf!)} · 95% range` : `Too early to tell (${b.conf!.k} of ${MIN_BETS} bets)`}</small>
                   </td>
                 </>
