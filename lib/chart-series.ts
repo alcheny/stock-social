@@ -8,7 +8,7 @@
 // every close in the range, so the numbers the pane shows are the profile's numbers.
 import { RANGES, curveDomain, equityCurve, maxDrawdown, pct, rangeTrades, type RangeKey } from './trades.ts';
 import { downsampleIndices, FEED_CHART_POINTS, FEED_LITE_POINTS, PANE_EAGER_CLOSES } from './downsample.ts';
-import { byListOrder, type ChartPoint } from './paging.ts';
+import { byListOrder, noteDaysOf, withNoteDays, type ChartPoint, type PackInput } from './paging.ts';
 import { wireDay, wireHold, wirePct } from './public-wire.ts'; // F-23
 
 const DAY = 86_400_000;
@@ -49,7 +49,8 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
 // stored closes); only the output is rounded. `v` is the format version (PAYLOAD_V): the routes' URLs carry it too, so
 // no cache serves a pre-F-23 body to a new client.
 export const PAYLOAD_V = 2;
-export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number];
+// FIXES-CYCLE4-PART2 (F4-16): a dated published note adds its written and edited UTC day numbers (lib/paging.ts#noteDays).
+export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number, writtenDay?: number | null, editedDay?: number | null];
 export type PackedSeries = { t0: number; t1: number; last: number; n: number; dd: number; min: number; max: number; p: number[] };
 // `sfx` (F-23 tester, Medium 1): no range was downsampled, so every close is in ALL and a dated range's closes are the
 // last `n` of ALL's (chartSeries sorts every range alike; rangeTrades keeps a suffix). Positions then say what the close
@@ -76,7 +77,8 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, li
         if (i < 0) {
           i = out.length;
           ref.set(t.id, i);
-          out.push([t.id, t.symbol, wirePct(t.returnPct), wireHold(t.holdingDays), t.thesis, t.index]);
+          const days = t.thesis !== null && (t.writtenDay != null || t.editedDay != null) ? [t.writtenDay ?? null, t.editedDay ?? null] as [number | null, number | null] : null;
+          out.push(withNoteDays<PackedTrade>([t.id, t.symbol, wirePct(t.returnPct), wireHold(t.holdingDays), t.thesis, t.index], 6, days)); // FIXES-CYCLE4-PART2 (F4-16)
         }
       }
       if (lite) p.push(wireDay(pt.at) - base, wirePct(pt.value)); // no close: pairs
@@ -97,7 +99,7 @@ function compact(c: PackedChart): PackedChart {
   const all = c.ranges.ALL.p, pairs: number[] = [], trades: PackedTrade[] = [];
   for (let i = 0; i < all.length; i += 3) {
     pairs.push(all[i], all[i + 1]);
-    if (all[i + 2] >= 0) trades.push(c.trades[all[i + 2]].slice(0, 5) as unknown as PackedTrade);
+    if (all[i + 2] >= 0) { const t = c.trades[all[i + 2]]; trades.push([...t.slice(0, 5), ...t.slice(6)] as unknown as PackedTrade); } // no row index; note days (F4-16) move up one
   }
   // Only when positions really say the row index (every close in ALL, in reverse list order); else the regular form.
   if (trades.length !== c.trades.length || c.trades.some((_, k) => c.trades[all[(k + 1) * 3 + 2]][5] !== trades.length - 1 - k)) return c;
@@ -109,7 +111,7 @@ export function expand(c: PackedChart): PackedChart {
   if (!c.sfx) return c;
   const n = c.trades.length, pairs = c.ranges.ALL.p, all: number[] = [];
   for (let i = 0; i < pairs.length; i += 2) all.push(pairs[i], pairs[i + 1], i / 2 - 1);
-  const trades = c.trades.map((t, k) => [...t.slice(0, 5), n - 1 - k] as unknown as PackedTrade);
+  const trades = c.trades.map((t, k) => [...t.slice(0, 5), n - 1 - k, ...t.slice(5)] as unknown as PackedTrade);
   const ranges = { ...c.ranges, ALL: { ...c.ranges.ALL, p: all } };
   for (const { key } of RANGES) {
     if (key === 'ALL') continue;
@@ -122,9 +124,13 @@ export function expand(c: PackedChart): PackedChart {
 
 // F-23: a record's closes as chart points, in list order with their row index, from stored values (no rounding: the
 // server computes every figure on these; packChart rounds its output).
-type PaneInput = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null }[];
+// FIXES-CYCLE4-PART2 (F4-16): a published note's written and edited UTC days ride along (days, never times).
+type PaneInput = PackInput[];
 export const chartPoints = (trades: PaneInput): ChartPoint[] =>
-  [...trades].sort(byListOrder).map((t, index) => ({ id: t.id, symbol: t.symbol, returnPct: t.returnPct, closedAt: t.closedAt, holdingDays: t.holdingDays, thesis: t.thesis, index }));
+  [...trades].sort(byListOrder).map((t, index) => {
+    const days = noteDaysOf(t);
+    return { id: t.id, symbol: t.symbol, returnPct: t.returnPct, closedAt: t.closedAt, holdingDays: t.holdingDays, thesis: t.thesis, index, ...(days ? { writtenDay: days[0], editedDay: days[1] } : {}) };
+  });
 
 // The feed pane's chart (fix round 7), from a trader's whole record.
 export const paneChart = (trades: PaneInput, now: Date): PackedChart => packChart(chartPoints(trades), now, FEED_CHART_POINTS);
@@ -158,8 +164,9 @@ export function unpackChart(packed: PackedChart): Record<RangeKey, Series> {
       const at = (c.base + r.p[i]) * DAY + Math.round(((k + 1) / (m + 1)) * DAY), j = c.lite ? -1 : r.p[i + 2];
       let trade: ChartPoint | null = null;
       if (j >= 0) {
-        const [id, symbol, returnPct, holdingDays, thesis, index] = c.trades[j];
-        trade = trades[j] ??= { id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index };
+        const [id, symbol, returnPct, holdingDays, thesis, index, w, e] = c.trades[j];
+        trade = trades[j] ??= { id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index,
+          ...(thesis !== null && (w != null || e != null) ? { writtenDay: w ?? null, editedDay: e ?? null } : {}) }; // FIXES-CYCLE4-PART2 (F4-16)
       }
       pts.push({ at, value: r.p[i + 1], trade });
       }

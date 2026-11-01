@@ -40,10 +40,22 @@ export function tradeHref(linkBase: string, id: string, index: number, current?:
 // F-23: a public payload, so the printed precision only (lib/public-wire.ts): the return through wirePct, the close as
 // its UTC day (days since 1970-01-01), hold days at one decimal. unpackPoints spreads one day's closes across the day in
 // list order (newest latest), so a chart drawn from them keeps their order and gives each its own x.
-export type PackedPoint = [string, string, number, number, number, string | null];
-export type ChartPoint = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null; index: number };
-export function packPoints(trades: { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null }[]): PackedPoint[] {
-  return [...trades].sort(byListOrder).map((t) => [t.id, t.symbol, wirePct(t.returnPct), wireDay(t.closedAt), wireHold(t.holdingDays), t.thesis]);
+// FIXES-CYCLE4-PART2 (F4-16, C4-17): a published note's written and edited dates travel as two more fields, UTC day
+// numbers (noteDays), only when the close has a note and a recorded date, so the chart sheet's UserNote shows the
+// profile row's "Written ‹date›, after the trade closed · edited ‹date›" caption. Undated notes add nothing.
+export type PackedPoint = [string, string, number, number, number, string | null, (number | null)?, (number | null)?];
+export type ChartPoint = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null; index: number;
+  writtenDay?: number | null; editedDay?: number | null }; // FIXES-CYCLE4-PART2 (F4-16): UTC day numbers
+// FIXES-CYCLE4-PART2 (F4-16): only a published note's dates, as times (profile, pane-chart route) or as UTC day numbers
+// already (the pane's rows, lib/feed.ts#records1).
+export type PackInput = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null;
+  writtenAt?: Date | string | null; editedAt?: Date | string | null; writtenDay?: number | null; editedDay?: number | null };
+// A published note's [written, edited] UTC days, or null (no note, or no recorded date).
+export const noteDaysOf = (t: PackInput): [number | null, number | null] | null =>
+  t.thesis === null ? null : t.writtenDay != null || t.editedDay != null ? [t.writtenDay ?? null, t.editedDay ?? null] : noteDays(t.writtenAt, t.editedAt);
+export function packPoints(trades: PackInput[]): PackedPoint[] {
+  return [...trades].sort(byListOrder).map((t) =>
+    withNoteDays<PackedPoint>([t.id, t.symbol, wirePct(t.returnPct), wireDay(t.closedAt), wireHold(t.holdingDays), t.thesis], 6, noteDaysOf(t))); // FIXES-CYCLE4-PART2 (F4-16)
 }
 const DAY = 86_400_000;
 export function unpackPoints(p: PackedPoint[]): ChartPoint[] {
@@ -53,9 +65,33 @@ export function unpackPoints(p: PackedPoint[]): ChartPoint[] {
     while (end < p.length && p[end][3] === p[i][3]) end++;
     const m = end - i;
     for (let k = 0; i < end; i++, k++) {
-      const [id, symbol, returnPct, day, holdingDays, thesis] = p[i];
-      out.push({ id, symbol, returnPct, closedAt: new Date(day * DAY + Math.round(((m - k) / (m + 1)) * DAY)), holdingDays, thesis, index: i });
+      const [id, symbol, returnPct, day, holdingDays, thesis, w, e] = p[i];
+      out.push({ id, symbol, returnPct, closedAt: new Date(day * DAY + Math.round(((m - k) / (m + 1)) * DAY)), holdingDays, thesis, index: i,
+        ...(thesis !== null && (w != null || e != null) ? { writtenDay: w ?? null, editedDay: e ?? null } : {}) }); // FIXES-CYCLE4-PART2 (F4-16)
     }
   }
   return out;
+}
+
+// FIXES-CYCLE4-PART2 (F4-16): note dates as UTC day numbers (days since 1970-01-01): the caption prints days only.
+const DAY_MS = 86_400_000;
+// Engineer review: a Date or its ISO string; anything unreadable is no date. (Day numbers travel as writtenDay/editedDay,
+// never as a time: orchestrator review.)
+type NoteTime = Date | string | null | undefined;
+export const toNoteDay = (d: NoteTime): number | null => {
+  if (d === null || d === undefined || d === '') return null;
+  const t = (d instanceof Date ? d : new Date(d)).getTime();
+  return Number.isFinite(t) ? Math.floor(t / DAY_MS) : null;
+};
+export const fromNoteDay = (n: number | null | undefined): Date | null => (typeof n === 'number' && Number.isFinite(n) ? new Date(n * DAY_MS) : null);
+export function noteDays(writtenAt: NoteTime, editedAt: NoteTime): [number | null, number | null] | null {
+  const w = toNoteDay(writtenAt), e = toNoteDay(editedAt);
+  return w === null && e === null ? null : [w, e];
+}
+// Appends [written, edited] at `at` (a tuple's end) when there is a date; the tuple is unchanged otherwise.
+export function withNoteDays<T extends unknown[]>(tuple: T, at: number, days: [number | null, number | null] | null): T {
+  if (!days) return tuple;
+  tuple[at] = days[0];
+  tuple[at + 1] = days[1];
+  return tuple;
 }

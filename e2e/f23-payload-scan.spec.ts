@@ -114,7 +114,11 @@ function checkPacked(c: Record<string, unknown>, where: string, out: string[]) {
     if (typeof t[0] !== 'string') out.push(`${where}: trade id ${String(t[0])}`);
     if (!pctOk(t[2] as number)) out.push(`${where}: trade ${String(t[0])} return ${String(t[2])}`);
     if (Number((t[3] as number).toFixed(1)) !== t[3]) out.push(`${where}: trade ${String(t[0])} hold ${String(t[3])}`);
-    if (c.sfx ? t.length !== 5 : !Number.isInteger(t[5])) out.push(`${where}: trade ${String(t[0])} index ${String(t[5])}`);
+    if (c.sfx ? t.length !== 5 && t.length !== 7 : !Number.isInteger(t[5])) out.push(`${where}: trade ${String(t[0])} index ${String(t[5])}`);
+    // F4-16: a published note's written and edited dates, UTC day numbers or null (after the row index; in the compact
+    // form, which has no row index, right after the thesis).
+    const days = t.slice(c.sfx ? 5 : 6);
+    if (days.length && (days.length !== 2 || days.some((d) => d !== null && !day5(d)))) out.push(`${where}: trade ${String(t[0])} note days ${JSON.stringify(days)}`);
   }
   const stride = c.lite ? 2 : 3;
   for (const [k, r] of Object.entries((c.ranges ?? {}) as Record<string, Record<string, unknown>>)) {

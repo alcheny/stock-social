@@ -20,10 +20,12 @@ import { numericDay, wireToday } from '@/lib/public-wire.ts'; // F-23
 // OPTIONS (docs/features/logs/options/plan.md D5, AC 24): the label and the count line (or the options line once open).
 import { PaneOptions, ShareTradesLabel } from './u/[handle]/options-block.tsx';
 import type { PaneOptionsView } from '@/lib/options-view.ts';
+import { WarnNotice } from './warn-notice.tsx'; // F-27
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
   openedAt?: Date; // FIXES-LABELS (code review, TR-7/TR-9): the entry time behind the pane's range and "New record"
+  writtenDay?: number | null; editedDay?: number | null; // FIXES-CYCLE4-PART2 (F4-16): a published note's UTC day numbers, for the chart sheet
 };
 
 // Fix round 2 (render cost): one formatter, not one per call (same text as toLocaleDateString with these options).
@@ -68,7 +70,7 @@ export function ProfilePane({ handle, name, trades = [], model, now, state = 'co
       {trust.badge === 'demo' && <span className="muted"> {FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20): one Demo name */}</span>}
     </p>
   );
-  const incomplete = trust.incomplete && <p role="status" className="warn record-failed">{RECORD_BODY.failed}</p>;
+  const incomplete = trust.incomplete && <WarnNotice role="status">{RECORD_BODY.failed}</WarnNotice>;
   const long = open ? longValues(pct(p.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const figures = <>
     {options && <ShareTradesLabel show={options.label} />}

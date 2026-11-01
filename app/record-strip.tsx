@@ -3,6 +3,7 @@
 // inline-styled band of a next/og image. Real text in reading order, never aria-hidden as a whole; the sign is always in
 // the text, so nothing is said by colour alone.
 import Link from 'next/link';
+import { WarnNotice } from './warn-notice.tsx'; // F-27
 import { BRAND_BOX, IMAGE, IMAGE_COLOURS, STRIP_BAND, type ImageLine, type Strip, type StripPart } from '@/lib/record-strip.ts';
 
 function Figures({ parts }: { parts: StripPart[] }) {
@@ -28,7 +29,7 @@ export function RecordStrip({ strip, lead }: { strip: Strip; lead?: React.ReactN
   return (
     <div className="record-strip-block">
       {strip.label && <p className={`small strip-label ${strip.label.tone === 'ok' ? 'up' : 'muted'}`}>{strip.label.text}</p>}
-      {strip.note && <p role="status" className="warn record-failed">{strip.note}</p>}
+      {strip.note && <WarnNotice role="status">{strip.note}</WarnNotice>}
       {strip.importing
         ? <p role="status" className="muted importing">{strip.importing}</p>
         : <p className="record-strip" data-strip><Figures parts={strip.figures} /></p>}

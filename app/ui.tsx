@@ -16,13 +16,15 @@ import { HeldNote, UserNote } from '@/lib/user-note.ts';
 import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
 import { SwipeHint } from './first-visit-client.tsx';
 import { RecordStrip } from './record-strip.tsx';
+import { WarnNotice } from './warn-notice.tsx'; // F-27
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
 import { retEms } from '@/lib/feed-focus.ts';
 
 // F-7: `kind` 'public' / 'public_demo' is the "Public filing" badge (Demo beside it on a fictional fixture), never Verified.
 export function Badge({ verified, kind = verified ? 'verified' : 'demo' }: { verified?: boolean; kind?: TrustBadge }) {
-  if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <Badge kind="demo" />}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
+  // FIXES-CYCLE4-PART2 (F4-14, C4-15): a space between the two badges, so they read "Demo Public filing", never one word.
+  if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <><Badge kind="demo" />{' '}</>}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
   return kind === 'verified'
     ? <span className="badge verified" title={VERIFIED_MEANING} /* fix #9 (F-13 group): one constant with the footer */>✓ Verified</span>
     : <span className="badge demo" title={FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20) */}>Demo</span>;
@@ -99,7 +101,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         {!strip && <RowBadge kind={trust.badge} />}
         {menu}
       </header>
-      {trust.incomplete && <p role="status" className="warn record-failed">{RECORD_BODY.failed}</p>}
+      {trust.incomplete && <WarnNotice role="status">{RECORD_BODY.failed}</WarnNotice>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={tc ? `ret ${tc}` : 'ret'} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>
