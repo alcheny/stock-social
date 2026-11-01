@@ -17,7 +17,7 @@ in [FEATURES.md → How builders coordinate](../FEATURES.md#how-builders-coordin
   fixed by moving that work to the session's own branch and a new PR (orchestrator report, 2026-11-01).
 - **Never push to `main`.** All changes reach main through a PR merged by the orchestrator (or the owner). The
   design-session step "Commits the docs to main" stays verbatim in
-  [FEATURES.md → How Claude runs a design session](../FEATURES.md#how-claude-runs-a-design-session), step 5; how it
+  [FEATURES.md → How Claude runs a design session](../FEATURES.md#how-claude-runs-a-design-session-chat), step 5; how it
   fits with this rule when several sessions share the repo is open question Q5 in
   [decisions-and-authority.md → Open questions for the owner](decisions-and-authority.md#open-questions-for-the-owner).
 - Reserved prefixes, never used by lane C: `autopilot/*` (lane A, `scripts/autopilot.ts` `branchFor`) and `line/a|b|c` (lane A lines mode,
@@ -29,7 +29,7 @@ in [FEATURES.md → How builders coordinate](../FEATURES.md#how-builders-coordin
 
 This is the only full description of how lanes A and B collide with lane C. Both switches were off when this file was
 written (inferred from the latest heartbeat runs: `features.yml` scheduled run 2026-11-01 06:25 UTC `skipped`,
-`build.yml` scheduled run 2026-11-01 02:31 UTC `skipped`; REST `actions/workflows/<file>/runs`, read 2026-11-01 09:32
+`build.yml` scheduled run 2026-11-01 09:40 UTC `skipped`; REST `actions/workflows/<file>/runs`, read 2026-11-01 09:41
 UTC by the process-docs session).
 
 Lane C PRs carry the label `feature` in practice (FACTS "Branch rule"; #42 and #46 have no label). With
@@ -38,10 +38,10 @@ Lane C PRs carry the label `feature` in practice (FACTS "Branch rule"; #42 and #
 
 | | What lane B does to a lane-C PR | Code (verified on main, 2026-11-01) |
 |---|---|---|
-| (a) | A failing or conflicting PR gets a `fix` or `conflict` task on the PR's own head branch. The publish job then pushes the agents' work to that `claude/*` branch (`autopilot.ts publish` with `BRANCH` = the PR head; `handoff.ts` refuses only `main`, `HEAD`, `line/*` and `refs/*`). | `planRound` (task `branch: p.branch`); `features.yml` job `publish` |
+| (a) | A failing or conflicting PR gets a `fix` or `conflict` task on the PR's own head branch. The publish job then pushes the agents' work to that `claude/*` branch (`autopilot.ts publish` with `BRANCH` = the PR head; `handoff.ts` refuses only `main`, `HEAD`, `line/*`, `refs/*`, names ending `.lock` and malformed names). | `planRound` (task `branch: p.branch`); `features.yml` job `publish` |
 | (b) | A PR that is only behind main is updated in place with GitHub's update-branch, and CI is re-dispatched. | `next()`: `PUT repos/{repo}/pulls/<n>/update-branch` |
 | (c) | The build queue builds every feature file with `Status: ready` or `rework` that has no open `feature/<id>` PR, including features already built and merged in lane C (F-6 merged in #33 and its file still says `Status: ready`; the F-2 and F-3 files also read `Status: ready` after
-lane-C merges #30 and #36; read 2026-11-01 09:35 UTC). | `buildQueue`, `planRound` (`open.has(branchOf(f))`) |
+lane-C merges #30 and #36, and F-4 reads `Status: rework` after #35; read on main 2026-11-01 09:41 UTC). | `buildQueue`, `planRound` (`open.has(branchOf(f))`) |
 | (d) | A PR that used up `FEATURE_MAX_ATTEMPTS` gets the `needs-human` label and a comment. Each fix and conflict task also posts a marker comment. | `next()` (`r.stop`, marker comments) |
 
 The Gate auto-merges only PRs with a `feature/` head opened by the Actions bot (`scripts/autopilot.ts`, the
@@ -203,7 +203,7 @@ All recipes below were run in a cloud session on 2026-11-01 unless marked.
 | Branch taken | `git ls-remote --heads origin claude/<topic>`; all lane-C branches: `git ls-remote origin 'refs/heads/claude/*'` | yes |
 | Ahead / behind locally | `git fetch origin && git rev-list --left-right --count origin/main...origin/claude/<topic>` (left = commits only on main, right = only on the branch) | yes |
 | Switch state | `gh api 'repos/alcheny/stock-social/actions/workflows/features.yml/runs?per_page=3' --jq '.workflow_runs[]\|"\(.event) \(.conclusion) \(.created_at)"'` and the same for `build.yml`. A `schedule` run with conclusion `skipped` means the switch was off at that run (`features.yml` job `pick`: `if: vars.FEATURES == 'on'`; `build.yml`: `if: vars.AUTOPILOT == 'on' && …`). Any other conclusion means it was on. | yes |
-| Merge times | `git log origin/main --format='%h %cI %s'` (merge-commit committer dates). Do not use `pulls.merged_at` or `created_at` for 2026-11-01 without a cross-check: they read about +1 h after ~08:00 UTC that day (FACTS CORRECTION). | yes |
+| Merge times | `git log origin/main --format='%h %cI %s'` (merge-commit committer dates). Do not use `pulls.merged_at` or `created_at` for 2026-11-01 without a cross-check: merges between about 08:00 and 09:00 UTC that day read +1 h (for example #43: `merged_at` 09:56Z, merge commit 08:56 UTC), while merges from 09:13 UTC on agree (#37, #47) (FACTS CORRECTION; re-checked 09:41 UTC). | yes |
 
 ## Never do
 

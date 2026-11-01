@@ -1,9 +1,10 @@
 # Coordination (snapshot)
 
-Snapshot taken: 2026-11-01 09:35 UTC by a cloud child session (the process-docs session); source: REST
-`gh api 'repos/alcheny/stock-social/pulls?state=open&per_page=100'`, the MCP tool `list_pull_requests`,
+Snapshot taken: 2026-11-01 09:41 UTC by a fact-check subagent of the process-docs session (first written 09:35 UTC);
+source: REST `gh api 'repos/alcheny/stock-social/pulls?state=open&per_page=100'` and `pulls?state=closed`,
 `git ls-remote origin 'refs/heads/claude/*'` and `git diff --name-only origin/main...origin/claude/<topic>`, with
-main at `e12a834` (#30 merged 09:32 UTC).
+main at `31004e7` (#47 merged 09:38 UTC; merges since 09:20 UTC: #35 09:23, #30 09:32, #47 09:38, by merge-commit
+committer date).
 
 Orchestrator of record: the owner's orchestrating chat session (its session id stays private:
 [architecture.md](architecture.md)).
@@ -29,24 +30,24 @@ Budget: Window resets 2026-11-01 15:00 UTC (orchestrator report); admitting: _or
 ## Work items
 
 Merge positions 1–4 follow the coordination log's order for the items still open (security hardening → stock splits
-→ sharded sync → councils); the orchestrator confirms or changes them. "—" = not set yet. "Files owned" for open
+→ sharded sync → councils; position 4 is now the design system council, #48, since #47 merged); the orchestrator confirms or changes them. "—" = not set yet. "Files owned" for open
 branches is what the branch changes against main at snapshot time, outside `docs/features/logs/` (each item also
 writes its own log directory there).
 
 | Work item | Kind | Client kind | Branch | PR | Files owned | State | Depends on | Merge position |
 |---|---|---|---|---|---|---|---|---|
-| Security hardening | cross-cutting build | cloud child session | `claude/security-hardening` | #42 (no label) | `next.config.ts` headers and CSP, `proxy.ts`, `instrumentation.ts`, `lib/csp.ts`, `lib/rate-limit.ts`, `lib/auth/**` hardening, `lib/secret-env.ts`, `lib/params.ts`, `docs/security/`; additive in `app/actions.ts`, `app/u/[handle]/page.tsx`, `lib/copy.ts`, `db/schema.sql` | pr-ready | — | 1 |
-| Corporate actions (stock splits, F3c) | cross-cutting build | cloud child session | `claude/corporate-actions` | #40 (`feature`) | `lib/trades.ts` matcher, `lib/corporate-actions.ts` (+tests); additive in `lib/sync.ts`, `db/schema.sql`, `lib/copy.ts`, `app/u/[handle]/page.tsx`, privacy maps | pr-ready | — | 2 |
-| Sharded sync | cross-cutting build | cloud child session | `claude/sharded-sync` | #46 (no label) | `lib/sync.ts` structure, `app/api/sync/**`, `lib/sync-*.ts`, `docs/SYNC.md`, `e2e/sync-shards.spec.ts`, `e2e/cron-lock.ts`; additive in `lib/db.ts`, `db/schema.sql`, privacy maps | pr-ready | — | 3 |
-| Market research council, cycle 2 | council / record | cloud child session | `claude/market-research-2-2026-11-01` | #47 (`feature`) | `docs/direction/market-2026-11-01-cycle2.md` | pr-ready | — | 4 |
-| Process docs (this file's PR) | docs | cloud child session | `claude/process-docs-2026-11-01` (not pushed at snapshot) | — | `docs/process/**`; structure-only edits to CLAUDE.md, AUTOPILOT.md, FEATURES.md, IMPLEMENTATION.md, COMPLIANCE.md, IDEAS.md, `team/**`, the coordination log's header (scope extension 09:08 UTC: [decisions-and-authority.md](decisions-and-authority.md#delegations-by-the-owner)) | building | — | — (touches CODEOWNERS paths: owner merges or approves) |
-| F-7 public traders | feature build | cloud child session | `claude/f7-public-traders` | — | `lib/public-gate.ts`; additive in `db/schema.sql` (so far) | building | — | — |
-| F-10 feed record line + F-12 trade and month record strip | feature build | cloud child session | `claude/f10-f12-record-strip` | — | `app/record-strip.tsx`, `lib/record-strip.ts`, `lib/png.ts` (+tests); F-12: `app/u/[handle]/trade/**`, `app/u/[handle]/month/**`, `lib/trade-share.ts`, `lib/month-card.ts`, the strip on `app/t/[symbol]/opengraph-image.tsx` (coordination log); additive in `app/globals.css`, `lib/copy.ts` | building | F-10: F-2 #30 (merged); F-12: F-4 #35 (merged) and F-10 | — |
-| F-13 first-visit line + accessibility fixes | feature build | cloud child session | `claude/f13-a11y-fixes` | — | `app/first-visit.tsx`, one entry in `lib/copy.ts`, the nav label in `app/layout.tsx` (coordination log); additive in `app/globals.css` | building | F-2 #30 (merged) | — |
+| Security hardening | cross-cutting build | cloud child session | `claude/security-hardening` | #42 (no label) | `next.config.ts` headers and CSP, `proxy.ts`, `instrumentation.ts`, `lib/csp.ts`, `lib/rate-limit.ts`, `lib/auth/**` hardening, `lib/secret-env.ts`, `lib/params.ts`, `lib/portal-probe.ts`, `docs/security/`; edits in `app/auth/**`, `app/connect/**`, `app/api/import/step/route.ts`, `lib/connections.ts`, `lib/delete.ts`, `lib/recap-load.ts`, `lib/trade-share-load.ts`, `.env.example`, `docker-compose.yml`, privacy maps; additive in `app/actions.ts`, `app/u/[handle]/page.tsx`, `lib/copy.ts`, `db/schema.sql` | pr-ready | — | 1 |
+| Corporate actions (stock splits, F3c) | cross-cutting build | cloud child session | `claude/corporate-actions` | #40 (`feature`) | `lib/trades.ts` matcher, `lib/corporate-actions.ts` (+tests); edits in `lib/broker.ts` (a CODEOWNERS path) and `lib/connections.ts`; additive in `lib/sync.ts`, `db/schema.sql`, `lib/copy.ts`, `app/u/[handle]/page.tsx`, privacy maps | pr-ready | — | 2 |
+| Sharded sync | cross-cutting build | cloud child session | `claude/sharded-sync` | #46 (no label) | `lib/sync.ts` structure, `app/api/sync/**`, `lib/sync-*.ts`, `docs/SYNC.md`, `e2e/sync-shards.spec.ts`, `e2e/cron-lock.ts`; edits in `e2e/privacy-gate.spec.ts`; additive in `lib/db.ts`, `db/schema.sql`, privacy maps | pr-ready | — | 3 |
+| Design system council | council / record | cloud child session | `claude/design-system-2026-11-01` | #48 (`feature`) | `docs/direction/design-system-2026-11-01.md`, `docs/direction/screens-design-system-2026-11-01/` | pr-ready | — | 4 |
+| Market research council, cycle 2 | council / record | cloud child session | `claude/market-research-2-2026-11-01` | #47 (`feature`, merged 09:38 UTC) | `docs/direction/market-2026-11-01-cycle2.md` | merged | — | — |
+| Process docs (this file's PR) | docs | cloud child session | `claude/process-docs-2026-11-01` (pushed 09:40 UTC, no PR yet) | — | `docs/process/**`; structure-only edits to CLAUDE.md, AUTOPILOT.md, FEATURES.md, IMPLEMENTATION.md, COMPLIANCE.md, IDEAS.md, `docs/features/TEMPLATE.md`, `team/**`, the coordination log's header (scope extension 09:08 UTC: [decisions-and-authority.md](decisions-and-authority.md#delegations-and-process-decisions-by-the-owner)) | building | — | — (touches CODEOWNERS paths: owner merges or approves) |
+| F-7 public traders | feature build | cloud child session | `claude/f7-public-traders` | — | new `lib/public-gate.ts`, `lib/public-filings.ts`, `lib/public-import.ts`, `lib/public-trades.ts`, `scripts/public-filer.ts`, `app/public-records/**`, `e2e/f7-*`, `e2e/fakes/public-filings.ts`, `e2e/fixtures/public-filings/**`, `lib/f7-*.test.ts`; edits in `docs/features/F-7-public-traders.md` (protected `docs/features/**`), `pw.local.config.ts`, `app/actions.ts`, `app/api/sync/route.ts`, `app/feed-rows.tsx`, `app/pane.tsx`, `app/t/**`, `app/u/[handle]/**`, `app/ui.tsx`, `lib/auth/attempts.ts`, `lib/auth/sessions.ts`, `lib/connections.ts`, `lib/feed.ts`, `lib/sync.ts`, `lib/record-card.ts`, `lib/month-card.ts`, other `lib/` readers, privacy maps, `.env.example`; additive in `db/schema.sql`, `app/globals.css`, `lib/copy.ts` | building | — | — |
+| F-10 feed record line + F-12 trade and month record strip | feature build | cloud child session | `claude/f10-f12-record-strip` | — | `app/record-strip.tsx`, `lib/record-strip.ts`, `lib/png.ts` (+tests), `e2e/record-strip.spec.ts`, `lib/snapshots/f4-record-card.json`, the F-10 and F-12 feature files; additive in `app/globals.css`, `lib/copy.ts`; F-12, not in the diff yet: `app/u/[handle]/trade/**`, `app/u/[handle]/month/**`, `lib/trade-share.ts`, `lib/month-card.ts`, the strip on `app/t/[symbol]/opengraph-image.tsx` (coordination log) | building | F-10: F-2 #30 (merged); F-12: F-4 #35 (merged) and F-10 | — |
+| F-13 first-visit line + accessibility fixes | feature build | cloud child session | `claude/f13-a11y-fixes` | — | `app/first-visit.tsx`, `app/first-visit-client.tsx`, `lib/device-flag.ts` (+tests), `e2e/f13-first-visit.spec.ts`, the nav label in `app/layout.tsx`; edits in `app/page.tsx`, `app/feed-rows.tsx`, `e2e/app.spec.ts`; additive in `app/globals.css`, `lib/copy.ts` | building | F-2 #30 (merged) | — |
 | Fix: truthful labels | fix | cloud child session | `claude/fix-truthful-labels` | — | `app/t/**` (ticker pages, `Concentration.tsx`, `opengraph-image.tsx`), `lib/ticker-sql.ts` (+tests); edits in `lib/trades.ts`, additive in `db/schema.sql` | building | — | — |
 | Options trades | cross-cutting build | cloud child session | `claude/options-trades` | — | not yet (log directory only) | building | — | — |
 | Token-budget governor | cross-cutting build | cloud child session | `claude/token-budget-governor` | — | `scripts/token-budget.ts` (+test), `docs/token-budget.md` | building | — | — |
-| Design system council | council / record | cloud child session | `claude/design-system-2026-11-01` | — | `docs/direction/design-system-2026-11-01.md`, `docs/direction/screens-design-system-2026-11-01/` | building | — | — |
 | F-8 prediction game (design only) | council / record | cloud child session | `claude/f8-game-design-2026-11-01` | — | `docs/direction/game-2026-11-01/**` | building | — | — |
 | F-9 thesis safety | feature build | — | — | — | `lib/moderation.ts` (+test), the thesis path in `app/actions.ts`, new `lib/reports.ts`, new `app/user-note.tsx`, an owner-run `scripts/` release script, an additive `db/schema.sql` block (coordination log) | planned | swaps in `UserNote` on cards and rows after F-2 #30 (merged) and F-6 #33 (merged); reuses `lib/rate-limit.ts` from #42 without editing it | — |
 | F-11 record status line | feature build | — | — | — | new `lib/record-status.ts` (+test), the status line under "Record since" in `app/u/[handle]/page.tsx`, its use in `app/pane.tsx` and the trade and month pages (coordination log) | planned | fix #4 (Disconnected) first | — (before F-14) |
@@ -61,7 +62,8 @@ fix #3.
 
 ## Merge order (current)
 
-#42 security hardening → #40 corporate actions → #46 sharded sync → #47 market research cycle 2 → the rest as they
+#42 security hardening → #40 corporate actions → #46 sharded sync → #48 design system council (#47 market research
+cycle 2 merged 09:38 UTC) → the rest as they
 reach green and reviewed, with these fixed constraints: F-10 before F-12; fix #4 before F-11; F-11 before F-14
 (coordination log). A PR that is green and reviewed earlier may go earlier when it conflicts with no unmerged PR above
 it ([collaboration.md → Merge order](collaboration.md#merge-order)). The process-docs PR is merged by the owner.
@@ -75,18 +77,22 @@ Files that two or more current items change. Every file here counts as shared
 |---|---|---|
 | `db/schema.sql` | #40, #42, #46, F-7, truthful labels, F-9, F-14 | appended, idempotent blocks only |
 | `lib/trades.ts` | #40 (matcher), truthful labels | not in `SHARED`; truthful labels merges main after #40 and keeps the matcher change |
-| `lib/sync.ts` | #40, #46, F-14 | #46 owns the structure |
-| `lib/privacy-retention.ts` | #40, #42, #46 | not in `SHARED`; additive `SCHEMA_MAP` entries only |
-| `app/u/[handle]/page.tsx` | #40, #42, F-11 | in `SHARED` |
-| `lib/copy.ts` | #40, #42, F-10/F-12, F-13 | in `SHARED` |
-| `app/globals.css` | F-10/F-12, F-13 | in `SHARED` |
-| `app/actions.ts` | #42, F-9 (thesis path) | in `SHARED` |
+| `lib/sync.ts` | #40, #46, F-7, F-14 | #46 owns the structure |
+| `app/api/sync/route.ts` | #46, F-7 | #46 owns `app/api/sync/**` |
+| `lib/privacy-retention.ts` | #40, #42, #46, F-7 | not in `SHARED`; additive `SCHEMA_MAP` entries only |
+| `lib/privacy-fields.ts` | #40, F-7 | not in `SHARED`; additive entries only |
+| `lib/connections.ts` | #40, #42, F-7 | not in `SHARED` |
+| `lib/auth/attempts.ts`, `lib/recap-load.ts`, `lib/trade-share-load.ts`, `.env.example` | #42, F-7 | not in `SHARED` |
+| `app/u/[handle]/page.tsx` | #40, #42, F-7, F-11 | in `SHARED` |
+| `lib/copy.ts` | #40, #42, F-7, F-10/F-12, F-13 | in `SHARED` |
+| `app/globals.css` | F-7, F-10/F-12, F-13 | in `SHARED` |
+| `app/actions.ts` | #42, F-7, F-9 (thesis path) | in `SHARED` |
 | `lib/rate-limit.ts` | #42, F-9 (reads only) | F-9 reuses it, never edits it (coordination log) |
 | `lib/db.ts` | #46 | in `SHARED` |
 | `e2e/connect.spec.ts`, `e2e/fakes/vendor.ts` | #40, #42, #46 (`connect.spec.ts`); #40, #46 (`fakes/vendor.ts`) | not in `SHARED`; additive tests only |
-| `app/t/[symbol]/opengraph-image.tsx` | F-12, truthful labels | fixes #2, #3, #8 build first (coordination log) |
-| `lib/feed.ts`, `app/page.tsx` (card markup) | F-10, F-13 | F-2 #30 merged; F-6's "Also open" line coexists |
-| `app/pane.tsx` | F-11 | F-2 #30 merged |
+| `app/t/[symbol]/opengraph-image.tsx`, `app/t/[symbol]/page.tsx`, `app/t/page.tsx` | F-7, truthful labels; F-12 (`opengraph-image.tsx`) | fixes #2, #3, #8 build first (coordination log) |
+| `lib/feed.ts`, `app/page.tsx`, `app/feed-rows.tsx` (card markup) | F-7 (`lib/feed.ts`, `app/feed-rows.tsx`), F-10, F-13 (`app/page.tsx`, `app/feed-rows.tsx`) | F-2 #30 merged; F-6's "Also open" line coexists |
+| `app/pane.tsx` | F-7, F-11 | F-2 #30 merged |
 | `lib/confidence.ts` | F-10 (reads only) | F-4 #35 merged |
 | `lib/display-log.ts`, `app/api/events/**` | C17 (next cycle) | privacy groundwork #31 and F-2 #30 merged |
 
@@ -95,12 +101,12 @@ Files that two or more current items change. Every file here counts as shared
 | Branch | What | State at snapshot |
 |---|---|---|
 | `claude/serene-faraday-f45ffc` | orchestrator's own branch (PRs #24, #25, #41, #43) | all merged |
-| `claude/adoring-euler-4469ys` | old pipeline branch (F-1/F-2 PRs #8–#11, #15–#23, 2026-10-23 to 10-24) | all merged |
+| `claude/adoring-euler-4469ys` | old pipeline branch (F-1/F-2 PRs #8–#11, #15–#23, 2026-10-22 to 10-24) | all merged |
 | `claude/peaceful-dirac-33bucv` | no PR; last commit 2026-10-25 | stale, unclaimed: do not build on it |
-| `claude/ci-shard-e2e`, `claude/idea-board-2026-11-01`, `claude/privacy-launch-gate`, `claude/publish-separate-job`, `claude/f2-discovery-pr5-pr6`, `claude/f3-viewer-subscriptions`, `claude/f4-share-card-rework`, `claude/f6-open-positions`, `claude/approval-council-2026-11-01`, `claude/business-council-2026-11-01`, `claude/market-research-council-2026-11-01`, `claude/creative-direction-2026-11-01`, `claude/design-direction-2026-11-01` | merged work (#29, #32, #31, #37, #30, #36, #35, #33, #44, #45, #39, #34, #38) | merged; branches kept |
+| `claude/ci-shard-e2e`, `claude/idea-board-2026-11-01`, `claude/privacy-launch-gate`, `claude/publish-separate-job`, `claude/f2-discovery-pr5-pr6`, `claude/f3-viewer-subscriptions`, `claude/f4-share-card-rework`, `claude/f6-open-positions`, `claude/approval-council-2026-11-01`, `claude/business-council-2026-11-01`, `claude/market-research-council-2026-11-01`, `claude/creative-direction-2026-11-01`, `claude/design-direction-2026-11-01`, `claude/market-research-2-2026-11-01` | merged work (#29, #32, #31, #37, #30, #36, #35, #33, #44, #45, #39, #34, #38, #47) | merged; branches kept |
 | `autopilot/*`, `line/a`, `line/b`, `line/c` | lane A ([AUTOPILOT.md](../AUTOPILOT.md)) | `line/a|b|c` exist; switch `AUTOPILOT` off (inferred, [collaboration.md](collaboration.md#when-features-or-autopilot-is-on)) |
 | `feature/*` | lane B ([FEATURES.md](../FEATURES.md)) | none exist; switch `FEATURES` off (inferred) |
-| `dependabot/*` | dependency bot | one open branch, no open PR |
+| `dependabot/*` | dependency bot | one branch left (`npm-minor-patch-5f403fecb1`, its PR #27 merged), no open PR |
 
 ## History
 
