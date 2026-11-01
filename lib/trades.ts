@@ -307,7 +307,6 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     const gapped = (b.gap ?? 0) > 0;
     if (heldKeys.has(key)) { // F-24 RT-2: the ledger may be missing (or doubling) a held row
       excludedHeld++;
-      countedTwins.set(sig(a), (countedTwins.get(sig(a)) ?? 0) + 1);
       continue;
     }
     let remaining = a.units;
@@ -353,6 +352,10 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       trades.push(t);
     }
   }
+  // Every unheld sell not shown is counted (excludedHeld, excluded or excludedCorporate): each stands for one held twin
+  // (test author's fuzz: a twin counted as "no recorded entry" counted the same real sell twice).
+  const shownIds = new Set(trades.map((t) => t.sellId));
+  for (const a of activities) if (a.side === 'SELL' && !a.held && !shownIds.has(a.externalId)) countedTwins.set(sig(a), (countedTwins.get(sig(a)) ?? 0) + 1);
   for (const h of heldSells) {
     const n = countedTwins.get(sig(h)) ?? 0;
     if (n > 0) countedTwins.set(sig(h), n - 1); // its twin is counted already

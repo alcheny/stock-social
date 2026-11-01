@@ -11,7 +11,7 @@ import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
 // F-24 late-posted trades (docs/features/F-24-late-sell-reconciliation.md): the pass cursor, the re-issue states and the
 // rebuild's hold filter.
-import { bringForward, dropUnread, markGenuine, markTwins, notReissued, notDuplicate, heldRow, pageFailureCounts, passPageLimitOk, plannedConfirm, endConfirm, writeConfirmFailures, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
+import { bringForward, dropUnread, markGenuine, markTwins, notDuplicate, heldRow, pageFailureCounts, passPageLimitOk, plannedConfirm, endConfirm, writeConfirmFailures, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
 import { IDLE_DAYS } from './record-status.ts'; // FIXES-LABELS: status
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
@@ -184,7 +184,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at,
           thesis_reports_from = excluded.thesis_reports_from, thesis_checked_version = excluded.thesis_checked_version`;
     }
-    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notReissued(tx)}
+    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notDuplicate(tx)}
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
