@@ -151,14 +151,14 @@ All four members answered REVISE (`plan-signoff-*.md`). These changes meet every
    not per filer. The stale line shows when the source has had no successful run for 7 days. Tests: a filer with no
    filings for 10 days whose source ran yesterday shows no stale line; a source with no successful run for 8 days
    shows it on every filer.
-7. **Legal demand 1 (adopted verbatim): the floor applies to every feed-side read, keyed to the latest filing behind the trade.**
+7. **Legal demand 1 (adopted verbatim): the floor applies to every feed-side read, keyed to the latest filing behind the trade.** `feed_after` = the
    latest effective filed time (after amendments) among the filings that make up the closed trade (opening lots and
    closing sale), plus 30 days. Every read that brings a filer to a viewer who did not open that filer excludes
    embargoed closes: the candidate set, both eligibility branches, the TR-9 weight and its fingerprint, exploration
    extras, the section pool, similar trades and suggest. Tests (AC 21): adding an embargoed close to an in-feed filer
    leaves the feed list, order and weights unchanged; a filer whose 5th close is embargoed is not eligible; an
    amended opening purchase moves the floor.
-8. **Legal demand 2 (adopted verbatim): indirect holdings are excluded and counted in this release.**
+8. **Legal demand 2 (adopted verbatim): indirect holdings are excluded and counted in this release.** Rows reported as indirectly held are excluded
    with their own reason (`indirect`), never priced or shown, and their holding label is not stored (an opaque queue
    key at most), rendered or logged (C4, C8). Tests: a fixture indirect row adds 1 to the `indirect` count, produces no
    closed trade, and no label text appears in raw rows, HTML or logs. A later release may include them only after a
