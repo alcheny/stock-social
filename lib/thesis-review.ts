@@ -30,7 +30,9 @@ export async function releaseThesis(userId: number, sellId: string, decision: De
 export type HeldRow = { userId: number; handle: string; sellId: string; symbol: string | null; closedAt: Date | null; rule: string | null; thesis: string; reviewed: boolean; kept: boolean; reports: number };
 
 /** Held theses, oldest trade first, with the matched rule and how many readers reported each (no reporter ids). */
-export async function listHeld(limit = 200): Promise<HeldRow[]> {
+// Fix round 3 (item 11): `userId` narrows the list to one trader (the script's `list <user_id>`).
+export async function listHeld(limit = 200, userId?: number): Promise<HeldRow[]> {
+  const only = userId === undefined ? sql`` : sql`where h.user_id = ${userId}`;
   const rows = await sql`
     select h.user_id, u.handle, h.sell_id, h.symbol, h.closed_at, h.thesis_hold_rule, h.thesis, h.thesis_reviewed_at is not null as reviewed, h.kept,
       (select count(*)::int from thesis_reports r where r.trader_id = h.user_id and r.sell_id = h.sell_id) as reports
@@ -40,6 +42,7 @@ export async function listHeld(limit = 200): Promise<HeldRow[]> {
       select k.user_id, k.sell_id, null, null, k.thesis_hold_rule, k.thesis, k.thesis_reviewed_at, true from kept_theses k
       where k.thesis_status = 'held' and not exists (select 1 from closed_trades c where c.user_id = k.user_id and c.sell_id = k.sell_id)
     ) h join users u on u.id = h.user_id and u.deleted_at is null
+    ${only}
     order by h.user_id, h.sell_id limit ${limit}`;
   return rows.map((r) => ({ userId: r.user_id, handle: r.handle, sellId: r.sell_id, symbol: r.symbol, closedAt: r.closed_at ?? null, rule: r.thesis_hold_rule, thesis: r.thesis, reviewed: r.reviewed, kept: r.kept, reports: r.reports }));
 }

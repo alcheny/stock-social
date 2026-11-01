@@ -27,7 +27,8 @@ export function noteDateLine(writtenAt: NoteDate, editedAt: NoteDate): string | 
   const w = day(writtenAt), e = day(editedAt);
   // ponytail: "after the trade closed" is true only because a thesis can be attached to a closed trade alone — if notes
   // on open positions are ever added, date them against the trade's own close instead of stating it.
-  if (w) return `Written ${w}, after the trade closed${e ? ` · edited ${e}` : ''}`;
+  // Fix round 3: an edit on the same calendar day (UTC) as the writing is not named.
+  if (w) return `Written ${w}, after the trade closed${e && e !== w ? ` · edited ${e}` : ''}`;
   if (e) return `Edited ${e}, after the trade closed`;
   return null;
 }

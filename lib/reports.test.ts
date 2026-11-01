@@ -262,3 +262,54 @@ dbTest('rebuildTrades waits for a concurrent report hold and keeps it', async ()
     assert.deepEqual({ ...row }, { thesis: 'Bought the higher low.', thesis_status: 'held', thesis_hold_rule: 'reports' });
   } finally { await removePeople([trader]); }
 });
+
+// ---- Fix round 3 ----
+
+// Item 10: a well-formed id that names no note is answered like a report (no probing for hidden notes); a malformed id
+// still fails.
+dbTest('a missing note with a valid id is answered "Reported. Thank you."; a malformed id is not', async () => {
+  const { reportThesis } = await import('./reports.ts');
+  const { ids: [a] } = await people(1);
+  try {
+    const out = await reportThesis(a, '999999999999999999', yes);
+    assert.equal(out, 'not-found');
+    assert.equal(reportMessage(out), REPORT_COPY.done);
+    assert.equal(reportMessage('invalid'), REPORT_COPY.failed);
+    assert.equal(reportMessage(await reportThesis(a, 'x; drop', yes)), REPORT_COPY.failed);
+  } finally { await removePeople([a]); }
+});
+
+// Item 10: the rate-limit slot is spent only by a report that was recorded.
+dbTest('losing the insert race answers "already" and spends no rate-limit slot; a refused slot records nothing', async () => {
+  const { sql } = await import('./db.ts');
+  const { reportThesis } = await import('./reports.ts');
+  const { tag, ids: [trader, a] } = await people(2);
+  let calls = 0;
+  const spy = { allow: () => { calls++; return true; } };
+  try {
+    const [t1, t2] = await trades(trader, tag, 2);
+    await sql`update closed_trades set thesis = 'Sold the gap fill.', thesis_status = 'published' where user_id = ${trader}`;
+    // Another request's insert of the same report is in flight (uncommitted) while this one runs.
+    let inserted!: () => void, commit!: () => void;
+    const isIn = new Promise<void>((r) => { inserted = r; });
+    const gate = new Promise<void>((r) => { commit = r; });
+    const other = sql.begin(async (tx) => {
+      await tx`insert into thesis_reports (reporter_id, trader_id, sell_id) values (${a}, ${trader}, ${t1.sell})`;
+      inserted();
+      await gate;
+    });
+    await isIn;
+    const mine = reportThesis(a, t1.id, spy);
+    await new Promise((r) => setTimeout(r, 300));
+    commit();
+    await other;
+    assert.equal(await mine, 'already');
+    assert.equal(calls, 0, 'no slot spent on a lost race');
+    // A refused slot leaves no report behind.
+    await sql`update thesis_reports set created_at = now() - interval '61 seconds' where reporter_id = ${a}`;
+    assert.equal(await reportThesis(a, t2.id, { allow: () => false }), 'rate');
+    assert.equal((await sql`select count(*)::int as n from thesis_reports where reporter_id = ${a} and sell_id = ${t2.sell}`)[0].n, 0);
+    assert.equal(await reportThesis(a, t2.id, spy), 'reported');
+    assert.equal(calls, 1);
+  } finally { await removePeople([trader, a]); }
+});

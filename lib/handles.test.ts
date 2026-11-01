@@ -149,7 +149,7 @@ test('display names: invisible fillers are removed before the words are checked'
 test('signInErrorText: known codes only; never echoes the URL', () => {
   assert.equal(signInErrorText('name-verified'), NAME_REASON.verified);
   assert.equal(signInErrorText('name-role'), NAME_REASON.role);
-  assert.equal(signInErrorText('handle-reserved'), 'That handle is reserved.');
+  assert.equal(signInErrorText('handle-reserved'), 'That handle is reserved. Try another.');
   // Fix round 2 (D): taken and look-alike say what to do next.
   assert.equal(signInErrorText('handle-lookalike'), 'That handle looks too much like another one. Try another.');
   assert.equal(signInErrorText('handle-taken'), 'That handle is taken. Try another.');
@@ -180,7 +180,7 @@ test('fix round 2 (D): the profile names the handle rejection; taken and look-al
   assert.equal(HANDLE_RULE, '3–20 lowercase letters, numbers or _');
   assert.equal(profileHandleError('taken'), 'That handle is taken. Try another.');
   assert.equal(profileHandleError('lookalike'), 'That handle looks too much like another one. Try another.');
-  assert.equal(profileHandleError('reserved'), 'That handle is reserved.');
+  assert.equal(profileHandleError('reserved'), 'That handle is reserved. Try another.');
   assert.equal(profileHandleError('format'), '3–20 lowercase letters, numbers or _.');
   for (const bad of [undefined, '', 'ok', 'toString', '__proto__', 'Buy now', ['taken']]) assert.equal(profileHandleError(bad), undefined, String(bad));
   const { readFileSync } = await import('node:fs');
@@ -246,4 +246,14 @@ test('fix round 2 (G): no over-blocking — ordinary handles and names stay free
   for (const n of ['dillon', 'allie', 'Lillian', 'Officer K', 'Dave Rified', 'Vera Field', 'Office Hours', 'Offcourse Trading', 'Maya']) {
     assert.ok(checkDisplayName(n).ok, n);
   }
+});
+
+// ---- Fix round 3 ----
+
+test('dev sign-in: a handle whose profile is pending deletion is treated as new (closed or taken), never a 500', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../app/actions.ts', import.meta.url), 'utf8');
+  const login = src.slice(src.indexOf('export async function login'), src.indexOf('export async function saveThesis'));
+  assert.match(login, /const \[known\] = await sql`select id from users where handle = \$\{handle\} and deleted_at is null`;/);
+  assert.ok(login.indexOf('const [known]') < login.indexOf("back('closed')"));
 });

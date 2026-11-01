@@ -28,6 +28,9 @@ test('dates: shown only when recorded, never invented', () => {
   assert.equal(noteDateLine('not a date', null), null);
   assert.match(render({ text: 'x', handle: 'h', writtenAt: w, editedAt: e }), /Note by @h · Written Oct 5, 2026, after the trade closed · edited Oct 7, 2026<\/figcaption>/);
   assert.doesNotMatch(render({ text: 'x', handle: 'h' }), /Written|Edited|edited/);
+  // Fix round 3: an edit on the same calendar day (UTC) as the writing adds nothing to the line.
+  assert.equal(noteDateLine(w, new Date('2026-10-05T23:59:00Z')), 'Written Oct 5, 2026, after the trade closed');
+  assert.equal(noteDateLine(w, new Date('2026-10-06T00:00:00Z')), 'Written Oct 5, 2026, after the trade closed · edited Oct 6, 2026');
   // The JSON form a client component receives (an ISO string) reads the same.
   assert.equal(noteDateLine(w.toISOString(), null), noteDateLine(w, null));
 });

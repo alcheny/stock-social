@@ -117,3 +117,53 @@ dbTest('trade share data (page, card and link preview) carries only published, c
     assert.ok(!JSON.stringify(b).includes('DM me'));
   } finally { await removePeople([trader]); }
 });
+
+// ---- Fix round 3 ----
+
+// Item 9: clearing a report-held note and writing it again never escapes the hold; a release resets it.
+dbTest('a report hold survives clearing the note and writing it again; after a release an edit publishes', async () => {
+  const { sql } = await import('./db.ts');
+  const { saveThesisFor } = await import('./thesis-save.ts');
+  const { reportThesis } = await import('./reports.ts');
+  const { releaseThesis } = await import('./thesis-review.ts');
+  const { tag, ids: [trader, a, b, c] } = await people(4);
+  const yes = { allow: () => true };
+  try {
+    const [t] = await trades(trader, tag, 1);
+    const text = 'Bought the retest of the base, stop under the low.';
+    await saveThesisFor(trader, t.id, text);
+    for (const r of [a, b]) assert.equal(await reportThesis(r, t.id, yes), 'reported');
+    assert.equal(await reportThesis(c, t.id, yes), 'held');
+    const row = async () => ({ ...(await sql`select thesis, thesis_status, thesis_hold_rule from closed_trades where user_id = ${trader} and sell_id = ${t.sell}`)[0] });
+    await saveThesisFor(trader, t.id, '');
+    assert.equal((await row()).thesis, null);
+    assert.equal((await row()).thesis_status, null);
+    await saveThesisFor(trader, t.id, text);
+    assert.deepEqual(await row(), { thesis: text, thesis_status: 'held', thesis_hold_rule: 'reports' });
+    await saveThesisFor(trader, t.id, 'A different note entirely.');
+    assert.deepEqual(await row(), { thesis: 'A different note entirely.', thesis_status: 'held', thesis_hold_rule: 'reports' });
+    assert.equal(await releaseThesis(trader, t.sell, 'publish'), true);
+    await saveThesisFor(trader, t.id, 'A different note, edited after the release.');
+    assert.deepEqual(await row(), { thesis: 'A different note, edited after the release.', thesis_status: 'published', thesis_hold_rule: null });
+  } finally { await removePeople([trader, a, b, c]); }
+});
+
+// Item 13: the schema's stored-text cleanup turns a thesis made only of stripped characters into no thesis (NULL,
+// status NULL), never an empty published one. Only this test's own rows are touched.
+dbTest('schema cleanup: a thesis of stripped characters only becomes NULL with no status; others keep theirs', async () => {
+  const { sql } = await import('./db.ts');
+  const { readFileSync } = await import('node:fs');
+  const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
+  const start = schema.indexOf('update closed_trades set thesis = nullif(btrim(regexp_replace(thesis,');
+  assert.ok(start > 0, 'the cleanup statement is in the schema');
+  const stmt = schema.slice(start, schema.indexOf(';', start));
+  const { tag, ids: [trader] } = await people(1);
+  try {
+    const [t1, t2] = await trades(trader, tag, 2);
+    await sql`update closed_trades set thesis = ${'​‮⁦'}, thesis_status = 'published' where id = ${t1.id}`;
+    await sql`update closed_trades set thesis = ${'Sto​p under the base'}, thesis_status = 'published' where id = ${t2.id}`;
+    for (let i = 0; i < 2; i++) await sql.unsafe(`${stmt} and user_id = $1`, [trader]); // idempotent
+    const rows = await sql`select id::text as id, thesis, thesis_status from closed_trades where user_id = ${trader} order by sell_id`;
+    assert.deepEqual(rows.map((r) => [r.thesis, r.thesis_status]), [[null, null], ['Stop under the base', 'published']]);
+  } finally { await removePeople([trader]); }
+});

@@ -208,11 +208,11 @@ export async function recheckDisplayNames(opts: { userIds?: number[]; db?: typeo
 
 // Fix round 1 (dev sign-in): the reason shown for an `error` code on /login/dev (app/actions.ts#login redirects with
 // `name-<code>` or `handle-<verdict>`). Unknown codes show nothing, so the URL can't put words on the page.
-// Fix round 2 (D): taken and look-alike say what to do next ("Try another."); reserved and format are unchanged.
+// Fix round 2 (D): taken and look-alike say what to do next ("Try another."); fix round 3: reserved too.
 export const HANDLE_RULE = '3–20 lowercase letters, numbers or _';
 const HANDLE_REASON: Record<Exclude<HandleVerdict, 'ok'>, string> = {
   taken: 'That handle is taken. Try another.',
-  reserved: 'That handle is reserved.',
+  reserved: 'That handle is reserved. Try another.',
   lookalike: 'That handle looks too much like another one. Try another.',
   format: `Handle: ${HANDLE_RULE}.`,
 };

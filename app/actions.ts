@@ -34,7 +34,7 @@ export async function login(form: FormData) {
   const back = (code: string): never => redirect(devLoginRedirect(code, form.get('handle')));
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) back('handle-format');
   if (form.get('adult') !== 'on') back('attest');
-  const [known] = await sql`select id from users where handle = ${handle}`;
+  const [known] = await sql`select id from users where handle = ${handle} and deleted_at is null`; // fix round 3: a profile pending deletion is no account here
   if (!known) {
     if (!signUpOpen()) back('closed');
     // The same test createUserForAttempt applies: only a name that is not blank once cleaned is checked.

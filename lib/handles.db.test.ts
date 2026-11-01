@@ -157,3 +157,20 @@ dbTest('dev sign-in: a blank name falls back to the handle unchecked; a typed na
     if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
   }
 });
+
+// Fix round 3 (item 12): the dev sign-in treats a profile pending deletion as no account, so its handle goes through
+// the new-account checks: closed sign-up says 'closed', open sign-up gets this verdict ('taken'), never a 500.
+dbTest('checkHandle: a handle whose profile is pending deletion is taken', async () => {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const { checkHandle } = await import('./handles.ts');
+  const tag = `pd${rand()}`;
+  const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_a` });
+  try {
+    await sql`update users set deleted_at = now() where id = ${u.id}`;
+    assert.equal((await sql`select id from users where handle = ${`${tag}_a`} and deleted_at is null`).length, 0);
+    assert.equal(await checkHandle(`${tag}_a`), 'taken');
+  } finally {
+    await sql`delete from users where id = ${u.id}`;
+  }
+});

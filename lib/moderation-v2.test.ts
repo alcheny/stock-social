@@ -279,3 +279,93 @@ test('fix round 2: every label has a plain explanation', () => {
     'return claim': 'a return claim beyond this trade', 'copy trading': 'an offer to copy trades',
   });
 });
+
+// ---- Fix round 3 (tester round 3 + business lead; committee decisions 2-3, POLICY F1/F2) ----
+
+// A small figure about this one trade, with a span, is how a trade is described; third-party targets, singular own
+// picks, past-tense buying, prose dots and a DM'd company publish.
+const NEGATIVE_R3: string[] = [
+  // item 1: small first-person figures about this trade with a time span
+  'Up 4% this week on the position, trimmed.', 'I made 6% on this trade in 2 weeks.', 'Made 6% in 2 weeks, sold before earnings.',
+  'Gained 4% over 3 weeks then stopped out.', '+5% this month on this name.', 'Returned 5% over 2 weeks, beat holding cash.',
+  'I made 8% in 2 weeks on this trade',
+  // item 2: singular picks, scale-out targets and third-party targets
+  'Not my best pick, cut it at -4%.', 'Best pick I had all year, sold too early.', 'Top pick from my screen, faded.',
+  'Took profit at PT 1, rest at pt 2', "Analysts' PT is 300 but I sold.", "PT 60 from the bank upgrade, I didn't care.",
+  // item 3
+  "DM'd the IR team about the guidance",
+  // item 4: past tense, an existing negative, and a win rate without a figure
+  'Target was 52, hit it.', 'I bought it now that the base is set', 'Buy the dip worked this time', 'My win rate this month was bad',
+  'I lose often on breakouts',
+  // item 5
+  'Sold $5k of it to rebalance', 'Position was $2k', 'Revenue $40B this year',
+  // item 6
+  'my plan is simple', 'My group is small this year.', 'my chat is quiet', 'Got a snap reaction at the open.',
+  // item 7
+  'the company com­pleted the buyback', 'Time to connect the dots on margins.', 'Felt like the dotcom bubble again.',
+  'Valuations looked dotcom bubble crazy.', 'Bought in the dotcom era.',
+  // negations and ordinary phrasing beside the new hype rules
+  "Wouldn't buy it now", "Couldn't get in.", 'We never lose sight of risk', 'Bought before it ran', 'Made $500 on this trade this week',
+];
+
+// [text, expected label]
+const BYPASS_R3: [string, string][] = [
+  // item 1: the existing holds stay held
+  ['made 40% this year', 'return claim'], ['Made 60% this year with this system.', 'return claim'], ['Returns this year: 75%.', 'return claim'],
+  ['40% this qtr', 'return claim'], ['my port +40%', 'return claim'], ['Up 9% this week.', 'return claim'],
+  ['I made 6% in 2 weeks on my account.', 'return claim'], ['Made 6% in 2 weeks with my system.', 'return claim'],
+  ['Up 5% this year on this name.', 'return claim'], ['I averaged 3% a month on this trade', 'return claim'],
+  // item 2
+  ['my top picks', 'picks or tips'], ["today's top pick", 'picks or tips'], ['hot picks', 'picks or tips'], ['free picks', 'picks or tips'],
+  ['PT $200', 'picks or tips'], ['my PT 300', 'picks or tips'], ['target price 300', 'picks or tips'], ['PT 300', 'picks or tips'],
+  ['price target 120 by spring', 'picks or tips'],
+  // item 3
+  ['DM for entries', 'contact details'], ['DM for entries 📩', 'contact details'], ['DM for the setup', 'contact details'],
+  ['dm 4 setups', 'contact details'], ['DMs open for entries', 'contact details'], ['message for alerts', 'contact details'],
+  // item 4
+  ['buy it now', 'promotion'], ['buy right now', 'promotion'], ['Best penny stock to buy right now', 'promotion'], ['load up now', 'promotion'],
+  ['load up before it runs', 'promotion'], ['buy today before it rips', 'promotion'], ['Next 100 bagger, load up', 'promotion'],
+  ['Strong buy, target 500', 'promotion'], ['Target: 300 next month, get in', 'promotion'], ['Everyone should buy this', 'promotion'],
+  ['BUY BUY BUY', 'promotion'], ['I never lose, 100% win rate', 'promotion'], ['My signals are 95% accurate', 'return claim'],
+  ['Verified: 92% win rate', 'return claim'], ['Verified 92% win rate', 'return claim'], ['verified track: 92% wins', 'return claim'],
+  // item 5
+  ['Made $50k this month', 'return claim'], ['I made $12k this week', 'return claim'], ['Up $40k this year', 'return claim'],
+  ['Turned 1k into 50k', 'return claim'], ['Turned $1,000 into $40,000', 'return claim'],
+  // item 6
+  ['My tele is tradeking', 'contact details'], ['My tg: tradeking', 'contact details'], ['find me on tele: tradeking', 'contact details'],
+  ['my insta is tradeking', 'contact details'], ['my group: tradeking', 'contact details'],
+  // item 7
+  ['www tradeking com', 'link'], ['tradeking com/join', 'link'], ['tradeking dot c o m', 'link'],
+];
+
+test('fix round 3: small single-trade figures, singular picks, third-party targets and prose dots publish (no rule)', () => {
+  for (const t of NEGATIVE_R3) {
+    assert.deepEqual(moderateDetail(t), { status: 'published', rule: null }, JSON.stringify(t));
+    assert.deepEqual(moderateDetail(sanitizeUserText(t)), { status: 'published', rule: null }, JSON.stringify(t));
+  }
+});
+
+test('fix round 3: DM offers, hype, win-rate and dollar claims, messenger handles and dotless domains are held', () => {
+  for (const [t, label] of BYPASS_R3) {
+    assert.deepEqual(moderateDetail(t), { status: 'held', rule: label }, JSON.stringify(t));
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(sanitizeUserText(t)));
+  }
+});
+
+test('fix round 3: adversarial 280-character inputs finish in under 20 ms each', () => {
+  const inputs = [
+    'A-'.repeat(140).slice(0, 279) + '!', 'a-'.repeat(140), '1.'.repeat(140), 'a.'.repeat(140), 'a '.repeat(140), 'my '.repeat(93),
+    'aaaa'.repeat(70), 'a'.repeat(279) + '!', '-'.repeat(280), 'a.b-'.repeat(70), '%1'.repeat(140), '1 '.repeat(140), 'dot '.repeat(70),
+    '@a'.repeat(140), 'up 1% '.repeat(46), 'www '.repeat(70), 'a dot '.repeat(46), 'x@'.repeat(140), '+1 '.repeat(93), 'buy '.repeat(70),
+  ].map((s) => s.slice(0, 280));
+  // Best of three runs: the first call compiles each expression; a polynomial pattern is slow on every run.
+  for (const t of inputs) {
+    let ms = Infinity;
+    for (let i = 0; i < 3; i++) {
+      const t0 = performance.now();
+      moderateDetail(t);
+      ms = Math.min(ms, performance.now() - t0);
+    }
+    assert.ok(ms < 20, `${JSON.stringify(t.slice(0, 12))}… took ${ms.toFixed(1)} ms`);
+  }
+});
