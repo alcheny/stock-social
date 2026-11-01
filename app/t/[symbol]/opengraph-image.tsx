@@ -27,7 +27,9 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
   try {
     const symbol = decodeSymbolParam((await params).symbol);
     if (!symbol) return neutral('Stock Social', 'Verified trades by stock');
-    const found = (await sql`select user_id, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where symbol = ${symbol}`) as unknown as
+    // Deleted traders' trades are not counted (the page's rule: users.deleted_at is null). The truthful-labels session's
+    // shared tickerHeadline (branch claude/fix-truthful-labels) replaces this read.
+    const found = (await sql`select t.user_id, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.symbol = ${symbol} and t.filing_url is null`) as unknown as
       { user_id: number; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean }[];
     if (!found.length) return neutral(symbol, 'No verified trades yet');
     const rows: TickerRow[] = found.map((r) => ({ userId: r.user_id, returnPct: r.return_pct, holdingDays: r.holding_days, openedAt: r.opened_at, closedAt: r.closed_at, verified: r.verified }));
@@ -35,6 +37,8 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
     const { lines } = layoutBand(stockImageLines({ symbol, n: s.n, traders: s.traders, demoOnly: s.demoOnly, mixed: s.mixed }));
     return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);
   } catch {
+    // ponytail: a database error still answers 200 with the neutral picture — answer 500 (no catch) as the trade and month
+    // images do, when the truthful-labels branch's rewrite of this read lands.
     return neutral('Stock Social', 'Verified trades by stock');
   }
 }

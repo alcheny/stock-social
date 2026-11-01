@@ -4,6 +4,7 @@
 import { ImageResponse } from 'next/og';
 import { FORMATS, parseFormat } from '@/lib/story-image.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
+import { isFilerHandle } from '@/lib/public-gate.ts';
 import { loadRecordCard } from '../record-card-data.ts';
 import { RecordCardImage } from '../record-card-image.tsx';
 
@@ -13,5 +14,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ handle: 
   const format = parseFormat(url.searchParams.get('format'));
   const m = await loadRecordCard(handle, format); // the printed link comes from the configured origin, not url.host
   if (!m) return new Response('Not found', { status: 404 });
-  return new ImageResponse(<RecordCardImage m={m} disclaimer={DISCLAIMER} />, { ...FORMATS[format], headers: { 'Cache-Control': 'public, max-age=300' } });
+  return new ImageResponse(<RecordCardImage m={m} disclaimer={DISCLAIMER} />, { ...FORMATS[format], headers: { 'Cache-Control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=300' } }); // F-7: never cached
 }

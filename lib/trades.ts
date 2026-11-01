@@ -1,7 +1,7 @@
 // Pure trade math. No I/O — everything shown to users is derived here from raw activities,
 // so a bug is fixed by recomputing (see docs/DESIGN.md §2.5).
 
-import { count, counted } from './format.ts';
+import { count, counted, pct } from './format.ts';
 import { MIN_BETS, RANK_MIN_BETS, tooWide } from './confidence.ts';
 import { LATE_POSTING_DAYS, RATIO_TOLERANCE, renameRatio, resolveRatio, type CorporateAction, type Ratio } from './corporate-actions.ts';
 
@@ -301,18 +301,8 @@ export function stats(trades: Pick<ClosedTrade, 'returnPct' | 'holdingDays' | 'c
   };
 }
 
-// Signed percent. A value that rounds to zero reads "0.0%" (never "-0.0%" or "+0.0%", same as an exact zero). A loss
-// short of -100% never rounds to a total loss: it gets up to 4 more digits ("-99.98%"), and past that reads "≈-100.0%".
-export function pct(x: number, digits = 1): string {
-  const fixed = (d: number) => (x * 100).toFixed(d);
-  let s = fixed(digits);
-  if (Number(s) === 0) return `${fixed(digits).replace('-', '')}%`;
-  if (x > -1 && Number(s) <= -100) {
-    for (let d = digits + 1; d <= digits + 4 && Number(s) <= -100; d++) s = fixed(d);
-    if (Number(s) <= -100) return `≈${fixed(digits)}%`;
-  }
-  return `${x > 0 ? '+' : ''}${s}%`;
-}
+// pct() lives in lib/format.ts (F-19: one home); re-exported here so existing imports keep working.
+export { pct };
 
 // Chart navigation: arrow keys move the active point, clamped at the ends (no wrap, so the ends are obvious).
 export const stepIndex = (i: number, delta: number, n: number) => Math.min(Math.max(i + delta, 0), n - 1);
@@ -354,6 +344,11 @@ export function rangeReturn(trades: { returnPct: number; closedAt: Date }[], key
 // ponytail: bets are clustered by symbol, so a position renamed by a corporate action (lib/corporate-actions.ts) whose
 // closes straddle the rename counts as two bets (at most one extra per rename: it can move the 5-bet floor and the
 // degrees of freedom) — fix: a chain key per closed trade (a closed_trades column set by the rebuild).
+// Closed trades only. Open positions exist since F-6 (lib/open-split.ts shows them beside every realized figure), but
+// the F-6 decision of 2026-11-01 keeps this range closed-only and says so in words. Including them at their unrealized
+// return and days held so far (DESIGN TR-9 inputs; design council D-48) is its own feature: open_positions stores no
+// opening date (it needs an additive opened_at, the earliest unmatched FIFO lot), and the change moves feed ranking
+// (lib/feed.ts weights). docs/features/F-6-open-positions.md → Open questions.
 
 export type ConfidenceInput = Pick<ClosedTrade, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct' | 'holdingDays'>;
 export type Tier = 'too-early' | 'thin' | 'moderate' | 'strong';
@@ -377,7 +372,7 @@ export const tCrit95 = (df: number) => (df <= 30 ? T95[Math.max(df, 1) - 1] : 1.
 type Cluster = { x: number; d: number; n: number };
 
 export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
-  void today; // reserved for open positions (TR-4)
+  void today; // reserved for open positions (TR-4, see above)
   const n = trades.length;
   const bySymbol = new Map<string, ConfidenceInput[]>();
   // F-2 PR-1 fix round 1 (load check): push, not copy (a copy per trade was quadratic in a symbol's trade count).

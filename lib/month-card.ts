@@ -3,7 +3,7 @@
 // and the disclaimer always fits. The label's size shrinks with its length so the longest month label stays on one line.
 // F-12: the month image now draws lib/record-strip.ts's band (monthBand below); monthCard stays as the adapter its tests
 // pin, with the record line in the strip's words and no win rate.
-import { imageTrust, RECORD_STRIP, SHARE_CARD, type RecordState } from './copy.ts';
+import { imageTrust, isPublicRecord, RECORD_STRIP, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { pct } from './trades.ts';
 import { counted } from './format.ts';
@@ -23,6 +23,11 @@ export type MonthCardInput = {
 // Largest size (≤ 96) at which the text fits the card's width at an average glyph width of 0.6 em.
 export const fitSize = (text: string, max = 96, width = INNER_W) => Math.min(max, Math.floor(width / (Math.max(text.length, 1) * MONTH_CARD.glyph)));
 
+// No route draws monthCard any more (the month image draws monthBand below). It stays because lib/month-card.test.ts pins
+// the month card's layout contract through it (record line in the strip's words, no win rate, the disclaimer in full),
+// and that test may not be deleted.
+// ponytail: monthCard is test-only code — move those assertions onto monthBand and drop monthCard once the test rules
+// allow retiring a test file.
 export function monthCard(r: MonthCardInput) {
   const { recap: m, record: w } = r;
   const trust = imageTrust('month', { state: r.state, demo: r.demo, verified: r.verified, empty: false });
@@ -46,7 +51,7 @@ export function monthCard(r: MonthCardInput) {
   // The incomplete line takes the evidence line's place, as on the profile card; otherwise the link's words.
   if (trust.note) bottom.push({ role: 'note', text: trust.note, size: 26, warn: trust.tone === 'warn', muted: trust.tone !== 'warn' });
   else bottom.push({ role: 'evidence', text: RECORD_STRIP.link(r.handle), size: 26, muted: true });
-  if (trust.stats && w.newRecord) bottom.push({ role: 'new', text: 'New record', size: 26, muted: true });
+  if (trust.stats && w.newRecord && !isPublicRecord(r.state)) bottom.push({ role: 'new', text: 'New record', size: 26, muted: true });
   return { header: { label: trust.label, tone: trust.tone }, top, bottom, disclaimer: { role: 'disclaimer', text: DISCLAIMER, size: 22, muted: true, lines: [...DISCLAIMER_LINES] } as CardLine & { lines: string[] } };
 }
 

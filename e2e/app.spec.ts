@@ -226,6 +226,9 @@ test('my record: recent versus earlier rule comparison is private and honest abo
   await expect(page).toHaveURL(/\/login$/);
   const db = postgres(process.env.DATABASE_URL!);
   const ids = Array.from({ length: 15 }, (_, i) => `e2e-trend-${i}`);
+  // The 15 closes change a feed-eligible record (e2e/feed-lock.ts): the feed tests that hold the lock exclusively wait.
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('shared');
   try {
     await page.goto('/login/dev');
     await page.getByLabel('Handle').fill('dividend_dan');
@@ -255,6 +258,7 @@ test('my record: recent versus earlier rule comparison is private and honest abo
     await db`delete from closed_trades where sell_id = any(${ids})`;
     await db`delete from trade_rules where user_id = (select id from users where handle = 'dividend_dan')`;
     await db.end();
+    await release();
   }
 });
 
@@ -681,7 +685,11 @@ test('ticker page: Why they traded it shows the seeded thesis with a Demo badge 
   await expect(sec).toBeVisible();
   await expect(sec).toContainText('Breakout above the 50-day on volume after earnings beat');
   await expect(sec).toContainText('Demo');
-  await expect(sec.locator('a[href*="/u/"][href*="#trade-"]').first()).toBeVisible();
+  // A11Y-FIXES #22: the link is the trade's own page by sell_id (stable across rebuilds), not a profile anchor.
+  const link = sec.locator('a[href*="/u/"][href*="/trade/"]').first();
+  await expect(link).toBeVisible();
+  await expect(sec.locator('a[href*="#trade-"]')).toHaveCount(0);
+  expect((await page.request.get((await link.getAttribute('href'))!)).status()).toBe(200);
 });
 
 test('ticker page: unknown symbol has no theses section', async ({ page }) => {
@@ -689,13 +697,15 @@ test('ticker page: unknown symbol has no theses section', async ({ page }) => {
   await expect(page.getByTestId('theses')).toHaveCount(0);
 });
 
-test('ticker page: unknown and invalid symbols are calm 200s', async ({ page }) => {
+test('ticker page: an unknown symbol is a calm 200, an invalid one a real 404', async ({ page }) => {
   let res = await page.goto('/t/ZZZZ');
   expect(res?.status()).toBe(200);
   await expect(page.getByText('No verified closed trades in ZZZZ yet.')).toBeVisible();
+  // A11Y-FIXES #21: an invalid symbol is a real 404 (was a soft 200), on the root not-found page.
   res = await page.goto('/t/%3Cscript%3E');
-  expect(res?.status()).toBe(200);
-  await expect(page.getByText("doesn't look like a ticker")).toBeVisible();
+  expect(res?.status()).toBe(404);
+  await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
+  await expect(page).toHaveTitle('Page not found · Stock Social');
 });
 
 test('ticker index: lists seeded symbols with no performance numbers, sort is safe, nav links to it', async ({ page }) => {
@@ -710,7 +720,7 @@ test('ticker index: lists seeded symbols with no performance numbers, sort is sa
   const syms = await page.locator('.ticker-rows a b').allInnerTexts();
   expect(syms).toEqual([...syms].sort());
   await page.goto('/');
-  await page.locator('nav.top').getByRole('link', { name: 'Stocks' }).click();
+  await page.locator('nav.top').getByRole('link', { name: 'Trades by stock' }).click(); // F-13 (D27): the nav label
   await expect(page).toHaveURL(/\/t$/);
   await page.goto('/t/NVDA');
   await expect(page.getByRole('link', { name: /All stocks/ }).first()).toHaveAttribute('href', '/t');
@@ -755,9 +765,9 @@ test('compare page: two seeded symbols in URL order, noindex, honest empty state
   await expect(page.locator('main section section')).toHaveCount(0);
   const cases: [string, string][] = [
     ['/t/compare?a=ZZZZ&b=NVDA', 'No verified closed trades in ZZZZ yet.'],
-    ['/t/compare?a=NVDA&b=nvda', 'Pick two different stocks. You chose NVDA twice.'],
+    ['/t/compare?a=NVDA&b=nvda', 'Choose two different stocks. You chose NVDA twice.'],
     ['/t/compare?a=ZZZZ&b=YYYY', 'No verified closed trades in ZZZZ or YYYY yet.'],
-    ['/t/compare', 'Pick two stocks to compare.'],
+    ['/t/compare', 'Choose two stocks to compare.'], // A11Y-FIXES #11
   ];
   for (const [url, text] of cases) {
     const r = await page.goto(url);
@@ -825,8 +835,13 @@ test('watchlist: signed-in trader watches a symbol and sees it on /t; signed out
 });
 
 // F-1 PR-3 fix round 4 (committee). A trader made here, removed after; generic symbols, synthetic returns.
-async function makeTrader(handle: string, closes: (i: number) => { closedAt: string; r: number; symbol?: string }, n: number) {
+// Known-limits sweep 2026-11-01: a trader with 5+ closes is feed-eligible, so it holds the feed lock shared until it is
+// removed (e2e/feed-lock.ts): a feed test holding it exclusively (e2e/section.spec.ts) never sees it appear mid-test.
+// `held`: the caller already holds the lock exclusively (taking it shared again on another connection would wait forever).
+async function makeTrader(handle: string, closes: (i: number) => { closedAt: string; r: number; symbol?: string }, n: number, held = false) {
   const { sql } = await import('../lib/db.ts');
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = held ? async () => {} : await feedLock('shared');
   const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
     insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle}, ${handle}, now(), a.id from a
     on conflict (handle) do update set handle = excluded.handle returning id`;
@@ -839,7 +854,7 @@ async function makeTrader(handle: string, closes: (i: number) => { closedAt: str
   });
   for (let i = 0; i < rows.length; i += 1000) await sql`insert into closed_trades ${sql(rows.slice(i, i + 1000))}`;
   const ids = (await sql`select id from closed_trades where user_id = ${u.id} order by closed_at desc, id desc`).map((r) => String(r.id));
-  return { sql, id: u.id as number, ids, remove: () => sql`delete from users where id = ${u.id}` };
+  return { sql, id: u.id as number, ids, remove: async () => { try { await sql`delete from users where id = ${u.id}`; } finally { await release(); } } };
 }
 
 test('fix round 4 (business lead blocker): a close dated 2015 does not break the feed', async ({ page, request }) => {
@@ -992,7 +1007,7 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
       const shift = now - 30 * 86_400_000 - closes[0].closedAt.getTime();
       const t = await makeTrader(`heavy_feed_${h}`, (i) => (i < 5
         ? { closedAt: new Date(now - (i + 1 + h * 0.05) * 120_000).toISOString(), r: i % 2 ? -1 / 3 : 0.5, symbol: `Z${L(h)}${L(Math.floor(h / 26))}${L(i)}` }
-        : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length);
+        : { closedAt: new Date(closes[i].closedAt.getTime() + shift).toISOString(), r: closes[i].returnPct }), closes.length, true);
       made.push(t);
       // Each ranks with a confident edge (TR-9), as the feed computes it, so its 5 fresh cards outrank every older close.
       const rows = await t.sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${t.id}`;
@@ -1121,6 +1136,9 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
     const otherPane = other.locator('.pane');
     await expect(otherPane.locator('.chart-hit')).toBeAttached();
     await expect(otherPane.locator('figure.chart')).toHaveAttribute('data-chart', 'stand-in');
+    // A11Y-FIXES #17: a pane at rest off screen is inert (not focusable); the keyboard route into it is →.
+    await other.evaluate((el) => el.scrollIntoView());
+    await expect.poll(async () => { await page.keyboard.press('ArrowRight'); return other.evaluate((el) => el.scrollLeft); }).toBeGreaterThan(300);
     await otherPane.locator('.chart-stack').focus();
     await expect(otherPane.locator('figure.chart')).toHaveAttribute('data-chart', 'full');
     await page.keyboard.press('ArrowLeft');
@@ -1158,7 +1176,7 @@ async function pagingFixture() {
   const made: Awaited<ReturnType<typeof makeTrader>>[] = [];
   for (let h = 0; h < 45; h++) {
     made.push(await makeTrader(`pg_e2e_${h}`, (i) => ({ closedAt: new Date(now - (h * 5 + i + 1) * 20_000).toISOString(), r: (i + h) % 3 ? 0.3 + ((h * 7 + i) % 10) / 40 : -0.25 - ((h + i) % 5) / 40,
-      symbol: `Y${L(h)}${L(Math.floor(h / 26))}${L(i)}` }), 5));
+      symbol: `Y${L(h)}${L(Math.floor(h / 26))}${L(i)}` }), 5, true));
   }
   return { made, remove: async () => { for (const t of made) await t.remove(); } };
 }

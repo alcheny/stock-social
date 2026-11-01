@@ -5,7 +5,7 @@ import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
 import * as vendor from './broker.ts';
 import type { BrokerUser, VendorAccount } from './broker.ts';
-import { AccountClaimedError, claimIn } from './claims.ts';
+import { AccountClaimedError, accountIdentity, claimIn, identityOwners } from './claims.ts';
 import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
@@ -110,7 +110,9 @@ export function advanceCursor(c: Cursor, pageDone: boolean, limit: number): Curs
   return pageDone ? { i: c.i + 1, offset: 0, pass: c.pass } : { i: c.i, offset: c.offset + limit, pass: c.pass };
 }
 
-export type SnapAccount = { id: string; authorizationId: string; institution: string; isPaper: boolean; initialSyncCompleted: boolean };
+// `identity`: the account's keyed identity hash (lib/claims.ts#accountIdentity), never the raw institution identifier;
+// absent on snapshots taken before it existed.
+export type SnapAccount = { id: string; authorizationId: string; institution: string; isPaper: boolean; initialSyncCompleted: boolean; identity?: string | null };
 export type Connection = {
   id: number; attempt_id: number; user_id: number | null; vendor_authorization_id: string | null; institution: string | null; state: State;
   pending_at: Date; importing_at: Date | null; connected_at: Date | null; consent_at: Date | null; last_progress_at: Date | null;
@@ -139,7 +141,8 @@ export async function latestConnection(userId: number): Promise<Connection | nul
 // do. A pre-F-1 claim (confirmed, no connection) counts as connected. The state never derives from "has a vendor id".
 // Fix round 3: the state is over ALL consented connections, never the newest one (TR-3): a trader can hold several,
 // and a newer finished one must not present a still-running import as a whole record.
-export type PublicState = 'importing' | 'connected' | 'failed' | 'none';
+// F-7: 'public' / 'public_demo', built from public filings (set in recordStates only); trust rules branch on it, never on verified.
+export type PublicState = 'importing' | 'connected' | 'failed' | 'none' | 'public' | 'public_demo';
 export type AggregateRow = Pick<Connection, 'id' | 'state' | 'consent_at' | 'imported_count' | 'accounts'>;
 export type RecordStatus = { state: PublicState; imported: number; importing: number[] };
 // Pure. importing while any consented connection imports; else failed while a consented import failed and no later
@@ -172,7 +175,10 @@ export async function recordStates(userIds: number[]): Promise<Map<number, Recor
   if (!ids.length) return out;
   const rows = await sql`select user_id, id, state, consent_at, imported_count, accounts from connections where user_id = any(${ids}) and consent_at is not null order by id`;
   const legacy = new Set((await sql`select distinct user_id from broker_accounts where user_id = any(${ids}) and confirmed_at is not null and connection_id is null`).map((r) => Number(r.user_id)));
+  const filers = new Map((await sql`select u.id, pf.demo from users u join public_filers pf on pf.id = u.public_filer_id where u.id = any(${ids})`).map((r) => [Number(r.id), r.demo as boolean]));
   for (const id of ids) {
+    const demo = filers.get(id);
+    if (demo !== undefined) { out.set(id, { state: demo ? 'public_demo' : 'public', imported: 0, importing: [] }); continue; } // F-7
     const mine = rows.filter((r) => Number(r.user_id) === id).map((r) => ({ ...(r as unknown as AggregateRow), id: Number(r.id) }));
     out.set(id, aggregateRecord(mine, legacy.has(id)));
   }
@@ -184,6 +190,7 @@ export async function publicRecord(userId: number): Promise<{ state: PublicState
 // The profile's read: the public state and simulated count, plus the summed import count for the banner.
 export async function publicRecordDetail(userId: number): Promise<{ public: { state: PublicState; paper: number }; imported: number }> {
   const status = await recordStatus(userId);
+  if (status.state === 'public' || status.state === 'public_demo') return { public: { state: status.state, paper: 0 }, imported: 0 }; // F-7
   const [r] = await sql`select
     exists (select 1 from connections where user_id = ${userId} and consent_at is not null) as consented,
     ${legacyClaim(userId)} as legacy,
@@ -335,7 +342,7 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
   const knownIds = new Set(known.map((k) => k.a as string));
   const fresh = all.filter((a) => !knownIds.has(a.authorizationId));
   if (!fresh.length) return abandoned(who.attemptId);
-  const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted }));
+  const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted, identity: accountIdentity(a) }));
   const [row] = await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, institution, state, pending_at, portal_mode, accounts)
     values (${who.attemptId}, ${who.userId}, ${fresh[0].authorizationId}, ${fresh[0].institution}, 'pending', ${now}, ${mode}, ${sql.json(snapshot as never)}) returning id`;
   const id = Number(row.id);
@@ -347,9 +354,16 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
     return { kind: 'none', id };
   }
   const owners = await sql`select account_id, user_id, confirmed_at from broker_accounts where account_id in ${sql(real.map((a) => a.id))}`;
+  // The same brokerage account under a new vendor id (a fresh connection) is owned by whoever claimed its stable identity
+  // (lib/claims.ts): another profile's, the link is refused. A brokerage-first attempt signs in only through vendor ids
+  // one profile confirmed, as before, and any identity it carries must be that profile's too. Signing in through the
+  // identity alone (an owner linking the same account again while signed out) is refused for now: it would let anyone
+  // who can sign in to the brokerage account (a joint holder) into the profile, an auth decision for the owner (QA M1).
+  const idOwners = await identityOwners(sql, [...new Set(real.flatMap((a) => (a.identity && !a.isPaper ? [a.identity] : [])))]);
   if (who.userId === null) {
     const confirmedBy = new Set(owners.filter((o) => o.confirmed_at).map((o) => o.user_id as number));
-    if (owners.length && confirmedBy.size === 1 && owners.every((o) => o.confirmed_at) && owners.length === real.length) {
+    if (owners.length && confirmedBy.size === 1 && owners.every((o) => o.confirmed_at) && owners.length === real.length
+      && idOwners.every((o) => confirmedBy.has(o.user_id))) {
       const userId = [...confirmedBy][0];
       const [u] = await sql`select handle from users where id = ${userId} and deleted_at is null`;
       if (u) {
@@ -359,10 +373,10 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
         return { kind: 'signin', id, userId, handle: u.handle as string };
       }
     }
-    if (owners.length) return refuse(id, who.attemptId, deps, now);
+    if (owners.length || idOwners.length) return refuse(id, who.attemptId, deps, now);
   } else {
-    if (owners.some((o) => o.user_id !== who.userId)) return refuse(id, who.attemptId, deps, now);
-    const r = await sql.begin((tx) => claimIn(tx, who.userId!, snapshot.map((a) => ({ id: a.id, isPaper: a.isPaper })), { connectionId: id, confirmed: false, now }));
+    if (owners.some((o) => o.user_id !== who.userId) || idOwners.some((o) => o.user_id !== who.userId)) return refuse(id, who.attemptId, deps, now);
+    const r = await sql.begin((tx) => claimIn(tx, who.userId!, snapshot.map((a) => ({ id: a.id, isPaper: a.isPaper, identity: a.identity ?? null })), { connectionId: id, confirmed: false, now }));
     if (!r.ok) return refuse(id, who.attemptId, deps, now);
   }
   await recordFunnel(who.attemptId, 'link_succeeded', { accounts: snapshot.length, paper: snapshot.length - real.length });
@@ -412,7 +426,7 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
   try {
     await sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${user.id})`;
-      const r = await claimIn(tx, user.id, c.accounts.map((a) => ({ id: a.id, isPaper: a.isPaper })), { connectionId: id, confirmed: true, now });
+      const r = await claimIn(tx, user.id, c.accounts.map((a) => ({ id: a.id, isPaper: a.isPaper, identity: a.identity ?? null })), { connectionId: id, confirmed: true, now });
       if (!r.ok) throw new AccountClaimedError();
       const ok = await setState(id, 'pending', 'importing', now, { consent_at: now, user_id: user.id, last_progress_at: now, import_cursor: tx.json(startCursor() as never) }, tx);
       if (!ok) throw new NotPendingError();
@@ -501,7 +515,7 @@ export async function cleanupAttempts(deps: Deps = realDeps, now?: Date, opts: {
       ${ids ? sql`and a.id in ${sql(ids.length ? ids : [0])}` : sql``}
       and not exists (select 1 from connections c where c.attempt_id = a.id and (c.state in ('pending', 'importing', 'connected') or c.cleanup_done_at is null))
       and not exists (select 1 from users x where x.snaptrade_user_id = a.snaptrade_user_id)
-    order by id`;
+    order by id`; // ponytail: no limit and lowest id first, so a vendor delete that keeps failing is retried ahead of every newer attempt each tick — add a last-tried time, order by it and limit the read
   let n = 0;
   for (const [i, r] of rows.entries()) {
     if (clock() >= until) {
@@ -662,6 +676,8 @@ export async function tick(deps: Deps = realDeps, now = new Date(), deadline = I
   const errors: number[] = [];
   let advanced = 0, cleaned = 0;
   const left = () => Date.now() < deadline;
+  // ponytail: both loops restart from the lowest id each tick, so rows that keep failing go first and newer imports and
+  // cleanups past the deadline wait — order by a last-attempted time with a backoff.
   for (const r of await sql`select id from connections where state = 'importing' order by id`) {
     if (!left()) break;
     try { await drive(Number(r.id), deps, now, MAX_STEPS_PER_TICK, deadline); advanced++; } catch (e) { errors.push(Number(r.id)); console.error('import step failed', r.id, errStatus(e)); }

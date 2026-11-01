@@ -140,7 +140,9 @@ dbTest('claimLink: the address is gone the moment the link is claimed; a second 
     assert.equal(left[0].token_hash, hashToken(new URL(urls[2]).searchParams.get('t')!));
     assert.deepEqual(await claimLink(token), { status: 'missing' }); // the purged claimed link is simply unknown now
     await sql`update login_links set expires_at = now() - interval '1 second' where attempt_id = ${attempt}`;
-    assert.ok((await purgeExpiredLinks()) >= 1); // the explicit purge (the hourly tick) deletes the rest
+    // The explicit purge (the hourly tick) deletes the rest. Its count is not asserted: another file's purge running in
+    // parallel can delete these rows first (known-limits sweep 2026-11-01); the rows themselves are checked below.
+    await purgeExpiredLinks();
     assert.equal((await sql`select 1 from login_links where attempt_id = ${attempt}`).length, 0);
   } finally {
     await sql`delete from login_links where attempt_id = ${attempt}`;

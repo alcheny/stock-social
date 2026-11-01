@@ -20,6 +20,9 @@ they're held to. No member grades their own work.
 | **Doctor** | [doctor.md](doctor.md) | Lines mode, hourly, when a line is stuck | Fixing the loop itself (workflows, loop scripts, specs, docs) so lines keep going; never its own constraints | Loop files only, via a PR the Gate merges |
 | **Human (@alcheny)** | `docs/AUTOPILOT.md` → "What stays human" | Always | Choosing versions in human mode, protected paths, phases, launch, kill gates | Yes |
 
+Interactive runs (orchestrator, child sessions, in-session committees, councils run as sessions):
+`docs/process/architecture.md`.
+
 ## How a change moves through the team
 
 ```
