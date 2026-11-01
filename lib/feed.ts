@@ -56,6 +56,8 @@ export type FeedCandidate = {
   id: number; sell_id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number; score: number;
   thesis_written_at?: Date | null; thesis_edited_at?: Date | null; // F-9: the shown card's note dates (UserNote)
+  // F-26: set by the page-row statement only on the signed-in viewer's own close with a held note (else false/null).
+  own_held?: boolean; own_hold_rule?: string | null;
 };
 
 // F-2 PR-1 fix round 2 (tester High A): "this close's sell was imported after asOf". Was `sell_id not in (select
@@ -136,7 +138,8 @@ async function candidateQuery({ ids, asOf, day }: { ids?: number[]; asOf?: Date;
   const lo = sql`${clock} - ${RECENT_HOURS} * interval '1 hour'`;
   return (await sql`
     with c as materialized (
-      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, ${score} as score
+      -- F-26: a note that is not published is null here (shared by every viewer: no hold field).
+      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, case when t.thesis_status = 'published' then t.thesis end as thesis, case when t.thesis_status = 'published' then t.thesis_status end as thesis_status, t.user_id, ${score} as score
       from closed_trades t
       where ${ready('t', asOf)} ${recentOnly ? sql`and t.closed_at > ${lo}` : sql``}
         ${asOf ? sql`and t.closed_at <= ${asOf} and ${importedBy(sql`t.sell_imported_at`, asOf)}` : sql``}
@@ -392,10 +395,15 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const likely = (chooseRows(cands) ?? []).map((t) => t.trader);
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
   // F-2 PR-4: signed in, the page's closes this viewer rejected (for good, O3) leave the page as a gap, in place.
+  const own = opts.viewer ?? 0; // F-26: the author check for the held line (no user has id 0)
   const [rows, states, panes, following, people, rejected, opens] = await Promise.all([
     page.items.length ? sql`
-      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name,
-        t.thesis_written_at, t.thesis_edited_at
+      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, case when t.thesis_status = 'published' then t.thesis end as thesis, case when t.thesis_status = 'published' then t.thesis_status end as thesis_status, t.user_id, u.handle, u.display_name,
+        case when t.thesis_status = 'published' then t.thesis_written_at end as thesis_written_at, case when t.thesis_status = 'published' then t.thesis_edited_at end as thesis_edited_at,
+        -- F-26: the hold (flag and rule) only on the signed-in viewer's own closes; one statement text for every viewer
+        -- and every note state (0 matches no user when signed out).
+        (t.user_id = ${own} and t.thesis_status = 'held' and t.thesis is not null) as own_held,
+        case when t.user_id = ${own} and t.thesis_status = 'held' and t.thesis is not null then t.thesis_hold_rule end as own_hold_rule
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null and ${filerVisibleSql('u')}
       where t.sell_id = any(${page.items.map((s) => s.key)})` : [],
     // Fix round 4 (TR-3): a failed import stays in the feed (never hidden) but its card and pane say it may be

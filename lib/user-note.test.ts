@@ -98,7 +98,8 @@ test('every thesis surface renders through UserNote and nowhere else prints thes
   assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id && !isPublicRecord\(page\.records\.get\(t\.user_id\)\?\.state \?\? 'none'\) \? <ReportNote tradeId=\{String\(t\.id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
   // F-13 merge: the card's thesis slot is thesisLine(t, pub, report): a filer's line, else the UserNote.
   assert.match(read('../app/ui.tsx'), /pub \? <p className="thesis muted" data-public-card>/);
-  assert.match(read('../app/ui.tsx'), /thesisLine\(t, pub, report\)/);
+  // F-26: plus the author's own held line (ownHeld), the only other thing the slot can hold.
+  assert.match(read('../app/ui.tsx'), /thesisLine\(t, pub, report, ownHeld\)/);
   // The card (app/ui.tsx) takes the control as a prop and never imports the server-action island itself.
   assert.doesNotMatch(read('../app/ui.tsx'), /from ['"][^'"]*(report-note|actions)\.tsx?['"]/);
 });

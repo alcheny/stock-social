@@ -740,3 +740,6 @@ h1 { overflow-wrap: anywhere; }
 }
 /* 320 px: the open line and the disclaimer wrap to three lines each; tighter gaps keep the card's 15% headroom. */
 @media (max-width: 340px) { .feed .row > .card { gap: 12px; } }
+
+/* F-26: the trade page's link under the author's held line, on its own line (a 44 px target, lib/user-note.ts#HeldNote). */
+.held-edit { margin: 0; }

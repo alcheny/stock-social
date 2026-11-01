@@ -41,3 +41,6 @@ export function heldLine(rule: string | null | undefined): string {
   const why = rule && Object.hasOwn(RULE_EXPLAIN, rule) ? ` Held because it has ${RULE_EXPLAIN[rule]}.` : '';
   return `${head}${why} Edit it to publish, or it stays held until reviewed.`;
 }
+
+// F-26: the trade page's link under the author's held line, to the profile row where the note is edited.
+export const HELD_EDIT_LINK = 'Edit it on your profile';

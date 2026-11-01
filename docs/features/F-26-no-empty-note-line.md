@@ -92,6 +92,19 @@ a note was held.
 - 2026-11-01: Merge order, not a block: if F-11's branch is still pending, F-26 builds after it. Both edit
   `app/ui.tsx`, `lib/feed.ts`, `lib/trade-share-load.ts` and the trade page. Why: decided by the committee under the
   owner's instruction of 2026-11-01; one rebase instead of two.
+- 2026-11-01: The trade page's "Edit it on your profile" link sits on its own line under the author's held line
+  (`p.held-edit`, a 44 px target), in the same note slot. Why: decided by the committee under the owner's instruction of
+  2026-11-01; an inline 44 px link stretches one line of a 3-4 line muted paragraph, and "Edit it to publish…" directly
+  followed by "Edit it on your profile" reads as a stutter (business lead and engineer, round 1, Q-A).
+- 2026-11-01: `/u/<handle>/pane-chart` nulls a non-published thesis in its SQL, as the feed pane's `records()` does,
+  instead of after the read. Why: decided by the committee under the owner's instruction of 2026-11-01; the guarantee
+  holds where the data is read, and the change is one line in the route (Q-B).
+- 2026-11-01: F-26 builds now and merges origin/main after F-11 lands, then re-runs the unit, database and e2e suites
+  and checks F-11 for any new statement that selects a note. Why: decided by the committee under the owner's
+  instruction of 2026-11-01; no F-11 branch was open at build start, and the merge-order decision asks for one rebase (Q-C).
+- 2026-11-01: The author's held flag is "the row is the signed-in viewer's own and `thesis_status = 'held'`"; the rule
+  column is read only under that condition and never decides the flag. Why: decided by the committee under the
+  owner's instruction of 2026-11-01; a published note can keep a leftover rule (engineer, round 1).
 
 ## Acceptance criteria
 - [ ] The string "No thesis posted." appears nowhere in `app/` or `lib/` (source test).

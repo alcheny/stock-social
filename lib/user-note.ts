@@ -8,7 +8,8 @@
 //   and show no date (never back-filled).
 // - Never larger than the verified figure on the same surface: the text is set at body size or below (app/globals.css,
 //   "fix-user-text: UserNote"; no inline font size here).
-import { createElement as h, type ReactNode } from 'react';
+import { createElement as h, Fragment, type ReactNode } from 'react';
+import { HELD_EDIT_LINK, heldLine } from './report-copy.ts';
 
 export type NoteDate = Date | string | null | undefined;
 // Fix round 2 (C): `byline={false}` where the surface already names the trader (the feed card's header): the caption
@@ -43,4 +44,13 @@ export function UserNote({ text, handle, writtenAt, editedAt, report, byline = t
     ? h('figcaption', { className: 'user-note-by muted' }, `Note by @${handle}`, dates ? ` · ${dates}` : null, report ?? null)
     : dates || report ? h('figcaption', { className: 'user-note-by muted' }, dates, report ?? null) : null;
   return h('figure', { className: 'user-note', 'data-user-note': '' }, quote, caption);
+}
+
+// F-26: the author's held line, the one markup every note slot shows its author for a held note (feed card, trade
+// page). F-9's neutral tone (.thesis-held, small, muted), never the loss or warn colour. `edit`: the trade page's link to
+// the profile row (lib/own-note.ts), on its own line below, a 44 px target (business lead, F-26 committee Q-A). Viewers
+// never get this: callers pass it only for the signed-in author.
+export function HeldNote({ rule, edit }: { rule: string | null | undefined; edit?: string }) {
+  const line = h('p', { className: 'muted thesis-held', 'data-own-held': '' }, heldLine(rule));
+  return edit ? h(Fragment, null, line, h('p', { className: 'held-edit' }, h('a', { className: 'tap44', href: edit }, HELD_EDIT_LINK))) : line;
 }

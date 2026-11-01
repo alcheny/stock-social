@@ -57,13 +57,14 @@ const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'nume
 const CLOSED_DAY_YEAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.getUTCFullYear() ? CLOSED_DAY : CLOSED_DAY_YEAR).format(d);
 
-// F-7: a public-record card shows its card line in place of the thesis (filers post none).
 // F-7: a public filer's card carries its own line, never a note. F-9: UserNote renders a published thesis (no byline:
 // the card's header already names the trader; `report` is the Report control the feed passes for a signed-in reader).
-const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
+// F-26: no published note, no line (no element): the same for no note and a held one. `ownHeld`, the author's own held
+// line (lib/report-copy.ts#heldLine), set by the feed only for the signed-in trader's own card.
+const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode, ownHeld?: string | null) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
   : t.thesis_status === 'published' && t.thesis
     ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} textClass="thesis" />
-    : <p className="thesis"><span className="muted">No thesis posted.</span></p>;
+    : ownHeld ? <p className="muted thesis-held" data-own-held>{ownHeld}</p> : null;
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
 // F-10: `strip`, the trader's record strip (lib/record-strip.ts#recordStrip, 'feed'): it takes the place of the
@@ -75,7 +76,8 @@ const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub 
 // renders it outside Next).
 // F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
 // F-13: `hint`, page 1's first card: the SW-1 line and the dismiss focus target; `notice`, the first-visit line.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode }) {
+// F-26: `ownHeld`, the held line for the author's own card (the held line or nothing), never a status.
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, ownHeld }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; ownHeld?: string | null }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
@@ -99,7 +101,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now)}</div>}
       </div>
       {/* F-13: on page 1's first card the first-visit line takes the thesis slot until it is dismissed (F-10's one-screen budget). */}
-      {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub, report)}</div> : thesisLine(t, pub, report)}
+      {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub, report, ownHeld)}</div> : thesisLine(t, pub, report, ownHeld)}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         {hint && <SwipeHint text={FIRST_VISIT.hint} />}

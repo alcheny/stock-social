@@ -11,6 +11,7 @@ import { SECTION_AT } from '@/lib/discovery/section.ts';
 import { recordStrip, type Strip } from '@/lib/record-strip.ts';
 import { paneTrust, type TrustBadge } from '@/lib/pane.ts';
 import { ReportNote } from './report-note.tsx';
+import { heldLine } from '@/lib/report-copy.ts';
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -63,6 +64,8 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
             // F-9: Report only for a signed-in reader who is not the trader, and never on a public filer's card (F-7: no notes there).
             report={page.viewer && page.viewer.id !== t.user_id && !isPublicRecord(page.records.get(t.user_id)?.state ?? 'none') ? <ReportNote tradeId={String(t.id)} symbol={t.symbol} /> : undefined}
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} likeable={!isPublicRecord(page.records.get(t.user_id)?.state ?? 'none')} /> : undefined}
+            // F-26: the author's own held line, from the existing viewer check (no session read here).
+            ownHeld={page.viewer && page.viewer.id === t.user_id && t.own_held ? heldLine(t.own_hold_rule) : undefined}
             hint={page.offset === 0 && i === 0} /* F-13 (SW-1): the swipe hint on page 1's first card only; appended pages never */
             notice={page.offset === 0 && i === 0 ? <FirstVisit page={page} /> : undefined} /* F-13 (D27): in card 1's thesis slot, so F-10's first screen holds */ />
           {paneOf(t)}
