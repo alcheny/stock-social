@@ -9,9 +9,11 @@
 //   - unfinished sign-ups: attempts with no account after 30 days, with their funnel steps, links and signed-out
 //     connections (a signed-in account's connections stay: they drive its record's state, TR-3);
 //   - likes and rejected trades whose trade has been gone for 30 days (marked when first seen gone, unmarked if the
-//     trade comes back). Preference data with a live trade is never removed on a timer (owner, 2026-11-01).
+//     trade comes back). Preference data with a live trade is never removed on a timer (owner, 2026-11-01);
+//   - F-15: aggregate view counts (view_rollup, view_drops) older than VIEW_RETENTION_DAYS (lib/views.ts).
 // Account deletion is separate and removes everything (lib/delete.ts).
 import { sql } from './db.ts';
+import { VIEW_RETENTION_DAYS } from './views.ts'; // F-15
 
 export const PRIVACY_PURGE_LOCK = 41; // (41, 0). USER_LOCK 1 (lib/sync.ts), ATTEMPT_LOCK 2 (lib/connections.ts), PURGE_LOCK 3 (lib/discovery/purge.ts)
 export const PRIVACY_PURGE_BOX_MS = 20_000;
@@ -22,10 +24,11 @@ export const ORPHAN_GRACE_DAYS = 30;
 export type PrivacyPurgeReport = {
   ran: boolean; done: boolean;
   sessions: number; links: number; attempts: number; orphansMarked: number; orphansCleared: number; likes: number; rejects: number;
+  views: number; // F-15: view_rollup and view_drops rows past VIEW_RETENTION_DAYS
 };
 
 // `now`, `only` and `hold` are test hooks (a test runs the dated steps at a past `now`, so other tests' rows are untouched).
-export type PurgeStep = 'sessions' | 'links' | 'attempts' | 'orphans';
+export type PurgeStep = 'sessions' | 'links' | 'attempts' | 'orphans' | 'views';
 type Opts = { boxMs?: number; batch?: number; clock?: () => number; hold?: () => Promise<void>; now?: Date; only?: PurgeStep[] };
 
 export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport> {
@@ -33,7 +36,7 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
   const end = clock() + Math.min(opts.boxMs ?? PRIVACY_PURGE_BOX_MS, PRIVACY_PURGE_BOX_MS);
   const batch = opts.batch ?? PRIVACY_PURGE_BATCH;
   const now = opts.now ?? new Date();
-  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0 };
+  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, views: 0 };
   const conn = await sql.reserve();
   try {
     const [{ got }] = await conn`select pg_try_advisory_lock(${PRIVACY_PURGE_LOCK}, 0) as got`;
@@ -81,8 +84,13 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
               and (x.viewer_id, x.trade_key) in (select viewer_id, trade_key from privacy_orphans where kind = 'reject' order by first_seen_at limit ${batch})
             returning x.viewer_id, x.trade_key)
           delete from privacy_orphans o using gone g where o.kind = 'reject' and o.viewer_id = g.viewer_id and o.trade_key = g.trade_key`).count],
+        // F-15: aggregate view counts older than the retention bound (the day itself is the bound's edge: kept).
+        ['views', async () => (await conn`delete from view_rollup where ctid in (
+          select ctid from view_rollup where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count],
+        ['views', async () => (await conn`delete from view_drops where ctid in (
+          select ctid from view_drops where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count],
       ];
-      const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' ? k : 'orphans');
+      const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' || k === 'views' ? k : 'orphans');
       for (const [key, step] of steps) {
         if (opts.only && !opts.only.includes(stepOf(key))) continue;
         for (;;) {

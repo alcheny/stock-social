@@ -1,7 +1,6 @@
 # F-15 · Measurement foundation, first slice: view counts and link sources
 
-Status: blocked
-Blocked: waits for fix #28 (`via=nav` in `lib/referral.ts`, approval council cycle 2 fixes list)
+Status: ready
 Start conditions: fix #28 (`via=nav` in `lib/referral.ts`) merges first. The beacon mounts from its own component and
 does not edit `app/layout.tsx` until F-13 merges. The `share_action` half starts after F-13 merges (F-4 has merged).
 
@@ -68,6 +67,7 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
 - 2026-11-01: Sequencing: fix #28 merges first (same list at `lib/referral.ts`). The beacon mounts from its own
   component, not `app/layout.tsx`, until F-13 merges. If this build has not started by the next approval council,
   this approval lapses to that council. Why: approved by the approval council (cycle 2); RT, BL, PD, TS.
+- 2026-11-01: unblocked by the orchestrator — fix #28 merged in #59 (3f216ba).
 
 ## Acceptance criteria
 - [ ] A db test inserts rollup rows for a profile, calls `deleteProfile` and finds no row naming that user or handle.

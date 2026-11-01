@@ -678,3 +678,33 @@ create table if not exists portal_probes (
   mode text not null check (mode in ('embedded', 'redirect')),
   until timestamptz not null
 );
+
+-- ---- F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts, first slice ----
+-- One row per day and class, counted by one upsert per beacon (lib/views.ts#recordView). Aggregate only: no IP, user
+-- agent, viewer id, session id, cookie, referrer URL, path, query or time of day. user_id is the viewed trader (profile,
+-- trade and month surfaces; null elsewhere), keyed by id, never by handle text, so the counts go with the account
+-- (cascade) and never follow a stranger who later takes the handle. surface and via have no CHECK on purpose (adding a
+-- code later would need a drop constraint, which CI forbids): both are validated against the closed registry in code
+-- (lib/views.ts SURFACES, lib/referral.ts VIA_CODES). Never read by any page or by ordering (lib/f15-isolation.test.ts).
+-- Rows older than VIEW_RETENTION_DAYS are purged by the privacy tick (lib/privacy-purge.ts, step 'views').
+create table if not exists view_rollup (
+  day date not null,
+  surface text not null,
+  user_id int references users on delete cascade,
+  ref_class text not null check (ref_class in ('internal', 'external', 'none')),
+  via text not null default 'none',
+  signed_in boolean not null,
+  self_view boolean not null,
+  n int not null default 0
+);
+select schema_add_index('view_rollup_key', 'create unique index view_rollup_key on view_rollup (day, surface, user_id, ref_class, via, signed_in, self_view) nulls not distinct');
+select schema_add_index('view_rollup_user', 'create index view_rollup_user on view_rollup (user_id) where user_id is not null');
+-- Beacons the bot filter dropped, per day, surface (or 'other') and reason (no user id): the false-count rate stays
+-- readable in weeks 1-8. reason has no CHECK for the same reason as surface (lib/views.ts DROP_REASONS).
+create table if not exists view_drops (
+  day date not null,
+  surface text not null,
+  reason text not null,
+  n int not null default 0,
+  primary key (day, surface, reason)
+);

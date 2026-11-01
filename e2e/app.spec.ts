@@ -297,7 +297,7 @@ test('share moment: copy records the action, shows once, hidden signed out; card
   await expect(page.getByText('Your record is live.')).toBeVisible();
   await page.getByRole('button', { name: 'Share my record' }).click();
   await expect(page.getByRole('button', { name: 'Link copied' })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${baseURL}/u/${handle}`);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${baseURL}/u/${handle}?via=card`);
   await expect.poll(async () => (await sql`select share_prompt_action a from users where handle = ${handle}`)[0].a).toBe('copied');
   const [row] = await sql`select share_prompt_seen_at s from users where handle = ${handle}`;
   expect(row.s).not.toBeNull();
@@ -547,7 +547,7 @@ test('share card: each share is one click, no embed code or downloads, owner onl
   await expect(page.locator('textarea')).toHaveCount(0);
   await card.getByRole('button', { name: 'Share my record' }).click();
   await expect(card.getByRole('button', { name: 'Link copied' })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${baseURL}/u/${handle}`);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${baseURL}/u/${handle}?via=card`);
   await expect.poll(async () => (await sql`select share_image_saved_at s from users where id = ${u.id}`)[0].s).not.toBeNull();
 
   const anonCtx = await browser.newContext();
