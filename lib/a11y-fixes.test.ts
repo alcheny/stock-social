@@ -42,7 +42,7 @@ test('#23: signWord says Gain, Loss or No change, matching the printed sign', ()
 });
 
 test('#23: no call site paints by a raw comparison any more', () => {
-  const sites = ['app/u/[handle]/page.tsx', 'app/pane.tsx', 'app/ui.tsx', 'app/u/[handle]/similar-section.tsx', 'app/me/likes/page.tsx',
+  const sites = ['app/u/[handle]/page.tsx', 'app/pane.tsx', 'app/ui.tsx', 'app/u/[handle]/similar-section.tsx', 'app/me/likes/page.tsx', 'lib/record-tools.ts',
     'app/u/[handle]/chart.tsx', 'app/u/[handle]/trade/[sellId]/page.tsx', 'app/u/[handle]/month/[ym]/page.tsx', 'app/u/[handle]/new-trades-prompt.tsx',
     'app/t/[symbol]/page.tsx', 'app/t/[symbol]/Theses.tsx'];
   for (const f of sites) {

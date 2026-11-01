@@ -30,7 +30,10 @@ export function FirstVisitBox({ dismissLabel, children }: { dismissLabel: string
   if (dismissed) return null;
   const dismiss = () => {
     markSeen('line');
-    document.querySelector<HTMLElement>('[data-first-card-link]')?.focus();
+    const link = document.querySelector<HTMLElement>('[data-first-card-link]');
+    link?.focus();
+    // Review 4: when the first row shows its pane, the card is inert and focus() fails; take the first control in view.
+    if (document.activeElement !== link) document.querySelector<HTMLElement>('.feed > .row > :not([inert]) :is(a[href], button)')?.focus();
   };
   return (
     <div className="first-visit" data-first-visit>

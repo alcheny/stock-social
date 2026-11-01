@@ -50,18 +50,22 @@ export function useFeedInert() {
       going.delete(row);
       apply(row, restsOn(row));
     };
-    const steer = (row: HTMLElement, side: Side) => {
+    const timers = new Set<number>(), rafs = new Set<number>(); // cancelled on unmount (review 5)
+    const steer = (row: HTMLElement, side: Side, focus = true) => {
       if (side === 'pane') {
         const a = document.activeElement, card = halves(row).find((k) => sideOf(k) === 'card');
         if (a instanceof HTMLElement && card?.contains(a)) memory.set(row, a);
       }
       const prev = going.get(row);
-      if (prev) clearTimeout(prev.timer);
+      if (prev) { clearTimeout(prev.timer); timers.delete(prev.timer); }
       // Until the scroll ends (scrollend, or 1.5 s where it is missing) the row keeps the side it is heading to.
       // ponytail: without scrollend a scroll slower than 1.5 s re-syncs mid-way (focus follows the half in view) — drop the timer once scrollend is everywhere.
-      if (restsOn(row) !== side) going.set(row, { side, timer: window.setTimeout(() => settle(row), 1500) });
-      else going.delete(row);
-      apply(row, side, true);
+      if (restsOn(row) !== side) {
+        const timer = window.setTimeout(() => { timers.delete(timer); settle(row); }, 1500);
+        timers.add(timer);
+        going.set(row, { side, timer });
+      } else going.delete(row);
+      apply(row, side, focus);
     };
     const rowInView = () => [...document.querySelectorAll<HTMLElement>('.row')].find((r) => Math.abs(r.getBoundingClientRect().top) < r.clientHeight / 2);
     // The same guards as app/feed-keys.tsx, so this moves focus exactly when that scrolls.
@@ -70,7 +74,10 @@ export function useFeedInert() {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       if ((e.target as HTMLElement).closest?.('input, textarea, select')) return;
       const row = rowInView();
-      if (row?.matches(ROW)) steer(row, e.key === 'ArrowRight' ? 'pane' : 'card');
+      // Review 2: an arrow moves focus into the row only when focus is already in it (or nowhere); from the nav, the
+      // first-visit line or the footer it still scrolls the row (app/feed-keys.tsx) and un-inerts the half, focus stays.
+      const a = document.activeElement;
+      if (row?.matches(ROW)) steer(row, e.key === 'ArrowRight' ? 'pane' : 'card', !a || a === document.body || row.contains(a));
     };
     const onClick = (e: MouseEvent) => {
       const row = (e.target as HTMLElement).closest?.('[data-back]')?.closest<HTMLElement>('.row');
@@ -80,7 +87,9 @@ export function useFeedInert() {
     const onScroll = (e: Event) => {
       const row = e.target as HTMLElement;
       if (!(row instanceof HTMLElement) || !row.matches(ROW) || frames.has(row)) return;
-      frames.set(row, requestAnimationFrame(() => { frames.delete(row); sync(row); }));
+      const id = requestAnimationFrame(() => { rafs.delete(id); frames.delete(row); sync(row); });
+      rafs.add(id);
+      frames.set(row, id);
     };
     const onScrollEnd = (e: Event) => {
       const row = e.target as HTMLElement;
@@ -97,6 +106,8 @@ export function useFeedInert() {
     document.addEventListener('keydown', onKey);
     document.addEventListener('click', onClick);
     return () => {
+      timers.forEach((t) => clearTimeout(t));
+      rafs.forEach((r) => cancelAnimationFrame(r));
       added.disconnect();
       feed.removeEventListener('scroll', onScroll, { capture: true });
       feed.removeEventListener('scrollend', onScrollEnd, { capture: true });
