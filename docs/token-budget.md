@@ -19,12 +19,12 @@ an invalid `now` is an error issue and a brake: the fallback clock is 0.) A usag
 says: the caller checks `brake` and any `error`-level `issues` itself.
 
 **Error-level issues with no brake.** Most input errors brake (`bad-now`, `no-window`, `no-resets-at`,
-`window-ahead`, `bad-status`, `bad-overage`). The rest leave `brake: "none"`: proceed per the plan, but fix
-the input, because the plan has already replaced the bad value:
+`window-ahead`, `bad-status`, `bad-overage`). The rest leave `brake: "none"`: proceed, but treat the plan as
+optimistic until the input is fixed, because the plan has already replaced the bad value:
 
 | code | the plan used |
 |---|---|
-| `bad-cost` | 0 for that session's cost: spend is understated (not conservative), so fix it first |
+| `bad-cost` | 0 for that session's cost: spend is understated, so the plan is optimistic until it is fixed |
 | `bad-estimate` | the kind's prior range for that item (ignoring the bad field) |
 | `bad-recent` | the session's lifetime burn |
 | `bad-config` (`capUsd`) | no configured cap: calibrated or unknown instead |
@@ -102,9 +102,10 @@ from `at` on the current window's grid. Ignored, with one issue each that counts
   explicit `resetsAt: null` (written without a usable window): `history-no-window`;
 - entries whose `type` differs from the window's, or whose `resetsAt` does not fit a window of this type
   around `at`: `history-other-type`;
-- entries whose own `resetsAt` names a newer window than the current one, or one overlapping it
-  (60 s < |its reset − the current reset| < the window length): `history-other-window`. ResetsAt values
-  within 60 seconds of each other name the same window. A plan written after a rollover records a
+- entries whose own `resetsAt` names a newer window than the current one, or one overlapping it (an
+  earlier reset less than one window length before the current one): `history-other-window`. A `resetsAt`
+  within 60 seconds of the current window's grid (the current reset minus a whole number of windows) is
+  snapped to that grid value first, so the same window always compares equal. A plan written after a rollover records a
   `resetsAt` inferred on the old window's grid; if the provider's `five_hour` windows do not follow that
   grid, such entries are later ignored this way;
 - entries with an unparseable `resetsAt`, `at` or `totalCostUsd`: `bad-history`.
@@ -121,10 +122,11 @@ later and the cap higher. Keep one history and one `capUsd` per window type.
 | `sessions[].costUsd` | the child session's cumulative `usage.cost_usd` |
 | `sessions[].startedAt` | when the orchestrator started the session (its `created_at`) |
 | `sessions[].lastActiveAt` | the time of the session's latest event or cost update |
-| `sessions[].done` | true once the session's final result arrived (finished, failed or archived) |
+| `sessions[].done` | true once the session's task finished or was abandoned (final result, failure or archive); an interrupted or paused session is never done |
 | `sessions[].paused` | true while the orchestrator holds the session paused |
+| `sessions[].pausedHours` | optional: the hours the session has spent paused so far, kept by the orchestrator (subtracted from its active age) |
 | `sessions[].recent` | the latest earlier reading of that session (`costUsd`, `at`) at least 5 minutes old |
-| `window` | the latest `rate_limit_info` as reported (`status`, `resetsAt`, `rateLimitType`, `isUsingOverage`) |
+| `window` | the latest `rate_limit_info` as reported (`status`, `resetsAt`, `rateLimitType`, `isUsingOverage`), from any child session or the orchestrator's own session |
 | `history` | the `historyEntry` of every earlier plan of this window type |
 
 **Mixed windows.** Children may report different rate-limit windows (`five_hour` and `seven_day`). Run one
@@ -133,13 +135,13 @@ the same `sessions` and `queue`, and combine them:
 
 | field | combined |
 |---|---|
-| `brake` | the first plan's brake that is not `none` |
+| `brake` | the most urgent of the plans' brakes, whatever the plan order: `rejected`/`overage` > `unknown-status` > `bad-window` > `none` |
 | `admit` | the intersection of the plans' `admit[].id`; an item admitted in one plan and queued in another is queued, with that plan's `nextAdmitAt` |
 | `queued[].nextAdmitAt` | the later of the plans'; null in any plan wins (re-plan every tick) |
 | `pause.recommend` | the union, in the order of the more urgent plan (rejected/overage first) |
 | `pause.next` | the first id of that union |
-| `resume` | only when every plan's brake is `none` and `resume.next` is set in all |
-| `fill` | the plan with the minimum `recommendAdmitUsd`: its amount and its suggestions |
+| `resume` | only when every plan's brake is `none`: the first id, in `resume.ids` order, present in every plan's `resume.fitting`; else hold |
+| `fill` | the plan with the minimum `recommendAdmitUsd` (null means no limit; if all are null, null): its amount, suggestions and `blockedBy` |
 | `summary` | written by the caller from the combined fields |
 
 ## Method
@@ -165,7 +167,7 @@ on 2026-11-01's runs, where sessions finished in about an hour:
 
 | kind | low | point | high | typical hours | tail hours | floor | from |
 |---|---|---|---|---|---|---|---|
-| build | 20 | 40 | 70 | 1.75 | 0.25 | 4 | committee builds: only 2 of 9 finished by 57-73 min (F-6 $28.00, privacy $20.78); six still running at 81-90 min at $14-38 |
+| build | 20 | 40 | 70 | 1.75 | 0.25 | 4 | committee builds: 2 of 9 finished, at 57 and 73 min (F-6 $28.00, privacy $20.78); six running at 81-90 min at $15.78-38.17, one at 60 min at $14.01 |
 | build:small | 5 | 9 | 15 | 0.5 | 0.1 | 2 | CI-speed small build $8.70 in 31 min |
 | council | 30 | 45 | 65 | 1.25 | 0.25 | 4 | idea board $32.77 in 36 min; creative $31.36, design $40.90 in about 64 min; market $48.31 at 78 min, still fixing |
 | review | 1 | 3 | 5 | 0.25 | 0.05 | 1 | independent review subagents: $1-4 |
@@ -174,6 +176,10 @@ on 2026-11-01's runs, where sessions finished in about an hour:
 A key `kind:phase` overrides `kind` for sessions in that phase; `config.priors` overrides the defaults by
 the same keys, as a number (low = point = high) or `{ "low", "point", "high" }` (also `typicalHours`,
 `tailHours`, `floorUsd`).
+
+**Age** is active age throughout: the active span (`startedAt` to `lastActiveAt`) less `pausedHours`, so idle
+and paused time does not move a session through its typical hours, its overrun or its first minutes, and
+its lifetime burn is averaged over the same active hours.
 
 **Remaining cost of a running session**, computed three times (with the low, point and high prior) as
 the largest of
@@ -222,18 +228,23 @@ is used for all three), else the prior range for its kind and phase.
    high / low above 1.25 is reported (`cap-bracket-wide`). Source `calibrated`; it carries over to later
    windows, but this window's evidence checks it: when `lowerBoundUsd` (below) is above a carried-over
    high, the old cap is disproved and dropped (`cap-stale`: the cap is unknown again); when it lies
-   between low and high, low is raised to it (`cap-raised`). Any reading of this window that was not
-   rejected, at spend S, proves the cap is at least S: low is raised to S, and when S is above the
-   calibrated high the calibration is disproved and dropped (`cap-disproved`; the cap is unknown again,
-   with `lowerBoundUsd` at least S, and admission follows the unknown-cap rule while status is allowed or
-   allowed_warning). A rejected reading at R that is followed in its window by a non-rejected reading at
-   spend ≥ R has cleared (the provider's limit rolls) and caps nothing (`rejection-cleared`).
+   between low and high, low is raised to it (`cap-raised`). Any reading that was not rejected, at spend
+   S, proves the cap of its window is at least S. This is checked in the calibration's own window and in
+   the current one: low is raised to S, and when S is above the calibrated high the calibration is
+   disproved (`cap-disproved`; the cap is unknown, with `lowerBoundUsd` at least S, and admission follows
+   the unknown-cap rule while status is allowed or allowed_warning), unless a rejected reading later in
+   the same window, at R ≥ S, caps it instead (high = R, low = max(S, the allowed reading before it /
+   warnFraction), at most R). A calibration disproved in its own window stays dropped in later windows. A
+   rejected reading at R that is followed in its window by a non-rejected reading at spend ≥ R has cleared
+   (the provider's limit rolls) and caps nothing (`rejection-cleared`). Readings at the same time are
+   ordered allowed, allowed_warning, rejected, then by spend, so the order of `history` never matters.
    `cap.calibratedFrom` names the reading that set the high
    end (`at`, `spendUsd`, `status`, `resetsAt`) and each reading used: `warning`, `rejected`, `allowedLow`.
 3. Otherwise unknown (source `unknown`, values null). `lowerBoundUsd` is the largest A / warnFraction
    over `allowed` readings at spend A in this window (the cap is above it). It is always reported, never
    admits anything on its own, only checks a carried-over calibration, and is clamped to a cap set by a
-   rejected reading (issue `lower-bound-clamped`, naming the reading).
+   rejected reading (issue `lower-bound-clamped`, naming the reading). Above a high end set otherwise it is
+   reported, not clamped (`lower-bound-above-cap`: warnFraction may be wrong).
 
 **Admission: the one rule, for this window and the next.** When unsure whether new work goes over the
 cap, the owner's call is to admit it and accept the risk of going over. So queued work is admitted while
@@ -252,7 +263,7 @@ Money is compared with a 1e-9 tolerance (0.1 + 0.2 fits under 0.3), here and in 
 Items are taken in priority order (then id); the first item that does not fit stops admission, so a large
 important item is not starved by smaller ones. Work is queued only when it would clearly exceed 100% even
 under these optimistic figures. While the cap is unknown, every queued item is admitted while status is
-`allowed`. `safety` is not in the admission check. `config.admitAt: "point"` charges new items at their
+`allowed` or `allowed_warning`. `safety` is not in the admission check. `config.admitAt: "point"` charges new items at their
 point estimate instead; at the default `"low"`, a deep queue can be admitted that is likely over the cap at
 point estimates, and the overshoot tier says so (`overshoot.note`).
 
@@ -267,7 +278,8 @@ admission at low estimates let through.
 **Fill** (the owner's aim is to end each window with nothing left). `fill.expectedUnusedUsd` = cap point −
 spend − Σ running in-window point − Σ admitted in-window point. When it is positive the plan asks for more
 work: `recommendAdmitUsd`, and `suggestions`, one per prior key a queue item can express (kind and phase,
-not the orchestrator): `{ kind, phase, inWindowUsd, count }`, where `inWindowUsd` is what one item of that
+not the orchestrator): `{ kind, phase, inWindowUsd, carriesOverUsd, count }` (the message adds "each carries
+~$X past reset" when an item carries something), where `inWindowUsd` is what one item of that
 kind would spend before the reset and `count` how many fit, limited by this window (the unused budget /
 `inWindowUsd`) and by the next (what the next window has left after carry-over / the item's own
 carry-over); the biggest in-window spend first (`suggestedKinds` lists the same keys). The suggestions are
@@ -294,7 +306,10 @@ not rolled-over window.
   three ids and a count of the rest.
 - `unknown-status`: status missing or unrecognised (an error-level `bad-status`; or `now` invalid), until
   a valid status is read.
-- `bad-window`: no usable `resetsAt`, or one more than a window ahead.
+- `bad-window`: no usable `resetsAt`, or one more than a window ahead. Cold start: with no window or reset
+  time at all, no session running and no history, the top queued item alone is admitted (issue
+  `bootstrap`) so that a rate-limit reading can be obtained; any session's `rate_limit_info`, the
+  orchestrator's own included, is a valid window source.
 
 A real `rejected` or overage status takes precedence over a bad window, so its pause list is still built;
 `nextAdmitAt` stays null while the window is bad. `pause.next` is the first id to pause (or null).
@@ -304,8 +319,10 @@ first, then the most progress (so nearly done work finishes). Resume one per tic
 first of them that fits, in both windows, with the work actually running (spend + the unpaused sessions'
 in-window point + its own in-window point ≤ cap high; likewise for carry-over); with the cap unknown, or
 nothing but the orchestrator running, it is the first. The summary says "resume X now", or "holding N
-paused" when none fits. Resuming and admitting can happen in the same tick: paused sessions' reserves are
-already charged against the cap. `pause.stallRisk` is true under `rejected`/`overage`, with `pause.reason`; it is also true, with an
+paused" when none fits. `resume.fitting` lists every paused session that fits now, in `resume.ids` order
+(for combining plans). Resuming and admitting can happen in the same tick: paused sessions' reserves are
+already charged against the cap, so resuming while running work is over the cap changes nothing in the
+plan (`resume.rule` says so). `pause.stallRisk` is true under `rejected`/`overage`, with `pause.reason`; it is also true, with an
 informational reason and nothing to pause, when the cap is known and running work alone is projected over
 it (`runningFits` false), which also raises `running-over-cap` with the shortfall.
 
@@ -320,10 +337,13 @@ work alone already exceeds the cap.
 **Projection.** The burn rate is the sum of the running (not paused) sessions' observed burns (recent,
 else lifetime once it counts; the orchestrator its own burn). A session too young for its burn to count yet
 is projected at no less than its prior's average rate (point prior / typical hours),
-`reserve.sessions[].projectedBurnUsdPerHour`; on 2026-11-01 this gave $295/h against about $294/h real.
+`reserve.sessions[].projectedBurnUsdPerHour`. On 2026-11-01 this gave about $295-330/h projected (depending
+on which young sessions have 10 minutes of active age) against $257/h in the fixture's aggregate history and
+about $294/h measured by the orchestrator over 07:25-08:44.
 `historyBurnUsdPerHour` reports the window-spend slope since the earliest history
 reading of the last 2 hours (at least 15 minutes old) for information only; when it and the projected
-burn differ by more than 2x the plan reports `burn-mismatch` (a warning: there is no independent
+burn differ by more than 3x the plan reports `burn-mismatch`, except when a session started or finished in
+the last 15 minutes (the slope lags then) (a warning: there is no independent
 account-level total, since history holds the planner's own past entries). Time to cap = (cap high −
 spend) / burn, compared with the hours to reset (null when the burn is 0 or the result is out of range):
 a straight-line extrapolation, NOT used for admission or fill: `fill.recommendAdmitUsd` and its
@@ -387,7 +407,7 @@ while the cap is unknown. `issues[]` are `{ level, code, detail }`; `level` is `
 - Spend the orchestrator cannot see (a person's own sessions on the same account) is missing from spend,
   so a cap calibrated from a warning comes out lower than the real one: that errs on the safe side.
 - Until the first warning (or a `capUsd`), the cap is unknown and everything is admitted while status is
-  `allowed`: the warning at `warnFraction` is the signal that turns reserves on. If the fleet's committed
+  `allowed` (or `allowed_warning`, once a calibration has been disproved): the warning at `warnFraction` is the signal that turns reserves on. If the fleet's committed
   work already exceeds the cap by then, `projection.runningFits` says so and the brakes take over at
   `rejected`.
 - A session in its first minutes (10, or 5 with a recent reading) below its low prior is reserved at its
