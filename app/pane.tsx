@@ -39,7 +39,8 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const both = open && combined(trades.map((t) => t.returnPct), unrealized);
   const trust = paneTrust(trades, state);
   const chartBlock = <>
-    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} />
+    {/* OPTIONS fix round 3 (UX B1): with the label, the caption says the chart excludes options too. */}
+    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} shareOnly={!!options?.label} />
     {open && <ChartNote o={open} />}
   </>;
   const summary = p.since && p.worst && (

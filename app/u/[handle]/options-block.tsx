@@ -3,32 +3,62 @@
 // line. Open gate: the options line, the short and technical lines, the "Option trades" list and the open rows.
 // Percent only: no strike, premium, contract count or contract symbol is ever passed in. Plain links (no router
 // import), so the surface tests can render them as static markup outside the app.
+import type { ReactNode } from 'react';
 import { expiryText, OPTIONS } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
-import { closesOf, hasOptions, openOf, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView, type PaneOptionsView } from '@/lib/options-view.ts';
+import { closesOf, hasOptions, openOf, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView, type PaneOptionsView, isOptionsLine } from '@/lib/options-view.ts';
 
 const sign = (x: number) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
 const chip = (right: 'CALL' | 'PUT') => (right === 'CALL' ? OPTIONS.call : OPTIONS.put);
 const closedDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
-/** D5: "Share trades" over a headline that reads share trades only, whenever the trader has option closes or exclusions. */
+/** D5 (fix round 3: "Excluding options"): over a headline that leaves options out, whenever the trader has option closes
+ *  or exclusions. */
 export function ShareTradesLabel({ counts, show }: { counts?: OptionCounts; show?: boolean }) {
   return (show ?? (counts ? shareLabel(counts) : false)) ? <p className="muted small share-label" data-options="label">{OPTIONS.shareLabel}</p> : null;
 }
 
-/** D5/D6: under the headline. Closed: the count line, muted, linking to /how. Open: the options line at the headline's
- *  type size, then the short and technical lines, each on its own line. */
-export function OptionsLines({ m }: { m: OptionHeadline }) {
+// Fix round 3 (item 9): a figure stays on one line with its word ("36% wins", "-22.0% avg"): each " · " part is one
+// unbreakable span, and an "avg" figure carries its sign color (item 11).
+export function NowrapLine({ text }: { text: string }) {
+  const parts = text.split(' · ');
+  return <>{parts.map((p, i) => {
+    const avg = /^(.*?)([+\-\u2212\u2248]?\d[\d.,]*%)( avg.*)$/.exec(p);
+    return <span key={i}>{i > 0 && ' · '}<span className="nowrap">{avg ? <>{avg[1]}<b className={avg[2].startsWith('-') || avg[2].startsWith('\u2212') || avg[2].startsWith('\u2248') ? 'down' : avg[2].startsWith('+') ? 'up' : ''}>{avg[2]}</b>{avg[3]}</> : p}</span></span>;
+  })}</>;
+}
+
+/** Fix round 3 (item 6): the gated sentence, then its own short link to /how. */
+function GatedLine({ c, small = false }: { c: OptionCounts; small?: boolean }) {
+  return <p className={`muted options-gated${small ? ' small' : ''}`} data-options="gated">{OPTIONS.gated(closesOf(c), openOf(c))} <a className="options-how" href="/how#options">{OPTIONS.howLink}</a></p>;
+}
+
+/** Fix round 3 (item 2): the options summary as a second stats row at the headline's size, with its own row label. */
+export function OptionsGrid({ m, long }: { m: OptionHeadline & { gate: 'open' }; long?: string | boolean }) {
+  const s = m.summary;
+  if (!s) return null;
+  return <section className="stats options-stats" aria-label={OPTIONS.gridLabel(s.n)} data-long={long}>
+    <p className="row-label" aria-hidden="true">{OPTIONS.gridLabel(s.n)}</p>
+    <div className="stat big"><b>{`${(s.winRate * 100).toFixed(0)}%`}</b><small>win rate</small></div>
+    <div className="stat big"><b className={sign(s.avg)}>{pct(s.avg)}</b><small>avg return / trade</small>
+      {s.range && <small className="range"><span className="nowrap">{`(${pct(s.range.low)} to ${pct(s.range.high)})`}</span> · 95% range</small>}
+    </div>
+  </section>;
+}
+
+/** D5/D6, fix round 3 (item 3): after the evidence line. Closed: the gated sentence and its link. Open: the options grid,
+ *  then the short and technical lines, each on its own line. */
+export function OptionsLines({ m, long }: { m: OptionHeadline; long?: string | boolean }) {
   const c = m.counts;
   // Fix round 1 (QA 8): share trades held over an exercise or assignment day are share trades (public words), so their
   // line shows in both gate states; while open it joins the technical line.
   const shares = c.exerciseShares > 0 && (m.gate === 'closed' || c.other === 0) ? <p className="muted options-exercise-shares">{OPTIONS.exerciseShares(c.exerciseShares)}</p> : null;
   if (!hasOptions(c)) return shares;
   if (m.gate === 'closed') {
-    return <><p className="muted options-gated" data-options="gated"><a href="/how#options">{OPTIONS.gated(closesOf(c), openOf(c))}</a></p>{shares}</>;
+    return <><GatedLine c={c} />{shares}</>;
   }
   return <div className="options-lines" data-options="open">
-    {m.summary && <p className="options-line">{OPTIONS.lineHead(m.summary.n, `${(m.summary.winRate * 100).toFixed(0)}%`)}<b className={sign(m.summary.avg)}>{pct(m.summary.avg)}</b> avg{m.summary.range ? ` (${pct(m.summary.range.low)} to ${pct(m.summary.range.high)})` : ''}</p>}
+    <OptionsGrid m={m} long={long} />
     {c.short + c.openShort > 0 && <p className="muted options-short">{OPTIONS.short(c.short, c.openShort)}</p>}
     {c.other > 0 && <p className="muted options-technical">{OPTIONS.technical(c.other, c.exerciseShares)}</p>}
     {shares}
@@ -43,9 +73,10 @@ export function OptionsLines({ m }: { m: OptionHeadline }) {
 // closed trades are keyed by sell_id.
 export function OptionTradeRow({ t }: { t: OptionTradeView }) {
   const exp = expiryText(t.expiry);
-  return <li className="option-row" aria-label={`${t.underlying} ${chip(t.right).toLowerCase()}, ${exp}, ${pct(t.returnPct)}`}>
+  // Fix round 3 (item 8): the link's accessible name carries the whole row and says where it goes.
+  return <li className="option-row">
     <div className="line">
-      <span className="option-what"><b><a href={`/t/${encodeURIComponent(t.underlying)}`} className="tap44">{t.underlying}</a></b> <span className="chip">{chip(t.right)}</span></span>
+      <span className="option-what"><b><a href={`/t/${encodeURIComponent(t.underlying)}`} className="tap44" aria-label={OPTIONS.rowName(t.underlying, chip(t.right), exp, pct(t.returnPct))}>{t.underlying}</a></b> <span className="chip">{chip(t.right)}</span></span>
       <b className={sign(t.returnPct)}>{pct(t.returnPct)}</b>
     </div>
     {/* L7: a demo row carries the Demo badge (Verified stays the profile's, from its source rows). */}
@@ -71,18 +102,30 @@ export function OptionTradesSection({ trades, start = 0, handle }: { trades: Opt
   </section>;
 }
 
-/** D6 (TR-4): long open options in the open block, with the chip and the absolute expiry. */
+/** D6 (TR-4): long open options as list items of the open block (fix round 3, item 1: one list with the share rows). */
+export function OpenOptionItems({ open }: { open: OpenOptionView[] }) {
+  return <>{open.map((p, i) => {
+    const exp = expiryText(p.expiry);
+    // Fix round 1 (QA 1): underlying, expiry and right plus the index; never the contract key (it holds the strike).
+    return <li key={`${p.underlying}|${p.expiry}|${p.right}|${i}`} className="option-open">
+      <div className="line"><span className="option-what"><b><a href={`/t/${encodeURIComponent(p.underlying)}`} aria-label={OPTIONS.rowName(p.underlying, chip(p.right), exp, `${pct(p.pct)} unrealized`)}>{p.underlying}</a></b> <span className="chip">{chip(p.right)}</span> <span className="muted small nowrap">{exp}</span></span><b className={sign(p.pct)}>{pct(p.pct)}</b></div>
+    </li>;
+  })}</>;
+}
 export function OpenOptionRows({ open }: { open: OpenOptionView[] }) {
   if (!open.length) return null;
-  return <ul className="rows positions options-open">
-    {open.map((p, i) => {
-      const exp = expiryText(p.expiry);
-      // Fix round 1 (QA 1): underlying, expiry and right plus the index; never the contract key (it holds the strike).
-      return <li key={`${p.underlying}|${p.expiry}|${p.right}|${i}`} aria-label={`${p.underlying} ${chip(p.right).toLowerCase()}, ${exp}, ${pct(p.pct)} unrealized`}>
-        <div className="line"><span className="option-what"><b><a href={`/t/${encodeURIComponent(p.underlying)}`}>{p.underlying}</a></b> <span className="chip">{chip(p.right)}</span> <span className="muted small">{exp}</span></span><b className={sign(p.pct)}>{pct(p.pct)}</b></div>
-      </li>;
-    })}
-  </ul>;
+  return <ul className="rows positions options-open"><OpenOptionItems open={open} /></ul>;
+}
+
+/** Fix round 3 (item 1): the open block: one "Open positions" heading, the "as of" line, then one list: share rows
+ *  (built by the page) first, option rows after them. Nothing renders without any row. */
+export function OpenPositionsBlock({ title, asOf, shareRows, open, hasShares }: { title: string; asOf?: ReactNode; shareRows?: ReactNode; open: OpenOptionView[]; hasShares: boolean }) {
+  if (!hasShares && !open.length) return null;
+  return <>
+    <h2>{title}</h2>
+    {asOf}
+    <ul className="rows positions">{shareRows}<OpenOptionItems open={open} /></ul>
+  </>;
 }
 
 /** D6: futures and similar open contracts, counted (not gated: no option term is published). */
@@ -94,5 +137,6 @@ export function UnsupportedLine({ counts }: { counts: OptionCounts }) {
  *  (QA 2): it receives the line, never the per-kind counts. */
 export function PaneOptions({ v }: { v?: PaneOptionsView }) {
   if (!v?.line) return null;
-  return <div className="pane-options"><p className={v.line.startsWith('Options:') ? 'options-line small' : 'muted small options-gated'} data-options={v.line.startsWith('Options:') ? 'open' : 'gated'}>{v.line}</p></div>;
+  const open = isOptionsLine(v.line);
+  return <div className="pane-options"><p className={open ? 'options-line small' : 'muted small options-gated'} data-options={open ? 'open' : 'gated'}>{open ? <NowrapLine text={v.line} /> : v.line}</p></div>;
 }

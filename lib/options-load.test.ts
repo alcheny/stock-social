@@ -66,7 +66,7 @@ test('AC16: the closed-gate read selects counts only (no option return, contract
 
 const C = (o: Partial<OptionCounts> = {}): OptionCounts => ({ shown: 0, short: 0, other: 0, openLong: 0, openShort: 0, openOther: 0, unsupported: 0, exerciseShares: 0, ...o });
 
-test('AC24 (model): the "Share trades" label and the count line follow option closes and exclusions; zero changes nothing', () => {
+test('AC24 (model): the "Excluding options" label and the count line follow option closes and exclusions; zero changes nothing', () => {
   assert.equal(shareLabel(C()), false);
   assert.equal(hasOptions(C()), false);
   assert.equal(optionDisplayText({ gate: 'closed', counts: C() }), null);
@@ -76,10 +76,10 @@ test('AC24 (model): the "Share trades" label and the count line follow option cl
   assert.equal(closesOf(C({ shown: 3, short: 1, other: 2 })), 6);
   assert.equal(openOf(C({ openLong: 1, openShort: 2 })), 3);
   assert.equal(optionDisplayText({ gate: 'closed', counts: C({ shown: 3, short: 1, openLong: 1 }) }),
-    "4 option trades and 1 open option imported, not shown: this record's public consent doesn't cover options yet.");
+    "4 option trades and 1 open option imported. Options aren't published yet.");
   // Zero parts are dropped.
-  assert.equal(OPTIONS.gated(1, 0), "1 option trade imported, not shown: this record's public consent doesn't cover options yet.");
-  assert.equal(OPTIONS.gated(0, 2), "2 open options imported, not shown: this record's public consent doesn't cover options yet.");
+  assert.equal(OPTIONS.gated(1, 0), "1 option trade imported. Options aren't published yet.");
+  assert.equal(OPTIONS.gated(0, 2), "2 open options imported. Options aren't published yet.");
   const summary = { n: 14, winRate: 5 / 14, avg: -0.22, range: { low: -0.41, high: -0.03 }, bets: 9 };
   assert.equal(optionsLineText(summary), 'Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)');
   assert.equal(optionDisplayText({ gate: 'open', counts: C({ shown: 14 }), summary }), 'Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)');
@@ -136,7 +136,7 @@ dbTest('AC16/21 (DB): the loader returns counts only while gated; the display lo
     const h = (await optionHeadline([u.id])).get(u.id)!;
     assert.equal(h.gate, 'closed');
     const text = await loadOptionDisplayText(u.id);
-    assert.equal(text, "1 option trade imported, not shown: this record's public consent doesn't cover options yet.");
+    assert.equal(text, "1 option trade imported. Options aren't published yet.");
     const now = new Date();
     await writeDisplayLog({ now, ids: [u.id] });
     const [d] = await sql`select options_line, headline from display_log where user_id = ${u.id}`;

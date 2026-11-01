@@ -247,7 +247,7 @@ export type CardModel = {
   chart: CardChart | null;
   open: CardOpen | null; // F-6: the unrealized part, beside the realized figures
   // OPTIONS: present only when the input carried options (a card without them keeps its exact shape).
-  shareLabel?: boolean; // the headline label names share trades
+  shareLabel?: boolean; // the "Excluding options" pill (fix round 3)
   optionsLine?: string | null; // the count line (gated) or the options line
 };
 
@@ -291,7 +291,7 @@ export function recordCard(i: CardInput): CardModel {
     ...card,
     headline: pct(avg),
     headlineTone: tone(avg),
-    headlineLabel: card.shareLabel ? (card.open ? OPTIONS.cardPerClosedShareTrade : OPTIONS.cardPerShareTrade) : card.open ? SHARE_CARD.perClosedTrade : SHARE_CARD.perTrade, // OPTIONS
+    headlineLabel: card.open ? SHARE_CARD.perClosedTrade : SHARE_CARD.perTrade,
     range,
     count: `${countValue} · ${SHARE_CARD.lossesIncluded}`, countValue, countNote: SHARE_CARD.lossesIncluded,
     period: `${since(first)} · ${periodLength}`, periodSince: since(first), periodLength,

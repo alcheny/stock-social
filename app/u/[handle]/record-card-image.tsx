@@ -38,7 +38,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   );
   const badge = pill(m.label, f.label, TONE[m.tone]);
   const newRecord = m.newRecord ? pill('New record', f.newRecord, C.text) : null;
-  // OPTIONS fix round 1 (AC 24, QA 12): an explicit "Share trades" label beside the trust badge (the display name gives
+  // OPTIONS fix round 1 (AC 24, QA 12), round 3: an explicit "Excluding options" label beside the trust badge (the display name gives
   // way first, as for the other badges).
   const shareOnly = m.shareLabel ? pill(OPTIONS.shareLabel, f.label, C.muted) : null;
   const toneColor = (tone: 'up' | 'down' | 'flat') => (tone === 'up' ? C.up : tone === 'down' ? C.down : C.text);
@@ -125,7 +125,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   // Breathing room around the range and before the count (user test), except where the 630 px card has none to spare:
   // two extra rows (failed-import note and open positions) or a wide card.
   const tight = !!(m.note && o) || wide;
-  const [labelA, labelB] = m.open || wide || m.shareLabel /* OPTIONS */ ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
+  const [labelA, labelB] = m.open || wide ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
   const unfurlAverage = (
     <div style={col}>
       <div style={{ ...row, gap: 20 }}>

@@ -1,5 +1,5 @@
 // OPTIONS (docs/features/logs/options/plan.md AC 16–21, 24, E12) against the running app at 360 × 740.
-//   1. Real app, gated (AC 17): the seeded demo trader with options (yolo_yuki, scripts/seed.ts) shows the "Share trades"
+//   1. Real app, gated (AC 17): the seeded demo trader with options (yolo_yuki, scripts/seed.ts) shows the "Excluding options"
 //      label and the one count line, signed out; no contract term, option return, strike (123.45) or contract symbol
 //      anywhere in the HTML, the description, the alt text, the JSON the pages fetch or the display log; the headline
 //      equals the share-only figures.
@@ -16,7 +16,9 @@ import postgres from 'postgres';
 import { createElement as h, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { startVendorFake, type FakeOptionRow } from './fakes/vendor.ts';
-import { OpenOptionRows, OptionsLines, OptionTradesSection, PaneOptions, ShareTradesLabel, UnsupportedLine } from '../app/u/[handle]/options-block.tsx';
+import { vendorLock } from './vendor-lock.ts';
+import { OpenOptionRows, OpenPositionsBlock, OptionsLines, OptionTradesSection, PaneOptions, ShareTradesLabel, UnsupportedLine } from '../app/u/[handle]/options-block.tsx';
+import { PerformanceChart } from '../app/u/[handle]/chart.tsx';
 import { OPTIONS } from '../lib/copy.ts';
 import { paneView, type OptionCounts, type OptionHeadline } from '../lib/options-view.ts';
 
@@ -29,20 +31,27 @@ test.afterAll(async () => { await sql.end({ timeout: 1 }); });
 test.use({ viewport: { width: 360, height: 740 } });
 
 // ---- 1. The real app, gated.
-test('AC17: signed out, the demo trader with options shows the "Share trades" label and the count line, and no option term, return, strike or contract symbol anywhere', async ({ page, request }) => {
+test('AC17: signed out, the demo trader with options shows the "Excluding options" label and the count line, and no option term, return, strike or contract symbol anywhere', async ({ page, request }) => {
   const [u] = await sql`select id, excluded_options_short, excluded_options_other, open_options_short from users where handle = 'yolo_yuki'`;
   test.skip(!u, 'the demo data is not seeded (npm run db:seed)');
   const [{ shown, open }] = await sql`select (select count(*)::int from option_trades where user_id = ${u.id}) as shown, (select count(*)::int from open_option_positions where user_id = ${u.id}) as open`;
   const line = OPTIONS.gated(shown + u.excluded_options_short + u.excluded_options_other, open + u.open_options_short);
-  expect(line).toBe("4 option trades and 1 open option imported, not shown: this record's public consent doesn't cover options yet.");
+  expect(line).toBe("4 option trades and 1 open option imported. Options aren't published yet.");
   const optionPcts = (await sql`select return_pct from option_trades where user_id = ${u.id}`).map((r) => Math.abs(Number(r.return_pct) * 100).toFixed(1));
   const sharePcts = new Set((await sql`select return_pct from closed_trades where user_id = ${u.id}`).map((r) => Math.abs(Number(r.return_pct) * 100).toFixed(1)));
   const json: string[] = [];
   page.on('response', async (r) => { if ((r.headers()['content-type'] ?? '').includes('json')) json.push(await r.text().catch(() => '')); });
   await page.goto('/u/yolo_yuki');
-  await expect(page.locator('.share-label')).toHaveText('Share trades');
-  await expect(page.locator('.options-gated')).toHaveText(line);
+  await expect(page.locator('.share-label')).toHaveText('Excluding options');
+  await expect(page.locator('.options-gated')).toHaveText(`${line} ${OPTIONS.howLink}`);
+  await expect(page.locator('.options-gated a')).toHaveText(OPTIONS.howLink); // fix round 3 (item 6): its own short link
   await expect(page.locator('.options-gated a')).toHaveAttribute('href', '/how#options');
+  // Fix round 3 (item 3): the options block comes after the evidence line and before the secondary stats.
+  expect(await page.evaluate(() => {
+    const ev = document.querySelector('.evidence')!, g = document.querySelector('.options-gated')!;
+    const second = [...document.querySelectorAll('main section.stats')].find((x) => ev.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING)!;
+    return !!(ev.compareDocumentPosition(g) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(g.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+  })).toBe(true);
   await expect(page.locator('footer#site-footer')).toContainText(DISCLAIMER);
   // The headline equals the share-only figures (option_trades never reach it).
   const [s] = await sql`select avg(case when return_pct > 0 then 1.0 else 0 end) as w, avg(return_pct) as a from closed_trades where user_id = ${u.id}`;
@@ -69,7 +78,7 @@ test('AC17: signed out, the demo trader with options shows the "Share trades" la
     for (const p of optionPcts) if (!sharePcts.has(p)) expect(text, `${where}: option return ${p}%`).not.toContain(`${p}%`);
   }
   expect(alt).toContain(line);
-  expect(alt).toContain('average per share trade');
+  expect(alt).toContain('Excluding options.');
 });
 
 test('AC17/AC24: a record with no options renders exactly as before (no label, no line)', async ({ page }) => {
@@ -124,7 +133,10 @@ const step = async (req: APIRequestContext): Promise<{ state: string }> => {
 
 test('E12: through the vendor fake, every D4 case is imported, matched and counted; the profile shows the label, the count line and the futures count, and no term', async ({ page }) => {
   let vendor: { server: Server; base: string };
-  try { vendor = await startVendorFake(VENDOR_PORT); } catch { test.skip(true, `port ${VENDOR_PORT} is in use (run this spec with --workers=1 beside connect.spec.ts)`); return; }
+  // The fake's port is shared with connect.spec.ts: taken in turn (e2e/vendor-lock.ts), never at once.
+  test.setTimeout(test.info().timeout + 300_000); // may wait for connect.spec.ts's file to finish
+  const releaseVendor = await vendorLock();
+  try { vendor = await startVendorFake(VENDOR_PORT); } catch (e) { await releaseVendor(); throw e; }
   const handle = `opt${Math.random().toString(36).slice(2, 8)}`;
   const acc = `e2e-${handle}`;
   try {
@@ -174,8 +186,8 @@ test('E12: through the vendor fake, every D4 case is imported, matched and count
     // Signed out: the label, the count line and the futures count; nothing else about options.
     await page.context().clearCookies();
     await page.goto(`/u/${handle}`);
-    await expect(page.locator('.share-label')).toHaveText('Share trades');
-    await expect(page.locator('.options-gated')).toHaveText(OPTIONS.gated(3 + 2 + 13, 2));
+    await expect(page.locator('.share-label')).toHaveText('Excluding options');
+    await expect(page.locator('.options-gated')).toHaveText(`${OPTIONS.gated(3 + 2 + 13, 2)} ${OPTIONS.howLink}`);
     await expect(page.locator('.options-unsupported')).toHaveText('Plus 2 open positions not shown: futures and similar contracts are out of scope.');
     await expect(page.locator('.options-exercise-shares')).toHaveText(OPTIONS.exerciseShares(1));
     const html = await page.content();
@@ -185,7 +197,8 @@ test('E12: through the vendor fake, every D4 case is imported, matched and count
   } finally {
     await sql`delete from users where handle = ${handle}`;
     await sql`delete from broker_accounts where account_id = ${acc}`;
-    vendor!.server.close();
+    await new Promise<void>((done) => { vendor.server.close(() => done()); vendor.server.closeAllConnections(); });
+    await releaseVendor();
   }
 });
 
@@ -236,7 +249,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await noHScroll(page);
     const rows = page.locator('.rows.options li');
     await expect(rows).toHaveCount(14);
-    await expect(rows.first()).toHaveAttribute('aria-label', 'ABCDE put option, exp Dec 19, 2026, -100.0%');
+    await expect(rows.first().locator('a')).toHaveAttribute('aria-label', 'ABCDE put option, exp Dec 19, 2026, -100.0%, stock page'); // item 8
     await expect(rows.first().locator('.line')).toContainText('ABCDE');
     await expect(rows.first().locator('.chip')).toHaveText('Put option');
     await expect(rows.first().locator('.line b').last()).toHaveText('-100.0%');
@@ -254,11 +267,13 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(box.height).toBeGreaterThanOrEqual(44);
       expect(box.width).toBeGreaterThanOrEqual(44);
     }
-    const ol = page.locator('.options-line');
-    await expect(ol).toHaveText('Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)');
-    const lines = await ol.evaluate((el) => el.getBoundingClientRect().height / (parseFloat(getComputedStyle(el).lineHeight) || 1));
-    expect(lines).toBeLessThanOrEqual(2 * 0.85 + 0.5); // at most 2 lines (with room)
-    expect(await ol.locator('b').getAttribute('class')).toBe('down');
+    // Fix round 3 (item 2): the summary is a stats row with its label, win rate and the average with its range.
+    const grid = page.locator('section.options-stats');
+    await expect(grid.locator('.row-label')).toHaveText('Options · 14 trades');
+    await expect(grid.locator('.stat.big').first()).toHaveText('36%win rate');
+    await expect(grid.locator('.stat.big').nth(1).locator('b')).toHaveText('-22.0%');
+    await expect(grid.locator('.stat.big').nth(1).locator('b')).toHaveClass('down');
+    await expect(grid.locator('.range')).toHaveText('(-41.0% to -3.0%) · 95% range');
     // Existing tokens only: every color used by the new rules is a var() of the stylesheet's own tokens.
     const optionsCss = css.slice(css.indexOf('/* OPTIONS'));
     expect(optionsCss).not.toMatch(/#[0-9a-f]{3,6}\b|rgb\(|hsl\(/i);
@@ -270,11 +285,11 @@ for (const scheme of ['light', 'dark'] as const) {
     const short = page.locator('.options-short');
     await expect(short).toHaveText(OPTIONS.short(3, 2));
     expect(await short.evaluate((el) => getComputedStyle(el).display)).toBe('block');
-    expect(await short.evaluate((el) => el.previousElementSibling?.className)).toBe('options-line');
+    expect(await short.evaluate((el) => el.previousElementSibling?.className)).toBe('stats options-stats');
     await expect(page.locator('.options-technical')).toHaveText(OPTIONS.technical(2));
     await expect(page.locator('.options-unsupported')).toHaveText('Plus 2 open positions not shown: futures and similar contracts are out of scope.');
     const open = page.locator('.rows.options-open li');
-    await expect(open).toHaveAttribute('aria-label', 'ABCDE put option, exp Dec 19, 2026, -99.9% unrealized');
+    await expect(open.locator('a')).toHaveAttribute('aria-label', 'ABCDE put option, exp Dec 19, 2026, -99.9% unrealized, stock page');
     await expect(open.locator('.chip')).toHaveText('Put option');
     expect((await open.locator('a').boundingBox())!.height).toBeGreaterThanOrEqual(44);
     for (const m of markup.matchAll(/exp [A-Z][a-z]{2} \d{1,2}, \d{4}/g)) expect(m[0]).toBe('exp Dec 19, 2026');
@@ -286,12 +301,61 @@ for (const scheme of ['light', 'dark'] as const) {
     const closed: OptionHeadline = { gate: 'closed', counts: counts({ shown: 3, short: 1, openLong: 1 }) };
     const markup = await mount(page, [h(ShareTradesLabel, { counts: closed.counts }), h(OptionsLines, { m: closed }), h('section', { className: 'pane' }, h(PaneOptions, { v: paneView(closed) }))], scheme);
     await noHScroll(page);
-    await expect(page.locator('.share-label')).toHaveText('Share trades');
-    await expect(page.locator('.options-gated')).toHaveText([OPTIONS.gated(4, 1), OPTIONS.gated(4, 1)]);
+    await expect(page.locator('.share-label')).toHaveText('Excluding options');
+    await expect(page.locator('.options-gated')).toHaveText([`${OPTIONS.gated(4, 1)} ${OPTIONS.howLink}`, OPTIONS.gated(4, 1)]);
     expect(markup).not.toMatch(/Call option|Put option|exp |%|Options:/);
     await mount(page, [h('section', { className: 'pane' }, h(ShareTradesLabel, { counts: openModel.counts }), h(PaneOptions, { v: paneView(openModel) }))], scheme);
     await expect(page.locator('.pane .options-line')).toHaveText('Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)');
+    // Fix round 3 (item 11): the pane's average carries its sign color; (item 9) each figure stays with its word.
+    await expect(page.locator('.pane .options-line b')).toHaveText('-22.0%');
+    await expect(page.locator('.pane .options-line b')).toHaveClass('down');
+    await expect(page.locator('.pane .options-line .nowrap')).toHaveText(['Options: 14 trades', '36% wins', '-22.0% avg (-41.0% to -3.0%)']);
+    for (const n of await page.locator('.pane .options-line .nowrap').all()) expect(await n.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('nowrap');
+    // Fix round 3 (item 5): the pane's label clears the figures above it by at least 8 px.
+    expect(parseFloat(await page.locator('.pane .share-label').evaluate((el) => getComputedStyle(el).marginTop))).toBeGreaterThanOrEqual(8);
     // Zero: nothing renders.
     expect(renderToStaticMarkup(h('div', null, h(ShareTradesLabel, { counts: counts() }), h(OptionsLines, { m: { gate: 'closed', counts: counts() } }), h(PaneOptions, { v: paneView({ gate: 'closed', counts: counts() }) })))).toBe('<div></div>');
+  });
+}
+
+// ---- Fix round 3 (user test): layout demands, as static markup with the app's stylesheet, light and dark.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`fix round 3 item 1 (${scheme}): one "Open positions" heading, then share rows, then option rows, in one list`, async ({ page }) => {
+    const share = h('li', { key: 's' }, h('div', { className: 'line' }, h('b', null, h('a', { href: '/t/QQQ' }, 'QQQ')), h('b', { className: 'up' }, '+10.0%')));
+    await mount(page, [h(OpenPositionsBlock, { title: 'Open positions', hasShares: true, shareRows: [share], open: openRows, asOf: h('p', { className: 'muted small' }, 'as of Oct 30, 2026') })], scheme);
+    await noHScroll(page);
+    await expect(page.locator('h2', { hasText: 'Open positions' })).toHaveCount(1);
+    await expect(page.locator('ul.rows')).toHaveCount(1);
+    const order = await page.evaluate(() => {
+      const h2 = document.querySelector('h2')!;
+      const items = [...document.querySelectorAll('ul.rows li')];
+      return { afterHeading: items.every((li) => !!(h2.compareDocumentPosition(li) & Node.DOCUMENT_POSITION_FOLLOWING)), kinds: items.map((li) => (li.classList.contains('option-open') ? 'option' : 'share')) };
+    });
+    expect(order).toEqual({ afterHeading: true, kinds: ['share', 'option'] });
+    // Options only: still one heading, then the option rows. Nothing at all: nothing renders.
+    await mount(page, [h(OpenPositionsBlock, { title: 'Open positions', hasShares: false, open: openRows })], scheme);
+    await expect(page.locator('h2')).toHaveCount(1);
+    expect(await page.evaluate(() => !!(document.querySelector('h2')!.compareDocumentPosition(document.querySelector('li.option-open')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    expect(renderToStaticMarkup(h(OpenPositionsBlock, { title: 'Open positions', hasShares: false, open: [] }))).toBe('');
+  });
+
+  test(`fix round 3 item 2 (${scheme}): at 360 px the options average is the share average's size, with no horizontal scroll`, async ({ page }) => {
+    const shareStats = h('section', { className: 'stats' }, h('div', { className: 'stat big' }, h('b', null, '52%'), h('small', null, 'win rate')),
+      h('div', { className: 'stat big' }, h('b', { className: 'up', id: 'share-avg' }, '+1.2%'), h('small', null, 'avg return / trade')));
+    await mount(page, [h(ShareTradesLabel, { show: true }), shareStats, h('div', { className: 'evidence' }, 'Past results'), h(OptionsLines, { m: openModel })], scheme);
+    await noHScroll(page);
+    const size = (sel: string) => page.locator(sel).evaluate((el) => getComputedStyle(el).fontSize);
+    expect(await size('section.options-stats .stat.big:nth-of-type(2) b')).toBe(await size('#share-avg'));
+    expect(await size('section.options-stats .stat.big b >> nth=0')).toBe(await size('#share-avg'));
+  });
+
+  test(`fix round 3 item 5 (${scheme}): with the label the chart caption gets " · excluding options"; without options it is unchanged`, async ({ page }) => {
+    const now = new Date('2026-11-01T12:00:00Z');
+    await mount(page, [h(PerformanceChart, { points: [], now, shareOnly: true })], scheme);
+    await expect(page.locator('figcaption')).toHaveText('Return if every trade were the same size · excluding options');
+    await mount(page, [h(PerformanceChart, { points: [], now })], scheme);
+    await expect(page.locator('figcaption')).toHaveText('Return if every trade were the same size');
+    // Zero option counts: the pane's option parts render nothing.
+    expect(renderToStaticMarkup(h('div', null, h(ShareTradesLabel, { show: paneView({ gate: 'closed', counts: counts() }).label }), h(PaneOptions, { v: paneView({ gate: 'closed', counts: counts() }) })))).toBe('<div></div>');
   });
 }

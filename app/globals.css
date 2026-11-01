@@ -522,3 +522,11 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .rows.options .tap44, .rows.options-open a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
 .option-meta { margin: 0; }
 .pane-options { margin: 4px 0; }
+/* OPTIONS fix round 3 (user test): the options grid at the headline's size (the same .stats/.stat.big cards; when the
+   page has the open-positions grid the headline shrinks to fit, and so does this row); figures never split from their
+   word; the pane label clears the figures above it; /how#options clears the sticky header. */
+body:has(.open-stats) .options-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
+.options-stats { margin-top: 8px; }
+.nowrap, .options-how { white-space: nowrap; }
+.pane .share-label { margin-top: 8px; }
+#options { scroll-margin-top: 72px; }

@@ -43,7 +43,7 @@ import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
 // OPTIONS (docs/features/logs/options/plan.md D5, D6): the one reader and its pure renders.
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
-import { OpenOptionRows, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
+import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
@@ -267,7 +267,6 @@ export default async function Profile({ params, searchParams }: Params) {
       {/* F-6: the unrealized grid directly under the realized one, same size (TR-4), then the combined average. */}
       {open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={long} />}
       {both && <CombinedLine c={both} />}
-      <OptionsLines m={opt} />
       <div className="evidence">
         <p style={{ margin: 0 }}>
           {/* F-4 rework: the card's evidence (shown); F-6: "Closed trades: " scopes it when there are open positions. */}
@@ -280,6 +279,8 @@ export default async function Profile({ params, searchParams }: Params) {
           95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence.
         </details>
       </div>
+      {/* OPTIONS fix round 3 (item 3): the options block after the evidence line, before the secondary stats. */}
+      <OptionsLines m={opt} long={long} />
       <section className="stats">
         <div className="stat"><b>{count(s.trades)}</b><small>closed trades</small></div>
         <div className="stat"><b>{s.profitFactor === null ? '—' : s.profitFactor.toFixed(2)}</b><small>profit factor</small></div>
@@ -304,17 +305,12 @@ export default async function Profile({ params, searchParams }: Params) {
 
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
       {complete && <UnsupportedLine counts={opt.counts} />}
-      {positions.length === 0 && optOpen.length > 0 && <><h2>{RECORD_BODY.positionsTitle}</h2>{open && openAsOf && <p className="muted small">{OPEN.asOf(asOfDay(openAsOf))}</p>}</>}
-      {optOpen.length > 0 && <OpenOptionRows open={optOpen} />}
-      {positions.length > 0 && <>
-        <h2>{RECORD_BODY.positionsTitle}</h2>
-        {open && openAsOf && <p className="muted small" data-open>{OPEN.asOf(asOfDay(openAsOf))}</p>}
-        <ul className="rows positions">
-          {positions.map((p) => (
-            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={open ? toneClass(p.pct) : p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
-          ))}
-        </ul>
-      </>}
+      {/* OPTIONS fix round 3 (item 1): one "Open positions" heading and one list, share rows first, option rows after. */}
+      <OpenPositionsBlock title={RECORD_BODY.positionsTitle} hasShares={positions.length > 0} open={optOpen}
+        asOf={open && openAsOf && <p className="muted small" data-open={positions.length > 0 ? true : undefined}>{OPEN.asOf(asOfDay(openAsOf))}</p>}
+        shareRows={positions.map((p) => (
+          <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={open ? toneClass(p.pct) : p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
+        ))} />
 
       {showJoin && <JoinCta handle={user.handle} via={ctaVia((await searchParams)?.via)} />}
 

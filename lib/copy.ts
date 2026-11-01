@@ -301,7 +301,7 @@ export const HOW = {
     // OPTIONS (docs/features/logs/options/plan.md D8): the options bullets replace "Options, short sales and other
     // activity the importer cannot price correctly." (word order kept so "short sales" and "Options" still lead).
     'Short options and short sales: their risk has no fixed amount to measure a percent against.',
-    'Exercised or assigned options, and share trades held over the day of one in that stock. These are left out of the options average, so it does not include contracts that ended in the money.',
+    'Exercised or assigned options, and share trades held over the day of an exercise or assignment in that stock. These are left out of the options average, so it does not include contracts that ended in the money.',
     'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
@@ -361,12 +361,19 @@ export const LOGIN_MAIL = {
 const optionPart = (n: number, one: string) => counted(n, one);
 const OPTION_LINE_HEAD = (n: number, winPct: string) => `Options: ${counted(n, 'trade')} · ${winPct} wins · `;
 export const OPTIONS = {
-  shareLabel: 'Share trades',
+  // Fix round 3 (user test, business lead B4): the headline's qualifier reads "Excluding options" everywhere.
+  shareLabel: 'Excluding options',
   // D5: the one line while the consent gate is closed. Zero parts are dropped.
   gated: (closes: number, open: number) => {
     const parts = [closes > 0 ? optionPart(closes, 'option trade') : '', open > 0 ? optionPart(open, 'open option') : ''].filter(Boolean);
-    return `${parts.join(' and ')} imported, not shown: this record's public consent doesn't cover options yet.`;
+    // Fix round 3 (UX N6): plain words; the link to /how is its own short link (howLink).
+    return `${parts.join(' and ')} imported. Options aren't published yet.`;
   },
+  howLink: 'How options are counted',
+  // Fix round 3 (business lead B2): the options grid's row label.
+  gridLabel: (n: number) => `Options · ${counted(n, 'trade')}`,
+  // Fix round 3 (item 8): an option row's link names the whole row and where it goes.
+  rowName: (underlying: string, chip: string, exp: string, figure: string) => `${underlying} ${String(chip).toLowerCase()}, ${exp}, ${figure}, stock page`,
   // D6: "Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)".
   line: (n: number, winPct: string, avg: string, range: string | null) => `${OPTION_LINE_HEAD(n, winPct)}${avg} avg${range ? ` ${range}` : ''}`,
   lineHead: (n: number, winPct: string) => OPTION_LINE_HEAD(n, winPct),
@@ -387,15 +394,14 @@ export const OPTIONS = {
   unsupported: (n: number) => `Plus ${counted(n, 'open position')} not shown: futures and similar contracts are out of scope.`,
   noShareCloses: 'No closed share trades yet',
   chartNone: 'The chart shows share trades. None yet.',
-  chartShareOnly: ' · share trades only',
-  cardPerShareTrade: 'average per share trade',
-  cardPerClosedShareTrade: 'average per closed share trade',
+  chartShareOnly: ' · excluding options',
   howTitle: 'Options',
   how: 'Option trades are imported and counted. They are shown once the consent wording covers them.',
   howMath: [
     // Fix round 1 (QA 7): per-contract fees can take a very cheap contract far below -100%.
     'An option trade\u2019s return is on what the contracts cost, fees included: a contract that expires worthless shows \u2212100%, and fees can take it lower, by a lot on very cheap contracts.',
-    'Option trades are summarized on their own line, with a range once there are 5 independent bets. The headline stats, chart, range and the order of traders use share trades only.',
+    // Fix round 3: the summary is its own stats row; the headline excludes options (the label's words).
+    'Option trades are summarized in their own row, with a range once there are 5 independent bets. The headline stats, chart, range and the order of traders exclude options.',
   ],
 } as const;
 const EXPIRY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
