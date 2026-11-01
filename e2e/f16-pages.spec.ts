@@ -118,7 +118,7 @@ test('F-16 /takedown in the sandbox: own title, draft banner, one h1, no address
   await page.setViewportSize({ width: 360, height: 740 });
   const res = await page.goto('/takedown');
   expect(res?.status()).toBe(200);
-  expect(await page.locator('head title').allTextContents()).toEqual(['Notices and takedown requests · Stock Social']);
+  await expect.poll(() => page.locator('head title').allTextContents()).toEqual(['Notices and takedown requests · Stock Social']); // metadata may stream in
   await expect(page.getByRole('note')).toHaveText('Draft: this wording has not been approved yet.');
   await expect(page.locator('h1')).toHaveCount(1);
   await expect(page.locator('h1')).toHaveText('Notices and takedown requests');
@@ -146,7 +146,7 @@ test('Q9 / B4: the hidden trader sees one private neutral line on their own 404;
     const cc = (res?.headers()['cache-control'] ?? '').toLowerCase();
     expect(cc).toContain('private');
     expect(cc).toContain('no-store');
-    expect(await page.locator('head title').allTextContents()).toEqual(['Profile not available · Stock Social']);
+    await expect.poll(() => page.locator('head title').allTextContents()).toEqual(['Profile not available · Stock Social']); // metadata may stream in
     await expect(page.locator('h1')).toHaveCount(1);
     const own = page.locator('[data-own-line]');
     await expect(own).toContainText('not shown to others right now');

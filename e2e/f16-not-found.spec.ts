@@ -15,8 +15,10 @@ async function expectNotFound(page: Page, url: string, title: string, h1: string
   const cc = (res?.headers()['cache-control'] ?? '').toLowerCase();
   expect(cc, `${url} cache-control`).toContain('no-store');
   expect(cc, `${url} cache-control`).toContain('private');
-  const titles = await page.locator('head title').allTextContents();
-  expect(titles, url).toEqual([title]);
+  // Next 16 may stream the metadata after the first bytes, so the head is read once it has settled (polled), and it
+  // must then hold exactly this one title.
+  await expect.poll(() => page.locator('title').allTextContents(), { message: url }).toEqual([title]);
+  expect(await page.locator('head title').allTextContents(), url).toEqual([title]);
   await expect(page.locator('h1'), url).toHaveCount(1);
   await expect(page.locator('h1'), url).toHaveText(h1);
   await expect(page.locator('meta[name="robots"][content*="noindex"]').first(), url).toBeAttached();
