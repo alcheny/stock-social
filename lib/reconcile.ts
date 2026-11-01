@@ -213,12 +213,8 @@ async function decidePass(tx: TransactionSql, userId: number, accountId: string,
   // pass's pages listed together with every unheld twin, but never on one page, is set to 'confirm': the account's next
   // daily read, widened to its trade date, lists both in one response or not (lib/sync.ts). A row whose unheld twin the
   // pass did not list (or that is itself no longer listed) is suspected (QA D2: never left pending forever).
-  const c = await tx`update activity_reissues r set state = 'confirm', decided_at = now()
-    from activities n
-    where r.user_id = ${userId} and r.account_id = ${accountId} and r.state in ('pending', 'suspected')
-      and n.source = r.source and n.external_id = r.external_id and r.external_id = any(${seen}::text[])
-      and not exists (select 1 from activities e where e.user_id = ${userId} and ${twin(tx, 'n', 'e')} and not ${held(tx, 'e')}
-        and not (e.external_id = any(${seen}::text[])))`;
+  // The same count rule as markGenuine, over the pages taken together (M1): never a genuine decision from them.
+  const c = await clearByCount(tx, userId, seen, ['pending', 'suspected'], 'confirm', accountId);
   const s = await tx`update activity_reissues set state = 'suspected', decided_at = now()
     where user_id = ${userId} and account_id = ${accountId} and state = 'pending'`;
   return { genuine: 0, suspected: s.count, confirm: c.count };
@@ -261,22 +257,34 @@ export async function writeConfirmFailures(userId: number, ids: string[], failed
 }
 export const CONFIRM_MAX_FAILURES = 2;
 
-/** A held row is genuine when one read listed it and every other row of its twin group that is not itself held: the
- *  vendor shows as many fills as are kept (QA D1: with two genuine identical fills stored, a re-issue of one of them is
- *  not cleared by the other being listed). `minAt`: only rows dated on or after it (a week read decides only inside its
- *  window, a day clear of its time-zone boundary). */
+/** One response decides by COUNT (orchestrator re-review M1): per twin group, with k the group's rows the response
+ *  listed and p the group's unheld rows (listed or not), at most k − p of the group's listed held rows are cleared, the
+ *  oldest stored first (activities.id). The record then keeps as many fills as the vendor lists. Matching by id instead
+ *  hid a genuine late fill forever once its original was re-issued (the original is never listed again). Still:
+ *  QA D1 (two stored genuine fills and a re-issue of one: k = 2, p = 2, nothing cleared) and R1 (k = 1, p = 1).
+ *  `minAt`: only groups dated on or after it (a week read decides only inside its window, a day clear of its time-zone
+ *  boundary). Returns the cleared count. */
+function clearByCount(tx: TransactionSql, userId: number, listed: string[], from: string[], to: 'genuine' | 'confirm', accountId?: string, minAt?: Date) {
+  const g = 'n.account_id, n.symbol, n.side, n.executed_at, n.units, n.price';
+  return tx`with l as (select n.* from activities n where n.user_id = ${userId} and n.source = 'snaptrade' and n.raw->>'type' in ${tx(LISTABLE_TYPES)}
+        and n.external_id = any(${listed}::text[]) ${accountId ? tx`and n.account_id = ${accountId}` : tx``} ${minAt ? tx`and n.executed_at >= ${minAt}` : tx``}),
+      g as (select ${tx.unsafe(g)}, count(*)::int as k,
+          (select count(*)::int from activities e where e.user_id = ${userId} and e.source = 'snaptrade' and e.raw->>'type' in ${tx(LISTABLE_TYPES)}
+            and (e.account_id, e.symbol, e.side, e.executed_at, e.units, e.price) = (n.account_id, n.symbol, n.side, n.executed_at, n.units, n.price)
+            and not ${held(tx, 'e')}) as p
+        from l n group by ${tx.unsafe(g)}),
+      c as (select r.source, r.external_id, g.k, g.p,
+          row_number() over (partition by ${tx.unsafe(g)} order by n.id) as rk
+        from l n join activity_reissues r on r.source = n.source and r.external_id = n.external_id and r.state in ${tx(from)}
+          join g on (g.account_id, g.symbol, g.side, g.executed_at, g.units, g.price) = (n.account_id, n.symbol, n.side, n.executed_at, n.units, n.price))
+    update activity_reissues r set state = ${to}, decided_at = now() from c
+    where r.source = c.source and r.external_id = c.external_id and c.rk <= c.k - c.p`;
+}
 // ponytail: genuine is final, so an original the vendor later stops listing (a cancel or correction) keeps both rows
 // published — fix: the owner's answer on vendor corrections (C3-9b, cycle-3 Q3).
 export async function markGenuine(tx: TransactionSql, userId: number, listed: string[], accountId?: string, minAt?: Date): Promise<number> {
   if (!listed.length) return 0;
-  const r = await tx`update activity_reissues r set state = 'genuine', decided_at = now()
-    from activities n
-    where r.user_id = ${userId} and r.state <> 'genuine' ${accountId ? tx`and r.account_id = ${accountId}` : tx``}
-      and n.source = r.source and n.external_id = r.external_id and r.external_id = any(${listed}::text[])
-      ${minAt ? tx`and n.executed_at >= ${minAt}` : tx``}
-      and not exists (select 1 from activities e where e.user_id = ${userId} and ${twin(tx, 'n', 'e')} and not ${held(tx, 'e')}
-        and not (e.external_id = any(${listed}::text[])))`;
-  return r.count;
+  return (await clearByCount(tx, userId, listed, ['pending', 'confirm', 'suspected'], 'genuine', accountId, minAt)).count;
 }
 
 /** After this transaction's inserts: every newly stored activity row with a twin stored before this transaction (same

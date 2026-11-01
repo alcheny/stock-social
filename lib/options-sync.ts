@@ -462,3 +462,10 @@ export async function optionActivityCount(tx: Db, userId: number, accountId: str
   const [{ n }] = await tx`select count(*)::int as n from option_activities where user_id = ${userId} and account_id = ${accountId} and source = 'snaptrade'`;
   return n as number;
 }
+
+/** F-24 (lib/sync-cadence.ts#dueRequestsSql): a fragment counting the user's stored broker option rows of an account
+ *  dated on or after `since` (the widened confirm read's vendor pages). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const optionRowsSince = (userId: any, accountId: any, since: any) => sql`(select count(*) from option_activities req_o
+  where req_o.user_id = ${userId} and req_o.account_id = ${accountId} and req_o.source = 'snaptrade' and req_o.executed_at >= ${since})`;
+

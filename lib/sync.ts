@@ -593,6 +593,12 @@ export async function syncUser(
             if (from) confirmPlanned.push(id);
             const got = tradeRead(await broker.fetchActivities(bu, widened, [id], sink));
             readActs.push(id);
+            // Orchestrator re-review L1: fetchActivities pages internally by PAGE_LIMIT rows with no overlap, so a call that
+            // returned a full page or more is not one vendor response: it decides nothing (a widened read's rows become
+            // suspected; the next pass re-examines them).
+            // ponytail: a busy account's week or widened read past PAGE_LIMIT rows never clears a held row — fix: per-page id
+            // lists from lib/broker.ts#fetchActivities (owner), so each internal page decides on its own.
+            const oneResponse = got.activities.length + got.unusable.length + options.length < PAGE_LIMIT;
             await insertActivities(user.id, 'snaptrade', got.activities, tx);
             await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
@@ -601,13 +607,14 @@ export async function syncUser(
               // The widened read decides: rows it lists with every unheld twin (dated a day inside its window) are genuine,
               // every other 'confirm' row of the account is suspected (the one exception to "a week read never suspects").
               await markTwins(tx, user.id);
-              cleared += await markGenuine(tx, user.id, got.activities.map((a) => a.externalId), id, new Date(widened.getTime() + 86_400_000));
+              if (oneResponse) cleared += await markGenuine(tx, user.id, got.activities.map((a) => a.externalId), id, new Date(widened.getTime() + 86_400_000));
               await endConfirm(tx, user.id, id);
-            } else weekListed.push(...got.activities.map((a) => a.externalId));
+            } else if (oneResponse) weekListed.push(...got.activities.map((a) => a.externalId));
           }
         } else {
           const got = windowed.length ? tradeRead(await broker.fetchActivities(bu, since, windowed, sink)) : { activities: [], unusable: [] };
-          weekListed = got.activities.map((a) => a.externalId);
+          // L1: a call of a full page or more is several vendor responses: it decides nothing (see the cadence branch).
+          if (got.activities.length + got.unusable.length + options.length < PAGE_LIMIT) weekListed = got.activities.map((a) => a.externalId);
           await insertActivities(user.id, 'snaptrade', got.activities, tx);
           await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
           await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS

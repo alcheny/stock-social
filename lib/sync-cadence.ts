@@ -3,6 +3,7 @@
 // 4 times in any 24 h. One SQL rule, used by lib/sync.ts#syncUser before its vendor reads and by the shard runner's page
 // query to plan its request budget. Everything compares on the database clock (shifted by the tests' hook).
 import { sql } from './db.ts';
+import { optionRowsSince } from './options-sync.ts';
 
 export const ACTIVITIES_EVERY_MS = 24 * 3_600_000;
 export const POSITIONS_EVERY_MS = 6 * 3_600_000;
@@ -91,18 +92,23 @@ export async function writeMarks(userId: number, activities: string[], positions
 // rule as `decide`): 1 account list, then per real consented account 3 (activities, share moves, positions) when
 // activities are read, 1 when only positions are.
 // F-24 committee (option C): an account's widened confirm read (from a day before its earliest 'confirm' row) may span
-// more than one vendor page; the extra pages are charged too: ceil(stored rows since that date / 1,000) − 1.
+// more than one vendor page; the extra pages are charged too: ceil(stored rows since that date / 1,000) − 1, over the
+// rows the read returns (share BUY/SELL rows, unusable trade rows and option rows; the same base as a pass's page bound).
 // ponytail: charged whether or not the account's activities read is due that round, so the estimate can run high (never
 // low) for a day — fix: add it inside the activities-due branch per account.
 export function dueRequestsSql(userId: Frag, t: Frag) {
   return sql`(select 1 + coalesce(sum(case when d.consent_new or (d.activities_due and d.positions_24h < ${POSITIONS_PER_DAY}) then 3
         when not d.activities_due and d.positions_own then 1 else 0 end), 0)::int
-      + (select coalesce(sum(greatest(ceil(req_w.n / 1000.0)::int - 1, 0)), 0)::int from (select count(req_x.*) as n
-          from (select req_r.account_id, min(req_n.executed_at) as since from activity_reissues req_r
+      + (select coalesce(sum(greatest(ceil((
+            (select count(*) from activities req_x where req_x.user_id = ${userId} and req_x.account_id = req_f.account_id and req_x.source = 'snaptrade'
+              and req_x.raw->>'type' in ('BUY', 'SELL') and req_x.executed_at >= req_f.since - interval '1 day')
+            + (select count(*) from corporate_actions req_u where req_u.user_id = ${userId} and req_u.account_id = req_f.account_id and req_u.source = 'snaptrade'
+              and req_u.kind = 'unpriceable' and req_u.detail->>'reason' = 'trade' and req_u.executed_at >= req_f.since - interval '1 day')
+            + ${optionRowsSince(userId, sql`req_f.account_id`, sql`req_f.since - interval '1 day'`)}
+          ) / 1000.0)::int - 1, 0)), 0)::int
+        from (select req_r.account_id, min(req_n.executed_at) as since from activity_reissues req_r
             join activities req_n on req_n.source = req_r.source and req_n.external_id = req_r.external_id
-            where req_r.user_id = ${userId} and req_r.state = 'confirm' group by req_r.account_id) req_f
-          join activities req_x on req_x.user_id = ${userId} and req_x.account_id = req_f.account_id and req_x.executed_at >= req_f.since - interval '1 day'
-          group by req_f.account_id) req_w)
+            where req_r.user_id = ${userId} and req_r.state = 'confirm' group by req_r.account_id) req_f)
       from connections req_c, jsonb_array_elements(req_c.accounts) req_a, lateral ${dueSql(sql`(req_a->>'id')`, userId, t)} d
       where req_c.user_id = ${userId} and req_c.state = 'connected' and coalesce((req_a->>'isPaper')::boolean, false) = false)`;
 }
