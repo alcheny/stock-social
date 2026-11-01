@@ -2,6 +2,7 @@
 import { confidence, evidenceLine, isNewRecord, rangeText, stats, type ConfidenceInput } from './trades.ts';
 import { stripFigures, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
 import { RECORD_STRIP, wholeRecordPreview, type RecordState } from './copy.ts';
+import { OPTIONS } from './copy.ts'; // FIXES-CYCLE4-PART2 (F4-4)
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
@@ -74,11 +75,13 @@ export type RecapView = {
   months?: number; // FIXES-LABELS (D-24): distinct months on record (monthsOnRecord)
   status?: StatusFacts | null; // FIXES-LABELS: status (F-11): the status-line facts beside the state
   excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
+  // FIXES-CYCLE4-PART2 (F4-4): the trader's options gate and the month's shown option closes (counts only).
+  optionsGate?: 'open' | 'closed'; monthOptionCloses?: number;
 };
 const who = (r: RecapView) => ({ state: r.state, demo: r.demo, verified: r.verified, handle: r.handle });
 // The trader's record strip (every closed trade) and the month's figures (that month's trades, no count: R3-2).
 export const recordStripInput = (r: RecapView): StripInput => ({ ...r.record.strip, ...who(r), open: r.open, excludingOptions: r.excludingOptions /* OPTIONS */ });
-export const monthStripInput = (r: RecapView): StripInput => ({ ...r.recap.figures, ...who(r) });
+export const monthStripInput = (r: RecapView): StripInput => ({ ...r.recap.figures, ...who(r), monthExcludingOptions: r.excludingOptions /* FIXES-CYCLE4-PART2 (F4-4) */ });
 
 export const monthCountText = (count: number) => `${counted(count, 'closed trade')} this month`;
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -94,9 +97,19 @@ export function monthAlt(r: RecapView, whole: Strip, month: Strip): string {
 // figures as its stats and the disclaimer whenever a figure is quoted (POLICY F3).
 export function monthDescription(r: RecapView, whole: Strip): string {
   const rec = wholeRecordPreview({ state: r.state, demo: r.demo, verified: r.verified, trades: r.record.trades }, stripTextAfterCount(whole));
-  const base = `${monthCountText(r.recap.count)} · ${RECORD_STRIP.link(r.handle)}: ${rec}`;
+  // FIXES-CYCLE4-PART2 (F4-4): the month's count says it leaves options out, and (gate closed) the month's option count.
+  const count = `${monthCountText(r.recap.count)}${r.excludingOptions ? `, ${OPTIONS.altQualifier}` : ''}`;
+  const optionsLine = monthOptionsLine(r);
+  const base = `${count} · ${RECORD_STRIP.link(r.handle)}: ${rec}${optionsLine ? `. ${optionsLine.replace(/\.$/, '')}` : ''}`;
   return whole.importing ? base : `${base}. ${DISCLAIMER}`;
 }
+
+// FIXES-CYCLE4-PART2 (F4-4, C4-9; committee): the month's option count line, counts only, in the legal-re-signed words
+// (OPTIONS.gated), while the trader's options gate is closed and the month has shown option closes. An open-gate trader
+// gets the qualifier and the /how link only: the second sentence would be false there, and a new sentence needs the
+// legal committee (Owner items).
+export const monthOptionsLine = (r: Pick<RecapView, 'optionsGate' | 'monthOptionCloses'>): string | null =>
+  r.optionsGate === 'closed' && (r.monthOptionCloses ?? 0) > 0 ? OPTIONS.gated(r.monthOptionCloses!, 0) : null;
 
 export function latestRecapYm(trades: { closedAt: Date }[]): string | null {
   if (!trades.length) return null;

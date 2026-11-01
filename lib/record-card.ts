@@ -7,6 +7,7 @@
 // Committee round 1 (docs/features/logs/F-4/committee-round-1.md): one duration per card, a 10 CSS px floor at 343 px,
 // the chart/count/period hierarchy, one trust label at every size, the 0% label in a gutter, no orphans, the printed
 // link from the configured origin, and the alt text built from this model.
+import { HEAD_PILL_ROW, unfurlHeadRows } from './card-head.ts'; // FIXES-CYCLE4-PART2 (F4-15)
 import { counted } from './format.ts';
 import { imageTrust, isPublicRecord, OPTIONS, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
@@ -290,6 +291,11 @@ export function recordCard(i: CardInput): CardModel {
   const wide = i.kind === 'unfurl' && unfurlWide(pct(avg), range);
   // OPTIONS: on the unfurl the options line takes the caption's row and wraps once; the chart gives up that row.
   const box = { w: L.chart.w - (wide ? UNFURL_WIDE_SHIFT : 0), h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut : 0) - (card.optionsLine && i.kind === 'unfurl' ? L.noteCut : 0) };
+  // FIXES-CYCLE4-PART2 (F4-15, C4-16): pills that would squeeze the @handle move to the top of the chart column, and the
+  // chart gives up their rows (lib/card-head.ts), so the card's height never changes.
+  const newRecord = isNewRecord(i.trades, n, i.now) && !isPublicRecord(i.state); // F-7 (C17): never on a public record
+  const headRows = i.kind === 'unfurl' ? unfurlHeadRows({ ...card, newRecord }, box.w) : null;
+  if (headRows) box.h -= headRows.column.length * HEAD_PILL_ROW;
   return {
     ...card,
     headline: pct(avg),
@@ -299,7 +305,7 @@ export function recordCard(i: CardInput): CardModel {
     count: `${countValue} · ${SHARE_CARD.lossesIncluded}`, countValue, countNote: SHARE_CARD.lossesIncluded,
     period: `${since(first)} · ${periodLength}`, periodSince: since(first), periodLength,
     evidence: evidenceLabel(c),
-    newRecord: isNewRecord(i.trades, n, i.now) && !isPublicRecord(i.state), // F-7 (C17): never on a public record
+    newRecord, // F-7 (C17): never on a public record (FIXES-CYCLE4-PART2: computed above, for the head rows)
     trust: trustLine(c, span),
     caption: SHARE_CARD.chartCaption,
     chart: cardChart(i.trades, box, zeroGutter(i.kind)),

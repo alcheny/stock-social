@@ -9,6 +9,8 @@
 // size; the evidence label shares the trust line's row; the 0% label sits in a gutter left of the line.
 import { OPTIONS } from '@/lib/copy.ts';
 import { IMAGE_PALETTE } from '@/lib/palette.ts';
+import { unfurlHeadRows, type HeadPill } from '@/lib/card-head.ts'; // FIXES-CYCLE4-PART2 (F4-15)
+import { UNFURL_WIDE_SHIFT } from '@/lib/record-card.ts'; // FIXES-CYCLE4-PART2 (F4-15)
 import { CARD_LAYOUT, disclaimerLines, noOrphan, UNFURL_COLUMN_GAP, unfurlHeadlineSize, unfurlWide, type CardModel } from '@/lib/record-card.ts';
 
 const C = IMAGE_PALETTE.card; // F-20: the share-image colour table (lib/palette.ts), today's values
@@ -140,6 +142,12 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
     </div>
   );
 
+  const colW = L.chart.w - (m.kind === 'unfurl' && wide ? UNFURL_WIDE_SHIFT : 0); // FIXES-CYCLE4-PART2 (F4-15): the model's chart width
+  const headRows = m.kind === 'unfurl' ? unfurlHeadRows(m, colW) : null;
+  const pillOf = (p: HeadPill) => (p === 'newRecord' ? newRecord : p === 'options' ? shareOnly : badge); // FIXES-CYCLE4-PART2 (F4-15)
+  const columnPills = (rs: HeadPill[][]) => rs.length > 0 && (
+    <div style={{ ...col, gap: L.gap, flexShrink: 0 }}>{rs.map((r) => <div key={r.join()} style={{ ...row, gap: 12, justifyContent: 'flex-end' /* user test: clear of the text column's label */ }}>{r.map((p) => <span key={p} style={{ display: 'flex' }}>{pillOf(p)}</span>)}</div>)}</div>
+  );
   let main;
   if (m.body !== null) {
     // An empty record with open positions (F-6) still shows its unrealized part, at the body's size.
@@ -162,7 +170,8 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
             <div style={{ ...col, marginTop: tight ? 0 : 10 }}><span style={big(f.line)}>{m.countValue}</span><span style={one1(f.body)}>{m.countNote}</span></div>
             <div style={col}><span style={big(f.line)}>{m.periodLength}</span><span style={one1(f.body)}>{m.periodSince}</span></div>
           </div>
-          {plot}
+          {/* FIXES-CYCLE4-PART2 (F4-15): the moved pills above the plot, in the chart's own column. */}
+          {headRows && headRows.column.length > 0 ? <div style={{ ...col, gap: L.gap }}>{columnPills(headRows.column)}{plot}</div> : plot}
         </div>
         {/* OPTIONS: the options line takes the caption's row (two lines at most; the model gave the chart's row up). */}
         {m.optionsLine
@@ -183,8 +192,17 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
     );
   }
 
-  const head = m.kind === 'unfurl'
-    ? <div style={{ ...row, justifyContent: 'space-between', gap: 16 }}>{who}<div style={{ ...row, gap: 12, flexShrink: 0 }}>{newRecord}{shareOnly}{badge}</div></div>
+  // FIXES-CYCLE4-PART2 (F4-15, C4-16): pills that would squeeze the @handle go to the top of the chart column (the model's
+  // chart gave up their rows), or with no chart to a row under the head (lib/card-head.ts).
+  const rows = headRows && m.body !== null && headRows.column.length
+    ? { ...headRows, column: [], second: [...headRows.second, ...headRows.column.flat()] } : headRows;
+  const head = rows
+    ? (
+      <div style={{ ...col, gap: L.gap }}>
+        <div style={{ ...row, justifyContent: 'space-between', gap: 16 }}>{who}{rows.head.length > 0 && <div style={{ ...row, gap: 12, flexShrink: 0 }}>{rows.head.map((p) => <span key={p} style={{ display: 'flex' }}>{pillOf(p)}</span>)}</div>}</div>
+        {rows.second.length > 0 && <div style={{ ...row, flexWrap: 'wrap', gap: 12 }}>{rows.second.map((p) => <span key={p} style={{ display: 'flex' }}>{pillOf(p)}</span>)}</div>}
+      </div>
+    )
     : (
       <div style={{ ...col, gap: L.gap }}>
         <div style={{ ...row, justifyContent: 'space-between', gap: 24 }}>

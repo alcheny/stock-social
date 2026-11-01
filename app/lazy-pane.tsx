@@ -15,7 +15,7 @@ export function LazyPane({ handle, name, highlight, disclaimer = true }: { handl
     let live = true;
     fetch(`/u/${encodeURIComponent(handle)}/pane`).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((d: { state: PublicState; trades: (Omit<PaneTrade, 'closedAt' | 'openedAt'> & { closedAt: number; openedAt?: number })[]; open?: number[]; openAsOf?: number | null; status?: Segment[] | null; options?: PaneOptionsView }) => {
-        if (live) setData({ state: d.state, trades: d.trades.map((t) => ({ ...t, closedAt: new Date(t.closedAt), openedAt: t.openedAt ? new Date(t.openedAt) : undefined /* FIXES-LABELS (code review) */ })), open: d.open, openAsOf: d.openAsOf ? new Date(d.openAsOf) : undefined, status: d.status ?? undefined /* FIXES-LABELS: status */, options: d.options });
+        if (live) setData({ state: d.state, trades: d.trades.map((t) => ({ ...t, closedAt: new Date(t.closedAt), openedAt: t.openedAt ? new Date(t.openedAt) : undefined /* FIXES-LABELS (code review) */ /* FIXES-CYCLE4-PART2 (F4-16): writtenDay/editedDay pass through as day numbers */ })), open: d.open, openAsOf: d.openAsOf ? new Date(d.openAsOf) : undefined, status: d.status ?? undefined /* FIXES-LABELS: status */, options: d.options });
       }, () => live && setData('failed'));
     return () => { live = false; };
   }, [handle]);
