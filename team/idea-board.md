@@ -16,6 +16,8 @@ makes a claim, and changes to how the team works. Code changes go through the co
 | **Growth** | Distribution | Does it make records travel (share card, links) without rewarding trading activity (POLICY F6)? |
 | **Finance** | Unit economics | Cost per user, break-even, the projection dashboard's assumptions. |
 | **Red team** | The strongest case against | Argues the idea is wrong; names the cheapest test that would show it. |
+| **Decisions keeper** | Consistency | Checks every idea against every existing decision: the feature files' Decisions, POLICY, DESIGN (Stage 5 rules), DECISIONS.md, COMPLIANCE, and the owner's answers in design sessions. Lists each conflict with the decision it contradicts and its date. |
+| **Common sense** | The reasonable person | Would a first-time trader, a first-time viewer and a careful owner find this sensible, honest and worth the cost? Flags anything that is technically allowed but obviously odd, confusing, self-defeating or out of proportion. |
 | **Chair** | Synthesis | Weighs the members, separates fact from opinion, writes the recommendation. |
 
 ## The process (several rounds)
@@ -28,6 +30,14 @@ makes a claim, and changes to how the team works. Code changes go through the co
    patterns described generically) are checked by a fact-checker with sources; anything unverified is marked.
 4. **Recommendation.** The chair writes, per idea: the recommended option, its conditions, the dissent, what
    would change the call, and the cheapest test.
+
+## Enforcing existing decisions and common sense
+
+Every review starts with the decisions keeper's conflict list and ends with the common-sense check. An idea that
+contradicts an existing decision is not adopted by the board: the board names the conflict and either proposes a
+version that fits the existing decisions or flags it for the owner, who alone can change an owner decision. An
+idea that fails the common-sense check is rejected or sent back with the reason, even when every rule allows it.
+Proposals from the direction councils (`team/direction-councils.md`) pass through the board the same way.
 
 ## What happens to the result
 
