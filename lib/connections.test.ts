@@ -8,6 +8,12 @@ import type { BrokerUser, VendorAccount } from './broker.ts';
 import { advanceCursor, aggregateRecord, assertTransition, clockState, IllegalTransitionError, ownsConnection, parseConnectionId, PENDING_HOURS, REFUSED_STATUSES, RETRY_BASE_MS, RETRY_MAX_MS, retryDelayMs, STALE_HOURS, STATES, startCursor, TRANSITIONS, type Deps } from './connections.ts';
 import { recordBodyCopy, RECORD_BODY } from './copy.ts';
 import { attemptCookieValue } from './auth/links.ts';
+import { sweeping } from './test-sweep-lock.ts';
+
+// The connection tick is global: it applies the clocks to every connection and drives every importing row, other test
+// files' too. Every call here holds the sweep lock in shared mode, so a test file that holds an importing row on a
+// shifted clock (stale to a tick on the real clock) keeps the tick out while that row imports (lib/test-sweep-lock.ts).
+const tick = (...args: Parameters<typeof import('./connections.ts').tick>) => sweeping(async () => (await import('./connections.ts')).tick(...args));
 
 test('state machine: six states, only pending→importing|declined|expired and importing→connected|failed', () => {
   assert.deepEqual([...STATES], ['pending', 'importing', 'connected', 'declined', 'expired', 'failed']);
@@ -428,7 +434,7 @@ dbTest('sign-in by connection: a fresh link whose accounts are all confirmed-cla
 
 dbTest('expiry with a clock: a pending row is marked expired at 24 h lazily on read and by the tick, which removes the link at the vendor and releases the provisional claims; no profile ever shows pending older than 24 h', async () => {
   const { sql, tag, mkUser, events, conn, claims, cleanup } = await setup();
-  const { startConnection, completeLink, applyClocks, tick, consent } = await import('./connections.ts');
+  const { startConnection, completeLink, applyClocks, consent } = await import('./connections.ts');
   const u = await mkUser('e');
   const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
   const acc = `${tag}-exp`;
@@ -513,7 +519,7 @@ dbTest('staleness: an importing row with no progress for 24 h becomes failed (re
 
 dbTest('tick advances every importing row with no client poll, resuming from the stored cursor; it waits for the vendor\'s initial sync and re-reads once after it completes, so late rows are not missed', async () => {
   const { sql, tag, mkUser, conn, cleanup } = await setup();
-  const { startConnection, completeLink, consent, importStep, tick, WAIT_RECHECK_MS } = await import('./connections.ts');
+  const { startConnection, completeLink, consent, importStep, WAIT_RECHECK_MS } = await import('./connections.ts');
   const u = await mkUser('t');
   const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
   const acc = `${tag}-tk`;
@@ -701,7 +707,7 @@ dbTest('concurrency: two import steps for one user at once never interleave: eac
 
 dbTest('D1: the hourly sync never touches a pending link: syncUser and the tick read nothing and confirm nothing; a later decline releases the claims and removes the link', async () => {
   const { sql, tag, mkUser, conn, claims, cleanup } = await setup();
-  const { startConnection, completeLink, decline, tick } = await import('./connections.ts');
+  const { startConnection, completeLink, decline } = await import('./connections.ts');
   const { syncUser, usersToSync } = await import('./sync.ts');
   const { v, deps } = fakeVendor();
   const u = await mkUser('d1');
@@ -744,7 +750,7 @@ dbTest('D1: the hourly sync never touches a pending link: syncUser and the tick 
 
 dbTest('D2: an expired, uncleaned link re-bundled into a new consent is not cut by the tick: cleanup of the expired row skips the authorization the live connection holds', async () => {
   const { sql, tag, mkUser, conn, cleanup } = await setup();
-  const { startConnection, completeLink, consent, applyClocks, tick, drive } = await import('./connections.ts');
+  const { startConnection, completeLink, consent, applyClocks, drive } = await import('./connections.ts');
   const { v, deps } = fakeVendor();
   const u = await mkUser('d2');
   const attempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
@@ -1028,7 +1034,7 @@ dbTest('public record (fix round 2): a pending, declined or expired link contrib
 
 dbTest('fix round 3, the tester\'s repro: a 3-account import is running and a second link is consented; the record stays importing (nothing complete) until both finish; the owner poll drives both and never answers pending from a newer link; after the tick, 7 closes and connected', async () => {
   const { sql, tag, mkUser, conn, cleanup } = await setup();
-  const { startConnection, completeLink, consent, drive, ownerPoll, publicRecord, recordStatus, tick } = await import('./connections.ts');
+  const { startConnection, completeLink, consent, drive, ownerPoll, publicRecord, recordStatus } = await import('./connections.ts');
   const { v, deps: base } = fakeVendor();
   const deps = { ...base, pageLimit: 10 }; // one account per step, as the real page size does for small histories
   const u = await mkUser('r3');
@@ -1166,7 +1172,7 @@ dbTest('committee fix 1 (Low): a double tap on brokerage-first consent creates e
 dbTest('committee fix 3 (Medium): after cleanup a declined or expired row keeps no account snapshot or institution (ids and timestamps stay); a declined brokerage-first attempt keeps no vendor user; an abandoned attempt is swept after 24 h', async () => {
   const { sql, tag, mkUser, conn, cleanup } = await setup();
   const { createAttempt } = await import('./auth/attempts.ts');
-  const { startConnection, completeLink, decline, applyClocks, tick, cleanupAttempts } = await import('./connections.ts');
+  const { startConnection, completeLink, decline, applyClocks, cleanupAttempts } = await import('./connections.ts');
   const { v, deps } = fakeVendor();
   const u = await mkUser('ret');
   const userAttempt = Number((await sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
@@ -1353,7 +1359,7 @@ dbTest('PR-2b fix round 1 (plan §5): the portal coming back without a new link 
 });
 
 dbTest('fix round 2 (engineer, Medium): six parallel first mints for a new trader register one vendor user; a brokerage-first attempt too; a writer outside the lock that wins still leaves no orphan at the vendor', async () => {
-  const { sql, mkUser, cleanup } = await setup();
+  const { sql, tag, mkUser, cleanup } = await setup();
   const { createAttempt } = await import('./auth/attempts.ts');
   const { mintPortal, startConnection } = await import('./connections.ts');
   const { v, deps: base } = fakeVendor();
@@ -1383,16 +1389,18 @@ dbTest('fix round 2 (engineer, Medium): six parallel first mints for a new trade
     // the stored one is kept and used.
     const u2 = await mkUser('pr');
     const [{ signup_attempt_id: a2 }] = await sql`select signup_attempt_id from users where id = ${u2.id}`;
+    // Tagged: users.snaptrade_user_id is unique across the database (a literal would clash with this test in another process).
+    const stored = `${tag}-vendor-stored`;
     const racing: Deps = { ...deps, registerUser: async (ref) => {
-      await sql`update users set snaptrade_user_id = 'vendor-stored', snaptrade_secret_enc = 'enc' where id = ${u2.id}`;
+      await sql`update users set snaptrade_user_id = ${stored}, snaptrade_secret_enc = 'enc' where id = ${u2.id}`;
       return { snaptradeUserId: `vendor-${ref}-loser`, secretEnc: 'enc' };
     } };
     let used: string | null = null;
     const withUrl: Deps = { ...racing, connectUrl: async (bu) => { used = bu.snaptradeUserId; return 'https://vendor.example/portal'; } };
     await startConnection({ userId: u2.id, attemptId: Number(a2) }, 'r', withUrl);
     assert.deepEqual(v.deletedUsers, [`vendor-${u2.id}-loser`]);
-    assert.equal(used, 'vendor-stored');
-    assert.equal((await sql`select snaptrade_user_id from users where id = ${u2.id}`)[0].snaptrade_user_id, 'vendor-stored');
+    assert.equal(used, stored);
+    assert.equal((await sql`select snaptrade_user_id from users where id = ${u2.id}`)[0].snaptrade_user_id, stored);
     await cleanup([u2.id]);
   } finally {
     await cleanup([u.id]);
@@ -1543,7 +1551,7 @@ dbTest('PR-3 (carried Info 3): a vendor 5xx, a transport error or a refused URL 
 
 dbTest('PR-3 fix round 4: a deferred step marks the import waiting until a page is read; no step starts past the call\'s deadline (poll, drive, tick)', async () => {
   const { sql, tag, mkUser, conn, cleanup } = await setup();
-  const { startConnection, completeLink, consent, importStep, drive, tick, ownerPoll, importWaiting, retryDelayMs, stepDeadline, STEP_RESERVE_MS, STEP_ROUTE_MAX_S } = await import('./connections.ts');
+  const { startConnection, completeLink, consent, importStep, drive, ownerPoll, importWaiting, retryDelayMs, stepDeadline, STEP_RESERVE_MS, STEP_ROUTE_MAX_S } = await import('./connections.ts');
   const { VendorTimeoutError, VENDOR_TIMEOUT_MS } = await import('./broker.ts');
   const { v, deps } = fakeVendor();
   const u = await mkUser('dl');
@@ -1635,7 +1643,7 @@ dbTest('fix round 6: the positions read after the rebuild is split across steps 
 dbTest('fix round 6: the attempt sweep checks the deadline before every row, logs the rows left, and the connection tick logs its line even past the deadline', async () => {
   const { sql } = await setup();
   const { createAttempt } = await import('./auth/attempts.ts');
-  const { cleanupAttempts, tick, ATTEMPT_HOURS } = await import('./connections.ts');
+  const { cleanupAttempts, ATTEMPT_HOURS } = await import('./connections.ts');
   const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
   const { v, deps } = fakeVendor();
   const logged: string[] = [];
@@ -1696,7 +1704,6 @@ const vendorFail = (status: number) => Object.assign(new Error(`vendor ${status}
 
 dbTest('stalest first: an importing row behind 5 rows whose step always throws is advanced within ceil(6/2) = 3 ticks; every tried row is stamped, a row past the deadline is not', async () => {
   const { sql, tag, u, row, conn, cleanup } = await stalestFixture('si');
-  const { tick } = await import('./connections.ts');
   const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
   const { deps } = fakeVendor();
   let wall = 1_000_000;
@@ -1729,7 +1736,6 @@ dbTest('stalest first: an importing row behind 5 rows whose step always throws i
 
 dbTest('stalest first: an expired row behind 5 rows whose vendor delete always fails is cleaned within ceil(6/2) = 3 ticks', async () => {
   const { tag, u, row, conn, cleanup } = await stalestFixture('sc');
-  const { tick } = await import('./connections.ts');
   const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
   const { v, deps } = fakeVendor();
   let wall = 1_000_000;
@@ -1803,7 +1809,7 @@ dbTest('stalest first: an aged attempt behind 3 whose vendor delete always fails
 
 dbTest('stalest first: a try is a claim (compare-and-set on the stamp read): two ticks holding the same read claim a row once, and a stamp already moved on is refused', async () => {
   const { sql, tag, u, row, cleanup } = await stalestFixture('cl');
-  const { claimTry, tick } = await import('./connections.ts');
+  const { claimTry } = await import('./connections.ts');
   const { createAttempt } = await import('./auth/attempts.ts');
   const { deps } = fakeVendor();
   const stampOf = async (id: number) => (await sql`select (extract(epoch from tick_tried_at) * 1000000)::bigint as s from connections where id = ${id}`)[0].s as string | null;
