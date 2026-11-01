@@ -18,7 +18,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { startVendorFake, type FakeOptionRow } from './fakes/vendor.ts';
 import { OpenOptionRows, OptionsLines, OptionTradesSection, PaneOptions, ShareTradesLabel, UnsupportedLine } from '../app/u/[handle]/options-block.tsx';
 import { OPTIONS } from '../lib/copy.ts';
-import type { OptionCounts, OptionHeadline } from '../lib/options-view.ts';
+import { paneView, type OptionCounts, type OptionHeadline } from '../lib/options-view.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
@@ -163,9 +163,11 @@ test('E12: through the vendor fake, every D4 case is imported, matched and count
     // a: (2 × 250 ... ) per contract: (250 - 0.65 - 150.65) / 150.65; b: (90 - 0.65 - 150.65) / 150.65; c: -150 / 150 = -1.
     expect(shown).toEqual([[`${acc}-a2`, Number(((250 - 0.65 - 150.65) / 150.65).toFixed(4))], [`${acc}-b2`, Number(((90 - 0.65 - 150.65) / 150.65).toFixed(4))], [`${acc}-c2`, Number((-150.65 / 150.65).toFixed(4))]]);
     expect(u.excluded_options_short).toBe(2);
-    // Other: exercise, the share close held over it, the event with no contract, expiry with cash, adjusted root,
-    // multiplier mismatch, outside the allowlist, dangling, no open, cash scale, flip, currency, malformed.
+    // Other (option rows only): exercise, the event with no contract, expiry with cash, adjusted root, the mini sell with
+    // no mini open and the standard open left dangling (two ledgers, fix round 1), outside the allowlist, dangling, no
+    // open, cash scale, flip, currency, malformed. The share close held over the exercise day has its own counter.
     expect(u.excluded_options_other).toBe(13);
+    expect((await sql`select excluded_exercise_shares as n from users where id = ${u.id}`)[0].n).toBe(1);
     expect([u.open_options_short, u.open_unsupported]).toEqual([1, 2]);
     expect((await sql`select symbol from open_positions where user_id = ${u.id}`).map((x) => x.symbol)).toEqual(['QQQ']); // no contract symbol
     expect((await sql`select sell_id from closed_trades where user_id = ${u.id}`).map((x) => x.sell_id)).toEqual([`${acc}-s2`]);
@@ -175,6 +177,7 @@ test('E12: through the vendor fake, every D4 case is imported, matched and count
     await expect(page.locator('.share-label')).toHaveText('Share trades');
     await expect(page.locator('.options-gated')).toHaveText(OPTIONS.gated(3 + 2 + 13, 2));
     await expect(page.locator('.options-unsupported')).toHaveText('Plus 2 open positions not shown: futures and similar contracts are out of scope.');
+    await expect(page.locator('.options-exercise-shares')).toHaveText(OPTIONS.exerciseShares(1));
     const html = await page.content();
     for (const bad of ['Call option', 'Put option', '123.45', 'FUTZ7']) expect(html).not.toContain(bad);
     expect(html).not.toMatch(OCC);
@@ -186,8 +189,32 @@ test('E12: through the vendor fake, every D4 case is imported, matched and count
   }
 });
 
+// ---- Fix round 1 (QA 1): the element trees the option components return (what a server component serializes into the
+// page payload: every key and prop) carry no strike, contract symbol, contract key or multiplier. (The react-server
+// flight renderer can't load the app's TSX components outside Next's bundler, so the trees are walked directly.)
+test('fix round 1 B: the rendered element trees\' keys and props carry no strike or contract key', () => {
+  const STRIKE = /123\.45|123450|\|100\b|\|10\b|[A-Z]{1,6}\s*\d{6}[CP]\d{8}/;
+  const seen: string[] = [];
+  const walk = (n: unknown): void => {
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    if (!n || typeof n !== 'object') { if (n !== null && n !== undefined && n !== false) seen.push(String(n)); return; }
+    const el = n as { key?: unknown; type?: unknown; props?: Record<string, unknown> };
+    if (el.key !== null && el.key !== undefined) seen.push(`key=${String(el.key)}`);
+    const props = el.props ?? {};
+    for (const [k, v] of Object.entries(props)) if (k !== 'children') seen.push(`${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+    if (typeof el.type === 'function') walk((el.type as (p: unknown) => unknown)(props));
+    else walk(props.children);
+  };
+  walk(h(OptionTradesSection, { trades: trades.map((t) => ({ ...t, underlying: 'XYZ' })), handle: 'opt_open' }));
+  walk(h(OpenOptionRows, { open: [{ underlying: 'XYZ', right: 'CALL' as const, expiry: '2026-12-11', pct: 0.1 }, { underlying: 'XYZ', right: 'CALL' as const, expiry: '2026-12-11', pct: 0.2 }] }));
+  walk(h(OptionsLines, { m: openModel }));
+  expect(seen.some((s) => s.startsWith('key='))).toBe(true);
+  for (const s of seen) expect(s).not.toMatch(STRIKE);
+  expect(seen).toContain('key=XYZ|2026-12-11|CALL|1'); // two rows of one contract stay apart without the strike
+});
+
 // ---- 3. Surfaces when open: static markup of the pure components with the app's stylesheet.
-const counts = (o: Partial<OptionCounts> = {}): OptionCounts => ({ shown: 0, short: 0, other: 0, openLong: 0, openShort: 0, unsupported: 0, ...o });
+const counts = (o: Partial<OptionCounts> = {}): OptionCounts => ({ shown: 0, short: 0, other: 0, openLong: 0, openShort: 0, openOther: 0, unsupported: 0, exerciseShares: 0, ...o });
 const DAY = 86_400_000;
 const worst = { id: '1', underlying: 'ABCDE', right: 'PUT' as const, expiry: '2026-12-19', openedAt: new Date('2026-09-01'), closedAt: new Date('2026-10-03T15:00:00Z'), returnPct: -1, holdingDays: 32, verified: true };
 const trades = [worst, ...Array.from({ length: 13 }, (_, i) => ({ ...worst, id: String(i + 2), underlying: ['XYZ', 'QRS', 'LMNOP'][i % 3], right: (i % 2 ? 'CALL' : 'PUT') as 'CALL' | 'PUT', returnPct: [-0.5, 0.31, -0.12, 0.08][i % 4], closedAt: new Date(Date.parse('2026-10-03') - i * DAY) }))];
@@ -257,14 +284,14 @@ for (const scheme of ['light', 'dark'] as const) {
 
   test(`AC16/AC24 (${scheme}): the closed-gate render is the count line only; the pane part is the label and the line (or the options line once open)`, async ({ page }) => {
     const closed: OptionHeadline = { gate: 'closed', counts: counts({ shown: 3, short: 1, openLong: 1 }) };
-    const markup = await mount(page, [h(ShareTradesLabel, { counts: closed.counts }), h(OptionsLines, { m: closed }), h('section', { className: 'pane' }, h(PaneOptions, { m: closed }))], scheme);
+    const markup = await mount(page, [h(ShareTradesLabel, { counts: closed.counts }), h(OptionsLines, { m: closed }), h('section', { className: 'pane' }, h(PaneOptions, { v: paneView(closed) }))], scheme);
     await noHScroll(page);
     await expect(page.locator('.share-label')).toHaveText('Share trades');
     await expect(page.locator('.options-gated')).toHaveText([OPTIONS.gated(4, 1), OPTIONS.gated(4, 1)]);
     expect(markup).not.toMatch(/Call option|Put option|exp |%|Options:/);
-    await mount(page, [h('section', { className: 'pane' }, h(ShareTradesLabel, { counts: openModel.counts }), h(PaneOptions, { m: openModel }))], scheme);
+    await mount(page, [h('section', { className: 'pane' }, h(ShareTradesLabel, { counts: openModel.counts }), h(PaneOptions, { v: paneView(openModel) }))], scheme);
     await expect(page.locator('.pane .options-line')).toHaveText('Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)');
     // Zero: nothing renders.
-    expect(renderToStaticMarkup(h('div', null, h(ShareTradesLabel, { counts: counts() }), h(OptionsLines, { m: { gate: 'closed', counts: counts() } }), h(PaneOptions, { m: { gate: 'closed', counts: counts() } })))).toBe('<div></div>');
+    expect(renderToStaticMarkup(h('div', null, h(ShareTradesLabel, { counts: counts() }), h(OptionsLines, { m: { gate: 'closed', counts: counts() } }), h(PaneOptions, { v: paneView({ gate: 'closed', counts: counts() }) })))).toBe('<div></div>');
   });
 }

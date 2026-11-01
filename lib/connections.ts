@@ -551,7 +551,7 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
       if (!done) return save({ ...cur, checkedAt: now.getTime() }, false);
       // Complete at link time, or re-read once after the vendor finished: the record is whole (TR-3).
       if (cur.pass >= 2 || real.every((a) => a.initialSyncCompleted)) {
-        await setState(id, 'importing', 'connected', now, { last_progress_at: now }, tx);
+        await setState(id, 'importing', 'connected', now, { last_progress_at: now, /* OPTIONS: whole history read */ options_backfilled_at: now }, tx);
         const [{ n }] = await tx`select count(*)::int as n from closed_trades where user_id = ${c.user_id}`;
         await recordFunnel(c.attempt_id, 'import_finished', { trades: n as number, seconds: Math.round((now.getTime() - (c.consent_at ?? now).getTime()) / 1000) });
         return { state: 'connected', imported: c.imported_count, progressed: true };

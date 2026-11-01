@@ -16,7 +16,8 @@ export const PUBLIC_FIELDS: Field[] = [
 export const PRIVATE_FIELDS: Field[] = [
   // OPTIONS: the raw option columns join the existing words (no new words: the scope line is owner copy).
   { words: 'quantities', columns: ['activities.units', /* OPTIONS */ 'option_activities.contract_units'] },
-  { words: 'prices', columns: ['activities.price', /* OPTIONS */ 'option_activities.share_price', 'option_activities.strike_milli', 'option_activities.cash_amount'] },
+  { words: 'prices', columns: ['activities.price', /* OPTIONS */ 'option_activities.share_price', 'option_activities.strike_milli', 'option_activities.cash_amount',
+    'option_activities.occ_ticker', 'option_activities.contract_key' /* both carry the strike */] },
   { words: 'fees', columns: ['activities.fee', /* OPTIONS */ 'option_activities.fee'] },
   { words: 'account numbers', columns: ['activities.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'broker_accounts.account_id',
     /* OPTIONS */ 'option_activities.account_id', 'option_trades.account_id', 'open_option_positions.account_id'] },

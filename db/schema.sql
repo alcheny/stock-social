@@ -598,3 +598,14 @@ select schema_add_column('users', 'open_unsupported', 'int not null default 0');
 select schema_add_column('connections', 'consent_scope_hash', 'text');
 -- OPTIONS (D6, L9): the options line or the gated count line the profile displayed, as lib/options-load.ts returned it.
 select schema_add_column('display_log', 'options_line', 'text');
+-- OPTIONS fix round 1: share closes removed by the exercise-day rule are counted on their own (QA 8); malformed or
+-- unsupported-underlying option positions are an options count, not a futures one (QA 9).
+select schema_add_column('users', 'excluded_exercise_shares', 'int not null default 0');
+select schema_add_column('users', 'open_options_other', 'int not null default 0');
+-- OPTIONS fix round 1 (review 4): one-time per-connection option backfill. Null until the connection's whole activity
+-- history has been read with the option types (lib/options-sync.ts); the cursor holds each account's next offset.
+select schema_add_column('connections', 'options_backfilled_at', 'timestamptz');
+select schema_add_column('connections', 'options_backfill_cursor', $d$jsonb not null default '{}'$d$);
+-- OPTIONS fix round 1 (QA 12): a close is unique per trader. The earlier unique(close_id) stays (it can't be dropped
+-- here); a collision across traders is counted, never silently dropped (lib/options-sync.ts#rebuildOptionTrades).
+select schema_add_index('option_trades_user_close', 'create unique index option_trades_user_close on option_trades (user_id, close_id)');

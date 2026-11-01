@@ -8,7 +8,7 @@ import { displayFilter, shapeList, splitExclusions } from './discovery/exclusion
 import { exclusionsFor, followingAmong, sectionSkips } from './follows.ts';
 import { rejectedAmong } from './likes.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
-import { optionHeadline, type OptionHeadline } from './options-load.ts'; // OPTIONS
+import { optionHeadline, paneView, type PaneOptionsView } from './options-load.ts'; // OPTIONS
 
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
@@ -276,7 +276,7 @@ export type FeedPage = {
   openAsOf?: Map<number, Date>;
   // OPTIONS (docs/features/logs/options/plan.md AC 24): each page trader's option headline (the pane's label and line),
   // from the one reader, gated per trader.
-  options?: Map<number, OptionHeadline>;
+  options?: Map<number, PaneOptionsView>;
 };
 export type SectionRow = { userId: number; handle: string; name: string; reason: Reason };
 
@@ -368,7 +368,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
     viewer: following && { id: opts.viewer!, following }, section,
     ...openOf(opens, onPage, states),
-    options: await optionHeadline([...onPage]), // OPTIONS
+    options: new Map([...await optionHeadline([...onPage])].map(([id, h]) => [id, paneView(h)])), // OPTIONS: flag and line only
   };
 }
 

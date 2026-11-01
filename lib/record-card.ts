@@ -317,6 +317,7 @@ export function cardAlt(m: CardModel): string {
     parts.push(`${m.count}.`, `${m.period}.`, `Chart: ${m.caption}.`, `${m.evidence}.`);
     if (m.trust) parts.push(m.trust);
   }
+  if (m.shareLabel) parts.push(`${OPTIONS.shareLabel}.`); // OPTIONS: the explicit label
   if (m.optionsLine) parts.push(m.optionsLine); // OPTIONS
   if (m.open) parts.push(`${SHARE_CARD.openAlt} ${[counted(m.open.count, 'position'), m.open.split, m.open.spread].filter(Boolean).join(', ')}.`);
   if (m.link) parts.push(`${m.link}.`);

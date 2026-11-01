@@ -5,7 +5,7 @@ import type { AccountPosition, AccountUniversalActivity, OptionInstrument } from
 import type { Activity } from './trades.ts';
 // OPTIONS (docs/features/logs/options/plan.md D2, D7): option rows and option positions are parsed here (the vendor's
 // field names stay in this file) and handed to an optional sink; the share path below is unchanged.
-import { isOccSymbol, multiplierOf, strikeMilli, validExpiry, type OptionRow } from './options.ts';
+import { isOccSymbol, multiplierOf, strikeMilli, UNDERLYING_ALLOWLIST, validExpiry, type OptionRow } from './options.ts';
 
 // SNAPTRADE_BASE_URL points the SDK at the in-repo fake in tests (e2e/fakes/vendor.ts); unset, the SDK uses the vendor.
 const client = () =>
@@ -152,8 +152,10 @@ export async function deleteUser(u: BrokerUser): Promise<void> {
 // reader (lib/options-load.ts#optionHeadline); K5 the adjusted-root check, K6 the underlying allowlist and K7 the
 // per-cause counts (lib/options.ts); K8 the exercise-day rule (lib/options-sync.ts#rebuildRecord); K9 unknown consent
 // hashes (lib/consent-versions.ts#versionFor); K10 the per-trader gate (lib/options-load.ts#traderOptionsPublic).
+// Fix round 1 (review 5, QA 3): a BUY/SELL row with option_type set, or whose symbol is an OCC contract, is an option
+// row even without option_symbol: it never reaches the share path (closed_trades), and without a contract it is counted.
 const isOptionRow = (a: { type?: string; option_symbol?: unknown; option_type?: string; symbol?: { symbol?: string } | null }) =>
-  !!a.option_symbol || (OPTION_EVENT_TYPES as readonly string[]).includes(a.type ?? '') || (!!a.option_type && !a.symbol?.symbol);
+  !!a.option_symbol || (OPTION_EVENT_TYPES as readonly string[]).includes(a.type ?? '') || !!a.option_type || isOccSymbol(a.symbol?.symbol);
 const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 export function toOptionRows(accountId: string, rows: AccountUniversalActivity[]): (OptionRow & { raw: unknown })[] {
   const out: (OptionRow & { raw: unknown })[] = [];
@@ -177,37 +179,46 @@ export function toOptionRows(accountId: string, rows: AccountUniversalActivity[]
 // D7: an open option position as percent per share (the SDK: `cost_basis` "For options, this is per-share", `price` per
 // share), so no multiplier. Long only; shorts and futures-type kinds are counts.
 export type OptionPosition = { positionKey: string; underlying: string; right: 'CALL' | 'PUT'; expiry: string; unrealizedPct: number };
-export type PositionSplit = { options: OptionPosition[]; short: number; unsupported: number };
+// `optionOther`: option positions that can't be priced exactly (no price, no cost, an underlying outside the allowlist,
+// a contract symbol under another kind); `unsupported`: futures, options on futures and CFDs only (fix round 1, QA 9).
+export type PositionSplit = { options: OptionPosition[]; short: number; unsupported: number; optionOther?: number };
 export type PositionSink = (s: PositionSplit) => void;
 const UNSUPPORTED_KINDS = ['future', 'future_option', 'cfd'];
-const OPTION_UNDERLYING_KINDS = ['stock', 'etf', 'adr', 'cef'];
+// QA 9: the activity allowlist (lib/options.ts#UNDERLYING_ALLOWLIST) in the positions endpoint's instrument kinds.
+// Preferred stock and units have no instrument kind of their own there, so such positions are counted, never guessed.
+const KIND_CODE: Record<string, string> = { stock: 'cs', etf: 'et', adr: 'ad', cef: 'cef' };
+export const OPTION_UNDERLYING_KINDS = Object.keys(KIND_CODE).filter((k) => (UNDERLYING_ALLOWLIST as readonly string[]).includes(KIND_CODE[k]));
 export function splitPositionKinds(results: AccountPosition[]): { equityLike: AccountPosition[]; split: PositionSplit } {
   const equityLike: AccountPosition[] = [];
-  const split: PositionSplit = { options: [], short: 0, unsupported: 0 };
+  const split: Required<PositionSplit> = { options: [], short: 0, unsupported: 0, optionOther: 0 };
   for (const p of results) {
     const kind = (p.instrument as { kind?: string } | undefined)?.kind;
     if (kind === 'option') {
       const o = p.instrument as OptionInstrument;
-      const units = Number(p.units), price = Number(p.price), cost = Number(p.cost_basis);
+      // Review 2: a null or empty price is no price (Number(null) is 0, which read as -100%).
+      const num = (x: string | null | undefined) => (x === null || x === undefined || String(x).trim() === '' ? NaN : Number(x));
+      const units = num(p.units), price = num(p.price), cost = num(p.cost_basis);
       const expiry = validExpiry(o.expiration_date), sm = strikeMilli(o.strike_price);
       const underlying = o.underlying?.symbol;
       if (units < 0) { split.short++; continue; }
       if (!underlying || !OPTION_UNDERLYING_KINDS.includes(o.underlying?.kind) || !expiry || sm === null || (o.option_type !== 'CALL' && o.option_type !== 'PUT')
-        || !(units > 0) || !(price >= 0) || !(cost > 0)) { split.unsupported++; continue; }
+        || !(units > 0) || !(price >= 0) || !(cost > 0)) { split.optionOther++; continue; }
       split.options.push({ positionKey: [underlying, expiry, o.option_type, sm, Number(o.multiplier) || 100].join('|'), underlying, right: o.option_type, expiry, unrealizedPct: (price - cost) / cost });
-    } else if (UNSUPPORTED_KINDS.includes(kind ?? '') || isOccSymbol((p.instrument as { symbol?: string } | undefined)?.symbol)) split.unsupported++;
+    } else if (UNSUPPORTED_KINDS.includes(kind ?? '')) split.unsupported++;
+    else if (isOccSymbol((p.instrument as { symbol?: string } | undefined)?.symbol)) split.optionOther++;
     else equityLike.push(p);
   }
   return { equityLike, split };
 }
 
-function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): Fetched[] {
+function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; option_type?: string; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): Fetched[] {
   const out: Fetched[] = [];
   for (const a of rows) {
     const symbol = a.symbol?.symbol;
     // Option rows go to toOptionRows (OPTIONS, K1–K9 above); this path is shares, ETFs and crypto.
     if (!a.id || !symbol || a.option_symbol || !a.trade_date || !a.price || !a.units) continue;
     if (a.type !== 'BUY' && a.type !== 'SELL') continue;
+    if (a.option_type || isOccSymbol(symbol)) continue; // OPTIONS fix round 1: an option row (toOptionRows counts it)
     out.push({
       externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(a.units), price: a.price, fee: Math.abs(a.fee ?? 0),
       executedAt: new Date(a.trade_date), verified: true, raw: a,

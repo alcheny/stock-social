@@ -8,7 +8,7 @@ import { replacePositions } from './positions.ts';
 import { logSafe } from './privacy-log.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
-import { insertOptionActivities, lastOptionActivityAt, rebuildRecord, replaceOptionPositions } from './options-sync.ts';
+import { insertOptionActivities, lastOptionActivityAt, markBackfilled, pendingBackfill, rebuildRecord, replaceOptionPositions, saveBackfill } from './options-sync.ts';
 import type { OptionRow } from './options.ts';
 import type { PositionSplit } from './broker.ts';
 
@@ -345,13 +345,30 @@ export async function syncUser(
           if (page.done) break;
         }
       }
+      await markBackfilled(tx, user.id); // OPTIONS: the whole history was read with the option types
     } else {
       // The hourly case: the last week before the newest stored activity (bounded by a week of trading, not the history).
       const since = last ? new Date(last.getTime() - BACKFILL_MS) : new Date('2000-01-01');
-      const acts = real.length ? await broker.fetchActivities(bu, since, real, sink) : [];
+      // OPTIONS (fix round 1, review 4): an account still owed its one-time option backfill reads its next history page
+      // instead of the week (the same request count); the others read the week as before.
+      const backfill = broker.fetchActivitiesPage ? await pendingBackfill(tx, user.id) : new Map<string, number>();
+      const paged = real.filter((id) => backfill.has(id));
+      const windowed = real.filter((id) => !backfill.has(id));
+      const acts = windowed.length ? await broker.fetchActivities(bu, since, windowed, sink) : [];
       await insertActivities(user.id, 'snaptrade', acts, tx);
       await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
       read = acts.length;
+      const progress = new Map<string, number>();
+      for (const id of paged) {
+        const limit = broker.pageLimit ?? PAGE_LIMIT, offset = backfill.get(id)!;
+        const page = await broker.fetchActivitiesPage!(bu, id, offset, limit, sink);
+        await insertActivities(user.id, 'snaptrade', page.activities, tx);
+        await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
+        read += page.activities.length;
+        progress.set(id, page.done ? -1 : offset + limit);
+      }
+      if (paged.length) await saveBackfill(tx, user.id, real, progress);
+      if (!last) await markBackfilled(tx, user.id); // the since-2000 read is the whole history
     }
     await rebuild(user.id, tx);
     if (broker.fetchPositions) {

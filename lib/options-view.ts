@@ -7,27 +7,44 @@ import { OPTIONS } from './copy.ts';
 export type OptionCounts = {
   shown: number; // long option closes in option_trades
   short: number; // users.excluded_options_short
-  other: number; // users.excluded_options_other (exercise-day share closes included)
-  openLong: number; openShort: number; unsupported: number;
+  other: number; // users.excluded_options_other (option rows only)
+  openLong: number; openShort: number;
+  openOther: number; // users.open_options_other: open options that can't be priced exactly
+  unsupported: number; // users.open_unsupported: futures, options on futures, CFDs
+  exerciseShares: number; // users.excluded_exercise_shares: share closes held over an exercise or assignment day
 };
-// N of the count line: every option close, shown or counted; M: every open option, long or short.
+// N of the count line: every option close, shown or counted (option rows only, fix round 1, QA 8); M: every open option.
 export const closesOf = (c: OptionCounts) => c.shown + c.short + c.other;
-export const openOf = (c: OptionCounts) => c.openLong + c.openShort;
+export const openOf = (c: OptionCounts) => c.openLong + c.openShort + c.openOther;
 /** D5: the "Share trades" label shows whenever the trader has any option closes or option exclusions (both gate states). */
 export const shareLabel = (c: OptionCounts) => closesOf(c) > 0;
 /** Anything to say about options at all (the count line or the open-gate lines). */
 export const hasOptions = (c: OptionCounts) => closesOf(c) + openOf(c) > 0;
 
-export type OptionTradeView = { id: string; underlying: string; right: 'CALL' | 'PUT'; expiry: string; closedAt: Date; openedAt: Date; returnPct: number; holdingDays: number; verified: boolean };
-export type OpenOptionView = { key: string; underlying: string; right: 'CALL' | 'PUT'; expiry: string; pct: number };
+// Fix round 1 (QA 1, QA 2): only what the renders show. No contract key, strike, multiplier or row id: a server
+// component's keys and props reach the page payload, so nothing here may carry them.
+export type OptionTradeView = { underlying: string; right: 'CALL' | 'PUT'; expiry: string; closedAt: Date; returnPct: number; verified: boolean };
+export type OpenOptionView = { underlying: string; right: 'CALL' | 'PUT'; expiry: string; pct: number };
 export type OptionRecord =
   | { gate: 'closed'; counts: OptionCounts }
-  | { gate: 'open'; counts: OptionCounts; summary: OptionSummary | null; trades: OptionTradeView[]; open: OpenOptionView[] };
+  | { gate: 'open'; counts: OptionCounts; summary: OptionSummary | null; trades: OptionTradeView[]; open: OpenOptionView[]; openAsOf: Date | null };
 export type OptionHeadline = { gate: 'closed'; counts: OptionCounts } | { gate: 'open'; counts: OptionCounts; summary: OptionSummary | null };
 
 /** D6: the options line's text from a summary ("Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)"). */
 export const optionsLineText = (s: OptionSummary) =>
   OPTIONS.line(s.n, `${(s.winRate * 100).toFixed(0)}%`, pct(s.avg), s.range ? `(${pct(s.range.low)} to ${pct(s.range.high)})` : null);
+
+/** Fix round 1 (review 3): the open block's "as of": the oldest read across share and option positions, or null when
+ *  there is none (Math.min of nothing is Infinity, which printed "Invalid Date"). */
+export function oldestRead(shareReads: Date[], optionAsOf: Date | null): Date | null {
+  const t = [...shareReads.map((d) => d.getTime()), ...(optionAsOf ? [optionAsOf.getTime()] : [])].filter(Number.isFinite);
+  return t.length ? new Date(Math.min(...t)) : null;
+}
+
+/** Fix round 1 (QA 2): what the pane and the record card receive — the label flag and the one rendered line, never the
+ *  per-kind counts (a client fetches the pane as JSON). */
+export type PaneOptionsView = { label: boolean; line: string | null };
+export const paneView = (m: OptionHeadline): PaneOptionsView => ({ label: shareLabel(m.counts), line: optionDisplayText(m) });
 
 /** L9: the text the display log stores: the options line when open, the gated count line when closed, null when the
  *  trader has no options. Only what this file returned. */

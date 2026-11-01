@@ -64,7 +64,7 @@ test('AC16: the closed-gate read selects counts only (no option return, contract
   assert.ok(rec.indexOf("return { gate: 'closed', counts }") < rec.indexOf('loadTrades('));
 });
 
-const C = (o: Partial<OptionCounts> = {}): OptionCounts => ({ shown: 0, short: 0, other: 0, openLong: 0, openShort: 0, unsupported: 0, ...o });
+const C = (o: Partial<OptionCounts> = {}): OptionCounts => ({ shown: 0, short: 0, other: 0, openLong: 0, openShort: 0, openOther: 0, unsupported: 0, exerciseShares: 0, ...o });
 
 test('AC24 (model): the "Share trades" label and the count line follow option closes and exclusions; zero changes nothing', () => {
   assert.equal(shareLabel(C()), false);
@@ -132,7 +132,7 @@ dbTest('AC16/21 (DB): the loader returns counts only while gated; the display lo
     await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
       values (${u.id}, ${`${tag}-s`}, ${`${tag}-a`}, 'ABC', now() - interval '3 days', now() - interval '1 day', 0.1, 2, true)`;
     const rec = await loadOptionRecord(u.id);
-    assert.deepEqual(rec, { gate: 'closed', counts: { shown: 1, short: 0, other: 0, openLong: 0, openShort: 0, unsupported: 0 } });
+    assert.deepEqual(rec, { gate: 'closed', counts: { shown: 1, short: 0, other: 0, openLong: 0, openShort: 0, openOther: 0, unsupported: 0, exerciseShares: 0 } });
     const h = (await optionHeadline([u.id])).get(u.id)!;
     assert.equal(h.gate, 'closed');
     const text = await loadOptionDisplayText(u.id);

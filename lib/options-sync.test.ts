@@ -104,16 +104,16 @@ dbTest('AC10: rebuildRecord writes option_trades and both counters and is idempo
     assert.equal(first.removedForExercise, 2);
     const closes = async () => (await sql`select sell_id from closed_trades where user_id = ${u.id} order by sell_id`).map((r) => r.sell_id as string);
     assert.deepEqual(await closes(), [`${tag}-e-s`, `${tag}-k-s`]);
-    const counters = async () => (await sql`select excluded_options_short as s, excluded_options_other as o from users where id = ${u.id}`)[0];
-    // Short: the assignment. Other: the exercise + the 2 removed share closes.
-    assert.deepEqual({ ...await counters() }, { s: 1, o: 3 });
+    const counters = async () => (await sql`select excluded_options_short as s, excluded_options_other as o, excluded_exercise_shares as x from users where id = ${u.id}`)[0];
+    // Short: the assignment. Other: the exercise. The 2 removed share closes have their own counter (fix round 1, QA 8).
+    assert.deepEqual({ ...await counters() }, { s: 1, o: 1, x: 2 });
     const trades = async () => sql`select close_id, round(return_pct::numeric, 6)::float8 as r from option_trades where user_id = ${u.id}`;
     assert.deepEqual([...await trades()], [{ close_id: `${tag}-3s`, r: 0.5 }]);
     // Idempotent.
     const again = await rebuildRecord(u.id);
     assert.equal(again.removedForExercise, 2);
     assert.deepEqual(await closes(), [`${tag}-e-s`, `${tag}-k-s`]);
-    assert.deepEqual({ ...await counters() }, { s: 1, o: 3 });
+    assert.deepEqual({ ...await counters() }, { s: 1, o: 1, x: 2 });
     assert.equal((await trades()).length, 1);
     // A thesis on a removed close survives in kept_theses and re-attaches when the taint goes.
     await sql`delete from option_activities where external_id = ${`${tag}-1x`}`; // own row: the taint goes
@@ -177,8 +177,9 @@ dbTest('AC11: an options-only trader\'s hourly sync re-reads the 7 days before t
   const u = await mk();
   const acc = `${tag}-acc`;
   await sql`update users set snaptrade_user_id = ${`${tag}-v`}, snaptrade_secret_enc = 'enc' where id = ${u.id}`;
-  await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, consent_at, importing_at, connected_at, accounts)
-    select signup_attempt_id, id, 'a', 'connected', now(), now(), now(), ${sql.json([{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }])} from users where id = ${u.id}`;
+  // Backfilled already (fix round 1): this sync reads the week.
+  await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, consent_at, importing_at, connected_at, accounts, options_backfilled_at)
+    select signup_attempt_id, id, 'a', 'connected', now(), now(), now(), ${sql.json([{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }])}, now() from users where id = ${u.id}`;
   try {
     await insertOptionActivities(u.id, 'snaptrade', [opt('b', acc, 'BUY', 'BUY_TO_OPEN', '2026-10-20T15:00:00Z', { price: 2 })]);
     const since: Date[] = [];
@@ -247,8 +248,8 @@ dbTest('AC22 (rounds 3–5): with the gate open globally, old or null hashes get
   const covering = { line: `${tag} future line`, publicColumns: [...PUBLIC_FIELDS.flatMap((f) => f.columns)] };
   (CONSENT_VERSIONS as unknown as (typeof covering)[]).push(covering);
   const NEW = consentHash(covering.line);
-  const conn = (userId: number, accounts: string[], hash: string | null, frozen = false) => sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, connected_at, disconnected_at, consent_scope_hash, accounts)
-    select signup_attempt_id, id, 'connected', now(), now(), now(), ${frozen ? new Date() : null}, ${hash}, ${sql.json(accounts.map((id) => ({ id, authorizationId: 'a', institution: 'x', isPaper: false })))} from users where id = ${userId}`;
+  const conn = (userId: number, accounts: string[], hash: string | null, frozen = false, backfilled = true) => sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, connected_at, disconnected_at, consent_scope_hash, accounts, options_backfilled_at)
+    select signup_attempt_id, id, 'connected', now(), now(), now(), ${frozen ? new Date() : null}, ${hash}, ${sql.json(accounts.map((id) => ({ id, authorizationId: 'a', institution: 'x', isPaper: false })))}, ${backfilled ? new Date() : null} from users where id = ${userId}`;
   const withOptions = async (userId: number, acc: string, source: 'snaptrade' | 'demo' = 'snaptrade') => {
     await insertOptionActivities(userId, source, [opt(`${userId}b`, acc, 'BUY', 'BUY_TO_OPEN', '2026-10-01T15:00:00Z'), opt(`${userId}s`, acc, 'SELL', 'SELL_TO_CLOSE', '2026-10-02T15:00:00Z', { price: 2 })]);
     await rebuildRecord(userId);
@@ -266,7 +267,15 @@ dbTest('AC22 (rounds 3–5): with the gate open globally, old or null hashes get
     // Round 5: re-consented on one connection, one option row on an account no connection holds.
     await withOptions(stray.id, `${tag}-str1`); await conn(stray.id, [`${tag}-str1`], NEW);
     await insertOptionActivities(stray.id, 'snaptrade', [opt('lost', `${tag}-str2`, 'BUY', 'BUY_TO_OPEN', '2026-10-01T15:00:00Z')]);
+    // Fix round 1 (review 4): re-consented but still owed the option backfill → gated. (QA 12): option rows with no
+    // account at all → gated.
+    const owed = await mk('owe'), none = await mk('none');
+    await withOptions(owed.id, `${tag}-owe`); await conn(owed.id, [`${tag}-owe`], NEW, false, false);
+    await insertOptionActivities(none.id, 'snaptrade', [opt('na', null as never, 'SELL', 'SELL_TO_CLOSE', '2026-10-02T15:00:00Z')]);
+    await rebuildRecord(none.id);
     const gate = async (id: number) => (await loadOptionRecord(id)).gate;
+    assert.equal(await gate(owed.id), 'closed');
+    assert.equal(await gate(none.id), 'closed');
     assert.equal(await gate(old.id), 'closed');
     assert.equal(await gate(nul.id), 'closed');
     assert.equal(await gate(re.id), 'open');

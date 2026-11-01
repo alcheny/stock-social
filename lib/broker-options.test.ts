@@ -101,7 +101,9 @@ test('AC12/13 over HTTP: option rows reach the sink, share rows and signatures u
   assert.equal(s.options[0].right, 'CALL');
   assert.equal(s.options[0].expiry, '2026-12-19');
   assert.equal(s.short, 1);
-  assert.equal(s.unsupported, 3);
+  // Fix round 1 (QA 9): futures-type kinds only; the contract symbol under a stock kind is an option position not priced.
+  assert.equal(s.unsupported, 2);
+  assert.equal(s.optionOther, 1);
   assert.ok(pos.every((p) => !/\d{6}[CP]\d{8}/.test(p.symbol)));
   assert.deepEqual(await b.fetchPositions(u, 'opt-1'), [{ symbol: 'QQQ', unrealizedPct: 0.1 }]); // no sink: same shares
   await b.deleteUser(u);
@@ -126,5 +128,6 @@ test('AC13: splitPositionKinds keeps equity-like kinds only', () => {
   const { equityLike, split } = splitPositionKinds([p({ kind: 'stock', symbol: 'A' }), p({ kind: 'etf', symbol: 'B' }), p({ kind: 'cfd', symbol: 'C' }),
     p({ kind: 'option', symbol: 'XYZ   261219C00123450', option_type: 'CALL', strike_price: '1', expiration_date: '2026-12-19', multiplier: '10', underlying: { kind: 'bond', symbol: 'XYZ' } })]);
   assert.deepEqual(equityLike.map((x: { instrument: { symbol: string } }) => x.instrument.symbol), ['A', 'B']);
-  assert.equal(split.unsupported, 2); // the cfd and the option on a non-stock underlying
+  assert.equal(split.unsupported, 1); // the cfd
+  assert.equal(split.optionOther, 1); // the option on an underlying outside the allowlist (fix round 1, QA 9)
 });

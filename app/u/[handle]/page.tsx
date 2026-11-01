@@ -41,7 +41,7 @@ import { combined, openSummary } from '@/lib/open-split.ts';
 import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
 // OPTIONS (docs/features/logs/options/plan.md D5, D6): the one reader and its pure renders.
-import { loadOptionRecord, shareLabel, hasOptions } from '@/lib/options-load.ts';
+import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenOptionRows, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
 
@@ -74,7 +74,8 @@ async function load(handle: string) {
   const opt = await loadOptionRecord(user.id);
   const optOpen = opt.gate === 'open' && state !== 'importing' ? opt.open : [];
   const open = state === 'connected' || state === 'failed' ? openSummary([...positions.map((p) => p.unrealized_pct as number), ...optOpen.map((o) => o.pct)]) : null;
-  const openAsOf = open ? new Date(Math.min(...positions.map((p) => (p.fetched_at as Date).getTime()))) : null;
+  // OPTIONS fix round 1 (review 3): the oldest read across share and option positions; unset when there are none.
+  const openAsOf = open ? oldestRead(positions.map((p) => p.fetched_at as Date), optOpen.length && opt.gate === 'open' ? opt.openAsOf : null) : null;
   return { opt, optOpen, user, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
@@ -113,7 +114,8 @@ export default async function Profile({ params, searchParams }: Params) {
   if (!data) notFound();
   const { user, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf, opt, optOpen } = data;
   const long = open ? longValues(pct(s.avgReturn), pct(open.avg), String(open.n)) : undefined;
-  const both = open && combined(trades.map((t) => t.return_pct as number), positions.map((p) => p.pct));
+  // OPTIONS fix round 1 (review 3): the combined line counts the same open positions as the grid (option percents too).
+  const both = open && combined(trades.map((t) => t.return_pct as number), [...positions.map((p) => p.pct), ...optOpen.map((o) => o.pct)]);
   const me = await currentUser();
   const isMe = me?.id === user.id;
   // F-2 PR-3b: "Similar trades" (lib/similar.ts), only for a whole record with a typical holding period; the same for every
@@ -297,7 +299,7 @@ export default async function Profile({ params, searchParams }: Params) {
 
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
       {complete && <UnsupportedLine counts={opt.counts} />}
-      {positions.length === 0 && optOpen.length > 0 && <h2>{RECORD_BODY.positionsTitle}</h2>}
+      {positions.length === 0 && optOpen.length > 0 && <><h2>{RECORD_BODY.positionsTitle}</h2>{open && openAsOf && <p className="muted small">{OPEN.asOf(asOfDay(openAsOf))}</p>}</>}
       {optOpen.length > 0 && <OpenOptionRows open={optOpen} />}
       {positions.length > 0 && <>
         <h2>{RECORD_BODY.positionsTitle}</h2>

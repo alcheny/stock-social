@@ -355,7 +355,11 @@ export const OPTIONS = {
   line: (n: number, winPct: string, avg: string, range: string | null) => `${OPTION_LINE_HEAD(n, winPct)}${avg} avg${range ? ` ${range}` : ''}`,
   lineHead: (n: number, winPct: string) => OPTION_LINE_HEAD(n, winPct),
   short: (closed: number, open: number) => `Short options not shown: ${count(closed)} closed, ${count(open)} open. Their risk has no fixed amount to measure a percent against.`,
-  technical: (n: number) => `${counted(n, 'option trade')} excluded: exercised, assigned or adjusted contracts and others the importer can't price exactly.`,
+  // Fix round 1 (QA 8): share closes removed by the exercise-day rule are named as share trades, never option trades.
+  technical: (n: number, shares = 0) => `${counted(n, 'option trade')} excluded: exercised, assigned or adjusted contracts and others the importer can't price exactly${shares > 0 ? `, and ${counted(shares, 'share trade')} held over an exercise or assignment day` : ''}.`,
+  exerciseShares: (n: number) => `Excluded: ${counted(n, 'share trade')} held over an exercise or assignment day.`,
+  // Fix round 1 (QA 9): open options the importer can't price exactly (not futures).
+  openOther: (n: number) => `${counted(n, 'open option')} not shown: the importer can't price ${n === 1 ? 'it' : 'them'} exactly.`,
   listTitle: 'Option trades',
   call: 'Call option',
   put: 'Put option',
@@ -368,7 +372,8 @@ export const OPTIONS = {
   howTitle: 'Options',
   how: 'Option trades are imported and counted. They are shown once the consent wording covers them.',
   howMath: [
-    'An option trade\u2019s return is on what the contracts cost, fees included: a contract that expires worthless shows about \u2212100%, and fees can take it slightly lower.',
+    // Fix round 1 (QA 7): per-contract fees can take a very cheap contract far below -100%.
+    'An option trade\u2019s return is on what the contracts cost, fees included: a contract that expires worthless shows \u2212100%, and fees can take it lower, by a lot on very cheap contracts.',
     'Option trades are summarized on their own line, with a range once there are 5 independent bets. The headline stats, chart, range and the order of traders use share trades only.',
   ],
 } as const;
