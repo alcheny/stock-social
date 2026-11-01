@@ -106,6 +106,10 @@ const TRANSPORT_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI
   'ERR_NETWORK', 'ERR_SOCKET_CONNECTION_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
   // postgres.js connection errors and SQLSTATE: connection exceptions (08…), admin shutdown, serialization, deadlock.
   'CONNECTION_CLOSED', 'CONNECTION_ENDED', 'CONNECTION_DESTROYED', 'CONNECT_TIMEOUT', '57P01', '57P02', '57P03', '40001', '40P01']);
+// SQLSTATE classes that describe the database, not the trader: connection exceptions (08), insufficient resources (53:
+// too many connections, out of memory or disk), lock not available (55P03), a statement timeout or cancel (57014),
+// idle-in-transaction timeout (25P03), and syntax or access errors (42: a bug in our SQL).
+const DB_WIDE = /^(?:08|53|42)[0-9A-Z]{3}$|^(?:55P03|57014|25P03)$/;
 export const errStatus = (e: unknown): number | undefined => {
   const x = e as { status?: unknown; response?: { status?: unknown } } | null;
   const s = x?.status ?? x?.response?.status;
@@ -116,7 +120,10 @@ export function classify(e: unknown): FailureKind {
   if (status !== undefined) return status === 429 || status >= 500 ? 'transient' : status === 401 || status === 403 || status === 404 ? 'refused' : 'trader';
   const x = e as { name?: unknown; code?: unknown } | null;
   if (x?.name === 'VendorTimeoutError' || x?.name === 'AxiosError') return 'transient';
-  if (typeof x?.code === 'string' && (TRANSPORT_CODES.has(x.code) || x.code.startsWith('08'))) return 'transient';
+  if (typeof x?.code === 'string' && (TRANSPORT_CODES.has(x.code) || DB_WIDE.test(x.code))) return 'transient';
+  // A code error (a vendor response shape we do not expect, a bug): not the trader's fault and, at scale, a fleet-wide
+  // cause the breaker must see. Never backed off; retried next round like a transient failure (review should-fix 1).
+  if (e instanceof TypeError || e instanceof ReferenceError || e instanceof RangeError) return 'transient';
   return 'trader';
 }
 // What a failure line may say: the error's class name and HTTP status, never its message (vendor text can echo the

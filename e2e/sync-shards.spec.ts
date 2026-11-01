@@ -3,6 +3,7 @@
 // are covered by lib/sync-shard.test.ts; these check the endpoint's contract.
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { cronLock } from './cron-lock.ts';
 
 const cronSecret = process.env.CRON_SECRET ?? readFileSync(new URL('../.env', import.meta.url), 'utf8').match(/^CRON_SECRET=(.*)$/m)?.[1];
 const auth = { authorization: `Bearer ${cronSecret}` };
@@ -24,6 +25,8 @@ test('sync: invalid shard parameters answer 400 with a reason and sync nothing',
 
 test('sync: a shard other than 0 runs only its shard (no housekeeping, no coverage); shard 0 runs both; no parameters is shard 0 of 1', async ({ request }) => {
   test.setTimeout(120_000); // sharded calls start after a random spread of up to 15 s
+  const release = await cronLock('exclusive'); // e2e/cron-lock.ts: other files' cron calls wait
+  try {
   const other = await request.post('/api/sync?shard=1&of=2', { headers: auth });
   expect(other.status()).toBe(200);
   const o = await other.json();
@@ -44,4 +47,5 @@ test('sync: a shard other than 0 runs only its shard (no housekeeping, no covera
   expect(plain.coverage).toMatchObject({ of: 1 });
   // Counts only: the answer and its coverage carry no handles or vendor ids.
   expect(JSON.stringify(plain)).not.toMatch(/momentum_maya|dividend_dan|yolo_yuki|stock-social-/);
+  } finally { await release(); }
 });

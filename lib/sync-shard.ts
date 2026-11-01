@@ -205,6 +205,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   const unfit: number[] = []; // did not fit the time left: the next run takes them first, with a whole budget
   const popped = new Set<number>(); // taken from the queue by a worker and not yet claimed (waiting for tokens)
   let exhausted = false;
+  let firstTaken = false;
   let refilling: Promise<void> | null = null;
   let stopReason: 'deadline' | null = null;
   const next = async () => {
@@ -238,8 +239,15 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       const c = await next();
       if (!c) return;
       const requests = 1 + 2 * c.accounts;
-      if (routeEnd !== Infinity && syncCost(c.accounts) / VENDOR_TIMEOUT_MS * bound + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
+      // The first trader a run takes is always dispatched (it has the whole call; SYNC_FIT_CAP keeps its cost under it),
+      // so a trader with many accounts is never deferred forever by shard 0's housekeeping (review should-fix 2).
+      const first = !firstTaken;
+      firstTaken = true;
+      if (!first && routeEnd !== Infinity && syncCost(c.accounts) / VENDOR_TIMEOUT_MS * bound + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
         unfit.push(c.id); popped.delete(c.id); r.deferred++; stopReason = 'deadline';
+        // Nothing smaller can fit either, or the list has grown past a few pages: stop reading the queue (the exclusion
+        // list rides on every page query).
+        if (c.accounts <= 1 || unfit.length >= 4 * cfg.page) { exhausted = true; queue.length = 0; }
         continue;
       }
       await bucket.take(requests);
@@ -283,7 +291,8 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   };
 
   try {
-    if (sh.of > 1) {
+    // Shard 0 spends its start on housekeeping already; the spread is for the other shards.
+    if (sh.of > 1 && sh.shard !== 0) {
       const spread = o.jitterMs ?? (process.env.SYNC_START_JITTER_MS !== undefined ? Number(process.env.SYNC_START_JITTER_MS) || 0 : START_JITTER_MS);
       if (spread > 0) await sleep(Math.floor(Math.random() * spread));
     }

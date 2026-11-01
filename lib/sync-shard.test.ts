@@ -420,3 +420,31 @@ dbTest('failure isolation with the real syncUser: a vendor error mid-sync leaves
     await h.cleanup(of);
   }
 });
+
+// Code review should-fix 2: a run's first trader is always dispatched, whatever its fit (it has the whole call), so
+// traders with many accounts are never deferred forever on shard 0 behind its housekeeping; later ones that do not fit
+// are deferred to the next call, and the run reports the stop.
+dbTest('fit: the first trader a run takes is dispatched even when its worst-case cost does not fit; later unfit traders are deferred, not lost', async () => {
+  const h = await harness();
+  const of = freshOf();
+  try {
+    const ts = await h.inShard(3, of, 0);
+    const four = (t: { id: number; acc: string }) => [0, 1, 2, 3].map((i) => ({ id: `${t.acc}-${i}`, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }));
+    for (const t of ts) await h.sql`update connections set accounts = ${h.sql.json(four(t))} where user_id = ${t.id}`;
+    const c = h.counter();
+    const now = Date.now();
+    // 4 accounts at a 1 s bound cost 9 s; only 5 s are left before the route's end.
+    const r = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(5), jitterMs: 0, config: cfg(1), log: h.quiet, sync: c.sync,
+      vendorBoundMs: 1_000, clock: Date.now, routeEnd: now + 5_000 });
+    assert.equal(r.done, 1, JSON.stringify(r));
+    assert.equal(r.deferred, 2);
+    assert.equal(r.stoppedAtDeadline, true);
+    assert.equal(r.remaining, 2);
+    // The next call (a whole budget) takes them.
+    const r2 = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(10), jitterMs: 0, config: cfg(1), log: h.quiet, sync: c.sync, vendorBoundMs: 1_000 });
+    assert.equal(r2.done, 2);
+    for (const t of ts) assert.equal(c.count(t.id), 1);
+  } finally {
+    await h.cleanup(of);
+  }
+});

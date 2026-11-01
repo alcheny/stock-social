@@ -101,3 +101,14 @@ claimed only while 5 request bounds fit, so late in a call a shard takes 1-accou
 signed bar (>= 1.5x); `docs/SYNC.md` reports the measured figures. The bar's margin is thin, so before switch-on the
 plan should be re-measured on the production account distribution (gate item 1 already requires re-running the
 capacity table).
+
+## Independent code review (after the build): changes against the signed table
+
+- O3 refined: database-wide SQLSTATEs (53xxx resources, 57014 statement timeout, 55P03, 25P03, 42xxx) and code errors
+  (`TypeError`, `ReferenceError`, `RangeError`, e.g. an unexpected vendor answer shape) are **transient**, not the
+  trader's: an overloaded database or a fleet-wide bug must trip the breaker, never back off every trader for up to a
+  day. A rebuild error from a trader's own rows (a constraint, a value out of range) stays trader-specific.
+- Fit: a run's first trader is always dispatched, and shard 0 (which starts with housekeeping) skips the start spread,
+  so a trader with SYNC_FIT_CAP accounts is never deferred forever on shard 0.
+- `DATABASE_POOL_MAX` is clamped to 3..500 instead of falling back to 10; a run stops reading its queue once nothing
+  smaller can fit, so the exclusion list stays small; e2e cron calls across spec files are serialized by a lock.

@@ -23,7 +23,9 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
   its database connection for its whole transaction, vendor calls included.
 - **Deadline.** A run stops dispatching 90 s before the route's 300 s limit. It dispatches a trader only if
   `(1 + 2n)` vendor bounds, plus the expected wait for rate tokens, fit before the limit (n = accounts). A trader that
-  does not fit is left for the next call, which starts with a full budget.
+  does not fit is left for the next call, which starts with a full budget. A run's first trader is always dispatched
+  (`SYNC_FIT_CAP` keeps any trader's worst case under one call), so shard 0's housekeeping can never defer a trader
+  with many accounts forever.
 - **Vendor budget.** Each run has a token bucket of `SYNC_VENDOR_RPS` requests per second. Because only one run per shard
   is possible, this is the shard's whole budget. A trader's `1 + 2n` requests are taken before it is claimed, outside
   its transaction. Any extra request (another page on a first sync) takes a token as it goes. The aggregate vendor
@@ -32,7 +34,9 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
   - **Trader-specific** (a vendor refusal 401/403/404, another 4xx, an account claimed by another profile, a record the
     rebuild rejects): the trader backs off for 1 h after the first failure, then 2 h, 4 h and so on, capped at 24 h. A
     success clears the backoff.
-  - **Transient** (429, 5xx, a vendor timeout, a dropped connection): never held against the trader. It keeps its round
+  - **Transient** (429, 5xx, a vendor timeout, a dropped connection, a database-wide error such as too many connections
+    or a statement timeout, or a code error such as a `TypeError` from an unexpected vendor answer): never held against
+    the trader. It keeps its round
     claim and is retried next round.
   - **Breaker:** once 20 attempts have finished, a run stops if at least half of the last 20 were transient or refused,
     since at that scale the cause is an outage or our own credentials.
@@ -61,7 +65,7 @@ Alert on `sync round incomplete`, on `breaker: true`, and on `dbConfigOk: false`
 | `SYNC_VENDOR_RPS` | 10 (1–1000) | vendor requests per second per shard |
 | `SYNC_VENDOR_BURST` | = RPS | the most requests saved up |
 | `SYNC_PAGE` | 500 | traders read per queue page |
-| `SYNC_START_JITTER_MS` | 15000 | sharded calls (`of > 1`) start after a random delay up to this; 0 disables |
+| `SYNC_START_JITTER_MS` | 15000 | sharded calls (`of > 1`, except shard 0, which starts with housekeeping) start after a random delay up to this; 0 disables |
 | `DATABASE_POOL_MAX` | 10 | the app's connection pool per instance (`lib/db.ts`) |
 
 ## Capacity and the production plan
@@ -114,6 +118,8 @@ The idle timeout must sit above the largest sync cost (`(1 + 2 × SYNC_FIT_CAP) 
 - **Sharded plan:** 32 calls on that same schedule, `POST /api/sync?shard=i&of=32` for i = 0…31. Configure them as 32
   cron entries, or one scheduler job that sends all 32 at once. Each call has `maxDuration` 300 s. The random start
   delay spreads them out. Set `SYNC_CONCURRENCY=6`, `SYNC_VENDOR_RPS=10` and `DATABASE_POOL_MAX=8` (C + 2).
+- Runs with different shard counts do not exclude each other: a manual unsharded call during an `of=N` schedule adds
+  its own vendor budget (round claims still prevent any double sync). Avoid manual calls while sharded.
 - Changing N is safe at any time: round claims carry over, so nobody is synced twice. Leases are per (N, shard), so
   for one round both counts may run, and the vendor budget can briefly reach the sum of both plans.
 

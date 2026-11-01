@@ -202,3 +202,13 @@ test('dbConfigCheck: each rule', () => {
   assert.equal(dbConfigCheck({ ...good, maxConnections: 28 }, { ...plan, shards: 1 }).ok, true);
   assert.equal(dbConfigCheck({ ...good, maxConnections: 27 }, { ...plan, shards: 1 }).ok, false);
 });
+
+// Code review (should-fix 1): database-wide failures and code errors are never held against one trader; the breaker
+// sees them.
+test('classify: database-wide SQLSTATEs (53xxx, 57014, 55P03, 25P03, 42xxx) and code errors (TypeError, ReferenceError, RangeError) are transient', () => {
+  for (const code of ['53300', '53200', '53100', '57014', '55P03', '25P03', '42P01', '42703'])
+    assert.equal(classify(Object.assign(new Error('pg'), { code })), 'transient', code);
+  for (const e of [new TypeError('x'), new ReferenceError('x'), new RangeError('x')]) assert.equal(classify(e), 'transient', e.name);
+  // Still the trader's: a constraint on its own rows, a plain error from its record.
+  for (const code of ['23505', '23503', '22003']) assert.equal(classify(Object.assign(new Error('pg'), { code })), 'trader', code);
+});
