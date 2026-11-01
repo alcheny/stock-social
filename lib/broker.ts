@@ -147,18 +147,11 @@ export async function deleteUser(u: BrokerUser): Promise<void> {
 
 // ---- OPTIONS (docs/features/logs/options/plan.md D2, D7). Separate from the share path above so another importer's
 // changes to it merge without touching these.
-// ponytail: K1 option trades are not on feed cards and the pane's last-5 list is shares only — when feed cards come, cap
-// the ranking size term at 100% for options (long losses stop at -100%, so uncapped gains would tilt toward winners).
-// ponytail: K2 no per-trade share card for options (follows K3); the record card carries the label and the line.
-// ponytail: K3 no option trade page, theses or likes on option trades — build them on option_trades.close_id.
-// ponytail: K4 similar, compare, recap, /me/record and the import banner count ignore options — read lib/options-load.ts there.
-// ponytail: K5 a corporate action on the underlying during a hold is caught only when the OCC root changes — taint the
-// contract from corporate-action rows once that importer is wired.
-// ponytail: K6 cash-settled exercise is not priced and index underlyings are outside the allowlist — price it from the
-// settlement amount if index options are ever in scope (they are not: COMPLIANCE §2).
-// K7 (per-cause counts) is at lib/options.ts#CAUSES; K8 (the exercise-day share rule) at lib/options-sync.ts#rebuildRecord.
-// ponytail: K9 consents before consent_scope_hash have no wording version, so those traders stay gated — a re-consent
-// prompt (K10) writes the current hash.
+// Known limits of options support (docs/features/logs/options/plan.md K1–K10), each a `ponytail:` where it lives: K1 the
+// feed pane's last-5 list (app/pane.tsx); K2, K3 the option trade row (app/u/[handle]/options-block.tsx); K4 the one
+// reader (lib/options-load.ts#optionHeadline); K5 the adjusted-root check, K6 the underlying allowlist and K7 the
+// per-cause counts (lib/options.ts); K8 the exercise-day rule (lib/options-sync.ts#rebuildRecord); K9 unknown consent
+// hashes (lib/consent-versions.ts#versionFor); K10 the per-trader gate (lib/options-load.ts#traderOptionsPublic).
 const isOptionRow = (a: { type?: string; option_symbol?: unknown; option_type?: string; symbol?: { symbol?: string } | null }) =>
   !!a.option_symbol || (OPTION_EVENT_TYPES as readonly string[]).includes(a.type ?? '') || (!!a.option_type && !a.symbol?.symbol);
 const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);

@@ -11,6 +11,9 @@ export * from './options-view.ts';
 /** D5 per trader (rounds 3–5): the scope line names options AND every account holding option rows maps to at least one
  *  consented connection, every one of which carries a covering hash (frozen ones included). An account no connection
  *  holds keeps the trader gated. A demo trader (no broker row at all) skips the per-trader part. */
+// ponytail: K10 existing traders stay gated until they consent again, and reconnecting alone may not open the gate (a
+// frozen connection holding the same account under an old hash still blocks) — a re-consent prompt on /me that rewrites
+// consent_scope_hash on every connection holding the account (the owner words it).
 export async function traderOptionsPublic(userId: number): Promise<boolean> {
   if (!optionsPublic()) return false;
   const [d] = await sql`select
@@ -68,6 +71,8 @@ export async function loadOptionRecord(userId: number, gate: boolean | Promise<b
   };
 }
 
+// ponytail: K4 similar, compare, recap, /me/record and the import banner count ignore options — read this loader there
+// (counts while gated) when those surfaces should mention them.
 /** The pane's and the record card's headline model, per trader. The default gate is worked out per trader, never once
  *  per batch (round 4 legal); `gate` is for tests only. */
 export async function optionHeadline(userIds: number[], gate?: (userId: number) => boolean | Promise<boolean>): Promise<Map<number, OptionHeadline>> {

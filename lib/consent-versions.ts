@@ -19,5 +19,7 @@ export const CONSENT_VERSIONS: readonly ConsentVersion[] = [
 export const consentHash = (line: string) => createHash('sha256').update(line).digest('hex');
 /** The hash written beside `consent_at` now: the last entry's line (equal to CONSENT_SCOPE_LINE, tested). */
 export const CURRENT_CONSENT_HASH = consentHash(CONSENT_VERSIONS[CONSENT_VERSIONS.length - 1].line);
+// ponytail: K9 consents recorded before consent_scope_hash existed have no wording version (null), so those traders stay
+// gated — they consent again under a line that names options (K10's prompt writes the current hash).
 export const versionFor = (hash: string | null | undefined): ConsentVersion | null =>
   (hash ? CONSENT_VERSIONS.find((v) => consentHash(v.line) === hash) : null) ?? null;

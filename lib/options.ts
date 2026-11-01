@@ -13,6 +13,8 @@ export type OpenClose = (typeof OPEN_CLOSE)[number];
 export type OptionRight = 'CALL' | 'PUT';
 // D4 (L3, E2): underlyings that settle in shares of a listed security. Allowlist, not denylist: anything else
 // (options on futures, indexes, a missing or unknown type) is excluded and counted.
+// ponytail: K6 cash-settled exercise is not priced and index underlyings are outside this allowlist — price an exercise
+// from its settlement cash if index options are ever in scope (they are not: COMPLIANCE §2).
 export const UNDERLYING_ALLOWLIST = ['cs', 'et', 'ad', 'ps', 'cef', 'ut'] as const;
 export const DANGLING_DAYS = 5;
 const DAY = 86_400_000;
@@ -139,6 +141,8 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
   else if (new Set(rows.map((r) => r.currency ?? '')).size > 1) excluded = 'currency';
   else if (!first.underlyingType || !(UNDERLYING_ALLOWLIST as readonly string[]).includes(first.underlyingType)
     || new Set(rows.map((r) => r.underlyingType)).size > 1) excluded = 'underlying';
+  // ponytail: K5 a corporate action on the underlying during a hold is caught only when the OCC root changes — taint the
+  // contract from the corporate-action rows once that importer (PR #40) is wired.
   else if (rows.some((r) => { const o = parseOcc(r.occTicker); return !o || bare(o.root) !== bare(r.underlying!); })) excluded = 'adjusted';
   else if (rows.some((r) => (r.kind === 'BUY' || r.kind === 'SELL') && (!finitePos(r.units) || !finiteNonNeg(r.price) || (r.fee !== null && !Number.isFinite(r.fee))))) excluded = 'malformed';
   else if (rows.some((r) => (r.kind === 'BUY' || r.kind === 'SELL') && cashScaleFails(r))) excluded = 'cashScale';

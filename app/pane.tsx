@@ -75,6 +75,9 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
       {/* F-6 (business lead D1): with open positions the figures lead, as on the profile (the pane is where most viewers
           meet a record, SW-1); without them, today's order. */}
       {open ? <>{incomplete}{figures}{chartBlock}{summary}</> : <>{chartBlock}{summary}{incomplete}{figures}</>}
+      {/* ponytail: K1 option trades are not on feed cards and this last-5 list is share trades only (the pane carries the
+          label and the line) — when feed cards come, cap the ranking size term at 100% for options (long losses stop at
+          -100%, so uncapped gains would tilt the feed toward winners). */}
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
       <ul className="rows">
         {p.recent.map((t) => (

@@ -32,6 +32,10 @@ export function OptionsLines({ m }: { m: OptionHeadline }) {
 }
 
 /** D6: one option close. Chip in text, not color; the accessible name reads the whole row. */
+// ponytail: K2 no per-trade share card for options (the record card carries the label and the line) — add one with the
+// trade page below, percent only.
+// ponytail: K3 no option trade page, theses or likes on option trades — build them keyed by option_trades.close_id, as
+// closed trades are keyed by sell_id.
 export function OptionTradeRow({ t }: { t: OptionTradeView }) {
   const exp = expiryText(t.expiry);
   return <li className="option-row" aria-label={`${t.underlying} ${chip(t.right).toLowerCase()}, ${exp}, ${pct(t.returnPct)}`}>
@@ -39,7 +43,8 @@ export function OptionTradeRow({ t }: { t: OptionTradeView }) {
       <span className="option-what"><b><a href={`/t/${encodeURIComponent(t.underlying)}`} className="tap44">{t.underlying}</a></b> <span className="chip">{chip(t.right)}</span></span>
       <b className={sign(t.returnPct)}>{pct(t.returnPct)}</b>
     </div>
-    <p className="muted small option-meta">closed {closedDay.format(t.closedAt)} · {exp}</p>
+    {/* L7: a demo row carries the Demo badge (Verified stays the profile's, from its source rows). */}
+    <p className="muted small option-meta">closed {closedDay.format(t.closedAt)} · {exp}{!t.verified && <> <span className="badge demo">Demo</span></>}</p>
   </li>;
 }
 

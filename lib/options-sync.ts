@@ -113,10 +113,10 @@ export async function rebuildRecord(userId: number, tx?: TransactionSql, asOf = 
     // (b) + (c): share closes in the same account and stock whose hold spans an exercise or assignment day. Their
     // theses are kept aside (re-attached by sell_id when the taint goes), the closes are removed and counted.
     // This is part of the rebuild that derives closed_trades (re-applied on every rebuild), not a patch of stored rows.
-    // ponytail: K8 the exercise-day rule removes every share close in that account and stock whose hold spans the day, so
-    // it can remove an unrelated trade, and it keeps delivered buys (their basis leaves out the premium). Shares delivered
-    // or removed by an exercise or assignment may also arrive as the corporate-actions importer's transfer-in or
-    // adjustment rows (PR #40's lot handling). The exact rule belongs inside the matcher once PR #40 has merged.
+    // ponytail: K8 the exercise-day rule removes every share close in that account and stock whose hold spans the day (it
+    // can remove an unrelated trade, and it keeps delivered buys, whose basis leaves out the premium); shares delivered or
+    // removed by an exercise or assignment may also arrive as PR #40's transfer-in or adjustment rows (its lot handling)
+    // — the exact rule, per delivered or removed lot, belongs inside the share matcher once PR #40 has merged.
     const taint = await exerciseDays(tx, userId);
     let removed = 0;
     if (taint.length) {
