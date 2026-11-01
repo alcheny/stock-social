@@ -22,7 +22,9 @@ export const metadata: Metadata = {
   // F-15 second half: canonical links (and image URLs) resolve against the configured public origin, never a Host header.
   metadataBase: metadataBase(),
   title: 'Stock Social',
-  description: 'Verified trades, straight from the broker. Losses included.',
+  // QA round 1 (finding 1): the root description shows over a feed with Demo cards, so it names no trust state.
+  // QA round 2 (N1): it covers records built from public filings too (F-7).
+  description: 'Trading records imported read-only from brokers and built from public filings. Demo records are marked Demo. Losses included.',
 };
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#0b0b0f' };
 

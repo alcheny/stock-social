@@ -172,9 +172,19 @@ dbTest('like, unlike, reject: one row each, never your own trade; a like and a r
   }
 });
 
-dbTest('heavy: a viewer with 10,000 likes lists them 50 a page, newest first, every like once; a page reads in well under 100 ms', async () => {
+// What the heavy test proves is that a page's cost does not grow with its depth: the keyset is index-backed (no OFFSET
+// scan, no filter or sort over the viewer's 10,000 likes). EXPLAIN ANALYZE states that in rows read, which machine load
+// cannot change; the timings then compare deep pages with shallow ones run in turn, so both see the same load.
+type PlanNode = { 'Node Type': string; 'Relation Name'?: string; 'Index Name'?: string; 'Actual Rows': number; 'Actual Loops': number;
+  'Rows Removed by Filter'?: number; 'Rows Removed by Index Recheck'?: number; 'Shared Hit Blocks'?: number; 'Shared Read Blocks'?: number; Plans?: PlanNode[] };
+const planNodes = (n: PlanNode): PlanNode[] => [n, ...(n.Plans ?? []).flatMap(planNodes)];
+// Rows a node read: those it returned plus those it threw away, over all its loops.
+const rowsRead = (n: PlanNode) => (n['Actual Rows'] + (n['Rows Removed by Filter'] ?? 0) + (n['Rows Removed by Index Recheck'] ?? 0)) * n['Actual Loops'];
+const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), h = s.length >> 1; return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2; };
+
+dbTest('heavy: a viewer with 10,000 likes lists them 50 a page, newest first, every like once; a deep page reads no more likes than a shallow one (EXPLAIN) and takes about as long', async () => {
   const { sql } = await import('./db.ts');
-  const { ownLikes, LIKES_PAGE } = await import('./likes.ts');
+  const { ownLikes, ownLikesQuery, LIKES_PAGE } = await import('./likes.ts');
   const { ids: [viewer, trader] } = await people(2);
   try {
     const rows = await closes(trader, Array.from({ length: 10_000 }, (_, i) => `${trader}-h${i}`));
@@ -182,11 +192,13 @@ dbTest('heavy: a viewer with 10,000 likes lists them 50 a page, newest first, ev
     // Some likes share a timestamp (the keyset's tie-break).
     for (let k = 0; k < rows.length; k += 2000) await sql`insert into trade_likes ${sql(rows.slice(k, k + 2000).map((r, j) => ({ viewer_id: viewer, trade_key: r.key, trader_id: trader, created_at: new Date(at - Math.floor((k + j) / 3) * 1000) })))}`;
     const seen = new Set<string>();
-    let after: string | null | undefined, pages = 0, slowest = 0, prev = Infinity;
+    const cursors: (string | undefined)[] = [], ms: number[] = [];
+    let after: string | null | undefined, pages = 0, prev = Infinity;
     do {
+      cursors.push(after ?? undefined);
       const t0 = performance.now();
       const p = await ownLikes(viewer, after ?? undefined);
-      slowest = Math.max(slowest, performance.now() - t0);
+      ms.push(performance.now() - t0);
       assert.ok(p.rows.length <= LIKES_PAGE);
       for (const r of p.rows) { assert.ok(!seen.has(r.key)); seen.add(r.key); }
       const first = rows.findIndex((r) => r.key === p.rows[0]?.key);
@@ -195,8 +207,49 @@ dbTest('heavy: a viewer with 10,000 likes lists them 50 a page, newest first, ev
     } while (after);
     assert.equal(seen.size, 10_000);
     assert.equal(pages, 200);
-    console.log(`# 10,000 likes: ${pages} pages, slowest page ${slowest.toFixed(1)} ms`);
-    assert.ok(slowest < 100, `${slowest} ms`);
+
+    // 1. Deterministic: the plans of a shallow (2nd), a middle (100th) and the deepest (200th) page. Every node that
+    // touches trade_likes is an index read of at most a page plus the look-ahead row (LIMIT 51), with nothing filtered
+    // away, and nothing sorts more than that. On the last page an OFFSET would read ~10,000 index rows, a cursor checked
+    // as a filter rather than an index bound would remove ~9,950, and a seq scan or a sort of all likes shows either way.
+    // Past the keyset the plan joins one close and one user per chosen like, so the rest of its work is per page too.
+    // Statistics first, as a live table has them (autovacuum): with none, or ones sampled before these 10,000 rows
+    // (another test file's analyze), the planner may estimate a handful of likes and pick a bitmap scan plus a top-N sort
+    // of every like below the cursor, so which plan ran would depend on when autovacuum last woke, not on the query.
+    await sql`analyze trade_likes`;
+    const bound = LIKES_PAGE + 1;
+    let deepBlocks = 0;
+    for (const page of [2, 100, 200]) {
+      const [r] = await sql`explain (analyze, buffers, format json) ${ownLikesQuery(viewer, cursors[page - 1])}`;
+      const nodes = planNodes((r['QUERY PLAN'] as { Plan: PlanNode }[])[0].Plan);
+      const likes = nodes.filter((n) => n['Relation Name'] === 'trade_likes' || n['Index Name']?.startsWith('trade_likes'));
+      assert.ok(likes.some((n) => /Index/.test(n['Node Type'])), `page ${page}: trade_likes is read through an index`);
+      for (const n of likes) {
+        assert.notEqual(n['Node Type'], 'Seq Scan', `page ${page}`);
+        assert.ok(rowsRead(n) <= bound, `page ${page}: ${n['Node Type']} on trade_likes read ${rowsRead(n)} rows (at most ${bound})`);
+        if (page === 200) deepBlocks += (n['Shared Hit Blocks'] ?? 0) + (n['Shared Read Blocks'] ?? 0);
+      }
+      for (const s of nodes.filter((n) => /Sort$/.test(n['Node Type']))) {
+        for (const c of s.Plans ?? []) assert.ok(c['Actual Rows'] * c['Actual Loops'] <= bound, `page ${page}: a sort over ${c['Actual Rows']} rows`);
+      }
+    }
+
+    // 2. Timing, tolerant of machine load: pages 2 to 21 against pages 181 to 200, run alternately so a busy moment slows
+    // both; the deep median may not be much above the shallow one. Plus generous ceilings on the whole walk.
+    const shallow: number[] = [], deep: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      for (const [cursor, out] of [[cursors[1 + i], shallow], [cursors[180 + i], deep]] as const) {
+        const t0 = performance.now();
+        await ownLikes(viewer, cursor);
+        out.push(performance.now() - t0);
+      }
+    }
+    const [walkMedian, slowest, shallowMedian, deepMedian] = [median(ms), Math.max(...ms), median(shallow), median(deep)];
+    console.log(`# 10,000 likes: ${pages} pages, median page ${walkMedian.toFixed(1)} ms, slowest page ${slowest.toFixed(1)} ms; `
+      + `pages 2-21 median ${shallowMedian.toFixed(1)} ms, pages 181-200 median ${deepMedian.toFixed(1)} ms; the deepest page read ${deepBlocks} trade_likes blocks`);
+    assert.ok(deepMedian <= 2 * shallowMedian + 5, `deep pages ${deepMedian} ms vs shallow ${shallowMedian} ms`);
+    assert.ok(walkMedian < 100, `median page ${walkMedian} ms`);
+    assert.ok(slowest < 1_000, `slowest page ${slowest} ms`);
   } finally {
     await sql`delete from users where id in ${sql([viewer, trader])}`;
   }

@@ -5,6 +5,12 @@ import { cardTrust, type TrustBadge } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
+// FIXES-LABELS (D-05, D-09): the year rule for the close date; the F3 line on every card.
+import { dateText } from '@/lib/date-text.ts';
+import { Disclaimer } from './disclaimer.tsx';
+import { FIXES_LABELS } from '@/lib/copy.ts';
+import type { Segment } from '@/lib/record-status.ts'; // FIXES-LABELS: status
+import { StatusText } from './status-line.tsx'; // FIXES-LABELS: status
 import { UserNote } from '@/lib/user-note.ts';
 // F-13: the SW-1 hint and the Verified definition (fix #9).
 import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
@@ -19,7 +25,7 @@ export function Badge({ verified, kind = verified ? 'verified' : 'demo' }: { ver
   if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <Badge kind="demo" />}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
   return kind === 'verified'
     ? <span className="badge verified" title={VERIFIED_MEANING} /* fix #9 (F-13 group): one constant with the footer */>✓ Verified</span>
-    : <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>;
+    : <span className="badge demo" title={FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20) */}>Demo</span>;
 }
 
 // A badge chosen by a trust rule (paneTrust / cardTrust / rowBadge): null shows none.
@@ -48,14 +54,10 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
   return <>{name !== handle && <><strong><bdi>{name}</bdi></strong>{' '}</>}<span className="muted">@{handle}</span></>;
 }
 
-// F-2 PR-1 fix round 2 (render cost): one formatter, not one per card (toLocaleDateString with options builds a new one
-// each call, ~0.1 ms). Same locale, options and time zone, so the same text.
-const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+// FIXES-LABELS (D-05): the close date is lib/date-text.ts#dateText (one cached formatter per variant, UTC).
 // F-10 follow-up (approval cycle 2, fix #23): a date outside the current UTC year carries its year ("May 30, 2020"), so an
 // old close never reads as recent (design system rule: dates in UTC, the year only when it is not this year).
-// ponytail: local copy of the year rule — switch to lib/date-text.ts#dateText when it lands
-const CLOSED_DAY_YEAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.getUTCFullYear() ? CLOSED_DAY : CLOSED_DAY_YEAR).format(d);
+export const closedDay = (d: Date, now: Date) => dateText(d, now);
 
 // F-7: a public-record card shows its card line in place of the thesis (filers post none).
 // F-7: a public filer's card carries its own line, never a note. F-9: UserNote renders a published thesis (no byline:
@@ -75,7 +77,9 @@ const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub 
 // renders it outside Next).
 // F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
 // F-13: `hint`, page 1's first card: the SW-1 line and the dismiss focus target; `notice`, the first-visit line.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode }) {
+// FIXES-LABELS: status: `status`, the card's status segments (lib/record-status.ts `card`, static mode: only a frozen or
+// idle record has any), between the hero and the thesis.
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, status }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; status?: Segment[] }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
@@ -92,12 +96,13 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         {!strip && <RowBadge kind={trust.badge} />}
         {menu}
       </header>
-      {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
+      {trust.incomplete && <p role="status" className="warn record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={tc ? `ret ${tc}` : 'ret'} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>
-        {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now)}</div>}
+        {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now) /* FIXES-LABELS (D-05): the year when it is not this year */}</div>}
       </div>
+      {status && <StatusText segments={status} kind="card" />}{/* FIXES-LABELS: status */}
       {/* F-13: on page 1's first card the first-visit line takes the thesis slot until it is dismissed (F-10's one-screen budget). */}
       {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub, report)}</div> : thesisLine(t, pub, report)}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
@@ -108,6 +113,8 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
             first screen at 360 px carries it (the site footer sits below the fold). */}
         {strip && <p className="card-disclaimer" data-disclaimer>{DISCLAIMER}</p>}
       </footer>
+      {/* FIXES-LABELS (D-09): the card's last child; with a strip the footer's F-10 line is the card's one F3 line. */}
+      {!strip && <Disclaimer />}
     </article>
   );
 }

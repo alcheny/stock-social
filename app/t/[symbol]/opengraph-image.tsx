@@ -3,6 +3,7 @@
 // included", and the disclaimer, all inside the anti-crop band (lib/stock-image.ts). No pooled figure of any kind: about
 // one stock it reads as a rating of the stock (POLICY F3b). The alt is static, so it states no figures and no trust word.
 import { ImageResponse } from 'next/og';
+// FIXES-LABELS (D-09): the F3 lines at the band's disclaimer size (lib/record-strip.ts DISCLAIMER_PX, from lib/image-fit.ts, DS-19).
 import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
 import { visibleUser } from '@/lib/visible-users.ts';

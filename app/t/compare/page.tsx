@@ -2,8 +2,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
 import { visibleUserIds } from '@/lib/visible-users.ts';
-import { COMPARE_COPY, compareDescription, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
-import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
+import { COMPARE_COPY, compareDescription, compareEvidenceText, compareKind, compareOverlapText, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
+// FIXES-LABELS (D-03): title, explainer, notes and overlap by the pair's state; Demo is never "verified".
+import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../disclaimer.tsx';
+import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
 import Spread from '../[symbol]/Spread.tsx';
@@ -30,7 +34,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   const { parsed, compare } = await load(searchParams);
   if (parsed.kind !== 'ok' || !compare) return { title: COMPARE_COPY.title, robots: { index: false } };
   return {
-    title: `${parsed.a} vs ${parsed.b} verified trades · Stock Social`,
+    title: FL.compareTitle[compareKind(compare)](parsed.a, parsed.b),
     description: compareDescription(parsed.a, parsed.b, compare),
     robots: { index: false },
   };
@@ -60,7 +64,8 @@ function Message({ text, children }: { text: string; children?: React.ReactNode 
   );
 }
 
-function Column({ symbol, side, id, shared, open }: { symbol: string; side: CompareSide; id: string; shared: { dots: boolean; maxCount: number }; open?: SymbolOpen }) {
+// QA round 2 (N9): `note`, the column's Demo sentence, only when the page's explainer does not already say it (both Demo).
+function Column({ symbol, side, id, shared, open, note = true }: { symbol: string; side: CompareSide; id: string; shared: { dots: boolean; maxCount: number }; open?: SymbolOpen; note?: boolean }) {
   const s = side.summary;
   const head = (
     <h2 id={id}><Link href={`/t/${encodeURIComponent(symbol)}`}>{symbol}</Link> {!s.mixed && !side.empty && <Badge verified={!s.demoOnly} />}</h2>
@@ -71,8 +76,8 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
   return (
     <section aria-labelledby={id}>
       {head}
-      {s.demoOnly && <p role="note" className="muted">{COMPARE_COPY.demoOnly}</p>}
-      {s.mixed && <p role="note" className="muted">{COMPARE_COPY.mixed}</p>}
+      {note && s.demoOnly && <p role="note" className="muted">{FL.demoNote}</p>}
+      {s.mixed && <p role="note" className="muted">{FL.mixedNote}</p>}
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : s.avgReturn! < 0 ? 'down' : ''}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
@@ -82,7 +87,8 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
       {open && <p className="small" data-open>{OPEN.compare(OPEN.line(open.o, pct), asOfDay(open.asOf))}</p>}
       <div className="evidence">
-        <p style={{ margin: 0 }}>{evidenceLine(c)}</p>{/* A11Y-FIXES #25: evidenceLine already starts "Too early to tell" */}
+        {/* QA round 1 (finding 13): no verdict. A11Y-FIXES #25: the line already starts "Too early to tell", so no prefix. */}
+        <p style={{ margin: 0 }}>{compareEvidenceText(c)}</p>
       </div>
       <Spread spread={side.spread} returns={side.returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} shared={shared} bare />
     </section>
@@ -114,12 +120,14 @@ export default async function Compare({ searchParams }: Props) {
     <main className="page">
       <p><Link href="/t">← All stocks</Link></p>
       <h1 style={{ marginBottom: 4 }}>{a} vs {b}</h1>
-      <p className="muted" style={{ marginTop: 0 }}>{COMPARE_COPY.explainer}</p>
+      <p className="muted" style={{ marginTop: 0 }}>{FL.compareExplainer[compareKind(compare)]}</p>
+      {/* FIXES-LABELS (D-09): before the columns, so it is in view with the first figures */}
+      <Disclaimer />
       <div className="compare-grid">
-        <Column symbol={a} side={compare.a} id="cmp-a-h" shared={shared} open={open?.get(a)} />
-        <Column symbol={b} side={compare.b} id="cmp-b-h" shared={shared} open={open?.get(b)} />
+        <Column symbol={a} side={compare.a} id="cmp-a-h" shared={shared} open={open?.get(a)} note={compareKind(compare) !== 'demo'} />
+        <Column symbol={b} side={compare.b} id="cmp-b-h" shared={shared} open={open?.get(b)} note={compareKind(compare) !== 'demo'} />
       </div>
-      {!compare.a.empty && !compare.b.empty && <p>{COMPARE_COPY.overlap(compare.sameTraders, a, b)}</p>}
+      {!compare.a.empty && !compare.b.empty && <p>{compareOverlapText(compareKind(compare), compare.sameTraders, a, b)}</p>}
       <p className="muted small">{COMPARE_COPY.footer}</p>
       <p><Link href={`/t/${encodeURIComponent(a)}`}>Back to {a}</Link> · <Link href={`/t/${encodeURIComponent(b)}`}>Back to {b}</Link> · <Link href="/t">All stocks</Link></p>
     </main>

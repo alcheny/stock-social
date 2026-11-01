@@ -14,6 +14,7 @@ import { monthBand } from '@/lib/month-card.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { disclaimerAtFoot } from '@/lib/stock-image.ts';
 import { RecordStripImage } from '@/app/record-strip.tsx';
+import { imageFrozenText } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -30,6 +31,9 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   const r = await loadRecap(handle, ym);
   if (!r) notFound();
 
-  const { lines } = monthBand(r, recordStrip(recordStripInput(r), 'image'), recordStrip(monthStripInput(r), 'figures'));
+  // FIXES-LABELS: status (F-11): a frozen record says so; absolute date with the year, never relative. FIXES-LABELS
+  // (D-24): r.months adds "One of N months on record" under the label.
+  const frozen = imageFrozenText(r.status, new Date());
+  const { lines } = monthBand(r, recordStrip(recordStripInput(r), 'image'), recordStrip(monthStripInput(r), 'figures'), frozen);
   return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, { ...size, headers: cache(handle) });
 }

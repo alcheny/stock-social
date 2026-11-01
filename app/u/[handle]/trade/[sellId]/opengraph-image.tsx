@@ -11,6 +11,9 @@ import { tradeBand, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { disclaimerAtFoot } from '@/lib/stock-image.ts';
 import { RecordStripImage } from '@/app/record-strip.tsx';
+// FIXES-LABELS (D-09, D-05): the band's F3 lines at lib/image-fit.ts's size (DS-19); the close date always with its year
+// (lib/trade-share.ts#closedDay: an image outlives the year it was drawn in).
+import { imageFrozenText } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -30,7 +33,9 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
 
   // Fix round 6 (TR-3, POLICY F3): the label follows the trader's record state (recordStrip); no check-mark glyph.
   const strip = recordStrip(tradeStripInput(t), 'image');
+  // FIXES-LABELS: status (F-11): a frozen record says so; absolute date with the year, never relative.
+  const frozen = imageFrozenText(t.status, new Date());
   // Cycle-2 fix #9: the hero shrinks until the band fits (lib/trade-share.ts#tradeBand), as the month image does.
-  const { lines } = tradeBand(t, strip);
+  const { lines } = tradeBand(t, strip, frozen);
   return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, { ...size, headers: cache(handle) });
 }
