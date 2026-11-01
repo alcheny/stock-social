@@ -7,15 +7,17 @@
 // UTC day, which may be later than midnight. Wherever a past display is shown, it says "as of <asOf> (UTC)", never "all
 // day"; a later change the same day appears in the next day's row (code review 9, orchestrator review 3).
 import { sql } from './db.ts';
+import { logSafe } from './privacy-log.ts';
 import { evidenceLine, pct, stats } from './trades.ts';
 import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { winRateText } from './copy.ts';
 import { counted } from './format.ts';
 import { positionRows } from './positions.ts';
-import { publicRecordDetail } from './connections.ts';
+import { recordStates } from './connections.ts';
 // OPTIONS (docs/features/logs/options/plan.md L9, AC 21): the options line or the gated count line, exactly as the one
-// reader returned it; this file reads no option table.
-import { loadOptionDisplayText } from './options-load.ts';
+// reader returned it; this file reads no option table. Known-limits sweep 2: the reader's batch form (optionHeadline:
+// counts in one query, the gate still worked out per trader) with the same text function loadOptionDisplayText uses.
+import { optionDisplayText, optionHeadline } from './options-load.ts';
 
 export const DISPLAY_LOG_BOX_MS = 20_000;
 export const DISPLAY_LOG_BATCH = 200;
@@ -43,56 +45,117 @@ export function snapshotText(closes: Close[], positions: Position[], today: Date
 
 const utcDay = (d: Date) => d.toISOString().slice(0, 10);
 
-/** One record's row for `day`, or null when nothing public shows (deleted, importing, or an empty record). */
-async function snapshotFor(userId: number, now: Date): Promise<(Snapshot & { demo: boolean; optionsLine: string | null }) | null> {
-  const { public: { state } } = await publicRecordDetail(userId);
-  if (state === 'importing') return null; // TR-3: nothing partial is presented as a record, so nothing is logged as one
-  const trades = await sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${userId}`;
-  const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct from open_positions where user_id = ${userId}` : [];
-  if (!trades.length && !positions.length) return null;
-  const [d] = await sql`select exists(select 1 from activities where user_id = ${userId} and source = 'demo') as demo`;
-  return {
-    demo: d.demo as boolean,
-    optionsLine: await loadOptionDisplayText(userId), // OPTIONS
-    ...snapshotText(
-      trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })),
-      positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number })),
-      now,
-    ),
-  };
+type Logged = Snapshot & { demo: boolean; optionsLine: string | null };
+type Candidate = { id: number; n: number };
+
+// Known-limits sweep 2: the rows a chunk may read at once (closed trades summed over its traders). A record larger
+// than this is a chunk by itself.
+export const DISPLAY_LOG_ROW_CAP = 50_000;
+
+/** Splits candidates (in id order) into chunks of at most `cap` closed-trade rows; an oversized record goes alone. */
+export function chunkByRows(users: Candidate[], cap = DISPLAY_LOG_ROW_CAP): number[][] {
+  const out: number[][] = [];
+  let cur: number[] = [], rows = 0;
+  for (const u of users) {
+    if (cur.length && rows + u.n > cap) { out.push(cur); cur = []; rows = 0; }
+    cur.push(u.id); rows += u.n;
+  }
+  if (cur.length) out.push(cur);
+  return out;
 }
 
-export type DisplayLogReport = { written: number; done: boolean };
+/** Each record's row for `now`'s day, set-based: seven queries for the whole set (three of them recordStates, one the option counts; the option gate adds
+ *  queries only for traders who hold option rows). A record
+ *  with nothing public to show (deleted, importing, or an empty record) has no entry. */
+export async function snapshotsFor(userIds: number[], now: Date): Promise<Map<number, Logged>> {
+  const out = new Map<number, Logged>();
+  if (!userIds.length) return out;
+  const states = await recordStates(userIds);
+  // TR-3: nothing partial is presented as a record, so nothing is logged as one.
+  const readable = userIds.filter((id) => states.get(id)!.state !== 'importing');
+  if (!readable.length) return out;
+  const shown = readable.filter((id) => states.get(id)!.state !== 'none');
+  // The profile's own order (app/u/[handle]/page.tsx: closed_at desc, id desc). stats() and confidence() sum floats
+  // in input order, so an unordered read could print a different last digit for the same record (see the tests).
+  const trades = await sql`select user_id, symbol, opened_at, closed_at, return_pct, holding_days from closed_trades
+    where user_id = any(${readable}) order by user_id, closed_at desc, id desc`;
+  const positions = shown.length ? await sql`select user_id, account_id, symbol, unrealized_pct from open_positions where user_id = any(${shown})` : [];
+  const demo = new Set((await sql`select distinct user_id from activities where user_id = any(${readable}) and source = 'demo'`).map((r) => Number(r.user_id)));
+  const closes = new Map<number, Close[]>(), open = new Map<number, Position[]>();
+  for (const t of trades) {
+    const id = Number(t.user_id), list = closes.get(id) ?? (closes.set(id, []), closes.get(id)!);
+    list.push({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days });
+  }
+  for (const p of positions) {
+    const id = Number(p.user_id), list = open.get(id) ?? (open.set(id, []), open.get(id)!);
+    list.push({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number });
+  }
+  const logged = readable.filter((id) => (closes.get(id)?.length ?? 0) + (open.get(id)?.length ?? 0) > 0);
+  if (!logged.length) return out;
+  const options = await optionHeadline(logged); // OPTIONS (AC 21): what loadOptionDisplayText returns, per trader
+  for (const id of logged) {
+    out.set(id, { demo: demo.has(id), optionsLine: optionDisplayText(options.get(id)!), ...snapshotText(closes.get(id) ?? [], open.get(id) ?? [], now) });
+  }
+  return out;
+}
+
+/** One record's row for `now`'s day, or null when nothing public shows (deleted, importing, or an empty record). */
+export async function snapshotFor(userId: number, now: Date): Promise<Logged | null> {
+  return (await snapshotsFor([userId], now)).get(userId) ?? null;
+}
+
+async function insertRows(day: string, snaps: Map<number, Logged>): Promise<number> {
+  if (!snaps.size) return 0;
+  const rows = [...snaps].map(([userId, s]) => ({ user_id: userId, day, demo: s.demo, headline: s.headline, range_text: s.rangeText, trade_count: s.tradeCount, open_summary: s.openSummary, evidence: s.evidence, options_line: s.optionsLine }));
+  const r = await sql`insert into display_log ${sql(rows, 'user_id', 'day', 'demo', 'headline', 'range_text', 'trade_count', 'open_summary', 'evidence', 'options_line')}
+    on conflict (user_id, day) do nothing`;
+  return r.count;
+}
+
+export type DisplayLogReport = { written: number; done: boolean; failed?: number };
+type Deps = { snapshots: typeof snapshotsFor };
 
 /** Writes today's row for every public record that has none yet. Time-boxed; a call cut by its box resumes on the next. */
-export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?: number; clock?: () => number; ids?: number[] } = {}): Promise<DisplayLogReport> {
+export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?: number; rowCap?: number; clock?: () => number; ids?: number[]; deps?: Deps } = {}): Promise<DisplayLogReport> {
   const now = opts.now ?? new Date();
   const day = utcDay(now);
   const clock = opts.clock ?? Date.now;
   const end = clock() + Math.min(opts.boxMs ?? DISPLAY_LOG_BOX_MS, DISPLAY_LOG_BOX_MS);
   const batch = opts.batch ?? DISPLAY_LOG_BATCH;
-  let after = 0, written = 0;
-  // ponytail: one snapshot per trader, one after another (~5 queries and a whole-record read each) inside a 20 s box per
-  // tick, so past (ticks per day × box ÷ time per trader) records get no row that day — snapshot a batch in one
-  // set-based query, or run it as its own job that reports its backlog.
+  const snapshots = opts.deps?.snapshots ?? snapshotsFor;
+  let after = 0, written = 0, failed = 0;
+  const report = (done: boolean): DisplayLogReport => ({ written, done, ...(failed ? { failed } : {}) });
+  // Known-limits sweep 2: a chunk of records per round of seven reads and one multi-row insert, instead of ~6 queries
+  // per record (LOAD: lib/display-log.load.test.ts).
+  // ponytail: one 20 s box writes ~9,000-21,000 records (467-1,048 records/s measured, 2,000 traders averaging 126
+  // closes, 2026-11-01; the per-trader writer did 116-323), so at 24 hourly ticks past ~220,000-500,000 public records
+  // some get no row that day (fewer when the sync leaves less than the full box) — run it as its own job that reports
+  // its backlog.
   for (;;) {
-    const users = await sql`select u.id from users u where u.deleted_at is null and u.id > ${after}
+    const users = await sql`select u.id, (select count(*) from closed_trades c where c.user_id = u.id)::int as n
+      from users u where u.deleted_at is null and u.id > ${after}
       ${opts.ids ? sql`and u.id in ${sql(opts.ids.length ? opts.ids : [0])}` : sql``}
       and not exists (select 1 from display_log l where l.user_id = u.id and l.day = ${day}::date)
       -- An empty record writes no row; filtering it here keeps it from using the box every tick (business lead re-sit 1).
       and (exists (select 1 from closed_trades c where c.user_id = u.id) or exists (select 1 from open_positions p where p.user_id = u.id))
       order by u.id limit ${batch}`;
-    for (const u of users) {
-      if (clock() >= end) return { written, done: false };
-      after = u.id as number;
-      const snap = await snapshotFor(after, now);
-      if (!snap) continue;
-      const r = await sql`insert into display_log (user_id, day, demo, headline, range_text, trade_count, open_summary, evidence, options_line)
-        values (${after}, ${day}::date, ${snap.demo}, ${snap.headline}, ${snap.rangeText}, ${snap.tradeCount}, ${snap.openSummary}, ${snap.evidence}, ${snap.optionsLine})
-        on conflict (user_id, day) do nothing`;
-      written += r.count;
+    for (const ids of chunkByRows(users.map((u) => ({ id: u.id as number, n: u.n as number })), opts.rowCap)) {
+      if (clock() >= end) return report(false);
+      try {
+        written += await insertRows(day, await snapshots(ids, now));
+      } catch (e) {
+        // Reliability review: one record that throws (or one row the insert refuses) must not block the rest of its
+        // chunk on every tick: the chunk is retried one record at a time. The log line carries counts only.
+        console.error('display log chunk failed; retrying one record at a time', JSON.stringify({ records: ids.length }), logSafe(e));
+        for (const id of ids) {
+          if (clock() >= end) return report(false);
+          try { written += await insertRows(day, await snapshots([id], now)); } catch { failed++; }
+        }
+        if (failed) console.error('display log records failed', JSON.stringify({ failed }));
+      }
+      after = ids[ids.length - 1];
     }
-    if (users.length < batch) return { written, done: true };
+    if (users.length < batch) return report(true);
   }
 }
 

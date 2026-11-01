@@ -12,7 +12,7 @@ import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { CLOSES_PAGING, connectedLine, DEMO_PROFILE, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
 import { cardAlt, cardDescription, cardEvidence, evidenceRangeText } from '@/lib/record-card.ts';
 import { loadRecordCard } from './record-card-data.ts';
-import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
+import { importedRows, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
 import { UserNote } from '../../user-note.tsx';
@@ -28,7 +28,8 @@ import { ReferralFeedback } from './referral-feedback.tsx';
 import { ctaVia, referralSummary } from '@/lib/referral.ts';
 import { JoinCta } from './join-cta.tsx';
 import { ImportBanner } from './import-banner.tsx';
-import { isDemoUser } from '@/lib/demo.ts';
+import { cache } from 'react';
+import { isDemoUser, reads } from './load.ts'; // per-request reads, shared with the record card
 import { positionRows } from '@/lib/positions.ts';
 import { newTradesSince } from '@/lib/new-trades.ts';
 import { MarkTradesPromptSeen, NewTradesPrompt } from './new-trades-prompt.tsx';
@@ -36,7 +37,6 @@ import { latestRecapYm } from '@/lib/recap.ts';
 import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
 import { count } from '@/lib/format.ts';
 import { routeHandle } from '@/lib/params.ts';
-import { visibleUser } from '@/lib/visible-users.ts';
 import { closesWindow, packPoints } from '@/lib/paging.ts';
 import { RowFocus } from './row-focus.tsx';
 import { FollowButton } from '../../follow-button.tsx';
@@ -58,34 +58,30 @@ import { OPTIONS } from '@/lib/copy.ts';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
 
-// ponytail: generateMetadata and the page each call load() (and the record card reads the record again), so one view
-// reads the whole record 3–4 times — wrap load and loadRecordCard in React cache() so each runs once per request.
-async function load(handle: string) {
+// One read per request: generateMetadata and the page share it (React cache), and its rows are the record card's (load.ts).
+const load = cache(async (handle: string) => {
   if (!routeHandle(handle)) return null; // security hardening (2026-11-01), F12: junk in the URL is a 404, not a 500
-  const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and ${visibleUser('users')}`; // F-16: hidden → not-found.tsx
+  const user = await reads.user(handle); // F-16: load.ts reads a visible user only (hidden → not-found.tsx)
   if (!user) return null;
   // F-7: a filer's record shows only while the switch is on and it is neither hidden nor removed (legal C13, C19).
-  const filer = user.public_filer_id ? await filerInfo(user.id) : null;
+  const filer = user.public_filer_id ? await reads.filer(user.id) : null;
   if (!filerVisible(filer)) return null;
-  const trades = await sql`
-    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
-      thesis_written_at, thesis_edited_at, thesis_hold_rule
-    from closed_trades where user_id = ${user.id} order by closed_at desc, id desc`; // list order (lib/paging.ts)
+  const trades = await reads.trades(user.id); // list order (lib/paging.ts)
   if (filer && !trades.length) return null; // F-7 (plan Round 4 item 2): no page without a priced closed trade
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
   // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.
-  if (user.snaptrade_user_id) await applyClocks(new Date(), { userId: user.id });
+  if (user.snaptrade_user_id) await reads.clocks(user.id);
   // Fix round 2: everything public about the connection (state, simulated-account count, positions) comes from a
   // consented connection and confirmed claims only; a pending, declined or expired link shows nothing (COMPLIANCE §3).
   // Fix round 3: the state is the aggregate over every consented connection (importing while any imports) and the
   // banner count is summed over them, so a newer finished link never presents a running import as a whole record.
-  const { public: { state, paper }, imported } = await publicRecordDetail(user.id);
+  const { public: { state, paper }, imported } = await reads.detail(user.id);
   // PR-2b: "Connected:" names the institutions the vendor returned for consented real accounts (never "broker"), and
   // the banner's imported-rows line starts from the rows already stored.
   const brokers = await recordInstitutions(user.id);
   const read = state === 'importing' ? await importedRows(user.id) : 0;
-  const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${user.id} order by symbol, account_id` : [];
+  const positions = state !== 'none' ? await reads.positions(user.id) : [];
   // F-6: open positions summarized beside the realized record for a connected or failed record (TR-3: nothing while
   // importing); null without positions, so such a record renders exactly as before. "As of": the oldest read.
   // OPTIONS: the option record (counts only while the consent gate is closed); long open options join the open block's
@@ -96,11 +92,9 @@ async function load(handle: string) {
   // OPTIONS fix round 1 (review 3): the oldest read across share and option positions; unset when there are none.
   const openAsOf = open ? oldestRead(positions.map((p) => p.fetched_at as Date), optOpen.length && opt.gate === 'open' ? opt.openAsOf : null) : null;
   return { opt, optOpen, user, filer, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
-}
+});
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  // ponytail: generateMetadata and the page each run load(), so a profile view reads (and runs applyClocks) twice — fix:
-  // share one per-request load (React cache) once applyClocks is safe to run once per request.
   const data = await load((await params).handle);
   // Cycle 2 review of fix #20: a missing profile's 404 takes the 404 page's title, not the site default.
   if (!data) notFound();

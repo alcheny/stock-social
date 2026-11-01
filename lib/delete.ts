@@ -2,6 +2,7 @@
 // cascades (identities, sessions, activities, closed_trades, claims, events), the sign-in links that carried the address
 // go in the same transaction, and the handle is reserved for a year
 // with no personal data. The two-step screen (S9) is PR-2a; this is the action behind it.
+import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { deleteUser } from './broker.ts';
 import { HANDLE_RESERVED_DAYS } from './handles.ts';
@@ -19,6 +20,19 @@ export const defaultDeleteDeps: DeleteDeps = {
   deleteVendorUser: async (u) => { try { await deleteUser(u); } catch (e) { const x = e as { status?: number; response?: { status?: number } }; if ((x?.status ?? x?.response?.status) !== 404) throw e; } },
   endBilling: endBillingForDeletion,
 };
+
+// Every sign-in link on the user's attempts or sent to an address on the user's identities. `= any(array(...))`, not
+// `in (subquery)`: an OR of two IN-subqueries is never turned into joins, so it seq-scanned login_links; this form is a
+// BitmapOr of login_links_attempt and login_links_email (db/schema.sql). `email <> ''` matches that partial index and
+// keeps an identity with an empty email from matching every claimed link (email blanked to '') of other users; the
+// user's own claimed links still go by attempt. Exported for lib/delete.test.ts.
+export const LOGIN_LINKS_DELETE = `delete from login_links
+  where attempt_id = any(array(select id from signup_attempts where user_id = $1))
+    or (email <> '' and email = any(array(select email from identities where user_id = $1 and email is not null)))
+  returning token_hash`;
+export async function deleteLoginLinks(tx: TransactionSql, userId: number): Promise<string[]> {
+  return (await tx.unsafe(LOGIN_LINKS_DELETE, [userId])).map((r) => String(r.token_hash));
+}
 
 // deleted_at marks a deletion in progress before the vendor call: if the vendor call fails the row stays, marked, and
 // the next call finishes it (PR-2a's S9 hides marked rows and retries from the hourly tick).
@@ -57,8 +71,10 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
   await sql.begin(async (tx) => {
     // Sign-in links are keyed by attempt, not user (COMPLIANCE §3): every link on the user's attempts and every link sent
     // to an address on the user's identities goes before the users row (which would null the attempts' user_id).
-    await tx`delete from login_links where attempt_id in (select id from signup_attempts where user_id = ${u.id})
-      or email in (select email from identities where user_id = ${u.id} and email is not null)`;
+    await deleteLoginLinks(tx, u.id);
+    // The shared Similar-trades pools (lib/similar.ts) are a cache that names traders by id with derived numbers: any pool
+    // naming this trader goes now; the next profile view rebuilds it (tester QA Q2). The pool is JSON.stringify output.
+    await tx`delete from similar_pools where pool ~ ${`"trader":${u.id}[,}]`}`;
     await tx`insert into handle_reservations (handle, until) values (${u.handle}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day')
       on conflict (handle) do update set until = excluded.until`;
     // Privacy work (committee D17): the account's attempts stay as anonymous funnel rows (user_id goes null with the

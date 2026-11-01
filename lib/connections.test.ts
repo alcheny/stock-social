@@ -1673,3 +1673,163 @@ dbTest('fix round 6: the attempt sweep checks the deadline before every row, log
     await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id in ${sql(attempts)}`;
   }
 });
+
+// ---------- Known-limits sweep 2 (connections): stalest-first tick and attempt sweep ----------
+// Each loop reads its rows stalest first (never tried, then the oldest try) and claims a row by compare-and-set on the
+// stamp it read before trying it. A row that keeps failing moves to the back, so a due row behind N failing rows is
+// reached within ceil((N + 1) / k) ticks, k = the rows a tick reaches before its deadline. Vendor time is simulated with
+// `clock`; every row is this test's own (the `ids` hooks), so other files' rows are never touched.
+async function stalestFixture(n: string) {
+  const s = await setup();
+  const u = await s.mkUser(n);
+  await s.sql`update users set snaptrade_user_id = ${`vendor-${s.tag}-${n}`}, snaptrade_secret_enc = 'enc' where id = ${u.id}`;
+  const attempt = Number((await s.sql`select signup_attempt_id from users where id = ${u.id}`)[0].signup_attempt_id);
+  const row = async (state: 'importing' | 'expired', account: string) => {
+    const accounts = [{ id: account, authorizationId: `auth-${account}`, institution: 'Fake Brokerage', isPaper: false, initialSyncCompleted: true }];
+    const [r] = await s.sql`insert into connections (attempt_id, user_id, state, importing_at, consent_at, last_progress_at, expired_at, accounts)
+      values (${attempt}, ${u.id}, ${state}, now(), now(), now(), ${state === 'expired' ? s.sql`now()` : null}, ${s.sql.json(accounts)}) returning id`;
+    return Number(r.id);
+  };
+  return { ...s, u, row };
+}
+const vendorFail = (status: number) => Object.assign(new Error(`vendor ${status}`), { response: { status } });
+
+dbTest('stalest first: an importing row behind 5 rows whose step always throws is advanced within ceil(6/2) = 3 ticks; every tried row is stamped, a row past the deadline is not', async () => {
+  const { sql, tag, u, row, conn, cleanup } = await stalestFixture('si');
+  const { tick } = await import('./connections.ts');
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const { deps } = fakeVendor();
+  let wall = 1_000_000;
+  const failing: Deps = { ...deps, fetchActivitiesPage: async (u2, accountId, offset, limit) => {
+    if (accountId.startsWith(`${tag}-bad`)) { wall += VENDOR_TIMEOUT_MS; throw new Error('not a vendor answer'); }
+    wall += 10;
+    return deps.fetchActivitiesPage(u2, accountId, offset, limit);
+  } };
+  try {
+    const bad: number[] = [];
+    for (let i = 0; i < 5; i++) bad.push(await row('importing', `${tag}-bad${i}`));
+    const good = await row('importing', `${tag}-good`);
+    const ids = [...bad, good];
+    // 45 s per tick: the first failing row (0 s) and the second (30 s) start, the third (60 s) does not.
+    let reached = 0;
+    for (let t = 1; t <= 3 && !reached; t++) {
+      const r = await tick(failing, new Date(), wall + 45_000, { ids, attemptIds: [], clock: () => wall });
+      if (t === 1) {
+        assert.deepEqual(r.errors, bad.slice(0, 2));
+        const stamped = await sql`select id from connections where id in ${sql(ids)} and tick_tried_at is not null order by id`;
+        assert.deepEqual(stamped.map((x) => Number(x.id)), bad.slice(0, 2)); // tried (and failed) rows stamped; the rest not
+      }
+      if ((await conn(good)).state === 'connected') reached = t;
+    }
+    assert.ok(reached >= 1 && reached <= 3, `healthy import reached within 3 ticks (got ${reached || 'never'})`);
+  } finally {
+    await cleanup([u.id]);
+  }
+});
+
+dbTest('stalest first: an expired row behind 5 rows whose vendor delete always fails is cleaned within ceil(6/2) = 3 ticks', async () => {
+  const { tag, u, row, conn, cleanup } = await stalestFixture('sc');
+  const { tick } = await import('./connections.ts');
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const { v, deps } = fakeVendor();
+  let wall = 1_000_000;
+  const failing: Deps = { ...deps, deleteConnection: async (bu, auth) => {
+    if (auth.includes(`${tag}-bad`)) { wall += VENDOR_TIMEOUT_MS; throw vendorFail(500); }
+    wall += 10;
+    return deps.deleteConnection(bu, auth);
+  } };
+  try {
+    const bad: number[] = [];
+    for (let i = 0; i < 5; i++) bad.push(await row('expired', `${tag}-bad${i}`));
+    const good = await row('expired', `${tag}-good`);
+    let reached = 0;
+    for (let t = 1; t <= 3 && !reached; t++) {
+      await tick(failing, new Date(), wall + 45_000, { ids: [...bad, good], attemptIds: [], clock: () => wall });
+      if ((await conn(good)).cleanup_done_at) reached = t;
+    }
+    assert.ok(reached >= 1 && reached <= 3, `healthy cleanup reached within 3 ticks (got ${reached || 'never'})`);
+    assert.deepEqual(v.deletedConnections, [`auth-${tag}-good`]);
+    for (const id of bad) assert.equal((await conn(id)).cleanup_done_at, null); // failing rows stay due, never dropped
+  } finally {
+    await cleanup([u.id]);
+  }
+});
+
+dbTest('stalest first: an aged attempt behind 3 whose vendor delete always fails is swept within 4 calls at one row per call; the read is bounded by the limit', async () => {
+  const { sql, tag } = await setup();
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { cleanupAttempts, ATTEMPT_HOURS, ATTEMPT_SWEEP_LIMIT } = await import('./connections.ts');
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const { v, deps } = fakeVendor();
+  let wall = 1_000_000;
+  const failing: Deps = { ...deps, deleteUser: async (bu) => {
+    if (bu.snaptradeUserId.includes('-bad')) { wall += VENDOR_TIMEOUT_MS; throw vendorFail(500); }
+    wall += 10;
+    return deps.deleteUser(bu);
+  } };
+  const attempts: number[] = [];
+  const mk = async (name: string) => {
+    const a = await createAttempt({ method: 'brokerage', attested: true });
+    await sql`update signup_attempts set snaptrade_user_id = ${`vendor-${tag}-${name}`}, snaptrade_secret_enc = 'enc', created_at = now() - ${ATTEMPT_HOURS + 1} * interval '1 hour' where id = ${a}`;
+    attempts.push(a);
+    return a;
+  };
+  try {
+    assert.ok(Number.isSafeInteger(ATTEMPT_SWEEP_LIMIT) && ATTEMPT_SWEEP_LIMIT > 0);
+    for (let i = 0; i < 3; i++) await mk(`bad${i}`);
+    const good = await mk('good');
+    let reached = 0;
+    for (let c = 1; c <= 4 && !reached; c++) {
+      const r = await cleanupAttempts(failing, undefined, { until: wall + 1, clock: () => wall, ids: attempts });
+      assert.ok(r.cleaned <= 1);
+      const [a] = await sql`select snaptrade_user_id from signup_attempts where id = ${good}`;
+      if (a.snaptrade_user_id === null) reached = c;
+    }
+    assert.ok(reached >= 1 && reached <= 4, `healthy attempt swept within 4 calls (got ${reached || 'never'})`);
+    assert.deepEqual(v.deletedUsers, [`vendor-${tag}-good`]);
+    // Bounded read: three healthy aged attempts and a limit of 2 → one call tries at most 2; the next call sweeps the third.
+    const more = [await mk('h1'), await mk('h2'), await mk('h3')];
+    let tries = 0;
+    const counted: Deps = { ...deps, deleteUser: async (bu) => { tries++; return deps.deleteUser(bu); } };
+    assert.deepEqual(await cleanupAttempts(counted, undefined, { ids: more, limit: 2 }), { cleaned: 2, left: 0 });
+    assert.equal(tries, 2);
+    const [{ n }] = await sql`select count(*)::int as n from signup_attempts where id in ${sql(more)} and snaptrade_user_id is not null`;
+    assert.equal(n, 1);
+    assert.deepEqual(await cleanupAttempts(counted, undefined, { ids: more, limit: 2 }), { cleaned: 1, left: 0 });
+  } finally {
+    await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id in ${sql(attempts)}`;
+  }
+});
+
+dbTest('stalest first: a try is a claim (compare-and-set on the stamp read): two ticks holding the same read claim a row once, and a stamp already moved on is refused', async () => {
+  const { sql, tag, u, row, cleanup } = await stalestFixture('cl');
+  const { claimTry, tick } = await import('./connections.ts');
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { deps } = fakeVendor();
+  const stampOf = async (id: number) => (await sql`select (extract(epoch from tick_tried_at) * 1000000)::bigint as s from connections where id = ${id}`)[0].s as string | null;
+  const attempt = await createAttempt({ method: 'brokerage', attested: true });
+  try {
+    const id = await row('expired', `${tag}-cl`);
+    // Two servers read the same never-tried row: exactly one claim wins.
+    const both = await Promise.all([claimTry('cleanup', id, null), claimTry('cleanup', id, null)]);
+    assert.deepEqual(both.filter(Boolean).length, 1);
+    const read = await stampOf(id);
+    assert.ok(read !== null);
+    // Another tick claims it (it fails at the vendor and is stamped again): the stamp read earlier no longer claims it.
+    const failing: Deps = { ...deps, deleteConnection: async () => { throw vendorFail(500); } };
+    const r = await tick(failing, new Date(), Infinity, { ids: [id], attemptIds: [] });
+    assert.deepEqual(r.errors, [id]);
+    assert.equal(await claimTry('cleanup', id, read), false);
+    assert.equal(await claimTry('cleanup', id, await stampOf(id)), true);
+    // The same holds for an import row (only while importing) and an attempt (only while it holds a vendor user).
+    const imp = await row('importing', `${tag}-cl2`);
+    assert.equal(await claimTry('import', imp, null), true);
+    assert.equal(await claimTry('import', id, null), false); // an expired row is not an import
+    await sql`update signup_attempts set snaptrade_user_id = ${`vendor-${tag}-cla`}, snaptrade_secret_enc = 'enc' where id = ${attempt}`;
+    assert.equal(await claimTry('attempt', attempt, null), true);
+    assert.equal(await claimTry('attempt', attempt, null), false);
+  } finally {
+    await sql`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null where id = ${attempt}`;
+    await cleanup([u.id]);
+  }
+});

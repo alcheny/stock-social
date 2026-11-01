@@ -17,6 +17,10 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   corporate_actions: { personal: true, retention: 'account', holds: 'raw broker corporate-action rows (splits, stock dividends, renames) and broker trade rows with no usable price, share count or date: symbols, share counts, prices, account ids; deleted with the profile' },
   closed_trades: { personal: true, retention: 'account', holds: 'derived public record: symbols, dates, percent returns, holding periods, theses' },
   // Sharded sync (docs/SYNC.md): one row per shard: its lease, heartbeat and last run's counts. No user ids.
+  // F-14 sync cadence: per account (vendor account id), the last successful vendor reads, whatever the sync's outcome.
+  sync_read_marks: { personal: true, retention: 'account', holds: 'vendor account id, the time of its last successful activities read and its last 4 positions reads (written after every hourly sync, whatever its outcome)' },
+  // F-14: vendor reads per hour, counts only.
+  sync_read_counts: { personal: false, retention: 'none', holds: 'hourly counts of vendor reads (numbers only)' },
   sync_shards: { personal: false, retention: 'none', holds: 'per-shard sync lease, heartbeat and run counters (numbers only)' },
   broker_accounts: { personal: true, retention: 'account', holds: 'vendor account ids claimed by a profile, with a keyed hash of the institution account identity (never the identifier itself)' },
   ticker_watches: { personal: true, retention: 'account', holds: 'private watchlist symbols' },
@@ -50,7 +54,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   billing_customers: { personal: true, retention: 'account', holds: 'the processor customer id of a subscriber; deleted with the account after the processor customer is deleted' },
   subscriptions: { personal: true, retention: 'account', holds: 'processor subscription id, plan, status, period dates, grace and dispute times; deleted with the account after the subscription is canceled at the processor' },
   billing_events: { personal: false, retention: 'short', holds: 'processor event id, type, object and customer ids, processing state; no payload; purged 35 days after receipt and at the customer\'s account deletion' },
-  billing_runs: { personal: false, retention: 'none', holds: 'when the daily billing reconciliation last started' },
+  billing_runs: { personal: false, retention: 'none', holds: 'when the daily billing reconciliation and the daily grace expiry and purges last ran; the pass in progress (start, phase, last processor subscription id handled, failures at it) and its lease' },
   billing_consents: { personal: true, retention: 'reserved', holds: 'renewal consent: plan, disclosure version and hash, time; no IP, email or name. At account deletion the user link is removed and the row is kept 3 years under the processor customer id (legal defense of renewal consent), then purged' },
   record_views: { personal: true, retention: 'account', holds: 'a subscriber\'s private saved comparison: name only; deleted with the account' },
   record_view_traders: { personal: true, retention: 'account', holds: 'the traders in a private saved view and their order; deleted with the view or either account' },
@@ -72,6 +76,9 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   rate_limits: { personal: true, retention: 'short', holds: 'rate-limit counters per window, keyed by a scope and a keyed hash of an email address, client IP or id; pruned by lib/rate-limit.ts after 2 days' },
   portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },
   rate_marks: { personal: true, retention: 'short', holds: 'the last import-poll time per user id; pruned by lib/rate-limit.ts after a day' },
+  sitemap_chunks: { personal: false, retention: 'none', holds: 'sitemap chunk boundary symbols, indexable-symbol count, highest sitemap id published and build time (no user ids)' },
+  similar_pools: { personal: true, retention: 'short', holds: 'the Similar trades section pool: user ids with ranking numbers derived from public records (no quantities or prices); one row per scope, overwritten every 10 s while profiles are viewed; rows idle past a day are deleted by lib/privacy-purge.ts' },
+  privacy_purge_cursors: { personal: false, retention: 'none', holds: "the orphan purge's scan position per step: a number in the trade_key hash space, a window span, how much of the current lap is walked and a lap count (no user, key or trade)" },
   // F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts. No IP, user agent, viewer or session
   // id, cookie, referrer URL, path or time of day. Counted as personal because a row names the viewed trader's id.
   view_rollup: { personal: true, retention: 'short', holds: 'daily view counts per surface, viewed trader id (record pages), referrer class, source class, signed-in and self-view flags; deleted with the trader\'s account; purged after 120 days (lib/views.ts VIEW_RETENTION_DAYS)' },

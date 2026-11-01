@@ -54,7 +54,7 @@ test('C3-34: /api/health answers ok (200) or degraded (503) only, never cached, 
     const body = await res.json();
     expect(Object.keys(body)).toEqual(['status', 'db', 'lastRunAt', 'lastRunAgeHours', 'stalestSyncAgeHours', 'thresholdHours']);
     expect(body.db).toBe(true);
-    expect(body.thresholdHours).toBe(1);
+    expect(body.thresholdHours).toBe(0.25); // MISSING_SHARD_MS on the documented 5-minute schedule
     expect(JSON.stringify(body)).not.toMatch(/@|\$|%|error/i);
   }
 });
@@ -92,10 +92,10 @@ test('K20: the home link preview carries the positioning line, no product name o
   expect(await meta('meta[name="twitter:card"]')).toBe('summary_large_image');
   expect(await meta('meta[name="twitter:title"]')).toBe(title);
   const image = await meta('meta[property="og:image"]');
-  expect(image).toMatch(/^https?:\/\/[^/]+\/home-card$/);
+  expect(image).toMatch(/^https?:\/\/[^/]+\/home-card\?d=1$/); // the seed is demo: the card URL names that state
   for (const s of [title, desc]) expect(s).not.toMatch(/stock social|\d|%|\$|\bevery\b|any broker|the only/i);
   await expect(page).toHaveTitle('Stock Social');
-  const card = await request.get('/home-card');
+  const card = await request.get('/home-card?d=1');
   expect(card.status()).toBe(200);
   expect(card.headers()['content-type']).toBe('image/png');
   const png = await card.body();
@@ -104,7 +104,7 @@ test('K20: the home link preview carries the positioning line, no product name o
   for (const path of ['/how', '/t']) {
     await page.goto(path);
     expect(await meta('meta[name="description"]')).not.toContain(POSITION);
-    expect(await page.locator('meta[property="og:image"][content$="/home-card"]').count()).toBe(0);
+    expect(await page.locator('meta[property="og:image"][content*="/home-card"]').count()).toBe(0);
   }
   await page.goto('/?after=x');
   await expect(page.locator('meta[name=robots]')).toHaveAttribute('content', /noindex/);
