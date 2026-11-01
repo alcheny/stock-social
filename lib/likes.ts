@@ -71,9 +71,10 @@ export async function rejectedAmong(viewer: number, sellIds: readonly string[]):
 // page's likes are chosen first on the viewer's index, then joined (a plan that stays fast before statistics exist).
 // A like whose close is gone after a rebuild, or whose trader was deleted, is skipped (its page is one row shorter).
 export type Liked = { key: string; handle: string; name: string; symbol: string; sellId: string; returnPct: number; closedAt: Date };
-export async function ownLikes(viewer: number, after?: unknown): Promise<{ rows: Liked[]; next: string | null }> {
+// The page's query, not yet run (lib/likes.test.ts EXPLAINs it to hold that a deep page reads no more rows than the first).
+export function ownLikesQuery(viewer: number, after?: unknown) {
   const m = typeof after === 'string' ? /^([0-9]{1,17})\.([0-9a-f]{64})$/.exec(after) : null;
-  const rows = await sql`with l as materialized (
+  return sql`with l as materialized (
       select trade_key, trader_id, created_at, (extract(epoch from created_at) * 1000000)::bigint::text as us from trade_likes
       where viewer_id = ${viewer} ${m ? sql`and (created_at, trade_key) < (timestamptz 'epoch' + ${m[1]}::bigint * interval '1 microsecond', ${m[2]})` : sql``}
       order by created_at desc, trade_key desc limit ${LIKES_PAGE + 1})
@@ -81,6 +82,9 @@ export async function ownLikes(viewer: number, after?: unknown): Promise<{ rows:
     from l left join lateral (select symbol, sell_id, return_pct, closed_at from closed_trades where trade_key = l.trade_key and user_id = l.trader_id limit 1) t on true
       left join users u on u.id = l.trader_id and u.deleted_at is null
     order by l.created_at desc, l.trade_key desc`;
+}
+export async function ownLikes(viewer: number, after?: unknown): Promise<{ rows: Liked[]; next: string | null }> {
+  const rows = await ownLikesQuery(viewer, after);
   const page = rows.slice(0, LIKES_PAGE);
   const last = page.at(-1);
   return {
