@@ -74,6 +74,8 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
             // Report names the close by its trade_key, which survives rebuildTrades (lib/reports.ts accepts it and a row id).
             report={page.viewer && page.viewer.id !== t.user_id && !isPublicRecord(page.records.get(t.user_id)?.state ?? 'none') ? <ReportNote tradeId={tradeKey(t.sell_id)} symbol={t.symbol} /> : undefined}
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} tradeKey={tradeKey(t.sell_id)} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} likeable={!isPublicRecord(page.records.get(t.user_id)?.state ?? 'none')} /> : undefined}
+            // F-26: the author's own held line, from the existing viewer check (no session read here).
+            ownHeld={page.viewer && page.viewer.id === t.user_id && t.own_held ? { rule: t.own_hold_rule ?? null } : undefined}
             hint={page.offset === 0 && i === 0} /* F-13 (SW-1): the swipe hint on page 1's first card only; appended pages never */
             notice={page.offset === 0 && i === 0 ? <FirstVisit page={page} /> : undefined} /* F-13 (D27): in card 1's thesis slot, so F-10's first screen holds */ />
           {paneOf(t)}<TrustFoot inPane shown={trustShown} />{/* F-16 (B1): under the pane, its own grid cell */}

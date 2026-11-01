@@ -16,7 +16,7 @@ import { importedRows, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
 import { UserNote } from '../../user-note.tsx';
-import { heldLine } from '@/lib/report-copy.ts';
+import { HeldNote } from '@/lib/user-note.ts';
 import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_HOLD, RENAME_RULE, renamedText } from '@/lib/handles.ts';
 import { FocusHeading } from '../../connect/result/focus-heading.tsx'; // F-17 fix round 2 (UX1): the rename status takes focus
 // F-7 public-record traders.
@@ -437,7 +437,7 @@ export default async function Profile({ params, searchParams }: Params) {
             {t.filing_url && <a className="filing-link" href={t.filing_url} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.filingName(t.symbol, day(t.closed_at))}>{PUBLIC.filing}</a>}
             {/* F-9: UserNote (Report only for a signed-in reader who is not the author); the author sees the hold and its reason in plain words, muted (fix round 2: lib/report-copy.ts#heldLine). */}
             {t.thesis_status === 'published' && <UserNote text={t.thesis} handle={user.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={me && !isMe ? String(t.id) : undefined} symbol={t.symbol} />}
-            {isMe && t.thesis_status === 'held' && <p className="muted thesis-held">{heldLine(t.thesis_hold_rule)}</p>}
+            {isMe && t.thesis_status === 'held' && !!t.thesis && <HeldNote rule={t.thesis_hold_rule} />}{/* F-26: the one held-line markup (lib/user-note.ts); an empty note is never held */}
             {isMe && (
               <form action={saveThesis} className="inline">
                 <input type="hidden" name="tradeId" value={t.id} />

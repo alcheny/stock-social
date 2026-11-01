@@ -48,6 +48,9 @@ export function heldLine(rule: string | null | undefined): string {
   return `${head}${why} Edit it to publish, or it stays held until reviewed.`;
 }
 
+// F-26: the trade page's link under the author's held line, to the profile row where the note is edited.
+export const HELD_EDIT_LINK = 'Edit it on your profile';
+
 // ---- F-16 (docs/features/F-16-trust-and-safety-slice.md; plan docs/features/logs/F-16-F-17/plan.md §5.5) ----
 // The profile report's fixed categories, in form order. Client-safe (no database). Factual, names no platform, never
 // judges skill or the record, no age-group words, no free text and no "other" box (P3). The codes are stored in

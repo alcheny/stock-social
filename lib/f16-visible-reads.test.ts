@@ -120,6 +120,7 @@ export const ALLOW: Allow[] = [
   { file: 'lib/connections.ts', count: 2, reason: "the trader's own import counts (funnel, connection status; E11)" },
   { file: 'lib/delete.ts', count: 1, reason: "the account's own deletion screen (does this account hold any data)" },
   { file: 'lib/thesis-save.ts', count: 2, reason: "the trader's own note write" },
+  { file: 'lib/own-note.ts', count: 1, reason: "F-26: the signed-in author's own held note on their own trade page (only called when the viewer is the trader; the page itself already passed the predicate)" },
   { file: 'lib/thesis-review.ts', count: 2, reason: "owner review (script and flag-gated page): hidden profiles' notes stay reviewable" },
   { file: 'lib/share-actions.ts', count: 3, reason: "the signed-in trader's own share of their own record (F-15 share_action; written for the record's owner only)" },
   { file: 'lib/trust-digest.ts', count: 1, reason: "the owner's digest script: counts held notes, hidden profiles' included (never a public surface)" },

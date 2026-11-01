@@ -16,11 +16,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const [user] = await sql`select id from users u where handle = ${handle} and ${visibleUser('u')} and ${filerVisibleSql('u')}` // F-16: hidden is 404;
   if (!user) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const rows = await sql`
-    select id, symbol, return_pct, holding_days, closed_at, thesis, thesis_status
+    select id, symbol, return_pct, holding_days, closed_at, case when thesis_status = 'published' then thesis end as thesis -- F-26: published only, in SQL
     from closed_trades where user_id = ${user.id} and ${visibleId(user.id as number)}`;
   const chart = paneChart(rows.map((r) => ({
     id: String(r.id), symbol: r.symbol as string, returnPct: r.return_pct as number, holdingDays: r.holding_days as number,
-    closedAt: r.closed_at as Date, thesis: r.thesis_status === 'published' ? (r.thesis as string) : null,
+    closedAt: r.closed_at as Date, thesis: (r.thesis ?? null) as string | null,
   })), new Date());
   // Short and shared: every visitor of the same record gets the same chart; a new close shows within a minute.
   return NextResponse.json(chart, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached

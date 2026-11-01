@@ -98,7 +98,8 @@ test('every thesis surface renders through UserNote and nowhere else prints thes
   assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id && !isPublicRecord\(page\.records\.get\(t\.user_id\)\?\.state \?\? 'none'\) \? <ReportNote tradeId=\{tradeKey\(t\.sell_id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
   // F-13 merge: the card's thesis slot is thesisLine(t, pub, report): a filer's line, else the UserNote.
   assert.match(read('../app/ui.tsx'), /pub \? <p className="thesis muted" data-public-card>/);
-  assert.match(read('../app/ui.tsx'), /thesisLine\(t, pub, report\)/);
+  // F-26: plus the author's own held line (ownHeld), the only other thing the slot can hold.
+  assert.match(read('../app/ui.tsx'), /thesisLine\(t, pub, report, ownHeld\)/);
   // The card (app/ui.tsx) takes the control as a prop and never imports the server-action island itself.
   assert.doesNotMatch(read('../app/ui.tsx'), /from ['"][^'"]*(report-note|actions)\.tsx?['"]/);
 });
@@ -108,8 +109,12 @@ test('the author sees "held for review" and the matched rule as text, muted (nev
   const s = read('../app/u/[handle]/page.tsx');
   const line = s.split('\n').find((l) => l.includes("t.thesis_status === 'held'"))!;
   assert.match(line, /isMe &&/);
-  assert.match(line, /className="muted thesis-held"/);
-  assert.match(line, /\{heldLine\(t\.thesis_hold_rule\)\}/);
+  // F-26: the line is HeldNote (one markup for the card, the trade page and the profile), rendered here to check it.
+  assert.match(line, /<HeldNote rule=\{t\.thesis_hold_rule\} \/>/);
+  const { HeldNote } = await import('./user-note.ts');
+  const html = renderToStaticMarkup(createElement(HeldNote, { rule: 'promotion' }));
+  assert.match(html, /^<p class="muted thesis-held" data-own-held="">Thesis held for review\. [^<]*Held because it has a promotion\.[^<]*<\/p>$/);
+  assert.doesNotMatch(html, /\bdown\b|--down/);
   const { heldLine } = await import('./report-copy.ts');
   assert.match(heldLine('promotion'), /^Thesis held for review\. .*Held because it has a promotion\./);
   assert.doesNotMatch(line, /\bdown\b|--down/);
