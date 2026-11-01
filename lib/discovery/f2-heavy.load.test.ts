@@ -171,6 +171,8 @@ test('heavy: 200,000 orphaned likes are marked, then drained, within 10 orphan p
     }
     assert.equal(await mine(unmarked), 0, `all marked within ${calls} calls`);
     assert.equal(await mine(sql``), TOTAL, 'marking deletes nothing');
+    // The marks are 200,000 fresh rows: analyzed, as autovacuum would before the 30-day grace ends.
+    await sql`analyze privacy_orphans`;
     at = new Date(Date.now() + 31 * 86_400_000);
     let drain = 0;
     let deleted = 0;
