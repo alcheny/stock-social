@@ -75,19 +75,21 @@ The label stays "Public filing" rather than the design system council's "Public 
 verbatim; the reason is recorded in the committee record.
 
 ## Testing
-Run on the merged head (origin/main merged in):
+Run on the merged head (origin/main through #59 merged in):
 - `npx tsc --noEmit`: clean.
-- `npm test`, twice: 1048 tests, 1031 pass, 0 fail, the rest skipped or todo, both runs.
+- `npm test`, twice: 1170 tests, 0 fail, both runs.
 - New tests:
   - node: `lib/f7-public-{gate,filings,trades,import}.test.ts`, `lib/f7-{trust,feed,routes}.test.ts`;
   - e2e: `e2e/f7-public-{profile,feed,records}.spec.ts`.
 - `BASE_REF=main node scripts/compliance.ts auto`: `compliance: ok (tree)`.
 - `node scripts/autopilot.ts guard origin/main`: `guard: ok`.
 - `npm run build`: ok.
-- Full `npx playwright test` on a fresh seeded database: 191 passed, 6 skipped, 0 failed.
-- Product lines (`productLines`): 798 of the 800 cap.
+- Full `npx playwright test` on a fresh seeded database: 206 passed, 6 skipped, 0 failed.
+- Product lines (`productLines`): 785 of the 800 cap.
 - **Independent review** (`review.md`): no blocking findings; the six verified non-blocking items were fixed, each
   with a test.
+- **Orchestrator review** (fix round 3): 3 blocking and 4 should-fix items fixed, each with a test; re-verified by the
+  orchestrator.
 - **Tester and user tests** at 360 px, signed out and signed in (`test-tester.md`, `committee-business-lead.md`,
   `committee-ux-lead.md`, `screenshots/`): their blocking items were fixed in fix round 2. These passes were run by one
   session playing the three roles, and each report says so.
