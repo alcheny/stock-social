@@ -25,9 +25,8 @@ test('unrealizedPct: per-unit cost against per-unit price (the SDK documents bot
 });
 
 let fake: Awaited<ReturnType<typeof startVendorFake>>;
-const PORT = 4300 + Math.floor(Math.random() * 500);
 before(async () => {
-  fake = await startVendorFake(PORT);
+  fake = await startVendorFake(0);
   process.env.SNAPTRADE_BASE_URL = fake.base;
   process.env.SNAPTRADE_CLIENT_ID = 'test';
   process.env.SNAPTRADE_CONSUMER_KEY = 'test-consumer';
