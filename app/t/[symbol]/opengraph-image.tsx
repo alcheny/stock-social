@@ -3,6 +3,7 @@
 // included", and the disclaimer, all inside the anti-crop band (lib/stock-image.ts). No pooled figure of any kind: about
 // one stock it reads as a rating of the stock (POLICY F3b). The alt is static, so it states no figures and no trust word.
 import { ImageResponse } from 'next/og';
+// FIXES-LABELS (D-09): the F3 lines at the band's disclaimer size (lib/record-strip.ts DISCLAIMER_PX, from lib/image-fit.ts, DS-19).
 import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
 import { decodeSymbolParam, tickerSummary, type TickerRow } from '@/lib/ticker.ts';
@@ -27,8 +28,9 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
   try {
     const symbol = decodeSymbolParam((await params).symbol);
     if (!symbol) return neutral('Stock Social', 'Verified trades by stock');
-    // Deleted traders' trades are not counted (the page's rule: users.deleted_at is null). The truthful-labels session's
-    // shared tickerHeadline (branch claude/fix-truthful-labels) replaces this read.
+    // Deleted traders' trades are not counted (the page's rule: users.deleted_at is null), nor F-7 filings, as on the page.
+    // ponytail: the card keeps its own full read (lib/f12-followups.test.ts pins this query) — switch it to
+    // app/t/ticker-sql.ts#tickerHeadline (the page's SQL summary) when that test moves to the shared predicate.
     const found = (await sql`select t.user_id, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.symbol = ${symbol} and t.filing_url is null`) as unknown as
       { user_id: number; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean }[];
     if (!found.length) return neutral(symbol, 'No verified trades yet');
