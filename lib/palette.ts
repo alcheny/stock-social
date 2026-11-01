@@ -12,6 +12,8 @@ export const IMAGE_PALETTE = {
   // The record strip's image tones (F-12): lib/record-strip.ts IMAGE_COLOURS, drawn on stripBg.
   strip: { text: '#f4f4f6', muted: '#8b8b98', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', ok: '#22c55e' },
   stripBg: '#0b0b0f',
+  // The home link's preview picture (CHORES-3, K20): app/home-card/route.tsx; text only.
+  home: { bg: '#0b0b0f', text: '#f2f2f5' },
 } as const;
 // <meta name="theme-color">: dark only today. ponytail: one value for both schemes; next step DS-6 (per-scheme theme colour).
 export const THEME_COLOR = '#0b0b0f';

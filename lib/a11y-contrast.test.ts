@@ -295,11 +295,13 @@ const IMAGE_TODAY = {
   card: { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78' },
   strip: { text: '#f4f4f6', muted: '#8b8b98', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', ok: '#22c55e' },
   stripBg: '#0b0b0f',
+  home: { bg: '#0b0b0f', text: '#f2f2f5' },
   themeColor: '#0b0b0f',
 };
 test('F-20 AC6: the image colour table equals the decided image colours, and the images read it', async () => {
   const { IMAGE_PALETTE, THEME_COLOR } = await import('./palette.ts');
-  assert.deepEqual(IMAGE_PALETTE, { card: IMAGE_TODAY.card, strip: IMAGE_TODAY.strip, stripBg: IMAGE_TODAY.stripBg });
+  assert.deepEqual(IMAGE_PALETTE, { card: IMAGE_TODAY.card, strip: IMAGE_TODAY.strip, stripBg: IMAGE_TODAY.stripBg, home: IMAGE_TODAY.home });
+  assert.match(readFileSync(new URL('../app/home-card/route.tsx', import.meta.url), 'utf8'), /background: IMAGE_PALETTE\.home\.bg, color: IMAGE_PALETTE\.home\.text/);
   assert.equal(THEME_COLOR, IMAGE_TODAY.themeColor);
   const strip = await import('./record-strip.ts');
   assert.equal(strip.IMAGE_COLOURS, IMAGE_PALETTE.strip, 'the strip image reads the table itself');
@@ -336,6 +338,12 @@ test('F-20 AC6 (OQ-1): the images draw gain and loss in the page\'s dark --up / 
   }
   assert.equal(IMAGE_PALETTE.card.bg, t.bg, 'the card is drawn on the dark --bg');
   assert.equal(IMAGE_PALETTE.stripBg, t.bg, 'the strip is drawn on the dark --bg');
+});
+
+test('F-20 AC6/AC11: the home link preview\'s text is at the text floor on its background', async () => {
+  const { IMAGE_PALETTE } = await import('./palette.ts');
+  const r = contrast(IMAGE_PALETTE.home.text, IMAGE_PALETTE.home.bg);
+  assert.ok(r >= FLOORS.text, `home text on bg: ${r.toFixed(2)}:1`);
 });
 
 for (const [part, bgKey] of [['card', 'card.bg'], ['strip', 'stripBg']] as const) {
