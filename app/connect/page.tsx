@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { sql } from '@/lib/db.ts';
@@ -10,6 +11,9 @@ import { FocusHeading } from './result/focus-heading.tsx';
 import { providersFromEnv } from '@/lib/auth/providers.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { PortalButton } from './portal-button.tsx';
+
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Before you connect · Stock Social', robots: { index: false } };
 
 // S2 trust notice (docs/features/logs/F-1/plan.md §2): a page before any portal script, signed in or not.
 // Every line is one the vendor publishes itself; no endorsement, no audit of any record (POLICY F3a).

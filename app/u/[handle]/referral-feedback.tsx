@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 const MAX_SHOWN = 20;
-const LABELS: Record<string, string> = { profile: 'your profile link', trade: 'a trade link', month: 'your monthly recap' };
+const LABELS: Record<string, string> = { profile: 'your profile link', trade: 'a trade link', month: 'your monthly recap', nav: 'the sign-in link on your pages' };
 
 // Owner-only, plain text: which traders connected a broker from this trader's link. Nothing at 0.
 export function ReferralFeedback({ handles, byVia }: { handles: string[]; byVia: Record<string, number> }) {

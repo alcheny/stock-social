@@ -60,7 +60,8 @@ select schema_add_column('users', 'referred_surface', 'text');
 -- Embeddable badge. Set once, on the owner's first copy of the embed snippet. Measure: count(*) where badge_copied_at is not null.
 select schema_add_column('users', 'badge_copied_at', 'timestamptz');
 
--- Story image. Set once, on the owner's first click of a Save image link. Intent to save, not posting.
+-- Set once, on the owner's first completed share from the profile's "Share my record" button (share sheet or link
+-- copied; fix #27). The name is from the removed Save image link it used to record.
 select schema_add_column('users', 'share_image_saved_at', 'timestamptz');
 
 create table if not exists activities (
