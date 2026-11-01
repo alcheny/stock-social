@@ -1,5 +1,6 @@
 'use server';
 import { writeShareAction } from '@/lib/share-actions.ts';
+import { recordTradesPrompt } from '@/lib/trades-prompt.ts';
 import { logSafe } from '@/lib/privacy-log.ts';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -93,11 +94,9 @@ export async function markTradesPromptSeen() {
 export async function recordTradesPromptAction(action: TradesPromptAction) {
   const user = await currentUser();
   if (!user || !TRADES_PROMPT_ACTIONS.includes(action)) return;
-  // 'opened' replaces 'dismissed'; a later 'dismissed' never overwrites 'opened'.
-  await sql`
-    update users set trades_prompt_action = ${action}
-    where id = ${user.id} and (trades_prompt_action is null or (trades_prompt_action = 'dismissed' and ${action} = 'opened'))`;
-  await sql`update users set trades_prompt_seen_at = now() where id = ${user.id}`;
+  // One statement for the action and the seen time (lib/trades-prompt.ts): a reload between two updates showed the
+  // prompt again after Dismiss.
+  await recordTradesPrompt(user.id, action);
   revalidatePath(`/u/${user.handle}`);
 }
 
