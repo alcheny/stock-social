@@ -89,6 +89,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   view_rollup: { personal: true, retention: 'short', holds: 'daily view counts per surface, viewed trader id (record pages), referrer class, source class, signed-in and self-view flags; deleted with the trader\'s account; purged after 120 days (lib/views.ts VIEW_RETENTION_DAYS)' },
   share_action: { personal: true, retention: 'short', holds: 'one row per completed share of a trader\'s own record: trader id, UTC day, share class (card, story, trade, month), outcome (sheet or copy), the record\'s headline sign (up, down, flat, none); no time of day, destination, thesis or account id; deleted with the account; purged after 120 days (lib/share-actions.ts SHARE_RETENTION_DAYS)' },
   view_drops: { personal: false, retention: 'short', holds: 'daily counts of beacons the bot filter dropped, per surface and reason (no user id); purged after 120 days' },
+  // F-31: the address-cap presence marks the owner's readout reads (lib/views.ts#markCapDay).
+  view_cap_days: { personal: false, retention: 'short', holds: 'per UTC day, whether view beacons were checked with and/or without a trusted client address (a day and a flag; no address, user agent, user id or count); purged after 120 days' },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.

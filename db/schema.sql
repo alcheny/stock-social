@@ -1095,6 +1095,16 @@ create table if not exists view_drops (
   n int not null default 0,
   primary key (day, surface, reason)
 );
+-- F-31 (docs/features/F-31-readout-limits-and-partial-rows.md): per UTC day, which kinds of client-address check the
+-- view beacon met. trusted = the address came from a trusted proxy header, so the per-address rate cap ran; false = no
+-- trusted address, so the cap was skipped. Written at most once a day per kind per server instance
+-- (lib/views.ts#markCapDay). No address, user agent, user id or count. Read only by scripts/f15-readout.ts; purged after
+-- VIEW_RETENTION_DAYS with view_rollup (lib/privacy-purge.ts).
+create table if not exists view_cap_days (
+  day date not null,
+  trusted boolean not null,
+  primary key (day, trusted)
+);
 
 -- ---- F-15 second half (docs/features/logs/F-15/plan-second-half.md): share_action rows (E5, G2) ----
 -- One row per completed share of a trader's own record (sheet resolved or link copied), written by
