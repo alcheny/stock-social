@@ -51,4 +51,22 @@ option-derived figures and open option quotes; POLICY F3's /how list; CLAUDE.md 
 drafts; accept the residual risk that a strike can be roughly inferred once figures are public.
 
 ## Build, QA, user tests and review
-(appended below as they happen)
+| Step | Who | Result |
+|---|---|---|
+| Build to plan v4, tests first | engineer | D1–D8, AC 1–24, K1–K10; property tests against an independent reference model |
+| Code review round 1 | independent reviewer | 1 blocking (expiry before a same-day sell), 4 should-fix (`review-round1.md`) |
+| QA round 1 | tester | 1 blocking once open (strike in React keys), 4 should-fix, 7 notes (`qa-round1.md`) |
+| Fix round 1 | engineer | items A–P, including a one-time per-connection option backfill and option rows kept off the share path |
+| Merge | orchestrator | origin/main with #40 corporate actions: additive conflicts; `lib/trades.ts` untouched |
+| Code review round 2 | reviewer | approve; 2 should-fix (exercise-day rule across renames, theses on removed OCC closes), fixed in fix round 2 |
+| User tests at 360 px | UX lead, business lead | compliance pass; layout and copy demands (one open block, options at headline size, "Excluding options"), fixed in fix round 3 with an e2e vendor-port lock (`qa-round2.md`, `screenshots/`) |
+| QA re-check | tester | 10 of 12 fixed, 2 decided; new N1–N8, fixed in fix round 4 |
+| Copy re-sign | legal | "Excluding options" signed (alt text uses the exact words); gated line → "… Option results aren't shown on this record."; /how names the trader's consent |
+| Merges | orchestrator | F-10/F-12 record strip (now carries the qualifier), F-19, #46 sharded sync, #59 |
+| Code review round 3 | reviewer | 2 blocking from the merges (sharded sync dropped the option sinks; e2e lock key collision), fixed in fix round 5 with a runShard DB test and a lock-key test; SIGN |
+
+Decision recorded during QA: a short close on a contract tainted by an exercise or a contradicting row stays counted
+under "other" until the contract is flat (plan D4).
+Known limit added in the build: an account owed its one-time option backfill reads one history page per sync in place
+of its last-week read until the backfill finishes (`lib/options-sync.ts`).
+Size: 56 files, +3,786 / −89 outside this folder (about half tests).
