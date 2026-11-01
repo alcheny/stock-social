@@ -118,7 +118,8 @@ create table if not exists broker_accounts (
 );
 select schema_add_index('broker_accounts_user', 'create index broker_accounts_user on broker_accounts (user_id)');
 -- Backfill: existing real data is claimed by its earliest user.
--- ponytail: if two users already share an account (the exploit) their rows stay; cleanup is a follow-up.
+-- Profiles that already shared an account (the exploit) keep their raw rows: scripts/shared-accounts.ts reports them
+-- and, when the owner asks, marks them (shared_account_marks, below) so only the claimant's record shows the account.
 -- Already-claimed accounts are filtered in the same snapshot as the activities: a user deleted (with its claims and
 -- activities) by a concurrent transaction is then never re-inserted and failed on the users FK (fix round 2, PR-2a).
 -- CI review (2026-11-01, privacy PR): a users row deleted by another session between this snapshot and the insert's
@@ -433,3 +434,51 @@ begin
 end $t$;
 -- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
 select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
+
+-- Known limits 2026-11-01 (docs/features/logs/known-limits/committee-2026-11-01.md).
+-- TR-6, a stable account identity: a keyed hash of the institution and the vendor's institution account id
+-- (lib/claims.ts#accountIdentity; never the raw identifier). Not unique: one profile may hold the same brokerage account
+-- under several vendor ids (one per connection); a second profile may not (checked under a per-identity lock).
+select schema_add_column('broker_accounts', 'identity', 'text');
+select schema_add_index('broker_accounts_identity', 'create index broker_accounts_identity on broker_accounts (identity) where identity is not null');
+-- TR-6, accounts shared before the claim existed: a profile holding activities of an account broker_accounts gives to
+-- another profile (the earliest activity's, from the backfill above). Marked only by the owner's script
+-- (scripts/shared-accounts.ts --mark), never by this file; nothing is deleted. A marked (account, profile) is left out
+-- of that profile's rebuild like a simulated account, so the earliest claim alone shows the account's trades.
+create table if not exists shared_account_marks (
+  account_id text not null,
+  user_id int not null references users on delete cascade,
+  marked_at timestamptz not null default now(),
+  primary key (user_id, account_id)
+);
+-- Feed paging, bounded (lib/feed.ts#importedBy): when the closing sell of each close was imported (its activity's
+-- created_at). A feed page pinned to asOf leaves out closes whose sell was imported after asOf; reading this per close
+-- replaced reading every sell imported since asOf, which a crafted `?after=` could make large. Set by the trigger below
+-- on every insert (the rebuild inserts every close after its activities), so no writer has to set it. Null reads as
+-- "imported before any cursor": added once with a backfill of only the sells of the last 49 hours (cursors live at
+-- most 48 hours, lib/discovery/pager.ts#CURSOR_MAX_AGE_MS), inside the branch that adds the column, so later applies
+-- and the parallel test files never run it.
+do $si$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'closed_trades' and column_name = 'sell_imported_at') then
+    alter table closed_trades add column sell_imported_at timestamptz;
+    update closed_trades t set sell_imported_at = a.created_at
+      from (select external_id, max(created_at) as created_at from activities where created_at > now() - interval '49 hours' and side = 'SELL' group by external_id) a
+      where a.external_id = t.sell_id;
+  end if;
+end $si$;
+-- One unique-index probe per row (activities' unique (source, external_id); no user index for the planner to prefer on
+-- a fresh import's unanalyzed rows). The same match as the feed's old late filter: any source, the sell side.
+create or replace function closed_trades_sell_imported_at() returns trigger language plpgsql as $f$
+begin
+  new.sell_imported_at := (select max(created_at) from activities where source in ('snaptrade', 'demo') and external_id = new.sell_id and side = 'SELL');
+  return new;
+end $f$;
+do $t$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'closed_trades_sell_imported_at' and not tgisinternal) then
+    create trigger closed_trades_sell_imported_at before insert on closed_trades for each row execute function closed_trades_sell_imported_at();
+  end if;
+end $t$;
+-- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
+select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');

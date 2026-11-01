@@ -205,7 +205,11 @@ export function rangeReturn(trades: { returnPct: number; closedAt: Date }[], key
 }
 
 // ---- TR-9: how much evidence stands behind the average return (DESIGN Stage 5.2) ----
-// ponytail: open positions (TR-4) are deferred; closed trades only until that data exists.
+// Closed trades only. Open positions exist since F-6 (lib/open-split.ts shows them beside every realized figure), but
+// the F-6 decision of 2026-11-01 keeps this range closed-only and says so in words. Including them at their unrealized
+// return and days held so far (DESIGN TR-9 inputs; design council D-48) is its own feature: open_positions stores no
+// opening date (it needs an additive opened_at, the earliest unmatched FIFO lot), and the change moves feed ranking
+// (lib/feed.ts weights). docs/features/F-6-open-positions.md → Open questions.
 
 export type ConfidenceInput = Pick<ClosedTrade, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct' | 'holdingDays'>;
 export type Tier = 'too-early' | 'thin' | 'moderate' | 'strong';
@@ -229,7 +233,7 @@ export const tCrit95 = (df: number) => (df <= 30 ? T95[Math.max(df, 1) - 1] : 1.
 type Cluster = { x: number; d: number; n: number };
 
 export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
-  void today; // reserved for open positions (TR-4)
+  void today; // reserved for open positions (TR-4, see above)
   const n = trades.length;
   const bySymbol = new Map<string, ConfidenceInput[]>();
   // F-2 PR-1 fix round 1 (load check): push, not copy (a copy per trade was quadratic in a symbol's trade count).

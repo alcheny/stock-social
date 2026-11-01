@@ -15,7 +15,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   users: { personal: true, retention: 'account', holds: 'handle, display name, 18+ attestation time, vendor user id and encrypted secret, referral' },
   activities: { personal: true, retention: 'account', holds: 'raw broker activities: symbols, quantities, prices, fees, account ids' },
   closed_trades: { personal: true, retention: 'account', holds: 'derived public record: symbols, dates, percent returns, holding periods, theses' },
-  broker_accounts: { personal: true, retention: 'account', holds: 'vendor account ids claimed by a profile' },
+  broker_accounts: { personal: true, retention: 'account', holds: 'vendor account ids claimed by a profile, with a keyed hash of the institution account identity (never the identifier itself)' },
   ticker_watches: { personal: true, retention: 'account', holds: 'private watchlist symbols' },
   kept_theses: { personal: true, retention: 'account', holds: 'theses whose trade is excluded' },
   trade_reflections: { personal: true, retention: 'account', holds: 'private trade reason tags' },
@@ -33,6 +33,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   trade_likes: { personal: true, retention: 'account', holds: 'private likes (preference data, kept indefinitely); a like whose trade is gone for 30 days is purged' },
   trade_exclusions: { personal: true, retention: 'account', holds: 'private rejected trades (preference data, kept indefinitely); one whose trade is gone for 30 days is purged' },
   privacy_orphans: { personal: true, retention: 'short', holds: 'when a like or reject first had no trade; removed when the trade returns or the row is purged' },
+  shared_account_marks: { personal: true, retention: 'account', holds: 'which profile held activities of an account claimed by another profile (vendor account id, user id), marked by the owner' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
 };
 

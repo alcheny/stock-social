@@ -5,7 +5,7 @@ import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
 import * as vendor from './broker.ts';
 import type { BrokerUser, VendorAccount } from './broker.ts';
-import { AccountClaimedError, claimIn } from './claims.ts';
+import { AccountClaimedError, accountIdentity, claimIn, identityOwners } from './claims.ts';
 import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
@@ -90,7 +90,9 @@ export function advanceCursor(c: Cursor, pageDone: boolean, limit: number): Curs
   return pageDone ? { i: c.i + 1, offset: 0, pass: c.pass } : { i: c.i, offset: c.offset + limit, pass: c.pass };
 }
 
-export type SnapAccount = { id: string; authorizationId: string; institution: string; isPaper: boolean; initialSyncCompleted: boolean };
+// `identity`: the account's keyed identity hash (lib/claims.ts#accountIdentity), never the raw institution identifier;
+// absent on snapshots taken before it existed.
+export type SnapAccount = { id: string; authorizationId: string; institution: string; isPaper: boolean; initialSyncCompleted: boolean; identity?: string | null };
 export type Connection = {
   id: number; attempt_id: number; user_id: number | null; vendor_authorization_id: string | null; institution: string | null; state: State;
   pending_at: Date; importing_at: Date | null; connected_at: Date | null; consent_at: Date | null; last_progress_at: Date | null;
@@ -297,7 +299,7 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
   const knownIds = new Set(known.map((k) => k.a as string));
   const fresh = all.filter((a) => !knownIds.has(a.authorizationId));
   if (!fresh.length) return abandoned(who.attemptId);
-  const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted }));
+  const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted, identity: accountIdentity(a) }));
   const [row] = await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, institution, state, pending_at, portal_mode, accounts)
     values (${who.attemptId}, ${who.userId}, ${fresh[0].authorizationId}, ${fresh[0].institution}, 'pending', ${now}, ${mode}, ${sql.json(snapshot as never)}) returning id`;
   const id = Number(row.id);
@@ -309,10 +311,23 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
     return { kind: 'none', id };
   }
   const owners = await sql`select account_id, user_id, confirmed_at from broker_accounts where account_id in ${sql(real.map((a) => a.id))}`;
+  // The same brokerage account under a new vendor id (a fresh connection) is owned by whoever claimed its stable identity
+  // (lib/claims.ts): another profile's, the link is refused. A brokerage-first attempt signs in only when one profile
+  // confirmed every real account (by vendor id, or by identity) and owns every identity it carries; otherwise refused.
+  const idOwners = await identityOwners(sql, [...new Set(real.flatMap((a) => (a.identity ? [a.identity] : [])))]);
   if (who.userId === null) {
-    const confirmedBy = new Set(owners.filter((o) => o.confirmed_at).map((o) => o.user_id as number));
-    if (owners.length && confirmedBy.size === 1 && owners.every((o) => o.confirmed_at) && owners.length === real.length) {
-      const userId = [...confirmedBy][0];
+    // Each real account's confirmed owner: by its vendor id, or else by its identity (the owner linking the same
+    // account again under a new vendor id while signed out signs in, like the vendor-id path).
+    const byId = new Map(owners.map((o) => [o.account_id as string, o]));
+    const ownerOf = real.map((a) => {
+      const o = byId.get(a.id);
+      if (o) return o.confirmed_at ? (o.user_id as number) : null;
+      const k = a.identity ? idOwners.filter((x) => x.identity === a.identity) : [];
+      return k.length && k.every((x) => x.confirmed && x.user_id === k[0].user_id) ? k[0].user_id : null;
+    });
+    const confirmedBy = new Set(ownerOf);
+    if (confirmedBy.size === 1 && ownerOf[0] !== null && idOwners.every((o) => o.user_id === ownerOf[0])) {
+      const userId = ownerOf[0];
       const [u] = await sql`select handle from users where id = ${userId} and deleted_at is null`;
       if (u) {
         await completeAttempt(who.attemptId, userId);
@@ -321,10 +336,10 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
         return { kind: 'signin', id, userId, handle: u.handle as string };
       }
     }
-    if (owners.length) return refuse(id, who.attemptId, deps, now);
+    if (owners.length || idOwners.length) return refuse(id, who.attemptId, deps, now);
   } else {
-    if (owners.some((o) => o.user_id !== who.userId)) return refuse(id, who.attemptId, deps, now);
-    const r = await sql.begin((tx) => claimIn(tx, who.userId!, snapshot.map((a) => ({ id: a.id, isPaper: a.isPaper })), { connectionId: id, confirmed: false, now }));
+    if (owners.some((o) => o.user_id !== who.userId) || idOwners.some((o) => o.user_id !== who.userId)) return refuse(id, who.attemptId, deps, now);
+    const r = await sql.begin((tx) => claimIn(tx, who.userId!, snapshot.map((a) => ({ id: a.id, isPaper: a.isPaper, identity: a.identity ?? null })), { connectionId: id, confirmed: false, now }));
     if (!r.ok) return refuse(id, who.attemptId, deps, now);
   }
   await recordFunnel(who.attemptId, 'link_succeeded', { accounts: snapshot.length, paper: snapshot.length - real.length });
@@ -374,7 +389,7 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
   try {
     await sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${user.id})`;
-      const r = await claimIn(tx, user.id, c.accounts.map((a) => ({ id: a.id, isPaper: a.isPaper })), { connectionId: id, confirmed: true, now });
+      const r = await claimIn(tx, user.id, c.accounts.map((a) => ({ id: a.id, isPaper: a.isPaper, identity: a.identity ?? null })), { connectionId: id, confirmed: true, now });
       if (!r.ok) throw new AccountClaimedError();
       const ok = await setState(id, 'pending', 'importing', now, { consent_at: now, user_id: user.id, last_progress_at: now, import_cursor: tx.json(startCursor() as never) }, tx);
       if (!ok) throw new NotPendingError();
