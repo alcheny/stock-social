@@ -141,3 +141,13 @@ All four members answered REVISE (`plan-signoff-*.md`). These changes meet every
    1200x630; none shows Verified, a Demo/Verified mix-up or any amount. Node test on the card data plus the e2e alt
    and meta scan.
 3. The feed card line is exactly "Company insider · from a public filing", with no date.
+4. **The not-joined line on every surface (UX lead demand 1; C15):** profile, pane, trade page and month page show the
+   not-joined sentence and the "Request a correction or removal →" link from one copy constant; the share image alt
+   and the unfurl description carry the line without the link. AC 15 covers each surface by e2e; at 360 x 640 the
+   pane's chart stays above the fold.
+5. **Feed card copy (UX lead demand 2):** "Company insider · from a public filing" (muted) and the footer "See their
+   record, wins and losses →" linking to the profile; no thesis, Like, Follow or double-tap hint; asserted by e2e.
+6. **"Last checked" is the source's last successful import run (UX lead demand 3)**, stored in `public_import_state`,
+   not per filer. The stale line shows when the source has had no successful run for 7 days. Tests: a filer with no
+   filings for 10 days whose source ran yesterday shows no stale line; a source with no successful run for 8 days
+   shows it on every filer.
