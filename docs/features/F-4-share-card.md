@@ -82,6 +82,11 @@ elements that catch the eye and travel, and leave detail for the profile.
 - 2026-10-31: The link preview (1200×630) keeps every element and its chart stays at about 24% of the card;
   the square and story cards keep 30%. Why: the owner's answer to committee demand 3; reaching 30% on the
   preview meant dropping the handle or the chart caption.
+- 2026-11-01: The card's chart: for a trader who opted in to position size (F-5), the account-weighted line; for
+  everyone else, the running sum of per-trade returns in order, captioned "Sum of trade returns, in order ·
+  position size not shown". The running sum ends at count × average, so it always agrees with the headline.
+  Why: the owner's answer to committee question A, after deciding F-5; a compounded equal-stake line hides
+  position size and can disagree with the average.
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
@@ -118,10 +123,6 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Open questions
 - From committee round 1 (2026-10-26, `docs/features/logs/F-4/committee-round-1.md`), for the owner:
-  - A. The chart series: compounded growth of equal stakes, or the running sum of per-trade returns; and the
-    caption's wording either way. 2026-10-31: the owner finds equal-stake views misleading because they hide
-    position size, and real dollars were set aside for privacy; this waits on F-5 (position size per trade),
-    which may make the chart account-weighted.
   - Win rate in the link-preview text under the card: keep or drop.
   - Ranking floor: stays at 10 bets unless changed.
   - A bundled font file (OFL) would need license sign-off; none is added now.

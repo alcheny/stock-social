@@ -61,6 +61,5 @@ To be written once the open questions are settled.
 - Counsel's sign-off before real users (the full legal review is the owner's private document of 2026-10-31).
 - Found during the review, outside F-5: open-position percentages are computed from the vendor's prices, which
   its market-data clause may not allow publicly; and records can't show what they displayed on a past date.
-- The share card's chart (F-4 question A) waits on this feature's answers.
 
 ## Rework notes
