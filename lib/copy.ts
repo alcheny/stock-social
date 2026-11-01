@@ -1,7 +1,7 @@
 // Fixed product copy for F-1 (docs/features/logs/F-1/plan.md §2, the UX lead's strings verbatim).
 // Every string here is tested against the banned-claims list (lib/copy.test.ts). Change copy here only.
 // F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
-import { count, counted } from './format.ts';
+import { count, counted, toneWord } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
 import { EXCLUSION_DAYS } from './discovery/weights.ts';
 import { tone, type Tone } from './open-split.ts'; // A11Y-FIXES #23 (group 3)
@@ -388,8 +388,9 @@ export const DEMO_PROFILE = {
 } as const;
 // #23 (POLICY A1; WCAG 1.4.1, 1.3.1): the word beside a percent, from the printed sign (lib/open-split.ts#tone), so
 // "0.0%" is never called a gain or a loss.
-export const SIGN_WORD: Record<Tone, string> = { up: 'Gain', down: 'Loss', flat: 'No change' };
-export const signWord = (x: number): string => SIGN_WORD[tone(x)];
+// F-19 (#57): the words live in lib/format.ts (toneWord), one vocabulary; signWord reads them by the printed sign.
+export const SIGN_WORD: Record<Tone, string> = { up: toneWord('up'), down: toneWord('down'), flat: toneWord('flat') };
+export const signWord = (x: number): string => toneWord(tone(x));
 // #20 (WCAG 2.4.2): a distinct title on each route that inherited the bare "Stock Social".
 export const TITLES = {
   login: 'Sign in \u00b7 Stock Social',
@@ -797,3 +798,9 @@ export const BILLING = {
   deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
 } as const;
 export { billingDate };
+
+// ---- F-19 · What's-this line (first slice: the constant and its test, lib/range-note.f19.test.ts). The range printed
+// beside an average is the arithmetic range of the average per trade (lib/record-card.ts#cardEvidence), not the spread
+// of single trades.
+// ponytail: not shown on any screen yet — the F-19 sweep rework places it on the stats-row What's-this after F-18 merges.
+export const RANGE_NOTE = 'the range is for the average, not one trade';

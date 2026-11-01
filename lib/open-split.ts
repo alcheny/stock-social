@@ -4,17 +4,13 @@
 // Percent only (POLICY P3): the inputs are return and unrealized percents, never units, prices or amounts. Every
 // surface that shows open positions (profile, feed card and pane, stock pages, share card) reads them from here.
 
-// The sign of the value as pct() prints it (one decimal): "0.0%" is flat, never colored and never called up or down,
-// so color and words can't contradict the number shown.
-export type Tone = 'up' | 'down' | 'flat';
-export function tone(x: number): Tone {
-  const shown = Number((x * 100).toFixed(1));
-  return shown > 0 ? 'up' : shown < 0 ? 'down' : 'flat';
-}
+// tone() and Tone live in lib/format.ts (F-19: one home); re-exported here so existing imports keep working.
+import { tone, type Tone } from './format.ts';
+export { tone, type Tone };
 
 // A11Y-FIXES #23: the colour class for a percent as printed: up or down, and none for flat (it inherits the text
 // colour). The word beside it is signWord in lib/copy.ts (this file stays string-free).
-export const toneClass = (x: number): Exclude<Tone, 'flat'> | undefined => { const t = tone(x); return t === 'flat' ? undefined : t; };
+export const toneClass = (x: number): 'up' | 'down' | undefined => { const t = tone(x); return t === 'up' || t === 'down' ? t : undefined; }; // lib's twin of app/open-rows.tsx#toneClass (both delegate to lib/format.ts#tone)
 
 // Open positions as a set: each row is one position (one symbol held in two accounts is two), counted up, down and
 // flat by tone, averaged with equal weight (an amount-weighted average would need amounts we never store).

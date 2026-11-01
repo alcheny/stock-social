@@ -32,11 +32,11 @@ test('#23: toneClass paints up and down, and nothing for flat (it inherits the t
   assert.equal(toneClass(-0.12), 'down');
 });
 
-test('#23: signWord says Gain, Loss or No change, matching the printed sign', () => {
-  assert.deepEqual(SIGN_WORD, { up: 'Gain', down: 'Loss', flat: 'No change' });
+test('#23: signWord says Gain, Loss or Flat (F-19 toneWord), matching the printed sign', () => {
+  assert.deepEqual(SIGN_WORD, { up: 'Gain', down: 'Loss', flat: 'Flat' });
   for (const x of GRID) assert.equal(signWord(x), SIGN_WORD[tone(x)], String(x));
-  assert.equal(signWord(0), 'No change');
-  assert.equal(signWord(-0.0004), 'No change');
+  assert.equal(signWord(0), 'Flat');
+  assert.equal(signWord(-0.0004), 'Flat');
   assert.equal(signWord(0.0005), 'Gain');
   assert.equal(signWord(-0.0005), 'Loss');
 });

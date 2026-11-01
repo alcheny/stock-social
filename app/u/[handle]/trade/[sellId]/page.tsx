@@ -62,7 +62,7 @@ export default async function TradePage({ params }: Params) {
         <section className="trade-card" aria-labelledby="this-trade">
           <h2 id="this-trade">This trade</h2>
           <h1 style={{ margin: 0 }}>{t.symbol}</h1>
-          {/* A11Y-FIXES #23: tone and sign word follow the printed value (0.0% is neutral, "No change"). */}
+          {/* A11Y-FIXES #23: tone and sign word follow the printed value (0.0% is neutral, "Flat"). */}
           <p className={toneClass(t.returnPct) ? `big ${toneClass(t.returnPct)}` : 'big'}><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</p>
           <p className="muted small">{held(t.holdingDays)} · closed {closed}</p>
           {t.thesis && <blockquote>“{t.thesis}”</blockquote>}

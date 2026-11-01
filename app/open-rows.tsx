@@ -2,12 +2,11 @@
 // share. Every node carries data-open and is rendered only when the trader has open positions, so a record without
 // them renders exactly today's HTML. Percent and counts only (POLICY P3); tone by the printed sign, words beside it.
 import { asOfDay, OPEN } from '@/lib/copy.ts';
-import { count } from '@/lib/format.ts';
-import { toneClass, type OpenSummary } from '@/lib/open-split.ts';
+import { count, tone } from '@/lib/format.ts';
+import { type OpenSummary } from '@/lib/open-split.ts';
 import { pct } from '@/lib/trades.ts';
 
-// A11Y-FIXES #23: moved to lib/open-split.ts so every call site shares one helper; re-exported for existing imports.
-export { toneClass };
+export const toneClass = (x: number) => { const t = tone(x); return t === 'flat' ? undefined : t; };
 
 // Long values (8+ characters, e.g. "+6122.6%") take a smaller shared size in both grids (data-long), so every big value
 // keeps a fifth of its tile spare at 360 px whatever the font (CI's renders wider) and the two rows stay equal (TR-4).

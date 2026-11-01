@@ -5,6 +5,8 @@ packaging, legal and policy positions, privacy choices, growth and marketing, pa
 makes a claim, and changes to how the team works. Code changes go through the committee cycle instead
 (`docs/IMPLEMENTATION.md`); an idea that becomes a feature goes to a design session after the board.
 
+Where this sits in the whole path: `docs/process/lifecycle.md`.
+
 ## Members (each a separate agent with fresh context; no one reviews their own idea)
 
 | Member | Lens | Asks |
