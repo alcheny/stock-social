@@ -85,7 +85,8 @@ test('F-6 (AC5, POLICY P3/F1): open copy is percent and counts only, with no adv
   // lib/copy.test.ts's banned-claims list, plus advice words and amounts.
   const BANNED = [/\bendorse[sd]?\b/i, /\brecommend(ed|s|ation)?\b/i, /\bguarantee[sd]?\b/i, /\bsecure\b/i, /\bsafe\b/i, /\$|\bbuy\b|\bsell\b|\bhold\b|\bsignal|\byet\b|units|price/i];
   for (const s of out) for (const re of BANNED) assert.doesNotMatch(s, re, s);
-  const src = readFileSync(new URL('./open-split.ts', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '');
+  // F-19: tone() moved to lib/format.ts (its 'flat' went with it); module specifiers are paths, not copy.
+  const src = readFileSync(new URL('./open-split.ts', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '').replace(/\bfrom '[^']*'/g, '');
   const literals = [...src.matchAll(/'([^']*)'/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(literals)].sort(), ['down', 'flat', 'up']);
+  assert.deepEqual([...new Set(literals)].sort(), ['down', 'up']);
 });
