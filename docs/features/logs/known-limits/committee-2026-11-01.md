@@ -184,3 +184,16 @@ Both ran on fresh context against the committed diff; 19 new tests pass; no bloc
   demo-only feed renders no section"). Both now delete exactly the users and sign-up attempts they made, in `after()`.
   A count by handle prefix after a full `npm test` found no other leaking file on main (corporate actions and
   f2-personal tests are not on main yet: PRs #40 and #30).
+
+## Orchestrator review of PR #52 (2026-11-01) and the fixes
+
+| Finding | Decision |
+|---|---|
+| Blocking: the purge was not plan-proof. With trade_likes analyzed and privacy_orphans analyzed while nearly empty, one batch ran 158 s, and `LOAD=1 lib/privacy-purge.load.test.ts` failed 2/5 | Fixed. Every check against privacy_orphans is a scalar `(select 1 … limit 1)` subquery, so it can't be pulled up into a join; the anti-join had materialized every orphan per like. Every row is found by a primary-key probe per key and deleted by row address (`ctid = any(array(...))`). Batches run with seqscan, hashjoin, mergejoin and material off, and each has a statement timeout of the time left in the box (a timeout ends the box). The load test now reproduces the review's statistics and passed 5/5 twice: slowest batch 0.9–1.5 s (box 20 s), 220,000 rows in 7.7–13.6 s in one call. The closed_trades checks keep the `not exists` form that `lib/likes.test.ts` requires |
+| IDENTITY_LOCK 3 shared its class with PURGE_LOCK 3 | Class 4 |
+| The claims item is not resolved until lib/broker.ts passes the field | It stays a `ponytail:` and is listed under Known limits, not under Resolved |
+| Trigger created after the column block | Also created inside the block that adds the column and backfills |
+| The committee plan promised `plan_cache_mode = force_custom_plan` | Plan text corrected: dropped after the reliability review (the probe uses only the unique index) |
+| `e2e/cron-lock.ts` and the `tick` comment name the sharded-sync spec, which is not on main | Kept byte-identical to #46, so the two PRs merge cleanly; the spec arrives with #46 |
+| lib/billing.ts: a 409 from the processor for an in-flight idempotent request | `ponytail:` note (retry once, then read the stored customer) |
+| lib/auth/links.test.ts asserted the global purge count | Now checks only its own rows (they are gone after the purge) |
