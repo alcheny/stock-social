@@ -2,7 +2,7 @@
 
 | Role | Model (default) | Tools | Per-call cap | Answers with |
 |---|---|---|---|---|
-| **UX lead** | `sonnet` (`MODEL_UX`) | every tool; edits discarded after each call | $2, 80 turns (`BUDGET_UX`) | the plan, or a verdict |
+| **UX lead** | `sonnet` (`MODEL_UX`) | every tool; edits discarded after each call | $6, 200 turns (`BUDGET_UX`) | the plan, or a verdict |
 
 **UX lead.** You sit on the committee for each feature the owner decided in a design session
 (`docs/IMPLEMENTATION.md`, "The cycle"). You own how the decided design becomes an interface; you never

@@ -1,68 +1,20 @@
-// The share card: the Phase 1 growth loop (DESIGN Stage 1, BL resolution).
-// Rendered by Next's built-in next/og whenever the profile link is posted on a social network or in a messaging app.
+// The share card (F-4): what the profile link unfurls into, the growth loop. Rendered by Next's built-in next/og
+// whenever the profile link is posted on a social network or in a messaging app. The Share button's picture
+// (story/route.tsx) draws the same card at its own size.
 import { ImageResponse } from 'next/og';
 import { notFound } from 'next/navigation';
+import { CARD_LAYOUT } from '@/lib/record-card.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
-import { sql } from '@/lib/db.ts';
-import { publicRecord } from '@/lib/connections.ts';
-import { isDemoUser } from '@/lib/demo.ts';
-import { imageLabel, shareCardText } from '@/lib/copy.ts';
-import { confidence, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
-import { count } from '@/lib/format.ts';
+import { loadRecordCard } from './record-card-data.ts';
+import { RecordCardImage } from './record-card-image.tsx';
 
-export const size = { width: 1200, height: 630 };
+export const size = { width: CARD_LAYOUT.unfurl.width, height: CARD_LAYOUT.unfurl.height };
 export const contentType = 'image/png';
 // The alt text depends on the record state, so the profile page declares it with this image (app/u/[handle]/page.tsx).
 
 export default async function Card({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
-  const [user] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;
-  if (!user) notFound(); // no card for an unknown handle or a profile being deleted (the profile itself is 404 too)
-  const rows = user ? await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${user.id}` : [];
-  const s = stats(rows.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at })));
-  const verified = rows.length > 0 && rows.every((t) => t.verified);
-  const empty = rows.length === 0;
-  // Fix round 3: the card's label, body and note follow the profile's record state (aggregate over all consented
-  // connections); "Demo data" only for a demo profile, "Broker connected" only for a finished import with no closes.
-  const text = shareCardText({ state: (await publicRecord(user.id)).state, demo: await isDemoUser(user.id), verified, empty });
-  const toneColor = text.tone === 'ok' ? '#22c55e' : text.tone === 'warn' ? '#f59e0b' : '#8b8b98';
-  const up =s.avgReturn > 0;
-  const c = confidence(rows.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
-  const isNew = rows.length > 0 && isNewRecord(rows.map((t) => ({ openedAt: t.opened_at })), rows.length, new Date());
-
-  return new ImageResponse(
-    (
-      <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 64, background: '#0b0b0f', color: '#f4f4f6', fontFamily: 'sans-serif' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 36 }}>
-          <span style={{ fontWeight: 800 }}>Stock Social</span>
-          <span style={{ color: toneColor, fontWeight: 700 }}>{imageLabel(text.label) ?? ''}</span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: 56, fontWeight: 700 }}>{user?.display_name ?? handle}</span>
-          <span style={{ fontSize: 32, color: '#8b8b98' }}>@{handle}</span>
-        </div>
-        {text.body !== null ? (
-          <span style={{ fontSize: 72, fontWeight: 800 }}>{text.body}</span>
-        ) : (
-        <div style={{ display: 'flex', gap: 72 }}>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{(s.winRate * 100).toFixed(0)}%</span>
-            <span style={{ fontSize: 28, color: '#8b8b98' }}>win rate</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1, color: up ? '#22c55e' : '#f43f5e' }}>{pct(s.avgReturn)}</span>
-            <span style={{ fontSize: 28, color: '#8b8b98' }}>avg return / trade</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{count(s.trades)}</span>
-            <span style={{ fontSize: 28, color: '#8b8b98' }}>trades · losses included</span>
-          </div>
-        </div>
-        )}
-        <span style={{ fontSize: 30, color: text.note && text.tone === 'warn' ? toneColor : '#8b8b98' }}>{text.note ?? `${evidenceLine(c)}${isNew ? ' · New record' : ''}`}</span>
-        <span style={{ fontSize: 22, color: '#8b8b98' }}>{DISCLAIMER}</span>
-      </div>
-    ),
-    size,
-  );
+  const m = await loadRecordCard(handle, 'unfurl');
+  if (!m) notFound();
+  return new ImageResponse(<RecordCardImage m={m} disclaimer={DISCLAIMER} />, size);
 }

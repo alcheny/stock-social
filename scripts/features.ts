@@ -65,7 +65,9 @@ export type FeaturePr = {
   fixAttempts: number; conflictAttempts: number;
 };
 export type TaskKind = 'build' | 'fix' | 'conflict';
-export type FeatureTask = { kind: TaskKind; id: string; file: string; branch: string; number: number };
+// attempt: 1 for a build, then one more for every fix or conflict attempt already made on the PR; team.ts grows the
+// failure budget with it (docs/FEATURES.md → "Permissions and the failure budget").
+export type FeatureTask = { kind: TaskKind; id: string; file: string; branch: string; number: number; attempt: number };
 export type Round = { tasks: FeatureTask[]; update: number[]; stop: { number: number; reason: string }[]; notes: string[] };
 
 // One round: every open feature PR that needs work gets a task (a merge conflict before a failing check: the
@@ -86,7 +88,7 @@ export function planRound(fs: Feature[], prs: FeaturePr[], o: { parallel: number
     }
     active++;
     const f = fileOf(p.branch);
-    if (kind) r.tasks.push({ kind, id: f?.id ?? p.branch, file: f?.file ?? '', branch: p.branch, number: p.number });
+    if (kind) r.tasks.push({ kind, id: f?.id ?? p.branch, file: f?.file ?? '', branch: p.branch, number: p.number, attempt: p.fixAttempts + p.conflictAttempts + 1 });
     else if (p.behind) r.update.push(p.number);
   }
   const stopped = new Set(r.stop.map((s) => s.number));
@@ -97,7 +99,7 @@ export function planRound(fs: Feature[], prs: FeaturePr[], o: { parallel: number
   for (const f of buildQueue(fs)) {
     if (room <= 0) break;
     if (open.has(branchOf(f))) continue; // already has a PR (waiting, fixing or with the owner)
-    r.tasks.push({ kind: 'build', id: f.id, file: f.file, branch: branchOf(f), number: 0 });
+    r.tasks.push({ kind: 'build', id: f.id, file: f.file, branch: branchOf(f), number: 0, attempt: 1 });
     room--;
   }
   return r;
@@ -144,7 +146,8 @@ export const notesOf = (body: string) => { const at = body.indexOf(NOTES); retur
 // ---------- side effects ----------
 
 const env = (k: string, d = '') => process.env[k] || d;
-const sh = (cmd: string, a: string[]) => execFileSync(cmd, a, { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
+// git never runs hooks here: an agent on the same runner could have planted one, and these commands carry GH_TOKEN.
+const sh = (cmd: string, a: string[]) => execFileSync(cmd, cmd === 'git' ? ['-c', 'core.hooksPath=/dev/null', ...a] : a, { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
 const gh = (...a: string[]) => sh('gh', a);
 const ghJson = <T>(...a: string[]) => JSON.parse(gh(...a) || 'null') as T;
 const output = (k: string, v: string | number) => process.env.GITHUB_OUTPUT && appendFileSync(process.env.GITHUB_OUTPUT, `${k}=${v}\n`);
@@ -189,7 +192,7 @@ function next() {
   output('tasks', '[]'); output('count', 0);
   if (env('FEATURES') !== 'on') return console.log('features: off');
   const prs = featurePrs();
-  const r = planRound(features(), prs, { parallel: Number(env('FEATURE_PARALLEL', '3')), maxAttempts: Number(env('FEATURE_MAX_ATTEMPTS', '5')) });
+  const r = planRound(features(), prs, { parallel: Number(env('FEATURE_PARALLEL', '3')), maxAttempts: Number(env('FEATURE_MAX_ATTEMPTS', '15')) });
   for (const n of r.notes) console.log(`features: ${n}`);
   for (const s of r.stop) {
     gh('pr', 'edit', String(s.number), '--add-label', 'needs-human');

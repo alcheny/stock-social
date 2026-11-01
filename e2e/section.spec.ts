@@ -233,7 +233,9 @@ test('F-2 PR-3: signed in, rows carry Follow and "…"; "Not interested" on a ro
     await row.locator('.sactions .more-menu summary').click();
     await row.getByRole('button', { name: `Not interested in @${x}` }).click();
     await expect.poll(() => exclusions(me)).toBe(1);
-    await page.locator('.feed > .row').nth(24).evaluate((el) => el.scrollIntoView());
+    // Scroll to the last visible card of page 1. A fixed index (card 25) is one of the hidden trader's on some days:
+    // the exploration order is seeded by the UTC day, and a display: none row never scrolls into view.
+    await page.locator('.feed > .row:visible').last().evaluate((el) => el.scrollIntoView());
     await expect.poll(() => page.locator('.feed > .row').count(), { timeout: 15_000 }).toBeGreaterThan(30);
     const all = await page.locator('.feed > .row').evaluateAll((rs) => rs.slice(30).map((r) => r.getAttribute('data-handle')));
     expect(all).not.toContain(x);

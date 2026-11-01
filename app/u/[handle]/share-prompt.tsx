@@ -4,11 +4,13 @@ import { markSharePromptSeen, recordSharePromptAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
 import { counted } from '@/lib/format.ts';
 
-type Props = { handle: string; displayName: string; trades: number; range: string | null; isNew: boolean };
+// previewAlt: the card in words, from the card's own model (lib/record-card.ts#cardAlt; F-4 committee round 1, demand
+// 9). The old alt said "N verified trades" whatever the record's state.
+type Props = { handle: string; displayName: string; trades: number; range: string | null; isNew: boolean; previewAlt: string };
 
 const best = (p: Promise<unknown>) => p.catch((e) => console.error('share prompt record failed', e));
 
-export function SharePrompt({ handle, displayName, trades, range, isNew }: Props) {
+export function SharePrompt({ handle, displayName, trades, range, isNew, previewAlt }: Props) {
   const [open, setOpen] = useState(true);
   const [done, setDone] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
@@ -31,7 +33,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew }: Props
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img className="preview" src={`/u/${handle}/opengraph-image`} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
-          alt={`Preview of your share card: ${displayName}, ${counted(trades, 'verified trade')}`} />
+          alt={previewAlt} />
       )}
       <p style={{ margin: 0 }}>
         Public: your win rate, average return and each closed trade as a percentage, losses included. Never sizes, prices or balances. Your broker login stays private.

@@ -7,7 +7,9 @@ look out for, and the procedure for every change. When this file and POLICY disa
 
 **This is not legal advice.** It is a working map written by AI for a small team, to be reviewed by
 counsel before launch (POLICY → Before a public launch) and after every material change in law. Laws
-differ by state and change often; an item here is a prompt to check, not a conclusion.
+differ by state and change often; an item here is a prompt to check, not a conclusion. Where this file says
+"counsel", the owner's decision of 2026-11-01 applies (POLICY, top): the AI legal committee's findings stand in
+for a licensed attorney's opinion, and the owner decides what they leave open.
 
 Scope: a United States consumer web app that publishes verified brokerage trade records, with a public
 feed, user text (theses), sharing, and later viewer subscriptions and trader payouts.

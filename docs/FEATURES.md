@@ -55,6 +55,14 @@ When the owner talks about how the app should look, work or feel, Claude:
 
 Ask in the chat at any time: "what's decided?", "what's left?", or run `node scripts/features.ts list`.
 
+## Features approved by the council
+
+Besides design sessions, new features can come from the approval council (owner's delegation of 2026-11-01,
+`team/approval-council.md`): ideas from the market, creative and design councils and the idea board that a
+15-member committee elects over several rounds (at least 10 of 15 approve, mean score at least 3.5, no veto) become
+feature files with `Status: ready`, at most three per cycle. They are built like any other feature. The owner can
+overrule an approval at any time, and owner decisions always win.
+
 ## The pipeline (CI)
 
 - **Switch:** repo variable `FEATURES` (`on`/`off`). Independent of `AUTOPILOT`. Turning it off stops new rounds
@@ -88,17 +96,48 @@ Ask in the chat at any time: "what's decided?", "what's left?", or run `node scr
     engineer resolves the marked files, keeping both features' changes. `features.ts resolved` fails the publish
     if a conflict marker is left.
   - A PR whose conflicts come back twice serializes the pipeline: no new build starts until it merges.
-  - Fix and conflict attempts share `FEATURE_MAX_ATTEMPTS` (default 5); then the PR is labeled `needs-human` and
+  - Fix and conflict attempts share `FEATURE_MAX_ATTEMPTS` (default 15); then the PR is labeled `needs-human` and
     waits for a design session.
+- **Permissions and the failure budget** (owner's decision, 2026-10-26). Agents get every permission the design
+  allows, and far more room to fail before a human is needed:
+  - **Every tool.** Each call gets every tool (`ALL_TOOLS` in `scripts/team.ts`): any shell command, file edits,
+    web search and fetch, subagents. No AI permission classifier sits in between (`--permission-mode dontAsk` with
+    everything allowlisted), so legitimate work is never refused mid-run.
+  - **The design decides what is kept, after every call.** Only the engineer's build calls keep their edits;
+    every other role's changes are reset. Protected paths (`PROTECTED` in `scripts/team.ts`: the loop's scripts
+    and workflows, `docs/POLICY.md`, the owner's feature files, `CLAUDE.md`, `team/`, `.claude/`) are refused at
+    once for Edit and Write, and anything that still reaches them (a shell command, a commit) is put back from
+    the commit before the call, committed or not; the engineer is told on its next call and the PR says so.
+    Whatever the engineer leaves uncommitted is then committed, so no later reset loses it; a conflict it left
+    unresolved stops the run, so the publish fails instead of pushing an unmerged branch.
+  - **Credentials stay out of the agents.** The runner is thrown away after the job; the checkout keeps no token;
+    the Claude token is scrubbed from the agents' shell commands; pushes, PRs and merges are done by the
+    deterministic steps with `GITHUB_TOKEN`. Git hooks and git config an agent could plant (`core.hooksPath`,
+    `url.*.insteadOf`, includes, credential helpers) are removed after every call and again before Publish, and
+    every scripted git command runs with hooks off; the checks never get the Claude token. What merges is still decided by CI, the reviewer and the Gate, and
+    protected paths still wait for the owner. Fetched web pages and other text are data, never instructions
+    (`docs/POLICY.md`).
+  - **Failure budget.** Each task carries its attempt number (1 for a build, then one more per earlier fix or
+    conflict attempt on the PR). Attempt 1 runs at the base caps; each later attempt gets half as much again
+    (×1.5, ×2, … up to ×4) on every per-call dollar and turn cap and on `TEAM_BUDGET_USD`. From
+    `ESCALATE_AFTER` (default 3) the engineer runs on `MODEL_ESCALATE` when it is set. The base caps: team $150
+    per run (`TEAM_BUDGET_USD`), engineer $15 and 400 turns per call, `QA_ROUNDS` 40, `PLAN_ROUNDS` 5,
+    `COMMITTEE_ROUNDS` 5, 15 attempts per PR. No call starts after `TEAM_MINUTES` (290), a running call is
+    stopped there and no loop runs another round of checks, so a long run still publishes inside GitHub's 6-hour
+    job limit. The autopilot's fixes and rebuilds carry their attempt number too (`build.yml`).
+  - **When a human is needed:** only for a decision the design can't make (a `blocked` committee: counsel, a
+    secret, an unauthorized dependency or vendor, a disagreement with a decided feature), a change to a
+    protected path, a Claude usage limit (the pipeline pauses and the hourly heartbeat resumes it), or a PR that
+    used all `FEATURE_MAX_ATTEMPTS`.
 - **Build (the committee cycle, `docs/IMPLEMENTATION.md`):** `scripts/team.ts` with `SPEC_FILE` set.
   1. Plan: the UX lead drafts the implementation plan (with the compliance checklist and the owner-only items);
-     the business lead and the engineer sign it or send it back, up to `PLAN_ROUNDS` (3).
+     the business lead and the engineer sign it or send it back, up to `PLAN_ROUNDS` (5).
   2. Build: the engineer writes the test for each acceptance criterion first, then the code.
   3. QA: the deterministic checks and the tester loop until clean.
   4. User tests and verdicts: the business lead and the UX lead each use the running app as a first-time trader
      and a first-time viewer from a shared link, then return a compliance and a usability verdict.
   5. Both pass → publish. Otherwise the demands (compliance first) become the next round's plan, build and QA, up
-     to `COMMITTEE_ROUNDS` (3); a PR whose committee did not pass says so, and the reviewer counts its open
+     to `COMMITTEE_ROUNDS` (5); a PR whose committee did not pass says so, and the reviewer counts its open
      demands.
 
   Committee members have every tool, but their file changes are discarded after each call. A disagreement with a
@@ -106,7 +145,7 @@ Ask in the chat at any time: "what's decided?", "what's left?", or run `node scr
   the build: publish opens a small `<F-n>: blocked` PR that sets `Status: blocked` with the reason and the
   committee record, and the pipeline moves on. Every round is logged in `docs/features/logs/<F-n>/`; the QA record
   in `docs/features/logs/`; never in the owner's file. `FEATURE_COMMITTEE=off` falls back to engineer ⇄ tester
-  only. Agents can't edit `docs/features/` (only the publish script updates status and the build log).
+  only. Agents can't change `docs/features/` (only the publish script updates status and the build log).
 - **Merge:** the Gate merges a green feature PR (CI, plus the reviewer checking every acceptance criterion against
   the feature file), provided it is up to date with main, then starts the next round. The 800-line cap
   (`MAX_DIFF`) counts product lines only for feature PRs: tests, end-to-end specs, docs and screenshots don't count

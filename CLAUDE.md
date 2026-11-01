@@ -26,7 +26,8 @@ violations on every PR. The rules that matter most while working:
 broker, closed trades appear on a public profile and in a swipe feed, and the profile link unfurls as
 a share card. Full reasoning and kill gates: `docs/DESIGN.md`. The phase sequencing there is superseded:
 features decided in design sessions (`docs/features/`) are built in number order by the process in
-`docs/IMPLEMENTATION.md`. Anything POLICY or `docs/COMPLIANCE.md` marks as needing counsel still waits.
+`docs/IMPLEMENTATION.md`. Anything POLICY or `docs/COMPLIANCE.md` marks as needing counsel uses the AI legal
+committee's findings instead (owner decision 2026-11-01, POLICY top) and still waits for the owner's call.
 
 ## Commands
 
@@ -121,7 +122,9 @@ When a line is stuck, the Doctor (`scripts/doctor.ts`, `team/doctor.md`, hourly)
 Planning is a debate between business-lead and the engineer (`scripts/plan.ts`, `team/engineer.md`) until both sign off.
 Each branch is built by a team (`scripts/team.ts`): designer ⇄ business analyst agree a spec in
 `docs/specs/`, then engineer ⇄ tester loop until checks pass and no usability problems remain.
-Protected paths in `.github/CODEOWNERS` are never auto-merged. Agents don't push or merge: the
+Protected paths in `.github/CODEOWNERS` are never auto-merged. Agents get every tool, inside the design: after
+each call only the engineer's build edits are kept and protected paths are put back, and each further attempt on a
+PR gets a larger budget (docs/FEATURES.md → "Permissions and the failure budget"). Agents don't push or merge: the
 workflows do it via `scripts/autopilot.ts`. Never weaken or delete existing tests; CI fails if the
 test count drops or `db/schema.sql` gains a `drop`/`truncate`/`delete from`.
 
