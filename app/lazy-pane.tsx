@@ -6,7 +6,8 @@ import { ProfilePane, type PaneTrade } from './pane.tsx';
 
 // F-2 PR-3b fix round 1 (D2): a Similar trades sheet's pane, read from /u/<h>/pane when the sheet first opens (SuggestRow
 // mounts it then). `highlight`: the row's trade, marked in the pane's list (D1).
-export function LazyPane({ handle, name, highlight }: { handle: string; name: string; highlight: string }) {
+// FIXES-LABELS (D-09): `disclaimer` false inside a sheet that carries its own .sheet-note.
+export function LazyPane({ handle, name, highlight, disclaimer = true }: { handle: string; name: string; highlight: string; disclaimer?: boolean }) {
   const [data, setData] = useState<{ state: PublicState; trades: PaneTrade[]; open?: number[]; openAsOf?: Date } | null | 'failed'>(null);
   useEffect(() => {
     let live = true;
@@ -19,5 +20,5 @@ export function LazyPane({ handle, name, highlight }: { handle: string; name: st
   if (data === 'failed') return <p className="muted small sheet-wait">The record could not be loaded. <a href={`/u/${handle}`}>See full profile →</a></p>;
   if (!data) return <p className="muted small sheet-wait" role="status">Loading {name}’s record…</p>;
   const now = new Date();
-  return <ProfilePane handle={handle} name={name} trades={data.trades} chart={feedPaneChart(data.trades, now)} now={now} state={data.state} highlight={highlight} back={false} open={data.open} openAsOf={data.openAsOf} />;
+  return <ProfilePane handle={handle} name={name} trades={data.trades} chart={feedPaneChart(data.trades, now)} now={now} state={data.state} highlight={highlight} back={false} open={data.open} openAsOf={data.openAsOf} disclaimer={disclaimer} />;
 }

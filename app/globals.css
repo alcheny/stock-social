@@ -454,3 +454,20 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
+/* ---- FIXES-LABELS (docs/features/logs/fixes-labels/plan.md §4) ---- */
+/* D-09: the F3 line, static small muted text (contrast ≥ 4.5:1 on --bg and --surface in both themes). */
+.disclaimer { margin: 0; }
+/* The feed card ends with the F3 line; room below it for the Undo and sign-in bars (16 + 62 + 16), so they never cover it. */
+.feed .row > .card { padding-bottom: 96px; }
+/* D-05: the chart's first and last close, under the plot. */
+/* position: relative holds its sr-only sentence inside it (in the off-screen pane it would widen the page). */
+.chart-ends { position: relative; display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin: 4px 0 0; }
+/* A month with too few trades for a win rate: its count is words, not a figure, so it is set smaller and the box's
+   last line (the F3 line) stays in the first 740 px at 360 wide. */
+.trade-card .big.count { font-size: 28px; line-height: 1.2; }
+/* D-05: the at-rest subline ("All time · last close ‹date›") is longer than the old range label and may wrap under the
+   value: a tighter value line and one minimum height keep the header the same height at rest and while scrubbing, so
+   the scrub area never moves under the finger. */
+.chart .chart-head { min-height: 48px; }
+.chart-head .chart-value { line-height: 1; }
+.chart-head .muted { font-size: 13px; line-height: 1.15; }

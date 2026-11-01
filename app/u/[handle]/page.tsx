@@ -39,6 +39,8 @@ import { SimilarSection } from './similar-section.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../disclaimer.tsx';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
@@ -248,6 +250,8 @@ export default async function Profile({ params, searchParams }: Params) {
           95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence.
         </details>
       </div>
+      {/* FIXES-LABELS (D-09): after the headline block's evidence line */}
+      <Disclaimer />
       <section className="stats">
         <div className="stat"><b>{count(s.trades)}</b><small>closed trades</small></div>
         <div className="stat"><b>{s.profitFactor === null ? '—' : s.profitFactor.toFixed(2)}</b><small>profit factor</small></div>

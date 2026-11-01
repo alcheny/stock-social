@@ -7,6 +7,12 @@ import { wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from './trade-share.tsx';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../../../disclaimer.tsx';
+import { RowBadge } from '../../../../ui.tsx';
+import { paneTrust } from '@/lib/pane.ts';
+import { FIXES_LABELS as FLD } from '@/lib/copy.ts';
+const FL_DEMO = FLD.demoNote; // FIXES-LABELS (DS-20): one Demo name
 
 type Params = { params: Promise<{ handle: string; sellId: string }> };
 
@@ -42,15 +48,17 @@ export default async function TradePage({ params }: Params) {
     <main className="page">
       <p>
         <Link href={`/u/${t.handle}`}>← @{t.handle}&apos;s full record</Link>{' '}
-        {t.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
+        {t.demo && <span className="badge demo" title={FL_DEMO}>Demo</span>}
       </p>
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-trade">
-          <h2 id="this-trade">This trade</h2>
+          <h2 id="this-trade">This trade <RowBadge kind={paneTrust([{ verified: t.verified }], t.state).badge} /></h2>
           <h1 style={{ margin: 0 }}>{t.symbol}</h1>
           <p className="big"><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</p>
           <p className="muted small">{held(t.holdingDays)} · closed {closed}</p>
           {t.thesis && <blockquote>“{t.thesis}”</blockquote>}
+          {/* FIXES-LABELS (D-09): the last line of "This trade" */}
+          <Disclaimer />
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {whole.stats && t.newRecord && <span className="badge new">New record</span>}</h2>

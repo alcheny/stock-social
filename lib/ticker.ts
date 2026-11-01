@@ -328,8 +328,8 @@ export const COMPARE_COPY = {
     : `${n} trader${n === 1 ? '' : 's'} closed verified trades in both ${a} and ${b}.`,
   footer: 'Different traders, different sizes and timing. This is what happened, not a prediction.',
   tooEarly: 'too early',
-  demoOnly: 'All trades on this page are sample data, not from a real broker.',
-  mixed: 'Some trades here are sample data and are marked Demo. The summary includes them.',
+  demoOnly: FIXES_LABELS.demoPage, // FIXES-LABELS (DS-20): one Demo name
+  mixed: FIXES_LABELS.mixedNote,
 };
 
 const sideDescription = (symbol: string, s: CompareSide) => s.empty
@@ -338,7 +338,7 @@ const sideDescription = (symbol: string, s: CompareSide) => s.empty
 
 export function compareDescription(symbolA: string, symbolB: string, c: Compare): string {
   const demo = c.a.summary.demoOnly || c.a.summary.mixed || c.b.summary.demoOnly || c.b.summary.mixed;
-  // FIXES-LABELS (D-03): the tail names the Demo state; "Sample data" stays as the description phrase.
+  // FIXES-LABELS (D-03): the tail names the Demo state (the mixed tail's last "Sample data" is pinned by compare.test.ts:74).
   const kind = compareKind(c);
   const tail = kind === 'demo' ? FIXES_LABELS.compareTail.demo : kind === 'mixed' || demo ? FIXES_LABELS.compareTail.mixed : '';
   return `${sideDescription(symbolA, c.a)} ${sideDescription(symbolB, c.b)}${tail}`;
@@ -360,7 +360,7 @@ export function compareKind(c: Compare): TrustKind {
 export const compareOverlapText = (kind: TrustKind, n: number, a: string, b: string): string =>
   FIXES_LABELS.compareOverlap[kind === 'demo' ? 'demo' : 'verified'](n, a, b);
 
-// /t/SYMBOL meta description: the count names the state, then the headline numbers. No "Sample data" tail.
+// /t/SYMBOL meta description: the count names the state, then the headline numbers. No sample-data tail.
 export function tickerDescription(symbol: string, s: TickerSummary): string {
   const tier = s.conf!.tier === 'too-early' ? 'too early' : s.conf!.tier;
   return `${FIXES_LABELS.tickerCount[trustKind(s)](String(s.n), symbol)} · ${(s.winRate! * 100).toFixed(0)}% win rate · ${pct(s.avgReturn!)} avg return · Evidence: ${tier}`;

@@ -9,6 +9,8 @@ import { REASONS, REASON_LABEL, reflectionInsights, type Reason } from '@/lib/re
 import { RULE_KINDS, RULE_LABEL, ruleAdherence, ruleOutcomes, rulesByReason, ruleTrend, signedPct, tradesLabel, type RuleKind } from '@/lib/rules.ts';
 import { setReflection, setRule } from '@/app/actions.ts';
 import { Badge } from '../../ui.tsx';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../disclaimer.tsx';
 
 export const metadata: Metadata = { title: 'My record · Stock Social', robots: { index: false, follow: false } };
 
@@ -76,6 +78,8 @@ export default async function MyRecord() {
           <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will pick them up.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
         </div>
       ) : <>
+        {/* FIXES-LABELS (D-09): before the first block of figures, so it is in view on arrival */}
+        <Disclaimer />
         {r.total < MIN_TRADES && <p className="muted">You have {r.total} closed trade{r.total === 1 ? '' : 's'}. Figures need at least {MIN_TRADES} trades behind them.</p>}
 
         {baseline && (

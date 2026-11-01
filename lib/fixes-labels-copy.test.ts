@@ -50,7 +50,7 @@ test('AC1: the Demo and mixed stock-page strings (title, description, explainer,
   assert.match(tickerDescription('NVDA', tickerSummary(rows(6, true), today)), /^6 verified closed trades in NVDA · \d+% win rate · [+-−]?\d/);
 });
 
-test('AC2: compare with a Demo side: title, description, explainer and overlap never say verified; the description keeps "Sample data"', () => {
+test('AC2: compare with a Demo side: title, description, explainer and overlap never say verified; the all-Demo description has no "sample data" (DS-20)', () => {
   const demoA = rows(6, false), demoB = rows(4, false), real = rows(6, true);
   const both = compareTickers(demoA, demoB, today);
   assert.equal(compareKind(both), 'demo');
@@ -62,7 +62,7 @@ test('AC2: compare with a Demo side: title, description, explainer and overlap n
     for (const t of [FL.compareTitle[k]('NVDA', 'AVGO'), compareDescription('NVDA', 'AVGO', c), FL.compareExplainer[k], compareOverlapText(k, 0, 'NVDA', 'AVGO'), compareOverlapText(k, 2, 'NVDA', 'AVGO')]) {
       assert.doesNotMatch(t, VERIFIED, t);
     }
-    assert.match(compareDescription('NVDA', 'AVGO', c), /Sample data/);
+    assert.doesNotMatch(compareDescription('NVDA', 'AVGO', c), /sample data/i);
     assert.match(compareDescription('NVDA', 'AVGO', c), /Demo/);
   }
   // Mixed: the title, explainer and description name Demo and never say verified; the overlap counts verified rows

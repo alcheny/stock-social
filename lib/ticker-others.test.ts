@@ -33,6 +33,33 @@ function close(a: Confidence, b: Confidence) {
   }
 }
 
+// confidence()'s clustering in a loop (its spread of Math.max/min overflows the stack on a shared database's
+// hundreds of thousands of rows): one bet = same key, holds overlapping (boundary inclusive), in entry order.
+function jsClusters(rows: { key: string; openedAt: Date; closedAt: Date; returnPct: number; holdingDays: number }[]): Confidence {
+  const by = new Map<string, typeof rows>();
+  let lo = Infinity, hi = -Infinity;
+  for (const r of rows) {
+    const g = by.get(r.key); if (g) g.push(r); else by.set(r.key, [r]);
+    lo = Math.min(lo, r.openedAt.getTime()); hi = Math.max(hi, r.closedAt.getTime());
+  }
+  const clusters: Cluster[] = [];
+  for (const g of by.values()) {
+    g.sort((a, b) => a.openedAt.getTime() - b.openedAt.getTime());
+    let maxClose = -Infinity, cur: Cluster | null = null;
+    for (const t of g) {
+      const x = Math.log(Math.max(1 + t.returnPct, 1e-9)), d = Math.max(t.holdingDays, 1);
+      if (cur && t.openedAt.getTime() <= maxClose) { cur.x += x; cur.d += d; cur.n++; } else clusters.push((cur = { x, d, n: 1 }));
+      maxClose = Math.max(maxClose, t.closedAt.getTime());
+    }
+  }
+  return confidenceFromClusters(clusters, rows.length, rows.length ? (hi - lo) / DAY : 0);
+}
+
+test('the loop reference is confidence() on rows it can take', () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ key: `u${i % 7}:S${i % 3}`, openedAt: new Date(T0 + i * 0.7 * DAY), closedAt: new Date(T0 + (i * 0.7 + 1 + (i % 4)) * DAY), returnPct: ((i * 37) % 23 - 11) / 100, holdingDays: 1 + (i % 4) }));
+  close(jsClusters(rows), confidence(rows.map((r) => ({ ...r, symbol: r.key })), new Date()));
+});
+
 test('confidenceFromSums is confidenceFromClusters on the same bets (one formula)', () => {
   const clusters: Cluster[] = [{ x: 0.03, d: 4, n: 1 }, { x: -0.05, d: 9, n: 2 }, { x: 0.12, d: 20, n: 3 }, { x: 0.01, d: 1, n: 1 }, { x: -0.02, d: 3, n: 1 }, { x: 0.04, d: 6, n: 2 }];
   const n = clusters.reduce((a, c) => a + c.n, 0);
@@ -75,7 +102,7 @@ dbTest('othersConfidence equals JS clustering by (trader, stock) over the other 
         select t.user_id, t.symbol, t.return_pct, t.holding_days, date_trunc('milliseconds', t.opened_at) as o, date_trunc('milliseconds', t.closed_at) as c
         from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
         where t.symbol <> ${X} and t.verified = ${verified}`) as unknown as { user_id: number; symbol: string; return_pct: number; holding_days: number; o: Date; c: Date }[];
-      const js = confidence(ref.map((r) => ({ symbol: `${r.user_id}:${r.symbol}`, openedAt: r.o, closedAt: r.c, returnPct: r.return_pct, holdingDays: r.holding_days })), new Date());
+      const js = jsClusters(ref.map((r) => ({ key: `${r.user_id}:${r.symbol}`, openedAt: r.o, closedAt: r.c, returnPct: r.return_pct, holdingDays: r.holding_days })));
       const got = await othersConfidence(X, verified, tx as never);
       assert.equal(got.n, ref.length);
       close(got.conf, js);

@@ -1,6 +1,8 @@
 // Ticker share card: unfurls a pasted /t/SYMBOL link. Percentages only; never throws on a bad symbol.
 import { ImageResponse } from 'next/og';
+// FIXES-LABELS (D-09): sizes from the fit model (lib/image-fit.test.ts); the F3 line at 35 px (DS-19), wrapping to two rows.
 import { DISCLAIMER } from '@/lib/share.ts';
+import { DISCLAIMER_SIZE, STOCK_IMAGE as S } from '@/lib/image-fit.ts';
 import { decodeSymbolParam, trustKind, type TickerSummary } from '@/lib/ticker.ts';
 // FIXES-LABELS (D-03): the subtitle, corner and alt name the Demo state and never call Demo trades verified.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
@@ -44,30 +46,30 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
     return new ImageResponse(
       (
         <div style={frame}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 36 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: S.header }}>
             <span style={{ fontWeight: 800 }}>Stock Social</span>
             <span style={{ color: good ? '#22c55e' : '#8b8b98', fontWeight: 700 }}>{status}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{symbol}</span>
-            <span style={{ fontSize: 32, color: '#8b8b98' }}>{FL.imageSub[kind]}</span>
+            <span style={{ fontSize: S.symbol, fontWeight: 800, lineHeight: 1 }}>{symbol}</span>
+            <span style={{ fontSize: S.sub, color: '#8b8b98' }}>{FL.imageSub[kind]}</span>
           </div>
           <div style={{ display: 'flex', gap: 72 }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{(s.winRate! * 100).toFixed(0)}%</span>
-              <span style={{ fontSize: 28, color: '#8b8b98' }}>win rate</span>
+              <span style={{ fontSize: S.figure, fontWeight: 800, lineHeight: 1 }}>{(s.winRate! * 100).toFixed(0)}%</span>
+              <span style={{ fontSize: S.label, color: '#8b8b98' }}>win rate</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1, color: s.avgReturn! > 0 ? '#22c55e' : '#f43f5e' }}>{pct(s.avgReturn!)}</span>
-              <span style={{ fontSize: 28, color: '#8b8b98' }}>avg return / trade</span>
+              <span style={{ fontSize: S.figure, fontWeight: 800, lineHeight: 1, color: s.avgReturn! > 0 ? '#22c55e' : '#f43f5e' }}>{pct(s.avgReturn!)}</span>
+              <span style={{ fontSize: S.label, color: '#8b8b98' }}>avg return / trade</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{s.n}</span>
-              <span style={{ fontSize: 28, color: '#8b8b98' }}>trades · {s.traders} trader{s.traders === 1 ? '' : 's'} · losses included</span>
+              <span style={{ fontSize: S.figure, fontWeight: 800, lineHeight: 1 }}>{s.n}</span>
+              <span style={{ fontSize: S.label, color: '#8b8b98' }}>trades · {s.traders} trader{s.traders === 1 ? '' : 's'} · losses included</span>
             </div>
           </div>
-          <span style={{ fontSize: 30, color: '#8b8b98' }}>{range ? `95% range ${range} · ` : ''}{evidenceLine(c)}</span>
-          <span style={{ fontSize: 22, color: '#8b8b98' }}>{DISCLAIMER}</span>
+          <span style={{ fontSize: S.evidence, color: '#8b8b98' }}>{range ? `95% range ${range} · ` : ''}{evidenceLine(c)}</span>
+          <span style={{ fontSize: DISCLAIMER_SIZE, lineHeight: 1.2, color: '#8b8b98' }}>{DISCLAIMER}</span>
         </div>
       ),
       size,

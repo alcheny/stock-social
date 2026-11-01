@@ -7,6 +7,8 @@ import { baselineVerdict, decodeSymbolParam, isIndexableTicker, selectTheses, ti
 import { othersConfidence, relatedSymbolsSql, tickerHeadline, tickerPage, type TickerPage } from '@/lib/ticker-sql.ts';
 // FIXES-LABELS (D-03): the page names one state, Demo, and never calls Demo trades verified.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../disclaimer.tsx';
 import { pct, rangeText, type Confidence } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
@@ -100,7 +102,7 @@ export default async function Ticker({ params, searchParams }: Params) {
   const stateByHandle = new Map<string, PublicState>(named.map((r) => [r.handle, states.get(r.user_id)?.state ?? 'connected']));
   const badgeFor = (verified: boolean, handle: string) => rowBadge(verified, stateByHandle.get(handle));
   const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified })));
-  // Cohort follows the ticker: verified rows if it has any, otherwise the sample rows. One aggregate, this symbol excluded.
+  // Cohort follows the ticker: verified rows if it has any, otherwise the Demo rows. One aggregate, this symbol excluded.
   let baseline: ReturnType<typeof baselineVerdict> | null = null;
   let others: { n: number; winRate: number | null; conf: Confidence | null } = { n: 0, winRate: null, conf: null };
   try {
@@ -124,14 +126,6 @@ export default async function Ticker({ params, searchParams }: Params) {
       <h1 style={{ marginBottom: 4 }}>{symbol} {!s.mixed && <Badge verified={!s.demoOnly} />}</h1>
       <Watch symbol={symbol} state={watchState} capHit={capHit} />
       <p className="muted" style={{ marginTop: 0 }}>{FL.tickerExplainer[trustKind(s)]}</p>
-      <form action="/t/compare" method="get" className="compare-form">
-        <input type="hidden" name="a" value={symbol} />
-        <label htmlFor="compare-b">Compare with…</label>
-        <input id="compare-b" name="b" maxLength={10} autoCapitalize="characters" autoComplete="off" spellCheck={false} />
-        <button type="submit">Compare</button>
-      </form>
-      {s.demoOnly && <p role="note" className="muted">{FL.demoPage}</p>}
-      {s.mixed && <p role="note" className="muted">{FL.mixedNote}</p>}
 
       <section className="stats" aria-label="Summary">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
@@ -140,11 +134,23 @@ export default async function Ticker({ params, searchParams }: Params) {
           <small className="median">median {pct(spread.median! / 100)}</small>
         </div>
       </section>
+      {/* FIXES-LABELS (D-09, design system §4.3): directly under the stats block */}
+      <Disclaimer />
+      {/* FIXES-LABELS: the Demo / mixed note under the figures it qualifies (the heading badge and explainer name the state above). */}
+      {s.demoOnly && <p role="note" className="muted">{FL.demoPage}</p>}
+      {s.mixed && <p role="note" className="muted">{FL.mixedNote}</p>}
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
       {/* docs/POLICY.md F3b: a page about a security never rates or scores the security, so no verdict line here */}
       <div className="evidence">
         <p className="muted small" style={{ margin: 0 }}>Different traders, different sizes and timing. This is what happened, not a prediction or a rating of the stock.</p>
       </div>
+      {/* FIXES-LABELS (D-09): the compare form follows the figures and their caveats, so the F3 line is in view at 360×740. */}
+      <form action="/t/compare" method="get" className="compare-form">
+        <input type="hidden" name="a" value={symbol} />
+        <label htmlFor="compare-b">Compare with…</label>
+        <input id="compare-b" name="b" maxLength={10} autoCapitalize="characters" autoComplete="off" spellCheck={false} />
+        <button type="submit">Compare</button>
+      </form>
       {/* F-6 (UX lead D5): after the closed-trade figures' caveat, so each caveat sits with its own figures. */}
       {open && <OpenPositions symbol={symbol} open={open} />}
 

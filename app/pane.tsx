@@ -12,6 +12,9 @@ import { NotInterested } from './not-interested.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from './open-rows.tsx';
+// FIXES-LABELS (D-09): the F3 line right after the figures, in both orders.
+import { Disclaimer } from './disclaimer.tsx';
+import { FIXES_LABELS } from '@/lib/copy.ts';
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
@@ -28,7 +31,7 @@ const day = (d: Date) => DAY.format(d);
 // Fix round 8: on the feed it is `feedPaneChart` (a stand-in line for a long record) and the chart fetches the full one
 // from `paneChartSrc` on its first swipe-open.
 // F-2 PR-2: `viewer`, signed in: Follow and the "…" menu with "Not interested" (fix round 1: nothing signed out).
-export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date }) {
+export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf, disclaimer = true }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date; disclaimer?: boolean }) {
   const p = paneSummary(trades);
   // F-6: the trader's open positions (connected or failed records only, lib/feed.ts); the combined figure from the whole
   // record, as on the profile. Nothing new renders without open positions.
@@ -43,7 +46,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
     <p className="summary">
       Since first closed trade, {day(p.since)}: {counted(p.count, 'closed trade')}. Worst: {p.worst.symbol}{' '}
       <b className={p.worst.returnPct > 0 ? 'up' : 'down'}>{pct(p.worst.returnPct)}</b>.
-      {trust.badge === 'demo' && <span className="muted"> Sample data, not from a real broker.</span>}
+      {trust.badge === 'demo' && <span className="muted"> {FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20): one Demo name */}</span>}
     </p>
   );
   const incomplete = trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>;
@@ -57,6 +60,11 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
     {open && <OpenGrid o={open} asOf={openAsOf} long={long} />}
     {both && <CombinedLine c={both} />}
   </>;
+  // FIXES-LABELS (D-09): the F3 line directly after the first block that shows performance: the figures when they lead
+  // (open positions), else the chart (its header prints the return), so it is in view when the pane opens at 360×740.
+  // Off inside a sheet that carries its own .sheet-note (one F3 line per sheet).
+  const f3 = disclaimer && <Disclaimer />;
+  // ponytail: OD-9 open positions of a frozen record keep F-6's rule — owner decision pending
   return (
     <section className="pane" aria-label={`${name}'s record`}>
       <header>
@@ -69,7 +77,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
       </header>
       {/* F-6 (business lead D1): with open positions the figures lead, as on the profile (the pane is where most viewers
           meet a record, SW-1); without them, today's order. */}
-      {open ? <>{incomplete}{figures}{chartBlock}{summary}</> : <>{chartBlock}{summary}{incomplete}{figures}</>}
+      {open ? <>{incomplete}{figures}{f3}{chartBlock}{summary}</> : <>{chartBlock}{f3}{summary}{incomplete}{figures}</>}
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
       <ul className="rows">
         {p.recent.map((t) => (

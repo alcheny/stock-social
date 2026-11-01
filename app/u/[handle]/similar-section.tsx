@@ -42,7 +42,7 @@ export function SimilarSection({ handle, similar, signedIn }: { handle: string; 
             return (
               <li key={r.trader} data-handle={r.handle}>
                 <SuggestRow lazy label={SIMILAR.closed(r.symbol, DAY.format(r.closedAt))} handle={r.handle} name={r.name} signedIn={signedIn} href={trade}
-                  pane={<>{lead}<LazyPane handle={r.handle} name={r.name} highlight={r.tradeId} /><p className="muted small sheet-note" tabIndex={-1}>{DISCLAIMER}</p></>}
+                  pane={<>{lead}<LazyPane handle={r.handle} name={r.name} highlight={r.tradeId} disclaimer={false} /><p className="muted small sheet-note" tabIndex={-1}>{DISCLAIMER}</p></>}
                   actions={signedIn && <NotInterested handle={r.handle} />}>
                   <span className="sname"><WhoName name={r.name} handle={r.handle} /></span>
                   <span className="strade">{SIMILAR.closed(r.symbol, DAY.format(r.closedAt))}</span>

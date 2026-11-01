@@ -5,7 +5,7 @@
 import { ImageResponse } from 'next/og';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
-import { monthCard, type CardLine } from '@/lib/month-card.ts';
+import { MONTH_CARD, monthCard, type CardLine } from '@/lib/month-card.ts';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -44,7 +44,8 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
         <div style={{ display: 'flex', flexDirection: 'column', borderTop: `2px solid ${MUTED}`, paddingTop: 16, flexShrink: 0 }}>
           {c.bottom.map((l) => <Line key={l.role} l={l} />)}
         </div>
-        <span style={{ ...one, fontSize: c.disclaimer.size, color: MUTED }}>{DISCLAIMER}</span>
+        {/* FIXES-LABELS (D-09): the F3 line at its fitted size in a wrapping box, never clipped; lib/month-card.ts budgets its two rows. */}
+        <span style={{ fontSize: c.disclaimer.size, lineHeight: MONTH_CARD.lineHeight, color: MUTED, flexShrink: 0 }}>{DISCLAIMER}</span>
       </div>
     ),
     size,

@@ -11,6 +11,10 @@ import { count, counted } from '@/lib/format.ts';
 // FIXES-LABELS (D-24): numbers and a range only in "This month"; "1 of N months on record" under the h1.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 import { monthRangeText } from '@/lib/recap.ts';
+const FL_DEMO = FL.demoNote; // FIXES-LABELS (DS-20): one Demo name
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../../../disclaimer.tsx';
+import { dateText } from '@/lib/date-text.ts';
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -21,7 +25,7 @@ async function load(p: Params['params']) {
 
 const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
 const plural = (n: number) => counted(n, 'closed trade');
-const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const day = (d: Date) => dateText(d, new Date()); // FIXES-LABELS (D-05): the year when it is not this year
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const r = await load(params);
@@ -54,7 +58,7 @@ export default async function RecapPage({ params }: Params) {
     <main className="page">
       <p>
         <Link href={`/u/${handle}`}>← @{handle}&apos;s full record</Link>{' '}
-        {r.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
+        {r.demo && <span className="badge demo" title={FL_DEMO}>Demo</span>}
       </p>
       <h1>{m.label} {m.monthSoFar && <span className="muted small">month so far</span>}</h1>
       <p className="muted small" data-testid="month-of">{FL.monthOf(count(r.months))}</p>
@@ -69,11 +73,13 @@ export default async function RecapPage({ params }: Params) {
             </>
           ) : (
             <>
-              <p className="big">{plural(m.count)} this month</p>
+              <p className="big count">{plural(m.count)} this month</p>
               <p className="muted small" style={{ marginTop: 0 }}>Too few trades for a win rate. The month&apos;s trades are listed below.</p>
             </>
           )}
           {monthRangeText(m) && <p className="small" data-testid="month-range">{monthRangeText(m)}</p>}
+          {/* FIXES-LABELS (D-09): the last line of "This month" */}
+          <Disclaimer />
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>

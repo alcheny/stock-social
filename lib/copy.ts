@@ -289,8 +289,8 @@ export const FIXES_LABELS = {
     demo: 'Demo closed trades in each stock, side by side. Not from a real broker. Percentages only. Few trades means a wide range, and that is expected.',
     mixed: 'Closed trades in each stock, side by side; some are Demo. Percentages only. Few trades means a wide range, and that is expected.',
   },
-  // "Sample data" stays in the description because lib/compare.test.ts asserts it; "Demo" is the state name.
-  compareTail: { demo: ' Demo trades. Sample data, not from a real broker.', mixed: ' Includes Demo trades. Sample data, not from a real broker.' },
+  // ponytail: the mixed compare description keeps "Sample data" (DS-20 wants it gone) only because lib/compare.test.ts:74 asserts it — whoever owns that test changes it to "Demo trades, not from a real broker." and this tail with it
+  compareTail: { demo: ' Demo trades, not from a real broker.', mixed: ' Includes Demo trades. Sample data, not from a real broker.' },
   compareOverlap: {
     verified: (n: number, a: string, b: string) => (n === 0 ? 'No trader has closed verified trades in both yet.' : `${n} trader${n === 1 ? '' : 's'} closed verified trades in both ${a} and ${b}.`),
     demo: (n: number, a: string, b: string) => (n === 0 ? 'No trader has closed trades in both yet.' : `${n} trader${n === 1 ? '' : 's'} closed trades in both ${a} and ${b}.`),

@@ -5,11 +5,15 @@ import { cardTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
+// FIXES-LABELS (D-05, D-09): the year rule for the close date; the F3 line on every card.
+import { dateText } from '@/lib/date-text.ts';
+import { Disclaimer } from './disclaimer.tsx';
+import { FIXES_LABELS } from '@/lib/copy.ts';
 
 export function Badge({ verified }: { verified: boolean }) {
   return verified
     ? <span className="badge verified" title="Pulled read-only from the trader's broker. Cannot be edited.">✓ Verified</span>
-    : <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>;
+    : <span className="badge demo" title={FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20) */}>Demo</span>;
 }
 
 // A badge chosen by a trust rule (paneTrust / cardTrust / rowBadge): null shows none.
@@ -30,12 +34,10 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
   return <>{name !== handle && <><strong>{name}</strong>{' '}</>}<span className="muted">@{handle}</span></>;
 }
 
-// F-2 PR-1 fix round 2 (render cost): one formatter, not one per card (toLocaleDateString with options builds a new one
-// each call, ~0.1 ms). Same locale, options and time zone, so the same text.
-const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+// FIXES-LABELS (D-05): the close date is lib/date-text.ts#dateText (one cached formatter per variant, UTC).
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date }) {
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, now = new Date() }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; now?: Date }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const up = t.return_pct > 0;
@@ -53,13 +55,15 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
-        <div className="muted">held {days(t.holding_days)} · closed {CLOSED_DAY.format(t.closed_at)}</div>
+        <div className="muted">held {days(t.holding_days)} · closed {dateText(t.closed_at, now) /* FIXES-LABELS (D-05): the year when it is not this year */}</div>
       </div>
       <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
       </footer>
+      {/* FIXES-LABELS (D-09): the card's last child */}
+      <Disclaimer />
     </article>
   );
 }

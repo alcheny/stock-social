@@ -4,6 +4,8 @@ import { sql } from '@/lib/db.ts';
 import { COMPARE_COPY, compareDescription, compareKind, compareOverlapText, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
 // FIXES-LABELS (D-03): title, explainer, notes and overlap by the pair's state; Demo is never "verified".
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../disclaimer.tsx';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
@@ -116,6 +118,8 @@ export default async function Compare({ searchParams }: Props) {
       <p><Link href="/t">← All stocks</Link></p>
       <h1 style={{ marginBottom: 4 }}>{a} vs {b}</h1>
       <p className="muted" style={{ marginTop: 0 }}>{FL.compareExplainer[compareKind(compare)]}</p>
+      {/* FIXES-LABELS (D-09): before the columns, so it is in view with the first figures */}
+      <Disclaimer />
       <div className="compare-grid">
         <Column symbol={a} side={compare.a} id="cmp-a-h" shared={shared} open={open?.get(a)} />
         <Column symbol={b} side={compare.b} id="cmp-b-h" shared={shared} open={open?.get(b)} />
