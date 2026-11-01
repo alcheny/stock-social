@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { tone, toneClass } from './open-split.ts';
-import { DEMO_PROFILE, IMAGE_ALT, NOT_FOUND, PUBLIC_SCOPE, RECAP_RECORD_LABEL, recordLink, SIGN_WORD, signWord, TITLES } from './copy.ts';
+import { DEMO_PROFILE, NOT_FOUND, PUBLIC_SCOPE, RECORD_STRIP, SIGN_WORD, signWord, TITLES } from './copy.ts';
 import { pct } from './trades.ts';
 import { selectTheses } from './ticker.ts';
 
@@ -74,15 +74,18 @@ test('#5 (committee B2): the share prompt names everything a signed-out profile 
   assert.match(read('app/u/[handle]/share-prompt.tsx'), /PUBLIC_SCOPE\.share/);
 });
 
-test('#8: no completeness claim in the image alts, the recap description label, the back links or the claim note', () => {
-  assert.equal(IMAGE_ALT.trade, 'One closed trade on Stock Social, with the trader’s record');
-  assert.equal(IMAGE_ALT.month, 'A month of trades on Stock Social, with the trader’s record');
-  assert.equal(RECAP_RECORD_LABEL, 'record to date');
-  assert.equal(recordLink('maya'), '← @maya’s record');
-  for (const s of [IMAGE_ALT.trade, IMAGE_ALT.month, RECAP_RECORD_LABEL, recordLink('h')]) assert.doesNotMatch(s, /\b(full|whole|every|complete|all)\b/i, s);
-  assert.match(read('app/u/[handle]/trade/[sellId]/opengraph-image.tsx'), /alt = IMAGE_ALT\.trade/);
-  assert.match(read('app/u/[handle]/month/[ym]/opengraph-image.tsx'), /alt = IMAGE_ALT\.month/);
-  for (const f of ['app/u/[handle]/trade/[sellId]/page.tsx', 'app/u/[handle]/month/[ym]/page.tsx']) assert.match(read(f), /recordLink\(/, f);
+test('#8: no completeness claim in the image alts, the recap description, the back links or the claim note', () => {
+  // Since F-10/F-12 (#54) the alts and descriptions are built in lib/trade-share.ts and lib/recap.ts and the back links use
+  // RECORD_STRIP.link; none of their string literals or the pages' may claim completeness.
+  const CLAIM = /['"`][^'"`\n]*\b(full record|whole record|every trade|all (of )?(their|your) trades)\b[^'"`\n]*['"`]/i;
+  assert.doesNotMatch(RECORD_STRIP.link('h'), /\b(full|whole|every|complete|all)\b/i);
+  for (const f of ['app/u/[handle]/trade/[sellId]/opengraph-image.tsx', 'app/u/[handle]/month/[ym]/opengraph-image.tsx',
+    'app/u/[handle]/trade/[sellId]/page.tsx', 'lib/trade-share.ts', 'lib/recap.ts', 'lib/claims.ts']) {
+    const src = read(f).split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    assert.doesNotMatch(src, CLAIM, f);
+  }
+  for (const f of ['app/u/[handle]/trade/[sellId]/page.tsx', 'app/u/[handle]/month/[ym]/page.tsx']) assert.match(read(f), /RECORD_STRIP\.link\(/, f);
+  assert.doesNotMatch(read('lib/claims.ts'), /keeps every record verified/);
 });
 
 test('#10: the demo profile line never implies connected accounts', () => {

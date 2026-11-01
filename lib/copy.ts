@@ -208,6 +208,14 @@ export const WHOLE_RECORD = {
   importing: 'Import in progress. Stats appear when the import finishes.',
   soFar: (closes: number) => `${counted(closes, 'closed trade')} so far`,
 } as const;
+// F-10 / F-12: the record strip's own words (lib/record-strip.ts builds the strip; SHARE_CARD and WHOLE_RECORD give the
+// rest). "Too early to tell" stays until the design system council settles the short-record wording. The link names the
+// trader's record, never "full" or "whole" (POLICY F3a).
+export const RECORD_STRIP = {
+  early: 'Too early to tell',
+  rangeLabel: '95% range',
+  link: (handle: string) => `@${handle}'s record`,
+} as const;
 export type WholeRecordView = { stats: boolean; line: string | null; tone: 'muted' | 'warn' | null };
 export function wholeRecordView(x: { state: RecordState; demo: boolean }): WholeRecordView {
   if (x.demo) return { stats: true, line: null, tone: null };
@@ -371,13 +379,8 @@ export const PUBLIC_SCOPE = {
   join: 'Read-only broker connection. Public trades show percentages, never quantities, prices or balances. 18+.',
   share: 'Public: your handle and name, your closed trades (symbol, dates and percent return, losses included), your open positions with unrealized percent, your win rate and average return, and any thesis you post. Never quantities, prices, fees or balances. Your broker login stays private.',
 } as const;
-// #8 (POLICY F3a): no completeness claims in the trade and month images' alts, the recap description or the back links.
-export const IMAGE_ALT = {
-  trade: 'One closed trade on Stock Social, with the trader\u2019s record',
-  month: 'A month of trades on Stock Social, with the trader\u2019s record',
-} as const;
-export const RECAP_RECORD_LABEL = 'record to date';
-export const recordLink = (handle: string) => `\u2190 @${handle}\u2019s record`;
+// #8 (POLICY F3a): the trade and month images' alts, the recap description and the back links now come from F-10/F-12
+// (lib/trade-share.ts, lib/recap.ts, RECORD_STRIP.link), which carry no completeness claim (lib/a11y-fixes.test.ts).
 // #10 (POLICY P2, F3a): a demo profile says it is demo data; "connected accounts" only on a broker record.
 export const DEMO_PROFILE = {
   line: 'Demo data, not a real broker record.',
@@ -686,7 +689,7 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
   return out;
 }
 
