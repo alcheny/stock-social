@@ -35,8 +35,13 @@ test('finding 7: a failed import is a warning (icon and words), not a loss colou
     assert.doesNotMatch(s, /"down record-failed"/, f);
   }
   const css = src('app/globals.css');
-  assert.match(css, /:root \{ --warn: #fbbf24; \}/);
-  assert.match(css, /prefers-color-scheme: light\) \{ :root \{ --warn: #92400e; \} \}/);
+  // F-20: --warn's values live in the TOKENS block (dark :root first, then the light query), same values.
+  const tokens = css.slice(0, css.indexOf('/* end TOKENS */'));
+  const lightAt = tokens.indexOf('@media (prefers-color-scheme: light)');
+  assert.ok(lightAt > 0, 'TOKENS has its light query');
+  assert.match(tokens.slice(0, lightAt), /--warn: #fbbf24;/);
+  assert.match(tokens.slice(lightAt), /--warn: #92400e;/);
+  assert.match(css, /\.warn \{ color: var\(--warn\); \}/);
   assert.match(css, /\.record-failed::before \{ content: "\\26A0\\FE0E  "; content: "\\26A0\\FE0E  " \/ ""; \}/);
 });
 

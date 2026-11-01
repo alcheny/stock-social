@@ -11,7 +11,7 @@ import { Disclaimer } from './disclaimer.tsx';
 import { FIXES_LABELS } from '@/lib/copy.ts';
 import type { Segment } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from './status-line.tsx'; // FIXES-LABELS: status
-import { UserNote } from '@/lib/user-note.ts';
+import { HeldNote, UserNote } from '@/lib/user-note.ts';
 // F-13: the SW-1 hint and the Verified definition (fix #9).
 import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
 import { SwipeHint } from './first-visit-client.tsx';
@@ -59,13 +59,15 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 // old close never reads as recent (design system rule: dates in UTC, the year only when it is not this year).
 export const closedDay = (d: Date, now: Date) => dateText(d, now);
 
-// F-7: a public-record card shows its card line in place of the thesis (filers post none).
 // F-7: a public filer's card carries its own line, never a note. F-9: UserNote renders a published thesis (no byline:
 // the card's header already names the trader; `report` is the Report control the feed passes for a signed-in reader).
-const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
+// F-26: no published note, no line (no element): the same for no note and a held one. `ownHeld`, the author's own held
+// line (lib/user-note.ts#HeldNote, the same markup as the trade page's), set by the feed only for the signed-in trader's own card.
+export type OwnHeld = { rule: string | null };
+const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode, ownHeld?: OwnHeld | null) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
   : t.thesis_status === 'published' && t.thesis
     ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} textClass="thesis" />
-    : <p className="thesis"><span className="muted">No thesis posted.</span></p>;
+    : ownHeld ? <HeldNote rule={ownHeld.rule} /> : null;
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
 // F-10: `strip`, the trader's record strip (lib/record-strip.ts#recordStrip, 'feed'): it takes the place of the
@@ -77,9 +79,10 @@ const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub 
 // renders it outside Next).
 // F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
 // F-13: `hint`, page 1's first card: the SW-1 line and the dismiss focus target; `notice`, the first-visit line.
+// F-26: `ownHeld`, set only on the author's own held card (its rule; HeldNote words it), never a status.
 // FIXES-LABELS: status: `status`, the card's status segments (lib/record-status.ts `card`, static mode: only a frozen or
 // idle record has any), between the hero and the thesis.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, status }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; status?: Segment[] }) {
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice, status, ownHeld }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode; ownHeld?: OwnHeld | null; status?: Segment[] }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
@@ -104,7 +107,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       </div>
       {status && <StatusText segments={status} kind="card" />}{/* FIXES-LABELS: status */}
       {/* F-13: on page 1's first card the first-visit line takes the thesis slot until it is dismissed (F-10's one-screen budget). */}
-      {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub, report)}</div> : thesisLine(t, pub, report)}
+      {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub, report, ownHeld)}</div> : thesisLine(t, pub, report, ownHeld)}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         {hint && <SwipeHint text={FIRST_VISIT.hint} />}

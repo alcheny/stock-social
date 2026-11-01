@@ -1,7 +1,6 @@
 # F-26 · No empty-note line, and the held note shown to its author only
 
-Status: blocked
-Blocked: waits for F-9 (PR #65, `claude/fix-user-text-safety`: `UserNote`, `heldLine`, `thesis_hold_rule`) to merge into main
+Status: built
 
 ## Why
 "No thesis posted." is the second-largest text on every feed card (`app/ui.tsx:57`, `.thesis` at 18 px) and says
@@ -76,7 +75,9 @@ a note was held.
   noun "Thesis" plus "for review" keeps the two uses apart.
 - 2026-11-01: Where it lives:
   - `app/ui.tsx#thesisLine`: F-10 owns the card; this feature changes only the note slot.
-  - `TradeCard` gets an `ownHeld?: string | null` prop (the held line or nothing) rather than reading a status.
+  - `TradeCard` gets an `ownHeld?: OwnHeld | null` prop (`OwnHeld = { rule }`, set only on the author's own held card;
+    `HeldNote` words it) rather than reading a status. (Build note 2026-11-01: was "the held line or nothing" as a string;
+    the rule is passed so the card and the trade page share one markup.)
   - The feed's existing `page.viewer.id === t.user_id` check sets that prop. The feed's no-session rule stands
     (`lib/feed.signed-out.test.ts`).
   - Both `lib/feed.ts#loadFeedPage` statements that select `thesis` (the candidate statement and the page-row
@@ -92,17 +93,30 @@ a note was held.
 - 2026-11-01: Merge order, not a block: if F-11's branch is still pending, F-26 builds after it. Both edit
   `app/ui.tsx`, `lib/feed.ts`, `lib/trade-share-load.ts` and the trade page. Why: decided by the committee under the
   owner's instruction of 2026-11-01; one rebase instead of two.
+- 2026-11-01: The trade page's "Edit it on your profile" link sits on its own line under the author's held line
+  (`p.held-edit`, a 44 px target), in the same note slot. Why: decided by the committee under the owner's instruction of
+  2026-11-01; an inline 44 px link stretches one line of a 3-4 line muted paragraph, and "Edit it to publish…" directly
+  followed by "Edit it on your profile" reads as a stutter (business lead and engineer, round 1, Q-A).
+- 2026-11-01: `/u/<handle>/pane-chart` nulls a non-published thesis in its SQL, as the feed pane's `records()` does,
+  instead of after the read. Why: decided by the committee under the owner's instruction of 2026-11-01; the guarantee
+  holds where the data is read, and the change is one line in the route (Q-B).
+- 2026-11-01: F-26 builds now and merges origin/main after F-11 lands, then re-runs the unit, database and e2e suites
+  and checks F-11 for any new statement that selects a note. Why: decided by the committee under the owner's
+  instruction of 2026-11-01; no F-11 branch was open at build start, and the merge-order decision asks for one rebase (Q-C).
+- 2026-11-01: The author's held flag is "the row is the signed-in viewer's own and `thesis_status = 'held'`"; the rule
+  column is read only under that condition and never decides the flag. Why: decided by the committee under the
+  owner's instruction of 2026-11-01; a published note can keep a leftover rule (engineer, round 1).
 
 ## Acceptance criteria
-- [ ] The string "No thesis posted." appears nowhere in `app/` or `lib/` (source test).
-- [ ] For a viewer, `TradeCard` renders the same HTML for `thesis_status` null, 'held' (each rule) and every other
+- [x] The string "No thesis posted." appears nowhere in `app/` or `lib/` (source test).
+- [x] For a viewer, `TradeCard` renders the same HTML for `thesis_status` null, 'held' (each rule) and every other
       non-published status when the other fields match. That HTML has no element in the note slot (render test).
-- [ ] `TradeCard` with a published note renders F-9's `UserNote`. An F-7 public card still renders its card line
+- [x] `TradeCard` with a published note renders F-9's `UserNote`. An F-7 public card still renders its card line
       (render test).
-- [ ] For a signed-in author, the card for their own held trade shows `heldLine(rule)` in the note slot, in
+- [x] For a signed-in author, the card for their own held trade shows `heldLine(rule)` in the note slot, in
       `.thesis-held`, with neither the loss nor the warn class (render test, and e2e on `/` signed in as the demo
       author).
-- [ ] Viewer payloads carry no held text, rule, note dates or report state. This covers:
+- [x] Viewer payloads carry no held text, rule, note dates or report state. This covers:
       - the feed page HTML and its paging server-action responses;
       - `/u/<handle>/pane` and `/u/<handle>/pane-chart` JSON;
       - the profile HTML;
@@ -112,36 +126,36 @@ a note was held.
       None contains the held thesis text or its rule label, and none carries `thesis_status: 'held'` or F-9's note
       dates for a held note. Checked signed out and signed in as another user (e2e with a seeded held thesis that
       contains a unique marker string).
-- [ ] Any response that contains `heldLine` text is sent with `Cache-Control: private, no-store`. The responses of
+- [x] Any response that contains `heldLine` text is sent with `Cache-Control: private, no-store`. The responses of
       `/u/<handle>/pane`, `/u/<handle>/pane-chart`, `/u/<handle>/story` and every `opengraph-image` never contain it
       (e2e header and body check).
-- [ ] The trade page's `generateMetadata` and its `opengraph-image` route read no session and select no thesis status,
+- [x] The trade page's `generateMetadata` and its `opengraph-image` route read no session and select no thesis status,
       hold rule or note date for a non-published note. Only the page body reads the session, for the author check
       (source test, as `lib/feed.signed-out.test.ts`).
-- [ ] For one seeded trade, a viewer fetches the trade page before and after its thesis is set to held. The `<main>`
+- [x] For one seeded trade, a viewer fetches the trade page before and after its thesis is set to held. The `<main>`
       HTML, `<title>`, meta description and `og:image` URL are identical (e2e, same viewer, per-request tokens
       stripped).
-- [ ] For one seeded trade, the same viewer (signed out, and signed in as another user) fetches before and after the
+- [x] For one seeded trade, the same viewer (signed out, and signed in as another user) fetches before and after the
       hold: `/`, one feed paging-action response, `/u/<handle>`, `/u/<handle>/pane`, `/u/<handle>/pane-chart`, the
       month page and `/t/<SYMBOL>`. Each body, with per-request tokens stripped, and each `Cache-Control` header is
       identical before and after (e2e).
-- [ ] For a viewer, the feed, pane, profile and trade page run the same SQL statements for a held note as for no note
+- [x] For a viewer, the feed, pane, profile and trade page run the same SQL statements for a held note as for no note
       (query-log test). No count shown to viewers (notes count, "Showing N", likes or hidden counts) includes held
       notes.
-- [ ] F-9's report confirmation is the same string for a report below the hold threshold and for the report that
+- [x] F-9's report confirmation is the same string for a report below the hold threshold and for the report that
       reaches it (unit test on the report action's result). Reporting an already-held note gets the same response as
       reporting a note its author removed (unit test).
-- [ ] The trade page, viewed by its author, shows `heldLine(rule)` and an "Edit it on your profile" link that lands on
+- [x] The trade page, viewed by its author, shows `heldLine(rule)` and an "Edit it on your profile" link that lands on
       the profile row with its edit field present, including for a trade outside the first 50 closes (e2e). The
       `count(*)` behind the link runs only for the author (query-log test).
-- [ ] The month page, the stock-page lists, the pane rows and the chart sheet render the same for held and none, for
+- [x] The month page, the stock-page lists, the pane rows and the chart sheet render the same for held and none, for
       the author and for a viewer (render tests).
-- [ ] At 320×640, 360×640 and 780×360, the F-10 headroom and disclaimer checks pass unchanged in three cases: a card
+- [x] At 320×640, 360×640 and 780×360, the F-10 headroom and disclaimer checks pass unchanged in three cases: a card
       with no note, a card with a 280-character note, and the author's held card. The held line is about 130-150
       characters at 13 px, 3-4 lines at 320 px (e2e).
-- [ ] With F-13's first-visit line on card 1 and no published note, the slot holds only the first-visit line (render
+- [x] With F-13's first-visit line on card 1 and no published note, the slot holds only the first-visit line (render
       test).
-- [ ] `lib/feed.signed-out.test.ts` still passes: the feed page reads no session.
+- [x] `lib/feed.signed-out.test.ts` still passes: the feed page reads no session.
 
 ## Out of scope
 - F-9's hold rules, release path, `heldLine` wording and `UserNote` styling.
@@ -155,3 +169,6 @@ a note was held.
 ## Rework notes
 
 ## Build log
+- 2026-11-01: Built on `claude/f26-held-like-none` after F-9 merged (ff25ad5). Committee record:
+  `docs/features/logs/F-26/committee-2026-11-01.md`. Tests: `lib/f26-held-like-none.test.ts`,
+  `lib/f26-held-like-none.db.test.ts`, `e2e/f26-held-like-none.spec.ts`. QA clean; business lead and UX lead user tests pass.

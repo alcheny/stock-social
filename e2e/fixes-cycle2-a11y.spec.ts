@@ -433,6 +433,13 @@ test('AC14.3 (no JavaScript, ?done=trade-hidden): the confirmation line shows an
   await expect(card).toHaveCSS('padding-bottom', '94px');
   const bar = await rect(done);
   for (const f of await focusables(card)) expect(f.bottom, `"${f.what}"`).toBeLessThanOrEqual(bar.top - 8);
+  // F-20 (committee R3): the 94 px room covers the bar and its 16 px offset at 360 and 320 (measured 72 px tall at 360).
+  for (const width of [360, 320]) {
+    await page.setViewportSize({ width, height: 740 });
+    const h = (await rect(done)).height;
+    test.info().annotations.push({ type: `no-JS bar height ${width}`, description: `${h}` });
+    expect(h + 16, `${width}: bar ${h} px + 16 px off the bottom`).toBeLessThanOrEqual(94);
+  }
   await ctx.close();
 });
 

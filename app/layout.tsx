@@ -7,6 +7,7 @@ import { headers } from 'next/headers';
 import { FOOTER, NAV, verifiedMeansFooter } from '@/lib/copy.ts';
 // F-13: the pre-paint device-flag script (no flash of a dismissed line or a used hint).
 import { SEEN_SCRIPT } from '@/lib/device-flag.ts';
+import { THEME_COLOR } from '@/lib/palette.ts';
 // F-15: the first-party view beacon (renders nothing; app/view-beacon.tsx).
 import { ViewBeacon } from './view-beacon.tsx';
 import { siteOrigin } from '@/lib/site-origin.ts';
@@ -25,7 +26,7 @@ export const metadata: Metadata = {
   // QA round 2 (N1): it covers records built from public filings too (F-7).
   description: 'Trading records imported read-only from brokers and built from public filings. Demo records are marked Demo. Losses included.',
 };
-export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#0b0b0f' };
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: THEME_COLOR };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const me = await currentUser();

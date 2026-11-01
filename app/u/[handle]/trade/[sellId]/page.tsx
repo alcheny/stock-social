@@ -20,6 +20,8 @@ import { paneTrust } from '@/lib/pane.ts';
 import { recordRows, segments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 import { UserNote } from '../../../../user-note.tsx';
+import { HeldNote } from '@/lib/user-note.ts';
+import { loadOwnNote } from '@/lib/own-note.ts';
 
 const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
@@ -59,6 +61,9 @@ export default async function TradePage({ params }: Params) {
   const t = await load(params);
   if (!t) notFound();
   const me = await currentUser();
+  // F-26: the author's held note (the author loader runs only for the trader; never in generateMetadata or the image).
+  // Only the trader, signed in, on a trade with no published note and not a public filer's (filers post none).
+  const own = me && me.handle === t.handle && !t.thesis && !isPublicRecord(t.state) ? await loadOwnNote(me.id, t.note.tradeId, t.handle) : null;
   // F-15 second half: the stored sell id's one spelling (lib/share.ts#tradePath), the same as the canonical link.
   // ponytail: this framework hands generateMetadata and the page the segment in different decoded forms, so a sell id
   // holding '%' (or a double-encoded address) can load in one and not the other (a 200 page with the site title and no
@@ -102,11 +107,15 @@ export default async function TradePage({ params }: Params) {
           <a className="filing-link" href={t.filings.sold} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.soldNameOn(t.symbol, closed)}>{PUBLIC.sold}</a></p></>}
       {/* QA round 1 (finding 4, D-09): the thesis after the figures and their F3 line, so a 280-character thesis never
           pushes the line below the first screen; it is still the trader's own words about this trade, in full. */}
-      {t.thesis && (
+      {/* F-26: the section also holds the author's held line (author only: `own` is null for every viewer, so a viewer's page
+          is the same for a held note as for none). */}
+      {(t.thesis || own) && (
         <section className="trade-card trade-thesis" aria-labelledby="trade-thesis">
           <h2 id="trade-thesis">{FL_THESIS}</h2>
           {/* F-9: UserNote. t.thesis is published-only (nulled in SQL, lib/trade-share-load.ts); Report for a signed-in non-author. */}
-          <UserNote text={t.thesis} handle={t.handle} writtenAt={t.note?.writtenAt ?? null} editedAt={t.note?.editedAt ?? null} reportId={me && me.handle !== t.handle ? t.note?.tradeId : undefined} symbol={t.symbol} />
+          {t.thesis && <UserNote text={t.thesis} handle={t.handle} writtenAt={t.note?.writtenAt ?? null} editedAt={t.note?.editedAt ?? null} reportId={me && me.handle !== t.handle ? t.note?.tradeId : undefined} symbol={t.symbol} />}
+          {/* F-26: only the author sees their held note's line, in the note's place, with the link to its profile row. */}
+          {own && <HeldNote rule={own.rule} edit={own.edit} />}
         </section>
       )}
       <TradeShare kind="trade" isOwner={me !== null && me.handle === t.handle} path={path} title={`${t.symbol} ${pct(t.returnPct)} · @${t.handle} on Stock Social`} />
