@@ -5,6 +5,10 @@ import { tone, toneClass } from '@/lib/open-split.ts';
 import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { counted } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
+// FIXES-LABELS (D-05): the chart says when it starts and ends; the at-rest subline names the last close.
+import { dateText } from '@/lib/date-text.ts';
+import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+import { chartRestSub } from '@/lib/chart-sub.ts';
 import { UserNote } from '@/lib/user-note.ts';
 import { OPTIONS } from '@/lib/copy.ts'; // OPTIONS
 
@@ -66,6 +70,8 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   const dragging = useRef(false);
   const stack = useRef<HTMLDivElement>(null);
   const series = useMemo(() => (packed ? packed[range] : chartSeries(trades ?? [], range, now)), [packed, trades, range, now]);
+  // FIXES-LABELS (D-05): the whole record's last close, for the at-rest subline in every range.
+  const allT1 = useMemo(() => (packed ? packed.ALL.t1 : range === 'ALL' ? series.t1 : chartSeries(trades ?? [], 'ALL', now).t1), [packed, trades, range, series, now]);
   // The full chart has other points than the stand-in: a scrub position held across the swap moves to the point
   // nearest in time (a key press or drag made before the swap keeps its place). `seen` holds the points last drawn.
   // F-2 PR-1 (found by the heavy-feed e2e): a layout effect, so the remap runs in the swap's own commit. As a passive
@@ -109,7 +115,12 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
 
   const at = active === null ? null : pts[active];
   const shown = at ? at.value : last;
-  const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : spec.label;
+  // The scrubbed date stays numeric (M/D/YYYY); at rest, FIXES-LABELS (D-05): "‹range› · last close ‹date›".
+  const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : chartRestSub(spec.label, allT1, now); // code review: no last close → the plain label
+  // FIXES-LABELS (D-05): the plotted span's ends. ALL: the series' first and last close; other ranges: the first and
+  // last close drawn in the range. None while a range is still loading.
+  const closes = pts.filter((p) => p.trade);
+  const ends = range === 'ALL' ? (series.n > 0 ? [t0, t1] : null) : closes.length ? [closes[0].at, closes[closes.length - 1].at] : null;
   const label = `${counted(series.n, 'trade')}, ${pct(last, 0)} total, max drawdown ${pct(-series.drawdown, 0)}`; // fix round 8: "1 trade"
 
   const scrubTo = (e: PointerEvent) => {
@@ -189,6 +200,13 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
           </svg>}
           <span className="zero-label" style={{ top: `${(y(0) / H) * 100}%` }}>0%</span>
         </div>
+      )}
+      {ends && (
+        <p className="chart-ends">
+          <span className="sr-only">{FL.chartEnds(dateText(new Date(ends[0]), now), dateText(new Date(ends[1]), now))}</span>
+          <time aria-hidden="true" dateTime={new Date(ends[0]).toISOString()}>{dateText(new Date(ends[0]), now)}</time>
+          <time aria-hidden="true" dateTime={new Date(ends[1]).toISOString()}>{dateText(new Date(ends[1]), now)}</time>
+        </p>
       )}
       <div className={`sheet${open ? ' open' : ''}`} aria-live="polite">
         {!chosen && <p className="muted" style={{ margin: 0 }}>Drag across the chart to scrub through trades; release to open one.</p>}

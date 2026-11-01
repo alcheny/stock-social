@@ -20,7 +20,7 @@ export const rowReason = (r: SectionRow) => !r.why ? reasonText(r.reason)
 // with "Not interested" on each row. A row shows no performance number: tapping it opens the trader's pane as a sheet
 // (the pane carries the record; the sheet covers the page's footer, so it carries POLICY F3's line itself), and "See full profile →" is one step further. Without JavaScript a
 // row is a link to the profile. Not a `.row`: the feed's cards, paging and SW-1 keys count only cards.
-export function SuggestSection({ page, pane }: { page: FeedPage; pane: (userId: number) => ReactNode }) {
+export function SuggestSection({ page, pane }: { page: FeedPage; pane: (userId: number, disclaimer?: boolean) => ReactNode }) {
   const id = `suggest-${page.offset}`;
   return (
     <section className="suggest" aria-labelledby={id}>
@@ -33,7 +33,7 @@ export function SuggestSection({ page, pane }: { page: FeedPage; pane: (userId: 
             const trust = paneTrust(page.byUser.get(r.userId) ?? [], page.records.get(r.userId)?.state ?? 'connected');
             return (
               <li key={r.userId} data-handle={r.handle}>
-                <SuggestRow handle={r.handle} name={r.name} signedIn={!!page.viewer} pane={<>{pane(r.userId)}<p className="muted small sheet-note" tabIndex={-1}>{DISCLAIMER}</p></>}
+                <SuggestRow handle={r.handle} name={r.name} signedIn={!!page.viewer} pane={<>{pane(r.userId, false /* FIXES-LABELS: the sheet's .sheet-note is its one F3 line */)}<p className="muted small sheet-note" tabIndex={-1}>{DISCLAIMER}</p></>}
                   actions={page.viewer && <>{!trust.badge?.startsWith('public') && <FollowButton handle={r.handle} following={false} signedIn />}<NotInterested handle={r.handle} /></>}>
                   <span className="sname"><WhoName name={r.name} handle={r.handle} /></span>
                   <span className="sfacts"><RowBadge kind={trust.badge} />{trust.incomplete && <span className="badge new">{SECTION.incomplete}</span>}<span className="sreason">{rowReason(r)}</span></span>

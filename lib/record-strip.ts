@@ -8,6 +8,7 @@ import { imageLabel, isPublicRecord, PUBLIC, RECORD_BODY, RECORD_STRIP, SHARE_CA
 import { OPTIONS } from './copy.ts'; // OPTIONS
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
+import { DISCLAIMER_SIZE } from './image-fit.ts'; // FIXES-LABELS (D-09, DS-19)
 
 export { RECORD_STRIP };
 
@@ -153,12 +154,33 @@ export const lineWidth = (l: Pick<ImageLine, 'text' | 'size'>) => l.text.length 
 
 // The disclaimer in three lines at the floor size (one line at 26 px would be 1,000+ px wide).
 export const DISCLAIMER_LINES = ['Not investment advice.', 'Past performance does not', 'guarantee future results.'] as const;
+// FIXES-LABELS (D-09, DS-19: the F3 line ≥ 35 px on images): the band draws DISCLAIMER_LINES at lib/image-fit.ts's size, not
+// the floor; its longest line (25 glyphs) is 525 px wide at 35 px, inside the 582 px band. Where the band's lines do not fit
+// with it (a failed import's two note lines), the size steps down (DISCLAIMER_STEPS) before anything else gives way, and
+// never below the floor the F-12 band was signed with.
+// stripImageLines' default, DISCLAIMER_BAND_PX, is the largest size at which every trade image of the F-12 model fits once
+// its thesis gives way (lib/f12-strip.test.ts); lib/trade-share.ts#tradeBand and lib/month-card.ts#monthBand try the
+// larger steps first.
+// ponytail: a failed import's month image fits at 27 px because of its two note lines — move the failed note to the label line to keep ≥ 28 px
+export const DISCLAIMER_PX: number = DISCLAIMER_SIZE;
+export const DISCLAIMER_BAND_PX = 30;
+export const DISCLAIMER_STEPS: readonly number[] = [DISCLAIMER_PX, 32, DISCLAIMER_BAND_PX, 28, 27, STRIP_BAND.minPx];
+export const disclaimerImageLines = (px: number = DISCLAIMER_PX): ImageLine[] =>
+  DISCLAIMER_LINES.map((d, k) => ({ role: `disclaimer${k}`, text: d, size: px, tone: 'muted', weight: 400 }));
+// The first layout, largest disclaimer first, that fits the band (else the floor's).
+export function fitDisclaimer(build: (px: number) => ReturnType<typeof layoutBand>): ReturnType<typeof layoutBand> {
+  let last: ReturnType<typeof layoutBand> | null = null;
+  for (const px of DISCLAIMER_STEPS) { last = build(px); if (last.fits) return last; }
+  return last!;
+}
 
 const imageTone = (t: StripTone): ImageTone => (t === 'up' || t === 'down' || t === 'warn' || t === 'ok' || t === 'muted' ? t : 'text');
 
 // The strip's lines for an image: label, handle (· New record), the record lines at 35 px, losses (· open), the
 // failed note, the disclaimer. `hero` (the trade or month lines) goes between the handle and the record.
-export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolean; hero: ImageLine[] }): ImageLine[] {
+// `frozen` (FIXES-LABELS: status, F-11): a frozen record's line ("Disconnected ‹Mon D, YYYY› · record frozen", absolute,
+// never relative), after the record's figures.
+export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolean; hero: ImageLine[]; frozen?: string | null; disclaimerPx?: number }): ImageLine[] {
   const L: ImageLine[] = [];
   if (s.label) L.push({ role: 'label', text: s.label.text, size: 28, tone: imageTone(s.label.tone), weight: 700 });
   L.push(...o.hero);
@@ -194,15 +216,29 @@ export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolea
       const own: ImageLine = { role: 'options', text: options.text, size: Math.max(STRIP_BAND.minPx, fitPx(options.text, 30)), tone: 'muted', weight: 400 };
       const rest: ImageLine[] = [];
       if (s.note) for (const [k, part] of noteLines(s.note).entries()) rest.push({ role: `note${k}`, text: part, size: STRIP_BAND.minPx, tone: 'warn', weight: 400 });
-      for (const [k, d] of DISCLAIMER_LINES.entries()) rest.push({ role: `disclaimer${k}`, text: d, size: STRIP_BAND.minPx, tone: 'muted', weight: 400 });
+      // Merge with OPTIONS: the probe uses the disclaimer size this call draws (FIXES-LABELS D-09), not the floor.
+      rest.push(...disclaimerImageLines(o.disclaimerPx ?? DISCLAIMER_BAND_PX));
       const k = L.findIndex((l) => l.role === 'count');
       if (layoutBand([...L, own, ...rest]).fits || k < 0) L.push(own);
       else { const text = `${L[k].text} · ${options.text}`; L[k] = { ...L[k], text, size: Math.max(STRIP_BAND.minPx, fitPx(text, STRIP_BAND.recordPx)) }; }
     }
   }
+  // FIXES-LABELS: status. Beside a failed import's two note lines the band may have no room for it: there (only) it is
+  // optional, and the page keeps the full status line.
+  // At the floor size "Disconnected ‹Mon D, YYYY› · record frozen" is wider than the band (cycle-2 #9's width rule): it
+  // then goes on two lines, split at its " · " (the second line role `frozen1`).
+  if (o.frozen) for (const [k, part] of frozenLines(o.frozen).entries()) L.push({ role: k ? `frozen${k}` : 'frozen', text: part, size: STRIP_BAND.minPx, tone: 'muted', weight: 400, ...(s.note ? { optional: true } : {}) });
+  // F-7: a public record's not-joined line is muted; a failed import's note is warn (FIXES-LABELS).
   if (s.note) for (const [k, part] of noteLines(s.note).entries()) L.push({ role: `note${k}`, text: part, size: STRIP_BAND.minPx, tone: s.note === PUBLIC.imageLine ? 'muted' : 'warn', weight: 400 });
-  for (const [k, d] of DISCLAIMER_LINES.entries()) L.push({ role: `disclaimer${k}`, text: d, size: STRIP_BAND.minPx, tone: 'muted', weight: 400 });
+  L.push(...disclaimerImageLines(o.disclaimerPx ?? DISCLAIMER_BAND_PX)); // FIXES-LABELS (D-09): ≥ 28 px; callers step it
   return L;
+}
+
+// FIXES-LABELS: status. The frozen line whole when it fits the band at the floor size, else split at its last " · ".
+export function frozenLines(text: string): string[] {
+  if (fitPx(text, STRIP_BAND.minPx) >= STRIP_BAND.minPx) return [text];
+  const cut = text.lastIndexOf(' · ');
+  return cut < 0 ? [text] : [text.slice(0, cut), text.slice(cut + 3)];
 }
 
 // The failed-import line in at most two band-wide lines at the floor size, split at a word.
