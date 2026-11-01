@@ -52,9 +52,10 @@ test('F-31 AC3: the limits block sentences, fact lines and note lines are pinned
   assert.equal(CAP_FLAG_LINE, '- While the address cap is not shown live, strict G3 is not readable as a gate; it still prints, and the row "address cap" under it reads "not readable as a gate: address cap not live" for each such week.');
   assert.equal(internalFactLine('unset', 0), '- internal accounts: not removed (READOUT_INTERNAL_HANDLES is unset).');
   assert.equal(internalFactLine('none-valid', 3), '- internal accounts: not removed (READOUT_INTERNAL_HANDLES lists no valid handle).');
-  assert.equal(internalFactLine('set', 0), '- internal accounts: removed only in the rows "partial: strict G1 without internal accounts" and "partial: strict G3 without internal accounts\' profiles"; every other row still counts them.');
-  assert.equal(internalFactLine('set', 1), `${internalFactLine('set', 0)} 1 listed entry was not a valid handle and was ignored.`);
-  assert.equal(internalFactLine('set', 2), `${internalFactLine('set', 0)} 2 listed entries were not a valid handle and were ignored.`);
+  assert.equal(internalFactLine('set', 0, 1), '- internal accounts: removed only in the rows "partial: strict G1 without internal accounts" and "partial: strict G3 without internal accounts\' profiles"; every other row still counts them. The list holds 1 valid handle.');
+  assert.equal(internalFactLine('set', 0, 3), internalFactLine('set', 0, 1).replace('1 valid handle.', '3 valid handles.'));
+  assert.equal(internalFactLine('set', 1, 2), `${internalFactLine('set', 0, 2)} 1 listed entry was not a valid handle and was ignored.`);
+  assert.equal(internalFactLine('set', 2, 2), `${internalFactLine('set', 0, 2)} 2 listed entries were not a valid handle and were ignored.`);
   assert.equal(INTERNAL_RUNS_LINE, "- Changing the internal list between runs can reveal one profile's counts; compare runs only with the same list.");
   assert.equal(SPLIT_LINE, 'The "of which" rows split the strict row by profile: a broker-trader profile or a public-filing profile. They print only in a week whose strict figure is exact, and read "(s)" when either part, or anything that could be worked out from them and the rows below, would be 1 to 4; they have no total and no difference row.');
   assert.equal(TOP_LINE, 'The largest single profile\'s share is one profile\'s strict G3 views over the week\'s strict G3, rounded down to a whole percent; it names no profile, reads "(s)" unless that profile has 5 or more views and nothing from 1 to 4 can be worked out from it, and reads "—" when the strict figure is 0.');
@@ -176,8 +177,11 @@ test('F-31 AC4: the beacon route marks the cap once per counted beacon, never fo
   const orig = console.error;
   console.error = (...a: unknown[]) => { logged.push(a.map(String).join(' ')); };
   try {
-    const r = await handleBeacon(post(BEACON), routeDeps({ markCap: async () => { throw Object.assign(new Error('203.0.113.9 down'), { code: '57P01' }); } }, views, marks));
+    const tasks: (() => Promise<void>)[] = [];
+    const r = await handleBeacon(post(BEACON), routeDeps({ markCap: async () => { throw Object.assign(new Error('203.0.113.9 down'), { code: '57P01' }); }, defer: (t) => { tasks.push(t); } }, views, marks));
     assert.equal(r.status, 204);
+    assert.equal(tasks.length, 1, 'the mark is handed to defer, not awaited');
+    await Promise.all(tasks.map((t) => t()));
   } finally { console.error = orig; }
   assert.equal(views.length, 2, 'the view is still recorded');
   assert.equal(logged.length, 1);
@@ -189,6 +193,25 @@ test('F-31 AC4: the beacon route marks the cap once per counted beacon, never fo
   delete plain.trusted;
   assert.equal((await handleBeacon(post(BEACON), plain)).status, 204);
   assert.equal(v2.length, 1);
+});
+
+test('F-31 AC4: a mark that never settles neither delays the response nor stops the view (orchestrator review of #98)', async () => {
+  const views: unknown[] = [];
+  const r = await handleBeacon(post(BEACON), routeDeps({ markCap: () => new Promise<void>(() => {}) }, views, []));
+  assert.equal(r.status, 204);
+  assert.equal(views.length, 1, 'the view is recorded while the mark hangs');
+});
+
+test('F-31 AC4: markCapDay treats a write unsettled past its timeout as failed, so the memo never sticks and a later mark retries', async () => {
+  const t0 = new Date('2003-07-08T10:00:00Z');
+  let calls = 0;
+  const hung = () => { calls++; return new Promise<void>(() => {}); };
+  await assert.rejects(markCapDay(true, t0, hung, 20), /timed out/);
+  await markCapDay(true, new Date(t0.getTime() + 1000), hung, 20); // inside the backoff: no second attempt
+  assert.equal(calls, 1);
+  const ok: string[] = [];
+  await markCapDay(true, new Date(t0.getTime() + CAP_RETRY_MS), async (d) => { ok.push(d); }, 20);
+  assert.deepEqual(ok, ['2003-07-08'], 'retried after the backoff');
 });
 
 // ---- AC1/AC2: the strict family ----
@@ -360,8 +383,8 @@ test('F-31 AC5: env unset prints "not removed" and no internal rows; set prints 
   const none = buildReadout(input({ state: 'none-valid', ignored: 2 }), NOW);
   assert.ok(none.includes(`\n${internalFactLine('none-valid', 2)}\n`));
   for (const l of [...F31_INTERNAL_ROW_LABELS, INTERNAL_RUNS_LINE, INTERNAL_LINE]) assert.ok(!none.includes(l), l);
-  const set = buildReadout(input({ state: 'set', ignored: 1 }), NOW);
-  assert.ok(set.includes(`\n${internalFactLine('set', 1)}\n`));
+  const set = buildReadout(input({ state: 'set', ignored: 1, listed: 1 }), NOW);
+  assert.ok(set.includes(`\n${internalFactLine('set', 1, 1)}\n`));
   assert.ok(set.includes(`\n${INTERNAL_RUNS_LINE}\n`));
   assert.ok(set.includes(`\n${INTERNAL_LINE}\n`));
   assert.deepEqual(cellsOf(rowLine(set, G1_INTERNAL_ROW)), [G1_INTERNAL_ROW, '', '49']);

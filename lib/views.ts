@@ -91,12 +91,20 @@ export async function insertCapDay(day: string, trusted: boolean): Promise<void>
   await sql`insert into view_cap_days (day, trusted) values (${day}::date, ${trusted}) on conflict do nothing`;
 }
 export const CAP_RETRY_MS = 300_000; // a failing database is tried at most once per 5 minutes per kind
+// A write still unsettled after this counts as failed (postgres.js has no query timeout: a half-open connection would
+// otherwise hold the memo for good, orchestrator review of #98).
+export const CAP_TIMEOUT_MS = 1_000;
+function withTimeout(p: Promise<void>, ms: number): Promise<void> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((_, reject) => { t = setTimeout(() => reject(new Error('view cap mark timed out')), ms); });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(t));
+}
 type CapMemo = { p: Promise<void> | null; failedAt: number | null };
 const capMemo = { day: '', entries: new Map<boolean, CapMemo>() };
 // At most one write per kind per UTC day per instance: concurrent beacons share the in-flight attempt (memoized before
-// any await), a success is kept for the day, and a failure is retried no sooner than CAP_RETRY_MS later (rethrown to
+// any await), a success is kept for the day, and a failure or a write unsettled after CAP_TIMEOUT_MS is retried no sooner than CAP_RETRY_MS later (rethrown to
 // the caller, which logs it by class and code).
-export function markCapDay(trusted: boolean, now = new Date(), write: (day: string, trusted: boolean) => Promise<void> = insertCapDay): Promise<void> {
+export function markCapDay(trusted: boolean, now = new Date(), write: (day: string, trusted: boolean) => Promise<void> = insertCapDay, timeoutMs = CAP_TIMEOUT_MS): Promise<void> {
   const day = now.toISOString().slice(0, 10);
   if (capMemo.day !== day) { capMemo.day = day; capMemo.entries.clear(); }
   let e = capMemo.entries.get(trusted);
@@ -104,7 +112,7 @@ export function markCapDay(trusted: boolean, now = new Date(), write: (day: stri
   if (e.p) return e.p;
   if (e.failedAt !== null && now.getTime() - e.failedAt < CAP_RETRY_MS) return Promise.resolve();
   const entry = e;
-  const p: Promise<void> = Promise.resolve().then(() => write(day, trusted)).catch((err: unknown) => {
+  const p: Promise<void> = withTimeout(Promise.resolve().then(() => write(day, trusted)), timeoutMs).catch((err: unknown) => {
     if (entry.p === p) { entry.p = null; entry.failedAt = now.getTime(); }
     throw err;
   });

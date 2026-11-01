@@ -184,6 +184,7 @@ dbTest('F-31 AC5: main with READOUT_INTERNAL_HANDLES set prints both internal ro
     for (const l of F31_INTERNAL_ROW_LABELS) assert.ok(md.split('\n').some((line) => line.startsWith(`| ${l} |`)), l);
     assert.ok(md.includes(INTERNAL_RUNS_LINE));
     assert.ok(md.includes('1 listed entry was not a valid handle and was ignored.'));
+    assert.ok(md.includes(' The list holds 2 valid handles.'), 'the valid count, never which');
     for (const text of [md, run.stdout, run.stderr]) {
       for (const h of [a.handle, b.handle]) assert.ok(!text.toLowerCase().includes(h), 'no handle');
     }

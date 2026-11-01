@@ -48,3 +48,9 @@ after debate; each member is a fresh-context subagent and none grades work it wr
   `address cap` row repeats a long phrase per week (decided wording, D3); a top-3 share row is the first follow-up.
 - Independent code review: no blocking findings. Fixed: the AC5 test now checks the internal table rows themselves.
   Kept: the self-views row's week complement (plan E9); the documented ponytail on a lost untrusted mark.
+- Orchestrator review of #98 (MERGE, two pushes asked): (1) the cap mark left the counting path: the route hands it to
+  Next's `after()` (or starts it unawaited) and `markCapDay` treats a write unsettled after 1 s as failed, so a hung
+  database connection can't stop view counting or pin the memo (tests: a never-settling mark still records the view; a
+  hung write times out and retries after the backoff); (2) the internal facts line prints how many valid handles the list
+  holds (never which), so readouts made with different lists differ visibly. Owner item kept: the header line
+  "Self-views are excluded everywhere" now sits beside the self-views row; it is unchanged because AC8 pins main's text.

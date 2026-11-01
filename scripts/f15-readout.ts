@@ -49,7 +49,7 @@ export type DropRow = { day: Day; surface: string; reason: string; n: number };
 export type InternalState = 'unset' | 'none-valid' | 'set';
 export type ReadoutInput = {
   rollup: RollupRow[]; drops: DropRow[]; g1: { strict: number; partial: number }; g2: G2Input;
-  top?: { week: Day; n: number }[]; cap?: { day: Day; trusted: boolean }[]; internal?: { state: InternalState; ignored: number };
+  top?: { week: Day; n: number }[]; cap?: { day: Day; trusted: boolean }[]; internal?: { state: InternalState; ignored: number; listed?: number };
 };
 
 // ---- F-31: the limits block, the strict family and the new rows (docs/features/F-31-readout-limits-and-partial-rows.md;
@@ -74,12 +74,16 @@ export const CAP_NOT_LIVE = 'not readable as a gate: address cap not live';
 export const CAP_FLAG_LINE = `- While the address cap is not shown live, strict G3 is not readable as a gate; it still prints, and the row "address cap" under it reads "${CAP_NOT_LIVE}" for each such week.`;
 export const G1_INTERNAL_ROW = 'partial: strict G1 without internal accounts';
 export const G3_INTERNAL_ROW = "partial: strict G3 without internal accounts' profiles";
-export function internalFactLine(state: InternalState, ignored: number): string {
+// listed: how many valid handles the env list holds (never which), so readouts made with different lists differ visibly
+// (orchestrator review of #98, D6 residual).
+export function internalFactLine(state: InternalState, ignored: number, listed = 0): string {
   if (state === 'unset') return '- internal accounts: not removed (READOUT_INTERNAL_HANDLES is unset).';
   if (state === 'none-valid') return '- internal accounts: not removed (READOUT_INTERNAL_HANDLES lists no valid handle).';
   const n = Math.max(0, Math.floor(ignored));
   const extra = n === 0 ? '' : n === 1 ? ' 1 listed entry was not a valid handle and was ignored.' : ` ${n} listed entries were not a valid handle and were ignored.`;
-  return `- internal accounts: removed only in the rows "${G1_INTERNAL_ROW}" and "${G3_INTERNAL_ROW}"; every other row still counts them.${extra}`;
+  const k = Math.max(0, Math.floor(listed));
+  const valid = ` The list holds ${k} valid handle${k === 1 ? '' : 's'}.`;
+  return `- internal accounts: removed only in the rows "${G1_INTERNAL_ROW}" and "${G3_INTERNAL_ROW}"; every other row still counts them.${valid}${extra}`;
 }
 export const INTERNAL_RUNS_LINE = "- Changing the internal list between runs can reveal one profile's counts; compare runs only with the same list.";
 // Rows printed on every run, in G3 order (address cap, the pair, concentration, tagged-or-external, self-views); the
@@ -314,7 +318,7 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
   // F-31: the limits block, above the first G-row, on every run.
   out.push(LIMITS_HEADING, '', ...LIMIT_LINES, '', factsHeading(mondays[lastW]), capFactLine(capState));
   if (live.some((l) => !l)) out.push(CAP_FLAG_LINE);
-  out.push(internalFactLine(internalState, count(input.internal?.ignored)));
+  out.push(internalFactLine(internalState, count(input.internal?.ignored), count(input.internal?.listed)));
   if (internalSet) out.push(INTERNAL_RUNS_LINE);
   out.push('');
 
@@ -675,7 +679,7 @@ async function main() {
     // G1 strict is the G2 trader count itself, so the two can't disagree.
     const text = buildReadout({
       rollup, drops: [...drops], g1: { strict: g2.traders.length, partial: g1?.partial ?? 0 }, g2,
-      top, cap, internal: { state: internal.state, ignored: internal.ignored },
+      top, cap, internal: { state: internal.state, ignored: internal.ignored, listed: internal.handles.length },
     }, now);
     mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `f15-readout-${now.toISOString().slice(0, 10)}.md`);

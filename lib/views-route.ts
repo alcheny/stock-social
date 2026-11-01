@@ -16,6 +16,9 @@ export type BeaconDeps = {
   // F-31: the address-cap day mark (lib/views.ts#markCapDay) and the trust check it is given; omitted, nothing is marked.
   markCap?: (trusted: boolean) => Promise<void>;
   trusted?: (h: Headers) => boolean;
+  // Runs the mark off the counting path (the route passes Next's after(), so the platform keeps it alive past the
+  // response); omitted, the mark is started and not awaited.
+  defer?: (task: () => Promise<void>) => void;
 };
 const RECORD = new Set(['profile', 'trade', 'month']);
 const noStore = { 'cache-control': 'no-store' };
@@ -37,8 +40,13 @@ export async function handleBeacon(req: Request, deps: BeaconDeps): Promise<Resp
     // The rate cap comes first, so a flood (bot or not) costs one write per client per minute, not one per request.
     const limit = (deps.limited ?? rateLimited)(h);
     if (limit === 'over') return answer(204);
-    // F-31: a failed mark never loses the view; the log line names the error's class and code only (no address).
-    if (deps.markCap) try { await deps.markCap((deps.trusted ?? addressTrusted)(h)); } catch (e) { console.error('view cap mark failed', logSafe(e)); }
+    // F-31: the mark is never awaited here, so a failed, slow or hung mark can't delay or lose the view (orchestrator
+    // review of #98); the log line names the error's class and code only (no address).
+    if (deps.markCap) {
+      const mark = deps.markCap, trusted = (deps.trusted ?? addressTrusted)(h);
+      const task = () => Promise.resolve().then(() => mark(trusted)).catch((e: unknown) => { console.error('view cap mark failed', logSafe(e)); });
+      if (deps.defer) deps.defer(task); else void task();
+    }
     const reason = limit === 'first-over' ? 'rate' : botReason(h, beacon.auto);
     if (reason) { await deps.recordDrop(target?.surface ?? DROP_OTHER, reason); return answer(204); }
     if (!target) return answer(204);
