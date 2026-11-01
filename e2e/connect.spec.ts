@@ -10,6 +10,7 @@ import postgres from 'postgres';
 import { startVendorFake, type FakeAccount, type FakeActivity, type FakeCorporateRow } from './fakes/vendor.ts';
 import { feedLock } from './feed-lock.ts';
 import { vendorLock } from './vendor-lock.ts';
+import { cronLock } from './cron-lock.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
 let vendor: { server: Server; base: string };
@@ -99,9 +100,12 @@ const step = async (req: APIRequestContext): Promise<{ state: string; imported: 
   }
 };
 const tick = async (req: APIRequestContext) => {
-  const r = await req.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } });
-  expect(r.status()).toBe(200);
-  return r.json();
+  const release = await cronLock('shared'); // e2e/cron-lock.ts: never interleaved with the sharded-sync spec's calls
+  try {
+    const r = await req.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } });
+    expect(r.status()).toBe(200);
+    return r.json();
+  } finally { await release(); }
 };
 
 test('/how explains what Verified means and what is excluded, percent only, with the disclaimer; Terms, Privacy and How links are in the footer of every page', async ({ page }) => {
