@@ -288,12 +288,15 @@ export async function markGenuine(tx: TransactionSql, userId: number, listed: st
 export async function markTwins(tx: TransactionSql, userId: number): Promise<number> {
   // The new rows are read first (materialized), so each twin lookup goes through activities_user_pair whatever the
   // table's statistics (QA D5: before an analyze the planner chose a scan over every pair of rows).
-  const rows = await tx`with n as materialized (select * from activities where user_id = ${userId} and source = 'snaptrade' and created_at = now()
+  // "Stored by this transaction" is its transaction id (activities are insert-only, so a row's xmin is the transaction
+  // that inserted it), never `created_at = now()`: two transactions can start in the same microsecond (lib/connections.ts
+  // concurrency test). No insert here runs in a savepoint (the claim check's savepoint inserts nothing).
+  const rows = await tx`with n as materialized (select * from activities where user_id = ${userId} and source = 'snaptrade' and xmin = pg_current_xact_id()::xid
       and raw->>'type' in ${tx(LISTABLE_TYPES)})
     insert into activity_reissues (user_id, source, external_id, account_id, original_id, state, decided_at)
     select distinct on (n.source, n.external_id) n.user_id, n.source, n.external_id, n.account_id, e.external_id, 'pending', null
     from n join lateral (select e.external_id, e.id from activities e where e.user_id = n.user_id and e.account_id = n.account_id and e.symbol = n.symbol
-        and e.executed_at = n.executed_at and ${twin(tx, 'n', 'e')} and e.created_at < now() and not ${held(tx, 'e')}
+        and e.executed_at = n.executed_at and ${twin(tx, 'n', 'e')} and e.xmin <> pg_current_xact_id()::xid and not ${held(tx, 'e')}
       order by e.id limit 1) e on true
     order by n.source, n.external_id, e.id
     on conflict (source, external_id) do nothing

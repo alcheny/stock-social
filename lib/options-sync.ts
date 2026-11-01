@@ -425,8 +425,8 @@ export async function optionTwins(tx: TransactionSql, userId: number): Promise<n
   const [{ n }] = await tx`select count(distinct n.external_id)::int as n from option_activities n join option_activities e on e.user_id = n.user_id and e.source = n.source
       and e.account_id is not distinct from n.account_id and e.contract_key is not distinct from n.contract_key and e.kind is not distinct from n.kind
       and e.open_close is not distinct from n.open_close and e.executed_at = n.executed_at and e.contract_units is not distinct from n.contract_units
-      and e.share_price is not distinct from n.share_price and e.external_id <> n.external_id and e.created_at < n.created_at
-    where n.user_id = ${userId} and n.source = 'snaptrade' and n.created_at = now()`;
+      and e.share_price is not distinct from n.share_price and e.external_id <> n.external_id and e.xmin <> pg_current_xact_id()::xid
+    where n.user_id = ${userId} and n.source = 'snaptrade' and n.xmin = pg_current_xact_id()::xid`; // stored by this transaction
   return n as number;
 }
 

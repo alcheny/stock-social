@@ -608,7 +608,7 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         // shown while importing is of new rows only.
         await markTwins(tx, c.user_id!);
         await markGenuine(tx, c.user_id!, page.activities.map((a) => a.externalId));
-        const [{ fresh }] = await tx`select count(*)::int as fresh from activities where user_id = ${c.user_id!} and created_at = now()`;
+        const [{ fresh }] = await tx`select count(*)::int as fresh from activities where user_id = ${c.user_id!} and xmin = pg_current_xact_id()::xid`; // rows this step stored
         return save(advanceCursor(cur, page.done, limit - importOverlap(limit)), true, c.imported_count + (fresh as number));
       }
       // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.
