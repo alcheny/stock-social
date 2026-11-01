@@ -375,3 +375,83 @@ dbTest('cycle-3 council: a rename chain in an account marked as another profile\
     await cleanup([acc]);
   }
 });
+
+// ---- Merge with options (#62): orchestrator points (b), (c), (d) ----
+
+dbTest('options (b): the hourly option-backfill page path stores unusable share rows too, and they are counted', async () => {
+  const { sql, tag, mkUser, connect, act, bad, user, cleanup } = await setup();
+  const { syncUser, insertActivities } = await import('./sync.ts');
+  const acc = `${tag}-acc`;
+  try {
+    const u = await mkUser('a');
+    const c = await connect(u.id, [acc]);
+    assert.equal((await sql`select options_backfilled_at from connections where id = ${c}`)[0].options_backfilled_at, null); // owed its backfill
+    await insertActivities(u.id, 'snaptrade', [act('b0', acc, 'BUY', 10, 1)], sql); // a stored history: the hourly path
+    let windowed = 0;
+    await syncUser(u, {
+      listAccounts: async () => vendorAcc([acc]),
+      fetchActivities: async () => { windowed++; return []; },
+      fetchActivitiesPage: async () => ({ activities: [], unusable: [bad('s1', acc, 'SELL', 2)], done: true }),
+    });
+    assert.equal(windowed, 0); // the account read its backfill page instead of the week
+    assert.equal(Number((await sql`select count(*) from corporate_actions where external_id = ${`${tag}-s1`}`)[0].count), 1);
+    assert.equal((await user(u.id)).excluded_corporate, 1);
+  } finally {
+    await cleanup([acc]);
+  }
+});
+
+dbTest('options (c): option positions are replaced per account read; an unlisted account\'s move to a private table; import steps add counts after the first', async () => {
+  const { sql, tag, mkUser, cleanup } = await setup();
+  const { replaceOptionPositions } = await import('./options-sync.ts');
+  const a1 = `${tag}-a1`, a2 = `${tag}-a2`;
+  const pos = (k: string) => ({ positionKey: k, underlying: 'XYZ', right: 'CALL' as const, expiry: '2026-12-11', unrealizedPct: 0.1 });
+  const split = (k: string, short = 0) => ({ options: [pos(k)], short, unsupported: 0 });
+  try {
+    const u = await mkUser('a');
+    const shown = async () => (await sql`select account_id from open_option_positions where user_id = ${u.id} order by account_id`).map((r) => r.account_id);
+    const kept = async () => (await sql`select account_id from unlisted_option_positions where user_id = ${u.id}`).map((r) => r.account_id);
+    const short = async () => (await sql`select open_options_short from users where id = ${u.id}`)[0].open_options_short;
+    // Import of a1 (first step resets the counts), then a second connection's import of a2 (its first step).
+    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1], new Map([[a1, split('k1', 1)]]), { resetCounts: true }));
+    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a2], new Map([[a2, split('k2')]])));
+    assert.deepEqual(await shown(), [a1, a2]); // a1's positions survive a2's import
+    assert.equal(await short(), 1); // added, not reset
+    // A sync that lists only a1: a2's move to the private table, kept; counts are this read's.
+    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1], new Map([[a1, split('k1', 2)]]), { listed: true, resetCounts: true }));
+    assert.deepEqual(await shown(), [a1]);
+    assert.deepEqual(await kept(), [a2]);
+    assert.equal(await short(), 2);
+    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1], new Map([[a1, split('k1')]]), { listed: true, resetCounts: true })); // still unlisted
+    assert.deepEqual(await kept(), [a2]);
+    // Relisted: fresh rows, the private copy goes.
+    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1, a2], new Map([[a1, split('k1')], [a2, split('k2')]]), { listed: true, resetCounts: true }));
+    assert.deepEqual(await shown(), [a1, a2]);
+    assert.deepEqual(await kept(), []);
+    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1], new Map([[a1, split('k1')]]), { listed: true, resetCounts: true }));
+    await sql`delete from users where id = ${u.id}`; // profile deletion (cascade)
+    assert.equal(Number((await sql`select count(*) from unlisted_option_positions where account_id in (${a1}, ${a2})`)[0].count), 0);
+  } finally {
+    await cleanup([a1, a2]);
+  }
+});
+
+dbTest('options (d): scripts/rebuild-records.ts rebuilds the whole record, option trades included', async () => {
+  const { sql, tag, mkUser, cleanup } = await setup();
+  const { insertOptionActivities } = await import('./options-sync.ts');
+  const { run } = await import('../scripts/rebuild-records.ts');
+  const acc = `${tag}-a`;
+  const opt = (id: string, kind: string, oc: string, at: string, price: number) => ({
+    externalId: `${tag}-${id}`, accountId: acc, kind, openClose: oc, underlying: 'XYZ', underlyingType: 'cs', right: 'CALL', expiry: '2026-10-16',
+    strikeMilli: 123_450, multiplier: 100, occTicker: 'XYZ   261016C00123450', units: 1, price, fee: 0, amount: null, currency: 'USD',
+    executedAt: new Date(at), verified: true, raw: {},
+  });
+  try {
+    const u = await mkUser('a');
+    await insertOptionActivities(u.id, 'snaptrade', [opt('b', 'BUY', 'BUY_TO_OPEN', '2026-10-01T15:00:00Z', 1), opt('s', 'SELL', 'SELL_TO_CLOSE', '2026-10-02T15:00:00Z', 2)] as never);
+    assert.deepEqual(await run(() => {}, [u.id]), { rebuilt: 1, failed: 0 });
+    assert.equal(Number((await sql`select count(*) from option_trades where user_id = ${u.id}`)[0].count), 1);
+  } finally {
+    await cleanup([acc]);
+  }
+});

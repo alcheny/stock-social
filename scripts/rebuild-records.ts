@@ -4,7 +4,8 @@
 // trader's sync lock. Public filers (F-7) have no broker record and are left out. Prints counts only (POLICY P3/P6).
 //   node --env-file=.env scripts/rebuild-records.ts
 import { sql } from '../lib/db.ts';
-import { rebuildTrades, USER_LOCK } from '../lib/sync.ts';
+import { USER_LOCK } from '../lib/sync.ts';
+import { rebuildRecord } from '../lib/options-sync.ts';
 
 // `scope` is a test hook (only these profiles); the command line passes none.
 export async function run(out: (line: string) => void = console.log, scope?: number[]): Promise<{ rebuilt: number; failed: number }> {
@@ -14,7 +15,7 @@ export async function run(out: (line: string) => void = console.log, scope?: num
     try {
       await sql.begin(async (tx) => {
         await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${id})`;
-        await rebuildTrades(id, tx);
+        await rebuildRecord(id, tx); // shares and options (OPTIONS: the record's one rebuild)
       });
       rebuilt++;
     } catch {

@@ -143,6 +143,21 @@ never priced against a buy the broker dated after it.
   `unusable` too; (c) option positions are replaced per account (F3-4); (d) `scripts/rebuild-records.ts` calls its
   `rebuildRecord` once #62 is in.
 
+### Round 5 (merge with options, PR #62, which merged first)
+Resolved in the merge commit, each with a test (`lib/broker.test.ts`, `lib/fixes-cycle3.test.ts`):
+- (a) `toActivities`: the option filter (`option_symbol`, then `hasOptionType(option_type) || isOccSymbol(symbol)`) runs
+  before `unusableTrade`, so a price-less option row is counted once, as an option.
+- (b) the hourly option-backfill page path stores `page.unusable` and the rows are counted.
+- (c) `replaceOptionPositions` is per account read: the sync (`listed`) moves an unlisted account's option rows to the
+  new private `unlisted_option_positions` (like `unlisted_positions`), and the import's leftover per-user
+  `replacePositions` is gone. The per-user option counts are reset by a read of every listed account (sync) or an
+  import's first positions step and added to by its later steps (ponytail: counts per account would make the import
+  exact). `scripts/shared-accounts.ts` also removes a marked account's option positions (both tables).
+- (d) `scripts/rebuild-records.ts` calls `rebuildRecord` (shares and options).
+- (e) option numbers (`toOptionRows`, option positions) go through `vendorNumber`: decimal strings are read; null, '',
+  hex and non-finite values are no number.
+- Two option tests called `fetchActivities` expecting a bare list; they read `.activities` now (same assertions).
+
 ## 3. Decisions
 1. Unusable vendor trade rows live in `corporate_actions` (kind `unpriceable`, reason `trade`), counted in
    `excluded_corporate`; no new users column. Reason: the table is raw, immutable and already feeds the matcher; the

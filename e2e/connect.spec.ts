@@ -9,6 +9,7 @@ import type { Server } from 'node:http';
 import postgres from 'postgres';
 import { startVendorFake, type FakeAccount, type FakeActivity, type FakeCorporateRow } from './fakes/vendor.ts';
 import { feedLock } from './feed-lock.ts';
+import { vendorLock } from './vendor-lock.ts';
 import { cronLock } from './cron-lock.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
@@ -17,7 +18,9 @@ const cronSecret = process.env.CRON_SECRET ?? readFileSync(new URL('../.env', im
 
 // Own pool (as app.spec.ts): the shared lib/db.ts pool is ended by signin.spec.ts's afterAll in the same worker.
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
-test.beforeAll(async () => { vendor = await startVendorFake(VENDOR_PORT); });
+// The fake's port is shared with e2e/options.spec.ts, taken in turn (e2e/vendor-lock.ts).
+let releaseVendor: (() => Promise<void>) | null = null;
+test.beforeAll(async () => { releaseVendor = await vendorLock(); vendor = await startVendorFake(VENDOR_PORT); });
 // PR-2b: an owner's open profile now polls POST /api/import/step every 2 s (S5). The tests written before it drive the
 // steps themselves through page.request and assert each step's exact effect (forced vendor failures, backoff windows),
 // so the page's own background poll is held off for them: only requests from the page are blocked, never the test's.
@@ -43,7 +46,8 @@ test.afterEach(async () => {
   created = [];
 });
 test.afterAll(async () => {
-  vendor?.server.close();
+  if (vendor) await new Promise<void>((done) => { vendor.server.close(() => done()); vendor.server.closeAllConnections(); });
+  await releaseVendor?.();
   await sql.end({ timeout: 1 });
 });
 

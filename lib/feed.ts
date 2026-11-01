@@ -11,6 +11,8 @@ import { rejectedAmong } from './likes.ts';
 // F-10: the feed card's record strip figures (lib/record-strip.ts), computed per page from the rows already read.
 import { feedStrips, type StripFigures } from './record-strip.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
+import { optionHeadline, paneView, type PaneOptionsView } from './options-load.ts'; // OPTIONS
+
 // F-2 PR-5: personal ordering (pure) and the loader type; the loader itself is passed in by the page (lib/discovery/personal-load.ts).
 import { personalList, personalPool, personalReason, relevanceOf, type PersonalReason, type TraderShape, type Uses } from './discovery/personal.ts';
 import type { Personal, PersonalLoader } from './discovery/personal-load.ts';
@@ -309,6 +311,9 @@ export type FeedPage = {
   open?: Map<number, number[]>;
   // F-6: the oldest read of each of those traders' positions ("as of").
   openAsOf?: Map<number, Date>;
+  // OPTIONS (docs/features/logs/options/plan.md AC 24): each page trader's option headline (the pane's label and line),
+  // from the one reader, gated per trader.
+  options?: Map<number, PaneOptionsView>;
   // F-10: each card trader's record strip figures (average per trade + the profile's evidence), from byUser.
   strips?: Map<number, StripFigures>;
 };
@@ -425,6 +430,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     viewer: following && { id: opts.viewer!, following }, section,
     ...(profile ? { personal: { signals: profile.signals, uses: profile.uses } } : {}),
     ...openOf(opens, onPage, states),
+    options: new Map([...await optionHeadline([...onPage])].map(([id, h]) => [id, paneView(h)])), // OPTIONS: flag and line only
     strips: feedStrips(new Map([...byUser].filter(([id]) => cards.some((t) => t.user_id === id))), new Date(now)), // F-10
   };
 }

@@ -32,6 +32,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
   // Fixes cycle 3, F3-4: kept while the owner decides OD-9; rendered nowhere.
+  unlisted_option_positions: { personal: true, retention: 'account', holds: 'private last-read long option positions (underlying, call or put, expiry, unrealized percent, read time) of an account the broker no longer lists; deleted with the profile' },
   unlisted_positions: { personal: true, retention: 'account', holds: 'private last-read open positions (symbol, unrealized percent, read time) of an account the broker no longer lists; deleted with the profile' },
   follows: { personal: true, retention: 'account', holds: 'private follows' },
   viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; rows the viewer ended and ended unfollows purged after a day; a "not interested" that ran its 90 days is kept until removed (F-2 PR-5)' },
@@ -61,6 +62,10 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   public_import_state: { personal: false, retention: 'none', holds: 'import cursor and last successful run per source' },
   public_filer_log: { personal: true, retention: 'account', holds: 'corrections log: filer id, action, reason code and time; no requester details' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
+  // OPTIONS (docs/features/logs/options/plan.md D1, L8): deleted with the account (the users cascade).
+  option_activities: { personal: true, retention: 'account', holds: 'raw broker option activities: contract terms, strikes, quantities, prices, fees, cash, account ids' },
+  option_trades: { personal: true, retention: 'account', holds: 'derived long option closes: underlying, call or put, expiry, dates, percent returns; public only through the consent gate' },
+  open_option_positions: { personal: true, retention: 'account', holds: 'long open option positions: underlying, call or put, expiry, unrealized percent; public only through the consent gate' },
   // Security hardening (2026-11-01): pseudonymous (keyed hashes, never the address or IP itself), so counted as personal.
   rate_limits: { personal: true, retention: 'short', holds: 'rate-limit counters per window, keyed by a scope and a keyed hash of an email address, client IP or id; pruned by lib/rate-limit.ts after 2 days' },
   portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },

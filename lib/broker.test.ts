@@ -3,7 +3,7 @@
 // and delete connection / delete user reach the vendor. No real vendor is contacted.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toActivities, unrealizedPct } from './broker.ts';
+import { toActivities, toOptionRows, unrealizedPct } from './broker.ts';
 import { startVendorFake } from '../e2e/fakes/vendor.ts';
 
 test('unrealizedPct: per-unit cost against per-unit price (the SDK documents both as per share); nothing without them', () => {
@@ -142,4 +142,29 @@ test('F3-1: toActivities keeps every share trade row: usable rows are activities
   assert.equal(by.get('u0')!.units, undefined);
   assert.deepEqual([by.get('nodate')!.undated, by.get('nodate')!.executedAt.getTime(), by.get('nodate')!.units], [true, 0, 10]);
   assert.deepEqual([by.get('baddate')!.side, by.get('baddate')!.undated], ['BUY', true]);
+});
+
+// Merge of fixes cycle 3 with options (#62), orchestrator points (a) and (e).
+test('F3-1 + options (a): a price-less option row is counted once, as an option, never as an unusable share row', () => {
+  const base = { symbol: { symbol: 'AAA' }, type: 'SELL', trade_date: '2024-01-05', units: 1, fee: 0 };
+  const rows = [
+    { ...base, id: 'o1', price: 0, option_type: 'SELL_TO_CLOSE' },
+    { ...base, id: 'o2', price: undefined, symbol: { symbol: 'XYZ   261016C00123450' } },
+    { ...base, id: 'o3', price: 0, option_symbol: { id: 'x' } },
+    { ...base, id: 's1', price: 0 }, // a share row: unusable
+  ];
+  const { activities, unusable } = toActivities('acc', rows);
+  assert.deepEqual(activities, []);
+  assert.deepEqual(unusable.map((a) => a.externalId), ['s1']);
+  assert.deepEqual(toOptionRows('acc', rows as never).map((r) => r.externalId), ['o1', 'o2', 'o3']);
+});
+
+test('options (e): option numbers read like share numbers (decimal strings yes; null, empty, hex and non-finite no)', () => {
+  const base = { id: 'o', symbol: { symbol: 'XYZ   261016C00123450' }, type: 'BUY', trade_date: '2024-01-05' };
+  const read = (o: Record<string, unknown>) => toOptionRows('acc', [{ ...base, ...o }] as never)[0];
+  assert.deepEqual([read({ price: '2.5', units: '-3', fee: '-0.65' }).price, read({ units: '-3' }).units, read({ fee: '-0.65' }).fee], [2.5, 3, 0.65]);
+  for (const bad of [null, '', '0x10', 'abc', Infinity, NaN]) {
+    const r = read({ price: bad, units: bad, fee: bad });
+    assert.deepEqual([r.price, r.units, r.fee], [null, null, null], String(bad));
+  }
 });
