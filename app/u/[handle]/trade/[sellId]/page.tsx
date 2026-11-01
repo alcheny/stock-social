@@ -4,8 +4,9 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { isPublicRecord, PUBLIC, RECORD_STRIP, wholeRecordView } from '@/lib/copy.ts';
+import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
 import { Badge, PublicNotice } from '../../../../ui.tsx';
+import { toneClass } from '@/lib/open-split.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { tradeAlt, tradeDescription, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
@@ -67,7 +68,8 @@ export default async function TradePage({ params }: Params) {
         <section className="trade-card" aria-labelledby="this-trade">
           <h2 id="this-trade">This trade</h2>
           <h1 style={{ margin: 0 }}>{t.symbol}</h1>
-          <p className={`big ${t.returnPct > 0 ? 'up' : t.returnPct < 0 ? 'down' : ''}`}><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</p>
+          {/* A11Y-FIXES #23: tone and sign word follow the printed value (0.0% is neutral, "Flat"). */}
+          <p className={toneClass(t.returnPct) ? `big ${toneClass(t.returnPct)}` : 'big'}><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</p>
           <p className="muted small">{held(t.holdingDays)} · closed {closed}</p>
           {t.thesis && <blockquote>“{t.thesis}”</blockquote>}
         </section>

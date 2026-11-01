@@ -9,6 +9,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
 import { BILLING, RECORD_TOOLS } from './copy.ts';
+import { toneClass } from './open-split.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
@@ -221,7 +222,7 @@ dbTest('the figures on a card are the profile\'s: the same functions over the sa
     assert.equal(card.badge, 'demo');
     assert.equal(card.connected, 'Demo data');
     assert.equal(card.closed, trades.length);
-    assert.deepEqual(card.figures, { winRate: `${(s.winRate * 100).toFixed(0)}%`, avg: pct(s.avgReturn), avgSign: s.avgReturn > 0 ? 'up' : 'down', range: rangeText(c), low: c.perTrade ? pct(c.perTrade.low) : null, evidence: evidenceLine(c), drawdown: pct(-s.maxDrawdown) });
+    assert.deepEqual(card.figures, { winRate: `${(s.winRate * 100).toFixed(0)}%`, avg: pct(s.avgReturn), avgSign: toneClass(s.avgReturn) ?? '', range: rangeText(c), low: c.perTrade ? pct(c.perTrade.low) : null, evidence: evidenceLine(c), drawdown: pct(-s.maxDrawdown) });
     if (card.figures!.low) assert.ok(card.figures!.range!.includes(card.figures!.low), 'the lower end is the range\'s own low');
   }
   const keys = Object.keys(cards[0]).sort().join(',');
