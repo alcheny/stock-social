@@ -126,7 +126,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.prep.outputs.branch }}
+          GIT_CONFIG_GLOBAL: /dev/null # agents ran on this runner: ignore any global or system git config they left
+          GIT_CONFIG_NOSYSTEM: '1'
         run: |
+          # An agent could have planted a hook or config (core.hooksPath, url.*.insteadOf, include, credential, fsmonitor)
+          # that runs or redirects during the commit and push below: keep only the keys checkout and prepare set.
+          git config --local --unset-all core.hooksPath || true
+          git config --local --name-only --list | sort -u | { grep -viE '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates)|user\.(name|email)|remote\.origin\.(url|fetch)|branch\..+\.(remote|merge))$' || true; } | while read -r k; do git config --local --unset-all "$k"; done
+          git config --local remote.origin.url "https://github.com/$GITHUB_REPOSITORY"
+          rm -rf .git/hooks .git/config.worktree
           if [ "$KIND" = "build" ]; then node scripts/features.ts publish; exit; fi
           node scripts/features.ts resolved
           node scripts/autopilot.ts publish

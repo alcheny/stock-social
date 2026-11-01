@@ -51,6 +51,12 @@ test('pick: exhausted attempts are marked stuck and skipped', () => {
   assert.deepEqual(r2.stuck, [{ kind: 'issue', number: 1 }]);
   assert.deepEqual(r2.task, { mode: 'build', number: 2 });
 });
+test('pick: the picked task carries its attempt number (this attempt included) for the failure budget', () => {
+  assert.equal(pickTask([pr(9, { failing: true, attempts: 2 })], [issue(1)], o).attempt, 3);
+  assert.equal(pickTask([], [issue(1, { attempts: 1 })], o).attempt, 2);
+  assert.equal(pickTask([], [issue(4)], o).attempt, 1);
+  assert.equal(pickTask([pr(1)], [issue(5)], o).attempt, 0); // idle
+});
 test('pick: any open PR awaiting checks or review pauses new work', () => {
   const r = pickTask([pr(1)], [issue(5)], o).task;
   assert.equal(r.mode, 'idle');

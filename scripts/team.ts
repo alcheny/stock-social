@@ -22,6 +22,7 @@
 //   → commits on the current branch, writes .autopilot/result.json for `autopilot.ts publish`.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { branchInfo, isLimitError, type BuildResult, type Variant } from './autopilot.ts';
 
 // ---------- pure parts (tested in scripts/team.test.ts) ----------
@@ -174,17 +175,22 @@ const calls: CallLog[] = [];
 const spent = () => calls.reduce((s, c) => s + c.costUsd, 0);
 const TEAM_BUDGET = cap('TEAM_BUDGET_USD', '100');
 const restored: string[] = []; // protected paths an agent changed and this script put back
-// A job that hits GitHub's 6-hour limit publishes nothing, so no call starts after TEAM_MINUTES (the job allows 350).
+// A job that hits GitHub's 6-hour limit publishes nothing, so no call starts after TEAM_MINUTES (the job allows 350),
+// a running call is stopped there, and no loop runs another round of checks.
 const STARTED = Date.now();
-const outOfTime = () => Date.now() - STARTED > Number(env('TEAM_MINUTES', '290')) * 60_000;
+const timeLeft = () => Number(env('TEAM_MINUTES', '290')) * 60_000 - (Date.now() - STARTED);
+const outOfTime = () => timeLeft() <= 0;
 let hitLimit = false; // Claude usage limit: stop calling, and tell the loop to pause (auto mode)
+let unresolved = false; // a conflict task the engineer left unmerged: stop, so `features.ts resolved` fails the publish
+const stopped = () => hitLimit || unresolved || outOfTime();
+let gitState: GitSnapshot | null = null; // .git as it was before any agent ran (main)
 
 // dontAsk: every tool is allowlisted, so nothing is asked and no AI permission classifier runs. On the throwaway CI
 // runner (no write credentials; the Gate rejects loop-file changes) the classifier only added false positives,
 // e.g. it blocked a legitimate `git commit` as a "CI bypass", which lost the work and stalled a line.
 // Only the engineer's build calls (no schema of their own) keep their edits; every other call is undone afterwards.
 function ask<T>(role: Role, round: number, prompt: string, schema?: object): T | null {
-  if (hitLimit) return null;
+  if (hitLimit || unresolved) return null;
   if (spent() >= TEAM_BUDGET) { console.log(`team budget $${TEAM_BUDGET} reached; skipping ${role}`); return null; }
   if (outOfTime()) { console.log(`team time (TEAM_MINUTES) reached; skipping ${role} so the work still publishes`); return null; }
   const r = ROLES[role];
@@ -199,9 +205,14 @@ function ask<T>(role: Role, round: number, prompt: string, schema?: object): T |
   console.log(`→ ${role} (round ${round}${ATTEMPT > 1 ? `, attempt ${ATTEMPT}` : ''})`);
   const before = git('rev-parse', 'HEAD');
   const merging = git('rev-parse', '-q', '--verify', 'MERGE_HEAD'); // a conflict task: main is being merged in
-  const p = spawnSync(env('CLAUDE_BIN', 'claude'), args, { encoding: 'utf8', maxBuffer: 64 << 20, env: cliEnv() });
-  if (keep) restored.push(...restoreProtected(before, merging)); else discardSince(before);
-  const res = parseResult(p.stdout ?? '');
+  const p = spawnSync(env('CLAUDE_BIN', 'claude'), args, { encoding: 'utf8', maxBuffer: 64 << 20, env: cliEnv(), timeout: Math.max(1, timeLeft()), killSignal: 'SIGKILL' });
+  if (gitState) restoreGit(gitState); // before any further git command: planted hooks or config never run
+  if (keep) {
+    restored.push(...keepEngineerWork(before, merging));
+    if (merging && git('diff', '--name-only', '--diff-filter=U')) { unresolved = true; console.log('engineer left unresolved conflicts; stopping'); }
+  } else discardSince(before);
+  // A call stopped at TEAM_MINUTES (or that could not start) failed; its partial output is not an answer.
+  const res = p.error ? { out: null, cost: 0, error: `CLI stopped: ${p.error.message}` } : parseResult(p.stdout ?? '');
   calls.push({ role, round, costUsd: res.cost, ok: !res.error });
   if (res.error) console.error(`${role} failed: ${res.error}${cliErr(p.stderr) ? ` | CLI: ${cliErr(p.stderr)}` : ''}`);
   if (res.error && isLimitError(`${res.error}\n${p.stderr ?? ''}`)) hitLimit = true;
@@ -223,7 +234,7 @@ function checks(): QaRound['findings'] {
   spawnSync('sh', ['-c', 'lsof -ti tcp:3000 | xargs -r kill -9'], { stdio: 'ignore' });
   for (const [name, cmd, extra] of steps) {
     console.log(`→ check: ${name}`);
-    const p = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...extra } });
+    const p = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8', maxBuffer: 64 << 20, env: checkEnv(extra) });
     if (p.status !== 0) {
       const out = `${p.stdout}\n${p.stderr}`.split('\n').slice(-120).join('\n').trim();
       console.log(`✖ ${name} failed:\n${out.split('\n').slice(-40).join('\n')}`); // visible in the job log for debugging
@@ -232,6 +243,12 @@ function checks(): QaRound['findings'] {
   }
   return [];
 }
+// The checks run code the agents wrote (tests, build scripts): it never gets the Claude token.
+export const checkEnv = (extra: Record<string, string>): NodeJS.ProcessEnv => {
+  const e: NodeJS.ProcessEnv = { ...process.env, ...extra };
+  delete e.CLAUDE_CODE_OAUTH_TOKEN;
+  return e;
+};
 
 // Three fix approaches that don't overlap: find the cause, shrink the change, or replace the approach.
 // A failing branch tries them in turn from the same starting commit; the first whose checks pass is kept.
@@ -247,7 +264,7 @@ function fixWithThree(round: number) {
   for (const f of FIXERS) {
     const e = ask('engineer', round, `You are the ENGINEER, working as a ${f.brief}. Fix every finding in .autopilot/feedback.md, keeping to the spec. ` +
       `${tried.length ? `Approaches already tried from this same starting point, and failed: ${tried.join('; ')}. Do something different. ` : ''}Commit your work.`);
-    if (!e) break; // budget or usage limit
+    if (!e || stopped()) break; // budget, usage limit or time: keep what this fixer did and stop
     const fs = checks();
     if (!fs.length) return console.log(`fix: ${f.key} passed the checks`);
     tried.push(`${f.key} (still failing: ${fs[0].where}: ${headline(fs[0].problem)})`);
@@ -262,6 +279,7 @@ function fixWithThree(round: number) {
 function qaLoop(qa: QaRound[], docPath: string): boolean {
   const maxRounds = qa.length + Number(env('QA_ROUNDS', '40'));
   for (let round = qa.length + 1; round <= maxRounds; round++) {
+    if (stopped()) { console.log('team: out of time, at the usage limit or left an unresolved merge; no more QA rounds'); return false; }
     let findings = checks();
     let by: QaRound['by'] = 'checks';
     if (!findings.length) {
@@ -272,7 +290,7 @@ function qaLoop(qa: QaRound[], docPath: string): boolean {
     }
     qa.push({ round, by, pass: blocking(findings).length === 0, findings });
     if (!blocking(findings).length) return true;
-    if (round === maxRounds || spent() >= TEAM_BUDGET) return false;
+    if (round === maxRounds || spent() >= TEAM_BUDGET || stopped()) return false;
     writeFileSync('.autopilot/feedback.md', `# QA findings (round ${round}, by ${by})\n\n${blocking(findings).map((f) => `- [${f.severity}] ${f.where}: ${f.problem}`).join('\n')}\n`);
     if (by === 'checks') fixWithThree(round + 1); // deterministic failure: three different engineers, keep the first that passes
     else ask('engineer', round + 1, `You are the ENGINEER (${FIXERS[0].brief}) Fix every finding in .autopilot/feedback.md, keeping to the spec. Commit your work.`);
@@ -280,7 +298,27 @@ function qaLoop(qa: QaRound[], docPath: string): boolean {
   return false;
 }
 
-function git(...args: string[]) { return spawnSync('git', args, { encoding: 'utf8' }).stdout.trim(); }
+// Every git command this script runs ignores hooks, fsmonitor and global or system config: an agent with a shell could
+// plant any of them to run code here, where the Claude token is in the environment.
+const GIT_SAFE = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
+const runGit = (args: string[]) => spawnSync('git', [...GIT_SAFE, ...args], { encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+function git(...args: string[]) { return runGit(args).stdout.trim(); }
+// .git as it was before any agent ran: its config (url.*.insteadOf, include, credential, core.hooksPath, filters),
+// whether a worktree config existed, and where hooks live. Put back after every call, so nothing planted survives
+// into the next git command here or into Publish (which scrubs again before it pushes).
+export type GitSnapshot = { config: string; text: string; worktree: string; hadWorktree: boolean; hooks: string };
+export function gitSnapshot(): GitSnapshot {
+  const p = (x: string) => resolve(git('rev-parse', '--git-path', x));
+  const config = p('config'), worktree = p('config.worktree');
+  // Not --git-path hooks: that answers with core.hooksPath, which GIT_SAFE sets to /dev/null.
+  return { config, text: readFileSync(config, 'utf8'), worktree, hadWorktree: existsSync(worktree), hooks: join(resolve(git('rev-parse', '--git-common-dir')), 'hooks') };
+}
+// Removed first, never written or emptied through: a planted symlink (say .git/hooks → lib/) is dropped, not followed.
+export function restoreGit(s: GitSnapshot) {
+  rmSync(s.config, { force: true }); writeFileSync(s.config, s.text);
+  if (!s.hadWorktree) rmSync(s.worktree, { force: true, recursive: true });
+  rmSync(s.hooks, { force: true, recursive: true }); mkdirSync(s.hooks); // the stock hooks are only samples
+}
 // A reviewer, tester or planner may edit to try things; none of it reaches the build it judges.
 function discardSince(before: string) {
   spawnSync('sh', ['-c', 'lsof -ti tcp:3000 | xargs -r kill -9'], { stdio: 'ignore' });
@@ -292,9 +330,10 @@ function discardSince(before: string) {
 // the owner's change, not the agent's). A changed one goes back to main's copy in a merge (the owner's files win),
 // otherwise to the copy before the call, committed or not, however it was changed. Returns what was put back.
 export function restoreProtected(before: string, merging = ''): string[] {
-  const has = (ref: string, f: string) => spawnSync('git', ['cat-file', '-e', `${ref}:${f}`]).status === 0;
-  const same = (ref: string, f: string) => (has(ref, f) ? spawnSync('git', ['diff', '--quiet', ref, '--', f]).status === 0 : !existsSync(f));
-  const changed = [...git('diff', '--name-only', before).split('\n'), ...git('ls-files', '--others', '--exclude-standard').split('\n')];
+  const has = (ref: string, f: string) => runGit(['cat-file', '-e', `${ref}:${f}`]).status === 0;
+  const same = (ref: string, f: string) => (has(ref, f) ? runGit(['diff', '--quiet', ref, '--', f]).status === 0 : !existsSync(f));
+  // NUL-separated and without rename detection: a rename lists both paths, and a non-ASCII name comes back unquoted.
+  const changed = [...git('diff', '--no-renames', '-z', '--name-only', before).split('\0'), ...git('ls-files', '-z', '--others', '--exclude-standard').split('\0')];
   const hit = protectedChanges(changed).filter((f) => !same(before, f) && !(merging && same(merging, f)));
   for (const f of hit) {
     const to = merging && has(merging, f) ? merging : before;
@@ -305,6 +344,14 @@ export function restoreProtected(before: string, merging = ''): string[] {
     console.log(`design: put back protected paths the engineer changed: ${hit.join(', ')}`);
     commitAll(`Put back protected paths (design rule): ${hit.join(', ')}`);
   }
+  return hit;
+}
+// After an engineer's call: protected paths go back, then whatever it left uncommitted is committed, so a later
+// reviewer's reset (discardSince) or a fixer's reset can't wipe it. In a conflict task this completes the merge once
+// every conflict is resolved; unresolved ones are left as they are (commitAll refuses), so `features.ts resolved` fails.
+export function keepEngineerWork(before: string, merging: string): string[] {
+  const hit = restoreProtected(before, merging);
+  commitAll('Engineer work left uncommitted at the end of a call');
   return hit;
 }
 export const protectedChanges = (files: string[]) => [...new Set(files.map((f) => f.trim()).filter((f) => f && isProtectedPath(f)))];
@@ -370,9 +417,16 @@ export const demandsOf = (vs: Verdict[]) => [
   ...vs.flatMap((v) => v.compliance_failures.map((f) => `- [compliance, ${v.member}] ${f}`)),
   ...vs.flatMap((v) => v.demands.map((d) => `- [${v.member}] ${d}`)),
 ].join('\n');
-function commitAll(msg: string) { if (git('status', '--porcelain')) { git('add', '-A'); git('commit', '-m', msg); } }
+// Commits everything, and completes a pending merge even when it changed nothing. Never while a conflict is unresolved:
+// `add -A` would mark it resolved, markers and all.
+function commitAll(msg: string) {
+  if (git('diff', '--name-only', '--diff-filter=U')) return console.log(`not committing (${msg}): unresolved conflicts`);
+  const merging = runGit(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status === 0;
+  if (git('status', '--porcelain') || merging) { git('add', '-A'); git('commit', '-m', msg); }
+}
 
 function main() {
+  gitState = gitSnapshot();
   const mode = env('MODE', 'build');
   const n = Number(env('NUMBER'));
   const v = JSON.parse(env('VARIANT', '{"key":"","title":"Single","brief":""}')) as Variant;
@@ -468,7 +522,7 @@ function main() {
     for (let c = 1; ; c++) {
       const vs = committeeReview(c);
       committee.at(-1)!.verdicts = vs;
-      if (committeePassed(vs) || c >= COMMITTEE_ROUNDS || hitLimit || spent() >= TEAM_BUDGET) break;
+      if (committeePassed(vs) || c >= COMMITTEE_ROUNDS || stopped() || spent() >= TEAM_BUDGET) break;
       const demands = demandsOf(vs);
       const p = planDebate(c + 1, demands || '- (a member could not answer; review the build again)');
       committee.push({ round: c + 1, plan: p.rounds, signed: p.signed, verdicts: [] });
