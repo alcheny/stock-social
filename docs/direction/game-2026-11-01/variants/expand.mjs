@@ -3,13 +3,16 @@
 // diverse top 500. Deterministic (seeded PRNG) so anyone can re-run it and get the same files.
 import fs from 'node:fs';
 import zlib from 'node:zlib';
-const D = process.argv[2]; // scratchpad f8 dir
-const OUT = process.argv[3]; // repo variants dir
-const W = JSON.parse(fs.readFileSync(`${D}/weights.json`, 'utf8'));
+// Re-run from the repo root: node docs/direction/game-2026-11-01/variants/expand.mjs <this dir> <out dir>
+// (reads weights-stage2a.json and seeds-<ANGLE>.jsonl from the first dir; writes to the second).
+const D = process.argv[2];
+const OUT = process.argv[3];
+const W = JSON.parse(fs.readFileSync(`${D}/weights-stage2a.json`, 'utf8'));
 const ENUMS = ['format', 'data', 'input', 'scoring', 'progression', 'social', 'cadence'];
 const ANGLES = ['RG', 'PR', 'CA', 'DP', 'HH', 'LS', 'PS', 'SC', 'SO', 'WC'];
 const seeds = [];
-for (const a of ANGLES) for (const l of fs.readFileSync(`${D}/gen/${a}.jsonl`, 'utf8').trim().split('\n')) seeds.push({ origin: 'seed', ...JSON.parse(l) });
+// seeds-<ANGLE>.jsonl already carry origin 'seed'; the spread below keeps the field order stable.
+for (const a of ANGLES) for (const l of fs.readFileSync(`${D}/seeds-${a}.jsonl`, 'utf8').trim().split('\n')) seeds.push({ origin: 'seed', ...JSON.parse(l) });
 let s = 20261101; const rnd = () => { s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s);
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; // mulberry32
 const pick = (xs) => xs[Math.floor(rnd() * xs.length)];

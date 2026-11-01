@@ -609,7 +609,7 @@
    "why": "F2/F3b: promissory or skill/edge language"
   },
   {
-   "pattern": "teen|gen\\s*z|gen\\s*alpha|kids?\\b|students?\\b|school",
+   "pattern": "t[e]en|gen\\s*z|gen\\s*alpha|kids?\\b|students?\\b|school",
    "criterion": "policy_safety",
    "delta": -6,
    "why": "P4: minors or cohorts including them"
