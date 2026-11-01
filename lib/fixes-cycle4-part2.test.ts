@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire, registerHooks } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { GEIST_ADVANCE, textWidth, unfurlHeadRows, whoMinWidth, HEAD_HEADROOM } from './card-head.ts';
+import { GEIST_ADVANCE, textWidth, unfurlHeadRows, whoMinWidth, HEAD_HEADROOM, HEAD_PILL_ROW } from './card-head.ts';
 import { CARD_LAYOUT } from './record-card.ts';
 import { SHARE_CARD } from './copy.ts';
 import { fromNoteDay, noteDays, packPoints, toNoteDay, unpackPoints } from './paging.ts';
@@ -86,47 +86,64 @@ const card = (o: { handle: string; name?: string; label?: string; newRecord?: bo
   ({ kind: 'unfurl' as const, handle: o.handle, name: o.name ?? `@${o.handle}`, label: o.label ?? '✓ Verified', newRecord: o.newRecord ?? false, shareLabel: o.shareLabel });
 const room = CARD_LAYOUT.unfurl.width - 2 * CARD_LAYOUT.unfurl.padX;
 
-test('F4-15: the longest pill set and a 20-character handle: every pill moves under the handle, the handle fits whole', () => {
+test('F4-15: the longest pill set and a 20-character handle: the handle fits whole and no pill is dropped', () => {
   for (const handle of ['w'.repeat(20), 'm'.repeat(20), 'w_m0'.repeat(5)]) {
     for (const name of [`@${handle}`, 'A display name that is very long']) {
       const m = card({ handle, name, label: SHARE_CARD.demoImage, newRecord: true, shareLabel: true });
       const r = unfurlHeadRows(m);
-      assert.deepEqual(r, { head: [], second: ['badge', 'options', 'newRecord'] }, handle);
+      assert.deepEqual([...r.head, ...r.column.flat(), ...r.second].sort(), ['badge', 'newRecord', 'options'], handle);
       assert.ok(whoMinWidth(m) * HEAD_HEADROOM <= room, 'the handle alone always fits the row');
     }
   }
+  // The longest set with the widest 20-letter handle and no display name: every pill under the head (the fallback).
+  assert.deepEqual(unfurlHeadRows(card({ handle: 'w'.repeat(20), label: SHARE_CARD.demoImage, newRecord: true, shareLabel: true })),
+    { head: [], column: [], second: ['badge', 'options', 'newRecord'] });
 });
 
-test('F4-15: a short handle keeps every pill on the head row; a middle case moves only "Excluding options"', () => {
-  assert.deepEqual(unfurlHeadRows(card({ handle: 'abc', newRecord: true, shareLabel: true })), { head: ['newRecord', 'options', 'badge'], second: [] });
-  // The three longest pills together outgrow the row whatever the handle (the old row clipped even a short one).
-  assert.deepEqual(unfurlHeadRows(card({ handle: 'abc', label: SHARE_CARD.demoImage, newRecord: true, shareLabel: true })).head, []);
-  assert.deepEqual(unfurlHeadRows(card({ handle: 'abc' })), { head: ['badge'], second: [] });
+test('F4-15: moved pills go to the chart column first (no added height); the badge stays beside the handle', () => {
+  assert.deepEqual(unfurlHeadRows(card({ handle: 'abc', newRecord: true, shareLabel: true })), { head: ['newRecord', 'options', 'badge'], column: [], second: [] });
+  assert.deepEqual(unfurlHeadRows(card({ handle: 'abc' })), { head: ['badge'], column: [], second: [] });
+  // The seeded demo options trader's shape: name + short handle, Demo label, "Excluding options" moves to the column.
+  assert.deepEqual(unfurlHeadRows(card({ handle: 'yolo_yuki', name: 'Yuki', label: SHARE_CARD.demoImage, shareLabel: true })),
+    { head: ['badge'], column: [['options']], second: [] });
+  // A wide card's narrower column still takes the pill.
+  assert.deepEqual(unfurlHeadRows(card({ handle: 'yolo_yuki', name: 'Yuki', label: SHARE_CARD.demoImage, shareLabel: true }), CARD_LAYOUT.unfurl.chart.w - 100).column, [['options']]);
   // Verified + Excluding options + a handle long enough that both pills don't fit but the badge alone does.
   const mid = Array.from({ length: 18 }, (_, n) => 'w'.repeat(n + 3)).map((h) => [h, unfurlHeadRows(card({ handle: h, shareLabel: true }))] as const)
-    .find(([, r]) => r.second.length === 1);
+    .find(([, r]) => r.column.length === 1);
   assert.ok(mid, 'some handle length moves only the options pill');
-  assert.deepEqual(mid![1], { head: ['badge'], second: ['options'] });
+  assert.deepEqual(mid![1], { head: ['badge'], column: [['options']], second: [] });
+  assert.equal(HEAD_PILL_ROW, CARD_LAYOUT.unfurl.font.label + 2 * 2 + 2 * 3 + CARD_LAYOUT.unfurl.gap, 'a pill row is the drawn pill plus the gap');
 });
 
-test('F4-15: on every layout the kept head row holds the full handle at its measured width', () => {
-  const labels = [SHARE_CARD.demoImage, '✓ Verified', SHARE_CARD.notVerified, SHARE_CARD.noBroker, SHARE_CARD.failed, SHARE_CARD.importing];
-  for (let n = 3; n <= 20; n++) for (const label of labels) for (const newRecord of [false, true]) for (const shareLabel of [false, true]) for (const named of [false, true]) {
+test('F4-15: every trust label: the head row holds the full handle, only the Demo label ever needs the row under it, nothing dropped', () => {
+  const labels = ['✓ Verified', SHARE_CARD.notVerified, SHARE_CARD.noBroker, SHARE_CARD.failed, SHARE_CARD.importing, SHARE_CARD.demoImage];
+  const f = CARD_LAYOUT.unfurl.font;
+  for (let n = 3; n <= 20; n++) for (const label of labels) for (const newRecord of [false, true]) for (const shareLabel of [false, true]) for (const named of [false, true]) for (const colW of [556, 456]) {
     const handle = 'w'.repeat(n);
     const m = card({ handle, name: named ? 'Name' : undefined, label, newRecord, shareLabel });
-    const r = unfurlHeadRows(m);
-    const f = CARD_LAYOUT.unfurl.font;
-    const pills = r.head.map((p) => textWidth(p === 'newRecord' ? 'New record' : p === 'options' ? 'Excluding options' : label, p === 'newRecord' ? f.newRecord : f.label) + 38);
-    const used = whoMinWidth(m) + (pills.length ? 16 + pills.reduce((a, b) => a + b, 0) + 12 * (pills.length - 1) : 0);
-    assert.ok(used <= room, `${n} ${label} ${newRecord} ${shareLabel} ${named}`);
-    assert.deepEqual([...r.head, ...r.second].sort(), [...(newRecord ? ['newRecord'] : []), ...(shareLabel ? ['options'] : []), 'badge'].sort(), 'no pill is dropped');
+    const r = unfurlHeadRows(m, colW);
+    const pw = (p: string) => textWidth(p === 'newRecord' ? 'New record' : p === 'options' ? 'Excluding options' : label, p === 'newRecord' ? f.newRecord : f.label) + 38;
+    const used = whoMinWidth(m) + (r.head.length ? 16 + r.head.reduce((a, p) => a + pw(p), 0) + 12 * (r.head.length - 1) : 0);
+    const at = `${n} ${label} ${newRecord} ${shareLabel} ${named} ${colW}`;
+    assert.ok(used <= room, at);
+    for (const rowPills of r.column) assert.ok(rowPills.reduce((a, p) => a + pw(p), 0) + 12 * (rowPills.length - 1) <= colW, at);
+    assert.ok(r.column.length <= 3 && CARD_LAYOUT.unfurl.chart.h - 2 * 41 - r.column.length * HEAD_PILL_ROW > 120, `${at}: the chart keeps a usable height`);
+    if (label !== SHARE_CARD.demoImage) assert.deepEqual(r.second, [], `${at}: only the Demo label ever needs the row under the head`);
+    assert.deepEqual([...r.head, ...r.column.flat(), ...r.second].sort(), [...(newRecord ? ['newRecord'] : []), ...(shareLabel ? ['options'] : []), 'badge'].sort(), 'no pill is dropped');
   }
+});
+
+test('F4-15: the model\'s chart gives up one pill row per column row', () => {
+  const src = readFileSync(new URL('lib/record-card.ts', ROOT), 'utf8');
+  assert.match(src, /box\.h -= headRows\.column\.length \* HEAD_PILL_ROW/);
 });
 
 test('F4-15: the image draws the head from unfurlHeadRows (no pill group beside the handle that ignores it)', () => {
   const src = readFileSync(new URL('app/u/[handle]/record-card-image.tsx', ROOT), 'utf8');
-  assert.match(src, /unfurlHeadRows\(m\)/);
+  assert.match(src, /unfurlHeadRows\(m, colW\)/);
   assert.doesNotMatch(src, /\{newRecord\}\{shareOnly\}\{badge\}/);
+  assert.match(src, /columnPills\(headRows\.column\)/);
 });
 
 // ---- F4-16 (C4-17) ----

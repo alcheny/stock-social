@@ -70,7 +70,16 @@ export function monthCard(r: MonthCardInput) {
 type MonthBandInput = { handle: string; recap: { label: string; monthSoFar: boolean; count: number }; record: { newRecord: boolean }; months?: number };
 function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: number): ImageLine[] {
   const m = r.recap;
-  const count = `${counted(m.count, 'closed trade')} this month${m.monthSoFar ? ' so far' : ''}`;
+  // FIXES-CYCLE4-PART2 (F4-4, C4-9; tester round 1): a trader with option closes gets "Excluding options" (the strip's own
+  // part, legal words unchanged) on the month's count line, so the qualifier adds no row and never gives way.
+  const options = month.figures.find((p) => p.role === 'options');
+  // The month's label sits right above, so with the qualifier the line drops "this month" to stay one line wide.
+  // ponytail: a frozen options trader's month image (8+ closes) already falls under the 28 px disclaimer floor on main, from
+  // the record strip's own options line (same layout with or without this qualifier) — fix: merge that line into the
+  // record line, or let the frozen line take one row.
+  const count = options
+    ? `${counted(m.count, 'closed trade')}${m.monthSoFar ? ' so far' : ''} · ${options.text}`
+    : `${counted(m.count, 'closed trade')} this month${m.monthSoFar ? ' so far' : ''}`;
   const L: ImageLine[] = [
     { role: 'month', text: m.label, size: Math.max(STRIP_BAND.minPx, Math.min(labelPx, fitPx(m.label, 52))), tone: 'text', weight: 800 },
     ...(r.months ? [{ role: 'monthOf', text: FIXES_LABELS.monthOf(fmtCount(r.months)), size: STRIP_BAND.minPx, tone: 'muted', weight: 400, optional: true } satisfies ImageLine] : []),
@@ -85,10 +94,6 @@ function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: numb
     const text = fitPx(withDot, figPx) >= STRIP_BAND.minPx ? withDot : bare;
     L.push({ role: 'monthRange', text, size: Math.max(STRIP_BAND.minPx, fitPx(text, figPx)), tone: 'text', weight: 400 });
   }
-  // FIXES-CYCLE4-PART2 (F4-4, C4-9): the month's figures of a trader with option closes end with "Excluding options"
-  // (the strip's own part, legal words unchanged), on its own line; never optional, so it never gives way.
-  const options = get('options');
-  if (options) L.push({ role: 'monthOptions', text: options.text, size: Math.max(STRIP_BAND.minPx, fitPx(options.text, figPx)), tone: 'muted', weight: 400 });
   return L;
 }
 export function monthBand(r: MonthBandInput, whole: Strip, month: Strip, frozen?: string | null): ReturnType<typeof layoutBand> {

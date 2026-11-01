@@ -44,6 +44,7 @@ dbTest('F4-4: a month with option closes: the figures, alt and description say "
   await optionClose(t.id, t.tag, 1, first);
   await optionClose(t.id, t.tag, 2, new Date(first.getTime() + 3_600_000));
   await optionClose(t.id, t.tag, 3, new Date(first.getTime() - 1)); // the month before: not counted
+  await optionClose(t.id, t.tag, 4, new Date(Date.UTC(y, m, 1))); // 00:00 UTC on the next month's 1st: not counted
   const { loadRecap } = await import('./recap-load.ts');
   const { monthAlt, monthDescription, monthOptionsLine, monthStripInput, recordStripInput } = await import('./recap.ts');
   const { recordStrip } = await import('./record-strip.ts');
@@ -64,7 +65,7 @@ dbTest('F4-4: a month with option closes: the figures, alt and description say "
   // The month image: the qualifier on its own never-optional line, and the disclaimer still drawn in full.
   const band = monthBand(r, whole, month, null);
   assert.ok(band.fits);
-  assert.equal(band.lines.find((l) => l.role === 'monthOptions')?.text, OPTIONS.shareLabel);
+  assert.match(band.lines.find((l) => l.role === 'monthCount')!.text, new RegExp(` · ${OPTIONS.shareLabel}$`), 'on the count line: no extra row');
   assert.deepEqual(band.lines.filter((l) => l.role.startsWith('disclaimer')).map((l) => l.text), [...DISCLAIMER_LINES]);
   // Open gate (the switch is off on this build, so the pure rule): no count sentence.
   assert.equal(monthOptionsLine({ ...r, optionsGate: 'open' }), null);

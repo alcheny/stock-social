@@ -53,3 +53,55 @@ notes carry nothing.
 - Open-gate trader with option closes in the month: qualifier, heading, foot and the /how link only, no count sentence
   (a new sentence needs legal sign-off).
 - Heading for traders without options: unchanged here (the cycle-4 record leaves it to the next design session).
+
+## Round 2: business lead and engineer reviews, decisions
+
+Business lead: DEMANDS (4). Engineer: DEMANDS (7). All taken; each decision below is "decided by the committee under the
+owner's instruction of 2026-11-01".
+
+1. **The month heading is "Closed trades this month" on every record** (business lead 1). *Why: decided by the
+   committee under the owner's instruction of 2026-11-01; POLICY F3a bans "all of their trades" outright, a connected
+   month also leaves out short sales, transfers in, sells with no recorded entry and unconnected brokers, and POLICY
+   outranks the cycle-4 record's deferral; the words are F-7's own (no new wording), and the change deletes a condition.*
+   The UX lead's deferral (open question 3) is overruled. Owner item: the owner may revert it in a design session.
+2. **The month's qualifier, the /how link and the share-trades foot key on the trader** (any option closes, shown or
+   excluded: `paneView(...).label`), not on the month's count (business lead 2). The gated count line still needs a
+   closed gate and at least one shown option close in the month. *Why: decided by the committee under the owner's
+   instruction of 2026-11-01; "Excluding options" is true of every month of an options trader, excluded option closes
+   carry no date, and over-qualifying is safe where under-qualifying breaks F3a.*
+3. **The disclaimer stays whole** on the month image with the qualifier line and on the unfurl with a second pill row
+   (business lead 3): tests assert the month band fits with all three disclaimer lines; the new foot strings live in
+   `lib/copy.ts` with a test that both keep "none can be hidden". *Why: decided by the committee under the owner's
+   instruction of 2026-11-01; POLICY F3.*
+4. **F4-15 measures, not estimates** (business lead 4, engineer 3). Widths come from the bundled next/og font's own
+   advance widths (Geist Regular, the only font next/og draws with), re-read from the font file by a test, with 15%
+   headroom; tests cover the longest pill set (Demo image label, "Excluding options", New record) with 20-character
+   handles of the widest letters, and every trust label × handle length 3-20 × pill set, asserting the kept head row
+   holds the full handle and no pill is dropped. The layout lives in a new `lib/card-head.ts` (not `lib/record-card.ts`,
+   which PR #77 and PR #89 edit). *Why: decided by the committee under the owner's instruction of 2026-11-01; a
+   measured table cannot under-estimate a glyph the way a per-character average can.*
+5. **JSON-safe note dates** (engineer 1). The lazy pane's `/u/‹handle›/pane` payload carries a published note's dates as
+   epoch ms, `app/lazy-pane.tsx` turns them back into Dates, and `toNoteDay` accepts a Date, an ISO string or epoch ms.
+   *Why: decided by the committee under the owner's instruction of 2026-11-01; a fetched payload turns Dates into
+   strings.*
+6. **F-23 collision** (engineer 2). F4-16 edits `PackedTrade` (two optional trailing fields), `records1` (8 → 10 fields
+   per close, `PANE_ROW_FIELDS`) and the pane-chart route. Hand-off note for F-23 (below). DB tests cover the pane rows
+   (published dates; held: none) and the JSON round trip. *Why: decided by the committee under the owner's instruction
+   of 2026-11-01; additive fields keep old payloads readable.*
+7. **Copy in one appended block** (engineer 4): `FIXES_CYCLE4_PART2` at the end of `lib/copy.ts`; no existing constant
+   changes. The shared "built from public filings" words are the root description's (`app/layout.tsx`, merged in #85);
+   this branch does not move them.
+8. **Month bounds** (engineer 5): the month's option count uses `parseYm`'s bounds (the ones `monthRecap` uses), and the
+   count query lives in `lib/options-load.ts` (`monthOptionCloseCount`; AC23 keeps every display read of the option
+   tables there). A test puts a close at 00:00 UTC on the 1st (counted) and one millisecond before (not).
+9. **publicShown tests** (engineer 6): switch off (no query), a visible demo filer (shown, demo), a visible real filer
+   (shown), a hidden filer and a filer before its feed floor (not shown), scoped to the test's own users (`only`), so
+   other fixtures on the shared database never change the answer. The demo-filer → Demo sentence rule has its own
+   assertion on the page code. The card route reads only `p=1` as on.
+10. **F4-14** (engineer 7): the `textContent` test renders `Badge kind="public_demo"`.
+
+### Hand-off note for F-23 (pane and payload)
+`lib/feed.ts#records1` now emits 10 fields per close (`PANE_ROW_FIELDS`): the 9th and 10th are a published note's
+written and edited epoch ms (null otherwise). `PackedTrade` and `PackedPoint` may end with two more fields, a note's
+written and edited UTC day numbers (`lib/paging.ts#noteDays`), present only for a published note with a recorded date.
+Rounding in F-23 must keep them integers.

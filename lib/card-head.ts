@@ -6,7 +6,7 @@
 // is the card's one unique identity (F-4 user test, docs/features/F-4-share-card.md), so it always shows in full.
 //
 // Widths come from the advance widths of the one font next/og draws with (Geist Regular, bundled in
-// next/dist/compiled/@vercel/og; lib/card-head.test.ts re-reads them from the font file, so a font change fails the
+// next/dist/compiled/@vercel/og; lib/fixes-cycle4-part2.test.ts re-reads them from the font file, so a font change fails the
 // test instead of clipping silently), per 1000 units of the em. A character outside the table counts a full em.
 import { CARD_LAYOUT, type CardModel } from './record-card.ts';
 import { OPTIONS } from './copy.ts';
@@ -28,7 +28,14 @@ export const PILL_BORDER = 3, PILL_PAD_X = 16, PILL_GAP = 12, HEAD_GAP = 16, WHO
 export const HEAD_HEADROOM = 1.15;
 
 export type HeadPill = 'newRecord' | 'options' | 'badge';
-export type HeadRows = { head: HeadPill[]; second: HeadPill[] };
+// `head`: on the head row beside the name (drawing order). `column`: rows of pills drawn at the top of the unfurl's chart
+// column, the chart giving up HEAD_PILL_ROW per row, so the card's height never changes (tester round 1: a row under the
+// head pushed the text column past 630 px). `second`: a row under the head, only when the trust badge can neither sit
+// beside the handle nor fit the chart column (the long Demo image label with a long handle).
+export type HeadRows = { head: HeadPill[]; column: HeadPill[][]; second: HeadPill[] };
+// A pill's height on the unfurl (35 px text at line height 1, 2 px padding and a 3 px border each side) plus the gap.
+// A literal (lib/record-card.ts imports this file, so nothing here reads CARD_LAYOUT at load); a test re-derives it.
+export const HEAD_PILL_ROW = 51;
 
 const pillWidth = (text: string, px: number) => textWidth(text, px) + 2 * (PILL_PAD_X + PILL_BORDER);
 export const pillText = (p: HeadPill, m: Pick<CardModel, 'label'>) => (p === 'newRecord' ? 'New record' : p === 'options' ? OPTIONS.shareLabel : m.label);
@@ -38,24 +45,43 @@ export const pillText = (p: HeadPill, m: Pick<CardModel, 'label'>) => (p === 'ne
 export function whoMinWidth(m: Pick<CardModel, 'kind' | 'name' | 'handle'>): number {
   const f = CARD_LAYOUT[m.kind].font;
   if (m.name === `@${m.handle}`) return textWidth(m.name, f.name);
-  return textWidth(`@${m.handle}`, f.handle) + WHO_GAP + textWidth('…', f.name);
+  return textWidth(`@${m.handle}`, f.handle) + WHO_GAP + textWidth('\u2026', f.name);
 }
 
-/** Which pills the unfurl's head row keeps (in drawing order) and which move to the row under it. */
-export function unfurlHeadRows(m: Pick<CardModel, 'kind' | 'name' | 'handle' | 'label' | 'newRecord' | 'shareLabel'>): HeadRows {
+type HeadInput = Pick<CardModel, 'kind' | 'name' | 'handle' | 'label' | 'newRecord' | 'shareLabel'>;
+/** Which pills the unfurl's head row keeps (in drawing order), which go to the chart column (rows at most `colW` wide,
+ *  the chart's own width), and which to a row under the head. */
+export function unfurlHeadRows(m: HeadInput, colW: number = CARD_LAYOUT.unfurl.chart.w): HeadRows {
   const L = CARD_LAYOUT[m.kind];
   const all: HeadPill[] = [...(m.newRecord ? ['newRecord' as const] : []), ...(m.shareLabel ? ['options' as const] : []), 'badge'];
   const room = L.width - 2 * L.padX;
   const who = whoMinWidth(m) * HEAD_HEADROOM;
-  const fits = (pills: HeadPill[]) => {
-    if (!pills.length) return who <= room;
-    const sizes = pills.map((p) => pillWidth(pillText(p, m), p === 'newRecord' ? L.font.newRecord : L.font.label) * HEAD_HEADROOM);
-    return who + HEAD_GAP + sizes.reduce((a, b) => a + b, 0) + PILL_GAP * (pills.length - 1) <= room;
+  const w = (p: HeadPill) => pillWidth(pillText(p, m), p === 'newRecord' ? L.font.newRecord : L.font.label) * HEAD_HEADROOM;
+  const fits = (pills: HeadPill[]) => (pills.length ? who + HEAD_GAP + pills.reduce((a, p) => a + w(p), 0) + PILL_GAP * (pills.length - 1) : who) <= room;
+  // Greedy rows of the moved pills within the chart column; null when one pill alone is wider than the column.
+  const pack = (pills: HeadPill[]): HeadPill[][] | null => {
+    const rows: HeadPill[][] = [];
+    let used = 0;
+    for (const p of pills) {
+      if (w(p) > colW) return null;
+      if (rows.length && used + PILL_GAP + w(p) <= colW) { rows[rows.length - 1].push(p); used += PILL_GAP + w(p); }
+      else { rows.push([p]); used = w(p); }
+    }
+    return rows;
   };
-  if (fits(all)) return { head: all, second: [] };
-  const withoutOptions = all.filter((p) => p !== 'options');
-  if (m.shareLabel && fits(withoutOptions)) return { head: withoutOptions, second: ['options'] };
+  if (fits(all)) return { head: all, column: [], second: [] };
+  // UX lead's order in the column too: the trust state first when it moves, then "Excluding options", then New record.
+  for (const moved of [['options'], ['options', 'newRecord'], ['badge', 'options', 'newRecord']] as HeadPill[][]) {
+    const move = moved.filter((p) => all.includes(p));
+    if (!move.length) continue;
+    const keep = all.filter((p) => !move.includes(p));
+    const rows = pack(move);
+    if (rows && fits(keep)) return { head: keep, column: rows, second: [] };
+  }
   // UX lead: on the second row the trust state reads first, then "Excluding options", then New record.
+  // ponytail: only the long Demo image label with a long handle lands here, and that row (with a wrap) still pushes the
+  // unfurl's text column down, clipping its period line (no seeded Demo handle is that long) — fix: a shorter unfurl
+  // Demo label, which is the owner's wording.
   const order: HeadPill[] = ['badge', 'options', 'newRecord'];
-  return { head: [], second: order.filter((p) => all.includes(p)) };
+  return { head: [], column: [], second: order.filter((p) => all.includes(p)) };
 }
