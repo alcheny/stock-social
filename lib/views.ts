@@ -38,7 +38,9 @@ export function botReason(h: { get(name: string): string | null }, automation: u
 // stored or logged.
 // ponytail: with no trusted client address (off the platform without TRUST_PROXY_HEADERS, lib/rate-limit.ts#clientIp)
 // the cap is skipped (keying on the user agent alone would make readers with a common browser share one bucket and
-// undercount them, business lead R1) — fix: set TRUST_PROXY_HEADERS behind that proxy, or a shared counter.
+// undercount them, business lead R1); since F-31 such a day leaves an untrusted mark (markCapDay) and the readout flags
+// its week "address cap: not live", so the skip is visible, not fixed — fix: set TRUST_PROXY_HEADERS behind that proxy,
+// or a shared counter.
 // ponytail: the cap is per instance, so N instances allow N × RATE_MAX a minute — fix: a shared counter keyed the same
 // way (lib/rate-limit.ts) if scripted inflation shows up in the drop counts.
 // Per address (shared by a household or an office behind one address): a few readers swiping at once.
