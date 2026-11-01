@@ -275,7 +275,7 @@ test('fix round 2: every label has a plain explanation', () => {
   for (const r of [...HOLD_V2, ...LONG_WORDS]) assert.ok(RULE_EXPLAIN[r.label], r.label);
   assert.deepEqual(RULE_EXPLAIN, {
     link: 'a link or web address', 'contact details': 'contact details or an @mention', promotion: 'a promotion',
-    'picks or tips': 'a stock pick or price target', 'platform claim': 'a claim about this site or being verified',
+    'picks or tips': 'a stock recommendation or price target', 'platform claim': 'a claim about this site or being verified',
     'return claim': 'a return claim beyond this trade', 'copy trading': 'an offer to copy trades',
   });
 });

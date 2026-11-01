@@ -96,7 +96,9 @@ test('every thesis surface renders through UserNote and nowhere else prints thes
   assert.match(read('../app/u/[handle]/trade/[sellId]/page.tsx'), /reportId=\{me && me\.handle !== t\.handle \?/);
   // F-7 merge: never on a public filer's card.
   assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id && !isPublicRecord\(page\.records\.get\(t\.user_id\)\?\.state \?\? 'none'\) \? <ReportNote tradeId=\{String\(t\.id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
-  assert.match(read('../app/ui.tsx'), /\{pub \? <p className="thesis muted" data-public-card>/);
+  // F-13 merge: the card's thesis slot is thesisLine(t, pub, report): a filer's line, else the UserNote.
+  assert.match(read('../app/ui.tsx'), /pub \? <p className="thesis muted" data-public-card>/);
+  assert.match(read('../app/ui.tsx'), /thesisLine\(t, pub, report\)/);
   // The card (app/ui.tsx) takes the control as a prop and never imports the server-action island itself.
   assert.doesNotMatch(read('../app/ui.tsx'), /from ['"][^'"]*(report-note|actions)\.tsx?['"]/);
 });
@@ -144,7 +146,10 @@ test('the Report control sits 4px below the caption; the /t row link holds no no
   const block = css.slice(start, end);
   assert.match(block, /\.user-note \.report-note \{[^}]*margin: 4px 0 0;/);
   const t = read('../app/t/[symbol]/Theses.tsx');
-  const link = t.slice(t.indexOf('<Link href={`/u/${r.handle}#trade-${r.id}`}'), t.indexOf('</Link>'));
+  // A11Y-FIXES #22 (main) moved the row link to the trade page; the note still sits outside it.
+  const from = t.indexOf('<Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}');
+  assert.ok(from >= 0, 'the row link');
+  const link = t.slice(from, t.indexOf('</Link>'));
   assert.ok(link.length > 0);
   assert.doesNotMatch(link, /UserNote/, 'the note is not inside the row link');
   assert.ok(t.indexOf('<UserNote text={r.thesis}') > t.indexOf('</Link>'), 'the note follows the row link');
@@ -153,7 +158,8 @@ test('the Report control sits 4px below the caption; the /t row link holds no no
 // Fix round 2 (H): the chart sheet header separates the date from the figure.
 test('chart sheet header: " · " between the close date and the figure', () => {
   const c = read('../app/u/[handle]/chart.tsx');
-  assert.match(c, /\{chosen\.closedAt\.toLocaleDateString\('en-US'\)\}\{' · '\}<\/span><\/span>\s*<b className=\{chosen\.returnPct > 0 \? 'up' : 'down'\}>/);
+  // A11Y-FIXES #23 (main): the figure's tone comes from toneClass (flat is neither colour).
+  assert.match(c, /\{chosen\.closedAt\.toLocaleDateString\('en-US'\)\}\{' · '\}<\/span><\/span>\s*<b className=\{toneClass\(chosen\.returnPct\)\}>/);
 });
 
 // Fix round 4 (F-10 AC8 at 780×360): on a short screen the feed card's note is one compact line: the date takes no

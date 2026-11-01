@@ -17,7 +17,7 @@ export const RULE_EXPLAIN: Record<string, string> = {
   link: 'a link or web address',
   'contact details': 'contact details or an @mention',
   promotion: 'a promotion',
-  'picks or tips': 'a stock pick or price target',
+  'picks or tips': 'a stock recommendation or price target',
   'platform claim': 'a claim about this site or being verified',
   'return claim': 'a return claim beyond this trade',
   'copy trading': 'an offer to copy trades',

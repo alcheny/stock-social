@@ -58,7 +58,7 @@ const CLOSED_DAY_YEAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 
 export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.getUTCFullYear() ? CLOSED_DAY : CLOSED_DAY_YEAR).format(d);
 
 // F-7: a public-record card shows its card line in place of the thesis (filers post none).
-// F-7: a public filer's card carries its own line, never a note. F-9: a published thesis renders through UserNote (no byline:
+// F-7: a public filer's card carries its own line, never a note. F-9: UserNote renders a published thesis (no byline:
 // the card's header already names the trader; `report` is the Report control the feed passes for a signed-in reader).
 const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
   : t.thesis_status === 'published' && t.thesis
