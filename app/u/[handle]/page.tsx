@@ -3,13 +3,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
-import { confidence, edgeText, evidenceLine, isNewRecord, pct, rangeText, stats } from '@/lib/trades.ts';
+import { confidence, edgeText, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy, winRateText } from '@/lib/copy.ts';
-import { cardAlt } from '@/lib/record-card.ts';
+import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
+import { cardAlt, cardDescription, cardEvidence, evidenceRangeText } from '@/lib/record-card.ts';
 import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
@@ -84,12 +85,17 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: card ? cardAlt(card) : '' }] };
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete); with no
   // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
-  const statsText = `${winRateText(s.winRate)} · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
+  // F-4 (2026-11-01): the stats part is the card's own words (average per trade with its range, period, evidence; no
+  // win rate), from the same model as the image; F-6: open positions in words when the trader has any.
+  const cardText = card ? cardDescription(card, data.open ? OPEN.line(data.open, pct) : null) : null;
+  const statsText = cardText ?? `${pct(s.avgReturn)} average per trade · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
+  const base = profileDescription({ state, demo, verified, trades: s.trades, stats: statsText });
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
-    // F-6: with open positions, the unfurl text says so beside the closed-trade stats (a record with no closes keeps its
-    // empty-record line, PR-2b; its profile shows the open positions).
-    description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }) + (data.open && s.trades > 0 ? ` · ${OPEN.line(data.open, pct)}` : ''),
+    // POLICY F3: a preview text that quotes a figure also carries the disclaimer (text-only previews show no image).
+    // F-6: the open positions follow the closed-trade figures in F-6's wording (cardDescription's openLine); a record
+    // with no closes keeps its empty-record line (PR-2b), and its profile shows the open positions.
+    description: cardText ? `${base}. ${DISCLAIMER}` : base,
     openGraph,
   };
 }
@@ -150,12 +156,19 @@ export default async function Profile({ params, searchParams }: Params) {
   const trust = paneTrust(trades.map((t) => ({ verified: t.verified as boolean })), state);
   const first = trades.length ? new Date(Math.min(...trades.map((t) => t.opened_at.getTime()))) : null;
   const isNew = isNewRecord(trades.map((t) => ({ openedAt: t.opened_at })), trades.length, new Date());
-  const range = rangeText(c);
+  // F-4 rework (committee user test 2026-11-01): the profile shows the same evidence as the card it was shared from (the
+  // 95% range around the average it prints, the tier, the "Past results" verdict; lib/record-card.ts#cardEvidence), so
+  // a viewer arriving from a link sees one answer, not two. Ranking keeps confidence()'s own interval (`c`).
+  const shown = cardEvidence(trades.map((t) => ({ symbol: t.symbol as string, openedAt: t.opened_at as Date, closedAt: t.closed_at as Date,
+    returnPct: Number(t.return_pct), holdingDays: Number(t.holding_days) })), new Date());
+  const range = evidenceRangeText(shown);
   // Fix round 3 (TR-3): while any consented import runs, the trades so far are listed but nothing is presented as a
   // complete record: no Verified badge, no headline stats or chart, no "Record since · Connected" line.
   const complete = state !== 'importing';
   // Committee fix (item 5): no share invitation on a record that is importing or failed; "Try again" is the only primary.
   const shareable = state === 'connected' || state === 'none';
+  // F-4 rework: the share prompt quotes the card's own range (around the average it prints) and alt, from its model.
+  const promptCard = isMe && !claimed && shareable && sharePromptShowing ? await loadRecordCard(user.handle, 'unfurl') : null;
   const connected = allVerified ? connectedLine(brokers, accounts) : 'Demo data';
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
@@ -195,8 +208,8 @@ export default async function Profile({ params, searchParams }: Params) {
         <p role="alert" className="down"><b>{ACCOUNT_CLAIMED_TITLE}</b> {ACCOUNT_CLAIMED_BODY}</p>
       )}
       {isMe && !claimed && shareable && sharePromptShowing && (
-        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={range} isNew={isNew}
-          previewAlt={`Preview of your share card. ${cardAlt((await loadRecordCard(user.handle, 'unfurl'))!)}`} />
+        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={promptCard?.range ?? null} isNew={isNew}
+          previewAlt={`Preview of your share card. ${promptCard ? cardAlt(promptCard) : ''}`} />
       )}
       {isMe && !claimed && user.trades_prompt_seen_at === null && <MarkTradesPromptSeen />}
       {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
@@ -239,9 +252,10 @@ export default async function Profile({ params, searchParams }: Params) {
       {both && <CombinedLine c={both} />}
       <div className="evidence">
         <p style={{ margin: 0 }}>
-          {c.edge
-            ? <>{open ? <span data-open>{OPEN.evidencePrefix}</span> : 'Past results: '}<b className={c.edge === 'positive' ? 'up' : c.edge === 'negative' ? 'down' : ''}>{edgeText(c.edge)}</b>{evidenceLine(c).slice(`Past results: ${edgeText(c.edge)}`.length)}</>
-            : <>{open && <span data-open>{OPEN.evidencePrefix}</span>}{evidenceLine(c)}</>}
+          {/* F-4 rework: the card's evidence (shown); F-6: "Closed trades: " scopes it when there are open positions. */}
+          {shown.edge
+            ? <>{open ? <span data-open>{OPEN.evidencePrefix}</span> : 'Past results: '}<b className={shown.edge === 'positive' ? 'up' : shown.edge === 'negative' ? 'down' : ''}>{edgeText(shown.edge)}</b>{evidenceLine(shown).slice(`Past results: ${edgeText(shown.edge)}`.length)}</>
+            : <>{open && <span data-open>{OPEN.evidencePrefix}</span>}{evidenceLine(shown)}</>}
         </p>
         <details>
           <summary>What&apos;s this?</summary>
