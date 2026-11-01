@@ -289,3 +289,12 @@ test('F-4 2026-11-01 (record length): the seeded demo record reads the same days
   const days = Number(evidenceLine(confidence(trades, new Date())).match(/, (\d+) days?\)/)![1]);
   assert.equal(card(trades, { now: new Date(), demo: true, state: 'none', verified: false }).periodLength, `${days} days`);
 });
+
+test('code review 2026-11-01: "too wide" reads the unclamped range, so the -100% stop never makes a wide record look narrow', () => {
+  // About -95% a trade with a half-width of ~12 points: clamped at -100% it would print ~8.5 points wide.
+  const r = record(31, 200, (i) => (i % 2 ? -0.83 : -0.99) + (i % 3 ? 0.04 : -0.04));
+  const e = cardEvidence(r, now);
+  assert.ok(e.perTrade!.low >= -1);
+  const unclampedHalf = e.perTrade!.high - headline(r).avgReturn; // the high end is never clamped
+  assert.equal(e.tier === 'too-early', unclampedHalf > 0.10, `half ${unclampedHalf.toFixed(3)} tier ${e.tier}`);
+});

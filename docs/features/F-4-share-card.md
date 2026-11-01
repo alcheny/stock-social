@@ -161,6 +161,12 @@ Each one testable; the pipeline writes a test for every line.
 ## Open questions
 - Later depth: which per-trade elements, and whether they appear on the record card or only on
   per-trade cards.
+- 2026-11-01 (business lead, user test): the profile chart still compounds ("Return if every trade were the same size")
+  while the card draws the running sum; whether the profile chart moves to the running sum is for the owner (F-6 or a
+  profile follow-up). The numbers never contradict: the card prints no end value.
+- 2026-11-01 (code review): the trade page, the month recap and the compare page still print `confidence()`'s
+  log-based range and tier; the profile and card now print `cardEvidence`. Moving `lib/trades.ts#confidence` onto
+  `arithmeticRange` (its owners' hand-off) makes every surface one answer.
 
 ## Rework notes
 - 2026-10-22: Owner wants the card to lead with chart, trade count and period; detail later.

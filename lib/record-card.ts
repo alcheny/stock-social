@@ -185,7 +185,7 @@ export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
   const c = confidence(trades, now);
   const r = arithmeticRange(trades);
   const perTrade = r && { low: r.low, mid: r.mid, high: r.high };
-  const tier: Tier = c.k < MIN_BETS || !perTrade || tooWide(perTrade) ? 'too-early' : tierFor(c.k, c.spanDays);
+  const tier: Tier = c.k < MIN_BETS || !r || tooWide({ low: r.mid - r.half, high: r.mid + r.half }) ? 'too-early' : tierFor(c.k, c.spanDays);
   const sign = trustSign({ perTrade });
   const edge = tier === 'too-early' ? null : sign === 'unclear' ? 'unclear' : sign;
   return { ...c, tier, perTrade, edge };

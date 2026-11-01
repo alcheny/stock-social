@@ -30,7 +30,8 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
     <div style={{ ...row, alignItems: 'baseline', gap: 16, flex: 1, minWidth: 0, overflow: 'hidden' }}>
       {/* User test 2026-11-01: the @handle is the card's one unique identity (anyone can pick any display name), so it
           always shows in full; when the row is short only the display name gives way. */}
-      <span style={{ ...t(f.name), ...one, flexShrink: 1, minWidth: 0 }}>{m.name}</span>
+      {/* A trader with no display name shows the handle here: then it never truncates either (code review). */}
+      <span style={handleOnly ? { ...t(f.name), whiteSpace: 'nowrap', flexShrink: 0 } : { ...t(f.name), ...one, flexShrink: 1, minWidth: 0 }}>{m.name}</span>
       {!handleOnly && <span style={{ ...t(f.handle, C.muted), whiteSpace: 'nowrap', flexShrink: 0 }}>@{m.handle}</span>}
     </div>
   );
@@ -39,23 +40,33 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   const toneColor = (tone: 'up' | 'down' | 'flat') => (tone === 'up' ? C.up : tone === 'down' ? C.down : C.text);
   const lineColor = toneColor(m.headlineTone ?? 'flat'); // the line agrees with the headline it sums to
 
-  // F-6: "3 still open · 2 up, 1 down · lowest -8.0%, highest +12.1%", each percent in its own sign's color (the
+  // F-6: "3 open, unrealized · 2 up, 1 down · lowest -8.0%, highest +12.1%", each percent in its own sign's color (the
   // words carry the meaning; the color only repeats it). Never clipped: a held loser is never hidden.
   const o = m.open;
-  const spread = o && (o.low === o.high
-    ? [<span key="a" style={{ marginLeft: '0.28em' }}>at</span>, <span key="l" style={{ color: toneColor(o.lowTone), marginLeft: '0.28em' }}>{o.low}</span>]
-    : [<span key="a" style={{ marginLeft: '0.28em' }}>lowest</span>, <span key="l" style={{ color: toneColor(o.lowTone), marginLeft: '0.28em' }}>{o.low}</span>,
-      <span key="c">,</span>, <span key="b" style={{ marginLeft: '0.28em' }}>highest</span>, <span key="h" style={{ color: toneColor(o.highTone), marginLeft: '0.28em' }}>{o.high}</span>]);
-  const openRow = (size: number, short: boolean) => o && (
-    <div style={{ ...row, flexWrap: 'wrap', ...t(size), lineHeight: 1 }}>
-      <span>{[short ? o.shortTitle : '', o.split].filter(Boolean).join(' · ')}{short || o.split ? ' ·' : ''}</span>{spread}
-    </div>
-  );
+  // `lead`: whether words come before the spread on its row (no indent before "at 0.0%" when nothing does).
+  const gap = (on: boolean) => ({ marginLeft: on ? '0.28em' : 0 });
+  const spread = (lead: boolean) => o && (o.low === o.high
+    ? [<span key="a" style={gap(lead)}>at</span>, <span key="l" style={{ color: toneColor(o.lowTone), ...gap(true) }}>{o.low}</span>]
+    : [<span key="a" style={gap(lead)}>lowest</span>, <span key="l" style={{ color: toneColor(o.lowTone), ...gap(true) }}>{o.low}</span>,
+      <span key="c">,</span>, <span key="b" style={gap(true)}>highest</span>, <span key="h" style={{ color: toneColor(o.highTone), ...gap(true) }}>{o.high}</span>]);
+  const openRow = (size: number, short: boolean) => {
+    if (!o) return null;
+    const words = [short ? o.shortTitle : '', o.split].filter(Boolean).join(' · ');
+    return (
+      <div style={{ ...row, flexWrap: 'wrap', ...t(size), lineHeight: 1 }}>
+        {words && <span>{`${words} ·`}</span>}{spread(!!words)}
+      </div>
+    );
+  };
+  // The note sits on the title's row (it wraps under it only if the row is full), so the block is two rows high and
+  // the worst case (failed note, New record, 12 positions) keeps every row (UX test, round 2).
   const openBlock = o && (
     <div style={col}>
-      <span style={big(f.line)}>{o.title}</span>
+      <div style={{ ...row, alignItems: 'baseline', flexWrap: 'wrap', gap: 16 }}>
+        <span style={big(f.line)}>{o.title}</span>
+        <span style={{ ...t(f.body, C.muted), whiteSpace: 'nowrap' }}>{o.note}</span>
+      </div>
       {openRow(f.body, false)}
-      <span style={t(f.body, C.muted)}>{o.note}</span>
     </div>
   );
 
