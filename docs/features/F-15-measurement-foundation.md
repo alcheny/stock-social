@@ -1,7 +1,6 @@
 # F-15 · Measurement foundation, first slice: view counts and link sources
 
-Status: blocked
-Blocked: waits for fix #28 (`via=nav` in `lib/referral.ts`, approval council cycle 2 fixes list)
+Status: built
 Start conditions: fix #28 (`via=nav` in `lib/referral.ts`) merges first. The beacon mounts from its own component and
 does not edit `app/layout.tsx` until F-13 merges. The `share_action` half starts after F-13 merges (F-4 has merged).
 
@@ -68,41 +67,102 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
 - 2026-11-01: Sequencing: fix #28 merges first (same list at `lib/referral.ts`). The beacon mounts from its own
   component, not `app/layout.tsx`, until F-13 merges. If this build has not started by the next approval council,
   this approval lapses to that council. Why: approved by the approval council (cycle 2); RT, BL, PD, TS.
+- 2026-11-01: unblocked by the orchestrator — fix #28 merged in #59 (3f216ba).
+- 2026-11-01: Mount point: the beacon mounts from a new `app/template.tsx` that renders a fragment
+  (`{children}<ViewBeacon />`), so no DOM node is added and `app/layout.tsx` is untouched until F-13 merges; the beacon
+  re-arms on each pathname. Why: decided by the committee under the owner's instruction of 2026-11-01; the only option
+  that touches no F-13 file; per-page lines would edit F-13's files and be forgotten on new pages.
+- 2026-11-01: Retention bound: rollup and drop rows are purged after 120 days by a `views` step in the existing privacy
+  purge on the sync tick; the owner may change the number. Why: decided by the committee under the owner's instruction
+  of 2026-11-01; covers the 8-week gate window plus re-reads, and matches E6's 120 days so the Privacy Policy can state
+  one number.
+- 2026-11-01: Invite codes: the registry holds two invite codes, `inv_t` (transparency-led recruiting segment) and
+  `inv_h`; numbered codes are rejected. Why: decided by the committee under the owner's instruction of 2026-11-01;
+  numbered codes invite one code per person, which breaks "a class, never a per-person id".
+- 2026-11-01: Share classes: `card` (profile), `story` (profile shared with its story picture, only when the share sheet
+  takes the picture), `trade`, `month`; the class is chosen at click time from the path the share took. Why: decided by
+  the committee under the owner's instruction of 2026-11-01; the format split the market council asked for, without mis-
+  tagging a copied link as a picture share.
+- 2026-11-01: Rate cap: in memory, per server instance, 60 beacons per client per minute; the key is a salted hash (salt
+  replaced hourly) of the trusted client address and user agent, never stored or logged; with no trusted address the cap
+  is skipped. Why: decided by the committee under the owner's instruction of 2026-11-01; a reader swiping the pane can
+  send one every 2 s; keying on the agent alone would undercount readers who share a common browser (business lead R1).
+- 2026-11-01: Drop rollup: `view_drops` (day, surface or `other`, reason, count; no user id) is stored with the same
+  retention. Why: decided by the committee under the owner's instruction of 2026-11-01; the only drift signal in weeks
+  1-8 and the source of the false-count rate.
+- 2026-11-01: No CHECK on `surface`, `via` or `reason`: they are validated in code against the closed lists and a db
+  test fails on any stored value outside them; `ref_class` keeps its CHECK. Why: decided by the committee under the
+  owner's instruction of 2026-11-01; adding a code later would need a `drop constraint`, which the CI schema rule
+  forbids.
+- 2026-11-01: Readout: weekly, owner-run (`scripts/f15-readout.ts --out <dir>`, refused inside the repo by a realpath
+  check), Markdown; every cell from 1 to 4 prints "<5", a complementary cell is hidden so no small count can be worked
+  out by subtraction, totals with hidden cells print "≥ n". Why: decided by the committee under the owner's instruction
+  of 2026-11-01; POLICY P3 (the red team's invite-link case) and the engineer's subtraction finding.
+- 2026-11-01: G1 in the readout: strict G1 is distinct non-demo, non-deleted users with a connection in state
+  `connected`; users whose connections are all frozen or failed print on a separate row labelled partial. Why: decided
+  by the committee under the owner's instruction of 2026-11-01; an exact definition before week 1 (business lead D3);
+  counting frozen records is MRC2-3, the owner's.
+- 2026-11-01: G4 in the readout: only the fixed line "strict G4 can't be read in this slice; signed-out D7 return is not
+  measured"; no signed-in count is printed in this slice. Why: decided by the committee under the owner's instruction of
+  2026-11-01; no server row holds a signed-in day-7 return without E6 (business lead D2).
+- 2026-11-01: Rename test reading: counts are keyed by user id, never handle text, so nothing is found under the text of
+  either handle and the new user A has none; the old rows stay with the renamed account (the same person). Why: decided
+  by the committee under the owner's instruction of 2026-11-01; the literal "under either" would delete a renamed
+  trader's counts; raised for the owner.
+- 2026-11-01: Record surfaces count only pages that exist: a trade page needs that trader's closed trade, a month page a
+  close in that month; unknown or deleted handles count nothing. Why: decided by the committee under the owner's
+  instruction of 2026-11-01; a 404 page must not count as a view of a trader.
+- 2026-11-01: Invite codes are counted on views only, not in sign-up attribution (`users.referred_surface`). Why:
+  decided by the committee under the owner's instruction of 2026-11-01; sign-up attribution needs a referrer, and
+  outreach links point at Demo profiles, which attribution ignores; widening it is MRC2-3 (ponytail).
+- 2026-11-01: Bot validation: 200 scripted (50 no-script fetches, 50 script-running visits that declare themselves, 50
+  with the automation flag hidden but a preview agent, 50 direct posts) and 50 human-like visits, plus forged and burst
+  groups reported apart; the 95% bar must hold on the script-running subset alone. Why: decided by the committee under
+  the owner's instruction of 2026-11-01; a no-script fetch can't send a beacon, so it alone would pass by construction
+  (business lead D1, engineer E1).
+- 2026-11-01: The `share_action` half (E5) is not in this PR; G2 prints "after the share_action slice". Why: decided by
+  the committee under the owner's instruction of 2026-11-01; the feature file's start condition: it edits files F-13
+  owns.
+- 2026-11-01: A browser that reports automation sends no beacon at all; the route still drops a beacon flagged as
+  automated. Why: decided by the committee under the owner's instruction of 2026-11-01; every automated test run and
+  scripted browser would otherwise add a request to every page (the full e2e suite's request-counting tests caught it),
+  and such a browser is never a person's view.
 
 ## Acceptance criteria
-- [ ] A db test inserts rollup rows for a profile, calls `deleteProfile` and finds no row naming that user or handle.
+- [x] A db test inserts rollup rows for a profile, calls `deleteProfile` and finds no row naming that user or handle.
       A second test renames A to B, creates a new user A and finds none of the old counts under either (veto
       condition: LG).
-- [ ] A test fails if any rollup, beacon or `share_action` table stores an IP, user agent, viewer id, session id,
+- [x] A test fails if any rollup, beacon or `share_action` table stores an IP, user agent, viewer id, session id,
       cookie value or fingerprint (veto condition: DK, LG, CS).
-- [ ] A test fails on any stored `via` value outside the closed registry, and unknown values are dropped (unit test)
+- [x] A test fails on any stored `via` value outside the closed registry, and unknown values are dropped (unit test)
       (veto condition: LG).
-- [ ] No full referrer URL is stored; the referrer is stored only as a class (unit test) (veto condition: DK).
-- [ ] New tables have `SCHEMA_MAP` entries (`lib/privacy-retention.ts`). The cookie test (`COOKIE_TABLE`) and the log
+- [x] No full referrer URL is stored; the referrer is stored only as a class (unit test) (veto condition: DK).
+- [x] New tables have `SCHEMA_MAP` entries (`lib/privacy-retention.ts`). The cookie test (`COOKIE_TABLE`) and the log
       scanner pass with no new exception. The PR answers COMPLIANCE §1 Q2 (fields, location, visibility, deletion)
       (veto condition: DK).
-- [ ] `db/schema.sql` changes are additive only; the four `users` share columns remain (CI schema rule) (veto
+- [x] `db/schema.sql` changes are additive only; the four `users` share columns remain (CI schema rule) (veto
       condition: DK, LG, CS).
-- [ ] A test asserts no `app/` page and no `lib/feed.ts` code reads the rollup (veto condition: DK).
-- [ ] A unit test asserts no printed readout cell for path × via × day is below 5, and small cells roll into "other".
-- [ ] The readout prints the four DESIGN §3.5 thresholds verbatim beside its figures. It states that strict G4 can't
+- [x] A test asserts no `app/` page and no `lib/feed.ts` code reads the rollup (veto condition: DK).
+- [x] A unit test asserts no printed readout cell for path × via × day is below 5, and small cells roll into "other".
+- [x] The readout prints the four DESIGN §3.5 thresholds verbatim beside its figures. It states that strict G4 can't
       be read in this slice and that signed-out D7 return is not measured. Any signed-in day-7 count is labelled
       "signed-in viewers only". G2 reads "after the share_action slice" until it lands. G3 is labelled "views, not
       people" (unit test on the readout text) (veto condition: DK, LG, CS).
-- [ ] The readout script writes outside the repo and its output contains no handle or return (test).
-- [ ] The bot-filter validation (200 scripted, 50 human) is run before week 1 and its result (≥ 95% dropped, ≥ 95%
+- [x] The readout script writes outside the repo and its output contains no handle or return (test).
+- [x] The bot-filter validation (200 scripted, 50 human) is run before week 1 and its result (≥ 95% dropped, ≥ 95%
       counted) and false-count rate are in the PR.
-- [ ] A test fires 50 concurrent beacons for one key and gets one row with count 50.
-- [ ] With the beacon route returning 500, or the DB write failing, the page still returns 200 and stays usable, with
+- [x] A test fires 50 concurrent beacons for one key and gets one row with count 50.
+- [x] With the beacon route returning 500, or the DB write failing, the page still returns 200 and stays usable, with
       no error shown to the viewer (e2e).
-- [ ] The beacon adds no focusable element, no visible UI and no layout shift, and never delays first paint (e2e).
-- [ ] Rollup rows older than the stated retention bound are purged by an existing cron path (test).
-- [ ] Share and copy-link append the right `?via=` class and stay one tap. "Link copied" is announced in a polite live
+- [x] The beacon adds no focusable element, no visible UI and no layout shift, and never delays first paint (e2e).
+- [x] Rollup rows older than the stated retention bound are purged by an existing cron path (test).
+- [x] Share and copy-link append the right `?via=` class and stay one tap. "Link copied" is announced in a polite live
       region after the change (e2e).
-- [ ] Nav, invite and path codes are accepted by the registry (unit test).
+- [x] Nav, invite and path codes are accepted by the registry (unit test).
 - [ ] `share_action` rows: one row per share action, deleted with the profile, no thesis text or account id (db test).
-- [ ] The beacon component does not touch `app/layout.tsx` before F-13 merges (checked at review).
-- [ ] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
+      (Not in the first build: waits for F-13, per the start condition; G2 reads "after the share_action slice".)
+- [x] The beacon component does not touch `app/layout.tsx` before F-13 merges (checked at review).
+- [x] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
 
 ## Out of scope
@@ -113,6 +173,8 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
 - The Privacy Policy text: owner.
 
 ## Open questions
+- Owner: confirm the committee's reading of the rename criterion (counts stay with the renamed account's id; none
+  under the new holder of the handle, none under handle text).
 - Owner: rule on MRC2-3 (gate definitions). Until then the readout reports strict DESIGN numbers and labels anything
   else as partial.
 - Retention bound for rollup rows: the build proposes a number in the PR; the owner may change it.

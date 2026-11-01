@@ -38,7 +38,6 @@ const FLEET = { traders: 500, callers: 8, accounts: 2, perAccount: 20 };
 const log = (s: string) => console.log(`# load: ${s}`);
 const ms = (t0: number) => Math.round(performance.now() - t0);
 let fake: Awaited<ReturnType<typeof startVendorFake>>;
-const PORT = 5300 + Math.floor(Math.random() * 500);
 const tag = `l${Math.random().toString(36).slice(2, 8)}`;
 const made: number[] = [];
 const accountIds: string[] = [];
@@ -46,7 +45,7 @@ const accountIds: string[] = [];
 before(async () => {
   if (!LOAD || !hasDb) return;
   await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple();
-  fake = await startVendorFake(PORT);
+  fake = await startVendorFake(0);
   process.env.SNAPTRADE_BASE_URL = fake.base;
   process.env.SNAPTRADE_CLIENT_ID = 'test';
   process.env.SNAPTRADE_CONSUMER_KEY = 'test-consumer';

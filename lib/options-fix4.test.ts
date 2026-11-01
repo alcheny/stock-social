@@ -84,8 +84,9 @@ dbTest('N2: the trade and month pages (and their images) read the qualifier for 
 
 test('N8: closing the vendor fake closes its IPv6 listener and connections too', async () => {
   const { startVendorFake } = await import('../e2e/fakes/vendor.ts');
-  const port = 5300 + Math.floor(Math.random() * 400);
-  const a = await startVendorFake(port);
+  // A free port from the OS (port 0); the second fake re-binds the same one.
+  const a = await startVendorFake(0);
+  const port = (a.server.address() as { port: number }).port;
   await new Promise<void>((done) => { a.server.close(() => done()); a.server.closeAllConnections(); });
   // The same port binds again at once, both stacks.
   const b = await startVendorFake(port);
