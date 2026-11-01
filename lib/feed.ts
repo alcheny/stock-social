@@ -342,7 +342,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     recordStates(withSection ? [...new Set([...traders, ...candIds])] : traders),
     records(withSection ? [...new Set([...traders, ...likely])] : traders),
     opts.viewer ? followingAmong(opts.viewer, traders) : null,
-    withSection ? sql`select id, handle, display_name from users u where id = any(${candIds}) and deleted_at is null and ${filerVisibleSql('u')}` : [],
+    withSection ? sql`select id, handle, display_name from users where id = any(${candIds}) and deleted_at is null and ${filerVisibleSql('users')}` : [],
     opts.viewer ? rejectedAmong(opts.viewer, page.items.map((s) => s.key)) : null,
     // F-6: the same trader set as the record states (it holds every section trader the page can pick).
     openPositions(withSection ? [...new Set([...traders, ...candIds])] : traders),

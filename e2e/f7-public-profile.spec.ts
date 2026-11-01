@@ -9,8 +9,8 @@ import { buyFilingUrl, deleteFilers, ensureImportState, filingUrl, insertFiler, 
 const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
 const NOT_JOINED = 'Built from public filings. This person has not joined Stock Social, has not connected a broker, has not reviewed this record and does not endorse it.';
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
-const P = 'pf_e7p', HID = 'pf_e7h', REAL = 'pf_e7r';
-const HANDLES = [P, HID, REAL];
+const P = 'pf_e7p', HID = 'pf_e7h', REAL = 'pf_e7r', EMPTY = 'pf_e7e';
+const HANDLES = [P, HID, REAL, EMPTY];
 const CLOSES = [{ symbol: 'ZQXA', r: 0.12, daysAgo: 40 }, { symbol: 'ZQXB', r: -0.07, daysAgo: 50 }, { symbol: 'ZQXC', r: 0.03, daysAgo: 60 },
   // Filed this week: inside the feed floor, but on the profile at once (AC 21).
   { symbol: 'ZQXD', r: -0.2, daysAgo: 2, feedAfterDaysAgo: -28 }];
@@ -23,6 +23,7 @@ test.beforeAll(async () => {
   await ensureImportState(sql);
   await insertFiler(sql, { handle: P, name: 'Fictional Filer Prime', excluded: { no_price: 3, unreconciled: 1, indirect: 2 }, openSymbols: ['ZQXQ', 'ZQXO'], closes: CLOSES });
   await insertFiler(sql, { handle: HID, name: 'Fictional Filer Hidden', hidden: true, closes: CLOSES.slice(0, 1) });
+  await insertFiler(sql, { handle: EMPTY, name: 'Fictional Filer Empty', excluded: { no_price: 2 }, closes: [] });
   await insertFiler(sql, { handle: REAL, name: 'Fictional Filer Plain', demo: false, closes: CLOSES.slice(0, 2) });
 });
 test.afterAll(async () => {
@@ -119,7 +120,7 @@ test('AC 28, 30, 34: no Follow, thesis, share prompt or join CTA; noindex; unfur
 });
 
 test('AC 25: signed out and signed in see the same profile', async ({ browser, page }) => {
-  await page.goto(`/u/${P}`);
+  await page.goto(`/u/${P}`, { waitUntil: 'networkidle' }); // both read after hydration (the chart adds its list)
   const out = await page.locator('main').innerText();
   const ctx = await browser.newContext({ viewport: { width: 360, height: 800 } });
   const me = await ctx.newPage();
@@ -130,7 +131,7 @@ test('AC 25: signed out and signed in see the same profile', async ({ browser, p
     await me.getByLabel('I am 18 or older').check();
     await me.getByRole('button', { name: 'Continue' }).click();
     await expect(me).toHaveURL(new RegExp(`/u/${h}$`));
-    await me.goto(`/u/${P}`);
+    await me.goto(`/u/${P}`, { waitUntil: 'networkidle' });
     expect(await me.locator('main').innerText()).toBe(out);
     await expect(me.getByRole('button', { name: /follow/i })).toHaveCount(0);
   } finally {
@@ -180,4 +181,21 @@ test('AC 9, 23: a hidden filer is 404 on every surface', async ({ request }) => 
   // The share images of a hidden record draw "not found", never the record.
   const img = await request.get(`/u/${HID}/trade/${sell}/opengraph-image`);
   expect(img.status()).not.toBe(500);
+});
+
+test('Round 4 item 2: a filer with no priced closed trade has no page and no card', async ({ request }) => {
+  for (const path of [`/u/${EMPTY}`, `/u/${EMPTY}/opengraph-image`, `/u/${EMPTY}/story`]) expect((await request.get(path)).status(), path).toBe(404);
+});
+
+test('AC 7: the dev login form with a filer handle creates no session', async ({ page }) => {
+  await page.goto('/login/dev');
+  await page.getByLabel('Handle').fill(P);
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.waitForLoadState('networkidle');
+  expect(page.url()).not.toMatch(new RegExp(`/u/${P}$`));
+  await page.goto('/how');
+  await expect(page.locator('body')).toHaveAttribute('data-viewer', 'guest');
+  const [{ n }] = await sql`select count(*)::int as n from sessions s join users u on u.id = s.user_id where u.handle = ${P}`.catch(() => [{ n: 0 }]);
+  expect(n).toBe(0);
 });

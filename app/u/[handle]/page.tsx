@@ -54,6 +54,7 @@ async function load(handle: string) {
   const trades = await sql`
     select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url
     from closed_trades where user_id = ${user.id} order by closed_at desc, id desc`; // list order (lib/paging.ts)
+  if (filer && !trades.length) return null; // F-7 (plan Round 4 item 2): no page without a priced closed trade
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
   // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.

@@ -26,7 +26,7 @@ export async function insertFiler(sql: postgres.Sql, f: F7Filer, now = Date.now(
     feed_after: new Date(now - (c.feedAfterDaysAgo ?? 1) * DAY),
   })))}`;
   // The opening purchase of each close, raw and private (never rendered): only so the trade page can link its filing.
-  await sql`insert into public_transactions ${sql(f.closes.map((c, i) => ({
+  if (f.closes.length) await sql`insert into public_transactions ${sql(f.closes.map((c, i) => ({
     filer_id: pf.id, external_id: `${f.handle}-buy-${i}`, filing_id: `${f.handle}-buy-${i}`, filing_url: buyFilingUrl(f.handle, i),
     symbol: c.symbol, code: 'P', side: 'BUY', units: 4321, price: 98.76, held_after: 4321,
     executed_at: new Date(now - (c.daysAgo + (c.hold ?? 3)) * DAY), filed_at: new Date(now - (c.daysAgo + (c.hold ?? 3)) * DAY),
