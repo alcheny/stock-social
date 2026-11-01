@@ -57,7 +57,8 @@ test('a hidden profile is counted on no public surface, and its old handle is a 
     const looks = async () => {
       await page.goto('/');
       const feed = (await page.locator('main').innerText()).includes(`@${handle}`);
-      await page.goto(`/t?q=${S}`);
+      // /t, searched by a prefix only S has (a search for S itself redirects to /t/S while it is an exact match).
+      await page.goto(`/t?q=${S.slice(0, -1)}`);
       const index = await page.locator(`main a[href="/t/${S}"]`).count() > 0;
       await page.goto(`/t/${S}`);
       const symbolEmpty = (await page.locator('main').innerText()).includes(`No verified closed trades in ${S} yet.`);
