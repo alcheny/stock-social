@@ -5,6 +5,11 @@ vendors, claims in copy, how the team works) goes to the **idea board** before i
 members, lenses and rounds are in [`team/idea-board.md`](../team/idea-board.md). Code changes go through the
 committee cycle (`docs/IMPLEMENTATION.md`); an idea that becomes a feature then goes to a design session.
 
+Market research, creative direction and design direction have their own large councils
+([`team/direction-councils.md`](../team/direction-councils.md)); their records go in `docs/direction/` and their
+proposals come back here for the board, which enforces existing decisions and common sense before anything is
+adopted.
+
 ## How an idea gets reviewed
 
 1. Anyone (the owner, a design session, a committee, an agent) adds it to the register below with status
