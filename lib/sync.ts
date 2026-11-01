@@ -4,6 +4,7 @@ import { fetchActivities, fetchActivitiesPage, fetchPositions, listAccounts, PAG
 import { AccountClaimedError, claimIn } from './claims.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
+import { actionsFor, chainsOf, loadCorporateActions, pairKey, type CorporateAction } from './corporate-actions.ts';
 import { replacePositions } from './positions.ts';
 
 const BACKFILL_MS = 7 * 86_400_000; // brokers post late corrections; re-read the last week
@@ -48,7 +49,7 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
 // way and repeated rebuilds give byte-identical rows (defect 3: the read had no order at all). Returns what it wrote and
 // the most activity rows it held at once.
 type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string };
-export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number }> {
+export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
   const run = async (tx: TransactionSql) => {
     // Reviewer fix round 2: a rebuild never deletes a thesis. One whose trade is not produced now (its account is flagged
     // simulated, a vendor correction) is kept in kept_theses by sell_id, shown nowhere, and re-attached when the trade
@@ -60,10 +61,16 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
     let written = 0, excluded = 0, maxHeld = 0;
-    const flush = async (rows: Activity[]) => {
+    // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
+    // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
+    const actions = await loadCorporateActions(tx, userId, notFuture(tx));
+    const chainOf = chainsOf(actions);
+    let excludedCorporate = 0;
+    const flush = async (rows: Activity[], keys?: Set<string>) => {
       if (!rows.length) return;
-      const m = matchTrades(rows);
+      const m = matchTrades(rows, actions.length ? actionsFor(actions, keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
       excluded += m.excluded;
+      excludedCorporate += m.excludedCorporate;
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
         await tx`insert into closed_trades ${tx(m.trades.slice(i, i + INSERT_CHUNK).map((t) => {
@@ -95,6 +102,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
         };
         if (open.length && (open[0].accountId !== a.accountId || open[0].symbol !== a.symbol)) { await flush(open); open = []; }
+        if (chainOf.has(pairKey(a.accountId, a.symbol))) continue; // matched with its chain below
         open.push(a);
         maxHeld = Math.max(maxHeld, open.length + page.length);
       }
@@ -103,6 +111,22 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       after = { account_id: last.account_id, symbol: last.symbol, at: last.at, external_id: last.external_id, source: last.source };
     }
     await flush(open);
+    // Corporate actions: each rename chain's pairs, read and matched together (in the stream's total order).
+    const chains = new Map<string, string[]>();
+    for (const [k, root] of chainOf) chains.set(root, [...(chains.get(root) ?? []), k]);
+    for (const keys of chains.values()) {
+      const pairs = keys.map((k) => [k.slice(0, k.lastIndexOf('|')), k.slice(k.lastIndexOf('|') + 1)]);
+      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
+        from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
+        and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+        and ${notFuture(tx)}
+        order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
+      maxHeld = Math.max(maxHeld, rows.length);
+      await flush(rows.map((r) => ({
+        externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,
+        price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
+      })), new Set(keys));
+    }
     const setAside = live.filter((k) => !attachedIds.has(k.sell_id as string));
     if (setAside.length) {
       await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status })))}
@@ -111,7 +135,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)})
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
-    return { trades: written, excluded, future: future as number, maxHeld };
+    await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
+    return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
   };
   return tx ? run(tx) : sql.begin(run);
 }

@@ -60,6 +60,8 @@ export const PROFILE = {
   // Fix round 8 (tester re-run 4): counts pluralized ("1 earlier position", "2 imported trades"), never "(s)".
   excludedPositions: (n: number) => `${counted(n, 'earlier position')} excluded: no matching entry in the imported history.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
+  // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
+  excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a stock split or other corporate action the importer can't price exactly.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -269,11 +271,13 @@ export const HOW = {
     'Return is the percent change between the matched buys and the sell, after the fees the broker reported. Nothing is weighted by size.',
     'Headline stats are the win rate and the average return per trade. Max drawdown is per-trade and equal-weight, not an account return.',
     'Only percentages are stored and shown: no amounts, quantities or prices.',
+    'After a stock split or symbol change, earlier buys are adjusted to match, so the return stays correct and the holding period still starts at the first buy. Fractional shares paid out as cash in a split are not counted as trades.',
   ],
   excludedTitle: 'What is excluded, and counted',
   excluded: [
     'Options, short sales and other activity the importer cannot price correctly.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
+    'Stock splits and other corporate actions the importer can\u2019t price exactly, such as a spin-off. A position whose imported history is missing shares is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
   ],

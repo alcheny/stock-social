@@ -23,10 +23,13 @@
 //   GET  /_state                                   users, their connections and accounts, for assertions
 import { createServer, type Server } from 'node:http';
 
+// Corporate actions (F3c): share-moving rows (SPLIT, STOCK_DIVIDEND, REI, ADJUSTMENT...) with an optional description,
+// served like the vendor's; the activities endpoint honours the `type` filter as the vendor documents it.
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
-export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
+export type FakeCorporateRow = Omit<FakeActivity, 'type'> & { type: 'SPLIT' | 'STOCK_DIVIDEND' | 'REI' | 'ADJUSTMENT'; description?: string };
+export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | (FakeActivity | FakeCorporateRow)[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
 type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean; portalFrameHeaders?: boolean };
-type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: FakeActivity[]; syncDone: boolean }> };
+type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: (FakeActivity | FakeCorporateRow)[]; syncDone: boolean }> };
 
 // Deterministic BUY/SELL pairs so `n` activities give n/2 closed trades per account.
 export function generateActivities(accountId: string, n: number): FakeActivity[] {
@@ -181,7 +184,8 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
       const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 1000);
       // `startDate` (YYYY-MM-DD, inclusive), as the vendor documents it: the hourly sync's backfill window.
       const from = url.searchParams.get('startDate');
-      const rows = from ? a.rows.filter((r) => r.trade_date.slice(0, 10) >= from) : a.rows;
+      const types = url.searchParams.get('type')?.split(',');
+      const rows = a.rows.filter((r) => (!from || r.trade_date.slice(0, 10) >= from) && (!types || types.includes(r.type)));
       const data = rows.slice(offset, offset + limit).map((r) => ({ ...r, symbol: { symbol: r.symbol } }));
       return json({ data, pagination: { offset, limit, total: rows.length } });
     }

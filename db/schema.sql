@@ -378,3 +378,25 @@ create table if not exists trade_exclusions (
 -- Fix round 1: when the hidden trade was liked, the like's time (Undo restores the like; a hidden trade is never liked).
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
+
+-- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md): the vendor's split,
+-- stock-dividend, symbol-change and other share-moving rows, raw and immutable like `activities`, mapped by
+-- lib/corporate-actions.ts#fromVendorRows. The rebuild applies them to the FIFO lots (lib/trades.ts#matchTrades).
+-- Deleted with the profile (cascade). ponytail: filled once lib/broker.ts passes these rows through (owner change).
+create table if not exists corporate_actions (
+  id bigint generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  source text not null check (source in ('snaptrade', 'demo')),
+  external_id text not null,
+  account_id text not null,
+  symbol text not null,
+  kind text not null check (kind in ('split', 'stock-dividend', 'symbol-change', 'unpriceable')),
+  detail jsonb not null,                            -- the mapped fields: ratio, units, newSymbol, reason, scope
+  executed_at timestamptz not null,
+  raw jsonb not null,                               -- full vendor payload, kept for re-derivation
+  created_at timestamptz not null default now(),
+  unique (source, external_id)
+);
+select schema_add_index('corporate_actions_user', 'create index corporate_actions_user on corporate_actions (user_id, executed_at)');
+-- Sells the importer can't price exactly because of a corporate action, counted by the rebuild (shown on the profile).
+select schema_add_column('users', 'excluded_corporate', 'int not null default 0');

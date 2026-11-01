@@ -39,7 +39,7 @@ import { SimilarSection } from './similar-section.tsx';
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
 async function load(handle: string) {
-  const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
+  const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
   if (!user) return null;
   const trades = await sql`
     select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
@@ -244,6 +244,9 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
       {user.excluded_future > 0 && (
         <p className="muted">{PROFILE.excludedFuture(user.excluded_future)}</p>
+      )}
+      {user.excluded_corporate > 0 && (
+        <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>
       )}
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
 

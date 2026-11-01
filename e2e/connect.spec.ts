@@ -7,7 +7,7 @@ import { expect, test, type Page, type APIRequestContext } from '@playwright/tes
 import { readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import postgres from 'postgres';
-import { startVendorFake, type FakeAccount, type FakeActivity } from './fakes/vendor.ts';
+import { startVendorFake, type FakeAccount, type FakeActivity, type FakeCorporateRow } from './fakes/vendor.ts';
 import { feedLock } from './feed-lock.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
@@ -1669,4 +1669,56 @@ test('PR-2b S5 (PR-3 fix round 7): before the first close the headline counts ac
   const [u] = await sql`select id from users where handle = ${handle}`;
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id in ${sql(a)}`;
+});
+
+// ---- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md) ----
+// Here, not in a spec of its own: the vendor fake listens on the one port the app is pointed at, with one pending
+// scenario, so a second spec starting it in another worker would race this file's tests.
+test('corporate actions (F3c): an import across a 2:1 split never shows a wrong return; the oversold sell is excluded and counted, signed out too, in the page description as well', async ({ page }) => {
+  const handle = `cax${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  const row = (id: string, type: FakeActivity['type'] | FakeCorporateRow['type'], symbol: string, units: number, price: number, day: string, description?: string) =>
+    ({ id: `${acc}-${id}`, type, symbol, units, price, fee: 0, trade_date: `${day}T15:00:00Z`, ...(description ? { description } : {}) }) as FakeActivity | FakeCorporateRow;
+  // Buy 100 at 100, a 2-for-1 split, sell 200 at 55 (+10% priced correctly; -45% if the split were ignored), and an
+  // ordinary +10% round trip. lib/broker.ts asks the vendor for BUY and SELL only, so the split row never arrives:
+  // until the owner's broker change, the safety net (an oversold episode is excluded whole) is what keeps -45% out.
+  await scenario([{ id: acc, activities: [
+    row('b1', 'BUY', 'SPLITCO', 100, 100, '2025-03-03'), row('sp', 'SPLIT', 'SPLITCO', 100, 0, '2025-03-10', '2 FOR 1 STOCK SPLIT'),
+    row('s1', 'SELL', 'SPLITCO', 200, 55, '2025-04-01'), row('b2', 'BUY', 'PLAIN', 10, 100, '2025-03-03'), row('s2', 'SELL', 'PLAIN', 10, 110, '2025-04-01'),
+  ] }]);
+  await connectThrough(page);
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  let r = await step(page.request);
+  for (let i = 0; i < 6 && r.state === 'importing'; i++) r = await step(page.request);
+  expect(r.state).toBe('connected');
+  const sql = await db();
+  const [u] = await sql`select id, excluded_positions, excluded_corporate from users where handle = ${handle}`;
+  expect((await sql`select symbol from closed_trades where user_id = ${u.id}`).map((x) => x.symbol)).toEqual(['PLAIN']);
+  expect([u.excluded_positions, u.excluded_corporate]).toEqual([1, 0]);
+  expect((await sql`select 1 from activities where user_id = ${u.id} and external_id = ${`${acc}-sp`}`).length).toBe(0); // the split row is not read today
+  await page.context().clearCookies();
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 375, height: 740 });
+    await page.goto(`/u/${handle}`);
+    await expect(page.locator('.rows:not(.positions) li')).toHaveCount(1);
+    await expect(page.getByText('1 earlier position excluded: no matching entry in the imported history.', { exact: true })).toBeVisible();
+    const main = await page.locator('main').innerText();
+    expect(main).not.toMatch(/-45(\.0)?%|−45/);
+    expect(main).toContain('+10.0%');
+    await expect(page.locator('footer.site')).toContainText('Not investment advice. Past performance does not guarantee future results.');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`corporate-actions-${scheme}.png`), fullPage: true });
+  }
+  for (const name of ['description', 'og:description', 'twitter:description']) {
+    const content = await page.locator(`meta[name="${name}"], meta[property="${name}"]`).first().getAttribute('content').catch(() => null);
+    if (content !== null) expect(content).not.toMatch(/-45/);
+  }
+  expect((await page.request.get(`/u/${handle}/opengraph-image`)).status()).toBe(200); // the share card renders from the same rows
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
 });
