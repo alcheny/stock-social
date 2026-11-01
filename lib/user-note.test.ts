@@ -52,7 +52,11 @@ test('the report slot renders only when given', () => {
 
 test('never larger than the verified figure: the note is body size or smaller, set only in the UserNote CSS block', () => {
   const css = read('../app/globals.css');
-  const block = css.slice(css.indexOf('/* fix-user-text: UserNote'));
+  // The block runs to its end marker (later features append their own blocks after it).
+  const start = css.indexOf('/* fix-user-text: UserNote');
+  const end = css.indexOf('/* end fix-user-text: UserNote */', start);
+  assert.ok(start >= 0 && end > start, 'the UserNote block has its end marker');
+  const block = css.slice(start, end);
   assert.ok(block.length > 50);
   for (const m of block.matchAll(/font-size:\s*([^;]+);/g)) {
     const v = m[1].trim();
@@ -90,7 +94,9 @@ test('every thesis surface renders through UserNote and nowhere else prints thes
   assert.match(island, /aria-live="polite"/);
   assert.match(read('../app/u/[handle]/page.tsx'), /reportId=\{me && !isMe \?/);
   assert.match(read('../app/u/[handle]/trade/[sellId]/page.tsx'), /reportId=\{me && me\.handle !== t\.handle \?/);
-  assert.match(read('../app/feed-rows.tsx'), /report=\{!!page\.viewer && page\.viewer\.id !== t\.user_id\}/);
+  assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id \? <ReportNote tradeId=\{String\(t\.id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
+  // The card (app/ui.tsx) takes the control as a prop and never imports the server-action island itself.
+  assert.doesNotMatch(read('../app/ui.tsx'), /from ['"][^'"]*(report-note|actions)\.tsx?['"]/);
 });
 
 // Fix round 2 (B): the rule is named by its plain explanation (lib/report-copy.ts#heldLine) instead of the raw label.
@@ -129,7 +135,11 @@ test('byline: only the feed card drops it; profile, trade page, /t and the pane 
 // Fix round 2 (E): the Report control's focus ring clears the caption; on /t/[symbol] the note is outside the row link.
 test('the Report control sits 4px below the caption; the /t row link holds no note', () => {
   const css = read('../app/globals.css');
-  const block = css.slice(css.indexOf('/* fix-user-text: UserNote'));
+  // The block runs to its end marker (later features append their own blocks after it).
+  const start = css.indexOf('/* fix-user-text: UserNote');
+  const end = css.indexOf('/* end fix-user-text: UserNote */', start);
+  assert.ok(start >= 0 && end > start, 'the UserNote block has its end marker');
+  const block = css.slice(start, end);
   assert.match(block, /\.user-note \.report-note \{[^}]*margin: 4px 0 0;/);
   const t = read('../app/t/[symbol]/Theses.tsx');
   const link = t.slice(t.indexOf('<Link href={`/u/${r.handle}#trade-${r.id}`}'), t.indexOf('</Link>'));

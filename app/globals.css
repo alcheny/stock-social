@@ -524,6 +524,11 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .user-note .link-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .user-note .report-status { font-size: 13px; color: var(--muted); }
 .thesis-held { margin: 4px 0 0; font-size: 13px; }
+/* With F-10's record strip, a feed card's note keeps two lines (one on a short landscape screen), as the F-10 rule below
+   does for .thesis, so the record line and the card's disclaimer stay on the card; the whole note is on the trade page. */
+.feed .card .user-note-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; }
+@media (max-height: 480px) { .feed .card .user-note-text { -webkit-line-clamp: 1; line-clamp: 1; } }
+/* end fix-user-text: UserNote */
 /* F-10 / F-12: the record strip (app/record-strip.tsx). Figures in the muted colour; the average and "Too early to tell"
    bold in the text colour (the same weight, committee 2026-11-01), the average toned by its printed sign. */
 .record-strip { margin: 0; font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }

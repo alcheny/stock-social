@@ -9,6 +9,7 @@ import { CardMenu } from './card-menu.tsx';
 import { SECTION_AT } from '@/lib/discovery/section.ts';
 import { recordStrip, type Strip } from '@/lib/record-strip.ts';
 import { paneTrust } from '@/lib/pane.ts';
+import { ReportNote } from './report-note.tsx';
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -58,7 +59,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
-            report={!!page.viewer && page.viewer.id !== t.user_id} /* F-9: UserNote Report */
+            report={page.viewer && page.viewer.id !== t.user_id ? <ReportNote tradeId={String(t.id)} symbol={t.symbol} /> : undefined} /* F-9: UserNote Report */
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
           {paneOf(t)}
         </div>

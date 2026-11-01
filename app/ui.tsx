@@ -5,7 +5,7 @@ import { cardTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
-import { UserNote } from './user-note.tsx';
+import { UserNote } from '@/lib/user-note.ts';
 import { RecordStrip } from './record-strip.tsx';
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
@@ -44,8 +44,10 @@ const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'nume
 // "held · closed" line, so the hero reads symbol, return, record. DS-22 (design system council, PR #48): the trust badge
 // then leads the record line in .hero, not the header. `stripBadge`: the record-level badge (paneTrust, code review
 // 2026-11-01), since it labels the record's figures; without it, the card's own. Without a strip (other callers) the card is unchanged.
-// F-9: `report`, a signed-in reader who is not the trader: the note gets the Report control.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: 'verified' | 'demo' | null; report?: boolean }) {
+// F-9: `report`, the note's Report control (app/report-note.tsx), passed by the feed only for a signed-in reader who is not
+// the trader. Passed in, not imported here, so this card stays free of the server-action module (lib/f10-feed-card.test.ts
+// renders it outside Next).
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: 'verified' | 'demo' | null; report?: React.ReactNode }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const up = t.return_pct > 0;
@@ -67,7 +69,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       </div>
       {/* F-9: UserNote; fix round 2: no byline, the card's header already names the trader */}
       {t.thesis_status === 'published' && t.thesis
-        ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={report ? t.id : undefined} symbol={t.symbol} byline={false} />
+        ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} />
         : <p className="thesis"><span className="muted">No thesis posted.</span></p>}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
