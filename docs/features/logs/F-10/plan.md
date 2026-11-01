@@ -5,6 +5,32 @@ images, plus the stock image's changes). One PR for both. The F-12 log links her
 F3a, F3b, F4, A1, P3), DESIGN Stage 5 (TR-4, TR-7, TR-9), CLAUDE.md product rules. Wording comes from existing copy only.
 The design system council's short-record wording has not landed, so "Too early to tell" stays, held in one constant.
 
+## Round 3 amendments (orchestrator, adopting the round-2 reviews; these override the sections below)
+
+Engineer (round 2, NOT YET with 3 demands, all adopted):
+- R3-1 Feed cost: `stripEvidence` runs in `loadFeedPage` (so LOAD=1 measures it), not at render. `page.strips:
+  Map<userId, StripEvidence>` built from `page.byUser` by `lib/record-strip.ts#feedStrips`, memoised in a bounded module
+  cache keyed `${userId}|${rows}|${maxRowId}` (like `weightCache`; `cardEvidence` ignores `now`, so only the rows matter).
+  Unit test: a hit equals a fresh `stripEvidence`; a rebuild (new max id) misses. `feedRowNodes` only formats.
+  The call is one additive line at the end of `loadFeedPage` (F-10 block) to keep #30's merge clean.
+- R3-2 Month `figures` surface = average with range, or Too early; never a count part (unit test). The month line
+  keeps "N closed trades this month".
+- R3-3 Completeness-word guard scoped to: trade and month `page.tsx`/`opengraph-image.tsx`, `app/t/[symbol]/opengraph-image.tsx`,
+  the `RECORD_STRIP`, `WHOLE_RECORD` and `SHARE_CARD` string values, strip outputs and alt, the two pages' metadata, and
+  the rendered HTML and `og:image:alt` in e2e. (F-1's chart caption is out of scope and not a completeness claim.)
+- Smaller: trade and month `load()` wrapped in React `cache()` so metadata and page share one read.
+
+Business lead (round 2, SIGN, with 4 build notes, all adopted):
+- Alt in words, no middle dot or parentheses: "average per trade +0.9%, 95% range -0.1% to +2.1%" (test). The visible
+  strip keeps the profile's exact string.
+- Image range line ≥ 30 px, one line, no wrap and no ellipsis, worst case `(-100.0% to +123.4%) · 95% range`; drop "· "
+  before shrinking (model test).
+- Exactly one count in the month section (`[data-strip-scope="month"]`) — met by R3-2.
+- PR body lists the stock-image cut and the deferred smaller-ticker variants under Known limits.
+
+Open question (UX lead): remove the trade page's footer "See their record, wins and losses →" (duplicate of the strip's
+link right above it); keep it on the month page. Business lead and engineer agree → decided.
+
 ## Round 2 changes (each demand and where it is met)
 
 Orchestrator rulings (binding):
