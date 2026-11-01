@@ -1,8 +1,7 @@
 // Fix #4 (approval council cycle 2): one rule for which users' data appears on public aggregate surfaces. A user whose
 // deletion is in progress (deleted_at set; lib/delete.ts keeps the rows until the vendor step succeeds) is never counted
-// or charted. Used today by the stock page, the stock index and the sitemap.
-// ponytail: compare, the stock share image and app/t/open-positions.ts still filter on their own or not at all — fix:
-// the follow-up after claude/fix-truthful-labels merges (PENDING_VISIBLE in lib/fixes-cycle2-trust.test.ts).
+// or charted. Used by every stock surface (page, index, compare, share image, open positions) and the sitemap;
+// lib/fixes-cycle2-trust.test.ts fails on any closed_trades / open_positions read there without it.
 // F-16 extends this predicate with "hidden", so that change is one place.
 import { sql } from './db.ts';
 
