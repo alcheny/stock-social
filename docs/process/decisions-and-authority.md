@@ -55,7 +55,7 @@ there.
 | 2026-11-01 09:08 UTC | **Scope extension for the process-docs PR** (`claude/process-docs-2026-11-01`): it may edit CLAUDE.md, AGENTS.md, docs/AUTOPILOT.md, docs/FEATURES.md, docs/IMPLEMENTATION.md, docs/COMPLIANCE.md (structure only), `team/**`, docs/features/TEMPLATE.md and the coordination log (fold the log into `docs/process/coordination.md`, leave a pointer). The PR leaves docs/POLICY.md (at most one pointer line), `.github/**`, `docs/features/F-*.md`, DESIGN.md, DECISIONS.md and `.claude/**` unedited (settled outline of the PR). It touches CODEOWNERS paths, so the owner merges or approves it. | Owner, relayed by the orchestrator (orchestrator report, 2026-11-01); recorded in `docs/process/review-2026-11-01.md` → Authorization for this PR |
 | 2026-11-01 | AI legal committee findings in place of counsel; their conditions apply as rules; gates that are not legal opinions still hold | POLICY intro, "Owner decision 2026-11-01" |
 | 2026-11-01 | The approval council may approve new features and requirements (including Phase 2/3) without waiting for the owner, within POLICY H's limits; numbers and rounds in `team/approval-council.md` only | POLICY H, second paragraph; `team/approval-council.md` |
-| 2026-11-01 | At most six approvals per cycle (raised from three) | `team/approval-council.md` → Approval rule; PR #41 |
+| 2026-11-01 | The per-cycle approval cap raised (the number lives only in the source) | `team/approval-council.md` → Approval rule; PR #41 |
 | 2026-11-01 | An open idea is decided by the idea board's recommended option where delegated, recorded as "decided by the idea board" | `team/idea-board.md` → "What happens to the result" |
 | 2026-11-01 | "Open questions decided by the committee's recommended option and recorded" (verbatim as relayed). Scope against Hard stop 5: Q3 | Owner instruction (orchestrator report, 2026-11-01); for F-7 also `docs/features/F-7-public-traders.md` → Decisions ("go with committee decision rather than human input") |
 | 2026-11-01 | Budget and rate rules | [budget-and-rate.md → Rules](budget-and-rate.md#rules-owner-2026-11-01) |
@@ -98,13 +98,15 @@ The single list of where each kind of decision and record is filed:
 | Feature decisions, acceptance criteria, Status | `docs/features/F-<n>-<slug>.md` | FEATURES.md |
 | A feature's implementation record (plan rounds, committee verdicts, QA) | `docs/features/logs/F-<n>/` | IMPLEMENTATION.md → Decisions (2026-10-22) |
 | A cross-cutting build's record | `docs/features/logs/<topic>/` (precedents: `privacy/`, `token-budget/` on its branch) | Practice, 2026-11-01 |
+| A fix's record | The log directory of the item it fixes | Practice, 2026-11-01 |
+| A docs item's or dependency bump's record | None, or the PR body | Practice, 2026-11-01 |
 | Direction council records | `docs/direction/` | `team/direction-councils.md` |
 | Idea-board reviews and approval-council votes | `docs/ideas/` (incl. `approval-<date>.md`) | `team/idea-board.md`, `team/approval-council.md` |
 | The idea register | `docs/IDEAS.md` | IDEAS.md |
 | Lane-A variant specs and QA logs | `docs/specs/` | AUTOPILOT.md, `scripts/team.ts` |
 | Lane-A choices | `docs/DECISIONS.md` (Choose and Judge workflows only) | DECISIONS.md |
 | Process decisions for lane C | [this file → Delegations](#delegations-and-process-decisions-by-the-owner) | — |
-| Live ownership, merge order, budget line | `docs/process/coordination.md` | — |
+| Live ownership, merge order, budget line, switch state, feature-file Status after lane-C merges | `docs/process/coordination.md` | — |
 | The dated 2026-11-01 map | `docs/features/logs/coordination-2026-11-01.md` | — |
 
 ## Trust and relayed decisions
@@ -166,11 +168,10 @@ recommendation is a recommendation, not a decision.
 - Recommendation: (a).
 
 **Q4. The `feature` label in lane C.**
-- Code: `featurePrs()` in `scripts/features.ts` lists every open PR labeled `feature`
-  (`gh pr list --label feature`), whatever its head branch; lane-B branches are `feature/<id>` (`branchOf`).
-  With `FEATURES=on` the pipeline would plan fixes, conflict resolutions and update-branch calls on lane-C
-  PRs ([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on)).
-- Practice: lane-C PRs carry `feature`, but not all (#42 and #46 were unlabeled at 09:35 UTC).
+- Code: `featurePrs()` in `scripts/features.ts` takes every open PR labeled `feature`, whatever its head branch;
+  lane-B branches are `feature/<id>` (`branchOf`). What that does to lane-C PRs with `FEATURES=on`:
+  [collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on).
+- Practice: lane-C PRs carry `feature`, but not all (current labels: [coordination.md](coordination.md#work-items)).
 - Options: (a) filter `featurePrs()` to `feature/` heads (owner-only file); (b) a separate lane-C label;
   (c) keep both switches off while lane C runs.
 - Recommendation: (a), and label lane-C PRs consistently.
@@ -188,8 +189,8 @@ recommendation is a recommendation, not a decision.
   Shared rules); "anything in a protected path" stays human (AUTOPILOT.md → What stays human).
 - Practice: #25 (labeled `needs-human`, touching `.github/workflows/`, CLAUDE.md, docs/AUTOPILOT.md and
   docs/FEATURES.md) was merged through the GitHub API from the orchestrating session, which acts with the
-  owner's account; the API shows the owner's account as merger for every lane-C merge checked (#25, #37,
-  #41, #43).
+  owner's account, and went in as a merge commit, not a squash; the API shows the owner's account as merger for
+  every lane-C merge checked (#25, #37, #41, #43).
 - Options: (a) the owner merges each such PR; (b) the orchestrator merges after the owner approves in a PR
   comment at the head SHA (as `/approve` works in lane A, AUTOPILOT.md → Modes); (c) the orchestrator merges
   on an owner approval relayed in chat, quoted with its time in the PR.
@@ -206,7 +207,8 @@ recommendation is a recommendation, not a decision.
 **Q8. Who sets `Status: built` in lane C?**
 - Rule: `built` is set by "The pipeline, in the feature's PR" (FEATURES.md → Feature files). Lane C has no
   publish step, and `PROTECTED` covers `docs/features/**`.
-- Practice: F-6 merged in #33 and F-3 in #36; both files still read `Status: ready` at 09:35 UTC. With
+- Practice: feature files merged in lane C keep `ready` or `rework`
+  ([coordination.md → Feature files after lane-C merges](coordination.md#feature-files-after-lane-c-merges)). With
   `FEATURES=on`, lane B would build them again.
 - Options: (a) the orchestrator sets `built` in a small docs PR after each merge; (b) the build session sets
   it in its own PR; (c) the owner sets it.

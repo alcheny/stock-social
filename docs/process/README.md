@@ -12,26 +12,26 @@ restated: product and code rules in [CLAUDE.md](../../CLAUDE.md), legal and secu
 | [architecture.md](architecture.md) | Actors, channels, where state lives, concurrency, taking over as orchestrator |
 | [lifecycle.md](lifecycle.md) | One work item from idea to archive: kinds, stages, States, lane-C hard-stop additions |
 | [collaboration.md](collaboration.md) | Working in parallel: branches, the lane collision, file ownership, claims, merge order, conflicts, messaging, tool recipes, never-do list |
-| [quality.md](quality.md) | Local environment, gates before every push, CI layout, test rules, review standards, ponytail convention, protected-path mechanics |
-| [budget-and-rate.md](budget-and-rate.md) | Budget rules, admission, measured spend and throughput, how to re-measure |
+| [quality.md](quality.md) | Local environment, gates before every push, CI layout and duration, rendering determinism, test rules (incl. privacy maps), review standards, ponytail convention, compliance heading, protected-path mechanics, diff size, the red-CI record of 2026-11-01 |
+| [budget-and-rate.md](budget-and-rate.md) | Budget rules, admission, the token-budget governor, lanes A/B budgets, Actions minutes, measured spend and throughput, bottlenecks, how to re-measure |
 | [decisions-and-authority.md](decisions-and-authority.md) | Precedence, owner-only items, delegations, who decides what, records, trust, escalation, open questions for the owner |
-| [coordination.md](coordination.md) | The live snapshot: work items, file ownership, merge order, known overlaps, orchestrator of record |
+| [coordination.md](coordination.md) | The live snapshot: orchestrator of record, budget line, work items with file ownership and State, merge order, known overlaps, switch state, feature-file Status after lane-C merges |
 | [review-2026-11-01.md](review-2026-11-01.md) | How these docs were made and checked, and the traceability of every moved rule |
 
 ## The three lanes
 
 Three systems build this repo. Each has one home doc. They share CI, the policy scan, the Gate and the repo.
 
-| Lane | Switch | Branch prefix | PR label | Who merges | Home doc | Switch state (last seen, UTC, by whom) |
-|---|---|---|---|---|---|---|
-| **A. Actions autopilot** | repo variable `AUTOPILOT` (`on` runs it; anything else is the kill switch), mode in `AUTOPILOT_MODE` ([AUTOPILOT.md](../AUTOPILOT.md) → Controls) | `autopilot/*`; lines mode `line/a\|b\|c` | `autopilot` (+ `variant` or `single`) | The Gate merges single builds in auto mode; variants merge only by `/choose` (human) or the Judge (auto mode); a line reaches main only when a human opens and merges its PR (AUTOPILOT.md → Lines mode, Controls); protected paths are never auto-merged ([AUTOPILOT.md](../AUTOPILOT.md) → Hard rules enforced in code) | [docs/AUTOPILOT.md](../AUTOPILOT.md), [team/](../../team/README.md) | off (inferred): the latest scheduled `build.yml` (09:40 UTC) and `doctor.yml` (05:52 UTC) runs concluded `skipped`. Checked 2026-11-01 09:41 UTC by fact-checker FC1 via the Actions runs API |
-| **B. Actions feature pipeline** | repo variable `FEATURES` (`on`/`off`), independent of `AUTOPILOT` ([FEATURES.md](../FEATURES.md) → Switch) | `feature/<id>` (`scripts/features.ts` `branchOf`) | `feature` | The Gate, only for an open, non-draft `feature` PR from a `feature/` head into main opened by the workflow bot (`scripts/autopilot.ts` gate, `feature` condition), once it contains the latest main | [docs/FEATURES.md](../FEATURES.md), [docs/IMPLEMENTATION.md](../IMPLEMENTATION.md) | off (inferred): the latest scheduled `features.yml` run (06:25 UTC) concluded `skipped`. Checked 2026-11-01 09:41 UTC by fact-checker FC1 via the Actions runs API |
-| **C. Interactive orchestrator** | none: runs while the owner's orchestrating session is active | `claude/<topic>` | `feature` in practice; #42 and #46 carry no label (open PRs read 2026-11-01 09:41 UTC via REST) | The orchestrator, squash via the GitHub API, after an independent review and a green `check` ([lifecycle.md](lifecycle.md#stages) stage 12) | this folder | active on 2026-11-01 (orchestrator report) |
+| Lane | Switch | Branch prefix | PR label | Who merges | Home doc |
+|---|---|---|---|---|---|
+| **A. Actions autopilot** | repo variable `AUTOPILOT` (`on` runs it; anything else is the kill switch), mode in `AUTOPILOT_MODE` ([AUTOPILOT.md](../AUTOPILOT.md) → Controls) | `autopilot/*`; lines mode `line/a\|b\|c` | `autopilot` (+ `variant` or `single`) | The Gate merges single builds in auto mode; variants merge only by `/choose` (human) or the Judge (auto mode); a line reaches main only when a human opens and merges its PR (AUTOPILOT.md → Lines mode, Controls); protected paths are never auto-merged ([AUTOPILOT.md](../AUTOPILOT.md) → Hard rules enforced in code) | [docs/AUTOPILOT.md](../AUTOPILOT.md), [team/](../../team/README.md) |
+| **B. Actions feature pipeline** | repo variable `FEATURES` (`on`/`off`), independent of `AUTOPILOT` ([FEATURES.md](../FEATURES.md) → Switch) | `feature/<id>` (`scripts/features.ts` `branchOf`) | `feature` | The Gate, only for an open, non-draft `feature` PR from a `feature/` head into main opened by the workflow bot (`scripts/autopilot.ts` gate, `feature` condition), once it contains the latest main | [docs/FEATURES.md](../FEATURES.md), [docs/IMPLEMENTATION.md](../IMPLEMENTATION.md) |
+| **C. Interactive orchestrator** | none: runs while the owner's orchestrating session is active | `claude/<topic>` | `feature` in practice, not on every PR (label policy: open question Q4; current labels: [coordination.md](coordination.md#work-items)) | The orchestrator, squash via the GitHub API, after an independent review and a green `check` ([lifecycle.md](lifecycle.md#stages) stage 12) | this folder |
 
-The switch-state cell is maintained by the orchestrator; any client may re-check it with the recipe in
-[collaboration.md](collaboration.md#tool-recipes). When `FEATURES` is on, lane B's `featurePrs()` in
-`scripts/features.ts` takes every open `feature`-labeled PR, lane-C ones included; the full description and the rule
-are in [collaboration.md](collaboration.md#when-features-or-autopilot-is-on).
+Lines-mode teams A/B/C (`line/a|b|c`) all belong to lane A; they are not lanes. Whether each switch is on right now,
+and whether lane C is active, is live state: [coordination.md → Other lanes and reserved branches](coordination.md#other-lanes-and-reserved-branches)
+(re-check with the recipe in [collaboration.md → Tool recipes](collaboration.md#tool-recipes)). How lanes A and B
+collide with lane C when a switch is on: [collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on).
 
 ## Who reads what
 
@@ -51,18 +51,28 @@ Read in the order given. Every reader starts with [CLAUDE.md](../../CLAUDE.md) a
 
 ## Quick start
 
-For a new Claude client joining work in lane C. Each step is a link; the rule lives there.
+For a new Claude client joining work in lane C, end to end. Each step names its home; the rule lives there.
 
-1. Read [CLAUDE.md](../../CLAUDE.md) and [docs/POLICY.md](../POLICY.md).
-2. Set up the environment: [quality.md → Local environment](quality.md#local-environment).
-3. Look at what is running: open PRs, branches and switch state
-   ([collaboration.md → Tool recipes](collaboration.md#tool-recipes)), then [coordination.md](coordination.md).
-4. Claim one work item: [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work).
-5. Branch: [collaboration.md → Branches](collaboration.md#branches).
-6. Run the cycle for your work-item kind: [lifecycle.md](lifecycle.md).
-7. Pass the gates before every push: [quality.md](quality.md#before-every-push).
-8. Mark the PR ready and report: [collaboration.md → Messaging](collaboration.md#messaging).
-9. Stop and wait for review findings or the merge: [collaboration.md → Messaging](collaboration.md#messaging).
+1. **Read.** [CLAUDE.md](../../CLAUDE.md) and [docs/POLICY.md](../POLICY.md), then this file (the
+   [glossary](#glossary)) and the docs for your row in [Who reads what](#who-reads-what), in that order.
+2. **Set up.** [quality.md → Local environment](quality.md#local-environment).
+3. **Look at what is running.** First GitHub: open PRs, remote `claude/*` branches and the switch state
+   ([collaboration.md → Tool recipes](collaboration.md#tool-recipes)). Then [coordination.md](coordination.md).
+   GitHub wins where they disagree ([coordination.md → Update rule](coordination.md#update-rule)). If `AUTOPILOT` or
+   `FEATURES` is on, start nothing and tell the orchestrator or the owner
+   ([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on)).
+4. **Pick one unclaimed work item.** A child session's task prompt names it; a desktop/CLI session asks the
+   orchestrator (or the owner) which item to take; with the orchestrator unreachable, follow the
+   [no-orchestrator fallback](collaboration.md#claiming-and-releasing-work).
+5. **Branch** `claude/<topic>` from `origin/main`: [collaboration.md → Branches](collaboration.md#branches).
+6. **Claim:** push the branch, open a draft PR with the claim line, and edit only your own row in coordination.md:
+   [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work).
+7. **Run the stages for your work-item kind:** [lifecycle.md](lifecycle.md).
+8. **Pass the gates before every push**, after merging `origin/main`: [quality.md → Before every push](quality.md#before-every-push).
+9. **Mark the PR ready and report** to `@parent` (child session) or, without an orchestrator, in the PR for the owner:
+   [collaboration.md → Messaging](collaboration.md#messaging).
+10. **Stop and wait** for review findings or the merge; fix findings on the same branch; never merge your own PR
+    ([lifecycle.md → Stages](lifecycle.md#stages) 9–12).
 
 ## Glossary
 
@@ -75,19 +85,21 @@ The single glossary. Terms owned elsewhere are defined there and only linked her
 | **Orchestrator** | The owner's orchestrating Claude session. It starts, messages, reviews, merges and archives child sessions ([architecture.md](architecture.md#actors)). |
 | **Orchestrator of record** | The one session currently acting as orchestrator, named at the top of [coordination.md](coordination.md). There is never more than one. |
 | **Child session** | A cloud Claude Code session started by the orchestrator with `create_session`. It owns one branch and one PR and reports to `@parent`. |
+| **Build session** | A child session whose work item is code: a feature build, cross-cutting build or fix. |
+| **Council session** | A child session whose output is a record, not code (idea board, direction councils, approval council and the other councils in [architecture.md → Actors](architecture.md#actors)). |
 | **Client** | Any Claude session working on this repo: orchestrator, child, owner's own session or collaborator's desktop/CLI session. |
 | **Collaborator's desktop/CLI session** | A Claude client on someone's own computer, started outside the orchestrator. It coordinates only through GitHub and the repo. |
-| **Lane** | One of the three systems that build the repo: A (Actions autopilot), B (Actions feature pipeline), C (interactive orchestrator). See [The three lanes](#the-three-lanes). |
+| **Lane** | One of the three systems that build the repo: lane A (Actions autopilot), lane B (Actions feature pipeline), lane C (interactive orchestrator). See [The three lanes](#the-three-lanes). Not the lines-mode teams A/B/C, which all run in lane A. |
 | **Switch** | A repo variable that turns a lane on: `AUTOPILOT` (lane A) or `FEATURES` (lane B). Only the owner flips one (POLICY H). |
 | **Heartbeat** | A scheduled recovery run: `features.yml` at minute 23, `build.yml` at minute 41 and `doctor.yml` at minute 11 of every hour (their `cron` lines). Each is a no-op while its switch is off. |
 | **Work item** | One unit of claimed work with one branch and, for lane C, one PR. |
 | **Work-item kinds** | Feature build, cross-cutting build, fix, dependency bump, council or record, docs: [lifecycle.md → Work-item kinds](lifecycle.md#work-item-kinds). |
 | **State** | The stage a work item is in (`planned`, `claimed`, `building`, …): [lifecycle.md → States](lifecycle.md#states). Used only for work items. |
 | **Feature file** | `docs/features/F-<n>-<slug>.md`: the owner's decisions and acceptance criteria for one feature ([docs/FEATURES.md](../FEATURES.md) → Feature files). |
-| **Status** | The `Status:` line of a feature file (`draft`, `ready`, `built`, `accepted`, `rework`, `blocked`): [docs/FEATURES.md](../FEATURES.md). Used only for feature files. |
+| **Status** | The `Status:` line of a feature file (`draft`, `ready`, `built`, `accepted`, `rework`, `blocked`): [docs/FEATURES.md](../FEATURES.md). Used only for feature files. The idea register's lowercase status (`proposed`, `adopted`, …) belongs to [docs/IDEAS.md](../IDEAS.md) and is neither. |
 | **Cross-cutting build** | A build that changes behavior across features without a feature file of its own (privacy groundwork, sharded sync). Logs go to `docs/features/logs/<topic>/`. |
 | **Draft-PR claim** | An open draft PR on a `claude/<topic>` branch. It is the claim on a work item ([collaboration.md](collaboration.md#claiming-and-releasing-work)). |
-| **Claim / release** | Taking a work item (draft-PR claim plus your own coordination row) and giving it up (close the draft, row to `released` with the reason). |
+| **Claim / release** | Taking a work item (draft-PR claim plus your own coordination row) and giving it up: [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work). |
 | **File ownership** | The files a work item may change freely, assigned by the orchestrator in [coordination.md](coordination.md). |
 | **Shared file** | A file several work items change: [collaboration.md → Shared files](collaboration.md#shared-files). |
 | **Additive named block** | The only allowed edit to a shared file: one contiguous block added and named for the work item, nothing renamed, moved or deleted. |
@@ -96,19 +108,21 @@ The single glossary. Terms owned elsewhere are defined there and only linked her
 | **Merge main** | `git merge origin/main` into your own branch. Never rebase or force-push. |
 | **Behind main** | A head that lacks commits on main: `behind_by > 0` in the REST compare API. |
 | **Fresh-context subagent** | A subagent started with no memory of the builder's work, so no one grades their own work (team/README.md). |
-| **Independent review** | The orchestrator's fresh-context reviewer subagent, one per PR, before the merge ([quality.md → Review standards](quality.md#review-standards)). |
-| **Review marker** | A PR comment whose first line is `Independent review: pass\|fail at <sha>` ([quality.md](quality.md#review-standards)). |
+| **Independent review** | The orchestrator's fresh-context reviewer subagent, one per PR, before the merge ([lifecycle.md](lifecycle.md#stages) stage 9; standard in [quality.md → Review standards](quality.md#review-standards)). |
+| **In-session review** | The build session's own fresh-context reviewer subagent, after the committee and before the PR ([lifecycle.md](lifecycle.md#stages) stage 7). It does not replace the independent review. |
+| **Build committee** | The fresh-context role subagents (UX lead, business lead, engineer, tester) that run the committee cycle inside a build session ([lifecycle.md](lifecycle.md#stages) stage 7). |
 | **Gate** | `gate.yml` running main's copy of `scripts/autopilot.ts gate`: merges or labels lane-A and lane-B PRs; logs "not an open autopilot or feature PR" for lane C. |
 | **`check`** | The aggregate CI job in `.github/workflows/ci.yml` that passes only when `static` and every `e2e` shard pass. Merges look for this exact name. |
 | **Shard** | One of the four time-balanced `e2e` jobs in CI (`scripts/e2e-shard.ts`). |
-| **Guard** | `node scripts/autopilot.ts guard main`: the test count may not drop and `db/schema.sql` may not gain `drop`/`truncate`/`delete from` (CLAUDE.md → Autopilot). |
+| **Guard** | `node scripts/autopilot.ts guard main`, the CI guardrail check (what it rejects: [quality.md → Test rules](quality.md#test-rules); CLAUDE.md → Autopilot). |
 | **Compliance scan** | `scripts/compliance.ts`, the blocking policy scan in CI ([docs/POLICY.md](../POLICY.md) → How it is enforced). |
 | **Protected path** | A path the owner must approve: [quality.md → Protected paths (mechanics)](quality.md#protected-paths-mechanics). |
 | **Usage window** | The period of the weekly usage cap; it ends at `rate_limit_info.resetsAt` ([budget-and-rate.md](budget-and-rate.md)). |
 | **Admission** | The orchestrator's decision to start a new work item now or queue it until the reset ([budget-and-rate.md → Admission procedure](budget-and-rate.md#admission-procedure)). |
 | **Overage / rejected** | The rate-limit status that alone stops admissions ([budget-and-rate.md](budget-and-rate.md#rules-owner-2026-11-01)). |
-| **Token-budget governor** | `scripts/token-budget.ts`, work in progress on `claude/token-budget-governor`, not on main as of 2026-11-01 09:41 UTC ([budget-and-rate.md](budget-and-rate.md#token-budget-governor)). |
-| **Archive** | Ending a child session once its PR merged or its record was delivered and checked (owner, 2026-11-01; [lifecycle.md](lifecycle.md#stages) stage 13). |
+| **Token-budget governor** | `scripts/token-budget.ts`, a planner that computes admission from a usage snapshot; status and scope in [budget-and-rate.md → Token-budget governor](budget-and-rate.md#token-budget-governor). |
+| **Archive** | Ending a child session once its work is complete ([lifecycle.md](lifecycle.md#stages) stage 13). |
+| **Orchestrator report** | A fact the orchestrator relayed (task prompt or message) that is not yet written in the repo; cited as "(orchestrator report, <date>)". It binds only as [decisions-and-authority.md → Trust and relayed decisions](decisions-and-authority.md#trust-and-relayed-decisions) allows. |
 | **Demo data** | Seed traders with `source='demo'`; always shown with a Demo badge, never Verified (CLAUDE.md → Product rules). |
 
 Defined by link only:
@@ -116,7 +130,12 @@ Defined by link only:
 - **Idea board:** [team/idea-board.md](../../team/idea-board.md). **Direction councils:**
   [team/direction-councils.md](../../team/direction-councils.md). **Approval council:**
   [team/approval-council.md](../../team/approval-council.md). **Register:** [docs/IDEAS.md](../IDEAS.md).
-- **Verified finding**, **Blocking finding:** [quality.md → Review standards](quality.md#review-standards).
+- **Verified finding**, **Blocking finding**, **Review marker**, **Dispute:** [quality.md → Review standards](quality.md#review-standards).
+- **Delegation:** [decisions-and-authority.md → Delegations and process decisions by the owner](decisions-and-authority.md#delegations-and-process-decisions-by-the-owner).
+- **Folding** (an item into a running session): [lifecycle.md → Stages](lifecycle.md#stages), stage 6.
+- **Merge preconditions:** [lifecycle.md → Stages](lifecycle.md#stages), stage 12.
+- **Hard stop:** [docs/IMPLEMENTATION.md](../IMPLEMENTATION.md) → Hard stops, plus lane C's two in [lifecycle.md → Hard stops](lifecycle.md#hard-stops).
+- **Open question (Q1–Q11):** [decisions-and-authority.md → Open questions for the owner](decisions-and-authority.md#open-questions-for-the-owner).
 - **Ponytail note**, **Known limits:** [quality.md → Ponytail convention](quality.md#ponytail-convention).
 
 ## Precedence
@@ -126,8 +145,8 @@ decides; an owner doc always wins over this folder, and the mismatch is reported
 
 ## Known limits
 
-- The switch-state cell is inferred from heartbeat run conclusions; `gh variable list` fails in cloud sessions — the
-  owner publishing the switch values (or a readable status) would remove the inference.
+- The switch state shown in coordination.md is inferred from heartbeat run conclusions; `gh variable list` fails in
+  cloud sessions — the owner publishing the switch values (or a readable status) would remove the inference.
 - Lane C has no PR label of its own, so the lane is known by branch prefix only — a lane-C label (open question Q4 in
   [decisions-and-authority.md](decisions-and-authority.md#open-questions-for-the-owner)) would remove it.
 - This folder is not a protected path, so the rules first written here can change without the owner — adding

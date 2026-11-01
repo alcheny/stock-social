@@ -7,7 +7,7 @@ main at `31004e7` (#47 merged 09:38 UTC; merges since 09:20 UTC: #35 09:23, #30 
 committer date).
 
 Orchestrator of record: the owner's orchestrating chat session (its session id stays private:
-[architecture.md](architecture.md)).
+[architecture.md](architecture.md)). Lane C: active on 2026-11-01 (orchestrator report).
 
 Budget: Window resets 2026-11-01 15:00 UTC (orchestrator report); admitting: _orchestrator fills: yes | queue-only_
 ([budget-and-rate.md](budget-and-rate.md)).
@@ -104,8 +104,28 @@ Files that two or more current items change. Every file here counts as shared
 | `claude/adoring-euler-4469ys` | old pipeline branch (F-1/F-2 PRs #8–#11, #15–#23, 2026-10-22 to 10-24) | all merged |
 | `claude/peaceful-dirac-33bucv` | no PR; last commit 2026-10-25 | stale, unclaimed: do not build on it |
 | `claude/ci-shard-e2e`, `claude/idea-board-2026-11-01`, `claude/privacy-launch-gate`, `claude/publish-separate-job`, `claude/f2-discovery-pr5-pr6`, `claude/f3-viewer-subscriptions`, `claude/f4-share-card-rework`, `claude/f6-open-positions`, `claude/approval-council-2026-11-01`, `claude/business-council-2026-11-01`, `claude/market-research-council-2026-11-01`, `claude/creative-direction-2026-11-01`, `claude/design-direction-2026-11-01`, `claude/market-research-2-2026-11-01` | merged work (#29, #32, #31, #37, #30, #36, #35, #33, #44, #45, #39, #34, #38, #47) | merged; branches kept |
-| `autopilot/*`, `line/a`, `line/b`, `line/c` | lane A ([AUTOPILOT.md](../AUTOPILOT.md)) | `line/a|b|c` exist; switch `AUTOPILOT` off (inferred, [collaboration.md](collaboration.md#when-features-or-autopilot-is-on)) |
-| `feature/*` | lane B ([FEATURES.md](../FEATURES.md)) | none exist; switch `FEATURES` off (inferred) |
+| `autopilot/*`, `line/a`, `line/b`, `line/c` | lane A ([AUTOPILOT.md](../AUTOPILOT.md)) | `line/a|b|c` exist; switch `AUTOPILOT` off (inferred: the latest scheduled `build.yml` run, 09:40 UTC, and `doctor.yml` run, 05:52 UTC, concluded `skipped`; Actions runs API, checked 2026-11-01 09:41 UTC by fact-checker FC1) |
+| `feature/*` | lane B ([FEATURES.md](../FEATURES.md)) | none exist; switch `FEATURES` off (inferred: the latest scheduled `features.yml` run, 06:25 UTC, concluded `skipped`; same check) |
+
+The orchestrator keeps the switch state current; any client re-checks it with the recipe in
+[collaboration.md → Tool recipes](collaboration.md#tool-recipes). What a switch that is on would do to lane-C PRs:
+[collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on).
+
+## Feature files after lane-C merges
+
+Lane C has no step that sets `Status: built` (open question Q8,
+[decisions-and-authority.md](decisions-and-authority.md#open-questions-for-the-owner)). Read on main 2026-11-01 09:41
+UTC (re-read 09:47 UTC, unchanged):
+
+| Feature | Merged in | `Status:` line on main |
+|---|---|---|
+| F-6 | #33 | `ready` |
+| F-3 | #36 | `ready` |
+| F-2 | #30 (its PR-5 and PR-6) | `ready` |
+| F-4 | #35 | `rework` |
+
+With `FEATURES=on`, lane B would pick these up and build them again
+([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on), row (c)).
 | `dependabot/*` | dependency bot | one branch left (`npm-minor-patch-5f403fecb1`, its PR #27 merged), no open PR |
 
 ## History
@@ -125,5 +145,7 @@ is copied into the tables above.
 - Merge positions 1–4 are inferred from the coordination log's order — the orchestrator setting them would remove it.
 - The budget line's "admitting" value needs the orchestrator, because usage data stays private — a published
   admission flag would remove it (open question Q9).
+- The feature-file Status table is a reading, not a rule; it goes stale when a feature file changes — Q8's answer
+  (a step that sets `built`) would make it unnecessary.
 - Kinds without a branch (user-text safety, known-limits sweep) have no owned files yet — their sessions' claims will
   fill them.

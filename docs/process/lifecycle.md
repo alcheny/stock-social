@@ -43,17 +43,16 @@ cannot hold a hyphen).
 
 ## Work-item kinds
 
-| Kind | Stages it passes | One PR or three variants | Log location |
-|---|---|---|---|
-| Feature build | 5–14 (1–4 already passed by the approval council or a design session) | One PR per session in practice. **Pending owner: CLAUDE.md "Three versions per product change" asks for three variants for any product change; lane C builds one. Open question Q1** ([decisions-and-authority.md → Open questions](decisions-and-authority.md#open-questions-for-the-owner)) | `docs/features/logs/F-<n>/` |
-| Cross-cutting build (privacy, security, sync, CI speed …) | 6–14 | One PR. **Pending owner, CLAUDE.md three-versions rule, Q1** (for the parts that change the product) | `docs/features/logs/<topic>/` (precedent: `logs/privacy/`) |
-| Fix | 6, 8–13 | One PR. Exempt from the three-versions rule by the rule's own text ("not fixes, tests or chores", CLAUDE.md) | the log directory of the item it fixes |
-| Dependency bump | 8–13 | One PR, opened by the code host's dependency bot (#26, #27, #28 on 2026-11-01). A bump of an installed package is not a *new* dependency; adding one is owner-only (POLICY H). Who reviews bumps: orchestrator report, 2026-11-01, not recorded in the repo | none |
-| Council or record (idea board, direction councils, approval council, business) | 6, 8–13 (the council's own rounds replace stage 7) | One PR | `docs/direction/`, `docs/ideas/` |
-| Docs | 6, 8–13 | One PR | none, or the PR body |
+| Kind | Stages it passes | One PR or three variants |
+|---|---|---|
+| Feature build | 5–14 (1–4 already passed by the approval council or a design session) | One PR per session in practice. **Pending owner: CLAUDE.md "Three versions per product change" asks for three variants for any product change; lane C builds one. Open question Q1** ([decisions-and-authority.md → Open questions](decisions-and-authority.md#open-questions-for-the-owner)) |
+| Cross-cutting build (privacy, security, sync, CI speed …) | 6–14 | One PR. **Pending owner, CLAUDE.md three-versions rule, Q1** (for the parts that change the product) |
+| Fix | 6, 8–13 | One PR. Exempt from the three-versions rule by the rule's own text ("not fixes, tests or chores", CLAUDE.md) |
+| Dependency bump | 8–13 | One PR, opened by the code host's dependency bot (#26, #27, #28 on 2026-11-01). A bump of an installed package is not a *new* dependency; adding one is owner-only (POLICY H). Who reviews bumps: orchestrator report, 2026-11-01, not recorded in the repo |
+| Council or record (idea board, direction councils, approval council, business) | 6, 8–13 (the council's own rounds replace stage 7) | One PR |
+| Docs | 6, 8–13 | One PR |
 
-Every location above is defined once in [decisions-and-authority.md → Records](decisions-and-authority.md#records);
-if they disagree, that file wins and the mismatch is reported.
+Where each kind files its log or record: [decisions-and-authority.md → Records](decisions-and-authority.md#records).
 
 ## Stages
 
@@ -114,18 +113,18 @@ Each stage: **Who acts · Input · Output · Exit criterion · Source.**
   F-13 with accessibility fixes, F-14 inside sharded sync.
 
 ### 7. Committee cycle
-Runs [docs/IMPLEMENTATION.md → The cycle](../IMPLEMENTATION.md) (plan, build with tests first, verify, user test,
-committee) and its Decisions. Those steps are not restated here. **Lane-C differences only:**
-- Roles run as fresh-context subagents inside the build session (UX lead, business lead, engineer, tester; specs in
-  `team/`), not through `scripts/team.ts`.
+Runs [docs/IMPLEMENTATION.md → The cycle](../IMPLEMENTATION.md) and its Decisions. Those steps are not restated
+here. **Lane-C differences only:**
+- The build committee's roles run as fresh-context subagents inside the build session (UX lead, business lead,
+  engineer, tester; specs in `team/`), not through `scripts/team.ts`.
 - Legal joins the plan debate where the item touches POLICY or COMPLIANCE (orchestrator report, 2026-11-01).
 - Open questions found during the cycle are handled under the owner's delegation of 2026-11-01 ("open questions
   decided by the committee's recommended option and recorded"; text and scope in
   [decisions-and-authority.md → Delegations and process decisions by the owner](decisions-and-authority.md#delegations-and-process-decisions-by-the-owner)). How
   far it reaches against IMPLEMENTATION.md Hard stops and its 2026-10-22 "the feature waits" decision is open question
   Q3; until the owner answers, both texts stand as written.
-- An in-session independent code review (a fresh-context reviewer subagent, `team/reviewer.md`) runs after the
-  committee and before the PR, and every verified blocking finding is fixed before stage 8 (example:
+- An in-session review (a fresh-context reviewer subagent, `team/reviewer.md`) runs after the committee and before
+  the PR, and every verified blocking finding is fixed before stage 8 (example:
   `docs/features/logs/F-6/review.md`, verdict "not approved (2 BLOCKING …)", then fixed).
 - The branch is the session's own `claude/<topic>`, not the lane-B branch named in The cycle
   ([collaboration.md → Branches](collaboration.md#branches)).
@@ -142,7 +141,7 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
 - **Who:** the build session.
 - **Input:** the session's branch. **Output:** one PR per session into `main`, label `feature`. The label collides
   with lane B when `FEATURES` is on ([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on));
-  #41 merged with no label, and #42 and #46 are open with none (REST `pulls`, 09:47 UTC 2026-11-01); label policy is
+  not every lane-C PR carries it (current labels: [coordination.md](coordination.md#work-items)); label policy is
   open question Q4.
 - **Open it early as a draft: the draft PR is the claim** ([collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work)).
   The Gate ignores draft PRs (`scripts/autopilot.ts` gate: `pr.isDraft` → "not an open autopilot or feature PR").
@@ -156,9 +155,9 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
 ### 9. Independent review
 - **Who:** the orchestrator runs one fresh-context reviewer subagent per PR (sometimes a focused re-review of a fix
   round).
-- **Input:** the PR at a head SHA. **Output:** a verdict marker comment `Independent review: pass|fail at <sha>` and
-  the blocking findings ([quality.md → Review standards](quality.md#review-standards), the single home of the marker
-  and of "verified" and "blocking").
+- **Input:** the PR at a head SHA. **Output:** a review marker comment (`pass` or `fail` at that SHA) and the blocking
+  findings ([quality.md → Review standards](quality.md#review-standards), the single home of the marker format and of
+  "verified" and "blocking").
 - **Exit:** a `pass` marker at the current head, or findings forwarded to the session (State `fixing`).
 - **Without an orchestrator:** the client runs a fresh-context reviewer subagent per `team/reviewer.md`, posts the
   marker itself, and the owner merges.
@@ -181,14 +180,14 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
   - `Independent review: pass at <head sha>` posted for that head;
   - the PR's merge position in [coordination.md → Merge order (current)](coordination.md#merge-order-current) is
     reached, or it may go early under [collaboration.md → Merge order](collaboration.md#merge-order);
-  - merged one PR at a time (coordination log 2026-11-01, paragraph 1: "The orchestrator merges one PR at a time");
+  - merged one PR at a time ([collaboration.md → Merge order](collaboration.md#merge-order));
   - squash merge with `sha` set to the reviewed head (the merge API's `sha` field), so a push after the review
     cannot slip in.
 - **After the merge:** the orchestrator checks `check` on main's new commit. If it is red: stop merges, open a fix
   item at merge position 1, and tell sessions not to merge main until it is green. Otherwise it sends every open
   session "main moved to `<sha>`, merge it" (collaboration.md [Messaging](collaboration.md#messaging)).
-- A PR that touches a CODEOWNERS path is still merged by the orchestrator in practice (#25, 2026-11-01, which also went
-  in as a merge commit, not a squash); whether that is allowed is open question Q6.
+- Whether the orchestrator may merge a PR that touches a CODEOWNERS path is open question Q6 (the practice so far
+  is recorded there).
 
 ### 13. Archive
 - **Who:** the orchestrator.
@@ -196,9 +195,9 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
   checked with nothing left for it (owner, 2026-11-01; coordination log "Closing finished work", unchanged there).
 
 ### 14. After merge: feature Status
-- docs/FEATURES.md has lane B's publish step set `Status: built` in the feature's PR. Lane C has no such step.
-  Observed on main at 09:47 UTC 2026-11-01: F-6 merged in #33, F-3 merged in #36 and F-2 after #30 (its PR-5 and
-  PR-6) still read `Status: ready`; F-4 merged in #35 still reads `Status: rework`.
+- docs/FEATURES.md has lane B's publish step set `Status: built` in the feature's PR. Lane C has no such step, so
+  features merged in lane C keep `ready` or `rework` (current list:
+  [coordination.md → Feature files after lane-C merges](coordination.md#feature-files-after-lane-c-merges)).
 - Consequence: with `FEATURES=on`, lane B would pick these features up again and rebuild them.
 - Who sets `built` in lane C is open question Q8. This file never edits a feature file.
 
@@ -246,9 +245,8 @@ A session at a hard stop sets its row to `blocked`, says what the owner should d
 - Lane C builds one PR per product change where CLAUDE.md asks for three variants — the owner answers Q1.
 - No lane-C step sets a feature file's `Status: built`, so lane B would rebuild merged features when switched on — the
   owner answers Q8, or a publish step for lane C is added.
-- The verdict marker of stage 9 was defined on 2026-11-01; before it, review findings went to sessions by message, and
-  PRs #35 and #42 carried no review comments (REST `issues/<n>/comments`, 09:47 UTC) — reviews posting the marker
-  from now on removes this.
+- The review marker of stage 9 was defined on 2026-11-01; before it, review findings went to sessions by message, so
+  earlier reviews left no record on their PRs — reviews posting the marker from now on removes this.
 - Stages 1–4 depend on the register's writer, which three texts describe differently — the owner answers Q2.
 - The privacy build (#31) merged with no recorded passing committee re-sit after its round-2 FAIL verdicts — a re-sit
   record per committee round removes this.

@@ -27,7 +27,8 @@ Set by the owner in the orchestrating chat on 2026-11-01 and relayed by the orch
    relays it the same way: when it is unclear whether new work fits, admit it and accept the risk of going
    over.
 5. **Queue only clear overruns.** Queue only work that clearly exceeds 100% of the cap, and hold it until the
-   window resets (`rate_limit_info.resetsAt`). On 2026-11-01 the current window resets at 15:00 UTC.
+   window resets (`rate_limit_info.resetsAt`; the current reset time is the budget line in
+   [coordination.md](coordination.md)).
 6. **The warning only calibrates.** The near-limit warning (status `allowed_warning`) is never a brake. It
    only calibrates the cap: cap ≈ spend at the first warning / 0.75.
 7. **Only rejection stops admission.** Only status `rejected`, or overage in use, stops admissions.
@@ -101,7 +102,7 @@ lane-C PRs).
 |---|---|---|
 | CI runs created that day | 126 | `gh api 'repos/{owner}/{repo}/actions/workflows/ci.yml/runs?created=2026-11-01'` → `total_count`, read 09:47 UTC |
 | Gate runs created that day | 230, ≈ 0.4 min wall each | same, `gate.yml`, read 09:41 UTC; mean of `updated_at − run_started_at` over the newest 100 completed runs: 0.44 min |
-| One CI run after #29 (sharded layout) | ≈ 3.6 min wall (median 213 s), ≈ 12.5 job-minutes (7 jobs, `notify-gate` skipped and not counted) | jobs API of the 71 successful sharded runs at 09:41 UTC: last job end − first job start (wall), and the sum of job durations (medians) |
+| One CI run after #29 (sharded layout) | ≈ 12.5 job-minutes (7 jobs, `notify-gate` skipped and not counted); wall time in [quality.md → CI layout](quality.md#ci-layout) | jobs API of the 71 successful sharded runs at 09:41 UTC: the sum of job durations (median) |
 | Job-minutes used that day | ≈ 1,220 | sum of job durations over 113 of the 116 completed CI runs at 09:41 UTC; 3 runs that straddle the API's +1 h timestamp jump (each reading ≈ 66 min) left out |
 
 So ≈ 1,220 job-minutes of CI in one morning, plus the Gate runs (billing rounds each job up to a whole minute,
@@ -150,8 +151,10 @@ Method: count the PR commits on main's first-parent line by **committer date**
 (`git log origin/main --first-parent --since=2026-11-01T06:00Z --format='%h %cI %s'`, the lines ending in `(#n)`;
 run at 09:48 UTC by fact-checker FC2). Without `--first-parent` the log also lists the branch commits that #25
 brought in as a merge commit. The GitHub pulls
-API's `merged_at` and `created_at` read 1 h late for events after about 08:00 UTC that day (for example #43:
-API 09:56Z, committer date 08:56Z, container clock 09:20Z at the time). The suspected cause is the
+API's `merged_at` and `created_at` read 1 h late for some events that day: merges between about 08:05 and 08:56 UTC
+(for example #29: API 09:05Z, committer date 08:05Z; #43: API 09:56Z, committer date 08:56Z, container clock 09:20Z
+at the time), while #25 (07:53), #37 (09:13) and #47 (09:38) agree (fact-checker FC1, 09:41 UTC). Actions run
+timestamps show the same jump. The suspected cause is the
 daylight-saving change in the committer's time zone. Never use API timestamps for 2026-11-01 without
 cross-checking.
 
@@ -186,13 +189,13 @@ cross-checking.
 ## Bottlenecks
 
 - **CI round trips and review fix rounds** are the main bottleneck (orchestrator report, 2026-11-01). Each
-  merge moves main, every open session then merges main, and each push runs full CI (median ≈ 3.7 min, [quality.md → CI layout](quality.md#ci-layout)) again.
+  merge moves main, every open session then merges main, and each push runs full CI again (duration: [quality.md → CI layout](quality.md#ci-layout)).
 - **Red CI**: the root causes on 2026-11-01 (font mismatch, a shared-database race, a layout bug, new-test
   fixtures) and their fixes are in [quality.md → Red CI on 2026-11-01](quality.md#red-ci-on-2026-11-01).
 - **Merges one at a time**: merges are serialized by rule
   ([collaboration.md → Merge order](collaboration.md#merge-order)), so they come in bursts once a group of
   PRs is green and reviewed (6 merges in 09:13–09:23).
-- **Concurrency** (about 24 sessions at peak): [architecture.md → Concurrency](architecture.md#concurrency).
+- **Concurrency**: [architecture.md → Concurrency](architecture.md#concurrency).
   By rule 1 the rate itself is never capped; the limit is the usage cap.
 
 ## How to re-measure
@@ -206,7 +209,7 @@ cross-checking.
 | CI runs per day | `gh api 'repos/{owner}/{repo}/actions/workflows/ci.yml/runs?created=<date>'` → `total_count` | Any client (REST) |
 
 State every number with its value, unit, UTC window, method and who measured it. Use REST, the GitHub MCP
-tools or git: `gh pr list` (GraphQL) fails in cloud sessions.
+tools or git ([collaboration.md → Tool recipes](collaboration.md#tool-recipes) says why).
 
 **Estimating remaining work**
 

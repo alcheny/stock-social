@@ -75,10 +75,8 @@ overrule an approval at any time, and owner decisions always win.
 Repo variable `FEATURES` (`on`/`off`). Independent of `AUTOPILOT`. Turning it off stops new rounds
 and merges; builds already running finish and publish their PR.
 
-Interactive sessions also label their PRs `feature`. While `FEATURES` is on, the pipeline treats every open PR
-with that label as its own: unless it is labeled `needs-human`, it counts against `FEATURE_PARALLEL` and may get a fix, conflict or update-branch task
-(`scripts/features.ts` `featurePrs`, `planRound`). See `docs/process/collaboration.md` → When FEATURES or
-AUTOPILOT is on.
+Interactive sessions also label their PRs `feature`, so while `FEATURES` is on the pipeline treats them as its own
+(`scripts/features.ts` `featurePrs`, `planRound`): `docs/process/collaboration.md` → When FEATURES or AUTOPILOT is on.
 
 ### Parallel builds
 

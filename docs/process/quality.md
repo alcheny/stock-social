@@ -94,8 +94,8 @@ timing yet. The earlier figure "about 3 minutes" (orchestrator report) is the fa
   test that fills or reshapes the feed (the heavy-feed test in `app.spec.ts` and others: 17 call sites in `app`,
   `section`, `follow` and `f2-personal` specs, grep 09:47 UTC), `'shared'` for a test that only looks for its own rows.
 - **Shared test database:** rules in [collaboration.md → Shared test database](collaboration.md#shared-test-database).
-- **Privacy maps** (lesson of 2026-11-01, orchestrator report; each map is held to the code by a unit test, verified
-  by grep 09:30 UTC):
+- **Privacy maps** (single home; lesson of 2026-11-01, orchestrator report; each map is held to the code by a unit
+  test, verified by grep 09:30 UTC). A change that adds data updates its map in the same PR:
 
   | Change | Update | Test that fails otherwise |
   |---|---|---|
@@ -106,7 +106,9 @@ timing yet. The earlier figure "about 3 minutes" (orchestrator report) is the fa
 
 ## Review standards
 
-This section is the single home of the lane-C review terms.
+This section is the single home of the lane-C review terms (verified finding, blocking finding, dispute, review
+marker). Who reviews when: [lifecycle.md → Stages](lifecycle.md#stages), stages 7 (in-session review) and 9
+(independent review).
 - **Standard:** [team/reviewer.md](../../team/reviewer.md) (policy first, then its six conditions, plus the feature-PR
   rules). The orchestrator's reviewer and the in-session reviewer use it unchanged.
 - **Verified finding:** a finding that cites file, line and the failure (a failing command, a rule id, or an
@@ -115,7 +117,7 @@ This section is the single home of the lane-C review terms.
   [test rule](#test-rules). Everything else is should-fix and does not block the merge.
 - **Disputes:** a builder who disagrees replies on the finding; the finding goes back to the reviewer for a focused
   re-review. The builder never closes a finding alone.
-- **Verdict marker:** a PR comment whose first line is exactly `Independent review: pass at <sha>` or
+- **Review marker:** a PR comment whose first line is exactly `Independent review: pass at <sha>` or
   `Independent review: fail at <sha>` (full head SHA), followed by the blocking findings. A marker covers only that
   SHA; any later push needs a re-review ([lifecycle.md → Merge](lifecycle.md#12-merge)).
 - The reviewer also checks that the item's records are in the right place
@@ -173,8 +175,8 @@ cap; the orchestrator and the reviewer judge size.
   `e2e` shard failed in 10, `static` in 4 (2 runs had both).
 - **Root causes (orchestrator report, not recounted):** font mismatch 5, shared-database race 1 (fixed in #31), one real
   layout bug, new-test fixtures for the rest. Assigning each red run to a cause needs its job log; not done here.
-- The API's run timestamps on that day may read +1 h after about 08:00 UTC (see budget-and-rate.md
-  [Measured throughput](budget-and-rate.md#measured-throughput)); counts by date are unaffected.
+- Some API run timestamps that day read +1 h ([budget-and-rate.md → Measured throughput](budget-and-rate.md#measured-throughput));
+  counts by date are unaffected.
 
 ## Known limits
 
