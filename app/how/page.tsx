@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { HOW, HOW_PERSONAL, OPEN, PUBLIC } from '@/lib/copy.ts';
+import { HOW, HOW_PERSONAL, OPEN, OPTIONS, PUBLIC } from '@/lib/copy.ts';
 
 // POLICY F3: what Verified means and what is excluded, in the words of lib/trades.ts. Static; linked from every page.
 export const metadata: Metadata = { title: `${HOW.title} · Stock Social` };
@@ -13,6 +13,10 @@ export default function How() {
       <p>{HOW.verified}</p>
       <h2>{HOW.mathTitle}</h2>
       <ul>{HOW.math.map((l) => <li key={l}>{l}</li>)}{/* F-6 */}{OPEN.how.map((l) => <li key={l}>{l}</li>)}</ul>
+      {/* OPTIONS (docs/features/logs/options/plan.md D8): the profile's gated count line links here. */}
+      <h2 id="options">{OPTIONS.howTitle}</h2>
+      <p>{OPTIONS.how}</p>
+      <ul>{OPTIONS.howMath.map((l) => <li key={l}>{l}</li>)}</ul>
       <h2>{HOW.excludedTitle}</h2>
       <ul>{HOW.excluded.map((l) => <li key={l}>{l}</li>)}</ul>
       <h2>{HOW.freezeTitle}</h2>

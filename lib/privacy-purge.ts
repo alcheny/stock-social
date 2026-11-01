@@ -13,6 +13,9 @@
 // Account deletion is separate and removes everything (lib/delete.ts).
 import type { ReservedSql } from 'postgres';
 import { sql } from './db.ts';
+// OPTIONS (docs/features/logs/options/plan.md D7, L8): option contract symbols (they carry the strike) never stay in the
+// public open_positions table, a frozen trader's included. The option tables themselves go with the account (cascade).
+import { purgeOccPositions } from './options-sync.ts';
 
 type ReserveSql = ReservedSql<Record<string, never>>;
 
@@ -25,6 +28,7 @@ export const ORPHAN_GRACE_DAYS = 30;
 export type PrivacyPurgeReport = {
   ran: boolean; done: boolean;
   sessions: number; links: number; attempts: number; orphansMarked: number; orphansCleared: number; likes: number; rejects: number;
+  occPositions?: number; // OPTIONS
 };
 
 // `now`, `only` and `hold` are test hooks (a test runs the dated steps at a past `now`, so other tests' rows are untouched).
@@ -38,7 +42,7 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
   const now = opts.now ?? new Date();
   // The statement timeout of an orphan batch runs on the wall clock (the `clock` hook may be a test's counter).
   const wallEnd = Date.now() + Math.min(opts.boxMs ?? PRIVACY_PURGE_BOX_MS, PRIVACY_PURGE_BOX_MS);
-  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0 };
+  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, /* OPTIONS */ occPositions: 0 };
   const conn = await sql.reserve();
   try {
     const [{ got }] = await conn`select pg_try_advisory_lock(${PRIVACY_PURGE_LOCK}, 0) as got`;
@@ -54,6 +58,8 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
           select l.token_hash from login_links l left join signup_attempts a on a.id = l.attempt_id
           where l.expires_at <= ${now} or (l.used_at is null and a.completed_at <= ${now}) limit ${batch})`).count],
         ['attempts', () => purgeUnfinishedAttempts(now, batch)],
+        // OPTIONS: one statement (open_positions holds one row per position, few per trader); reported as a count.
+        ['occPositions', () => purgeOccPositions(conn as never)],
         ['orphansCleared', async () => (await conn`delete from privacy_orphans where ctid = any(array(
           select o.ctid from privacy_orphans o
           where (select 1 from closed_trades c where c.trade_key = o.trade_key limit 1) is not null
@@ -75,7 +81,7 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
         ['likes', () => removeDue(conn, 'like', now, batch, () => timeLeft(conn, wallEnd))],
         ['rejects', () => removeDue(conn, 'reject', now, batch, () => timeLeft(conn, wallEnd))],
       ];
-      const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' ? k : 'orphans');
+      const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' ? k : k === 'occPositions' ? 'attempts' : 'orphans');
       for (const [key, step] of steps) {
         if (opts.only && !opts.only.includes(stepOf(key))) continue;
         let marked = 0;

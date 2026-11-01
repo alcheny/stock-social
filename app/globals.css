@@ -508,6 +508,27 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
 
+/* OPTIONS (docs/features/logs/options/plan.md D6): existing tokens only. The chip is text, not color; rows keep one line
+   at 360 px and 44 px targets. */
+.share-label { margin: 0 0 2px; }
+.options-line { font-size: 1rem; margin: 4px 0; font-variant-numeric: tabular-nums; }
+.options-gated, .options-short, .options-technical, .options-unsupported { margin: 4px 0; }
+.options-gated a { color: inherit; }
+.chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--text); white-space: nowrap; }
+.rows.options .line, .rows.options-open .line { align-items: center; min-height: 44px; white-space: nowrap; }
+.option-what { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.rows.options .tap44, .rows.options-open a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
+.option-meta { margin: 0; }
+.pane-options { margin: 4px 0; }
+/* OPTIONS fix round 3 (user test): the options grid at the headline's size (the same .stats/.stat.big cards; when the
+   page has the open-positions grid the headline shrinks to fit, and so does this row); figures never split from their
+   word; the pane label clears the figures above it; /how#options clears the sticky header. */
+body:has(.open-stats) .options-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
+.options-stats { margin-top: 8px; }
+.nowrap, .options-how { white-space: nowrap; }
+.pane .share-label { margin-top: 8px; }
+#options { scroll-margin-top: 72px; }
+/* end OPTIONS */
 /* F-13 (first-visit line, swipe hint, nav reflow) */
 /* Already dismissed or used on this device: hidden before the first paint (the pre-paint script in app/layout.tsx). */
 html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint { display: none; }
