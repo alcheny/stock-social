@@ -283,7 +283,8 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(grid.locator('.stat.big').nth(1).locator('b')).toHaveClass('down');
     await expect(grid.locator('.range')).toHaveText('(-41.0% to -3.0%) · 95% range');
     // Existing tokens only: every color used by the new rules is a var() of the stylesheet's own tokens.
-    const optionsCss = css.slice(css.indexOf('/* OPTIONS'));
+    const optionsCss = css.slice(css.indexOf('/* OPTIONS'), css.indexOf('/* end OPTIONS */')); // the block only (other features' CSS follows it)
+    expect(optionsCss.length).toBeGreaterThan(100);
     expect(optionsCss).not.toMatch(/#[0-9a-f]{3,6}\b|rgb\(|hsl\(/i);
   });
 

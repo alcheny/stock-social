@@ -528,6 +528,7 @@ body:has(.open-stats) .options-stats .stat.big b { font-size: clamp(18px, 6vw, 3
 .nowrap, .options-how { white-space: nowrap; }
 .pane .share-label { margin-top: 8px; }
 #options { scroll-margin-top: 72px; }
+/* end OPTIONS */
 /* F-13 (first-visit line, swipe hint, nav reflow) */
 /* Already dismissed or used on this device: hidden before the first paint (the pre-paint script in app/layout.tsx). */
 html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint { display: none; }
