@@ -70,6 +70,8 @@ export type RuleOutcome = {
 };
 
 // Signed one-decimal percent; a value that rounds to zero is always "+0.0%".
+// ponytail: a second percent formatter beside lib/format.ts#pct (it prints "+0.0%" for zero where pct() prints
+// "0.0%") — the F-19 sweep rework moves its callers onto pct().
 export function signedPct(n: number): string {
   const r = Math.round(n * 10) / 10;
   return `${r < 0 ? '-' : '+'}${Math.abs(r).toFixed(1)}%`;

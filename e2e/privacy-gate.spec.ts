@@ -4,6 +4,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
+import { cronLock } from './cron-lock.ts';
 
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 const cronSecret = process.env.CRON_SECRET ?? readFileSync(new URL('../.env', import.meta.url), 'utf8').match(/^CRON_SECRET=(.*)$/m)?.[1];
@@ -36,7 +37,8 @@ test('sandbox, 360px: /login keeps every method with no closed notice; the dev p
 });
 
 test('the tick reports the gate state and the privacy purge with counts only', async ({ request }) => {
-  const r = await request.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } });
+  const release = await cronLock('shared'); // e2e/cron-lock.ts
+  const r = await request.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } }).finally(release);
   expect(r.status()).toBe(200);
   const body = await r.json();
   expect(body.launch).toEqual({ gate: 'sandbox', allowHandles: 0, allowEmails: 0 });
