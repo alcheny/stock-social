@@ -178,3 +178,57 @@ they unblock, their files and merge positions are as follows.
   - Files: a `WarnNotice` component and `.warn-notice` rules, the bar baseline in `app/t/[symbol]/Spread.tsx` and
     `Timeline.tsx`.
   - F-20's file is not edited: its build session owns it.
+
+## Approval council 2026-11-01 (cycle 4): approved features (F-28 to F-31) and re-approval (F-23)
+
+Record: `docs/ideas/approval-2026-11-01-cycle4.md` (base e6731d5). Four build slots out of six. Nothing can start today.
+Every file below is `Status: blocked` with a `Blocked:` line, and each approval lapses to council cycle 5 if its
+prerequisite has not merged by then. The orchestrator flips each to `ready` as its prerequisites merge. F-21 and F-22
+went to `Status: draft` (not re-approved, 3.47 each).
+
+- **Matcher slot: F-28 a short's cover never prices a later trade, with F-30 same-instant order on date-only stamps.**
+  - Files: `docs/features/F-28-short-cover-never-prices-a-later-trade.md`,
+    `docs/features/F-30-same-instant-order-on-date-only-stamps.md`.
+  - One builder. Owns the replay in `lib/trades.ts`: a pending-cover count per pair that follows renames, a cover-lot
+    flag counted under `excluded`, and the evidence rule at one instant. Also owns `lib/trades.test.ts` and
+    `lib/fixes-cycle3.test.ts`.
+  - Adds one class-count row to `scripts/f15-readout.ts`, which it coordinates with the readout slot.
+  - Both wait for owner Q1, (b) and (a).
+  - Overlaps:
+    - `claude/fix-truthful-labels` edits only `confidence()` in `lib/trades.ts` (no conflict).
+    - The oversell copy (`lib/copy.ts:70`) ships on the fixes list.
+    - `scripts/rebuild-records.ts` runs after merge.
+  - F-22 (draft) joins this slot last if the owner says yes and a later council re-approves it.
+- **Readout slot: F-31 readout limits and partial rows.**
+  - File: `docs/features/F-31-readout-limits-and-partial-rows.md`.
+  - Owns `scripts/f15-readout.ts` and its test: the limits block, partial rows and the concentration row. It may add an
+    additive aggregate for beacons with no trusted address in `db/schema.sql` and `lib/views.ts`.
+  - Waits for fixes F4-11 and F4-12 (same file, `claude/fixes-cycle4`), or the fixes builder carries it.
+  - Overlaps: F-30's class-count row, and C4-32 / C4-33 if a later council approves them.
+- **/how and options copy slot: F-29 gated options wording.**
+  - File: `docs/features/F-29-gated-options-wording.md`.
+  - Owns the OPTIONS block in `lib/copy.ts`, the options paragraph in `app/how/page.tsx`, the qualifier placement in
+    `app/pane.tsx`, `app/u/[handle]/chart.tsx` and `lib/record-strip.ts`, and the gate state in the /how and
+    share-image cache keys.
+  - Waits for `claude/fix-truthful-labels` (all five files), PR #77 (`lib/record-strip.ts`) and the AI legal
+    committee's words.
+  - Overlaps: F4-4 and F4-5 (month recap and unfurl qualifiers kept), F-26 (`app/ui.tsx`, untouched here).
+- **Pane and payload slot: F-23 public payload precision (re-approved).**
+  - File: `docs/features/F-23-public-payload-precision.md`.
+  - Owns serialisation rounding in `app/u/[handle]/pane/route.ts`, the pane-chart route, `lib/paging.ts`
+    (`packPoints`), `lib/chart-series.ts` and the client data in `lib/feed.ts`.
+  - Owns one test that scans every signed-out response.
+  - Waits for F3-2 (on `claude/fix-truthful-labels`) and F-26 (`claude/f26-held-like-none`, which edits the pane-chart
+    route).
+  - Overlaps: F4-16 (chart sheet dates, `lib/chart-series.ts`, `lib/feed.ts`) rebases on whichever lands first.
+  - F-21 (draft) would rejoin this slot if a later council re-approves it.
+
+Not approved, with where each goes (no vote):
+- Chores: C4-38, C4-39/13h, C4-42, C4-43, and C4-40 (owner Q7, protected files).
+- Committees: C4-8.
+- Hand-off acceptance criterion for the F-26 build: C4-35.
+- Fixes list: C4-2's cause line (`lib/copy.ts:70`), the stale `Blocked:` lines on F-16, F-17, F-20 and F-24 (with
+  F4-21), and SW-1 Back-to-card if it reproduces.
+- a11y fixes lane: C4-34 (b, c).
+- Owner checklists: C4-27, C4-28 and C4-29 on the F-7 switch-on checklist (owner Q2); C4-41 on the live-billing
+  checklist.

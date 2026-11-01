@@ -92,9 +92,23 @@ The whole path from idea to merged feature, with states and exit criteria: [`doc
 | 62 | One link rule for trade rows: every closed-trade row links once to its trade page; trade URLs move to the hashed `trade_key` (308 from old ids); feed card footer "This trade →" (C3-41) | council cycle 3 → design session | **decided: F-25** (design council cycle 3, all four signed; blocked on F-9 PR #65, F-11 and F-26) | [committee](features/logs/design-cycle3/committee-2026-11-01.md) | decided |
 | 63 | No empty-note line: "No thesis posted." removed; a held note shows only to its author, and viewers get the same output for held and none (C3-45, CS-6) | council cycle 3 → design session | **decided: F-26** (design council cycle 3, all four signed; blocked on F-9 PR #65) | [committee](features/logs/design-cycle3/committee-2026-11-01.md) | decided |
 | 64 | PR #71 colour follow-ups: chart bar baseline on `--control`, failed import as a warn notice (icon, box, words), dark share-image gain/loss hues (DS-6) | PR #71 hand-off | **decided: F-27** (blocked on F-20 and F-11); image hues an owner question, recommended yes | [committee](features/logs/design-cycle3/committee-2026-11-01.md) | decided (hues: owner) |
+| 65 | Council cycle 4 whole-app audit of main: 21 ranked proposal briefs for approval cycle 4 (top: C4-2 a short's cover never prices a later long trade, C4-1 same-instant order on date-only stamps, C4-4 G3 reads trader demand, C4-31 readout limits, C4-26 gated options wording), a 21-item fixes list (F4-1..F4-22, F4-3 withdrawn; no vote) and 7 owner questions | council cycle 4 | reviewed: approval cycle 4 approved C4-2 (F-28), C4-26ab (F-29), C4-1 (F-30), C4-4/31 (F-31); rows 66-71 | [cycle 4](direction/cycle4-2026-11-01.md), [approval cycle 4](ideas/approval-2026-11-01-cycle4.md) | approval cycle 4 |
+| 66 | A short's cover never prices a later long trade: taint the next `k` units after a `k`-unit oversell, under the oversell cause (C4-2) | council cycle 4 | **approved: F-28** (cycle 4, 4.67, 15/15; blocked on owner Q1(b), amends `lib/trades.ts:46`) | [approval cycle 4](ideas/approval-2026-11-01-cycle4.md) | approved; owner |
+| 67 | Gated options wording true for every record: interim /how sentence, one qualifier per surface beside the headline (C4-26 a, b); part (c) not-asked vs declined to the owner | council cycle 4 | **approved: F-29** (cycle 4, 3.87, 15/15; blocked on `claude/fix-truthful-labels`, PR #77 and the legal committee's words); part (c) owner Q3 | [approval cycle 4](ideas/approval-2026-11-01-cycle4.md) | approved; owner |
+| 68 | Same-instant order on date-only stamps: count, never invent a trade, only on evidence that the sell may not be a long close (C4-1, narrowed by probe C) | council cycle 4 | **approved: F-30** (cycle 4, 3.87, 15/15; blocked on owner Q1(a), partial reversal of F3-5) | [approval cycle 4](ideas/approval-2026-11-01-cycle4.md) | approved; owner |
+| 69 | The F-15 readout states its limits as this week's facts and splits trader and filer views in partial rows (C4-4, C4-31) | council cycle 4 | **approved: F-31** (cycle 4, 3.87, 15/15; blocked on fixes F4-11 and F4-12) | [approval cycle 4](ideas/approval-2026-11-01-cycle4.md) | approved |
+| 70 | Lapsed cycle-3 approvals re-voted: F-23 re-approved (scope widened to the profile's RSC payload); F-21 and F-22 not re-approved | approval council cycle 4 (lapse rule) | F-23 3.73 **re-approved** (blocked on F3-2 and F-26); F-21 3.47 and F-22 3.47 → draft | [approval cycle 4](ideas/approval-2026-11-01-cycle4.md) | approved / waiting |
+| 71 | Cycle-4 briefs not approved: C4-32 strip `?via=` (3.47, re-brief: read at mount), C4-27 /how filer section, C4-28 no symbol term for filers, C4-34bc spoken hint, C4-41 checkout price check, C4-29 before fees, C4-36 range on /how, C4-33 pane opens, C3-38 drop-off aggregate, C3-16 connection health, C4-37 exercise-day per lot; C4-38, C4-39/13h, C4-42, C4-43, C4-40 chores; C4-8 to committees; C4-35 to the F-26 build | council cycle 4 | waiting (C4-27, C4-28, C4-29 recommended for the owner's switch-on checklist; C4-41 for the live-billing checklist) | [approval cycle 4](ideas/approval-2026-11-01-cycle4.md) | waiting |
 
 ## Decisions
 
+- 2026-11-01: The approval council's fourth cycle approved four new features: F-28 (a short's cover never prices a
+  later long trade), F-29 (gated options wording true for every record), F-30 (same-instant order on date-only stamps,
+  counted only on evidence) and F-31 (readout limits and trader and filer partial rows). It re-approved F-23 (public
+  payload precision, scope widened to the profile's RSC payload). F-21 and F-22 lapsed and were not re-approved (3.47
+  each) and went to draft. Four build slots; nothing can start today (F-28/F-30 wait on owner Q1, F-29 and F-23 on
+  `claude/fix-truthful-labels`, F-31 on fixes F4-11/F4-12), each with a lapse clause to cycle 5. Why: approval council
+  under the owner's delegation of 2026-11-01 ([approval cycle 4](ideas/approval-2026-11-01-cycle4.md)).
 - 2026-11-01: The design council for cycle 3's routed items decided F-25 (one link rule for trade rows, C3-41), F-26
   (no empty-note line; a held note shown to its author only, C3-45) and F-27 (PR #71's colour follow-ups). All three are
   blocked on in-flight work. F-27's share-image hue change and F-20's image-floor conflict go to the owner. Why: decided
@@ -201,6 +215,13 @@ The whole path from idea to merged feature, with states and exit criteria: [`doc
   instruction of 2026-11-01.
 
 ## Flags for the owner
+
+- Approval council cycle 4 2026-11-01: matcher rulings Q1(a) as narrowed and Q1(b) with cycle-3 flag 1 in one sitting
+  (recommend yes to all three); rebase `claude/fix-truthful-labels` first (Q6, recommend yes); options gate opens
+  publicly only once a trader-only "not asked yet" view or a both-true wording exists (recommend adding to the
+  checklist); the readout's address-cap source of truth; F-23's consent caveat to the legal committee; C4-41 as a
+  blocking live-billing checklist line; C4-27/C4-28/C4-29 on the switch-on checklist; the cap reading. Record:
+  [approval cycle 4](ideas/approval-2026-11-01-cycle4.md).
 
 - Approval council cycle 3 2026-11-01: F-22 amends `lib/trades.ts:52` and the corporate-actions committee's rule
   (recommend yes, with the basis rule); F-9 on `claude/fix-user-text-safety` holds F-16, F-17 and K18 (recommend
