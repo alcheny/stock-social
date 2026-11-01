@@ -6,7 +6,7 @@
 //   account   kept until the account is deleted (deletion removes every row, lib/delete.ts and the users cascade)
 //   session   kept until it expires, then purged by the tick (lib/privacy-purge.ts, lib/auth/links.ts)
 //   short     unfinished or orphaned rows purged by the tick after a fixed window (lib/privacy-purge.ts)
-//   reserved  no personal data; kept for a fixed period (a deleted handle's reservation)
+//   reserved  kept for a fixed period (a deleted or renamed handle's reservation; no personal data once the account is gone)
 //   none      no personal data; operational rows
 export type RetentionClass = 'account' | 'session' | 'short' | 'reserved' | 'none';
 export type TableEntry = { personal: boolean; retention: RetentionClass; holds: string };
@@ -27,7 +27,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   identities: { personal: true, retention: 'account', holds: 'sign-in provider subject and email address' },
   sessions: { personal: true, retention: 'session', holds: 'hashed session token and user id; purged at expiry' },
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },
-  handle_reservations: { personal: false, retention: 'reserved', holds: 'a deleted handle and its release date' },
+  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted; at most 3 per account (a further rename ends the oldest hold); purged by the tick once the hold has ended' },
   funnel_events: { personal: false, retention: 'short', holds: 'sign-up step names and times per attempt; purged with an unfinished attempt' },
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
@@ -62,6 +62,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   public_import_state: { personal: false, retention: 'none', holds: 'import cursor and last successful run per source' },
   public_filer_log: { personal: true, retention: 'account', holds: 'corrections log: filer id, action, reason code and time; no requester details' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
+  // fix-user-text B (F-9): who reported which note; both user links cascade, so a deleted profile leaves no reporter id.
+  thesis_reports: { personal: true, retention: 'account', holds: 'which signed-in reader reported which trader\'s note (by sell id) and when' },
   // OPTIONS (docs/features/logs/options/plan.md D1, L8): deleted with the account (the users cascade).
   option_activities: { personal: true, retention: 'account', holds: 'raw broker option activities: contract terms, strikes, quantities, prices, fees, cash, account ids' },
   option_trades: { personal: true, retention: 'account', holds: 'derived long option closes: underlying, call or put, expiry, dates, percent returns; public only through the consent gate' },

@@ -5,6 +5,7 @@ import { tone, toneClass } from '@/lib/open-split.ts';
 import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { counted } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
+import { UserNote } from '@/lib/user-note.ts';
 import { OPTIONS } from '@/lib/copy.ts'; // OPTIONS
 
 const W = 640, H = 240, T = 16, B = 16;
@@ -33,7 +34,8 @@ function fetchChart(src: string): Promise<PackedChart> {
   return p;
 }
 
-export function PerformanceChart({ points, chart, src, now, linkBase = '', current, shareOnly = false }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; /* OPTIONS (D5) */ shareOnly?: boolean }) {
+// F-9: `noteBy`, the trader's handle for the sheet's UserNote attribution.
+export function PerformanceChart({ points, chart, src, now, linkBase = '', current, shareOnly = false, noteBy = '' }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; /* OPTIONS (D5) */ shareOnly?: boolean; noteBy?: string }) {
   // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the profile passes the whole record (`points`) and draws it
   // at full resolution; the feed pane passes `chart`, each range's series already drawn at screen resolution on the
   // server (lib/chart-series.ts, at most FEED_CHART_POINTS points). Both draw and scrub the same way.
@@ -193,13 +195,15 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
         {chosen && (
           <>
             <div className="line">
-              <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}</span></span>
+              {/* Fix round 2 (H): " · " after the date, so it never runs into the figure ("10/30/2026-1.7%"). */}
+              <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}{' · '}</span></span>
               <b className={toneClass(chosen.returnPct)}>{pct(chosen.returnPct)}</b>
             </div>
             {open && (
               <>
                 <p className="muted" style={{ margin: '4px 0 0' }}>Held {chosen.holdingDays.toFixed(1)} days</p>
-                {chosen.thesis && <p style={{ margin: '4px 0 0' }}>“{chosen.thesis}”</p>}
+                {/* F-9: UserNote (no dates: the packed chart carries the text only) */}
+                {chosen.thesis && <UserNote text={chosen.thesis} handle={noteBy} />}
                 <p style={{ margin: '8px 0 0' }}>
                   <a href={tradeHref(linkBase, chosen.id, chosen.index, current)}>Go to trade in list</a>{' '}
                   <button type="button" onClick={() => setOpen(false)}>Close</button>
