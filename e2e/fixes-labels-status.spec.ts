@@ -125,8 +125,15 @@ test('F-11 frozen record: the pane (JSON and the feed\'s server-rendered pane) a
         if (h === 'fls_frozen') {
           await expect(card.locator('.record-status[data-status="card"]')).toHaveText(frozenStatic());
           await expect(card.locator(`.record-status time[datetime="${DISCONNECTED.toISOString()}"]`)).toHaveCount(1);
-          // Between the hero and the thesis.
-          expect(await card.locator('.record-status').evaluate((el) => el.previousElementSibling?.classList.contains('hero') && el.nextElementSibling?.classList.contains('thesis'))).toBe(true);
+          // Between the hero and the thesis. F-26: a card with no published note has no note element, so the line is followed
+          // by the note slot when there is a note, else by what follows the slot (the open line or the footer).
+          expect(await card.locator('.record-status').evaluate((el) => {
+            const next = el.nextElementSibling;
+            return !!el.previousElementSibling?.classList.contains('hero') && !!next
+              && (next.matches('.thesis, figure.user-note, .thesis-held, .fv-slot') || next.matches('[data-open], footer'));
+          })).toBe(true);
+          // This fixture has no note: nothing stands in the slot.
+          await expect(card.locator('.thesis, figure.user-note, .thesis-held')).toHaveCount(0);
           const pane = row.locator('section.pane [data-status="pane"]');
           expect(await said(pane)).toMatch(new RegExp(`^${frozenStatic()} · Last close `));
           await expect(row.locator('section.pane')).not.toContainText('Connected:');
