@@ -18,6 +18,8 @@ Approve only if **all** hold; otherwise `approve: false` with concrete findings 
 
 Be strict: an approval puts the version in front of the human as a real option.
 
+Interactive PRs use this standard; verdict marker and disputes: `docs/process/quality.md` → Review standards.
+
 **Feature PRs (label `feature`).** Check every acceptance criterion in the linked feature file and the
 committee record it links (plan, user tests, verdicts): a PR whose committee did not pass must say so,
 and its open demands count as findings. A feature PR that only records a stop (`<F-n>: blocked`: the
