@@ -2,6 +2,7 @@ import type { Similar } from '@/lib/similar.ts';
 import { SIMILAR } from '@/lib/copy.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
+import { toneClass } from '@/lib/open-split.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { LazyPane } from '../../lazy-pane.tsx';
 import { RowBadge, WhoName } from '../../ui.tsx';
@@ -36,7 +37,7 @@ export function SimilarSection({ handle, similar, signedIn }: { handle: string; 
               <header className="sheet-trade">
                 <button type="button" className="back" data-back>← Back</button>
                 <h3 tabIndex={-1}>{SIMILAR.closed(r.symbol, DAY.format(r.closedAt))}</h3>
-                <p><b className={r.returnPct > 0 ? 'up' : 'down'}>{pct(r.returnPct)}</b> <span className="muted">{SIMILAR.held[r.bucket]}</span> <a href={trade}>{SIMILAR.trade}</a></p>
+                <p><b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b> <span className="muted">{SIMILAR.held[r.bucket]}</span> <a href={trade}>{SIMILAR.trade}</a></p>
               </header>
             );
             return (

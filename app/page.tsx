@@ -14,6 +14,7 @@ import { FeedGestures } from './feed-gestures.tsx';
 import { hiddenTradeCount } from '@/lib/likes.ts';
 import { FeedNotes } from './feed-notes.tsx';
 import { DiscoveryLog } from './discovery-log.tsx';
+// F-13: the signed-out twin of the notes slot (it renders only signed out, page 1).
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 

@@ -29,7 +29,8 @@ export type Referrer = { id: number; handle: string; isDemo: boolean };
 
 export function resolveReferrer(i: { refHandle: unknown; referrer: Referrer | null; newHandle?: string }): number | null {
   const ref = normalizeHandle(i.refHandle);
-  if (!ref || !i.referrer || i.referrer.isDemo) return null;
+  // F-7: a public filer ('pf_' handles, lib/public-gate.ts) is never a referrer.
+  if (!ref || ref.startsWith('pf_') || !i.referrer || i.referrer.isDemo) return null;
   if (ref === normalizeHandle(i.newHandle)) return null;
   return i.referrer.id;
 }
