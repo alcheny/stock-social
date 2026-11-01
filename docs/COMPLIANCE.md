@@ -20,6 +20,7 @@ feed, user text (theses), sharing, and later viewer subscriptions and trader pay
 
 Run this before planning and again before merging. Record the answers in the PR body under a
 `## Compliance` heading (the reviewer checks it; `scripts/compliance.ts` checks the deterministic parts).
+Where this sits in the workflow: [`docs/process/quality.md`](process/quality.md) → Compliance.
 
 1. **Does the change show, rank, label or describe performance?** → Section 2 (securities and
    advice). Disclaimer present, no advice words, losses treated like gains, evidence label where

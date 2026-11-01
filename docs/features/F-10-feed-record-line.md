@@ -26,6 +26,18 @@ council (`docs/ideas/approval-2026-11-01.md`, C3: second-vote mean 4.13, final v
   Why: approved by the approval council; the design system council is settling the short-record wording now.
 - 2026-11-01: On F-7 public-trader cards the strip shows F-7's source label, never "Verified". Why: approved by the
   approval council (the decisions keeper's F-7 interface condition; F-7 standing rule).
+- 2026-11-01 (build committee, `logs/F-10/committee-2026-11-01.md`): "Too early to tell" (no average) whenever the
+  profile's evidence tier is too early: under 5 bets or a range wider than ±10 points (TR-9). It has the average's weight.
+  Why: business lead; a lucky short record must not read as a result.
+- 2026-11-01 (build committee): the card's average and range come from `cardEvidence()`/`evidenceRangeText()`, the
+  profile's own calls. The feed card keeps the bare "(low to high)" without "· 95% range" or "losses included" to stay
+  within two lines at 320 px (documented exception); open positions stay in F-6's "Also open" line, not repeated.
+  Why: AC3; the committee's two-line budget.
+- 2026-11-01 (build committee): the strip's figures are computed once per trader in `loadFeedPage` from the records the
+  page already reads (`records()` gains `opened_at`), cached by row count and newest row id. Why: engineer (feed budget).
+- 2026-11-01 (build committee): the smaller-ticker variants are deferred to a follow-up issue with `## Variants`; this
+  build keeps today's ticker. The process note stays open. Why: orchestrator ruling (one PR); no open-pane measurement
+  exists yet to judge them.
 
 ## Acceptance criteria
 - [ ] Every feed card shows one record line in place of "held · closed". It gives the closed-trade count and the

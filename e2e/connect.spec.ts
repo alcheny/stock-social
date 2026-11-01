@@ -571,7 +571,7 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   await expect(p2.locator('section.stats').first()).toContainText('win rate');
   await expect(p2.locator('.rows:not(.positions) li')).toHaveCount(7);
   await p2.goto(`/u/${handle}/trade/${encodeURIComponent(lastClose.sell_id as string)}`);
-  await expect(p2.locator('section[aria-labelledby="whole-record"]')).toContainText('win rate');
+  await expect(p2.locator('section[aria-labelledby="whole-record"]')).toContainText('closed trades');
   await expect(p2.locator('section[aria-labelledby="whole-record"] .importing')).toHaveCount(0);
   await anon.close();
   await sql`delete from users where id = ${u.id}`;

@@ -6,6 +6,10 @@ built, checked and refined until every feature is accepted. Separate from the au
 the infrastructure: CI, the policy scan (`docs/POLICY.md`), the build engine (`scripts/team.ts`), the
 reviewer and the Gate.
 
+Lane B of three: `docs/process/README.md`. This file and `docs/IMPLEMENTATION.md` own lane B (the feature
+pipeline) and the design sessions; `docs/AUTOPILOT.md` owns lane A (the autopilot); `docs/process/` owns lane C
+(interactive orchestrator sessions) and how the three lanes coexist.
+
 ```
  chat (design session)                     repo                              CI (features.yml)
  ─────────────────────                     ────                              ─────────────────
@@ -53,30 +57,45 @@ When the owner talks about how the app should look, work or feel, Claude:
 6. Applies `docs/POLICY.md` to every decision (no third-party names, no advice language, disclaimers…)
    and says so when a request conflicts with it.
 
+(Open question Q5, on step 5 when several sessions share the repo: `docs/process/decisions-and-authority.md`.)
+
 Ask in the chat at any time: "what's decided?", "what's left?", or run `node scripts/features.ts list`.
 
 ## Features approved by the council
 
-Besides design sessions, new features can come from the approval council (owner's delegation of 2026-11-01,
-`team/approval-council.md`): ideas from the market, creative and design councils and the idea board that a
-15-member committee elects over several rounds (at least 10 of 15 approve, mean score at least 3.5, no veto) become
-feature files with `Status: ready`, at most three per cycle. They are built like any other feature. The owner can
+Features can also come from the approval council (owner's delegation of 2026-11-01): `team/approval-council.md`
+holds the rule (where ideas come from, the rounds, the approval threshold, the vetoes and the per-cycle cap). An
+approved feature becomes a feature file with `Status: ready`. They are built like any other feature. The owner can
 overrule an approval at any time, and owner decisions always win.
 
 ## The pipeline (CI)
 
-- **Switch:** repo variable `FEATURES` (`on`/`off`). Independent of `AUTOPILOT`. Turning it off stops new rounds
-  and merges; builds already running finish and publish their PR.
-- **Parallel builds.** Up to `FEATURE_PARALLEL` (default 3) features are worked on at once. Each run of
-  `features.yml` is one round: `scripts/features.ts next` plans it (one pick at a time, so two builds never take the
-  same feature), then every task runs as its own matrix leg:
+### Switch
+
+Repo variable `FEATURES` (`on`/`off`). Independent of `AUTOPILOT`. Turning it off stops new rounds
+and merges; builds already running finish and publish their PR.
+
+Interactive PRs labeled `feature` (most, not all; see `docs/process/collaboration.md`) are treated by the pipeline
+as its own while `FEATURES` is on, unless they are labeled `needs-human` (`scripts/features.ts` `featurePrs`,
+`planRound`): `docs/process/collaboration.md` → When FEATURES or AUTOPILOT is on.
+
+### Parallel builds
+
+Up to `FEATURE_PARALLEL` (default 3) features are worked on at once. Each run of
+`features.yml` is one round: `scripts/features.ts next` plans it (one pick at a time, so two builds never take the
+same feature), then every task runs as its own matrix leg:
+
   - a **fix** for an open feature PR whose checks failed,
   - a **conflict resolution** for one that conflicts with main (another feature merged first),
   - a **build** of the next `ready`/`rework` feature, lowest number first, for each free slot.
 
-  Open feature PRs count against the limit; a PR waiting for the owner doesn't. Blocked features are skipped.
-- **How builders coordinate.** Builds run on separate machines and can't see each other, so the pipeline passes
-  messages between them:
+Open feature PRs count against the limit; a PR waiting for the owner doesn't. Blocked features are skipped.
+
+### How builders coordinate
+
+Builds run on separate machines and can't see each other, so the pipeline passes
+messages between them:
+
   - Before a build starts, `features.ts brief` adds a coordination brief to its task: every other build in the
     round, every open feature PR with the files it changed (shared files flagged), and the hand-off notes its
     builder left.
@@ -88,7 +107,9 @@ overrule an approval at any time, and owner decisions always win.
   - Each builder writes `.autopilot/handoff.md` (what the others need to know: shared files touched and where, new
     exports, columns, routes, copy keys). The publish step puts it, with the shared files the branch actually
     changed, under **Hand-off notes** in its PR, where the next briefs read it.
-- **Keeping parallel work safe.**
+
+### Keeping parallel work safe
+
   - The Gate merges a feature PR only once it contains the latest main, so every merge was tested together with
     what merged before it. A PR that is behind is updated in place (GitHub's update-branch), and CI and the review
     re-run.
@@ -98,8 +119,12 @@ overrule an approval at any time, and owner decisions always win.
   - A PR whose conflicts come back twice serializes the pipeline: no new build starts until it merges.
   - Fix and conflict attempts share `FEATURE_MAX_ATTEMPTS` (default 15); then the PR is labeled `needs-human` and
     waits for a design session.
-- **Permissions and the failure budget** (owner's decision, 2026-10-26). Agents get every permission the design
-  allows, and far more room to fail before a human is needed:
+
+### Permissions and the failure budget
+
+(owner's decision, 2026-10-26). Agents get every permission the design
+allows, and far more room to fail before a human is needed:
+
   - **Every tool.** Each call gets every tool (`ALL_TOOLS` in `scripts/team.ts`): any shell command, file edits,
     web search and fetch, subagents. No AI permission classifier sits in between (`--permission-mode dontAsk` with
     everything allowlisted), so legitimate work is never refused mid-run.
@@ -146,7 +171,11 @@ overrule an approval at any time, and owner decisions always win.
     secret, an unauthorized dependency or vendor, a disagreement with a decided feature), a change to a
     protected path, a Claude usage limit (the pipeline pauses and the hourly heartbeat resumes it), or a PR that
     used all `FEATURE_MAX_ATTEMPTS`.
-- **Build (the committee cycle, `docs/IMPLEMENTATION.md`):** `scripts/team.ts` with `SPEC_FILE` set.
+
+### Build (the committee cycle, `docs/IMPLEMENTATION.md`)
+
+`scripts/team.ts` with `SPEC_FILE` set.
+
   1. Plan: the UX lead drafts the implementation plan (with the compliance checklist and the owner-only items);
      the business lead and the engineer sign it or send it back, up to `PLAN_ROUNDS` (5).
   2. Build: the engineer writes the test for each acceptance criterion first, then the code.
@@ -157,18 +186,27 @@ overrule an approval at any time, and owner decisions always win.
      to `COMMITTEE_ROUNDS` (5); a PR whose committee did not pass says so, and the reviewer counts its open
      demands.
 
-  Committee members have every tool, but their file changes are discarded after each call. A disagreement with a
-  decision, or a hard stop the build must not pass (counsel, a secret, an unauthorized dependency or vendor), ends
-  the build: publish opens a small `<F-n>: blocked` PR that sets `Status: blocked` with the reason and the
-  committee record, and the pipeline moves on. Every round is logged in `docs/features/logs/<F-n>/`; the QA record
-  in `docs/features/logs/`; never in the owner's file. `FEATURE_COMMITTEE=off` falls back to engineer ⇄ tester
-  only. Agents can't change `docs/features/` (only the publish script updates status and the build log).
-- **Merge:** the Gate merges a green feature PR (CI, plus the reviewer checking every acceptance criterion against
-  the feature file), provided it is up to date with main, then starts the next round. The 800-line cap
-  (`MAX_DIFF`) counts product lines only for feature PRs: tests, end-to-end specs, docs and screenshots don't count
-  (the owner's pre-authorization of 2026-10-24). Protected paths still wait for the owner.
-- **Running until done.** Every merge, update or failure starts the next round, and an hourly heartbeat resumes the
-  pipeline after a lost event. It keeps going until no feature is `ready` or `rework` and no feature PR is open.
-  What remains then is `blocked` or `draft`: those wait for the owner (counsel, a decision, a design session).
-- **Starting it:** set `FEATURES=on`, then run it from the chat (Claude runs the command) or
-  `gh workflow run features.yml --ref main`.
+Committee members have every tool, but their file changes are discarded after each call. A disagreement with a
+decision, or a hard stop the build must not pass (counsel, a secret, an unauthorized dependency or vendor), ends
+the build: publish opens a small `<F-n>: blocked` PR that sets `Status: blocked` with the reason and the
+committee record, and the pipeline moves on. Every round is logged in `docs/features/logs/<F-n>/`; the QA record
+in `docs/features/logs/`; never in the owner's file. `FEATURE_COMMITTEE=off` falls back to engineer ⇄ tester
+only. Agents can't change `docs/features/` (only the publish script updates status and the build log).
+
+### Merge
+
+The Gate merges a green feature PR (CI, plus the reviewer checking every acceptance criterion against
+the feature file), provided it is up to date with main, then starts the next round. The 800-line cap
+(`MAX_DIFF`) counts product lines only for feature PRs: tests, end-to-end specs, docs and screenshots don't count
+(the owner's pre-authorization of 2026-10-24). Protected paths still wait for the owner.
+
+### Running until done
+
+Every merge, update or failure starts the next round, and an hourly heartbeat resumes the
+pipeline after a lost event. It keeps going until no feature is `ready` or `rework` and no feature PR is open.
+What remains then is `blocked` or `draft`: those wait for the owner (counsel, a decision, a design session).
+
+### Starting it
+
+Set `FEATURES=on`, then run it from the chat (Claude runs the command) or
+`gh workflow run features.yml --ref main`.
