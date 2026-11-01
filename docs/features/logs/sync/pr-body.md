@@ -22,6 +22,10 @@ Removes the known limit "`/api/sync` loops users sequentially (~5k traders/hour)
   of the shard's stalest-first queue, so the next call resumes there. Nobody is synced twice in a round.
 - **Each trader's sync is still exactly `syncUser`.** It re-reads 7 days in one transaction, so D4/D5 hold. `lib/sync.ts`
   only exports a few helpers; `lib/broker.ts` is untouched.
+- **`GET /api/sync`** (business council, PR #45): the host's cron sends GET. It is the same handler as POST, with the
+  same constant-time bearer check and the same parameters. The owner adds the cron schedule as a deploy setting; the
+  exact `vercel.json` lines are below.
+- **F-3's `reconcileIfDue()`** runs once per tick on shard 0, inside the housekeeping, before the sync.
 - **`lib/sync-limits.ts`** (new), the pure parts: shard parameters, run config, the token bucket, the backoff schedule,
   failure classes, the breaker, and the database settings check.
 - **`lib/db.ts`**: `DATABASE_POOL_MAX` (default 10, clamped to 3–500).
@@ -41,6 +45,34 @@ Removes the known limit "`/api/sync` loops users sequentially (~5k traders/hour)
 > checkpoints are a follow-up PR.
 
 DESIGN §2.7 still describes the sequential loop. It should point at docs/SYNC.md.
+
+**For the owner: `vercel.json`** (deploy setting, not in this repo). Today, unsharded:
+
+```json
+{ "crons": [ { "path": "/api/sync", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" } ] }
+```
+
+After the switch-on gate: 32 entries, `{ "path": "/api/sync?shard=i&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }`
+for i = 0…31 (docs/SYNC.md → Cron setup). The hosting plan must allow 5-minute crons and 32 entries.
+
+## Known limits (each marked `ponytail:` at its place)
+
+- `lib/sync.ts` (SYNC_FIT_CAP): a sync of more than 4 accounts, or one reading more than one vendor page per account, can
+  still overrun the call and roll back. The runner dispatches such a trader first in a call and quarantines it after two
+  overruns. Fix: a resumable per-account sync, as a follow-up PR (orchestrator-agreed).
+- `lib/sync-shard.ts` (fit check): every request is assumed to take its whole 30 s bound, so a 2-account trader is
+  claimed only in a call's first ~150 s, which costs ~15% of a mixed shard's throughput. Fix: a measured p99 bound.
+- `lib/sync-shard.ts` (vendor budget): the budget is per run, in process. A manual call during a sharded schedule adds
+  its own budget. Fix: a budget row in the database.
+- `lib/sync-shard.ts` (breaker): its window covers one run, so an outage is re-detected by every shard's run. Fix: a
+  shared breaker row.
+- `lib/sync-shard.ts` (prepaid tokens): a request beyond the prepaid 1 + 2n waits for its token inside the trader's
+  transaction (rare). Fix: prepay from the page count.
+- `lib/sync-shard.ts` (coverage): the counts scan every syncable trader on each shard-0 call (tens of ms at 100k). Fix:
+  sum the shards' `last_run` counters past a few million.
+- `db/schema.sql` (`users_sync_order`): the shard filter runs after the index, so each page reads past other shards'
+  rows (21–26 ms a page at 100k). Fix: an expression index for a fixed shard count.
+- `app/api/sync/route.ts`: the cron schedule is a deploy setting for the owner (above).
 
 ## Decisions taken by the committee
 
@@ -71,7 +103,7 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
 ## Testing
 
 - `npx tsc --noEmit`: clean.
-- `npm test`: **816 tests, 802 pass, 0 fail**, 14 skipped (opt-in LOAD tests). New files:
+- `npm test`: **851 tests, 837 pass, 0 fail**, 14 skipped (opt-in LOAD tests). New files:
   - `lib/sync-limits.test.ts` (16 unit tests);
   - `lib/sync-shard.test.ts` (12 DB tests): shard assignment, deadline then resume, overlapping runs, the lease and
     fencing, backoff by class, breaker, quarantine and skipped, the rate bound, coverage, failure isolation with the real
@@ -90,8 +122,9 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
     headroom**), and 8 whole calls (≥ 15% margin). Peak database connections were 78.
   - Latency-model test (real 200–500 ms latency, one shard): 2.58 traders/s against a predicted 2.60.
 - `npm run build`: ok.
-- e2e against `npm run start` and the vendor fake: `e2e/sync-shards.spec.ts` (new: auth before parameters, 400s, shard
-  vs shard-0 answers), `e2e/connect.spec.ts`, `e2e/app.spec.ts`, `e2e/privacy-gate.spec.ts`: **94 passed**.
+- e2e against `npm run start` and the vendor fake: `e2e/sync-shards.spec.ts` (new: auth before parameters for POST and GET, 400s,
+  shard vs shard-0 answers), `e2e/connect.spec.ts`, `e2e/app.spec.ts`, `e2e/privacy-gate.spec.ts`: **94 passed**; after
+  the GET and F-3 merge, sync-shards + connect + privacy-gate: **42 passed**.
   - Locally the pinned Playwright needed the pre-installed Chromium via a throwaway local config, not committed.
   - A new `e2e/cron-lock.ts` serializes cron calls across spec files: `connect.spec.ts` and `privacy-gate.spec.ts` take
     it shared around their calls.
@@ -117,7 +150,9 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
 7. **New vendor, dependency, font, image or copied code?** No new dependency. The vendor is unchanged and still called
    only through `lib/broker.ts`; vendor requests are now rate-bounded per shard.
 8. **Accessibility?** No UI change.
-9. **Security posture?** The endpoint keeps its constant-time Bearer check, applied before any parameter is parsed.
+9. **Security posture?** The endpoint keeps its constant-time Bearer check, applied before any parameter is parsed. The
+   new `GET` is the same handler with the same check: it needs no cookie, so it adds no CSRF surface, and it is dynamic,
+   never cached.
    No new public surface. Shard leases and claims are fenced on the database clock.
 10. **Marketing or product claims?** None. The docs claim capacity only as measured, and gate the switch-on on the
     vendor's written quota.

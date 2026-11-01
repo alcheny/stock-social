@@ -395,6 +395,8 @@ select schema_add_column('users', 'sync_retry_at', 'timestamptz');
 -- unfinished claims quarantine the trader (a backoff), so one poison record never stalls its shard.
 select schema_add_column('users', 'sync_attempts', 'int not null default 0');
 -- The shard's queue order (stalest first), read a page at a time.
+-- ponytail: the shard filter (`id % of = shard`) is applied after this index, so each shard's page reads past the other
+-- shards' rows (measured 21-26 ms a page at 100k) — an expression index per fixed shard count would avoid it.
 select schema_add_index('users_sync_order', 'create index users_sync_order on users (last_synced_at nulls first, id) where snaptrade_user_id is not null and deleted_at is null');
 -- One row per shard of a shard count: the run lease (database clock, fenced by `holder`), a heartbeat, and the last
 -- run's counters (numbers only) for the coverage report.
@@ -412,6 +414,102 @@ create table if not exists sync_shards (
 -- reports refusals and the oldest one's age, numbers only). Cleared by a successful sync.
 select schema_add_column('users', 'sync_failure_kind', $d$text check (sync_failure_kind in ('refused','trader','quarantined'))$d$);
 select schema_add_column('users', 'sync_failing_since', 'timestamptz');
+-- ---- F-3 · Viewer subscriptions and Record tools (docs/features/F-3-viewer-subscriptions.md; legal committee record
+-- docs/features/logs/F-3/committee-2026-11-01.md). The processor holds charges, refunds, tax and card data; the app
+-- keeps ids, plan, status and dates only (committee condition 20). No card, name, email, address or tax-location column.
+create table if not exists billing_customers (
+  user_id int primary key references users on delete cascade,
+  vendor_customer_id text unique not null,
+  created_at timestamptz not null default now()
+);
+-- Entitlements are read from this row, never from a live processor call. One live row per user (partial unique index).
+create table if not exists subscriptions (
+  id int generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  vendor_subscription_id text unique not null,
+  vendor_customer_id text not null,
+  plan text not null check (plan in ('monthly', 'annual')),
+  status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused', 'incomplete')),
+  current_period_start timestamptz,
+  current_period_end timestamptz,
+  cancel_at_period_end boolean not null default false,
+  grace_until timestamptz,
+  disputed_at timestamptz,
+  ended_reason text check (ended_reason in ('refund', 'trader', 'deletion')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+-- ponytail: 'incomplete' (a first payment being confirmed) is outside the one-live index; lib/billing.ts#startCheckout
+-- refuses a second checkout while one exists — add it to the index (a new index name) to enforce it in the database.
+select schema_add_index('subscriptions_one_live', $$create unique index subscriptions_one_live on subscriptions (user_id) where status in ('trialing', 'active', 'past_due')$$);
+select schema_add_index('subscriptions_user', 'create index subscriptions_user on subscriptions (user_id)');
+-- The webhook inbox: one row per processor event id (duplicates are no-ops). No payload (committee condition 20); the
+-- handler fetches the object from the processor by id. Purged 35 days after receipt by the nightly reconciliation.
+create table if not exists billing_events (
+  vendor_event_id text primary key,
+  type text not null,
+  vendor_object_id text,
+  vendor_customer_id text,
+  livemode boolean not null,
+  received_at timestamptz not null default now(),
+  processed_at timestamptz,
+  error_code text,
+  flagged boolean not null default false,
+  claimed_at timestamptz -- a delivery's 2-minute lease while it applies the event (concurrent duplicates are no-ops)
+);
+select schema_add_index('billing_events_received', 'create index billing_events_received on billing_events (received_at)');
+select schema_add_index('billing_events_customer', 'create index billing_events_customer on billing_events (vendor_customer_id)');
+-- When the daily reconciliation last started (lib/billing.ts#reconcileIfDue, run from the hourly sync tick).
+create table if not exists billing_runs (
+  job text primary key,
+  last_at timestamptz not null
+);
+-- Renewal consent (committee condition 16): the full disclosure text's version and hash, never an IP, email or name.
+-- At account deletion user_id is nulled and the row is kept 3 years under the processor customer id (retain_until).
+create table if not exists billing_consents (
+  id int generated always as identity primary key,
+  user_id int references users on delete set null,
+  vendor_customer_id text,
+  plan text not null check (plan in ('monthly', 'annual')),
+  disclosure_version text not null,
+  disclosure_hash text not null,
+  livemode boolean not null,
+  created_at timestamptz not null default now(),
+  retain_until timestamptz
+);
+select schema_add_index('billing_consents_user', 'create index billing_consents_user on billing_consents (user_id)');
+-- Record tools: saved views (name and ordered traders only, never a snapshot of numbers) and private notes, visible only
+-- to their owner. A view's id is random (owner-only URL). Either account's deletion cascades.
+create table if not exists record_views (
+  id uuid primary key default gen_random_uuid(),
+  owner_id int not null references users on delete cascade,
+  name text not null check (char_length(name) between 1 and 60),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+select schema_add_index('record_views_owner', 'create index record_views_owner on record_views (owner_id, created_at)');
+create table if not exists record_view_traders (
+  view_id uuid not null references record_views on delete cascade,
+  trader_id int not null references users on delete cascade,
+  position int not null,
+  primary key (view_id, trader_id)
+);
+select schema_add_index('record_view_traders_trader', 'create index record_view_traders_trader on record_view_traders (trader_id)');
+create table if not exists record_notes (
+  owner_id int not null references users on delete cascade,
+  trader_id int not null references users on delete cascade,
+  body text not null check (char_length(body) between 1 and 2000),
+  updated_at timestamptz not null default now(),
+  primary key (owner_id, trader_id),
+  check (owner_id <> trader_id)
+);
+select schema_add_index('record_notes_trader', 'create index record_notes_trader on record_notes (trader_id)');
+-- Committee condition 12: a count of removals from this owner's views and notes since the last visit, no trader id kept.
+create table if not exists record_tool_notices (
+  owner_id int primary key references users on delete cascade,
+  removed int not null default 0
+);
+
 -- Privacy work (2026-11-01, docs/features/logs/privacy/committee-2026-11-01.md). Every table here is in
 -- lib/privacy-retention.ts#SCHEMA_MAP (a test fails for a table without an entry).
 -- D10: a like or rejected trade whose trade is gone. This supersedes "kept and ignored on read" above for likes and

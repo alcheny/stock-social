@@ -118,6 +118,8 @@ export async function finish(u: Claimed, end: End, shift = 0) {
   }
 }
 
+// ponytail: a request beyond the prepaid 1 + 2n (another page on a first sync) waits for its token inside the trader's
+// transaction, holding its connection — rare; prepaying from the account's page count would avoid it.
 // Every vendor request a sync makes takes a token. The trader's expected requests (1 + 2n) are taken before the claim,
 // outside its transaction; a request beyond them (another page on a first sync, an account the snapshot did not have)
 // takes one more as it goes.
@@ -170,6 +172,8 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   const holder = o.holder ?? randomUUID();
   const sync = o.sync ?? ((u: SyncableUser, b: Broker) => syncUser(u, b));
   const broker = o.broker ?? defaultBroker;
+  // ponytail: the vendor budget is this run's, in process: one run per (of, shard) at a time, but runs of another shard
+  // count (a manual call during a sharded schedule) add their own — a budget row in the database would bound the fleet.
   const bucket = o.bucket ?? new TokenBucket(cfg.rps, cfg.burst);
   const r: RunReport = {
     of: sh.of, shard: sh.shard, busy: false, done: 0, skipped: 0, deferred: 0, transient: 0, refused: 0, failed: 0, quarantined: 0, releaseFailed: 0,
@@ -197,6 +201,8 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   const heartbeat = setInterval(() => { void renew(); }, renewMs);
   heartbeat.unref?.();
 
+  // ponytail: the breaker's window is one run's attempts; an outage is re-detected by every run of every shard (20
+  // attempts each) — a shared breaker row would stop the fleet after the first.
   const breaker = new Breaker();
   const failedIds: number[] = [];
   const queue: { id: number; accounts: number }[] = [];
@@ -243,6 +249,8 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       // so a trader with many accounts is never deferred forever by shard 0's housekeeping (review should-fix 2).
       const first = !firstTaken;
       firstTaken = true;
+      // ponytail: the fit check assumes every request takes its whole bound (30 s), so a 2-account trader is claimed only
+      // in a call's first ~150 s, ~15% of a mixed shard's throughput (docs/SYNC.md) — a measured p99 bound would fit more.
       if (!first && routeEnd !== Infinity && syncCost(c.accounts) / VENDOR_TIMEOUT_MS * bound + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
         unfit.push(c.id); popped.delete(c.id); r.deferred++; stopReason = 'deadline';
         // Nothing smaller can fit either, or the list has grown past a few pages: stop reading the queue (the exclusion
@@ -335,6 +343,8 @@ export type Coverage = {
   inBackoff: number; refused: number; quarantined: number; oldestRefusalHours: number; dbConfigOk: boolean; dbProblems: string[];
   db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
 };
+// ponytail: the coverage counts scan every syncable trader on each shard-0 call (100k rows: tens of ms) — past a few
+// million, sum the shards' `last_run` counters instead.
 export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = runConfig(), log?: (line: string) => void): Promise<Coverage> {
   const shift = shiftOf(scope)();
   const [c] = await sql`with clock as (${clockSql(shift)}), s as (

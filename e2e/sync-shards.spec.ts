@@ -15,6 +15,23 @@ test('sync: the cron secret is checked before the shard parameters (401 with or 
   }
 });
 
+test('sync: GET (the host cron) is the same endpoint: 401 without or with a wrong secret; with the secret it runs (shard 1 of 2: no housekeeping)', async ({ request }) => {
+  test.setTimeout(60_000);
+  for (const q of ['', '?shard=1&of=2']) {
+    expect((await request.get(`/api/sync${q}`)).status()).toBe(401);
+    expect((await request.get(`/api/sync${q}`, { headers: { authorization: 'Bearer wrong' } })).status()).toBe(401);
+  }
+  expect((await request.get('/api/sync?shard=2&of=2', { headers: auth })).status()).toBe(400);
+  const release = await cronLock('exclusive');
+  try {
+    const r = await request.get('/api/sync?shard=1&of=2', { headers: auth });
+    expect(r.status()).toBe(200);
+    const b = await r.json();
+    expect(b.run).toMatchObject({ of: 2, shard: 1 });
+    expect(b.purgedLinks).toBeUndefined();
+  } finally { await release(); }
+});
+
 test('sync: invalid shard parameters answer 400 with a reason and sync nothing', async ({ request }) => {
   for (const q of ['?shard=1', '?of=4', '?shard=4&of=4', '?shard=-1&of=4', '?shard=1.5&of=4', '?shard=0&of=0', '?shard=0&of=1025', '?shard=a&of=b']) {
     const r = await request.post(`/api/sync${q}`, { headers: auth });

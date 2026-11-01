@@ -113,6 +113,29 @@ The idle timeout must sit above the largest sync cost (`(1 + 2 × SYNC_FIT_CAP) 
 
 ## Cron setup
 
+The endpoint answers both `POST` and `GET`, with the same bearer check and the same parameters. The host's cron
+(`vercel.json` `crons`) sends `GET` with `Authorization: Bearer $CRON_SECRET` when the project's `CRON_SECRET` is set.
+The schedule is a deploy setting for the owner: this repo has no `vercel.json`. Check that the hosting plan allows
+5-minute crons, and how many cron entries it allows.
+
+Today's entry (`of=1`):
+
+```json
+{ "crons": [ { "path": "/api/sync", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" } ] }
+```
+
+Sharded (after the switch-on gate): one entry per shard, on the same schedule:
+
+```json
+{ "crons": [
+  { "path": "/api/sync?shard=0&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
+  { "path": "/api/sync?shard=1&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
+  …
+  { "path": "/api/sync?shard=31&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }
+] }
+```
+
+
 - **Today (until the gate below is met):** one call `POST /api/sync` (shard 0 of 1) every 5 minutes, never at :30:
   `5,10,15,20,25,35,40,45,50,55,0 * * * *`. This already uses 6 concurrent workers.
 - **Sharded plan:** 32 calls on that same schedule, `POST /api/sync?shard=i&of=32` for i = 0…31. Configure them as 32

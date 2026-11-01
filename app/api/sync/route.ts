@@ -8,6 +8,7 @@ import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
 import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
 import { purgeDiscovery, type PurgeReport } from '@/lib/discovery/purge.ts';
+import { reconcileIfDue } from '@/lib/billing.ts';
 import { logSafe } from '@/lib/privacy-log.ts';
 import { purgePrivacy, type PrivacyPurgeReport } from '@/lib/privacy-purge.ts';
 import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
@@ -52,6 +53,8 @@ export async function POST(req: NextRequest) {
     // throws, the traders below are claimed exactly as before.
     let purged: PurgeReport | null = null;
     try { purged = await purgeDiscovery(); } catch (e) { console.error('discovery purge failed', logSafe(e)); }
+    // F-3: the billing reconciliation, once a day (lib/billing.ts#reconcileIfDue). Never a branch for the sync below.
+    try { await reconcileIfDue(); } catch (e) { console.error('billing reconcile failed', logSafe(e)); }
     housekeeping = { purgedLinks, connections, deletions, purged, housekeepingMs: Math.round(performance.now() - t0) };
   }
   // Privacy work (committee D13, D14, D3, D19; orchestrator review 2): the privacy purges and today's display-log rows
@@ -90,4 +93,12 @@ export async function POST(req: NextRequest) {
     ok: run.done, skipped: run.skipped, failed: failedIds, unclaimed: run.remaining, stoppedAtDeadline: run.stoppedAtDeadline,
     run: counters, coverage: cover, ...housekeeping, ...(zero ? { privacy, displayLog, launch, ms } : {}),
   });
+}
+
+// The host's cron sends GET with the same `Authorization: Bearer $CRON_SECRET` header (business council, PR #45): the
+// same handler, the same constant-time check, the same shard parameters. A GET route handler is dynamic (never cached).
+// ponytail: the cron schedule itself (vercel.json `crons`) is a deploy setting for the owner, not in this repo — add the
+// entries listed in docs/SYNC.md → Cron setup.
+export async function GET(req: NextRequest) {
+  return POST(req);
 }
