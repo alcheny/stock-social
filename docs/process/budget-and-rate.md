@@ -13,7 +13,7 @@ that adds this file asks the owner to protect it (open question Q7 in
 
 Set by the owner in the orchestrating chat on 2026-11-01 and relayed by the orchestrator (orchestrator report,
 2026-11-01). The quoted phrases are the owner's corrections to the governor spec as recorded in
-`docs/features/logs/token-budget/review-2026-11-01.md` on branch `claude/token-budget-governor` (not on main).
+`docs/features/logs/token-budget/review-2026-11-01.md` (on main since #75, b7cf532).
 
 1. **Never limit the rate.** "Do not limit rate": no per-hour limits, no pacing and no concurrency caps, in
    code or in config.
@@ -52,52 +52,27 @@ before every `create_session`. It is the manual form of what the governor comput
 1. **Read the window.** From `get_session` on any running child: `rate_limit_info` status, `resetsAt` and
    whether overage is in use. If `now` ≥ `resetsAt`, the window has rolled over and spend restarts at 0.
    Children may report two windows, `five_hour` and `seven_day` (`rateLimitType`; governor spec
-   `docs/token-budget.md` → Mixed windows, branch `claude/token-budget-governor` at `52728e0`); run this procedure
+   [`docs/token-budget.md`](../token-budget.md) → Mixed windows); run this procedure
    once per window and start only what every window admits. The 15:00 UTC reset of 2026-11-01 is the orchestrator's
    reading; its window type is unknown (orchestrator report). The spec's example snapshot pairs that same
    `resetsAt` (`1793545200`) with `seven_day`, which suggests but does not confirm the seven-day window.
 2. **Sum spend in the window.** Add `get_session` usage `cost_usd` for every session that started in the
    window. Cost is the proxy for tokens: it is the only per-session figure that adds up across sessions.
-3. **Reserve for running sessions.** For each running session, estimate its remaining cost from the unit
-   costs in [Measured spend](#measured-spend) minus what it has spent, or from its recent burn, whichever is
-   larger.
-4. **Know or calibrate the cap.** Use a known cap when there is one. Otherwise, at the first `allowed_warning`
-   reading at spend W, the cap is about W / 0.75 (rule 6). Before any warning the cap is unknown.
-5. **Admit in priority order.** Start the next queued item while
-   `spend + reserve + the admitted items' low estimates ≤ the cap's high estimate`. While the cap is unknown
-   and the status is `allowed`, admit. Stop at the first item that does not fit, so a large important item is
-   not starved by small ones. This step follows today's admit reading of rule 4 (low estimates against the high
-   cap); a queue reading would compare high estimates with the low cap (Q14).
-6. **Brake only on rejection.** On `rejected` or overage, admit nothing. Running sessions keep going; if they
-   stall, pause the lowest-priority one first, never the orchestrator. The work item's State becomes
-   `queued-budget` ([lifecycle.md → States](lifecycle.md#states)) until `resetsAt` passes.
-7. **Fill.** If the expected unused budget at reset is above 0 (cap − spend − reserve − admitted estimates),
-   start research, business or design work whose typical duration fits before `resetsAt` (rule 8), then
-   development.
-8. **Publish the status.** Write one line in [coordination.md](coordination.md):
+3. **Plan with the governor.** Steps 3 to 7 of this procedure (reserve for running sessions, know or calibrate
+   the cap, admit in priority order, brake only on rejection, fill spare capacity) are computed by
+   `scripts/token-budget.ts` from one snapshot built from steps 1 and 2; its method is
+   [`docs/token-budget.md`](../token-budget.md). The orchestrator acts on the plan it prints (the tool starts and stops
+   nothing). Rules 4 to 8 above still bind its reading (Q14 is open).
+4. **Publish the status.** Write one line in [coordination.md](coordination.md):
    "Window resets <UTC>; admitting: yes | queue-only". No spend, percentage or cap figures (usage snapshots
    stay with the orchestrator; whether more may be published is open question Q9).
 
 ## Token-budget governor
 
-`scripts/token-budget.ts` turns the procedure above into a deterministic planner: it reads one JSON snapshot
-(sessions, queue, window, history) and prints one JSON plan (admit, queued with reasons, reserve, cap range,
-fill recommendation, brakes). It never starts or stops anything, never reads the clock and has no
-dependencies.
-
-- **Status, checked 2026-11-01 09:47 UTC:** work in progress on branch `claude/token-budget-governor`
-  (head `52728e0`), **not on main**, no PR. The branch adds `docs/token-budget.md` (the spec and method),
-  `scripts/token-budget.ts`, `scripts/token-budget.test.ts` and
-  `docs/features/logs/token-budget/review-2026-11-01.md`. At that time the review log held the owner's
-  corrections, the build, round 1 (three reviewers plus the tester, with blocking findings; fixes in `8d8bd28`)
-  and round 2 (three new reviewers, still blocking findings in every lens, 20 fixes handed to the engineer).
-- **What it adds beyond this file:** cost priors per session kind (low / point / high, calibrated on
-  2026-11-01), pro-rata spend for a session that started before the window, cap calibration that carries over
-  between windows, an overshoot-risk rating, and a pause order under a brake. The method lives in its spec.
-- **Owner's review bar:** "extensively review and test code before using this feature, with multiple rounds"
-  (review log, owner quote). Until it merges, the orchestrator applies the procedure by hand.
-- Once it merges to main, this section becomes a link to `docs/token-budget.md`, and the procedure above keeps
-  only the steps the tool does not do (steps 1, 2 and 8).
+On main since #75 (b7cf532): [`docs/token-budget.md`](../token-budget.md) (spec and method), `scripts/token-budget.ts`
+(the planner) and its tests; the review rounds are in `docs/features/logs/token-budget/review-2026-11-01.md`. The
+governor's history (past snapshots and plans) is not kept in the repo: usage snapshots stay with the orchestrator
+session (step 4, Q9). This section became a link when the governor merged, as it said it would (fixes cycle 4, F4-21).
 
 ## Lanes A and B budgets
 

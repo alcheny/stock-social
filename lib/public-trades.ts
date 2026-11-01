@@ -4,6 +4,8 @@
 import type { TransactionSql } from 'postgres';
 import { matchTrades, type Activity } from './trades.ts';
 import { PLACEHOLDER_ATTESTED_AT, PUBLIC_FEED_DELAY_DAYS } from './public-gate.ts';
+import { checkDisplayName, DISPLAY_NAME_MAX, handleVerdict, RESERVED_SUBSTRINGS } from './handles.ts';
+import { sanitizeUserText } from './text-safety.ts';
 
 export type PubRow = { external_id: string; filing_id: string; amends: string | null; filing_url: string; symbol: string; code: string; side: 'BUY' | 'SELL' | null;
   units: number; price: number | null; held_after: number | null; indirect: boolean; derivative: boolean; acquired: boolean; executed_at: Date; filed_at: Date };
@@ -55,7 +57,7 @@ export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Re
     const reason = r.side !== 'SELL' ? (r.code === 'G' ? 'gift' : 'other') : q.broken ? 'unreconciled' : !sale || !allPriced ? 'no_price' : null;
     if (reason) count(reason); else priced.set(r.external_id, { row: r, filed: latest });
   }
-  const got = matchTrades(acts).trades.filter((t) => t.verified && priced.has(t.sellId)), ids = new Set(got.map((t) => t.sellId));
+  const got = matchTrades(acts, [], { orderKnown: true }).trades.filter((t) => t.verified && priced.has(t.sellId)), ids = new Set(got.map((t) => t.sellId));
   for (const id of priced.keys()) if (!ids.has(id)) count('no_price'); // lib/trades.ts's own epsilon left it unpriced: counted, never lost
   const trades = got.map((t) => {
     const p = priced.get(t.sellId)!;
@@ -75,13 +77,33 @@ export async function placeholderAttempt(tx: TransactionSql): Promise<string> {
     and adult_attested_at = ${at} and created_at = ${at} order by id limit 1 for share`;
   return String(a?.id ?? (await tx`insert into signup_attempts (method, adult_attested_at, created_at) values ('dev', ${at}, ${at}) returning id`)[0].id);
 }
+// F4-7 (C4-11): filer identities pass the rules users get. Handles: reserved words (lib/handles.ts#RESERVED_SUBSTRINGS,
+// also spelt across "_") are dropped from the slug, no trailing "_" after the cut, and every candidate must get the
+// sign-up verdict 'ok' (the reserved list in every look-alike reading); last comes pf_filer_<id36>, always free of words.
+const RESERVED_IN_SLUG = RESERVED_SUBSTRINGS.map((w) => new RegExp([...w].join('_*'), 'g'));
+const trimUnderscores = (s: string) => s.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+export function filerHandles(name: string, filerId: number): string[] {
+  let slug = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_');
+  for (const re of RESERVED_IN_SLUG) slug = slug.replace(re, '_');
+  slug = trimUnderscores(trimUnderscores(slug).slice(0, 13)) || 'filer';
+  const id36 = filerId.toString(36), last = `pf_filer_${id36}`;
+  const ok = (h: string) => h.length <= 20 && !h.endsWith('_') && handleVerdict(h, { others: [], demo: [] }) === 'ok';
+  return [...new Set([...[`pf_${slug}`, `pf_${trimUnderscores(slug.slice(0, 9))}_${id36}`].filter(ok), last])];
+}
+// Names: cleaned like a user's typed name (lib/auth/attempts.ts), cut to 40 code points; a name the display-name rules
+// refuse falls back to the handle, as a user's would (filers cannot pick another name).
+export function filerDisplayName(name: string, handle: string): string {
+  const c = checkDisplayName(sanitizeUserText(name, DISPLAY_NAME_MAX));
+  return c.ok ? c.name : handle;
+}
 async function createFilerUser(tx: TransactionSql, filerId: number, name: string): Promise<{ id: number }> {
   const attempt = await placeholderAttempt(tx);
-  const slug = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 13) || 'filer';
-  // ponytail: if both candidate handles are taken the filing fails on every read — a numbered fallback would fix it.
-  for (const handle of [`pf_${slug}`, `pf_${slug.slice(0, 9)}_${filerId.toString(36)}`]) {
+  // ponytail: if every candidate handle is taken the filing fails on every read — a numbered fallback would fix it.
+  // ponytail: a filer row created before F4-7 keeps its handle (identity by filer); the switch is off in production, so a
+  // one-off rename pass is only needed if such rows exist — run filerHandles over users with public_filer_id set.
+  for (const handle of filerHandles(name, filerId)) {
     const [u] = await tx`insert into users (handle, display_name, adult_attested_at, signup_attempt_id, public_filer_id)
-      select ${handle}, ${name.trim().slice(0, 40)}, ${PLACEHOLDER_ATTESTED_AT}, ${attempt}, ${filerId}
+      select ${handle}, ${filerDisplayName(name, handle)}, ${PLACEHOLDER_ATTESTED_AT}, ${attempt}, ${filerId}
       where not exists (select 1 from handle_reservations where handle = ${handle} and until > now())
       on conflict (handle) do nothing returning id`;
     if (u) return u as { id: number };

@@ -59,3 +59,53 @@ dbTest('F-15 G2: the same window prints the same G2 before and after purgePrivac
     await sql`delete from users where id = any(${ids}::int[])`;
   }
 });
+
+// Cycle 4 F4-11 (C4-4) and F4-12 (C4-20): the rollup query's demo predicate covers fictional fixture filers
+// (public_filers.demo), not only users with a demo activity; Demo-target invite views reach the invite rows only.
+dbTest('F-15 readout: a fixture filer view is in no G3 row and not in "all"; a Demo invite view reaches only the invite rows', async () => {
+  const { sql } = await import('../lib/db.ts');
+  const { buildReadout, loadRollup, weekWindow } = await import('./f15-readout.ts');
+  const now = new Date(Date.UTC(1993, 2, 10, 12)); // a Wednesday; the window's last week is 1993-03-01..07
+  const { from, to } = weekWindow(now);
+  const day = '1993-03-02';
+  const ids: number[] = [], attempts: number[] = [], filers: number[] = [];
+  const user = async () => {
+    const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+    const h = `f15d${Math.random().toString(36).slice(2, 10)}`;
+    const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${h}, ${h}, now(), ${a.id}) returning id`;
+    ids.push(u.id); attempts.push(a.id);
+    return u.id as number;
+  };
+  const views = (userId: number, n: number, via = 'none', surface = 'profile') =>
+    sql`insert into view_rollup (day, surface, user_id, ref_class, via, signed_in, self_view, n) values (${day}::date, ${surface}, ${userId}, 'external', ${via}, false, false, ${n})`;
+  try {
+    const trader = await user();
+    await views(trader, 7);
+    const filerUser = await user();
+    const [f] = await sql`insert into public_filers (source, filer_key, demo) values ('insider_reports', ${'f15d-' + Math.random().toString(36).slice(2, 10)}, true) returning id`;
+    filers.push(f.id);
+    await sql`update users set public_filer_id = ${f.id} where id = ${filerUser}`;
+    await views(filerUser, 11);
+    await views(filerUser, 6, 'card', 'trade');
+    const demoUser = await user();
+    await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
+      values (${demoUser}, 'demo', ${'f15d-' + Math.random().toString(36).slice(2, 12)}, 'a', 'F15D', 'BUY', 1, 1, now(), '{}')`;
+    await views(demoUser, 8, 'inv_t');
+    await views(demoUser, 13); // a Demo view without an invite code
+    const rollup = await loadRollup(sql, from, to, ids);
+    const md = buildReadout({ rollup, drops: [], g1: { strict: 0, partial: 0 }, g2: { traders: [], firstDay: null, retentionDays: 120 } }, now);
+    const cells = (label: string) => (md.split('\n').find((l) => l.startsWith(`| ${label}`)) ?? '').slice(1, -1).split('|').map((c) => c.trim());
+    const last = (label: string, skip = 2) => cells(label).slice(skip)[7];
+    assert.equal(last('Profile views from external referrers / week'), '7', 'the trader only: no filer, no Demo user');
+    assert.equal(last('partial: tagged links, card'), '0', 'the fixture filer\'s card view is not counted');
+    assert.equal(last('partial: trade surface, external referrer'), '0');
+    assert.equal(last('partial: invite links (inv_*)'), '8');
+    assert.equal(last('partial: invite landings on Demo profiles'), '8');
+    assert.equal(last('all | all'), '7');
+    assert.equal(last('counted views', 1), '7');
+  } finally {
+    await sql`delete from users where id = any(${ids}::int[])`;
+    await sql`delete from public_filers where id = any(${filers}::int[])`;
+    await sql`delete from signup_attempts where id = any(${attempts}::bigint[])`;
+  }
+});

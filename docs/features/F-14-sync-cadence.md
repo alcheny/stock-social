@@ -1,6 +1,6 @@
 # F-14 · Sync cadence within the vendor's guidance
 
-Status: ready
+Status: built
 
 ## Why
 The hourly cron reads activities and positions for every account on every round (`lib/sync.ts`, `ROUND_MS`). Once it
@@ -51,3 +51,6 @@ second-vote mean 3.80, final vote 15/15).
   the vendor's written answer (MR-1) gives different caps, the constants change and this file gets a dated decision.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #64 (44a134b) by the sync-cadence session; Status set to built by fixes cycle 4 (F4-21, council cycle 4 C4-24), so the feature pipeline does not queue a second F-14 build. No decision or criterion changed. Waiting for the owner to try it.

@@ -95,16 +95,41 @@ export function contractKey(r: Pick<OptionRow, 'accountId' | 'underlying' | 'exp
 const isEvent = (k: string | null) => k === 'OPTIONEXPIRATION' || k === 'OPTIONASSIGNMENT' || k === 'OPTIONEXERCISE';
 const isOpenType = (oc: string | null) => oc === 'BUY_TO_OPEN' || oc === 'SELL_TO_OPEN';
 // D4 order: at equal instants opens first, then rows whose side the ledger infers, then explicit closes, then events
-// (fix round 1, review 1); then by id. An event dated at midnight UTC exactly is a date-only row: it orders at the end of
-// its UTC day, after that day's trades (an expiry is the day's last act).
-const rank = (r: OptionRow) => (isOpenType(r.openClose) ? 0 : (r.kind === 'BUY' || r.kind === 'SELL') && !r.openClose ? 1 : isEvent(r.kind) ? 3 : 2);
-export const orderTime = (r: Pick<OptionRow, 'kind' | 'executedAt'>) => {
+// (fix round 1, review 1); then by id. The id tie-break is for determinism only (plan E7), never a claim about trade order:
+// where the order would decide between shown and counted, the rows are counted instead (F4-2 below).
+// F4-2 (cycle 4, C4-7): an expiry orders by the contract's own `expiry` field, not by its stamp's hour: at the end of the
+// expiry day (UTC) or at its stamp if later, after every trade of the contract dated on or before that day (nothing trades
+// a contract after it expires). An exercise or assignment can come before expiry, so it keeps its stamp; one dated at
+// midnight UTC exactly is a date-only row and orders at the end of its UTC day (fix round 1).
+const rank = (r: OptionRow) => (isOpenType(r.openClose) ? 0 : isInferred(r) ? 1 : isEvent(r.kind) ? 3 : 2);
+const isInferred = (r: Pick<OptionRow, 'kind' | 'openClose'>) => (r.kind === 'BUY' || r.kind === 'SELL') && !r.openClose;
+export const orderTime = (r: Pick<OptionRow, 'kind' | 'executedAt' | 'expiry'>) => {
   const t = r.executedAt!.getTime();
+  if (r.kind === 'OPTIONEXPIRATION' && r.expiry) return Math.max(t, Date.parse(`${r.expiry}T00:00:00Z`) + DAY - 1);
   return isEvent(r.kind) && t % DAY === 0 ? t + DAY - 1 : t;
 };
+const orderDay = (r: OptionRow) => Math.floor(orderTime(r) / DAY);
 export function orderRows(rows: OptionRow[]): OptionRow[] {
   return [...rows].sort((a, b) => (orderTime(a) - orderTime(b)) || (rank(a) - rank(b)) || (a.externalId < b.externalId ? -1 : a.externalId > b.externalId ? 1 : 0));
 }
+/** F4-2: the UTC days (by order time) whose closes the ledger's order cannot settle: an exercise or assignment stamped
+ *  with an hour (not 00:00:00Z) on a day the contract also trades. Its hour may be the vendor's, not the event's, so the
+ *  day is tried with the event before and after the day's closes (matchContract's settleDay): when the readings differ
+ *  or a close would find the position flat or go past it, that day's closes are counted under `contradict` (an
+ *  assignment stays `short`, D4) and the contract is tainted until flat; otherwise the day is shown. */
+export function unorderedDays(rows: OptionRow[]): Set<number> {
+  const trading = new Set(rows.filter((r) => r.kind === 'BUY' || r.kind === 'SELL').map(orderDay));
+  return new Set(rows.filter((r) => (r.kind === 'OPTIONEXERCISE' || r.kind === 'OPTIONASSIGNMENT') && r.executedAt!.getTime() % DAY !== 0 && trading.has(orderDay(r))).map(orderDay));
+}
+/** F4-2: an inferred-side row sharing its instant with an inferred-side row of the other side: on a flat net the id
+ *  alone would decide which one opens (long or short), so the contract is counted under `contradict` until flat. */
+// ponytail: same-instant inferred rows on a non-flat net can still decide a flip by id (net +1, an inferred sell of 2
+// and buy of 1 at one instant) — count them too if the vendor ever sends unlabelled same-instant pairs (none seen).
+const racesAt = (rows: OptionRow[]) => {
+  const sides = new Map<number, Set<string>>();
+  for (const r of rows) if (isInferred(r)) { const t = orderTime(r); const s = sides.get(t); if (s) s.add(r.kind!); else sides.set(t, new Set([r.kind!])); }
+  return (r: OptionRow) => isInferred(r) && (sides.get(orderTime(r))?.size ?? 0) > 1;
+};
 
 const finitePos = (x: number | null): x is number => x !== null && Number.isFinite(x) && x > 0;
 const finiteNonNeg = (x: number | null): x is number => x !== null && Number.isFinite(x) && x >= 0;
@@ -118,6 +143,8 @@ export function cashScaleFails(r: Pick<OptionRow, 'amount' | 'units' | 'price' |
 }
 
 type Lot = { units: number; cost: number; openedAt: Date; verified: boolean }; // cost: per unit, entry fee included
+type WalkState = { net: number; lots: Lot[]; tainted: boolean };
+type Sink = { count: (c: Cause, r: OptionRow) => void; trade: (t: OptionTrade) => void };
 
 // Matches every row of one user (any accounts). `asOf` is injected (dangling contracts are measured against it).
 export function matchOptions(rows: OptionRow[], asOf: Date): { trades: OptionTrade[]; counts: Counts; short: number; other: number } {
@@ -162,112 +189,188 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
   else if (rows.some((r) => (r.kind === 'BUY' || r.kind === 'SELL') && cashScaleFails(r))) excluded = 'cashScale';
 
   const mult = first.multiplier!;
-  let net = 0; // contracts: positive long, negative short (positions net within an account)
-  let longLots: Lot[] = [];
-  let tainted = false; // after a contradicting or flipping row, until the position is flat again
   const fee = (r: OptionRow) => Math.abs(r.fee ?? 0);
   const units = (r: OptionRow) => Math.abs(r.units ?? 0);
-  const longResult = (r: OptionRow, u: number, exit: number) => {
+  // net: contracts, positive long, negative short (positions net within an account); tainted: after a contradicting or
+  // flipping row, until the position is flat again. F4-2 review: the walk runs on a state and writes to a sink so one
+  // day can be tried in two readings (lib/options.ts#settleDay) before anything is shown or counted.
+  const real: Sink = { count: (c) => { counts[c]++; }, trade: (t) => { trades.push(t); } };
+  const takeLots = (st: WalkState, n: number) => {
+    let left = n;
+    while (left > 1e-12 && st.lots.length) { const take = Math.min(st.lots[0].units, left); st.lots[0].units -= take; left -= take; if (st.lots[0].units <= 1e-12) st.lots.shift(); }
+  };
+  const longResult = (st: WalkState, sink: Sink, r: OptionRow, u: number, exit: number) => {
     // FIFO over long lots: basis = cost of the consumed contracts (entry fees included); proceeds net of the exit fee.
     let left = u, basis = 0, verified = r.verified;
     let openedAt = null as Date | null;
-    while (left > 1e-12 && longLots.length) {
-      const lot = longLots[0];
+    while (left > 1e-12 && st.lots.length) {
+      const lot = st.lots[0];
       const take = Math.min(lot.units, left);
       basis += take * lot.cost;
       openedAt = openedAt && openedAt < lot.openedAt ? openedAt : lot.openedAt;
       verified = verified && lot.verified;
       lot.units -= take; left -= take;
-      if (lot.units <= 1e-12) longLots.shift();
+      if (lot.units <= 1e-12) st.lots.shift();
     }
     const proceeds = u * exit * mult - fee(r);
-    if (excluded) { counts[excluded]++; return; }
-    if (!(basis > 0) || !openedAt) { counts.malformed++; return; }
-    trades.push({
+    if (excluded) { sink.count(excluded, r); return; }
+    if (!(basis > 0) || !openedAt) { sink.count('malformed', r); return; }
+    sink.trade({
       closeId: r.externalId, accountId: r.accountId!, underlying: r.underlying!, right: r.right as OptionRight, expiry: r.expiry!,
       openedAt, closedAt: r.executedAt!, returnPct: (proceeds - basis) / basis,
       holdingDays: (r.executedAt!.getTime() - openedAt.getTime()) / DAY, verified,
     });
   };
-  const taint = (cause: Cause, signed: number) => {
-    counts[cause]++;
-    net += signed;
-    longLots = [];
-    tainted = net !== 0;
+  const flat = (st: WalkState) => { if (Math.abs(st.net) < 1e-12) st.net = 0; };
+  const taint = (st: WalkState, sink: Sink, r: OptionRow, cause: Cause, signed: number) => {
+    sink.count(cause, r);
+    st.net += signed;
+    st.lots = [];
+    st.tainted = st.net !== 0;
   };
+  const races = racesAt(rows);
 
-  for (const r of rows) {
+  // One row. `forced`: a day whose order cannot be settled (F4-2): the row goes through the tainted walk.
+  const step = (r: OptionRow, st: WalkState, sink: Sink, forced: boolean) => {
     const u = units(r);
-    if (tainted) {
+    // F4-2: on a flat net, an inferred row racing another at its instant moves the net without a basis: neither opening
+    // row counts, and every close until flat is counted under contradict.
+    if (!st.tainted && !forced && st.net === 0 && races(r)) {
+      st.net += r.kind === 'BUY' ? u : -u;
+      st.lots = [];
+      st.tainted = st.net !== 0;
+      return;
+    }
+    if (st.tainted || forced) {
       // Every row while tainted moves the net; a non-opening one is counted (its basis is unknown). Plan D4 (orchestrator
       // decision 2026-11-01): a short close while tainted stays counted under "other" (contradict), not "short": the
       // contract is tainted until flat, whatever the side of the close.
+      const net = st.net;
       const signed = r.kind === 'BUY' ? u : r.kind === 'SELL' ? -u : net > 0 ? -Math.min(u || net, net) : net < 0 ? Math.min(u || -net, -net) : 0;
-      if (r.kind === 'OPTIONASSIGNMENT') counts.short++;
-      else if (!isOpenType(r.openClose)) counts.contradict++;
-      net += signed;
-      if (Math.abs(net) < 1e-12) { net = 0; tainted = false; longLots = []; }
-      continue;
+      if (r.kind === 'OPTIONASSIGNMENT') sink.count('short', r);
+      else if (!isOpenType(r.openClose)) sink.count('contradict', r);
+      st.net += signed;
+      flat(st);
+      st.tainted = st.net !== 0;
+      st.lots = []; // basis unknown while tainted; flat leaves nothing
+      return;
     }
     if (r.kind === 'BUY') {
-      const oc = r.openClose ?? (net < 0 ? 'BUY_TO_CLOSE' : 'BUY_TO_OPEN');
+      const oc = r.openClose ?? (st.net < 0 ? 'BUY_TO_CLOSE' : 'BUY_TO_OPEN');
       if (oc === 'BUY_TO_OPEN') {
-        if (net < 0) { taint('contradict', u); continue; }
-        longLots.push({ units: u, cost: u > 0 ? ((r.price ?? 0) * mult * u + fee(r)) / u : 0, openedAt: r.executedAt!, verified: r.verified });
-        net += u;
+        if (st.net < 0) return taint(st, sink, r, 'contradict', u);
+        st.lots.push({ units: u, cost: u > 0 ? ((r.price ?? 0) * mult * u + fee(r)) / u : 0, openedAt: r.executedAt!, verified: r.verified });
+        st.net += u;
       } else if (oc === 'BUY_TO_CLOSE') {
-        if (net === 0) { counts.noOpen++; continue; }
-        if (net > 0) { taint('contradict', u); continue; }
-        if (u > -net + 1e-12) { taint('flip', u); continue; }
-        counts.short++;
-        net += u;
-        if (Math.abs(net) < 1e-12) net = 0;
-      } else { taint('contradict', u); }
+        if (st.net === 0) return sink.count('noOpen', r);
+        if (st.net > 0) return taint(st, sink, r, 'contradict', u);
+        if (u > -st.net + 1e-12) return taint(st, sink, r, 'flip', u);
+        sink.count('short', r);
+        st.net += u;
+        flat(st);
+      } else taint(st, sink, r, 'contradict', u);
     } else if (r.kind === 'SELL') {
-      const oc = r.openClose ?? (net > 0 ? 'SELL_TO_CLOSE' : 'SELL_TO_OPEN');
+      const oc = r.openClose ?? (st.net > 0 ? 'SELL_TO_CLOSE' : 'SELL_TO_OPEN');
       if (oc === 'SELL_TO_OPEN') {
-        if (net > 0) { taint('contradict', -u); continue; }
-        net -= u;
+        if (st.net > 0) return taint(st, sink, r, 'contradict', -u);
+        st.net -= u;
       } else if (oc === 'SELL_TO_CLOSE') {
-        if (net === 0) { counts.noOpen++; continue; }
-        if (net < 0) { taint('contradict', -u); continue; }
-        if (u > net + 1e-12) { taint('flip', -u); continue; }
-        longResult(r, u, r.price ?? 0);
-        net -= u;
-        if (Math.abs(net) < 1e-12) net = 0;
-      } else { taint('contradict', -u); }
+        if (st.net === 0) return sink.count('noOpen', r);
+        if (st.net < 0) return taint(st, sink, r, 'contradict', -u);
+        if (u > st.net + 1e-12) return taint(st, sink, r, 'flip', -u);
+        longResult(st, sink, r, u, r.price ?? 0);
+        st.net -= u;
+        flat(st);
+      } else taint(st, sink, r, 'contradict', -u);
     } else if (r.kind === 'OPTIONEXPIRATION') {
       // Fix round 1 (review 1): an expiry closes min(row units, net), like an exercise.
-      if (net > 0) {
-        const n = Math.min(u || net, net);
-        if (r.amount !== null && Number.isFinite(r.amount) && r.amount !== 0) {
-          counts.expiryCash++;
-          let left = n;
-          while (left > 1e-12 && longLots.length) { const take = Math.min(longLots[0].units, left); longLots[0].units -= take; left -= take; if (longLots[0].units <= 1e-12) longLots.shift(); }
-        } else longResult(r, n, 0);
-        net -= n;
-        if (Math.abs(net) < 1e-12) { net = 0; longLots = []; }
-      } else if (net < 0) { counts.short++; net += Math.min(u || -net, -net); if (Math.abs(net) < 1e-12) net = 0; }
-      else counts.noOpen++;
+      if (st.net > 0) {
+        const n = Math.min(u || st.net, st.net);
+        if (r.amount !== null && Number.isFinite(r.amount) && r.amount !== 0) { sink.count('expiryCash', r); takeLots(st, n); }
+        else longResult(st, sink, r, n, 0);
+        st.net -= n;
+        flat(st);
+        if (st.net === 0) st.lots = [];
+      } else if (st.net < 0) { sink.count('short', r); st.net += Math.min(u || -st.net, -st.net); flat(st); }
+      else sink.count('noOpen', r);
     } else if (r.kind === 'OPTIONEXERCISE') {
-      if (net > 0) {
-        const n = Math.min(u || net, net);
-        counts.exercise++;
+      if (st.net > 0) {
+        const n = Math.min(u || st.net, st.net);
+        sink.count('exercise', r);
         // The exercised contracts leave FIFO (their premium belongs to the delivered shares, which are not priced).
-        let left = n;
-        while (left > 1e-12 && longLots.length) { const take = Math.min(longLots[0].units, left); longLots[0].units -= take; left -= take; if (longLots[0].units <= 1e-12) longLots.shift(); }
-        net -= n;
-        if (Math.abs(net) < 1e-12) net = 0;
-      } else if (net < 0) taint('contradict', 0);
-      else counts.noOpen++;
+        takeLots(st, n);
+        st.net -= n;
+        flat(st);
+      } else if (st.net < 0) taint(st, sink, r, 'contradict', 0);
+      else sink.count('noOpen', r);
     } else if (r.kind === 'OPTIONASSIGNMENT') {
       // Fix round 1 (QA 6): an assignment of a long lot contradicts the ledger: other, and tainted until flat.
-      if (net > 0) taint('contradict', 0);
-      else { counts.short++; if (net < 0) { net += Math.min(u || -net, -net); if (Math.abs(net) < 1e-12) net = 0; } }
+      if (st.net > 0) taint(st, sink, r, 'contradict', 0);
+      else { sink.count('short', r); if (st.net < 0) { st.net += Math.min(u || -st.net, -st.net); flat(st); } }
     }
+  };
+
+  // F4-2 review (finding 2, orchestrator decision): the trader picks the day of an exercise, so counting every close of
+  // that day would let a loss be hidden by choice of day. Try the day in two readings, the stamped exercises and
+  // assignments before the day's closes and after them. Show the day when both readings give every row the same result
+  // and no close finds the position flat or would take it past flat (short); otherwise count the day as before.
+  // ponytail: still steerable for any position held in lots at more than one cost (two fills of one order are enough):
+  // buy 5 @5.00 and 5 @4.80, sell 9 @2 and exercise 1 on one day: the readings differ (the exercise takes the @5.00 or the
+  // @4.80 contract first), so the close is counted (contradict 2), while on another day it shows -59.1%; a trader can keep
+  // a loss off the record by exercising on the closing day. The options line is off today; decide before it opens (owner
+  // item): show the lower of the two figures, price the day's closes at the average cost of the lots either reading could
+  // draw, or wait for a vendor exercise-order field (lib/options.test.ts pins today's behaviour).
+  const settleDay = (day: OptionRow[], st: WalkState): OptionRow[] | null => {
+    const stamped = (r: OptionRow) => (r.kind === 'OPTIONEXERCISE' || r.kind === 'OPTIONASSIGNMENT') && r.executedAt!.getTime() % DAY !== 0;
+    const ev = day.filter(stamped), rest = day.filter((r) => !stamped(r));
+    const isClose = (r: OptionRow) => !isOpenType(r.openClose);
+    const firstClose = rest.findIndex(isClose);
+    if (firstClose < 0) return [...rest, ...ev]; // no close of the contract that day: nothing a reading could change
+    const lastClose = rest.length - 1 - [...rest].reverse().findIndex(isClose);
+    const before = [...rest.slice(0, firstClose), ...ev, ...rest.slice(firstClose)];
+    const after = [...rest.slice(0, lastClose + 1), ...ev, ...rest.slice(lastClose + 1)];
+    const run = (seq: OptionRow[]) => {
+      const s: WalkState = { net: st.net, tainted: st.tainted, lots: st.lots.map((l) => ({ ...l })) };
+      const out = new Map<string, string | OptionTrade>();
+      let past = false;
+      const sink: Sink = { count: (c, r) => { out.set(r.externalId, c); if (c === 'noOpen' || c === 'flip' || c === 'contradict') past = true; }, trade: (t) => { out.set(t.closeId, t); } };
+      for (const r of seq) step(r, s, sink, false);
+      return { s, out, past: past || s.tainted };
+    };
+    const a = run(before), b = run(after);
+    const near = (x: number, y: number) => Math.abs(x - y) < 1e-9;
+    // Lots left over, with neighbours of one cost, date and verified flag joined (two readings can split them differently).
+    const joined = (lots: Lot[]) => lots.reduce<Lot[]>((acc, l) => {
+      const p = acc[acc.length - 1];
+      if (p && near(p.cost, l.cost) && p.openedAt.getTime() === l.openedAt.getTime() && p.verified === l.verified) p.units += l.units; else acc.push({ ...l });
+      return acc;
+    }, []);
+    const la = joined(a.s.lots), lb = joined(b.s.lots);
+    if (a.past || b.past || !near(a.s.net, b.s.net) || a.out.size !== b.out.size || la.length !== lb.length) return null;
+    for (const [id, x] of a.out) {
+      const y = b.out.get(id);
+      if (typeof x === 'string' || typeof y === 'string' || !y) { if (x !== y) return null; continue; }
+      if (!near(x.returnPct, y.returnPct) || x.openedAt.getTime() !== y.openedAt.getTime() || x.verified !== y.verified) return null;
+    }
+    if (la.some((l, i) => { const m = lb[i]; return !near(l.units, m.units) || !near(l.cost, m.cost) || l.openedAt.getTime() !== m.openedAt.getTime() || l.verified !== m.verified; })) return null;
+    return before;
+  };
+
+  const st: WalkState = { net: 0, lots: [], tainted: false };
+  const unordered = unorderedDays(rows);
+  for (let i = 0; i < rows.length;) {
+    const d = orderDay(rows[i]);
+    if (!unordered.has(d)) { step(rows[i++], st, real, false); continue; }
+    let j = i;
+    while (j < rows.length && orderDay(rows[j]) === d) j++;
+    const day = rows.slice(i, j);
+    i = j;
+    const settled = st.tainted ? null : settleDay(day, st);
+    if (settled) for (const r of settled) step(r, st, real, false);
+    else for (const r of day) step(r, st, real, true);
   }
   // D4: a dangling contract: long lots still open more than DANGLING_DAYS whole days after expiry.
-  if (!tainted && net > 0 && longLots.length) {
+  if (!st.tainted && st.net > 0 && st.lots.length) {
     const past = Math.floor((asOf.getTime() - Date.parse(`${first.expiry}T00:00:00Z`)) / DAY);
     if (past > DANGLING_DAYS) counts.dangling++;
   }
