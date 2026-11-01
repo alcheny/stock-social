@@ -5,6 +5,7 @@ import { tone, toneClass } from '@/lib/open-split.ts';
 import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { counted } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
+import { fromNoteDay } from '@/lib/paging.ts'; // FIXES-CYCLE4-PART2 (F4-16)
 // FIXES-LABELS (D-05): the chart says when it starts and ends; the at-rest subline names the last close.
 import { dateText } from '@/lib/date-text.ts';
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
@@ -220,8 +221,8 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
             {open && (
               <>
                 <p className="muted" style={{ margin: '4px 0 0' }}>Held {chosen.holdingDays.toFixed(1)} days</p>
-                {/* F-9: UserNote (no dates: the packed chart carries the text only) */}
-                {chosen.thesis && <UserNote text={chosen.thesis} handle={noteBy} />}
+                {/* F-9: UserNote. FIXES-CYCLE4-PART2 (F4-16, C4-17): with the written and edited dates the packed chart now carries. */}
+                {chosen.thesis && <UserNote text={chosen.thesis} handle={noteBy} writtenAt={fromNoteDay(chosen.writtenDay)} editedAt={fromNoteDay(chosen.editedDay)} />}
                 <p style={{ margin: '8px 0 0' }}>
                   <a href={tradeHref(linkBase, chosen.id, chosen.index, current)}>Go to trade in list</a>{' '}
                   <button type="button" onClick={() => setOpen(false)}>Close</button>
