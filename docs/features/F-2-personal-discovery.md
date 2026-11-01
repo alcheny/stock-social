@@ -1,6 +1,6 @@
 # F-2 · Personalized discovery of traders and records
 
-Status: ready
+Status: built
 
 ## Why
 A viewer who has looked at or followed certain traders and records should see more of what they like:
@@ -153,3 +153,6 @@ Each one testable; the pipeline writes a test for every line.
   ordering without age assurance, an age-assurance step, or the attorney review's answer.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #30 (e12a834) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.
