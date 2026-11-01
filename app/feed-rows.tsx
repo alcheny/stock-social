@@ -32,7 +32,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     const trades = page.byUser.get(t.user_id) ?? [];
     // F-2 PR-2: no Follow or "…" on the viewer's own record.
     const viewer = page.viewer?.id === t.user_id ? undefined : { signedIn: !!page.viewer, following: !!page.viewer?.following.has(t.user_id) };
-    if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id) })));
+    if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id), options: page.options?.get(t.user_id) /* OPTIONS */ })));
     return p;
   };
   // F-10: one record strip per card trader, from the figures loadFeedPage computed (page.strips): formatting only here.
@@ -46,7 +46,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     const badge = paneTrust(page.byUser.get(t.user_id) ?? [], state).badge;
     badges.set(t.user_id, badge);
     const demo = badge === 'demo';
-    const s = f && recordStrip({ ...f, state, demo, verified: !demo, handle: t.handle }, 'feed');
+    const s = f && recordStrip({ ...f, state, demo, verified: !demo, handle: t.handle, excludingOptions: page.options?.get(t.user_id)?.label /* OPTIONS */ }, 'feed');
     strips.set(t.user_id, s);
     return s;
   };

@@ -6,6 +6,7 @@ import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-s
 import { counted } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
 import { UserNote } from '@/lib/user-note.ts';
+import { OPTIONS } from '@/lib/copy.ts'; // OPTIONS
 
 const W = 640, H = 240, T = 16, B = 16;
 
@@ -34,7 +35,7 @@ function fetchChart(src: string): Promise<PackedChart> {
 }
 
 // F-9: `noteBy`, the trader's handle for the sheet's UserNote attribution.
-export function PerformanceChart({ points, chart, src, now, linkBase = '', current, noteBy = '' }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; noteBy?: string }) {
+export function PerformanceChart({ points, chart, src, now, linkBase = '', current, shareOnly = false, noteBy = '' }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; /* OPTIONS (D5) */ shareOnly?: boolean; noteBy?: string }) {
   // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the profile passes the whole record (`points`) and draws it
   // at full resolution; the feed pane passes `chart`, each range's series already drawn at screen resolution on the
   // server (lib/chart-series.ts, at most FEED_CHART_POINTS points). Both draw and scrub the same way.
@@ -134,7 +135,7 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   // A11Y-FIXES #23: the line takes the printed sign's colour; a flat range draws in the neutral muted colour.
   return (
     <figure ref={fig} className={`chart ${tone(last) === 'down' ? 'loss' : 'gain'}`} style={tone(last) === 'flat' ? ({ '--c': 'var(--muted)' } as React.CSSProperties) : undefined} data-chart={lazy ? 'stand-in' : 'full'}>
-      <figcaption>Return if every trade were the same size</figcaption>
+      <figcaption>Return if every trade were the same size{shareOnly && OPTIONS.chartShareOnly}</figcaption>
       <div className="chart-head" aria-live="polite">
         <b className={`chart-value ${toneClass(shown) ?? ''}`}>{pct(shown, 1)}</b>
         <span className="muted"> · {sub}</span>

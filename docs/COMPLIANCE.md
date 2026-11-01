@@ -62,6 +62,13 @@ largest legal risk of this product.
 | Anti-touting and promotion rules (Securities Act §17(b); SEC/FTC actions on "finfluencers") | Paid promotion of securities without disclosure. | No one can pay for visibility; no sponsored records; theses that promote a security for compensation are user-content violations (Section 6). |
 | CFTC / NFA | Futures, options on futures, forex. | Options and futures are out of scope; `fetchActivities` skips them. If added, re-review. |
 
+**Re-review 2026-11-01 (options support, `docs/features/logs/options/`):** listed equity and ETF options are SEC/FINRA-regulated
+securities, not CFTC products; they are now imported read-only. Long options are shown as percent only under the per-trader
+consent gate; short options, exercises and assignments are counted. Strike, premium, contract counts and OCC symbols are
+private. Labels never name a direction, an outcome or urgency. Open option positions are profile-only, never pushed or
+aggregated per security. Futures, options on futures and other non-stock underlyings stay out of scope (the row above) and
+are counted, never shown. Index options are not claimed.
+
 **Procedures:** every performance surface carries the disclaimer (F3). Copy review against the banned
 words list (F2, scanner). Any new ranking, label, badge, alert or suggestion goes to counsel before
 build if it could be read as a recommendation. Keep a written "how records are calculated" page current.
@@ -78,6 +85,13 @@ build if it could be read as a recommendation. Keep a written "how records are c
 | Children's privacy (COPPA) | Under-13 data. | 18+ only; no collection from minors; see Section 7. |
 | Data minimization in the schema | | `closed_trades` stores no quantities or prices by design; keep it that way. Don't add fields "just in case". |
 | Third-party resource loads (fonts, scripts, images, embeds served from another company's servers) | Each load sends the visitor's IP address and page URL to that company; under GDPR and some state laws that is a data transfer without consent (a German court awarded damages per visitor for fonts loaded from a third party's servers). | **Self-host everything:** fonts, scripts, icons and images are served from the app's own origin; no third-party font, analytics, chat, map or video embeds on any page. The only outbound calls are server-side to integrated vendors. A scanner rule for the well-known third-party font hosts, third-party `<script src>` and `<link href>` to other hosts is to be added to `scripts/compliance.ts` (not there yet). (Status today: none found in `app/` or `lib/`; keep it that way.) |
+
+**Options inventory (2026-11-01):** `option_activities` (raw broker option rows: contract terms, strike, quantities,
+per-share prices, fees, cash, account ids; private, deleted with the account), `option_trades` (derived long option
+closes: underlying, call or put, expiry, dates, percent returns; public only through the consent gate) and
+`open_option_positions` (long open options: underlying, call or put, expiry, unrealized percent; same gate). Option
+contract symbols that reached `open_positions` before this change are purged (`lib/options-sync.ts#purgeOccPositions`).
+The Privacy Policy and Terms drafts need the new raw option fields (owner item).
 
 **Procedures:** data inventory (what, where, why, retention) updated with every schema change; a
 privacy-policy diff for every new field or vendor; deletion tested end to end, including the vendor
@@ -161,6 +175,10 @@ privacy-policy diff for every new field or vendor; deletion tested end to end, i
 - Moderation log: held theses, decisions, takedown notices and responses.
 - Vendor contracts and permissions (data display rights, sub-processors).
 - "How records are calculated" page history (every change to the trade math is a product statement).
+  2026-11-01: /how gained the options paragraph (imported and counted, shown once the consent wording covers them; the
+  return on what the contracts cost, fees included; share-only headline) and the excluded list now names short
+  options, exercised or assigned options and the share trades held over that day, and adjusted, non-stock and dangling
+  contracts.
 - Counsel opinions: adviser status, each Phase 2/3 feature, state coverage.
 
 ## 13. Penalty exposure: laws that fine per user, per message or per violation

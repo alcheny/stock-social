@@ -13,6 +13,9 @@ import { winRateText } from './copy.ts';
 import { counted } from './format.ts';
 import { positionRows } from './positions.ts';
 import { publicRecordDetail } from './connections.ts';
+// OPTIONS (docs/features/logs/options/plan.md L9, AC 21): the options line or the gated count line, exactly as the one
+// reader returned it; this file reads no option table.
+import { loadOptionDisplayText } from './options-load.ts';
 
 export const DISPLAY_LOG_BOX_MS = 20_000;
 export const DISPLAY_LOG_BATCH = 200;
@@ -41,7 +44,7 @@ export function snapshotText(closes: Close[], positions: Position[], today: Date
 const utcDay = (d: Date) => d.toISOString().slice(0, 10);
 
 /** One record's row for `day`, or null when nothing public shows (deleted, importing, or an empty record). */
-async function snapshotFor(userId: number, now: Date): Promise<(Snapshot & { demo: boolean }) | null> {
+async function snapshotFor(userId: number, now: Date): Promise<(Snapshot & { demo: boolean; optionsLine: string | null }) | null> {
   const { public: { state } } = await publicRecordDetail(userId);
   if (state === 'importing') return null; // TR-3: nothing partial is presented as a record, so nothing is logged as one
   const trades = await sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${userId}`;
@@ -50,6 +53,7 @@ async function snapshotFor(userId: number, now: Date): Promise<(Snapshot & { dem
   const [d] = await sql`select exists(select 1 from activities where user_id = ${userId} and source = 'demo') as demo`;
   return {
     demo: d.demo as boolean,
+    optionsLine: await loadOptionDisplayText(userId), // OPTIONS
     ...snapshotText(
       trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })),
       positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number })),
@@ -83,8 +87,8 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
       after = u.id as number;
       const snap = await snapshotFor(after, now);
       if (!snap) continue;
-      const r = await sql`insert into display_log (user_id, day, demo, headline, range_text, trade_count, open_summary, evidence)
-        values (${after}, ${day}::date, ${snap.demo}, ${snap.headline}, ${snap.rangeText}, ${snap.tradeCount}, ${snap.openSummary}, ${snap.evidence})
+      const r = await sql`insert into display_log (user_id, day, demo, headline, range_text, trade_count, open_summary, evidence, options_line)
+        values (${after}, ${day}::date, ${snap.demo}, ${snap.headline}, ${snap.rangeText}, ${snap.tradeCount}, ${snap.openSummary}, ${snap.evidence}, ${snap.optionsLine})
         on conflict (user_id, day) do nothing`;
       written += r.count;
     }

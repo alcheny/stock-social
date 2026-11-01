@@ -61,6 +61,10 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
   // fix-user-text B (F-9): who reported which note; both user links cascade, so a deleted profile leaves no reporter id.
   thesis_reports: { personal: true, retention: 'account', holds: 'which signed-in reader reported which trader\'s note (by sell id) and when' },
+  // OPTIONS (docs/features/logs/options/plan.md D1, L8): deleted with the account (the users cascade).
+  option_activities: { personal: true, retention: 'account', holds: 'raw broker option activities: contract terms, strikes, quantities, prices, fees, cash, account ids' },
+  option_trades: { personal: true, retention: 'account', holds: 'derived long option closes: underlying, call or put, expiry, dates, percent returns; public only through the consent gate' },
+  open_option_positions: { personal: true, retention: 'account', holds: 'long open option positions: underlying, call or put, expiry, unrealized percent; public only through the consent gate' },
   // Security hardening (2026-11-01): pseudonymous (keyed hashes, never the address or IP itself), so counted as personal.
   rate_limits: { personal: true, retention: 'short', holds: 'rate-limit counters per window, keyed by a scope and a keyed hash of an email address, client IP or id; pruned by lib/rate-limit.ts after 2 days' },
   portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },
