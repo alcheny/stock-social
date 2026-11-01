@@ -13,6 +13,8 @@
 //    every row is its own (the primary key makes two claims of one hour exclusive); otherwise it deletes the rows it
 //    made and draws again. No one else writes a claimed hour, so a sum over claimed hours counts this test's reads only;
 // 3. releases them at the end, deleting exactly the rows it claimed.
+// ponytail: a run killed before its release leaves its claimed all-zero rows (harmless: sums add 0 and later claims draw
+// around them) — a sweep of all-zero rows older than a day would reclaim them.
 export const HOUR = 3_600_000;
 
 /** Hours behind the current hour, `from` inclusive and `to` exclusive. `claims: false` only for a file that asserts
@@ -20,6 +22,8 @@ export const HOUR = 3_600_000;
 export type HourRange = { from: number; to: number; claims: boolean };
 export const HOUR_RANGES: Record<string, HourRange> = {
   // LOAD=1 only: rounds 10 and 11 h back and one run 20 h back, in worker processes.
+  // ponytail: the load suite's hours are fixed and unclaimed (it asserts nothing on the table) — claim them in its parent
+  // process before the rounds if it ever reads the sums.
   'lib/sync-shard.load.test.ts': { from: 2, to: 30, claims: false },
   'lib/sync-shard.test.ts': { from: 60, to: 700, claims: true },
   // Its traders consented 400 days (9,600 h) back: its clock stays after that.
