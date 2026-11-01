@@ -12,6 +12,8 @@ import { SHARE_ACTIONS, type ShareAction } from '@/lib/share-prompt.ts';
 import { canWatch, normalizeSymbol } from '@/lib/ticker.ts';
 import { checkReflection } from '@/lib/reflections.ts';
 import { checkRule } from '@/lib/rules.ts';
+import { signUpOpen } from '@/lib/launch-gate.ts';
+import { LAUNCH } from '@/lib/copy.ts';
 
 // DEV-ONLY sign-in (/login/dev): no password, guarded like the old stub. It still goes through a signup_attempts row
 // (method 'dev') so the attestation precedes the users row on this path too.
@@ -32,6 +34,9 @@ export async function login(form: FormData) {
   const attempt = await createAttempt({ method: 'dev', attested: form.get('adult') === 'on', referredBy, surface: referredBy ? normalizeVia(form.get('via')) : null, source: refHandle ? 'profile' : 'direct' });
 
   const [existing] = await sql`select id from users where handle = ${handle}`;
+  // Launch gate (orchestrator review 1): the dev form signs existing handles in, but creates a new account only while
+  // sign-up is open (the e2e sandbox counts as open).
+  if (!existing && !signUpOpen()) throw new Error(LAUNCH.closed);
   const id = existing ? (await completeAttempt(attempt, existing.id), existing.id as number) : (await createUserForAttempt(attempt, { handle, name })).id;
   await signIn(id);
   await rememberMethod('dev');

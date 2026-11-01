@@ -65,13 +65,18 @@ export const PROFILE = {
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
+// Privacy work (2026-11-01): the consent screen's public-scope line, owner copy.
+export const CONSENT_SCOPE_LINE = 'Public: percent returns, symbols, dates, holding periods, institution names, account count, and your current open positions with unrealized percent. Private: quantities, prices, fees and account numbers. Your public record is also used to describe your trading style and to order traders for readers.';
+
 export const CONSENT = {
   title: 'Confirm what gets imported',
   // Committee fix (item 7): no lead line (the notice already said it) and one scope line, so the primary fits 375×667.
   lines: (found: number, paper: number) => [
     'Full trade history your broker provides, from every account under this login',
     `${counted(found, 'account')} found${paper > 0 ? ` (${count(paper)} simulated, not imported)` : ''}`,
-    'Closed trades are published on your public profile as percent returns. No amounts, quantities or prices.',
+    // Privacy work (2026-11-01, owner copy): the public-scope line names every public and private field
+    // (lib/privacy-fields.ts derives its field lists from this line and lib/privacy-fields.test.ts holds them equal).
+    CONSENT_SCOPE_LINE,
     'A broker account can belong to one profile, ever.',
     'Your record stays public if you disconnect; deleting your profile removes it.',
   ],
@@ -308,6 +313,15 @@ export const CLOSES_PAGING = {
 
 export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated', skip: 'Skip to disclaimer and legal links' } as const;
 
+// Privacy work (2026-11-01): the launch gate's closed states (lib/launch-gate.ts, committee D6–D8). No date, no promise.
+export const LAUNCH = {
+  closed: "Sign-up isn't open yet. Existing accounts can still sign in.",
+  closedAfter: "Sign-up isn't open yet. That sign-in isn't linked to an account.",
+  connectClosed: "Connecting a brokerage isn't open yet.",
+  // UX lead re-sit 4: while sign-up is closed /login is only for existing accounts.
+  signInTitle: 'Sign in',
+} as const;
+
 export const LEGAL_PLACEHOLDER = {
   termsTitle: 'Terms of Service',
   privacyTitle: 'Privacy Policy',
@@ -389,7 +403,7 @@ export const LIKES = {
   hidden: 'Trade hidden. You won\u2019t see it again.',
   tray: 'Hide trade',
   title: 'Liked trades',
-  private: 'Only you can see your likes. Traders are never told, and nothing counts them.',
+  private: 'Only you can see your likes. Traders are never told and no one sees a count. Likes help order your own feed.',
   none: 'You haven\u2019t liked a trade yet. Double-tap a trade in the feed to like it.',
   remove: 'Remove',
   removeFor: (s: string) => `Remove like on ${s}`,
@@ -489,6 +503,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, openCopy()].forEach(walk);
   return out;
 }
