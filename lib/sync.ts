@@ -615,7 +615,10 @@ export async function syncUser(
       if (opts.cadence) await bringForward(tx, user.id, t); // a row a week read could not decide: the next pass comes sooner
       await dropUnread(tx, user.id, real); // retention: an account no longer read drops its running pass's ids
       const optTwins = await optionTwins(tx, user.id);
-      if (found || cleared || optTwins) {
+      // Re-issue states decided in this transaction (a pass end, or a page that listed both rows), so the line is written
+      // whenever any state changed (plan §4).
+      const [{ decided }] = await tx`select count(*)::int as decided from activity_reissues where user_id = ${user.id} and decided_at = now()`;
+      if (found || cleared || optTwins || decided) {
         const { id } = user; // the internal id and counts only (lib/privacy-logs.test.ts)
         const counts = await reissueCounts(tx, user.id);
         console.log('sync reissues', id, JSON.stringify({ found, cleared, pending: counts.pending, suspected: counts.suspected, optionTwins: optTwins }));
