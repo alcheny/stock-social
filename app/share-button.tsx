@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { absoluteUrl, shareMode } from '@/lib/share.ts';
+import { absoluteUrl, shareMode, shareVia, withVia, type ShareMode } from '@/lib/share.ts';
 
 type Props = {
   url: string; // path, e.g. /u/maya
@@ -9,16 +9,22 @@ type Props = {
   image?: string; // path of a PNG to share as a picture where the device supports it
   className?: string;
   onShared?: (how: 'copied' | 'shared') => void; // best-effort tracking; never blocks the share
+  via?: string; // F-15: the source class appended as ?via=; default from what is shared (lib/share.ts#shareVia)
 };
 
 // The product's only share control: one click. Opens the system share sheet (with the image when possible),
 // or copies the link where there is no share sheet. Generic label, no platform names (docs/POLICY.md T5).
-export function ShareButton({ url, title, label, image, className, onShared }: Props) {
+// F-15: the shared or copied link carries ?via=<source class>, set at click time from the path taken (the story class
+// only when the sheet takes the picture).
+// ponytail: no page declares a canonical link, so a search engine may index a ?via= copy of a record page — fix:
+// alternates.canonical on the profile, trade and month metadata (with metadataBase) after F-13 and F-11 merge.
+export function ShareButton({ url, title, label, image, className, onShared, via }: Props) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [link, setLink] = useState(url);
   const field = useRef<HTMLInputElement>(null);
   const file = useRef<File | null>(null);
-  useEffect(() => setLink(absoluteUrl(window.location.origin, url)), [url]);
+  const linkFor = (mode: ShareMode) => absoluteUrl(window.location.origin, withVia(url, via ?? shareVia(url, mode === 'files' ? image : undefined)));
+  useEffect(() => setLink(absoluteUrl(window.location.origin, withVia(url, via ?? shareVia(url)))), [url, via]);
   // Fetch the image ahead of time: some browsers only open the share sheet straight from the click.
   useEffect(() => {
     if (!image || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') return;
@@ -33,9 +39,9 @@ export function ShareButton({ url, title, label, image, className, onShared }: P
 
   const done = (how: 'copied' | 'shared') => { try { onShared?.(how); } catch { /* tracking is best-effort */ } };
 
-  async function copy() {
+  async function copy(text: string) {
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(text);
       setState('copied');
       setTimeout(() => setState('idle'), 2000);
       done('copied');
@@ -47,12 +53,13 @@ export function ShareButton({ url, title, label, image, className, onShared }: P
   async function click() {
     const canShare = typeof navigator.share === 'function';
     const mode = shareMode({ canShareFiles: !!file.current, canShare, hasImage: !!image });
-    if (mode === 'copy') return copy();
+    const shared = linkFor(mode);
+    if (mode === 'copy') return copy(shared);
     try {
-      await navigator.share(mode === 'files' ? { title, url: link, files: [file.current!] } : { title, url: link });
+      await navigator.share(mode === 'files' ? { title, url: shared, files: [file.current!] } : { title, url: shared });
       done('shared');
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') await copy(); // a share sheet that fails still leaves the link copied
+      if ((e as Error).name !== 'AbortError') await copy(linkFor('copy')); // a share sheet that fails still leaves the link copied
     }
   }
 
