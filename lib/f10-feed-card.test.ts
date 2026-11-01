@@ -55,7 +55,9 @@ const text = (html: string) => stripTags(html).replace(/&#x27;/g, "'").replace(/
 test('F-10 AC1/AC9: a card given a strip shows it as real text in the hero, after the return, with no "held … · closed" line', () => {
   const strip = stripOf(rec(40, (i) => 0.009 + (i % 2 ? 0.004 : -0.004)));
   const html = render(strip);
-  const hero = html.match(/<div class="hero">([\s\S]*?)<\/div><p class="thesis">/)?.[1] ?? '';
+  // F-26: a card with no note has no note element, so the hero is followed by the footer (and never by an empty note line).
+  const hero = html.match(/<div class="hero">([\s\S]*?)<\/div><footer/)?.[1] ?? '';
+  assert.doesNotMatch(html, /<p class="thesis">/);
   assert.match(hero, /<p class="record-strip" data-strip(="[^"]*")?>/);
   // Reading order: symbol, return, then the strip; the thesis follows the hero.
   assert.ok(hero.indexOf('ACME') < hero.indexOf('-5.2%') && hero.indexOf('-5.2%') < hero.indexOf('data-strip'), hero);

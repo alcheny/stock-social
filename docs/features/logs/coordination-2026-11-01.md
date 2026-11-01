@@ -179,6 +179,24 @@ they unblock, their files and merge positions are as follows.
     `Timeline.tsx`.
   - F-20's file is not edited: its build session owns it.
 
+## F-26 build (branch `claude/f26-held-like-none`), 2026-11-01
+- F-9 (#65) merged as ff25ad5, so F-26 is unblocked and built now; F-11 had no open branch at build start, so F-26
+  merges origin/main after F-11 lands and re-runs every suite (committee log `docs/features/logs/F-26/committee-2026-11-01.md`).
+- `lib/reports.ts`: **no edit.** It already answers a held note and a removed note alike ('not-found', "Reported.
+  Thank you.") and maps reported/held to one string; F-26 only adds tests (`lib/f26-held-like-none.db.test.ts`). F-16/F-17
+  keep sole ownership of the report categories in that file.
+- Shared files, edits kept to the note slot: `app/ui.tsx` (`thesisLine`, new `ownHeld` prop), `app/feed-rows.tsx` (one
+  prop), `lib/feed.ts` (the note columns of the candidate and page-row statements; `FeedCandidate.own_held/own_hold_rule`),
+  the trade page body (author-only held line), `app/u/[handle]/pane-chart/route.ts` (one SQL line), `app/globals.css`
+  (an F-26 block at the end, outside TOKENS). New: `lib/own-note.ts`; `HeldNote` in `lib/user-note.ts`;
+  `HELD_EDIT_LINK` in `lib/report-copy.ts`.
+- For F-11: if it adds a statement or surface that selects `thesis`, null it unless published (`case when thesis_status =
+  'published'`), as F-26's tests require.
+- For F-25: the card footer and trade-page links are untouched here; the held line's link uses `lib/paging.ts#tradeHref`.
+- 2026-11-01 (F-26, after merging #80-#83): the exploration-extras statement #81 added to `lib/feed.ts` also nulls a
+  non-published note now (F-26's source test counts three statements). F-16/F-17 hand-off: Report in F-26's note slots
+  (profile, trade page) moves to `tradeKey(sell_id)` once `lib/reports.ts#reportThesis` accepts it (F-16/F-17); until
+  then the slots send the row id, as the ponytail in `app/feed-rows.tsx` records. F-26 adds no Report anywhere.
 ## Approval council 2026-11-01 (cycle 4): approved features (F-28 to F-31) and re-approval (F-23)
 
 Record: `docs/ideas/approval-2026-11-01-cycle4.md` (base e6731d5). Four build slots out of six. Nothing can start today.
