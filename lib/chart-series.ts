@@ -99,8 +99,8 @@ export const paneChartSrc = (handle: string) => `/u/${encodeURIComponent(handle)
 
 // F-23: a wire day back to a time for drawing. Points of one UTC day are spread across it in their order (the k-th of m
 // at k+1 m+1ths of the day), so same-day closes never share an x: a drag reaches each, and release opens the one under
-// the cursor. The spread says only the order, which the list shows. A range starts at its first day's start and ends
-// at its last day's end.
+// the cursor. The spread says only the order, which the list shows. A dated range (1W…1Y) starts at its first day's
+// start and ends at its last day's end; ALL runs from its first point to its last.
 export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
   const trades: (ChartPoint | undefined)[] = new Array(c.trades.length);
   const out = {} as Record<RangeKey, Series>;
@@ -122,7 +122,9 @@ export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
       pts.push({ at, value: r.p[i + 1], trade });
       }
     }
-    out[key] = { pts, t0: r.t0 * DAY, t1: (r.t1 + 1) * DAY - 1, last: r.last, n: r.n, drawdown: r.dd, min: r.min, max: r.max };
+    // ALL spans its first point to its last (edge to edge, no tail, as before F-23); a dated range ends at today's end.
+    const all = key === 'ALL' && pts.length > 0;
+    out[key] = { pts, t0: all ? pts[0].at : r.t0 * DAY, t1: all ? pts[pts.length - 1].at : (r.t1 + 1) * DAY - 1, last: r.last, n: r.n, drawdown: r.dd, min: r.min, max: r.max };
   }
   return out;
 }

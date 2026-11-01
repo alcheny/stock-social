@@ -89,8 +89,10 @@ test('the feed pane\'s chart: every range at most 400 points, the same numbers a
     assert.equal(small.drawdown, wirePct(full.drawdown));
     assert.deepEqual([small.min, small.max], [wirePct(full.min), wirePct(full.max)]);
     // F-23: range ends are UTC days: the start of t0's day, the end of t1's day.
-    assert.equal(small.t0, wireDay(full.t0) * DAY, 't0');
-    assert.equal(small.t1, (wireDay(full.t1) + 1) * DAY - 1, 't1');
+    // F-23: range ends on their UTC days: a dated range from the start of t0's day to the end of t1's; ALL from its
+    // first drawn point to its last (both on the stored ends' days).
+    if (key === 'ALL') assert.deepEqual([wireDay(small.t0), wireDay(small.t1), small.t0, small.t1], [wireDay(full.t0), wireDay(full.t1), small.pts[0].at, small.pts.at(-1)!.at], key);
+    else assert.deepEqual([small.t0, small.t1], [wireDay(full.t0) * DAY, (wireDay(full.t1) + 1) * DAY - 1], key);
     if (!full.n) continue;
     assert.ok(small.pts[0].value === 0 && small.pts[0].trade === null, `${key}: first`);
     assert.equal(small.pts.at(-1)!.trade!.id, full.pts.at(-1)!.trade!.id, `${key}: last`);
@@ -146,7 +148,10 @@ test('fix round 8: the feed\'s stand-in carries the ALL line at FEED_LITE_POINTS
   for (const { key } of RANGES) {
     if (key !== 'ALL') assert.equal(l[key].pts.length, 0, key);
     const { pts: _a, ...ln } = l[key], { pts: _b, ...fn } = f[key];
-    assert.deepEqual(ln, fn, key); // header total, count, drawdown, y range, range ends: the full chart's
+    // header total, count, drawdown, y range, range ends: the full chart's (F-23: ALL's ends are its drawn points, on
+    // the same UTC days)
+    const ends = (x: typeof ln) => (key === 'ALL' ? { ...x, t0: wireDay(x.t0), t1: wireDay(x.t1) } : x);
+    assert.deepEqual(ends(ln), ends(fn), key);
   }
   // The stand-in keeps the line's ends and extremes (the line is not smoothed).
   const vals = (s: typeof l.ALL) => s.pts.map((p) => p.value);

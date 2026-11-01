@@ -96,3 +96,17 @@ test('a day offset is a whole number and the base is a UTC day; range ends are w
   }
   assert.equal(unpackChart(c)['1W'].t1, (wireDay(now) + 1) * DAY - 1);
 });
+
+test('ALL runs edge to edge with no tail (a 2-close record and a same-day pair); a dated range keeps every point inside', () => {
+  for (const rec of [[t('1', 0.01, '2026-10-12T10:00:00Z'), t('2', 0.02, '2026-10-13T10:00:00Z')], [A, B]]) {
+    const all = unpackChart(paneChart(rec, now)).ALL;
+    const x = (at: number) => ((at - all.t0) / (all.t1 - all.t0)) * 640;
+    assert.equal(x(all.pts[0].at), 0);
+    assert.equal(x(all.pts.at(-1)!.at), 640);
+    assert.ok(!(all.t1 > all.pts.at(-1)!.at), 'no tail');
+    assert.equal(wireDay(all.t0), wireDay(rec[0].closedAt));
+    assert.equal(wireDay(all.t1), wireDay(rec.at(-1)!.closedAt));
+  }
+  const w = unpackChart(paneChart([A, B], now))['1W'];
+  for (const p of w.pts) assert.ok(p.at >= w.t0 && p.at <= w.t1);
+});
