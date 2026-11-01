@@ -1458,6 +1458,9 @@ test('PR-2b fix round 2 (business lead 1): a vendor whose headers refuse framing
   const modes = await modesFrom(handle);
   await fetch(`${vendor.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: [{ id: acc, activities: 2 }], portalFrameHeaders: true }) });
   const refusing = vendor.base.replace('127.0.0.1', 'localhost');
+  // The probe's answers are shared through the database (security hardening): forget an earlier run's answer for this
+  // origin, so this test sees the server probe it.
+  await sql`delete from portal_probes where origin = ${refusing}`;
   const minted = await (await page.request.post('/connect/portal')).json();
   expect(minted.mode).toBe('redirect');
   expect(minted.origin).toBe(refusing);
