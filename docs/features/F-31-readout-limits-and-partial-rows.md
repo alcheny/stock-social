@@ -1,7 +1,6 @@
 # F-31 · The readout states its limits and splits trader and filer views
 
-Status: blocked
-Blocked: waits for fixes F4-11 and F4-12 (cycle-4 fixes list, branch `claude/fixes-cycle4`, not yet pushed) to merge, since both edit `scripts/f15-readout.ts`, unless the fixes builder takes F-31 on the same branch
+Status: built
 Start conditions: F4-11 (demo filers in the demo exclusion) and F4-12 (invite views on Demo profiles) merge
 (`docs/direction/cycle4-2026-11-01.md` §5), or the same builder carries all three. It is its own build slot (the readout
 slot).
@@ -53,21 +52,28 @@ C4-4 (rank 3) and C4-31 (rank 4), merged in round 0. Approved by the approval co
 - 2026-11-01: Sequencing and lapse: blocked until F4-11 and F4-12 merge, or the same builder carries them. If they
   have not merged and F-31 has not started by the next approval council (cycle 5), this approval lapses to that council.
   Why: approved by the approval council (cycle 4); lapse rule.
+- 2026-11-01: Filer/trader rows sit under the strict G3 row only, from a per-week split of the strict cell; existing base cells and every existing row are unchanged; a split row prints exactly only when everything derivable from it is 0 or ≥ 5, otherwise "(s)", with no bounds and no totals. Why: decided by the committee under the owner's instruction of 2026-11-01; splitting every base cell would have changed the strict row and existing output (AC1, AC8); plan D1, D9.
+- 2026-11-01: The address cap's source of truth is a stored per-day presence mark of beacons with and without a trusted address (new table `view_cap_days`); a week reads "live" only with a trusted mark and no untrusted one. Why: decided by the committee under the owner's instruction of 2026-11-01; a deploy setting read on the owner's machine would be a guess about production; plan D2 (answers the second open question; the owner may override).
+- 2026-11-01: The flag prints as an `address cap` row under the strict G3 row, per week, and the limits block states the latest week's cap. Why: decided by the committee under the owner's instruction of 2026-11-01; the flag sits beside the strict figure and never replaces it; plan D3.
+- 2026-11-01: The concentration row prints a whole percent rounded down, with "(s)" unless the largest profile has ≥ 5 views and every derivable rest is 0 or ≥ 5. Why: decided by the committee under the owner's instruction of 2026-11-01; no small count can be worked out from the share; plan D4.
+- 2026-11-01: "self-views removed (signed in)" counts every record surface, referrer and via for trader targets, as its own suppressed row. Why: decided by the committee under the owner's instruction of 2026-11-01; it shows everything the readout removes as self-views; plan D5.
+- 2026-11-01: Internal handles are read from env `READOUT_INTERNAL_HANDLES` in the readout's main only; the G3 internal row needs both parts 0 or ≥ 5, the G1 internal row only G1 and the rest (the removed count is the owner's own list), and a line warns that changing the list between runs can reveal counts. Why: decided by the committee under the owner's instruction of 2026-11-01; keeps the G1 row useful for a small team without revealing third-party counts; plan D6, business lead B1, engineer E1.
+- 2026-11-01: "tagged link" means a share or invite via; in-app nav and profile codes stay out. Why: decided by the committee under the owner's instruction of 2026-11-01; in-app links are not landings from outside; plan D7.
 
 ## Acceptance criteria
-- [ ] DB test: with one fictional real-filer view and one fictional trader view, both partial rows print. The strict
+- [x] DB test: with one fictional real-filer view and one fictional trader view, both partial rows print. The strict
       G3 row equals today's value for the same data.
-- [ ] Small-cell rules hold for the partial rows and the concentration row. A test shows no suppressed weekly or
+- [x] Small-cell rules hold for the partial rows and the concentration row. A test shows no suppressed weekly or
       cumulative cell can be recovered by subtraction.
-- [ ] The limits block prints above the first G-row on every run. A text test pins its sentences.
-- [ ] With the cap not shown to be live, the "not readable as a gate" flag prints beside the strict rows, and the
+- [x] The limits block prints above the first G-row on every run. A text test pins its sentences.
+- [x] With the cap not shown to be live, the "not readable as a gate" flag prints beside the strict rows, and the
       strict rows still print.
-- [ ] With the internal-handles env unset, "internal accounts: not removed" prints. With it set, G1 and G3 partial
+- [x] With the internal-handles env unset, "internal accounts: not removed" prints. With it set, G1 and G3 partial
       rows print and no handle appears in the output or logs.
-- [ ] The concentration row prints the largest single profile's share, with no id, handle or return, and is
+- [x] The concentration row prints the largest single profile's share, with no id, handle or return, and is
       suppressed under 5.
-- [ ] No row selects a user id, handle, return or filing name (source scan in the test).
-- [ ] With the env unset and no new data, output changes only by the new block and rows.
+- [x] No row selects a user id, handle, return or filing name (source scan in the test).
+- [x] With the env unset and no new data, output changes only by the new block and rows.
 
 ## Out of scope
 - Changing what any gate measures (MRC2-3, owner).
@@ -81,3 +87,4 @@ C4-4 (rank 3) and C4-31 (rank 4), merged in round 0. Approved by the approval co
 ## Rework notes
 
 ## Build log
+- 2026-11-01: built on `claude/f31-readout-limits` through the committee cycle (plan signed in round 3; tester, business lead, UX lead and independent review in `docs/features/logs/F-31/committee-2026-11-01.md`). Address-cap marks in the new `view_cap_days` table; internal handles from env `READOUT_INTERNAL_HANDLES`.

@@ -91,6 +91,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   view_drops: { personal: false, retention: 'short', holds: 'daily counts of beacons the bot filter dropped, per surface and reason (no user id); purged after 120 days' },
   // F-16 (docs/features/logs/F-16-F-17/plan.md §3): the owner's audited hides; deleted with the profile (cascade).
   trust_audit: { personal: true, retention: 'account', holds: 'owner hides and unhides of a profile or thesis: kind, user id, sell id, action, reason code, actor, time; no thesis text or reporter; deleted with the profile (cascade)' },
+  // F-31: the address-cap presence marks the owner's readout reads (lib/views.ts#markCapDay).
+  view_cap_days: { personal: false, retention: 'short', holds: 'per UTC day, whether view beacons were checked with and/or without a trusted client address (a day and a flag; no address, user agent, user id or count); purged after 120 days' },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.
