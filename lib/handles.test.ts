@@ -260,3 +260,13 @@ test('dev sign-in: a handle whose profile is pending deletion is treated as new 
   assert.match(src, /import \{[^}]*\bfindLiveUserByHandle\b[^}]*\} from '@\/lib\/handles\.ts';/);
   assert.ok(login.indexOf('const known') < login.indexOf("back('closed')"));
 });
+
+// F-7 merge: a public filer's generated handle (pf_…) is never signed up, signed into from the dev form, or renamed into.
+test('F-7 filer handles are refused on every chosen-handle path', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
+  assert.match(src('../app/actions.ts'), /if \(isFilerHandle\(handle\)\) back\('handle-reserved'\);/);
+  const att = src('./auth/attempts.ts');
+  assert.equal([...att.matchAll(/if \(isFilerHandle\(handle\)\) throw new HandleTakenError\('reserved'\);/g)].length, 2);
+  assert.match(src('./reports.ts'), /u\.public_filer_id is null/);
+});

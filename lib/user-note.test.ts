@@ -94,7 +94,9 @@ test('every thesis surface renders through UserNote and nowhere else prints thes
   assert.match(island, /aria-live="polite"/);
   assert.match(read('../app/u/[handle]/page.tsx'), /reportId=\{me && !isMe \?/);
   assert.match(read('../app/u/[handle]/trade/[sellId]/page.tsx'), /reportId=\{me && me\.handle !== t\.handle \?/);
-  assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id \? <ReportNote tradeId=\{String\(t\.id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
+  // F-7 merge: never on a public filer's card.
+  assert.match(read('../app/feed-rows.tsx'), /report=\{page\.viewer && page\.viewer\.id !== t\.user_id && !isPublicRecord\(page\.records\.get\(t\.user_id\)\?\.state \?\? 'none'\) \? <ReportNote tradeId=\{String\(t\.id\)\} symbol=\{t\.symbol\} \/> : undefined\}/);
+  assert.match(read('../app/ui.tsx'), /\{pub \? <p className="thesis muted" data-public-card>/);
   // The card (app/ui.tsx) takes the control as a prop and never imports the server-action island itself.
   assert.doesNotMatch(read('../app/ui.tsx'), /from ['"][^'"]*(report-note|actions)\.tsx?['"]/);
 });
