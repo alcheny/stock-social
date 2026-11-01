@@ -50,6 +50,8 @@ import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
+// ponytail: generateMetadata and the page each call load() (and the record card reads the record again), so one view
+// reads the whole record 3–4 times — wrap load and loadRecordCard in React cache() so each runs once per request.
 async function load(handle: string) {
   if (!routeHandle(handle)) return null; // security hardening (2026-11-01), F12: junk in the URL is a 404, not a 500
   const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
@@ -80,8 +82,11 @@ async function load(handle: string) {
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  // ponytail: generateMetadata and the page each run load(), so a profile view reads (and runs applyClocks) twice — fix:
+  // share one per-request load (React cache) once applyClocks is safe to run once per request.
   const data = await load((await params).handle);
-  if (!data) return {};
+  // Cycle 2 review of fix #20: a missing profile's 404 takes the 404 page's title, not the site default.
+  if (!data) notFound();
   const { user, s, c, state } = data;
   // Fix round 5 (TR-3): the same count wording as the trade and month previews ("closed" for a failed or partly
   // unverified record, "demo" for demo data, "verified" only for a whole record from the broker).

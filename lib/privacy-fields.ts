@@ -33,6 +33,7 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.thesis_hold_rule': 'moderation state (rule that held the note)', 'closed_trades.thesis_reviewed_at': 'moderation state (owner release time)',
   'closed_trades.thesis_reports_from': 'moderation state (reports count from this release time)',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
+  'closed_trades.sell_imported_at': 'when the closing sell was imported, internal (feed paging)',
 };
 
 const list = (xs: string[]) => (xs.length > 2 ? `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}` : xs.join(' and '));

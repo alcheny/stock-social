@@ -21,9 +21,18 @@ before(async () => {
   process.env.APP_SECRET_KEY ??= 'unit-test-secret';
   if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple();
 });
+// Known-limits sweep 2026-11-01: exactly the users and attempts this file made are removed (they were left behind).
+const madeUsers: number[] = [], madeAttempts: number[] = [];
 after(async () => {
   for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
-  if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 });
+  if (!hasDb) return;
+  const { sql } = await import('./db.ts');
+  try {
+    if (madeUsers.length) await sql`delete from users where id = any(${madeUsers})`;
+    if (madeAttempts.length) await sql`delete from signup_attempts where id = any(${madeAttempts}) and not exists (select 1 from users u where u.signup_attempt_id = signup_attempts.id)`;
+  } finally {
+    await sql.end({ timeout: 1 });
+  }
 });
 
 let fake: BillingFake;
@@ -42,6 +51,8 @@ async function user(): Promise<number> {
   const { sql } = await import('./db.ts');
   const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
   const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${`${tag}_${++n}`}, 'Test viewer', now(), ${a.id}) returning id`;
+  madeAttempts.push(a.id as number);
+  madeUsers.push(u.id as number);
   return u.id as number;
 }
 async function makeTrader(userId: number) {
