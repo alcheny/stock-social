@@ -5,8 +5,10 @@ orchestrating session under the owner's delegation (POLICY H; owner decision 202
 recommended option; anything POLICY or COMPLIANCE reserves for the owner or counsel uses the AI legal committee's
 findings and still goes to the owner as a flag). Fifteen members voted, each a separate agent with fresh context, in
 parallel within each round (the owner asked not to limit the rate). The chair ran the rounds and counted the votes and
-did not vote. Base: `origin/main` **f467293** (#63, the council cycle 3 record). Every `path:line` below is at
-f467293 unless marked. Not legal advice. Every probe trade named here is fictional.
+did not vote. Base for the rounds: `origin/main` **f467293** (#63, the council cycle 3 record); members' ballots cite
+f467293. Main then moved to **d98f32d** (#56, F-7 public traders, merged into this branch); F-7 moved lines in the
+files this record cites but changed no prerequisite or finding, so this record's own citations and the feature files
+are at **d98f32d** unless marked (mapping in Appendix A). Not legal advice. Every probe trade named here is fictional.
 
 ## Result
 
@@ -190,7 +192,7 @@ published twice silently; two genuine identical fills both survive.
 | C3-39/40 Record tools while billing is off + settings order | 3.40 (R4) | C3-39 (no primary button to locked /tools, `app/account/page.tsx:61`; a way back from `app/tools/page.tsx:69-78`) has broad support; C3-40 demotes "Delete my profile", against P6 easy deletion and the signed F-1 plan (`logs/F-1/plan.md:75-77`). | C3-39 alone, with C3-44, as a settings-lane chore if the business lead signs off the F-3 entry-point change (`logs/F-3/plan.md:142`) in the billing-closed state; C3-40 only with Delete visible at 360 px and an explicit amendment of the F-1 plan. |
 | C3-15 In-app disconnect | 3.13 (R3) | Needed before real users (consent `lib/copy.ts:91` promises a rule the app cannot act on), but blocked three ways: fix F3-3, F-11, owner Q1/Q2 (OD-9). | When F3-3 and F-11 merge and the owner answers Q1 and Q2. No reads after disconnect; step 1 links Delete; no confirm-shaming; no vendor delete before BC-16. |
 | L-18 F-18 one trust language (lapsed) | 3.13 (R3) | Six unmerged prerequisites (F-20, F-11, F-13, fixes #1, #2, #10); its false-label parts are already fixes. | Once F-20 and those prerequisites merge. File kept at `Status: draft`. |
-| C3-16 Connection health | 2.87 (R3) | 0 connections; vendor authorization signal unverified; needs F3-3. Reliability showed a first slice can use the stored refusal streak (`users.sync_failure_kind`, `db/schema.sql:421`). | After F3-3, built on the stored refusal streak; trader-only line; no email until owner Q5. |
+| C3-16 Connection health | 2.87 (R3) | 0 connections; vendor authorization signal unverified; needs F3-3. Reliability showed a first slice can use the stored refusal streak (`users.sync_failure_kind`, `db/schema.sql:458`). | After F3-3, built on the stored refusal streak; trader-only line; no email until owner Q5. |
 | L-19s F-19 call-site sweep (lapsed) | 2.80 (R3) | Waits on F-18. | After F-18 is re-approved; the range property test could run once fix #7 merges (DV). |
 | C3-38 Drop-off aggregate before the purge | 2.67 (R3) | No sign-ups while the gate is closed; PR #62 edits the same purge (`lib/privacy-purge.ts:180`). | Before the launch gate opens, after #62: weekly or small-cell-suppressed counts, in the purge's transaction, never delaying it. |
 | C3-42 Full data export | 2.60 (R3) | Scope is owner Q7 and BC-10; F-3 committee condition 11 fixes today's file; a full export under dev-stub auth is an account-takeover prize. | After real sign-in and the owner's Q7: a separate route, re-authentication, rate limit. |
@@ -237,11 +239,11 @@ forward unchanged: their own bring-back conditions are unmet. K18 joined F-16 (r
 
 These are defects against existing rules, found or confirmed by members at f467293. They go to the orchestrator's
 fixes list (cycle-3 fixes are building; these are not yet on it):
-- **Rename-chain shared-account leak.** The rename-chain read (`lib/sync.ts:121-127`) has no `notShared` filter,
-  though the main stream applies it (`:99`); a marked shared account in a rename chain still feeds the record. The
+- **Rename-chain shared-account leak.** The rename-chain read (`lib/sync.ts:123-129`) has no `notShared` filter,
+  though the main stream applies it (`:101`); a marked shared account in a rename chain still feeds the record. The
   existing test only counts filter uses (`lib/shared-accounts.test.ts:14`). Needs a behavioural test (reliability).
   F-21 also depends on it.
-- **"No thesis posted." over a held thesis.** `app/ui.tsx:74` prints "No thesis posted." when a thesis exists but is
+- **"No thesis posted." over a held thesis.** `app/ui.tsx:82` prints "No thesis posted." when a thesis exists but is
   held, which states something untrue (legal). F-9's `UserNote` on `claude/fix-user-text-safety` may already change
   this line; check after that branch merges.
 - **Oversell copy.** With C3-3 not approved, `lib/copy.ts:69` keeps blaming missing history for a sell that drew only
@@ -267,9 +269,16 @@ All 18 C3 problems still exist on main; #52, #60 and #61 fixed none. Moved citat
 `app/u/[handle]/page.tsx:289-292` (was 284-287); `lib/sync.ts:37` (on conflict do nothing, was 36), `:378` (7-day
 window, was 376); `lib/privacy-purge.ts:52` (sessions, was 47), `:180` (funnel delete, was 118), `:22`
 (`UNFINISHED_SIGNUP_DAYS`, was 19); `lib/feed.ts:197-198` (epochs, was 185-186); `db/schema.sql:289` (`consent_at`,
-was 285); `app/ui.tsx:74` (was 65); `lib/billing.ts:212-217` (was 206-211). New: #52's `notShared` exclusion
-(`lib/sync.ts:99`) has no count. The brief's "cycle-2 K6 condition 2" citation for C3-35 does not resolve (K6 went to
+was 285); `app/ui.tsx:82` (was 65); `lib/billing.ts:212-217` (was 206-211). New: #52's `notShared` exclusion
+(`lib/sync.ts:101`) has no count. The brief's "cycle-2 K6 condition 2" citation for C3-35 does not resolve (K6 went to
 the owner).
+
+**Lines at d98f32d (after #56 merged).** Counts block `app/u/[handle]/page.tsx:301-310`; `lib/sync.ts:101`
+(`notShared`), `:123-129` (rename-chain read without it), `:12` and `:381` (7-day window), `:37` unchanged;
+`app/u/[handle]/pane/route.ts:23` (`closedAt` in ms), `:28` (public cache); `lib/feed.ts:202-203` (epochs);
+`app/ui.tsx:82` ("No thesis posted."); `db/schema.sql:694` (`excluded_corporate`), `:458` (`sync_failure_kind`),
+`:289` (`consent_at`) and `:34`, `:319` unchanged; `lib/copy.ts:69`, `:79`, `:91`, `lib/trades.ts:41-42`, `:52`, `:171`,
+`lib/corporate-actions.ts:200` unchanged. Still open: PR #55 (F-13) and PR #62 (options); F-7 is no longer an open PR.
 
 ### The 32-item draft ballot
 - **A. Cycle 3 briefs (18):** C3-2, C3-3, C3-17, C3-15, C3-9, C3-16, C3-37, C3-36, C3-34, C3-39, C3-40, C3-42,

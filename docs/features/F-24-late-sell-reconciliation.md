@@ -6,7 +6,7 @@ Start conditions: F-14 merges. Shares one build slot (the ledger slot) with F-22
 `main` first.
 
 ## Why
-The hourly read starts at the newest stored activity minus 7 days (`lib/sync.ts:378-379` at f467293), so a row the
+The hourly read starts at the newest stored activity minus 7 days (`lib/sync.ts:12`, `:381` at d98f32d), so a row the
 vendor posts later with an older trade date is never read. A missed sell drops a close from a Verified record; a
 missed buy turns a later sell into an "earlier position" exclusion. Council cycle 3 brief C3-9, split in round 0: this
 is part (a), the late-row reconciliation; part (b), keeping vendor corrections in a revisions table, goes to the owner

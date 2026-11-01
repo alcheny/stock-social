@@ -6,7 +6,7 @@ Start conditions: fix F3-2 merges. Shares one build slot (the pane and payload s
 
 ## Why
 The public pane JSON sends `closedAt` in milliseconds and full-precision returns under a public cache
-(`app/u/[handle]/pane/route.ts:22`, `:26` at f467293); the feed's series sends epochs (`lib/feed.ts:197-198`). The
+(`app/u/[handle]/pane/route.ts:23`, `:28` at d98f32d); the feed's series sends epochs (`lib/feed.ts:202-203`). The
 screens print a day and a one-decimal percent, and consent tells traders prices stay private (`lib/copy.ts:79`). A
 fictional probe in council cycle 3 recovered position size from the extra precision under a flat commission. Council
 cycle 3 brief C3-36 (rank 8). Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`:

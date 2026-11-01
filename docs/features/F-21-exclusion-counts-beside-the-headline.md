@@ -7,10 +7,10 @@ the owner declines F-22, this feature starts after F3-2 alone (Open questions). 
 pane and payload files).
 
 ## Why
-Excluded trades are counted, but the counts render only on the profile (`app/u/[handle]/page.tsx:289-292` at
-f467293). The swipe pane, which SW-1 makes the main record view, and the record strip on trade and month pages print
+Excluded trades are counted, but the counts render only on the profile (`app/u/[handle]/page.tsx:301-310` at
+d98f32d). The swipe pane, which SW-1 makes the main record view, and the record strip on trade and month pages print
 win rate, average and range with no sign that anything was left out. #52 added a further exclusion (`notShared`,
-`lib/sync.ts:99`) that has no count anywhere. A headline that hides its exclusions where people read it implies a
+`lib/sync.ts:101`) that has no count anywhere. A headline that hides its exclusions where people read it implies a
 completeness the record does not have (POLICY F3a, F4). Council cycle 3 brief C3-17 (rank 3), reshaped in round 0.
 Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: second-vote mean 4.13, final vote
 15/15, all with conditions).
@@ -27,7 +27,7 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
   approval council (cycle 3); F-4 card contents are the owner's (veto condition: DK, LG).
 - 2026-11-01: One function computes the exclusion sum for the profile, the pane and the strip. It includes every
   exclusion counter the record keeps (today `users.excluded_positions`, `excluded_future` and `excluded_corporate`,
-  `db/schema.sql:34`, `:319`, `:657`; F3-1's unpriceable rows and F-22's transfers out when they land; and `notShared`
+  `db/schema.sql:34`, `:319`, `:694`; F3-1's unpriceable rows and F-22's transfers out when they land; and `notShared`
   shared-account exclusions, which need a real per-sell counter computed in the rebuild, never an estimate). Where a kind is deliberately not an
   exclusion, it is named in the function with the reason. A new exclusion kind added outside the function fails a
   test. Why: approved by the approval council (cycle 3); red team (a kind left out of the sum is a place to route
@@ -40,7 +40,7 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - 2026-11-01: Accessibility: the line sits right after the headline in DOM order, the link is a real link with a
   descriptive name (not tooltip-only), has a 44 px target, and reflows at 320 px; `--muted` text keeps AA contrast.
   Why: approved by the approval council (cycle 3); A11Y, UX.
-- 2026-11-01: The `notShared` rename-chain gap (the chain read at `lib/sync.ts:121-127` lacks the filter `:99`
+- 2026-11-01: The `notShared` rename-chain gap (the chain read at `lib/sync.ts:123-129` lacks the filter `:101`
   applies) is fixed with a behavioural test before or with this feature, so the count matches what the record uses.
   Why: approved by the approval council (cycle 3); RE (found in round 1), MR.
 - 2026-11-01: Sequencing and lapse: starts after fix F3-2 merges; if F3-2 has not merged by the next approval council
@@ -54,7 +54,7 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - [ ] A test fails if an exclusion counter is added to the schema or the rebuild without being summed (or named as
       deliberately left out) in the shared function.
 - [ ] The count includes `notShared` exclusions (or names them as not an exclusion, with the reason), and a behavioural
-      test proves a marked shared account in a rename chain does not feed the record (`lib/sync.ts:121-127`).
+      test proves a marked shared account in a rename chain does not feed the record (`lib/sync.ts:123-129`).
 - [ ] The line links to the profile's exclusion reasons; the link has a descriptive accessible name and a 44 px target.
 - [ ] Feed cards render exactly one record line (D22): a test fails if the exclusion line appears on a feed card.
 - [ ] The share card and the trade, month and stock image snapshots are unchanged.

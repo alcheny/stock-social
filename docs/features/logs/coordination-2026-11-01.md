@@ -146,8 +146,8 @@ and F-19's sweep lapsed (not re-approved).
   `app/pane.tsx` and the record strip (`app/record-strip.tsx`, `lib/record-strip.ts`), serialisation rounding in
   `app/u/[handle]/pane/route.ts`, the pane-chart route, `lib/chart-series.ts` and `lib/feed.ts` (client data only).
   Both wait for fix F3-2 (same pane files); F-21 also takes F-22's count when F-22 lands first. F-21 needs the
-  rename-chain `notShared` fix (`lib/sync.ts:121-127`) on the fixes list. Overlaps: PR #55 (F-13, pane and feed),
-  PR #56 (F-7), F-11 (pane status line), F-16 (pane report control).
+  rename-chain `notShared` fix (`lib/sync.ts:123-129`) on the fixes list. Overlaps: PR #55 (F-13, pane and feed),
+  F-7 (merged as #56, d98f32d; it edited the pane and profile), F-11 (pane status line), F-16 (pane report control).
 - **Trust and safety slot: F-16 (with K18's under-18 report), then F-17** (re-approved; files unchanged from cycle 2).
   Both wait for `claude/fix-user-text-safety` (F-9 built, 53b74e3, no open PR) to merge with F-9's criteria met on
   main; F-16 extends F-9's `lib/reports.ts` (one reports table); F-17 is rework on top of that branch's `lib/handles.ts`
@@ -155,8 +155,8 @@ and F-19's sweep lapsed (not re-approved).
 - **F-20 design tokens and contrast test** (re-approved; own slot now that F-18 is not re-approved). Waits for PR #55
   (`lib/a11y-contrast.test.ts`) and cycle-2 fixes #12, #13, #26.
 
-Fixes found during the vote (for the orchestrator's fixes list, no vote): the rename-chain read at `lib/sync.ts:121-127`
-lacks `notShared`; `app/ui.tsx:74` says "No thesis posted." over a held thesis; `lib/copy.ts:69`'s oversell line should
+Fixes found during the vote (for the orchestrator's fixes list, no vote): the rename-chain read at `lib/sync.ts:123-129`
+lacks `notShared`; `app/ui.tsx:82` says "No thesis posted." over a held thesis; `lib/copy.ts:69`'s oversell line should
 name both possible causes (F3-15). Chores the council recommends (no vote): C3-34 health endpoint and 401 log line;
 C3-39 Record tools while billing is off (business lead signs off the F-3 entry point) with C3-44; K20 home link
 preview; K22 billing hygiene tests.

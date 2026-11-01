@@ -8,7 +8,7 @@ branch merges or is closed (both edit `lib/trades.ts` or the exclusion copy). Sh
 with F-24.
 
 ## Why
-Every TRANSFER is read as an unpriceable corporate action (`lib/corporate-actions.ts:200` at f467293) and taints every
+Every TRANSFER is read as an unpriceable corporate action (`lib/corporate-actions.ts:200` at d98f32d) and taints every
 lot on the pair (`lib/trades.ts:171`). Fictional probes from council cycle 3: transfer 1 share in, sell the 100
 recorded units at a loss → the loss becomes a "corporate action" count; transfer 1 out, sell 99 → excluded; transfer
 the whole position out → no trade, no count, no line. Any trader can trigger the last case at will, so a Verified
