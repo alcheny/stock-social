@@ -48,7 +48,7 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
 | D20 | Disclaimer in plain view on the feed and under the profile headline | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d20-disclaimer-out-of-plain-view) | candidate |
 | D21 | Neutral "Sign in" with two paths (follow and save / publish my record) | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d21-sign-in-framed-only-as-publishing) | candidate |
 | D22 | One record line on every feed card; smaller ticker tested | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d22-feed-card-without-record-context) | candidate |
-| D23 | Profile headline leads with average and range, win rate second | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d23-profile-leads-with-win-rate) | candidate |
+| D23 | Profile headline leads with average and range, win rate second (three versions) | idea board | testing | [2026-11-01](ideas/2026-11-01-board-review.md#d23-profile-leads-with-win-rate) | candidate |
 | D24 | Plain labels for every stat; trades vs bets reconciled; units named | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d24-jargon-and-counts-that-disagree) | candidate |
 | D25 | Remove developer text and the "every stock" claim from public pages | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d25-developer-text-and-a-completeness-slip) | candidate |
 | D26 | Production switch: no sign-in or connect until Terms and Privacy Policy are live | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d26-consent-to-placeholder-terms) | candidate |
@@ -102,20 +102,25 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
   "official" handles are reserved. The name and clearance stay the owner's. Why: decided by the idea board under
   the owner's instruction of 2026-11-01.
 - 2026-11-01: D20: the disclaimer appears on the feed's first screen at 360 px, in each appended feed page and
-  under the profile's headline stats, checked by an e2e test; the footer copy stays. Why: decided by the idea board
+  under the profile's headline stats, also in the feed's swipe pane, on `/t/[symbol]` and on the trade page, with an e2e test on every route that shows
+  performance (round 5); the footer copy stays. Why: decided by the idea board
   under the owner's instruction of 2026-11-01.
 - 2026-11-01: D21: sign-in is a neutral "Sign in" with two paths, "Follow and save records" and "Publish my record"
   (first); the broker step only on the second; the 18+ attestation on both; done as an F-1 rework design session.
   Why: decided by the idea board under the owner's instruction of 2026-11-01.
 - 2026-11-01: D22: every feed card carries one record line (closed-trade count, average per trade with its range)
-  in place of the "held · closed" line; the smaller ticker is built as three versions and tested on open-pane rate;
+  in place of the "held · closed" line, in D24's wording, and "Too early to tell" under 5 bets, never a bare average
+  (round 5); the smaller ticker is built as three versions and tested on open-pane rate;
   ranking is unchanged. Why: decided by the idea board under the owner's instruction of 2026-11-01.
-- 2026-11-01: D23: the profile headline shows average per trade with its range first and larger, win rate second in
-  the same row; "How records are calculated" follows the same order. Why: decided by the idea board under the
+- 2026-11-01: D23 (testing): the profile headline order (average per trade with its range first and larger, win
+  rate second in the same row) is a product change, so it is built as three versions (CLAUDE.md) and chosen by
+  /choose or the Judge; the link-preview text and share card follow the same order; removing win rate stays the
+  owner's (round 5). Why: decided by the idea board under the
   owner's instruction of 2026-11-01.
 - 2026-11-01: D24: every stat has a plain label and a one-line "What's this?"; where both counts appear, one
-  sentence says "N trades, counted as M separate bets because some overlapped"; every count names its unit; profit
-  factor moves to a secondary row. Why: decided by the idea board under the owner's instruction of 2026-11-01.
+  sentence says "N trades, counted as M separate bets because some overlapped"; every count names its unit; one word for a
+  bet everywhere, checked by a test; profit factor (already in the secondary row) gets a plain label and
+  explanation (round 5). Why: decided by the idea board under the owner's instruction of 2026-11-01.
 - 2026-11-01: D25: the empty feed says "No public records yet."; the Stocks page says "Browse stocks that have
   verified closed trades."; the chart caption waits for idea 10 and CH-1. Why: decided by the idea board under the
   owner's instruction of 2026-11-01.
@@ -128,8 +133,8 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
   by stock"; bounce and pane-open rate are measured before and after. Why: decided by the idea board under the
   owner's instruction of 2026-11-01.
 - 2026-11-01: D29: the profile shows "Last close ‹date› · updated ‹relative time›" under "Record since", labels
-  accounts "Account 1 of 2", and says when a record has been idle over 30 days; idle connections are counted
-  internally. Why: decided by the idea board under the owner's instruction of 2026-11-01.
+  accounts "Account 1 of 2", and says when a connection has not synced for 30 days ("idle" means no sync, not no closes; facts only, round 5);
+  idle connections are counted internally. Why: decided by the idea board under the owner's instruction of 2026-11-01.
 - 2026-11-01: Idea 16 (F-4 open question; per-trade cards are outside F-4's scope): per-trade detail stays on per-trade cards; the record card stays record-level. Every per-trade card
   carries a record strip (closed-trade count, the record's average with its range, handle and full-record link,
   "losses included") and the disclaimer, and shows closed trades only. Depth is revisited at the week-8 review once

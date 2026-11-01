@@ -47,6 +47,12 @@ Common sense's Part B items D1-D10 are numbered D20-D29 here, in the same order.
   0), idea 14 (the honest priced notify-me test), and D20-D27 and D29. Owner-decided items and pure Terms and
   Privacy options are not candidates.
 
+- **D20-D29 were raised by the common-sense member** during round 1 and so had no independent round 1 of their
+  own: they went through the round-2 debate (where the common-sense member also checked its own items) and the
+  chair. After review they were re-run through an independent four-lens panel (business lead, UX lead, legal,
+  trust and safety) that verified each problem in the code; see "Round 5" before the three highest risks. Where
+  it changed the call, the D-item decisions in `docs/IDEAS.md` follow round 5.
+
 ## Summary
 
 | # | Idea | O/D | Status | Recommendation |
@@ -73,7 +79,7 @@ Common sense's Part B items D1-D10 are numbered D20-D29 here, in the same order.
 | D20 | Disclaimer out of plain view | D | adopted | One line on the feed's first screen, each appended page and under the profile headline. |
 | D21 | Sign-in framed only as publishing | D | adopted with conditions | Neutral "Sign in" with two paths, through an F-1 rework design session. |
 | D22 | Feed card without record context | D | adopted with conditions | Add one record line per card; test the smaller ticker; three versions. |
-| D23 | Profile leads with win rate | D | adopted with conditions | Average and range first, win rate second in the same headline; removal is the owner's. |
+| D23 | Profile leads with win rate | D | testing | Average and range first, win rate second, built as three versions (round 5); removal is the owner's. |
 | D24 | Jargon and counts that disagree | D | adopted | Plain label and "What's this?" for every stat; one sentence reconciling trades and bets. |
 | D25 | Developer text, "every stock" | D | adopted | Fix the empty-feed text and "every stock" now; the chart caption waits for idea 10. |
 | D26 | Consent to placeholder Terms | D | adopted | Production hard switch; separate the 18+ attestation from Terms acceptance. |
@@ -1381,6 +1387,132 @@ month).
 **Common-sense check.** Pass. A record that stopped a year ago shouldn't look current.
 
 ---
+
+## Round 5: independent review of D20-D29
+
+Lenses: BL = business lead, UX = UX lead, LG = legal and compliance (findings, not legal advice), TS = trust and
+safety. Verdicts: adopt / adopt w/ cond. / test first / reject. Line numbers are from the current working tree.
+
+### R5 D20 Disclaimer out of plain view
+**Verified: yes.** The only page-level disclaimer is the footer, `app/layout.tsx:34`, which comes after a feed that
+keeps appending pages (`app/page.tsx:51`, `app/feed-pager.tsx`). The profile page renders none (`app/u/[handle]/page.tsx`
+has no DISCLAIMER import). The feed's swipe pane (`app/pane.tsx`) has none either. Only the suggestion and similar sheets
+carry it (`app/suggest-section.tsx:31`, `app/u/[handle]/similar-section.tsx:45`).
+- BL: adopt. One muted line costs nothing.
+- UX: adopt w/ cond. Use one shared component, muted and at least 44px clear of tap targets at 360px.
+- LG: adopt. F3 says "in plain view". A footer behind endless scroll doesn't meet that.
+- TS: adopt. Screenshots of the feed currently go out with no disclaimer.
+**Agree, with one addition:** also put the line in the swipe pane (it shows headline stats and a chart), on
+`/t/[symbol]` and on the trade page. Have the e2e test cover every route that shows performance, not just the feed and
+the profile.
+
+### R5 D21 Sign-in framed only as publishing
+**Verified: yes.** The nav says "Publish your trades" (`app/layout.tsx:29`). The sign-in title is the same
+(`lib/copy.ts:9`), and the brokerage button sits on the same page (`app/login/page.tsx:40-45`).
+- BL: adopt w/ cond. Keep the publish path first, and track supply conversion before and after.
+- UX: adopt w/ cond. Two labeled paths, with no broker wording on the follow path.
+- LG: adopt. Viewers shouldn't see broker-consent framing. Keep the 18+ attestation on both paths (P4).
+- TS: adopt. This lowers pressure to connect a broker just to follow.
+**Agree.** It has to go through an F-1 rework design session (`Status: rework`, owner confirms).
+
+### R5 D22 Feed card without record context
+**Verified: yes.** The card shows the symbol, a big return and "held · closed" (`app/ui.tsx:50-52`), with no record
+count or range.
+- BL: test first on the ticker size, adopt on the record line.
+- UX: adopt w/ cond. One line, readable at 360px, using the profile's exact wording.
+- LG: adopt. Gives context against a tip-like reading (F1, F4).
+- TS: adopt. The card is the surface most likely to be read as a tip.
+**Agree, with one change:** the record line uses exactly the D24 wording and units. Show a range only when the record
+has one (at least 5 bets, `lib/confidence.ts:10`), and show "Too early to tell" otherwise, so a thin record never shows
+a bare average.
+
+### R5 D23 Profile leads with win rate
+**Verified: yes.** Win rate comes first (`app/u/[handle]/page.tsx:217`), the average second (`:218`), and the unfurl
+text starts with win rate (`:79`).
+- BL: test first. Changing the order affects first impressions and share behavior.
+- UX: adopt. The average and its range should lead.
+- LG: adopt w/ cond. Changing the order is fine. Removing win rate goes against CLAUDE.md, so that's the owner's call.
+- TS: adopt. A high win rate with a negative average is the misleading case.
+**Change:** reordering the headline is a product change, so the three-versions rule applies (CLAUDE.md). Apply the same
+order to the unfurl text (`:79`) and the share card. Removal stays with the owner, as the chair proposes.
+
+### R5 D24 Jargon and counts that disagree
+**Verified: yes.** One record uses three different units: "closed trades" (`page.tsx:235`), "independent bets"
+(`:231`), and "overlapping position" or "bets" in the evidence line (`lib/trades.ts:293-294`). "New record" counts
+closes (`lib/trades.ts:306`), while the ranking floor counts bets (`lib/confidence.ts:18`). Profit factor is
+unexplained (`page.tsx:236`).
+- BL: adopt. Confusion loses viewers.
+- UX: adopt. One unit name, and a "What's this?" for each stat.
+- LG: adopt. Numbers that disagree on a Verified record are the platform's own statements (F3c).
+- TS: adopt.
+**Agree, with one correction:** profit factor is already in the secondary row (`page.tsx:234-239`), so the remaining
+work is its label and explanation. Pick one word for an independent bet and use it everywhere. Add a unit test that
+copy.ts and trades.ts use that word.
+
+### R5 D25 Developer text and a completeness slip
+**Verified: yes.** The empty feed shows `npm run db:seed` (`app/page.tsx:35`). The Stocks page metadata says "Browse
+every stock..." (`app/t/page.tsx:17`). Because this is preview and search text, it travels outside the app. The chart
+caption is `lib/copy.ts:142`.
+- BL: adopt. A trivial fix.
+- UX: adopt.
+- LG: adopt. "Every" is a completeness claim (F3a).
+- TS: adopt.
+**Agree.** Also ask the owner to add "every stock" to the scanner patterns. `scripts/compliance.ts` is protected, so an
+agent can't add it.
+
+### R5 D26 Consent to placeholder Terms
+**Verified: yes.** Terms and Privacy are placeholders (`app/terms/page.tsx:8`, `lib/copy.ts:309`). The single checkbox
+combines 18+ with accepting them (`lib/copy.ts:16`, `app/login/page.tsx:61-63`). No code gate keeps sign-in or connect
+off while the texts are placeholders. A search for any terms-live flag found nothing.
+- BL: adopt. It blocks no preview work.
+- UX: adopt w/ cond. Use the preview wording. Later, show two separate checkboxes, each with a clear error message.
+- LG: adopt w/ cond. Make the gate fail-closed (off unless a version string for each text is set), and record each
+  consent with its version. Assent to a placeholder binds no one (P6).
+- TS: adopt.
+**Agree, with one condition:** the owner sets the production switch, because it's a deploy setting (POLICY H). Agents
+only build the gate and its test.
+
+### R5 D27 No first-visit explanation
+**Verified: yes.** The line "Verified trades, straight from the broker. Losses included." exists only as metadata
+(`app/layout.tsx:11`) and never renders. No first-visit code exists. The nav says "Stocks" (`app/layout.tsx:27`), as do
+the page headings (`app/t/page.tsx:75,101`).
+- BL: adopt w/ cond. Make it dismissible and measure the effect.
+- UX: adopt w/ cond. One line, no modal. Remember the dismissal in a first-party cookie or local storage.
+- LG: adopt w/ cond. Measurement must not add a tracker (P6). Implicit activity logging is off by default (idea 8), so
+  use aggregate first-party counts only.
+- TS: adopt. The copy must not overstate "Verified" (F3a): link to "How records are calculated".
+**Change:** make the measurement condition explicit (aggregate, first-party, no per-viewer log). Rename the `/t`
+headings along with the nav item.
+
+### R5 D28 DESIGN persona, skill and badge lines
+**Verified: yes.** The persona at `docs/DESIGN.md:34` is a paid signals seller. Lines 238-239 say "Celebrate correct
+predictions and milestones of skill" and "Badges reward accuracy". Line 254 says to re-interview that persona.
+- BL: flag for owner. A supply strategy that leads with signal sellers takes on regulatory risk.
+- UX: flag for owner.
+- LG: flag for owner. These lines conflict with F1 ("predictions" reads as forecasts), F3b ("skill") and F6
+  ("badges"). POLICY wins.
+- TS: flag for owner. It's the clearest misuse vector: paid promotion off the platform.
+**Agree.** Add "predictions" (line 238) to the lines struck, because it implies forecasting (F1/F3b). Until the owner
+amends DESIGN, feature briefs should cite POLICY F6/F3b wherever they reference §3.4.
+
+### R5 D29 Stale or opaque records
+**Verified: yes (partly).** `last_synced_at` is loaded (`page.tsx:42`) but never rendered. "Record since" shows no last
+close (`:176`). Position labels read "account N" only when one symbol is held in two or more accounts, with no total
+(`lib/positions.ts:33`, `page.tsx:255`). The account total is already in the connected line (`lib/copy.ts:249`).
+- BL: adopt w/ cond. Do the profile now. The card waits for idea 10.
+- UX: adopt w/ cond. Use relative time, and use "Account 1 of 2" only where a label already appears.
+- LG: adopt. A stale record that looks current is misleading (F2/F4, TR-5).
+- TS: adopt w/ cond. The idle wording must be factual ("No closes since ‹date›"), not a judgment. A long holder isn't
+  inactive.
+**Change:** define "idle" as no successful sync for 30 days, not as no closes. A trader who holds positions is still
+current. Use plain facts ("Last close ‹date› · updated ‹time›"). The $1-2 per connection monthly figure is unsourced
+here: source it or drop it from the record. Also, `lib/copy.ts:249` falls back to "the broker" when no institution name
+is returned. Check that against the PR-2b note at `page.tsx:56`.
+
+## Overall
+All ten problems exist in the code. I agree with the chair on D20, D21, D25, D26 and D28, and add small conditions on
+D22, D24, D27 and D29. The one real disagreement is D23: the headline reorder should go through the three-versions
+process instead of being adopted directly.
 
 ## Three highest risks in owner-decided ideas
 
