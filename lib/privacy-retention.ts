@@ -58,6 +58,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   rate_limits: { personal: true, retention: 'short', holds: 'rate-limit counters per window, keyed by a scope and a keyed hash of an email address, client IP or id; pruned by lib/rate-limit.ts after 2 days' },
   portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },
   rate_marks: { personal: true, retention: 'short', holds: 'the last import-poll time per user id; pruned by lib/rate-limit.ts after a day' },
+  sitemap_chunks: { personal: false, retention: 'none', holds: 'sitemap chunk boundary symbols, indexable-symbol count, highest sitemap id published and build time (no user ids)' },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.

@@ -750,3 +750,16 @@ select schema_add_column('signup_attempts', 'sweep_tried_at', 'timestamptz');
 select schema_add_index('connections_tick_import', 'create index connections_tick_import on connections (tick_tried_at nulls first, id) where state = ''importing''');
 select schema_add_index('connections_tick_cleanup', 'create index connections_tick_cleanup on connections (tick_tried_at nulls first, id) where cleanup_done_at is null and state in (''declined'', ''expired'')');
 select schema_add_index('signup_attempts_sweep', 'create index signup_attempts_sweep on signup_attempts (sweep_tried_at nulls first, id) where snaptrade_user_id is not null');
+
+-- Sitemaps (known-limits sweep 2, lib/sitemaps.ts): the shared chunk boundaries every server reads, so robots.txt and
+-- the further sitemaps' ids agree across servers. One row per scope ('' for the app; tests use their own prefix).
+-- firsts[i]: the first indexable symbol of further sitemap i+1 (the DB's default order); n: indexable symbols at the
+-- build; published: the most further sitemap ids ever listed (never shrinks: a listed id answers 200, maybe empty).
+-- Symbols and counts only; no user ids. Rebuilt at most once per REBUILD_MS by a request (lib/sitemaps.ts).
+create table if not exists sitemap_chunks (
+  scope text primary key,
+  firsts text[] not null,
+  n int not null,
+  published int not null,
+  built_at timestamptz not null default now()
+);
