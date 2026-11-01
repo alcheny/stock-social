@@ -136,3 +136,31 @@ dbTest('deleteLoginLinks: the statement can use login_links_attempt and login_li
     assert.ok(!nodes.some((n) => n['Node Type'] === 'Seq Scan' && n['Relation Name'] === 'login_links'));
   });
 });
+
+dbTest('deleteProfile: every shared Similar-trades pool naming the trader goes (a cache of ids with derived numbers); pools that do not name them stay (tester QA Q2)', async () => {
+  const { sql } = await import('./db.ts');
+  const { deleteProfile } = await import('./delete.ts');
+  const { encodePool } = await import('./similar.ts');
+  const tag = `dsp${Math.random().toString(36).slice(2, 8)}`;
+  const { createAttempt, signInWithIdentity } = await import('./auth/attempts.ts');
+  const attempt = await createAttempt({ method: 'email', attested: true });
+  const u = await signInWithIdentity(attempt, { provider: 'email', subject: `${tag}@example.com`, email: `${tag}@example.com` });
+  const id = u.id as number;
+  // Other ids that share the trader's digits (id·10, id+1·…) must not match: the pattern ends at a JSON delimiter.
+  const facts = { verified: true, n: 5 } as unknown as Record<string, unknown>;
+  const pool = (ids: number[]) => encodePool(ids.map((t) => ({ ...facts, trader: t, score: 1 })) as never);
+  const keys = { named: `${tag}-named`, last: `${tag}-last`, other: `${tag}-other` };
+  try {
+    await sql`insert into similar_pools (key, hour, built_at, pool) values
+      (${keys.named}, now(), now(), ${pool([id, id * 10 + 7])}),
+      (${keys.last}, now(), now(), ${pool([id + 1, id])}),
+      (${keys.other}, now(), now(), ${pool([id * 10, Number(`${id}1`)])})`;
+    await deleteProfile({ id, handle: u.handle as string, snaptrade_user_id: null, snaptrade_secret_enc: null }, { deleteVendorUser: async () => {} });
+    const left = (await sql`select key from similar_pools where key like ${tag + '-%'} order by key`).map((r) => r.key);
+    assert.deepEqual(left, [keys.other]);
+  } finally {
+    await sql`delete from similar_pools where key like ${tag + '-%'}`;
+    await sql`delete from users where id = ${id}`;
+    await sql`delete from handle_reservations where handle = ${u.handle as string}`;
+  }
+});

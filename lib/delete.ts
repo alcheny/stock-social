@@ -68,6 +68,9 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
     // Sign-in links are keyed by attempt, not user (COMPLIANCE §3): every link on the user's attempts and every link sent
     // to an address on the user's identities goes before the users row (which would null the attempts' user_id).
     await deleteLoginLinks(tx, u.id);
+    // The shared Similar-trades pools (lib/similar.ts) are a cache that names traders by id with derived numbers: any pool
+    // naming this trader goes now; the next profile view rebuilds it (tester QA Q2). The pool is JSON.stringify output.
+    await tx`delete from similar_pools where pool ~ ${`"trader":${u.id}[,}]`}`;
     await tx`insert into handle_reservations (handle, until) values (${u.handle}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day')
       on conflict (handle) do update set until = excluded.until`;
     // Privacy work (committee D17): the account's attempts stay as anonymous funnel rows (user_id goes null with the
