@@ -47,7 +47,7 @@ test('AC1: the Demo and mixed stock-page strings (title, description, explainer,
     assert.doesNotMatch(tickerDescription('NVDA', s), /Sample data/);
   }
   assert.match(FL.tickerTitle.verified('NVDA'), /verified trades/);
-  assert.match(tickerDescription('NVDA', tickerSummary(rows(6, true), today)), /^6 verified closed trades in NVDA · \d+% win rate · [+-−]?\d/);
+  assert.match(tickerDescription('NVDA', tickerSummary(rows(6, true), today)), /^6 verified closed trades in NVDA · \d+% win rate · [+\-−]?\d/);
 });
 
 test('AC2: compare with a Demo side: title, description, explainer and overlap never say verified; the all-Demo description has no "sample data" (DS-20)', () => {
