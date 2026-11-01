@@ -239,7 +239,7 @@ export async function endConfirm(tx: TransactionSql, userId: number, accountId: 
 /** The widened read for an account with 'confirm' rows, or null: after CONFIRM_MAX_FAILURES failed syncs in a row that
  *  were to make it (counted after the transaction), it is given up: the rows become suspected (counted and logged with
  *  reason 'confirm') and the plain week is read. */
-export async function plannedConfirm(tx: TransactionSql, userId: number, accountId: string): Promise<Date | null> {
+export async function plannedConfirm(tx: TransactionSql, userId: number, accountId: string, weekFrom?: Date): Promise<Date | null> {
   const from = await confirmFrom(tx, userId, accountId);
   if (!from) return null;
   // Orchestrator review C7: a window holding a full vendor page or more would be several responses, which decide nothing
@@ -247,7 +247,9 @@ export async function plannedConfirm(tx: TransactionSql, userId: number, account
   // at once, counted with reason 'busy', and no widened read is made.
   // ponytail: a busy account's genuine identical fill listed far from its twin stays held (counted) — fix: an end date on
   // lib/broker.ts#fetchActivities (a two-day window around the twins fits one page) or per-page id lists (owner).
-  const [{ n: rows }] = await tx`select ${confirmRowsSql(sql`${userId}::int`, sql`${accountId}::text`, sql`${from}::timestamptz - interval '1 day'`)}::int as n`;
+  // The read actually made starts at the earlier of the week and a day before the row (test author's note on C7).
+  const start = new Date(Math.min(from.getTime() - 86_400_000, weekFrom ? weekFrom.getTime() : Infinity));
+  const [{ n: rows }] = await tx`select ${confirmRowsSql(sql`${userId}::int`, sql`${accountId}::text`, sql`${start}::timestamptz`)}::int as n`;
   if (Number(rows) >= PAGE_LIMIT) {
     await endConfirm(tx, userId, accountId);
     await countInvalid(tx, userId, accountId, 'busy');

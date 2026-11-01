@@ -97,7 +97,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const kept = [...aside, ...live] as unknown as KeptThesis[];
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
-    let written = 0, excluded = 0, maxHeld = 0;
+    let written = 0, excluded = 0, maxHeld = 0, excludedHeld = 0;
     // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
     // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
     const actions = await loadCorporateActions(tx, userId, notFuture(tx));
@@ -110,6 +110,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       for (const k of keys ?? [pairKey(rows[0].accountId, rows[0].symbol)]) flushed.add(k);
       const m = matchTrades(rows, actions.length ? actionsOf(keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
       excluded += m.excluded;
+      excludedHeld += m.excludedHeld ?? 0; // F-24 RT-2
       excludedCorporate += m.excludedCorporate;
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
@@ -185,6 +186,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
+    // F-24 RT-2: sells counted while a possible re-issue in their pair is held (owner-visible; shown nowhere yet).
+    await tx`update users set excluded_held = ${excludedHeld} where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
     return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
   };
@@ -589,7 +592,7 @@ export async function syncUser(
             // ponytail: the widened read pages internally by 1,000 rows with no overlap (lib/broker.ts#fetchActivities), so
             // a list shift inside the call can leave a genuine row suspected until the next pass — fix: page with overlap
             // (a lib/broker.ts change, owner).
-            const from = await plannedConfirm(tx, user.id, id);
+            const from = await plannedConfirm(tx, user.id, id, since);
             const widened = from ? new Date(Math.min(since.getTime(), from.getTime() - 86_400_000)) : since;
             if (from) confirmPlanned.push(id);
             sinkPages = 0;

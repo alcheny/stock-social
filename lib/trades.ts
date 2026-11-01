@@ -39,7 +39,9 @@ const BEFORE_HISTORY = new Date(-8.64e15); // the earliest Date: shares the hist
 // Unit comparisons are relative to the size involved, so positions grown by splits compare like small ones.
 const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale));
 
-export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number };
+// `excludedHeld` (F-24 RT-2): sells counted because of a held possible re-issue, present only when nonzero. They have
+// their own count, never `excluded` (whose public reason is "no recorded entry").
+export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number; excludedHeld?: number };
 export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 
 // FIFO, long only. One closed trade per SELL, or one count: every SELL is a shown trade, `excluded` or
@@ -68,8 +70,9 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // - Held possible re-issues (F-24, council cycle 5 RT-2; POLICY F3c "count, never guess"): a row the vendor may have
 //   re-issued under a new id is passed in with `held`. It is either a second genuine fill or a duplicate, and the
 //   readings price every later sell of the pair differently. So a held BUY opens no lot; a held SELL is counted in
-//   `excluded`; and every sell of the pair dated after a held row (or at its instant, other than the held row's own
-//   unheld twins, which stay shown) is counted in `excluded` while the row is held. A row decided genuine is priced
+//   `excludedHeld`; and every sell of the pair dated after a held row (or at its instant, other than the held row's own
+//   unheld twins, which stay shown) is counted in `excludedHeld` while the row is held (their own count: their reason is
+//   not "no recorded entry"). A row decided genuine is priced
 //   normally on the next rebuild; a suspected one keeps the pair counted (the one case where the truth is unknown).
 //   ponytail: a rename after a held row moves the lots but not the mark, so the new symbol's later sells are priced
 //   without it — fix: move the mark with the rename, as the gap does (F-28).
@@ -131,7 +134,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   const books = new Map<string, Book>();
   const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
-  let excluded = 0, excludedCorporate = 0;
+  let excluded = 0, excludedCorporate = 0, excludedHeld = 0;
   // F-24 RT-2: the held rows per pair, known before the replay so a sell at a held row's instant is judged whatever the
   // vendor-id order at that instant.
   const heldBy = new Map<string, Activity[]>();
@@ -286,7 +289,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     const key = `${a.accountId}|${a.symbol}`;
     const b = book(key);
     const open = b.lots;
-    if (a.held) { if (a.side === 'SELL') excluded++; continue; } // F-24 RT-2: no lot, no price; a held sell is counted
+    if (a.held) { if (a.side === 'SELL') excludedHeld++; continue; } // F-24 RT-2: no lot, no price; a held sell is counted
     if (a.side === 'BUY') {
       // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
       open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) ? { tainted: true } : {}) });
@@ -297,7 +300,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     // Independent review (finding 5): any gap counts, at whatever scale this sell is (addGap already ignores a residual
     // that is tiny at the oversell's own scale), so a large later sell can't slip past a small gap.
     const gapped = (b.gap ?? 0) > 0;
-    if (afterHeld(key, a)) { excluded++; continue; } // F-24 RT-2: the ledger may be missing (or doubling) a held row
+    if (afterHeld(key, a)) { excludedHeld++; continue; } // F-24 RT-2: the ledger may be missing (or doubling) a held row
     let remaining = a.units;
     let cost = 0;
     let entryFees = 0;
@@ -341,7 +344,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       trades.push(t);
     }
   }
-  return { result: { trades, excluded, excludedCorporate }, books };
+  return { result: { trades, excluded, excludedCorporate, ...(excludedHeld ? { excludedHeld } : {}) }, books };
 }
 
 export type Stats = {

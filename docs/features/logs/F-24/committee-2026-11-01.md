@@ -215,4 +215,12 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
 - **`MATCHER_VERSION` stays at 2:** the output changes only where a held row exists, and `activity_reissues` is new, so
   no record's output changes at deploy.
 - **Ponytail:** a rename after a held row moves the lots but not the hold.
+- **After tests (test author's notes, taken):**
+  - Held-counted sells now have their own count (`MatchResult.excludedHeld`, `users.excluded_held`). They are never
+    counted under `excluded_positions`, whose public reason is "no recorded entry". The new count is owner-visible and
+    shown nowhere yet: its public wording is an owner item.
+  - The busy check sizes the read actually made: from the earlier of the week and a day before the confirm row.
+- **AC3 flake, root cause:** a read stamp is the database clock at the end of its vendor calls, and the next round's
+  clock is its transaction start. Rounds exactly 24, 47 or 6 hours apart therefore compared by a few milliseconds that
+  load decided. The test's rounds now advance a whole minute per hour; no assertion changed.
 

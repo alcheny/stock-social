@@ -1179,3 +1179,7 @@ select schema_add_column('sync_read_marks', 'reconcile_failures', 'int not null 
 -- Failed syncs in a row that were to make the widened confirm read (any cause): at 2 the account's 'confirm' rows become
 -- 'suspected' and the plain week is read.
 select schema_add_column('sync_read_marks', 'confirm_failures', 'int not null default 0');
+-- Council cycle 5 RT-2: sells counted, not priced, because a possible re-issue in their pair is held (lib/trades.ts
+-- `excludedHeld`). Their own count, never excluded_positions (whose public reason is "no recorded entry"). Shown nowhere
+-- yet: its public wording is an owner question.
+select schema_add_column('users', 'excluded_held', 'int not null default 0');

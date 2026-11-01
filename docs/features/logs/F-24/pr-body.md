@@ -166,7 +166,10 @@ reviewer; 3 planning rounds, all signed):
 - **Council cycle 5, RT-2 (high, record trust):** held rows are no longer dropped from the rebuild. They go to the
   matcher as holds: a held BUY opens no lot, and a held SELL and every later sell of its pair are counted in `excluded`
   until the row is decided, never priced from the wrong lot. Genuine prices normally; suspected keeps the pair counted.
-  `MATCHER_VERSION` is unchanged: there are no held rows before this ships.
+  `MATCHER_VERSION` is unchanged: there are no held rows before this ships. Held-counted sells have their own count
+  (`users.excluded_held`), never `excluded_positions` ("no recorded entry"). Tests: two matcher probes plus an
+  end-to-end run (held → counted → decided → exact figure), all failing on 811b398. The AC3 flake's cause (a
+  millisecond race at exact 24 h round spacing) is fixed in the test.
 
 ## Owner items
 - Confirm that held rows (pending, confirm or suspected) are kept out of the record and counted for the owner only, so a held
@@ -181,6 +184,7 @@ reviewer; 3 planning rounds, all signed):
   on `fetchActivities` or per-page id lists (AC6 owner residual, Open questions).
 - For an old confirm date, the widened read is in effect a whole-history read in one sync: the burst the pass's pacing
   avoids while MR-1 (the vendor's answer on history pages) is open.
+- `users.excluded_held` (sells counted while a re-issue is held) is shown nowhere yet: decide its public wording.
 - RT-2 trade-off: while a re-issue is held, its pair's later sells are counted, not shown. If a reconnect makes the
   vendor re-issue ids, many pairs could stay counted until decided (vendor question in Open questions).
 - CLAUDE.md "Sync paths" (protected) could mention the weekly full-history pass.
