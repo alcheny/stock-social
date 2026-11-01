@@ -68,11 +68,12 @@ async function demo(u: number) {
     values (${u}, 'demo', ${`${tag}-demo-${u}`}, 'acct', 'DM', 'BUY', 1, 10, now() - interval '60 days', '{}')`;
 }
 
-// The per-trader snapshot exactly as lib/display-log.ts had it before this change (git main, :44-59), unmodified.
+// The per-trader snapshot exactly as lib/display-log.ts has it on main (with main's OPTIONS line, #62), unmodified.
 async function legacySnapshotFor(userId: number, now: Date) {
   const { sql } = await import('./db.ts');
   const { publicRecordDetail } = await import('./connections.ts');
   const { snapshotText } = await import('./display-log.ts');
+  const { loadOptionDisplayText } = await import('./options-load.ts');
   const { public: { state } } = await publicRecordDetail(userId);
   if (state === 'importing') return null;
   const trades = await sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${userId}`;
@@ -81,6 +82,7 @@ async function legacySnapshotFor(userId: number, now: Date) {
   const [d] = await sql`select exists(select 1 from activities where user_id = ${userId} and source = 'demo') as demo`;
   return {
     demo: d.demo as boolean,
+    optionsLine: await loadOptionDisplayText(userId), // OPTIONS
     ...snapshotText(
       trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })),
       positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number })),
@@ -93,6 +95,7 @@ async function orderedSnapshotFor(userId: number, now: Date) {
   const { sql } = await import('./db.ts');
   const { publicRecordDetail } = await import('./connections.ts');
   const { snapshotText } = await import('./display-log.ts');
+  const { loadOptionDisplayText } = await import('./options-load.ts');
   const { public: { state } } = await publicRecordDetail(userId);
   if (state === 'importing') return null;
   const trades = await sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${userId} order by closed_at desc, id desc`;
@@ -101,6 +104,7 @@ async function orderedSnapshotFor(userId: number, now: Date) {
   const [d] = await sql`select exists(select 1 from activities where user_id = ${userId} and source = 'demo') as demo`;
   return {
     demo: d.demo as boolean,
+    optionsLine: await loadOptionDisplayText(userId), // OPTIONS
     ...snapshotText(
       trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })),
       positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number })),
@@ -110,8 +114,8 @@ async function orderedSnapshotFor(userId: number, now: Date) {
 }
 async function rowOf(u: number, day: string) {
   const { sql } = await import('./db.ts');
-  const [r] = await sql`select demo, headline, range_text, trade_count, open_summary, evidence from display_log where user_id = ${u} and day = ${day}::date`;
-  return r ? { demo: r.demo, headline: r.headline, rangeText: r.range_text, tradeCount: r.trade_count, openSummary: r.open_summary, evidence: r.evidence } : null;
+  const [r] = await sql`select demo, headline, range_text, trade_count, open_summary, evidence, options_line from display_log where user_id = ${u} and day = ${day}::date`;
+  return r ? { demo: r.demo, optionsLine: r.options_line, headline: r.headline, rangeText: r.range_text, tradeCount: r.trade_count, openSummary: r.open_summary, evidence: r.evidence } : null;
 }
 
 // Three closes whose average is exactly on a rounding boundary (-0.0535): summed in one order the float average rounds
@@ -137,6 +141,7 @@ test('chunks hold at most the row cap of closed trades; a record over the cap is
 // A spread of records: verified with a range, demo, losses, positions in several accounts (some hidden: state none),
 // importing, failed, empty, deleted, positions only, and the rounding-boundary record.
 async function fixtures(now: Date, order: 'profile' | 'shuffled') {
+  const { sql: sql0 } = await import('./db.ts');
   const f: Record<string, number> = {};
   const many: T[] = Array.from({ length: 40 }, (_, g) => ({ symbol: `M${g % 9}`, openedDaysAgo: 300 - g * 7, closedDaysAgo: 290 - g * 7 - (g % 3) / 10, r: ((g * 37) % 41 - 18) / 300 }));
   const p1 = await person(); f.verified = p1.id; await legacyAccount(p1.id); await trades(p1.id, many, now, order); await positions(p1.id, [['b', 'ZZ', -0.031], ['a', 'ZZ', 0.02], ['a', 'AA', 0]]);
@@ -149,6 +154,10 @@ async function fixtures(now: Date, order: 'profile' | 'shuffled') {
   const p8 = await person(); f.positionsOnly = p8.id; await legacyAccount(p8.id); await positions(p8.id, [['a', 'PO', 0.012], ['b', 'PO', -0.012]]);
   const p9 = await person(); f.positionsHidden = p9.id; await positions(p9.id, [['a', 'PH', 0.3]]);
   const p10 = await person(); f.empty = p10.id;
+  // OPTIONS: a record with an option trade (gated: the count line) is logged with the reader's line.
+  const p12 = await person(); f.options = p12.id; await legacyAccount(p12.id); await trades(p12.id, many.slice(0, 4), now, order);
+  await sql0`insert into option_trades (user_id, close_id, account_id, verified, underlying, option_right, option_expiry, opened_at, closed_at, return_pct, holding_days)
+    values (${p12.id}, ${`${tag}-opt-${p12.id}`}, 'acct', true, 'OPX', 'CALL', '2026-10-16', now() - interval '20 days', now() - interval '10 days', 0.2, 10)`;
   const p11 = await person(); f.deleted = p11.id; await trades(p11.id, many.slice(0, 2), now, order);
   const { sql } = await import('./db.ts');
   await sql`update users set deleted_at = now() where id = ${p11.id}`;
@@ -175,6 +184,8 @@ dbTest('the gate: the batch writer writes byte-for-byte the rows the unmodified 
   assert.match(String((await rowOf(f.verified, day))?.openSummary), /account 1/);
   assert.equal((await rowOf(f.none, day))?.openSummary, 'No open positions', 'state none hides positions');
   assert.equal((await rowOf(f.demo, day))?.demo, true);
+  assert.match(String((await rowOf(f.options, day))?.optionsLine), /option trade/, 'the options line is logged');
+  assert.equal((await rowOf(f.verified, day))?.optionsLine, null, 'no option rows: no options line');
   assert.equal((await rowOf(f.boundary, day))?.headline, '0% win rate · -5.3% avg return / trade', 'the profile order (latest close first)');
 });
 
@@ -276,6 +287,7 @@ dbTest('queries per chunk do not grow with its records (counted on the client): 
   assert.equal((await writeDisplayLog({ now, ids: large })).written, 30);
   const q30 = queries;
   assert.equal(q30, q3, `${q3} vs ${q30} queries`);
-  // One candidate read, recordStates (2), closed trades, open positions, demo, one insert.
-  assert.ok(q3 <= 7, `${q3} queries`);
+  // One candidate read, recordStates (3 since F-7's public filers), closed trades, open positions, demo, option
+  // counts, one insert.
+  assert.ok(q3 <= 9, `${q3} queries`);
 });

@@ -2,13 +2,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { access, billingAvailable, checkoutOpen, isPlan, testMode, type Access } from '@/lib/billing.ts';
-import { gateState } from '@/lib/launch-gate.ts';
+import { access, isPlan, testMode, type Access } from '@/lib/billing.ts';
 import { compareCards, followOptions, getView, listNotes, listViews, MAX_TRADERS, MAX_VIEWS, removedNotice, type Card, type View } from '@/lib/record-tools.ts';
 import { BILLING, RECORD_TOOLS } from '@/lib/copy.ts';
 import { Badge } from '../ui.tsx';
 import { FocusMessage } from './focus.tsx';
-import { Disclaimer, fmt, PastDueBanner, SubscribeBlock } from './parts.tsx';
+import { BackToFeed, checkoutFor, Disclaimer, fmt, PastDueBanner, SubscribeBlock } from './parts.tsx';
 import { addTraderAction, createViewAction, dismissNoticeAction, deleteNoteAction, deleteViewAction, moveAction, removeAction, renameViewAction, saveNoteAction } from './actions.ts';
 
 // F-3 · Record tools (docs/features/logs/F-3/plan.md §3 to §7; committee conditions K1 to K13). Private and unshareable:
@@ -52,8 +51,8 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
   const now = new Date();
   const a: Access = await access(me?.id, now);
   // The launch gate: while sign-up is closed only an allowlisted account sees the Subscribe screen (lib/launch-gate.ts).
-  const billing = (me ? await checkoutOpen(me.id) : gateState() !== 'closed') ? billingAvailable() : null;
-  const closed = !!billingAvailable() && !billing;
+  // CHORES-3 (C3-39): the rule lives in ./parts.tsx#checkoutFor, shared with /account.
+  const { billing, closed } = await checkoutFor(me?.id);
   const entitled = a.kind === 'trader' || a.kind === 'subscriber';
   const views = me ? await listViews(me.id) : [];
   const notes = me ? await listNotes(me.id) : [];
@@ -74,7 +73,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
         {!billing && <p>{RECORD_TOOLS.what}</p>}
         {billing
           ? <SubscribeBlock signedIn={!!me} testMode={testMode(billing)} error={me ? sp.e ?? null : null} chosen={isPlan(sp.p) ? sp.p : null} now={now} />
-          : <p className="muted">{closed ? BILLING.notOpen : BILLING.unavailable}</p>}
+          : <><p className="muted">{closed ? BILLING.notOpen : BILLING.unavailable}</p><BackToFeed /></>}
       </main>
     );
   }

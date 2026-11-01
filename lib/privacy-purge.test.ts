@@ -377,3 +377,21 @@ dbTest('a shared Similar-trades pool idle past a day goes; a fresh one stays', a
     await sql`delete from similar_pools where key like ${`${p}-%`}`;
   }
 });
+
+// Fix round 5 (item 8): a handle reservation whose hold has ended is removed by the tick; a live one stays.
+dbTest('ended handle reservations go; live ones stay', async () => {
+  const { sql } = await import('./db.ts');
+  const { purgePrivacy } = await import('./privacy-purge.ts');
+  const tag = `ppr${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    await sql`insert into handle_reservations (handle, until) values (${`${tag}_old`}, ${at('05-01')}), (${`${tag}_end`}, ${NOW}), (${`${tag}_live`}, ${at('07-01')})`;
+    const r = await purgePrivacy({ now: NOW, only: ['reservations'] });
+    assert.equal(r.ran, true);
+    assert.equal(r.done, true);
+    assert.ok(r.reservations >= 2);
+    const left = await sql`select handle from handle_reservations where handle like ${`${tag}%`} order by handle`;
+    assert.deepEqual(left.map((x) => x.handle), [`${tag}_live`]);
+  } finally {
+    await sql`delete from handle_reservations where handle like ${`${tag}%`}`;
+  }
+});

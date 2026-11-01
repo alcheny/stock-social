@@ -37,8 +37,9 @@ export function sitemapUrls(baseUrl: string, n: number): string[] {
 // wait); the app passes none.
 export type SitemapOpts = { prefix?: string; limit?: number; waitMs?: number };
 
-// Only visible users' closes count (fix #4, lib/visible-users.ts: a profile being deleted is never on a public aggregate
-// surface). `lo`/`hi`: a chunk's range [lo, hi) in the default collation (served by closed_trades_symbol).
+// F-7: public filings never count. Only visible users' closes count (fix #4, lib/visible-users.ts: a profile being
+// deleted is never on a public aggregate surface). Both the rebuild and every chunk read go through this one query.
+// `lo`/`hi`: a chunk's range [lo, hi) in the default collation (served by closed_trades_symbol).
 const indexable = (prefix?: string, lo?: string | null, hi?: string | null) => {
   // The test hook's range bounds the index scan to the prefix (test symbols are the prefix plus digits and letters).
   const scoped = prefix ? sql`and starts_with(symbol, ${prefix}) and symbol >= ${prefix} and symbol < ${prefix + 'Z'.repeat(32)}` : sql``;
@@ -48,7 +49,7 @@ const indexable = (prefix?: string, lo?: string | null, hi?: string | null) => {
   select symbol, max(closed_at) as last_closed_at,
          count(*) filter (where verified) as verified_trades,
          count(distinct user_id) filter (where verified) as verified_traders
-  from closed_trades where user_id in (${visibleUserIds()}) ${scoped} ${from} ${to}
+  from closed_trades where filing_url is null and user_id in (${visibleUserIds()}) ${scoped} ${from} ${to}
   group by symbol
   having count(*) filter (where verified) >= ${MIN_INDEX_TRADES} and count(distinct user_id) filter (where verified) >= ${MIN_INDEX_TRADERS}`;
 };

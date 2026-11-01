@@ -1,6 +1,6 @@
 # F-13 · First-visit line and the swipe hint
 
-Status: ready
+Status: built
 
 ## Why
 A signed-out first visitor sees a stock and a percentage with no idea what the product is. The SW-1 first-run hint
@@ -26,6 +26,15 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
 - 2026-11-01: If F-7 public profiles enter the feed, the line becomes false for them. It then goes back to the idea
   board for new wording, which the council may not change. Why: the decisions keeper's F-7 interface condition.
 
+- 2026-11-01 (build, after F-10 #54 and its follow-ups #60 merged): the line sits inside page 1's first card, in its
+  thesis slot, and stands in for the thesis excerpt until it is dismissed (the thesis stays on the trade page and in the
+  pane). Why: F-10 requires card 1's return, record strip and disclaimer on the first 360×640 screen with 15% headroom
+  (its e2e); a block above card 1, or an extra block in it, broke that budget. The Demo badge sits inline with the line and
+  "Demo records are marked Demo." is screen-reader text (the business lead's committee F1 fallback). The swipe hint follows
+  the design system council's slot rule: it waits while the line shows and appears on card 1 after dismissal (or on a later
+  visit), on the footer link's line. On short screens (≤ 480 px tall), while the line shows, card 1's symbol and return are
+  smaller. Decided in the build (F-10 budget conflict); the owner may revisit the trade-off.
+
 ## Acceptance criteria
 - [ ] Signed out, the first visit shows exactly "Verified trades, straight from the broker. Losses included." linking to
       the "How records are calculated" page. It never shows signed in, and it stays dismissed after dismissal (e2e).
@@ -44,6 +53,15 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
 - Measuring bounce and pane-open rate (waits for C17), the sign-in paths (D21, waiting) and other copy changes.
 
 ## Open questions
-- None from the council.
+- Owner item (2026-11-01): the design system council (PR #48, `docs/direction/design-system-2026-11-01.md` §2.5 R5)
+  proposes the line "Closed trades imported read-only from connected broker accounts. Losses included." because D27's
+  sentence calls demo cards verified and "straight from" hides that Stock Social calculates the returns (POLICY F3a). D27
+  is a decided line, so it ships verbatim until the owner or a council amendment changes it. The build uses that
+  council's labels for the parts D27 does not fix: "Demo records are marked Demo." beside the Demo badge, the link "How
+  records are calculated →" and the dismiss name "Dismiss this note".
+- Resolved 2026-11-01: the design system council's slot rule is built (the hint waits until the line is dismissed).
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #55 (92d03f4) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.

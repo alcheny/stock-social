@@ -10,10 +10,17 @@
 //     connections (a signed-in account's connections stay: they drive its record's state, TR-3);
 //   - shared Similar-trades pools (lib/similar.ts) idle for a day;
 //   - likes and rejected trades whose trade has been gone for 30 days (marked when first seen gone, unmarked if the
-//     trade comes back). Preference data with a live trade is never removed on a timer (owner, 2026-11-01).
+//     trade comes back). Preference data with a live trade is never removed on a timer (owner, 2026-11-01);
+//   - fix round 5 (item 8): handle reservations whose hold has ended (a deleted or renamed handle after its year, or one
+//     released early by the rename cap, lib/auth/attempts.ts#changeHandle): the handle is free, the row has no use.
+//   - F-15: aggregate view counts (view_rollup, view_drops) older than VIEW_RETENTION_DAYS (lib/views.ts).
 // Account deletion is separate and removes everything (lib/delete.ts).
 import type { ReservedSql } from 'postgres';
 import { sql } from './db.ts';
+import { VIEW_RETENTION_DAYS } from './views.ts'; // F-15
+// OPTIONS (docs/features/logs/options/plan.md D7, L8): option contract symbols (they carry the strike) never stay in the
+// public open_positions table, a frozen trader's included. The option tables themselves go with the account (cascade).
+import { purgeOccPositions } from './options-sync.ts';
 
 type ReserveSql = ReservedSql<Record<string, never>>;
 
@@ -27,6 +34,9 @@ export type PrivacyPurgeReport = {
   ran: boolean; done: boolean;
   sessions: number; links: number; attempts: number; similarPools: number; orphansMarked: number; orphansCleared: number; likes: number; rejects: number;
   orphanTimeouts: number; // cursor batches that hit ORPHAN_BATCH_MS and were retried with a smaller window
+  reservations: number;
+  views: number; // F-15: view_rollup and view_drops rows past VIEW_RETENTION_DAYS
+  occPositions?: number; // OPTIONS
 };
 
 // Known-limits sweep 2 (2026-11-01): the clearing and marking steps walk the trade_key hash space (trade_key is a lowercase
@@ -54,7 +64,7 @@ type Batch = { n: number; more: boolean };
 
 // `now`, `only` and `hold` are test hooks (a test runs the dated steps at a past `now`, so other tests' rows are untouched);
 // so are `orphanSteps` (which cursor steps run) and `timeoutMs` (a fixed statement timeout).
-export type PurgeStep = 'sessions' | 'links' | 'attempts' | 'similar' | 'orphans';
+export type PurgeStep = 'sessions' | 'links' | 'attempts' | 'similar' | 'orphans' | 'reservations' | 'views';
 type Opts = {
   boxMs?: number; batch?: number; clock?: () => number; hold?: () => Promise<void>; now?: Date; only?: PurgeStep[];
   orphanSteps?: OrphanStep[]; timeoutMs?: number;
@@ -81,7 +91,7 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
   const wallEnd = Date.now() + Math.min(opts.boxMs ?? PRIVACY_PURGE_BOX_MS, PRIVACY_PURGE_BOX_MS);
   const limit: Limit = { wallEnd, fixed: opts.timeoutMs };
   const cursorLimit: Limit = { ...limit, cap: ORPHAN_BATCH_MS };
-  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, similarPools: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, orphanTimeouts: 0 };
+  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, similarPools: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, orphanTimeouts: 0, reservations: 0, views: 0, /* OPTIONS */ occPositions: 0 };
   const conn = await sql.reserve();
   try {
     const [{ got }] = await conn`select pg_try_advisory_lock(${PRIVACY_PURGE_LOCK}, 0) as got`;
@@ -98,6 +108,11 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
           select l.token_hash from login_links l left join signup_attempts a on a.id = l.attempt_id
           where l.expires_at <= ${now} or (l.used_at is null and a.completed_at <= ${now}) limit ${batch})`).count)],
         ['attempts', 'attempts', async () => full(await purgeUnfinishedAttempts(now, batch))],
+        // Fix round 5 (item 8): ended handle reservations, oldest first, through handle_reservations_until.
+        ['reservations', 'reservations', async () => full((await conn`delete from handle_reservations where handle in (
+          select handle from handle_reservations where until <= ${now} order by until limit ${batch})`).count)],
+        // OPTIONS: one statement (open_positions holds one row per position, few per trader); reported as a count.
+        ['occPositions', 'attempts', async () => full(await purgeOccPositions(conn as never))],
         // Known-limits sweep 2 (similar): shared Similar-trades pools (lib/similar.ts) idle past a day.
         ['similarPools', 'similar', async () => full((await conn`delete from similar_pools where key in (
           select key from similar_pools where coalesce(built_at, claimed_at, hour) < ${now}::timestamptz - interval '1 day' limit ${batch})`).count)],
@@ -185,6 +200,21 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
             r[key] += b.n;
             if (!b.more) break;
           }
+        }
+      }
+      // F-15: aggregate view counts older than the retention bound (the day itself is the bound's edge: kept).
+      const views: (() => Promise<Batch>)[] = [
+        async () => full((await conn`delete from view_rollup where ctid in (
+          select ctid from view_rollup where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count),
+        async () => full((await conn`delete from view_drops where ctid in (
+          select ctid from view_drops where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count),
+      ];
+      for (const step of !opts.only || opts.only.includes('views') ? views : []) {
+        for (;;) {
+          if (clock() >= end) return r;
+          const b = await step();
+          r.views += b.n;
+          if (!b.more) break;
         }
       }
       r.done = true;

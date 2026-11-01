@@ -8,14 +8,16 @@ import { cache } from 'react';
 import { sql } from '../../../lib/db.ts';
 import { applyClocks, publicRecordDetail } from '../../../lib/connections.ts';
 import { isDemoUser as readDemo } from '../../../lib/demo.ts';
+import { filerInfo } from '../../../lib/public-gate.ts';
 
 export type PerRequest = <F extends (...args: never[]) => unknown>(fn: F) => F;
 
 export function profileReads(perRequest: PerRequest) {
   return {
-    user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`)[0]),
+    user: perRequest(async (handle: string) => (await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and deleted_at is null`)[0]),
     trades: perRequest((userId: number) => sql`
-      select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
+      select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
+        thesis_written_at, thesis_edited_at, thesis_hold_rule
       from closed_trades where user_id = ${userId} order by closed_at desc, id desc`), // list order (lib/paging.ts)
     positions: perRequest((userId: number) => sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${userId} order by symbol, account_id`),
     // F-1 clocks (marking only), once per request with one `now`. Idempotent: both UPDATEs match only rows still in
@@ -27,6 +29,8 @@ export function profileReads(perRequest: PerRequest) {
     // opengraph-image and story never run the clocks (as before this change).
     detail: perRequest((userId: number) => publicRecordDetail(userId)),
     demo: perRequest((userId: number) => readDemo(userId)),
+    // F-7: the filer behind a users row (null for a broker or demo user); visibility is lib/public-gate.ts#filerVisible.
+    filer: perRequest((userId: number) => filerInfo(userId)),
   };
 }
 export type ProfileReads = ReturnType<typeof profileReads>;

@@ -268,3 +268,16 @@ dbTest('the wait for another server\'s first build is bounded: a hung builder fa
     release(); await holder;
   } finally { await other.end({ timeout: 1 }); await f.done(); }
 });
+
+dbTest('F-7: public-filing closes count neither in the boundaries nor in any chunk', async () => {
+  const f = await fixture();
+  try {
+    const { rebuildSitemapIndex } = await import('./sitemaps.ts');
+    await f.sql`update closed_trades set filing_url = 'https://filings.example/x' where symbol = any(${f.base.slice(20).map(f.sym)}::text[])`;
+    const ix = (await rebuildSitemapIndex(f.opts))!;
+    assert.equal(ix.n, 20);
+    assert.deepEqual(ix.firsts, [f.sym('011')]);
+    const c = await allChunks(f.opts, [0, 1]);
+    assert.deepEqual(c.flat(), f.base.slice(0, 20).map(f.sym));
+  } finally { await f.done(); }
+});

@@ -29,6 +29,9 @@ const tag = `pl${Math.random().toString(36).slice(2, 8)}`;
 const attempts: number[] = [];
 const users: Record<string, { id: number; handle: string }> = {};
 const NOW = new Date('2026-10-30T12:00:00Z');
+const filers: number[] = [];
+const filerUsers: number[] = [];
+const filerAttempts: number[] = [];
 
 before(async () => {
   if (!hasDb) return;
@@ -71,6 +74,9 @@ after(async () => {
   if (!hasDb) return;
   const { sql } = await import('./db.ts');
   const ids = Object.values(users).map((u) => u.id);
+  if (filerUsers.length) await sql`delete from users where id in ${sql(filerUsers)}`;
+  if (filers.length) await sql`delete from public_filers where id in ${sql(filers)}`;
+  if (filerAttempts.length) await sql`delete from signup_attempts where id in ${sql(filerAttempts)}`;
   if (attempts.length) await sql`delete from connections where attempt_id in ${sql(attempts)}`;
   if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
   if (attempts.length) {
@@ -80,23 +86,28 @@ after(async () => {
   await sql.end({ timeout: 1 });
 });
 
-// The card's read before this change, verbatim (record-card-data.ts at 00655c4), with `now` fixed; `ordered` adds the
+// The card's read before this change, verbatim (record-card-data.ts on main after F-7 and options), with `now` fixed; `ordered` adds the
 // close order the new loader states explicitly.
 async function previousCard(handle: string, kind: 'unfurl' | 'square' | 'story', now: Date, ordered = false) {
   const { sql } = await import('./db.ts');
   const { publicRecord } = await import('./connections.ts');
   const { isDemoUser } = await import('./demo.ts');
   const { cardLink, recordCard } = await import('./record-card.ts');
-  const [user] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;
+  const { filerVisibleSql } = await import('./public-gate.ts');
+  const { optionHeadline, paneView } = await import('./options-load.ts');
+  const [user] = await sql`select id, display_name, public_filer_id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
   if (!user) return null;
   const rows = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${user.id} ${ordered ? sql`order by closed_at, id` : sql``}`;
-  const [{ state }, demo, open] = await Promise.all([publicRecord(Number(user.id)), isDemoUser(Number(user.id)),
-    sql`select unrealized_pct from open_positions where user_id = ${user.id}`]);
+  if (user.public_filer_id && !rows.length) return null;
+  const [{ state }, demo, open, options] = await Promise.all([publicRecord(Number(user.id)), isDemoUser(Number(user.id)),
+    sql`select unrealized_pct from open_positions where user_id = ${user.id}`, optionHeadline([Number(user.id)])]);
+  const opt = paneView(options.get(Number(user.id))!);
   return recordCard({
     kind, handle, name: user.display_name as string | null, state, demo, now,
     link: kind === 'unfurl' ? null : cardLink(process.env, handle),
     verified: rows.length > 0 && rows.every((t) => t.verified),
     open: open.map((p) => Number(p.unrealized_pct)).filter(Number.isFinite),
+    options: { shareLabel: opt.label, line: opt.line },
     trades: rows.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: Number(t.return_pct), holdingDays: Number(t.holding_days) })),
   });
 }
@@ -138,11 +149,46 @@ dbTest('closes stored out of close order: the card sums in close order (closed_a
   }
 });
 
+dbTest('F-7 on main holds in the shared path: a filer\'s card exists only while its profile does (switch on, not hidden, not removed, a priced close)', async () => {
+  const { sql } = await import('./db.ts');
+  const { profileReads, recordCardLoader } = await modules();
+  const mk = async (k: string, closes: number) => {
+    const [f] = await sql`insert into public_filers (source, filer_key) values ('insider_reports', ${`${tag}-${k}`}) returning id`;
+    filers.push(Number(f.id));
+    const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', 'epoch') returning id`; // F-7's placeholder
+    filerAttempts.push(Number(a.id));
+    const [u] = await sql`insert into users (handle, display_name, adult_attested_at, public_filer_id, signup_attempt_id) values (${`${tag}_f${k}`}, ${`Filer ${k}`}, 'epoch', ${f.id}, ${a.id}) returning id, handle`;
+    filerUsers.push(Number(u.id));
+    for (let i = 0; i < closes; i++) await sql`insert into closed_trades ${sql({ user_id: u.id, sell_id: `${tag}-f${k}-${i}`, account_id: 'pub', symbol: `F${i % 3}`, opened_at: new Date(Date.parse('2025-03-01T00:00:00Z') + i * 86_400_000), closed_at: new Date(Date.parse('2025-03-05T00:00:00Z') + i * 86_400_000), return_pct: [0.04, -0.06, 0.011][i % 3], holding_days: 4, verified: false })}`;
+    return { id: Number(f.id), handle: u.handle as string };
+  };
+  const shown = await mk('a', 12), none = await mk('b', 0), hidden = await mk('c', 5);
+  await sql`update public_filers set hidden_at = now() where id = ${hidden.id}`;
+  const card = (h: string) => recordCardLoader(profileReads(requestScope()))(h, 'unfurl', NOW);
+  const prevEnv = process.env.PUBLIC_TRADERS;
+  try {
+    delete process.env.PUBLIC_TRADERS; // the default outside production: on
+    const c = await card(shown.handle);
+    assert.ok(c);
+    assert.deepEqual(c, await previousCard(shown.handle, 'unfurl', NOW, true));
+    assert.equal(await card(none.handle), null);
+    assert.equal(await previousCard(none.handle, 'unfurl', NOW), null);
+    assert.equal(await card(hidden.handle), null);
+    assert.equal(await previousCard(hidden.handle, 'unfurl', NOW), null);
+    process.env.PUBLIC_TRADERS = '0'; // the switch off: no filer card
+    assert.equal(await card(shown.handle), null);
+    assert.equal(await previousCard(shown.handle, 'unfurl', NOW), null);
+  } finally {
+    if (prevEnv === undefined) delete process.env.PUBLIC_TRADERS; else process.env.PUBLIC_TRADERS = prevEnv;
+  }
+});
+
 dbTest('one request (metadata + page + card twice + demo checks) reads each part of the record once', async () => {
   const { profileReads, recordCardLoader } = await modules();
   const u = users.connected;
-  const r = profileReads(requestScope());
-  const card = recordCardLoader(r);
+  const memo = requestScope();
+  const r = profileReads(memo);
+  const card = memo(recordCardLoader(r)); // as the app: loadRecordCard = cache(recordCardLoader(reads))
   log.length = 0;
   // What load() reads (page.tsx), as generateMetadata and the page both call it, then the card and the demo checks.
   const view = async () => {
@@ -163,7 +209,7 @@ dbTest('one request (metadata + page + card twice + demo checks) reads each part
   assert.equal(n(/from open_positions/), 1);
   assert.equal(n(/^update connections/), 2); // applyClocks: its two UPDATEs, once
   assert.equal(n(/source = 'demo'/), 1);
-  assert.ok(log.length <= 9, `${log.length} queries: ${log.join(' ;; ')}`); // 7 today (≥15% headroom)
+  assert.ok(log.length <= 13, `${log.length} queries: ${log.join(' ;; ')}`); // 11 today with main's options and filer reads (≥15% headroom)
 });
 
 dbTest('nothing is remembered across requests: a second request reads again and sees a new close', async () => {

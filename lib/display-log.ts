@@ -14,6 +14,10 @@ import { winRateText } from './copy.ts';
 import { counted } from './format.ts';
 import { positionRows } from './positions.ts';
 import { recordStates } from './connections.ts';
+// OPTIONS (docs/features/logs/options/plan.md L9, AC 21): the options line or the gated count line, exactly as the one
+// reader returned it; this file reads no option table. Known-limits sweep 2: the reader's batch form (optionHeadline:
+// counts in one query, the gate still worked out per trader) with the same text function loadOptionDisplayText uses.
+import { optionDisplayText, optionHeadline } from './options-load.ts';
 
 export const DISPLAY_LOG_BOX_MS = 20_000;
 export const DISPLAY_LOG_BATCH = 200;
@@ -41,7 +45,7 @@ export function snapshotText(closes: Close[], positions: Position[], today: Date
 
 const utcDay = (d: Date) => d.toISOString().slice(0, 10);
 
-type Logged = Snapshot & { demo: boolean };
+type Logged = Snapshot & { demo: boolean; optionsLine: string | null };
 type Candidate = { id: number; n: number };
 
 // Known-limits sweep 2: the rows a chunk may read at once (closed trades summed over its traders). A record larger
@@ -60,7 +64,8 @@ export function chunkByRows(users: Candidate[], cap = DISPLAY_LOG_ROW_CAP): numb
   return out;
 }
 
-/** Each record's row for `now`'s day, set-based: five queries for the whole set (two of them recordStates). A record
+/** Each record's row for `now`'s day, set-based: seven queries for the whole set (three of them recordStates, one the option counts; the option gate adds
+ *  queries only for traders who hold option rows). A record
  *  with nothing public to show (deleted, importing, or an empty record) has no entry. */
 export async function snapshotsFor(userIds: number[], now: Date): Promise<Map<number, Logged>> {
   const out = new Map<number, Logged>();
@@ -85,10 +90,11 @@ export async function snapshotsFor(userIds: number[], now: Date): Promise<Map<nu
     const id = Number(p.user_id), list = open.get(id) ?? (open.set(id, []), open.get(id)!);
     list.push({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number });
   }
-  for (const id of readable) {
-    const c = closes.get(id) ?? [], p = open.get(id) ?? [];
-    if (!c.length && !p.length) continue;
-    out.set(id, { demo: demo.has(id), ...snapshotText(c, p, now) });
+  const logged = readable.filter((id) => (closes.get(id)?.length ?? 0) + (open.get(id)?.length ?? 0) > 0);
+  if (!logged.length) return out;
+  const options = await optionHeadline(logged); // OPTIONS (AC 21): what loadOptionDisplayText returns, per trader
+  for (const id of logged) {
+    out.set(id, { demo: demo.has(id), optionsLine: optionDisplayText(options.get(id)!), ...snapshotText(closes.get(id) ?? [], open.get(id) ?? [], now) });
   }
   return out;
 }
@@ -100,8 +106,8 @@ export async function snapshotFor(userId: number, now: Date): Promise<Logged | n
 
 async function insertRows(day: string, snaps: Map<number, Logged>): Promise<number> {
   if (!snaps.size) return 0;
-  const rows = [...snaps].map(([userId, s]) => ({ user_id: userId, day, demo: s.demo, headline: s.headline, range_text: s.rangeText, trade_count: s.tradeCount, open_summary: s.openSummary, evidence: s.evidence }));
-  const r = await sql`insert into display_log ${sql(rows, 'user_id', 'day', 'demo', 'headline', 'range_text', 'trade_count', 'open_summary', 'evidence')}
+  const rows = [...snaps].map(([userId, s]) => ({ user_id: userId, day, demo: s.demo, headline: s.headline, range_text: s.rangeText, trade_count: s.tradeCount, open_summary: s.openSummary, evidence: s.evidence, options_line: s.optionsLine }));
+  const r = await sql`insert into display_log ${sql(rows, 'user_id', 'day', 'demo', 'headline', 'range_text', 'trade_count', 'open_summary', 'evidence', 'options_line')}
     on conflict (user_id, day) do nothing`;
   return r.count;
 }
@@ -119,7 +125,7 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
   const snapshots = opts.deps?.snapshots ?? snapshotsFor;
   let after = 0, written = 0, failed = 0;
   const report = (done: boolean): DisplayLogReport => ({ written, done, ...(failed ? { failed } : {}) });
-  // Known-limits sweep 2: a chunk of records per round of five reads and one multi-row insert, instead of ~6 queries
+  // Known-limits sweep 2: a chunk of records per round of seven reads and one multi-row insert, instead of ~6 queries
   // per record (LOAD: lib/display-log.load.test.ts).
   // ponytail: one 20 s box writes ~9,000-21,000 records (467-1,048 records/s measured, 2,000 traders averaging 126
   // closes, 2026-11-01; the per-trader writer did 116-323), so at 24 hourly ticks past ~220,000-500,000 public records

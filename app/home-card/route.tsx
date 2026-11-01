@@ -1,0 +1,21 @@
+// CHORES-3 (K20): the picture a shared link to "/" unfurls with, referenced only by app/page.tsx's metadata. A route,
+// not a root opengraph-image file, which every child route without its own image would inherit. Text only: no name,
+// logo, glyph, chart or figure (POLICY T5a, F3); next/og's bundled default font.
+import { ImageResponse } from 'next/og';
+import { homePreview } from '@/lib/home-preview.ts';
+
+export const HOME_CARD_SIZE = { width: 1200, height: 630 };
+
+// `?d=0` draws the card without the Demo sentence, anything else with it: the page's metadata names the state it shows
+// (app/page.tsx), so a cached card always matches the page that linked it, and this route reads no data.
+export async function GET(req: Request) {
+  const { cardText } = homePreview(new URL(req.url).searchParams.get('d') !== '0');
+  return new ImageResponse(
+    (
+      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', padding: 80, background: '#0b0b0f', color: '#f2f2f5', fontSize: 60, lineHeight: 1.25 }}>
+        {cardText}
+      </div>
+    ),
+    { ...HOME_CARD_SIZE, headers: { 'Cache-Control': 'public, max-age=3600, s-maxage=3600' } },
+  );
+}

@@ -208,7 +208,8 @@ test('F-2 PR-4: the keyboard route: the card\'s "…" menu has Like (aria-presse
     await expect(likeBtn).toBeVisible();
     expect((await likeBtn.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     expect((await summary.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await expect(likeBtn).toHaveAccessibleName(/^Like\. Only you can see likes\.$/);
+    // A11Y-FIXES #18: the name is the visible text, the state is aria-pressed, the note is the description.
+    await expect(likeBtn).toHaveAccessibleName(/^Like$/); await expect(likeBtn).toHaveAttribute('aria-pressed', 'false'); await expect(likeBtn).toHaveAccessibleDescription('Only you can see likes.');
     await likeBtn.focus();
     await page.keyboard.press('Enter');
     await expect(likeBtn).toHaveAttribute('aria-pressed', 'true');
@@ -285,7 +286,7 @@ test('F-2 PR-4 fix round 1: hiding a liked trade removes the like and Undo resto
     await page.keyboard.press('Enter');
     await expect(likeBtn).toHaveAttribute('aria-pressed', 'true');
     await expect(likeBtn).toHaveText(/♥\s*Liked$/);
-    await expect(likeBtn).toHaveAccessibleName(/^Like\. Only you can see likes\.$/);
+    await expect(likeBtn).toHaveAccessibleName(/^Liked$/); await expect(likeBtn).toHaveAccessibleDescription('Only you can see likes.'); // A11Y-FIXES #18
     await expect.poll(() => count('trade_likes', me)).toBe(1);
     await shoot1(page, 'liked-menu-1280');
     await row.getByRole('button', { name: 'Hide this trade' }).focus();

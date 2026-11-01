@@ -64,10 +64,11 @@ export type RecapView = {
   handle: string; displayName: string; demo: boolean; verified: boolean; state: RecordState;
   recap: NonNullable<ReturnType<typeof monthRecap>>; record: ReturnType<typeof wholeRecord>;
   open?: number[]; // unrealized percents, read for a connected or failed record only
+  excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
 };
 const who = (r: RecapView) => ({ state: r.state, demo: r.demo, verified: r.verified, handle: r.handle });
 // The trader's record strip (every closed trade) and the month's figures (that month's trades, no count: R3-2).
-export const recordStripInput = (r: RecapView): StripInput => ({ ...r.record.strip, ...who(r), open: r.open });
+export const recordStripInput = (r: RecapView): StripInput => ({ ...r.record.strip, ...who(r), open: r.open, excludingOptions: r.excludingOptions /* OPTIONS */ });
 export const monthStripInput = (r: RecapView): StripInput => ({ ...r.recap.figures, ...who(r) });
 
 export const monthCountText = (count: number) => `${counted(count, 'closed trade')} this month`;

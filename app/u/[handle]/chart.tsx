@@ -1,9 +1,12 @@
 'use client';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { RANGES, nearestIndex, pct, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
+import { tone, toneClass } from '@/lib/open-split.ts';
 import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { counted } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
+import { UserNote } from '@/lib/user-note.ts';
+import { OPTIONS } from '@/lib/copy.ts'; // OPTIONS
 
 const W = 640, H = 240, T = 16, B = 16;
 
@@ -31,7 +34,8 @@ function fetchChart(src: string): Promise<PackedChart> {
   return p;
 }
 
-export function PerformanceChart({ points, chart, src, now, linkBase = '', current }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number }) {
+// F-9: `noteBy`, the trader's handle for the sheet's UserNote attribution.
+export function PerformanceChart({ points, chart, src, now, linkBase = '', current, shareOnly = false, noteBy = '' }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; /* OPTIONS (D5) */ shareOnly?: boolean; noteBy?: string }) {
   // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the profile passes the whole record (`points`) and draws it
   // at full resolution; the feed pane passes `chart`, each range's series already drawn at screen resolution on the
   // server (lib/chart-series.ts, at most FEED_CHART_POINTS points). Both draw and scrub the same way.
@@ -128,11 +132,12 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   const pick = (key: RangeKey) => { load(); setRange(key); setActive(null); setSel(null); setOpen(false); };
   const chosen = sel === null ? null : (pts[sel]?.trade ?? null);
 
+  // A11Y-FIXES #23: the line takes the printed sign's colour; a flat range draws in the neutral muted colour.
   return (
-    <figure ref={fig} className={`chart ${last >= 0 ? 'gain' : 'loss'}`} data-chart={lazy ? 'stand-in' : 'full'}>
-      <figcaption>Return if every trade were the same size</figcaption>
+    <figure ref={fig} className={`chart ${tone(last) === 'down' ? 'loss' : 'gain'}`} style={tone(last) === 'flat' ? ({ '--c': 'var(--muted)' } as React.CSSProperties) : undefined} data-chart={lazy ? 'stand-in' : 'full'}>
+      <figcaption>Return if every trade were the same size{shareOnly && OPTIONS.chartShareOnly}</figcaption>
       <div className="chart-head" aria-live="polite">
-        <b className={`chart-value ${shown >= 0 ? 'up' : 'down'}`}>{pct(shown, 1)}</b>
+        <b className={`chart-value ${toneClass(shown) ?? ''}`}>{pct(shown, 1)}</b>
         <span className="muted"> · {sub}</span>
       </div>
       {series.n === 0 ? (
@@ -190,13 +195,15 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
         {chosen && (
           <>
             <div className="line">
-              <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}</span></span>
-              <b className={chosen.returnPct > 0 ? 'up' : 'down'}>{pct(chosen.returnPct)}</b>
+              {/* Fix round 2 (H): " · " after the date, so it never runs into the figure ("10/30/2026-1.7%"). */}
+              <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}{' · '}</span></span>
+              <b className={toneClass(chosen.returnPct)}>{pct(chosen.returnPct)}</b>
             </div>
             {open && (
               <>
                 <p className="muted" style={{ margin: '4px 0 0' }}>Held {chosen.holdingDays.toFixed(1)} days</p>
-                {chosen.thesis && <p style={{ margin: '4px 0 0' }}>“{chosen.thesis}”</p>}
+                {/* F-9: UserNote (no dates: the packed chart carries the text only) */}
+                {chosen.thesis && <UserNote text={chosen.thesis} handle={noteBy} />}
                 <p style={{ margin: '8px 0 0' }}>
                   <a href={tradeHref(linkBase, chosen.id, chosen.index, current)}>Go to trade in list</a>{' '}
                   <button type="button" onClick={() => setOpen(false)}>Close</button>

@@ -3,7 +3,7 @@
 // and delete connection / delete user reach the vendor. No real vendor is contacted.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { unrealizedPct } from './broker.ts';
+import { toActivities, toOptionRows, unrealizedPct } from './broker.ts';
 import { startVendorFake } from '../e2e/fakes/vendor.ts';
 
 test('unrealizedPct: per-unit cost against per-unit price (the SDK documents both as per share); nothing without them', () => {
@@ -25,9 +25,8 @@ test('unrealizedPct: per-unit cost against per-unit price (the SDK documents bot
 });
 
 let fake: Awaited<ReturnType<typeof startVendorFake>>;
-const PORT = 4300 + Math.floor(Math.random() * 500);
 before(async () => {
-  fake = await startVendorFake(PORT);
+  fake = await startVendorFake(0);
   process.env.SNAPTRADE_BASE_URL = fake.base;
   process.env.SNAPTRADE_CLIENT_ID = 'test';
   process.env.SNAPTRADE_CONSUMER_KEY = 'test-consumer';
@@ -111,5 +110,60 @@ test('fix round 3: every vendor request is bounded: a request that hangs is abor
     process.env.SNAPTRADE_BASE_URL = base;
     hung.closeAllConnections();
     hung.close();
+  }
+});
+
+// Fixes cycle 3, F3-1 (docs/direction/cycle3-2026-11-01.md): a BUY/SELL row with an id and a symbol is never dropped.
+test('F3-1: toActivities keeps every share trade row: usable rows are activities, rows with no usable price, units or date are returned to be counted', () => {
+  const base = { symbol: { symbol: 'AAA' }, type: 'SELL', trade_date: '2024-01-05', price: 12, units: 10, fee: -1 };
+  const { activities, unusable } = toActivities('acc', [
+    { ...base, id: 'ok' },
+    { ...base, id: 'str', price: '12.5' as never, units: '-3' as never }, // numeric strings still read
+    { ...base, id: 'p0', price: 0 },
+    { ...base, id: 'pnull', price: null as never },
+    { ...base, id: 'pneg', price: -4 }, // reached the insert before and failed the whole sync on price > 0
+    { ...base, id: 'u0', units: 0 },
+    { ...base, id: 'nodate', trade_date: null },
+    { ...base, id: 'baddate', trade_date: 'not a date', type: 'BUY', price: undefined },
+    { ...base, id: 'opt', price: 0, option_symbol: { id: 'x' } }, // options: not this path
+    { ...base, id: 'div', price: 0, type: 'DIVIDEND' },
+    { ...base, id: undefined, price: 0 },
+    { ...base, id: 'nosym', symbol: null, price: 0 },
+    { ...base, id: 'feenan', fee: 'abc' as never }, // QA: a fee that is no number would publish NaN
+    { ...base, id: 'feeinf', fee: Infinity },
+    { ...base, id: 'hex', price: '0x10' as never }, // not read as 16
+  ]);
+  assert.deepEqual(activities.map((a) => [a.externalId, a.side, a.units, a.price, a.fee]), [['ok', 'SELL', 10, 12, 1], ['str', 'SELL', 3, 12.5, 1]]);
+  assert.deepEqual(unusable.map((a) => a.externalId), ['p0', 'pnull', 'pneg', 'u0', 'nodate', 'baddate', 'feenan', 'feeinf', 'hex']);
+  for (const a of unusable) { assert.equal(a.kind, 'unpriceable'); assert.ok(a.kind === 'unpriceable' && a.reason === 'trade'); assert.ok(a.raw); }
+  const by = new Map(unusable.map((a) => [a.externalId, a as unknown as { side: string; units?: number; undated?: boolean; executedAt: Date }]));
+  assert.deepEqual([by.get('p0')!.side, by.get('p0')!.units, by.get('p0')!.undated], ['SELL', 10, undefined]);
+  assert.equal(by.get('u0')!.units, undefined);
+  assert.deepEqual([by.get('nodate')!.undated, by.get('nodate')!.executedAt.getTime(), by.get('nodate')!.units], [true, 0, 10]);
+  assert.deepEqual([by.get('baddate')!.side, by.get('baddate')!.undated], ['BUY', true]);
+});
+
+// Merge of fixes cycle 3 with options (#62), orchestrator points (a) and (e).
+test('F3-1 + options (a): a price-less option row is counted once, as an option, never as an unusable share row', () => {
+  const base = { symbol: { symbol: 'AAA' }, type: 'SELL', trade_date: '2024-01-05', units: 1, fee: 0 };
+  const rows = [
+    { ...base, id: 'o1', price: 0, option_type: 'SELL_TO_CLOSE' },
+    { ...base, id: 'o2', price: undefined, symbol: { symbol: 'XYZ   261016C00123450' } },
+    { ...base, id: 'o3', price: 0, option_symbol: { id: 'x' } },
+    { ...base, id: 's1', price: 0 }, // a share row: unusable
+  ];
+  const { activities, unusable } = toActivities('acc', rows);
+  assert.deepEqual(activities, []);
+  assert.deepEqual(unusable.map((a) => a.externalId), ['s1']);
+  assert.deepEqual(toOptionRows('acc', rows as never).map((r) => r.externalId), ['o1', 'o2', 'o3']);
+});
+
+test('options (e): option numbers read like share numbers (decimal strings yes; null, empty, hex and non-finite no)', () => {
+  const base = { id: 'o', symbol: { symbol: 'XYZ   261016C00123450' }, type: 'BUY', trade_date: '2024-01-05' };
+  const read = (o: Record<string, unknown>) => toOptionRows('acc', [{ ...base, ...o }] as never)[0];
+  assert.deepEqual([read({ price: '2.5', units: '-3', fee: '-0.65' }).price, read({ units: '-3' }).units, read({ fee: '-0.65' }).fee], [2.5, 3, 0.65]);
+  for (const bad of [null, '', '0x10', 'abc', Infinity, NaN]) {
+    const r = read({ price: bad, units: bad, fee: bad });
+    assert.deepEqual([r.price, r.units, r.fee], [null, null, null], String(bad));
   }
 });

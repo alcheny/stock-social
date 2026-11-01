@@ -166,9 +166,11 @@ function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, coun
   return {
     pageLimit: b.pageLimit,
     listAccounts: (u) => timed(1, () => b.listAccounts(u)),
-    fetchActivities: (u, since, accountIds) => timed(Math.max(1, accountIds?.length ?? 1), () => b.fetchActivities(u, since, accountIds)),
-    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (u: Parameters<NonNullable<Broker['fetchActivitiesPage']>>[0], id: string, offset: number, limit?: number) => timed(1, () => b.fetchActivitiesPage!(u, id, offset, limit)) } : {}),
-    ...(b.fetchPositions ? { fetchPositions: (u: Parameters<NonNullable<Broker['fetchPositions']>>[0], id: string) => timed(1, () => b.fetchPositions!(u, id)) } : {}),
+    // OPTIONS (final review blocking 1): every argument is forwarded, the option sinks included (fetchActivities' 4th,
+    // fetchActivitiesPage's 5th, fetchPositions' 3rd); a wrapper that drops one silently stops option imports.
+    fetchActivities: (...args: Parameters<Broker['fetchActivities']>) => timed(Math.max(1, args[2]?.length ?? 1), () => b.fetchActivities(...args)),
+    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (...args: Parameters<NonNullable<Broker['fetchActivitiesPage']>>) => timed(1, () => b.fetchActivitiesPage!(...args)) } : {}),
+    ...(b.fetchPositions ? { fetchPositions: (...args: Parameters<NonNullable<Broker['fetchPositions']>>) => timed(1, () => b.fetchPositions!(...args)) } : {}),
     // Corporate actions (#40): each real account's share moves; every broker function the sync uses must pass through.
     ...(b.fetchShareMoves ? { fetchShareMoves: (u: Parameters<NonNullable<Broker['fetchShareMoves']>>[0], id: string) => timed(1, () => b.fetchShareMoves!(u, id)) } : {}),
   };
@@ -402,7 +404,7 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
         where x.heartbeat_at is null or x.heartbeat_at < now() - ${MISSING_SHARD_MS}::float8 * interval '1 millisecond') as "missingShards",
       (select count(*)::int from s, clock where (s.sync_claimed_at is null or s.sync_claimed_at < clock.round_start - ${ROUND_MS}::float8 * interval '1 millisecond')
         and (s.sync_retry_at is null or s.sync_retry_at <= clock.t)
-        and exists (select 1 from connections c where c.user_id = s.id and c.state = 'connected' and c.connected_at < clock.round_start - ${ROUND_MS}::float8 * interval '1 millisecond')) as "unclaimedPrevRound",
+        and exists (select 1 from connections c where c.user_id = s.id and c.state = 'connected' and c.disconnected_at is null and c.connected_at < clock.round_start - ${ROUND_MS}::float8 * interval '1 millisecond')) as "unclaimedPrevRound",
       (select count(*)::int from s where s.last_synced_at is null) as "neverSynced",
       (select coalesce(extract(epoch from clock.t - min(s.last_synced_at)) / 3600, 0)::float8 from s, clock group by clock.t) as "stalestHours",
       (select count(*)::int from s, clock where s.sync_retry_at > clock.t) as "inBackoff",

@@ -5,6 +5,7 @@ import { currentUser } from '@/lib/session.ts';
 import { BILLING, FOLLOW, PERSONALIZE, RECORD_TOOLS, SETTINGS } from '@/lib/copy.ts';
 import { deleteProfile, signOut } from '../auth/actions.ts';
 import { hasSubscribed } from '@/lib/billing.ts';
+import { notesLineApplies } from '@/lib/delete.ts';
 
 export const metadata: Metadata = { title: `${SETTINGS.title} · Stock Social`, robots: { index: false, follow: false } };
 
@@ -39,7 +40,8 @@ export default async function Settings({ searchParams }: { searchParams?: Promis
           <p>{SETTINGS.deleteExplain}</p>
           {/* F-3 (committee K12, K20): what deleting does to billing and to other subscribers' notes. */}
           {await hasSubscribed(me.id) && <p className="muted">{BILLING.deleteBilling}</p>}
-          <p className="muted">{BILLING.deleteNotes}</p>
+          {/* CHORES-3 (C3-44): only when it applies (a public record, or others' notes or views name this user). */}
+          {await notesLineApplies(me.id) && <p className="muted">{BILLING.deleteNotes}</p>}
           <p><Link className="button wide" href="/settings?confirm=1" data-testid="delete-first">{SETTINGS.deleteAction}</Link></p>
           <p><Link className="button wide secondary" href={`/u/${me.handle}`}>{SETTINGS.keep}</Link></p>
         </>

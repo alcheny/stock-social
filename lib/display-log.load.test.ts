@@ -70,11 +70,13 @@ after(async () => {
   await sql.end({ timeout: 1 });
 });
 
-// The per-trader writer exactly as lib/display-log.ts had it before this change (snapshotFor and the loop), unmodified.
+// The per-trader writer exactly as lib/display-log.ts has it on main (snapshotFor and the loop, with main's OPTIONS
+// line, #62), unmodified.
 async function legacySnapshotFor(userId: number, now: Date) {
   const { sql } = await import('./db.ts');
   const { publicRecordDetail } = await import('./connections.ts');
   const { snapshotText } = await import('./display-log.ts');
+  const { loadOptionDisplayText } = await import('./options-load.ts');
   const { public: { state } } = await publicRecordDetail(userId);
   if (state === 'importing') return null;
   const trades = await sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${userId}`;
@@ -83,6 +85,7 @@ async function legacySnapshotFor(userId: number, now: Date) {
   const [d] = await sql`select exists(select 1 from activities where user_id = ${userId} and source = 'demo') as demo`;
   return {
     demo: d.demo as boolean,
+    optionsLine: await loadOptionDisplayText(userId), // OPTIONS
     ...snapshotText(
       trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })),
       positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number })),
@@ -106,8 +109,8 @@ async function legacyWriteDisplayLog(opts: { now: Date; boxMs: number; ids: numb
       after = u.id as number;
       const snap = await legacySnapshotFor(after, opts.now);
       if (!snap) continue;
-      const r = await sql`insert into display_log (user_id, day, demo, headline, range_text, trade_count, open_summary, evidence)
-        values (${after}, ${day}::date, ${snap.demo}, ${snap.headline}, ${snap.rangeText}, ${snap.tradeCount}, ${snap.openSummary}, ${snap.evidence})
+      const r = await sql`insert into display_log (user_id, day, demo, headline, range_text, trade_count, open_summary, evidence, options_line)
+        values (${after}, ${day}::date, ${snap.demo}, ${snap.headline}, ${snap.rangeText}, ${snap.tradeCount}, ${snap.openSummary}, ${snap.evidence}, ${snap.optionsLine})
         on conflict (user_id, day) do nothing`;
       written += r.count;
     }

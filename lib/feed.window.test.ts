@@ -57,7 +57,7 @@ async function same(opts: { asOf: Date; day?: string; ids: number[] }, window: n
 dbTest('the 60-day step equals the full pass: the 200, the 150 picks (old-only traders included) and their weight keys', async () => {
   const f = await fixture({
     recent: { n: 50, closes: 6, days: (t, i) => 15 + ((t + i * 3) % 15) }, // 15 to 29 days: the 14-day window is empty
-    oldOnly: { n: 160, closes: 5, days: (t, i) => 200 + t + i }, // eligible, no close in 60 days
+    oldOnly: { n: 200, closes: 5, days: (t, i) => 200 + t + i }, // eligible, no close in 60 days (20 held back by the F-7 floor)
     whole: { n: 3, closes: 6, days: (_t, i) => (i < 2 ? 20 : 120 + i) }, // 2 closes in the window, 4 older: eligible via the whole record
     late: { n: 2, closes: 8, days: (t, i) => 150 + t + i }, // 3 of 8 imported after asOf: 5 count
     few: { n: 2, closes: 4, days: (_t, i) => 16 + i }, // 4 closes: never eligible
@@ -67,6 +67,10 @@ dbTest('the 60-day step equals the full pass: the 200, the 150 picks (old-only t
   try {
     await f.sql`update closed_trades set sell_imported_at = now() + interval '1 minute' where user_id = any(${f.groups.late}) and sell_id ~ '-[567]$'`;
     await f.sql`update users set deleted_at = now() - interval '1 hour' where id = any(${f.groups.gone})`;
+    // F-7: closes still under their 30-day feed floor at asOf count nowhere, in the picks as in the full pass: 20 old-only
+    // traders keep only 3 ready closes (not eligible), 20 more have one close not ready (best close and count change).
+    await f.sql`update closed_trades set feed_after = now() + interval '1 day' where user_id = any(${f.groups.oldOnly.slice(0, 20)}) and sell_id ~ '-[34]$'`;
+    await f.sql`update closed_trades set feed_after = now() + interval '1 day' where user_id = any(${f.groups.oldOnly.slice(20, 40)}) and sell_id ~ '-0$'`;
     const asOf = new Date(Date.now() - 30_000);
     const day = asOf.toISOString().slice(0, 10);
     const rows = await same({ asOf, day, ids: f.ids }, 60 * 24);
@@ -76,6 +80,9 @@ dbTest('the 60-day step equals the full pass: the 200, the 150 picks (old-only t
     const old = new Set(f.groups.oldOnly);
     assert.ok(picks.some((r) => old.has(r.user_id)), 'an old-only trader is picked');
     for (const g of ['few', 'gone', 'none']) assert.ok(!rows.some((r) => f.groups[g].includes(r.user_id)), `${g}: never listed`);
+    const floor = new Set(f.groups.oldOnly.slice(0, 20));
+    assert.ok(!rows.some((r) => floor.has(r.user_id)), 'under the feed floor: not eligible');
+    for (const r of rows.filter((r) => r.x && f.groups.oldOnly.slice(20, 40).includes(r.user_id))) assert.equal(r.pn, 4);
     // Without a day (feedCandidates): the 200 only, the same.
     await same({ asOf, ids: f.ids }, 60 * 24);
   } finally {
