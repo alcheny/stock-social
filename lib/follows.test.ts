@@ -249,3 +249,100 @@ dbTest('review: "@x is back" (/me/following?back=x) only after this viewer ended
     assert.equal(await F.shownAgainJustNow(p.viewer, p.handle(1)), false, 'ended earlier');
   } finally { await p.remove(); }
 });
+
+// Known-limits sweep (lists): /me/following's three lists page FOLLOW_PAGE at a time on a keyset, like /me/likes.
+async function crowd(n: number) {
+  const { sql } = await import('./db.ts');
+  const tag = `k${Math.random().toString(36).slice(2, 7)}`;
+  const [{ id: attempt }] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+  const rows = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id)
+    select ${tag} || '_' || lpad(i::text, 3, '0'), 'P ' || i, now(), ${attempt} from generate_series(0, ${n}) i order by i returning id, handle`;
+  const ids = rows.map((r) => r.id as number);
+  return { sql, tag, viewer: ids[0], traders: ids.slice(1), handles: new Map(rows.map((r) => [r.id as number, r.handle as string])),
+    remove: async () => { await sql`delete from users where id in ${sql(ids)}`; await sql`delete from signup_attempts where id = ${attempt}`; } };
+}
+// 120 rows on two adjacent microseconds (60 each, a non-round µs): a page boundary (50, 100) falls inside each tie and
+// on the 1 µs step, where a timestamp rebuilt from a double would be off by one.
+const T0 = '2026-10-01 12:00:00.123457+00', T1 = '2026-10-01 12:00:00.123456+00';
+const stamps = (traders: number[]) => traders.map((t, i) => ({ t, at: i % 2 ? T0 : T1 }));
+const expected = (s: { t: number; at: string }[]) => [...s].sort((a, b) => b.at.localeCompare(a.at) || b.t - a.t).map((x) => x.t);
+async function walk(fn: (after?: unknown) => Promise<{ rows: { handle: string }[]; next: string | null }>) {
+  const seen: string[] = [], sizes: number[] = [];
+  let after: string | undefined;
+  for (let i = 0; i < 10; i++) {
+    const pg = await fn(after);
+    seen.push(...pg.rows.map((r) => r.handle)); sizes.push(pg.rows.length);
+    if (!pg.next) break;
+    after = pg.next;
+  }
+  return { seen, sizes };
+}
+
+dbTest('lists: following, running hides and expired hides each page 50 at a time, newest first; walking every page lists each row exactly once, across same-microsecond ties and a 1 µs step', async () => {
+  const F = await import('./follows.ts');
+  const c = await crowd(360);
+  try {
+    const [fol, hid, exp] = [c.traders.slice(0, 120), c.traders.slice(120, 240), c.traders.slice(240, 360)].map(stamps);
+    // Set in SQL from text: the driver turns a timestamp parameter into a JS Date (milliseconds), losing the µs.
+    const at = (s: { t: number; at: string }[]) => c.sql`(case when ${c.sql.array(s.filter((x) => x.at === T0).map((x) => x.t))}::int[] @> array[trader_id] then ${T0}::text::timestamptz else ${T1}::text::timestamptz end)`;
+    await c.sql`insert into follows ${c.sql(fol.map((x) => ({ viewer_id: c.viewer, trader_id: x.t })))}`;
+    await c.sql`update follows set created_at = ${at(fol)} where viewer_id = ${c.viewer}`;
+    await c.sql`insert into viewer_exclusions ${c.sql([...hid, ...exp].map((x) => ({ viewer_id: c.viewer, trader_id: x.t, until: new Date(Date.now() + 30 * DAY), reason: 'not_interested' })))}`;
+    await c.sql`update viewer_exclusions set created_at = ${at(hid)} where viewer_id = ${c.viewer} and trader_id in ${c.sql(hid.map((x) => x.t))}`;
+    await c.sql`update viewer_exclusions set created_at = '2026-06-01', until = ${at(exp)} where viewer_id = ${c.viewer} and trader_id in ${c.sql(exp.map((x) => x.t))}`;
+    const [{ n }] = await c.sql`select count(distinct created_at)::int as n from follows where viewer_id = ${c.viewer}`;
+    assert.equal(n, 2); // two distinct microseconds really stored
+    for (const [fn, s] of [[F.ownFollowing, fol], [F.ownHidden, hid], [F.expiredHidesPage, exp]] as const) {
+      const r = await walk((a) => fn(c.viewer, a));
+      assert.deepEqual(r.sizes, [50, 50, 20], fn.name);
+      assert.deepEqual(r.seen, expected(s).map((t) => c.handles.get(t)), fn.name);
+    }
+    assert.equal(F.FOLLOW_PAGE, 50);
+    assert.deepEqual((await F.ownLists(c.viewer)).following.length, 50); // the first pages, as before for small lists
+  } finally { await c.remove(); }
+});
+
+dbTest('lists: a deleted trader is left out inside the query, so a page is still full; a malformed cursor reads the first page and never throws', async () => {
+  const F = await import('./follows.ts');
+  const c = await crowd(55);
+  try {
+    await c.sql`insert into follows ${c.sql(c.traders.map((t, i) => ({ viewer_id: c.viewer, trader_id: t, created_at: new Date(Date.now() - i * 1000) })))}`;
+    await c.sql`update users set deleted_at = now() where id in ${c.sql(c.traders.slice(0, 3))}`;
+    const p1 = await F.ownFollowing(c.viewer);
+    assert.equal(p1.rows.length, 50);
+    assert.ok(p1.rows.every((r) => !c.traders.slice(0, 3).some((t) => c.handles.get(t) === r.handle)));
+    assert.equal((await F.ownFollowing(c.viewer, p1.next)).rows.length, 2);
+    for (const bad of ['x', '1.', '.1', '1.2.3', '1\u0000.2', '9'.repeat(18) + '.1', '1.99999999999', '1.2147483648', 12, null, ['1.2'], { a: 1 }]) {
+      assert.deepEqual((await F.ownFollowing(c.viewer, bad)).rows, p1.rows, String(bad));
+      assert.equal(F.isListCursor(bad), false, String(bad));
+    }
+    assert.equal(F.isListCursor(p1.next), true);
+  } finally { await c.remove(); }
+});
+
+dbTest('lists: Record tools gets at most 100 followed handles, A to Z in byte order, leaving out the view\'s traders, and says when there are more; no count is read', async () => {
+  const F = await import('./follows.ts');
+  const c = await crowd(130);
+  try {
+    await c.sql`insert into follows ${c.sql(c.traders.map((t) => ({ viewer_id: c.viewer, trader_id: t })))}`;
+    const all = c.traders.map((t) => c.handles.get(t)!).sort();
+    const r = await F.followHandles(c.viewer, 100);
+    assert.deepEqual(r, { handles: all.slice(0, 100), more: true });
+    const ex = await F.followHandles(c.viewer, 100, all.slice(0, 4));
+    assert.deepEqual(ex.handles, all.slice(4, 104));
+    assert.deepEqual(await F.followHandles(c.viewer, 200), { handles: all, more: false });
+    assert.deepEqual(await F.followHandles(c.traders[0], 100), { handles: [], more: false });
+  } finally { await c.remove(); }
+});
+
+test('lists (QA Q1): a list paged past its end drops only its own cursor, keeping the others and `back`; a page with rows, or page 1 empty, stays', async () => {
+  const { pastEndQuery } = await import('./follows.ts');
+  const page = (n: number) => ({ rows: Array.from({ length: n }, () => ({ handle: 'x', name: 'X' })), next: null });
+  const at = { f: '1.2', h: '3.4', e: '5.6' };
+  assert.equal(pastEndQuery(at, { f: page(0), h: page(2), e: page(1) }, { back: 'abc' }), '?h=3.4&e=5.6&back=abc');
+  assert.equal(pastEndQuery(at, { f: page(0), h: page(0), e: page(0) }), '');
+  assert.equal(pastEndQuery({ f: '1.0' }, { f: page(0), h: page(0), e: page(0) }), ''); // a forged or stale cursor
+  assert.equal(pastEndQuery(at, { f: page(1), h: page(1), e: page(1) }), null);
+  assert.equal(pastEndQuery({}, { f: page(0), h: page(0), e: page(0) }), null); // page 1 empty: the empty-state copy is true
+  assert.equal(pastEndQuery({ f: 'bad' }, { f: page(0), h: page(0), e: page(0) }), null); // an invalid cursor already reads page 1
+});
