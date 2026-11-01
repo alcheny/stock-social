@@ -56,6 +56,12 @@ and the market council's "What's this?" line (MRC2-5). Approved by the approval 
 - 2026-11-01: Call sites left for the sweep are listed in `F19_SWEEP_SITES` (`lib/format.ts`) rather than commented in place, and a test checks each file exists; the zero-count grep for inline tone decisions and "Gain " labels is a sweep-rework acceptance item. Why: decided by the committee under the owner's instruction of 2026-11-01; per-site comments would conflict with F-18's stats-row rewrite and the open card, pane, trade, month and stock sessions, and a count ratchet now would fail their in-flight PRs.
 - 2026-11-01: Ranking is pinned in a new file (`lib/ranking.f19.test.ts`) with values computed on main before the slice. Why: decided by the committee under the owner's instruction of 2026-11-01; veto condition DK, LG; the only existing test edited is F-6's source scan in `lib/open-split.test.ts`, updated to follow the move and still exact.
 
+- 2026-11-01: The call-site sweep, the every-surface range test and the What's-this placement lapsed at approval
+  council cycle 3 (F-18 had not merged) and were not re-approved (after-debate mean 2.80; `docs/ideas/approval-2026-11-01-cycle3.md`). The first slice
+  (#57) stays built. The sweep returns to a council after F-18 is re-approved. The data-visualization designer's
+  recommendation, to run the lo ≤ avg ≤ hi range property test as soon as fix #7 merges, is recorded for that
+  council. Why: approval council cycle 3; lapse rule.
+
 ## Acceptance criteria
 - [ ] `pct`, `winPct` and `tone` are defined only in `lib/format.ts`. The old names in `lib/trades.ts` and
       `lib/open-split.ts` re-export them, and `toneClass` in `app/open-rows.tsx` delegates to `lib/format.ts#tone`
