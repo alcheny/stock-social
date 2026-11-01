@@ -63,9 +63,12 @@ test('F-10 AC1/AC2/AC3/AC6: one strip per card in place of "held · closed"; Too
     await expect(cards.nth(k)).not.toContainText(/held [\d.]+[hd] · closed/);
   }
   const strip = cardOf(page, 'f10_strip').locator('[data-strip]');
-  await expect(strip).toContainText(/^12 closed trades · \+\d+\.\d% average per trade \(.+ to .+\)$/);
+  await expect(strip).toContainText(/^(✓ Verified |Demo )?12 closed trades · \+\d+\.\d% average per trade \(.+ to .+\)$/);
   const early = cardOf(page, 'f10_early').locator('[data-strip]');
-  await expect(early).toHaveText('5 closed trades · Too early to tell');
+  await expect(early).toHaveText(/^(✓ Verified |Demo )?5 closed trades · Too early to tell$/);
+  // DS-22: the trust badge leads the record line, not the header.
+  await expect(cardOf(page, 'f10_early').locator('.hero [data-strip] .badge')).toHaveCount(1);
+  await expect(cardOf(page, 'f10_early').locator('header .badge')).toHaveCount(0);
   await expect(early.locator('b[data-role="early"]')).toBeVisible();
   // F-6's line still renders beside the strip.
   await expect(cardOf(page, 'f10_strip').locator('[data-open]')).toBeVisible();
@@ -162,7 +165,7 @@ test('F-12 AC1/AC6: month pages show the same fields for a losing and a winning 
     await expect(section.locator('[data-strip]')).toContainText('losses included');
     await expect(section.getByRole('link', { name: `@${m.handle}'s record` })).toHaveAttribute('href', `/u/${m.handle}`);
     await expect(section.locator('[data-disclaimer]')).toHaveText(DISCLAIMER);
-    shape.push(await page.locator('main h2').allInnerTexts().then((hs) => hs.map((h) => h.replace(/@\w+/, '@h').replace(/Best|Worst|Only/, 'pick'))));
+    shape.push(await page.locator('main h2').allInnerTexts().then((hs) => hs.map((h) => h.replace(/@\w+/, '@h').replace(/\s*New record$/, '').replace(/^(Best|Worst) trade$|^Only trade this month$/, 'pick'))));
     const alt = (await page.locator('meta[property="og:image:alt"]').getAttribute('content'))!;
     expect(alt).toContain(DISCLAIMER);
     expect(alt).not.toMatch(/win rate/i);
