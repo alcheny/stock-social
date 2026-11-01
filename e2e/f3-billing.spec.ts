@@ -329,6 +329,9 @@ test('F-3 a trader who deletes their account leaves the subscriber\'s views and 
 
 test.describe('F-3 with the fake processor', () => {
   let fake: { server: Server; base: string; fake: BillingFake } | null = null;
+  // ponytail: the fake processor listens only while this block runs, so in a local run with STRIPE_* set, an earlier
+  // tick (connect.spec.ts) finds :4103 closed and its first-of-day reconcile logs "fetch failed" (CI sets no STRIPE_*) —
+  // start the fake once per run from a Playwright globalSetup (playwright.config.ts is the owner's) and reuse it here.
   test.beforeAll(async () => {
     if (!billingOn) return;
     fake = await startBillingFake(4103, { webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_e2e', prices: { monthly: process.env.STRIPE_PRICE_MONTHLY ?? 'price_e2e_monthly', annual: process.env.STRIPE_PRICE_ANNUAL ?? 'price_e2e_annual' }, webhookUrl: 'http://localhost:3000/api/billing/webhook' });

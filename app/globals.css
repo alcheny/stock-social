@@ -616,3 +616,25 @@ h1 { overflow-wrap: anywhere; }
 .month-figures .record-strip { font-size: 1.75rem; line-height: 1.25; margin: 4px 0; }
 /* The range's label, "losses included" and the open count never start a line on their own separator. */
 .record-strip [data-part="rangeLabel"], .record-strip [data-part="losses"], .record-strip [data-part="open"] { white-space: nowrap; }
+/* F-10 follow-ups (approval cycle 2, fix #18; reflow at 320/360 px). A long display name or a 20-character handle wraps
+   inside the card header instead of widening the card or pushing the menu off it; the card never grows past its row. */
+.feed .row > .card { min-width: 0; }
+.card header .who { min-width: 0; overflow-wrap: anywhere; }
+.card header > :not(.who) { flex: none; }
+/* The hero figure: the clamp() size, capped by its printed length (TradeCard sets --ret-em, lib/feed-focus.ts#retEms) so
+   "+12345.6%" or "≈-100.0%" fits the hero's width (100cqi) with ≥ 15% spare. Without container units the cap is
+   dropped and the clamp() size stays. */
+.card .hero { container-type: inline-size; }
+.hero .ret { font-size: min(clamp(64px, 22vw, 120px), calc(100cqi / var(--ret-em, 3))); }
+/* Short screens (780×360): #54 left the card 7% spare there (DejaVu Sans, the e2e font) with a long thesis and the open
+   line; these give it the ≥ 15% headroom e2e/record-strip.spec.ts now asserts (hero gap, figure 48 px, symbol line
+   height, disclaimer margin, open line at the strip's size). */
+@media (max-height: 480px) {
+  .feed .card .hero { gap: 0; }
+  .feed .card .hero .ret { font-size: min(48px, calc(100cqi / var(--ret-em, 3))); }
+  .feed .card .symbol { line-height: 1.2; }
+  .feed .card .card-disclaimer { margin-top: 0; }
+  .feed .card .open-also { font-size: 0.875rem; }
+}
+/* 320 px: the open line and the disclaimer wrap to three lines each; tighter gaps keep the card's 15% headroom. */
+@media (max-width: 340px) { .feed .row > .card { gap: 12px; } }

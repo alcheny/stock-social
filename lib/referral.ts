@@ -20,7 +20,10 @@ export function normalizeVia(v: unknown): ReferredSurface | null {
 export function legacyVia(s: ReferredSurface | null): ReferredVia | null {
   return s === 'profile' || s === 'trade' ? s : null;
 }
-export const ctaVia = (raw: unknown): ReferredSurface => normalizeVia(raw) ?? 'profile';
+// A join button's own surface: the page it sits on. 'nav' is only the nav link's (app/nav-login.tsx), so a hand-typed
+// ?via=nav on a profile still attributes that profile's join button to the profile (cycle 2 review of fix #28).
+export type CtaSurface = Exclude<ReferredSurface, 'nav'>;
+export const ctaVia = (raw: unknown): CtaSurface => { const v = normalizeVia(raw); return v && v !== 'nav' ? v : 'profile'; };
 
 export type Referrer = { id: number; handle: string; isDemo: boolean };
 

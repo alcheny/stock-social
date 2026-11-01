@@ -1,9 +1,10 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LIKES } from '@/lib/copy.ts';
 import { NOT_TAP, cardRejectOutcome, isDoubleTap, isTap, type Tap } from '@/lib/discovery/gestures.ts';
 import { canArm, horizontal } from '@/lib/discovery/reject.ts';
+import { closesSignInBar } from '@/lib/feed-focus.ts';
 
 // F-2 PR-4: the feed card's two gestures, delegated from the feed (one listener set for every card, appended pages too).
 // - Double tap on the card body (lib/discovery/gestures.ts): signed in, it clicks the card's own Like button
@@ -14,6 +15,17 @@ import { canArm, horizontal } from '@/lib/discovery/reject.ts';
 //   the row came back from its pane, horizontal only (≥ 2× vertical). The opening direction stays SW-1's native scroll.
 export function FeedGestures({ signedIn }: { signedIn: boolean }) {
   const [askSignIn, setAskSignIn] = useState(false);
+  // F-10 follow-up (approval cycle 2, fix #15): the fixed sign-in line closes on Escape and whenever focus moves outside
+  // it, so it never covers the focused element (WCAG 2.4.11; lib/feed-focus.ts#closesSignInBar).
+  const bar = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (!askSignIn) return;
+    const onKey = (e: KeyboardEvent) => { if (closesSignInBar({ type: 'keydown', key: e.key })) setAskSignIn(false); };
+    const onFocus = (e: FocusEvent) => { if (closesSignInBar({ type: 'focusin', insideBar: !!bar.current?.contains(e.target as Node) })) setAskSignIn(false); };
+    addEventListener('keydown', onKey);
+    document.addEventListener('focusin', onFocus);
+    return () => { removeEventListener('keydown', onKey); document.removeEventListener('focusin', onFocus); };
+  }, [askSignIn]);
   useEffect(() => {
     const feed = document.querySelector<HTMLElement>('.feed');
     if (!feed) return;
@@ -96,35 +108,9 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
       feed.removeEventListener('touchmove', onTouchMove); feed.removeEventListener('touchend', onTouchEnd); feed.removeEventListener('touchcancel', onTouchEnd);
     };
   }, [signedIn]);
-  useSignInLineDismiss(askSignIn, () => setAskSignIn(false)); // A11Y-FIXES #16
   return (
-    // ponytail: for a touch user the fixed line covers the bottom of the card (its hint and record link) until × or a row change — render it inline in the card, or pad the card while it shows (A11Y-FIXES #16 covers keyboard focus only).
-    <p className="signin-line" role="status">
+    <p className="signin-line" role="status" ref={bar}>
       {askSignIn && <>{LIKES.signIn} <Link href="/login">{LIKES.signInLink}</Link> <button type="button" className="quiet-x" aria-label={LIKES.close} onClick={() => setAskSignIn(false)}>×</button></>}
     </p>
   );
-}
-
-// A11Y-FIXES #16 (WCAG 2.4.11, committee decision 2): the fixed signed-out line can never sit over a focused element. While
-// it shows it closes on Esc, on focus moving anywhere outside it, and when the feed scrolls half a row or more (another row). It keeps
-// role="status" and never takes focus itself.
-function useSignInLineDismiss(open: boolean, close: () => void) {
-  useEffect(() => {
-    if (!open) return;
-    const line = document.querySelector('.signin-line'), feed = document.querySelector<HTMLElement>('.feed');
-    const start = feed?.scrollTop ?? 0; // rows are one feed height each: half a height away is another row
-    // ponytail: the shorter snap stops (notes line, "Loading…") count by height too, so a scroll past one alone may not close it — match the row element in view if that matters.
-    const moved = () => !!feed && Math.abs(feed.scrollTop - start) >= feed.clientHeight / 2;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    const onFocus = (e: FocusEvent) => { if (!line?.contains(e.target as Node)) close(); };
-    let frame = 0;
-    const onScroll = (e: Event) => {
-      if (e.target !== feed || frame) return;
-      frame = requestAnimationFrame(() => { frame = 0; if (moved()) close(); });
-    };
-    addEventListener('keydown', onKey);
-    addEventListener('focusin', onFocus);
-    feed?.addEventListener('scroll', onScroll, { passive: true });
-    return () => { removeEventListener('keydown', onKey); removeEventListener('focusin', onFocus); feed?.removeEventListener('scroll', onScroll); cancelAnimationFrame(frame); };
-  }, [open]); // `close` is a fresh arrow each render; only `open` matters
 }

@@ -14,7 +14,19 @@ import { toneClass } from './open-split.ts';
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
 before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
-after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
+// Known-limits sweep 2026-11-01: the users made here have feed-eligible records; left behind they leaked into the feed of
+// any later run on the same database (e2e "the demo-only feed renders no section"). Exactly this file's rows go.
+const madeUsers: number[] = [], madeAttempts: number[] = [];
+after(async () => {
+  if (!hasDb) return;
+  const { sql } = await import('./db.ts');
+  try {
+    if (madeUsers.length) await sql`delete from users where id = any(${madeUsers})`;
+    if (madeAttempts.length) await sql`delete from signup_attempts where id = any(${madeAttempts}) and not exists (select 1 from users u where u.signup_attempt_id = signup_attempts.id)`;
+  } finally {
+    await sql.end({ timeout: 1 });
+  }
+});
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const sources = (dir: string): string[] => readdirSync(join(root, dir)).flatMap((f) => {
@@ -74,6 +86,8 @@ async function user(name = 'Test viewer'): Promise<{ id: number; handle: string 
   const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
   const handle = `${tag}_${++n}_${Math.random().toString(36).slice(2, 5)}`.slice(0, 20);
   const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${handle}, ${name}, now(), ${a.id}) returning id, handle`;
+  madeAttempts.push(a.id as number);
+  madeUsers.push(u.id as number);
   return { id: u.id as number, handle: u.handle as string };
 }
 

@@ -84,3 +84,14 @@ disclaimer guard, the plain-view disclaimer, #1 and the copy across `app/t/**`. 
   demands fixed: the share prompt reads as one list (", and …. Losses are included."), the 404 links are 44 px targets.
   Out-of-scope observations passed to the orchestrator: nav link height and handle truncation (a11y session), "verified"
   titles on demo stock pages (`claude/fix-truthful-labels`, #1), 35 px chart range buttons.
+
+## Follow-up PR 1 (branch `claude/fixes-cycle2-trust-2`, after #59 merged as 3f216ba)
+Orchestrator's review nits (3) and (4), built before the labels branch merges:
+- 2026-11-01: a join button's surface is never 'nav' (`CtaSurface`, `ctaVia` maps nav → profile). Why: decided by the
+  committee under the owner's instruction of 2026-11-01; with #28 a hand-typed `/u/x?via=nav` attributed the profile's
+  own join button to the nav. Only the nav link (app/nav-login.tsx) sends nav.
+- 2026-11-01: a missing profile's `generateMetadata` calls `notFound()`. Why: decided by the committee under the
+  owner's instruction of 2026-11-01; the new e2e found the 404 inherited the site's default title ("Stock Social")
+  instead of "Page not found". Its share preview says "Page not found" and its card image link is a 404.
+Nits (1) and (2) (compare and stock image onto the predicate, HoldTime "not a signal") wait for
+`claude/fix-truthful-labels` (`app/t/**`).

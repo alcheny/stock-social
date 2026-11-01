@@ -1,6 +1,6 @@
 // Pure payload for the trade permalink page and card. No sizes or prices exist here, and nothing varies by sign.
 import { confidence, evidenceLine, isNewRecord, pct, rangeText, stats, type ConfidenceInput } from './trades.ts';
-import { fitPx, STRIP_BAND, stripFigures, type ImageLine, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
+import { fitPx, layoutBand, STRIP_BAND, stripFigures, stripImageLines, type ImageLine, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
 import { wholeRecordPreview, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 
@@ -41,18 +41,44 @@ export const closedDay = (iso: string) => new Date(iso).toLocaleDateString('en-U
 const heldFor = (d: number) => (d < 1 ? 'under a day' : `${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
 
 // The trade image's hero lines, drawn between the handle and the strip: symbol and return, held and closed, and the
-// thesis (one line at the floor size, clipped at a word; the first line to give way).
-export function tradeHero(t: Pick<TradeView, 'symbol' | 'returnPct' | 'holdingDays' | 'closedAt' | 'thesis'>): ImageLine[] {
-  const top = `${t.symbol} ${pct(t.returnPct)}`;
-  // ponytail: a symbol over about 27 characters would pass the band's width even at the 26 px floor (the band clips it,
-  // no wrap) — split the symbol and the return over two lines if such symbols ever reach closed_trades.
-  const L: ImageLine[] = [{ role: 'symbol', text: top, size: Math.max(STRIP_BAND.minPx, fitPx(top, 80)), tone: 'text', weight: 800 }];
+// thesis (one line at the floor size, clipped at a word; the first line to give way). `symbolPx` and `heldPx` are the
+// largest sizes tried for the symbol row and the held line (tradeBand lowers them until the band fits).
+// The symbol row is 800-weight capitals and digits, wider than the band's 0.6 em average: it is sized at HERO_GLYPH em per
+// glyph, so the return figure is never cut at the band's edge. When the row cannot fit at the floor size, the symbol and
+// the return go on two lines, and the return keeps its own line whole.
+export const HERO_GLYPH = 0.72;
+const fitHeavy = (text: string, max: number) => Math.min(max, Math.floor(STRIP_BAND.width / (Math.max(text.length, 1) * HERO_GLYPH)));
+const HERO_MAX_CHARS = Math.floor(STRIP_BAND.width / (STRIP_BAND.minPx * HERO_GLYPH));
+export function tradeHero(t: Pick<TradeView, 'symbol' | 'returnPct' | 'holdingDays' | 'closedAt' | 'thesis'>, o: { symbolPx?: number; heldPx?: number } = {}): ImageLine[] {
+  const symbolPx = o.symbolPx ?? 80, heldPx = o.heldPx ?? 30;
+  const ret = pct(t.returnPct), top = `${t.symbol} ${ret}`;
+  const L: ImageLine[] = [];
+  if (fitHeavy(top, symbolPx) >= STRIP_BAND.minPx) L.push({ role: 'symbol', text: top, size: fitHeavy(top, symbolPx), tone: 'text', weight: 800 });
+  else {
+    // ponytail: a symbol over HERO_MAX_CHARS (31) characters is cut with an ellipsis on its own line (the return stays
+    // whole below it) — wrap the symbol over two lines if such symbols ever reach closed_trades.
+    const sym = t.symbol.length > HERO_MAX_CHARS ? `${t.symbol.slice(0, HERO_MAX_CHARS - 1)}…` : t.symbol;
+    L.push({ role: 'symbol', text: sym, size: Math.max(STRIP_BAND.minPx, fitHeavy(sym, symbolPx)), tone: 'text', weight: 800 });
+    L.push({ role: 'return', text: ret, size: Math.max(STRIP_BAND.minPx, fitHeavy(ret, symbolPx)), tone: 'text', weight: 800 });
+  }
   const held = `held ${heldFor(t.holdingDays)}`, closed = `closed ${closedDay(t.closedAt)}`;
   const one = `${held} · ${closed}`;
-  if (fitPx(one, 30) >= STRIP_BAND.minPx) L.push({ role: 'held', text: one, size: fitPx(one, 30), tone: 'muted', weight: 400 });
-  else for (const [k, s] of [held, closed].entries()) L.push({ role: `held${k}`, text: s, size: Math.max(STRIP_BAND.minPx, fitPx(s, 30)), tone: 'muted', weight: 400 });
+  if (fitPx(one, heldPx) >= STRIP_BAND.minPx) L.push({ role: 'held', text: one, size: fitPx(one, heldPx), tone: 'muted', weight: 400 });
+  else for (const [k, s] of [held, closed].entries()) L.push({ role: `held${k}`, text: s, size: Math.max(STRIP_BAND.minPx, fitPx(s, heldPx)), tone: 'muted', weight: 400 });
   if (t.thesis) L.push({ role: 'thesis', text: `“${clipTo(t.thesis, Math.floor(STRIP_BAND.width / (STRIP_BAND.minPx * STRIP_BAND.glyph)) - 2)}”`, size: STRIP_BAND.minPx, tone: 'text', weight: 400, optional: true });
   return L;
+}
+
+// The trade image's band (cycle-2 fix #9): the strip's lines around tradeHero, laid out by layoutBand. When they do not
+// fit, the symbol row shrinks first (80 px down to 40), then the held line (30 px down to the 26 px floor), as monthBand
+// does; the optional thesis gives way inside layoutBand before any of that matters. Returns the last try if none fits.
+export function tradeBand(t: Pick<TradeView, 'symbol' | 'returnPct' | 'holdingDays' | 'closedAt' | 'thesis' | 'handle' | 'newRecord'>, strip: Strip): ReturnType<typeof layoutBand> {
+  let last: ReturnType<typeof layoutBand> | null = null;
+  for (const heldPx of [30, 28, STRIP_BAND.minPx]) for (let symbolPx = 80; symbolPx >= 40; symbolPx -= 8) {
+    last = layoutBand(stripImageLines(strip, { handle: t.handle, newRecord: t.newRecord, hero: tradeHero(t, { symbolPx, heldPx }) }));
+    if (last.fits && !last.tooWide.length) return last;
+  }
+  return last!;
 }
 // At most `max` chars, cut at a word with an ellipsis when it was longer.
 function clipTo(s: string, max: number): string {
