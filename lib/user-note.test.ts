@@ -171,3 +171,13 @@ test('short screens: the feed card note is one line, the date takes no space, Re
   assert.match(block, /\.user-note \.link-button \{[^}]*font-size: 13px/);
   assert.match(block, /\.user-note \.report-status \{[^}]*font-size: 13px/);
 });
+
+// Merge with F-10's 15% headroom check: in the feed card's flex column the note's basis is its own height, never the 100%
+// basis the /t row's wrap layout uses (that basis made the clamped note claim the whole card and squeeze the rest).
+test('feed card: the note takes its own height in the card column (flex-basis auto)', () => {
+  const css = read('../app/globals.css');
+  const start = css.indexOf('/* fix-user-text: UserNote');
+  const block = css.slice(start, css.indexOf('/* end fix-user-text: UserNote */', start));
+  assert.match(block, /^\.user-note \{[^}]*flex-basis: 100%/m);
+  assert.match(block, /^\.feed \.card \.user-note \{ flex-basis: auto; \}/m);
+});

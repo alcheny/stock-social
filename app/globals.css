@@ -523,6 +523,8 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .thesis-held { margin: 4px 0 0; font-size: 13px; }
 /* With F-10's record strip, a feed card's note keeps two lines (one on a short landscape screen), as the F-10 rule below
    does for .thesis, so the record line and the card's disclaimer stay on the card; the whole note is on the trade page. */
+/* In the card's flex column the note takes its own height (the 100% basis above is for the /t row's wrap layout). */
+.feed .card .user-note { flex-basis: auto; }
 .feed .card .user-note-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; }
 @media (max-height: 480px) { .feed .card .user-note-text { -webkit-line-clamp: 1; line-clamp: 1; } }
 /* Fix round 4 (F-10 AC8 at 780×360): on a short screen the feed card's note is one compact line. The quote takes the
