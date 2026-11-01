@@ -20,10 +20,7 @@ export function publicTradersOn(env: Env = process.env): boolean {
 export const importerBaseAllowed = (base: string, env: Env = process.env) =>
   publicTradersOn(env) && (isLoopbackUrl(base) || (env.PUBLIC_TRADERS === '1' && set(env.PUBLIC_FILINGS_CONTACT)));
 // Only the sources this release knows; anything else listed is ignored.
-export function publicSources(env: Env = process.env): PublicSource[] {
-  const want = (env.PUBLIC_SOURCES ?? 'insider_reports').split(',').map((s) => s.trim());
-  return PUBLIC_SOURCES.filter((s) => want.includes(s));
-}
+export const publicSources = (env: Env = process.env): PublicSource[] => PUBLIC_SOURCES.filter((s) => (env.PUBLIC_SOURCES ?? 'insider_reports').split(',').map((x) => x.trim()).includes(s));
 export const isFilerHandle = (handle: string) => handle.startsWith(FILER_HANDLE_PREFIX);
 // SQL: users row `u` may be shown (switch off: no filer; on: not a hidden or removed one). Other users unaffected.
 export function filerVisibleSql(alias = 'u', env: Env = process.env) {

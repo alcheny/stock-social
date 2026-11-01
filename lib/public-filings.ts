@@ -2,13 +2,11 @@
 // UA from env (nothing fetched without it), backoff then stop. parseFiling is pure, bounded, keeps matcher fields only (C4).
 import { importerBaseAllowed } from './public-gate.ts';
 import { isLoopbackUrl, type Env } from './vendor-env.ts';
-export const MIN_GAP_MS = 250; // ≤ 4 requests a second
-export const MAX_DOC_BYTES = 2 * 1024 * 1024;
+export const MIN_GAP_MS = 250, MAX_DOC_BYTES = 2 * 1024 * 1024; // MIN_GAP_MS: ≤ 4 requests a second
 const BACKOFF_MS = 1000, RETRIES = 2, TIMEOUT_MS = 10_000;
 export class FilingsStopped extends Error { constructor() { super('filing system refused; tick stopped'); } }
 export type IndexEntry = { id: string; url: string; filedAt: string; amends?: string };
-let worker: Promise<unknown> = Promise.resolve();
-let lastAt = 0;
+let worker: Promise<unknown> = Promise.resolve(), lastAt = 0;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 // The body, or '' once it passes MAX_DOC_BYTES (chunked or not: the reader is cancelled there).
 async function capped(res: Response): Promise<string> {

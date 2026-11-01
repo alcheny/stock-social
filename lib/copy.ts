@@ -721,17 +721,14 @@ export const PUBLIC = {
   kind: 'Company insider',
   notJoined: 'Built from public filings. This person has not joined Stock Social, has not connected a broker, has not reviewed this record and does not endorse it.',
   since: (first: string, checked: string) => `Record since ${first} · last checked ${checked}`,
-  notYet: 'not yet',
-  correction: 'Request a correction or removal →',
-  caveat: 'Filings can be late, amended or missing.',
-  stale: 'This record may be out of date.',
+  notYet: 'not yet', correction: 'Request a correction or removal →',
+  caveat: 'Filings can be late, amended or missing.', stale: 'This record may be out of date.',
   imageLine: 'This person has not joined Stock Social.', // the share image's line (the alt and unfurl carry notJoined)
-  cardLine: 'Company insider · from a public filing',
-  cardFooter: 'See their record, wins and losses →',
-  filing: 'Filing ↗',
-  filingName: (symbol: string, day: string) => `Public filing for the ${symbol} sale closed ${day}, opens another site`,
-  sold: 'Sold: filing ↗',
-  bought: 'Bought: filing ↗',
+  // The trade and month images' alt (og and twitter): the label and the not-joined line, never Verified or an amount.
+  imageAlt: (what: string, s: 'public' | 'public_demo'): string => `${what} on Stock Social: ${publicLabel(s)}. ${PUBLIC.notJoined}`,
+  cardLine: 'Company insider · from a public filing', cardFooter: 'See their record, wins and losses →',
+  filing: 'Filing ↗', filingName: (symbol: string, day: string) => `Public filing for the ${symbol} sale closed ${day}, opens another site`,
+  sold: 'Sold: filing ↗', bought: 'Bought: filing ↗',
   boughtName: (symbol: string) => `Public filing for the ${symbol} purchase, opens another site`,
   soldName: (symbol: string) => `Public filing for the ${symbol} sale, opens another site`,
   openTitle: 'Open positions',
@@ -760,6 +757,7 @@ export const PUBLIC = {
   },
   page: {
     title: 'Public filing records',
+    description: 'What Public filing records are: built from company insiders’ public transaction reports. The person has not joined Stock Social and has not reviewed the record.',
     lines: [
       'Profiles marked "Public filing" are built from company insiders’ transaction reports on the securities regulator’s public filing system, not from a broker connection.',
       'The person has not joined Stock Social, has not connected a broker, has not reviewed the record and does not endorse it.',

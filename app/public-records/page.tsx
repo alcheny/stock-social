@@ -6,7 +6,7 @@ import { PUBLIC } from '@/lib/copy.ts';
 // to ask for a correction or removal. Reachable with the switch off; names no filer. The contact is a deploy setting
 // (PUBLIC_RECORDS_CONTACT), never committed; unset, requests open before launch. Promises a review and a reply only, never an outcome or a time.
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: `${PUBLIC.page.title} · Stock Social` };
+export const metadata: Metadata = { title: `${PUBLIC.page.title} · Stock Social`, description: PUBLIC.page.description };
 
 export default function PublicRecords() {
   const contact = process.env.PUBLIC_RECORDS_CONTACT?.trim();

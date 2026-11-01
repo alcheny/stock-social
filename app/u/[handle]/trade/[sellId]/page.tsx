@@ -27,6 +27,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     // Fix round 6: "verified" only for a whole record from the broker; "demo" for demo data.
     // Reviewer fix (TR-3): no whole-record stats while an import runs; the incomplete line first on a failed one.
     description: wholeRecordPreview({ state: t.state, demo: t.demo, verified: t.verified, trades: t.record.trades }, `${(t.record.winRate * 100).toFixed(0)}% win rate · ${pct(t.record.avgReturn)} avg return`),
+    ...(isPublicRecord(t.state) ? { openGraph: { images: [{ url: `/u/${t.handle}/trade/${encodeURIComponent((await params).sellId)}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: PUBLIC.imageAlt('One closed trade', t.state) }] } } : {}), // F-7 (C9): a file-level alt is static
   };
 }
 

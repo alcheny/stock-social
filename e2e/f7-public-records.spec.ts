@@ -31,6 +31,11 @@ test('AC 15 (C12): /public-records says what these profiles are and how to ask; 
   if (process.env.PUBLIC_RECORDS_CONTACT) await expect(contact).toContainText(process.env.PUBLIC_RECORDS_CONTACT);
   else await expect(contact).toHaveText('Requests open before launch.');
   expect(await main.innerText()).not.toMatch(/\bwithin \d|\bwill (remove|delete|correct)/i);
+  // C9, F3a: its own unfurl text, never the site default ("Verified trades, straight from the broker").
+  const desc = (await page.locator('meta[name="description"]').getAttribute('content'))!;
+  expect(desc).toContain('Public filing');
+  expect(desc).toContain('has not joined Stock Social');
+  expect(desc).not.toMatch(/verified|straight from the broker/i);
   await common(page);
 });
 

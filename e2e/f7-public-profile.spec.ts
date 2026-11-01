@@ -31,6 +31,18 @@ test.afterAll(async () => {
   await sql.end({ timeout: 1 });
 });
 
+// AC 14, 34 (C9): the share image's alt, as og:image:alt and twitter:image:alt, carries the label and the line.
+async function imageAlts(page: Page, imagePath: string) {
+  for (const sel of ['meta[property="og:image:alt"]', 'meta[name="twitter:image:alt"]']) {
+    const v = (await page.locator(sel).first().getAttribute('content'))!;
+    expect(v, sel).toContain('Public filing');
+    expect(v, sel).toContain('has not joined Stock Social');
+    expect(v, sel).not.toMatch(/verified/i);
+    for (const a of RAW_AMOUNTS) expect(v).not.toContain(a);
+  }
+  expect(await page.locator('meta[property="og:image"]').first().getAttribute('content')).toContain(imagePath);
+}
+
 async function common(page: Page) {
   await expect(page.locator('footer#site-footer')).toContainText(DISCLAIMER);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
@@ -153,9 +165,14 @@ test('AC 14, 16, 17: the trade page links both filings, carries the line and the
   const desc = (await page.locator('meta[name="description"]').getAttribute('content'))!;
   expect(desc).toContain('Public filing');
   expect(desc).toContain('has not joined Stock Social');
+  await imageAlts(page, `/u/${P}/trade/${encodeURIComponent(`pub:${P}:0`)}/opengraph-image`);
   await common(page);
   const ym = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 7);
   await page.goto(`/u/${P}/month/${ym}`);
+  await imageAlts(page, `/u/${P}/month/${ym}/opengraph-image`);
+  // UX (F3a): a filer's month list is not a completeness claim.
+  await expect(page.getByRole('heading', { name: 'Closed trades this month' })).toBeVisible();
+  await expect(page.getByText('All trades this month')).toHaveCount(0);
   await expect(page.locator('.badge.public')).toHaveText('Public filing');
   await expect(page.locator('[data-public-line]')).toContainText(NOT_JOINED);
   await expect(page.locator('[data-public-line] a')).toHaveText('Request a correction or removal →');
@@ -194,6 +211,9 @@ test('AC 7: the dev login form with a filer handle creates no session', async ({
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.waitForLoadState('networkidle');
   expect(page.url()).not.toMatch(new RegExp(`/u/${P}$`));
+  // The form's own error, not a server error page.
+  await expect(page.locator('main').getByRole('alert')).toHaveText('That handle is taken or reserved.');
+  await expect(page.getByLabel('Handle')).toBeVisible();
   await page.goto('/how');
   await expect(page.locator('body')).toHaveAttribute('data-viewer', 'guest');
   const [{ n }] = await sql`select count(*)::int as n from sessions s join users u on u.id = s.user_id where u.handle = ${P}`.catch(() => [{ n: 0 }]);

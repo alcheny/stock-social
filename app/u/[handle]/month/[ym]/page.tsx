@@ -28,6 +28,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title: `${r.recap.label} · @${r.handle} · Stock Social`,
     // Reviewer fix (TR-3): the whole-record part follows the profile's record-state rule, as on the trade page.
     description: `${plural(r.recap.count)} this month · whole record: ${wholeRecordPreview({ state: r.state, demo: r.demo, verified: r.verified, trades: r.record.trades }, `${(r.record.winRate * 100).toFixed(0)}% win rate`)}`,
+    ...(isPublicRecord(r.state) ? { openGraph: { images: [{ url: `/u/${r.handle}/month/${(await params).ym}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: PUBLIC.imageAlt('A month of closed trades', r.state) }] } } : {}), // F-7 (C9)
   };
 }
 
@@ -89,7 +90,7 @@ export default async function RecapPage({ params }: Params) {
       <div className="trade-grid">
         {m.count === 1 ? <Pick title="Only trade this month" t={m.best} /> : <><Pick title="Best trade" t={m.best} /><Pick title="Worst trade" t={m.worst} /></>}
       </div>
-      <h2>All trades this month</h2>
+      <h2>{isPublicRecord(r.state) ? 'Closed trades this month' : 'All trades this month'}</h2>
       <ol className="small" style={{ listStyle: 'none', padding: 0 }}>
         {m.trades.map((t) => (
           <li key={t.sellId}>

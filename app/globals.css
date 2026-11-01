@@ -386,6 +386,7 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 /* F-2 PR-3 (UX follow-up, PR-1 and PR-2): a long name gives way first; the handle stays whole in the pane header. */
 .pane .who strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pane .who .muted { flex: none; }
+.pane .who { flex-wrap: wrap; white-space: normal; } .pane .who strong { overflow-wrap: anywhere; } /* F-7 committee: a long name wraps, never cut */
 /* Fix round 1: the tray label shows only once it is wholly revealed (never cut mid-swipe); no motion. */
 @supports (animation-timeline: view()) {
   .stray span { animation: stray-whole linear both; animation-timeline: view(inline); animation-range: exit 0% exit 100%; }

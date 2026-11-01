@@ -71,6 +71,25 @@ test('AC 14, 20, Round 5 items 3, 5: the card carries both badges, the card line
   }
 });
 
+test('UX (committee): at 360 px the pane header shows a 40-character name whole, with no horizontal scroll', async ({ browser }) => {
+  test.setTimeout(test.info().timeout + 60_000);
+  const LONG = 'Fictional Filer With A Long Display Name';
+  expect(LONG).toHaveLength(40);
+  await sql`update users set display_name = ${LONG} where handle = ${F}`;
+  const ctx = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 360, height: 640 } });
+  try {
+    const page = await ctx.newPage();
+    const who = (await findRow(page)).first().locator('section.pane header .who');
+    await expect(who.locator('strong')).toHaveText(LONG);
+    const fit = await who.evaluate((el) => [...el.querySelectorAll('strong, .muted')].map((n) => n.scrollWidth <= n.clientWidth + 1 && n.getBoundingClientRect().right <= el.closest('section.pane')!.getBoundingClientRect().right + 1));
+    expect(fit).toEqual([true, true]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  } finally {
+    await ctx.close();
+    await sql`update users set display_name = 'Fictional Filer Feed' where handle = ${F}`;
+  }
+});
+
 test('AC 25, 28: signed in, the same card with no Like and no Follow; the feed reads the same for both', async ({ browser }) => {
   test.setTimeout(test.info().timeout + 60_000);
   const out = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 360, height: 800 } });

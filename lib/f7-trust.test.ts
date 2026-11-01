@@ -178,3 +178,18 @@ test('the Public filing badge text is at least 4.5:1 on its own background, ligh
     assert.ok((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05) >= 4.5);
   }
 });
+
+test('AC 14, 34 (C9, F3a): the trade and month image alt and the /public-records description carry the label, never Verified', () => {
+  for (const state of ['public', 'public_demo'] as const) {
+    for (const what of ['One closed trade', 'A month of closed trades']) {
+      const alt = PUBLIC.imageAlt(what, state);
+      assert.match(alt, /Public filing/);
+      assert.match(alt, /has not joined Stock Social/);
+      assert.equal(state === 'public_demo', /Demo/.test(alt));
+      assert.doesNotMatch(alt, /verified|\d/i);
+    }
+  }
+  assert.match(PUBLIC.page.description, /Public filing/);
+  assert.match(PUBLIC.page.description, /has not joined Stock Social/);
+  assert.doesNotMatch(PUBLIC.page.description, /verified|straight from the broker/i);
+});
