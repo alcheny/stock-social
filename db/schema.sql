@@ -379,6 +379,9 @@ create table if not exists trade_exclusions (
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
 
+-- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
+select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
+
 -- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md): the vendor's split,
 -- stock-dividend, symbol-change and other share-moving rows, raw and immutable like `activities`, mapped by
 -- lib/corporate-actions.ts#fromVendorRows. The rebuild applies them to the FIFO lots (lib/trades.ts#matchTrades).
