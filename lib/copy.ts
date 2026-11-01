@@ -721,3 +721,9 @@ export const BILLING = {
   deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
 } as const;
 export { billingDate };
+
+// ---- F-19 · What's-this line (first slice: the constant and its test, lib/range-note.f19.test.ts). The range printed
+// beside an average is the arithmetic range of the average per trade (lib/record-card.ts#cardEvidence), not the spread
+// of single trades.
+// ponytail: not shown on any screen yet — the F-19 sweep rework places it on the stats-row What's-this after F-18 merges.
+export const RANGE_NOTE = 'the range is for the average, not one trade';
