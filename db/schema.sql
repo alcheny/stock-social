@@ -121,11 +121,18 @@ select schema_add_index('broker_accounts_user', 'create index broker_accounts_us
 -- ponytail: if two users already share an account (the exploit) their rows stay; cleanup is a follow-up.
 -- Already-claimed accounts are filtered in the same snapshot as the activities: a user deleted (with its claims and
 -- activities) by a concurrent transaction is then never re-inserted and failed on the users FK (fix round 2, PR-2a).
-insert into broker_accounts (account_id, user_id)
-  select distinct on (account_id) account_id, user_id from activities a
-  where source = 'snaptrade' and not exists (select 1 from broker_accounts b where b.account_id = a.account_id)
-  order by account_id, executed_at
-  on conflict (account_id) do nothing;
+-- CI review (2026-11-01, privacy PR): a users row deleted by another session between this snapshot and the insert's
+-- foreign-key check raised 23503 and rolled back the whole apply (node:test files apply this file in parallel while
+-- others delete their users). The backfill is idempotent, so on that error it is skipped and the next apply runs it.
+do $bf$
+begin
+  insert into broker_accounts (account_id, user_id)
+    select distinct on (account_id) account_id, user_id from activities a
+    where source = 'snaptrade' and not exists (select 1 from broker_accounts b where b.account_id = a.account_id)
+    order by account_id, executed_at
+    on conflict (account_id) do nothing;
+exception when foreign_key_violation then null;
+end $bf$;
 
 -- Private ticker watchlist: a user-owned preference. last_seen_at drives "new since you last looked".
 create table if not exists ticker_watches (

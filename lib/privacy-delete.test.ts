@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
-before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
+before(async () => { if (hasDb) await (await import('./privacy-test-schema.ts')).applySchemaForTests(); });
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 
 dbTest('deleting an account removes its marks and display log; its attempts (first and later sign-ins) keep no user link and no vendor id', async () => {

@@ -6,12 +6,20 @@ import { readFileSync } from 'node:fs';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
-before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
+before(async () => { if (hasDb) await (await import('./privacy-test-schema.ts')).applySchemaForTests(); });
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 
 const NOW = new Date('2001-06-01T00:00:00Z');
 const at = (iso: string) => new Date(`2001-${iso}T00:00:00Z`);
 const DAY = 86_400_000;
+// The orphan step runs at the real time over every viewer, so it can meet a users row another test file deletes at that
+// moment (23503 on the mark's foreign key). The tick tolerates that (caught, resumed next tick); the test retries it.
+async function orphansPass(opts: Record<string, unknown> = {}) {
+  const { purgePrivacy } = await import('./privacy-purge.ts');
+  for (let i = 1; ; i++) {
+    try { return await purgePrivacy({ only: ['orphans'], ...opts }); } catch (e) { if ((e as { code?: string }).code !== '23503' || i >= 5) throw e; }
+  }
+}
 
 async function person(tag: string) {
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
@@ -128,7 +136,7 @@ dbTest('a like or reject whose trade is gone is marked, kept for 30 days, then r
     for (const [kind, s] of [['like', 'oldgone'], ['like', 'back'], ['reject', 'xoldgone'], ['reject', 'xback']]) {
       await sql`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at) values (${kind}, ${viewer}, ${k(s)}, ${new Date(now - 31 * DAY)})`;
     }
-    const r = await purgePrivacy({ only: ['orphans'] });
+    const r = await orphansPass();
     assert.equal(r.done, true);
     const likes = (await sql`select trade_key from trade_likes where viewer_id = ${viewer}`).map((x) => x.trade_key).sort();
     assert.deepEqual(likes, [k('live'), k('back'), k('newgone')].sort());
@@ -137,7 +145,7 @@ dbTest('a like or reject whose trade is gone is marked, kept for 30 days, then r
     const marks = (await sql`select kind, trade_key from privacy_orphans where viewer_id = ${viewer} order by kind`).map((x) => `${x.kind}:${x.trade_key}`).sort();
     assert.deepEqual(marks, [`like:${k('newgone')}`, `reject:${k('xnewgone')}`].sort(), 'new orphans marked; returned and removed ones unmarked');
     // A second tick inside the grace removes nothing more.
-    await purgePrivacy({ only: ['orphans'] });
+    await orphansPass();
     assert.equal((await sql`select count(*)::int as n from trade_likes where viewer_id = ${viewer}`)[0].n, 3);
   } finally {
     await sql`delete from users where id in (${viewer}, ${trader})`;
@@ -153,7 +161,7 @@ dbTest('one caller at a time: while the lock is held a second call skips; a purg
   const inside = new Promise<void>((r) => { entered = r; });
   const first = purgePrivacy({ only: ['orphans'], hold: async () => { entered(); await held; } });
   await inside;
-  const second = await purgePrivacy({ only: ['orphans'] });
+  const second = await orphansPass();
   assert.equal(second.ran, false);
   release();
   assert.equal((await first).ran, true);

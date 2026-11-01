@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
-before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
+before(async () => { if (hasDb) await (await import('./privacy-test-schema.ts')).applySchemaForTests(); });
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
@@ -19,12 +19,12 @@ dbTest('closed: a new identity is refused with nothing written; a known subject 
   await assert.rejects(signInWithIdentity(a1, { provider: 'email', subject: mail, email: mail }, { allowNew: false }), SignUpClosedError);
   assert.equal((await sql`select count(*)::int as n from identities where email = ${mail}`)[0].n, 0);
   assert.equal((await sql`select user_id from signup_attempts where id = ${a1}`)[0].user_id, null);
-  const before = (await sql`select count(*)::int as n from users`)[0].n;
   // Open: created. Closed again: the same subject, and the same verified address by another provider, sign in.
   const a2 = await createAttempt({ method: 'email', attested: true });
   const u = await signInWithIdentity(a2, { provider: 'email', subject: mail, email: mail }, { allowNew: true });
   try {
-    assert.equal((await sql`select count(*)::int as n from users`)[0].n >= before + 1, true);
+    // The new account exists (checked by id: a global count races with other test files deleting their users).
+    assert.equal((await sql`select count(*)::int as n from identities where user_id = ${u.id} and email = ${mail}`)[0].n, 1);
     const a3 = await createAttempt({ method: 'email', attested: true });
     assert.equal((await signInWithIdentity(a3, { provider: 'email', subject: mail, email: mail }, { allowNew: false })).id, u.id);
     const a4 = await createAttempt({ method: 'provider_a', attested: true });
