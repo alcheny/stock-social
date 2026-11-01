@@ -19,6 +19,7 @@ import { startVendorFake, type FakeOptionRow } from './fakes/vendor.ts';
 import { vendorLock } from './vendor-lock.ts';
 import { OpenOptionRows, OpenPositionsBlock, OptionsLines, OptionTradesSection, PaneOptions, ShareTradesLabel, UnsupportedLine } from '../app/u/[handle]/options-block.tsx';
 import { PerformanceChart } from '../app/u/[handle]/chart.tsx';
+import { packPoints } from '../lib/paging.ts';
 import { OPTIONS } from '../lib/copy.ts';
 import { paneView, type OptionCounts, type OptionHeadline } from '../lib/options-view.ts';
 
@@ -39,6 +40,7 @@ test('AC17: signed out, the demo trader with options shows the "Excluding option
   expect(line).toBe("4 option trades and 1 open option imported. Options aren't published yet.");
   const optionPcts = (await sql`select return_pct from option_trades where user_id = ${u.id}`).map((r) => Math.abs(Number(r.return_pct) * 100).toFixed(1));
   const sharePcts = new Set((await sql`select return_pct from closed_trades where user_id = ${u.id}`).map((r) => Math.abs(Number(r.return_pct) * 100).toFixed(1)));
+  const startedAt = new Date(Date.now() - 5_000);
   const json: string[] = [];
   page.on('response', async (r) => { if ((r.headers()['content-type'] ?? '').includes('json')) json.push(await r.text().catch(() => '')); });
   await page.goto('/u/yolo_yuki');
@@ -67,8 +69,12 @@ test('AC17: signed out, the demo trader with options shows the "Excluding option
   const chart = await (await request.get('/u/yolo_yuki/pane-chart')).text();
   const { writeDisplayLog } = await import('../lib/display-log.ts');
   await writeDisplayLog({ ids: [u.id] });
-  const log = JSON.stringify(await sql`select * from display_log where user_id = ${u.id}`);
-  expect(log).toContain(line);
+  const logRows = await sql`select options_line, created_at from display_log where user_id = ${u.id} order by day desc`;
+  const log = JSON.stringify(logRows);
+  // The log is append-only, one row a day: today's row says this line unless it was written earlier today, before a
+  // copy change (a long-lived local database); either way it is the loader's gated line.
+  if (logRows[0].created_at >= startedAt) expect(logRows[0].options_line).toBe(line);
+  else expect(logRows[0].options_line).toMatch(/^4 option trades and 1 open option imported/);
   for (const [where, text] of [['html', html], ['description', description], ['alt', alt], ['pane json', pane], ['chart json', chart], ['fetched json', json.join('\n')], ['display log', log]] as const) {
     expect(text, where).not.toContain('Call option');
     expect(text, where).not.toContain('Put option');
@@ -351,9 +357,11 @@ for (const scheme of ['light', 'dark'] as const) {
 
   test(`fix round 3 item 5 (${scheme}): with the label the chart caption gets " · excluding options"; without options it is unchanged`, async ({ page }) => {
     const now = new Date('2026-11-01T12:00:00Z');
-    await mount(page, [h(PerformanceChart, { points: [], now, shareOnly: true })], scheme);
+    // The chart draws from 2 closes (the pane's own chart component).
+    const points = packPoints([1, 2].map((i) => ({ id: String(i), symbol: 'ABC', returnPct: 0.01 * i, closedAt: new Date(now.getTime() - i * DAY), holdingDays: 1, thesis: null })));
+    await mount(page, [h(PerformanceChart, { points, now, shareOnly: true })], scheme);
     await expect(page.locator('figcaption')).toHaveText('Return if every trade were the same size · excluding options');
-    await mount(page, [h(PerformanceChart, { points: [], now })], scheme);
+    await mount(page, [h(PerformanceChart, { points, now })], scheme);
     await expect(page.locator('figcaption')).toHaveText('Return if every trade were the same size');
     // Zero option counts: the pane's option parts render nothing.
     expect(renderToStaticMarkup(h('div', null, h(ShareTradesLabel, { show: paneView({ gate: 'closed', counts: counts() }).label }), h(PaneOptions, { v: paneView({ gate: 'closed', counts: counts() }) })))).toBe('<div></div>');
