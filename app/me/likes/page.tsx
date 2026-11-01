@@ -5,9 +5,9 @@ import { currentUser } from '@/lib/session.ts';
 import { ownLikes } from '@/lib/likes.ts';
 import { LIKES } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
-import { toneClass } from '@/lib/open-split.ts';
 import { removeLikeForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
+import { toneClass } from '../../open-rows.tsx';
 
 export const metadata: Metadata = { title: `${LIKES.title} · Stock Social`, robots: { index: false, follow: false } };
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });

@@ -761,7 +761,7 @@ test('compare page: two seeded symbols in URL order, noindex, honest empty state
   await expect(page.locator('main section section')).toHaveCount(0);
   const cases: [string, string][] = [
     ['/t/compare?a=ZZZZ&b=NVDA', 'No verified closed trades in ZZZZ yet.'],
-    ['/t/compare?a=NVDA&b=nvda', 'Pick two different stocks. You chose NVDA twice.'],
+    ['/t/compare?a=NVDA&b=nvda', 'Choose two different stocks. You chose NVDA twice.'],
     ['/t/compare?a=ZZZZ&b=YYYY', 'No verified closed trades in ZZZZ or YYYY yet.'],
     ['/t/compare', 'Choose two stocks to compare.'], // A11Y-FIXES #11
   ];

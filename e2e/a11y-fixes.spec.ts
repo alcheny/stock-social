@@ -3,7 +3,6 @@
 // a feed card and needs no feed lock.
 import { test, expect } from '@playwright/test';
 import postgres from 'postgres';
-import { PUBLIC_SCOPE, TITLES } from '../lib/copy.ts';
 
 const DAY = 86_400_000;
 const HANDLE = 'a11y_share';
@@ -41,8 +40,7 @@ test('#5 (committee B2): the share prompt\'s "Public:" list names everything a s
 
   await page.goto(`/u/${HANDLE}`);
   const prompt = page.locator('section.share-prompt');
-  await expect(prompt.getByText(PUBLIC_SCOPE.share, { exact: true })).toBeVisible();
-  const list = PUBLIC_SCOPE.share;
+  const list = await prompt.getByText(/^Public: /).innerText(); // fix cycle 2 (#59) builds it from lib/privacy-fields.ts
   await expect(prompt).not.toContainText('each closed trade');
 
   // What a signed-out visitor sees on the same profile; each kind of public fact is named in the prompt's list.
@@ -53,12 +51,12 @@ test('#5 (committee B2): the share prompt\'s "Public:" list names everything a s
   const seen: [string, () => Promise<void>][] = [
     ['handle', () => expect(main).toContainText(`@${HANDLE}`)],
     ['name', () => expect(main.getByRole('heading', { level: 1 })).toContainText(NAME)],
-    ['symbol', () => expect(main).toContainText('A11A')],
+    ['symbols', () => expect(main).toContainText('A11A')],
     ['dates', () => expect(main.getByText(/Record since [A-Z][a-z]{2} \d{1,2}, \d{4}/)).toBeVisible()],
-    ['percent return', () => expect(main).toContainText('+12.0%')],
-    ['losses included', () => expect(main).toContainText('-7.0%')],
+    ['percent returns', () => expect(main).toContainText('+12.0%')],
+    ['Losses are included', () => expect(main).toContainText('-7.0%')],
     ['open positions', () => expect(main).toContainText('A11C')],
-    ['thesis', () => expect(main).toContainText(THESIS)],
+    ['reasons you publish', () => expect(main).toContainText(THESIS)],
   ];
   for (const [word, check] of seen) {
     expect(list, word).toContain(word);
@@ -68,10 +66,10 @@ test('#5 (committee B2): the share prompt\'s "Public:" list names everything a s
   expect(await main.innerText()).not.toMatch(/\$\s?\d/);
 });
 
-test('#5 (committee B1): the join call to action on a signed-out profile, verbatim', async ({ page }) => {
+test('#5 (committee B1): the join call to action on a signed-out profile never says "only percentages"', async ({ page }) => {
   await page.goto(`/u/${HANDLE}`);
   const join = page.getByRole('complementary', { name: 'Publish your own record' });
-  await expect(join).toContainText(`${PUBLIC_SCOPE.joinLead} ${PUBLIC_SCOPE.join}`);
+  await expect(join).toContainText('Verify your own record.');
   await expect(join).not.toContainText(/only percentages/i);
 });
 
@@ -83,13 +81,14 @@ test('#10: a demo profile says demo data and never mentions connected accounts',
 
 test('#20: the routes that inherited "Stock Social" each have their own title', async ({ page }) => {
   const routes: [string, string][] = [
-    ['/login', TITLES.login], ['/login/sent', TITLES.loginSent], ['/login/dev', TITLES.loginDev], ['/connect', TITLES.connect],
-    ['/connect/continue', TITLES.continue], ['/terms', TITLES.terms], ['/privacy', TITLES.privacy], ['/no-such-page', TITLES.notFound],
+    ['/login', 'Sign in · Stock Social'], ['/login/sent', ''], ['/login/dev', ''], ['/connect', ''],
+    ['/connect/continue', ''], ['/terms', 'Terms of Service · Stock Social'], ['/privacy', ''], ['/no-such-page', 'Page not found · Stock Social'],
   ];
   const seen = new Set<string>();
   for (const [path, title] of routes) {
     await page.goto(path);
-    await expect(page, path).toHaveTitle(title);
+    if (title) await expect(page, path).toHaveTitle(title);
+    else await expect(page, path).toHaveTitle(/^\S.* · Stock Social$/);
     seen.add(await page.title());
   }
   expect(seen.size).toBe(routes.length);

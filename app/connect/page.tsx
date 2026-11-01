@@ -5,15 +5,15 @@ import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { boundAttempt, CONNECT_COOKIE, refuseUnbound } from '@/lib/connections.ts';
-import { LAUNCH, SIGNIN, TITLES, TRUST_NOTICE, VENDOR_SECURITY_URL } from '@/lib/copy.ts';
+import { LAUNCH, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from '@/lib/copy.ts';
 import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 import { FocusHeading } from './result/focus-heading.tsx';
 import { providersFromEnv } from '@/lib/auth/providers.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { PortalButton } from './portal-button.tsx';
 
-// A11Y-FIXES #20 (WCAG 2.4.2): this route's own title.
-export const metadata: Metadata = { title: TITLES.connect };
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Before you connect · Stock Social', robots: { index: false } };
 
 // S2 trust notice (docs/features/logs/F-1/plan.md §2): a page before any portal script, signed in or not.
 // Every line is one the vendor publishes itself; no endorsement, no audit of any record (POLICY F3a).

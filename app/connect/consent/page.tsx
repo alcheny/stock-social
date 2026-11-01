@@ -6,12 +6,12 @@ import { sql } from '@/lib/db.ts';
 import { NotFound } from '../result/connection-not-found.tsx';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser } from '@/lib/session.ts';
-import { CONSENT, LAUNCH, TITLES } from '@/lib/copy.ts';
+import { CONSENT, LAUNCH } from '@/lib/copy.ts';
 import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 import { consentAction, declineAction } from '../actions.ts';
 
-// A11Y-FIXES #20 (WCAG 2.4.2): this route's own title.
-export const metadata: Metadata = { title: TITLES.consent };
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Confirm what gets imported · Stock Social', robots: { index: false } };
 
 // S4 consent: names the import depth before anything is read. The 24-hour clock is applied on this read too, so an
 // expired link never shows a consent form (plan §1: lazy marking). A missing or malformed id is a plain not-found page

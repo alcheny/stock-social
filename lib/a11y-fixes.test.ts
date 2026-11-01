@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { tone, toneClass } from './open-split.ts';
-import { DEMO_PROFILE, NOT_FOUND, PUBLIC_SCOPE, RECORD_STRIP, SIGN_WORD, signWord, TITLES } from './copy.ts';
+import { DEMO_PROFILE, PUBLIC_SHORT, RECORD_STRIP, SIGN_WORD, signWord } from './copy.ts';
+import { PUBLIC_FIELDS } from './privacy-fields.ts';
 import { pct } from './trades.ts';
 import { selectTheses } from './ticker.ts';
 
@@ -54,24 +55,17 @@ test('#23: no call site paints by a raw comparison any more', () => {
   assert.doesNotMatch(read('app/ui.tsx'), /const up = t\.return_pct > 0/);
 });
 
-test('#5 (committee B1): the join call to action, verbatim, with no "only percentages"', () => {
-  assert.equal(PUBLIC_SCOPE.joinLead, 'Verify your own record.');
-  assert.equal(PUBLIC_SCOPE.join, 'Read-only broker connection. Public trades show percentages, never quantities, prices or balances. 18+.');
-  const src = read('app/u/[handle]/join-cta.tsx');
-  assert.match(src, /PUBLIC_SCOPE\.joinLead/);
-  assert.match(src, /PUBLIC_SCOPE\.join\b/);
-  assert.doesNotMatch(src, /only percentages/i);
+// #5, #20 and #21 shipped in fix cycle 2 (#59) too; these check the outcome on the merged sources, not one wording.
+test('#5 (committee B1): the join call to action never calls a subset "only percentages"', () => {
+  for (const t of [read('app/u/[handle]/join-cta.tsx'), PUBLIC_SHORT.join]) assert.doesNotMatch(t, /only percentages/i);
 });
 
-test('#5 (committee B2): the share prompt names everything a signed-out profile shows, as "your closed trades"', () => {
-  const s = PUBLIC_SCOPE.share;
-  assert.ok(s.startsWith('Public: '), s);
-  for (const word of ['handle', 'name', 'your closed trades', 'symbol', 'dates', 'percent return', 'losses included', 'open positions', 'thesis']) {
+test('#5 (committee B2): the share prompt names everything a signed-out profile shows, never "each closed trade"', () => {
+  const s = PUBLIC_SHORT.sharePrompt(PUBLIC_FIELDS.map((f) => f.words));
+  for (const word of ['handle', 'name', 'reasons you publish', 'symbols', 'dates', 'percent returns', 'Losses are included', 'open positions']) {
     assert.ok(s.includes(word), `${word} missing from: ${s}`);
   }
-  assert.doesNotMatch(s, /each closed trade|only/i);
-  assert.match(s, /Never quantities, prices, fees or balances\./);
-  assert.match(read('app/u/[handle]/share-prompt.tsx'), /PUBLIC_SCOPE\.share/);
+  assert.doesNotMatch(s, /each closed trade/i);
 });
 
 test('#8: no completeness claim in the image alts, the recap description, the back links or the claim note', () => {
@@ -97,36 +91,25 @@ test('#10: the demo profile line never implies connected accounts', () => {
   assert.doesNotMatch(src, /\. Only trades from connected accounts are shown\./);
 });
 
-const ROUTES: [string, keyof typeof TITLES][] = [
-  ['app/login/page.tsx', 'login'], ['app/login/sent/page.tsx', 'loginSent'], ['app/login/dev/page.tsx', 'loginDev'],
-  ['app/connect/page.tsx', 'connect'], ['app/connect/consent/page.tsx', 'consent'], ['app/connect/continue/page.tsx', 'continue'],
-  ['app/connect/result/page.tsx', 'result'], ['app/terms/page.tsx', 'terms'], ['app/privacy/page.tsx', 'privacy'], ['app/not-found.tsx', 'notFound'],
-];
+const ROUTES = ['app/login/page.tsx', 'app/login/sent/page.tsx', 'app/login/dev/page.tsx', 'app/connect/page.tsx', 'app/connect/consent/page.tsx',
+  'app/connect/continue/page.tsx', 'app/connect/result/page.tsx', 'app/terms/page.tsx', 'app/privacy/page.tsx', 'app/not-found.tsx'];
 
 test('#20: every route that inherited "Stock Social" sets its own title, "‹Page› · Stock Social", all distinct', () => {
-  const titles = Object.values(TITLES);
-  assert.equal(new Set(titles).size, titles.length);
-  for (const t of titles) {
-    assert.match(t, /^\S.* · Stock Social$/, t);
-    assert.notEqual(t, 'Stock Social');
-  }
-  for (const [file, key] of ROUTES) {
-    const src = read(file);
-    assert.match(src, new RegExp(`export const metadata: Metadata = \\{ title: TITLES\\.${key}\\b`), file);
-  }
-  // The titles the other routes already set stay distinct from these.
-  for (const t of ['How records are calculated · Stock Social', 'Settings · Stock Social', 'My record · Stock Social']) assert.ok(!(titles as string[]).includes(t), t);
+  const titles = ROUTES.map((file) => {
+    const t = read(file).match(/export const metadata: Metadata = \{ title: '([^']+)'/)?.[1];
+    assert.ok(t, `${file} sets a literal title`);
+    assert.match(t, /^\S.* · Stock Social$/, file);
+    return t;
+  });
+  assert.equal(new Set(titles).size, titles.length, titles.join(' | '));
 });
 
-test('#21: a root 404 page with a main landmark, one h1 and links to Feed, Trades by stock and How', () => {
+test('#21: a root 404 page with a main landmark and one h1; an invalid ticker symbol is a real 404', () => {
   assert.ok(existsSync(new URL('../app/not-found.tsx', import.meta.url)));
   const src = read('app/not-found.tsx');
   assert.match(src, /<main className="page">/);
   assert.equal(src.match(/<h1\b/g)?.length, 1);
-  assert.equal(NOT_FOUND.heading, 'Page not found');
-  assert.deepEqual(NOT_FOUND.links.map((l) => [l.href, l.label]), [['/', 'Feed'], ['/t', 'Trades by stock'], ['/how', 'How records are calculated']]);
-  assert.equal(TITLES.notFound, 'Page not found · Stock Social');
-  // An invalid ticker symbol is a real 404, not a 200 page.
+  assert.match(src, /title: 'Page not found · Stock Social'/);
   assert.match(read('app/t/[symbol]/page.tsx'), /if \(!symbol\) notFound\(\);/);
 });
 

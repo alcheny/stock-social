@@ -1,13 +1,12 @@
 import type { Metadata } from 'next';
-import { TITLES } from '@/lib/copy.ts';
 import { notFound } from 'next/navigation';
 import { login } from '../../actions.ts';
 import { normalizeHandle, normalizeVia } from '@/lib/referral.ts';
 import { devAuthAllowed } from '@/lib/session.ts';
 import { memoryOutbox } from '@/lib/auth/email.ts';
 
-// A11Y-FIXES #20 (WCAG 2.4.2): this route's own title.
-export const metadata: Metadata = { title: TITLES.loginDev };
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Dev sign-in · Stock Social', robots: { index: false } };
 
 // DEV-ONLY sign-in (no password). Exists only when ALLOW_DEV_AUTH=1 (or outside production); e2e uses it.
 export default async function DevLogin({ searchParams }: { searchParams?: Promise<{ ref?: string; via?: string }> }) {

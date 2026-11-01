@@ -4,7 +4,7 @@ import type { TransactionSql } from 'postgres';
 // TR-6: a broker account belongs to one profile, ever. Shown on the owner's own profile only.
 export const ACCOUNT_CLAIMED_TITLE = "We couldn't link that broker account.";
 export const ACCOUNT_CLAIMED_BODY =
-  "It's already connected to another Stock Social profile, and a broker account can only ever belong to one profile. This keeps a record from being restarted on a new profile. If you think this is a mistake, check that you connected the right brokerage login.";
+  "It's already connected to another Stock Social profile, and a broker account can belong to one profile, ever, so two profiles never share an account. If you think this is a mistake, check that you connected the right brokerage login.";
 
 export class AccountClaimedError extends Error {
   constructor() {

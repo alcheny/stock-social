@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { markSharePromptSeen, recordSharePromptAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
 import { counted } from '@/lib/format.ts';
-import { PUBLIC_SCOPE } from '@/lib/copy.ts';
+import { PUBLIC_SHORT } from '@/lib/copy.ts';
+import { PUBLIC_FIELDS } from '@/lib/privacy-fields.ts';
 
 // range: the card's own "likely between" text (F-4 rework: the range around the average the card prints).
 // previewAlt: the card in words, from the card's own model (lib/record-card.ts#cardAlt; F-4 committee round 1, demand
@@ -37,9 +38,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
         <img className="preview" src={`/u/${handle}/opengraph-image`} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
           alt={previewAlt} />
       )}
-      <p style={{ margin: 0 }}>
-        {PUBLIC_SCOPE.share}
-      </p>
+      <p style={{ margin: 0 }}>{PUBLIC_SHORT.sharePrompt(PUBLIC_FIELDS.map((f) => f.words))}</p>
       {isNew && (
         <p className="muted note" style={{ margin: 0 }}>
           {trades === 0

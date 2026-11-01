@@ -372,13 +372,7 @@ export const A11Y_FEED = {
 
 
 // A11Y-FIXES: copy, titles (group 3)
-// #5 (POLICY P6, P3; committee B1, B2): what is public, said without calling a subset "only". The share prompt lists
-// everything a signed-out profile renders (handle, name, symbols, dates, percent returns, open positions, theses).
-export const PUBLIC_SCOPE = {
-  joinLead: 'Verify your own record.',
-  join: 'Read-only broker connection. Public trades show percentages, never quantities, prices or balances. 18+.',
-  share: 'Public: your handle and name, your closed trades (symbol, dates and percent return, losses included), your open positions with unrealized percent, your win rate and average return, and any thesis you post. Never quantities, prices, fees or balances. Your broker login stays private.',
-} as const;
+// #5: the join and share copy now come from fix cycle 2 (#59, PUBLIC_SHORT and the share prompt).
 // #8 (POLICY F3a): the trade and month images' alts, the recap description and the back links now come from F-10/F-12
 // (lib/trade-share.ts, lib/recap.ts, RECORD_STRIP.link), which carry no completeness claim (lib/a11y-fixes.test.ts).
 // #10 (POLICY P2, F3a): a demo profile says it is demo data; "connected accounts" only on a broker record.
@@ -391,29 +385,7 @@ export const DEMO_PROFILE = {
 // F-19 (#57): the words live in lib/format.ts (toneWord), one vocabulary; signWord reads them by the printed sign.
 export const SIGN_WORD: Record<Tone, string> = { up: toneWord('up'), down: toneWord('down'), flat: toneWord('flat') };
 export const signWord = (x: number): string => toneWord(tone(x));
-// #20 (WCAG 2.4.2): a distinct title on each route that inherited the bare "Stock Social".
-export const TITLES = {
-  login: 'Sign in \u00b7 Stock Social',
-  loginSent: 'Check your email \u00b7 Stock Social',
-  loginDev: 'Dev sign-in \u00b7 Stock Social',
-  connect: 'Before you connect \u00b7 Stock Social',
-  consent: 'Confirm what gets imported \u00b7 Stock Social',
-  continue: 'Connecting your broker \u00b7 Stock Social',
-  result: 'Connection result \u00b7 Stock Social',
-  terms: 'Terms of Service \u00b7 Stock Social',
-  privacy: 'Privacy Policy \u00b7 Stock Social',
-  notFound: 'Page not found \u00b7 Stock Social',
-} as const;
-// #21 (WCAG 2.4.2, 1.3.1): the root 404 page; its links use the nav's and the footer's labels.
-export const NOT_FOUND = {
-  heading: 'Page not found',
-  body: 'There\u2019s nothing at this address. The link may be mistyped, or the page has moved.',
-  links: [
-    { href: '/', label: 'Feed' },
-    { href: '/t', label: NAV.stocks },
-    { href: '/how', label: FOOTER.how },
-  ],
-} as const;
+// #20, #21: route titles and the root 404 page now come from fix cycle 2 (#59); app/t/[symbol] calls notFound().
 // end A11Y-FIXES copy
 
 // Privacy work (2026-11-01): the launch gate's closed states (lib/launch-gate.ts, committee D6–D8). No date, no promise.
@@ -798,6 +770,17 @@ export const BILLING = {
   deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
 } as const;
 export { billingDate };
+
+// Fixes cycle 2 (trust rows, approval council 2026-11-01), fix #5 (POLICY P6/P3). The join card makes no claim about
+// what is public (the connect step lists it exactly); it says what stays private. Never "only percentages": the handle,
+// name, symbols, dates, broker name, open positions and published reasons are public too.
+export const PUBLIC_SHORT = {
+  join: 'Read-only broker connection. Sizes, prices and balances stay private. 18+.',
+  // The owner's share prompt: built from lib/privacy-fields.ts PUBLIC_FIELDS (one list, no hand-kept copy), plus the
+  // profile's own fields and the trader's published reasons.
+  sharePrompt: (fieldWords: string[]) =>
+    `Public: your handle, display name, any reasons you publish, ${fieldWords.slice(0, -1).join(', ')}, and ${fieldWords.at(-1)}. Losses are included. Never sizes, prices or balances. Your broker login stays private.`,
+};
 
 // ---- F-19 · What's-this line (first slice: the constant and its test, lib/range-note.f19.test.ts). The range printed
 // beside an average is the arithmetic range of the average per trade (lib/record-card.ts#cardEvidence), not the spread

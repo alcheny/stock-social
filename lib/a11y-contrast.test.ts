@@ -108,7 +108,7 @@ for (const [name, on] of Object.entries(scheme)) {
 
 // Every selector that draws a control's border today ends its cascade on --control.
 const CONTROLS = ['input', 'textarea', 'select', '.pane .back', '.share-prompt .actions .secondary', '.trade-share .secondary',
-  '.badge-embed .secondary', '.new-trades .secondary', '.rec-chips button', '.auth .button.secondary', '.auth button.secondary',
+  '.new-trades .secondary', '.rec-chips button', '.auth .button.secondary', '.auth button.secondary',
   '.handle-edit summary.secondary', '.follow.secondary', '.more-menu .secondary', '.people .secondary',
   '.pane-actions .button.secondary', '.more-menu summary', '.switch-pair .switch', '.personalize form > button.secondary',
   '.rt .button.choice', '.rt button.choice', '.rt .button.secondary', '.rt button.secondary', '.rt-form input', '.rt-form select',

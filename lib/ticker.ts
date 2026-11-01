@@ -203,8 +203,7 @@ export function relatedSymbols(rows: { symbol: string; userId: number; verified:
 }
 
 export const THESIS_CAP = 20;
-export type ThesisRow = { id: number; sellId: string; handle: string; // A11Y-FIXES #22: sell_id survives rebuildTrades
-  thesis: string | null; thesisStatus: string | null;
+export type ThesisRow = { id: number; sellId: string; handle: string; thesis: string | null; thesisStatus: string | null; // A11Y-FIXES #22: the stable key
   returnPct: number; holdingDays: number; closedAt: Date; verified: boolean };
 export type ThesisItem = Omit<ThesisRow, 'thesisStatus' | 'thesis'> & { thesis: string };
 export type ThesisList = { items: ThesisItem[]; n: number; demoOnly: boolean; mixed: boolean };
@@ -316,9 +315,10 @@ export function parseCompare(a: string | undefined, b: string | undefined): Pars
 export const COMPARE_COPY = {
   title: 'Compare stocks · Stock Social',
   explainer: 'Verified closed trades in each stock, side by side. Percentages only. Few trades means a wide range, and that is expected.',
-  pick: 'Choose two stocks to compare.', // A11Y-FIXES #11 (POLICY F1a)
+  // Fix #11 (cycle 2, POLICY F1a): no "pick" in product copy.
+  pick: 'Choose two stocks to compare.',
   invalid: (raw: string) => `${raw} doesn't look like a ticker symbol.`,
-  same: (a: string) => `Pick two different stocks. You chose ${a} twice.`,
+  same: (a: string) => `Choose two different stocks. You chose ${a} twice.`,
   bothEmpty: (a: string, b: string) => `No verified closed trades in ${a} or ${b} yet.`,
   emptySide: (s: string) => `No verified closed trades in ${s} yet.`,
   overlap: (n: number, a: string, b: string) => n === 0

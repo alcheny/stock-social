@@ -9,11 +9,13 @@ import { REASONS, REASON_LABEL, reflectionInsights, type Reason } from '@/lib/re
 import { RULE_KINDS, RULE_LABEL, ruleAdherence, ruleOutcomes, rulesByReason, ruleTrend, signedPct, tradesLabel, type RuleKind } from '@/lib/rules.ts';
 import { setReflection, setRule } from '@/app/actions.ts';
 import { Badge } from '../../ui.tsx';
+import { toneClass } from '../../open-rows.tsx';
 
 export const metadata: Metadata = { title: 'My record · Stock Social', robots: { index: false, follow: false } };
 
 const FEW = 'too few trades to say';
-const sign = (x: number) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
+// Fix #19 (cycle 2): tone by the printed sign ("0.0%" is flat, uncolored), shared with every other figure.
+const sign = toneClass;
 
 export default async function MyRecord() {
   const me = await currentUser();
@@ -73,7 +75,7 @@ export default async function MyRecord() {
       {r.total === 0 ? (
         <div className="rec-card">
           <p style={{ margin: 0 }}>No closed trades yet. Once a trade you&apos;ve connected closes, your habits appear here.</p>
-          <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will add them.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
+          <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will include them.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
         </div>
       ) : <>
         {r.total < MIN_TRADES && <p className="muted">You have {r.total} closed trade{r.total === 1 ? '' : 's'}. Figures need at least {MIN_TRADES} trades behind them.</p>}
@@ -123,11 +125,11 @@ export default async function MyRecord() {
         <h2>Wins versus losses</h2>
         <div className="rec-grid">
           <div className="rec-card">
-            <dl className="rec-dl"><div><dt>Average win</dt><dd className={r.winLoss.avgWin === null ? 'muted' : 'up'}>{r.winLoss.avgWin === null ? FEW : pct(r.winLoss.avgWin)}</dd></div></dl>
+            <dl className="rec-dl"><div><dt>Average win</dt><dd className={r.winLoss.avgWin === null ? 'muted' : sign(r.winLoss.avgWin)}>{r.winLoss.avgWin === null ? FEW : pct(r.winLoss.avgWin)}</dd></div></dl>
             <p className="muted small">from {r.winLoss.wins} win{r.winLoss.wins === 1 ? '' : 's'}</p>
           </div>
           <div className="rec-card">
-            <dl className="rec-dl"><div><dt>Average loss</dt><dd className={r.winLoss.avgLoss === null ? 'muted' : 'down'}>{r.winLoss.avgLoss === null ? FEW : pct(r.winLoss.avgLoss)}</dd></div></dl>
+            <dl className="rec-dl"><div><dt>Average loss</dt><dd className={r.winLoss.avgLoss === null ? 'muted' : sign(r.winLoss.avgLoss)}>{r.winLoss.avgLoss === null ? FEW : pct(r.winLoss.avgLoss)}</dd></div></dl>
             <p className="muted small">from {r.winLoss.losses} loss{r.winLoss.losses === 1 ? '' : 'es'}</p>
           </div>
         </div>
@@ -279,7 +281,7 @@ export default async function MyRecord() {
       </div>
 
       <p className="muted small">
-        Percentages only. Computed from your verified closed trades each time you open this page.
+        Percentages only. Computed from your closed trades{demo ? ' (including demo data)' : ''} each time you open this page.
         {me.excluded_positions > 0 && <> Trades with no recorded entry are excluded: {me.excluded_positions}.</>}
       </p>
     </main>

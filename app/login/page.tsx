@@ -4,15 +4,15 @@ import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { startSignIn } from '../auth/actions.ts';
 import { normalizeHandle, normalizeVia } from '@/lib/referral.ts';
-import { LAUNCH, SIGNIN, TITLES } from '@/lib/copy.ts';
+import { LAUNCH, SIGNIN } from '@/lib/copy.ts';
 import { signUpOpen } from '@/lib/launch-gate.ts';
 import { FocusHeading } from '../connect/result/focus-heading.tsx';
 import { deviceFirst, orderMethods, providersFromEnv, type MethodKey } from '@/lib/auth/providers.ts';
 import { currentUser, devAuthAllowed, LAST_METHOD_COOKIE } from '@/lib/session.ts';
 import { EMAIL_COOKIE } from '@/lib/auth/links.ts';
 
-// A11Y-FIXES #20 (WCAG 2.4.2): this route's own title.
-export const metadata: Metadata = { title: TITLES.login };
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Sign in · Stock Social' };
 
 type SP = { ref?: string; via?: string; error?: string; method?: string };
 

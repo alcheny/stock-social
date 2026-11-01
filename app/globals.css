@@ -206,9 +206,6 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .new-trades h2 { margin: 0 0 8px; font-size: 1rem; }
 .new-trades ul { list-style: none; margin: 0; padding: 0; }
 .new-trades li a { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; }
-.badge-embed .actions { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
-.badge-embed .actions button, .badge-embed summary { min-height: 44px; }
-.badge-embed .secondary { background: var(--surface); color: var(--text); border: 1px solid var(--line); }
 .new-trades .secondary { min-height: 44px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
 /* Ticker page rows: whole row is the link, wraps on narrow screens. */
 .ticker-rows li, .thesis-rows li { padding: 0; }
@@ -569,7 +566,7 @@ html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint 
 /* #14 control boundaries (WCAG 1.4.11): each selector that draws a control's border, repeated so it wins by order. */
 input, textarea, select,
 .pane .back,
-.share-prompt .actions .secondary, .trade-share .secondary, .badge-embed .secondary, .new-trades .secondary,
+.share-prompt .actions .secondary, .trade-share .secondary, .new-trades .secondary,
 .rec-chips button, .auth .button.secondary, .auth button.secondary, .handle-edit summary.secondary,
 .follow.secondary, .more-menu .secondary, .people .secondary, .pane-actions .button.secondary, .more-menu summary,
 .switch-pair .switch, .personalize form > button.secondary,
