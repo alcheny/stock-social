@@ -86,10 +86,16 @@ test('1,000,000 orphans, 100 due, statistics taken before the marks: each call d
       select (${viewers}::int[])[1 + i % ${viewers.length}], encode(sha256((${tag} || ':' || i)::bytea), 'hex'), ${trader} from generate_series(1, ${ORPHANS}) i`;
     await sql`analyze trade_likes, trade_exclusions, privacy_orphans`;
     const due = new Date(Date.now() - (ORPHAN_GRACE_DAYS + 1) * 86_400_000), fresh = new Date(Date.now() - 86_400_000);
-    await sql`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at)
-      select 'like', (${viewers}::int[])[1 + i % ${viewers.length}], encode(sha256((${tag} || ':' || i)::bytea), 'hex'), case when i <= ${DUE} then ${due}::timestamptz else ${fresh}::timestamptz end
-      from generate_series(1, ${ORPHANS}) i
-      on conflict (kind, viewer_id, trade_key) do update set first_seen_at = excluded.first_seen_at`; // a concurrent purge may have marked some
+    // A concurrent purge may mark some of these likes first (the upsert), or deadlock with this insert on them (retried).
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await sql`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at)
+          select 'like', (${viewers}::int[])[1 + i % ${viewers.length}], encode(sha256((${tag} || ':' || i)::bytea), 'hex'), case when i <= ${DUE} then ${due}::timestamptz else ${fresh}::timestamptz end
+          from generate_series(1, ${ORPHANS}) i
+          on conflict (kind, viewer_id, trade_key) do update set first_seen_at = excluded.first_seen_at`;
+        break;
+      } catch (e) { if ((e as { code?: string }).code !== '40P01' || attempt >= 3) throw e; }
+    }
     log(`purge fixture: ${ORPHANS.toLocaleString('en-US')} orphan likes (${DUE} due), ${Math.round(performance.now() - t0)} ms setup (no analyze since the marks)`);
     const lapsOf = async () => {
       try { return new Map((await sql`select step, laps::int as laps from privacy_purge_cursors`).map((r) => [r.step as string, r.laps as number])); } catch { return null; }
@@ -98,7 +104,7 @@ test('1,000,000 orphans, 100 due, statistics taken before the marks: each call d
     // span learned while the tables were small, then a large growth).
     try {
       await sql`insert into privacy_purge_cursors (step, pos, span) select s, 0, 4294967296 from unnest(${['clear', 'mark-like', 'mark-reject']}::text[]) s
-        on conflict (step) do update set pos = 0, span = 4294967296`;
+        on conflict (step) do update set pos = 0, span = 4294967296, swept = 0`;
     } catch { /* no cursor table: the code before the change */ }
     const start = await lapsOf();
     const steps = ['clear', 'mark-like', 'mark-reject'];

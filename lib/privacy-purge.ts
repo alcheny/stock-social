@@ -31,8 +31,8 @@ export type PrivacyPurgeReport = {
 
 // Known-limits sweep 2 (2026-11-01): the clearing and marking steps walk the trade_key hash space (trade_key is a lowercase
 // sha256 hex string, db/schema.sql: closed_trades.trade_key, lib/likes.ts#tradeKey) a window at a time from a cursor
-// persisted in privacy_purge_cursors: a position in the first 32 bits of the hash space and a window span, never a key,
-// viewer or trade. A window is `trade_key >= lo and trade_key < hi` (hex prefixes computed here), read through
+// persisted in privacy_purge_cursors: a position in the first 32 bits of the hash space, a window span and how much of
+// the current lap is walked, never a key, viewer or trade. A window is `trade_key >= lo and trade_key < hi` (hex prefixes computed here), read through
 // trade_likes_key, trade_exclusions_key and privacy_orphans_key. Each step spends at most ORPHAN_STEP_MS a call and walks
 // at most one lap; each batch has a statement timeout of ORPHAN_BATCH_MS; the span shrinks 16-fold after a timeout and
 // halves after a slow batch (so the cursor always moves), and doubles after a fast one. Before: every call walked all of privacy_orphans, trade_likes and trade_exclusions (2-3 index probes
@@ -151,7 +151,11 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
               // A full batch leaves the cursor on this window; otherwise it moves past it (wrapping at the end of the space).
               const to = k >= batch ? pos : pos + span >= CURSOR_SPACE ? 0 : pos + span;
               await timeLeft(conn, cursorLimit);
-              await conn`update privacy_purge_cursors set pos = ${to}, span = ${next}, laps = laps + ${k < batch && to === 0 ? 1 : 0}, updated_at = now() where step = ${name}`;
+              // A lap counts when a wrap completes the whole space since the last one (swept), never a lap begun mid-space.
+              const w = k < batch ? Math.min(span, CURSOR_SPACE - pos) : 0, wrap = k < batch && to === 0;
+              await conn`update privacy_purge_cursors set pos = ${to}, span = ${next},
+                laps = laps + (case when ${wrap} and swept + ${w}::bigint >= ${CURSOR_SPACE}::bigint then 1 else 0 end),
+                swept = case when ${wrap} then 0 else swept + ${w}::bigint end, updated_at = now() where step = ${name}`;
               return { k, to, next };
             }, cursorLimit);
             if (b === null) {

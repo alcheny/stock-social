@@ -809,3 +809,7 @@ create table if not exists privacy_purge_cursors (
 select schema_add_index('privacy_orphans_key', 'create index privacy_orphans_key on privacy_orphans (trade_key)');
 -- The users cascade deletes privacy_orphans by viewer_id, which no index leads (1M rows: 124 ms a deleted user, 3.4 ms with it).
 select schema_add_index('privacy_orphans_viewer', 'create index privacy_orphans_viewer on privacy_orphans (viewer_id)');
+
+-- Known-limits sweep 2 (purge, review S6): how much of the hash space the current lap has walked; a lap counts only when
+-- it reaches the whole space, so a lap begun mid-space (a moved cursor) is never counted early.
+select schema_add_column('privacy_purge_cursors', 'swept', 'bigint not null default 0');

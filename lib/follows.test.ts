@@ -334,3 +334,15 @@ dbTest('lists: Record tools gets at most 100 followed handles, A to Z in byte or
     assert.deepEqual(await F.followHandles(c.traders[0], 100), { handles: [], more: false });
   } finally { await c.remove(); }
 });
+
+test('lists (QA Q1): a list paged past its end drops only its own cursor, keeping the others and `back`; a page with rows, or page 1 empty, stays', async () => {
+  const { pastEndQuery } = await import('./follows.ts');
+  const page = (n: number) => ({ rows: Array.from({ length: n }, () => ({ handle: 'x', name: 'X' })), next: null });
+  const at = { f: '1.2', h: '3.4', e: '5.6' };
+  assert.equal(pastEndQuery(at, { f: page(0), h: page(2), e: page(1) }, { back: 'abc' }), '?h=3.4&e=5.6&back=abc');
+  assert.equal(pastEndQuery(at, { f: page(0), h: page(0), e: page(0) }), '');
+  assert.equal(pastEndQuery({ f: '1.0' }, { f: page(0), h: page(0), e: page(0) }), ''); // a forged or stale cursor
+  assert.equal(pastEndQuery(at, { f: page(1), h: page(1), e: page(1) }), null);
+  assert.equal(pastEndQuery({}, { f: page(0), h: page(0), e: page(0) }), null); // page 1 empty: the empty-state copy is true
+  assert.equal(pastEndQuery({ f: 'bad' }, { f: page(0), h: page(0), e: page(0) }), null); // an invalid cursor already reads page 1
+});

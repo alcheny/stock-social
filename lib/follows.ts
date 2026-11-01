@@ -125,6 +125,13 @@ export function listsQuery(c: ListCursors | undefined, extra: Record<string, str
   const s = q.toString();
   return s ? `?${s}` : '';
 }
+// QA Q1: a list whose cursor reads no rows (its last row was just shown again or removed, or the cursor is stale) is
+// past its end, not empty: the page goes back to that list's newest rows, keeping the other lists and `extra`. null
+// when nothing needs to move; the empty-state copy is shown only for a list's first page.
+export function pastEndQuery(at: ListCursors, pages: Record<'f' | 'h' | 'e', ListPage>, extra: Record<string, string> = {}): string | null {
+  const drop = (['f', 'h', 'e'] as const).filter((k) => isListCursor(at[k]) && pages[k].rows.length === 0);
+  return drop.length ? listsQuery({ ...at, ...Object.fromEntries(drop.map((k) => [k, undefined])) }, extra) : null;
+}
 // The first page of each (kept for callers that want both at once).
 export async function ownLists(viewer: number): Promise<{ following: Listed[]; hidden: Listed[] }> {
   const [following, hidden] = await Promise.all([ownFollowing(viewer), ownHidden(viewer)]);

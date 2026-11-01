@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { expiredHidesPage, listsQuery, ownFollowing, ownHidden, shownAgainJustNow, type ListCursors } from '@/lib/follows.ts';
+import { expiredHidesPage, listsQuery, ownFollowing, ownHidden, pastEndQuery, shownAgainJustNow, type ListCursors } from '@/lib/follows.ts';
 import { CLOSES_PAGING, FOLLOW, HIDDEN_TRADES, LIKES, PERSONALIZE } from '@/lib/copy.ts';
 import { removeExpiredHideForm, showAgainHereForm } from './actions.ts';
 import { FollowButton } from '../../follow-button.tsx';
@@ -36,6 +36,9 @@ export default async function Following({ searchParams }: { searchParams?: Promi
   const at: ListCursors = { f: sp.f, h: sp.h, e: sp.e };
   const [following, hidden, expired] = await Promise.all([ownFollowing(me.id, sp.f), ownHidden(me.id, sp.h), expiredHidesPage(me.id, sp.e)]);
   const back = sp.back;
+  // QA Q1: a list paged past its end goes back to its newest rows (the others keep their place), never "none".
+  const moved = pastEndQuery(at, { f: following, h: hidden, e: expired }, typeof back === 'string' && /^[a-z0-9_]{3,20}$/.test(back) ? { back } : {});
+  if (moved !== null) redirect(`/me/following${moved}`);
   // shownAgainJustNow reads only an ended row (one per viewer and trader), so a trader still hidden is never "back".
   const isBack = typeof back === 'string' && /^[a-z0-9_]{3,20}$/.test(back) && (await shownAgainJustNow(me.id, back));
   return (
@@ -66,7 +69,7 @@ export default async function Following({ searchParams }: { searchParams?: Promi
       ) : <p>{FOLLOW.noneHidden}</p>}
       <Paging at={at} k="h" next={hidden.next} label={FOLLOW.olderHidden} />
       {/* F-2 PR-5 (business lead demand 2): hides that ran their 90 days, stored until removed. Absent when none. */}
-      {(expired.rows.length > 0 || !!at.e) && <>
+      {expired.rows.length > 0 && <>
         <h3>{PERSONALIZE.expiredHeading}</h3>
         <p className="muted small">{PERSONALIZE.expiredExplain}</p>
         <ul className="rows people">

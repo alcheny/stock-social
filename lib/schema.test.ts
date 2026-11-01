@@ -155,7 +155,7 @@ dbTest('schema: the five lookup indexes exist as defined', async () => {
 });
 
 // Plan checks: the real query texts (parameters as $1), explained (never executed) with seq scans off, so the result
-// depends on the index being usable, not on table statistics other test files change in parallel.
+// depends on the index being usable, not on table statistics other test files change in parallel (bitmap scans only, below).
 const PLAN_CASES: [string, string, unknown[]][] = [
   ['identities_email', `select u.id, u.handle from identities i join users u on u.id = i.user_id where i.email = $1 and u.deleted_at is null limit 1`, ['x@example.com']], // lib/auth/attempts.ts
   ['subscriptions_customer', `update subscriptions set disputed_at = coalesce(disputed_at, now()), status = case when status = 'canceled' then status else 'unpaid' end, updated_at = now()
@@ -178,7 +178,12 @@ dbTest('schema: each lookup index is usable by its real query (explained with se
   try {
     for (const [index, text, params] of PLAN_CASES) {
       await db.begin(async (tx) => {
+        // Seq scans, plain and index-only scans off: a full scan of another index with a filter is then impossible (on a
+        // near-empty table the planner preferred one), and a bitmap scan needs a condition the index matches, so the index
+        // named in the plan is one that serves the query's predicate, whatever the table's size or statistics.
         await tx`set local enable_seqscan = off`;
+        await tx`set local enable_indexscan = off`;
+        await tx`set local enable_indexonlyscan = off`;
         const [row] = await tx.unsafe(`explain (format json) ${text}`, params as never[]);
         assert.match(JSON.stringify(row['QUERY PLAN']), new RegExp(`"Index Name":"${index}"`), `${index}: ${text.slice(0, 60)}`);
       });

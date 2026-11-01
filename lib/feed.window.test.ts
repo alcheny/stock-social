@@ -161,3 +161,23 @@ dbTest('a step whose window adds no close is skipped: closes only within 14 days
     await f.remove();
   }
 });
+
+dbTest('code review S5: a window that adds no close still answers when the last 200 prove at its lower bound', async () => {
+  // 240 closes 5 to 13 days old (the 14-day window fills the 200, but small moves score under its bound of 0.65), none
+  // from 14 to 60 days, older closes 500 days back: the 60-day window holds the same closes and proves them.
+  const f = await fixture({
+    week: { n: 40, closes: 6, days: (t, i) => 5 + ((t + i) % 9), ret: (t, i) => ((t + i) % 2 ? 1 : -1) * (0.01 + ((t * 7 + i) % 5) / 1000) },
+    ancient: { n: 5, closes: 5, days: (t, i) => 500 + t + i },
+  });
+  try {
+    const { candidateRows, RECENT_HOURS, RECENCY_HOURS } = await import('./feed.ts');
+    const asOf = new Date(Date.now() - 30_000);
+    const opts = { asOf, ids: f.ids };
+    const top = (await candidateRows(opts, 'full')).rows;
+    assert.equal(top.length, 200);
+    assert.ok(Number(top[199].score) <= Math.log1p(Number.MAX_VALUE) * Math.exp(-RECENT_HOURS / RECENCY_HOURS), 'the 14-day bound does not prove');
+    await same({ ...opts, day: asOf.toISOString().slice(0, 10) }, 60 * 24);
+  } finally {
+    await f.remove();
+  }
+});

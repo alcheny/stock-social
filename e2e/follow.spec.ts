@@ -395,20 +395,35 @@ test('lists: /me/following pages follows, hidden traders and expired hides 50 at
     await expect(page.locator('main > p.follow-status[role="status"]')).toHaveText(`@${tag}_105 is back in your feed.`);
     await expect(lists.nth(1).locator('li')).toHaveCount(2);
     await expect(lists.nth(0).locator('li')).toHaveCount(5);
+    // QA Q1: showing the last rows of page 2 again goes back to the newest hidden traders (following keeps its page),
+    // never "No one is hidden." while 50 are.
+    await page.getByRole('button', { name: `Show @${tag}_106 again` }).click();
+    await expect(lists.nth(1).locator('li')).toHaveCount(1);
+    await page.getByRole('button', { name: `Show @${tag}_107 again` }).click();
+    await expect(page).toHaveURL(new RegExp(`\\?f=[0-9.]+&back=${tag}_107$`));
+    await expect(page.locator('main > p.follow-status[role="status"]')).toHaveText(`@${tag}_107 is back in your feed.`);
+    await expect(lists.nth(1).locator('li')).toHaveCount(50);
+    await expect(page.getByText('No one is hidden.')).toHaveCount(0);
+    await expect(lists.nth(0).locator('li')).toHaveCount(5);
 
     // Expired hides, page 2; "Remove" there keeps it.
     await older('Older expired hides').click();
     await expect(lists.nth(2).locator('li')).toHaveCount(2);
     await page.getByRole('button', { name: `Remove @${tag}_159` }).click();
-    await expect(page).toHaveURL(/\?f=[0-9.]+&h=[0-9.]+&e=[0-9.]+$/);
+    await expect(page).toHaveURL(/\?f=[0-9.]+&e=[0-9.]+$/);
     await expect(lists.nth(2).locator('li')).toHaveCount(1);
     // "Back to the newest" for one list leaves the others where they are.
     await page.getByRole('link', { name: 'Back to the newest' }).first().click();
-    await expect(page).toHaveURL(/\?h=[0-9.]+&e=[0-9.]+$/);
+    await expect(page).toHaveURL(/\?e=[0-9.]+$/);
     await expect(lists.nth(0).locator('li')).toHaveCount(50);
     // A crafted cursor reads the first page.
     await page.goto('/me/following?f=x&h=1.&e=%00');
     await expect(lists.nth(0).locator('li')).toHaveCount(50);
+    // QA Q1: a well-formed but stale cursor (past every row) goes back to the newest page, never "You don't follow anyone yet."
+    await page.goto('/me/following?f=1.0');
+    await expect(page).toHaveURL(/\/me\/following$/);
+    await expect(lists.nth(0).locator('li')).toHaveCount(50);
+    await expect(page.getByText('You don\u2019t follow anyone yet.')).toHaveCount(0);
   } finally {
     await sql`delete from users where handle = ${me} or id in ${sql(traders)}`;
     await sql`delete from signup_attempts where id = ${attempt}`;

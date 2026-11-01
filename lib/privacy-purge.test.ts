@@ -21,6 +21,28 @@ async function orphansPass(opts: Record<string, unknown> = {}) {
   }
 }
 
+// A call that ran: another caller (another test file's purge) may hold the lock for a moment; past a minute the test
+// fails with that reason instead of hanging.
+async function ranPass(opts: Record<string, unknown> = {}) {
+  for (let i = 0; ; i++) {
+    const r = await orphansPass(opts);
+    if (r.ran) return r;
+    if (i >= 600) throw new Error('another caller held the purge lock for over 60 s');
+    await new Promise((x) => setTimeout(x, 100));
+  }
+}
+// Calls until each cursor step has counted `need` more full laps (a lap is the whole hash space since its last wrap; on a
+// shared database one call may not finish one). Two laps guarantee one that began after the caller's rows were written.
+async function lapPass(need: number, opts: Record<string, unknown> = {}, steps = ['clear', 'mark-like', 'mark-reject']) {
+  const base = await Promise.all(steps.map(lapsOf));
+  for (let calls = 1; ; calls++) {
+    const r = await ranPass(opts);
+    const laps = await Promise.all(steps.map(lapsOf));
+    if (laps.every((l, i) => l >= base[i] + need)) return r;
+    assert.ok(calls < 40, `no ${need} full lap(s) of ${steps.join(', ')} within 40 calls`);
+  }
+}
+
 async function person(tag: string) {
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
   return (await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}${Math.random().toString(36).slice(2, 7)}` })).id;
@@ -136,7 +158,7 @@ dbTest('a like or reject whose trade is gone is marked, kept for 30 days, then r
     for (const [kind, s] of [['like', 'oldgone'], ['like', 'back'], ['reject', 'xoldgone'], ['reject', 'xback']]) {
       await sql`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at) values (${kind}, ${viewer}, ${k(s)}, ${new Date(now - 31 * DAY)})`;
     }
-    const r = await orphansPass();
+    const r = await lapPass(2);
     assert.equal(r.done, true);
     const likes = (await sql`select trade_key from trade_likes where viewer_id = ${viewer}`).map((x) => x.trade_key).sort();
     assert.deepEqual(likes, [k('live'), k('back'), k('newgone')].sort());
@@ -188,8 +210,8 @@ const SPACE = 2 ** 32;
 const posOf = (key: string) => parseInt(key.slice(0, 8), 16);
 async function setCursor(step: string, pos: number, span: number) {
   const { sql } = await import('./db.ts');
-  await sql`insert into privacy_purge_cursors (step, pos, span) values (${step}, ${pos}, ${span})
-    on conflict (step) do update set pos = excluded.pos, span = excluded.span`;
+  await sql`insert into privacy_purge_cursors (step, pos, span, swept) values (${step}, ${pos}, ${span}, 0)
+    on conflict (step) do update set pos = excluded.pos, span = excluded.span, swept = 0`;
 }
 const lapsOf = async (step: string) => {
   const { sql } = await import('./db.ts');
@@ -213,7 +235,8 @@ dbTest('an orphan behind the marking cursor is marked, and a returned trade behi
     await setCursor('mark-like', (posOf(k('gone')) + 1) % SPACE, 2 ** 24);
     await setCursor('clear', (posOf(k('back')) + 1) % SPACE, 2 ** 24);
     const [markLaps, clearLaps] = [await lapsOf('mark-like'), await lapsOf('clear')];
-    const r = await orphansPass();
+    // The walk from each cursor to the end wraps without a lap (half a lap); the next full lap covers both keys.
+    const r = await lapPass(1, {}, ['clear', 'mark-like']);
     assert.equal(r.done, true);
     const marks = (await sql`select trade_key from privacy_orphans where viewer_id = ${viewer}`).map((x) => x.trade_key);
     assert.deepEqual(marks, [k('gone')], 'the orphan behind the cursor marked; the returned trade unmarked');
@@ -247,14 +270,40 @@ dbTest('a window that hits the statement timeout shrinks and leaves the cursor i
       assert.ok(i < 300, 'the purge lock stays held'); first = await purgePrivacy({ only: ['orphans'], orphanSteps: ['mark-like'], timeoutMs: 1, boxMs: 300 }); /* a short box: the lock is held briefly */ if (first.ran) break; await new Promise((x) => setTimeout(x, 100)); }
     assert.ok(first.orphanTimeouts >= 1, 'the window timed out, rolled back and shrank');
     const laps = await lapsOf('mark-like');
-    // The next calls walk on (each within its budget) until the lap wraps.
-    for (let i = 0, ran = 0; ran < 5 && i < 50 && await lapsOf('mark-like') <= laps; i++) {
-      if ((await orphansPass({ orphanSteps: ['mark-like'] })).ran) ran++; else await new Promise((x) => setTimeout(x, 100));
-    }
+    // The next calls walk on (each within its budget) until a full lap from the cursor completes.
+    const r = await lapPass(1, { orphanSteps: ['mark-like'] }, ['mark-like']);
+    assert.equal(r.done, true);
     assert.ok(await lapsOf('mark-like') > laps, 'the cursor moved on and wrapped');
     assert.equal((await sql`select count(*)::int as n from privacy_orphans where viewer_id = ${viewer}`)[0].n, N, 'every orphan marked');
   } finally {
     await sql`delete from users where id in (${viewer}, ${trader})`;
+  }
+});
+
+dbTest('a lap begun mid-space counts only once the whole space is walked: a wide window from the middle wraps without a lap, the next full window makes one', async () => {
+  const { purgePrivacy } = await import('./privacy-purge.ts');
+  // One window per call: the box ends right after the first batch (a clock that jumps once the step has started).
+  const oneWindow = () => { let n = 0; return () => (n++ < 4 ? 0 : 1e12); };
+  const run = async () => {
+    for (let i = 0; ; i++) {
+      assert.ok(i < 300, 'the purge lock stays held');
+      const r = await purgePrivacy({ only: ['orphans'], orphanSteps: ['mark-like'], clock: oneWindow() });
+      if (r.ran) return r;
+      await new Promise((x) => setTimeout(x, 100));
+    }
+  };
+  // Another file's purge between these steps could add laps; it can never take one away, so a retry cannot hide a lap
+  // counted early.
+  let ok = false;
+  for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+    await setCursor('mark-like', SPACE / 2, SPACE);
+    const l0 = await lapsOf('mark-like');
+    await run(); // walks [middle, end) and wraps: half the space
+    const l1 = await lapsOf('mark-like');
+    await run(); // walks [0, end): now the whole space since the wrap
+    const l2 = await lapsOf('mark-like');
+    ok = l1 === l0 && l2 === l0 + 1;
+    if (attempt === 3) assert.deepEqual([l1 - l0, l2 - l0], [0, 1], 'no lap for the half walk, one for the full one');
   }
 });
 
@@ -303,7 +352,7 @@ dbTest('the cursor holds a position in the hash space only (no viewer, key or tr
   const { sql } = await import('./db.ts');
   const { tradeKey } = await import('./likes.ts');
   const cols = (await sql`select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'privacy_purge_cursors' order by column_name`).map((x) => x.column_name);
-  assert.deepEqual(cols, ['laps', 'pos', 'span', 'step', 'updated_at']);
+  assert.deepEqual(cols, ['laps', 'pos', 'span', 'step', 'swept', 'updated_at']);
   const [o] = await sql`select '0f' < '10' as a, '9f' < 'a0' as b, 'ffffffff' < 'g' as c, '' < '00000000' as d, '7fffffff' < '80000000' as e`;
   assert.deepEqual(Object.values(o), [true, true, true, true, true]);
   assert.match(tradeKey('any sell id'), /^[0-9a-f]{64}$/, 'trade keys are lowercase sha256 hex');

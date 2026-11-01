@@ -134,12 +134,12 @@ export async function candidateRows(opts: CandOpts, force?: 'full'): Promise<{ r
   const clock = (opts.asOf ?? new Date()).getTime();
   const first = await sql.begin(RR, async (tx) => {
     const recent = await candidateQuery(tx, opts, RECENT_HOURS);
-    if (proven(recent, RECENT_HOURS)) return { rows: recent, old: null };
+    if (proven(recent, RECENT_HOURS)) return { rows: recent, old: null, top: recent };
     const old = await olderThan(tx, opts, RECENT_HOURS);
-    return { rows: old ? null : recent, old };
+    return { rows: old ? null : recent, old, top: recent };
   });
   if (first.rows) return { rows: first.rows, window: RECENT_HOURS };
-  let old = first.old;
+  let old = first.old, last = first.top;
   // Known limit removed (known-limits sweep 2): on a quiet site (the 200th close must be about 2.6 days old or newer for
   // the 14-day proof) every new list ranked every close in closed_trades. Wider windows are tried first, with the same
   // proof (MAX_DECAY = 600 is above 365 d / 48 h = 182.5, so an older close scores at most SIZE_MAX · e^(−W/48): 6.6e−11
@@ -149,14 +149,16 @@ export async function candidateRows(opts: CandOpts, force?: 'full'): Promise<{ r
   // 14 days, lib/feed.window.load.test.ts): candidates 768–1,616 ms (full pass) → 160–300 ms (60-day step).
   for (const win of WIDE_WINDOWS) {
     if (!old) break;
-    if (old.getTime() <= clock - win * 3_600_000) continue; // this window adds no close: it fails as the last one did
-    const step: { rows: Candidate[] | null; old: Date | null } = await sql.begin(RR, async (tx) => {
+    // A window that adds no close holds the last one's closes, so the same 200: skipped unless they prove at this
+    // window's lower bound (code review S5: then the step runs and answers, picks included).
+    if (old.getTime() <= clock - win * 3_600_000 && !proven(last, win)) continue;
+    const step: { rows: Candidate[] | null; old: Date | null; top: Candidate[] } = await sql.begin(RR, async (tx) => {
       const top = await candidateQuery(tx, { ids: opts.ids, asOf: opts.asOf }, win);
-      if (!proven(top, win)) return { rows: null, old: await olderThan(tx, opts, win) };
-      return { rows: opts.day ? [...top, ...await pickQuery(tx, opts, top.map((t) => t.user_id))] : top, old: null };
+      if (!proven(top, win)) return { rows: null, old: await olderThan(tx, opts, win), top };
+      return { rows: opts.day ? [...top, ...await pickQuery(tx, opts, top.map((t) => t.user_id))] : top, old: null, top };
     });
     if (step.rows) return { rows: step.rows, window: win };
-    old = step.old;
+    old = step.old; last = step.top;
   }
   // ponytail: when not even 365 days prove the 200 (fewer than 200 capped closes of eligible traders in a year, with
   // closes older than the last window tried), this still ranks every close in closed_trades per (day, asOf) and per
