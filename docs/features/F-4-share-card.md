@@ -101,6 +101,24 @@ elements that catch the eye and travel, and leave detail for the profile.
   years when strong. Why: the owner's choice; the card and its trust line always use the same unit.
 - 2026-11-01: The owner confirmed F-4 is decided: #25 merges as built, and the pipeline rebuilds the card to the
   decisions of 2026-10-31 and 2026-11-01 (Status: rework). Why: the owner's choice.
+- 2026-11-01: The trust line's sign is the sign of the interval the card prints, alone ("clear pattern" and
+  "consistent" only when the whole range is on one side of 0, losses as gains). Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's table says
+  "interval entirely above/below 0", and with a separate pace check the card could print a range wholly above 0
+  beside "no clear pattern yet" (docs/features/logs/F-4/committee-2026-11-01.md, Q-S; one dissent).
+- 2026-11-01: Open positions on the card (F-6): the count, how many are up and down, and the lowest and highest
+  unrealized percent ("Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%"; "3 still open · …" on
+  the link preview), no symbols, no average and no combined figure; the headline label reads "average per closed
+  trade" when there are open positions. Why: decided by the committee under the owner's instruction of 2026-11-01; an average across positions is a number no account has, the lowest
+  printed first means a held loser is never hidden, and a shared picture naming held stocks would read as a pick.
+- 2026-11-01: The text under the link preview keeps "Evidence: tier", and the chart caption keeps the owner's words
+  even with open positions shown. Why: decided by the committee under the owner's instruction of 2026-11-01; TR-9 makes the label a Must; owner copy changes only with the owner.
+- 2026-11-01: The card's range, tier and record length: the range is `lib/bets.ts#arithmeticRange` (cluster-robust,
+  t with K − 1 df, the bets `confidence()` counts); the tier uses `confidence()`'s thresholds with "too wide" read on
+  that range; days are rounded exactly as the profile's evidence line. Why: decided by the committee under the owner's instruction of 2026-11-01; so the headline, its range, its trust
+  line and the profile's day count can never disagree.
+- 2026-11-01: The link preview keeps every element at 10 CSS px or more by moving the chart caption to its own row
+  and the headline label beside the number; its chart is about 27% normally, 24% with an open-positions row or the
+  failed-import note, 21% with both; square and story keep 30%. Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's "about 24%, every element kept".
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
