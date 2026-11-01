@@ -62,7 +62,8 @@ at the end, built, so the brief governs.
    - `lib/f10-feed-card.test.ts` (the Verified glyph's aria-hidden span);
    - `e2e/f15-canonical.spec.ts` (canonical in the key form; the over-encoded legacy URL answers 308).
    - after merging main: `e2e/f15-share.spec.ts`, `e2e/f26-held-like-none.spec.ts` and `e2e/f7-public-profile.spec.ts`,
-     which built trade URLs from sell ids, now build them from the key (same assertions).
+     which built trade URLs from sell ids, now build them from the key (same assertions); after #84,
+     `lib/sync-reconcile.copy.test.ts` (F-24) renders the trade page by its key the same way.
 3. The pane's "Last 5 trades" keys come from one column of `records1`'s existing statement as `id:key` pairs,
    attached by row id, so a `closed_at` tie can never shift a key onto the wrong row.
 4. There is no "rows with no key" filter, because `trade_key` is a generated column of a non-null `sell_id`. A card

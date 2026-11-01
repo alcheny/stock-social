@@ -27,6 +27,7 @@ test('F-25 tradePageHref: /u/<handle>/trade/<trade_key>, and nothing but a 64-he
 test('F-25 withQuery: the legacy 308 keeps every query value (via, repeated keys, reserved characters); none gives the bare href', () => {
   const h = `/u/maya/trade/${KEY}`;
   assert.equal(withQuery(h, {}), h);
+  assert.equal(withQuery(h, undefined), h); // a direct render with no search params
   assert.equal(withQuery(h, { via: undefined }), h);
   assert.equal(withQuery(h, { via: 'trade' }), `${h}?via=trade`);
   assert.equal(withQuery(h, { via: 'trade', tag: ['a', 'b'] }), `${h}?via=trade&tag=a&tag=b`);
