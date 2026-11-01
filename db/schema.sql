@@ -19,6 +19,11 @@ begin
     execute format('alter table %I add column %I %s', tbl, col, ddl);
   end if;
 end $f$;
+-- ponytail: a new index is built without `concurrently` (it runs inside the schema's single transaction, where
+-- concurrently is not allowed), so its first apply holds a SHARE lock on the table — writes wait for the whole build;
+-- harmless on today's small tables, not on a large one. Also, an index left invalid by a failed concurrent build still
+-- counts as present here (pg_indexes lists it). Fix: build indexes on large tables outside the transaction with
+-- `create index concurrently` in a separate step, and check pg_index.indisvalid.
 create or replace function schema_add_index(idx text, ddl text) returns void language plpgsql as $f$
 begin
   if not exists (select 1 from pg_indexes where schemaname = current_schema() and indexname = idx) then execute ddl; end if;
@@ -1088,6 +1093,25 @@ create table if not exists view_drops (
   n int not null default 0,
   primary key (day, surface, reason)
 );
+
+-- ---- F-15 second half (docs/features/logs/F-15/plan-second-half.md): share_action rows (E5, G2) ----
+-- One row per completed share of a trader's own record (sheet resolved or link copied), written by
+-- lib/share-actions.ts#writeShareAction for the record's owner only (a viewer's share is never stored). Day only (UTC),
+-- no time of day, no id column; surface is the share class (card, story, trade, month), outcome sheet or copy,
+-- record_sign the headline's sign at that moment (up, down, flat, none). Never: destination, recipients, thesis, account
+-- id, sell id, month, path, IP, agent, session or cookie. At most 20 a trader a UTC day. No CHECKs on purpose (closed
+-- lists in code, a db test on stored values; first-half decision 7). Deleted with the account (explicit delete in
+-- lib/delete.ts and the cascade) and after 120 days (lib/privacy-purge.ts, step 'shares'). The four users share
+-- columns stay and are still written; the readout reads these rows instead. Never read by any page or by ordering.
+create table if not exists share_action (
+  user_id int not null references users on delete cascade,
+  day date not null,
+  surface text not null,
+  outcome text not null,
+  record_sign text not null
+);
+select schema_add_index('share_action_user_day', 'create index share_action_user_day on share_action (user_id, day)');
+select schema_add_index('share_action_day', 'create index share_action_day on share_action (day)');
 
 -- ---- F-16 (docs/features/F-16-trust-and-safety-slice.md) and F-17 (F-17-handle-and-name-integrity.md) ----
 -- Plan: docs/features/logs/F-16-F-17/plan.md §3. Additive and idempotent; nothing here drops, truncates or deletes.

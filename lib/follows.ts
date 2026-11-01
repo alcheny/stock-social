@@ -138,8 +138,8 @@ export function pastEndQuery(at: ListCursors, pages: Record<'f' | 'h' | 'e', Lis
   const drop = (['f', 'h', 'e'] as const).filter((k) => isListCursor(at[k]) && pages[k].rows.length === 0);
   return drop.length ? listsQuery({ ...at, ...Object.fromEntries(drop.map((k) => [k, undefined])) }, extra) : null;
 }
-// The first page of each (kept for callers that want both at once).
-export async function ownLists(viewer: number): Promise<{ following: Listed[]; hidden: Listed[] }> {
+// The FIRST PAGE (FOLLOW_PAGE rows) of each list, not every row: page with ownFollowing / ownHidden for the rest.
+export async function ownListsFirstPage(viewer: number): Promise<{ following: Listed[]; hidden: Listed[] }> {
   const [following, hidden] = await Promise.all([ownFollowing(viewer), ownHidden(viewer)]);
   return { following: following.rows, hidden: hidden.rows };
 }
@@ -184,8 +184,8 @@ export async function expiredHidesPage(viewer: number, after?: unknown): Promise
       and (x.until, x.trader_id) < (timestamptz 'epoch' + ${us}::bigint * interval '1 microsecond', ${id}::int)
     order by x.until desc, x.trader_id desc limit ${FOLLOW_PAGE + 1}`);
 }
-// The first page only, in the shape existing callers read (a list).
-export async function expiredHides(viewer: number): Promise<Listed[]> { return (await expiredHidesPage(viewer)).rows; }
+// The FIRST PAGE (FOLLOW_PAGE rows) of expired hides, not every row: page with expiredHidesPage for the rest.
+export async function expiredHidesFirstPage(viewer: number): Promise<Listed[]> { return (await expiredHidesPage(viewer)).rows; }
 export async function removeExpiredHide(viewer: number, trader: number): Promise<void> {
   await sql`delete from viewer_exclusions where viewer_id = ${viewer} and trader_id = ${trader} and reason = 'not_interested' and ended_at is null and until <= now()`;
 }

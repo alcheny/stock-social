@@ -45,3 +45,23 @@ test('F-15: the views step is on the existing cron path (the sync tick calls pur
   assert.match(SCHEMA_MAP.view_rollup.holds, /120 days/);
   assert.match(SCHEMA_MAP.view_drops.holds, /120 days/);
 });
+
+dbTest('F-15 second half: purgePrivacy step shares removes share_action rows older than SHARE_RETENTION_DAYS and keeps the edge day', async () => {
+  const { sql } = await import('./db.ts');
+  const { SHARE_RETENTION_DAYS } = await import('./share-actions.ts');
+  const { purgePrivacy } = await import('./privacy-purge.ts');
+  const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+  const h = `f15q${Math.random().toString(36).slice(2, 10)}`;
+  const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${h}, ${h}, now(), ${a.id}) returning id`;
+  const NOW = new Date(Date.UTC(1991, 5, 15, 23, 30)); // late in the UTC day: a non-UTC session's date would differ
+  const day = (back: number) => new Date(Date.UTC(1991, 5, 15) - back * 86_400_000);
+  for (const back of [SHARE_RETENTION_DAYS + 30, SHARE_RETENTION_DAYS + 1, SHARE_RETENTION_DAYS, 3]) {
+    await sql`insert into share_action (user_id, day, surface, outcome, record_sign) values (${u.id}, ${day(back)}::date, 'card', 'copy', 'none')`;
+  }
+  const r = await purgePrivacy({ now: NOW, only: ['shares'], batch: 1 });
+  assert.equal(r.done, true);
+  assert.ok(r.shares >= 2, `purged ${r.shares}`);
+  const left = await sql`select (${day(0)}::date - day) back from share_action where user_id = ${u.id} order by back`;
+  assert.deepEqual(left.map((x) => x.back), [3, SHARE_RETENTION_DAYS]);
+  await sql`delete from users where id = ${u.id}`;
+});

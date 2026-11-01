@@ -53,6 +53,8 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
     tx`delete from discovery_events where target_user_id = ${u.id}`,
     // F-15: the aggregate view counts naming this trader go with the mark (the users cascade covers any written meanwhile).
     tx`delete from view_rollup where user_id = ${u.id}`,
+    // F-15 second half: the trader's share_action rows go with the mark too (the users cascade covers the window after).
+    tx`delete from share_action where user_id = ${u.id}`,
     // F-3 Record tools (committee condition 12): every subscriber whose views or notes named this account gets one
     // line on the next visit (a count, no trader id kept); then the notes and view entries naming it, and its own.
     tx`insert into record_tool_notices (owner_id, removed)

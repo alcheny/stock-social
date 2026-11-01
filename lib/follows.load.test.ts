@@ -78,7 +78,7 @@ test(`heavy: a viewer with ${MANY.toLocaleString('en-US')} follows, running hide
     return ms;
   };
   try {
-    const ms = [await time('ownLists (following + hidden)', () => F.ownLists(viewer)), await time('expiredHides', () => F.expiredHides(viewer))];
+    const ms = [await time('ownListsFirstPage (following + hidden)', () => F.ownListsFirstPage(viewer)), await time('expiredHidesFirstPage', () => F.expiredHidesFirstPage(viewer))];
     if (F.followHandles) ms.push(await time('followHandles(100)', () => F.followHandles(viewer, 100, [])));
     if (F.ownFollowing) {
       const p1 = await F.ownFollowing(viewer) as { next: string };
