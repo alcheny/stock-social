@@ -177,6 +177,12 @@ test('F-12 AC1/AC6: month pages show the same fields for a losing and a winning 
     await expect(section.locator('[data-strip]')).toContainText('losses included');
     await expect(section.getByRole('link', { name: `@${m.handle}'s record` })).toHaveAttribute('href', `/u/${m.handle}`);
     await expect(section.locator('[data-disclaimer]')).toHaveText(DISCLAIMER);
+    // Business lead user test: the month's result is the hero, at least the size of the count line.
+    const sizes = await page.locator('section[aria-labelledby="this-month"]').evaluate((sec) => {
+      const fig = sec.querySelector('[data-strip-scope="month"]')!, count = [...sec.querySelectorAll('p')].find((p) => /this month$/.test(p.textContent ?? ''))!;
+      return [parseFloat(getComputedStyle(fig).fontSize), parseFloat(getComputedStyle(count).fontSize)];
+    });
+    expect(sizes[0]).toBeGreaterThan(sizes[1]);
     shape.push(await page.locator('main h2').allInnerTexts().then((hs) => hs.map((h) => h.replace(/@\w+/, '@h').replace(/\s*New record$/, '').replace(/^(Best|Worst) trade$|^Only trade this month$/, 'pick'))));
     const alt = (await page.locator('meta[property="og:image:alt"]').getAttribute('content'))!;
     expect(alt).toContain(DISCLAIMER);

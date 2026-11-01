@@ -529,3 +529,7 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
   .feed .card .ret { font-size: 56px; }
   .feed .card .thesis { font-size: 16px; -webkit-line-clamp: 1; line-clamp: 1; }
 }
+/* F-12 (business lead user test): the month's result is the hero of "This month". */
+.month-figures .record-strip { font-size: 1.75rem; line-height: 1.25; margin: 4px 0; }
+/* The range's label, "losses included" and the open count never start a line on their own separator. */
+.record-strip [data-part="rangeLabel"], .record-strip [data-part="losses"], .record-strip [data-part="open"] { white-space: nowrap; }

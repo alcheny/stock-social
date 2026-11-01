@@ -61,7 +61,7 @@ export default async function TradePage({ params }: Params) {
         <section className="trade-card" aria-labelledby="this-trade">
           <h2 id="this-trade">This trade</h2>
           <h1 style={{ margin: 0 }}>{t.symbol}</h1>
-          <p className="big"><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</p>
+          <p className={`big ${t.returnPct > 0 ? 'up' : t.returnPct < 0 ? 'down' : ''}`}><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</p>
           <p className="muted small">{held(t.holdingDays)} · closed {closed}</p>
           {t.thesis && <blockquote>“{t.thesis}”</blockquote>}
         </section>

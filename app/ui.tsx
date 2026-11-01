@@ -65,7 +65,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
-        <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
+        <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
         {/* F-10 (user test 2026-11-01, F-10 AC10): with the record line, the disclaimer is in view on every card, so the
             first screen at 360 px carries it (the site footer sits below the fold). */}
         {strip && <p className="card-disclaimer" data-disclaimer>{DISCLAIMER}</p>}

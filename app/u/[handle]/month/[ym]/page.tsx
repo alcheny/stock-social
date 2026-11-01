@@ -69,10 +69,11 @@ export default async function RecapPage({ params }: Params) {
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-month">
           <h2 id="this-month">This month</h2>
-          {/* F-12 (D-24, F3b): the same fields every month, losing months included: the count, then the month's
-              figures from the strip. No win rate and no verdict. */}
-          <p className="big">{monthCountText(m.count)}</p>
-          {month.figures.length > 0 && <RecordStrip strip={month} />}
+          {/* F-12 (D-24, F3b): the same fields every month, losing months included. The month's result is the hero (its
+              average in its tone, or Too early at the same weight; business lead user test 2026-11-01), the count under it.
+              No win rate and no verdict. */}
+          {month.figures.length > 0 && <div className="month-figures"><RecordStrip strip={month} /></div>}
+          <p className="muted small" style={{ marginTop: 0 }}>{monthCountText(m.count)}</p>
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">{RECORD_STRIP.link(handle)} {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>
@@ -99,7 +100,6 @@ export default async function RecapPage({ params }: Params) {
       <TradeShare isOwner={false} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       <p className="muted small">Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</p>
-      <p><Link href={`/u/${handle}`}>See their record, wins and losses →</Link></p>
       {!me && !r.demo && <JoinCta handle={handle} via="month" />}
       <p><Link href="/">← Feed</Link></p>
     </main>

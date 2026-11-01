@@ -7,7 +7,7 @@ import { BRAND_BOX, IMAGE, IMAGE_COLOURS, STRIP_BAND, type ImageLine, type Strip
 
 function Figures({ parts }: { parts: StripPart[] }) {
   return parts.map((p, k) => (
-    <span key={k}>
+    <span key={k} data-part={p.role}>
       {/* The separator stays readable text (user test 2026-11-01: hidden, a screen reader ran "trades+0.9%" together). */}
       {p.sep}
       {p.role === 'average' || p.role === 'early'
