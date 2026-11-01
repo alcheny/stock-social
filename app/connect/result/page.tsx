@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -9,6 +10,9 @@ import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser } from '@/lib/session.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { RESULT } from '@/lib/copy.ts';
+
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Connection result · Stock Social', robots: { index: false } };
 
 // S6 declined / expired, S6c no real account, S7 abandoned / failed / claimed. Every terminal state has one retry and
 // one way out (S7a also "Continue in a new page"); errors are role="alert" and take focus. No ids or vendor details are shown. `?k=abandoned` needs no

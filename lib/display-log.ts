@@ -7,7 +7,8 @@
 // UTC day, which may be later than midnight. Wherever a past display is shown, it says "as of <asOf> (UTC)", never "all
 // day"; a later change the same day appears in the next day's row (code review 9, orchestrator review 3).
 import { sql } from './db.ts';
-import { confidence, evidenceLine, pct, rangeText, stats } from './trades.ts';
+import { evidenceLine, pct, stats } from './trades.ts';
+import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { winRateText } from './copy.ts';
 import { counted } from './format.ts';
 import { positionRows } from './positions.ts';
@@ -22,11 +23,13 @@ export type Snapshot = { headline: string; rangeText: string | null; tradeCount:
 
 export function snapshotText(closes: Close[], positions: Position[], today: Date): Snapshot {
   const s = stats(closes);
-  const c = confidence(closes, today);
+  // F-4 rework: the profile displays the share card's evidence (lib/record-card.ts#cardEvidence: the range around the
+  // average it prints, its tier and verdict), so the log records that same text.
+  const c = cardEvidence(closes, today);
   const rows = positionRows(positions);
   return {
     headline: closes.length ? `${winRateText(s.winRate)} · ${pct(s.avgReturn)} avg return / trade` : 'No closed trades yet',
-    rangeText: closes.length ? rangeText(c) : null,
+    rangeText: closes.length ? evidenceRangeText(c) : null,
     tradeCount: closes.length,
     openSummary: rows.length
       ? `${counted(rows.length, 'open position')}: ${rows.map((r) => `${r.symbol}${r.account ? ` (account ${r.account})` : ''} ${pct(r.pct)}`).join(', ')}`
@@ -65,6 +68,9 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
   const end = clock() + Math.min(opts.boxMs ?? DISPLAY_LOG_BOX_MS, DISPLAY_LOG_BOX_MS);
   const batch = opts.batch ?? DISPLAY_LOG_BATCH;
   let after = 0, written = 0;
+  // ponytail: one snapshot per trader, one after another (~5 queries and a whole-record read each) inside a 20 s box per
+  // tick, so past (ticks per day × box ÷ time per trader) records get no row that day — snapshot a batch in one
+  // set-based query, or run it as its own job that reports its backlog.
   for (;;) {
     const users = await sql`select u.id from users u where u.deleted_at is null and u.id > ${after}
       ${opts.ids ? sql`and u.id in ${sql(opts.ids.length ? opts.ids : [0])}` : sql``}

@@ -13,6 +13,8 @@ adopted.
 Adopted ideas that add functions or requirements go to the approval council ([`team/approval-council.md`](../team/approval-council.md)),
 whose most-elected ideas are approved automatically and built (owner's delegation of 2026-11-01).
 
+The whole path from idea to merged feature, with states and exit criteria: [`docs/process/lifecycle.md`](process/lifecycle.md).
+
 ## How an idea gets reviewed
 
 1. Anyone (the owner, a design session, a committee, an agent) adds it to the register below with status
@@ -38,25 +40,60 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
 | 10 | Share card: running-sum chart, no win rate in preview text, length to last close (F-4) | owner | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#idea-10-share-card-chart-preview-text-and-record-length-o) | — |
 | 11 | Autonomous build: AI committees decide open questions, merge without human review | owner | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#idea-11-autonomous-build-without-human-review-before-merge-o) | — |
 | 12 | Open choices in the private Terms and Privacy Policy drafts (12a-12g) | owner (delegated) | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-12-terms-and-privacy-policy-draft-choices-d) | — |
-| 13 | Go-to-market for the first 100 connected traders and 1,000 viewers, incl. gate counters | owner (delegated) | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-13-go-to-market-for-the-first-100-traders-and-1000-viewers-d) | candidate |
-| 14 | Projection assumptions (break-even share, data cost) and the cheapest early test | owner (delegated) | testing | [2026-11-01](ideas/2026-11-01-board-review.md#idea-14-projection-assumptions-d) | candidate |
+| 13 | Go-to-market for the first 100 connected traders and 1,000 viewers, incl. gate counters | owner (delegated) | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-13-go-to-market-for-the-first-100-traders-and-1000-viewers-d) | C17 counters waiting, first next cycle; C9 handles waiting ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| 14 | Projection assumptions (break-even share, data cost) and the cheapest early test | owner (delegated) | testing | [2026-11-01](ideas/2026-11-01-board-review.md#idea-14-projection-assumptions-d) | C18 notify-me waiting, not before LIVE_BILLING ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
 | 15 | Does the business lead's demand debate apply to owner-decided features (IMPLEMENTATION) | found in repo | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#idea-15-scope-of-the-demand-debate-on-decided-features-d) | — |
 | 16 | Later per-trade depth on the record card vs per-trade cards only (F-4) | found in repo | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-16-per-trade-depth-on-the-record-card-d) | — |
 | 17 | Timing of the product-name trademark clearance search (POLICY T5a) | found in repo | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#idea-17-timing-of-the-trademark-clearance-search-d) | — |
 | 18 | Creator payout trigger conditions (F-3) | found in repo | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-18-creator-payout-trigger-conditions-d) | — |
 | 19 | Repository license and whether or when to publish the repo (POLICY C4, H) | found in repo (owner-reserved, POLICY H) | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#idea-19-repository-license-and-publishing-flag) | — |
-| D20 | Disclaimer in plain view on the feed and under the profile headline | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d20-disclaimer-out-of-plain-view) | candidate |
-| D21 | Neutral "Sign in" with two paths (follow and save / publish my record) | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d21-sign-in-framed-only-as-publishing) | candidate |
-| D22 | One record line on every feed card; smaller ticker tested | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d22-feed-card-without-record-context) | candidate |
-| D23 | Profile headline leads with average and range, win rate second (three versions) | idea board | testing | [2026-11-01](ideas/2026-11-01-board-review.md#d23-profile-leads-with-win-rate) | candidate |
-| D24 | Plain labels for every stat; trades vs bets reconciled; units named | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d24-jargon-and-counts-that-disagree) | candidate |
-| D25 | Remove developer text and the "every stock" claim from public pages | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d25-developer-text-and-a-completeness-slip) | candidate |
-| D26 | Production switch: no sign-in or connect until Terms and Privacy Policy are live | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d26-consent-to-placeholder-terms) | candidate |
-| D27 | One-line explanation for signed-out first visits; "Trades by stock" nav label | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d27-no-first-visit-explanation) | candidate |
+| D20 | Disclaimer in plain view on the feed and under the profile headline | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d20-disclaimer-out-of-plain-view) | C1 passed, over the cap; remainder folded into fix #3 ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D21 | Neutral "Sign in" with two paths (follow and save / publish my record) | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d21-sign-in-framed-only-as-publishing) | C2 waiting: F-1 rework after security hardening ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D22 | One record line on every feed card; smaller ticker tested | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d22-feed-card-without-record-context) | **approved: F-10** ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D23 | Profile headline leads with average and range, win rate second (three versions) | idea board | testing | [2026-11-01](ideas/2026-11-01-board-review.md#d23-profile-leads-with-win-rate) | C4 waiting until there is traffic ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D24 | Plain labels for every stat; trades vs bets reconciled; units named | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d24-jargon-and-counts-that-disagree) | C5 waiting: helpers after this cycle ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D25 | Remove developer text and the "every stock" claim from public pages | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d25-developer-text-and-a-completeness-slip) | fixes list #8, #12 ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D26 | Production switch: no sign-in or connect until Terms and Privacy Policy are live | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d26-consent-to-placeholder-terms) | excluded: built in #31 ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D27 | One-line explanation for signed-out first visits; "Trades by stock" nav label | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d27-no-first-visit-explanation) | **approved: F-13** ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
 | D28 | DESIGN §1.2 signal-seller persona and §3.4 "skill" and "badges" lines | idea board | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#d28-design-persona-and-skill-and-badge-lines) | — |
-| D29 | "Last close · updated" and "Account 1 of 2" on the profile; idle marker | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d29-stale-or-opaque-records) | candidate |
+| D29 | "Last close · updated" and "Account 1 of 2" on the profile; idle marker | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d29-stale-or-opaque-records) | **approved: F-11** ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| 30 | Thesis safety v2: normalised moderation, report action, owner-run release path (C8) | design council P-1, creative council CR-34..36 | **approved: F-9** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
+| 31 | Record status line remainder of D29 plus TR-5 "Account removed" (C7) | design council P-4, creative CR-7 | **approved: F-11** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
+| 32 | Record strip on trade and month pages and images, per idea 16 (C15) | design council P-4, creative CR-9/12/13 | **approved: F-12** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
+| 33 | Sync cadence within the vendor's guidance (C19) | market council #2 | **approved: F-14** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
+| 34 | Handle and name integrity, trimmed (C9) | design council P-2, creative CR-33 | **approved: F-17** (cycle 2, K2) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 35 | Privacy-safe gate counters (C17) | market council #3, idea 13 | **approved: F-15** (cycle 2, K3 with MRC2-1 and BC-7) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 36 | One trust language (C10) | design council P-3, creative CR-5/8/14/15 | **approved: F-18** (cycle 2, K7) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 37 | Owner sees the public record (C12) | design council P-8, creative CR-32 | waiting (cycle 2, K15 1.87: no real traders yet; needs real sign-in) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 38 | Feed reading mode, non-visual remainder (C11) | design council P-6, creative CR-26 | waiting (cycle 2, K16 2.00: after fixes #14-#17 and F-10/F-13) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 39 | Design-system foundation and CI gate (C14) | design council P-10, creative CR-16..24 | **approved: F-20** (cycle 2, K9) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 40 | Wayfinding remainder: month index, search (C13) | design council P-9 | waiting (cycle 2, K21 1.13: no demand; after F-17) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 41 | Home link preview (C21) | creative council CR-1/31, market #12 | waiting (cycle 2, K20 2.13: chore-sized; the orchestrator may build it) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 42 | Simulated-account exclusion and coverage copy (C20) | market council #14 | rejected as a feature: already built (`is_paper` filter); copy goes with fix #8 | [approval 2026-11-01](ideas/approval-2026-11-01.md) | rejected |
+| 43 | Whole-record preview at connect (C16) | market council #11 | flagged for owner: contradicts F-1 2026-10-22 (no import before consent); recommend a Demo-record preview (cycle 2 repeats it as K17's shape) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
+| 44 | Trial arm, free limited Record tools, delete connection on disconnect, other price arms (MR-6/7/8/13) | market council | flagged for owner: contradict F-3 2026-11-01 / TR-5; not recommended now | [approval 2026-11-01](ideas/approval-2026-11-01.md) | owner |
+| 45 | Number format, tone and ranges, lib slice first (C5, D24, DS-10..13, DS-25, MRC2-5) | design system council, market council cycle 2 | **approved: F-19** | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 46 | Trust-and-safety slice: profile report, owner digest, audited hide, takedown page, anti-impersonation line (BC-2, BC-17, MRC2-6) | business council, market council cycle 2 | **approved: F-16** | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 47 | Open-positions gate for real users with a count-only line (BC-3) | business council | flagged for owner: narrows F-6 2026-11-01 and TR-4; recommend a dated temporary exception in F-6 | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
+| 48 | Age-law posture: attestation version, hide on an under-18 report, pinned signed-out order (MRC2-12) | market council cycle 2 | waiting (K18 3.07: first next cycle, as an addition to F-16) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 49 | Sitemap and SEO pages (MRC2-13) | market council cycle 2 | waiting (K19 2.07: after fixes #1 and #4; no profiles before launch) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 50 | Billing hygiene checks in test mode (MRC2-11) | market council cycle 2 | waiting (K22 2.00: a test-only chore; Terms text is the owner's) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 51 | One image palette and image trust band (DS-6, DS-19) | design system council | waiting (K11 1.73: after F-12 and owner flags O-2/O-4) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 52 | Design-system variant tests V-1 neutral base, V-2 type and spacing collapse, V-3 nav labels (DSP-5..7) | design system council | waiting (KV 1.07: no traffic, held with C4/D23) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 53 | Amendments to idea-board decisions D27, D25, D22 and a one-maturity-signal rule (DSP-2, DSP-3, DSP-4, DSP-8) | design system council | proposed: goes to the idea board (the council may not reword a decided line) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | idea board |
+| 54 | Gate definitions, go-to-market v2, pricing research, vendor questions (MRC2-3, 4, 7, 10, 11) | market council cycle 2 | flagged for owner | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
+| 55 | Council cycle 3 whole-app audit of main: 18 ranked proposal briefs for approval cycle 3 (top: C3-2 transfers as share moves, C3-3 oversells publish the recorded part, C3-17 exclusion counts beside the headline, C3-15 in-app disconnect, C3-9 broker corrections), a 27-item fixes list (F3-1..F3-27, no vote) and 10 owner questions | council cycle 3 (nine lenses, two cross-reviews, synthesis, verification, red team) | proposed: briefs go to approval council cycle 3; fixes to the orchestrator; questions to the owner | [cycle 3](direction/cycle3-2026-11-01.md) | approval cycle 3 |
 
 ## Decisions
+
+- 2026-11-01: The approval council's second cycle approved six features: F-15 measurement foundation (first slice),
+  F-16 trust-and-safety slice, F-17 handle and name integrity, F-18 one trust language, F-19 number format and ranges
+  (lib slice first), F-20 design tokens and the contrast test. They take five build slots (F-20 and F-18 share
+  `app/globals.css`). An approval whose prerequisite has not merged by the next council lapses to it. BC-3 (open
+  positions gate) and the Demo-record preview went to the owner. Why: approval council under the owner's delegation of
+  2026-11-01 ([record](ideas/approval-2026-11-01-cycle2.md)).
+
+- 2026-11-01: The approval council approved six features: F-9 thesis safety, F-10 feed record line and the shared RecordStrip, F-11 record status line, F-12 trade and month record strip, F-13 first-visit line and swipe hint, F-14 sync cadence. C1 and C9 passed but were over the cap of six; C1's remainder rides with fix #3. Why: approval council under the owner's delegation of 2026-11-01 ([record](ideas/approval-2026-11-01.md)).
 
 - 2026-11-01: Terms draft, disputes: individual arbitration with a 30-day opt-out by plain email, shown in the
   plain-language summary; assent by an unchecked box beside a visible link; small claims open to both sides; the
@@ -143,6 +180,19 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
   instruction of 2026-11-01.
 
 ## Flags for the owner
+
+- Council cycle 3 2026-11-01: ten owner questions, one list, each with a recommended answer (TR-5 freeze rule,
+  OD-9 positions of a disconnected account, append-only revisions for broker corrections, exclusion count on the share
+  card, F3b account-event email scope, viewer sign-up gate, data-export scope, consent for "public since", trader reach
+  counts, one owner queue). Record: [cycle 3](direction/cycle3-2026-11-01.md#7-owner-questions).
+
+- Approval council cycle 2 2026-11-01: BC-3 open-positions gate (recommend a dated temporary exception in F-6 with the
+  count-only line); the Demo-record preview as C16's shape; commit 107d3f4 on `claude/f13-a11y-fixes` rewords D27's
+  decided line (revert, or amend D27 at the idea board first); DSP-2/3/4/8 go to the idea board; MRC2-3/4/7/10/11 and
+  BC-1, 5, 8, 9, 10, 12-16, 18 are the owner's; BC-11's legal calls (T2, the legislator source, the launch-gate bypass)
+  are the owner's. Record: [approval cycle 2](ideas/approval-2026-11-01-cycle2.md#flags-for-the-owner-the-councils-recommendation-not-approved).
+
+- Approval council 2026-11-01: C16 whole-record preview needs an F-1 change (recommend a Demo-record preview); MR-6/7/8/13 contradict F-3 and TR-5 (not recommended); treat the privacy-safe gate counters (C17) and handle integrity (C9) as the first items of the next cycle; CLAUDE.md and DESIGN §2.7 "hourly sync" wording after F-14; DECISIONS #11 logged twice; D22's "Too early to tell" vs F-4's under-5-bets line; F-13's line needs new wording if F-7 public profiles enter the feed. Record: [approval 2026-11-01](ideas/approval-2026-11-01.md#flags-for-the-owner-the-councils-recommendation-not-approved).
 
 - Idea board 2026-11-01 (idea 5): before LIVE_BILLING and the first real user, one limited attorney review, staged:
   publisher's exclusion for Record tools and F1a ordering, checkout, auto-renewal, refund and arbitration terms;

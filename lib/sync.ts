@@ -1,9 +1,11 @@
 import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
-import { fetchActivities, fetchActivitiesPage, fetchPositions, listAccounts, PAGE_LIMIT, VENDOR_TIMEOUT_MS } from './broker.ts';
+import { fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves, listAccounts, PAGE_LIMIT, VENDOR_TIMEOUT_MS } from './broker.ts';
 import { AccountClaimedError, claimIn } from './claims.ts';
+import { notShared } from './shared-accounts.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
+import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pairKey } from './corporate-actions.ts';
 import { replacePositions } from './positions.ts';
 import { logSafe } from './privacy-log.ts';
 
@@ -49,8 +51,10 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
 // way and repeated rebuilds give byte-identical rows (defect 3: the read had no order at all). Returns what it wrote and
 // the most activity rows it held at once.
 type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string };
-export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number }> {
+export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
   const run = async (tx: TransactionSql) => {
+    // F-7: a public filer's trades come from its filings only (lib/public-trades.ts); this rebuild never touches them.
+    if ((await tx`select 1 from users where id = ${userId} and public_filer_id is not null`).length) throw new Error('public filer: not a broker record');
     // Reviewer fix round 2: a rebuild never deletes a thesis. One whose trade is not produced now (its account is flagged
     // simulated, a vendor correction) is kept in kept_theses by sell_id, shown nowhere, and re-attached when the trade
     // returns. Kept rows come first, so a thesis on a current closed_trades row always wins its sell_id; saveThesis
@@ -61,10 +65,17 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
     let written = 0, excluded = 0, maxHeld = 0;
-    const flush = async (rows: Activity[]) => {
+    // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
+    // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
+    const actions = await loadCorporateActions(tx, userId, notFuture(tx));
+    const chainOf = chainsOf(actions);
+    const actionsOf = actionIndex(actions);
+    let excludedCorporate = 0;
+    const flush = async (rows: Activity[], keys?: Set<string>) => {
       if (!rows.length) return;
-      const m = matchTrades(rows);
+      const m = matchTrades(rows, actions.length ? actionsOf(keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
       excluded += m.excluded;
+      excludedCorporate += m.excludedCorporate;
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
         await tx`insert into closed_trades ${tx(m.trades.slice(i, i + INSERT_CHUNK).map((t) => {
@@ -87,6 +98,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
         from activities a where a.user_id = ${userId}
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+        and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
@@ -96,6 +108,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
         };
         if (open.length && (open[0].accountId !== a.accountId || open[0].symbol !== a.symbol)) { await flush(open); open = []; }
+        if (chainOf.has(pairKey(a.accountId, a.symbol))) continue; // matched with its chain below
         open.push(a);
         maxHeld = Math.max(maxHeld, open.length + page.length);
       }
@@ -104,34 +117,53 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       after = { account_id: last.account_id, symbol: last.symbol, at: last.at, external_id: last.external_id, source: last.source };
     }
     await flush(open);
+    // Corporate actions: each rename chain's pairs, read and matched together (in the stream's total order).
+    const chains = new Map<string, string[]>();
+    for (const [k, root] of chainOf) chains.set(root, [...(chains.get(root) ?? []), k]);
+    for (const keys of chains.values()) {
+      const pairs = keys.map((k) => [k.slice(0, k.lastIndexOf('|')), k.slice(k.lastIndexOf('|') + 1)]);
+      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
+        from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
+        and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+        and ${notFuture(tx)}
+        order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
+      maxHeld = Math.max(maxHeld, rows.length);
+      await flush(rows.map((r) => ({
+        externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,
+        price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
+      })), new Set(keys));
+    }
     const setAside = live.filter((k) => !attachedIds.has(k.sell_id as string));
     if (setAside.length) {
       await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status })))}
         on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status`;
     }
     const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)})
-      and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)`;
+      and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+      and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
-    return { trades: written, excluded, future: future as number, maxHeld };
+    await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
+    return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
   };
   return tx ? run(tx) : sql.begin(run);
 }
 
-type Broker = {
+export type Broker = {
   listAccounts: typeof listAccounts; // with the authorization, paper and sync flags
   fetchActivities: typeof fetchActivities;
   // PR-3 (heavy-use): a sync with no stored history reads it page by page (one page held at a time) when available.
   fetchActivitiesPage?: typeof fetchActivitiesPage;
   fetchPositions?: typeof fetchPositions;
+  fetchShareMoves?: typeof fetchShareMoves; // corporate actions (F3c): each real account's share-moving rows
   pageLimit?: number;
 };
-const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions };
+export const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves };
 
 export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
 // `connected`, and never while an import runs (the tick's steps own that row). A pending link, a failed import and a
 // profile being deleted are never synced.
-const syncable = () => sql`u.snaptrade_user_id is not null and u.deleted_at is null
+export const syncable = () => sql`u.snaptrade_user_id is not null and u.deleted_at is null
     and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
     and not exists (select 1 from connections c where c.user_id = u.id and c.state = 'importing')`;
 export async function usersToSync(): Promise<SyncableUser[]> {
@@ -174,13 +206,13 @@ export type ClaimedUser = SyncableUser & { lease: string; prev: string | null };
 // `maxAccounts` (fix round 6): only traders whose consented real accounts, capped at SYNC_FIT_CAP, are at most this many.
 export type ClaimScope = { shiftMs?: number; ids?: number[]; except?: number[]; maxAccounts?: number };
 // The database clock (shifted by the test hook) and the start of its round; and the claim rule over them.
-const clockSql = (shiftMs: number) => sql`select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
+export const clockSql = (shiftMs: number) => sql`select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
         date_trunc('hour', now() + ${shiftMs}::float8 * interval '1 millisecond' - ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond', 'UTC')
           + ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond' as round_start`;
-const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_until <= clock.t)
+export const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_until <= clock.t)
         and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)`;
 // A trader's real accounts under its connected connections' snapshots (what a sync reads; paper accounts are not read).
-const accountsOf = () => sql`(select count(*) from connections c, jsonb_array_elements(c.accounts) a
+export const accountsOf = () => sql`(select count(*) from connections c, jsonb_array_elements(c.accounts) a
         where c.user_id = u.id and c.state = 'connected' and coalesce((a->>'isPaper')::boolean, false) = false)`;
 export async function claimNextUser(scope: ClaimScope = {}): Promise<ClaimedUser | null> {
   const { shiftMs = 0, ids, except, maxAccounts } = scope;
@@ -230,16 +262,26 @@ export const SYNC_ROUTE_MAX_S = 300;
 export const SYNC_RESERVE_MS = 3 * VENDOR_TIMEOUT_MS;
 export const syncDeadline = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000 - SYNC_RESERVE_MS;
 // F-1 PR-3 fix round 6 (engineer re-sit, Low): the fixed reserve fit a one-account sync only. A sync of n accounts makes
-// up to 1 + 2n vendor requests (the account list, then each account's activities and positions), so the tick sizes the
-// reserve per trader: it claims a trader only if (1 + 2n) vendor bounds fit before the route's end (`routeEnd`), and
+// up to syncRequests(n) = 1 + 3n vendor requests (the account list, then each account's activities, positions and share
+// moves), so the tick sizes the reserve per trader: it claims a trader only if that many vendor bounds fit before the
+// route's end (`routeEnd`), and
 // leaves the others unclaimed (counted in the log) for the next call, which starts with the whole budget. n is capped at
 // SYNC_FIT_CAP, the most a whole call fits, so a trader with more accounts is still claimed, at the start of a call.
-// ponytail: past SYNC_FIT_CAP accounts (or an activity read over one vendor page per account) a sync can still overrun;
-// it then rolls back and its lease lapses, as before. Next step: split the sync per account like the import.
+// ponytail: past SYNC_FIT_CAP accounts (or an activity or share-move read over one vendor page per account) a sync can still overrun;
+// it then rolls back and its lease lapses, as before. Sharded sync (lib/sync-shard.ts) dispatches such a trader only
+// at the start of a call, and after two overruns in a row quarantines it (backed off, counted `quarantined` in shard 0's
+// coverage line) instead of retrying it first forever. The overrun needs every request near its 30 s bound; a normal
+// sync of 5+ accounts takes seconds. Next step: split the sync per account like the import (a change to syncUser's
+// one-transaction rule, D4/D5: its own design session).
 export const syncRouteEnd = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000;
-export const syncCost = (accounts: number) => (1 + 2 * accounts) * VENDOR_TIMEOUT_MS;
-export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / 2);
-export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs / VENDOR_TIMEOUT_MS - 1) / 2);
+// Sharded sync (coordination with the corporate-actions PR #40): the vendor reads a sync makes per real account, in one
+// constant that syncCost, SYNC_FIT_CAP, accountsThatFit and the shard runner's request budget all read: 3 since #40
+// (activities, positions, and the corporate actions' share moves).
+export const SYNC_REQUESTS_PER_ACCOUNT = 3;
+export const syncRequests = (accounts: number) => 1 + SYNC_REQUESTS_PER_ACCOUNT * accounts;
+export const syncCost = (accounts: number) => syncRequests(accounts) * VENDOR_TIMEOUT_MS;
+export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / SYNC_REQUESTS_PER_ACCOUNT);
+export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs / VENDOR_TIMEOUT_MS - 1) / SYNC_REQUESTS_PER_ACCOUNT);
 
 // `deadline` (epoch ms on `clock`, the instance's own clock: it measures this call's duration only) stops claiming
 // once reached; `report` receives what the end-of-call log line says; `clock`, `release` and the rest are test hooks.
@@ -340,6 +382,18 @@ export async function syncUser(
       const acts = real.length ? await broker.fetchActivities(bu, since, real) : [];
       await insertActivities(user.id, 'snaptrade', acts, tx);
       read = acts.length;
+    }
+    // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
+    // rebuild applies them.
+    // Counted: SYNC_REQUESTS_PER_ACCOUNT is 3 (activities, positions, share moves), so syncCost, SYNC_FIT_CAP and the
+    // sharded runner's request budget include this read (one page per account; more pages are the ponytail above).
+    if (broker.fetchShareMoves) {
+      for (const id of real) {
+        const moves = await broker.fetchShareMoves(bu, id);
+        await insertActivities(user.id, 'snaptrade', moves.activities, tx);
+        await insertCorporateActions(tx, user.id, 'snaptrade', moves.actions);
+        read += moves.activities.length;
+      }
     }
     await rebuild(user.id, tx);
     if (broker.fetchPositions) {

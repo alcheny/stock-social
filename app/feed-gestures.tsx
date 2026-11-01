@@ -1,9 +1,10 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LIKES } from '@/lib/copy.ts';
 import { NOT_TAP, cardRejectOutcome, isDoubleTap, isTap, type Tap } from '@/lib/discovery/gestures.ts';
 import { canArm, horizontal } from '@/lib/discovery/reject.ts';
+import { closesSignInBar } from '@/lib/feed-focus.ts';
 
 // F-2 PR-4: the feed card's two gestures, delegated from the feed (one listener set for every card, appended pages too).
 // - Double tap on the card body (lib/discovery/gestures.ts): signed in, it clicks the card's own Like button
@@ -14,6 +15,17 @@ import { canArm, horizontal } from '@/lib/discovery/reject.ts';
 //   the row came back from its pane, horizontal only (≥ 2× vertical). The opening direction stays SW-1's native scroll.
 export function FeedGestures({ signedIn }: { signedIn: boolean }) {
   const [askSignIn, setAskSignIn] = useState(false);
+  // F-10 follow-up (approval cycle 2, fix #15): the fixed sign-in line closes on Escape and whenever focus moves outside
+  // it, so it never covers the focused element (WCAG 2.4.11; lib/feed-focus.ts#closesSignInBar).
+  const bar = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (!askSignIn) return;
+    const onKey = (e: KeyboardEvent) => { if (closesSignInBar({ type: 'keydown', key: e.key })) setAskSignIn(false); };
+    const onFocus = (e: FocusEvent) => { if (closesSignInBar({ type: 'focusin', insideBar: !!bar.current?.contains(e.target as Node) })) setAskSignIn(false); };
+    addEventListener('keydown', onKey);
+    document.addEventListener('focusin', onFocus);
+    return () => { removeEventListener('keydown', onKey); document.removeEventListener('focusin', onFocus); };
+  }, [askSignIn]);
   useEffect(() => {
     const feed = document.querySelector<HTMLElement>('.feed');
     if (!feed) return;
@@ -97,7 +109,7 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
     };
   }, [signedIn]);
   return (
-    <p className="signin-line" role="status">
+    <p className="signin-line" role="status" ref={bar}>
       {askSignIn && <>{LIKES.signIn} <Link href="/login">{LIKES.signInLink}</Link> <button type="button" className="quiet-x" aria-label={LIKES.close} onClick={() => setAskSignIn(false)}>×</button></>}
     </p>
   );

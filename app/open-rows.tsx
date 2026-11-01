@@ -2,8 +2,8 @@
 // share. Every node carries data-open and is rendered only when the trader has open positions, so a record without
 // them renders exactly today's HTML. Percent and counts only (POLICY P3); tone by the printed sign, words beside it.
 import { asOfDay, OPEN } from '@/lib/copy.ts';
-import { count } from '@/lib/format.ts';
-import { tone, type OpenSummary } from '@/lib/open-split.ts';
+import { count, tone } from '@/lib/format.ts';
+import { type OpenSummary } from '@/lib/open-split.ts';
 import { pct } from '@/lib/trades.ts';
 
 export const toneClass = (x: number) => { const t = tone(x); return t === 'flat' ? undefined : t; };

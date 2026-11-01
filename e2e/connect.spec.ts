@@ -7,8 +7,9 @@ import { expect, test, type Page, type APIRequestContext } from '@playwright/tes
 import { readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import postgres from 'postgres';
-import { startVendorFake, type FakeAccount, type FakeActivity } from './fakes/vendor.ts';
+import { startVendorFake, type FakeAccount, type FakeActivity, type FakeCorporateRow } from './fakes/vendor.ts';
 import { feedLock } from './feed-lock.ts';
+import { cronLock } from './cron-lock.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
 let vendor: { server: Server; base: string };
@@ -95,9 +96,12 @@ const step = async (req: APIRequestContext): Promise<{ state: string; imported: 
   }
 };
 const tick = async (req: APIRequestContext) => {
-  const r = await req.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } });
-  expect(r.status()).toBe(200);
-  return r.json();
+  const release = await cronLock('shared'); // e2e/cron-lock.ts: never interleaved with the sharded-sync spec's calls
+  try {
+    const r = await req.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } });
+    expect(r.status()).toBe(200);
+    return r.json();
+  } finally { await release(); }
 };
 
 test('/how explains what Verified means and what is excluded, percent only, with the disclaimer; Terms, Privacy and How links are in the footer of every page', async ({ page }) => {
@@ -567,7 +571,7 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   await expect(p2.locator('section.stats').first()).toContainText('win rate');
   await expect(p2.locator('.rows:not(.positions) li')).toHaveCount(7);
   await p2.goto(`/u/${handle}/trade/${encodeURIComponent(lastClose.sell_id as string)}`);
-  await expect(p2.locator('section[aria-labelledby="whole-record"]')).toContainText('win rate');
+  await expect(p2.locator('section[aria-labelledby="whole-record"]')).toContainText('closed trades');
   await expect(p2.locator('section[aria-labelledby="whole-record"] .importing')).toHaveCount(0);
   await anon.close();
   await sql`delete from users where id = ${u.id}`;
@@ -660,11 +664,19 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await scenario([{ id: a2, activities: recent(a2, 2) }, { id: a3, activities: recent(a3, 2) }]);
   await connectThrough(page);
   await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
-  await page.getByRole('button', { name: 'Import my record' }).click();
-  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
-  expect((await step(page.request)).state).toBe('importing');
-  await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
-  expect((await step(page.request)).state).toBe('failed');
+  // Known-limits sweep 2026-11-01: another file's cron tick drives every importing connection, so one landing between
+  // these steps finished the import early (flaky in full runs). The tick callers hold e2e/cron-lock.ts shared; this
+  // holds it exclusively from consent to the failure, so only these steps move this import.
+  const noTicks = await cronLock('exclusive');
+  try {
+    await page.getByRole('button', { name: 'Import my record' }).click();
+    await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+    expect((await step(page.request)).state).toBe('importing');
+    await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
+    expect((await step(page.request)).state).toBe('failed');
+  } finally {
+    await noTicks();
+  }
   // Signed out: still in the feed (incompleteness is never hidden), but never presented as whole.
   await feed.goto('/');
   await expect(feed.locator(`a[href="/u/${handle}"]`).first()).toBeAttached();
@@ -1458,6 +1470,9 @@ test('PR-2b fix round 2 (business lead 1): a vendor whose headers refuse framing
   const modes = await modesFrom(handle);
   await fetch(`${vendor.base}/_scenario`, { method: 'POST', body: JSON.stringify({ accounts: [{ id: acc, activities: 2 }], portalFrameHeaders: true }) });
   const refusing = vendor.base.replace('127.0.0.1', 'localhost');
+  // The probe's answers are shared through the database (security hardening): forget an earlier run's answer for this
+  // origin, so this test sees the server probe it.
+  await sql`delete from portal_probes where origin = ${refusing}`;
   const minted = await (await page.request.post('/connect/portal')).json();
   expect(minted.mode).toBe('redirect');
   expect(minted.origin).toBe(refusing);
@@ -1671,6 +1686,32 @@ test('PR-2b S5 (PR-3 fix round 7): before the first close the headline counts ac
   await sql`delete from broker_accounts where account_id in ${sql(a)}`;
 });
 
+test('security hardening (F26, F27): a cross-site navigation to /connect/start lands on S2 and mints nothing; pages carry one nonce CSP and the static security headers', async ({ page, baseURL }) => {
+  const attempt = await brokerageAttempt(page);
+  const cross = await page.request.get('/connect/start', { maxRedirects: 0, headers: { 'sec-fetch-site': 'cross-site' } });
+  expect(cross.status()).toBe(303);
+  expect(cross.headers()['location']).toBe(`${baseURL}/connect`);
+  expect((await sql`select 1 from funnel_events where attempt_id = ${attempt} and name = 'portal_opened'`).length).toBe(0);
+  expect((await sql`select snaptrade_user_id from signup_attempts where id = ${attempt}`)[0].snaptrade_user_id).toBeNull();
+  // The same request from the app itself still mints.
+  const same = await page.request.get('/connect/start', { maxRedirects: 0, headers: { 'sec-fetch-site': 'same-origin' } });
+  expect(same.status()).toBe(307);
+  expect(same.headers()['location']).toMatch(new RegExp(`^${vendor.base}/portal`));
+  // Headers: exactly one CSP on a page, with a nonce that the page's own scripts carry.
+  const r = await page.request.get('/connect');
+  const csp = r.headersArray().filter((h) => h.name.toLowerCase() === 'content-security-policy');
+  expect(csp.length).toBe(1);
+  const nonce = csp[0].value.match(/'nonce-([^']+)'/)![1];
+  expect(csp[0].value).toContain("frame-ancestors 'none'");
+  expect(csp[0].value).toContain("'strict-dynamic'");
+  expect(await r.text()).toContain(`nonce="${nonce}"`);
+  const h = r.headers();
+  expect(h['x-content-type-options']).toBe('nosniff');
+  expect(h['referrer-policy']).toBe('strict-origin-when-cross-origin');
+  expect(h['cross-origin-opener-policy']).toBe('same-origin-allow-popups');
+  expect(h['permissions-policy']).toContain('camera=()');
+});
+
 test('privacy work (committee D9): at 360×640 the consent screen shows the owner\'s public/private scope line and "Import my record" sits above the fold; the deadline is under the buttons', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 640 });
   await brokerageAttempt(page);
@@ -1692,4 +1733,58 @@ test('privacy work (committee D9): at 360×640 the consent screen shows the owne
   await page.screenshot({ path: test.info().outputPath('consent-360x640.png') });
   await page.getByRole('button', { name: "Don't import" }).click();
   await expect(page).toHaveURL(/\/connect\/result\?c=\d+$/);
+});
+
+// ---- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md) ----
+// Here, not in a spec of its own: the vendor fake listens on the one port the app is pointed at, with one pending
+// scenario, so a second spec starting it in another worker would race this file's tests.
+test('corporate actions (F3c): an import reads the vendor\'s split, reverse split, stock dividend and reinvestment rows and shows the correct +10%, never -45% or +1000%; a transfer in is excluded and counted; signed out too, in the page description as well', async ({ page }) => {
+  const handle = `cax${uniq()}`;
+  await devSignIn(page, handle);
+  test.skip(!(await vendorConfigured(page)), 'the server has no vendor fake configured (see the header of this spec)');
+  const acc = `e2e-${handle}`;
+  const row = (id: string, type: FakeActivity['type'] | FakeCorporateRow['type'], symbol: string, units: number, price: number, day: string, description?: string) =>
+    ({ id: `${acc}-${id}`, type, symbol, units, price, fee: 0, trade_date: `${day}T15:00:00Z`, ...(description ? { description } : {}) }) as FakeActivity | FakeCorporateRow;
+  // Each buy a month before its action (outside the late-posting window), each sell three weeks after it. Ignoring the
+  // actions would show -45% (SPLITCO: 2:1 then a partial sale) and +1000% (REVCO: 1:10 reverse split).
+  await scenario([{ id: acc, activities: [
+    row('b1', 'BUY', 'SPLITCO', 100, 100, '2025-02-03'), row('sp1', 'SPLIT', 'SPLITCO', 100, 0, '2025-03-10', '2 FOR 1 STOCK SPLIT'), row('s1', 'SELL', 'SPLITCO', 100, 55, '2025-04-01'),
+    row('b2', 'BUY', 'REVCO', 100, 10, '2025-02-03'), row('sp2', 'SPLIT', 'REVCO', -90, 0, '2025-03-10', '1 FOR 10 REVERSE SPLIT'), row('s2', 'SELL', 'REVCO', 10, 110, '2025-04-01'),
+    row('b3', 'BUY', 'DIVCO', 100, 105, '2025-02-03'), row('sd', 'STOCK_DIVIDEND', 'DIVCO', 5, 0, '2025-03-10', '5% STOCK DIVIDEND'), row('s3', 'SELL', 'DIVCO', 105, 110, '2025-04-01'),
+    row('b4', 'BUY', 'REICO', 10, 100, '2025-02-03'), row('rei', 'REI', 'REICO', 1, 100, '2025-03-10'), row('s4', 'SELL', 'REICO', 11, 110, '2025-04-01'),
+    row('tin', 'TRANSFER', 'XFERCO', 10, 0, '2025-02-03'), row('s5', 'SELL', 'XFERCO', 10, 120, '2025-04-01'),
+  ] }]);
+  await connectThrough(page);
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  await page.getByRole('button', { name: 'Import my record' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+  let r = await step(page.request);
+  for (let i = 0; i < 8 && r.state === 'importing'; i++) r = await step(page.request);
+  expect(r.state).toBe('connected');
+  const sql = await db();
+  const [u] = await sql`select id, excluded_positions, excluded_corporate from users where handle = ${handle}`;
+  const rows = await sql`select symbol, return_pct from closed_trades where user_id = ${u.id} order by symbol`;
+  expect(rows.map((x) => [x.symbol, Math.round(x.return_pct * 1e6) / 1e6])).toEqual([['DIVCO', 0.1], ['REICO', 0.1], ['REVCO', 0.1], ['SPLITCO', 0.1]]);
+  expect([u.excluded_positions, u.excluded_corporate]).toEqual([0, 1]);
+  await page.context().clearCookies();
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 375, height: 740 });
+    await page.goto(`/u/${handle}`);
+    await expect(page.locator('.rows:not(.positions) li')).toHaveCount(4);
+    await expect(page.getByText('1 trade excluded: a stock split or other corporate action the importer can\'t price exactly.', { exact: true })).toBeVisible();
+    const main = await page.locator('main').innerText();
+    expect(main).not.toMatch(/-45(\.0)?%|−45|\+1,?000(\.0)?%|\+900(\.0)?%/);
+    expect(main).toContain('+10.0%');
+    await expect(page.locator('footer.site')).toContainText('Not investment advice. Past performance does not guarantee future results.');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`corporate-actions-${scheme}.png`), fullPage: true });
+  }
+  for (const name of ['description', 'og:description', 'twitter:description']) {
+    const content = await page.locator(`meta[name="${name}"], meta[property="${name}"]`).first().getAttribute('content').catch(() => null);
+    if (content !== null) expect(content).not.toMatch(/-45|1,?000%|900%/);
+  }
+  expect((await page.request.get(`/u/${handle}/opengraph-image`)).status()).toBe(200); // the share card renders from the same rows
+  await sql`delete from users where id = ${u.id}`;
+  await sql`delete from broker_accounts where account_id = ${acc}`;
 });

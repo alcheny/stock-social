@@ -1,6 +1,10 @@
+import type { Metadata } from 'next';
 import { PORTAL } from '@/lib/copy.ts';
 import { PORTAL_REDIRECT } from '@/lib/portal.ts';
 import { AutoContinue } from './auto-continue.tsx';
+
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Opening your broker · Stock Social', robots: { index: false } };
 
 // Fix round 2 (engineer walk, UX lead note 4): after the embedded portal reports an error (its broker login popup was
 // blocked), one line from the app before the vendor's own page, so that page does not reappear unexplained. It

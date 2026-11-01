@@ -60,7 +60,8 @@ select schema_add_column('users', 'referred_surface', 'text');
 -- Embeddable badge. Set once, on the owner's first copy of the embed snippet. Measure: count(*) where badge_copied_at is not null.
 select schema_add_column('users', 'badge_copied_at', 'timestamptz');
 
--- Story image. Set once, on the owner's first click of a Save image link. Intent to save, not posting.
+-- Set once, on the owner's first completed share from the profile's "Share my record" button (share sheet or link
+-- copied; fix #27). The name is from the removed Save image link it used to record.
 select schema_add_column('users', 'share_image_saved_at', 'timestamptz');
 
 create table if not exists activities (
@@ -118,7 +119,8 @@ create table if not exists broker_accounts (
 );
 select schema_add_index('broker_accounts_user', 'create index broker_accounts_user on broker_accounts (user_id)');
 -- Backfill: existing real data is claimed by its earliest user.
--- ponytail: if two users already share an account (the exploit) their rows stay; cleanup is a follow-up.
+-- Profiles that already shared an account (the exploit) keep their raw rows: scripts/shared-accounts.ts reports them
+-- and, when the owner asks, marks them (shared_account_marks, below) so only the claimant's record shows the account.
 -- Already-claimed accounts are filtered in the same snapshot as the activities: a user deleted (with its claims and
 -- activities) by a concurrent transaction is then never re-inserted and failed on the users FK (fix round 2, PR-2a).
 -- CI review (2026-11-01, privacy PR): a users row deleted by another session between this snapshot and the insert's
@@ -199,6 +201,7 @@ create table if not exists signup_attempts (
   user_id int references users(id) on delete set null,
   completed_at timestamptz
 );
+-- ponytail: users.signup_attempt_id has no index, so the purge's per-attempt check and attempt deletes scan users — add one.
 select schema_add_column('users', 'signup_attempt_id', 'bigint references signup_attempts(id)');
 select schema_add_column('users', 'deleted_at', 'timestamptz');
 -- Backfill, once: rows from before F-1 attested through the dev form at created_at; one attempt each, then the column is
@@ -220,6 +223,7 @@ create table if not exists identities (
   user_id int not null references users on delete cascade,
   provider text not null check (provider in ('provider_a', 'provider_b', 'email')),
   subject text not null,
+  -- ponytail: no index, so sign-in by email scans identities — add an index (email).
   email text,
   created_at timestamptz not null default now(),
   unique (provider, subject)
@@ -239,6 +243,7 @@ select schema_add_index('sessions_user', 'create index sessions_user on sessions
 -- Passwordless email links: single use, 15 minutes, hashed token.
 create table if not exists login_links (
   token_hash text primary key,
+  -- ponytail: no index, so account deletion's email match scans login_links — add a partial index (email) where email <> ''.
   email text not null,
   attempt_id bigint not null references signup_attempts(id),
   expires_at timestamptz not null,
@@ -269,6 +274,7 @@ select schema_add_index('funnel_events_attempt', 'create index funnel_events_att
 -- provisional claim of a brokerage-first attempt that has no users row yet (confirmed into broker_accounts at consent).
 create table if not exists connections (
   id bigint generated always as identity primary key,
+  -- ponytail: no index, so the attempt purge's per-attempt check and attempt deletes scan connections — add an index (attempt_id).
   attempt_id bigint not null references signup_attempts(id),
   user_id int references users(id) on delete cascade,
   vendor_authorization_id text,
@@ -314,6 +320,43 @@ select schema_add_column('users', 'excluded_future', 'int not null default 0');
 
 -- Rows from before F-1 were claimed by a completed sync: confirmed.
 update broker_accounts set confirmed_at = claimed_at where confirmed_at is null and connection_id is null;
+
+-- F-7 public-record traders (docs/features/logs/F-7/plan.md). Raw filings in (immutable), derived out: a filer's closed_trades
+-- are rebuilt by lib/public-trades.ts (verified = false). The source check is the per-source gate (owner's).
+-- ponytail: legislators' and quarterly holdings reports are not sources — they need a market-data vendor (POLICY H) and,
+-- for legislators, the owner's ruling on the statutory commercial-use limit.
+-- ponytail: open positions carry no percent — an owner-approved market-data vendor would give unrealized returns (TR-4).
+create table if not exists public_filers (          -- filer_key: the filing system's filer id (identity never by name)
+  id int generated always as identity primary key, source text not null check (source in ('insider_reports')), filer_key text not null,
+  demo boolean not null default false,              -- fictional fixture filer: Demo badge (POLICY P2)
+  excluded jsonb not null default '{}', open_symbols text[] not null default '{}', -- counts by reason; open lots, symbols only
+  hidden_at timestamptz, removed_at timestamptz,    -- hidden pending review; removed on request (never re-imported)
+  created_at timestamptz not null default now(), unique (source, filer_key)
+);
+-- Marked users rows hold the epoch in adult_attested_at and the placeholder attempt (method 'dev', never completed):
+-- PLACEHOLDERS, NOT AN ATTESTATION; every attestation, funnel, account and referral reader excludes them.
+-- ponytail: the attestation columns are NOT NULL, so filers carry a sentinel — an owner-approved change to nulls removes it.
+select schema_add_column('users', 'public_filer_id', 'int unique references public_filers on delete restrict');
+do $c$ begin if not exists (select 1 from pg_constraint where conname = 'users_public_filer_no_broker') then
+  alter table users add constraint users_public_filer_no_broker check (public_filer_id is null or snaptrade_user_id is null); end if; end $c$;
+create table if not exists public_transactions (    -- raw, private, never rendered; matcher fields and the link only
+  id bigint generated always as identity primary key, filer_id int not null references public_filers on delete cascade,
+  external_id text not null, filing_id text not null, amends text, -- '<filing id>:<row>'; amends: the filing it replaces
+  filing_url text not null check (filing_url ~ '^https?://'), symbol text not null,
+  code text not null, side text check (side in ('BUY', 'SELL')), -- report code; side null unless open-market buy/sale
+  acquired boolean not null default true, units double precision not null check (units > 0),
+  price double precision check (price >= 0), held_after double precision, -- held_after null: not a share count (unknown)
+  indirect boolean not null default false, derivative boolean not null default false, -- indirect: label never stored
+  executed_at timestamptz not null, filed_at timestamptz not null, created_at timestamptz not null default now(), unique (filer_id, external_id)
+);
+create table if not exists public_import_state (source text primary key, cursor jsonb not null default '{}', last_success_at timestamptz);
+create table if not exists public_filer_log (       -- corrections log: no requester details, no free text
+  id bigint generated always as identity primary key, filer_id int references public_filers on delete set null,
+  action text not null check (action in ('hide', 'unhide', 'rebuild', 'remove')),
+  reason text not null check (reason in ('request', 'review', 'error', 'amendment')), at timestamptz not null default now()
+);
+select schema_add_column('closed_trades', 'filing_url', 'text');        -- closing sale's filing; null for broker/demo rows
+select schema_add_column('closed_trades', 'feed_after', 'timestamptz'); -- latest filing behind the trade + 30 days; null for broker/demo
 
 -- Open positions (TR-4): symbol and unrealized percent only. No units, prices or amounts, on purpose.
 create table if not exists open_positions (
@@ -386,6 +429,192 @@ create table if not exists trade_exclusions (
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
 
+-- Sharded hourly sync (docs/SYNC.md; committee docs/features/logs/sync/committee-2026-11-01.md). A trader's shard is
+-- `id % of`; the per-user round claim above stays the durable record of who is synced this round.
+-- Trader-specific failures back off (1 h doubling, capped at 24 h): the count and the earliest next attempt.
+select schema_add_column('users', 'sync_failures', 'int not null default 0');
+select schema_add_column('users', 'sync_retry_at', 'timestamptz');
+-- Claims whose sync never finished (the process died): incremented at claim, cleared when an attempt ends. Two
+-- unfinished claims quarantine the trader (a backoff), so one poison record never stalls its shard.
+select schema_add_column('users', 'sync_attempts', 'int not null default 0');
+-- The shard's queue order (stalest first), read a page at a time.
+-- ponytail: the shard filter (`id % of = shard`) is applied after this index, so each shard's page reads past the other
+-- shards' rows (measured 21-26 ms a page at 100k) — an expression index per fixed shard count would avoid it.
+select schema_add_index('users_sync_order', 'create index users_sync_order on users (last_synced_at nulls first, id) where snaptrade_user_id is not null and deleted_at is null');
+-- One row per shard of a shard count: the run lease (database clock, fenced by `holder`), a heartbeat, and the last
+-- run's counters (numbers only) for the coverage report.
+create table if not exists sync_shards (
+  of int not null check (of between 1 and 1024),
+  shard int not null check (shard >= 0 and shard < of),
+  lease_until timestamptz,
+  holder text,
+  run_started_at timestamptz,
+  heartbeat_at timestamptz,
+  last_run jsonb,
+  primary key (of, shard)
+);
+-- The current failure streak: its class ('refused', 'trader', 'quarantined') and when it began (shard 0's coverage line
+-- reports refusals and the oldest one's age, numbers only). Cleared by a successful sync.
+select schema_add_column('users', 'sync_failure_kind', $d$text check (sync_failure_kind in ('refused','trader','quarantined'))$d$);
+select schema_add_column('users', 'sync_failing_since', 'timestamptz');
+-- Consecutive transient failures (lib/sync-limits.ts#TRANSIENT_LIMIT): at the limit the trader is quarantined (backed
+-- off) instead of being retried every round forever. Cleared by a successful sync.
+select schema_add_column('users', 'sync_transients', 'int not null default 0');
+-- ---- F-2 PR-5 (docs/features/logs/F-2/plan-pr5-ux-lead.md): the viewer's activity log and personalization settings ----
+-- Two per-viewer switches. personalize_feed (default on): ordering may use the viewer's own follows, likes and hides;
+-- off, the viewer gets the order everyone gets minus their own hides. activity_log_on_at (default null = off, owner
+-- 2026-11-01): when set, the implicit logger runs and its events shape ordering; off, nothing is logged or used.
+select schema_add_column('users', 'personalize_feed', 'boolean not null default true');
+select schema_add_column('users', 'activity_log_on_at', 'timestamptz');
+-- Lookup tables, not CHECKs (widening a CHECK needs a drop). Seeded idempotently.
+create table if not exists discovery_event_types (code smallint primary key, name text not null unique);
+create table if not exists discovery_surfaces (code smallint primary key, name text not null unique);
+insert into discovery_event_types (code, name) values (1, 'impression'), (2, 'dwell_short'), (3, 'dwell_long'), (4, 'skip'),
+  (5, 'swipe_open'), (6, 'profile_open'), (7, 'share'), (8, 'watch'), (9, 'unwatch') on conflict do nothing;
+insert into discovery_surfaces (code, name) values (1, 'feed'), (2, 'pane'), (3, 'profile'), (4, 'section'), (5, 'me') on conflict do nothing;
+-- One row per implicit event: viewer, surface, target (trader, trade or symbol), type and time only. No address, device,
+-- IP, user agent, amount, price or broker field (criterion 3, lib/f2-personal.db.test.ts). A trade target keeps its
+-- trader too (the close's stable trade_key; no foreign key: a rebuild deletes closed_trades rows). Stored until the
+-- viewer clears it or deletes the account (owner 2026-11-01); only the last 90 days are read, fading.
+create table if not exists discovery_events (
+  id bigint generated always as identity primary key,
+  viewer_id int not null references users on delete cascade,
+  at timestamptz not null default now(),
+  surface smallint not null references discovery_surfaces,
+  type smallint not null references discovery_event_types,
+  target_kind text not null check (target_kind in ('trader', 'trade', 'symbol')),
+  target_user_id int references users on delete cascade,
+  target_trade_key text,
+  target_symbol text,
+  check ((target_kind = 'trader' and target_user_id is not null and target_trade_key is null and target_symbol is null)
+    or (target_kind = 'trade' and target_user_id is not null and target_trade_key is not null and target_symbol is null)
+    or (target_kind = 'symbol' and target_user_id is null and target_trade_key is null and target_symbol is not null)),
+  check (viewer_id <> target_user_id)
+);
+select schema_add_index('discovery_events_viewer_at', 'create index discovery_events_viewer_at on discovery_events (viewer_id, at desc)');
+select schema_add_index('discovery_events_target_user', 'create index discovery_events_target_user on discovery_events (target_user_id)');
+select schema_add_index('discovery_events_trade_key', 'create index discovery_events_trade_key on discovery_events (target_trade_key) where target_trade_key is not null');
+-- Likes and rejected trades looked up by key (lib/privacy-purge.ts orphans, lib/discovery/personal-load.ts).
+select schema_add_index('trade_likes_key', 'create index trade_likes_key on trade_likes (trade_key)');
+select schema_add_index('trade_exclusions_key', 'create index trade_exclusions_key on trade_exclusions (trade_key)');
+select schema_add_index('trade_exclusions_viewer_at', 'create index trade_exclusions_viewer_at on trade_exclusions (viewer_id, created_at desc, trade_key desc)');
+-- The events route's per-viewer gate (one batch per 2 s, held by a row lock, so it holds across server instances).
+select schema_add_column('users', 'activity_batch_at', 'timestamptz');
+-- F-2 PR-5 (owner 2026-11-01: preference data is stored until the viewer removes it): when the viewer ended an
+-- exclusion themselves (Undo, "Show again", a new follow). The purge deletes only those, a day later, and ended 'unfollow'
+-- rows (the system's −1 record of a removed follow); a "Not interested" that ran its 90 days stays stored, unread.
+-- Backfill once, when the column is added (deletes nothing): rows that ended before their 90 days were ended by the viewer.
+-- Never on a later apply: every test file applies this file, and an update here would touch rows other sessions hold.
+do $f$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'viewer_exclusions' and column_name = 'ended_at') then
+    alter table viewer_exclusions add column ended_at timestamptz;
+    update viewer_exclusions set ended_at = until where until <= now() and until < created_at + interval '90 days' - interval '1 minute';
+  end if;
+end $f$;
+-- Orphaned likes and hidden trades are marked in privacy_orphans and purged by lib/privacy-purge.ts (one mechanism).
+-- Review fix 5: the purge reads only the rows it may delete through a partial index (expired "Not interested" rows are
+-- kept, so a scan over every exclusion would grow with history).
+select schema_add_index('viewer_exclusions_purgeable', $$create index viewer_exclusions_purgeable on viewer_exclusions (until) where reason = 'unfollow' or ended_at is not null$$);
+-- Tester finding 1: the events gate is a window (at most 3 batches per 10 s), so a page-leave batch right after the
+-- periodic one is kept.
+select schema_add_column('users', 'activity_batch_n', 'smallint not null default 0');
+-- ---- F-3 · Viewer subscriptions and Record tools (docs/features/F-3-viewer-subscriptions.md; legal committee record
+-- docs/features/logs/F-3/committee-2026-11-01.md). The processor holds charges, refunds, tax and card data; the app
+-- keeps ids, plan, status and dates only (committee condition 20). No card, name, email, address or tax-location column.
+create table if not exists billing_customers (
+  user_id int primary key references users on delete cascade,
+  vendor_customer_id text unique not null,
+  created_at timestamptz not null default now()
+);
+-- Entitlements are read from this row, never from a live processor call. One live row per user (partial unique index).
+create table if not exists subscriptions (
+  id int generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  vendor_subscription_id text unique not null,
+  -- ponytail: no index, so each dispute webhook's update by customer scans subscriptions — add an index (vendor_customer_id).
+  vendor_customer_id text not null,
+  plan text not null check (plan in ('monthly', 'annual')),
+  status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused', 'incomplete')),
+  current_period_start timestamptz,
+  current_period_end timestamptz,
+  cancel_at_period_end boolean not null default false,
+  grace_until timestamptz,
+  disputed_at timestamptz,
+  ended_reason text check (ended_reason in ('refund', 'trader', 'deletion')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+-- ponytail: 'incomplete' (a first payment being confirmed) is outside the one-live index; lib/billing.ts#startCheckout
+-- refuses a second checkout while one exists — add it to the index (a new index name) to enforce it in the database.
+select schema_add_index('subscriptions_one_live', $$create unique index subscriptions_one_live on subscriptions (user_id) where status in ('trialing', 'active', 'past_due')$$);
+select schema_add_index('subscriptions_user', 'create index subscriptions_user on subscriptions (user_id)');
+-- The webhook inbox: one row per processor event id (duplicates are no-ops). No payload (committee condition 20); the
+-- handler fetches the object from the processor by id. Purged 35 days after receipt by the nightly reconciliation.
+create table if not exists billing_events (
+  vendor_event_id text primary key,
+  type text not null,
+  vendor_object_id text,
+  vendor_customer_id text,
+  livemode boolean not null,
+  received_at timestamptz not null default now(),
+  processed_at timestamptz,
+  error_code text,
+  flagged boolean not null default false,
+  claimed_at timestamptz -- a delivery's 2-minute lease while it applies the event (concurrent duplicates are no-ops)
+);
+select schema_add_index('billing_events_received', 'create index billing_events_received on billing_events (received_at)');
+select schema_add_index('billing_events_customer', 'create index billing_events_customer on billing_events (vendor_customer_id)');
+-- When the daily reconciliation last started (lib/billing.ts#reconcileIfDue, run from the hourly sync tick).
+create table if not exists billing_runs (
+  job text primary key,
+  last_at timestamptz not null
+);
+-- Renewal consent (committee condition 16): the full disclosure text's version and hash, never an IP, email or name.
+-- At account deletion user_id is nulled and the row is kept 3 years under the processor customer id (retain_until).
+create table if not exists billing_consents (
+  id int generated always as identity primary key,
+  user_id int references users on delete set null,
+  vendor_customer_id text,
+  plan text not null check (plan in ('monthly', 'annual')),
+  disclosure_version text not null,
+  disclosure_hash text not null,
+  livemode boolean not null,
+  created_at timestamptz not null default now(),
+  retain_until timestamptz
+);
+select schema_add_index('billing_consents_user', 'create index billing_consents_user on billing_consents (user_id)');
+-- Record tools: saved views (name and ordered traders only, never a snapshot of numbers) and private notes, visible only
+-- to their owner. A view's id is random (owner-only URL). Either account's deletion cascades.
+create table if not exists record_views (
+  id uuid primary key default gen_random_uuid(),
+  owner_id int not null references users on delete cascade,
+  name text not null check (char_length(name) between 1 and 60),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+select schema_add_index('record_views_owner', 'create index record_views_owner on record_views (owner_id, created_at)');
+create table if not exists record_view_traders (
+  view_id uuid not null references record_views on delete cascade,
+  trader_id int not null references users on delete cascade,
+  position int not null,
+  primary key (view_id, trader_id)
+);
+select schema_add_index('record_view_traders_trader', 'create index record_view_traders_trader on record_view_traders (trader_id)');
+create table if not exists record_notes (
+  owner_id int not null references users on delete cascade,
+  trader_id int not null references users on delete cascade,
+  body text not null check (char_length(body) between 1 and 2000),
+  updated_at timestamptz not null default now(),
+  primary key (owner_id, trader_id),
+  check (owner_id <> trader_id)
+);
+select schema_add_index('record_notes_trader', 'create index record_notes_trader on record_notes (trader_id)');
+-- Committee condition 12: a count of removals from this owner's views and notes since the last visit, no trader id kept.
+create table if not exists record_tool_notices (
+  owner_id int primary key references users on delete cascade,
+  removed int not null default 0
+);
+
 -- Privacy work (2026-11-01, docs/features/logs/privacy/committee-2026-11-01.md). Every table here is in
 -- lib/privacy-retention.ts#SCHEMA_MAP (a test fails for a table without an entry).
 -- D10: a like or rejected trade whose trade is gone. This supersedes "kept and ignored on read" above for likes and
@@ -433,3 +662,113 @@ begin
 end $t$;
 -- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
 select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
+-- Deleting a users row sets signup_attempts.user_id and .referred_by_user_id to null (on delete set null): without an
+-- index each is a scan of signup_attempts (one row per sign-up), for every user deleted (profile deletions; the sharded
+-- sync load test deletes 100,000 traders: 5 minutes of scans). Partial, like users_referred_by.
+select schema_add_index('signup_attempts_user', 'create index signup_attempts_user on signup_attempts (user_id) where user_id is not null');
+select schema_add_index('signup_attempts_referred_by', 'create index signup_attempts_referred_by on signup_attempts (referred_by_user_id) where referred_by_user_id is not null');
+-- The same for broker_accounts.connection_id (on delete set null): a deleted connection scanned every claim (sharded
+-- sync load test: quadratic at 100,000 traders; profile deletions too).
+select schema_add_index('broker_accounts_connection', 'create index broker_accounts_connection on broker_accounts (connection_id) where connection_id is not null');
+
+-- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md): the vendor's split,
+-- stock-dividend, symbol-change and other share-moving rows, raw and immutable like `activities`, mapped by
+-- lib/corporate-actions.ts#fromVendorRows. The rebuild applies them to the FIFO lots (lib/trades.ts#matchTrades).
+-- Deleted with the profile (cascade). Filled by the sync and the import step (lib/broker.ts#fetchShareMoves).
+create table if not exists corporate_actions (
+  id bigint generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  source text not null check (source in ('snaptrade', 'demo')),
+  external_id text not null,
+  account_id text not null,
+  symbol text not null,
+  kind text not null check (kind in ('split', 'stock-dividend', 'symbol-change', 'unpriceable')),
+  detail jsonb not null,                            -- the mapped fields: ratio, units, newSymbol, reason, scope
+  executed_at timestamptz not null,
+  raw jsonb not null,                               -- full vendor payload, kept for re-derivation
+  created_at timestamptz not null default now(),
+  unique (source, external_id)
+);
+select schema_add_index('corporate_actions_user', 'create index corporate_actions_user on corporate_actions (user_id, executed_at)');
+-- Sells the importer can't price exactly because of a corporate action, counted by the rebuild (shown on the profile).
+select schema_add_column('users', 'excluded_corporate', 'int not null default 0');
+
+-- Security hardening (2026-11-01)
+-- Shared fixed-window rate limits (lib/rate-limit.ts#hit): one row per key and window, counted by an upsert, so every
+-- server instance sees the same count. Keys are scope + HMAC, never an address or an IP. Old windows are pruned by
+-- hit() itself, never here.
+create table if not exists rate_limits (
+  key text not null,
+  window_start timestamptz not null,
+  n int not null,
+  primary key (key, window_start)
+);
+-- The ticker page, its card, compare, browse and the sitemap read closed_trades by symbol.
+select schema_add_index('closed_trades_symbol', 'create index closed_trades_symbol on closed_trades (symbol, closed_at desc)');
+-- Security hardening review (2026-11-01): the prune in lib/rate-limit.ts reads old windows by start time.
+select schema_add_index('rate_limits_window', 'create index rate_limits_window on rate_limits (window_start)');
+-- The last time per key (the import poll: one step per trader per second, lib/rate-limit.ts#intervalAllowed), shared by
+-- every instance. Keys are a scope and an id; marks older than a day are pruned by the same file, never here.
+create table if not exists rate_marks (
+  key text primary key,
+  at timestamptz not null
+);
+-- The vendor portal framing probe's answer per vendor origin (lib/portal-probe.ts), shared by every instance. Vendor
+-- origins only, no personal data; a row is overwritten when it is asked again after `until`.
+create table if not exists portal_probes (
+  origin text primary key,
+  mode text not null check (mode in ('embedded', 'redirect')),
+  until timestamptz not null
+);
+
+-- Known limits 2026-11-01 (docs/features/logs/known-limits/committee-2026-11-01.md).
+-- TR-6, a stable account identity: a keyed hash of the institution and the vendor's institution account id
+-- (lib/claims.ts#accountIdentity; never the raw identifier). Not unique: one profile may hold the same brokerage account
+-- under several vendor ids (one per connection); a second profile may not (checked under a per-identity lock).
+select schema_add_column('broker_accounts', 'identity', 'text');
+select schema_add_index('broker_accounts_identity', 'create index broker_accounts_identity on broker_accounts (identity) where identity is not null');
+-- TR-6, accounts shared before the claim existed: a profile holding activities of an account broker_accounts gives to
+-- another profile (the earliest activity's, from the backfill above). Marked only by the owner's script
+-- (scripts/shared-accounts.ts --mark), never by this file; nothing is deleted. A marked (account, profile) is left out
+-- of that profile's rebuild like a simulated account, so the earliest claim alone shows the account's trades.
+create table if not exists shared_account_marks (
+  account_id text not null,
+  user_id int not null references users on delete cascade,
+  marked_at timestamptz not null default now(),
+  primary key (user_id, account_id)
+);
+-- Feed paging, bounded (lib/feed.ts#importedBy): when the closing sell of each close was imported (its activity's
+-- created_at). A feed page pinned to asOf leaves out closes whose sell was imported after asOf; reading this per close
+-- replaced reading every sell imported since asOf, which a crafted `?after=` could make large. Set by the trigger below
+-- on every insert (the rebuild inserts every close after its activities), so no writer has to set it. Null reads as
+-- "imported before any cursor": added once with a backfill of only the sells of the last 49 hours (cursors live at
+-- most 48 hours, lib/discovery/pager.ts#CURSOR_MAX_AGE_MS), inside the branch that adds the column, so later applies
+-- and the parallel test files never run it.
+-- One unique-index probe per row (activities' unique (source, external_id); no user index for the planner to prefer on
+-- a fresh import's unanalyzed rows). The same match as the feed's old late filter: any source, the sell side.
+create or replace function closed_trades_sell_imported_at() returns trigger language plpgsql as $f$
+begin
+  new.sell_imported_at := (select max(created_at) from activities where source in ('snaptrade', 'demo') and external_id = new.sell_id and side = 'SELL');
+  return new;
+end $f$;
+do $si$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'closed_trades' and column_name = 'sell_imported_at') then
+    alter table closed_trades add column sell_imported_at timestamptz;
+    update closed_trades t set sell_imported_at = a.created_at
+      from (select external_id, max(created_at) as created_at from activities where created_at > now() - interval '49 hours' and side = 'SELL' group by external_id) a
+      where a.external_id = t.sell_id;
+    -- In the same block (orchestrator review): no close is inserted between the backfill and the trigger.
+    if not exists (select 1 from pg_trigger where tgname = 'closed_trades_sell_imported_at' and not tgisinternal) then
+      create trigger closed_trades_sell_imported_at before insert on closed_trades for each row execute function closed_trades_sell_imported_at();
+    end if;
+  end if;
+end $si$;
+do $t$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'closed_trades_sell_imported_at' and not tgisinternal) then
+    create trigger closed_trades_sell_imported_at before insert on closed_trades for each row execute function closed_trades_sell_imported_at();
+  end if;
+end $t$;
+-- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
+select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');

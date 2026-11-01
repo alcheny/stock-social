@@ -1,0 +1,42 @@
+{
+ "seeds": 1000,
+ "mutants": 9000,
+ "total": 10000,
+ "vetoed": 423,
+ "top500_by_angle": {
+  "RG": 29,
+  "PR": 72,
+  "CA": 59,
+  "DP": 57,
+  "HH": 23,
+  "LS": 40,
+  "PS": 46,
+  "SC": 98,
+  "SO": 21,
+  "WC": 55
+ },
+ "top500_by_origin": {
+  "seed": 37,
+  "crossover": 178,
+  "mutation": 100,
+  "splice": 185
+ },
+ "top500_by_format": {
+  "roguelike_run": 69,
+  "prediction_round": 59,
+  "calibration_drill": 98,
+  "quiz": 30,
+  "league_season": 40,
+  "daily_puzzle": 53,
+  "scenario_story": 50,
+  "duel": 49,
+  "draft_deck": 20,
+  "portfolio_sim": 12,
+  "spectator": 4,
+  "sandbox": 8,
+  "survival": 8
+ },
+ "cutoff_500": 8.301,
+ "best": 9.37,
+ "median_all": 7.409
+}

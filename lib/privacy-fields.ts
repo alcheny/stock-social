@@ -17,7 +17,7 @@ export const PRIVATE_FIELDS: Field[] = [
   { words: 'quantities', columns: ['activities.units'] },
   { words: 'prices', columns: ['activities.price'] },
   { words: 'fees', columns: ['activities.fee'] },
-  { words: 'account numbers', columns: ['activities.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'broker_accounts.account_id'] },
+  { words: 'account numbers', columns: ['activities.account_id', 'corporate_actions.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'broker_accounts.account_id'] },
 ];
 
 export const PUBLIC_USE = 'Your public record is also used to describe your trading style and to order traders for readers.';
@@ -28,7 +28,9 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.id': 'key', 'closed_trades.user_id': 'key', 'closed_trades.sell_id': 'key (vendor activity id, never shown)',
   'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
+  'closed_trades.filing_url': 'link to the public filing behind a public-record trade (F-7)', 'closed_trades.feed_after': 'feed floor, internal (F-7)',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
+  'closed_trades.sell_imported_at': 'when the closing sell was imported, internal (feed paging)',
 };
 
 const list = (xs: string[]) => (xs.length > 2 ? `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}` : xs.join(' and '));
