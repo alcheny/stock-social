@@ -67,7 +67,7 @@ async function releaseShard(sh: Shard, holder: string, report: RunReport) {
 // The head of the shard's queue: syncable, claimable this round, not backed off, stalest first.
 async function page(sh: Shard, scope: Scope, shift: number, exclude: number[], limit: number) {
   return sql<{ id: number; accounts: number }[]>`with clock as (${clockSql(shift)})
-    select u.id, least(${accountsOf()}, ${SYNC_FIT_CAP})::int as accounts from users u, clock
+    select u.id, ${accountsOf()}::int as accounts from users u, clock
     where ${syncable()} and ${inShard(sh)} ${scopeSql(scope)} and ${claimable()} and ${notBackedOff()}
       ${exclude.length ? sql`and u.id not in ${sql(exclude)}` : sql``}
     order by u.last_synced_at nulls first, u.id limit ${limit}`;
@@ -143,9 +143,10 @@ export async function finish(u: Claimed, end: End, shift = 0): Promise<boolean> 
 type Guard = { clock: () => number; routeEnd: number; boundMs: number };
 function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, count: { n: number }, latency?: LatencyWindow, guard?: Guard): Broker {
   const pay = async (n: number) => {
-    // Refused before it starts (and before its token) when its bound could reach the route's last margin (10 s at the
-    // production bound).
-    if (guard && guard.routeEnd !== Infinity && guard.clock() + guard.boundMs > guard.routeEnd - routeEndMargin(guard.boundMs)) throw new RouteDeadlineError();
+    // Refused before it starts (and before its token) when its n sequential requests, each at its bound, could reach the
+    // route's last margin (10 s at the production bound): a multi-account activities read is one call of n requests
+    // (orchestrator review, blocking 1).
+    if (guard && guard.routeEnd !== Infinity && guard.clock() + n * guard.boundMs > guard.routeEnd - routeEndMargin(guard.boundMs)) throw new RouteDeadlineError();
     count.n += n;
     const free = Math.min(prepaid.left, n);
     prepaid.left -= free;
@@ -153,6 +154,10 @@ function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, coun
   };
   // Each call is timed after its tokens are taken (vendor time only); `n` requests share the call's duration (a
   // multi-account activities read is one call of n requests).
+  // ponytail: a multi-account activities read is timed as one call, so its requests enter the p99 at their average and
+  // an outlier among them is hidden; and a read past one vendor page (an activities week or a share-move history over
+  // 1,000 rows) makes requests the guard cannot see — timing and guarding each request needs lib/broker.ts (protected)
+  // to take a per-request hook.
   const timed = async <T>(n: number, call: () => Promise<T>): Promise<T> => {
     await pay(n);
     const t0 = performance.now();
@@ -276,16 +281,18 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       const c = await next();
       if (!c) return;
       const requests = syncRequests(c.accounts);
-      // The first trader a run takes is always dispatched (it has the whole call; SYNC_FIT_CAP keeps its cost under it),
+      // The first trader a run takes is always dispatched (it has the whole call; one that cannot fit even a whole call is
+      // cut, and after TRANSIENT_LIMIT such cuts quarantined),
       // so a trader with many accounts is never deferred forever by shard 0's housekeeping (review should-fix 2).
       const first = !firstTaken;
       firstTaken = true;
       // Fit rule v2 (committee round 3): the trader's requests at this run's observed p99 plus one whole bound for a
       // straggler (the worst case, every request at the bound, until 50 requests are timed), plus the route-end guard's
       // margin and the token wait — so a trader is not dispatched only to be cut by the guard.
-      // ponytail: a trader dispatched near the end whose requests then time out can still overrun the call; it rolls back
-      // (nothing published), its lease lapses and the attempt counts as unfinished (two in a row quarantine it) — a
-      // per-account resumable sync (the follow-up PR) removes the overrun.
+      // ponytail: the guard covers each vendor call before it starts, not the database work after the last one (the
+      // rebuild and the positions write, well under a second at 10,000 activities) nor the extra pages noted at
+      // `metered`; a sync that needs more than one call's vendor time is cut every time it is first in a call, and its
+      // cut streak quarantines it (backed off, counted) — the per-account resumable sync (follow-up PR) lets it finish.
       if (!first && routeEnd !== Infinity && plannedSyncMs(requests, bound, latency.p99()) + routeEndMargin(bound) + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
         unfit.push(c.id); popped.delete(c.id); r.deferred++; stopReason = 'deadline';
         // Nothing smaller can fit either, or the list has grown past a few pages: stop reading the queue (the exclusion
@@ -310,7 +317,11 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       try {
         end = (await sync(u, metered(broker, bucket, { left: requests }, count, latency, { clock, routeEnd, boundMs: bound }))) === 'skipped' ? 'skipped' : 'done';
       } catch (e) {
-        end = e instanceof RouteDeadlineError ? 'cut' : classify(e);
+        // A cut at the route's end is given back to the round, unless the trader had the whole call (the run's first pick):
+        // then it is counted as a transient failure, so a sync that can never fit a call reaches TRANSIENT_LIMIT and is
+        // quarantined instead of holding a worker every call forever (orchestrator review, blocking 2).
+        end = e instanceof RouteDeadlineError ? (first ? 'transient' : 'cut') : classify(e);
+        if (e instanceof RouteDeadlineError && first) r.cutAtDeadline++;
         // The internal id, the failure class and the error's class and status; never the message (lib/privacy-log.ts).
         if (end === 'cut') console.error('sync cut at the route deadline', u.id);
         else if (end === 'transient') console.error('sync failed transient', u.id, logSafe(e));

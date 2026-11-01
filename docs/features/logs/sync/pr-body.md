@@ -20,9 +20,11 @@ Removes the known limit "`/api/sync` loops users sequentially (~5k traders/hour)
     with the sharded cron, after the gate.
   - A per-run deadline and fit check (committee round 3): a trader is dispatched only if its requests fit at the run's
     observed p99, plus one bound and a 10 s margin. A run's first trader is always dispatched.
-  - A route-end guard: a vendor request that could end in a call's last 10 s is refused (`RouteDeadlineError`). The
-    trader rolls back, nothing is published, its round claim goes back for the next call, and no attempt, streak or
-    backoff is recorded. The platform never kills a sync.
+  - A route-end guard: a vendor call whose requests (n for an n-account read), each at its bound, could end in a call's
+    last 10 s is refused (`RouteDeadlineError`). The trader rolls back and nothing is published. Its round claim goes
+    back for the next call, with no attempt, streak or backoff. The exception is a run's first pick, which had the
+    whole call: its cut counts as transient, so a sync that never fits is quarantined after 5 calls. What the guard does
+    not cover is listed under Known limits.
   - A fenced 60 s shard lease on the database clock, renewed every 15 s; a busy shard answers 200 `{busy: true}`.
   - A per-shard vendor token bucket (`SYNC_VENDOR_RPS`), taken before the claim, outside the transaction.
   - Per-trader backoff: 1 h doubling, capped at 24 h.
@@ -75,8 +77,14 @@ The hosting plan must allow 5-minute crons and 41 entries.
 - `lib/sync.ts` (SYNC_FIT_CAP): a sync of more than 3 accounts (SYNC_FIT_CAP after #40), or one reading more than one vendor page per account, can
   still overrun the call and roll back. The runner dispatches such a trader first in a call and quarantines it after two
   overruns. Fix: a resumable per-account sync, as a follow-up PR (orchestrator-agreed).
-- `lib/sync-shard.ts` (fit check): a trader dispatched near a call's end whose requests then slow down is cut by the
-  route-end guard (rolled back, given back to the round). Fix: the resumable per-account sync in the follow-up PR.
+- `lib/sync-shard.ts` (route-end guard): it checks each vendor call before it starts. It does not cover the database
+  work after the last call (well under a second), or the requests of a read past one vendor page inside one broker call
+  (an activities week or a share-move history over 1,000 rows). Fix: a per-request hook in `lib/broker.ts`, or the
+  resumable per-account sync (follow-up PR).
+- `lib/sync-shard.ts` (latency): a multi-account activities read is timed as one call, so its requests enter the p99 at
+  their average. Fix: the same per-request hook.
+- `lib/sync-shard.ts` (traders that never fit): a sync needing more than one call's vendor time is cut each time it is
+  first in a call, then quarantined after 5. Fix: the resumable per-account sync.
 - `lib/sync-shard.ts` (vendor budget): the budget is per run, in process. A manual call during a sharded schedule adds
   its own budget. Fix: a budget row in the database.
 - `lib/sync-shard.ts` (breaker): its window covers one run, so an outage is re-detected by every shard's run. Fix: a

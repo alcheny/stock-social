@@ -164,3 +164,15 @@ the worst shard used 7.07 of 11 calls (1.56x; whole calls 7 of 11, 1.57x); the l
 prediction. The first run of the guard used an unscaled 10 s margin in the time-scaled test (cutting 35,901 syncs,
 1.25x); the margin now scales with the request bound and is part of the dispatch fit check, so a trader is not
 dispatched only to be cut. Round 3 is signed on this measurement.
+
+## Orchestrator review of round 3 (taken)
+
+- Blocking 1: the route-end guard now counts every request of a call (an n-account activities read is n bounds), not
+  one. What it still cannot see (a read past one vendor page inside one broker call, and the database work after the
+  last call) is a precise ponytail note and stated in docs/SYNC.md.
+- Blocking 2: a cut trader that was the run's first pick (it had the whole call) counts as transient, so a sync that can
+  never fit a call reaches TRANSIENT_LIMIT and is quarantined instead of holding a worker every call. Cuts of later
+  picks still give the claim back with no streak.
+- Nits: the queue page plans with the trader's real account count (no SYNC_FIT_CAP cap); the load test bounds cuts (at
+  most 0.1% of the fleet, never twice per trader); per-request timing inside a multi-account read needs a hook in
+  lib/broker.ts (protected), recorded as a ponytail note.

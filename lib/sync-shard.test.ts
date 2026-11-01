@@ -521,30 +521,76 @@ dbTest('route-end guard: a sync whose next request could end past the route dead
   const h = await harness();
   const of = freshOf();
   try {
-    const [t] = await h.inShard(1, of, 0);
+    // q is the run's first pick (quick); t comes second, fits the plan, then meets a slow vendor near the end.
+    const [q, t] = await h.inShard(2, of, 0);
     let wall = 1_000_000;
+    const acct = (x: { acc: string }) => [{ id: x.acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }];
+    const isT = (u: { snaptradeUserId: string }) => u.snaptradeUserId === `${t.tag}-vendor`;
     const broker = {
-      listAccounts: async () => { wall += 5_000; return [{ id: t.acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }]; },
-      // A slow read: afterwards only 35 s are left, so a 30 s request could end inside the last 10 s.
-      fetchActivities: async () => { wall += 60_000; return [{ externalId: `${t.tag}-b`, accountId: t.acc, symbol: 'AAA', side: 'BUY' as const, units: 1, price: 10, fee: 0, executedAt: new Date(Date.UTC(2024, 0, 1)), verified: true, raw: {} }]; },
+      listAccounts: async (u: { snaptradeUserId: string }) => { if (isT(u)) { wall += 5_000; return acct(t); } return acct(q); },
+      // t's slow read: afterwards only 35 s are left, so its next 30 s request could end inside the last 10 s.
+      fetchActivities: async (u: { snaptradeUserId: string }) => {
+        if (!isT(u)) return [];
+        wall += 100_000;
+        return [{ externalId: `${t.tag}-b`, accountId: t.acc, symbol: 'AAA', side: 'BUY' as const, units: 1, price: 10, fee: 0, executedAt: new Date(Date.UTC(2024, 0, 1)), verified: true, raw: {} }];
+      },
       fetchPositions: async () => [],
       fetchShareMoves: async () => ({ activities: [], actions: [] }),
     };
+    // 140 s left at t's dispatch: its worst case (4 requests × 30 s + the 10 s margin) fits.
     const r = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(5), jitterMs: 0, config: cfg(1), log: h.quiet,
-      broker: broker as unknown as import('./sync.ts').Broker, clock: () => wall, routeEnd: wall + 100_000, vendorBoundMs: 30_000 });
-    assert.deepEqual([r.done, r.cutAtDeadline, r.transient, r.failed, r.quarantined], [0, 1, 0, 0, 0], JSON.stringify(r));
+      broker: broker as unknown as import('./sync.ts').Broker, clock: () => wall, routeEnd: wall + 140_000, vendorBoundMs: 30_000 });
+    assert.deepEqual([r.done, r.cutAtDeadline, r.transient, r.failed, r.quarantined], [1, 1, 0, 0, 0], JSON.stringify(r));
     assert.deepEqual(r.failedIds, []);
     const row = await h.row(t.id);
     assert.equal(row.sync_attempts, 0);
     assert.equal(row.sync_retry_at, null);
     assert.equal(row.sync_lease_until, null);
     assert.equal(row.sync_claimed_at, null, 'its round claim is given back');
-    // The next call in the same round takes it first and syncs it.
+    assert.equal((await h.sql`select count(*)::int as n from activities where user_id = ${t.id}`)[0].n, 0, 'rolled back: nothing published');
+    // The next call in the same round takes it and syncs it; q (synced this round) is not taken again.
     const ok = h.counter(async () => 1);
     const r2 = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(10), jitterMs: 0, config: cfg(1), log: h.quiet, sync: ok.sync });
     assert.equal(r2.done, 1);
+    assert.equal(ok.count(t.id), 1);
     assert.equal((await h.sql`select sync_transients from users where id = ${t.id}`)[0].sync_transients, 0);
-    assert.equal((await h.sql`select count(*)::int as n from activities where user_id = ${t.id}`)[0].n, 0, 'rolled back: nothing published');
+  } finally {
+    await h.cleanup(of);
+  }
+});
+
+// Orchestrator review, blocking 1 and 2: the guard counts every request of a multi-account read (3 accounts: 3 bounds,
+// not 1), and a trader cut while it had the whole call (the run's first pick) counts toward its transient streak, so a
+// sync that can never fit a call is quarantined after TRANSIENT_LIMIT calls instead of holding a worker every call.
+dbTest('route-end guard: a 3-account read is guarded for 3 bounds; a first pick cut every call reaches TRANSIENT_LIMIT and is quarantined', async () => {
+  const h = await harness();
+  const { TRANSIENT_LIMIT } = await import('./sync-limits.ts');
+  const of = freshOf();
+  try {
+    const [t] = await h.inShard(1, of, 0);
+    const accounts = [0, 1, 2].map((i) => ({ id: `${t.acc}-${i}`, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }));
+    await h.sql`update connections set accounts = ${h.sql.json(accounts)} where user_id = ${t.id}`;
+    let wall = 1_000_000;
+    let reads = 0;
+    const broker = {
+      listAccounts: async () => { wall += 5_000; return accounts; },
+      fetchActivities: async () => { reads++; return []; },
+      fetchPositions: async () => [],
+      fetchShareMoves: async () => ({ activities: [], actions: [] }),
+    };
+    for (let i = 0; i < TRANSIENT_LIMIT; i++) {
+      wall = 1_000_000;
+      // 100 s: after the account list 95 s are left; one 30 s bound would pass the guard, three (90 s + 10 s) do not.
+      const r = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(5 + 60 * i), jitterMs: 0, config: cfg(1), log: h.quiet,
+        broker: broker as unknown as import('./sync.ts').Broker, clock: () => wall, routeEnd: wall + 100_000, vendorBoundMs: 30_000 });
+      assert.equal(r.cutAtDeadline, 1, `call ${i}: ${JSON.stringify(r)}`);
+      assert.equal(r.transient, 1, 'a first pick cut counts as transient');
+      assert.equal(r.quarantined, i === TRANSIENT_LIMIT - 1 ? 1 : 0, `call ${i}`);
+    }
+    assert.equal(reads, 0, 'the 3-account read never started');
+    const row = await h.row(t.id);
+    assert.equal(row.sync_failure_kind, 'quarantined');
+    assert.ok(row.sync_retry_at);
   } finally {
     await h.cleanup(of);
   }

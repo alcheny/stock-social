@@ -115,9 +115,23 @@ distribution before switch-on.
 
 **Fit rule (committee round 3).** A trader is dispatched only if its requests fit before the call's end at the run's
 observed p99, plus one whole bound for a straggler, plus a 10 s margin (all at the bound until 50 requests are timed).
-The run's first trader is always dispatched. A vendor request that could end in the call's last 10 s is refused
-(`RouteDeadlineError`). The trader's transaction then rolls back, so nothing is published, and its round claim goes
-back for the next call (`cutAtDeadline`). The platform never kills a sync mid-way.
+The plan uses the trader's real account count. The run's first trader is always dispatched.
+
+**Route-end guard.** A vendor call is refused (`RouteDeadlineError`) if its requests, each at its bound, could end in the
+call's last 10 s; a multi-account activities read counts as n requests. The trader's transaction rolls back, so nothing
+is published.
+- A trader that was not the run's first pick gets its round claim back for the next call (`cutAtDeadline`), with no
+  attempt, streak or backoff.
+- The run's first pick had the whole call. A cut there counts as a transient failure, so a sync that can never fit a
+  call is quarantined after 5 calls instead of holding a worker every call.
+
+**What the guard does not cover** (`ponytail:` in `lib/sync-shard.ts`):
+- the database work after the last vendor call (the rebuild and the positions write, well under a second);
+- the requests of a read past one vendor page (an activities week or a share-move history over 1,000 rows), which run
+  inside one broker call;
+- per-request timing inside a multi-account read: its requests enter the p99 at their average.
+
+Covering these needs a per-request hook in `lib/broker.ts`, or the resumable per-account sync (follow-up PR).
 
 **Database:** peak connections are `N × (C + 2)` = 40 × 8 = **320**, plus the rest of the app. A pooler does not reduce
 this: each held transaction pins a server connection. Size the server for about 360 backends (`max_connections` ≥ 340, the coverage check's `N × (C + 2) + 20`,

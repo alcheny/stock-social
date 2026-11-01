@@ -250,9 +250,9 @@ test('LatencyWindow: no estimate before 50 requests; p99 over the last 200, neve
   const w = new LatencyWindow();
   for (let i = 0; i < 49; i++) w.record(100);
   assert.equal(w.p99(0), null);
-  w.record(900); // the 50th: the first 50's p99 is 900 (the largest of 50 at index 48.5 → 48... sorted[48] = 100) 
+  w.record(900); // the 50th: the first 50's p99 is sorted[floor(0.99 × 49)] = sorted[48] = 100 (the 900 is sorted[49])
   const first = w.p99(0)!;
-  assert.ok(first === 100 || first === 900);
+  assert.equal(first, 100);
   // 200 fast requests later the window holds only fast ones, but the floor (the first 50's p99) holds.
   for (let i = 0; i < 300; i++) w.record(10);
   assert.equal(w.p99(0), first, 'cached within a second');

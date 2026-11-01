@@ -432,6 +432,10 @@ loadTest('100,000 traders, 40 shards x 6 workers, 2-account mix, 1% slow, 0.1% f
     assert.equal(never.length, 0, `every trader attempted in round 1 (${never.length} not)`);
     const extra = all.reduce((a, id) => a + (attempts[1].get(id)! - 1), 0);
     assert.equal(extra, sum('cutAtDeadline'), 'attempts beyond one per trader are exactly the syncs cut at a call\'s end');
+    // Orchestrator review: cuts are bounded, not just accounted for: at most 0.1% of the fleet in a round (measured 0)
+    // and no trader cut more than once.
+    assert.ok(sum('cutAtDeadline') <= M.traders / 1000, `cuts ${sum('cutAtDeadline')}`);
+    assert.ok(all.every((id) => attempts[1].get(id)! <= 2), 'no trader cut twice in a round');
     assert.equal(attempts[1].size, M.traders, 'no trader outside the range attempted');
     const wrongShard = [...shardSeen].filter(([id, s]) => s.size !== 1 || !s.has(id % M.of));
     assert.equal(wrongShard.length, 0, 'every trader in exactly its own shard: shards disjoint');
