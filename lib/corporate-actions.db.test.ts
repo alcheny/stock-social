@@ -43,7 +43,7 @@ dbTest('a stored 2:1 split prices the sell at +10%; without it the oversold sell
     await s.rebuild();
     assert.deepEqual(await s.trades(), []);
     assert.deepEqual(await s.counters(), { excluded_positions: 1, excluded_corporate: 0 });
-    await s.insertCa([s.ca('split', 10, { kind: 'split', units: 100, ratio: { p: 2, q: 1 } })]);
+    await s.insertCa([s.ca('split', 20, { kind: 'split', units: 100, ratio: { p: 2, q: 1 } })]);
     const r = await s.rebuild();
     assert.equal(r.excludedCorporate, 0);
     const first = await s.trades();
@@ -127,7 +127,7 @@ dbTest('vendor rows as the fake serves them, mapped by fromVendorRows (the path 
     const acc = `${s.tag}-acc`;
     const served = [
       { id: `${s.tag}-b`, type: 'BUY', symbol: { symbol: 'SPLITCO' }, units: 100, price: 100, fee: 0, trade_date: '2025-03-03T15:00:00Z' },
-      { id: `${s.tag}-sp`, type: 'SPLIT', symbol: { symbol: 'SPLITCO' }, units: 100, price: 0, trade_date: '2025-03-10T15:00:00Z', description: '2 FOR 1 STOCK SPLIT' },
+      { id: `${s.tag}-sp`, type: 'SPLIT', symbol: { symbol: 'SPLITCO' }, units: 100, price: 0, trade_date: '2025-03-20T15:00:00Z', description: '2 FOR 1 STOCK SPLIT' },
       { id: `${s.tag}-s`, type: 'SELL', symbol: { symbol: 'SPLITCO' }, units: 200, price: 55, fee: 0, trade_date: '2025-04-01T15:00:00Z' },
     ];
     // BUY and SELL rows as lib/broker.ts maps them today; the rest through fromVendorRows.

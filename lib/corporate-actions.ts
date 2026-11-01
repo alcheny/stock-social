@@ -35,23 +35,25 @@ export const LATE_POSTING_DAYS = 14;
 const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 
 // The ratios a split may resolve to: n:1 and 1:n up to 100, and anything with both sides up to 10 (3:2, 5:4, 2:3...).
-// A stock dividend may be any (q + k):q with q up to 100 (5% is 21:20).
+// A stock dividend may be a whole percent, 1% to 100% (5% is 21:20): a finer grid would let almost any share count
+// fit some ratio (tester round 1).
 export function candidateRatios(kind: 'split' | 'stock-dividend'): Ratio[] {
   const out: Ratio[] = [];
-  const add = (p: number, q: number) => { if (p !== q && gcd(p, q) === 1) out.push({ p, q }); };
+  const add = (p: number, q: number) => { const g = gcd(p, q); if (p !== q) out.push({ p: p / g, q: q / g }); };
   if (kind === 'split') {
     for (let n = 2; n <= 100; n++) { add(n, 1); add(1, n); }
-    for (let p = 2; p <= 10; p++) for (let q = 2; q <= 10; q++) add(p, q);
+    for (let p = 2; p <= 10; p++) for (let q = 2; q <= 10; q++) if (gcd(p, q) === 1) add(p, q);
   } else {
-    for (let q = 1; q <= 100; q++) for (let p = q + 1; p <= 2 * q; p++) add(p, q);
+    for (let k = 1; k <= 100; k++) add(100 + k, 100);
   }
   return out;
 }
 const CANDIDATES = { split: candidateRatios('split'), 'stock-dividend': candidateRatios('stock-dividend') };
 
-// "2 FOR 1", "1-for-10", "3:2" in a vendor description. Null when absent or not a ratio of positive integers.
+// "2 FOR 1" or "1-for-10" in a vendor description. Null when absent or not a ratio of positive integers. A bare "n:m"
+// is not read (tester round 1: "EFFECTIVE 10:30" is a time, not a 1:3 split).
 export function parseRatio(description: string | null | undefined): Ratio | null {
-  const m = description?.match(/(\d+)\s*(?:-\s*for\s*-|\s+for\s+|:)\s*(\d+)/i);
+  const m = description?.match(/\b(\d+)\s*(?:-\s*for\s*-|\s+for\s+)\s*(\d+)\b/i);
   if (!m) return null;
   const p = Number(m[1]), q = Number(m[2]);
   if (!(p > 0 && q > 0) || p === q) return null;
@@ -86,14 +88,13 @@ export function resolveRatio(held: number, a: { kind: 'split' | 'stock-dividend'
       if (leftover !== null) fits.push({ ratio: r, leftover });
     }
   }
-  // Prefer exact fits: a leftover reading only counts when nothing fits exactly.
-  const exact = fits.filter((f) => f.leftover === 0);
-  const pool = exact.length ? exact : fits;
-  const values = new Set(pool.map((f) => f.ratio.p / f.ratio.q));
+  // Every fit counts, exact or with a leftover: a ratio that fits exactly is not preferred over one that fits with cash
+  // in lieu (tester round 1: 33 shares → 3 is 1:10 with 0.3 paid in cash, and also exactly 1:11). Two ratios: unpriceable.
+  const values = new Set(fits.map((f) => f.ratio.p / f.ratio.q));
   if (values.size !== 1) return null;
-  // Same ratio from both readings with different leftovers: ambiguous, unless one is exact (handled above).
-  const leftovers = new Set(pool.map((f) => f.leftover));
-  return leftovers.size === 1 ? pool[0] : null;
+  // The same ratio from both readings with different leftovers is ambiguous too.
+  const leftovers = new Set(fits.map((f) => f.leftover));
+  return leftovers.size === 1 ? fits[0] : null;
 }
 
 // A rename's share exchange must be 1:1 or a clean ratio, with no leftover (cash paid with an exchange is unpriceable).
@@ -117,12 +118,12 @@ const SPIN = /spin[\s-]?off/i;
 const SHARE_TYPES = new Set(['SPLIT', 'STOCK_DIVIDEND', 'REI', 'ADJUSTMENT', 'TRANSFER', 'EXTERNAL_ASSET_TRANSFER_IN', 'EXTERNAL_ASSET_TRANSFER_OUT']);
 
 // REI (dividend reinvestment) is a purchase: with units and a price it becomes a BUY activity, otherwise unpriceable.
-// A symbol change is accepted only as an explicit pair: shares out of one symbol and into another, same account, same
-// trade date, one row each. Anything else that moves shares on a symbol is unpriceable (counted when a sell draws it).
+// A symbol change is accepted only as an explicit pair of ADJUSTMENT rows: shares out of one symbol and into another,
+// same account, same trade date, one row each (a transfer out and a transfer in are never a rename: tester round 1). Anything else that moves shares on a symbol is unpriceable (counted when a sell draws it).
 export function fromVendorRows(accountId: string, rows: VendorRow[]): { activities: (Activity & { raw: unknown })[]; actions: (CorporateAction & { raw: unknown })[] } {
   const activities: (Activity & { raw: unknown })[] = [];
   const actions: (CorporateAction & { raw: unknown })[] = [];
-  const moves: { row: VendorRow; symbol: string; at: Date; units: number }[] = [];
+  const moves: { row: VendorRow; symbol: string; at: Date; units: number; adjustment: boolean }[] = [];
   for (const row of rows) {
     const symbol = row.symbol?.symbol;
     if (!row.id || !symbol || row.option_symbol || !row.trade_date || !row.type || !SHARE_TYPES.has(row.type)) continue;
@@ -143,7 +144,7 @@ export function fromVendorRows(accountId: string, rows: VendorRow[]): { activiti
         activities.push({ externalId: row.id, accountId, symbol, side: 'BUY', units, price, fee: Math.abs(row.fee ?? 0), executedAt: at, verified: true, raw: row });
       } else actions.push({ ...base, kind: 'unpriceable', reason: 'unknown' });
     } else if (Number.isFinite(units) && units !== 0) {
-      moves.push({ row, symbol, at, units });
+      moves.push({ row, symbol, at, units, adjustment: row.type === 'ADJUSTMENT' });
     }
   }
   // Pair moves: same trade date, exactly one out and one in on different symbols.
@@ -151,7 +152,7 @@ export function fromVendorRows(accountId: string, rows: VendorRow[]): { activiti
   for (const m of moves) { const k = m.at.toISOString().slice(0, 10); const g = byDay.get(k); if (g) g.push(m); else byDay.set(k, [m]); }
   for (const group of byDay.values()) {
     const out = group.filter((m) => m.units < 0), into = group.filter((m) => m.units > 0);
-    if (group.length === 2 && out.length === 1 && into.length === 1 && out[0].symbol !== into[0].symbol) {
+    if (group.length === 2 && out.length === 1 && into.length === 1 && out[0].symbol !== into[0].symbol && out[0].adjustment && into[0].adjustment) {
       const o = out[0], i = into[0];
       actions.push({ externalId: o.row.id!, accountId, symbol: o.symbol, executedAt: o.at, kind: 'symbol-change', newSymbol: i.symbol, outUnits: -o.units, inUnits: i.units, raw: { out: o.row, in: i.row } });
       continue;
@@ -186,6 +187,27 @@ export function actionsFor(actions: CorporateAction[], keys: Set<string>): Corpo
   return actions.filter((a) => keys.has(pairKey(a.accountId, a.symbol))
     || (a.kind === 'symbol-change' && keys.has(pairKey(a.accountId, a.newSymbol)))
     || (a.kind === 'unpriceable' && a.scope === 'account' && accounts.has(a.accountId)));
+}
+
+// The same selection as actionsFor, indexed once per rebuild: by pair (as source or rename target) and by account for
+// account-wide actions, so each flush reads only its own actions instead of scanning all of them.
+export function actionIndex(actions: CorporateAction[]): (keys: Set<string>) => CorporateAction[] {
+  const byKey = new Map<string, CorporateAction[]>();
+  const add = (k: string, a: CorporateAction) => { const g = byKey.get(k); if (g) { if (g[g.length - 1] !== a) g.push(a); } else byKey.set(k, [a]); };
+  for (const a of actions) {
+    if (a.kind === 'unpriceable' && a.scope === 'account') add(`${a.accountId}|`, a);
+    add(pairKey(a.accountId, a.symbol), a);
+    if (a.kind === 'symbol-change') add(pairKey(a.accountId, a.newSymbol), a);
+  }
+  const order = new Map(actions.map((a, i) => [a, i]));
+  return (keys) => {
+    const out = new Set<CorporateAction>();
+    for (const k of keys) {
+      for (const a of byKey.get(k) ?? []) out.add(a);
+      for (const a of byKey.get(k.slice(0, k.lastIndexOf('|') + 1)) ?? []) out.add(a);
+    }
+    return [...out].sort((x, y) => order.get(x)! - order.get(y)!);
+  };
 }
 
 // ---- Storage (append-only, like activities): the caller passes its connection or transaction ----

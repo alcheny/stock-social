@@ -40,6 +40,33 @@ Owner's standing instruction (2026-11-01): decide open questions with the commit
 | Rebuild | The user's actions are read once. Pairs linked by renames are grouped into chains up front, skipped in the stream, and matched per chain with one query. Account-wide actions reach every pair in their account. Simulated accounts' and future-dated actions are not applied. The counter is written with its own `update`. | Keeps the edits to the shared `lib/sync.ts` small and additive. | engineer |
 | E2E | The vendor fake serves share-moving rows and honours the `type` filter like the vendor. The e2e imports across a 2:1 split and asserts the -45% wrong return appears nowhere (signed out, light and dark, 375px, page description, share card route) and the excluded line shows. The correct +10% after a split is proven by a DB test that feeds the fake's row shape through `fromVendorRows`. | broker.ts drops the split row, so the e2e can prove only the safety net until the owner's change. | engineer, business lead |
 
+## Review and QA round 1 (independent code reviewer and tester, fresh context)
+Every blocking finding was fixed and has a regression test. The fixes apply the committee's rule: when in doubt,
+exclude and count.
+- **Same-instant actions** (reviewer, blocking). A rename and a split at the same instant were applied in id order. That
+  published -45% when the split's id sorted first. Now renames apply first. An action on the old symbol at the instant
+  of its rename is ambiguous, so it taints the moved lots instead of being skipped.
+- **/how copy** (reviewer, blocking). The split-adjustment sentence described behaviour that isn't live until the broker
+  change, so it was removed. It lands with that change. The excluded item now says only what is true today: a position
+  that sells more shares than its imported history holds is excluded whole.
+- **Cash in lieu read as a wrong exact ratio** (tester, blocking). 33 shares becoming 3 fits 1:10 with 0.3 paid in cash,
+  and exactly 1:11. "Prefer exact" picked 1:11. Now every fit counts, exact or with a leftover. Two ratios mean the
+  action is unpriceable. Stock dividends resolve only to a whole percent (1% to 100%). The old q ≤ 100 grid let
+  almost any share count fit. Small holdings without a description ratio are now often unpriceable. That is
+  conservative and counted.
+- **Transfers read as a rename** (tester, blocking). Renames now come only from a pair of ADJUSTMENT rows. A transfer out
+  plus a transfer in is unpriceable.
+- **Late-posted renames, and buys inside the window** (tester, blocking). Any trade of the new symbol within
+  LATE_POSTING_DAYS before a rename taints the moved lots. So does a buy of the old symbol before a rename that
+  exchanges at a ratio. A buy within the window before a split or stock dividend taints the adjusted lots, because it
+  may already be in post-split shares.
+  Cost: a trader who buys in the 14 days before a split loses that position from the record (counted). The committee's
+  F3c rule accepts that cost. Measure it once real data flows.
+- `parseRatio` reads only "n for m". A bare "n:m" can be a time ("EFFECTIVE 10:30").
+- Non-blocking, fixed: the late-posting lookup is a binary search per sell (it used to scan every action). The rebuild
+  indexes actions once (`actionIndex`). A stored rename to the same symbol is unpriceable instead of dropping lots. An
+  action that empties the lots ends the episode.
+
 ## Remaining exposure (stated plainly)
 Until `lib/broker.ts` passes corporate-action rows, two cases are still published with a wrong return:
 - an unrecorded split followed by a partial sale and no oversell (buy 100 @ 100, 2:1, sell 100 @ 55 shows -45%);

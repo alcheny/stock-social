@@ -4,7 +4,7 @@ import { fetchActivities, fetchActivitiesPage, fetchPositions, listAccounts, PAG
 import { AccountClaimedError, claimIn } from './claims.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
-import { actionsFor, chainsOf, loadCorporateActions, pairKey, type CorporateAction } from './corporate-actions.ts';
+import { actionIndex, chainsOf, loadCorporateActions, pairKey } from './corporate-actions.ts';
 import { replacePositions } from './positions.ts';
 
 const BACKFILL_MS = 7 * 86_400_000; // brokers post late corrections; re-read the last week
@@ -65,10 +65,11 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
     const actions = await loadCorporateActions(tx, userId, notFuture(tx));
     const chainOf = chainsOf(actions);
+    const actionsOf = actionIndex(actions);
     let excludedCorporate = 0;
     const flush = async (rows: Activity[], keys?: Set<string>) => {
       if (!rows.length) return;
-      const m = matchTrades(rows, actions.length ? actionsFor(actions, keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
+      const m = matchTrades(rows, actions.length ? actionsOf(keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
       excluded += m.excluded;
       excludedCorporate += m.excludedCorporate;
       const { attached } = reattachTheses(kept, m.trades);

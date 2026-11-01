@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { matchTrades, openLots, type Activity } from './trades.ts';
-import { actionsFor, chainsOf, fromVendorRows, pairKey, parseRatio, renameRatio, resolveRatio, LATE_POSTING_DAYS, type CorporateAction, type Ratio } from './corporate-actions.ts';
+import { actionIndex, actionsFor, chainsOf, fromVendorRows, pairKey, parseRatio, renameRatio, resolveRatio, LATE_POSTING_DAYS, type CorporateAction, type Ratio } from './corporate-actions.ts';
 
 const d = (day: number) => new Date(Date.UTC(2026, 0, day));
 let n = 0;
@@ -27,18 +27,18 @@ const accounted = (acts: Activity[], actions: CorporateAction[] = []) => {
 // ---- Examples ----
 
 test('2:1 split mid-position: buy 100 at 100, split, sell 200 at 55 reads +10%; without the split event the sell is excluded, never -45%', () => {
-  const acts = [t('BUY', 100, 100, 1), t('SELL', 200, 55, 10)];
-  const m = accounted(acts, [split(5, 2, 1)]);
+  const acts = [t('BUY', 100, 100, 1), t('SELL', 200, 55, 30)];
+  const m = accounted(acts, [split(20, 2, 1)]);
   assert.equal(m.trades.length, 1);
   near(m.trades[0].returnPct, 0.1);
-  assert.equal(m.trades[0].holdingDays, 9); // from the original buy
+  assert.equal(m.trades[0].holdingDays, 29); // from the original buy
   assert.equal(m.trades[0].openedAt.getTime(), d(1).getTime());
   const without = accounted(acts);
   assert.deepEqual([without.trades.length, without.excluded], [0, 1]);
 });
 
 test('1:10 reverse split mid-position: buy 100 at 10 (fee 10), split, sell 10 at 110 (fee 0): +10% less the entry fee, fee per unit scaled', () => {
-  const m = accounted([t('BUY', 100, 10, 1, { fee: 10 }), t('SELL', 10, 110, 10)], [split(5, 1, 10)]);
+  const m = accounted([t('BUY', 100, 10, 1, { fee: 10 }), t('SELL', 10, 110, 30)], [split(20, 1, 10)]);
   near(m.trades[0].returnPct, (1100 - 1000 - 10) / 1000);
 });
 
@@ -49,16 +49,16 @@ test('split between two partial sells: the first at the old basis, the second at
 });
 
 test('split and sell on the same day: the action applies first', () => {
-  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 200, 55, 5)], [split(5, 2, 1)]);
+  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 200, 55, 20)], [split(20, 2, 1)]);
   near(m.trades[0].returnPct, 0.1);
 });
 
 test('reverse split with cash in lieu: 105 shares 1:10 become 10 (0.5 paid in cash); the fraction is removed, not a trade, not counted', () => {
-  const m = accounted([t('BUY', 105, 10, 1), t('SELL', 10, 110, 10)], [splitUnits(5, -95)]);
+  const m = accounted([t('BUY', 105, 10, 1), t('SELL', 10, 110, 30)], [splitUnits(20, -95)]);
   assert.equal(m.trades.length, 1);
   near(m.trades[0].returnPct, 0.1);
   assert.deepEqual([m.excluded, m.excludedCorporate], [0, 0]);
-  assert.equal(openLots([t('BUY', 105, 10, 1)], [splitUnits(5, -95)]).reduce((s, l) => s + l.units, 0), 10);
+  assert.equal(openLots([t('BUY', 105, 10, 1)], [splitUnits(20, -95)]).reduce((s, l) => s + l.units, 0), 10);
 });
 
 test('a reverse split whose shares fit no clean ratio (the broker rounded up) is unpriceable: the next sell is excluded and counted', () => {
@@ -67,9 +67,9 @@ test('a reverse split whose shares fit no clean ratio (the broker rounded up) is
 });
 
 test('ambiguous vendor units: 200 on 100 held reads 3:1 (change) or 2:1 (total): unpriceable unless the description settles it', () => {
-  const acts = [t('BUY', 100, 100, 1), t('SELL', 100, 50, 10)];
-  assert.deepEqual(Object.values(accounted(acts, [splitUnits(5, 200)])).slice(1), [0, 1]);
-  const settled = accounted([t('BUY', 100, 100, 1), t('SELL', 200, 55, 10)], [splitUnits(5, 200, { ratio: { p: 2, q: 1 } })]);
+  const acts = [t('BUY', 100, 100, 1), t('SELL', 100, 50, 30)];
+  assert.deepEqual(Object.values(accounted(acts, [splitUnits(20, 200)])).slice(1), [0, 1]);
+  const settled = accounted([t('BUY', 100, 100, 1), t('SELL', 200, 55, 30)], [splitUnits(20, 200, { ratio: { p: 2, q: 1 } })]);
   near(settled.trades[0].returnPct, 0.1);
 });
 
@@ -79,8 +79,8 @@ test('a description ratio that disagrees with the units is unpriceable', () => {
 });
 
 test('stock dividend of 5%: 100 shares at 105 receive 5; selling all 105 at 110 reads +10% (basis spread over old and new)', () => {
-  const sd: CorporateAction = { ...base(5), kind: 'stock-dividend', units: 5 } as CorporateAction;
-  const m = accounted([t('BUY', 100, 105, 1), t('SELL', 105, 110, 10)], [sd]);
+  const sd: CorporateAction = { ...base(20), kind: 'stock-dividend', units: 5 } as CorporateAction;
+  const m = accounted([t('BUY', 100, 105, 1), t('SELL', 105, 110, 30)], [sd]);
   near(m.trades[0].returnPct, (105 * 110 - 100 * 105) / (100 * 105));
 });
 
@@ -122,7 +122,7 @@ test('spin-off naming its parent taints only the parent pair', () => {
 });
 
 test('late posting: a sell within the window before a split row is excluded and counted; later sells read the adjusted basis', () => {
-  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 55, 8), t('SELL', 100, 56, 20)], [split(10, 2, 1)]);
+  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 55, 22), t('SELL', 100, 56, 40)], [split(24, 2, 1)]);
   assert.deepEqual([m.excludedCorporate, m.trades.length], [1, 1]);
   near(m.trades[0].returnPct, 0.12);
   // Outside the window the earlier sell is shown.
@@ -132,7 +132,7 @@ test('late posting: a sell within the window before a split row is excluded and 
 
 test('mix across accounts: a split in one account leaves the same symbol in another account unadjusted', () => {
   const acts = [t('BUY', 100, 100, 1), t('BUY', 100, 100, 1, { accountId: 'acc2' }), t('SELL', 200, 55, 30), t('SELL', 100, 110, 30, { accountId: 'acc2' })];
-  const m = accounted(acts, [split(10, 2, 1)]);
+  const m = accounted(acts, [split(20, 2, 1)]);
   assert.deepEqual(m.trades.map((x) => [x.accountId, Math.round(x.returnPct * 1e6) / 1e6]), [['acc', 0.1], ['acc2', 0.1]]);
 });
 
@@ -150,12 +150,78 @@ test('a pair with only actions, or actions on symbols with no lots, never crashe
   assert.deepEqual(matchTrades([], [split(1, 2, 1), rename(2, 'AAA', 'BBB', 5), unpriceable(3, { units: 4 })]), { trades: [], excluded: 0, excludedCorporate: 0 });
 });
 
+// Review fix round 1 (blocking): same-instant actions no longer depend on their ids' order.
+test('a rename and a split on the new symbol at the same instant price correctly whichever id sorts first', () => {
+  const acts = [t('BUY', 100, 100, 1), t('SELL', 200, 55, 30, { symbol: 'NEW' })];
+  const r = rename(10, 'AAA', 'NEW', 100), sp = split(10, 2, 1, { symbol: 'NEW' });
+  for (const actions of [[r, sp], [sp, r]]) near(accounted(acts, actions).trades[0].returnPct, 0.1);
+});
+
+test('a split on the old symbol at the same instant as its rename is ambiguous: the moved lots are tainted, never shown unadjusted', () => {
+  const acts = [t('BUY', 100, 100, 1), t('SELL', 100, 55, 30, { symbol: 'NEW' })];
+  for (const actions of [[rename(10, 'AAA', 'NEW', 100), split(10, 2, 1)], [split(10, 2, 1), rename(10, 'AAA', 'NEW', 100)]]) {
+    const m = accounted(acts, actions);
+    assert.deepEqual([m.trades.length, m.excludedCorporate], [0, 1]);
+  }
+});
+
+test('a stored rename to the same symbol is unpriceable: the lots stay and are tainted, never dropped', () => {
+  const acts = [t('BUY', 100, 100, 1), t('SELL', 100, 120, 30)];
+  const m = accounted(acts, [rename(10, 'AAA', 'AAA', 100)]);
+  assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [0, 0, 1]);
+});
+
+test('an action that empties the lots ends the episode: a later oversell leaves the earlier trade shown', () => {
+  const acts = [t('BUY', 10, 100, 1), t('SELL', 5, 110, 2), t('BUY', 10, 100, 40), t('SELL', 20, 100, 41)];
+  const m = accounted(acts, [unpriceable(20, { scope: 'pair', units: -5 })]);
+  assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [1, 1, 0]);
+  near(m.trades[0].returnPct, 0.1);
+});
+
+test('late-posting window boundary: a sell exactly LATE_POSTING_DAYS before the action is excluded, one minute more is shown', () => {
+  const at = d(30);
+  const edge = new Date(at.getTime() - LATE_POSTING_DAYS * 86_400_000);
+  const before = new Date(edge.getTime() - 60_000);
+  assert.equal(accounted([t('BUY', 100, 100, 1), t('SELL', 10, 110, edge)], [split(at, 2, 1)]).excludedCorporate, 1);
+  assert.equal(accounted([t('BUY', 100, 100, 1), t('SELL', 10, 110, before)], [split(at, 2, 1)]).trades.length, 1);
+});
+
+// Tester round 1 (blocking findings), each now excluded and counted instead of shown wrong.
+test('cash in lieu never resolves to a wrong exact ratio: 33 → 3 (1:10 with 0.3 in cash, or exactly 1:11) and 3 → 1 are unpriceable', () => {
+  assert.equal(resolveRatio(33, { kind: 'split', units: -30 }), null);
+  assert.equal(resolveRatio(3, { kind: 'split', units: -2 }), null);
+  assert.equal(resolveRatio(33, { kind: 'stock-dividend', units: 1 }), null); // 5% of 33 is 1.65 shares: 1 + cash, or 34:33
+  const m = accounted([t('BUY', 33, 10, 1), t('SELL', 3, 100, 30)], [splitUnits(20, -30)]);
+  assert.deepEqual([m.trades.length, m.excludedCorporate], [0, 1]);
+});
+
+test('a transfer out of one symbol and a transfer in of another on the same day are not a rename: the sell of the new symbol is excluded', () => {
+  const row = (id: string, type: string, symbol: string, units: number) => ({ id, type, symbol: { symbol }, units, trade_date: '2026-01-10T00:00:00Z' });
+  const { actions } = fromVendorRows('acc', [row('o', 'TRANSFER', 'AAA', -10), row('i', 'EXTERNAL_ASSET_TRANSFER_IN', 'BBB', 10)]);
+  assert.deepEqual(actions.map((a) => a.kind), ['unpriceable', 'unpriceable']);
+  const m = accounted([t('BUY', 10, 100, 1), t('SELL', 10, 50, 20, { symbol: 'BBB' })], actions);
+  assert.equal(m.trades.length, 0);
+});
+
+test('a late-posted 1:1 rename after trades of the new symbol taints the moved lots: no return priced on the old cost', () => {
+  const acts = [t('BUY', 10, 100, 1), t('SELL', 10, 120, 11, { symbol: 'BBB' }), t('BUY', 10, 130, 15, { symbol: 'BBB' }), t('SELL', 10, 140, 20, { symbol: 'BBB' })];
+  const m = accounted(acts, [rename(13, 'AAA', 'BBB', 10)]);
+  assert.equal(m.trades.length, 0);
+});
+
+test('a split with a ratio and no units does not scale a buy made inside the window before it (it may already be post-split)', () => {
+  const acts = [t('BUY', 10, 100, 1), t('BUY', 10, 50, 12), t('SELL', 30, 50, 20)];
+  const m = accounted(acts, [split(15, 2, 1)]);
+  assert.deepEqual([m.trades.length, m.excludedCorporate], [0, 1]);
+});
+
 // ---- Ratio parsing and resolution ----
 
-test('parseRatio reads "2 FOR 1", "1-for-10" and "3:2"; anything else is null', () => {
+test('parseRatio reads "2 FOR 1" and "1-for-10"; a bare "n:m" (a time) and anything else is null', () => {
   assert.deepEqual(parseRatio('2 FOR 1 STOCK SPLIT'), { p: 2, q: 1 });
   assert.deepEqual(parseRatio('1-for-10 reverse split'), { p: 1, q: 10 });
-  assert.deepEqual(parseRatio('split 3:2'), { p: 3, q: 2 });
+  assert.equal(parseRatio('split 3:2'), null);
+  assert.equal(parseRatio('SPLIT EFFECTIVE 10:30'), null);
   assert.deepEqual(parseRatio('4 for 2'), { p: 2, q: 1 });
   for (const s of ['stock split', '', null, undefined, '1 for 1', '0 for 3']) assert.equal(parseRatio(s), null);
 });
@@ -205,6 +271,8 @@ test('chainsOf and actionsFor: renames link pairs per account; account-wide acti
   const mine = actionsFor(acts, new Set([pairKey('acc', 'Z')]));
   assert.deepEqual(mine.map((a) => a.symbol), ['K']);
   assert.equal(actionsFor(acts, new Set(['acc|A', 'acc|B', 'acc|C'])).length, 3);
+  const indexed = actionIndex(acts);
+  for (const keys of [['acc|Z'], ['acc|A', 'acc|B', 'acc|C'], ['other|X'], ['other|Y'], ['none|Q']]) assert.deepEqual(indexed(new Set(keys)), actionsFor(acts, new Set(keys)));
 });
 
 // ---- Property checks (seeded, reproducible) ----
@@ -265,8 +333,8 @@ test('property: raw rows plus a split equal the same rows pre-adjusted for it (r
     const r = rng(s);
     const ratio = RATIOS[s % RATIOS.length];
     const at = new Date(Date.UTC(2025, 3, 1) + 7 * HOUR);
-    // No sell of the pair inside the late-posting window (that rule has no pre-adjusted counterpart).
-    const acts = history(r).filter((a) => !(a.accountId === 'p1' && a.symbol === 'S1' && a.side === 'SELL' && a.executedAt < at && at.getTime() - a.executedAt.getTime() <= LATE_POSTING_DAYS * 86_400_000));
+    // No trade of the pair inside the late-posting window (those rules have no pre-adjusted counterpart).
+    const acts = history(r).filter((a) => !(a.accountId === 'p1' && a.symbol === 'S1' && a.executedAt < at && at.getTime() - a.executedAt.getTime() <= LATE_POSTING_DAYS * 86_400_000));
     const withSplit = matchTrades(acts, [split(at, ratio.p, ratio.q, { accountId: 'p1', symbol: 'S1' })]);
     assert.deepEqual(outcome(withSplit), outcome(matchTrades(preAdjusted(acts, at, 'p1|S1', ratio))), `seed ${s}`);
   }
@@ -275,7 +343,7 @@ test('property: raw rows plus a split equal the same rows pre-adjusted for it (r
 test('property: split r1 then r2 equals one split of r1 × r2; r then 1/r is the identity', () => {
   for (const s of SEEDS) {
     const at = new Date(Date.UTC(2025, 3, 1) + 7 * HOUR), at2 = new Date(at.getTime() + 60_000);
-    const inWindow = (x: Activity) => x.accountId === 'p2' && x.symbol === 'S2' && x.side === 'SELL' && x.executedAt < at && at.getTime() - x.executedAt.getTime() <= LATE_POSTING_DAYS * 86_400_000;
+    const inWindow = (x: Activity) => x.accountId === 'p2' && x.symbol === 'S2' && x.executedAt < at && at.getTime() - x.executedAt.getTime() <= LATE_POSTING_DAYS * 86_400_000;
     const acts = history(rng(s)).filter((x) => !inWindow(x));
     const [a, b] = [RATIOS[s % RATIOS.length], RATIOS[(s + 1) % RATIOS.length]];
     const k = { accountId: 'p2', symbol: 'S2' };
