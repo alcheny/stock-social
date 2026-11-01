@@ -65,9 +65,14 @@ test('F-17 #9/#15: sign-up, rename, display name and reports import the one norm
 
 test('F-17 #9/#15: search — there is no user or handle search; /t?q= is a ticker parse, never user text', () => {
   assert.deepEqual(SOURCES.filter((f) => /search/i.test(f)), [], 'a search route would have to import the one normaliser');
+  // Main's #85 moved the /t search into SQL (app/t/ticker-sql.ts#tickerIndexPage): the query still goes through the
+  // ticker parse (normalizeSymbol), never user text.
   const t = read('app/t/page.tsx');
-  assert.ok(importsFrom(t, /(^|\/)ticker\.ts$/).includes('filterTickerIndex'));
+  assert.ok(importsFrom(t, /(^|\/)ticker-sql\.ts$/).includes('tickerIndexPage'));
   assert.doesNotMatch(t, /\.normalize\(|users\b.*\bq\b/);
+  const ts = read('app/t/ticker-sql.ts');
+  assert.match(ts, /normalizeSymbol\(q\)/);
+  assert.doesNotMatch(ts, /\.normalize\(|from users\b[^`]*\bq\b/);
 });
 
 // Outside lib/text-safety.ts, only these may call a compatibility normalisation, each for its stated reason.

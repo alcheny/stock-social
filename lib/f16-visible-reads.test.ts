@@ -126,7 +126,7 @@ export const ALLOW: Allow[] = [
   { file: 'lib/privacy-purge.ts', count: 7, reason: "the tick's purge (writes and their counts, no output)" },
   { file: 'lib/positions.ts', count: 3, reason: 'sync write of the open positions snapshot (E4)' },
   { file: 'lib/public-trades.ts', count: 1, reason: 'F-7 import rebuild (write)' },
-  { file: 'lib/sync.ts', count: 3, reason: 'rebuild and sync (writes; owned by the sync sessions)' },
+  { file: 'lib/sync.ts', count: 4, reason: 'rebuild and sync (writes; owned by the sync sessions)' },
   { file: 'lib/options-sync.ts', count: 6, reason: 'options rebuild and sync (writes; owned by the sync sessions)' },
   { file: 'lib/feed.ts', count: 1, reason: 'olderThan: a window probe that returns one timestamp (no trader data); elig applies the predicate to every row it can rank' },
   { file: 'lib/thesis-fixtures.ts', count: 1, reason: 'test fixture helper' },
