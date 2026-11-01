@@ -19,8 +19,7 @@ import { RecordStrip } from './record-strip.tsx';
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
 import { retEms } from '@/lib/feed-focus.ts';
-import { RECORD_LINK, TRADE_LINK } from '@/lib/copy.ts'; // F-25
-import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
+import { CardFooterLinks } from './f25-links.tsx'; // F-25: the footer's two links (RECORD_LINK, TRADE_LINK)
 
 // F-7: `kind` 'public' / 'public_demo' is the "Public filing" badge (Demo beside it on a fictional fixture), never Verified.
 export function Badge({ verified, kind = verified ? 'verified' : 'demo' }: { verified?: boolean; kind?: TrustBadge }) {
@@ -117,10 +116,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         {/* F-25: two text links, the trade page first, then the record (RECORD_LINK, one constant with PUBLIC.cardFooter).
             The return figure is not a link (F-2 keeps taps on the card body for the double-tap like). Each name is unique
             on the page: the trade's symbol and figure, the trader's handle, in visually hidden text after the visible words. */}
-        <span className="f25-card-links">
-          {t.trade_key && <Link className="f25-card-link" href={tradePageHref({ handle: t.handle, tradeKey: t.trade_key })}>{TRADE_LINK.card}<span className="sr-only">{TRADE_LINK.cardName(t.symbol, t.return_pct)}</span>{' '}<span aria-hidden="true">→</span></Link>}
-          <Link className="f25-card-link" href={`/u/${t.handle}`}>{RECORD_LINK}<span className="sr-only">{`: @${t.handle}`}</span>{' '}<span aria-hidden="true">→</span></Link>
-        </span>
+        <CardFooterLinks handle={t.handle} tradeKey={t.trade_key} symbol={t.symbol} returnPct={t.return_pct} />
         {/* F-10 (user test 2026-11-01, F-10 AC10): with the record line, the disclaimer is in view on every card, so the
             first screen at 360 px carries it (the site footer sits below the fold). */}
         {strip && <p className="card-disclaimer" data-disclaimer>{DISCLAIMER}</p>}

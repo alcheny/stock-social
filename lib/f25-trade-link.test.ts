@@ -60,9 +60,10 @@ test('F-25 TRADE_LINK and the footer strings contain no advice, promotion, compl
 test('F-25: the profile footer text is one lib/copy.ts constant, used by the card and by PUBLIC.cardFooter', () => {
   assert.equal(PUBLIC.cardFooter, RECORD_LINK_ARROW);
   assert.ok(RECORD_LINK_ARROW.startsWith(RECORD_LINK));
-  const ui = read('app/ui.tsx');
-  assert.match(ui, /\{RECORD_LINK\}/);
-  assert.doesNotMatch(ui, /wins and losses/, 'no inline copy of the footer text in the card');
+  const links = read('app/f25-links.tsx');
+  assert.match(links, /\{RECORD_LINK\}/);
+  assert.match(read('app/ui.tsx'), /<CardFooterLinks handle=\{t\.handle\} tradeKey=\{t\.trade_key\} symbol=\{t\.symbol\} returnPct=\{t\.return_pct\} \/>/);
+  for (const f of ['app/ui.tsx', 'app/f25-links.tsx']) assert.doesNotMatch(code(read(f)), /wins and losses/, `${f}: no inline copy of the footer text`);
   assert.match(read('lib/copy.ts'), /cardFooter: RECORD_LINK_ARROW/);
 });
 
@@ -123,7 +124,7 @@ test('F-25: views, share actions and the reflection action match the trade_key; 
   assert.match(rec, /<input type="hidden" name="tradeKey" value=\{t\.tradeKey\} \/>/);
   assert.doesNotMatch(rec, /name="sellId"|key=\{t\.sellId\}/);
   assert.match(read('app/actions.ts'), /ownSellIdForKey\(user\?\.id, form\.get\('tradeKey'\)\)/);
-  for (const f of ['app/feed-rows.tsx', 'app/ui.tsx', 'app/pane.tsx', 'app/t/[symbol]/Theses.tsx', 'app/u/[handle]/new-trades-prompt.tsx', 'app/u/[handle]/similar-section.tsx', 'app/review/theses/page.tsx', 'app/u/[handle]/month/[ym]/page.tsx'])
+  for (const f of ['app/feed-rows.tsx', 'app/ui.tsx', 'app/pane.tsx', 'app/f25-links.tsx', 'app/t/[symbol]/Theses.tsx', 'app/u/[handle]/new-trades-prompt.tsx', 'app/u/[handle]/similar-section.tsx', 'app/review/theses/page.tsx', 'app/u/[handle]/month/[ym]/page.tsx'])
     assert.doesNotMatch(code(read(f)).replace(/\[sellId\]/g, ''), /sell_?[iI]d/, f); // the route folder's name is not a use
   assert.match(read('app/feed-rows.tsx'), /no `data-\*` attribute, client prop or payload carries the close's vendor id; trade\n\s*\/\/ hrefs carry the `trade_key`/);
 });

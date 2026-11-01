@@ -134,3 +134,14 @@ and no sell id or dollar amount appeared.
 Business lead: compliance PASS, usability PASS. Demand to file after merge, which does not block this PR: one
 product-wide decision on a visible tap cue for Shape R rows (pane, stock page, month page). Taste notes for chores: the
 first-visit line's Demo badge wraps alone at 360 px, and the trade page says "@handle's record" twice.
+
+## Full e2e run after merging main: page weight
+The F-2 heavy-use check (`e2e/section.spec.ts`, 500 KB raw per feed page) failed at 547 KB. Main on the same fixture
+measured 432, 402 and 446 KB for pages 1 to 3.
+
+F-25's pane rows and footer links, rendered as element trees, were serialised twice: once in the HTML and once in the
+page's flight payload. That came to about 100 KB, because every feed card carries its trader's pane.
+
+Decision 16: the pane's "Last 5 trades" list and the card's two footer links are small client components
+(`app/f25-links.tsx`) that take compact props (key, symbol, the server's date text, return). The HTML, names and
+behaviour are unchanged. The pages now weigh 445, 420 and 457 KB, with the threshold unchanged.

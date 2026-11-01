@@ -11,8 +11,7 @@ import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { OPEN, OPTIONS } from '@/lib/copy.ts';
-import { signWord, TRADE_LINK } from '@/lib/copy.ts'; // F-25
-import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
+import { PaneTradeRows, type PaneRowData } from './f25-links.tsx'; // F-25
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from './open-rows.tsx';
 // FIXES-LABELS (D-09): the F3 line right after the figures, in both orders.
 import { Disclaimer } from './disclaimer.tsx';
@@ -109,25 +108,9 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
           label and the line) — when feed cards come, cap the ranking size term at 100% for options (long losses stop at
           -100%, so uncapped gains would tilt the feed toward winners). */}
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
-      <ul className="rows">
-        {p.recent.map((t) => (
-          // F-25 Shape R: each row is one link to its trade page, named by its visible text, the sign word and the suffix;
-          // the highlighted row's link carries aria-current (moved from the <li>). A row without a key (none in practice:
-          // records1 keys the 5 latest) stays plain text rather than linking elsewhere.
-          <li key={t.id}>
-            {(() => {
-              const cls = t.id === highlight ? 'line hl' : 'line', current = t.id === highlight ? 'true' as const : undefined;
-              const cells = <>
-                <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
-                <b className={toneClass(t.returnPct)}><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</b>
-              </>;
-              return t.tradeKey
-                ? <Link href={tradePageHref({ handle, tradeKey: t.tradeKey })} className={`${cls} f25-row`} aria-current={current}>{cells}<span className="sr-only">{TRADE_LINK.suffix(t.symbol)}</span></Link>
-                : <div className={cls} aria-current={current}>{cells}</div>;
-            })()}
-          </li>
-        ))}
-      </ul>
+      {/* F-25 Shape R: each row links to its trade page (app/f25-links.tsx; compact props, the same markup). */}
+      <PaneTradeRows handle={handle} current={p.recent.findIndex((t) => t.id === highlight)}
+        rows={p.recent.map((t): PaneRowData => [t.tradeKey ?? null, t.symbol, t.closedAt.toLocaleDateString('en-US'), t.returnPct])} />
       <p><Link href={`/u/${handle}`} className="button">See full profile →</Link></p>
       {/* OPTIONS fix round 2: the note follows the gate (the paneView line), so it can't go stale when the gate opens.
           QA round 1 (finding 12): a Demo record's footer names Demo, never connected accounts. */}
