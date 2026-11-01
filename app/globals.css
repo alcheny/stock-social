@@ -200,7 +200,6 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .join { display: flex; flex-direction: column; gap: 8px; max-width: 480px; border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 16px 0; }
 .join p { margin: 0; }
 .join .button { display: block; box-sizing: border-box; width: 100%; min-height: 44px; text-align: center; line-height: 44px; padding-top: 0; padding-bottom: 0; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .trade-link { color: inherit; text-decoration: none; align-items: center; min-height: 44px; }
 .trade-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
@@ -265,7 +264,6 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .rec-chips button { min-height: 44px; font-size: 14px; padding: 0 12px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); color: inherit; cursor: pointer; }
 .rec-chips button.on { background: var(--accent); color: var(--bg); font-weight: 600; }
 .rec-chips button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (min-width: 720px) { .rec-buckets { grid-template-columns: repeat(4, 1fr); } }
 
 /* F-1 sign-in and trust notice (S1, S2): one column, 44px controls, visible focus, no motion. */
@@ -504,14 +502,15 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 /* #12 (WCAG 1.4.11): the pane's current-row cue is drawn in --focus (6.15/6.42 light, 8.47/7.76 dark on bg/surface;
    --line was 1.20/1.31). Width 2 px, offset 2 px and weight 600 stay, so colour is not the only cue. */
 .pane .rows .line.hl { outline-color: var(--focus); }
-/* #14 (WCAG 2.4.11): while a fixed bottom bar shows (sign-in line, hide bar, no-JS confirmation; 62 px tall at 360, 64 px
-   at 320 where it wraps, 16 px off the bottom edge), each feed row's pages keep 94 px clear at the bottom and the
+/* #14 (WCAG 2.4.11): while a fixed bottom bar shows (sign-in line, hide bar, no-JS confirmation; up to 72 px tall (the
+   no-JS line, F-20's measure), 16 px off the bottom edge), each feed row's pages keep 94 px clear at the bottom and the
    scrollers pad their bottom edge by the same, so focus stays ≥ 14 px above the bar. Nothing goes on .feed (padding
    there moves every snap point). The content moves up while a bar shows, with no transition (decision 4).
    `.signin-line:not(:empty)` relies on React emitting no whitespace inside the <p> in app/feed-gestures.tsx: a stray
    text node would make it never :empty and reserve the room for good. */
-/* ponytail: 94 px keeps ≥ 8 px clear for a bar up to 70 px tall (one or two lines); a bar of three or more lines (large
-   text settings) outgrows it — fix: render the bars in the flow (F-10's row #15) instead of a fixed room. */
+/* ponytail: 94 px leaves 6 px clear above the 72 px no-JS line (8 px above a bar up to 70 px); a bar of three or more
+   lines (large text settings) outgrows it — fix: render the bars in the flow (F-10's row #15) instead of a fixed room;
+   the no-JS line's 12 px padding is filed for the fixes list (F-20, committee R3). */
 body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed .row > * { padding-bottom: 94px; }
 html:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) { scroll-padding-bottom: 94px; }
 body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pane { scroll-padding-bottom: 94px; }
@@ -524,7 +523,7 @@ body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pa
   body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card > * { flex-shrink: 0; }
 }
 /* Target size (orchestrator, 2026-11-01; POLICY A1 44 px targets): the chart's range buttons were 35 px tall (6 px
-   padding around one line). 44 px at every width; six of them still share one row at 320 px (each ≥ 44 px wide). */
+   padding around one line). 44 px at every width; five of them (1W 1M 3M 1Y ALL) still share one row at 320 px (each ≥ 44 px wide). */
 .tabs button { min-height: 44px; min-width: 44px; }
 /* #13 (Q4): the three bars' own edge in --control, so each reads as separate from the content under it. */
 .signin-line:not(:empty), .hide-bar p, .nojs-done { border-color: var(--control); }

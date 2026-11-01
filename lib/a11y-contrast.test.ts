@@ -184,6 +184,7 @@ for (const [name, on] of Object.entries(scheme) as [keyof typeof TOKENS_WANT, (r
     { what: 'the Demo badge text (on --surface)', fg: 'demo', on: ['surface'], floor: 'text' },
     { what: 'the Public filing badge text (on --surface)', fg: 'text', on: ['surface'], floor: 'text' },
     { what: 'text on the accent button', fg: 'on-accent', on: ['accent'], floor: 'text' },
+    { what: 'the selected chip text (--bg on --accent)', fg: 'bg', on: ['accent'], floor: 'text' },
     { what: 'the pressed range tab (--bg on gain)', fg: 'bg', on: ['up'], floor: 'text' },
     { what: 'the pressed range tab (--bg on loss)', fg: 'bg', on: ['down'], floor: 'text' },
     { what: 'the selected chip fill (--accent)', fg: 'accent', on: GROUNDS, floor: 'ui' },
