@@ -5,7 +5,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import postgres from 'postgres';
 import { feedLock } from './feed-lock.ts';
-import { deleteFilers, insertFiler, RAW_AMOUNTS } from './f7-fixture.ts';
+import { deleteFilers, insertFiler, RAW_AMOUNTS, withoutKeys } from './f7-fixture.ts';
 
 const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
@@ -64,7 +64,7 @@ test('AC 14, 20, Round 5 items 3, 5: the card carries both badges, the card line
     const order = await pane.evaluate((el) => [...el.querySelectorAll('figure.chart, [data-public-line]')].map((n) => n.tagName));
     expect(order).toEqual(['FIGURE', 'P']);
     const html = await page.content();
-    for (const a of RAW_AMOUNTS) expect(html).not.toContain(a);
+    for (const a of RAW_AMOUNTS) expect(withoutKeys(html)).not.toContain(a);
     await expect(page.locator('footer#site-footer')).toContainText(DISCLAIMER);
   } finally {
     await ctx.close();

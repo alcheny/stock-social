@@ -143,5 +143,5 @@ F-25's pane rows and footer links, rendered as element trees, were serialised tw
 page's flight payload. That came to about 100 KB, because every feed card carries its trader's pane.
 
 Decision 16: the pane's "Last 5 trades" list and the card's two footer links are small client components
-(`app/f25-links.tsx`) that take compact props (key, symbol, the server's date text, return). The HTML, names and
-behaviour are unchanged. The pages now weigh 445, 420 and 457 KB, with the threshold unchanged.
+(`app/f25-links.tsx`) that take compact props (key, symbol and the printed date, figure and tone: never more precision than the row shows). The HTML, names and
+behaviour are unchanged. The pages now weigh 447, 421 and 459 KB, with the threshold unchanged.

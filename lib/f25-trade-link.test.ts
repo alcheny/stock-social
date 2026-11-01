@@ -62,7 +62,7 @@ test('F-25: the profile footer text is one lib/copy.ts constant, used by the car
   assert.ok(RECORD_LINK_ARROW.startsWith(RECORD_LINK));
   const links = read('app/f25-links.tsx');
   assert.match(links, /\{RECORD_LINK\}/);
-  assert.match(read('app/ui.tsx'), /<CardFooterLinks handle=\{t\.handle\} tradeKey=\{t\.trade_key\} symbol=\{t\.symbol\} returnPct=\{t\.return_pct\} \/>/);
+  assert.match(read("app/ui.tsx"), /<CardFooterLinks handle=\{t\.handle\} tradeKey=\{t\.trade_key\} name=\{TRADE_LINK\.cardName\(t\.symbol, t\.return_pct\)\} \/>/);
   for (const f of ['app/ui.tsx', 'app/f25-links.tsx']) assert.doesNotMatch(code(read(f)), /wins and losses/, `${f}: no inline copy of the footer text`);
   assert.match(read('lib/copy.ts'), /cardFooter: RECORD_LINK_ARROW/);
 });
