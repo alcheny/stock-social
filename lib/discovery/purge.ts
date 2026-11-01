@@ -2,8 +2,10 @@
 // tick and the deletion retries, before syncTick. One caller at a time (a session advisory lock, tried, never waited
 // for); the caller that loses the lock skips only the purge. A fixed time box of ≤ 30 s per call, in batches by the
 // (until) index; a call cut by its box resumes on the next tick. In PR-2 it deletes exclusions that ended over a day
-// ago (an ended row is kept a day so a same-day feed cursor never changes). PR-5 extends it to the event log.
+// ago (an ended row is kept a day so a same-day feed cursor never changes). PR-5: only rows the viewer ended, ended
+// unfollows and orphans (below); the event log is never purged on a timer (owner 2026-11-01).
 import { sql } from '../db.ts';
+import { purgeOrphans } from '../delete.ts';
 
 export const PURGE_LOCK = 3; // USER_LOCK (lib/sync.ts) is 1, ATTEMPT_LOCK (lib/connections.ts) is 2
 export const PURGE_BOX_MS = 30_000;
@@ -24,14 +26,23 @@ export async function purgeDiscovery(opts: { boxMs?: number; batch?: number; clo
     try {
       await opts.hold?.();
       let deleted = 0;
+      // F-2 PR-5 (owner 2026-11-01: preference data is never deleted on a timer): only exclusions the viewer ended
+      // themselves (ended_at) and ended 'unfollow' rows go, a day after they ended. A "Not interested" that ran its
+      // 90 days stays stored (unread) until the viewer removes it (/me/following) or deletes the account.
       for (;;) {
         if (clock() >= end) return { ran: true, deleted, done: false };
         const gone = await conn`delete from viewer_exclusions where (viewer_id, trader_id) in (
           select viewer_id, trader_id from viewer_exclusions where until < now() - ${EXCLUSION_KEEP_ENDED_DAYS} * interval '1 day'
+            and (reason = 'unfollow' or ended_at is not null)
           order by until limit ${batch})`;
         deleted += gone.count;
-        if (gone.count < batch) return { ran: true, deleted, done: true };
+        if (gone.count < batch) break;
       }
+      // F-2 PR-5: orphans (lib/delete.ts#purgeOrphans, under this lock and box).
+      const o = await purgeOrphans(conn, { batch, end, clock });
+      deleted += o.deleted;
+      if (!o.done) return { ran: true, deleted, done: false };
+      return { ran: true, deleted, done: true };
     } finally {
       await conn`select pg_advisory_unlock(${PURGE_LOCK}, 0)`;
     }

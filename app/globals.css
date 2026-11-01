@@ -433,3 +433,15 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .likes .who-col a > * { white-space: normal; }
 .signin-line .quiet-x { background: transparent; color: var(--muted); border: 0; font-weight: 400; font-size: 1.25rem; padding: 0; }
 .nojs-done { position: fixed; z-index: 20; left: 16px; right: 16px; bottom: 16px; max-width: 528px; margin: 0 auto; padding: 12px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+
+/* ---- F-2 PR-5: personalization switches, the feed's notes line, hidden trades ---- */
+/* On and Off are equally prominent: the same neutral style and size, side by side at 360 px; the current one adds a
+   visual ✓ and a 2 px outline (aria-pressed carries the state; never color alone). */
+.switch-pair { display: flex; gap: 12px; margin: 8px 0 20px; }
+.switch-pair form { flex: 1; display: flex; }
+.switch-pair .switch { flex: 1; min-width: 140px; min-height: 44px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
+.switch-pair .switch.current { outline: 2px solid var(--text); outline-offset: 1px; }
+.switch-pair .switch:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.personalize form > button.secondary { min-height: 44px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
+.feed-notes { margin: 8px 16px; }
+.feed-notes a, .hidden-trades .small a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; vertical-align: middle; }

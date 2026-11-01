@@ -378,3 +378,54 @@ create table if not exists trade_exclusions (
 -- Fix round 1: when the hidden trade was liked, the like's time (Undo restores the like; a hidden trade is never liked).
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
+
+-- ---- F-2 PR-5 (docs/features/logs/F-2/plan-pr5.md): the viewer's activity log and personalization settings ----
+-- Two per-viewer switches. personalize_feed (default on): ordering may use the viewer's own follows, likes and hides;
+-- off, the viewer gets the order everyone gets minus their own hides. activity_log_on_at (default null = off, owner
+-- 2026-11-01): when set, the implicit logger runs and its events shape ordering; off, nothing is logged or used.
+select schema_add_column('users', 'personalize_feed', 'boolean not null default true');
+select schema_add_column('users', 'activity_log_on_at', 'timestamptz');
+-- Lookup tables, not CHECKs (widening a CHECK needs a drop). Seeded idempotently.
+create table if not exists discovery_event_types (code smallint primary key, name text not null unique);
+create table if not exists discovery_surfaces (code smallint primary key, name text not null unique);
+insert into discovery_event_types (code, name) values (1, 'impression'), (2, 'dwell_short'), (3, 'dwell_long'), (4, 'skip'),
+  (5, 'swipe_open'), (6, 'profile_open'), (7, 'share'), (8, 'watch'), (9, 'unwatch') on conflict do nothing;
+insert into discovery_surfaces (code, name) values (1, 'feed'), (2, 'pane'), (3, 'profile'), (4, 'section'), (5, 'me') on conflict do nothing;
+-- One row per implicit event: viewer, surface, target (trader, trade or symbol), type and time only. No address, device,
+-- IP, user agent, amount, price or broker field (criterion 3, lib/discovery/events.test.ts). A trade target keeps its
+-- trader too (the close's stable trade_key; no foreign key: a rebuild deletes closed_trades rows). Stored until the
+-- viewer clears it or deletes the account (owner 2026-11-01); only the last 90 days are read, fading.
+create table if not exists discovery_events (
+  id bigint generated always as identity primary key,
+  viewer_id int not null references users on delete cascade,
+  at timestamptz not null default now(),
+  surface smallint not null references discovery_surfaces,
+  type smallint not null references discovery_event_types,
+  target_kind text not null check (target_kind in ('trader', 'trade', 'symbol')),
+  target_user_id int references users on delete cascade,
+  target_trade_key text,
+  target_symbol text,
+  check ((target_kind = 'trader' and target_user_id is not null and target_trade_key is null and target_symbol is null)
+    or (target_kind = 'trade' and target_user_id is not null and target_trade_key is not null and target_symbol is null)
+    or (target_kind = 'symbol' and target_user_id is null and target_trade_key is null and target_symbol is not null)),
+  check (viewer_id <> target_user_id)
+);
+select schema_add_index('discovery_events_viewer_at', 'create index discovery_events_viewer_at on discovery_events (viewer_id, at desc)');
+select schema_add_index('discovery_events_target_user', 'create index discovery_events_target_user on discovery_events (target_user_id)');
+select schema_add_index('discovery_events_trade_key', 'create index discovery_events_trade_key on discovery_events (target_trade_key) where target_trade_key is not null');
+-- The orphan purge (lib/discovery/purge.ts) looks up likes and rejected trades by key.
+select schema_add_index('trade_likes_key', 'create index trade_likes_key on trade_likes (trade_key)');
+select schema_add_index('trade_exclusions_key', 'create index trade_exclusions_key on trade_exclusions (trade_key)');
+select schema_add_index('trade_exclusions_viewer_at', 'create index trade_exclusions_viewer_at on trade_exclusions (viewer_id, created_at desc, trade_key desc)');
+-- The events route's per-viewer gate (one batch per 2 s, held by a row lock, so it holds across server instances).
+select schema_add_column('users', 'activity_batch_at', 'timestamptz');
+-- F-2 PR-5 (owner 2026-11-01: preference data is stored until the viewer removes it): when the viewer ended an
+-- exclusion themselves (Undo, "Show again", a new follow). The purge deletes only those, a day later, and ended 'unfollow'
+-- rows (the system's −1 record of a removed follow); a "Not interested" that ran its 90 days stays stored, unread.
+select schema_add_column('viewer_exclusions', 'ended_at', 'timestamptz');
+-- Backfill (idempotent, deletes nothing): rows that ended before their 90 days were ended by the viewer.
+update viewer_exclusions set ended_at = until where ended_at is null and until <= now() and until < created_at + interval '90 days' - interval '1 minute';
+-- Orphans: a like or hidden trade whose close is gone is marked, and deleted only if still gone 30 days later (a rebuild
+-- or a quarantine can bring a close back; marking is cleared when it does).
+select schema_add_column('trade_likes', 'orphan_at', 'timestamptz');
+select schema_add_column('trade_exclusions', 'orphan_at', 'timestamptz');

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { loadFeedPage } from '@/lib/feed.ts';
+// F-2 PR-5: lib/feed.ts#loadFeedPage plus, signed in, the viewer's own profile and switches.
+import { loadFeedPage } from '@/lib/discovery/personal-feed.ts';
 import { FEED, FEED_COUNTS, LIKES } from '@/lib/copy.ts';
 import { FeedKeys } from './feed-keys.tsx';
 import { FeedEnd, FeedRows } from './feed-rows.tsx';
@@ -9,6 +10,10 @@ import { FeedHides } from './feed-hides.tsx';
 import { viewerId } from '@/lib/viewer.ts';
 import { likedAmong } from '@/lib/likes.ts';
 import { FeedGestures } from './feed-gestures.tsx';
+// F-2 PR-5: the hidden-trades count, the order line and the activity logger.
+import { hiddenTradeCount } from '@/lib/likes.ts';
+import { FeedNotes } from './feed-notes.tsx';
+import { DiscoveryLog } from './discovery-log.tsx';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -27,6 +32,8 @@ export default async function Feed({ searchParams }: Props) {
   const page = await loadFeedPage(sp.after, { viewer: await viewerId() });
   // F-2 PR-4: signed in, which of the page's cards this viewer liked (their own rows only).
   if (page.viewer) page.liked = await likedAmong(page.viewer.id, page.cards.map((c) => c.id));
+  // F-2 PR-5: signed in, the viewer's own hidden-trade count (page 1's notes line only).
+  const hiddenN = page.viewer && page.offset === 0 ? await hiddenTradeCount(page.viewer.id) : 0;
 
   if (!page.cards.length && page.offset === 0) {
     return (
@@ -46,6 +53,8 @@ export default async function Feed({ searchParams }: Props) {
       <h1 className="sr-only">{page.offset > 0 ? FEED_COUNTS.position(page.from, page.to) : FEED.heading}</h1>
       <FeedKeys />
       {page.viewer && <FeedHides />}
+      {page.viewer && page.offset === 0 && <FeedNotes order={page.personal ? { activity: page.personal.activity } : null} hidden={hiddenN} />}
+      {page.settings?.personalize && page.settings.activity && <DiscoveryLog />}
       <FeedGestures signedIn={!!page.viewer} />
       <FeedRows page={page} />
       {page.next ? <FeedPager key={page.next} next={page.next} /> : <FeedEnd />}

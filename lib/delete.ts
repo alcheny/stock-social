@@ -2,6 +2,7 @@
 // cascades (identities, sessions, activities, closed_trades, claims, events), the sign-in links that carried the address
 // go in the same transaction, and the handle is reserved for a year
 // with no personal data. The two-step screen (S9) is PR-2a; this is the action behind it.
+import type { ReservedSql } from 'postgres';
 import { sql } from './db.ts';
 import { deleteUser } from './broker.ts';
 
@@ -27,6 +28,9 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
     // F-2 PR-4: likes and rejected trades, made by this account or naming it.
     tx`delete from trade_likes where viewer_id = ${u.id} or trader_id = ${u.id}`,
     tx`delete from trade_exclusions where viewer_id = ${u.id} or trader_id = ${u.id}`,
+    // F-2 PR-5: the activity log, made by this account or naming it.
+    tx`delete from discovery_events where viewer_id = ${u.id}`,
+    tx`delete from discovery_events where target_user_id = ${u.id}`,
   ]);
   if (u.snaptrade_user_id && u.snaptrade_secret_enc) await deps.deleteVendorUser({ snaptradeUserId: u.snaptrade_user_id, secretEnc: u.snaptrade_secret_enc });
   await sql.begin(async (tx) => {
@@ -38,4 +42,37 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
       on conflict (handle) do update set until = excluded.until`;
     await tx`delete from users where id = ${u.id}`;
   });
+}
+
+// F-2 PR-5 (owner 2026-11-01: preference data is stored until removed; only orphans are purged): a like or hidden trade
+// whose close is gone is marked; one still gone ORPHAN_DAYS later is deleted; a close that came back (a rebuild, a lifted
+// quarantine) clears its mark. Run by lib/discovery/purge.ts under its lock and time box, in batches.
+export const ORPHAN_DAYS = 30;
+type Conn = typeof sql | ReservedSql;
+export async function purgeOrphans(conn: Conn, o: { batch: number; end: number; clock: () => number }): Promise<{ deleted: number; done: boolean }> {
+  let deleted = 0;
+  const steps = [
+    () => conn`update trade_likes l set orphan_at = null where orphan_at is not null and exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id)`,
+    () => conn`update trade_exclusions l set orphan_at = null where orphan_at is not null and exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id)`,
+  ];
+  for (const s of steps) await s();
+  const loops = [
+    () => conn`update trade_likes set orphan_at = now() where (viewer_id, trade_key) in (select viewer_id, trade_key from trade_likes l where orphan_at is null
+      and not exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id) limit ${o.batch})`,
+    () => conn`update trade_exclusions set orphan_at = now() where (viewer_id, trade_key) in (select viewer_id, trade_key from trade_exclusions l where orphan_at is null
+      and not exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id) limit ${o.batch})`,
+    () => conn`delete from trade_likes where (viewer_id, trade_key) in (select viewer_id, trade_key from trade_likes l where orphan_at < now() - ${ORPHAN_DAYS} * interval '1 day'
+      and not exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id) limit ${o.batch})`,
+    () => conn`delete from trade_exclusions where (viewer_id, trade_key) in (select viewer_id, trade_key from trade_exclusions l where orphan_at < now() - ${ORPHAN_DAYS} * interval '1 day'
+      and not exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id) limit ${o.batch})`,
+  ];
+  for (const [i, step] of loops.entries()) {
+    for (;;) {
+      if (o.clock() >= o.end) return { deleted, done: false };
+      const r = await step();
+      if (i >= 2) deleted += r.count;
+      if (r.count < o.batch) break;
+    }
+  }
+  return { deleted, done: true };
 }

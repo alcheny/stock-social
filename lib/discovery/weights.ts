@@ -40,3 +40,11 @@ export const EXCLUSION_DAYS = 90;
 // 90-day 'unfollow' row; since PR-4 (O4) it is the −1 signal only: neither the feed nor the section hides the trader.
 // true restores the plan's reading (unfollow also hides from the feed and lists the trader as hidden).
 export const FEED_HIDES_UNFOLLOWED = false;
+
+// F-2 PR-5: the implicit activity weights, by event type code (lib/discovery/events.ts#EVENT_TYPES), read only while the
+// viewer's "Personalize with my activity" is On. The opening swipe is the owner's +2; the rest are the committee's
+// proposals (2026-11-01) for the owner: dwell_long +1, profile_open +1, share +1, skip −0.5; impression and dwell_short 0
+// (they only mark a trader as seen, for "New to you").
+export const IMPLICIT: Readonly<Record<number, number>> = { 1: 0, 2: 0, 3: 1, 4: -0.5, 5: WEIGHTS.swipeOpen, 6: 1, 7: 1 };
+// A followed trader's bonus while the follow stands (proposed, committee 2026-11-01).
+export const FOLLOW_BONUS = 2;
