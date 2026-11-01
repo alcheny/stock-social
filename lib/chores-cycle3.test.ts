@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { CHORES_3, BILLING, RECORD_TOOLS, FIRST_VISIT } from './copy.ts';
 import { cronAuthorized, logUnauthorized, CRON_LOG_WINDOW_MS } from './cron-auth.ts';
 import { healthStatus, THRESHOLD_MS } from './health.ts';
-import { ROUND_MS } from './sync.ts';
+import { MISSING_SHARD_MS } from './sync-shard.ts';
 import { homePreview } from './home-preview.ts';
 import { PLANS } from './billing.ts';
 import { siteOrigin } from './site-origin.ts';
@@ -92,8 +92,9 @@ test('C3-34: the cron routes log through logUnauthorized; health never logs a be
   assert.match(read('lib/health.ts'), /const details = cronAuthorized\(req\);[\s\S]*const body = details \? d : \{ status: d\.status \};/);
   // The class name survives minification (logSafe prints constructor.name; QA D1).
   assert.match(read('lib/cron-auth.ts'), /Object\.defineProperty\(CronUnauthorized, 'name', \{ value: 'CronUnauthorized' \}\);/);
-  assert.equal(THRESHOLD_MS, ROUND_MS);
-  assert.match(read('lib/health.ts'), /export const THRESHOLD_MS = ROUND_MS;/);
+  // Follow-up (orchestrator review of #76): from the cron schedule (lib/chores-cycle3-followup.test.ts has both cases).
+  assert.equal(THRESHOLD_MS, MISSING_SHARD_MS);
+  assert.match(read('lib/health.ts'), /export const THRESHOLD_MS = thresholdFor\(cronTickMs\(\)\);/);
   assert.doesNotMatch(read('lib/health.ts'), /\b20\s*\*\s*60|1_?200_?000|THRESHOLD_MS\s*=\s*\d/);
 });
 
@@ -102,13 +103,13 @@ test('C3-34: degraded when the database fails, no run was ever recorded, or the 
   const at = (ms: number) => new Date(now - ms);
   assert.equal(healthStatus({ dbOk: true, last: null, stalest: null }, now).status, 'degraded');
   assert.equal(healthStatus({ dbOk: true, last: at(10 * 60_000), stalest: null }, now).status, 'ok');
-  assert.equal(healthStatus({ dbOk: true, last: at(ROUND_MS), stalest: null }, now).status, 'ok');
-  assert.equal(healthStatus({ dbOk: true, last: at(ROUND_MS + 60_000), stalest: null }, now).status, 'degraded');
+  assert.equal(healthStatus({ dbOk: true, last: at(THRESHOLD_MS), stalest: null }, now).status, 'ok');
+  assert.equal(healthStatus({ dbOk: true, last: at(THRESHOLD_MS + 60_000), stalest: null }, now).status, 'degraded');
   assert.equal(healthStatus({ dbOk: false, last: at(1000), stalest: at(1000) }, now).status, 'degraded');
   // A trader held 30 h (backoff, quarantine) is reported, never a cause.
   const d = healthStatus({ dbOk: true, last: at(5 * 60_000), stalest: at(30 * HOUR) }, now);
-  assert.deepEqual(d, { status: 'ok', db: true, lastRunAt: at(5 * 60_000).toISOString(), lastRunAgeHours: 0.08, stalestSyncAgeHours: 30, thresholdHours: 1 });
-  assert.deepEqual(healthStatus({ dbOk: false, last: null, stalest: null }, now), { status: 'degraded', db: false, lastRunAt: null, lastRunAgeHours: null, stalestSyncAgeHours: null, thresholdHours: 1 });
+  assert.deepEqual(d, { status: 'ok', db: true, lastRunAt: at(5 * 60_000).toISOString(), lastRunAgeHours: 0.08, stalestSyncAgeHours: 30, thresholdHours: 0.25 });
+  assert.deepEqual(healthStatus({ dbOk: false, last: null, stalest: null }, now), { status: 'degraded', db: false, lastRunAt: null, lastRunAgeHours: null, stalestSyncAgeHours: null, thresholdHours: 0.25 });
   // A clock skew never yields a negative age.
   assert.equal(healthStatus({ dbOk: true, last: new Date(now + 5000), stalest: null }, now).lastRunAgeHours, 0);
 });
@@ -278,6 +279,7 @@ test('K20: the image is a scoped text-only route, never a root opengraph file; t
   const card = read('app/home-card/route.tsx').replace(/^\s*\/\/.*$/gm, '');
   assert.match(card, /width: 1200, height: 630/);
   assert.match(card, /\{cardText\}/);
+  assert.match(card, /searchParams\.get\('d'\) !== '0'/);
   assert.doesNotMatch(card, /<img|<svg|fetch\(|\.ttf|\.woff|Stock Social|logo/i);
   assert.match(card, /'Cache-Control': 'public, max-age=3600, s-maxage=3600'/);
   const top = readdirSync(join(root, 'app'));

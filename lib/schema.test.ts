@@ -127,3 +127,70 @@ dbTest('schema: a repeat apply blanks accounts and institution on cleaned declin
     await db.end({ timeout: 1 });
   }
 });
+
+// Known limits sweep 2 (indexes): five lookup columns got indexes through the catalog-checked helper.
+const NEW_INDEXES: [string, string, RegExp][] = [
+  ['users_signup_attempt', 'users', /\(signup_attempt_id\)$/],
+  ['identities_email', 'identities', /\(email\) WHERE \(email IS NOT NULL\)$/],
+  ['login_links_email', 'login_links', /\(email\) WHERE \(email <> ''::text\)$/],
+  ['connections_attempt', 'connections', /\(attempt_id\)$/],
+  ['subscriptions_customer', 'subscriptions', /\(vendor_customer_id\)$/],
+];
+
+test('schema: the five lookup indexes go through schema_add_index and their ponytail notes are gone', () => {
+  for (const [name, table] of NEW_INDEXES) assert.match(bare, new RegExp(`select schema_add_index\\('${name}', [$']+create index ${name} on ${table} \\(`));
+  assert.doesNotMatch(ddl, /users\.signup_attempt_id has no index|sign-in by email scans identities|email match scans login_links|deletes scan connections|update by customer scans subscriptions/);
+});
+
+dbTest('schema: the five lookup indexes exist as defined', async () => {
+  const db = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+  try {
+    const rows = await db`select indexname, tablename, indexdef from pg_indexes where schemaname = current_schema() and indexname in ${db(NEW_INDEXES.map((i) => i[0]))}`;
+    const by = new Map(rows.map((r) => [r.indexname as string, r]));
+    for (const [name, table, def] of NEW_INDEXES) {
+      assert.equal(by.get(name)?.tablename, table, name);
+      assert.match(by.get(name)!.indexdef as string, def);
+    }
+  } finally { await db.end({ timeout: 1 }); }
+});
+
+// Plan checks: the real query texts (parameters as $1), explained (never executed) with seq scans off, so the result
+// depends on the index being usable, not on table statistics other test files change in parallel (bitmap scans only, below).
+const PLAN_CASES: [string, string, unknown[]][] = [
+  // lib/auth/attempts.ts signs in by `i.email = $1` joined to users; the join could also be driven from users through
+  // identities_user, so the case explains the identities side alone (the predicate this index is for).
+  ['identities_email', `select i.user_id from identities i where i.email = $1`, ['x@example.com']],
+  ['subscriptions_customer', `update subscriptions set disputed_at = coalesce(disputed_at, now()), status = case when status = 'canceled' then status else 'unpaid' end, updated_at = now()
+      where vendor_customer_id = $1 and status <> 'canceled' returning user_id, vendor_subscription_id`, ['cus_x']], // lib/billing.ts dispute
+  ['subscriptions_customer', `update subscriptions set disputed_at = null, updated_at = now() where vendor_customer_id = $1 and disputed_at is not null returning vendor_subscription_id`, ['cus_x']],
+  ['users_signup_attempt', `select 1 from only users x where signup_attempt_id = $1 for key share of x`, [1]], // the FK check on a signup_attempts delete
+  ['connections_attempt', `select 1 from only connections x where attempt_id = $1 for key share of x`, [1]],
+  // lib/privacy-purge.ts deletes `where attempt_id in ($1) and user_id is null`: with bitmap scans only, `user_id is null`
+  // can also be served by connections_user (CI, PR #82), so the case explains the predicate this index is for.
+  ['connections_attempt', `delete from connections where attempt_id in ($1)`, [1]],
+  ['users_signup_attempt', `select a.id from signup_attempts a
+      where a.user_id is null and a.completed_at is null and a.snaptrade_user_id is null
+        and a.created_at < $1::timestamptz - 30 * interval '1 day'
+        and not exists (select 1 from users u where u.signup_attempt_id = a.id)
+        and not exists (select 1 from connections c where c.attempt_id = a.id
+          and (c.user_id is not null or c.state in ('pending', 'importing', 'connected') or c.cleanup_done_at is null))
+      order by a.created_at limit 100 for update skip locked`, [new Date()]], // lib/privacy-purge.ts#purgeUnfinishedAttempts
+];
+
+dbTest('schema: each lookup index is usable by its real query (explained with seq scans off)', async () => {
+  const db = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+  try {
+    for (const [index, text, params] of PLAN_CASES) {
+      await db.begin(async (tx) => {
+        // Seq scans, plain and index-only scans off: a full scan of another index with a filter is then impossible (on a
+        // near-empty table the planner preferred one), and a bitmap scan needs a condition the index matches, so the index
+        // named in the plan is one that serves the query's predicate, whatever the table's size or statistics.
+        await tx`set local enable_seqscan = off`;
+        await tx`set local enable_indexscan = off`;
+        await tx`set local enable_indexonlyscan = off`;
+        const [row] = await tx.unsafe(`explain (format json) ${text}`, params as never[]);
+        assert.match(JSON.stringify(row['QUERY PLAN']), new RegExp(`"Index Name":"${index}"`), `${index}: ${text.slice(0, 60)}`);
+      });
+    }
+  } finally { await db.end({ timeout: 1 }); }
+});

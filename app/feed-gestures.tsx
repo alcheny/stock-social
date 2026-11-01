@@ -88,7 +88,7 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
       g.card.style.transform = '';
       delete g.card.dataset.rejecting;
       row.scrollLeft = 0; // the drag's transform can nudge the snap; the card stays at rest
-      if (reject) dispatchEvent(new CustomEvent('ss:hide', { detail: { handle: row.dataset.handle, trade: row.dataset.trade, row } }));
+      if (reject) dispatchEvent(new CustomEvent('ss:hide', { detail: { handle: row.dataset.handle, trade: row.dataset.trade, key: row.dataset.key, row } }));
     };
     // Native snap back to the card can stop a pixel short of it (CI's browser, after a touch swipe on the pane), leaving a
     // 1 px sliver of the pane. When a row's scroll ends within 2 px of the card, it rests exactly on the card.

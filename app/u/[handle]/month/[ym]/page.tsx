@@ -42,6 +42,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const month = recordStrip(monthStripInput(r), 'figures');
   return {
     title: `${r.recap.label} · @${r.handle} · Stock Social`,
+    alternates: { canonical: `/u/${r.handle}/month/${r.recap.ym}` }, // F-15 second half: untagged, one address
     description: monthDescription(r, whole),
     openGraph: { images: [{ url: `/u/${r.handle}/month/${r.recap.ym}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: monthAlt(r, whole, month) }] },
     ...(isPublicRecord(r.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
@@ -119,7 +120,7 @@ export default async function RecapPage({ params }: Params) {
           </li>
         ))}
       </ol>
-      <TradeShare isOwner={false} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
+      <TradeShare kind="month" isOwner={me !== null && me.handle === handle} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : FL.monthFoot[r.demo ? 'demo' : 'real'] /* QA round 1 (finding 12) */}</p>
       {!me && !r.demo && !isPublicRecord(r.state) && <JoinCta handle={handle} via="month" />}

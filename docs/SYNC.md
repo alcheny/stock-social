@@ -53,17 +53,69 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
 - **Transient streak.** A trader that fails transiently 5 rounds in a row (`TRANSIENT_LIMIT`: a record that always
   times out, or whose own data always throws) is quarantined and backed off, never retried every round forever.
 
+## Read cadence (F-14)
+
+`docs/features/F-14-sync-cadence.md`; committee `docs/features/logs/F-14/committee-2026-11-01.md`. The cron is still
+hourly, but each account is read within the vendor's guidance (`lib/sync-cadence.ts`):
+
+- **Activities** (with the share moves, which use the same vendor endpoint) are read at most once per 24 h per account.
+  Each read is the 7-day re-read, as before. On hourly rounds a record's trades are about 25 h fresh at worst.
+- **Positions** are read at most 4 times in any 24 h per account:
+  - on their own clock, 6 h after the last read, while at most 2 reads fall in the trailing 24 h;
+  - always together with an activities read.
+- **What is never throttled:** the consented import (`importStep`, untouched) and the first sync after a consent
+  (a new import or a reconnect). "Importing your record" never waits.
+- **Positions and closed trades move together.** A positions read without an activities read adds and updates
+  positions and never removes one. So a position closed at a loss stays listed until the read that publishes its
+  closed trade (TR-4). If a forced positions read finds 4 reads in its window, which happens only while syncs keep
+  rolling back, the activities read waits too (`readsDeferred`).
+- **Timestamps:**
+  - Read and written on the database clock inside the sync's transaction, so a failed sync never advances them.
+  - Null, future or pre-consent timestamps mean "read now".
+  - Every successful vendor read is also recorded after the transaction (`sync_read_marks`), so a sync that keeps
+    failing reads activities at most every 6 h and positions within the same 4-a-day window.
+- **The rebuild** runs only after an activities read (or when the account set, a paper flag or a connection changed).
+  `last_synced_at`, which F-11's "Updated …" line reads, is set to the oldest real account's last activities read. It
+  never becomes "now" after a rebuild that a change or a partial read triggered. While an account has never been read,
+  the previous value stands.
+- **The accepted exception to "≤ 1 activities read per 24 h"** (committee G2): when a sync keeps rolling back after its
+  read, the 6 h floor allows a retry, so up to 4 activities reads a day for that account. Committed syncs read once a
+  day.
+- **Options (#62) under the cadence:**
+  - Option rows come in with each due account's activities read, through the same calls.
+  - An account still owed its one-time option backfill (connections made before #62) reads its next history page *as*
+    its daily activities read (same endpoint, same cap). A history of k pages takes about k days to backfill.
+  - During a backfill, the account's recent week is unread. So its positions take the positions-only rule (never
+    removed), and `last_synced_at` keeps its previous value until the backfill finishes.
+  - Open option positions follow the share rule. A positions-only read adds and updates them and never removes one. A
+    read with activities removes an unlisted option only once a closing row of its contract (a close, an expiry, an
+    assignment or an exercise) has been imported since it was last listed, or after 3 days unlisted (a transfer out).
+  - "Updated …" also holds on the sync that reads the last backfill page; it moves with the first week read after it.
+  - The open option counts are kept per account (`users.open_options_by_account`), so reading one account replaces
+    only its part of the user's totals.
+- **A sync cut at the route's end** (the route-end guard) leaves no marks, so the next call reads at once.
+- **The account list** is still read every round (TR-5, the claim): 1 request. Whether it may be throttled is a vendor
+  question for the owner.
+- **Load (calculated, not measured):** about 1.4 vendor requests per trader-hour in steady state, against about 5.5 when every account is due. The
+  plan below stays sized for the all-due hour (the first deploy, after an outage, a reconnect wave). The shard runner
+  plans each trader's budget from its due reads.
+- **Evidence:** each run logs `accountLists`, `activitiesReads`, `positionsReads` and `readsDeferred`, summed hourly in
+  `sync_read_counts`. The coverage line reports:
+  - `capRatio`: activities reads in the last 24 h ÷ connected real accounts, with `capBreach` above 1.05;
+  - the oldest activities and positions reads, with `freshnessAlarm` above 26 h and 18 h (positions normally go 12–13 h unread before
+    the read an activities read forces, and up to about 17 h with round jitter).
+
 ## Logs (numbers only, no personal data)
 
 | Line | When | Fields |
 |---|---|---|
 | `sync run start {…}` | a run took its lease | of, shard, concurrency, rps |
 | `sync run {…}` | every call | of, shard, busy, done, skipped (lock held elsewhere), deferred (did not fit), transient, refused, failed, quarantined, releaseFailed, remaining (left this round), inBackoff, stoppedAtDeadline, breaker, leaseLost, aborted, concurrency, requests, tokenWaitMs, pages, ms |
-| `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings, idle (F-11: records with no successful sync for 30 days, `lib/sync.ts#idleCount`) |
+| `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), capRatio, capBreach, oldestActivitiesReadHours, oldestPositionsReadHours, freshnessAlarm, unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings, idle (F-11: records with no successful sync for 30 days, `lib/sync.ts#idleCount`) |
 | `sync round incomplete {…}` | the previous round left traders unclaimed, or a shard is missing | of, missingShards, unclaimedPrevRound |
 | `sync failed <id> <class> <status>` | one trader's sync failed | internal user id, failure class, error name and HTTP status (never the message) |
 
-Alert on `sync round incomplete`, on `breaker: true`, and on `dbConfigOk: false`.
+Alert on `sync round incomplete`, on `breaker: true`, on `dbConfigOk: false`, on `capBreach: true` and on `freshnessAlarm: true`.
 
 ## Configuration
 

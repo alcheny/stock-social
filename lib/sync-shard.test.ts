@@ -410,8 +410,9 @@ dbTest('failure isolation with the real syncUser: a vendor error mid-sync leaves
     });
     assert.equal(r1.transient, 1);
     assert.equal(await snapshot(), before);
-    // A round later: the vendor refuses the activity read (403) → refused and backed off, nothing written.
-    const r2 = await run(125, { listAccounts: async () => acct, fetchActivities: async () => { throw Object.assign(new Error('nope'), { status: 403 }); } });
+    // When activities are due again (F-14: once per 24 h; the first read was at minute 5): the vendor refuses the
+    // activity read (403) → refused and backed off, nothing written.
+    const r2 = await run(5 + 25 * 60, { listAccounts: async () => acct, fetchActivities: async () => { throw Object.assign(new Error('nope'), { status: 403 }); } });
     assert.equal(r2.refused, 1);
     assert.deepEqual(r2.failedIds, [t.id]);
     assert.equal(await snapshot(), before);
@@ -582,7 +583,9 @@ dbTest('route-end guard: a 3-account read is guarded for 3 bounds; a first pick 
       wall = 1_000_000;
       // 100 s: after the account list 95 s are left; one 30 s bound would pass the guard, three (90 s + 10 s) do not.
       const r = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(5 + 60 * i), jitterMs: 0, config: cfg(1), log: h.quiet,
-        broker: broker as unknown as import('./sync.ts').Broker, clock: () => wall, routeEnd: wall + 100_000, vendorBoundMs: 30_000 });
+        broker: broker as unknown as import('./sync.ts').Broker, clock: () => wall, routeEnd: wall + 100_000, vendorBoundMs: 30_000,
+        // One call of 3 requests (the non-cadence sync; F-14's cadence sync reads one account per call, each guarded).
+        sync: (u, b) => h.S.syncUser(u, b) });
       assert.equal(r.cutAtDeadline, 1, `call ${i}: ${JSON.stringify(r)}`);
       assert.equal(r.transient, 1, 'a first pick cut counts as transient');
       assert.equal(r.quarantined, i === TRANSIENT_LIMIT - 1 ? 1 : 0, `call ${i}`);

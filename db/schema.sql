@@ -19,6 +19,11 @@ begin
     execute format('alter table %I add column %I %s', tbl, col, ddl);
   end if;
 end $f$;
+-- ponytail: a new index is built without `concurrently` (it runs inside the schema's single transaction, where
+-- concurrently is not allowed), so its first apply holds a SHARE lock on the table — writes wait for the whole build;
+-- harmless on today's small tables, not on a large one. Also, an index left invalid by a failed concurrent build still
+-- counts as present here (pg_indexes lists it). Fix: build indexes on large tables outside the transaction with
+-- `create index concurrently` in a separate step, and check pg_index.indisvalid.
 create or replace function schema_add_index(idx text, ddl text) returns void language plpgsql as $f$
 begin
   if not exists (select 1 from pg_indexes where schemaname = current_schema() and indexname = idx) then execute ddl; end if;
@@ -203,7 +208,6 @@ create table if not exists signup_attempts (
   user_id int references users(id) on delete set null,
   completed_at timestamptz
 );
--- ponytail: users.signup_attempt_id has no index, so the purge's per-attempt check and attempt deletes scan users — add one.
 select schema_add_column('users', 'signup_attempt_id', 'bigint references signup_attempts(id)');
 select schema_add_column('users', 'deleted_at', 'timestamptz');
 -- Backfill, once: rows from before F-1 attested through the dev form at created_at; one attempt each, then the column is
@@ -219,18 +223,21 @@ begin
     alter table users alter column signup_attempt_id set not null;
   end if;
 end $b$;
+-- The attempt purge's "no users row" check and the foreign-key check on every signup_attempts delete (lib/privacy-purge.ts).
+select schema_add_index('users_signup_attempt', 'create index users_signup_attempt on users (signup_attempt_id)');
 
 -- One row per sign-in method a user has used. subject is the provider's stable id (or the address for 'email').
 create table if not exists identities (
   user_id int not null references users on delete cascade,
   provider text not null check (provider in ('provider_a', 'provider_b', 'email')),
   subject text not null,
-  -- ponytail: no index, so sign-in by email scans identities — add an index (email).
   email text,
   created_at timestamptz not null default now(),
   unique (provider, subject)
 );
 select schema_add_index('identities_user', 'create index identities_user on identities (user_id)');
+-- Sign-in by email (lib/auth/attempts.ts#signInWithIdentity).
+select schema_add_index('identities_email', 'create index identities_email on identities (email) where email is not null');
 
 -- Sessions: the cookie holds a signed random token; only its sha256 is stored.
 create table if not exists sessions (
@@ -245,13 +252,14 @@ select schema_add_index('sessions_user', 'create index sessions_user on sessions
 -- Passwordless email links: single use, 15 minutes, hashed token.
 create table if not exists login_links (
   token_hash text primary key,
-  -- ponytail: no index, so account deletion's email match scans login_links — add a partial index (email) where email <> ''.
   email text not null,
   attempt_id bigint not null references signup_attempts(id),
   expires_at timestamptz not null,
   used_at timestamptz
 );
 select schema_add_index('login_links_attempt', 'create index login_links_attempt on login_links (attempt_id)');
+-- Account deletion's email match (lib/delete.ts#LOGIN_LINKS_DELETE states email <> ''); claimed links are blanked to ''.
+select schema_add_index('login_links_email', $$create index login_links_email on login_links (email) where email <> ''$$);
 
 -- A deleted profile's handle stays unavailable for a year. Handle and date only: no personal data.
 create table if not exists handle_reservations (
@@ -276,7 +284,6 @@ select schema_add_index('funnel_events_attempt', 'create index funnel_events_att
 -- provisional claim of a brokerage-first attempt that has no users row yet (confirmed into broker_accounts at consent).
 create table if not exists connections (
   id bigint generated always as identity primary key,
-  -- ponytail: no index, so the attempt purge's per-attempt check and attempt deletes scan connections — add an index (attempt_id).
   attempt_id bigint not null references signup_attempts(id),
   user_id int references users(id) on delete cascade,
   vendor_authorization_id text,
@@ -300,6 +307,8 @@ create table if not exists connections (
 );
 select schema_add_index('connections_user', 'create index connections_user on connections (user_id)');
 select schema_add_index('connections_state', 'create index connections_state on connections (state)');
+-- The attempt purge's per-attempt checks and deletes, and the foreign-key check on every signup_attempts delete.
+select schema_add_index('connections_attempt', 'create index connections_attempt on connections (attempt_id)');
 -- Committee fix (Low, PR-2a round 6): rows cleaned before cleanup blanked the snapshot still hold one. A declined or
 -- expired row that cleanup has finished and that ended over 24 h ago keeps no account snapshot or institution; ids,
 -- states and timestamps stay for the funnel. Idempotent (a blanked row no longer matches); never deletes a row.
@@ -533,7 +542,6 @@ create table if not exists subscriptions (
   id int generated always as identity primary key,
   user_id int not null references users on delete cascade,
   vendor_subscription_id text unique not null,
-  -- ponytail: no index, so each dispute webhook's update by customer scans subscriptions — add an index (vendor_customer_id).
   vendor_customer_id text not null,
   plan text not null check (plan in ('monthly', 'annual')),
   status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused', 'incomplete')),
@@ -550,6 +558,8 @@ create table if not exists subscriptions (
 -- refuses a second checkout while one exists — add it to the index (a new index name) to enforce it in the database.
 select schema_add_index('subscriptions_one_live', $$create unique index subscriptions_one_live on subscriptions (user_id) where status in ('trialing', 'active', 'past_due')$$);
 select schema_add_index('subscriptions_user', 'create index subscriptions_user on subscriptions (user_id)');
+-- The dispute webhooks' updates by customer (lib/billing.ts).
+select schema_add_index('subscriptions_customer', 'create index subscriptions_customer on subscriptions (vendor_customer_id)');
 -- The webhook inbox: one row per processor event id (duplicates are no-ops). No payload (committee condition 20); the
 -- handler fetches the object from the processor by id. Purged 35 days after receipt by the nightly reconciliation.
 create table if not exists billing_events (
@@ -795,6 +805,28 @@ create table if not exists portal_probes (
   until timestamptz not null
 );
 
+-- F-14 sync cadence (docs/features/F-14-sync-cadence.md; committee docs/features/logs/F-14/committee-2026-11-01.md):
+-- per account, when activities (with share moves) and positions were last read, on the database clock, written inside
+-- the sync's transaction (a failed sync never advances them). Null means "read now".
+select schema_add_column('broker_accounts', 'activities_read_at', 'timestamptz');
+select schema_add_column('broker_accounts', 'positions_read_at', 'timestamptz');
+-- F-14 (G2, round 2): every successful vendor read of an account, recorded after the sync's transaction ends whatever its
+-- outcome (a rolled-back read is still a vendor call): the last activities read (a 6 h floor) and the last 4 positions
+-- reads (the 24 h window that bounds positions reads to 4 a day). Deleted with the user.
+create table if not exists sync_read_marks (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  activities_attempted_at timestamptz,
+  positions_reads timestamptz[] not null default '{}',
+  primary key (user_id, account_id)
+);
+-- F-14 (G9): vendor reads per hour, counts only (the coverage report's 24 h cap check).
+create table if not exists sync_read_counts (
+  hour timestamptz primary key,
+  account_lists int not null default 0,
+  activities int not null default 0,
+  positions int not null default 0
+);
 -- Known limits 2026-11-01 (docs/features/logs/known-limits/committee-2026-11-01.md).
 -- TR-6, a stable account identity: a keyed hash of the institution and the vendor's institution account id
 -- (lib/claims.ts#accountIdentity; never the raw identifier). Not unique: one profile may hold the same brokerage account
@@ -846,6 +878,79 @@ begin
 end $t$;
 -- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
 select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');
+
+-- Stalest-first tick and attempt sweep (known-limits sweep 2, item connections): the last time a tick (or the attempt
+-- sweep) claimed the row for a try, on the database clock. Null = never tried, so it goes first. Each read orders by
+-- (tried_at nulls first, id) and claims a row by compare-and-set on the stamp it read, so a row that keeps failing moves
+-- to the back and two overlapping ticks never start the same try. Additive; the partial indexes match each read's WHERE.
+select schema_add_column('connections', 'tick_tried_at', 'timestamptz');
+select schema_add_column('signup_attempts', 'sweep_tried_at', 'timestamptz');
+select schema_add_index('connections_tick_import', 'create index connections_tick_import on connections (tick_tried_at nulls first, id) where state = ''importing''');
+select schema_add_index('connections_tick_cleanup', 'create index connections_tick_cleanup on connections (tick_tried_at nulls first, id) where cleanup_done_at is null and state in (''declined'', ''expired'')');
+select schema_add_index('signup_attempts_sweep', 'create index signup_attempts_sweep on signup_attempts (sweep_tried_at nulls first, id) where snaptrade_user_id is not null');
+
+-- Sitemaps (known-limits sweep 2, lib/sitemaps.ts): the shared chunk boundaries every server reads, so robots.txt and
+-- the further sitemaps' ids agree across servers. One row per scope ('' for the app; tests use their own prefix).
+-- firsts[i]: the first indexable symbol of further sitemap i+1 (the DB's default order); n: indexable symbols at the
+-- build; published: the most further sitemap ids ever listed (never shrinks: a listed id answers 200, maybe empty).
+-- Symbols and counts only; no user ids. Rebuilt at most once per REBUILD_MS by a request (lib/sitemaps.ts).
+create table if not exists sitemap_chunks (
+  scope text primary key,
+  firsts text[] not null,
+  n int not null,
+  published int not null,
+  built_at timestamptz not null default now()
+);
+
+-- Known-limits sweep 2 (billing): the daily reconciliation is one pass resumed tick by tick (lib/billing.ts#reconcile).
+-- billing_runs 'reconcile': the pass in progress (start, phase, cursor = the last processor subscription id handled,
+-- failures at that cursor) and its lease (a token fencing every pass write, and its expiry).
+-- 'reconcile_daily' (no new columns): when grace expiry and the purges last ran.
+select schema_add_column('billing_runs', 'pass_started_at', 'timestamptz');
+select schema_add_column('billing_runs', 'phase', $d$text check (phase in ('list', 'missing'))$d$);
+select schema_add_column('billing_runs', 'cursor', 'text');
+select schema_add_column('billing_runs', 'fails', 'int not null default 0');
+select schema_add_column('billing_runs', 'lease_id', 'text');
+select schema_add_column('billing_runs', 'lease_until', 'timestamptz');
+-- When the current pass last listed or fetched this subscription; rows the pass has not seen are fetched one by one.
+select schema_add_column('subscriptions', 'listed_at', 'timestamptz');
+
+-- Known-limits sweep (lists): /me/following pages each list newest first (lib/follows.ts#ownFollowing, #ownHidden,
+-- #expiredHides). These let a page read its 51 rows off the viewer's index instead of sorting every row they have.
+select schema_add_index('follows_viewer_created', 'create index follows_viewer_created on follows (viewer_id, created_at desc, trader_id desc)');
+select schema_add_index('viewer_exclusions_viewer_created', 'create index viewer_exclusions_viewer_created on viewer_exclusions (viewer_id, created_at desc, trader_id desc)');
+select schema_add_index('viewer_exclusions_viewer_until', 'create index viewer_exclusions_viewer_until on viewer_exclusions (viewer_id, until desc, trader_id desc)');
+
+-- Known limits sweep 2 (`similar`): the "Similar trades" pool shared between servers (lib/similar.ts). One row per scope
+-- ('*' in production), overwritten in place by the one server that claims the rebuild (claim token + claimed_at lease).
+-- pool: the section pool as JSON text (user ids with ranking numbers derived from public records; no quantities or prices).
+create table if not exists similar_pools (
+  key text primary key,
+  hour timestamptz not null,
+  built_at timestamptz,
+  claimed_at timestamptz,
+  claim text,
+  pool text
+);
+
+-- Known-limits sweep 2 (purge): the orphan purge's scan position (lib/privacy-purge.ts). One row per cursor step; the
+-- position is a number in the sha256 trade_key hash space (its first 32 bits), never a key, viewer or trade.
+create table if not exists privacy_purge_cursors (
+  step text primary key check (step in ('clear', 'mark-like', 'mark-reject')),
+  pos bigint not null default 0 check (pos >= 0 and pos < 4294967296),
+  span bigint not null check (span >= 1 and span <= 4294967296),
+  laps bigint not null default 0,
+  updated_at timestamptz not null default now()
+);
+-- The clearing step walks privacy_orphans by trade_key hash range, like the marking steps walk trade_likes_key and
+-- trade_exclusions_key.
+select schema_add_index('privacy_orphans_key', 'create index privacy_orphans_key on privacy_orphans (trade_key)');
+-- The users cascade deletes privacy_orphans by viewer_id, which no index leads (1M rows: 124 ms a deleted user, 3.4 ms with it).
+select schema_add_index('privacy_orphans_viewer', 'create index privacy_orphans_viewer on privacy_orphans (viewer_id)');
+
+-- Known-limits sweep 2 (purge, review S6): how much of the hash space the current lap has walked; a lap counts only when
+-- it reaches the whole space, so a lap begun mid-space (a moved cursor) is never counted early.
+select schema_add_column('privacy_purge_cursors', 'swept', 'bigint not null default 0');
 
 -- Fixes cycle 3 (docs/direction/cycle3-2026-11-01.md F3-3): a freeze (TR-5) needs confirmed absence. Set by the sync on
 -- the first successful account list that lists none of the connection's accounts, cleared when one is listed again;
@@ -990,3 +1095,22 @@ create table if not exists view_drops (
   n int not null default 0,
   primary key (day, surface, reason)
 );
+
+-- ---- F-15 second half (docs/features/logs/F-15/plan-second-half.md): share_action rows (E5, G2) ----
+-- One row per completed share of a trader's own record (sheet resolved or link copied), written by
+-- lib/share-actions.ts#writeShareAction for the record's owner only (a viewer's share is never stored). Day only (UTC),
+-- no time of day, no id column; surface is the share class (card, story, trade, month), outcome sheet or copy,
+-- record_sign the headline's sign at that moment (up, down, flat, none). Never: destination, recipients, thesis, account
+-- id, sell id, month, path, IP, agent, session or cookie. At most 20 a trader a UTC day. No CHECKs on purpose (closed
+-- lists in code, a db test on stored values; first-half decision 7). Deleted with the account (explicit delete in
+-- lib/delete.ts and the cascade) and after 120 days (lib/privacy-purge.ts, step 'shares'). The four users share
+-- columns stay and are still written; the readout reads these rows instead. Never read by any page or by ordering.
+create table if not exists share_action (
+  user_id int not null references users on delete cascade,
+  day date not null,
+  surface text not null,
+  outcome text not null,
+  record_sign text not null
+);
+select schema_add_index('share_action_user_day', 'create index share_action_user_day on share_action (user_id, day)');
+select schema_add_index('share_action_day', 'create index share_action_day on share_action (day)');
