@@ -1,7 +1,9 @@
 // Fix #4 (approval council cycle 2): one rule for which users' data appears on public aggregate surfaces. A user whose
 // deletion is in progress (deleted_at set; lib/delete.ts keeps the rows until the vendor step succeeds) is never counted
-// or charted. F-16 (docs/features/logs/F-16-F-17/plan.md §5.1): a profile the owner hid (users.hidden_at, set only by
-// the audited lib/trust-hide.ts) is skipped by the same rule, so the hide is this one place.
+// or charted. Used by every stock surface (page, index, compare, share image, open positions) and the sitemap;
+// lib/fixes-cycle2-trust.test.ts fails on any closed_trades / open_positions read there without it.
+// F-16 (docs/features/logs/F-16-F-17/plan.md §5.1): a profile the owner hid (users.hidden_at, set only by the audited
+// lib/trust-hide.ts) is skipped by the same rule, so the hide is this one place.
 // F-16: every public closed_trades / open_positions read calls one of these helpers; lib/f16-visible-reads.test.ts fails
 // on any that doesn't (owner-scoped reads and writes sit on its allowlist, each with a reason).
 import { sql } from './db.ts';

@@ -10,6 +10,7 @@ import { Disclaimer } from '../../disclaimer.tsx';
 import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
+import { toneClass } from '../../open-rows.tsx';
 import Spread from '../[symbol]/Spread.tsx';
 // F-6: open positions per stock, one aggregate line per column.
 import { asOfDay, OPEN } from '@/lib/copy.ts';
@@ -80,7 +81,7 @@ function Column({ symbol, side, id, shared, open, note = true }: { symbol: strin
       {s.mixed && <p role="note" className="muted">{FL.mixedNote}</p>}
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
-        <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : s.avgReturn! < 0 ? 'down' : ''}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
+        <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
           <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
         </div>
       </div>

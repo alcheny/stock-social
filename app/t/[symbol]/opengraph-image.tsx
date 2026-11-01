@@ -33,6 +33,8 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
     const symbol = decodeSymbolParam((await params).symbol);
     if (!symbol) return neutral('Stock Social', 'Verified trades by stock');
     // Deleted and hidden traders' trades are not counted (the page's rule: the visible-user predicate, F-16).
+    // ponytail: the card keeps its own full read (lib/f12-followups.test.ts and lib/ticker-sql.test.ts pin this query) —
+    // fix: switch it to app/t/ticker-sql.ts#tickerHeadline (the page's SQL summary) and move those two pins with it.
     const found = (await sql`select t.user_id, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} where t.symbol = ${symbol} and t.filing_url is null`) as unknown as
       { user_id: number; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean }[];
     if (!found.length) return neutral(symbol, 'No verified trades yet');

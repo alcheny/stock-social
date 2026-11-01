@@ -250,7 +250,6 @@ test('likePrefix escapes LIKE wildcards and the escape character; the pages hold
   assert.doesNotMatch(page + index, /ponytail/);
   // The symbol page no longer reads every closed trade or groups the overlap in JS.
   assert.doesNotMatch(page, /relatedSymbols\(|tickerSummary\(|order by t\.closed_at desc, t\.id desc`\)/);
-  // The stock share image keeps its own read (main's lib/f12-followups.test.ts pins it), counting what the page counts:
-  // F-16 moved it onto the shared visible-user predicate (deleted or hidden traders), as the page's reads.
-  assert.match(readFileSync(new URL('../app/t/[symbol]/opengraph-image.tsx', import.meta.url), 'utf8'), /\$\{visibleUser\('u'\)\} where t\.symbol = \$\{symbol\} and t\.filing_url is null/);
+  // The stock share image keeps its own read (main's lib/f12-followups.test.ts pins it), counting what the page counts.
+  assert.match(readFileSync(new URL('../app/t/[symbol]/opengraph-image.tsx', import.meta.url), 'utf8'), /and \$\{visibleUser\('u'\)\} where t\.symbol = \$\{symbol\} and t\.filing_url is null/); // cycle 2 fix #4: the shared predicate
 });
