@@ -30,7 +30,7 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
       });
     } catch { failed++; }
   }
-  if (failed) console.error(`matcher rebuild: ${failed} records failed; the version stays open`);
+  if (failed) console.error('matcher rebuild: records failed, the version stays open', JSON.stringify({ count: failed }));
   else if (!ids) await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
   // ponytail: a sync running old code between this rebuild and the cutover can rebuild one active record with the old
   // matcher after the version is written; its next sync on the new code fixes it — fix: key closed_trades rows by matcher
