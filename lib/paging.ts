@@ -3,6 +3,8 @@
 // footer's disclaimer stays in reach on any record, without JavaScript. Nothing is hidden: every close is in exactly
 // one window, reached by "Show 50 more" from the newest through to the oldest; the stats and the chart cover the whole
 // record. The list order is total (close time, then id, newest first), so windows never overlap or skip a row.
+import { wireDay, wireHold, wirePct } from './public-wire.ts'; // F-23
+
 export const CLOSES_PAGE = 50;
 
 // Rows are numbered from 0 in list order. `end` is the window's last row + 1 (a multiple of CLOSES_PAGE).
@@ -34,12 +36,26 @@ export function tradeHref(linkBase: string, id: string, index: number, current?:
 }
 
 // The chart's record, compact for the client (F-1 PR-3 fix round 4: the whole record was serialized as objects, most of
-// a heavy profile's HTML). One tuple per close, in list order: [id, symbol, return, close time ms, hold days, thesis].
+// a heavy profile's HTML). One tuple per close, in list order: [id, symbol, return, close day, hold days, thesis].
+// F-23: a public payload, so the printed precision only (lib/public-wire.ts): the return through wirePct, the close as
+// its UTC day (days since 1970-01-01), hold days at one decimal. unpackPoints spreads one day's closes across the day in
+// list order (newest latest), so a chart drawn from them keeps their order and gives each its own x.
 export type PackedPoint = [string, string, number, number, number, string | null];
 export type ChartPoint = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null; index: number };
 export function packPoints(trades: { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null }[]): PackedPoint[] {
-  return [...trades].sort(byListOrder).map((t) => [t.id, t.symbol, Math.round(t.returnPct * 1e8) / 1e8, t.closedAt.getTime(), Math.round(t.holdingDays * 100) / 100, t.thesis]);
+  return [...trades].sort(byListOrder).map((t) => [t.id, t.symbol, wirePct(t.returnPct), wireDay(t.closedAt), wireHold(t.holdingDays), t.thesis]);
 }
+const DAY = 86_400_000;
 export function unpackPoints(p: PackedPoint[]): ChartPoint[] {
-  return p.map(([id, symbol, returnPct, at, holdingDays, thesis], index) => ({ id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index }));
+  const out: ChartPoint[] = [];
+  for (let i = 0; i < p.length;) {
+    let end = i; // list order is newest first, so one day's closes are adjacent
+    while (end < p.length && p[end][3] === p[i][3]) end++;
+    const m = end - i;
+    for (let k = 0; i < end; i++, k++) {
+      const [id, symbol, returnPct, day, holdingDays, thesis] = p[i];
+      out.push({ id, symbol, returnPct, closedAt: new Date(day * DAY + Math.round(((m - k) / (m + 1)) * DAY)), holdingDays, thesis, index: i });
+    }
+  }
+  return out;
 }

@@ -67,8 +67,8 @@ test('AC17: signed out, the demo trader with options shows the "Excluding option
   const html = await page.content();
   const description = (await page.locator('meta[name="description"]').getAttribute('content')) ?? '';
   const alt = (await page.locator('meta[property="og:image:alt"]').first().getAttribute('content')) ?? '';
-  const pane = await (await request.get('/u/yolo_yuki/pane')).text();
-  const chart = await (await request.get('/u/yolo_yuki/pane-chart')).text();
+  const pane = await (await request.get('/u/yolo_yuki/pane?v=2')).text();
+  const chart = await (await request.get('/u/yolo_yuki/pane-chart?v=2')).text();
   const { writeDisplayLog } = await import('../lib/display-log.ts');
   await writeDisplayLog({ ids: [u.id] });
   const logRows = await sql`select options_line, created_at from display_log where user_id = ${u.id} order by day desc`;

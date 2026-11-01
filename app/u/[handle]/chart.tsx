@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { RANGES, nearestIndex, pct, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
 import { tone, toneClass } from '@/lib/open-split.ts';
-import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
+import { chartSeries, pathD, PAYLOAD_V, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { counted } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
 // FIXES-LABELS (D-05): the chart says when it starts and ends; the at-rest subline names the last close.
@@ -11,6 +11,7 @@ import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 import { chartRestSub } from '@/lib/chart-sub.ts';
 import { UserNote } from '@/lib/user-note.ts';
 import { OPTIONS } from '@/lib/copy.ts'; // OPTIONS
+import { isoDay, numericDay } from '@/lib/public-wire.ts'; // F-23: dates as UTC days, printed in UTC
 
 const W = 640, H = 240, T = 16, B = 16;
 
@@ -31,7 +32,9 @@ const fullCharts = new Map<string, Promise<PackedChart>>();
 function fetchChart(src: string): Promise<PackedChart> {
   let p = fullCharts.get(src);
   if (!p) {
-    p = fetch(src).then((r) => (r.ok ? (r.json() as Promise<PackedChart>) : Promise.reject(new Error(String(r.status)))));
+    // F-23: a body of another payload version is a failed load (forgotten, so the next open retries), never drawn.
+    p = fetch(src).then((r) => (r.ok ? (r.json() as Promise<PackedChart>) : Promise.reject(new Error(String(r.status)))))
+      .then((c) => (c.v === PAYLOAD_V ? c : Promise.reject(new Error('payload version'))));
     p.catch(() => fullCharts.delete(src));
     fullCharts.set(src, p);
   }
@@ -116,7 +119,7 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   const at = active === null ? null : pts[active];
   const shown = at ? at.value : last;
   // The scrubbed date stays numeric (M/D/YYYY); at rest, FIXES-LABELS (D-05): "‹range› · last close ‹date›".
-  const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : chartRestSub(spec.label, allT1, now); // code review: no last close → the plain label
+  const sub = at ? numericDay(at.at) /* F-23 */ + (at.trade ? ` · ${at.trade.symbol}` : '') : chartRestSub(spec.label, allT1, now); // code review: no last close → the plain label
   // FIXES-LABELS (D-05): the plotted span's ends. ALL: the series' first and last close; other ranges: the first and
   // last close drawn in the range. None while a range is still loading.
   const closes = pts.filter((p) => p.trade);
@@ -204,8 +207,8 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
       {ends && (
         <p className="chart-ends">
           <span className="sr-only">{FL.chartEnds(dateText(new Date(ends[0]), now), dateText(new Date(ends[1]), now))}</span>
-          <time aria-hidden="true" dateTime={new Date(ends[0]).toISOString()}>{dateText(new Date(ends[0]), now)}</time>
-          <time aria-hidden="true" dateTime={new Date(ends[1]).toISOString()}>{dateText(new Date(ends[1]), now)}</time>
+          <time aria-hidden="true" dateTime={isoDay(ends[0]) /* F-23: the UTC day */}>{dateText(new Date(ends[0]), now)}</time>
+          <time aria-hidden="true" dateTime={isoDay(ends[1])}>{dateText(new Date(ends[1]), now)}</time>
         </p>
       )}
       <div className={`sheet${open ? ' open' : ''}`} aria-live="polite">
@@ -214,7 +217,7 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
           <>
             <div className="line">
               {/* Fix round 2 (H): " · " after the date, so it never runs into the figure ("10/30/2026-1.7%"). */}
-              <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}{' · '}</span></span>
+              <span><b>{chosen.symbol}</b> <span className="muted">{numericDay(chosen.closedAt) /* F-23 */}{' · '}</span></span>
               <b className={toneClass(chosen.returnPct)}>{pct(chosen.returnPct)}</b>
             </div>
             {open && (

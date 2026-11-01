@@ -45,9 +45,16 @@ export const wireHold = (h: number): number => (Number.isFinite(h) ? Number(h.to
 // A win rate prints as a whole percent ((winRate * 100).toFixed(0)): the printed whole percent, as a fraction.
 export const wireRate = (r: number): number => (Number.isFinite(r) ? Number(`${(r * 100).toFixed(0)}e-2`) : r);
 
-// Dates go out as UTC days: whole days since 1970-01-01 (a 5-digit number, never a 13-digit epoch). The client rebuilds a
-// day as 12:00 UTC, so toLocaleDateString shows the UTC day in every zone from UTC-11 to UTC+11.
+// Dates go out as UTC days: whole days since 1970-01-01 (a 5-digit number, never a 13-digit epoch), or 'YYYY-MM-DD'.
+// The client prints them in UTC (numericDay, lib/date-text.ts#dateText), so every zone reads the same day the server
+// rendered.
 export const wireDay = (d: Date | number): number => Math.floor((typeof d === 'number' ? d : d.getTime()) / DAY);
-export const fromWireDay = (n: number): Date => new Date(n * DAY + DAY / 2);
-// The same day as 'YYYY-MM-DD' (a <time dateTime> value).
 export const isoDay = (d: Date | number): string => new Date(wireDay(d) * DAY).toISOString().slice(0, 10);
+// The numeric date the pane rows and the chart's scrub line print ("10/30/2026", as toLocaleDateString('en-US') did),
+// in UTC: the same text on the server and in any browser zone.
+const NUMERIC = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC' });
+export const numericDay = (d: Date | number): string => NUMERIC.format(d);
+// `now` for a client component: the start of today's UTC day (the chart reads only its UTC year and day from it).
+export const wireToday = (now: Date = new Date()): Date => new Date(wireDay(now) * DAY);
+// A relative time's instant ("2 hours ago": the line prints hours), truncated to its UTC hour: 'YYYY-MM-DDTHH:00Z'.
+export const isoHour = (d: Date | number): string => `${new Date(Math.floor(+d / 3_600_000) * 3_600_000).toISOString().slice(0, 13)}:00Z`;

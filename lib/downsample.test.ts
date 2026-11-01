@@ -2,7 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { downsampleIndices, FEED_CHART_POINTS } from './downsample.ts';
-import { chartSeries, packChart, unpackChart } from './chart-series.ts';
+import { chartPoints, chartSeries, packChart, unpackChart } from './chart-series.ts';
+import { wireDay, wirePct } from './public-wire.ts'; // F-23
+const DAY = 86_400_000;
 import { seededActivities } from '../e2e/fakes/vendor.ts';
 import { matchTrades, RANGES, type Activity } from './trades.ts';
 import { packPoints, unpackPoints } from './paging.ts';
@@ -68,7 +70,8 @@ function heavyRecord() {
     acts.push({ externalId: r.id, accountId: `acc${a}`, symbol: r.symbol, side: r.type, units: r.units, price: r.price, fee: r.fee ?? 0, executedAt: new Date(r.trade_date), verified: true });
   }
   const { trades } = matchTrades(acts);
-  return unpackPoints(packPoints(trades.map((t, i) => ({ id: String(i + 1), symbol: t.symbol, returnPct: t.returnPct, closedAt: t.closedAt, holdingDays: t.holdingDays, thesis: null }))));
+  // F-23: the stored values (chartPoints), as the server computes on them; packPoints is the rounded wire form.
+  return chartPoints(trades.map((t, i) => ({ id: String(i + 1), symbol: t.symbol, returnPct: t.returnPct, closedAt: t.closedAt, holdingDays: t.holdingDays, thesis: null })));
 }
 
 test('the feed pane\'s chart: every range at most 400 points, the same numbers as full resolution, first/last/min/max kept', () => {
@@ -81,23 +84,25 @@ test('the feed pane\'s chart: every range at most 400 points, the same numbers a
     assert.ok(small.pts.length <= FEED_CHART_POINTS, `${key}: ${small.pts.length}`);
     // The header total, the count, the drawdown and the y range are the full record's.
     assert.equal(small.n, full.n);
-    assert.equal(small.last, full.last);
-    assert.equal(small.drawdown, full.drawdown);
-    assert.deepEqual([small.min, small.max], [full.min, full.max]);
-    for (const k of ['t0', 't1'] as const) assert.ok(full[k] - small[k] >= 0 && full[k] - small[k] < 60_000, k);
+    // F-23: the full record's figures, at the printed precision (wirePct of the stored-value figure).
+    assert.equal(small.last, wirePct(full.last));
+    assert.equal(small.drawdown, wirePct(full.drawdown));
+    assert.deepEqual([small.min, small.max], [wirePct(full.min), wirePct(full.max)]);
+    // F-23: range ends are UTC days: the start of t0's day, the end of t1's day.
+    assert.equal(small.t0, wireDay(full.t0) * DAY, 't0');
+    assert.equal(small.t1, (wireDay(full.t1) + 1) * DAY - 1, 't1');
     if (!full.n) continue;
-    const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
-    assert.ok(near(small.pts[0].value, full.pts[0].value) && small.pts[0].trade === null, `${key}: first`);
+    assert.ok(small.pts[0].value === 0 && small.pts[0].trade === null, `${key}: first`);
     assert.equal(small.pts.at(-1)!.trade!.id, full.pts.at(-1)!.trade!.id, `${key}: last`);
     const vals = (s: typeof full) => s.pts.map((p) => p.value);
-    assert.ok(near(Math.min(...vals(small)), Math.min(...vals(full))), `${key}: min`);
-    assert.ok(near(Math.max(...vals(small)), Math.max(...vals(full))), `${key}: max`);
+    assert.equal(Math.min(...vals(small)), wirePct(Math.min(...vals(full))), `${key}: min`);
+    assert.equal(Math.max(...vals(small)), wirePct(Math.max(...vals(full))), `${key}: max`);
     // Each kept point is a real close with its own link target (row index) and value.
     for (const p of small.pts.slice(1)) {
       const orig = full.pts.find((q) => q.trade?.id === p.trade!.id)!;
-      // Times are floored to the minute on the wire: never later, never more than a minute earlier.
-      assert.ok(near(orig.value, p.value) && orig.at - p.at >= 0 && orig.at - p.at < 60_000 && orig.trade!.index === p.trade!.index);
-      assert.ok(Math.abs(p.trade!.returnPct - orig.trade!.returnPct) <= 5e-7 + 1e-12);
+      // F-23: the value and return at the printed precision, the time on its own UTC day.
+      assert.ok(p.value === wirePct(orig.value) && wireDay(p.at) === wireDay(orig.at) && orig.trade!.index === p.trade!.index);
+      assert.equal(p.trade!.returnPct, wirePct(orig.trade!.returnPct));
     }
   }
   // The ALL range is the one that needed it.
@@ -145,7 +150,7 @@ test('fix round 8: the feed\'s stand-in carries the ALL line at FEED_LITE_POINTS
   }
   // The stand-in keeps the line's ends and extremes (the line is not smoothed).
   const vals = (s: typeof l.ALL) => s.pts.map((p) => p.value);
-  const close = (a: number, b: number) => Math.abs(a - b) <= 5e-5 + 1e-12;
+  const close = (a: number, b: number) => a === wirePct(b); // F-23: the printed precision, exactly
   assert.ok(close(Math.min(...vals(l.ALL)), Math.min(...vals(f.ALL))));
   assert.ok(close(Math.max(...vals(l.ALL)), Math.max(...vals(f.ALL))));
   assert.ok(close(l.ALL.pts.at(-1)!.value, f.ALL.pts.at(-1)!.value));
@@ -155,11 +160,11 @@ test('fix round 8: the feed\'s stand-in carries the ALL line at FEED_LITE_POINTS
   const { pct } = await import('./trades.ts');
   const exact = chartSeries(trades, 'ALL', now, FEED_LITE_POINTS).pts;
   assert.equal(exact.length, l.ALL.pts.length);
-  exact.forEach((p, i) => { assert.ok(Math.abs(p.value - l.ALL.pts[i].value) <= 5e-5 + 1e-12); assert.equal(pct(l.ALL.pts[i].value), pct(p.value)); });
+  exact.forEach((p, i) => { assert.equal(l.ALL.pts[i].value, wirePct(p.value)); assert.equal(pct(l.ALL.pts[i].value), pct(p.value)); });
   // A short record ships whole: nothing to fetch.
   assert.equal(feedPaneChart(input.slice(0, PANE_EAGER_CLOSES), now).lite, undefined);
   assert.equal(feedPaneChart(input.slice(0, PANE_EAGER_CLOSES + 1), now).lite, 1);
-  assert.equal(paneChartSrc('a b'), '/u/a%20b/pane-chart');
+  assert.equal(paneChartSrc('a b'), '/u/a%20b/pane-chart?v=2'); // F-23: the payload version re-keys the public cache
 });
 
 test('fix round 8 (tester re-run 4, Low): a near-total loss is never shipped as an exact total loss', async () => {
@@ -170,7 +175,7 @@ test('fix round 8 (tester re-run 4, Low): a near-total loss is never shipped as 
   }
   assert.equal(pct(packValue(-0.99999999)), '≈-100.0%'); // 6 decimals made it −1: "-100.0%"
   assert.equal(pct(-1), '-100.0%');
-  assert.equal(packValue(0.1234567891), 0.123457); // rounded where it prints the same
+  assert.equal(packValue(0.1234567891), 0.123); // F-23: the printed precision (it was 6 decimals)
   // End to end: a record that compounds to just above −100% scrubs to "≈-100.0%" at its last point, like the profile.
   const now = new Date(Date.UTC(2026, 0, 15));
   const t = (i: number, r: number) => ({ id: String(i), symbol: 'AAA', returnPct: r, closedAt: new Date(Date.UTC(2025, 5, 1 + i)), holdingDays: 1, thesis: null });

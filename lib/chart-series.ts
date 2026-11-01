@@ -8,7 +8,8 @@
 // every close in the range, so the numbers the pane shows are the profile's numbers.
 import { RANGES, curveDomain, equityCurve, maxDrawdown, pct, rangeTrades, type RangeKey } from './trades.ts';
 import { downsampleIndices, FEED_CHART_POINTS, FEED_LITE_POINTS, PANE_EAGER_CLOSES } from './downsample.ts';
-import { packPoints, unpackPoints, type ChartPoint } from './paging.ts';
+import { byListOrder, type ChartPoint } from './paging.ts';
+import { wireDay, wireHold, wirePct } from './public-wire.ts'; // F-23
 
 const DAY = 86_400_000;
 
@@ -32,28 +33,30 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
 
 // Wire format for the feed pane, compact because every trader on the feed ships one: the closes the kept points land
 // on (once per trader, shared by every range; a close's time is its point's), and per range its numbers and a flat list
-// of kept points [minutes after `base`, value, close (-1 for the range start)]. Times are floored to the minute (a
-// point's date never moves to the next day; the range ends are floored alike); values keep 6 decimals (the header shows 1 decimal of a percent),
-// except where 6 decimals would print differently from the exact value (fix round 8: −0.9999997 rounds to −1, which
-// reads "-100.0%" where the profile reads "≈-100.0%"); those keep full precision.
+// of kept points [days after `base`, value, close (-1 for the range start)].
 // Fix round 8 (tester re-run 4, Medium): `lite` marks the feed's server-rendered stand-in: only the ALL line, at
-// FEED_LITE_POINTS, as [minutes, value] pairs with no closes attached (values to 4 decimals), and every range's numbers
-// (header, label, tabs). The pane fetches the full
-// chart (`/u/<handle>/pane-chart`) on its first swipe-open, so the feed page no longer carries each trader's chart data.
+// FEED_LITE_POINTS, as [days, value] pairs with no closes attached, and every range's numbers (header, label, tabs).
+// The pane fetches the full chart (`/u/<handle>/pane-chart`) on its first swipe-open, so the feed page no longer
+// carries each trader's chart data.
+// F-23 (docs/features/F-23-public-payload-precision.md): this is a public payload, so it carries what the chart prints
+// and no more. Every return, point value, total, drawdown and y bound goes out through wirePct (lib/public-wire.ts:
+// the printed precision), every time as a UTC day (`base`, `t0`, `t1` are days since 1970-01-01; a point is days after
+// `base`), hold days at one decimal. Every figure is computed first, from stored values (chartSeries on the caller's
+// stored closes); only the output is rounded. `v` is the format version (PAYLOAD_V): the routes' URLs carry it too, so
+// no cache serves a pre-F-23 body to a new client.
+export const PAYLOAD_V = 2;
 export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number];
 export type PackedSeries = { t0: number; t1: number; last: number; n: number; dd: number; min: number; max: number; p: number[] };
-export type PackedChart = { base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries>; lite?: 1 };
+export type PackedChart = { v: typeof PAYLOAD_V; base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries>; lite?: 1 };
 
-// Rounded to `digits` decimals unless the rounding changes what `pct` prints (the scrub header and the sheet print
-// with `pct`); the stand-in keeps 4 (a hundredth of a percent), the full chart 6.
-export const packValue = (v: number, digits = 6): number => { const f = 10 ** digits, r = Math.round(v * f) / f; return pct(r) === pct(v) ? r : v; };
-const MIN = 60_000;
+// Kept for its callers: a chart value at the printed precision (F-23: wirePct; it was 6 decimals).
+export const packValue = (v: number): number => wirePct(v);
 
 export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, lite = false): PackedChart {
   const out: PackedTrade[] = [];
   const ref = new Map<string, number>();
   const series = RANGES.map(({ key }) => [key, chartSeries(trades, key, now, maxPoints)] as const);
-  const base = Math.floor(Math.min(...series.flatMap(([, s]) => s.pts.map((p) => p.at))) / MIN) * MIN;
+  const base = wireDay(Math.min(...series.flatMap(([, s]) => s.pts.map((p) => p.at))));
   const ranges = {} as Record<RangeKey, PackedSeries>;
   for (const [key, s] of series) {
     const p: number[] = [];
@@ -65,27 +68,39 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, li
         if (i < 0) {
           i = out.length;
           ref.set(t.id, i);
-          out.push([t.id, t.symbol, packValue(t.returnPct), t.holdingDays, t.thesis, t.index]);
+          out.push([t.id, t.symbol, wirePct(t.returnPct), wireHold(t.holdingDays), t.thesis, t.index]);
         }
       }
-      if (lite) p.push(Math.floor((pt.at - base) / MIN), packValue(pt.value, 4)); // no close: pairs
-      else p.push(Math.floor((pt.at - base) / MIN), packValue(pt.value), i);
+      if (lite) p.push(wireDay(pt.at) - base, wirePct(pt.value)); // no close: pairs
+      else p.push(wireDay(pt.at) - base, wirePct(pt.value), i);
     }
-    ranges[key] = { t0: Math.floor(s.t0 / MIN) * MIN, t1: Math.floor(s.t1 / MIN) * MIN, last: s.last, n: s.n, dd: s.drawdown, min: s.min, max: s.max, p };
+    ranges[key] = { t0: wireDay(s.t0), t1: wireDay(s.t1), last: wirePct(s.last), n: s.n, dd: wirePct(s.drawdown), min: wirePct(s.min), max: wirePct(s.max), p };
   }
-  return lite ? { base, trades: out, ranges, lite: 1 } : { base, trades: out, ranges };
+  return lite ? { v: PAYLOAD_V, base, trades: out, ranges, lite: 1 } : { v: PAYLOAD_V, base, trades: out, ranges };
 }
 
+// F-23: a record's closes as chart points, in list order with their row index, from stored values (no rounding: the
+// server computes every figure on these; packChart rounds its output).
+type PaneInput = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null }[];
+export const chartPoints = (trades: PaneInput): ChartPoint[] =>
+  [...trades].sort(byListOrder).map((t, index) => ({ id: t.id, symbol: t.symbol, returnPct: t.returnPct, closedAt: t.closedAt, holdingDays: t.holdingDays, thesis: t.thesis, index }));
+
 // The feed pane's chart (fix round 7), from a trader's whole record.
-type PaneInput = Parameters<typeof packPoints>[0];
-export const paneChart = (trades: PaneInput, now: Date): PackedChart => packChart(unpackPoints(packPoints(trades)), now, FEED_CHART_POINTS);
+export const paneChart = (trades: PaneInput, now: Date): PackedChart => packChart(chartPoints(trades), now, FEED_CHART_POINTS);
+// F-23: the profile's chart, every close (full resolution, F-1 fix round 7), ranges computed on the server from stored
+// values: the browser compounds nothing, so rounded returns never move a printed total or scrub value.
+export const profileChart = (trades: PaneInput, now: Date): PackedChart => packChart(chartPoints(trades), now, Infinity);
 // Fix round 8 (tester re-run 4, Medium): what the feed page carries per trader. A record longer than PANE_EAGER_CLOSES
 // ships only the stand-in line (`lite`); the pane fetches `paneChart` from `paneChartSrc` (app/u/[handle]/pane-chart)
 // on its first swipe-open. Every number the pane shows (header, label, tabs, summary, stats) is in the page either way.
 export const feedPaneChart = (trades: PaneInput, now: Date): PackedChart =>
-  trades.length <= PANE_EAGER_CLOSES ? paneChart(trades, now) : packChart(unpackPoints(packPoints(trades)), now, FEED_LITE_POINTS, true);
-export const paneChartSrc = (handle: string) => `/u/${encodeURIComponent(handle)}/pane-chart`;
+  trades.length <= PANE_EAGER_CLOSES ? paneChart(trades, now) : packChart(chartPoints(trades), now, FEED_LITE_POINTS, true);
+export const paneChartSrc = (handle: string) => `/u/${encodeURIComponent(handle)}/pane-chart?v=${PAYLOAD_V}`;
 
+// F-23: a wire day back to a time for drawing. Points of one UTC day are spread across it in their order (the k-th of m
+// at k+1 m+1ths of the day), so same-day closes never share an x: a drag reaches each, and release opens the one under
+// the cursor. The spread says only the order, which the list shows. A range starts at its first day's start and ends
+// at its last day's end.
 export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
   const trades: (ChartPoint | undefined)[] = new Array(c.trades.length);
   const out = {} as Record<RangeKey, Series>;
@@ -93,16 +108,21 @@ export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
     const r = c.ranges[key];
     const pts: SeriesPt[] = [];
     const stride = c.lite ? 2 : 3;
-    for (let i = 0; i < r.p.length; i += stride) {
-      const at = c.base + r.p[i] * MIN, k = c.lite ? -1 : r.p[i + 2];
+    for (let i = 0; i < r.p.length;) {
+      let end = i; // the run of points on this day: [i, end)
+      while (end < r.p.length && r.p[end] === r.p[i]) end += stride;
+      const m = (end - i) / stride;
+      for (let k = 0; k < m; k++, i += stride) {
+      const at = (c.base + r.p[i]) * DAY + Math.round(((k + 1) / (m + 1)) * DAY), j = c.lite ? -1 : r.p[i + 2];
       let trade: ChartPoint | null = null;
-      if (k >= 0) {
-        const [id, symbol, returnPct, holdingDays, thesis, index] = c.trades[k];
-        trade = trades[k] ??= { id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index };
+      if (j >= 0) {
+        const [id, symbol, returnPct, holdingDays, thesis, index] = c.trades[j];
+        trade = trades[j] ??= { id, symbol, returnPct, closedAt: new Date(at), holdingDays, thesis, index };
       }
       pts.push({ at, value: r.p[i + 1], trade });
+      }
     }
-    out[key] = { pts, t0: r.t0, t1: r.t1, last: r.last, n: r.n, drawdown: r.dd, min: r.min, max: r.max };
+    out[key] = { pts, t0: r.t0 * DAY, t1: (r.t1 + 1) * DAY - 1, last: r.last, n: r.n, drawdown: r.dd, min: r.min, max: r.max };
   }
   return out;
 }

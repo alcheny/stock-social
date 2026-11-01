@@ -142,7 +142,7 @@ test('nit 2: a partly disconnected record marks the disconnected connection\'s a
   assert.equal(l.frozen, null);
   const ds = dateText(d, NOW, { year: 'always' }), rs = dateText(r, NOW, { year: 'always' });
   assert.deepEqual(l.accounts.map((p) => p.text), ['Account 1 of 3 · Fake Brokerage', `Account 2 of 3 disconnected ${ds}`, `Account 3 of 3 removed ${rs}`]);
-  assert.equal(l.accounts[1].time?.iso, d.toISOString());
+  assert.equal(l.accounts[1].time?.iso, d.toISOString().slice(0, 10)); // F-23: a printed date's datetime is its UTC day
   // Not partly disconnected: rows unchanged.
   const live = statusParts(facts({ connections: [conn(1, [acct('a1')]), conn(2, [acct('b1')])] }), NOW, 'live');
   assert.deepEqual(live.accounts.map((p) => p.text), ['Account 1 of 2 · Fake Brokerage', 'Account 2 of 2 · Fake Brokerage']);

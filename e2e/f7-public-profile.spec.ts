@@ -214,18 +214,18 @@ test('AC 13 (C11): a filer not marked demo shows Public filing without Demo; the
   await expect(page.locator('.badge.public')).toHaveCount(1);
   await expect(page.locator('.badge.demo')).toHaveCount(0);
   await common(page);
-  const res = await request.get(`/u/${P}/pane`), pane = await res.json();
+  const res = await request.get(`/u/${P}/pane?v=2`), pane = await res.json();
   expect(pane.state).toBe('public_demo');
   // Fix round 3: a filer's record is never served from a shared cache (a hidden or removed filer is gone at once).
   expect(res.headers()['cache-control']).toBe('no-store');
-  for (const path of [`/u/${P}/pane-chart`, `/u/${P}/story`]) expect((await request.get(path)).headers()['cache-control'], path).toBe('no-store');
+  for (const path of [`/u/${P}/pane-chart?v=2`, `/u/${P}/story`]) expect((await request.get(path)).headers()['cache-control'], path).toBe('no-store');
   expect(JSON.stringify(pane)).not.toMatch(/4321|98\.76/);
 });
 
 test('AC 9, 23: a hidden filer is 404 on every surface', async ({ request }) => {
   const sell = encodeURIComponent(`pub:${HID}:0`);
   const ym = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 7);
-  for (const path of [`/u/${HID}`, `/u/${HID}/pane`, `/u/${HID}/pane-chart`, `/u/${HID}/story`, `/u/${HID}/opengraph-image`, `/u/${HID}/trade/${sell}`, `/u/${HID}/month/${ym}`]) {
+  for (const path of [`/u/${HID}`, `/u/${HID}/pane?v=2`, `/u/${HID}/pane-chart?v=2`, `/u/${HID}/story`, `/u/${HID}/opengraph-image`, `/u/${HID}/trade/${sell}`, `/u/${HID}/month/${ym}`]) {
     expect((await request.get(path)).status(), path).toBe(404);
   }
   // The share images of a hidden record draw "not found", never the record.

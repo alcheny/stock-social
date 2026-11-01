@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pct, tone } from './format.ts';
-import { fromWireDay, isoDay, wireDay, wireHold, wirePct, wireRate } from './public-wire.ts';
+import { isoDay, numericDay, wireDay, wireHold, wirePct, wireRate } from './public-wire.ts';
 
 const same = (v: number, r: number) => {
   for (const d of [0, 1]) {
@@ -67,16 +67,37 @@ test('hold days go out at one decimal, printing the same text; a win rate as its
   assert.equal(wireRate(1), 1);
 });
 
-test('a 14:31:07 close goes out as its UTC day and comes back as 12:00 UTC of that day', () => {
+test('a 14:31:07 close goes out as its UTC day and prints that day in every zone', () => {
   const at = new Date('2026-10-30T14:31:07.123Z');
   const n = wireDay(at);
   assert.equal(String(n).length, 5);
   assert.equal(n, wireDay(new Date('2026-10-30T00:00:00Z')));
   assert.equal(n, wireDay(new Date('2026-10-30T23:59:59.999Z')));
-  assert.equal(fromWireDay(n).toISOString(), '2026-10-30T12:00:00.000Z');
   assert.equal(isoDay(at), '2026-10-30');
-  // Any zone from UTC-11 to UTC+11 prints the UTC day.
-  for (const timeZone of ['Pacific/Pago_Pago', 'America/Los_Angeles', 'UTC', 'Asia/Tokyo', 'Pacific/Noumea']) {
-    assert.equal(fromWireDay(n).toLocaleDateString('en-US', { timeZone }), '10/30/2026', timeZone);
+  assert.equal(numericDay(at), '10/30/2026');
+  assert.equal(numericDay(new Date('2026-10-30T23:59:59Z')), '10/30/2026'); // UTC, whatever the process zone
+  assert.equal(numericDay(n * 86_400_000 + 1), '10/30/2026');
+});
+
+test('wire rounding is idempotent over 100,000 values, and Flat and the near-total-loss stand-in keep their tone', () => {
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+  for (let i = 0; i < 100_000; i++) {
+    const v = i % 3 === 0 ? (rnd() - 0.5) * 0.02 : i % 3 === 1 ? rnd() * 5 - 1 : -1 + rnd() * 1e-3;
+    const r = wirePct(v);
+    assert.equal(wirePct(r), r, `${v} → ${r}`);
+    same(v, r);
+  }
+  for (const v of [0, 0.0000049, -0.0000049, 0.00049, -0.00049]) { assert.equal(tone(wirePct(v)), 'flat'); assert.equal(pct(wirePct(v)), '0.0%'); }
+  assert.equal(pct(wirePct(-0.999999999)), '≈-100.0%');
+  assert.equal(tone(wirePct(-0.999999999)), 'down');
+});
+
+test('wire rounding is monotone, so wired min and max bound the wired points', () => {
+  let prev = -Infinity, prevV = -Infinity;
+  for (let v = -1.0001; v < 2; v += 0.0000137) {
+    const r = wirePct(v);
+    assert.ok(r >= prev, `${prevV} → ${prev} but ${v} → ${r}`);
+    prev = r; prevV = v;
   }
 });
