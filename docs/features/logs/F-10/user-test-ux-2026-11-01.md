@@ -101,3 +101,58 @@ Verdict: **NOT YET**: 3 blocking findings, 11 non-blocking.
   `f10_strip`) rather than this test.
 - Signed in, the feed, trade and month pages match the signed-out results: same strips and no scroll. The nav shows
   "My record @momentum_maya" (`feed-360-light-signedin.png`).
+
+## Re-test, 2026-11-01 (after the blocking fixes)
+
+Verdict: **SIGN**. All three blocking findings are fixed. No new blocking findings.
+
+### Setup
+- A fresh build on `:3100`, confirmed before testing: the feed carries `[data-disclaimer]` and "· 95% range". I retook
+  every screenshot after the coordinator's restart notice.
+- Same pages: 360×640 in light and dark, 320×640 and 780×360 landscape, signed out and signed in as `momentum_maya`.
+- Refreshed screenshots: `feed-360-light-signedout.png`, `feed-320-light-signedout.png`,
+  `feed-lucky-card-360-light-signedout.png`, `feed-360-light-signedin.png`, `og-trade-yolo_yuki-TSLA.png`,
+  `og-month-yolo_yuki-2026-09.png`.
+- New screenshot: `feed-780x360-light-signedout.png`.
+
+### Blocking findings
+
+**B1, disclaimer on the feed's first screen: fixed.** Each card's footer now carries the full disclaimer, 14 px, at
+5.0:1 in light. It is fully in the first viewport at every size, including the card scrolled into view:
+
+| Viewport | Disclaimer position (y) | Viewport height |
+|---|---|---|
+| 360×640 | 570–611 | 640 |
+| 320×640 | 550–611 | 640 |
+| 780×360 | 327–347 | 360 |
+
+Screenshots: `feed-360-light-signedout.png`, `feed-lucky-card-360-light-signedout.png`, `feed-320-light-signedout.png`,
+`feed-780x360-light-signedout.png`.
+
+**B2, unlabelled feed range: fixed.** The card now reads "30 closed trades · +0.9% average per trade (-2.9% to +4.7%)
+· 95% range", which matches the profile and the pages. Under "+16.9%" it no longer reads as the trader's lowest and
+highest trade. The line takes 2 lines at 360 and 780, and 3 lines at 320. The return, the strip and the disclaimer
+still fit on one screen. Screenshot: `feed-lucky-card-360-light-signedout.png`.
+
+**B3, unlabelled record block on images: fixed.** The trade and month images now put "@yolo_yuki's record" directly
+above "30 closed trades". On the September image, the month block (-4.8%) and the record block (+0.9%) are now clearly
+separate. The text still sits in x 309–758 and y 31–604, inside the centred square crop, and the disclaimer is intact.
+The alt text is unchanged and matches. Screenshots: `og-month-yolo_yuki-2026-09.png`, `og-trade-yolo_yuki-TSLA.png`.
+
+### Non-blocking finding N2
+**N2, screen readers: fixed.** The card's accessible text now reads "Demo 30 closed trades · +0.9% average per trade
+(+0.4% to +1.3%) · 95% range". The disclaimer paragraph follows the record link in reading order.
+
+### Other checks
+- No horizontal scroll on the feed, trade or month pages at 320, 360 or 780×360, signed in or out.
+- Tapping the card's record link still opens the profile.
+- The trade and month pages are unchanged and still pass.
+
+### Still open (non-blocking)
+- N1 and N3–N11 stand as listed above.
+- At 320 the "→" of "See their record, wins and losses →" wraps onto a line by itself (`feed-320-light-signedout.png`).
+  Fix: put a non-breaking space before the arrow.
+- I couldn't see the 2-line thesis clamp (1 line at ≤480 px tall) live, because the demo theses are short. It relies on
+  the e2e test with a 280-character thesis.
+- A "✓ Verified 2,828 closed trades · -0.1% …" card appeared in the shared database during the run. It is probably an
+  e2e or load fixture from the concurrent run on `:3000`. It fit in 3 lines at 320 with nothing clipped.
