@@ -29,6 +29,10 @@ opinion lands.
 - 2026-10-26: No creator payouts for now: traders are neither charged nor paid. Why: the owner's decision;
   payouts also need counsel first (POLICY F5). The connected-accounts design below stays as the future
   shape, and the billing vendor chosen must not rule it out.
+- 2026-11-01: The first paid feature is "Record tools": viewers compare traders side by side, save views and keep
+  private notes, all pull-only (nothing is ever pushed to them). No free trial at launch. It is built only after
+  its own written securities opinion. Why: the owner adopted the legal committee's recommendation; event alerts
+  are barred by POLICY F3b.
 
 ## What viewers pay for (candidates; each needs the counsel opinion before build)
 - Delayed "ride-along" view of a trader's open positions with entry percentages (DESIGN §3.3).
@@ -160,8 +164,6 @@ Each one testable; the pipeline writes a test for every line.
 - Building any of this before Phase 1's supply gate passes.
 
 ## Open questions
-- Whether there is a free trial. Both prices are decided ($9.99 a month, $99.99 a year).
-- Which paid feature ships first (recommended: alerts).
 - When creator payouts start, and their share (none for now, decided 2026-10-26; needs counsel first).
 - Which billing vendor (named in the private checklist; must offer hosted checkout, portal, tax and
   connected-account payouts).

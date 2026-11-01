@@ -111,7 +111,11 @@ owner has it reviewed by counsel (see **Before a public launch**).
 - **F3b.** Pages about a security never rate, score or rank the security itself, and analysis is never
   pushed (no notifications, emails or feed items announcing trades as they happen): records are looked
   up, not broadcast. Labels describe the evidence in a record, never the trader's skill or a future
-  outcome (no "edge", "skill", "signal").
+  outcome (no "edge", "skill", "signal"). Scope (amended by the owner 2026-11-01): the bar covers any
+  message, in any channel, whose content or timing comes from traders' records, entries, positions,
+  closes, theses, follows, likes or price moves. Sign-in links, receipts, and renewal, price-change and
+  payment notices that carry no handle, symbol, return or record field, sent only on account or billing
+  events, are allowed.
 - **F3c.** Platform-computed numbers must be correct before they carry "Verified": trades the importer
   can't price correctly (stock splits and other corporate actions, short sales) are excluded and
   counted, never shown with a wrong return.
