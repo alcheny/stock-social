@@ -129,7 +129,8 @@ test('AC-F16-14 line: no image route reaches TrustFoot or TRUST_LINE (record car
 
 test('AC-F16-14 / B6 profile: the line is the last thing in <main>; the quiet menu sits with it, never beside Follow or Share, and not on your own profile', () => {
   const page = code(read('app/u/[handle]/page.tsx'));
-  assert.match(page, /<div className="f16-block">\s*\{!isMe && <ProfileReportMenu handle=\{user\.handle\} \/>\}\s*<TrustFoot shown=\{trustShown\} \/>\s*<\/div>\s*<\/main>/);
+  // Fix round 2 (BL7): "← Feed" joined the menu's row (the only change to this assertion).
+  assert.match(page, /<div className="f16-block">\s*<div className="profile-end"><Link href="\/" className="tap44">← Feed<\/Link>\{!isMe && <ProfileReportMenu handle=\{user\.handle\} \/>\}<\/div>\s*<TrustFoot shown=\{trustShown\} \/>\s*<\/div>\s*<\/main>/);
   assert.equal(page.match(/<ProfileReportMenu\b/g)?.length, 1);
   // Not gated on a session: the menu shows signed out too (B6).
   assert.doesNotMatch(page, /me && !isMe && <ProfileReportMenu/);
@@ -151,7 +152,8 @@ test('AC-F16-10 hidden and retired notices and the hidden trader\'s private line
   // The private line renders only for the signed-in hidden trader on their own handle, with the settings link.
   const nf = code(read('app/u/[handle]/not-found.tsx'));
   assert.match(nf, /if \(s !== 'hidden'\) return false;/);
-  assert.match(nf, /\{own && <p className="muted" data-own-line>\{HIDDEN_OWN\.line\} <Link className="tap44" href="\/settings">/);
+  // Fix round 2 (BL2): the links left the paragraph for their own row (the only change to this assertion).
+  assert.match(nf, /\{own && <div data-own-line><p className="muted">\{HIDDEN_OWN\.line\}<\/p><p className="own-links"><Link className="tap44" href="\/settings">/);
   // Fix round 1: the download the line names is Record tools' export, linked, and the line says what it holds.
   assert.match(nf, /<a className="tap44" href="\/account\/export" download>\{HIDDEN_OWN\.download\}<\/a>/);
   assert.match(HIDDEN_OWN.line, /download your saved views and notes/);
@@ -185,4 +187,44 @@ test('E16 / F-17 rename form: the "New handle" label is visible, and a rejection
   assert.doesNotMatch(page, /<label htmlFor="new-handle" className="sr-only">/);
   assert.match(page, /aria-invalid=\{handleError \? true : undefined\} \/>\s*\{handleError && <p id="handle-err" role="alert"/);
   assert.match(page, /\{RENAME_RULE\}/);
+});
+
+// ---- Fix round 2 (business lead BL2, BL3, BL6; UX lead UX2, UX5, UX6; tester T2, T3) ----
+
+test('fix round 2 (BL6): the takedown page\'s second line points to the profile\'s report without "Signed in?"', () => {
+  assert.equal(TAKEDOWN.lines[1], 'To report a profile, use "Report this profile" on it instead.');
+});
+
+test('fix round 2 (UX5, UX6): the takedown link shows in the footer and on the hidden owner\'s line only when takedownReachable()', () => {
+  const layout = code(read('app/layout.tsx'));
+  assert.match(layout, /\{takedownReachable\(\) && <Link href="\/takedown">\{TAKEDOWN\.link\}<\/Link>\}/);
+  assert.equal(layout.match(/href="\/takedown"/g)?.length, 1);
+  const nf = code(read('app/u/[handle]/not-found.tsx'));
+  assert.match(nf, /\{takedownReachable\(\) && <Link className="tap44" href="\/takedown">\{TAKEDOWN\.link\}<\/Link>\}/);
+  assert.equal(nf.match(/href="\/takedown"/g)?.length, 1);
+  // Inside the owner's row, so a signed-out viewer of the hidden profile never gets it from this page.
+  const own = nf.slice(nf.indexOf('{own && <div data-own-line>'), nf.indexOf('</div>}', nf.indexOf('{own && <div data-own-line>')));
+  assert.match(own, /href="\/takedown"/);
+  assert.ok(!takedownReachable(CLOSED) && takedownReachable(SANDBOX));
+});
+
+test('fix round 2 (T2, UX2, BL3): the report page checks for an earlier report first; the sign-in button is a 44 px target; the return path is a ponytail', () => {
+  const page = code(read('app/u/[handle]/report/page.tsx'));
+  assert.match(page, /const already = me && me\.id !== t\.id \? await hasReportedProfile\(me\.id, t\.id\) : false;/);
+  assert.match(page, /already \? <>\s*<p role="status" tabIndex=\{-1\} id="report-already" className="report-done">\{C\.already\}<\/p><FocusHeading id="report-already" \/>/);
+  assert.match(page, /<Link className="button report-signin" href="\/login">\{C\.signIn\}<\/Link>/);
+  assert.match(read('app/u/[handle]/report/page.tsx'), /ponytail: sign-in returns to the profile or \/connect, not here/);
+  assert.match(read('app/globals.css'), /\.report-signin \{ display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; \}/);
+});
+
+test('fix round 2 (T3): in a feed row the pane foot moves into the pane (scrolls after its content); the server and no-JS keep it beside, never over it', () => {
+  const foot = code(read('app/trust-foot.tsx'));
+  assert.match(foot, /createPortal\(<div className="trust-foot in-pane">\{body\}<\/div>, host\)/);
+  assert.match(foot, /prev\.matches\('\.pane'\) && el\.parentElement\?\.matches\('\.feed > \.row'\)/);
+  assert.doesNotMatch(read('app/pane.tsx'), /trust-foot|TrustFoot/);
+  const css = read('app/globals.css');
+  // No overlay: the pane keeps row 1 only and the foot its own row 2 while it sits beside the pane.
+  assert.match(css, /\.feed > \.row:has\(> \.trust-foot\) > \.pane \{ grid-column: 2; grid-row: 1; \}/);
+  assert.doesNotMatch(css, /\.pane::after \{ content: ''; display: block; height: 9rem; \}/);
+  assert.match(css, /\.feed > \.row > \.pane > \.trust-foot \{/);
 });

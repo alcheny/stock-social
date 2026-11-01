@@ -4,7 +4,7 @@ import { login } from '../../actions.ts';
 import { normalizeHandle, normalizeVia } from '@/lib/referral.ts';
 import { devAuthAllowed } from '@/lib/session.ts';
 import { memoryOutbox } from '@/lib/auth/email.ts';
-import { devLoginHandleValue, HANDLE_RULE, signInErrorField, signInErrorText } from '@/lib/handles.ts';
+import { devLoginHandleValue, HANDLE_RULE, NAME_CLEARED, signInErrorField, signInErrorText } from '@/lib/handles.ts';
 
 // Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
 export const metadata: Metadata = { title: 'Dev sign-in · Stock Social', robots: { index: false } };
@@ -21,7 +21,10 @@ export default async function DevLogin({ searchParams }: { searchParams?: Promis
   // F-7's filer refusal (`?error=handle`, its own line) is about the handle field too.
   const filer = sp?.error === 'handle';
   const field = filer ? 'handle' : signInErrorField(sp?.error);
-  const desc = (f: 'handle' | 'name' | 'adult', base?: string) => [field === f ? 'dev-err' : null, base].filter(Boolean).join(' ') || undefined;
+  // F-17 fix round 2 (UX4): any refusal clears the typed display name (it never rides in the URL), so the field says so
+  // beside it and is described by that line too.
+  const cleared = !!(error || filer);
+  const desc = (f: 'handle' | 'name' | 'adult', base?: string) => [field === f ? 'dev-err' : null, base, f === 'name' && cleared ? 'name-cleared' : null].filter(Boolean).join(' ') || undefined;
   const invalid = (f: 'handle' | 'name' | 'adult') => (field === f ? true : undefined);
   const alert = error ? <p id="dev-err" role="alert" className="down small">{error}</p> : null;
   const filerAlert = filer ? <p id="dev-err" role="alert" className="down small">That handle is taken or reserved.</p> : null;
@@ -40,6 +43,7 @@ export default async function DevLogin({ searchParams }: { searchParams?: Promis
         <label htmlFor="name">Display name</label>
         <input id="name" name="name" type="text" maxLength={40} autoFocus={field === 'name'} aria-describedby={desc('name')} aria-invalid={invalid('name')} />
         {field === 'name' && alert}
+        {cleared && <p id="name-cleared" className="muted small">{NAME_CLEARED}</p>}
         <label className="check"><input type="checkbox" name="adult" required autoFocus={field === 'adult'} aria-describedby={desc('adult')} aria-invalid={invalid('adult')} /> I am 18 or older</label>
         {field === 'adult' && alert}
         <p><button>Continue</button></p>

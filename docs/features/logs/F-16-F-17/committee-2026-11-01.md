@@ -122,3 +122,8 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
   keep or explain the cleared display name, the takedown link for a hidden owner and in the footer once reachable.
 - All findings go to fix round 2 (round 2 of step 5). Out of scope (follow-up): tap targets under 44 px on the
   profile's chart points, ticker links and "What's this?" (existing profile code).
+
+## Follow-ups
+
+- UX7 (2026-11-01, out of this slice's scope): the profile's chart points, ticker links and "What's this?" are under 44 px
+  (existing profile code, not F-16/F-17); a later accessibility item brings them to 44 px.

@@ -95,7 +95,7 @@ test('after a rename the old handle is a neutral 404 and serves none of the trad
   await page.getByText('Change handle').click();
   await page.getByLabel('New handle').fill(next);
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page).toHaveURL(new RegExp(`/u/${next}$`));
+  await expect(page).toHaveURL(new RegExp(`/u/${next}\\?renamed=1$`)); // fix round 2 (UX1): the status line's flag
 
   // A stranger following an old link (signed out, as a shared link lands).
   await page.context().clearCookies();
@@ -112,4 +112,55 @@ test('after a rename the old handle is a neutral 404 and serves none of the trad
     expect((await page.request.get(`/u/${old}${path}`)).status(), path).toBe(404);
   }
   expect((await page.request.get(`/u/${next}/trade/${sell}/opengraph-image`)).status()).toBe(200);
+});
+
+// ---- Fix round 2 (UX lead UX1, UX4; business lead BL1, BL5) ----
+
+test('fix round 2 (UX1, BL1): a rename ends on a focused role=status about old links; a refused second rename says the rule and date once', async ({ page }) => {
+  const old = tag();
+  const next = `${old}_n`;
+  made.push(old, next, `${old}_m`);
+  await signUp(page, old);
+  await expect(page).toHaveURL(new RegExp(`/u/${old}$`));
+  await page.getByText('Change handle').click();
+  await page.getByLabel('New handle').fill(next);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${next}\\?renamed=1$`));
+  const status = page.locator('#renamed');
+  await expect(status).toHaveAttribute('role', 'status');
+  await expect(status).toHaveText(`Your handle is now @${next}. Links to your old handle no longer work.`);
+  await expect(status).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('renamed');
+  expect(await status.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; })).toBe(true);
+
+  // Within 30 days: refused; "Next change:" and the 30-day sentence each appear exactly once (BL1), BL5's wording.
+  await page.getByText('Change handle').click();
+  await page.getByLabel('New handle').fill(`${old}_m`);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${next}\\?handle=soon$`));
+  await expect(page.locator('#handle-err')).toContainText('Next change:');
+  const text = await page.locator('main').innerText();
+  expect(text.match(/Next change:/g)?.length).toBe(1);
+  expect(text.match(/once every 30 days/g)?.length).toBe(1);
+  await expect(page.locator('[data-rename-rule]')).toHaveText('Your old handle stays reserved for you for a year and its links stop working. Changing again releases the old one.');
+  await expect(page.locator('#renamed')).toHaveCount(0);
+});
+
+test('fix round 2 (UX4): after a refusal the dev form says beside the display-name field that it was cleared; the URL carries no name', async ({ page }) => {
+  const h = tag();
+  await signUp(page, h, 'Official Desk');
+  await expect(page).toHaveURL(/\/login\/dev\?error=name-verified/);
+  const name = page.getByLabel('Display name');
+  const note = page.locator('#name-cleared');
+  await expect(note).toHaveText('Display names are not kept after an error, so type yours again.');
+  await expect(note).toBeVisible();
+  expect((await name.getAttribute('aria-describedby'))?.split(' ')).toEqual(['dev-err', 'name-cleared']);
+  expect(await name.evaluate((el) => el.nextElementSibling?.id)).toBe('dev-err'); // the alert stays directly under the field
+  expect(page.url()).not.toMatch(/Desk|Official|name=/i);
+  // A refused handle clears the typed name too, so the note shows there as well; never on a first visit.
+  await signUp(page, 'admin', 'Quill');
+  await expect(page).toHaveURL(/\/login\/dev\?error=handle-reserved/);
+  await expect(page.locator('#name-cleared')).toBeVisible();
+  await page.goto('/login/dev');
+  await expect(page.locator('#name-cleared')).toHaveCount(0);
 });

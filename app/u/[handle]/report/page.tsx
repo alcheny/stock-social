@@ -10,6 +10,8 @@ import { currentUser } from '@/lib/session.ts';
 import { PROFILE_REPORT_COPY as C } from '@/lib/report-copy.ts';
 import { PRODUCT_NAME, TAKEDOWN } from '@/lib/copy.ts';
 import { takedownReachable } from '@/lib/takedown.ts';
+import { hasReportedProfile } from '@/lib/reports.ts';
+import { FocusHeading } from '../../../connect/result/focus-heading.tsx';
 import { ReportForm } from './report-form.tsx';
 
 // F-16 (plan docs/features/logs/F-16-F-17/plan.md §2.2; v2 B6, B8; K18): /u/<handle>/report, reached from the profile's
@@ -39,6 +41,8 @@ export default async function ReportPage({ params }: Params) {
   const t = await target((await params).handle);
   if (!t) notFound();
   const me = await currentUser();
+  // Fix round 2 (T2, plan §2.2): a reader who already reported this profile sees only the status line, never the form.
+  const already = me && me.id !== t.id ? await hasReportedProfile(me.id, t.id) : false;
   const back = <p><Link className="tap44" href={`/u/${t.handle}`}>{C.back(t.handle)}</Link></p>;
   const takedown = takedownReachable() && <p className="muted small">{C.other} <Link className="tap44" href="/takedown">{TAKEDOWN.link}</Link></p>;
   return (
@@ -47,11 +51,17 @@ export default async function ReportPage({ params }: Params) {
       <p className="muted" style={{ marginTop: 0 }}><bdi>@{t.handle}</bdi></p>
       {!me ? <>
         <p>{C.signedOut}</p>
-        <p><Link className="button" href="/login">{C.signIn}</Link></p>
+        {/* Fix round 2 (UX2): a 44 px target. ponytail: sign-in returns to the profile or /connect, not here (BL3/UX3) —
+            /login has no general return path (only F-3's fixed after_signin cookie); add a same-origin, path-only one
+            for every sign-in method in lib/auth/landing.ts, then link /login?next=/u/<h>/report. */}
+        <p><Link className="button report-signin" href="/login">{C.signIn}</Link></p>
         {back}
         {takedown}
       </> : me.id === t.id ? <>
         <p>{C.own}</p>
+        {back}
+      </> : already ? <>
+        <p role="status" tabIndex={-1} id="report-already" className="report-done">{C.already}</p><FocusHeading id="report-already" />
         {back}
       </> : <>
         <ReportForm handle={t.handle} />

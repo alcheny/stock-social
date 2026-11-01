@@ -1,5 +1,7 @@
 'use client';
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useLayoutEffect, useRef, useState } from 'react';
+// @ts-expect-error react-dom ships no types here (no @types/react-dom, no new dependency); the one function, typed below
+import { createPortal as untypedPortal } from 'react-dom';
 import Link from 'next/link';
 import { FOLLOW, TRUST_LINE } from '@/lib/copy.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
@@ -15,6 +17,8 @@ import { MoreMenu } from './not-interested.tsx';
 //   the line is the last thing in <main> and the site footer's disclaimer sits directly after it.
 // No image route (opengraph-image, story, record or month cards) imports this file (lib/f16-static.test.ts).
 
+const createPortal = untypedPortal as (children: React.ReactNode, container: Element) => React.ReactNode;
+
 const Shown = createContext<boolean | null>(null);
 
 /** The server's decision for the client islands below it (the profile's Similar sheets). */
@@ -27,12 +31,26 @@ export function TrustFoot({ inPane = false, shown, disclaimer = true }: { inPane
   const ctx = useContext(Shown);
   if (!(shown ?? ctx ?? TRUST_LINE.approved)) return null;
   if (!inPane) return <p className="trust-foot" data-trust-line>{TRUST_LINE.text}</p>;
-  return (
-    <div className="trust-foot in-pane">
-      <p className="muted small" data-trust-line>{TRUST_LINE.text}</p>
-      {disclaimer && <p className="muted small" data-trust-disclaimer>{DISCLAIMER}</p>}
-    </div>
-  );
+  return <PaneFoot disclaimer={disclaimer} />;
+}
+
+// Fix round 2 (T3): in a feed row the foot moves into the pane just before it (a portal, so app/pane.tsx is unchanged)
+// and flows after the pane's content, scrolling with it: it never sits over the headline stats. The server render
+// and a page without JavaScript keep it beside the pane, in its own grid row under it (app/globals.css), never over it.
+// A sheet (app/suggest-row.tsx) scrolls as a whole already, so there it stays where it is.
+function PaneFoot({ disclaimer }: { disclaimer: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current, prev = el?.previousElementSibling;
+    if (el && prev instanceof HTMLElement && prev.matches('.pane') && el.parentElement?.matches('.feed > .row')) setHost(prev);
+  }, []);
+  const body = <>
+    <p className="muted small" data-trust-line>{TRUST_LINE.text}</p>
+    {disclaimer && <p className="muted small" data-trust-disclaimer>{DISCLAIMER}</p>}
+  </>;
+  if (host) return createPortal(<div className="trust-foot in-pane">{body}</div>, host);
+  return <div className="trust-foot in-pane" ref={ref}>{body}</div>;
 }
 
 // B6: the quiet "…" menu with one item, shown signed out too (the report page then asks to sign in). Never in the

@@ -77,15 +77,19 @@ test('F-16 profile and pane: the line with the F3 disclaimer in view at 360 px; 
     await expect(page.locator('h1')).toHaveText('Report this profile');
     await expect(page.locator('main')).toContainText('Sign in to report this profile.');
     await expect(page.locator('main input[type="radio"]')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Notices and takedown requests' })).toHaveAttribute('href', '/takedown'); // sandbox: reachable
+    // Fix round 2 (UX6, the only change here): scoped to <main>, since the footer now links the page too.
+    await expect(page.locator('main').getByRole('link', { name: 'Notices and takedown requests' })).toHaveAttribute('href', '/takedown'); // sandbox: reachable
     expect(await noSideScroll(page)).toBe(true);
 
     // The pane (B1): the line and its disclaimer under an open feed pane, in view at 360 px.
+    // Fix round 2 (T3, the only change here): the foot now flows at the end of the pane's content (it moves into the
+    // pane once the page runs), so the row is found by a descendant foot and the pane is scrolled to its end first.
     await page.goto('/');
-    const row = page.locator('.feed > .row:has(> .trust-foot)').first();
+    const row = page.locator('.feed > .row:has(> .pane > .trust-foot)').first();
     await row.evaluate((el) => el.scrollIntoView());
     await row.evaluate((el) => { el.scrollLeft = el.clientWidth; });
     await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(300);
+    await row.locator(':scope > .pane').evaluate((el) => { el.scrollTop = el.scrollHeight; });
     await expect(row.locator('.trust-foot [data-trust-line]')).toHaveText(TRUST);
     await expect(row.locator('.trust-foot [data-trust-disclaimer]')).toHaveText(DISCLAIMER);
     for (const sel of ['[data-trust-line]', '[data-trust-disclaimer]']) {
@@ -148,6 +152,15 @@ test('Q9 / B4: the hidden trader sees one private neutral line on their own 404;
     await expect(own).toContainText('not shown to others right now');
     await expect(own.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
     await expect(own.getByRole('link', { name: 'Download my data' })).toHaveAttribute('href', '/account/export');
+    // Fix round 2 (BL2): the links sit on their own row, out of the sentence, side by side at 360 px.
+    await expect(own.locator('p.muted a')).toHaveCount(0);
+    const mid = async (name: string) => { const b = (await own.getByRole('link', { name }).boundingBox())!; return b.y + b.height / 2; };
+    expect(Math.abs((await mid('Settings')) - (await mid('Download my data')))).toBeLessThanOrEqual(4);
+    // Fix round 2 (UX5): the takedown page is reachable from the line (the sandbox: takedownReachable() is true).
+    await expect(own.getByRole('link', { name: 'Notices and takedown requests' })).toHaveAttribute('href', '/takedown');
+    for (const name of ['Settings', 'Download my data', 'Notices and takedown requests']) {
+      expect((await own.getByRole('link', { name }).boundingBox())!.height, name).toBeGreaterThanOrEqual(44);
+    }
     const mine = await page.locator('main').innerText();
     expect(mine).not.toMatch(/report|review/i);
     expect(mine).not.toMatch(/%|Verified|Demo/);
@@ -162,6 +175,7 @@ test('Q9 / B4: the hidden trader sees one private neutral line on their own 404;
       expect(occ).toContain('no-store');
       await expect(anon.locator('h1')).toHaveText('Profile not available');
       await expect(anon.locator('[data-own-line]')).toHaveCount(0);
+      await expect(anon.locator('main a[href="/takedown"]')).toHaveCount(0); // UX5: the owner's line only
       const html = await out!.text();
       expect(html).not.toContain('data-own-line');
       expect(html).not.toContain('not shown to others right now');
@@ -199,4 +213,72 @@ test('E16 / F-17 rename form: the "New handle" label is visible, the 30-day rule
     await cleanup(sql, tag);
     await sql.end({ timeout: 1 });
   }
+});
+
+// ---- Fix round 2 (tester T3; business lead BL7; UX lead UX6) ----
+
+test('fix round 2 (T3): an open feed pane shows its headline stats uncovered on the first screen; the foot follows the pane content, line and disclaimer together', async ({ page }) => {
+  test.setTimeout(120_000);
+  const release = await feedLock('shared');
+  try {
+    for (const width of [360, 320]) {
+      await page.setViewportSize({ width, height: 740 });
+      await page.goto('/');
+      const row = page.locator('.feed > .row:has(> .pane > .trust-foot)').first();
+      await expect(row).toHaveCount(1);
+      await expect(page.locator('.feed > .row > .trust-foot')).toHaveCount(0); // none left beside a pane
+      await row.evaluate((el) => el.scrollIntoView());
+      await row.evaluate((el) => { el.scrollLeft = el.clientWidth; });
+      await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(width - 60);
+      const pane = row.locator(':scope > .pane');
+      // The foot is the pane's last element, after "See full profile" and the pane's own last line.
+      expect(await pane.evaluate((el) => el.lastElementChild?.classList.contains('trust-foot'))).toBe(true);
+      // First screen: nothing is drawn over a headline figure. At 360 px both figures are in view; at 320 px they stack
+      // and the pane's own layout puts the second one lower, so there the first is in view and the visible part of any
+      // other is uncovered.
+      const stats = pane.locator('.stats .stat');
+      expect(await stats.count()).toBeGreaterThan(0);
+      for (let i = 0; i < await stats.count(); i++) {
+        const s = await stats.nth(i).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const bottom = Math.min(r.bottom, window.innerHeight);
+          const hit = r.top < window.innerHeight ? document.elementFromPoint(r.left + r.width / 2, (r.top + bottom) / 2) : null;
+          return { inView: r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight, shows: r.top < window.innerHeight, free: !!hit && el.contains(hit) };
+        });
+        if (width === 360 || i === 0) expect(s.inView, `stat ${i} in view at ${width}`).toBe(true);
+        if (s.shows) expect(s.free, `stat ${i} uncovered at ${width}`).toBe(true);
+      }
+      // At the end of the pane: the line with the F3 disclaimer right under it, both in view.
+      await pane.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      const box = async (sel: string) => (await pane.locator(`.trust-foot ${sel}`).boundingBox())!;
+      const line = await box('[data-trust-line]');
+      const disc = await box('[data-trust-disclaimer]');
+      expect(line.y >= 0 && disc.y + disc.height <= 740, `in view at ${width}`).toBe(true);
+      expect(disc.y - (line.y + line.height)).toBeLessThanOrEqual(12);
+      expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth * 2 + 2)).toBe(true);
+    }
+  } finally { await release(); }
+});
+
+test('fix round 2 (BL7, UX6): the profile\'s "…" sits left, on "← Feed"\'s line; the footer links the takedown page in the sandbox', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto('/u/momentum_maya');
+  const menu = page.locator('main .f16-block summary');
+  const feed = page.locator('main .f16-block').getByRole('link', { name: '← Feed' });
+  await expect(feed).toHaveAttribute('href', '/');
+  const m = (await menu.boundingBox())!, f = (await feed.boundingBox())!;
+  expect(Math.abs((m.y + m.height / 2) - (f.y + f.height / 2))).toBeLessThanOrEqual(4);
+  expect(m.x).toBeGreaterThanOrEqual(f.x + f.width);
+  expect(m.x + m.width).toBeLessThanOrEqual(180); // left half, not pushed to the right edge
+  await menu.click();
+  const item = page.getByRole('link', { name: 'Report this profile' });
+  await expect(item).toBeVisible();
+  const ib = (await item.boundingBox())!;
+  expect(ib.x).toBeGreaterThanOrEqual(0);
+  expect(ib.x + ib.width).toBeLessThanOrEqual(360);
+  expect(await noSideScroll(page)).toBe(true);
+  // UX6: the footer's legal row carries the takedown page while it is reachable (the e2e build is the sandbox).
+  const link = page.locator('footer.site nav.legal a[href="/takedown"]');
+  await expect(link).toHaveText('Notices and takedown requests');
+  expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
 });

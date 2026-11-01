@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   checkDisplayName, handleVerdict, HANDLE_REASON, nextRenameAt, nextRenameText, profileHandleError, RENAME_DAYS, RENAME_RULE,
-  RESERVED, RESERVED_SUBSTRINGS, STAFF_WORDS, signInErrorText,
+  RESERVED, RESERVED_SUBSTRINGS, STAFF_WORDS, signInErrorText, RENAME_HOLD, renamedText, NAME_CLEARED,
 } from './handles.ts';
 import { normalizeHandle } from './referral.ts';
 import { MARKS, scanText } from '../scripts/compliance.ts';
@@ -63,6 +63,15 @@ test('F-17 AC2: a look-alike of a reserved handle is refused (reserved class)', 
 
 test('F-17 AC2: a look-alike of a demo handle is refused (demo class)', () => {
   for (const h of ['m0mentum_maya', 'momentum_mayaa', 'd1vidend_dan']) assert.equal(handleVerdict(h, { others: [], demo: DEMO }), 'lookalike', h);
+});
+
+test('F-17 AC2 (fix round 2, T1): a trailing digit read as the demo handle\'s last letter is refused; plain number tails stay free', () => {
+  for (const h of ['yolo_yuk1', 'yolo_yuk1_', 'yolo_yuk1_2', 'momentum_may4', 'momentum_may4_', 'dividend_dan1']) {
+    assert.equal(handleVerdict(h, { others: [], demo: DEMO }), 'lookalike', h);
+  }
+  for (const h of ['trader_2024', 'trader_1', 'yolo_trader_4', 'momentum_fan_2024', 'maya_44']) {
+    assert.equal(handleVerdict(h, { others: [], demo: DEMO }), 'ok', h);
+  }
 });
 
 test('F-17 AC2: a look-alike of a connected trader\'s handle is refused (connected class)', () => {
@@ -149,7 +158,8 @@ test('F-17 seam: HANDLE_REASON.soon, RENAME_RULE and nextRenameAt / nextRenameTe
   assert.equal(HANDLE_REASON.soon, 'You can change your handle once every 30 days.');
   assert.equal(profileHandleError('soon'), HANDLE_REASON.soon);
   assert.equal(signInErrorText('handle-soon'), HANDLE_REASON.soon);
-  assert.equal(RENAME_RULE, 'You can change your handle once every 30 days. Your old handle stays reserved for you for a year and its links stop working. Changing again releases it.');
+  // Fix round 2 (BL5): "releases it" became "releases the old one" (the only change to this assertion).
+  assert.equal(RENAME_RULE, 'You can change your handle once every 30 days. Your old handle stays reserved for you for a year and its links stop working. Changing again releases the old one.');
   assert.equal(nextRenameAt(null), null);
   assert.equal(nextRenameAt(new Date('2026-11-01T12:00:00Z'))!.toISOString(), '2026-12-01T12:00:00.000Z');
   assert.equal(nextRenameText(new Date('2026-11-01T12:00:00Z')), 'Next change: Dec 1, 2026.');
@@ -192,4 +202,36 @@ test('F-17 AC12 (D22): changeHandle asks the launch gate on every path, with an 
   assert.match(c, /opts: ChangeHandleOpts = \{\}/);
   assert.match(c, /if \(handleReserved\(handle, opts\.env \?\? process\.env\)\) throw new HandleTakenError\('reserved'\);/);
   assert.match(c, /const now = opts\.now \?\? new Date\(\);/);
+});
+
+// ---- Fix round 2 (business lead BL1, BL5; UX lead UX1, UX4) ----
+
+const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+
+test('F-17 fix round 2 (BL1): on a ?handle=soon page the hint drops the sentence and the date the alert already says', () => {
+  assert.equal(RENAME_RULE, `${HANDLE_REASON.soon} ${RENAME_HOLD}`);
+  assert.doesNotMatch(RENAME_HOLD, /once every|Next change/);
+  const page = code(src('../app/u/[handle]/page.tsx'));
+  assert.match(page, /\{soonError \? RENAME_HOLD : <>\{RENAME_RULE\}\{renameSoon && ` \$\{renameSoon\}`\}<\/>\}/);
+  assert.match(page, /const soonError = handleError !== undefined && code === 'soon';/);
+});
+
+test('F-17 fix round 2 (UX1): a successful rename lands on ?renamed=1 and a focused role=status says the old links stopped working', () => {
+  assert.equal(renamedText('new_me'), 'Your handle is now @new_me. Links to your old handle no longer work.');
+  assert.doesNotMatch(renamedText('x'), /report|review|redirect|\b301\b/i);
+  const a = src('../app/auth/actions.ts');
+  const setHandle = a.slice(a.indexOf('export async function setHandle'), a.indexOf('export async function deleteProfile'));
+  assert.match(setHandle, /redirect\(h === user\.handle \? `\/u\/\$\{h\}` : `\/u\/\$\{h\}\?renamed=1`\);/);
+  const page = code(src('../app/u/[handle]/page.tsx'));
+  assert.match(page, /\{renamed && <><p id="renamed" role="status" tabIndex=\{-1\} className="small">\{renamedText\(user\.handle\)\}<\/p><FocusHeading id="renamed" \/><\/>\}/);
+  assert.match(page, /const renamed = isMe && \(await searchParams\)\?\.renamed === '1';/);
+});
+
+test('F-17 fix round 2 (UX4): after any refusal the dev form says beside the name field that it was cleared (the URL never carries it)', () => {
+  assert.equal(NAME_CLEARED, 'Display names are not kept after an error, so type yours again.');
+  const dev = code(src('../app/login/dev/page.tsx'));
+  assert.match(dev, /\{cleared && <p id="name-cleared" className="muted small">\{NAME_CLEARED\}<\/p>\}/);
+  assert.match(dev, /const cleared = !!\(error \|\| filer\);/);
+  assert.match(dev, /f === 'name' && cleared \? 'name-cleared' : null\]/);
+  assert.doesNotMatch(dev, /defaultValue=\{[^}]*sp\?\.name/);
 });

@@ -131,3 +131,54 @@ test('F-16 report form, keyboard only: menu → report page → empty send names
     await sql.end({ timeout: 1 });
   }
 });
+
+// ---- Fix round 2 (business lead BL4 = tester T4; tester T2; UX lead UX2) ----
+
+test('fix round 2 (BL4/T4, T2, UX2): "Send report" ends by 740 px with and without the error; a second visit shows only "already reported"; signed out, Sign in is 44 px', async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  const sql = (await import('postgres')).default(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+  const tag = `f16w${rand()}`;
+  const target = `${tag}t`, reader = `${tag}r`;
+  const bottom = () => page.locator('button.report-send').evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
+  try {
+    await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+      insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${target}, ${target}, now(), a.id from a`;
+    await page.setViewportSize({ width: 360, height: 740 });
+    await signIn(page, reader);
+    await page.goto(`/u/${target}/report`);
+    expect(await bottom()).toBeLessThanOrEqual(740);
+    await page.getByRole('button', { name: 'Send report' }).click();
+    await expect(page.locator('#report-err')).toBeVisible();
+    expect(await bottom()).toBeLessThanOrEqual(740);
+    await page.getByLabel('Abusive or hateful name or note', { exact: true }).check();
+    await page.getByRole('button', { name: 'Send report' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Report sent. Thank you.' })).toBeVisible();
+
+    // T2 (plan §2.2): coming back shows only the status line, focused, and no form.
+    await page.goto(`/u/${target}/report`);
+    const already = page.getByRole('status').filter({ hasText: 'You already reported this profile.' });
+    await expect(already).toBeVisible();
+    await expect(already).toBeFocused();
+    await expect(page.locator('main input[type="radio"], main form')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: `Back to @${target}` })).toBeVisible();
+
+    // UX2: signed out, the Sign in button is a 44 px target.
+    const ctx = await browser.newContext({ baseURL: 'http://localhost:3000', viewport: { width: 360, height: 740 } });
+    try {
+      const anon = await ctx.newPage();
+      await anon.goto(`/u/${target}/report`);
+      const signInLink = anon.locator('main').getByRole('link', { name: 'Sign in', exact: true });
+      await expect(signInLink).toHaveAttribute('href', '/login');
+      const b = (await signInLink.boundingBox())!;
+      expect(b.height).toBeGreaterThanOrEqual(44);
+      expect(b.width).toBeGreaterThanOrEqual(44);
+    } finally { await ctx.close(); }
+  } finally {
+    const rows = await sql`select id, signup_attempt_id from users where handle like ${`${tag}%`}`;
+    const ids = rows.map((r) => r.id as number);
+    const attempts = (await sql`select id from signup_attempts where user_id = any(${ids}) union select unnest(${rows.map((r) => r.signup_attempt_id as number)}::int[])`).map((r) => r.id as number);
+    await sql`delete from users where id = any(${ids})`;
+    await sql`delete from signup_attempts a where a.id = any(${attempts}) and not exists (select 1 from funnel_events f where f.attempt_id = a.id)`;
+    await sql.end({ timeout: 1 });
+  }
+});

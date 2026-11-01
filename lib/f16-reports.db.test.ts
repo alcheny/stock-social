@@ -152,3 +152,44 @@ dbTest('fix 5: one reporter reporting two profiles at once: exactly one reported
     } finally { await removePeople(ids); }
   }
 });
+
+dbTest('fix round 2 (T2): hasReportedProfile is true only for this reporter and this profile, and writes nothing', async () => {
+  const { sql } = await import('./db.ts');
+  const { reportProfile, hasReportedProfile } = await import('./reports.ts');
+  const { ids: [t, other, r, r2] } = await people(4, 'f16q');
+  const h = await handles([t, other]);
+  try {
+    assert.equal(await hasReportedProfile(r, t), false);
+    assert.equal(await reportProfile(r, h.get(t), 'abusive', yes), 'reported');
+    const before = (await sql`select count(*)::int as n from thesis_reports where reporter_id = any(${[r, r2]})`)[0].n;
+    assert.equal(await hasReportedProfile(r, t), true);
+    assert.equal(await hasReportedProfile(r, other), false); // another profile
+    assert.equal(await hasReportedProfile(r2, t), false); // another reporter
+    assert.equal(await hasReportedProfile(null, t), false); // signed out
+    assert.equal((await sql`select count(*)::int as n from thesis_reports where reporter_id = any(${[r, r2]})`)[0].n, before);
+  } finally { await removePeople([t, other, r, r2]); }
+});
+
+dbTest('fix round 2 (T5): reportProfile looks the target up like the report page: a hidden F-7 filer\'s profile is not-found', async () => {
+  const { sql } = await import('./db.ts');
+  const { reportProfile } = await import('./reports.ts');
+  const { ids: [shown, hidden, r] } = await people(3, 'f16g');
+  const h = await handles([shown, hidden]);
+  const prev = process.env.PUBLIC_TRADERS;
+  process.env.PUBLIC_TRADERS = '1';
+  const filers: number[] = [];
+  try {
+    for (const [id, isHidden] of [[shown, false], [hidden, true]] as const) {
+      const [f] = await sql`insert into public_filers (source, filer_key, demo, hidden_at)
+        values ('insider_reports', ${`f16g-${id}-${Math.random().toString(36).slice(2, 8)}`}, true, ${isHidden ? new Date() : null}) returning id`;
+      filers.push(f.id as number);
+      await sql`update users set public_filer_id = ${f.id} where id = ${id}`;
+    }
+    assert.equal(await reportProfile(r, h.get(hidden), 'abusive', yes), 'not-found');
+    assert.equal(await reportProfile(r, h.get(shown), 'abusive', yes), 'reported');
+  } finally {
+    if (prev === undefined) delete process.env.PUBLIC_TRADERS; else process.env.PUBLIC_TRADERS = prev;
+    await removePeople([shown, hidden, r]);
+    await sql`delete from public_filers where id = any(${filers})`;
+  }
+});

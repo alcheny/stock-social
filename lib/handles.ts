@@ -97,13 +97,18 @@ function isReserved(h: string, provisional: boolean): boolean {
 // A demo handle's look-alike: same flat reading, or the same with a doubled last letter.
 // Fix round 2 (G): also with any doubled letter collapsed ("momentumm_maya", "mommentum_maya") and with a digit read as
 // a letter ("swing_5am" next to "swing_sam", "d1v1dend_dan"), both sides compared the same way.
+// F-17 fix round 2 (T1): the trailing digit/underscore run is cut at every point, not only removed whole, so a digit
+// read as the last letter ("yolo_yuk1", "yolo_yuk1_2", "momentum_may4") is compared too. A number tail on a name
+// unlike any demo handle ("trader_2024") still matches nothing.
 const collapse = (f: string) => f.replace(/(.)\1+/g, '$1');
-const demoForms = (h: string): string[] => {
+const tailCuts = (h: string): string[] => {
   const t = stripTail(h);
-  return [...new Set([t, ...leet(t)].flatMap(flatReadings).flatMap((f) => [f, collapse(f)]))].filter((f) => f.length > 0);
+  return Array.from({ length: h.length - t.length + 1 }, (_, i) => h.slice(0, t.length + i));
 };
+const demoForms = (h: string): string[] =>
+  [...new Set(tailCuts(h).flatMap((t) => [t, ...leet(t)]).flatMap(flatReadings).flatMap((f) => [f, collapse(f)]))].filter((f) => f.length > 0);
 function demoLookalike(h: string, demo: readonly string[]): boolean {
-  const mine = flatReadings(stripTail(h)).flatMap((f) => (/(.)\1$/.test(f) ? [f, f.slice(0, -1)] : [f])).filter((f) => f.length > 0);
+  const mine = tailCuts(h).flatMap(flatReadings).flatMap((f) => (/(.)\1$/.test(f) ? [f, f.slice(0, -1)] : [f])).filter((f) => f.length > 0);
   const wide = new Set([...mine, ...demoForms(h)]);
   return demo.some((d) => d !== h && (flatReadings(stripTail(d)).some((f) => mine.includes(f)) || demoForms(d).some((f) => wide.has(f))));
 }
@@ -248,7 +253,15 @@ export const HANDLE_REASON: Readonly<Record<Exclude<HandleVerdict, 'ok'>, string
   soon: `You can change your handle once every ${RENAME_DAYS} days.`,
 };
 // F-17 (plan §2.6): the rename panel's hint, under HANDLE_RULE (app/u/[handle]/page.tsx renders it).
-export const RENAME_RULE = `You can change your handle once every ${RENAME_DAYS} days. Your old handle stays reserved for you for a year and its links stop working. Changing again releases it.`;
+// Fix round 2 (BL1, BL5): the rule's second half on its own, for a ?handle=soon page whose alert already says the first
+// sentence and the date; "releases the old one" (BL5).
+export const RENAME_HOLD = 'Your old handle stays reserved for you for a year and its links stop working. Changing again releases the old one.';
+export const RENAME_RULE = `${HANDLE_REASON.soon} ${RENAME_HOLD}`;
+// Fix round 2 (UX1): the focused role=status line after a successful rename (app/u/[handle]/page.tsx, ?renamed=1).
+export const renamedText = (handle: string): string => `Your handle is now @${handle}. Links to your old handle no longer work.`;
+// Fix round 2 (UX4): beside the dev form's display-name field after any refusal. The name never rides in the URL
+// (devLoginRedirect, F-9), so the form says it was cleared instead of keeping it.
+export const NAME_CLEARED = 'Display names are not kept after an error, so type yours again.';
 // F-17: the date line after HANDLE_REASON.soon on the profile ("Next change: Dec 1, 2026."), UTC, en-US short.
 export const nextRenameText = (renamedAt: Date | null): string | undefined => {
   const at = nextRenameAt(renamedAt);

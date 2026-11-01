@@ -11,6 +11,7 @@ import { hit, limitKey } from './rate-limit.ts';
 import { PROFILE_REPORT_COPY, REPORT_COPY, isReportCategory, type ProfileReportState } from './report-copy.ts';
 import { normalizeHandle } from './referral.ts';
 import { visibleUser } from './visible-users.ts';
+import { filerVisibleSql } from './public-gate.ts';
 export { REPORT_COPY, type ReportState } from './report-copy.ts';
 
 export const REPORT_HOLD_AT = 3;
@@ -120,7 +121,8 @@ export async function reportProfile(reporterId: number | null | undefined, handl
     // other in opposite orders.
     await tx`select pg_advisory_xact_lock(hashtext(${`report-reporter:${reporterId}`}))`;
     // v2 E10: the target, then its lock, so concurrent reports on one profile are counted one at a time.
-    const [t] = await tx`select u.id from users u where u.handle = ${h} and ${visibleUser('u')}`;
+    // Fix round 2 (T5): the same lookup as the report page (app/u/[handle]/report/page.tsx): a hidden F-7 filer is gone.
+    const [t] = await tx`select u.id from users u where u.handle = ${h} and ${visibleUser('u')} and ${filerVisibleSql('u')}`;
     if (!t) return 'not-found';
     const traderId = t.id as number;
     await tx`select pg_advisory_xact_lock(hashtext(${`report-target:${traderId}`}))`;
@@ -140,6 +142,14 @@ export async function reportProfile(reporterId: number | null | undefined, handl
     if (!(await deps.allow(reporterId, tx))) throw RATE;
     return 'reported';
   }).catch((e) => { if (e === RATE) return 'rate' as const; throw e; });
+}
+
+// Fix round 2 (T2, plan §2.2 "Already reported"): a read-only check for the report page, so a reader who already
+// reported this profile sees only the status line, never the form again. The signed-in reader's own row only.
+export async function hasReportedProfile(reporterId: number | null | undefined, traderId: number): Promise<boolean> {
+  if (!reporterId) return false;
+  const [r] = await sql`select 1 from thesis_reports where reporter_id = ${reporterId} and trader_id = ${traderId} and sell_id = '' limit 1`;
+  return !!r;
 }
 
 /** What the report form shows for an outcome (app/report-actions.ts). `category` is what the form sent. */

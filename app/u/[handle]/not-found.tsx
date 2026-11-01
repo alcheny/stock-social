@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { handleStatus, type HandleStatus } from '@/lib/visible-users.ts';
-import { HIDDEN_NOTICE, HIDDEN_OWN, RETIRED_NOTICE } from '@/lib/copy.ts';
+import { HIDDEN_NOTICE, HIDDEN_OWN, RETIRED_NOTICE, TAKEDOWN } from '@/lib/copy.ts';
+import { takedownReachable } from '@/lib/takedown.ts';
 import { currentUser } from '@/lib/session.ts';
 import GenericNotFound, { metadata as genericMetadata } from '../../not-found.tsx';
 
@@ -54,11 +55,13 @@ export default async function HandleNotFound() {
   const n = notice(s);
   if (!n) return <GenericNotFound />;
   const own = await isHiddenOwner(s);
+  // Fix round 2: BL2, the owner's links on their own row (like the two below), never wrapped inside the sentence; UX5,
+  // the notices page there too while it is reachable.
   return (
     <main className="page">
       <h1>{n.h1}</h1>
       <p>{n.line}</p>
-      {own && <p className="muted" data-own-line>{HIDDEN_OWN.line} <Link className="tap44" href="/settings">{HIDDEN_OWN.settings}</Link> · <a className="tap44" href="/account/export" download>{HIDDEN_OWN.download}</a></p>}
+      {own && <div data-own-line><p className="muted">{HIDDEN_OWN.line}</p><p className="own-links"><Link className="tap44" href="/settings">{HIDDEN_OWN.settings}</Link><a className="tap44" href="/account/export" download>{HIDDEN_OWN.download}</a>{takedownReachable() && <Link className="tap44" href="/takedown">{TAKEDOWN.link}</Link>}</p></div>}
       <p style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
         <Link href="/" style={tap}>Back to the feed</Link>
         <Link href="/t" style={tap}>All stocks</Link>

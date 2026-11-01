@@ -974,7 +974,7 @@ export const TAKEDOWN = {
   h1: 'Notices and takedown requests',
   lines: [
     `Use this page to tell us about something on ${PRODUCT_NAME} that you believe infringes your copyright, impersonates you or someone else, shares personal information or breaks the law.`,
-    'Signed in? Use "Report this profile" on the profile instead.',
+    'To report a profile, use "Report this profile" on it instead.', // fix round 2 (BL6)
     'Include the page address, what is wrong and how we can reply. For a copyright notice, say which of your works it uses.',
     'Sending a notice does not remove anything by itself. A person reads each one.',
   ],

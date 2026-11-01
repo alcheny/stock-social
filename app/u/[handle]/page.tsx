@@ -17,7 +17,8 @@ import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
 import { UserNote } from '../../user-note.tsx';
 import { heldLine } from '@/lib/report-copy.ts';
-import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_RULE } from '@/lib/handles.ts';
+import { HANDLE_RULE, nextRenameAt, nextRenameText, profileHandleError, RENAME_HOLD, RENAME_RULE, renamedText } from '@/lib/handles.ts';
+import { FocusHeading } from '../../connect/result/focus-heading.tsx'; // F-17 fix round 2 (UX1): the rename status takes focus
 // F-7 public-record traders.
 import { isPublicRecord, PUBLIC, publicExclusions } from '@/lib/copy.ts';
 import { filerInfo, filerVisible, PUBLIC_STALE_DAYS } from '@/lib/public-gate.ts';
@@ -65,7 +66,7 @@ function renameError(code: string | undefined, renamedAt: Date | null): string |
   return base && next ? `${base} ${next}` : base;
 }
 
-type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
+type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string; renamed?: string }> };
 
 // One read per request: generateMetadata and the page share it (React cache), and its rows are the record card's (load.ts).
 const load = cache(async (handle: string) => {
@@ -218,7 +219,12 @@ export default async function Profile({ params, searchParams }: Params) {
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
   const renamedAt = isMe ? ((me as { handle_renamed_at?: Date | null }).handle_renamed_at ?? null) : null;
-  const handleError = isMe ? renameError((await searchParams)?.handle, renamedAt) : undefined;
+  const code = (await searchParams)?.handle;
+  const handleError = isMe ? renameError(code, renamedAt) : undefined;
+  // F-17 fix round 2: BL1, a 30-day refusal already says the rule's first sentence and the date, so the hint keeps only
+  // the rest; UX1, after a rename (?renamed=1) a focused status line says the old links stopped working.
+  const soonError = handleError !== undefined && code === 'soon';
+  const renamed = isMe && (await searchParams)?.renamed === '1';
   const renameNext = nextRenameAt(renamedAt);
   const renameSoon = renameNext && renameNext.getTime() > Date.now() ? nextRenameText(renamedAt) : null;
   const trustShown = impersonationLineShown(); // F-16: draft line in the sandbox until the owner approves it
@@ -245,6 +251,7 @@ export default async function Profile({ params, searchParams }: Params) {
       </div>}
       {me && !isMe && !pub && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}{done === 'hidden' && <> <Link href="/me/following">{FOLLOW.settingsLink}</Link></>}</p>}</div>}
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
+      {renamed && <><p id="renamed" role="status" tabIndex={-1} className="small">{renamedText(user.handle)}</p><FocusHeading id="renamed" /></>}
       {/* S5: the live banner (owner polls; visitors see the server's line). Rendered in every state so its finished
           line survives the refresh that follows the end of the import. */}
       {!pub && <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />}
@@ -289,7 +296,7 @@ export default async function Profile({ params, searchParams }: Params) {
             <button>Save</button>
           </form>
           <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>
-          <p className="muted small rename-rule" data-rename-rule>{RENAME_RULE}{renameSoon && ` ${renameSoon}`}</p>
+          <p className="muted small rename-rule" data-rename-rule>{soonError ? RENAME_HOLD : <>{RENAME_RULE}{renameSoon && ` ${renameSoon}`}</>}</p>
         </details>
       )}
       {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
@@ -405,12 +412,11 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
       {opt.gate === 'open' && complete && <OptionTradesSection trades={opt.trades} start={Number((await searchParams)?.options) || 0} handle={user.handle} />}
       {similar && <TrustShown shown={trustShown}><SimilarSection handle={user.handle} similar={similar} signedIn={!!me} /></TrustShown>}
-      <p><Link href="/" className="tap44">← Feed</Link></p>
       {/* F-16 block (plan §2.1, §5.4; v2 B6): the quiet report menu (signed out too, never on your own profile, never
           beside Follow or Share), then the anti-impersonation line last in <main>, so the footer's F3 disclaimer sits
-          directly after it. */}
+          directly after it. Fix round 2 (BL7): the menu sits left, on "← Feed"'s line. */}
       <div className="f16-block">
-        {!isMe && <ProfileReportMenu handle={user.handle} />}
+        <div className="profile-end"><Link href="/" className="tap44">← Feed</Link>{!isMe && <ProfileReportMenu handle={user.handle} />}</div>
         <TrustFoot shown={trustShown} />
       </div>
     </main>
