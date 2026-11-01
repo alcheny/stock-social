@@ -15,10 +15,19 @@ export const counted = (n: number, one: string, many = `${one}s`): string => `${
 // commented in place, because the sessions editing those files now would conflict (committee decision 8).
 // lib/format.f19.test.ts checks that every file named still exists.
 export const F19_SWEEP_SITES = [
-  // inline colour by `>= 0` or `> 0 ? 'up' : 'down'`: 0.0% is painted green or red instead of Flat
+  // tone decided inline (`> 0 ? 'up' : 'down'`, `>= 0`, `r < 0 ? … : r > 0 ? …` on the raw value): 0.0% is painted
+  // green or red instead of Flat
   'app/u/[handle]/chart.tsx',
   'app/u/[handle]/page.tsx',
   'app/pane.tsx',
+  'app/ui.tsx',
+  'app/me/likes/page.tsx',
+  'app/t/[symbol]/page.tsx',
+  'app/t/[symbol]/Theses.tsx',
+  'app/t/[symbol]/Spread.tsx',
+  'app/t/compare/page.tsx',
+  'app/u/[handle]/similar-section.tsx',
+  'lib/record-tools.ts',
   // screen-reader labels announcing "Gain " for anything not below zero, so 0.0% is read as a gain
   'app/u/[handle]/new-trades-prompt.tsx',
   'app/u/[handle]/month/[ym]/page.tsx',
@@ -26,10 +35,16 @@ export const F19_SWEEP_SITES = [
   // win rate by toFixed(0) / Math.round, so 199 of 200 prints "100%" (winPct() clamps; D23 keeps the output for now)
   'lib/copy.ts',
   'lib/insights.ts',
+  'lib/month-card.ts',
+  'lib/ticker.ts',
   'app/me/record/page.tsx',
   'app/t/[symbol]/Baseline.tsx',
   'app/t/[symbol]/HoldTime.tsx',
   'app/t/[symbol]/Concentration.tsx',
+  'app/t/[symbol]/opengraph-image.tsx',
+  'app/u/[handle]/trade/[sellId]/opengraph-image.tsx',
+  // (lib/ticker.ts#signed is also a percent formatter under another name; the rules module's signedPct carries its own
+  // ponytail note in place)
 ] as const;
 
 // Signed percent. A value that rounds to zero reads "0.0%" (never "-0.0%" or "+0.0%", same as an exact zero). A loss
@@ -63,10 +78,10 @@ const TONE_WORD = { up: 'Gain', down: 'Loss', flat: 'Flat' } as const;
 export const toneWord = (t: Tone): (typeof TONE_WORD)[Tone] => TONE_WORD[t];
 
 // Win rate as a whole percent from counts (exact, no float ratio): never "100%" while a trade lost, never "0%" while a
-// trade won. Null when there are no trades.
+// trade won. Null when there are no trades or the counts are not whole numbers with 0 <= wins <= n.
 export function winPct(wins: number, n: number): string | null {
-  if (!(n > 0)) return null;
-  const w = Math.min(Math.max(wins, 0), n);
-  const r = Math.round((w / n) * 100);
+  if (!Number.isInteger(wins) || !Number.isInteger(n) || n <= 0 || wins < 0 || wins > n) return null;
+  const w = wins;
+  const r = Math.floor((200 * w + n) / (2 * n)); // round half up in integers: 23 of 40 is 57.5%, prints "58%"
   return `${w < n && r === 100 ? 99 : w > 0 && r === 0 ? 1 : r}%`;
 }

@@ -1,6 +1,6 @@
 # F-19 · Number format, tone and ranges: one sign, one Flat, ranges that hold their average
 
-Status: ready
+Status: built
 Start conditions: this build is the first slice (`lib/` only) and may start now. The call-site sweep, the
 every-surface range test and the placement of the What's-this line are a later rework of this feature (`Status:
 rework`), opened after F-10, F-11, F-12, F-18 and fix #7 merge (see Out of scope).
@@ -47,6 +47,14 @@ and the market council's "What's this?" line (MRC2-5). Approved by the approval 
 - 2026-11-01: Sequencing: the first slice takes its own slot now. If F-10..F-12 and F-18 have not merged by the next
   approval council, the sweep part of this approval lapses to that council. Why: approved by the approval council
   (cycle 2); EN, PF, RT.
+- 2026-11-01: First slice: `pct()` moves to `lib/format.ts` byte for byte, with no second style; a `ponytail:` at it names the limit (ASCII hyphen, up to `digits + 4` decimals near −100%, no comma) and the sweep rework replaces the algorithm with the design system §3 form. Why: decided by the committee under the owner's instruction of 2026-11-01; share images and the display log import `pct` through `lib/trades.ts` and must keep the hyphen without call-site edits, about 45 pinned sign assertions stay green while other sessions edit them, and a second style would be a second rounding path (engineer, round 1).
+- 2026-11-01: `tone(x, digits = 1)` rounds the way `pct(x, digits)` prints: Flat exactly when the printed number has no sign, at digits 0, 1 and 2. Why: decided by the committee under the owner's instruction of 2026-11-01; the chart prints `pct(x, 0)`, and colour and word must never contradict the number shown.
+- 2026-11-01: `toneWord()` gives "Gain" / "Loss" / "Flat" beside `tone()`, wired into no screen in this slice; "about even" in accessible text is the sweep's. Why: decided by the committee under the owner's instruction of 2026-11-01; Flat needs a word (POLICY A1) that cannot drift from the decision.
+- 2026-11-01: `winPct(wins, n)` takes whole-number counts (null otherwise), rounds half up in integers, never prints 100% with a loss or 0% with a win, and is null for no trades; it is not wired into `winRateText` or the display log. Why: decided by the committee under the owner's instruction of 2026-11-01; D23 keeps win rate output untouched and the display log is append-only.
+- 2026-11-01: The property test in this slice is that `pct()` is monotonic over 10,000 seeded values and rounding boundaries ("≈-100.0%" parses just above −100), so any numerically ordered lo ≤ avg ≤ hi prints in order; the every-surface test stays with the sweep rework. Why: decided by the committee under the owner's instruction of 2026-11-01; it is the part that holds before fix #7.
+- 2026-11-01: `RANGE_NOTE` is one constant at the end of `lib/copy.ts`, tested against `cardEvidence` (centre equals the average, a single trade lies outside the range) and whole-word banned terms (adding guarantee, expect, will); it is not added to `allCopy()` yet. Why: decided by the committee under the owner's instruction of 2026-11-01; other sessions edit that line.
+- 2026-11-01: Call sites left for the sweep are listed in `F19_SWEEP_SITES` (`lib/format.ts`) rather than commented in place, and a test checks each file exists; the zero-count grep for inline tone decisions and "Gain " labels is a sweep-rework acceptance item. Why: decided by the committee under the owner's instruction of 2026-11-01; per-site comments would conflict with F-18's stats-row rewrite and the open card, pane, trade, month and stock sessions, and a count ratchet now would fail their in-flight PRs.
+- 2026-11-01: Ranking is pinned in a new file (`lib/ranking.f19.test.ts`) with values computed on main before the slice. Why: decided by the committee under the owner's instruction of 2026-11-01; veto condition DK, LG; no existing test file is edited.
 
 ## Acceptance criteria
 - [ ] `pct`, `winPct` and `tone` are defined only in `lib/format.ts`. The old names in `lib/trades.ts` and
@@ -83,3 +91,7 @@ and the market council's "What's this?" line (MRC2-5). Approved by the approval 
 - U+2212 in share images: decided by the render test, not by the council.
 
 ## Rework notes
+- 2026-11-01 (first slice built; committee record `docs/features/logs/F-19/committee-2026-11-01.md`): the sweep
+  rework takes the §3 form in `pct()` (replacing the algorithm), `imagePct()` for images and the display log, the
+  every-surface lo ≤ avg ≤ hi test, the What's-this placement, `RANGE_NOTE` in `allCopy()`, wiring `winPct()` and
+  `toneWord()`, and a zero-count grep for `>= 0 ?` / `> 0 ? 'up'` / "Gain " labels over the `F19_SWEEP_SITES` files.

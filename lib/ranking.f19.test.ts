@@ -39,6 +39,7 @@ test('F-19 pin: rankTraders order and evidence weights', () => {
     .map((x) => ({ id: x.id, weight: evidenceWeight(x.c), score: headline(x.id === 'A' ? A : x.id === 'B' ? B : C).avgReturn }));
   assert.deepEqual(items.map((x) => round(x.weight)), PIN_WEIGHTS);
   assert.deepEqual(rankTraders(items).map((x) => x.id), PIN_ORDER);
+  assert.deepEqual(rankTraders(items.toReversed()).map((x) => x.id), PIN_ORDER); // order comes from the sort, not the input
 });
 
 // Values computed on origin/main before the F-19 slice (2026-11-01) and on this branch: identical.

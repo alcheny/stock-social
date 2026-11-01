@@ -44,12 +44,12 @@ test('F-19 one home: the old names are the same functions as lib/format.ts', () 
 // app/open-rows.tsx is JSX, which node:test can't import: its toneClass definition is read from the source, its types
 // stripped, and run against lib/format.ts#tone, which the file must import.
 const OPEN_ROWS = readFileSync(join(ROOT, 'app', 'open-rows.tsx'), 'utf8');
-const toneClassSource = OPEN_ROWS.match(/^export const toneClass = (.*);$/m)?.[1];
-const toneClass = new Function('tone', `return ${stripTypeScriptTypes(`(${toneClassSource})`)}`)(tone) as (x: number) => string | undefined;
 
 test('F-19 one home: toneClass delegates to tone() (equal outputs over fixtures)', () => {
-  assert.ok(toneClassSource, 'app/open-rows.tsx defines toneClass on one line');
+  const source = OPEN_ROWS.match(/^export const toneClass = (.*);$/m)?.[1];
+  assert.ok(source, 'app/open-rows.tsx defines toneClass on one line');
   assert.match(OPEN_ROWS, /^import \{[^}]*\btone\b[^}]*\} from '@\/lib\/format\.ts';$/m);
+  const toneClass = new Function('tone', `return ${stripTypeScriptTypes(`(${source})`)}`)(tone) as (x: number) => string | undefined;
   for (const x of [...BOUNDARIES, NaN, Infinity, -Infinity, ...seeded(500, 7)]) {
     const t = tone(x);
     assert.equal(toneClass(x), t === 'flat' ? undefined : t, `toneClass(${x})`);
@@ -79,7 +79,9 @@ test('F-19 grep: the definition pattern catches a second implementation and noth
     assert.doesNotMatch(ok, DEFINITION, ok);
 });
 
-test('F-19 grep: pct, tone and winPct are defined only in lib/format.ts', () => {
+// ponytail: the walk reads one line at a time, so a definition split across lines (`const pct =` / `(x) => …`) slips
+// through — parse with the TypeScript compiler API if one ever does (it is not a dependency today).
+test('F-19 grep: no line in lib/, app/ or scripts/ defines pct, tone or winPct outside lib/format.ts', () => {
   const offenders: string[] = [];
   for (const dir of ['lib', 'app', 'scripts']) {
     for (const f of sourceFiles(join(ROOT, dir))) {
@@ -165,11 +167,16 @@ test('F-19 winPct: whole percent from counts, never 100% with a loss, never 0% w
   assert.equal(winPct(5, 5), '100%');
   assert.equal(winPct(1, 2), '50%');
   assert.equal(winPct(2, 3), '67%');
+  assert.equal(winPct(23, 40), '58%'); // exactly 57.5%: half rounds up, no float error
+  assert.equal(winPct(29, 200), '15%'); // exactly 14.5%
   assert.equal(winPct(0, 0), null);
+  for (const [w, n] of [[NaN, 5], [Infinity, Infinity], [5, Infinity], [2.5, 5], [-1, 5], [6, 5], [1, -2], [1, 2.5]]) assert.equal(winPct(w, n), null, `${w}/${n}`);
   for (let n = 1; n <= 300; n++) for (let w = 0; w <= n; w++) {
     const s = winPct(w, n)!;
     if (w < n) assert.notEqual(s, '100%', `${w}/${n}`);
     if (w > 0) assert.notEqual(s, '0%', `${w}/${n}`);
+    const exact = Math.floor((200 * w + n) / (2 * n));
+    assert.equal(s, `${w < n && exact === 100 ? 99 : w > 0 && exact === 0 ? 1 : exact}%`, `${w}/${n}`);
     assert.ok(Math.abs(Number(s.slice(0, -1)) - (w / n) * 100) < 1, `${w}/${n} = ${s}`);
   }
 });
