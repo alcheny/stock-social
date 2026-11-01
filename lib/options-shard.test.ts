@@ -24,7 +24,8 @@ dbTest('runShard forwards the option sinks: option rows are stored, the open opt
   const tag = `k${Math.random().toString(36).slice(2, 10)}`;
   const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}u` });
   const acc = `${tag}-acc`;
-  const of = 1001 + Math.floor(Math.random() * 24); // above lib/sync-shard.test.ts's 500–1000, within the table's 1–1024
+  // Its own range: lib/sync-cadence.db.test.ts lists the split (two files on one `of` could share a lease and cancel this run).
+  const of = 1019 + Math.floor(Math.random() * 6);
   // Its own past :00 marks, far behind every other test's (lib/sync-shard.test.ts walks back from 40 rounds).
   const T0 = Math.floor(Date.now() / S.ROUND_MS) * S.ROUND_MS - (3000 + Math.floor(Math.random() * 3000)) * S.ROUND_MS;
   const at = (minute: number) => () => T0 + minute * MIN - Date.now();

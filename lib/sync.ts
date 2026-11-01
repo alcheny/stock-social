@@ -6,7 +6,7 @@ import { notShared } from './shared-accounts.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
 import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pairKey } from './corporate-actions.ts';
-import { moveUnlistedPositions, replaceListedPositions, settleAccountPositions } from './positions.ts';
+import { firstByKey, moveUnlistedPositions, replaceListedPositions, settleAccountPositions } from './positions.ts';
 import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
@@ -597,7 +597,10 @@ export async function syncUser(
             } else if (rows.length) {
               // G3 (TR-4): a positions-only read adds and updates, never removes, so a position closed at a loss stays
               // listed until the read that also publishes its closed trade.
-              await tx`insert into open_positions ${tx(rows.map((p) => ({ user_id: user.id, account_id: p.accountId, symbol: p.symbol, unrealized_pct: p.unrealizedPct })))}
+              // ponytail: a positions-only read that still lists a position after its close was imported refreshes its
+              // read time, so the row then waits for the 3-day rule (its trade and the open row show together; no loss
+              // is hidden) — fix: skip the refresh when a closing row was imported since the last listing.
+              await tx`insert into open_positions ${tx(firstByKey(rows, (p) => `${p.accountId}\u0000${p.symbol}`).map((p) => ({ user_id: user.id, account_id: p.accountId, symbol: p.symbol, unrealized_pct: p.unrealizedPct })))}
                 on conflict (user_id, account_id, symbol) do update set unrealized_pct = excluded.unrealized_pct, fetched_at = now()`;
             }
           }

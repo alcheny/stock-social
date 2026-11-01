@@ -38,7 +38,10 @@ after(async () => {
 const HOUR = 3_600_000;
 const MIN = 60_000;
 const usedOf = new Set<number>();
-const freshOf = () => { for (;;) { const of = 1001 + Math.floor(Math.random() * 24); if (!usedOf.has(of)) { usedOf.add(of); return of; } } };
+// Shard counts (`of`) are split between the files that drive runShard in parallel, so no two share a lease or delete
+// each other's: lib/sync-shard.test.ts 500–1000, this file 1001–1012 (up to 8 used), lib/sync-cadence.review.test.ts
+// 1013–1018, lib/options-shard.test.ts 1019–1024 (the table allows 1–1024).
+const freshOf = () => { for (;;) { const of = 1001 + Math.floor(Math.random() * 12); if (!usedOf.has(of)) { usedOf.add(of); return of; } } };
 // Each test's own past: slots of 100 h from 2,000 h back (other files use the last few hundred hours), plus a random
 // offset per process so two runs of this file at once do not share hours either.
 let slot = 2000 + Math.floor(Math.random() * 40) * 1000;

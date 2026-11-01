@@ -5,7 +5,7 @@ import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { FUTURE_GRACE_HOURS, INSERT_CHUNK, rebuildTrades, USER_LOCK } from './sync.ts';
 import { chainsOf, loadCorporateActions, pairKey } from './corporate-actions.ts';
-import { SETTLE_STALE_MS } from './positions.ts';
+import { firstByKey, SETTLE_STALE_MS } from './positions.ts';
 import { contractKey, matchOptions, parseOcc, zeroCounts, type Counts, type OptionRow } from './options.ts';
 import type { OptionPosition, PositionSplit } from './broker.ts';
 
@@ -381,6 +381,8 @@ export async function replaceAccountOptionPositions(tx: TransactionSql, userId: 
   // read) never lose a row (review B1).
   if (gone.length) await tx`delete from open_option_positions where user_id = ${userId} and account_id in ${tx(gone)}`;
   if (!opts.settle && replace.length) await tx`delete from open_option_positions where user_id = ${userId} and account_id in ${tx(replace)}`;
+  // ponytail: a closing option row with no contract key (a malformed vendor row, counted) cannot be matched, so its
+  // position falls back to the 3-day rule — fix: match on the OCC ticker when the parsed key is missing.
   for (const id of opts.settle ? replace : []) {
     const listed = (splits.get(id)?.options ?? []).map((o) => o.positionKey);
     await tx`delete from open_option_positions p where p.user_id = ${userId} and p.account_id = ${id}
@@ -392,8 +394,9 @@ export async function replaceAccountOptionPositions(tx: TransactionSql, userId: 
   }
   await tx`update users set open_options_short = ${sum('short')}, open_unsupported = ${sum('unsupported')}, open_options_other = ${sum('other')},
     open_options_by_account = ${tx.json(next as never)} where id = ${userId}`;
-  const rows: (OptionPosition & { accountId: string })[] = [];
-  for (const id of readNow) for (const o of splits.get(id)?.options ?? []) rows.push({ ...o, accountId: id });
+  const listedRows: (OptionPosition & { accountId: string })[] = [];
+  for (const id of readNow) for (const o of splits.get(id)?.options ?? []) listedRows.push({ ...o, accountId: id });
+  const rows = firstByKey(listedRows, (p) => `${p.accountId}\u0000${p.positionKey}`); // two lots of one contract: the first
   if (rows.length) {
     await tx`insert into open_option_positions ${tx(rows.map((p) => ({ user_id: userId, account_id: p.accountId, position_key: p.positionKey, underlying: p.underlying,
       option_right: p.right, option_expiry: p.expiry, unrealized_pct: p.unrealizedPct })))}

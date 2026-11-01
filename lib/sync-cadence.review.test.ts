@@ -127,7 +127,7 @@ dbTest('review 5: a cadence sync cut by the route-end guard mid-read leaves no m
   const t = await trader(2);
   const { runShard } = await import('./sync-shard.ts');
   try {
-    const of = 1000 + Math.floor(Math.random() * 24);
+    const of = 1013 + Math.floor(Math.random() * 6); // its own range (lib/sync-cadence.db.test.ts lists the split)
     let wall = 1_000_000;
     const calls: string[] = [];
     const broker = {

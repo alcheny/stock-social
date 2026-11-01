@@ -59,9 +59,15 @@ export function positionRows(rows: { accountId: string; symbol: string; pct: num
 // reorganizations) or one re-listed under another symbol stays listed next to its closed trade for up to
 // SETTLE_STALE_MS — matching through lib/corporate-actions.ts's rename chain would remove it with its trade.
 export const SETTLE_STALE_MS = 3 * 86_400_000;
+// One vendor read can list a key twice (two lots of one symbol, or of one option contract): an insert that updates on
+// conflict cannot touch a row twice, so rows are de-duplicated first, keeping the first, as main's `do nothing` did.
+export function firstByKey<T>(rows: T[], key: (r: T) => string): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => { const k = key(r); if (seen.has(k)) return false; seen.add(k); return true; });
+}
 export async function settleAccountPositions(tx: TransactionSql, userId: number, accountId: string, listed: OpenPosition[]) {
   if (listed.length) {
-    await tx`insert into open_positions ${tx(listed.map((p) => ({ user_id: userId, account_id: p.accountId, symbol: p.symbol, unrealized_pct: p.unrealizedPct })))}
+    await tx`insert into open_positions ${tx(firstByKey(listed, (p) => `${p.accountId}\u0000${p.symbol}`).map((p) => ({ user_id: userId, account_id: p.accountId, symbol: p.symbol, unrealized_pct: p.unrealizedPct })))}
       on conflict (user_id, account_id, symbol) do update set unrealized_pct = excluded.unrealized_pct, fetched_at = now()`;
   }
   await tx`delete from open_positions p where p.user_id = ${userId} and p.account_id = ${accountId}
