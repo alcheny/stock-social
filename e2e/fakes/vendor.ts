@@ -129,8 +129,9 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
   let next: Scenario = { accounts: [{ id: 'acct-default', activities: 4, syncDone: true }] };
   let authSeq = 0;
   let fail: { status: number; times: number } = { status: 500, times: 0 };
-  const base = `http://127.0.0.1:${port}`;
-  const refusingBase = `http://localhost:${port}`; // portalFrameHeaders: the portal on another origin
+  // Port 0 asks the OS for a free port; both bases are set from the bound port once listening.
+  let base = `http://127.0.0.1:${port}`;
+  let refusingBase = `http://localhost:${port}`; // portalFrameHeaders: the portal on another origin
   const probes: { method: string; cookie: boolean }[] = []; // the app's HEAD probes, for assertions (GET /_probes)
   const bulks = new Map<string, Bulk>(); // POST /_bulk rules, by prefix
   let latency = { ms: 0, jitterMs: 0 }; // POST /_latency
@@ -284,5 +285,17 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
   server.on('close', () => { v6.close(); v6.closeAllConnections(); });
   const closeAll = server.closeAllConnections.bind(server);
   server.closeAllConnections = () => { closeAll(); v6.closeAllConnections(); };
-  return new Promise((resolve) => server.listen(port, '127.0.0.1', () => { v6.listen(port, '::1'); resolve({ server, base }); }));
+  // A listen error (EADDRINUSE: another process holds the port) rejects instead of being an uncaught exception after
+  // the caller's hook ended, which cancelled every test in the file with no visible cause.
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', reject);
+      const bound = (server.address() as { port: number }).port;
+      base = `http://127.0.0.1:${bound}`;
+      refusingBase = `http://localhost:${bound}`;
+      v6.listen(bound, '::1');
+      resolve({ server, base });
+    });
+  });
 }
