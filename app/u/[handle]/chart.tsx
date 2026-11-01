@@ -128,7 +128,11 @@ export function PerformanceChart({ chart, src, now, linkBase = '', current, shar
 
   const scrubTo = (e: PointerEvent) => {
     const r = stack.current!.getBoundingClientRect();
-    const i = nearestIndex(xs, ((e.clientX - r.left) / r.width) * W);
+    // F-23 (user test, UX 2): closes of one UTC day drawn under 2 CSS px apart are one pointer target; the pointer takes
+    // the newest of them, so a release at the right edge opens the list's top row (the keys still reach each).
+    const px = ((e.clientX - r.left) / r.width) * W, near = (2 * W) / r.width, day = (k: number) => Math.floor(pts[k].at / 86_400_000);
+    let i = nearestIndex(xs, px);
+    while (i + 1 < xs.length && pts[i].trade && day(i + 1) === day(i) && xs[i + 1] - xs[i] < near) i++;
     setActive(i);
     if (dragging.current) setSel(i);
   };

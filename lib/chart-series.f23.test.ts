@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { chartPoints, chartSeries, feedPaneChart, packChart, paneChart, profileChart, unpackChart, PAYLOAD_V } from './chart-series.ts';
+import { chartPoints, chartSeries, expand, feedPaneChart, packChart, paneChart, profileChart, unpackChart, PAYLOAD_V } from './chart-series.ts';
 import { packPoints, unpackPoints } from './paging.ts';
 import { nearestIndex, RANGES, stepIndex } from './trades.ts';
 import { wireDay, wirePct } from './public-wire.ts';
@@ -71,7 +71,8 @@ test('the profile chart is every close (full resolution), and a long record comp
   const many = Array.from({ length: 900 }, (_, i) => t(String(1000 + i), ((i * 37) % 200 - 100) / 1000 + 0.00049, new Date(Date.parse('2026-10-14T12:00:00Z') - i * 7 * 3_600_000).toISOString()));
   const c = profileChart(many, now);
   assert.equal(c.trades.length, 900);
-  assert.equal(c.ranges.ALL.p.length, 901 * 3);
+  assert.equal(c.sfx, 1); // nothing downsampled: the compact form
+  assert.equal(c.ranges.ALL.p.length, 901 * 2);
   const exact = chartSeries(chartPoints(many), 'ALL', now);
   assert.equal(c.ranges.ALL.last, wirePct(exact.last));
   const u = unpackChart(c).ALL;
@@ -87,7 +88,7 @@ test('AC 7: the chart fetch rejects a body of another payload version and forget
 });
 
 test('a day offset is a whole number and the base is a UTC day; range ends are whole days', () => {
-  const c = paneChart(REC, now);
+  const c = expand(paneChart(REC, now));
   assert.equal(c.base, wireDay(now.getTime() - 365 * DAY)); // the earliest point: the 1Y range's start
   for (const { key } of RANGES) {
     const r = c.ranges[key];
@@ -132,4 +133,31 @@ test('user test UX 1: closes at the same instant run in list order (the larger i
   assert.equal(listTop, '7');
   for (const c of [paneChart(rec, now), profileChart(rec, now)]) assert.deepEqual(unpackChart(c).ALL.pts.slice(1).map((p) => p.trade!.id), ['5', '6', '7']);
   assert.deepEqual(chartSeries(chartPoints(rec), 'ALL', now).pts.slice(1).map((p) => p.trade!.id), ['5', '6', '7']);
+});
+
+test('tester Medium 1: the compact form (nothing downsampled) decodes to exactly the regular form, and is smaller', () => {
+  const many = Array.from({ length: 600 }, (_, i) => t(String(2000 + i), ((i * 53) % 200 - 100) / 1000, new Date(Date.parse('2026-10-14T12:00:00Z') - i * 2 * 3_600_000 - (i % 3 === 0 ? 0 : 1)).toISOString()));
+  many.push(t('2999', 0.01, many[5].closedAt.toISOString())); // a same-instant tie
+  const pts = chartPoints(many);
+  const regular = packChart(pts, now, 10_000);
+  const small = packChart(pts, now, Infinity);
+  assert.equal(regular.sfx, 1);
+  // The regular form built by hand: the same series with every close kept (maxPoints above n), not compacted.
+  const decodedSmall = unpackChart(JSON.parse(JSON.stringify(small)));
+  for (const { key } of RANGES) {
+    const s = chartSeries(pts, key, now);
+    const u = decodedSmall[key];
+    assert.equal(u.pts.length, s.pts.length, key);
+    u.pts.forEach((p, i) => {
+      assert.equal(p.value, wirePct(s.pts[i].value), key);
+      assert.equal(p.trade?.id ?? null, s.pts[i].trade?.id ?? null, key);
+      assert.equal(p.trade?.index ?? null, s.pts[i].trade?.index ?? null, key);
+      assert.equal(wireDay(p.at), wireDay(s.pts[i].at), key);
+    });
+  }
+  // A downsampled chart stays in the regular form.
+  assert.equal(packChart(pts, now, 100).sfx, undefined);
+  const e = expand(small);
+  assert.equal(e.sfx, undefined);
+  assert.ok(JSON.stringify(small).length < JSON.stringify(e).length * 0.8);
 });

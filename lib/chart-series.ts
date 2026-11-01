@@ -51,7 +51,11 @@ export function chartSeries(trades: ChartPoint[], key: RangeKey, now: Date, maxP
 export const PAYLOAD_V = 2;
 export type PackedTrade = [id: string, symbol: string, returnPct: number, holdingDays: number, thesis: string | null, index: number];
 export type PackedSeries = { t0: number; t1: number; last: number; n: number; dd: number; min: number; max: number; p: number[] };
-export type PackedChart = { v: typeof PAYLOAD_V; base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries>; lite?: 1 };
+// `sfx` (F-23 tester, Medium 1): no range was downsampled, so every close is in ALL and a dated range's closes are the
+// last `n` of ALL's (chartSeries sorts every range alike; rangeTrades keeps a suffix). Positions then say what the close
+// indices, row indices and a dated range's days would (compact/expand below). A dense 4,700-close profile shipped most
+// closes twice (445 KB against the 400 KB budget).
+export type PackedChart = { v: typeof PAYLOAD_V; base: number; trades: PackedTrade[]; ranges: Record<RangeKey, PackedSeries>; lite?: 1; sfx?: 1 };
 
 // Kept for its callers: a chart value at the printed precision (F-23: wirePct; it was 6 decimals).
 export const packValue = (v: number): number => wirePct(v);
@@ -80,7 +84,40 @@ export function packChart(trades: ChartPoint[], now: Date, maxPoints: number, li
     }
     ranges[key] = { t0: wireDay(s.t0), t1: wireDay(s.t1), last: wirePct(s.last), n: s.n, dd: -wirePct(-s.drawdown) || 0 /* printed negated ("max drawdown -99.999%"): rounded as printed */, min: wirePct(s.min), max: wirePct(s.max), p };
   }
-  return lite ? { v: PAYLOAD_V, base, trades: out, ranges, lite: 1 } : { v: PAYLOAD_V, base, trades: out, ranges };
+  if (lite) return { v: PAYLOAD_V, base, trades: out, ranges, lite: 1 };
+  const full: PackedChart = { v: PAYLOAD_V, base, trades: out, ranges };
+  return series.every(([, s]) => s.pts.length === s.n + 1) ? compact(full) : full;
+}
+
+// The `sfx` form of a chart no range of which was downsampled (see PackedChart): ALL's points as [day, value] pairs,
+// close k (from the oldest) being trades[k] and, in list order, row n-1-k (the chart runs in reverse list order:
+// chartSeries sorts by close time, then the row index descending); trades without their row index; a dated range's
+// points as its values only. expand() restores the regular form exactly (lib/chart-series.f23.test.ts).
+function compact(c: PackedChart): PackedChart {
+  const all = c.ranges.ALL.p, pairs: number[] = [], trades: PackedTrade[] = [];
+  for (let i = 0; i < all.length; i += 3) {
+    pairs.push(all[i], all[i + 1]);
+    if (all[i + 2] >= 0) trades.push(c.trades[all[i + 2]].slice(0, 5) as unknown as PackedTrade);
+  }
+  // Only when positions really say the row index (every close in ALL, in reverse list order); else the regular form.
+  if (trades.length !== c.trades.length || c.trades.some((_, k) => c.trades[all[(k + 1) * 3 + 2]][5] !== trades.length - 1 - k)) return c;
+  const ranges = { ...c.ranges, ALL: { ...c.ranges.ALL, p: pairs } };
+  for (const { key } of RANGES) if (key !== 'ALL') { const p = c.ranges[key].p; ranges[key] = { ...c.ranges[key], p: p.filter((_, i) => i % 3 === 1).slice(1) }; }
+  return { v: c.v, base: c.base, trades, ranges, sfx: 1 };
+}
+export function expand(c: PackedChart): PackedChart {
+  if (!c.sfx) return c;
+  const n = c.trades.length, pairs = c.ranges.ALL.p, all: number[] = [];
+  for (let i = 0; i < pairs.length; i += 2) all.push(pairs[i], pairs[i + 1], i / 2 - 1);
+  const trades = c.trades.map((t, k) => [...t.slice(0, 5), n - 1 - k] as unknown as PackedTrade);
+  const ranges = { ...c.ranges, ALL: { ...c.ranges.ALL, p: all } };
+  for (const { key } of RANGES) {
+    if (key === 'ALL') continue;
+    const r = c.ranges[key], first = n - r.n, p = [r.t0 - c.base, 0, -1];
+    for (let k = 0; k < r.n; k++) p.push(all[(first + k + 1) * 3], r.p[k], first + k);
+    ranges[key] = { ...r, p };
+  }
+  return { v: c.v, base: c.base, trades, ranges };
 }
 
 // F-23: a record's closes as chart points, in list order with their row index, from stored values (no rounding: the
@@ -105,7 +142,8 @@ export const paneChartSrc = (handle: string) => `/u/${encodeURIComponent(handle)
 // at k+1 m+1ths of the day), so same-day closes never share an x: a drag reaches each, and release opens the one under
 // the cursor. The spread says only the order, which the list shows. A dated range (1W…1Y) starts at its first day's
 // start and ends at its last day's end; ALL runs from its first point to its last.
-export function unpackChart(c: PackedChart): Record<RangeKey, Series> {
+export function unpackChart(packed: PackedChart): Record<RangeKey, Series> {
+  const c = expand(packed);
   const trades: (ChartPoint | undefined)[] = new Array(c.trades.length);
   const out = {} as Record<RangeKey, Series>;
   for (const { key } of RANGES) {

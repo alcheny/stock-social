@@ -318,3 +318,28 @@ for (const timezoneId of ['UTC', 'Pacific/Auckland']) {
     }
   });
 }
+
+// Tester Medium 1: a dense record (4,700 closes, one every 2 hours: most inside every range) stays under the profile's
+// 400 KB budget with the server-packed chart (the compact form, lib/chart-series.ts#compact). Own handle, removed after.
+test('F-23 dense profile: 4,700 closes two hours apart weigh under 400 KB of HTML, and the chart is the compact form', async ({ request }) => {
+  test.setTimeout(120_000);
+  const h = `f23x${tag}`;
+  const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+    insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${h}, ${h}, now(), a.id from a returning id`;
+  try {
+    const t0 = Date.now() - HOUR;
+    const rows = Array.from({ length: 4_700 }, (_, i) => ({
+      user_id: u.id, sell_id: `${h}-${i}`, account_id: 'a', symbol: `X${i % 40}`,
+      opened_at: new Date(t0 - i * 2 * HOUR - DAY), closed_at: new Date(t0 - i * 2 * HOUR),
+      return_pct: (((i * 37) % 200) - 100) / 1000 + 0.000123, holding_days: 1, verified: true, thesis: null, thesis_status: null,
+    }));
+    for (let i = 0; i < rows.length; i += 1_000) await sql`insert into closed_trades ${sql(rows.slice(i, i + 1_000))}`;
+    const html = await (await request.get(`/u/${h}`)).text();
+    const bytes = Buffer.byteLength(html);
+    test.info().annotations.push({ type: 'f23-dense-profile-bytes', description: String(bytes) });
+    expect(bytes).toBeLessThan(400_000);
+    expect(html).toMatch(/\\"sfx\\":1/);
+  } finally {
+    await sql`delete from users where id = ${u.id}`;
+  }
+});

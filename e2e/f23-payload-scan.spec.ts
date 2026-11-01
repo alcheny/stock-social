@@ -59,6 +59,8 @@ const ISO = /\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:?\d\d)?/
 const MIDNIGHT = /T00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?$/;
 const rateOk = (v: number) => Number(v.toFixed(2)) === v;
 const pctOk = (v: number) => wirePct(v) === v;
+// A drawdown prints negated ("max drawdown -99.999%"), so it is rounded as printed: -wirePct(-dd).
+const ddOk = (v: number) => (-wirePct(-v) || 0) === v;
 
 // Next's flight chunks in a page, decoded; the raw page with \" unescaped too.
 const FLIGHT = /self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g;
@@ -112,19 +114,26 @@ function checkPacked(c: Record<string, unknown>, where: string, out: string[]) {
     if (typeof t[0] !== 'string') out.push(`${where}: trade id ${String(t[0])}`);
     if (!pctOk(t[2] as number)) out.push(`${where}: trade ${String(t[0])} return ${String(t[2])}`);
     if (Number((t[3] as number).toFixed(1)) !== t[3]) out.push(`${where}: trade ${String(t[0])} hold ${String(t[3])}`);
-    if (!Number.isInteger(t[5])) out.push(`${where}: trade ${String(t[0])} index ${String(t[5])}`);
+    if (c.sfx ? t.length !== 5 : !Number.isInteger(t[5])) out.push(`${where}: trade ${String(t[0])} index ${String(t[5])}`);
   }
   const stride = c.lite ? 2 : 3;
   for (const [k, r] of Object.entries((c.ranges ?? {}) as Record<string, Record<string, unknown>>)) {
     for (const f of ['t0', 't1']) if (!day5(r[f])) out.push(`${where}: ${k}.${f} ${String(r[f])} is not a 5-digit UTC day`);
-    for (const f of ['last', 'dd', 'min', 'max']) if (!pctOk(r[f] as number)) out.push(`${where}: ${k}.${f} ${String(r[f])}`);
+    for (const f of ['last', 'dd', 'min', 'max']) if (!(f === 'dd' ? ddOk : pctOk)(r[f] as number)) out.push(`${where}: ${k}.${f} ${String(r[f])}`);
     if (!Number.isInteger(r.n)) out.push(`${where}: ${k}.n ${String(r.n)}`);
     const p = r.p as number[];
-    if (p.length % stride) out.push(`${where}: ${k}.p length ${p.length} is not a multiple of ${stride}`);
-    for (let i = 0; i < p.length; i += stride) {
+    // The compact form (c.sfx): ALL as [day, value] pairs, a dated range as its values only.
+    if (c.sfx && k !== 'ALL') {
+      if (p.length !== r.n) out.push(`${where}: ${k}.p has ${p.length} values for ${String(r.n)} closes`);
+      for (const v of p) if (!pctOk(v)) out.push(`${where}: ${k}.p value ${v}`);
+      continue;
+    }
+    const st = c.sfx ? 2 : stride;
+    if (p.length % st) out.push(`${where}: ${k}.p length ${p.length} is not a multiple of ${st}`);
+    for (let i = 0; i < p.length; i += st) {
       if (!Number.isInteger(p[i]) || p[i] < 0) out.push(`${where}: ${k}.p day offset ${p[i]}`);
       if (!pctOk(p[i + 1])) out.push(`${where}: ${k}.p value ${p[i + 1]}`);
-      if (stride === 3 && !Number.isInteger(p[i + 2])) out.push(`${where}: ${k}.p close index ${p[i + 2]}`);
+      if (st === 3 && !Number.isInteger(p[i + 2])) out.push(`${where}: ${k}.p close index ${p[i + 2]}`);
     }
   }
 }
@@ -151,7 +160,7 @@ function walkJson(v: unknown, path: string, out: string[]) {
     if (/^1\d{12}$/.test(String(Math.trunc(Math.abs(v))))) out.push(`${path}: 13-digit epoch ${v}`);
     if (new RegExp(`^(${DATE_KEYS})$`).test(key) && !(Number.isInteger(v) && v < 100_000)) out.push(`${path}: date ${v} is not a UTC day`);
     if (key === 'winRate') { if (!rateOk(v)) out.push(`${path}: winRate ${v}`); }
-    else if (!Number.isInteger(v) && !pctOk(v)) out.push(`${path}: ${v} is finer than printed`);
+    else if (!Number.isInteger(v) && !(key === 'dd' ? ddOk : pctOk)(v)) out.push(`${path}: ${v} is finer than printed`);
   } else if (typeof v === 'string') {
     for (const m of v.matchAll(ISO)) if (!MIDNIGHT.test(m[0])) out.push(`${path}: time ${m[0]}`);
   } else if (Array.isArray(v)) v.forEach((x, i) => walkJson(x, `${path}[${i}]`, out));
@@ -168,7 +177,7 @@ function scan(s: Surface): string[] {
   for (const p of PLANT_DEC) if (text.includes(p)) at(`planted digits ${p}`);
   if (s.fixture) for (const p of [...PLANT_BARE, ...PLANT_TIME]) if (text.includes(p)) at(`planted ${p}: …${text.slice(Math.max(0, text.indexOf(p) - 60), text.indexOf(p) + 30)}…`);
   // (b) named fields
-  for (const m of text.matchAll(new RegExp(`"(${RETURN_KEYS})":(-?[\\d.]+(?:e[+-]?\\d+)?)(?=[,}\\]])`, 'g'))) if (!pctOk(Number(m[2]))) at(`${m[1]}=${m[2]} is finer than printed`);
+  for (const m of text.matchAll(new RegExp(`"(${RETURN_KEYS})":(-?[\\d.]+(?:e[+-]?\\d+)?)(?=[,}\\]])`, 'g'))) if (!(m[1] === 'dd' ? ddOk : pctOk)(Number(m[2]))) at(`${m[1]}=${m[2]} is finer than printed`);
   for (const m of text.matchAll(/"winRate":(-?[\d.]+(?:e[+-]?\d+)?)/g)) if (!rateOk(Number(m[1]))) at(`winRate=${m[1]}`);
   for (const m of text.matchAll(/"(open|unrealized)":\[(-?[\d.e+,-]+)\]/g)) for (const v of m[2].split(',')) if (!pctOk(Number(v))) at(`${m[1]}[] ${v}`);
   for (const m of text.matchAll(new RegExp(`"(${DATE_KEYS})":(\\d+(?:\\.\\d+)?)`, 'g'))) if (Number(m[2]) >= 100_000) at(`${m[1]}=${m[2]} is not a UTC day`);
