@@ -1,7 +1,7 @@
 # F-30 · Same-instant order on date-only stamps: count, never invent a trade
 
-Status: blocked
-Blocked: waits for the owner's yes on cycle-4 owner question Q1(a) (reverses part of the F3-5 committee ruling, `docs/features/logs/fixes-cycle3/committee-2026-11-01.md:40-45`)
+Status: draft
+Blocked: lapsed at approval council cycle 5 (draft); see the dated lapse decision
 Start conditions: the owner answers Q1(a) yes (`docs/direction/cycle4-2026-11-01.md` §7). It shares the matcher slot
 and builder with F-28 (same function, `lib/trades.ts` replay). The rule here reads F-28's pending-cover count as
 evidence, so build it with F-28 or after it.
@@ -41,6 +41,14 @@ with conditions, narrowed by the red team's probe C).
 - 2026-11-01: Sequencing and lapse: blocked until the owner answers Q1(a). It builds with F-28. If the owner has not
   answered by the next approval council (cycle 5), this approval lapses to that council. Why: approved by the approval
   council (cycle 4); lapse rule.
+
+- 2026-11-01: Lapsed at approval council cycle 5: the owner had not answered OD 2.26 (cycle-4 Q1(a)). It was voted
+  again and not re-approved: round-3 mean 2.07 (`docs/ideas/approval-2026-11-01-cycle5.md`). Most of it is on main
+  through #89: with evidence of an earlier oversell, every later sell of the pair is counted (RT's probes). What
+  remains is (1) broker-position evidence, which needs the protected `lib/broker.ts` and stored units, so it goes to the
+  owner; and (2) a counts-only readout row of stamp patterns (suppressed under 5), which goes to the chore lane. A
+  same-day short with no evidence still publishes, as this file accepted. The file and every decision above are kept
+  word for word. Why: approval council cycle 5; lapse rule; RT, TE, EN, VW.
 
 ## Acceptance criteria
 - [ ] Probe C: on 00:00:00Z stamps, a losing long bought and sold the same day with no other evidence stays published
