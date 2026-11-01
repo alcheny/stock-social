@@ -110,3 +110,7 @@ exits 0 with no conflict, with the block after `.rt-card:focus`.
   `funnel_events`, blocked the delete) — fixed: the attempts' `login_links`, `funnel_events` and `connections` rows go
   first, in one transaction. Lows accepted: at 320×420 the disclaimer sits under the bar until the card is scrolled
   (decision 5); no-JS first card under the bar until the first snap (focus never obscured).
+18. 2026-11-01: the profile chart's range buttons get `min-height: 44px; min-width: 44px` at every width (they were
+    35 px tall); six stay on one row at 320 px. Why: decided by the committee under the owner's instruction of
+    2026-11-01; target-size finding from the trust session's 360 px user test, added to this fix set by the
+    orchestrator; POLICY A1 44 px targets. Tested at 320 and 360 (e2e, measured) and pinned in the unit test.

@@ -295,3 +295,9 @@ test('#18 under 420 px the handle link is capped at 18vw and the nav pads 10 px 
   assert.equal(plain('.card header .who', 'min-width'), '0');
   assert.equal(plain('.card header .badge', 'flex-shrink'), '0');
 });
+
+test('Target size: the chart range buttons are at least 44 × 44 px (POLICY A1)', () => {
+  const inBlock = block.filter((r) => r.sels.includes('.tabs button') && r.media.length === 0).flatMap((r) => decls(r.body));
+  assert.deepEqual(inBlock.filter(([k]) => k === 'min-height').map(([, v]) => v), ['44px']);
+  assert.deepEqual(inBlock.filter(([k]) => k === 'min-width').map(([, v]) => v), ['44px']);
+});

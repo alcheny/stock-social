@@ -463,3 +463,25 @@ test('AC18.1 + AC18.2 (signed in, 20-character handle; 320, 360, 390): no sidewa
   await ctx.close();
 });
 
+
+test('Target size: the profile chart\'s range buttons are ≥ 44 × 44 px at 320 and 360 and stay on one row inside the viewport', async ({ browser }) => {
+  for (const width of [320, 360]) {
+    const ctx = await browser.newContext({ viewport: { width, height: 740 }, reducedMotion: 'reduce' });
+    const page = await ctx.newPage();
+    await page.goto(`/u/${trader.handle}`);
+    const tabs = page.locator('.tabs button');
+    await expect(tabs.first()).toBeVisible();
+    const boxes = await tabs.evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return { w: b.width, h: b.height, top: b.top, left: b.left, right: b.right }; }));
+    expect(boxes.length).toBeGreaterThan(1);
+    for (const b of boxes) {
+      expect(b.h, `${width}: height ${b.h}`).toBeGreaterThanOrEqual(44);
+      expect(b.w, `${width}: width ${b.w}`).toBeGreaterThanOrEqual(44);
+      expect(b.left).toBeGreaterThanOrEqual(0);
+      expect(b.right).toBeLessThanOrEqual(width);
+    }
+    expect(new Set(boxes.map((b) => Math.round(b.top))).size, `${width}: one row`).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    test.info().annotations.push({ type: `tabs ${width}`, description: JSON.stringify(boxes.map((b) => [Math.round(b.w), Math.round(b.h)])) });
+    await ctx.close();
+  }
+});

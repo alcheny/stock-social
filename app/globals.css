@@ -539,6 +539,9 @@ body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pa
   body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card { scroll-padding-bottom: 94px; }
   body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card > * { flex-shrink: 0; }
 }
+/* Target size (orchestrator, 2026-11-01; POLICY A1 44 px targets): the chart's range buttons were 35 px tall (6 px
+   padding around one line). 44 px at every width; six of them still share one row at 320 px (each ≥ 44 px wide). */
+.tabs button { min-height: 44px; min-width: 44px; }
 /* #13 (Q4): the three bars' own edge in --control, so each reads as separate from the content under it. */
 .signin-line:not(:empty), .hide-bar p, .nojs-done { border-color: var(--control); }
 /* #18 (WCAG 1.4.10): under 420 px the signed-in handle link is capped at 18vw, so with F-13's "Trades by stock" the nav
