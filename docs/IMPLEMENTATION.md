@@ -1,12 +1,17 @@
 # Implementation process for decided features (draft, being hashed out with the owner)
 
-Status: wired into the pipeline 2026-10-26 (`scripts/team.ts` committee cycle, `team/ux-lead.md`,
-`docs/FEATURES.md`); the decisions below still hold. This file records how a feature that the owner decided in a design session
+Status: wired into the pipeline 2026-10-26 (lane B, `scripts/team.ts` committee cycle, `team/ux-lead.md`,
+`docs/FEATURES.md`); interactive sessions run the same cycle with subagents (`docs/process/lifecycle.md`); the
+decisions below still hold. This file records how a feature that the owner decided in a design session
 (`docs/features/F-<n>-*.md`, Status `ready` or `rework`) is implemented. It takes its shape from the
 autopilot's branch-team process (`docs/AUTOPILOT.md`, `team/README.md`) and replaces the current
 "engineer builds the owner's file as written" step of the feature pipeline (`docs/FEATURES.md`).
 When the owner confirms it, the owner folds it into `docs/FEATURES.md`, `scripts/features.ts` and the
 member specs in `team/` (all owner-only paths).
+
+This file is the single home of the committee cycle, its decisions, the hard stops and the pre-authorization
+requests. Lanes and how they coexist: `docs/process/README.md`; the feature pipeline that runs this cycle in CI:
+`docs/FEATURES.md`.
 
 ## Decisions
 - 2026-10-22: Each ready feature goes through a planning debate before any code: the business lead and
@@ -189,7 +194,7 @@ feature file (ready/rework)
            ⇄ engineer on feasibility, size, market demand   → signed plan (logged)
            + compliance checklist answered (COMPLIANCE.md §1) + pre-authorization requests
    ▼
-2 Build    engineer: tests per acceptance criterion first, then code, on autopilot/feature-<n>
+2 Build    engineer: tests per acceptance criterion first, then code, on feature/f-<n>
    ▼
 3 Verify   deterministic checks (tsc, tests, compliance scanner, guard)
            compliance failure → back to 1 with the failure first
@@ -203,6 +208,10 @@ feature file (ready/rework)
 pass → reviewer's independent check → Gate merges → Status: built → next feature
 fail → demands become round n+1's plan → back to 1 (bounded by FEATURE_MAX_ATTEMPTS, then owner)
 ```
+
+Branch name corrected 2026-11-01 from `autopilot/feature-<n>` to the one the pipeline uses (`scripts/features.ts`
+`branchOf`: `feature/` plus the lowercased id, e.g. `feature/f-1`). Lane-C differences: `docs/process/lifecycle.md`
+→ Stages, 7.
 
 Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `lib/connections.ts`, `lib/trades.ts` or `lib/broker.ts` attaches a `LOAD=1 node --expose-gc --test lib/sync.load.test.ts` run (its `# load:` lines) to its build log.
 
@@ -224,5 +233,6 @@ Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `li
   then the PR's fix attempts (`FEATURE_MAX_ATTEMPTS`, 15, each with a larger budget) before the owner is asked.
 - Does the business lead's "market demand" debate apply to a feature the owner already decided, or
   only to how it is implemented (recommendation: only how; demand was settled in the design session)?
-- How the process is run: extend `scripts/features.ts` and `scripts/team.ts` (owner-only files) or a
-  new script; either way the owner makes the change.
+- ~~How the process is run: extend `scripts/features.ts` and `scripts/team.ts` (owner-only files) or a
+  new script; either way the owner makes the change.~~ Answered 2026-10-26: the owner extended `scripts/features.ts`
+  and `scripts/team.ts` (pre-authorization request 12, done).
