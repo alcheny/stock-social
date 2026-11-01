@@ -32,6 +32,16 @@ test('health threshold: the documented 5-minute cron reads degraded after MISSIN
   assert.equal(healthStatus({ dbOk: true, last: at(ROUND_MS + 60_000), stalest: null }, now, hourly).status, 'ok');
   assert.equal(healthStatus({ dbOk: true, last: at(ROUND_MS + MISSING_SHARD_MS + 60_000), stalest: null }, now, hourly).status, 'degraded');
   assert.equal(healthStatus({ dbOk: true, last: null, stalest: null }, now, hourly).thresholdHours, 1.25);
+  // Every interval below a round holds between ticks, a skipped tick included (orchestrator review of #78).
+  for (const [min, want] of [[10, 25], [15, 37.5], [20, 50], [30, 75], [45, 112.5]] as const) {
+    const t = thresholdFor(cronTickMs({ SYNC_CRON_EVERY_MIN: String(min) }));
+    assert.equal(t, want * 60_000, `${min} min`);
+    assert.ok(t >= MISSING_SHARD_MS);
+    assert.equal(healthStatus({ dbOk: true, last: at(min * 60_000), stalest: null }, now, t).status, 'ok', `${min}: one tick`);
+    assert.equal(healthStatus({ dbOk: true, last: at(2 * min * 60_000), stalest: null }, now, t).status, 'ok', `${min}: a skipped tick`);
+    assert.equal(healthStatus({ dbOk: true, last: at(t + 60_000), stalest: null }, now, t).status, 'degraded', `${min}: stalled`);
+  }
+  assert.equal(thresholdFor(ROUND_MS * 2), ROUND_MS + MISSING_SHARD_MS);
   // Unparsable values fall back to the documented schedule; the process default is that schedule.
   for (const v of ['', 'x', '0', '-5', '1.5', '100000']) assert.equal(cronTickMs({ SYNC_CRON_EVERY_MIN: v }), DOCUMENTED_TICK_MS, v);
   assert.equal(THRESHOLD_MS, thresholdFor(cronTickMs()));

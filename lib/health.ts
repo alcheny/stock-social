@@ -11,9 +11,14 @@ import { MISSING_SHARD_MS } from './sync-shard.ts';
 import { cronAuthorized } from './cron-auth.ts';
 
 export const DOCUMENTED_TICK_MS = 5 * 60_000; // docs/SYNC.md's schedule
-export const LONGEST_GAP_MS = 2 * DOCUMENTED_TICK_MS; // the :30 tick is skipped
+export const LONGEST_GAP_FACTOR = 2; // one tick may be skipped (the documented schedule skips :30)
+export const LONGEST_GAP_MS = LONGEST_GAP_FACTOR * DOCUMENTED_TICK_MS;
+// Below a round: the longest healthy gap is two ticks (one skipped, as the :30 tick is), plus half a tick for a run
+// that starts late, and never less than the coverage line's MISSING_SHARD_MS (5 min → 15 min, 10 → 25, 20 → 50,
+// 30 → 75). Hourly or slower: a whole round plus that margin.
 export function thresholdFor(tickMs: number): number {
-  return tickMs >= ROUND_MS ? ROUND_MS + MISSING_SHARD_MS : MISSING_SHARD_MS;
+  if (tickMs >= ROUND_MS) return ROUND_MS + MISSING_SHARD_MS;
+  return Math.max(MISSING_SHARD_MS, LONGEST_GAP_FACTOR * tickMs + tickMs / 2);
 }
 // The deploy's cron interval in minutes (default: the documented 5). Anything unparsable falls back to the default.
 export function cronTickMs(env: Record<string, string | undefined> = process.env): number {
