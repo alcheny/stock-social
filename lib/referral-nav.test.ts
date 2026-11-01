@@ -8,8 +8,15 @@ import { ctaVia, legacyVia, normalizeVia } from './referral.ts';
 test('via=nav is accepted, not folded into profile', () => {
   assert.equal(normalizeVia('nav'), 'nav');
   assert.equal(normalizeVia(' NAV '), 'nav');
-  assert.equal(ctaVia('nav'), 'nav');
   assert.equal(legacyVia(normalizeVia('nav')), null); // the legacy column's CHECK only allows profile and trade
+});
+
+test('a join button never takes the nav surface: ?via=nav on a profile stays the profile\'s own', () => {
+  assert.equal(ctaVia('nav'), 'profile');
+  assert.equal(ctaVia(' NAV '), 'profile');
+  assert.equal(ctaVia('trade'), 'trade');
+  assert.equal(ctaVia('month'), 'month');
+  assert.equal(ctaVia('bogus'), 'profile');
 });
 
 test('the nav link sends exactly the value the allow-list accepts', () => {
