@@ -238,20 +238,99 @@ export async function replaceOptionPositions(tx: TransactionSql, userId: number,
   let short = 0, unsupported = 0;
   let other = 0;
   for (const [accountId, s] of splits) { for (const o of s.options) rows.push({ ...o, accountId }); short += s.short; unsupported += s.unsupported; other += s.optionOther ?? 0; }
+  // F-14: the same counts per account (users.open_options_by_account), so the cadence sync can replace one account's.
+  const byAccount = tx.json(splitCounts(splits) as never);
   if (accounts === null) {
     await tx`delete from open_option_positions where user_id = ${userId}`;
-    await tx`update users set open_options_short = ${short}, open_unsupported = ${unsupported}, open_options_other = ${other} where id = ${userId}`;
+    await tx`update users set open_options_short = ${short}, open_unsupported = ${unsupported}, open_options_other = ${other},
+      open_options_by_account = ${byAccount} where id = ${userId}`;
   } else {
     if (!accounts.length) return;
     await tx`delete from open_option_positions where user_id = ${userId} and account_id in ${tx(accounts)}`;
     await tx`update users set open_options_short = open_options_short + ${short}, open_unsupported = open_unsupported + ${unsupported},
-      open_options_other = open_options_other + ${other} where id = ${userId}`;
+      open_options_other = open_options_other + ${other},
+      open_options_by_account = case when open_options_by_account is null then null else open_options_by_account || ${byAccount} end where id = ${userId}`;
   }
   if (rows.length) {
     await tx`insert into open_option_positions ${tx(rows.map((p) => ({ user_id: userId, account_id: p.accountId, position_key: p.positionKey, underlying: p.underlying,
       option_right: p.right, option_expiry: p.expiry, unrealized_pct: p.unrealizedPct })))} on conflict do nothing`;
   }
   await purgeOccPositions(tx, userId);
+}
+
+// F-14 sync cadence (lib/sync.ts, `cadence`): positions are read per account on their own clock, so one sync may read
+// some accounts and not others. Each read account's option positions and counts are replaced, those of accounts no
+// longer real are dropped, and the others stay as last read; the user's totals are the sum of the per-account counts.
+type SplitCount = { short: number; unsupported: number; other: number };
+function splitCounts(splits: Map<string, PositionSplit>): Record<string, SplitCount> {
+  const out: Record<string, SplitCount> = {};
+  for (const [accountId, s] of splits) out[accountId] = { short: s.short, unsupported: s.unsupported, other: s.optionOther ?? 0 };
+  return out;
+}
+export async function replaceAccountOptionPositions(tx: TransactionSql, userId: number, real: string[], read: string[], splits: Map<string, PositionSplit>) {
+  const [u] = await tx`select open_options_by_account as m from users where id = ${userId}`;
+  const prev = (u?.m ?? null) as Record<string, SplitCount> | null;
+  // Every real account read now (always so on the first cadence sync: no account has a positions read yet): the
+  // user-wide replace, which also starts the per-account counts.
+  if (real.every((id) => read.includes(id))) {
+    const all = new Map<string, PositionSplit>();
+    for (const id of real) all.set(id, splits.get(id) ?? { options: [], short: 0, unsupported: 0 });
+    return replaceOptionPositions(tx, userId, null, all);
+  }
+  // ponytail: a record whose per-account counts were never started keeps its totals and option positions until all its
+  // accounts are read in one sync — unreachable in practice, since its first cadence sync reads every account.
+  if (prev === null) return;
+  const held = (await tx`select distinct account_id from open_option_positions where user_id = ${userId}`).map((r) => r.account_id as string);
+  const gone = [...new Set([...held, ...Object.keys(prev)])].filter((id) => !real.includes(id));
+  const replaced = [...new Set([...read, ...gone])];
+  if (!replaced.length) return;
+  const next: Record<string, SplitCount> = {};
+  for (const [id, c] of Object.entries(prev)) if (!replaced.includes(id)) next[id] = c;
+  const counts = splitCounts(splits);
+  for (const id of read) next[id] = counts[id] ?? { short: 0, unsupported: 0, other: 0 };
+  const sum = (k: keyof SplitCount) => Object.values(next).reduce((n, c) => n + c[k], 0);
+  await tx`delete from open_option_positions where user_id = ${userId} and account_id in ${tx(replaced)}`;
+  await tx`update users set open_options_short = ${sum('short')}, open_unsupported = ${sum('unsupported')}, open_options_other = ${sum('other')},
+    open_options_by_account = ${tx.json(next as never)} where id = ${userId}`;
+  const rows: (OptionPosition & { accountId: string })[] = [];
+  for (const id of read) for (const o of splits.get(id)?.options ?? []) rows.push({ ...o, accountId: id });
+  if (rows.length) {
+    await tx`insert into open_option_positions ${tx(rows.map((p) => ({ user_id: userId, account_id: p.accountId, position_key: p.positionKey, underlying: p.underlying,
+      option_right: p.right, option_expiry: p.expiry, unrealized_pct: p.unrealizedPct })))} on conflict do nothing`;
+  }
+  await purgeOccPositions(tx, userId);
+}
+
+// Fixes cycle 3, F3-4 (merge with options): positions are replaced per account read, never per user. A sync reads every
+// account the vendor lists; the option rows of the trader's other accounts (one no longer listed, frozen or simulated)
+// move here first, kept with their read time and rendered nowhere until the owner decides OD-9 (Q2), like
+// lib/positions.ts#replaceListedPositions. A relisted account's private rows go (its fresh ones replace them).
+export async function moveUnlistedOptionPositions(tx: TransactionSql, userId: number, listed: string[]) {
+  const ids = tx(listed.length ? listed : ['']);
+  await tx`with moved as (delete from open_option_positions where user_id = ${userId} and account_id not in ${ids}
+      returning user_id, account_id, position_key, underlying, option_right, option_expiry, unrealized_pct, fetched_at)
+    insert into unlisted_option_positions (user_id, account_id, position_key, underlying, option_right, option_expiry, unrealized_pct, fetched_at)
+    select * from moved
+    on conflict (user_id, account_id, position_key) do update set underlying = excluded.underlying, option_right = excluded.option_right,
+      option_expiry = excluded.option_expiry, unrealized_pct = excluded.unrealized_pct, fetched_at = excluded.fetched_at, unlisted_at = now()`;
+  if (listed.length) await tx`delete from unlisted_option_positions where user_id = ${userId} and account_id in ${ids}`;
+}
+
+// F3-4: an import step's option positions. Only the accounts it read are replaced, so an earlier connection's positions
+// and counts stay. `accounts` are this connection's real accounts; the trader's other known accounts (held rows and
+// per-account counts) are passed to replaceAccountOptionPositions as still real, so none of them is dropped. A record
+// with nothing stored yet starts its per-account counts here.
+// ponytail: a record with option positions or counts from before users.open_options_by_account keeps them as they are,
+// and a second connection's import writes none of its own, until a sync reads every account — fix: backfill the
+// per-account counts once from a full positions read.
+export async function replaceImportedOptionPositions(tx: TransactionSql, userId: number, accounts: string[], read: string[], splits: Map<string, PositionSplit>) {
+  await tx`update users u set open_options_by_account = '{}'::jsonb where u.id = ${userId} and u.open_options_by_account is null
+    and u.open_options_short = 0 and u.open_unsupported = 0 and u.open_options_other = 0
+    and not exists (select 1 from open_option_positions p where p.user_id = u.id)`;
+  const [u] = await tx`select open_options_by_account as m from users where id = ${userId}`;
+  const held = (await tx`select distinct account_id from open_option_positions where user_id = ${userId}`).map((r) => r.account_id as string);
+  const known = [...new Set([...accounts, ...held, ...Object.keys((u?.m ?? {}) as Record<string, unknown>)])];
+  await replaceAccountOptionPositions(tx, userId, known, read, splits);
 }
 
 /** D7 (E1): removes open_positions rows whose symbol is an OCC contract (it carries the strike). Runs after each

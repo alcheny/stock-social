@@ -10,9 +10,9 @@ import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, USER_LOCK } from './sync.ts';
 import { insertCorporateActions } from './corporate-actions.ts';
-import { replaceAccountPositions, replacePositions } from './positions.ts';
+import { replaceAccountPositions } from './positions.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D5, D7): option rows, the record rebuild and the consent line's hash.
-import { insertOptionActivities, rebuildRecord, replaceOptionPositions } from './options-sync.ts';
+import { insertOptionActivities, rebuildRecord, replaceImportedOptionPositions } from './options-sync.ts';
 import { CURRENT_CONSENT_HASH } from './consent-versions.ts';
 import type { OptionRow } from './options.ts';
 import { ownsAttempt } from './auth/links.ts';
@@ -575,6 +575,7 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         const options: (OptionRow & { raw: unknown })[] = []; // OPTIONS
         const page = await deps.fetchActivitiesPage(bu, real[cur.i].id, cur.offset, limit, (rows) => { options.push(...rows); });
         await insertActivities(c.user_id!, 'snaptrade', page.activities, tx);
+        await insertCorporateActions(tx, c.user_id!, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
         await insertOptionActivities(c.user_id!, 'snaptrade', options, tx); // OPTIONS
         return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
       }
@@ -601,9 +602,9 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
           for (const p of await deps.fetchPositions(bu, id, (s) => { splits.set(id, s); })) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
           read.push(id);
         }
-        if (first) await replacePositions(tx, c.user_id!, positions);
-        else await replaceAccountPositions(tx, c.user_id!, read, positions);
-        await replaceOptionPositions(tx, c.user_id!, first ? null : read, splits); // OPTIONS (D7)
+        // F3-4: per account read, so an import never deletes an earlier connection's positions (options too).
+        await replaceAccountPositions(tx, c.user_id!, read, positions);
+        await replaceImportedOptionPositions(tx, c.user_id!, real.map((a) => a.id), read, splits); // OPTIONS (D7), per account read (F3-4)
         const { pos: _pos, ...rest } = cur;
         return save({ ...rest, rebuilt: true, ...(k < real.length ? { pos: k } : {}) }, true);
       }

@@ -28,6 +28,13 @@ export async function run(args: string[], out: (line: string) => void = console.
         await rebuildRecord(userId, tx);
         await tx`delete from open_positions p using shared_account_marks m
           where p.user_id = ${userId} and m.user_id = p.user_id and m.account_id = p.account_id`;
+        await tx`delete from unlisted_positions p using shared_account_marks m
+          where p.user_id = ${userId} and m.user_id = p.user_id and m.account_id = p.account_id`;
+        // The option positions of a marked account leave the profile too (merge of fixes cycle 3 with options).
+        await tx`delete from open_option_positions p using shared_account_marks m
+          where p.user_id = ${userId} and m.user_id = p.user_id and m.account_id = p.account_id`;
+        await tx`delete from unlisted_option_positions p using shared_account_marks m
+          where p.user_id = ${userId} and m.user_id = p.user_id and m.account_id = p.account_id`;
       });
       n++;
     }

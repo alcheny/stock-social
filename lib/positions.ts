@@ -1,12 +1,23 @@
-// Open positions (TR-4): derived vendor data like closed_trades, replaced as a set at the end of an import and on every
-// sync, inside the caller's transaction. Symbol and unrealized percent only; never units, prices or amounts.
+// Open positions (TR-4): derived vendor data like closed_trades, replaced per account read at the end of an import and on
+// every sync, inside the caller's transaction. Symbol and unrealized percent only; never units, prices or amounts.
 import type { TransactionSql } from 'postgres';
 
 export type OpenPosition = { accountId: string; symbol: string; unrealizedPct: number };
 
-export async function replacePositions(tx: TransactionSql, userId: number, positions: OpenPosition[]) {
-  await tx`delete from open_positions where user_id = ${userId}`;
-  if (positions.length) await tx`insert into open_positions ${tx(positions.map((p) => ({ user_id: userId, account_id: p.accountId, symbol: p.symbol, unrealized_pct: p.unrealizedPct })))} on conflict do nothing`;
+// F3-4 (cycle 3): a sync's positions read, per account, never per user. The accounts read get their rows replaced; the
+// rows of the trader's other accounts (one the vendor stopped listing, a frozen or simulated one) move to
+// unlisted_positions with their read time, kept and rendered nowhere until the owner decides OD-9 (Q2). So every reader
+// of open_positions still shows only the accounts the latest read listed, and no position is deleted by a sync.
+// One exception, on purpose: a list with no consented account returns before positions are read (lib/sync.ts#syncUser),
+// so one possibly faulty empty answer changes no display; the F3-3 freeze rule treats it the same way.
+export async function replaceListedPositions(tx: TransactionSql, userId: number, accountIds: string[], positions: OpenPosition[]) {
+  const read = tx(accountIds.length ? accountIds : ['']);
+  await tx`with moved as (delete from open_positions where user_id = ${userId} and account_id not in ${read}
+      returning user_id, account_id, symbol, unrealized_pct, fetched_at)
+    insert into unlisted_positions (user_id, account_id, symbol, unrealized_pct, fetched_at) select * from moved
+    on conflict (user_id, account_id, symbol) do update set unrealized_pct = excluded.unrealized_pct, fetched_at = excluded.fetched_at, unlisted_at = now()`;
+  if (accountIds.length) await tx`delete from unlisted_positions where user_id = ${userId} and account_id in ${read}`;
+  await replaceAccountPositions(tx, userId, accountIds, positions);
 }
 // F-1 PR-3 fix round 6: an import step that read only some accounts' positions (its time ran out) adds the rest on the
 // next step: those accounts' rows are replaced, the others' kept.
