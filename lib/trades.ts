@@ -349,7 +349,11 @@ export function rangeReturn(trades: { returnPct: number; closedAt: Date }[], key
 }
 
 // ---- TR-9: how much evidence stands behind the average return (DESIGN Stage 5.2) ----
-// ponytail: open positions (TR-4) are deferred; closed trades only until that data exists.
+// ponytail: the interval reads closed trades only; open positions (TR-4, stored by F-6 in open_positions) are not bets
+// here yet — fix: count each open position as a provisional bet at its unrealized percent.
+// ponytail: bets are clustered by symbol, so a position renamed by a corporate action (lib/corporate-actions.ts) whose
+// closes straddle the rename counts as two bets (at most one extra per rename: it can move the 5-bet floor and the
+// degrees of freedom) — fix: a chain key per closed trade (a closed_trades column set by the rebuild).
 
 export type ConfidenceInput = Pick<ClosedTrade, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct' | 'holdingDays'>;
 export type Tier = 'too-early' | 'thin' | 'moderate' | 'strong';

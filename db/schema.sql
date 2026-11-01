@@ -118,7 +118,8 @@ create table if not exists broker_accounts (
 );
 select schema_add_index('broker_accounts_user', 'create index broker_accounts_user on broker_accounts (user_id)');
 -- Backfill: existing real data is claimed by its earliest user.
--- ponytail: if two users already share an account (the exploit) their rows stay; cleanup is a follow-up.
+-- ponytail: if two users already share an account (the exploit) their rows stay, both records showing the same trades —
+-- fix: a one-off cleanup that keeps the earliest claimant's rows and deletes the other user's activities for that account.
 -- Already-claimed accounts are filtered in the same snapshot as the activities: a user deleted (with its claims and
 -- activities) by a concurrent transaction is then never re-inserted and failed on the users FK (fix round 2, PR-2a).
 -- CI review (2026-11-01, privacy PR): a users row deleted by another session between this snapshot and the insert's
@@ -437,7 +438,8 @@ select schema_add_index('open_positions_symbol', 'create index open_positions_sy
 -- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md): the vendor's split,
 -- stock-dividend, symbol-change and other share-moving rows, raw and immutable like `activities`, mapped by
 -- lib/corporate-actions.ts#fromVendorRows. The rebuild applies them to the FIFO lots (lib/trades.ts#matchTrades).
--- Deleted with the profile (cascade). ponytail: filled once lib/broker.ts passes these rows through (owner change).
+-- Deleted with the profile (cascade).
+-- ponytail: empty in production until lib/broker.ts passes these rows through — fix: the owner's broker.ts change (PR #40).
 create table if not exists corporate_actions (
   id bigint generated always as identity primary key,
   user_id int not null references users on delete cascade,

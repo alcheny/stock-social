@@ -261,7 +261,7 @@ export const syncDeadline = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S 
 // leaves the others unclaimed (counted in the log) for the next call, which starts with the whole budget. n is capped at
 // SYNC_FIT_CAP, the most a whole call fits, so a trader with more accounts is still claimed, at the start of a call.
 // ponytail: past SYNC_FIT_CAP accounts (or an activity read over one vendor page per account) a sync can still overrun;
-// it then rolls back and its lease lapses, as before. Next step: split the sync per account like the import.
+// it then rolls back and its lease lapses, as before — fix: split the sync per account like the import.
 export const syncRouteEnd = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000;
 export const syncCost = (accounts: number) => (1 + 2 * accounts) * VENDOR_TIMEOUT_MS;
 export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / 2);

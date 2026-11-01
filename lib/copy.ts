@@ -61,6 +61,8 @@ export const PROFILE = {
   excludedPositions: (n: number) => `${counted(n, 'earlier position')} excluded: no matching entry in the imported history.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
   // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
+  // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
+  // excluded_corporate to the session user row (lib/session.ts, protected) and a line there.
   excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a stock split or other corporate action the importer can't price exactly.`,
 } as const;
 

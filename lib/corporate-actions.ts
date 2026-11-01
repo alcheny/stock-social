@@ -3,9 +3,10 @@
 // (lib/trades.ts#matchTrades) applies these to its lots; anything it cannot price exactly is excluded and counted,
 // never guessed. Decisions and their reasons: docs/features/logs/corporate-actions/committee-2026-11-01.md.
 //
-// ponytail: lib/broker.ts (protected) asks the vendor for BUY and SELL rows only, so in production no corporate-action
-// row reaches the app yet. `fromVendorRows` is the transformation the owner's broker.ts change would call on the
-// vendor's raw activity rows; until then only the matcher's oversell safety net protects records from unrecorded splits.
+// ponytail: no corporate-action row reaches the app yet (lib/broker.ts, protected, requests BUY and SELL rows only), so an
+// unrecorded split followed by a partial sale is still shown with a wrong return; only an oversell is caught — fix: the
+// owner's broker.ts change (request the share-moving types, pass them through `fromVendorRows`, store them with
+// `insertCorporateActions`, return position units for reconciliation; docs/features/logs/corporate-actions/).
 
 import type { PendingQuery, Row as PgRow, Sql, TransactionSql } from 'postgres';
 import type { Activity } from './trades.ts';
@@ -30,6 +31,9 @@ export type CorporateAction =
 export const RATIO_TOLERANCE = 1e-6;
 // A sell this soon before a repricing action may have traded at post-action prices against unadjusted lots (brokers
 // often post the action row days after the effective date): it is excluded and counted.
+// ponytail: the window is a fixed 14 calendar days and the action's own day is excluded too, so a trader who trades a stock
+// in the two weeks before a split loses those trades from the record (counted) — fix: the vendor's ex-date and
+// payable-date fields, when available, instead of one row date.
 export const LATE_POSTING_DAYS = 14;
 
 const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
@@ -37,6 +41,8 @@ const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 // The ratios a split may resolve to: n:1 and 1:n up to 100, and anything with both sides up to 10 (3:2, 5:4, 2:3...).
 // A stock dividend may be a whole percent, 1% to 100% (5% is 21:20): a finer grid would let almost any share count
 // fit some ratio (tester round 1).
+// ponytail: from units alone, ratios off this grid (a 2.5% dividend, 11:10) and most cash-in-lieu events are unpriceable
+// (excluded and counted) — fix: the vendor's stated ratio (parseRatio/parsePercent) or a corporate-actions data source.
 export function candidateRatios(kind: 'split' | 'stock-dividend'): Ratio[] {
   const out: Ratio[] = [];
   const add = (p: number, q: number) => { const g = gcd(p, q); if (p !== q) out.push({ p: p / g, q: q / g }); };
@@ -53,6 +59,9 @@ const CANDIDATES = { split: candidateRatios('split'), 'stock-dividend': candidat
 // 2.5% stock dividend) lives in. A units-only resolution must have no rival here either (tester round 2), so an event
 // whose true ratio is off the candidate grid never resolves to the nearest grid ratio.
 const DENSE: Ratio[] = [];
+// ponytail: rivals are searched up to 100:100 only, so a true ratio with a side above 100 (57:113, 101:1) can still resolve
+// to a nearby grid ratio (QA round 3: 14,470 of 8.05M generated cases, none a real split) — fix: widen DENSE if real
+// data shows such ratios.
 for (let p = 1; p <= 100; p++) for (let q = 1; q <= 100; q++) if (p !== q && gcd(p, q) === 1) DENSE.push({ p, q });
 
 // "2 FOR 1" or "1-for-10" in a vendor description. Null when absent or not a ratio of positive integers. A bare "n:m"
@@ -136,6 +145,8 @@ export type VendorRow = {
   description?: string | null; symbol?: { symbol?: string } | null; option_symbol?: unknown;
 };
 
+// ponytail: a spin-off is recognised only by "spin-off" in the description and taints the whole account (the parent is
+// rarely named) — fix: a vendor field naming the parent and its basis allocation percent.
 const SPIN = /spin[\s-]?off/i;
 // Vendor types that can move shares without a trade. BUY and SELL stay with lib/broker.ts.
 const SHARE_TYPES = new Set(['SPLIT', 'STOCK_DIVIDEND', 'REI', 'ADJUSTMENT', 'TRANSFER', 'EXTERNAL_ASSET_TRANSFER_IN', 'EXTERNAL_ASSET_TRANSFER_OUT']);
@@ -247,7 +258,8 @@ function detailOf(a: CorporateAction & { raw?: unknown }): Record<string, unknow
 }
 
 // Idempotent like insertActivities: a row already stored (same source and vendor id) is left as it was.
-// ponytail: not called by the sync yet; the owner's broker.ts change wires it in (see the header).
+// ponytail: not called by the sync or the import yet, so the table stays empty in production — fix: call it next to
+// insertActivities once the owner's broker.ts change returns actions (see the header).
 export async function insertCorporateActions(db: Db, userId: number, source: 'snaptrade' | 'demo', actions: (CorporateAction & { raw: unknown })[]) {
   for (let i = 0; i < actions.length; i += 1000) {
     const rows = actions.slice(i, i + 1000).map((a) => ({
