@@ -106,7 +106,7 @@ A found close renders like any close (profile, trade page, feed/swipe card, shar
 |---|---|---|
 | AC1 | `lib/sync-reconcile.db.test.ts` (vendor fake over HTTP via an in-process broker using its paged endpoint) | A SELL (a loss) dated 10 days before the newest stored trade is missed by the week read, lands in `closed_trades` after the pass, counts in stats and the signed-out profile; a second pass inserts 0 rows. |
 | AC2 | same | `activities` snapshot (all columns, `xmin`) identical before/after for every prior row; only new rows added. |
-| AC3 | same | 7 days × 24 rounds with F-24 on vs off: identical vendor activities-endpoint counts per account (≤ 1/24 h); a 3-page pass: offset null → 950 → 1900 → null, a week read between pages; a rolled-back page day and a `RouteDeadlineError` cut leave the cursor and marks unchanged. |
+| AC3 | same | 7 days × 24 rounds with F-24 on vs off: identical vendor activities-endpoint counts per account (≤ 1/24 h); a 3-page pass: offset null → (limit − 50) → 2 × (limit − 50) → null, a week read between pages; a rolled-back page day and a `RouteDeadlineError` cut leave the cursor and marks unchanged. |
 | AC4 | same | frozen, unlisted, paper and unconsented accounts with a due pass: 0 page calls over a week. |
 | AC5 | `lib/sync-reconcile.log.test.ts` | a late BUY re-prices a shown close: `changed = 1`, `closes_rewritten` + 1, exact log shape; a paper flip removes closes: `removed`; an add-only rebuild writes nothing; non-cadence path covered. |
 | AC6 | `lib/sync-reconcile.reissue.test.ts` | re-issue (E absent from a complete pass) → suspected, one close; genuine (both listed) → two closes; boundary (E page 1, N page 2) → genuine; week read → held, never shown twice; overlap break → no decision. |

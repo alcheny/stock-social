@@ -64,7 +64,8 @@ export async function plannedPages(tx: TransactionSql, userId: number, ids: stri
   for (const r of rows) {
     const running = r.reconcile_offset !== null;
     const started = r.reconcile_started_at;
-    if (running && Number(r.failures) >= RECONCILE_MAX_FAILURES) {
+    // A first page that keeps failing rolls its own start back (the offset stays null), so a due account counts too.
+    if ((running || r.due) && Number(r.failures) >= RECONCILE_MAX_FAILURES) {
       await giveUp(tx, userId, r.account_id, t, 'failures');
       await tx`update sync_read_marks set reconcile_failures = 0 where user_id = ${userId} and account_id = ${r.account_id}`;
       continue; // the week is read instead
