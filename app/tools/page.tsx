@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { access, billingAvailable, isPlan, testMode, type Access } from '@/lib/billing.ts';
+import { access, billingAvailable, checkoutOpen, isPlan, testMode, type Access } from '@/lib/billing.ts';
+import { gateState } from '@/lib/launch-gate.ts';
 import { compareCards, followOptions, getView, listNotes, listViews, MAX_TRADERS, MAX_VIEWS, removedNotice, type Card, type View } from '@/lib/record-tools.ts';
 import { BILLING, RECORD_TOOLS } from '@/lib/copy.ts';
 import { Badge } from '../ui.tsx';
@@ -50,7 +51,9 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
   const me = await currentUser();
   const now = new Date();
   const a: Access = await access(me?.id, now);
-  const billing = billingAvailable();
+  // The launch gate: while sign-up is closed only an allowlisted account sees the Subscribe screen (lib/launch-gate.ts).
+  const billing = (me ? await checkoutOpen(me.id) : gateState() !== 'closed') ? billingAvailable() : null;
+  const closed = !!billingAvailable() && !billing;
   const entitled = a.kind === 'trader' || a.kind === 'subscriber';
   const views = me ? await listViews(me.id) : [];
   const notes = me ? await listNotes(me.id) : [];
@@ -71,7 +74,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
         {!billing && <p>{RECORD_TOOLS.what}</p>}
         {billing
           ? <SubscribeBlock signedIn={!!me} testMode={testMode(billing)} error={me ? sp.e ?? null : null} chosen={isPlan(sp.p) ? sp.p : null} now={now} />
-          : <p className="muted">{BILLING.unavailable}</p>}
+          : <p className="muted">{closed ? BILLING.notOpen : BILLING.unavailable}</p>}
       </main>
     );
   }

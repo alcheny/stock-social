@@ -13,6 +13,8 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from './db.ts';
 import { BILLING } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
+import { connectAllowed } from './privacy-gate-data.ts';
+import { logSafe } from './privacy-log.ts';
 
 export type Plan = 'monthly' | 'annual';
 export const PLANS: Record<Plan, { cents: number; label: string; interval: 'month' | 'year' }> = {
@@ -57,7 +59,8 @@ export function billingConfig(env: Record<string, string | undefined> = process.
 // Pages call this: never throws, so a misconfigured key shows "not available" instead of a crash (the error is logged
 // without the key).
 export function billingAvailable(): BillingConfig | null {
-  try { return billingConfig(); } catch (e) { console.error('billing disabled:', (e as Error).message); return null; }
+  // Logged as the error's class only (BillingConfigError), never the key.
+  try { return billingConfig(); } catch (e) { console.error('billing disabled', logSafe(e)); return null; }
 }
 export const testMode = (c: BillingConfig | null) => !!c && !c.live;
 
@@ -156,8 +159,15 @@ export function disclosureText(plan: Plan, now: Date): string {
 export const disclosureHash = (text: string) => createHash('sha256').update(`${DISCLOSURE_VERSION}\n${text}`).digest('hex');
 
 export class CheckoutRefused extends Error {
-  reason: 'trader' | 'subscribed' | 'consent';
-  constructor(reason: 'trader' | 'subscribed' | 'consent') { super(`checkout refused: ${reason}`); this.reason = reason; }
+  reason: 'trader' | 'subscribed' | 'consent' | 'closed';
+  constructor(reason: 'trader' | 'subscribed' | 'consent' | 'closed') { super(`checkout refused: ${reason}`); this.reason = reason; }
+}
+
+// The launch gate (lib/launch-gate.ts): while sign-up is closed, only an allowlisted account may check out, exactly as
+// for a broker connection (privacy work, 2026-11-01; POLICY P6).
+export async function checkoutOpen(userId: number): Promise<boolean> {
+  const [u] = await sql`select id, handle from users where id = ${userId} and deleted_at is null`;
+  return !!u && connectAllowed({ id: u.id as number, handle: u.handle as string });
 }
 
 // D10: return URLs come from the configured site URL, never a request's Host header.
@@ -171,6 +181,7 @@ export function siteOrigin(env: Record<string, string | undefined> = process.env
 export async function startCheckout(i: { userId: number; plan: Plan; agreed: boolean; disclosure: string; origin: string }): Promise<string> {
   const c = cfg();
   if (!i.agreed) throw new CheckoutRefused('consent');
+  if (!(await checkoutOpen(i.userId))) throw new CheckoutRefused('closed');
   if (await isTrader(i.userId)) throw new CheckoutRefused('trader');
   const [live] = await sql`select 1 from subscriptions where user_id = ${i.userId} and status in ('trialing', 'active', 'past_due', 'incomplete')`;
   if (live) throw new CheckoutRefused('subscribed');
@@ -293,12 +304,12 @@ export async function handleWebhook(raw: string, signature: string | null): Prom
     // D7: an event naming a customer or price this app does not know will not change on retry: stored, flagged, 200.
     if (e instanceof ApplyError && PERMANENT.has(e.code)) {
       await sql`update billing_events set processed_at = now(), error_code = ${e.code}, flagged = true where vendor_event_id = ${ev.id}`;
-      console.error('billing webhook flagged', ev.id, e.code);
+      console.error('billing webhook flagged', ev.id, logSafe(e)); // the code is stored on the event row
       return { status: 200, outcome: 'processed' };
     }
     const code = e instanceof VendorError ? `vendor_${e.status}` : e instanceof ApplyError ? e.code : 'internal';
     await sql`update billing_events set error_code = ${code}, claimed_at = null where vendor_event_id = ${ev.id}`;
-    console.error('billing webhook failed', ev.id, code);
+    console.error('billing webhook failed', ev.id, logSafe(e));
     return { status: 500, outcome: 'failed' };
   }
 }
@@ -544,7 +555,7 @@ export async function reconcile(): Promise<ReconcileReport> {
   if (ids.length) r.tradersCanceled = (await sql`select count(*)::int as n from subscriptions where vendor_subscription_id in ${sql(ids)} and status = 'canceled'`)[0].n;
   r.eventsPurged = (await sql`delete from billing_events where received_at < now() - ${EVENT_RETENTION_DAYS} * interval '1 day'`).count;
   r.consentsPurged = (await sql`delete from billing_consents where user_id is null and retain_until < now()`).count;
-  console.log('billing reconcile', JSON.stringify(r));
+  console.log('billing reconcile', JSON.stringify({ checked: r.checked, mismatches: r.mismatches, missing: r.missing, failed: r.failed, graceExpired: r.graceExpired, tradersCanceled: r.tradersCanceled, eventsPurged: r.eventsPurged, consentsPurged: r.consentsPurged }));
   return r;
 }
 

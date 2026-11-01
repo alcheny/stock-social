@@ -7,6 +7,6 @@ import { siteOrigin } from '@/lib/billing.ts';
 // request: no open redirect), read once by the sign-in landing.
 export function GET() {
   const res = NextResponse.redirect(`${siteOrigin()}/login`, 303);
-  res.cookies.set(AFTER_SIGNIN_COOKIE, 'tools', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 30 * 60 });
+  res.cookies.set(AFTER_SIGNIN_COOKIE, 'tools', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 3600 });
   return res;
 }

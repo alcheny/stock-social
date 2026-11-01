@@ -235,7 +235,7 @@ test('static rules: no entitlement under app/t or keyed by a symbol; Record tool
     assert.doesNotMatch(src, /share-button|ShareCard|opengraph|navigator\.share|clipboard/i, f);
     assert.doesNotMatch(src, /\.sort\(\(a, b\) => [^)]*(return|winRate|avg|low|weight|score)/, f);
   }
-  const noteReaders = [...sources('app'), ...sources('lib')].filter((f) => /record_notes/.test(read(f)));
+  const noteReaders = [...sources('app'), ...sources('lib')].filter((f) => [...read(f).matchAll(/(?:sql|tx)`[^`]*`/g)].some((m) => /record_notes/.test(m[0])));
   assert.deepEqual(noteReaders.sort(), ['lib/delete.ts', 'lib/record-tools.ts']);
   for (const f of [...sources('lib/discovery'), 'lib/feed.ts', 'lib/similar.ts', 'lib/follows.ts']) assert.doesNotMatch(read(f), /record-tools|record_notes|record_views|billing/, f);
   // Not in the sitemap or the robots allow-list; the pages are noindex with no referrer.

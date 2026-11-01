@@ -580,3 +580,21 @@ dbTest('after a price change, a subscriber on the old price keeps their plan (gr
     assert.equal((await sql`select count(*)::int as n from users where id = ${u}`)[0].n, 0);
   } finally { process.env.STRIPE_PRICE_MONTHLY = old; }
 });
+
+dbTest('the launch gate: while sign-up is closed, checkout is refused unless the account is allowlisted (privacy work, POLICY P6)', async () => {
+  const b = await import('./billing.ts');
+  const { sql } = await import('./db.ts');
+  const u = await user();
+  const [{ handle }] = await sql`select handle from users where id = ${u}`;
+  const saved = { NODE_ENV: process.env.NODE_ENV, ALLOW_DEV_AUTH: process.env.ALLOW_DEV_AUTH, LAUNCH_OPEN: process.env.LAUNCH_OPEN, LAUNCH_ALLOWLIST: process.env.LAUNCH_ALLOWLIST };
+  const env = process.env as Record<string, string | undefined>;
+  env.NODE_ENV = 'production'; delete env.ALLOW_DEV_AUTH; delete env.LAUNCH_OPEN; delete env.LAUNCH_ALLOWLIST;
+  try {
+    assert.equal(await b.checkoutOpen(u), false);
+    await assert.rejects(b.startCheckout({ userId: u, plan: 'monthly', agreed: true, disclosure: 'd', origin: 'http://app.test' }), /closed/);
+    env.LAUNCH_ALLOWLIST = handle;
+    assert.equal(await b.checkoutOpen(u), true);
+    env.LAUNCH_OPEN = '1'; delete env.LAUNCH_ALLOWLIST;
+    assert.equal(await b.checkoutOpen(u), true);
+  } finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete env[k]; else env[k] = v; } }
+});

@@ -5,6 +5,7 @@
 // adding traders) check the entitlement from the app's own rows; reading, editing, exporting and deleting one's own views
 // and notes never does (K10). Nothing here writes discovery_events or sends anything (K7, K13).
 import { redirect } from 'next/navigation';
+import { logSafe } from '@/lib/privacy-log.ts';
 import { currentUser } from '@/lib/session.ts';
 import { access, billingAvailable, CheckoutRefused, disclosureText, isPlan, siteOrigin, startCheckout } from '@/lib/billing.ts';
 import { addTrader, createView, deleteNote, deleteView, dismissRemovedNotice, isViewId, moveTrader, removeTrader, renameView, saveNote } from '@/lib/record-tools.ts';
@@ -40,7 +41,7 @@ export async function subscribe(form: FormData) {
     url = await startCheckout({ userId: u.id, plan, agreed: true, disclosure: disclosureText(plan, shownAt(str(form, 'shown'))), origin: siteOrigin() });
   } catch (e) {
     if (e instanceof CheckoutRefused) redirect(e.reason === 'subscribed' ? '/account' : '/tools');
-    console.error('checkout failed', e instanceof Error ? e.message : 'unknown');
+    console.error('checkout failed', logSafe(e));
     redirect('/tools?e=checkout#subscribe');
   }
   redirect(url);
