@@ -31,7 +31,7 @@
 //     first sync or backfill reads them all in one page); no positions. The registerUser step is not needed (secrets are
 //     ignored, as everywhere in this fake). Users with `i % slowEvery === slowOffset` hold every API answer `slowMs`
 //     first (default 0); users with `i % failEvery === failOffset` answer every API call with `failStatus` (default
-//     400). Posting the same prefix again replaces the rule (keeping its activity dates); `{prefix, clear: true}`
+//     400) at once (failing wins over slow). Posting the same prefix again replaces the rule (keeping its activity dates); `{prefix, clear: true}`
 //     removes it.
 //   POST /_latency {ms, jitterMs?}                 every vendor API request (not the portal, not /_ controls) waits ms
 //     plus a uniform random 0..jitterMs first; {ms: 0} turns it off. Adds to `delayMs` and the bulk's `slowMs`
@@ -66,8 +66,8 @@ function bulkUser(bulks: Map<string, Bulk>, userId: string) {
       const id = `${b.prefix}${i}-a${j}`;
       return [id, { id, authorization: auth, institution: 'Fake Brokerage', paper: false, syncDone: true, get rows() { return rows(id); } }] as const;
     }));
-    const slowMs = b.slowEvery && i % b.slowEvery === (b.slowOffset ?? 0) ? b.slowMs ?? 0 : 0;
     const failStatus = b.failEvery && i % b.failEvery === (b.failOffset ?? 0) ? b.failStatus ?? 400 : 0;
+    const slowMs = !failStatus && b.slowEvery && i % b.slowEvery === (b.slowOffset ?? 0) ? b.slowMs ?? 0 : 0;
     return { accounts, slowMs, failStatus };
   }
   return null;

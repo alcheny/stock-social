@@ -459,3 +459,8 @@ begin
 end $t$;
 -- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
 select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
+-- Deleting a users row sets signup_attempts.user_id and .referred_by_user_id to null (on delete set null): without an
+-- index each is a scan of signup_attempts (one row per sign-up), for every user deleted (profile deletions; the sharded
+-- sync load test deletes 100,000 traders: 5 minutes of scans). Partial, like users_referred_by.
+select schema_add_index('signup_attempts_user', 'create index signup_attempts_user on signup_attempts (user_id) where user_id is not null');
+select schema_add_index('signup_attempts_referred_by', 'create index signup_attempts_referred_by on signup_attempts (referred_by_user_id) where referred_by_user_id is not null');
