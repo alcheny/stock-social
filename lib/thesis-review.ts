@@ -13,7 +13,7 @@
 // No session or viewer is read here: the owner runs the script; the page is off until real admin identity exists.
 import { sql } from './db.ts';
 import { MODERATION_VERSION, moderateDetail } from './moderation.ts';
-import { KEPT_RULE } from './report-copy.ts';
+import { HIDDEN_RULE, KEPT_RULE } from './report-copy.ts';
 
 export type Decision = 'publish' | 'keep';
 const PAGE = 1000;
@@ -28,8 +28,11 @@ export async function releaseThesis(userId: number, sellId: string, decision: De
       // ponytail: keeping replaces the matched rule's label with 'kept' (the list then shows "rule: kept") — store both if
       // the owner needs the original reason after a keep.
       : tx`thesis_hold_rule = ${KEPT_RULE}, thesis_reviewed_at = now(), thesis_reports_from = now()`; // fix round 5 (item 9): stays held through edits
-    const a = await tx`update closed_trades set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis is not null and thesis_status = 'held' returning 1`;
-    const b = await tx`update kept_theses set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis_status = 'held' returning 1`;
+    // F-16 (plan §5.3): a thesis the owner hid (rule HIDDEN_RULE) is never released here; only the audited unhide
+    // (lib/trust-hide.ts#unhideThesis, scripts/hide.ts) ends it. listHeld still lists it with its rule.
+    const notHidden = tx`thesis_hold_rule is distinct from ${HIDDEN_RULE}`;
+    const a = await tx`update closed_trades set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis is not null and thesis_status = 'held' and ${notHidden} returning 1`;
+    const b = await tx`update kept_theses set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis_status = 'held' and ${notHidden} returning 1`;
     return a.length + b.length > 0;
   });
 }
