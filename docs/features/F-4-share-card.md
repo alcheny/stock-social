@@ -101,12 +101,6 @@ elements that catch the eye and travel, and leave detail for the profile.
   years when strong. Why: the owner's choice; the card and its trust line always use the same unit.
 - 2026-11-01: The owner confirmed F-4 is decided: #25 merges as built, and the pipeline rebuilds the card to the
   decisions of 2026-10-31 and 2026-11-01 (Status: rework). Why: the owner's choice.
-- 2026-11-01: Per-trade detail stays on per-trade cards; the record card stays record-level. Every per-trade card
-  carries a record strip (closed-trade count, the record's average with its range, handle and full-record link,
-  "losses included") and the disclaimer, and shows closed trades only. Depth is revisited at the week-8 review once
-  at least 200 links have been shared, using share rate and click-through per card type and the winning vs losing
-  share; per-trade cards above 50% of shares go on that agenda. Why: decided by the idea board under the owner's
-  instruction of 2026-11-01.
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
@@ -142,7 +136,8 @@ Each one testable; the pipeline writes a test for every line.
 - Per-trade cards (`/u/[handle]/trade`) keep their own design; this file is the record card.
 
 ## Open questions
-- Resolved 2026-11-01 (idea board): see Decisions (per-trade depth).
+- Later depth (per-trade cards): decided 2026-11-01 by the idea board in `docs/IDEAS.md` → Decisions, since
+  per-trade cards are out of this file's scope.
 - Idea board 2026-11-01 (idea 10): a running sum grows with trade count (400 trades at +0.5% outdraw 20 at +2.5%),
   rewarding frequency. Proposed: a 5-second test with 10 people outside finance before the rebuild ships; if most
   read the end point as account growth, choose the running average with its range, or the sum with no end value

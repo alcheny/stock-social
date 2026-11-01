@@ -120,10 +120,12 @@ because agents can't change POLICY, DESIGN, COMPLIANCE or the feature files' dec
    covers only what the user "expressly and unambiguously requested" (follows, blocks), and only if nothing else
    orders it. F-2's like and reject fading is ordering on prior interactions, so it is not exempt even with
    implicit logging off. From 2027-01-01 (§27001) an operator may serve such a feed only if it "has reasonably
-   determined that the user is not a minor". New York's final rules (released 2026-07-28) take effect 2027-01-25,
+   determined that the user is not a minor". New York's final rules (announced 2026-07-28, published in the State Register 2026-07-29) take effect 180 days later, on 2027-01-25,
    with age assurance by estimation, inference or verification. A self-attested 18+ checkbox is unlikely to
    qualify in New York. Verified (statute text; New York Attorney General release). Whether the service meets the
-   "addictive internet-based service" threshold is UNVERIFIED and belongs in the attorney review (idea 5).
+   "addictive internet-based service" threshold is UNVERIFIED and belongs in the attorney review (idea 5); New
+   York's rules reportedly reach platforms whose users spend at least 20% of their time on addictive feeds
+   (UNVERIFIED against the rule text).
 7. **F-3's "Why" is stale, and its Out-of-scope line contradicts "ready".** "Why" still says billing "stays
    blocked on a securities-counsel opinion". Out of scope still lists "Building any of this before Phase 1's
    supply gate passes", while the 2026-11-01 decision makes F-3 ready in test mode. Several lines still say
@@ -210,8 +212,14 @@ because agents can't change POLICY, DESIGN, COMPLIANCE or the feature files' dec
   notice 7 to 30 days before the change. Verified (through summaries of the bill text). §17603 (unconditional
   gift): verified.
 - Annual reminder windows: Colorado 25-40 days before renewal of terms of a year or more, and before a renewal
-  that extends a shorter plan past 12, 24 or 36 months (C.R.S. §6-1-732); New York 15-45 days before the
-  cancellation deadline; Virginia 30-60 days (UNVERIFIED text); Massachusetts UNVERIFIED. Partly true.
+  that extends a shorter plan past 12, 24 or 36 months (C.R.S. §6-1-732); New York's consumer auto-renewal law
+  is Gen. Bus. Law §527-a (amended, reportedly in force 2025-11-05: affirmative consent, material terms, notice of
+  material changes); a 15-45 day reminder window appears in pending 2025 bills (S5615, A3928-B) and is UNVERIFIED
+  as enacted law (an earlier draft used 3-21 days); Virginia 30-60 days (UNVERIFIED text); Massachusetts
+  UNVERIFIED. Partly true. Corrected 2026-11-01 after review: an earlier version cited N.Y. Gen. Oblig. Law §5-903,
+  which governs service and maintenance contracts, not consumer subscriptions. The adopted 30-40 day annual
+  reminder sits inside Colorado's 25-40 days and inside the pending New York 15-45 days, so it holds either way;
+  recheck when the New York bills' status is confirmed.
 - The FTC's 2024 negative-option rule was vacated (8th Cir. No. 24-3137, 2025-07-08). An advance notice of
   proposed rulemaking was published 2026-03-13; no proposed rule yet. Verified.
 - $99.99 against 12 × $9.99 = $119.88 is a 16.6% saving. "About 17%" is true; "2 months free" is not. Verified.
@@ -1395,7 +1403,7 @@ Laws, rules and cases (cited by statute, reporter or docket; text checked 2026-1
 - Cal. Health & Safety Code §§27000.5, 27001; 9th Cir. No. 25-146 (2025).
 - Cal. Penal Code §§631, 632, 637.2, 638.51; SB 690 (2026).
 - Cal. Civ. Code §§1668, 3344; CLRA §1751; Cal. Code Civ. Proc. §§1281.97-.98.
-- C.R.S. §6-1-732; N.Y. Gen. Oblig. Law §5-903; Minn. Stat. §325G.57; N.J.S.A. 56:12-14 to -18.
+- C.R.S. §6-1-732; N.Y. Gen. Bus. Law §527-a (and pending S5615 / A3928-B, https://www.nysenate.gov/legislation/bills/2025/S5615); Minn. Stat. §325G.57; N.J.S.A. 56:12-14 to -18.
 - Connecticut Data Privacy Act as amended by P.A. 25-113; Maryland Online Data Privacy Act.
 - Advisers Act §202(a)(11)(D); 16 CFR Part 255; 16 CFR Part 314; 12 CFR §1016.11.
 - 472 U.S. 181 (1985); 563 U.S. 333 (2011); 30 F.4th 849 (9th Cir. 2022); 100 F.4th 1005 (9th Cir. 2024);
@@ -1417,7 +1425,7 @@ Regulators, legislatures and standards bodies:
 - SEC investor alert, microcap pump-and-dump: https://www.sec.gov/files/investor/alerts/ia_pumpanddump.htm
 - SEC administrative order on advice of counsel: https://www.sec.gov/files/alj/aljorders/2017/ap-4673.pdf
 - Minnesota statute §325G.57: https://www.revisor.mn.gov/statutes/2024/cite/325G.57/pdf
-- New York Attorney General, final rules under the New York minors' feed law, press release of 2026-07-28 (ag.ny.gov).
+- New York Attorney General, final rules under the New York minors' feed law, press release of 2026-07-28: https://ag.ny.gov/press-release/2026/attorney-general-james-and-governor-hochul-release-final-safe-kids-act-rules
 - WCAG 2.2: https://www.w3.org/TR/WCAG22/
 
 Integrated vendors:

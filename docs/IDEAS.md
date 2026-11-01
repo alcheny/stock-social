@@ -44,7 +44,7 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
 | 16 | Later per-trade depth on the record card vs per-trade cards only (F-4) | found in repo | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-16-per-trade-depth-on-the-record-card-d) | — |
 | 17 | Timing of the product-name trademark clearance search (POLICY T5a) | found in repo | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#idea-17-timing-of-the-trademark-clearance-search-d) | — |
 | 18 | Creator payout trigger conditions (F-3) | found in repo | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-18-creator-payout-trigger-conditions-d) | — |
-| 19 | Repository license and whether or when to publish the repo (POLICY C4, H) | owner-reserved | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#idea-19-repository-license-and-publishing-flag) | — |
+| 19 | Repository license and whether or when to publish the repo (POLICY C4, H) | found in repo (owner-reserved, POLICY H) | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#idea-19-repository-license-and-publishing-flag) | — |
 | D20 | Disclaimer in plain view on the feed and under the profile headline | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d20-disclaimer-out-of-plain-view) | candidate |
 | D21 | Neutral "Sign in" with two paths (follow and save / publish my record) | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d21-sign-in-framed-only-as-publishing) | candidate |
 | D22 | One record line on every feed card; smaller ticker tested | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d22-feed-card-without-record-context) | candidate |
@@ -130,6 +130,12 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
 - 2026-11-01: D29: the profile shows "Last close ‹date› · updated ‹relative time›" under "Record since", labels
   accounts "Account 1 of 2", and says when a record has been idle over 30 days; idle connections are counted
   internally. Why: decided by the idea board under the owner's instruction of 2026-11-01.
+- 2026-11-01: Idea 16 (F-4 open question; per-trade cards are outside F-4's scope): per-trade detail stays on per-trade cards; the record card stays record-level. Every per-trade card
+  carries a record strip (closed-trade count, the record's average with its range, handle and full-record link,
+  "losses included") and the disclaimer, and shows closed trades only. Depth is revisited at the week-8 review once
+  at least 200 links have been shared, using share rate and click-through per card type and the winning vs losing
+  share; per-trade cards above 50% of shares go on that agenda. Why: decided by the idea board under the owner's
+  instruction of 2026-11-01.
 
 ## Flags for the owner
 
