@@ -527,7 +527,7 @@ async function orphansPass(opts: Record<string, unknown> = {}) {
 
 dbTest('purge: a "Not interested" that ran its 90 days stays stored (listed, removable); one the viewer ended goes a day later; an orphaned like is marked (privacy_orphans), kept, deleted 30 days on, and unmarked when its close comes back; the discovery purge touches no like', async () => {
   const f = await fixture(4);
-  const { exclude, endExclusion, expiredHides, removeExpiredHide } = await import('./follows.ts');
+  const { exclude, endExclusion, expiredHidesFirstPage, removeExpiredHide } = await import('./follows.ts');
   const { tradeKey } = await import('./likes.ts');
   const v = f.viewer, [N, E, T, R] = f.traders;
   const excl = (t: number) => f.sql`select count(*)::int as n from viewer_exclusions where viewer_id = ${v} and trader_id = ${t}`.then((r) => r[0].n as number);
@@ -552,7 +552,7 @@ dbTest('purge: a "Not interested" that ran its 90 days stays stored (listed, rem
     assert.ok(l1[0].orphan_at !== null, 'marked');
     assert.ok(l2[0].orphan_at !== null, 'marked');
     // The listed expired hide, and Remove.
-    const listed = await expiredHides(v);
+    const listed = await expiredHidesFirstPage(v);
     assert.deepEqual(listed.map((r) => r.handle), [f.handle(N)]);
     await removeExpiredHide(v, N);
     assert.equal(await excl(N), 0);

@@ -19,6 +19,11 @@ begin
     execute format('alter table %I add column %I %s', tbl, col, ddl);
   end if;
 end $f$;
+-- ponytail: a new index is built without `concurrently` (it runs inside the schema's single transaction, where
+-- concurrently is not allowed), so its first apply holds a SHARE lock on the table — writes wait for the whole build;
+-- harmless on today's small tables, not on a large one. Also, an index left invalid by a failed concurrent build still
+-- counts as present here (pg_indexes lists it). Fix: build indexes on large tables outside the transaction with
+-- `create index concurrently` in a separate step, and check pg_index.indisvalid.
 create or replace function schema_add_index(idx text, ddl text) returns void language plpgsql as $f$
 begin
   if not exists (select 1 from pg_indexes where schemaname = current_schema() and indexname = idx) then execute ddl; end if;
