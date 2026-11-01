@@ -25,11 +25,16 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
   // vendor call, so a failed vendor call still leaves none (the cascade covers any written meanwhile).
   await sql.begin((tx) => [
     tx`update users set deleted_at = coalesce(deleted_at, now()) where id = ${u.id}`,
+    // Security hardening (2026-11-01), F17: every session of the profile ends with the mark, not when the row goes.
+    tx`delete from sessions where user_id = ${u.id}`,
     tx`delete from follows where viewer_id = ${u.id} or trader_id = ${u.id}`,
     tx`delete from viewer_exclusions where viewer_id = ${u.id} or trader_id = ${u.id}`,
     // F-2 PR-4: likes and rejected trades, made by this account or naming it.
     tx`delete from trade_likes where viewer_id = ${u.id} or trader_id = ${u.id}`,
     tx`delete from trade_exclusions where viewer_id = ${u.id} or trader_id = ${u.id}`,
+    // F-2 PR-5: the activity log, made by this account or naming it.
+    tx`delete from discovery_events where viewer_id = ${u.id}`,
+    tx`delete from discovery_events where target_user_id = ${u.id}`,
     // F-3 Record tools (committee condition 12): every subscriber whose views or notes named this account gets one
     // line on the next visit (a count, no trader id kept); then the notes and view entries naming it, and its own.
     tx`insert into record_tool_notices (owner_id, removed)

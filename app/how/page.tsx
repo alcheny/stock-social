@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { HOW, OPEN, OPTIONS } from '@/lib/copy.ts';
+import { HOW, HOW_PERSONAL, OPEN, OPTIONS } from '@/lib/copy.ts';
 
 // POLICY F3: what Verified means and what is excluded, in the words of lib/trades.ts. Static; linked from every page.
 export const metadata: Metadata = { title: `${HOW.title} · Stock Social` };
@@ -20,6 +20,9 @@ export default function How() {
       <ul>{HOW.excluded.map((l) => <li key={l}>{l}</li>)}</ul>
       <h2>{HOW.freezeTitle}</h2>
       <p>{HOW.freeze}</p>
+      {/* F-2 PR-5 (Q12): the personal ordering, in words, from the same constants. */}
+      <h2>{HOW_PERSONAL.title}</h2>
+      <p>{HOW_PERSONAL.text}</p>
     </main>
   );
 }
