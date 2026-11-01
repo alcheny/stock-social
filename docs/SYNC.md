@@ -92,7 +92,7 @@ hourly, but each account is read within the vendor's guidance (`lib/sync-cadence
 |---|---|---|
 | `sync run start {…}` | a run took its lease | of, shard, concurrency, rps |
 | `sync run {…}` | every call | of, shard, busy, done, skipped (lock held elsewhere), deferred (did not fit), transient, refused, failed, quarantined, releaseFailed, remaining (left this round), inBackoff, stoppedAtDeadline, breaker, leaseLost, aborted, concurrency, requests, tokenWaitMs, pages, ms |
-| `sync coverage {…}` | every unsharded or housekeeping call | missingShards, capRatio, capBreach, oldestActivitiesReadHours, oldestPositionsReadHours, freshnessAlarm, (no heartbeat in 15 min, counting shards that never ran), unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings |
+| `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), capRatio, capBreach, oldestActivitiesReadHours, oldestPositionsReadHours, freshnessAlarm, unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings |
 | `sync round incomplete {…}` | the previous round left traders unclaimed, or a shard is missing | of, missingShards, unclaimedPrevRound |
 | `sync failed <id> <class> <status>` | one trader's sync failed | internal user id, failure class, error name and HTTP status (never the message) |
 
