@@ -1,14 +1,15 @@
 // Sharded hourly sync, the database parts (lib/sync-shard.ts; committee docs/features/logs/sync/committee-2026-11-01.md):
 // shard assignment, deadline and resume, overlapping runs and the fenced shard lease, backoff by failure class, the run
 // breaker, poison quarantine, the concurrency and rate bounds, and shard 0's coverage report.
-// Every test claims only its own traders (`ids`), in its own past round (the database clock shifted back), under an
-// `of` no other test uses, with an injected `sync` instead of the vendor (one test uses the real syncUser with an
-// in-memory broker). Traders that must share one shard get explicit ids `base + j * of + shard` far above the identity
-// sequence, so a test controls which shard each trader is in.
+// Every test claims only its own traders (`ids`), in its own past round (the database clock shifted back to hours it
+// claims: lib/sync-test-hours.ts), under an `of` no other test uses, with an injected `sync` instead of the vendor (one
+// test uses the real syncUser with an in-memory broker). Traders that must share one shard get explicit ids
+// `base + j * of + shard` far above the identity sequence, so a test controls which shard each trader is in.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { SyncableUser } from './sync.ts';
+import { claimHours } from './sync-test-hours.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL', timeout: 60_000 }, fn);
@@ -19,16 +20,20 @@ const MIN = 60_000;
 const usedOf = new Set<number>();
 const freshOf = () => { for (;;) { const of = 500 + Math.floor(Math.random() * 501); if (!usedOf.has(of)) { usedOf.add(of); return of; } } };
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-let roundSlot = 40;
 
 async function harness() {
   const { sql } = await import('./db.ts');
   const S = await import('./sync.ts');
   const H = await import('./sync-shard.ts');
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
-  // A past :00 cron mark of its own per test; minute m is round floor((m + 30) / 60) (rounds run :30 to :30).
-  const T0 = Math.floor(Date.now() / S.ROUND_MS) * S.ROUND_MS - (roundSlot += 12) * S.ROUND_MS;
-  const at = (minute: number) => () => T0 + minute * MIN - Date.now();
+  // A past :00 cron mark of its own per test; minute m is round floor((m + 30) / 60) (rounds run :30 to :30). Its hours
+  // (one before T0 to 26 after) are claimed in sync_read_counts, where every run adds its reads (lib/sync-test-hours.ts).
+  const hours = await claimHours('lib/sync-shard.test.ts', [-1, 26]);
+  const T0 = hours.T0;
+  const at = (minute: number) => {
+    assert.ok(hours.owns(T0 + minute * MIN), `minute ${minute} is outside this test's claimed hours`);
+    return () => T0 + minute * MIN - Date.now();
+  };
   const ids: number[] = [];
   const accounts: string[] = [];
   const connect = async (id: number, tag: string) => {
@@ -68,6 +73,7 @@ async function harness() {
     if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
     if (accounts.length) await sql`delete from broker_accounts where account_id in ${sql(accounts)}`;
     for (const of of ofs) await sql`delete from sync_shards where of = ${of}`;
+    await hours.release();
   };
   // A stub sync that counts calls per trader (only this test's) and the peak in flight.
   const counter = (behave: (u: SyncableUser, n: number) => Promise<number | 'skipped'> = async () => 1) => {
