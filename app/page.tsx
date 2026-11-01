@@ -14,6 +14,8 @@ import { FeedGestures } from './feed-gestures.tsx';
 import { hiddenTradeCount } from '@/lib/likes.ts';
 import { FeedNotes } from './feed-notes.tsx';
 import { DiscoveryLog } from './discovery-log.tsx';
+// F-13: the signed-out twin of the notes slot (it renders only signed out, page 1).
+import { FirstVisit } from './first-visit.tsx';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -54,6 +56,7 @@ export default async function Feed({ searchParams }: Props) {
       <h1 className="sr-only">{page.offset > 0 ? FEED_COUNTS.position(page.from, page.to) : FEED.heading}</h1>
       <FeedKeys />
       {page.viewer && <FeedHides />}
+      {!page.viewer && page.offset === 0 && <FirstVisit page={page} />}
       {page.viewer && page.offset === 0 && <FeedNotes order={page.personal?.uses ?? null} hidden={hiddenN} />}
       {page.settings?.personalize && page.settings.activity && <DiscoveryLog />}
       <FeedGestures signedIn={!!page.viewer} />

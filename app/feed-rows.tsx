@@ -31,7 +31,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id) })));
     return p;
   };
-  const out = page.cards.map((t) => {
+  const out = page.cards.map((t, i) => {
     // The card's own fields only (the close's vendor id stays on the server).
     const row: TradeRow = { id: String(t.id), symbol: t.symbol, return_pct: t.return_pct, holding_days: t.holding_days, closed_at: t.closed_at, verified: t.verified,
       thesis: t.thesis, thesis_status: t.thesis_status, handle: t.handle, display_name: t.display_name, user_id: t.user_id };
@@ -40,7 +40,8 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)}
-            menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
+            menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined}
+            hint={page.offset === 0 && i === 0} /* F-13 (SW-1): the swipe hint on page 1's first card only; appended pages never */ />
           {paneOf(t)}
         </div>
       ),

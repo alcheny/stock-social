@@ -710,7 +710,7 @@ test('ticker index: lists seeded symbols with no performance numbers, sort is sa
   const syms = await page.locator('.ticker-rows a b').allInnerTexts();
   expect(syms).toEqual([...syms].sort());
   await page.goto('/');
-  await page.locator('nav.top').getByRole('link', { name: 'Stocks' }).click();
+  await page.locator('nav.top').getByRole('link', { name: 'Trades by stock' }).click(); // F-13 (D27): the nav label
   await expect(page).toHaveURL(/\/t$/);
   await page.goto('/t/NVDA');
   await expect(page.getByRole('link', { name: /All stocks/ }).first()).toHaveAttribute('href', '/t');
@@ -757,7 +757,7 @@ test('compare page: two seeded symbols in URL order, noindex, honest empty state
     ['/t/compare?a=ZZZZ&b=NVDA', 'No verified closed trades in ZZZZ yet.'],
     ['/t/compare?a=NVDA&b=nvda', 'Pick two different stocks. You chose NVDA twice.'],
     ['/t/compare?a=ZZZZ&b=YYYY', 'No verified closed trades in ZZZZ or YYYY yet.'],
-    ['/t/compare', 'Pick two stocks to compare.'],
+    ['/t/compare', 'Choose two stocks to compare.'], // A11Y-FIXES #11
   ];
   for (const [url, text] of cases) {
     const r = await page.goto(url);
