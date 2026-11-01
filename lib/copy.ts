@@ -207,6 +207,14 @@ export const WHOLE_RECORD = {
   importing: 'Import in progress. Stats appear when the import finishes.',
   soFar: (closes: number) => `${counted(closes, 'closed trade')} so far`,
 } as const;
+// F-10 / F-12: the record strip's own words (lib/record-strip.ts builds the strip; SHARE_CARD and WHOLE_RECORD give the
+// rest). "Too early to tell" stays until the design system council settles the short-record wording. The link names the
+// trader's record, never "full" or "whole" (POLICY F3a).
+export const RECORD_STRIP = {
+  early: 'Too early to tell',
+  rangeLabel: '95% range',
+  link: (handle: string) => `@${handle}'s record`,
+} as const;
 export type WholeRecordView = { stats: boolean; line: string | null; tone: 'muted' | 'warn' | null };
 export function wholeRecordView(x: { state: RecordState; demo: boolean }): WholeRecordView {
   if (x.demo) return { stats: true, line: null, tone: null };
@@ -605,7 +613,7 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
   return out;
 }
 
