@@ -244,6 +244,7 @@ test('F-6: the Similar trades pane (/u/<h>/pane) carries open positions for a co
 });
 
 test('F-6 (business lead D5): at 360 px every big value sits on one line at one size in both grids, nothing widens the page', async ({ page }) => {
+  const used: number[] = [];
   for (const h of ['f6_wide', 'f6_losing', 'f6_mixed']) {
     await page.goto(`/u/${h}`);
     const values = page.locator('main > section.stats .stat.big b');
@@ -253,7 +254,8 @@ test('F-6 (business lead D5): at 360 px every big value sits on one line at one 
     const m = await values.evaluateAll((bs) => bs.map((b) => { const r = document.createRange(); r.selectNodeContents(b);
       return { size: getComputedStyle(b).fontSize, rects: b.getClientRects().length, over: b.scrollWidth > b.clientWidth + 1, used: r.getBoundingClientRect().width / b.clientWidth }; }));
     expect(new Set(m.map((x) => x.size)).size, h).toBe(1);
-    for (const x of m) { expect(x.rects, h).toBe(1); expect(x.over, h).toBe(false); expect(x.used, h).toBeLessThanOrEqual(0.8); }
+    for (const x of m) { expect(x.rects, h).toBe(1); expect(x.over, h).toBe(false); expect(x.used, h).toBeLessThanOrEqual(0.8); used.push(x.used); }
     expect(await page.evaluate(() => document.documentElement.scrollWidth), h).toBeLessThanOrEqual(360);
   }
+  console.log(`F-6 D5 widest value uses ${Math.max(...used).toFixed(3)} of its box`);
 });

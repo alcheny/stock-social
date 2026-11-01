@@ -445,5 +445,5 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .open-ticker p { overflow-wrap: anywhere; }
 /* F-6 (tester Medium 1, business lead D5): with open positions, both grids' big values share one size that fits a
    360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
-.stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(20px, 7vw, 36px); white-space: nowrap; }
-.stats[data-long] .stat.big b { font-size: clamp(16px, 5.5vw, 36px); }
+.stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
+.stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
