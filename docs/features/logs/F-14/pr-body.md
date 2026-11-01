@@ -92,7 +92,8 @@ The committee was the business lead, the engineer and a reliability reviewer, in
 ## Testing
 
 - `npx tsc --noEmit`: clean.
-- `npm test`, run twice after merging the latest main: **1176 tests, 1155 pass, 0 fail** both times (1 owner todo;
+- `npm test`, run twice after the review fixes and again after merging the latest main: **1178 tests, 1157 pass, 0 fail**
+  each time (1 owner todo;
   the rest skipped opt-in LOAD tests). New:
   - `lib/sync-cadence.test.ts` (13 unit tests): the decision rule, the committee's counterexamples, 30 days of hourly
     rounds, 40 random seeds with rollbacks, missed rounds, reconnects and jitter.
@@ -128,9 +129,10 @@ The committee was the business lead, the engineer and a reliability reviewer, in
   - two existing CI rules (privacy logs, the `delete from` allow-list in `lib/sync.ts`) were broken.
 - `npm run build`: ok. `node scripts/autopilot.ts guard origin/main`: ok. `BASE_REF=main node scripts/compliance.ts
   auto`: the only finding is `node_modules/@img/sharp-wasm32`, from main's lockfile.
-- **Full Playwright suite:** **195 passed, 6 skipped, 1 failed**. The failure is `e2e/connect.spec.ts:945` (the S3
-  dialog's keyboard focus trap). It is not this PR's: it fails 2 of 3 runs on its own here and **also fails 2 of 3 on a
-  clean build of `origin/main`** (checked in a separate worktree). This PR touches no app or connect code.
+- **Full Playwright suite** (after the orchestrator-review fixes and the latest main): **196 passed, 6 skipped,
+  0 failed**. An earlier run had one failure in `e2e/connect.spec.ts:945`, the S3 dialog's keyboard focus trap. It is
+  flaky and not this PR's: it also fails 2 of 3 runs on a clean build of `origin/main`, and this PR touches no app or
+  connect code.
 - `vercel.json`: unchanged (no such file in the repo; the cron schedule is the owner's deploy setting, docs/SYNC.md).
 
 ## Compliance
