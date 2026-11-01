@@ -1,4 +1,4 @@
-# Options support: implementation plan v3 (UX lead, 2026-11-01)
+# Options support: implementation plan v4, signed (UX lead, 2026-11-01)
 
 Input: `brief.md`, the round 1 reviews (`plan-round1-reviews.md`) and the orchestrator's synthesis. The owner's
 standing instruction applies: each open question is decided by the committee's recommended option. Decisions are
@@ -93,13 +93,16 @@ matcher returns per-cause counts (BL10); the counters store two groups.
     entries are never removed or edited (pinned hashes).
   - `consentCoversOptions(hash)` is true when the hash's entry lists every `OPTION_PUBLIC_COLUMN`. Unknown or null
     hashes (all consents before this PR) are false.
-  - `traderOptionsPublic(userId)` = `optionsPublic()` AND every consented connection of the trader covers options.
-    Exception: a demo trader (every source row `demo`) skips the per-trader check.
-  - Older consents stay gated until the trader consents again; re-consent is required (committee finding). The owner
-    only words the prompt.
+  - `traderOptionsPublic(userId)` = `optionsPublic()` AND every connection of the trader whose `accounts` hold an
+    account with rows in `option_activities` or `open_option_positions` covers options (round 4 E1). A frozen
+    connection counts too, so option data imported under an old consent stays gated; an old share-only connection
+    does not block. Exception: a demo trader (every source row `demo`) skips the per-trader check.
+  - Older consents stay gated until the trader consents again; re-consent is required (committee finding). The
+    re-consent prompt is not built in this PR (K10); gated is the safe state. The owner words the prompt.
 - **One reader:** `lib/options-load.ts` is the only reader of option tables for display. It exports
   `loadOptionRecord(userId, gate = traderOptionsPublic(userId))` for the profile and `optionHeadline(userIds, gate?)`
-  for the pane and card. Closed gate: counts only (no returns, terms or symbols). Open gate: the full model. Renders
+  for the pane and card, whose default gate is worked out per trader with `traderOptionsPublic(userId)`, never once
+  per batch (round 4 legal). Closed gate: counts only (no returns, terms or symbols). Open gate: the full model. Renders
   are pure components of that model. Tests force either state through the parameter; an inventory test fails if any
   file outside tests passes the argument.
 - **While gated, the profile, pane and card show only** (muted, linking to /how): "N option trades and M open options
@@ -212,7 +215,8 @@ Storage, sync and vendor:
     Property: no remaining close spans a taint day of its account and symbol, and remaining + removed = what
     `rebuildTrades` wrote. `git diff origin/main -- lib/trades.ts` is empty and the `rebuildTrades` body is unchanged.
 11. D: an options-only trader's hourly sync uses the 7-day window, measured from the newest row across both raw
-    tables (E5).
+    tables (E5). The option side comes from `lastOptionActivityAt(tx, userId)` in `lib/options-sync.ts`; `lib/sync.ts`
+    only calls it.
 12. T: `lib/broker.ts` adds the three event types through one exported list, `OPTION_EVENT_TYPES`. Option BUY/SELL
     rows reach an optional options sink, and existing signatures and the skip test are unchanged (E2, E5).
 13. T: `fetchPositions` sends option kinds to the options path with the per-share percent, counts futures-type kinds,
@@ -232,15 +236,22 @@ Gate:
     shares-only fixture.
 22. D (round 3 L3): with the gate open globally, a trader with an old or null consent hash gets the count line only;
     a re-consented trader gets everything; a demo trader gets everything. The consent write stores the current hash.
-23. T (round 3 L4): an inventory test finds no file in `app/` or `lib/` other than `lib/options-load.ts` reading
-    `option_trades`, `open_option_positions`, `option_activities` or any `option_` table. Allowlisted with reasons:
-    `lib/options-sync.ts` (writes), `lib/delete.ts` and `lib/privacy-purge.ts` (deletion), `lib/display-log.ts` (stores
-    the loader's output only).
+    Round 4: an old share-only connection doesn't block a re-consented option connection; a frozen connection holding
+    option rows under an old hash does block. In one `optionHeadline` batch, an old-hash trader and a re-consented
+    trader each get their own state.
+23. T (round 3 L4, round 4 E2): an inventory test scans `app/` and `lib/` (`scripts/` is out of scope) and finds no
+    file other than `lib/options-load.ts` reading `option_trades`, `open_option_positions`, `option_activities` or
+    any `option_` table. The only allowlisted file is `lib/options-sync.ts`: writes, `lastOptionActivityAt`, the taint
+    set, and `purgeOccPositions` where it reads option tables. `lib/sync.ts`, `lib/delete.ts`,
+    `lib/privacy-purge.ts` and `lib/display-log.ts` only call helpers (the display log stores the loader's output).
 24. T (round 3 BL1, L5): profile, SW-1 pane and record card render the "Share trades" label and the count line when
     option closes or exclusions > 0, gated and open (the options line when open). With zero, each is unchanged.
 
-Surfaces when open (render tests on the pure component at 360 px through Playwright component pages, or a test-only
-route that is not built into production; the engineer picks one):
+Surfaces when open (round 4 E3): the pure option components are rendered with `react-dom/server`
+`renderToStaticMarkup`, given the open-gate model directly. The existing Playwright runner loads that markup plus
+`app/globals.css` with `page.setContent` at 360×740, light and dark. No component-test package, test-only route or env
+var. Each case asserts no horizontal scroll, single-line rows, 44 px targets and accessible names. The real-app e2e
+stays on the gated state.
 18. Worst case (BL9): a 5-character underlying, "Put option" and −100.0% fit on one line with no truncation, 44 px
     targets and existing tokens only. The options line takes ≤ 2 lines.
 19. The short line stands on its own line. One expiry format, from `expiryText()`.
@@ -275,6 +286,8 @@ option, future and future_option kinds; every D4 case. The fake honours the `typ
   can remove an unrelated trade, and it keeps delivered buys. It is conservative and counted. Fix: the exact rule
   inside the matcher once PR #40 has merged.
 - K9: consents before this PR have no wording version; those traders stay gated until they consent again.
+- K10: existing traders stay gated until they reconnect. Fix: a re-consent prompt on /me that rewrites
+  `consent_scope_hash` (owner words it).
 
 ## Files
 - **New:** `lib/options.ts`, `lib/options-gate.ts`, `lib/options-sync.ts` (insert, `rebuildOptionTrades`,
@@ -287,7 +300,7 @@ option, future and future_option kinds; every D4 case. The fake honours the `typ
   `chart.tsx` (label); `lib/display-log.ts`, `lib/privacy-retention.ts`, `lib/privacy-purge.ts`;
   `scripts/db-setup.ts`, `scripts/seed.ts`; `e2e/fakes/vendor.ts`; `docs/COMPLIANCE.md`.
 - **Not touched:** `lib/trades.ts` and the `rebuildTrades` body (AC 8, 10), the feed, `/t/**`, the per-trade card. The `LOAD=1` sync load run goes in the
-  build log. Size: about 1,600 lines, ~40% tests.
+  build log. Size: about 2,000–2,200 changed lines, ~40% tests; the build log records the real figure.
 
 ## COMPLIANCE §1
 1. Performance: disclaimer on the profile; option losses shown like gains; option figures gated until consent covers
@@ -326,3 +339,8 @@ option, future and future_option kinds; every D4 case. The fake honours the `typ
 | R3 L4 single reader | Adopted (AC 23; display log stores only loader output; AC 17 covers JSON and display-log output). |
 | R3 L5 headline surfaces | Adopted: profile, SW-1 pane and record card, both gate states, built now (AC 24). |
 | R3 non-blocking | Adopted: the COMPLIANCE §2 note restored, /how math under the gated sentence, the CODEOWNERS owner item. |
+| R4 E1 gate scope | Adopted (D5: only connections holding option rows count, frozen included; AC 22 cases; K10). |
+| R4 E2 reads outside the loader | Adopted (AC 11, AC 23: only `lib/options-sync.ts` allowlisted; `app/` and `lib/` only). |
+| R4 E3 open-gate surface tests | Adopted (`renderToStaticMarkup` + `page.setContent` with `app/globals.css`, 360×740, light and dark). |
+| R4 legal condition | Adopted: `optionHeadline` gates per trader, never per batch (D5, AC 22). |
+| R4 size note | Recorded in Files. |
