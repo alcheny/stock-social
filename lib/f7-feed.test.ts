@@ -157,7 +157,7 @@ test('Round 5 item 7: every feed-side read applies the filer gate and the feed f
 });
 
 test('AC 22 / AC 30: stock pages, the ticker image and the sitemap leave out public-filing closes', () => {
-  for (const f of ['../app/t/page.tsx', '../app/t/[symbol]/page.tsx', '../app/t/[symbol]/opengraph-image.tsx', '../app/t/compare/page.tsx', '../app/sitemap.ts']) {
+  for (const f of ['../app/t/page.tsx', '../app/t/[symbol]/page.tsx', '../app/t/[symbol]/opengraph-image.tsx', '../app/t/compare/page.tsx', './sitemaps.ts'] /* the sitemap read moved to lib/sitemaps.ts (#52) */) {
     const s = src(f);
     const reads = (s.match(/from closed_trades/g) ?? []).length;
     assert.ok(reads > 0, f);

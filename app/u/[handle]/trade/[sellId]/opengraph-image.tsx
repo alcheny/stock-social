@@ -3,10 +3,11 @@
 // record strip and the disclaimer, so a square or 1.91:1 crop never cuts them. The alt text is the strip in words,
 // declared by the trade page's generateMetadata (it depends on the record).
 import { ImageResponse } from 'next/og';
+import { notFound } from 'next/navigation';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
-import { tradeHero, tradeStripInput } from '@/lib/trade-share.ts';
-import { layoutBand, recordStrip, stripImageLines } from '@/lib/record-strip.ts';
+import { tradeBand, tradeStripInput } from '@/lib/trade-share.ts';
+import { recordStrip } from '@/lib/record-strip.ts';
 import { disclaimerAtFoot } from '@/lib/stock-image.ts';
 import { RecordStripImage } from '@/app/record-strip.tsx';
 
@@ -16,17 +17,14 @@ export const contentType = 'image/png';
 export default async function Card({ params }: { params: Promise<{ handle: string; sellId: string }> }) {
   const { handle, sellId } = await params;
   const id = decodeSellId(sellId);
-  const t = id === null ? null : await loadTradeShare(handle, id).catch(() => null);
-
-  if (!t) {
-    const shell = { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 64, background: '#0b0b0f', color: '#f4f4f6', fontFamily: 'sans-serif' } as const;
-    return new ImageResponse((
-      <div style={shell}><span style={{ fontSize: 36, fontWeight: 800 }}>Stock Social</span><span style={{ fontSize: 72, fontWeight: 800 }}>Trade not found</span><span /></div>
-    ), size);
-  }
+  // Cycle-2 fix #20: a missing trade (unknown handle or sellId, a deleted trader) is a 404, as the profile card is, never a
+  // 200 picture saying "not found" that a link preview would show.
+  const t = id === null ? null : await loadTradeShare(handle, id);
+  if (!t) notFound();
 
   // Fix round 6 (TR-3, POLICY F3): the label follows the trader's record state (recordStrip); no check-mark glyph.
   const strip = recordStrip(tradeStripInput(t), 'image');
-  const { lines } = layoutBand(stripImageLines(strip, { handle: t.handle, newRecord: t.newRecord, hero: tradeHero(t) }));
+  // Cycle-2 fix #9: the hero shrinks until the band fits (lib/trade-share.ts#tradeBand), as the month image does.
+  const { lines } = tradeBand(t, strip);
   return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);
 }

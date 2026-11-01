@@ -132,8 +132,14 @@ async function ensureCustomer(userId: number): Promise<string> {
   const [have] = await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`;
   if (have) return have.vendor_customer_id as string;
   const ref = billingRef(userId);
+  // ponytail: a second request with the same idempotency key while the first is still in flight can be answered 409 by
+  // the processor and fail that checkout — retry once after a short wait, then read the stored customer.
   const c = await vendor('POST', '/v1/customers', { metadata: { ref } }, `customer-${ref}`);
-  await sql`insert into billing_customers (user_id, vendor_customer_id) values (${userId}, ${c.id as string}) on conflict (user_id) do nothing`;
+  // Two checkouts at once (two tabs, a double submit) get the same customer (one idempotency key per user) and insert
+  // the same row. With `on conflict (user_id)` only, the one that lost the race on the vendor_customer_id index raised
+  // 23505 instead of reading the winner's row (CI, PR #52). No target: every unique index is an arbiter, and both
+  // conflicts mean this user's own customer.
+  await sql`insert into billing_customers (user_id, vendor_customer_id) values (${userId}, ${c.id as string}) on conflict do nothing`;
   const [row] = await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`;
   return row.vendor_customer_id as string;
 }
@@ -536,6 +542,8 @@ export async function reconcile(): Promise<ReconcileReport> {
   const local = new Set<string>(rows.map((x) => x.vendor_subscription_id as string));
   const listed = new Set<string>();
   let after: string | undefined;
+  // ponytail: pages through every processor subscription with no time box inside the sync tick; a function killed at its
+  // limit skips the day's reconciliation — box it and keep `starting_after` as a cursor that resumes on the next tick.
   for (;;) {
     const page = await vendor('GET', '/v1/subscriptions', { limit: 100, starting_after: after }); // D8: excludes canceled
     const data = (page.data ?? []) as VendorSub[];

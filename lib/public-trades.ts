@@ -101,5 +101,9 @@ export async function rebuildPublicTrades(filerId: number, tx: TransactionSql, n
   await tx`delete from closed_trades where user_id = ${u.id}`;
   for (let i = 0; i < m.trades.length; i += 1000) await tx`insert into closed_trades ${tx(m.trades.slice(i, i + 1000).map((t) => ({ user_id: u.id, sell_id: t.sellId,
     account_id: 'public', symbol: t.symbol, opened_at: t.openedAt, closed_at: t.closedAt, return_pct: t.returnPct, holding_days: t.holdingDays, verified: false, filing_url: t.filingUrl, feed_after: t.feedAfter })))}`;
+  // The feed's paging test for a close imported after asOf (closed_trades.sell_imported_at; the insert trigger reads only
+  // broker/demo activities): the closing sale's import time, set after the insert.
+  await tx`update closed_trades t set sell_imported_at = p.created_at from public_transactions p
+    where t.user_id = ${u.id} and p.filer_id = ${filerId} and p.side = 'SELL' and t.sell_id = 'pub:' || p.external_id`;
   return { trades: m.trades.length, userId: u.id as number };
 }

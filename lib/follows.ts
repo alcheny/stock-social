@@ -86,6 +86,8 @@ export async function hiddenTraders(viewer: number): Promise<number[]> {
 
 // /me/following: the viewer's own lists. `isHidden`: the no-JS "Not interested" message checks the row is there.
 export type Listed = { handle: string; name: string; until?: Date };
+// ponytail: every follow and every hidden trader, unpaged (/me/following and the Record tools select grow with them) —
+// keyset-page both lists as ownLikes does.
 export async function ownLists(viewer: number): Promise<{ following: Listed[]; hidden: Listed[] }> {
   const [following, hidden] = await Promise.all([
     sql`select u.handle, u.display_name from follows f join users u on u.id = f.trader_id and u.deleted_at is null
