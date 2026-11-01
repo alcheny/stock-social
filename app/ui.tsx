@@ -5,6 +5,7 @@ import { cardTrust, type TrustBadge } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
+import { UserNote } from '@/lib/user-note.ts';
 // F-13: the SW-1 hint and the Verified definition (fix #9).
 import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
 import { SwipeHint } from './first-visit-client.tsx';
@@ -34,14 +35,17 @@ export function PublicNotice({ link = true }: { link?: boolean }) {
 export type TradeRow = {
   id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number;
+  thesis_written_at?: Date | null; thesis_edited_at?: Date | null;
 };
 
 const days = (d: number) => (d < 1 ? `${Math.max(1, Math.round(d * 24))}h` : `${d.toFixed(d < 10 ? 1 : 0)}d`);
 
 // state: the trader's aggregate record state (recordStates); a failed import shows no Verified badge and the short line.
 // Fix round 8 (tester re-run 4): a display name equal to the handle is shown once ("@name", not "name@name").
+// fix-user-text fix round 5 (item 5): the name is isolated (<bdi>), so a right-to-left name never pulls the handle after
+// it into its direction (the handle stays whole and in order).
 export function WhoName({ name, handle }: { name: string; handle: string }) {
-  return <>{name !== handle && <><strong>{name}</strong>{' '}</>}<span className="muted">@{handle}</span></>;
+  return <>{name !== handle && <><strong><bdi>{name}</bdi></strong>{' '}</>}<span className="muted">@{handle}</span></>;
 }
 
 // F-2 PR-1 fix round 2 (render cost): one formatter, not one per card (toLocaleDateString with options builds a new one
@@ -54,16 +58,24 @@ const CLOSED_DAY_YEAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 
 export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.getUTCFullYear() ? CLOSED_DAY : CLOSED_DAY_YEAR).format(d);
 
 // F-7: a public-record card shows its card line in place of the thesis (filers post none).
-const thesisLine = (t: TradeRow, pub: boolean) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p> : <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>;
+// F-7: a public filer's card carries its own line, never a note. F-9: UserNote renders a published thesis (no byline:
+// the card's header already names the trader; `report` is the Report control the feed passes for a signed-in reader).
+const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
+  : t.thesis_status === 'published' && t.thesis
+    ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} textClass="thesis" />
+    : <p className="thesis"><span className="muted">No thesis posted.</span></p>;
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
 // F-10: `strip`, the trader's record strip (lib/record-strip.ts#recordStrip, 'feed'): it takes the place of the
 // "held · closed" line, so the hero reads symbol, return, record. DS-22 (design system council, PR #48): the trust badge
 // then leads the record line in .hero, not the header. `stripBadge`: the record-level badge (paneTrust, code review
 // 2026-11-01), since it labels the record's figures; without it, the card's own. Without a strip (other callers) the card is unchanged.
+// F-9: `report`, the note's Report control (app/report-note.tsx), passed by the feed only for a signed-in reader who is not
+// the trader. Passed in, not imported here, so this card stays free of the server-action module (lib/f10-feed-card.test.ts
+// renders it outside Next).
 // F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
 // F-13: `hint`, page 1's first card: the SW-1 line and the dismiss focus target; `notice`, the first-visit line.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, now = new Date(), hint, notice }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; now?: Date; hint?: boolean; notice?: React.ReactNode }) {
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
@@ -87,7 +99,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now)}</div>}
       </div>
       {/* F-13: on page 1's first card the first-visit line takes the thesis slot until it is dismissed (F-10's one-screen budget). */}
-      {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub)}</div> : thesisLine(t, pub)}
+      {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub, report)}</div> : thesisLine(t, pub, report)}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         {hint && <SwipeHint text={FIRST_VISIT.hint} />}

@@ -22,6 +22,14 @@ console.log(`db-setup: ${await purgeOccPositions()} option contract positions re
 // rebuildRecord, so no option row stays a public share close. Idempotent; a count only.
 console.log(`db-setup: ${await repairOptionShareCloses()} records rebuilt without option rows on the share path`);
 
+// fix-user-text (F-9, D-08): re-check stored user text against the current rules after every schema apply. Theses:
+// published → held only, owner-released ones skipped (lib/thesis-review.ts). Display names: lib/handles.ts#recheckDisplayNames
+// (a name that now fails falls back to the handle). Counts only, never the text or an id.
+const { remoderateAll } = await import('../lib/thesis-review.ts');
+console.log(`db-setup: theses re-checked ${JSON.stringify(await remoderateAll())}`);
+const { recheckDisplayNames } = await import('../lib/handles.ts');
+console.log(`db-setup: display names re-checked ${JSON.stringify(await recheckDisplayNames())}`);
+
 if (process.env.VERCEL_ENV === 'preview' || process.env.SEED === '1') {
   await import('./seed.ts'); // closes the pool when done
 } else {

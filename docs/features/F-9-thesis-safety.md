@@ -1,6 +1,6 @@
 # F-9 · Thesis safety: normalised moderation, report action and a release path
 
-Status: ready
+Status: built
 
 ## Why
 Theses are the only free text the public reads beside a Verified record. Today the moderation regex list lets links,
@@ -34,33 +34,43 @@ creative direction council CR-34..CR-36, approved by the approval council
   Why: approved by the approval council; U1 "never silently".
 - 2026-11-01: Report actions on profiles (U2) and on F-7 public profiles are out of this feature. F-7 profiles have no
   theses. Why: approved by the approval council (the decisions keeper's F-7 interface condition).
+- 2026-11-01: Built inside the user-text safety fix (D-01, D-02, D-08; branch `claude/fix-user-text-safety`), as the
+  orchestrator folded it in. N = 3 distinct signed-in reporters, one report per reader per minute (the shared database
+  limiter), counted only after the last owner release. Why: the council's suggestion, kept by the fix committee
+  (`docs/features/logs/fixes-user-text/committee-2026-11-01.md`).
+- 2026-11-01: "verified" in a thesis is held only as a claim about the trader, the record or the site, and copy trading
+  only as an offer; ordinary words ("an unverified rumor", "copy trading names were hot") publish. Why: the business
+  lead's user test found those false holds; the fix committee accepted it.
+- 2026-11-01: The feed card's note has no "Note by @handle" line (the card's header already names the trader); every
+  other surface keeps it. Why: business lead user test.
 
 ## Acceptance criteria
-- [ ] Every entry of a bypass corpus in `lib/moderation.test.ts` returns `held`: zero-width characters inside a word, a
+- [x] Every entry of a bypass corpus in `lib/moderation.test.ts` (built as the new file `lib/moderation-v2.test.ts`, so
+      the frozen HOLD snapshot stays untouched) returns `held`: zero-width characters inside a word, a
       Cyrillic look-alike spelling, a direction-override spoof, a URL, a contact handle and a solicitation, each
       paraphrased with no scanner-banned phrase.
-- [ ] A negative corpus of ordinary theses returns `published` with zero false holds. It covers stop-loss levels,
+- [x] A negative corpus of ordinary theses returns `published` with zero false holds. It covers stop-loss levels,
       earnings notes, "sold at 2x ATR", a plain reflection on selling early and theses containing non-Latin names.
-- [ ] Saved thesis text contains no U+202A–202E, U+2066–2069 or U+200E/F characters (unit test).
-- [ ] The profile row, feed card, pane and `/t/[symbol]` render every thesis through the same `UserNote` markup, with
+- [x] Saved thesis text contains no U+202A–202E, U+2066–2069 or U+200E/F characters (unit test).
+- [x] The profile row, feed card, pane and `/t/[symbol]` render every thesis through the same `UserNote` markup, with
       `<bdi>` and the attribution label (component test). A `UserNote` is never set larger than the verified figure
       on the same surface.
-- [ ] `thesis_written_at` and `thesis_edited_at` survive `rebuildTrades` (integration test) and show on public views.
-- [ ] Signed-out users can't report. One signed-in report doesn't change `thesis_status`; N distinct signed-in
+- [x] `thesis_written_at` and `thesis_edited_at` survive `rebuildTrades` (integration test) and show on public views.
+- [x] Signed-out users can't report. One signed-in report doesn't change `thesis_status`; N distinct signed-in
       reporters do; one user can't report the same thesis twice; reports are rate-limited (unit and integration tests).
-- [ ] Reports and holds survive `rebuildTrades` because they are keyed by `sell_id` (integration test).
-- [ ] No code path deletes a thesis on report, hold or release (test). The owner-run release script can publish any
+- [x] Reports and holds survive `rebuildTrades` because they are keyed by `sell_id` (integration test).
+- [x] No code path deletes a thesis on report, hold or release (test). The owner-run release script can publish any
       held thesis (test), and it ships in the same PR as auto-hold.
-- [ ] The review-queue route returns 404 while its flag is off (default) and never reads `lib/session.ts`'s dev
+- [x] The review-queue route returns 404 while its flag is off (default) and never reads `lib/session.ts`'s dev
       session for admin rights.
-- [ ] The author sees "Held for review" and the matched rule as text, not by colour alone. The report control has an
+- [x] The author sees "Held for review" and the matched rule as text, not by colour alone. The report control has an
       accessible name, works from the keyboard and confirms in a polite live region (e2e).
-- [ ] Thesis text and reporter ids never appear in logs (test over the logger), and a profile deletion removes that
+- [x] Thesis text and reporter ids never appear in logs (test over the logger), and a profile deletion removes that
       user's reporter ids. Removing reports never publishes a thesis: one already auto-held stays held until it is released
       through the release path, and the deleted user's reports stop counting toward N for later holds (test).
-- [ ] `db/schema.sql` changes are additive and idempotent, with no drop, truncate or delete from.
-- [ ] No new dependency (package.json unchanged), and `node scripts/compliance.ts tree` passes.
-- [ ] The touched surfaces pass a Tab walk and the 320 px / 400% reflow check (POLICY A1).
+- [x] `db/schema.sql` changes are additive and idempotent, with no drop, truncate or delete from.
+- [x] No new dependency (package.json unchanged), and `node scripts/compliance.ts tree` passes.
+- [x] The touched surfaces pass a Tab walk and the 320 px / 400% reflow check (POLICY A1).
 
 ## Out of scope
 - A report action on profiles, handle and name integrity (C9, next cycle), and an LLM classifier.
@@ -68,9 +78,7 @@ creative direction council CR-34..CR-36, approved by the approval council
 - Turning the review-queue page on (waits for real admin identity).
 
 ## Open questions
-- N (distinct reporters before auto-hold) and the report rate limit: set in the build's plan debate. The council
-  suggests N = 3 and one report per user per minute, documented in the feature log.
-- Whether the confusables map needs Unicode data: it may not copy Unicode data files (their licence isn't in POLICY C's
-  list). Use a hand-written map.
+- (Resolved 2026-11-01) N = 3 and one report per reader per minute; the confusables map is hand-written (no Unicode data
+  files). See Decisions.
 
 ## Rework notes

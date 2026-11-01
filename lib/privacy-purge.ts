@@ -10,6 +10,8 @@
 //     connections (a signed-in account's connections stay: they drive its record's state, TR-3);
 //   - likes and rejected trades whose trade has been gone for 30 days (marked when first seen gone, unmarked if the
 //     trade comes back). Preference data with a live trade is never removed on a timer (owner, 2026-11-01);
+//   - fix round 5 (item 8): handle reservations whose hold has ended (a deleted or renamed handle after its year, or one
+//     released early by the rename cap, lib/auth/attempts.ts#changeHandle): the handle is free, the row has no use.
 //   - F-15: aggregate view counts (view_rollup, view_drops) older than VIEW_RETENTION_DAYS (lib/views.ts).
 // Account deletion is separate and removes everything (lib/delete.ts).
 import type { ReservedSql } from 'postgres';
@@ -30,12 +32,13 @@ export const ORPHAN_GRACE_DAYS = 30;
 export type PrivacyPurgeReport = {
   ran: boolean; done: boolean;
   sessions: number; links: number; attempts: number; orphansMarked: number; orphansCleared: number; likes: number; rejects: number;
+  reservations: number;
   views: number; // F-15: view_rollup and view_drops rows past VIEW_RETENTION_DAYS
   occPositions?: number; // OPTIONS
 };
 
 // `now`, `only` and `hold` are test hooks (a test runs the dated steps at a past `now`, so other tests' rows are untouched).
-export type PurgeStep = 'sessions' | 'links' | 'attempts' | 'orphans' | 'views';
+export type PurgeStep = 'sessions' | 'links' | 'attempts' | 'orphans' | 'reservations' | 'views';
 type Opts = { boxMs?: number; batch?: number; clock?: () => number; hold?: () => Promise<void>; now?: Date; only?: PurgeStep[] };
 
 export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport> {
@@ -45,7 +48,7 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
   const now = opts.now ?? new Date();
   // The statement timeout of an orphan batch runs on the wall clock (the `clock` hook may be a test's counter).
   const wallEnd = Date.now() + Math.min(opts.boxMs ?? PRIVACY_PURGE_BOX_MS, PRIVACY_PURGE_BOX_MS);
-  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, views: 0, /* OPTIONS */ occPositions: 0 };
+  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, reservations: 0, views: 0, /* OPTIONS */ occPositions: 0 };
   const conn = await sql.reserve();
   try {
     const [{ got }] = await conn`select pg_try_advisory_lock(${PRIVACY_PURGE_LOCK}, 0) as got`;
@@ -61,6 +64,9 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
           select l.token_hash from login_links l left join signup_attempts a on a.id = l.attempt_id
           where l.expires_at <= ${now} or (l.used_at is null and a.completed_at <= ${now}) limit ${batch})`).count],
         ['attempts', () => purgeUnfinishedAttempts(now, batch)],
+        // Fix round 5 (item 8): ended handle reservations, oldest first, through handle_reservations_until.
+        ['reservations', async () => (await conn`delete from handle_reservations where handle in (
+          select handle from handle_reservations where until <= ${now} order by until limit ${batch})`).count],
         // OPTIONS: one statement (open_positions holds one row per position, few per trader); reported as a count.
         ['occPositions', () => purgeOccPositions(conn as never)],
         ['orphansCleared', async () => (await conn`delete from privacy_orphans where ctid = any(array(
@@ -89,7 +95,7 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
         ['views', async () => (await conn`delete from view_drops where ctid in (
           select ctid from view_drops where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count],
       ];
-      const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' || k === 'views' ? k : k === 'occPositions' ? 'attempts' : 'orphans');
+      const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' || k === 'reservations' || k === 'views' ? k : k === 'occPositions' ? 'attempts' : 'orphans');
       for (const [key, step] of steps) {
         if (opts.only && !opts.only.includes(stepOf(key))) continue;
         let marked = 0;

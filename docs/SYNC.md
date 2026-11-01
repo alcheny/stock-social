@@ -250,7 +250,9 @@ Every item below must hold. Until then, the cron stays at `of=1`.
    keeps a record that looks live.
 3. **The owner has decided the TR-5 rule for vendor refusals:** whether repeated 401/403s disconnect (freeze) a record.
    Nothing clears `disconnected_at` today, so this is irreversible. Until then, refusals are counted (`refused`,
-   `oldestRefusalHours`) and backed off.
+   `oldestRefusalHours`) and backed off. Refusals never freeze: since fixes cycle 3 (F3-3) only confirmed absence does
+   (the connection's accounts missing from two successful account lists at least `FREEZE_CONFIRM_HOURS` apart,
+   `connections.missing_since`), and a frozen connection is not read (owner question Q1 of council cycle 3).
 4. **The coverage line reports `dbConfigOk: true`** against the production database, with the plan's N and C.
 5. **The housekeeping entry is in the cron** (`task=housekeeping&of=N`). Without it, sharded calls run no deletions,
    purges, billing reconciliation or coverage report. Its `missingShards` must read 0 after one round.

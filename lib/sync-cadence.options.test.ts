@@ -22,7 +22,7 @@ dbTest('positions read per account: the open option totals stay the sum over acc
   const A = `${tag}-a`, B = `${tag}-b`;
   // Reads with activities (replace); review B1's positions-only rule has its own test below.
   const write = (real: string[], read: string[], splits: [string, { options: ReturnType<typeof opt>[]; short: number; unsupported: number; optionOther?: number }][]) =>
-    sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, real, read, [], new Map(splits)));
+    sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, real, read, [], new Map(splits), { settle: true }));
   // A closing option row of that contract, imported now (option_activities.contract_key = account | position key).
   const closeOf = (account: string, key: string) => sql`insert into option_activities (user_id, source, external_id, account_id, contract_key, kind, open_close, raw)
     values (${u.id}, 'snaptrade', ${`${tag}-${account}-${key}-close`}, ${account}, ${`${account}|${key}`}, 'SELL', 'SELL_TO_CLOSE', '{}'::jsonb)`;

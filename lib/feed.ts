@@ -55,6 +55,7 @@ const SIZE_MAX = Math.log1p(Number.MAX_VALUE);
 export type FeedCandidate = {
   id: number; sell_id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number; score: number;
+  thesis_written_at?: Date | null; thesis_edited_at?: Date | null; // F-9: the shown card's note dates (UserNote)
 };
 
 // F-2 PR-1 fix round 2 (tester High A): "this close's sell was imported after asOf". Was `sell_id not in (select
@@ -393,7 +394,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   // F-2 PR-4: signed in, the page's closes this viewer rejected (for good, O3) leave the page as a gap, in place.
   const [rows, states, panes, following, people, rejected, opens] = await Promise.all([
     page.items.length ? sql`
-      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name
+      select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name,
+        t.thesis_written_at, t.thesis_edited_at
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null and ${filerVisibleSql('u')}
       where t.sell_id = any(${page.items.map((s) => s.key)})` : [],
     // Fix round 4 (TR-3): a failed import stays in the feed (never hidden) but its card and pane say it may be

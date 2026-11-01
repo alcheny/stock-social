@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { access, billingAvailable, canceledOnConnect, rowEntitles, testMode } from '@/lib/billing.ts';
-import { BILLING, RECORD_TOOLS } from '@/lib/copy.ts';
-import { Disclaimer, PastDueBanner, TestModeLabel } from '../tools/parts.tsx';
+import { BILLING, CHORES_3, RECORD_TOOLS } from '@/lib/copy.ts';
+import { checkoutFor, Disclaimer, PastDueBanner, TestModeLabel } from '../tools/parts.tsx';
 import { openCancel, openPortal } from './actions.ts';
 import { Activating } from './activating.tsx';
 
@@ -23,6 +23,8 @@ export default async function Account({ searchParams }: { searchParams?: Promise
   const contact = process.env.BILLING_CONTACT?.trim();
   const row = a.kind === 'subscriber' || a.kind === 'none' ? a.row : null;
   const live = a.kind === 'subscriber';
+  // CHORES-3 (C3-39): the same rule as /tools, read only where its link shows (no subscription row of any kind).
+  const checkout = a.kind === 'none' && !row ? await checkoutFor(me.id) : null;
   return (
     <main className="page rt">
       <h1>{BILLING.accountTitle}</h1>
@@ -58,7 +60,11 @@ export default async function Account({ searchParams }: { searchParams?: Promise
       </>}
       {a.kind === 'none' && row?.status !== 'incomplete' && sp.activating !== '1' && (row && !rowEntitles(row, now)
         ? <><p>{row.ended_reason === 'refund' ? BILLING.refunded : BILLING.lapsed}</p><p><Link className="button" href="/tools#subscribe">{BILLING.subscribeAgain}</Link></p></>
-        : <><p>{BILLING.none}</p><p><Link className="button" href="/tools">{BILLING.seeTools}</Link></p></>)}
+        : <><p>{BILLING.none}</p><p>{!checkout || checkout.billing
+          ? <Link className="button" href="/tools">{BILLING.seeTools}</Link>
+          // CHORES-3 (C3-39, F-3 plan :142 amended in the closed states, business lead signed): no primary button to a
+          // page with nothing to buy; the state is in the visible text, matching /tools' own line.
+          : <Link className="button secondary" href="/tools">{checkout?.closed ? CHORES_3.seeToolsNotOpen : CHORES_3.seeToolsUnavailable}</Link>}</p></>)}
       <p><a className="button secondary" href="/account/export" download>{RECORD_TOOLS.download}</a></p>
       <p className="muted small">{BILLING.downloadHelp}</p>
     </main>
