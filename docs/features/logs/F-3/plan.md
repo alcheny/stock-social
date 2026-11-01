@@ -24,6 +24,10 @@ year:'numeric', timeZone:'UTC'})` ("Dec 1, 2026"). Reuse tokens and classes: `.p
 - `/me/following` (signed-in, private): one line under the heading: `Compare traders you follow in Record tools` → `/tools`.
 - The top nav is unchanged (no width at 360px; keeps the feed and profiles byte-identical: AC1/AC8 snapshot).
 - Nothing in the footer, profile, `/t/**`, feed, trade pages, share card, sitemap or `robots` allow-list.
+- 2026-11-01 amendment (C3-39, approval council cycle 3; `docs/features/logs/chores-cycle3/plan.md` §5 and Round 2;
+  business lead signed, `docs/features/logs/chores-cycle3/committee-2026-11-01.md`): while checkout is not open to the
+  viewer (`app/tools/parts.tsx#checkoutFor`), locked `/tools` adds `Back to the feed` → `/`. The billing-open state
+  and every other entry point (`/settings`, `/me/following`, nav) are unchanged.
 
 ## 2. Shared pieces
 - **Disclaimer block (K8)**, first thing under every `<h1>` on `/tools`, `/tools?view=`, `/account`, and in the
@@ -140,6 +144,9 @@ Never shown to traders (traders are entitled). No data is removed or hidden to p
 - **past_due in grace:** banner + active body.
 - **lapsed:** `You have no active subscription. Your saved views and notes stay available to read, edit, download or delete.` · `Subscribe again` → `/tools#subscribe`.
 - **never subscribed (non-trader):** `You have no subscription.` · `See Record tools` → `/tools`.
+  2026-11-01 amendment (C3-39, same record as §1): while checkout is not open to the viewer the link is secondary-styled
+  and reads `See Record tools (not open yet)` (gate closed for them) or `See Record tools (not available right now)`
+  (billing not configured); with checkout open it is unchanged.
 - **trader (K14):** `Record tools is included with your connected record.` No plan, price, portal or Subscribe.
   If the trader's paid plan was canceled on connect: `Your subscription was canceled when you connected a brokerage. The unused part is refunded automatically; the payment processor emails you the details.`
 - Portal error: `We could not open the billing page. Nothing changed. Try again.`
