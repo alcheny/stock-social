@@ -37,17 +37,17 @@ Removes the known limit "`/api/sync` loops users sequentially (~5k traders/hour)
 - **`lib/sync-limits.ts`** (new), the pure parts: shard parameters, run config, the token bucket, the backoff schedule,
   failure classes, the breaker, and the database settings check.
 - **`lib/db.ts`**: `DATABASE_POOL_MAX` (default 10, clamped to 3–500).
-- **`db/schema.sql`** (appended, idempotent): five `users.sync_*` columns, the `users_sync_order` partial index, the
+- **`db/schema.sql`** (appended, idempotent): six `users.sync_*` columns, the `users_sync_order` partial index, the
   `sync_shards` table, and indexes on the `on delete set null` foreign keys that made bulk deletes scan whole tables.
   `sync_shards` is in `lib/privacy-retention.ts#SCHEMA_MAP` (no personal data).
 - **The in-repo vendor fake** (`e2e/fakes/vendor.ts`) gains three additive controls: `/_bulk`, `/_latency`, `/_stats`.
 - **`docs/SYNC.md`** (new): how it works, logs, configuration, measured capacity, the cron setup (32 shards on the
-  existing 5-minute schedule), and a **hard switch-on gate**. Until that gate is met the cron stays at `of=1`, which is
-  already about as fast as before, with 6 workers.
+  existing 5-minute schedule, plus the housekeeping entry), and a **hard switch-on gate**. Until that gate is met the
+  cron stays at `of=1`, at the default (today's) rate.
 
 **For the owner: CLAUDE.md "Known limits"** (owner-only, so not edited here). Suggested replacement for the second bullet:
-> `/api/sync` is sharded (`?shard=i&of=N`, docs/SYNC.md): measured 155k traders a round on 32 shards × 6 workers
-> (1.55× over 100k). Switch-on gate in docs/SYNC.md (vendor quota in writing, the "Last updated" line, the owner's TR-5
+> `/api/sync` is sharded (`?shard=i&of=N`, docs/SYNC.md): ≈155k traders a round on 32 shards × 6 workers,
+> extrapolated from the measured per-shard rate (1.55× over 100k). Switch-on gate in docs/SYNC.md (vendor quota in writing, the "Last updated" line, the owner's TR-5
 > refusal rule, `dbConfigOk`). Remaining ponytail (lib/sync.ts): a sync past SYNC_FIT_CAP accounts, or reading more than
 > one vendor page per account, can still overrun and roll back. The runner quarantines such a trader; per-account
 > checkpoints are a follow-up PR.
@@ -79,7 +79,7 @@ The hosting plan must allow 5-minute crons and 33 entries.
   shared breaker row.
 - `lib/sync-shard.ts` (prepaid tokens): a request beyond the prepaid 1 + 2n waits for its token inside the trader's
   transaction (rare). Fix: prepay from the page count.
-- `lib/sync-shard.ts` (coverage): the counts scan every syncable trader on each shard-0 call (tens of ms at 100k). Fix:
+- `lib/sync-shard.ts` (coverage): the counts scan every syncable trader on each unsharded or housekeeping call (tens of ms at 100k). Fix:
   sum the shards' `last_run` counters past a few million.
 - `db/schema.sql` (`users_sync_order`): the shard filter runs after the index, so each page reads past other shards'
   rows (21–26 ms a page at 100k). Fix: an expression index for a fixed shard count.
@@ -103,7 +103,7 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
   - Trader-specific failures back off: 401/403/404 (counted as `refused`), other 4xx, and a claimed account.
   - Transient failures do not: 429, 5xx, timeouts, transport errors, database-wide errors and code errors. They trip the
     breaker instead.
-  - Two unfinished claims quarantine a trader.
+  - Two unfinished claims, or 5 transient failures in a row, quarantine a trader.
 - **Vendor refusals do not disconnect a record.** This is the owner's TR-5 call, since nothing clears `disconnected_at`
   today.
 - **Housekeeping** runs once per cron mark, never waiting on a lease: in the unsharded call, or in its own call when
@@ -161,7 +161,7 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
    operational.
 2. **Personal data collected, stored, shown or sent?**
    - New per-trader operational fields on `users`: `sync_failures`, `sync_retry_at`, `sync_attempts`,
-     `sync_failure_kind`, `sync_failing_since`. They are internal, never shown, and deleted with the account (the users
+     `sync_failure_kind`, `sync_failing_since`, `sync_transients`. They are internal, never shown, and deleted with the account (the users
      row).
    - `sync_shards` holds counts only (SCHEMA_MAP: not personal).
    - Logs carry counts. Per-failure lines carry the internal id, the failure class and `logSafe(e)`, never the error's
@@ -175,8 +175,7 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
 8. **Accessibility?** No UI change.
 9. **Security posture?** The endpoint keeps its constant-time Bearer check, applied before any parameter is parsed. The
    new `GET` is the same handler with the same check: it needs no cookie, so it adds no CSRF surface, and it is dynamic,
-   never cached.
-   No new public surface. Shard leases and claims are fenced on the database clock.
+   never cached. No new public surface. Shard leases and claims are fenced on the database clock.
 10. **Marketing or product claims?** None. The docs claim capacity only as measured, and gate the switch-on on the
     vendor's written quota.
 11. **Checkout, trial or renewal?** No.
