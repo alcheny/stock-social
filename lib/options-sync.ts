@@ -15,6 +15,14 @@ export const OPTION_PAGE = 1000;
 export const OCC_SQL_PATTERN = '^[A-Z0-9./ -]{1,6}?\\s*[0-9]{6}[CP][0-9]{8}$';
 const notFuture = (db: Db) => db`(executed_at is null or executed_at <= now() + ${FUTURE_GRACE_HOURS}::float8 * interval '1 hour')`;
 const notPaper = (db: Db, userId: number) => db`not exists (select 1 from broker_accounts b where b.account_id = o.account_id and b.user_id = ${userId} and b.is_paper)`;
+// Fix round 7 (minor): an account marked as another profile's (lib/shared-accounts.ts#notShared, which rebuildTrades
+// applies to activities `a`) is left out of every option query too, for rows aliased `o`.
+const notSharedO = (db: Db, userId: number) => db`not exists (select 1 from shared_account_marks m where m.user_id = ${userId} and m.account_id = o.account_id)`;
+type Fragment = ReturnType<Db>;
+/** Fix round 7: the SQL side of lib/options.ts#hasOptionType, for a raw jsonb column: a non-empty option_type after
+ *  trimming. Every option_type check in SQL goes through it. */
+// btrim() trims spaces only, so a tab-only value would read as set; "has a non-whitespace character" is trim() !== ''.
+export const optionTypeSet = (db: Db, raw: Fragment) => db`(coalesce(${raw}->>'option_type', '') ~ '[^[:space:]]')`;
 
 /** D1: raw option rows, append-only (a re-insert is a no-op). A row without a date gets no contract key (counted). */
 export async function insertOptionActivities(userId: number, source: 'snaptrade' | 'demo', rows: (OptionRow & { raw: unknown })[], db: Db = sql) {
@@ -79,7 +87,7 @@ export async function rebuildOptionTrades(userId: number, tx: TransactionSql, as
   let after: { account_id: string; contract_key: string; at: string; external_id: string; source: string } | null = null;
   for (;;) {
     const page: Stored[] = await tx<Stored[]>`select ${cols(tx)} from option_activities o where o.user_id = ${userId} and o.contract_key is not null and o.account_id is not null
-      and ${notPaper(tx, userId)} and ${notFuture(tx)}
+      and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)}
       ${after ? tx`and (o.account_id collate "C", o.contract_key collate "C", o.executed_at, o.external_id collate "C", o.source collate "C")
         > (${after.account_id}::text collate "C", ${after.contract_key}::text collate "C", ${after.at}::timestamptz, ${after.external_id}::text collate "C", ${after.source}::text collate "C")` : tx``}
       order by o.account_id collate "C", o.contract_key collate "C", o.executed_at, o.external_id collate "C", o.source collate "C" limit ${OPTION_PAGE}`;
@@ -96,7 +104,7 @@ export async function rebuildOptionTrades(userId: number, tx: TransactionSql, as
   await flush(open);
   // Rows with no contract key (an event without its contract, a malformed row): counted, never matched.
   const loose = await tx<Stored[]>`select ${cols(tx)} from option_activities o where o.user_id = ${userId} and (o.contract_key is null or o.account_id is null)
-    and ${notPaper(tx, userId)} and ${notFuture(tx)}`;
+    and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)}`;
   await flush(loose.map(toRow));
   const short = counts.short;
   // `extraOther`: option rows that reached the share path as an OCC symbol (rebuildRecord removes them from closed_trades).
@@ -114,7 +122,7 @@ export async function exerciseDays(tx: Db, userId: number): Promise<{ account_id
       to_char((o.executed_at at time zone 'UTC')::date, 'YYYY-MM-DD') as day from option_activities o
     where o.user_id = ${userId} and o.kind in ('OPTIONEXERCISE', 'OPTIONASSIGNMENT') and o.account_id is not null
       and coalesce(o.underlying, o.raw->'symbol'->>'symbol') is not null
-      and o.executed_at is not null and ${notPaper(tx, userId)} and ${notFuture(tx)}`;
+      and o.executed_at is not null and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)}`;
   const out = new Map<string, { account_id: string; underlying: string; day: string }>();
   for (const r of rows) {
     const underlying = parseOcc(r.underlying)?.root ?? (r.underlying as string);
@@ -126,8 +134,8 @@ export async function exerciseDays(tx: Db, userId: number): Promise<{ account_id
 // The option pairs among the rows the rebuild reads (paper accounts and future-dated rows left out), their closes removed.
 async function removeOptionPairs(tx: TransactionSql, userId: number): Promise<number> {
   const pairs = await tx`select o.account_id, o.symbol, count(*) filter (where o.side = 'SELL')::int as sells from activities o
-    where o.user_id = ${userId} and (upper(btrim(o.symbol)) ~ ${OCC_SQL_PATTERN} or o.raw->>'option_type' is not null)
-      and ${notPaper(tx, userId)} and ${notFuture(tx)} group by o.account_id, o.symbol`;
+    where o.user_id = ${userId} and (upper(btrim(o.symbol)) ~ ${OCC_SQL_PATTERN} or ${optionTypeSet(tx, tx`o.raw`)})
+      and ${notPaper(tx, userId)} and ${notSharedO(tx, userId)} and ${notFuture(tx)} group by o.account_id, o.symbol`;
   if (!pairs.length) return 0;
   const hit = await tx`select c.sell_id, c.thesis, c.thesis_status from closed_trades c
     join (select * from jsonb_to_recordset(${tx.json(pairs.map((p) => ({ account_id: p.account_id, symbol: p.symbol })) as never)}::jsonb) as t(account_id text, symbol text)) t
@@ -148,7 +156,7 @@ export async function repairOptionShareCloses(ids?: number[]): Promise<number> {
   const users = await sql`select distinct c.user_id from closed_trades c
     where ${ids ? sql`c.user_id in ${sql(ids.length ? ids : [0])} and` : sql``}
       (upper(btrim(c.symbol)) ~ ${OCC_SQL_PATTERN} or exists (select 1 from activities a where a.user_id = c.user_id and a.account_id = c.account_id
-        and a.symbol = c.symbol and (upper(btrim(a.symbol)) ~ ${OCC_SQL_PATTERN} or a.raw->>'option_type' is not null)))`;
+        and a.symbol = c.symbol and (upper(btrim(a.symbol)) ~ ${OCC_SQL_PATTERN} or ${optionTypeSet(sql, sql`a.raw`)})))`;
   for (const u of users) {
     await sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${u.user_id as number})`;

@@ -5,7 +5,7 @@ import type { AccountPosition, AccountUniversalActivity, OptionInstrument } from
 import type { Activity } from './trades.ts';
 // OPTIONS (docs/features/logs/options/plan.md D2, D7): option rows and option positions are parsed here (the vendor's
 // field names stay in this file) and handed to an optional sink; the share path below is unchanged.
-import { isOccSymbol, multiplierOf, strikeMilli, UNDERLYING_ALLOWLIST, validExpiry, type OptionRow } from './options.ts';
+import { hasOptionType, isOccSymbol, multiplierOf, strikeMilli, UNDERLYING_ALLOWLIST, validExpiry, type OptionRow } from './options.ts';
 import { fromVendorRows, type VendorRow } from './corporate-actions.ts';
 
 // SNAPTRADE_BASE_URL points the SDK at the in-repo fake in tests (e2e/fakes/vendor.ts); unset, the SDK uses the vendor.
@@ -156,7 +156,7 @@ export async function deleteUser(u: BrokerUser): Promise<void> {
 // Fix round 1 (review 5, QA 3): a BUY/SELL row with option_type set, or whose symbol is an OCC contract, is an option
 // row even without option_symbol: it never reaches the share path (closed_trades), and without a contract it is counted.
 const isOptionRow = (a: { type?: string; option_symbol?: unknown; option_type?: string; symbol?: { symbol?: string } | null }) =>
-  !!a.option_symbol || (OPTION_EVENT_TYPES as readonly string[]).includes(a.type ?? '') || !!a.option_type || isOccSymbol(a.symbol?.symbol);
+  !!a.option_symbol || (OPTION_EVENT_TYPES as readonly string[]).includes(a.type ?? '') || hasOptionType(a.option_type) || isOccSymbol(a.symbol?.symbol);
 const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 export function toOptionRows(accountId: string, rows: AccountUniversalActivity[]): (OptionRow & { raw: unknown })[] {
   const out: (OptionRow & { raw: unknown })[] = [];
@@ -166,7 +166,7 @@ export function toOptionRows(accountId: string, rows: AccountUniversalActivity[]
     const at = a.trade_date ? new Date(a.trade_date) : null;
     const units = num(a.units);
     out.push({
-      externalId: a.id, accountId, kind: a.type ?? null, openClose: a.option_type ?? null,
+      externalId: a.id, accountId, kind: a.type ?? null, openClose: hasOptionType(a.option_type) ? a.option_type.trim() : null,
       underlying: os?.underlying_symbol?.symbol ?? null, underlyingType: os?.underlying_symbol?.type?.code ?? null,
       right: os?.option_type ?? null, expiry: validExpiry(os?.expiration_date), strikeMilli: os ? strikeMilli(os.strike_price) : null,
       multiplier: os ? multiplierOf(os.is_mini_option) : null, occTicker: os?.ticker ?? null,
@@ -219,7 +219,7 @@ function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?
     // Option rows go to toOptionRows (OPTIONS, K1–K9 above); this path is shares, ETFs and crypto.
     if (!a.id || !symbol || a.option_symbol || !a.trade_date || !a.price || !a.units) continue;
     if (a.type !== 'BUY' && a.type !== 'SELL') continue;
-    if (a.option_type || isOccSymbol(symbol)) continue; // OPTIONS fix round 1: an option row (toOptionRows counts it)
+    if (hasOptionType(a.option_type) || isOccSymbol(symbol)) continue; // OPTIONS: an option row (toOptionRows counts it), one definition (round 7)
     out.push({
       externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(a.units), price: a.price, fee: Math.abs(a.fee ?? 0),
       executedAt: new Date(a.trade_date), verified: true, raw: a,

@@ -81,6 +81,9 @@ export const parseOcc = (s: unknown): { root: string; right: OptionRight; strike
   return m ? { root: m[1].trim(), right: m[3] === 'C' ? 'CALL' : 'PUT', strikeMilli: Number(m[4]) } : null;
 };
 export const isOccSymbol = (s: unknown) => parseOcc(s) !== null;
+/** Fix round 7: the one definition of "this row carries an option type": a non-empty string after trimming. The import
+ *  (lib/broker.ts) routes by it and the rebuild's SQL (lib/options-sync.ts#optionTypeSet) says the same. */
+export const hasOptionType = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 const bare = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 // D2: the contract key, from the typed fields only. null when any part is missing (the row is counted, never keyed).
