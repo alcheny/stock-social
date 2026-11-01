@@ -180,7 +180,9 @@ dbTest('F-31 AC5: main with READOUT_INTERNAL_HANDLES set prints both internal ro
     const files = readdirSync(out);
     assert.equal(files.length, 1);
     const md = readFileSync(path.join(out, files[0]), 'utf8');
-    for (const l of [...F31_INTERNAL_ROW_LABELS, INTERNAL_RUNS_LINE]) assert.ok(md.includes(l), l);
+    // The rows themselves, not only the facts line that names them (code review 1).
+    for (const l of F31_INTERNAL_ROW_LABELS) assert.ok(md.split('\n').some((line) => line.startsWith(`| ${l} |`)), l);
+    assert.ok(md.includes(INTERNAL_RUNS_LINE));
     assert.ok(md.includes('1 listed entry was not a valid handle and was ignored.'));
     for (const text of [md, run.stdout, run.stderr]) {
       for (const h of [a.handle, b.handle]) assert.ok(!text.toLowerCase().includes(h), 'no handle');
