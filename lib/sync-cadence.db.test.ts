@@ -3,7 +3,11 @@
 // to the in-repo vendor fake (e2e/fakes/vendor.ts, started in this process) through the real lib/broker.ts; its
 // `/_stats` per-account counts are the evidence (activities, share moves, positions, failed). Each test has its own
 // traders (`ids`), its own past rounds (the database clock shifted back to hours it claims: lib/sync-test-hours.ts),
-// and an `of` no other test uses. Skipped without DATABASE_URL.
+// and an `of` no other test uses (claimed: two processes of this file may share one database). Every id it hands the
+// vendor fake (handles, vendor users, authorizations, accounts and activities, so the activities' external_id and the
+// closed trades' sell_id) carries the test's random `tag`: activities are unique on (source, external_id) and closed
+// trades on sell_id across the whole database, so a literal id clashed with the same test in another process (the
+// second insert was skipped and its closed trade went missing). Skipped without DATABASE_URL.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,6 +15,7 @@ import type { Server } from 'node:http';
 import type { FakeAccount, FakeActivity } from '../e2e/fakes/vendor.ts';
 import type { RunReport } from './sync-shard.ts';
 import { claimHours } from './sync-test-hours.ts';
+import { unswept } from './test-sweep-lock.ts';
 import { ACTIVITIES_EVERY_MS, ATTEMPT_FLOOR_MS, FUTURE_SLACK_MS, POSITIONS_EVERY_MS, POSITIONS_PER_DAY, type DueFlags } from './sync-cadence.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -38,11 +43,23 @@ after(async () => {
 
 const HOUR = 3_600_000;
 const MIN = 60_000;
-const usedOf = new Set<number>();
 // Shard counts (`of`) are split between the files that drive runShard in parallel, so no two share a lease or delete
-// each other's: lib/sync-shard.test.ts 500–1000, this file 1001–1012 (up to 8 used), lib/sync-cadence.review.test.ts
-// 1013–1018, lib/options-shard.test.ts 1019–1024 (the table allows 1–1024).
-const freshOf = () => { for (;;) { const of = 1001 + Math.floor(Math.random() * 12); if (!usedOf.has(of)) { usedOf.add(of); return of; } } };
+// each other's: lib/sync-shard.test.ts 500–1000, this file 1001–1012 (one per test at a time), lib/sync-cadence.review.test.ts
+// 1013–1018, lib/options-shard.test.ts 1019–1024 (the table allows 1–1024). Within the range a test claims its `of` with a
+// session advisory lock on a connection of its own, held until its cleanup (the server drops it if the process dies), so
+// two processes of this file never run rounds on the same lease or delete each other's rows.
+const claimOf = async () => {
+  const { sql } = await import('./db.ts');
+  const conn = await sql.reserve();
+  const key = (of: number) => `lib/sync-cadence.db.test.ts of=${of}`;
+  for (let i = 0; i < 200; i++) {
+    const of = 1001 + Math.floor(Math.random() * 12);
+    const [{ ok }] = await conn`select pg_try_advisory_lock(hashtextextended(${key(of)}, 0)) as ok`;
+    if (ok) return { of, release: async () => { try { await conn`select pg_advisory_unlock(hashtextextended(${key(of)}, 0))`; } finally { conn.release(); } } };
+  }
+  conn.release();
+  throw new Error('no free shard count in 1001–1012 after 200 draws');
+};
 const post = async (path: string, body: unknown) => {
   const r = await fetch(`${base}${path}`, { method: 'POST', body: JSON.stringify(body) });
   assert.equal(r.status, 200, `${path} answered ${r.status}`);
@@ -51,8 +68,9 @@ const post = async (path: string, body: unknown) => {
 type Count = { activities: number; shareMoves: number; positions: number; failed: number };
 const zero = (): Count => ({ activities: 0, shareMoves: 0, positions: 0, failed: 0 });
 const stats = async () => (await (await fetch(`${base}/_stats`)).json()) as { accounts: Record<string, Count>; lists: Record<string, number> };
-const buy = (id: string, symbol: string, day: string, price = 100): FakeActivity => ({ id, symbol, type: 'BUY', units: 10, price, fee: 0, trade_date: `${day}T15:00:00Z` });
-const sell = (id: string, symbol: string, day: string, price: number): FakeActivity => ({ id, symbol, type: 'SELL', units: 10, price, fee: 0, trade_date: `${day}T16:00:00Z` });
+// The vendor's activity ids are the tagged ids the harness's `buy` and `sell` pass in (never a literal).
+const buyRow = (id: string, symbol: string, day: string, price = 100): FakeActivity => ({ id, symbol, type: 'BUY', units: 10, price, fee: 0, trade_date: `${day}T15:00:00Z` });
+const sellRow = (id: string, symbol: string, day: string, price: number): FakeActivity => ({ id, symbol, type: 'SELL', units: 10, price, fee: 0, trade_date: `${day}T16:00:00Z` });
 const held = (symbol: string, pct: number) => ({ symbol, units: 10, price: 100 * (1 + pct), cost_basis: 100 });
 
 async function harness() {
@@ -68,8 +86,12 @@ async function harness() {
   // Round r runs at minute 5 of hour r (rounds run :30 to :30, so this is round r).
   const at = (minute: number) => () => T0 + minute * MIN - Date.now();
   const atRound = (r: number) => at(r * 60 + 5);
-  const of = freshOf();
+  const ofClaim = await claimOf();
+  const of = ofClaim.of;
   const tag = `f${Math.random().toString(36).slice(2, 9).padEnd(7, '0')}`;
+  // Activities with this test's own vendor ids (so their external_id and sell_id are its own too).
+  const buy = (k: string, symbol: string, day: string, price = 100) => buyRow(`${tag}-${k}`, symbol, day, price);
+  const sell = (k: string, symbol: string, day: string, price: number) => sellRow(`${tag}-${k}`, symbol, day, price);
   const ids: number[] = [];
   const accountIds: string[] = [];
   const vendorIds = new Map<number, string>();
@@ -127,9 +149,10 @@ async function harness() {
     if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
     if (accountIds.length) await sql`delete from broker_accounts where account_id in ${sql(accountIds)}`;
     await sql`delete from sync_shards where of = ${of}`;
+    await ofClaim.release();
     await hours.release();
   };
-  return { sql, H, S, broker, T0, at, atRound, of, tag, ids, trader, acct, round, delta, ba, marks, open, closed, dbAt, cleanup, lines };
+  return { sql, H, S, broker, T0, at, atRound, of, tag, ids, trader, acct, buy, sell, round, delta, ba, marks, open, closed, dbAt, cleanup, lines };
 }
 
 // The model of dueSql in minutes (the same as lib/sync-cadence.test.ts#flagsAt; kept here so this file does not import
@@ -156,10 +179,10 @@ const maxGap = (perRound: number[]) => { let g = 0, prev = 0; perRound.forEach((
 dbTest('48 hourly rounds through the real runner and the vendor fake: per account ≤ 1 activities and ≤ 1 share-move read and ≤ 4 positions reads in any 24 h (a rolled-back read retried after the 6 h floor is the only extra), liveness 26 h / 14 h, a missed round, deferrals only after rollbacks, and the run counters equal the vendor counts', async () => {
   const h = await harness();
   try {
-    const a = h.acct('a', { activities: [buy('a1', 'AAA', '2024-02-01'), sell('a2', 'AAA', '2024-02-02', 110)], positions: [held('BBB', 0.05)] });
-    const b1 = h.acct('b1', { activities: [buy('b1', 'CCC', '2024-02-01')], positions: [held('CCC', -0.1)] });
-    const b2 = h.acct('b2', { authorization: b1.authorization, activities: [buy('b2', 'DDD', '2024-02-01'), sell('b3', 'DDD', '2024-02-03', 90)], positions: [] });
-    const c = h.acct('c', { activities: [buy('c1', 'EEE', '2024-02-01')], positions: [held('EEE', 0.2)] });
+    const a = h.acct('a', { activities: [h.buy('a1', 'AAA', '2024-02-01'), h.sell('a2', 'AAA', '2024-02-02', 110)], positions: [held('BBB', 0.05)] });
+    const b1 = h.acct('b1', { activities: [h.buy('b1', 'CCC', '2024-02-01')], positions: [held('CCC', -0.1)] });
+    const b2 = h.acct('b2', { authorization: b1.authorization, activities: [h.buy('b2', 'DDD', '2024-02-01'), h.sell('b3', 'DDD', '2024-02-03', 90)], positions: [] });
+    const c = h.acct('c', { activities: [h.buy('c1', 'EEE', '2024-02-01')], positions: [held('EEE', 0.2)] });
     const A = await h.trader([a]), B = await h.trader([b1, b2]), C = await h.trader([c]);
     const accts = [a.id, b1.id, b2.id, c.id];
     const per = new Map(accts.map((id) => [id, { activities: [] as number[], shareMoves: [] as number[], positions: [] as number[], failed: [] as number[] }]));
@@ -241,7 +264,7 @@ dbTest('48 hourly rounds through the real runner and the vendor fake: per accoun
 dbTest('consent exemption: a reconnect makes the next round read activities and positions at once despite fresh timestamps, then the caps resume; importStep calls the vendor whatever the timestamps say and its first hourly sync reads at once; "Importing your record" never waits', async () => {
   const h = await harness();
   try {
-    const x = h.acct('x', { activities: [buy('x1', 'AAA', '2024-02-01')], positions: [held('AAA', 0.1)] });
+    const x = h.acct('x', { activities: [h.buy('x1', 'AAA', '2024-02-01')], positions: [held('AAA', 0.1)] });
     const X = await h.trader([x]);
     const reads = async (r: number) => { await h.round(r); return (await h.delta()).accounts[x.id]; };
     assert.deepEqual(await reads(0), { activities: 1, shareMoves: 1, positions: 1, failed: 0 });
@@ -260,22 +283,28 @@ dbTest('consent exemption: a reconnect makes the next round read activities and 
     // The consented import: timestamps and marks set to "now", then importStep reads every page, the share moves and the
     // positions at once, one vendor step per call, never deferred.
     const { importStep } = await import('./connections.ts');
-    const y = h.acct('y', { activities: [buy('y1', 'BBB', '2024-02-01'), sell('y2', 'BBB', '2024-02-02', 95)], positions: [held('CCC', -0.05)] });
+    const y = h.acct('y', { activities: [h.buy('y1', 'BBB', '2024-02-01'), h.sell('y2', 'BBB', '2024-02-02', 95)], positions: [held('CCC', -0.05)] });
     const Y = await h.trader([y]);
     const tImp = h.dbAt(30, 10);
-    await h.sql`update connections set state = 'importing', connected_at = null, import_cursor = '{}' where id = ${Y.connection}`;
-    await h.sql`insert into broker_accounts (account_id, user_id, confirmed_at, is_paper, activities_read_at, positions_read_at)
-      values (${y.id}, ${Y.id}, ${tImp}, false, ${tImp}, ${tImp})`;
-    await h.sql`insert into sync_read_marks (user_id, account_id, activities_attempted_at, positions_reads) values (${Y.id}, ${y.id}, ${tImp}, array[${tImp}::timestamptz])`;
-    await h.delta();
-    const steps = [];
-    let res;
-    for (let i = 0; i < 10; i++) {
-      res = await importStep(Y.connection, { ...h.broker }, new Date(tImp.getTime() + (i + 1) * 1000));
-      steps.push(res);
-      if (res.state !== 'importing') break;
-    }
-    assert.equal(res!.state, 'connected');
+    const steps: Awaited<ReturnType<typeof importStep>>[] = [];
+    // The import runs at tImp, thousands of hours before the real clock, so a global connection tick in another test file
+    // (lib/connections.test.ts) would mark the importing row failed as stale, or drive it with its own vendor: no global
+    // tick runs from the moment the row is importing until the import ends (lib/test-sweep-lock.ts).
+    const res = await unswept(async () => {
+      await h.sql`update connections set state = 'importing', connected_at = null, import_cursor = '{}' where id = ${Y.connection}`;
+      await h.sql`insert into broker_accounts (account_id, user_id, confirmed_at, is_paper, activities_read_at, positions_read_at)
+        values (${y.id}, ${Y.id}, ${tImp}, false, ${tImp}, ${tImp})`;
+      await h.sql`insert into sync_read_marks (user_id, account_id, activities_attempted_at, positions_reads) values (${Y.id}, ${y.id}, ${tImp}, array[${tImp}::timestamptz])`;
+      await h.delta();
+      let last: (typeof steps)[number] | undefined;
+      for (let i = 0; i < 10; i++) {
+        last = await importStep(Y.connection, { ...h.broker }, new Date(tImp.getTime() + (i + 1) * 1000));
+        steps.push(last);
+        if (last.state !== 'importing') break;
+      }
+      return last!;
+    });
+    assert.equal(res.state, 'connected');
     assert.ok(steps.every((s) => s.progressed && !('retryAt' in s && s.retryAt)), JSON.stringify(steps));
     const imp = (await h.delta()).accounts[y.id];
     assert.deepEqual({ a: imp.activities, s: imp.shareMoves, p: imp.positions }, { a: 1, s: 1, p: 1 });
@@ -295,7 +324,7 @@ dbTest('consent exemption: a reconnect makes the next round read activities and 
 dbTest('a failed vendor call leaves the timestamps and marks unchanged and the next round reads; a null timestamp syncs; a timestamp 10 days in the future syncs', async () => {
   const h = await harness();
   try {
-    const x = h.acct('x', { activities: [buy('x1', 'AAA', '2024-02-01')], positions: [held('AAA', 0.1)] });
+    const x = h.acct('x', { activities: [h.buy('x1', 'AAA', '2024-02-01')], positions: [held('AAA', 0.1)] });
     const X = await h.trader([x]);
     await h.round(0);
     await h.delta();
@@ -357,8 +386,8 @@ dbTest('a failed vendor call leaves the timestamps and marks unchanged and the n
 dbTest('a rebuild that always fails (syncUser with cadence, 24 hourly clocks): at most 4 activities and 4 positions reads in 24 h, for an account read before and for one never read', async () => {
   const h = await harness();
   try {
-    const x = h.acct('x', { activities: [buy('x1', 'AAA', '2024-02-01')], positions: [held('AAA', 0.1)] });
-    const y = h.acct('y', { activities: [buy('y1', 'BBB', '2024-02-01')], positions: [held('BBB', 0.1)] });
+    const x = h.acct('x', { activities: [h.buy('x1', 'AAA', '2024-02-01')], positions: [held('AAA', 0.1)] });
+    const y = h.acct('y', { activities: [h.buy('y1', 'BBB', '2024-02-01')], positions: [held('BBB', 0.1)] });
     const X = await h.trader([x]), Y = await h.trader([y]);
     // X was read successfully a day before round 0 (rounds −24; its consent two days before); Y never.
     await h.sql`update connections set connected_at = ${h.dbAt(-48)} where id = ${X.connection}`;
@@ -391,7 +420,7 @@ dbTest('a rebuild that always fails (syncUser with cadence, 24 hourly clocks): a
 dbTest('TR-4: a position closed at a loss stays listed while only positions are read, and the closed trade replaces it at the next activities read: never missing from both; a paper flip removes positions and rebuilds that round; an account no longer listed loses its positions', async () => {
   const h = await harness();
   try {
-    const rows = [buy('z1', 'ZZZ', '2024-03-01')];
+    const rows = [h.buy('z1', 'ZZZ', '2024-03-01')];
     const z = h.acct('z', { activities: rows, positions: [held('ZZZ', -0.2)] });
     const Z = await h.trader([z]);
     await h.round(0);
@@ -399,7 +428,7 @@ dbTest('TR-4: a position closed at a loss stays listed while only positions are 
     assert.equal((await h.closed(Z.id)).length, 0);
     await h.delta();
     // After round 0 the trader sells at −20%: the vendor no longer lists the position and has the closing sell.
-    await post('/_accounts', { userId: Z.vendor, accounts: [{ ...z, activities: [...rows, sell('z2', 'ZZZ', '2024-03-05', 80)], positions: [] }] });
+    await post('/_accounts', { userId: Z.vendor, accounts: [{ ...z, activities: [...rows, h.sell('z2', 'ZZZ', '2024-03-05', 80)], positions: [] }] });
     let positionsOnly = 0, readAt = -1;
     for (let r = 1; r <= 26; r++) {
       await h.round(r);
@@ -418,8 +447,8 @@ dbTest('TR-4: a position closed at a loss stays listed while only positions are 
 
     // A paper flip: p2 becomes simulated at the vendor. The next round (no activities due) removes its positions and
     // rebuilds the record without its trades; p1 is left as it was.
-    const p1 = h.acct('p1', { activities: [buy('p1b', 'AAA', '2024-02-01'), sell('p1s', 'AAA', '2024-02-02', 110)], positions: [held('BBB', 0.1)] });
-    const p2 = h.acct('p2', { authorization: p1.authorization, activities: [buy('p2b', 'CCC', '2024-02-01'), sell('p2s', 'CCC', '2024-02-02', 120)], positions: [held('DDD', 0.3)] });
+    const p1 = h.acct('p1', { activities: [h.buy('p1b', 'AAA', '2024-02-01'), h.sell('p1s', 'AAA', '2024-02-02', 110)], positions: [held('BBB', 0.1)] });
+    const p2 = h.acct('p2', { authorization: p1.authorization, activities: [h.buy('p2b', 'CCC', '2024-02-01'), h.sell('p2s', 'CCC', '2024-02-02', 120)], positions: [held('DDD', 0.3)] });
     const P = await h.trader([p1, p2]);
     await h.round(40);
     assert.deepEqual((await h.closed(P.id)).map((t) => t.account_id), [p1.id, p2.id]);
@@ -446,9 +475,9 @@ dbTest('TR-4: a position closed at a loss stays listed while only positions are 
 dbTest('business lead: a reconnect whose read rolls back fills the positions window; the forced read finds it full, so activities wait with positions, and no closed trade is published while its open position was removed (and the reverse)', async () => {
   const h = await harness();
   try {
-    const rows = [buy('x1', 'ZZZ', '2024-03-01')];
+    const rows = [h.buy('x1', 'ZZZ', '2024-03-01')];
     const x = h.acct('x', { activities: rows, positions: [held('ZZZ', -0.3)] });
-    const y = h.acct('y', { authorization: x.authorization, activities: [buy('y1', 'YYY', '2024-03-01')], positions: [held('YYY', 0.1)] });
+    const y = h.acct('y', { authorization: x.authorization, activities: [h.buy('y1', 'YYY', '2024-03-01')], positions: [held('YYY', 0.1)] });
     const X = await h.trader([x, y]);
     const xs: { a: number; p: number; deferred: number }[] = [];
     const check = async (r: number) => {
@@ -459,7 +488,7 @@ dbTest('business lead: a reconnect whose read rolls back fills the positions win
       const rep = await h.round(r);
       const d = (await h.delta()).accounts[x.id];
       xs.push({ a: d.activities, p: d.positions, deferred: rep.readsDeferred });
-      if (r === 0) await post('/_accounts', { userId: X.vendor, accounts: [{ ...x, activities: [...rows, sell('x2', 'ZZZ', '2024-03-04', 70)], positions: [] }, y] });
+      if (r === 0) await post('/_accounts', { userId: X.vendor, accounts: [{ ...x, activities: [...rows, h.sell('x2', 'ZZZ', '2024-03-04', 70)], positions: [] }, y] });
       await check(r);
     }
     // Round 16: a reconnect; the consent read of x returns (recorded), y's positions call fails, the sync rolls back.
