@@ -27,10 +27,10 @@ Start from CLAUDE.md → Commands. Deltas for cloud and desktop sessions:
 - **Font.** DejaVu Sans must be installed. Check the pin with an absolute path:
   `FONTCONFIG_FILE="$PWD/e2e/fonts.conf" fc-match system-ui` must print `DejaVu Sans` (checked in a cloud session,
   2026-11-01; a relative path fails to load the file and falls back to the system font). Why:
-  [Rendering determinism](#rendering-determinism). Linux: `apt install fonts-dejavu-core fontconfig`. **macOS:**
-  Chromium there does not read fontconfig, so `FONTCONFIG_FILE` has no effect even with the font installed. Run e2e
-  in a Linux container (with the repo mounted, the Playwright version from `package.json`) or rely on CI for the fit
-  tests (usability pass 5, from reading the config; not run on a Mac).
+  [Rendering determinism](#rendering-determinism). Linux: `apt install fonts-dejavu-core fontconfig`. **Non-Linux desktops:**
+  on a desktop OS whose Chromium ignores fontconfig, `FONTCONFIG_FILE` has no effect even with the font installed.
+  Run e2e in a Linux container (with the repo mounted, the Playwright version from `package.json`) or rely on CI for
+  the fit tests (usability pass 5, from reading the config; not run on such a desktop).
 - **e2e.** `npm run test:e2e` needs a prior `npm run build` and a seeded database (CLAUDE.md); the config starts
   `npm run start` with `ALLOW_DEV_AUTH=1` (`playwright.config.ts` `webServer`). To rerun one of CI's four slices
   (`scripts/e2e-shard.ts`, header comment): `npx playwright test --list --reporter=json > list.json`, then
@@ -70,7 +70,7 @@ docs-only PRs run the full suite.
 | `static` | `npm ci`, `tsc`, policy scan (`compliance.ts auto` against the PR base), actionlint, `npm test`, guardrails (`autopilot.ts guard <base sha>`, skipped on main), the db-setup missing-URL check | Own Postgres 17 service |
 | `e2e` ×4 | Picks its slice (`scripts/e2e-shard.ts pick`, then `verify` that the `--test-list` matched exactly that slice), builds as a Vercel preview, installs Chromium, runs `playwright test --workers=1` | `fail-fast: false`, each shard has its own database, server and vendor fake |
 | `check` | Passes only if `static` and `e2e` both succeeded | The Gate, the doctor and the feature pipeline read this exact job name. Lane-C merges require it green on the head ([lifecycle.md → Merge](lifecycle.md#12-merge)) |
-| `notify-gate` | Dispatches Review or the Gate | Only for dispatched runs (lanes A and B); never on lane-C PRs |
+| `notify-gate` | Dispatches Review or the Gate | Only for dispatched runs (`workflow_dispatch`, lanes A and B); never on lane-C PRs while `FEATURES` is off (with it on, lane B can re-dispatch CI on a lane-C branch: [collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on), row (b)) |
 
 Sharding: `scripts/e2e-shard.ts` cuts the ordered test list into contiguous slices of about equal *estimated* time
 (`WEIGHTS`, seconds per test per spec file measured on CI on 2026-11-01; `DEFAULT_WEIGHT` 4 for a new file). Each test
@@ -163,8 +163,9 @@ skill of that name; it is the convention behind CLAUDE.md → Known limits ("mar
 - Scanner modes and what each POLICY rule checks deterministically: POLICY "How it is enforced". The scanner is step 3
   of [Before every push](#before-every-push).
 - Wording limits for the process docs themselves (POLICY T1, T2, P1, P5): name only T1's integrated vendors; write
-  "the billing vendor", never its name; no people's names; no session ids, queue contents, usage snapshots or personal
-  email; never copy a non-integrated vendor name from another doc.
+  "the billing vendor", never its name; no people's names; no queue contents, usage snapshots or personal email;
+  never copy a non-integrated vendor name from another doc. No session ids either (process-docs lead decision, not a
+  POLICY rule: [architecture.md → State and where it lives](architecture.md#state-and-where-it-lives)).
 
 ## Protected paths (mechanics)
 
@@ -173,7 +174,7 @@ Each list lives in one file; this table names the list and what it does, and lis
 | List | What it does | Applies to |
 |---|---|---|
 | `.github/CODEOWNERS` | The Gate's `gateDecision` sends a PR touching these paths to `needs-human` | Lanes A and B. Lane C: no branch protection enforces it (docs/AUTOPILOT.md → Known limits) |
-| `scripts/team.ts` `PROTECTED` | Agents' Edit/Write to these paths is refused; anything else that reaches them is put back after each call | Lanes A and B agents. Lane C keeps away from these paths by rule ([collaboration.md → Never do](collaboration.md#never-do)), with one exception: records in `docs/features/logs/` |
+| `scripts/team.ts` `PROTECTED` | Agents' Edit/Write to these paths is refused; anything else that reaches them is put back after each call | Lanes A and B agents. Lane C keeps away from these paths by rule ([collaboration.md → Never do](collaboration.md#never-do)), with two exceptions: records in `docs/features/logs/`, and a build session's own feature file for committee decisions under the 2026-11-01 delegation, its Build log and Hand-off notes (process-docs lead decision, Q8) |
 | `scripts/autopilot.ts` `LOOP_PATHS` | A line PR that changes loop files is sent back to be reverted | Lane A lines |
 | `scripts/doctor.ts` `DOCTOR_FORBIDDEN` | Files the doctor may never change | The doctor |
 | `scripts/handoff.ts` `verify` | Refuses a build hand-off with a protected path (except the team's own logs under `docs/features/logs/`, `TEAM_RECORDS`), a symlink, a submodule, CODEOWNERS or an agent-instruction file | Lane B publish |

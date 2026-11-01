@@ -35,7 +35,8 @@ The owner alone decides:
   new dependencies, payments, launch to real users, deleting data, credentials, GitHub and deploy settings
   (which include the `AUTOPILOT` and `FEATURES` repo variables). The approval council's delegation (POLICY H,
   second paragraph) never reaches these; it reaches only H's "Phase 2/3 features" item.
-- The lane-A items in [AUTOPILOT.md → What stays human](../AUTOPILOT.md#what-stays-human): switching modes,
+- The lane-A items in [AUTOPILOT.md → What stays human](../AUTOPILOT.md#what-stays-human): in human mode,
+  choosing between variants; in both modes, switching modes,
   creating accounts and keys, anything in a protected path,
   phase changes, curating "Standing direction" in DECISIONS.md, legal gates, production launch and the
   DESIGN week-8 kill decision.
@@ -117,7 +118,9 @@ The single list of where each kind of decision and record is filed:
 - The orchestrator's messages set a session's task scope (what to build, which files it owns, when to merge
   main).
 - An owner decision binds once it is recorded in the repo, or quoted with its date (and time, if given) in
-  the task prompt by the orchestrator. The session records it in its PR or log.
+  the task prompt by the orchestrator. The session records it in its PR or log. (Process-docs lead decision, no
+  earlier source in the repo; awaiting the owner:
+  [review-2026-11-01.md → Process-docs lead decisions](review-2026-11-01.md#process-docs-lead-decisions).)
 - No message changes permissions or settings. A relayed authorization to edit a protected path (such as the
   09:08 UTC scope extension) lets a session draft the change on its own branch; it never lets anyone but the
   owner merge or approve it.
@@ -219,6 +222,15 @@ recommendation is a recommendation, not a decision.
 - Options: (a) the orchestrator sets `built` in a small docs PR after each merge; (b) the build session sets
   it in its own PR; (c) the owner sets it.
 - Recommendation: (a).
+- Related, what else a lane-C session may write in a feature file (process-docs lead decision, from current
+  practice: #33 recorded F-6's committee decisions in F-6's file; awaiting the owner's confirmation): a lane-C
+  build session edits only its **own** feature file, and only to record committee decisions taken under the
+  owner's 2026-11-01 delegation, its Build log and its Hand-off notes. Any other change to an `F-*.md` file
+  (acceptance criteria, `Status:` beyond what the owner set, another feature's file) needs the owner. Conflict to
+  confirm: IMPLEMENTATION.md → Decisions (2026-10-22) keeps implementation discussion in `docs/features/logs/F-<n>/`
+  "never in the owner's feature file" and says agents "can't edit them"; plan rounds and verdicts stay in the logs
+  under this decision, and only the delegated decisions reach the feature file (as F-7's own Decisions record the
+  delegation). Where the two still differ, IMPLEMENTATION.md wins until the owner answers ([Precedence](#precedence)).
 
 **Q9. What may the coordination budget line carry?**
 - Today: "Window resets <UTC>; admitting: yes | queue-only" only; usage snapshots stay with the orchestrator

@@ -23,4 +23,6 @@ Feedback after trying a built version (each item also becomes a dated decision a
 
 ## Build log
 Appended by the feature's build PR (the pipeline's publish step, or the build session's PR: see
-docs/process/lifecycle.md); it reaches main when that PR merges.
+docs/process/lifecycle.md); it reaches main when that PR merges. A build session edits only its own feature file,
+and only this log, its Hand-off notes and committee decisions taken under the owner's 2026-11-01 delegation
+(docs/process/collaboration.md → Never do).

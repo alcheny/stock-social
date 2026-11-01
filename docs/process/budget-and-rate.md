@@ -51,6 +51,11 @@ before every `create_session`. It is the manual form of what the governor comput
 
 1. **Read the window.** From `get_session` on any running child: `rate_limit_info` status, `resetsAt` and
    whether overage is in use. If `now` ≥ `resetsAt`, the window has rolled over and spend restarts at 0.
+   Children may report two windows, `five_hour` and `seven_day` (`rateLimitType`; governor spec
+   `docs/token-budget.md` → Mixed windows, branch `claude/token-budget-governor` at `52728e0`); run this procedure
+   once per window and start only what every window admits. The 15:00 UTC reset of 2026-11-01 is the orchestrator's
+   reading; its window type is unknown (orchestrator report). The spec's example snapshot pairs that same
+   `resetsAt` (`1793545200`) with `seven_day`, which suggests but does not confirm the seven-day window.
 2. **Sum spend in the window.** Add `get_session` usage `cost_usd` for every session that started in the
    window. Cost is the proxy for tokens: it is the only per-session figure that adds up across sessions.
 3. **Reserve for running sessions.** For each running session, estimate its remaining cost from the unit
@@ -111,7 +116,7 @@ lane-C PRs).
 |---|---|---|
 | CI runs created that day | 126 | `gh api 'repos/{owner}/{repo}/actions/workflows/ci.yml/runs?created=2026-11-01'` → `total_count`, read 09:47 UTC |
 | Gate runs created that day | 230, ≈ 0.4 min wall each | same, `gate.yml`, read 09:41 UTC; mean of `updated_at − run_started_at` over the newest 100 completed runs: 0.44 min |
-| One CI run after #29 (sharded layout) | ≈ 12.5 job-minutes (7 jobs, `notify-gate` skipped and not counted); wall time in [quality.md → CI layout](quality.md#ci-layout) | jobs API of the 71 successful sharded runs at 09:41 UTC: the sum of job durations (median) |
+| One CI run after #29 (sharded layout) | ≈ 12.5 job-minutes (6 counted jobs; 7 with the skipped `notify-gate`, which is not counted); wall time in [quality.md → CI layout](quality.md#ci-layout) | jobs API of the 71 successful sharded runs at 09:41 UTC: the sum of job durations (median) |
 | Job-minutes used that day | ≈ 1,220 | sum of job durations over 113 of the 116 completed CI runs at 09:41 UTC; 3 runs that straddle the API's +1 h timestamp jump (each reading ≈ 66 min) left out |
 
 So ≈ 1,220 job-minutes of CI in one morning, plus the Gate runs (billing rounds each job up to a whole minute,
@@ -134,13 +139,21 @@ child sessions, 07:25–08:44 UTC.
 | Cache-read tokens | ≈ 860 M |
 
 Derived here:
-- Spend rate: $385 / 1.317 h ≈ **$292/h**.
+- Spend rate: $385 / 1.317 h ≈ **$292/h** (orchestrator report, disputed: see below).
 - Output rate: 5.5 M / 1.317 h ≈ **4.18 M output tokens/h**.
 - Cache-read rate: 860 M / 1.317 h ≈ 653 M tokens/h.
 - Development share: $228 / $384.5 ≈ 59%.
 
 The orchestrator's report gave $296/h and 4.25 M/h. Those figures imply a window of 1.30 h (78 min):
 $385 / $296 ≈ 1.30 h. The 79-minute window above gives $292/h.
+
+**Disputed.** The governor's round-2 review (branch `claude/token-budget-governor` at `52728e0`,
+`docs/features/logs/token-budget/review-2026-11-01.md` → Round 2, estimation maths, finding F3) says "the
+orchestrator's ~$296/h is not consistent with the sessions (they sum to ~$74/h)": its example sessions add up to
+about a quarter of that rate, and the figure equals the slope of a history reading about $234 below what the
+sessions account for. So $292/h is an **orchestrator report, disputed**: it is the only measured rate, and every
+estimate in this file that uses it carries that label. Admission (steps 3 and 5 above) uses the per-kind unit costs
+below, not this rate.
 
 **Typical cost per kind of work** (orchestrator observation, 2026-11-01, `get_session` `cost_usd` of finished
 sessions):
@@ -227,7 +240,8 @@ tools or git ([collaboration.md → Tool recipes](collaboration.md#tool-recipes)
 2. Cost: Σ (items of each kind × the kind's typical cost range). Example with illustrative counts: 8 builds
    × $20–40 + 2 councils × $30–50 + 12 reviews × $1–4 = $160–320 + $60–100 + $12–48 ≈ **$232–468**.
 3. Capacity: compare that range with the budget left in the window (orchestrator only). At a constant
-   $292/h, the 5 h 25 min from 09:35 to the 15:00 UTC reset would spend ≈ $1,580; rule 8 then says fill the
+   $292/h (orchestrator report, disputed: [Measured spend](#measured-spend)), the 5 h 25 min from 09:35 to the
+   15:00 UTC reset would spend ≈ $1,580; rule 8 then says fill the
    rest with research, business and design work.
 4. Time: items ÷ the work-item merge rate (≈ 6.7/h on 2026-11-01), with the dependencies in
    coordination.md's merge order as the floor (an item that starts only after another merges cannot finish
@@ -237,8 +251,15 @@ tools or git ([collaboration.md → Tool recipes](collaboration.md#tool-recipes)
 
 - The budget rules exist only in this file and on an unmerged branch; they are not a protected path — the
   owner adds `/docs/process/budget-and-rate.md` to CODEOWNERS and `PROTECTED` (Q7).
-- "The baseline" in rule 8 is not defined; the only measured rate is $292/h over 79 minutes on 2026-11-01 —
-  the owner names a baseline, or the governor's `fill` output replaces it once merged.
+- "The baseline" in rule 8 is not defined; the only measured rate is $292/h over 79 minutes on 2026-11-01
+  (orchestrator report, disputed) — the owner names a baseline, or the governor's `fill` output replaces it once
+  merged.
+- The $292/h spend rate is disputed by the governor's round-2 review (finding F3: its example sessions sum to about
+  $74/h) and cannot be re-checked outside the orchestrator — the orchestrator re-measuring one stated window with
+  its session list (sums per session, not a history slope) would settle it.
+- Two usage windows are reported (`five_hour` and `seven_day`, governor spec `docs/token-budget.md` at `52728e0`),
+  and which one the 15:00 UTC reset belongs to is not confirmed — the orchestrator writing the window type next
+  to the reset time in the coordination budget line would remove it.
 - Spend and window status can be read only by the orchestrator; other clients see only the coordination
   line — a repo-side, non-identifying budget record (Q9) would remove it.
 - Cost is a proxy for tokens: cache reads are cheap in dollars but may weigh differently against the cap —

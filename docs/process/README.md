@@ -123,7 +123,7 @@ The single glossary. Terms owned elsewhere are defined there and only linked her
 | **Guard** | `node scripts/autopilot.ts guard main`, the CI guardrail check (what it rejects: [quality.md → Test rules](quality.md#test-rules); CLAUDE.md → Autopilot). |
 | **Compliance scan** | `scripts/compliance.ts`, the blocking policy scan in CI ([docs/POLICY.md](../POLICY.md) → How it is enforced). |
 | **Protected path** | A path the owner must approve: [quality.md → Protected paths (mechanics)](quality.md#protected-paths-mechanics). |
-| **Usage window** | The period of the weekly usage cap; it ends at `rate_limit_info.resetsAt` ([budget-and-rate.md](budget-and-rate.md)). |
+| **Usage window** | A period of a usage cap; it ends at `rate_limit_info.resetsAt`. Two are reported: `five_hour` and `seven_day` (the weekly cap), named by `rateLimitType` (governor spec `docs/token-budget.md` at `52728e0`, not on main). Which one a given reset time belongs to: [budget-and-rate.md → Admission procedure](budget-and-rate.md#admission-procedure), step 1. |
 | **Admission** | The orchestrator's decision to start a new work item now or queue it until the reset ([budget-and-rate.md → Admission procedure](budget-and-rate.md#admission-procedure)). |
 | **Overage / rejected** | The rate-limit status that alone stops admissions ([budget-and-rate.md](budget-and-rate.md#rules-owner-2026-11-01)). |
 | **Token-budget governor** | `scripts/token-budget.ts`, a planner that computes admission from a usage snapshot; status and scope in [budget-and-rate.md → Token-budget governor](budget-and-rate.md#token-budget-governor). |

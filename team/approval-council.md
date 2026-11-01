@@ -55,5 +55,6 @@ recommendation.
 
 The orchestrator numbers the feature (F-<n>), adds it to the coordination map with the files it owns and its
 merge position, and starts a build session for it (or folds it into a running session that owns the same files).
-The build follows `docs/IMPLEMENTATION.md` → The cycle (interactive differences: `docs/process/lifecycle.md`).
+The build follows the committee cycle: plan debate, tests first, tester, user tests, independent review, CI.
+Steps in `docs/IMPLEMENTATION.md` → The cycle (interactive differences: `docs/process/lifecycle.md`).
 Every cycle's votes are filed in `docs/ideas/approval-<date>.md` and the register in `docs/IDEAS.md` is updated.

@@ -151,7 +151,8 @@ here. **Lane-C differences only:**
 usability verdict per committee member, and a re-sit until both pass (`docs/features/logs/F-6/committee-ux-lead.md`
 "Round 2 verdict: compliance PASS, usability PASS"; `F-6/committee-business-lead.md`; `F-3/committee-review-ux-lead.md`
 and `committee-review-business-lead.md` "COMPLIANCE: PASS"). One gap: `privacy/committee-2026-11-01.md` records
-round-2 usability FAIL verdicts, then "All fixed as below", with no recorded re-sit that passes. A build that skips
+the UX lead's round-2 usability FAIL verdict and the business lead's FAIL (display-log starvation), then "All fixed
+as below", with no recorded re-sit that passes. A build that skips
 the verdict step, or ends without a passing re-sit, does not meet this stage.
 
 ### 8. Pull request
@@ -208,7 +209,9 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
   - squash merge with `sha` set to the reviewed head (the merge API's `sha` field), so a push after the review
     cannot slip in.
 - **After the merge:** the orchestrator checks `check` on main's new commit. If it is red: stop merges, open a fix
-  item at merge position 1, and tell sessions not to merge main until it is green. Otherwise it sends every open
+  item at merge position 1, and tell sessions not to merge main until it is green (process-docs lead decision, no
+  earlier source in the repo; awaiting the owner:
+  [review-2026-11-01.md → Process-docs lead decisions](review-2026-11-01.md#process-docs-lead-decisions)). Otherwise it sends every open
   session "main moved to `<sha>`, merge it" (collaboration.md [Messaging](collaboration.md#messaging)). After a merge
   the orchestrator did not make (for example the owner's), it sends the same message at its next check-in. Clients
   without session tools check main's head themselves before each push (recipe "Main's head" in
@@ -226,7 +229,8 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
   features merged in lane C keep `ready` or `rework` (current list:
   [coordination.md → Feature files after lane-C merges](coordination.md#feature-files-after-lane-c-merges)).
 - Consequence: with `FEATURES=on`, lane B would pick these features up again and rebuild them.
-- Who sets `built` in lane C is open question Q8. This file never edits a feature file.
+- Who sets `built` in lane C is open question Q8. A lane-C build session never sets `Status:` beyond what the owner
+  set; what it may write in its own feature file: [collaboration.md → Never do](collaboration.md#never-do).
 
 ### 15. Interrupted work
 - A session that must stop mid-stage pushes its work in progress to its own branch, keeps the draft PR, and writes in

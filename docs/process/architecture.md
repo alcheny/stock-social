@@ -130,8 +130,11 @@ Etiquette for all channels: [collaboration.md → Messaging](collaboration.md#me
 
 Rule: anything another client needs must be on GitHub or in the repo, never only in a session (owner's request,
 2026-11-01: the process "should be in github so multiple claude clients can collaborate and develop
-simultaneously"). Session ids, queue contents and usage snapshots never go into the repo
-([docs/POLICY.md](../POLICY.md) P1, P5).
+simultaneously"). Queue contents and usage snapshots never go into the repo. Session ids never go into docs or
+coordination tables (docs/process, feature files, logs, coordination.md); the commit trailers and PR-body
+attribution lines that the harness adds are allowed (process-docs lead decision, awaiting the owner:
+[review-2026-11-01.md → Process-docs lead decisions](review-2026-11-01.md#process-docs-lead-decisions); related:
+[docs/POLICY.md](../POLICY.md) P1, personal data).
 
 ## Concurrency
 
