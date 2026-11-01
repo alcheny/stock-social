@@ -160,3 +160,21 @@ lacks `notShared`; `app/ui.tsx:57` says "No thesis posted." over a held thesis; 
 name both possible causes (F3-15). Chores the council recommends (no vote): C3-34 health endpoint and 401 log line;
 C3-39 Record tools while billing is off (business lead signs off the F-3 entry point) with C3-44; K20 home link
 preview; K22 billing hygiene tests.
+
+## Design council cycle 3 (2026-11-01): F-25, F-26, F-27
+
+Record: `docs/features/logs/design-cycle3/committee-2026-11-01.md`. The three features are docs only and blocked. When
+they unblock, their files and merge positions are as follows.
+- **F-26 no empty-note line.** It builds first, after F-9 (PR #65) merges, and after F-11's branch if both are still
+  pending.
+  - Files: the note slot in `app/ui.tsx`, the note columns in `lib/feed.ts`, `lib/trade-share-load.ts`, and the trade page.
+- **F-25 one link rule for trade rows.** It builds after F-26, F-9 and F-11.
+  - Files: new `lib/trade-href.ts`; the trade route's legacy redirect (page body and image route); the row links in
+    `app/pane.tsx`, `lib/pane.ts`, `app/t/[symbol]/**` and the month page; the card footer in `app/ui.tsx`; the
+    shared footer constant in `lib/copy.ts`; `/me/record` and `app/actions.ts`; the label in `lib/privacy-fields.ts`; the trade match in `lib/views.ts`
+    (`viewedUserId`, F-15's view counting).
+  - It supersedes F3-8's naming of the stock-page rows.
+- **F-27 colour follow-ups.** It builds after F-20 and F-11.
+  - Files: a `WarnNotice` component and `.warn-notice` rules, the bar baseline in `app/t/[symbol]/Spread.tsx` and
+    `Timeline.tsx`.
+  - F-20's file is not edited: its build session owns it.
