@@ -241,6 +241,21 @@ from broker_accounts where reconcile_invalid > 0 order by reconcile_invalid desc
 Alert on any account whose `reconcile_invalid` keeps growing: its passes never validate, so a held row there (possibly a
 genuine fill) stays held and counted until the owner looks.
 
+## Matcher catch-up (chores cycle 5, C5-43 part b)
+
+A `MATCHER_VERSION` bump (`lib/trades.ts`) reaches every record without waiting for later deploys. The deploy's
+`scripts/db-setup.ts` still runs `rebuildAllForMatcher` within `MATCHER_REBUILD_MS`; whatever it leaves, every shard
+call of the cron (`lib/matcher-rebuild.ts#catchUpMatcher`, after the shard's sync) picks up:
+- up to 200 of the shard's records (`id % of = shard`) with stored rows and no `matcher_rebuilt` row for the version,
+  frozen and disconnected records included;
+- each rebuilt with `rebuildRecord` under the trader's lock, within 20 s of the call's time left (`MATCHER_CATCHUP_MS`);
+- a record whose sync holds the lock is skipped (`busy`) and taken by a later call.
+
+When no record is left in any shard, the version is written to `matcher_runs` and later calls cost one primary-key read.
+The response's `matcher` field carries `{ rebuilt, failed, busy, left, done }` (counts only), or `null` once the version
+is done. The housekeeping-only call does not run it. Alert on `failed` that stays above 0 across rounds: the version
+stays open until that record rebuilds.
+
 ## Logs (numbers only, no personal data)
 
 | Line | When | Fields |
