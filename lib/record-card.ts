@@ -246,8 +246,9 @@ export type CardModel = {
   disclaimer: string;
   chart: CardChart | null;
   open: CardOpen | null; // F-6: the unrealized part, beside the realized figures
-  shareLabel: boolean; // OPTIONS: the headline label names share trades
-  optionsLine: string | null; // OPTIONS: the count line (gated) or the options line
+  // OPTIONS: present only when the input carried options (a card without them keeps its exact shape).
+  shareLabel?: boolean; // the headline label names share trades
+  optionsLine?: string | null; // the count line (gated) or the options line
 };
 
 export function recordCard(i: CardInput): CardModel {
@@ -266,7 +267,7 @@ export function recordCard(i: CardInput): CardModel {
     newRecord: false, trust: null, caption: null, link: i.kind === 'unfurl' ? null : i.link, disclaimer: DISCLAIMER, chart: null,
     // F-6: open positions only where the profile lists them (a broker record) and never while an import runs.
     open: i.state !== 'none' && t.stats ? cardOpen(i.open ?? []) : null,
-    shareLabel: !!i.options?.shareLabel, optionsLine: t.stats ? i.options?.line ?? null : null, // OPTIONS
+    ...(i.options ? { shareLabel: i.options.shareLabel, optionsLine: t.stats ? i.options.line : null } : {}), // OPTIONS
   };
   if (body !== null) return card;
 
