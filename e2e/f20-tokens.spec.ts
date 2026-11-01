@@ -54,6 +54,15 @@ test.afterAll(async () => {
 });
 
 type Snapshot = Record<string, string[]>;
+// The one allowed difference (committee ruling R5): the selected switch's cue moves from `outline` to `box-shadow` (outline
+// stays for focus only, DS-27). Allowed only on that signature, and only in the outline and box-shadow properties: every
+// other property of the tuple must equal a baseline tuple. The pixels are proved equal separately (R5's screenshots).
+const SELECTED_SWITCH = /(?:^|> )button\.current\.switch(?:\[[^\]]*\])*$/;
+const CUE = /^(outline-color|outline-style|outline-width|outline-offset|box-shadow):/;
+const rest = (t: string) => t.split(';').filter((p) => !CUE.test(p)).join(';');
+function allowedDiff(key: string, tuple: string, was: string[]) {
+  return SELECTED_SWITCH.test(key) && was.some((w) => rest(w) === rest(tuple));
+}
 // Every element's computed colours, grouped by signature; each group holds the distinct colour tuples it showed.
 async function snapshot(page: Page, prefix: string): Promise<Snapshot> {
   return page.evaluate((prefix) => {
@@ -137,7 +146,7 @@ test('F-20 computed-style snapshot: feed, pane and profile show no colour change
       const was = base[scheme][key];
       if (!was) continue;
       compared++;
-      for (const t of tuples) if (!was.includes(t)) changed.push(`${scheme} ${key}\n  now: ${t}\n  was: ${was.join('\n       ')}`);
+      for (const t of tuples) if (!was.includes(t) && !allowedDiff(key, t, was)) changed.push(`${scheme} ${key}\n  now: ${t}\n  was: ${was.join('\n       ')}`);
     }
   }
   // The comparison covers the sampled surfaces, not a handful of elements.
@@ -171,6 +180,40 @@ test('F-20 DS-27: sampled controls draw their keyboard focus ring in --focus at 
       const r = await ring(sel);
       expect(r, `${scheme} ${sel}`).toMatchObject({ color: FOCUS[scheme], offset: '2px', style: 'solid' });
     }
+    // Signed in: the personalization switches (3 px ring kept, plan OQ-5) and the selected one's cue is not an outline.
+    await signIn(page);
+    await page.goto('/me/personalize');
+    await expect(page.locator('.switch-pair .switch').first()).toBeVisible();
+    await page.keyboard.press('Tab');
+    for (const sel of ['.switch-pair .switch.current', '.switch-pair .switch:not(.current)']) {
+      const r = await ring(sel);
+      expect(r, `${scheme} ${sel}`).toMatchObject({ color: FOCUS[scheme], offset: '2px', style: 'solid', focus: true });
+    }
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur()); // the selected cue at rest
+    const cue = await page.locator('.switch-pair .switch.current').first().evaluate((e) => { const s = getComputedStyle(e); return { outline: s.outlineStyle, shadow: s.boxShadow }; });
+    expect(cue.outline, `${scheme} the selected cue is not an outline at rest`).toBe('none');
+    expect(cue.shadow).not.toBe('none');
     await ctx.close();
   }
+});
+
+test('F-20 AC9: the feed, a pane, a profile and its share image load nothing from another origin', async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  const origin = new URL(baseURL!).origin;
+  const foreign: string[] = [];
+  page.on('request', (r) => { const u = r.url(); if (!/^(data|blob):/.test(u) && new URL(u).origin !== origin) foreign.push(u); });
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto('/');
+  await expect(page.locator('.feed .card').first()).toBeVisible();
+  const row = page.locator('.feed > .row').first();
+  await expect.poll(async () => { await page.keyboard.press('ArrowRight'); return row.evaluate((el) => el.scrollLeft); }).toBeGreaterThan(200);
+  await page.goto(`/u/${handle}`);
+  await expect(page.locator('.badge.verified').first()).toBeVisible();
+  const img = await page.goto(`/u/${handle}/opengraph-image`);
+  expect(img?.status()).toBe(200);
+  expect(img?.headers()['content-type']).toMatch(/^image\//);
+  await page.waitForLoadState('networkidle');
+  expect(foreign).toEqual([]);
+  await ctx.close();
 });
