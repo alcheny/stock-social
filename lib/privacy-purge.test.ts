@@ -80,20 +80,34 @@ dbTest('expired sessions go; live ones stay', async () => {
 dbTest('unused sign-in links go when expired or when their attempt finished; a used link and a live one on an open attempt stay', async () => {
   const { sql } = await import('./db.ts');
   const { purgePrivacy } = await import('./privacy-purge.ts');
+  const { holdLinks } = await import('./auth/links-test-hold.ts');
   const open = await attempt(at('05-30'));
   const done = await attempt(at('05-30'));
   const u = await person('ppl');
   await sql`update signup_attempts set user_id = ${u}, completed_at = ${at('05-31')} where id = ${done}`;
   const expired = await link(open, at('05-31'));
-  const live = await link(open, at('07-01'));
-  const unusedOnDone = await link(done, at('07-01'));
-  const usedOnDone = await link(done, at('07-01'), at('05-31'));
+  // Rows dated 2001 are expired by the real clock, so another file's purgeExpiredLinks (issueLink's lazy purge) can
+  // delete them at any moment. The unused link on the finished attempt is live by both clocks, so only this purge's
+  // finished-attempt rule can remove it. The two rows that must stay are made live, held against deletes, then dated
+  // (lib/auth/links-test-hold.ts); the rows that must go are not held.
+  const soon = new Date(Date.now() + 3_600_000);
+  const unusedOnDone = await link(done, soon);
+  const live = await link(open, soon);
+  const usedOnDone = await link(done, soon, at('05-31'));
+  const hold = await holdLinks([live, usedOnDone]);
   try {
-    await purgePrivacy({ now: NOW, only: ['links'] });
+    assert.equal(hold.held, 2);
+    await sql`update login_links set expires_at = ${at('07-01')} where token_hash in (${live}, ${usedOnDone})`;
+    // A call that ran: another file's orphan pass may hold the purge lock for a moment.
+    for (let i = 0; !(await purgePrivacy({ now: NOW, only: ['links'] })).ran; i++) {
+      assert.ok(i < 600, 'another caller held the purge lock for over 60 s');
+      await new Promise((x) => setTimeout(x, 100));
+    }
     const left = (await sql`select token_hash from login_links where attempt_id in (${open}, ${done})`).map((x) => x.token_hash).sort();
     assert.deepEqual(left, [live, usedOnDone].sort());
     assert.ok(![expired, unusedOnDone].some((h) => left.includes(h)));
   } finally {
+    await hold.release();
     await sql`delete from login_links where attempt_id in (${open}, ${done})`;
     await sql`delete from users where id = ${u}`;
   }
