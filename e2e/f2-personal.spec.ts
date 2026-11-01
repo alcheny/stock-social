@@ -138,16 +138,31 @@ test('criterion 15: "N trades hidden by you. Show them" on the feed, then the Hi
     await page.goto('/');
     const line = page.locator('.feed-notes');
     await expect(line).toContainText('1 trade hidden by you.');
+    // User test demands 1, 2: on arrival the whole line is in view below the fixed nav, and still after scrollTo(0, 0); the
+    // first card's symbol and return are in view too.
+    const navBottom = async () => (await page.locator('nav.top').boundingBox())!.y + (await page.locator('nav.top').boundingBox())!.height;
+    await expect(line).toBeInViewport({ ratio: 1 });
+    expect((await line.boundingBox())!.y).toBeGreaterThanOrEqual(await navBottom());
     const first = page.locator('.feed > .row[data-trade]').first();
-    expect((await first.boundingBox())!.y).toBeLessThan(640); // demand 4: the notes stay one quiet line
+    await expect(first.locator('.card header').first()).toBeInViewport({ ratio: 1 });
+    await page.locator('.feed').evaluate((f) => f.scrollTo(0, 0));
+    await page.waitForTimeout(300);
+    await expect(line).toBeInViewport({ ratio: 1 });
     await shoot(page, 'feed-notes-360');
     const link = page.getByRole('link', { name: 'Show them: 1 hidden trade' });
     const box = (await link.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(44);
     await link.focus();
+    // WCAG 2.4.11: the focused link is not hidden under the nav.
+    await expect(link).toBeInViewport({ ratio: 1 });
+    expect((await link.boundingBox())!.y).toBeGreaterThanOrEqual(await navBottom());
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/me\/hidden$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Hidden trades' })).toBeVisible();
+    // User test demand 4: "SYMBOL, closed <date>" stays on one line at 360 px.
+    const closed = page.locator('.hidden-trades .closed').first();
+    const lh = await closed.evaluate((e) => parseFloat(getComputedStyle(e).lineHeight) || 20);
+    expect((await closed.boundingBox())!.height).toBeLessThan(lh * 1.5);
     await shoot(page, 'hidden-trades-360');
     const again = page.getByRole('button', { name: new RegExp(`^Show again: @${who}, `) });
     await again.focus();
@@ -180,6 +195,7 @@ test('criterion 13: "Personalize my feed: Off" gives the order everyone gets; a 
     await sql`insert into follows (viewer_id, trader_id, created_at) select v.id, t.id, now() - interval '1 minute' from users v, users t where v.handle = ${h} and t.handle = ${last}`;
     await page.goto('/');
     await expect(page.locator('.feed-notes')).toContainText('Ordered using your follows.');
+    await expect(page.locator('.feed-notes')).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole('link', { name: 'Change: how your feed is ordered' })).toHaveAttribute('href', '/me/personalize');
     await shoot(page, 'feed-personal-360');
     await sql`update users set personalize_feed = false where handle = ${h}`;

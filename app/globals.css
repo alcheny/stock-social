@@ -443,5 +443,9 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .switch-pair .switch.current { outline: 2px solid var(--text); outline-offset: 1px; }
 .switch-pair .switch:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .personalize form > button.secondary { min-height: 44px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
-.feed-notes { margin: 8px 16px; }
+/* User test demand 1: the feed snaps to every card, so the notes are a snap stop of their own at the top, padded below
+   the fixed nav: the feed opens on them with the first card's top in view, and one scroll lands on the first card. */
+.feed .feed-notes { scroll-snap-align: start; margin: 0; padding: 64px max(20px, calc((100% - 560px) / 2)) 12px; }
+.hidden-trades .closed { white-space: nowrap; }
+.hidden-trades .small { display: flex; flex-direction: column; align-items: flex-start; }
 .feed-notes a, .hidden-trades .small a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; vertical-align: middle; }
