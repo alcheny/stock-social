@@ -169,8 +169,8 @@ dbTest('one caller at a time: while the lock is held a second call skips; a purg
   const pos = (s: string) => route.indexOf(s);
   // A fixed slot before the sync (never starved) and the time left after it (never taking the sync's), each call in its
   // own try/catch (business lead re-sit 2, orchestrator review 2).
-  assert.ok(pos('purgeDiscovery()') < pos('await privacyStages(PRIVACY_SLOT_MS)') && pos('await privacyStages(PRIVACY_SLOT_MS)') < pos('await syncTick(')
-    && pos('await syncTick(') < pos('await privacyStages(Math.min(PRIVACY_STAGE_MS, left()))'));
+  assert.ok(pos('purgeDiscovery()') < pos('await privacyStages(PRIVACY_SLOT_MS)') && pos('await privacyStages(PRIVACY_SLOT_MS)') < pos('await runShard(')
+    && pos('await runShard(') < pos('await privacyStages(Math.min(PRIVACY_STAGE_MS, left()))'));
   assert.match(route, /try \{ if \(boxMs > 0\) privacy = await purgePrivacy\(\{ boxMs \}\); \} catch \(e\) \{ console\.error\('privacy purge failed', logSafe\(e\)\); \}/);
   assert.match(route, /try \{ if \(boxMs > 0 && left\(\) > 0\) displayLog = await writeDisplayLog\(\{ boxMs \}\); \} catch \(e\) \{ console\.error\('display log failed', logSafe\(e\)\); \}/);
   assert.match(route, /const PRIVACY_SLOT_MS = 5_000;/);
