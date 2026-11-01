@@ -472,3 +472,6 @@ create table if not exists record_tool_notices (
   owner_id int primary key references users on delete cascade,
   removed int not null default 0
 );
+
+-- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
+select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');

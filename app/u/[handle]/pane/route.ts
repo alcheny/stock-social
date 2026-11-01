@@ -14,9 +14,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const no = () => NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const [user] = await sql`select id from users where handle = ${handle} and deleted_at is null`;
   if (!user) return no();
-  const [rows, states] = await Promise.all([records([user.id as number]), recordStates([user.id as number])]);
+  // F-6: the trader's open positions (unrealized percent only), served for a connected or failed record only, as on the feed.
+  const [rows, states, positions] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),
+    sql`select unrealized_pct, fetched_at from open_positions where user_id = ${user.id as number}`]);
   const state = states.get(user.id as number)?.state ?? 'connected';
   if (state === 'importing') return no();
   const trades = rows.map((r) => ({ id: r.id, symbol: r.symbol, returnPct: r.returnPct, holdingDays: r.holdingDays, closedAt: r.closedAt.getTime(), thesis: r.thesis, verified: r.verified }));
-  return NextResponse.json({ state, trades }, { headers: { 'cache-control': 'public, max-age=60' } });
+  const shown = state === 'connected' || state === 'failed' ? positions : [];
+  const open = shown.map((p) => p.unrealized_pct as number);
+  const openAsOf = shown.length ? Math.min(...shown.map((p) => (p.fetched_at as Date).getTime())) : null;
+  return NextResponse.json({ state, trades, open, openAsOf }, { headers: { 'cache-control': 'public, max-age=60' } });
 }
