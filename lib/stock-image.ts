@@ -20,3 +20,12 @@ export function stockImageLines(s: StockImageInput): ImageLine[] {
     ...DISCLAIMER_LINES.map((d, k): ImageLine => ({ role: `disclaimer${k}`, text: d, size: STRIP_BAND.minPx, tone: 'muted', weight: 400 })),
   ];
 }
+
+// The disclaimer block sits at the foot of the band on every F-12 image (trade, month, stock), however few lines sit
+// above it: layoutBand stacks top-down, so a short stack would leave it mid-image. Only moves it down, never up.
+export function disclaimerAtFoot(placed: ImageLine[]): ImageLine[] {
+  const last = placed.findLast((l) => l.role.startsWith('disclaimer'));
+  if (!last || last.y === undefined) return placed;
+  const shift = STRIP_BAND.bottom - (last.y + last.size * STRIP_BAND.lineHeight);
+  return shift > 0 ? placed.map((l) => (l.role.startsWith('disclaimer') ? { ...l, y: l.y! + Math.floor(shift) } : l)) : placed;
+}

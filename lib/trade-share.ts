@@ -44,6 +44,8 @@ const heldFor = (d: number) => (d < 1 ? 'under a day' : `${Math.round(d)} day${M
 // thesis (one line at the floor size, clipped at a word; the first line to give way).
 export function tradeHero(t: Pick<TradeView, 'symbol' | 'returnPct' | 'holdingDays' | 'closedAt' | 'thesis'>): ImageLine[] {
   const top = `${t.symbol} ${pct(t.returnPct)}`;
+  // ponytail: a symbol over about 27 characters would pass the band's width even at the 26 px floor (the band clips it,
+  // no wrap) — split the symbol and the return over two lines if such symbols ever reach closed_trades.
   const L: ImageLine[] = [{ role: 'symbol', text: top, size: Math.max(STRIP_BAND.minPx, fitPx(top, 80)), tone: 'text', weight: 800 }];
   const held = `held ${heldFor(t.holdingDays)}`, closed = `closed ${closedDay(t.closedAt)}`;
   const one = `${held} · ${closed}`;

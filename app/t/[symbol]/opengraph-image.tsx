@@ -3,10 +3,11 @@
 // included", and the disclaimer, all inside the anti-crop band (lib/stock-image.ts). No pooled figure of any kind: about
 // one stock it reads as a rating of the stock (POLICY F3b). The alt is static, so it states no figures and no trust word.
 import { ImageResponse } from 'next/og';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
 import { decodeSymbolParam, tickerSummary, type TickerRow } from '@/lib/ticker.ts';
 import { fitPx, layoutBand, STRIP_BAND, type ImageLine } from '@/lib/record-strip.ts';
-import { stockImageLines } from '@/lib/stock-image.ts';
+import { disclaimerAtFoot, stockImageLines } from '@/lib/stock-image.ts';
 import { RecordStripImage } from '@/app/record-strip.tsx';
 
 export const size = { width: 1200, height: 630 };
@@ -32,7 +33,7 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
     const rows: TickerRow[] = found.map((r) => ({ userId: r.user_id, returnPct: r.return_pct, holdingDays: r.holding_days, openedAt: r.opened_at, closedAt: r.closed_at, verified: r.verified }));
     const s = tickerSummary(rows, new Date());
     const { lines } = layoutBand(stockImageLines({ symbol, n: s.n, traders: s.traders, demoOnly: s.demoOnly, mixed: s.mixed }));
-    return new ImageResponse(<RecordStripImage lines={lines} />, size);
+    return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);
   } catch {
     return neutral('Stock Social', 'Verified trades by stock');
   }

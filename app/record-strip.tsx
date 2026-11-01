@@ -39,7 +39,12 @@ export function RecordStrip({ strip, lead }: { strip: Strip; lead?: React.ReactN
 
 // The image band: every line absolutely placed at the y lib/record-strip.ts#layoutBand gave it, inside x 309–891, one line
 // each (no wrap, no ellipsis: the layout model checks the widths). The brand box is the one thing outside the band.
-export function RecordStripImage({ lines }: { lines: ImageLine[] }) {
+// `disclaimer` (POLICY F3, as RecordCardImage takes it): the band's disclaimer lines must spell it in full, or the image
+// is not drawn at all.
+export function RecordStripImage({ lines, disclaimer }: { lines: ImageLine[]; disclaimer?: string }) {
+  if (disclaimer !== undefined && lines.filter((l) => l.role.startsWith('disclaimer')).map((l) => l.text).join(' ') !== disclaimer) {
+    throw new Error('RecordStripImage: the band does not carry the disclaimer in full');
+  }
   return (
     <div style={{ width: IMAGE.width, height: IMAGE.height, display: 'flex', position: 'relative', background: IMAGE.bg, color: IMAGE_COLOURS.text, fontFamily: 'sans-serif' }}>
       <span style={{ position: 'absolute', left: BRAND_BOX.x, top: BRAND_BOX.y, fontSize: BRAND_BOX.size, fontWeight: 800, lineHeight: STRIP_BAND.lineHeight }}>{BRAND_BOX.text}</span>

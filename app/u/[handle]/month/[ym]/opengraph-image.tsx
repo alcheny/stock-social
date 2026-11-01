@@ -5,10 +5,12 @@
 // import is never labelled Verified; an import still running shows no record stats). The alt text is declared by the
 // month page's generateMetadata (it depends on the record).
 import { ImageResponse } from 'next/og';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthStripInput, recordStripInput } from '@/lib/recap.ts';
 import { monthBand } from '@/lib/month-card.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
+import { disclaimerAtFoot } from '@/lib/stock-image.ts';
 import { RecordStripImage } from '@/app/record-strip.tsx';
 
 export const size = { width: 1200, height: 630 };
@@ -26,5 +28,5 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   }
 
   const { lines } = monthBand(r, recordStrip(recordStripInput(r), 'image'), recordStrip(monthStripInput(r), 'figures'));
-  return new ImageResponse(<RecordStripImage lines={lines} />, size);
+  return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);
 }

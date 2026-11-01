@@ -10,7 +10,7 @@ import { DISCLAIMER_LINES, layoutBand, lineWidth, recordStrip, SQUARE_CROP, STRI
 import { tradeAlt, tradeDescription, tradeHero, tradeSharePayload, tradeStripInput, type TradeView } from './trade-share.ts';
 import { monthAlt, monthDescription, monthRecap, monthStripInput, recordStripInput, wholeRecord, type RecapTrade, type RecapView } from './recap.ts';
 import { monthBand, monthCard } from './month-card.ts';
-import { stockImageLines } from './stock-image.ts';
+import { disclaimerAtFoot, stockImageLines } from './stock-image.ts';
 import type { RecordState } from './copy.ts';
 
 const DAY = 86_400_000;
@@ -26,6 +26,8 @@ const wobble = (m: number) => (i: number) => m + (i % 2 ? 0.004 : -0.004);
 // A month of trades in September 2026 (days after t0: 2026-09-01 is day 608).
 const sept = (k: number, f: (i: number) => number) => Array.from({ length: k }, (_, i) => tr(600 + i, 608 + i, f(i)));
 
+// Comments say why; the source scans read code and copy only (as lib/record-strip.guard.test.ts does).
+const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1').replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, '');
 const BANNED = /win rate|full record|whole record|full-record|every trade|Past results/i;
 
 function tradeView(all: RecapTrade[], o: Partial<TradeView> = {}, pick = all[all.length - 1]): TradeView {
@@ -151,7 +153,13 @@ test('importing trader: no figures, no open count on the strip even if open posi
 // ---- images ----
 const longThesis = 'Earnings beat expectations and the guidance was raised for the next two quarters, so I held through';
 function checkBand(lines: ImageLine[], label: string) {
-  const { lines: placed, fits, tooWide } = layoutBand(lines);
+  const laid = layoutBand(lines);
+  const { fits, tooWide } = laid;
+  const placed = disclaimerAtFoot(laid.lines);
+  // The disclaimer sits at the foot of the band, below every other line, without overlapping them.
+  const d0 = placed.findIndex((l) => l.role === 'disclaimer0'), d2 = placed.find((l) => l.role === 'disclaimer2')!;
+  assert.ok(STRIP_BAND.bottom - (d2.y! + d2.size * STRIP_BAND.lineHeight) < 1, `${label}: disclaimer at the foot`);
+  if (d0 > 0) assert.ok(placed[d0].y! >= placed[d0 - 1].y! + placed[d0 - 1].size * STRIP_BAND.lineHeight, `${label}: no overlap`);
   assert.ok(fits, `${label}: fits`);
   assert.deepEqual(tooWide, [], label);
   for (const l of placed) {
@@ -257,7 +265,7 @@ test('stock image: status, symbol, closed-trade count, traders with losses inclu
 // ---- F-12 AC7: per-trade cards list closed trades only ----
 test('F-12 AC7: trade and month surfaces read closed trades only; open positions only as a count', () => {
   const root = new URL('..', import.meta.url);
-  const src = (p: string) => readFileSync(new URL(p, root), 'utf8');
+  const src = (p: string) => code(readFileSync(new URL(p, root), 'utf8'));
   for (const f of ['lib/trade-share-load.ts', 'lib/recap-load.ts']) {
     const s = src(f);
     // The only open_positions read is the unrealized percent, never a symbol.
@@ -277,7 +285,7 @@ test('F-12 AC7: trade and month surfaces read closed trades only; open positions
 test('pages and images: no "Past results" or win rate in sources (F-12 AC5, AC6)', () => {
   const root = new URL('..', import.meta.url);
   for (const f of ['app/u/[handle]/trade/[sellId]/page.tsx', 'app/u/[handle]/month/[ym]/page.tsx', 'app/u/[handle]/trade/[sellId]/opengraph-image.tsx', 'app/u/[handle]/month/[ym]/opengraph-image.tsx', 'app/t/[symbol]/opengraph-image.tsx', 'lib/stock-image.ts']) {
-    const s = readFileSync(new URL(f, root), 'utf8');
+    const s = code(readFileSync(new URL(f, root), 'utf8'));
     assert.ok(!/Past results|win rate|winRate|evidenceLine/.test(s), f);
   }
   const stock = readFileSync(new URL('app/t/[symbol]/opengraph-image.tsx', root), 'utf8');
