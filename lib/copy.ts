@@ -506,6 +506,12 @@ export const PREFERENCE_DATA = [
   'activity is recorded only if you turn on Personalize with my activity',
   'Clear my activity deletes it at once',
 ];
+// Approval council fix #12: the empty feed in plain words (no developer instructions in the product).
+export const FEED_EMPTY = {
+  title: 'No trades yet',
+  body: 'Verified records appear here once traders connect a broker.',
+  publish: 'Publish your own',
+};
 export const SECTION_PERSONAL = {
   heading: 'More like what you read',
   explain: 'Traders like the ones you follow, like and read, ordered by how much evidence each record has. Losses count the same as gains.',
@@ -576,6 +582,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
   return out;
 }

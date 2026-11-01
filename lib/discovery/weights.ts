@@ -45,6 +45,8 @@ export const FEED_HIDES_UNFOLLOWED = false;
 // viewer's "Personalize with my activity" is On. The opening swipe is the owner's +2; the rest are the committee's
 // proposals (2026-11-01) for the owner: dwell_long +1, profile_open +1, share +1, skip −0.5; impression and dwell_short 0
 // (they only mark a trader as seen, for "New to you").
+// ponytail: the implicit weights are the committee's proposal, not tuned on real reading — the owner sets them, and stage 2
+// (plan §Later stages) learns them from data.
 export const IMPLICIT: Readonly<Record<number, number>> = { 1: 0, 2: 0, 3: 1, 4: -0.5, 5: WEIGHTS.swipeOpen, 6: 1, 7: 1 };
 // A followed trader's bonus while the follow stands (proposed, committee 2026-11-01).
 export const FOLLOW_BONUS = 2;

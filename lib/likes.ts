@@ -95,10 +95,13 @@ export async function signalsFor(viewer: number): Promise<Signal[]> {
 // trader was deleted is not listed or counted (lib/privacy-purge.ts removes it 30 days after it is first seen gone).
 const KEY = /^[0-9a-f]{64}$/;
 const AFTER = /^([0-9]{1,17})\.([0-9a-f]{64})$/;
+// ponytail: a page skips hidden trades whose close is gone (until the privacy purge removes them), so it can show fewer
+// than HIDDEN_PAGE rows — filtering in the keyset query would keep pages full.
 export const HIDDEN_PAGE = 30;
 
 // The viewer's own number of hidden trades whose close exists, for their feed line, read as at most HIDDEN_COUNT_MAX + 1
 // rows (past HIDDEN_COUNT_MAX the line says "1,000+"; nothing here counts anyone else's).
+// ponytail: past HIDDEN_COUNT_MAX the line says "1,000+" — an exact count would need a stored per-viewer counter.
 export const HIDDEN_COUNT_MAX = 1_000;
 export async function hiddenTradeCount(viewer: number): Promise<number> {
   return (await sql`select 1 from trade_exclusions x

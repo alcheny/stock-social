@@ -9,7 +9,7 @@ import { EMPTY_INPUTS, FADE_DAYS, fade, personalList, personalOrder, personalPoo
 import { FOLLOW_BONUS, IMPLICIT, WEIGHTS } from './weights.ts';
 import { byEvidence, chooseRows, holdBucket, type SectionTrader } from './section.ts';
 import { FEED_CAPS } from './diversity.ts';
-import { HIDDEN_TRADES, HOW_PERSONAL, PERSONALIZE, SECTION_PERSONAL, allCopy } from '../copy.ts';
+import { FEED_EMPTY, HIDDEN_TRADES, HOW_PERSONAL, PERSONALIZE, SECTION_PERSONAL, allCopy } from '../copy.ts';
 
 const DAY = 86_400_000, NOW = 1_800_000_000_000;
 const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
@@ -229,4 +229,12 @@ test('owner 2026-11-01: nothing is deleted on a timer: the purge deletes only vi
   assert.doesNotMatch(purge, /trade_likes|trade_exclusions/);
   assert.doesNotMatch(src('../delete.ts'), /orphan/i);
   assert.match(src('../privacy-purge.ts'), /privacy_orphans/);
+});
+
+test('approval council fix #12: the empty feed shows a plain line, never developer instructions (no command, no code element)', () => {
+  const page = src('../../app/page.tsx');
+  assert.doesNotMatch(page, /npm run|db:seed|<code>/);
+  assert.match(page, /FEED_EMPTY\.title/);
+  for (const s of Object.values(FEED_EMPTY)) assert.doesNotMatch(s, /npm|seed|run |`/i, s);
+  assert.ok(allCopy().includes(FEED_EMPTY.body));
 });

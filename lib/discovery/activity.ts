@@ -12,6 +12,8 @@ import { BATCH_MAX_PER_WINDOW, BATCH_WINDOW_MS, EVENT_TYPES, SURFACES, type RawE
 import { forgetViewer } from './personal-cache.ts';
 
 export const READ_DAYS = 90;
+// ponytail: ordering reads only the newest READ_MAX events in the 90-day window — a per-viewer aggregate table would cover
+// heavier readers without reading more rows.
 export const READ_MAX = 2_000; // the newest events read per viewer
 
 export type Settings = { personalize: boolean; activity: boolean };
@@ -45,6 +47,7 @@ export async function clearActivity(viewer: number): Promise<number> {
 // server instances, business lead demand 5; tester finding 1: a window, so the page-leave batch right after a periodic
 // one is not refused), then one multi-row insert of the targets that exist (a trade by its card id → its stable key
 // and trader; a trader by handle), never the viewer themselves, at most DAY_MAX a UTC day. 'rate': the gate refused.
+// ponytail: events past DAY_MAX in a UTC day are dropped silently — raise it, or keep a count, if real readers reach it.
 export const DAY_MAX = 2_000;
 export async function recordEvents(viewer: number, events: readonly RawEvent[]): Promise<number | 'rate' | 'off'> {
   return sql.begin(async (tx) => {

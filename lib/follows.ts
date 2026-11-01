@@ -112,6 +112,7 @@ export async function unfollowsFor(viewer: number): Promise<{ trader: number; at
 
 // F-2 PR-5 (business lead demand 2: every stored preference row stays visible and removable): this viewer's "Not
 // interested" rows that ran their 90 days on their own. No longer applied, still stored; "Remove" deletes one.
+// ponytail: one unpaged list (every expired hide of the viewer) — page it like /me/likes if a viewer collects thousands.
 export async function expiredHides(viewer: number): Promise<Listed[]> {
   const rows = await sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
     where x.viewer_id = ${viewer} and x.reason = 'not_interested' and x.ended_at is null and x.until <= now() order by x.until desc`;

@@ -323,6 +323,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const c = readCursor(after, now, FEED_LIST_MAX);
   const [kept, mine, skips0, personal] = await Promise.all([listFor(c, now, opts.ids), opts.viewer ? exclusionsFor(opts.viewer, new Date(Math.min(c.asOf, now))) : [],
     opts.viewer ? sectionSkips(opts.viewer) : [],
+    // ponytail: the profile is read on every page, even when the kept personal list is reused (it still drives the section's
+    // reasons) — skipping it on a cache hit needs the section's rows kept with the list.
     opts.viewer && opts.personal ? opts.personal(new Date(c.asOf)).catch((e: unknown): Personal | null => { console.error('personal ordering failed', logSafe(e)); return null; }) : null]);
   const { shaping, hidden } = splitExclusions(mine, c.asOf, now);
   // F-2 PR-5 (orchestrator review 4): the section leaves out followed traders in every mode (its Follow button reads
@@ -400,6 +402,8 @@ export { clearPersonalCache } from './discovery/personal-cache.ts';
 
 // F-2 PR-5: what personal ordering knows of each listed trader: the holding period read at asOf (the section's pool) and
 // the symbols of their closes in the list. Read from the kept list only: no query.
+// ponytail: a trader's symbols are only those of their closes in the kept list (≤ FEED_PER_TRADER), not their whole record —
+// a per-trader symbol summary refreshed on sync would widen the similarity.
 function traderShapes(kept: Kept): Map<number, TraderShape> {
   const out = new Map<number, { hold?: number; symbols: Set<string> }>();
   const get = (t: number) => { let s = out.get(t); if (!s) out.set(t, (s = { symbols: new Set() })); return s; };

@@ -4,6 +4,9 @@
 // another page. Per server process; another server rebuilds from the inputs at asOf, which no longer hold what was cleared.
 export type KeptSlot = { key: string; trader: number; symbol: string; explore: boolean; score: number };
 const kept = new Map<string, { viewer: number; at: number; slots: KeptSlot[] }>();
+// ponytail: kept per server process (another instance rebuilds the list from the inputs at asOf, so a page there may shift
+// after an unlike or unfollow made mid-session) — a shared store keyed by viewer and cursor would hold it across instances.
+// ponytail: at most PERSONAL_CACHE_MAX lists; past it the oldest go and their sessions rebuild — size it from real traffic.
 export const PERSONAL_CACHE_MAX = 2_000;
 
 export function personalSlots(viewer: number, key: string, now: number, maxAge: number, build: () => KeptSlot[]): KeptSlot[] {

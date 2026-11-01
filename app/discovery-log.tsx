@@ -12,6 +12,9 @@ import { useEffect } from 'react';
 // - profile_open: a link to a trader's profile was followed from the feed.
 // One batch of at most 50 every 10 s and on pagehide (sendBeacon; text/plain, so no preflight); at most 500 queued. A
 // refused batch is dropped (nothing retries).
+// ponytail: a batch the route refuses (rate window, network) is dropped, and at most QUEUE_MAX events wait — a retry with
+// backoff would keep them. ponytail: mounted on the feed only, so no share or profile-page event is logged yet — mount it on
+// profile and trade pages (and emit 'share' from app/share-button.tsx) to collect those.
 const VISIBLE = 0.6, IMPRESSION_MS = 500, LONG_MS = 5_000, SHORT_MS = 1_000, FLUSH_MS = 10_000, BATCH = 50, QUEUE_MAX = 500;
 type Target = { kind: 'trade'; id: string } | { kind: 'trader'; handle: string };
 type Ev = { type: string; surface: 'feed' | 'section' | 'pane'; target: Target };

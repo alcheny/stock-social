@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 // F-2 PR-5: lib/feed.ts#loadFeedPage plus, signed in, the viewer's own profile and switches.
 import { loadFeedPage } from '@/lib/discovery/personal-feed.ts';
-import { FEED, FEED_COUNTS, LIKES } from '@/lib/copy.ts';
+import { FEED, FEED_COUNTS, LIKES, FEED_EMPTY } from '@/lib/copy.ts';
 import { FeedKeys } from './feed-keys.tsx';
 import { FeedEnd, FeedRows } from './feed-rows.tsx';
 import { FeedPager } from './feed-pager.tsx';
@@ -38,8 +38,9 @@ export default async function Feed({ searchParams }: Props) {
   if (!page.cards.length && page.offset === 0) {
     return (
       <main className="page">
-        <h1>No trades yet</h1>
-        <p className="muted">Run <code>npm run db:seed</code> for demo data, or <Link href="/login">publish your own</Link>.</p>
+        {/* Approval council fix #12: a plain empty state, no developer instructions (the seed command is in the README). */}
+        <h1>{FEED_EMPTY.title}</h1>
+        <p className="muted">{FEED_EMPTY.body} <Link href="/login">{FEED_EMPTY.publish}</Link></p>
       </main>
     );
   }
