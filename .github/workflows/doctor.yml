@@ -44,8 +44,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
-          cache: npm
+          node-version: 24 # no cache: this job holds a write token, and agent jobs on main can write main's cache
       - name: Is a line stuck?
         id: detect
         env:
@@ -70,6 +69,7 @@ jobs:
           node scripts/db-setup.ts
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # ponytail: this agent runs in the same job as a GitHub token — split it like build.yml/features.yml: agents in a contents: read job, a verified hand-off, the token only in a separate job.
       - name: Treat (Claude, no GitHub credentials)
         if: steps.detect.outputs.line != ''
         env:

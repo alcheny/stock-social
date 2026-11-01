@@ -1,7 +1,8 @@
 // FIXES-LABELS (D-09 / D20 on images, plan §3): the share images' vertical budget as data. The trade and stock images
 // read their font sizes from here, so lib/image-fit.test.ts checks what is drawn: every line stacked at its line height
 // fits the card's inner height with every optional line present, and the F3 line is two lines of 28 px within the
-// inner width. (The month card has its own model in lib/month-card.ts, with the same disclaimer lines.)
+// inner width. (The month card has its own model in lib/month-card.ts.) Since F-12 the trade, month and stock images
+// draw lib/record-strip.ts's band, which takes its disclaimer size from DISCLAIMER_SIZE here.
 import { DISCLAIMER } from './share.ts';
 
 export const IMAGE = { width: 1200, height: 630, padding: 64, lineHeight: 1.2, glyph: 0.6 } as const;
@@ -28,8 +29,10 @@ export function wrapLines(text: string, size: number, width = INNER_W): string[]
 // that fits its 502 px with every optional line (lib/month-card.ts).
 // ponytail: the image font may wrap the line at another word than the 0.6 em model — measure with the font's metrics
 export const DISCLAIMER_SIZE = 35;
-// ponytail: DS-19 asks ≥ 35 px; the month card's line is 29 px (the largest that fits) because 35 overflows its 502 px with the frozen and new-record lines — drop a month-card line or move "Last close" to a state line as DS-19's band does
-export const MONTH_DISCLAIMER_SIZE = 29;
+// The month card adapter (lib/month-card.ts#monthCard, kept for its tests; the month image draws the F-12 band at
+// lib/record-strip.ts DISCLAIMER_PX) carries the band's three disclaimer rows at the largest size that fits its 502 px.
+// ponytail: DS-19 asks ≥ 35 px; the adapter's rows are 28 px because 35 overflows its 502 px with the "of" and new-record lines — drop the adapter once nothing reads it
+export const MONTH_DISCLAIMER_SIZE = 28;
 export const disclaimerLines = (size: number): string[] => wrapLines(DISCLAIMER, size);
 export const DISCLAIMER_LINES: readonly string[] = disclaimerLines(DISCLAIMER_SIZE);
 

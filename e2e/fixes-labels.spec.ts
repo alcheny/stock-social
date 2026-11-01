@@ -155,7 +155,9 @@ test('C1 (AC7): the feed: the fixture card with a 280-character thesis, its open
     // One F3 line per card and per pane (none twice).
     const first = page.locator('.feed > .row').first();
     await expect(first.locator('article.card [data-disclaimer]')).toHaveCount(1);
-    await expect(first.locator('article.card > :last-child')).toHaveAttribute('data-disclaimer');
+    // Merged with F-10 (main #54): a card with the record strip carries the strip's F3 line as its footer's last line, so
+    // the card's last child holds it (itself, or the footer); a card without a strip ends with the line itself.
+    await expect(first.locator('article.card > :last-child').locator('xpath=self::*[@data-disclaimer] | descendant::*[@data-disclaimer]')).toHaveCount(1);
     await expect(first.locator('section.pane [data-disclaimer]')).toHaveCount(1);
     // The next page (the no-JS link is the same rows as the appended page): its first card.
     const more = page.locator('.feed-more a.button[href*="after="]');
@@ -175,7 +177,9 @@ test('C1 (AC7): the feed: the fixture card with a 280-character thesis, its open
     // D-05: the card's date follows the year rule.
     const id = await row.getAttribute('data-trade');
     const [t] = await sql`select closed_at from closed_trades where id = ${Number(id)}`;
-    await expect(row.locator('.hero .muted')).toContainText(`closed ${dateText(t.closed_at, new Date())}`);
+    // (F-10: with the record strip the strip takes the "held · closed" line's place; the date shows only without one.)
+    if (await row.locator('.hero [data-strip]').count()) await expect(row.locator('.hero .muted')).toHaveCount(0);
+    else await expect(row.locator('.hero .muted')).toContainText(`closed ${dateText(t.closed_at, new Date())}`);
     // The open pane: the F3 line right after the figures, in view.
     await row.evaluate((el) => el.scrollTo({ left: el.clientWidth }));
     const pane = row.locator('section.pane');
@@ -258,18 +262,25 @@ test('C1 (AC7): with the sign-in line and the Undo bar raised, the first card\'s
 test('AC8 + AC15: the trade and month boxes end with the F3 line, in view; the month shows numbers and a range, never a verdict', async ({ page }) => {
   await page.setViewportSize(VIEW);
   await page.goto(`/u/momentum_maya/trade/${encodeURIComponent(maya.sell)}`);
+  // Merged with F-12 (main #54): one F3 line per page, the record strip's, last in the record's box.
   const trade = page.locator('section[aria-labelledby="this-trade"]');
-  await expect(trade.locator('> :last-child')).toHaveAttribute('data-disclaimer');
-  await inPlainView(page, trade.locator('[data-disclaimer]'), 'This trade');
+  await expect(page.locator('main [data-disclaimer]')).toHaveCount(1);
+  const tradeRecord = page.locator('section[aria-labelledby="whole-record"]');
+  await expect(tradeRecord.locator('> :last-child [data-disclaimer]')).toHaveCount(1);
+  await inPlainView(page, tradeRecord.locator('[data-disclaimer]'), 'the trade page\'s record');
   await expect(trade.locator('.badge.demo')).toHaveText('Demo');
 
   await page.goto(`/u/momentum_maya/month/${maya.ym}`);
   const month = page.locator('section[aria-labelledby="this-month"]');
-  await expect(month.locator('> :last-child')).toHaveAttribute('data-disclaimer');
-  await inPlainView(page, month.locator('[data-disclaimer]'), 'This month');
+  await expect(page.locator('main [data-disclaimer]')).toHaveCount(1);
+  const monthRecord = page.locator('section[aria-labelledby="whole-record"]');
+  await expect(monthRecord.locator('> :last-child [data-disclaimer]')).toHaveCount(1);
+  await inPlainView(page, monthRecord.locator('[data-disclaimer]'), 'the month page\'s record');
   await expect(month).not.toContainText('Past results');
   await expect(month).not.toContainText('Evidence');
-  await expect(month.getByTestId('month-range')).toHaveText(/^(95% range \(.+ to .+\)|No range yet: \d+ of the 5 separate bets needed)$/);
+  // F-12's month figures: the month's average with its 95% range, or Too early to tell; never a win rate.
+  await expect(month.locator('[data-strip-scope="month"]')).toHaveText(/^([+−-]?[\d.,]+% average per trade \(.+ to .+\) · 95% range|≈?[+−-]?[\d.,]+% average per trade \(.+ to .+\) · 95% range|Too early to tell)$/);
+  await expect(month).not.toContainText(/win rate/i);
   await expect(page.getByTestId('month-of')).toHaveText(/^(The only month on record|1 of \d+ months on record)$/);
 });
 

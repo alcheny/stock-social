@@ -1,41 +1,48 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
+import { RECORD_STRIP, wholeRecordView } from '@/lib/copy.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
+import { monthAlt, monthCountText, monthDescription, monthStripInput, recordStripInput } from '@/lib/recap.ts';
+import { recordStrip } from '@/lib/record-strip.ts';
+import { RecordStrip } from '@/app/record-strip.tsx';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
-import { count, counted } from '@/lib/format.ts';
-// FIXES-LABELS (D-24): numbers and a range only in "This month"; "1 of N months on record" under the h1.
+import { count } from '@/lib/format.ts';
+// FIXES-LABELS (D-24): numbers and a range only in "This month" (F-12's month figures); "1 of N months on record" under the h1.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
-import { monthRangeText } from '@/lib/recap.ts';
 const FL_DEMO = FL.demoNote; // FIXES-LABELS (DS-20): one Demo name
-// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
-import { Disclaimer } from '../../../../disclaimer.tsx';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the page's one F3 line is the record strip's (F-12), after the record's figures.
 import { dateText } from '@/lib/date-text.ts';
 import { recordSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
+// One read per request: generateMetadata and the page share it (committee round 3).
+const loadOnce = cache((handle: string, ym: string) => loadRecap(handle, ym));
 async function load(p: Params['params']) {
   const { handle, ym } = await p;
-  return loadRecap(handle, ym);
+  return loadOnce(handle, ym);
 }
 
 const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
-const plural = (n: number) => counted(n, 'closed trade');
 const day = (d: Date) => dateText(d, new Date()); // FIXES-LABELS (D-05): the year when it is not this year
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const r = await load(params);
   if (!r) return {};
+  // F-12: the strip's words. Reviewer fix (TR-3): the record part follows the profile's record-state rule, as on the
+  // trade page. The image's alt text is declared here because it depends on the record (F-4 pattern).
+  const whole = recordStrip(recordStripInput(r), 'image');
+  const month = recordStrip(monthStripInput(r), 'figures');
   return {
     title: `${r.recap.label} · @${r.handle} · Stock Social`,
-    // Reviewer fix (TR-3): the whole-record part follows the profile's record-state rule, as on the trade page.
-    description: `${plural(r.recap.count)} this month · whole record: ${wholeRecordPreview({ state: r.state, demo: r.demo, verified: r.verified, trades: r.record.trades }, `${(r.record.winRate * 100).toFixed(0)}% win rate`)}`,
+    description: monthDescription(r, whole),
+    openGraph: { images: [{ url: `/u/${r.handle}/month/${r.recap.ym}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: monthAlt(r, whole, month) }] },
   };
 }
 
@@ -45,6 +52,9 @@ export default async function RecapPage({ params }: Params) {
   const me = await currentUser();
   const { recap: m, record: w, handle } = r;
   const whole = wholeRecordView({ state: r.state, demo: r.demo });
+  const strip = recordStrip(recordStripInput(r), 'page');
+  // The month's figures (average with its range, or Too early) under the same record-state rule: none while an import runs.
+  const month = recordStrip(monthStripInput(r), 'figures');
   const link = (id: string) => `/u/${handle}/trade/${encodeURIComponent(id)}`;
   const Pick = ({ title, t }: { title: string; t: typeof m.best }) => (
     <section className="trade-card" aria-label={title}>
@@ -59,42 +69,27 @@ export default async function RecapPage({ params }: Params) {
   return (
     <main className="page">
       <p>
-        <Link href={`/u/${handle}`}>← @{handle}&apos;s full record</Link>{' '}
+        <Link href={`/u/${handle}`}>← {RECORD_STRIP.link(handle)}</Link>{' '}
         {r.demo && <span className="badge demo" title={FL_DEMO}>Demo</span>}
       </p>
       <h1>{m.label} {m.monthSoFar && <span className="muted small">month so far</span>}</h1>
-      <p className="muted small" data-testid="month-of">{FL.monthOf(count(r.months))}</p>
+      {r.months ? <p className="muted small" data-testid="month-of">{FL.monthOf(count(r.months))}</p> : null}
       {m.monthSoFar && <p className="muted small">Not a complete month. Trades close through today.</p>}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-month">
           <h2 id="this-month">This month</h2>
-          {m.showHeadline ? (
-            <>
-              <p className="big">{(m.winRate * 100).toFixed(0)}%</p>
-              <p className="muted small" style={{ marginTop: 0 }}>win rate · {plural(m.count)} · {pct(m.avgReturn)} avg return</p>
-            </>
-          ) : (
-            <>
-              <p className="big count">{plural(m.count)} this month</p>
-              <p className="muted small" style={{ marginTop: 0 }}>Too few trades for a win rate. The month&apos;s trades are listed below.</p>
-            </>
-          )}
-          {monthRangeText(m) && <p className="small" data-testid="month-range">{monthRangeText(m)}</p>}
-          {/* FIXES-LABELS (D-09): the last line of "This month" */}
-          <Disclaimer />
+          {/* F-12 (D-24, F3b): the same fields every month, losing months included. The month's result is the hero (its
+              average in its tone, or Too early at the same weight; business lead user test 2026-11-01), the count under it.
+              No win rate and no verdict. */}
+          {month.figures.length > 0 && <div className="month-figures"><RecordStrip strip={month} /></div>}
+          <p className="muted small" style={{ marginTop: 0 }}>{monthCountText(m.count)}</p>
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
-          <h2 id="whole-record">Their whole record {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>
+          <h2 id="whole-record">{RECORD_STRIP.link(handle)} {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>
           {/* FIXES-LABELS: status (F-11): the record's status line, live (this page renders per request). */}
           <StatusText segments={recordSegments(r.status, new Date()) ?? []} kind="record" />
-          {/* Fix round 6 and the reviewer fix (TR-3): the profile's record-state rule, as on the trade page. */}
-          {whole.tone === 'warn' && <p role="status" className="down record-failed">{whole.line}</p>}
-          {whole.stats ? <>
-            <p className="big">{(w.winRate * 100).toFixed(0)}%</p>
-            <p className="muted small" style={{ marginTop: 0 }}>win rate · {plural(w.trades)} · {pct(w.avgReturn)} avg return</p>
-            <p className="small">{w.evidence}{w.range ? ` ${w.range}` : ''}</p>
-            {w.newRecord && <p className="muted small">Short record: {plural(w.trades)} so far. A short record shows wide uncertainty.</p>}
-          </> : <p role="status" className="muted importing">{whole.line}</p>}
+          {/* F-12: the record strip, as on the trade page (TR-3: only the importing line while an import runs). */}
+          <RecordStrip strip={strip} />
         </section>
       </div>
       <div className="trade-grid">
@@ -116,7 +111,6 @@ export default async function RecapPage({ params }: Params) {
       <TradeShare isOwner={false} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       <p className="muted small">Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</p>
-      <p><Link href={`/u/${handle}`}>See their record, wins and losses →</Link></p>
       {!me && !r.demo && <JoinCta handle={handle} via="month" />}
       <p><Link href="/">← Feed</Link></p>
     </main>

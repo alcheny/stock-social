@@ -115,7 +115,7 @@ export function renderCommitteeDoc(d: { title: string; date: string; rounds: Com
 type Role = 'designer' | 'business' | 'engineer' | 'tester' | 'lead' | 'ux';
 // The design's boundary: the loop, the policy and the owner's decisions. No agent may change these; the owner does,
 // by hand (the Gate sends any PR touching CODEOWNERS paths to the owner as well).
-export const PROTECTED = ['./.github/**', './docs/AUTOPILOT.md', './docs/DECISIONS.md', './docs/DESIGN.md', './scripts/autopilot.ts', './scripts/team.ts', './scripts/plan.ts', './scripts/doctor.ts', './scripts/invariants.test.ts', './docs/POLICY.md', './SECURITY.md', './scripts/compliance.ts', './scripts/compliance.test.ts', './scripts/policy.test.ts', './scripts/workflow-security.test.ts', './scripts/features.ts', './docs/FEATURES.md', './docs/features/**', './CLAUDE.md', './team/**', './.claude/**', './playwright.config.ts'];
+export const PROTECTED = ['./.github/**', './docs/AUTOPILOT.md', './docs/DECISIONS.md', './docs/DESIGN.md', './scripts/autopilot.ts', './scripts/team.ts', './scripts/plan.ts', './scripts/doctor.ts', './scripts/invariants.test.ts', './docs/POLICY.md', './SECURITY.md', './scripts/compliance.ts', './scripts/compliance.test.ts', './scripts/policy.test.ts', './scripts/workflow-security.test.ts', './scripts/features.ts', './scripts/handoff.ts', './scripts/handoff.test.ts', './AGENTS.md', './.mcp.json', './docs/FEATURES.md', './docs/features/**', './CLAUDE.md', './team/**', './.claude/**', './playwright.config.ts'];
 export const isProtectedPath = (f: string) => PROTECTED.map((p) => p.slice(2)).some((p) => (p.endsWith('/**') ? f.startsWith(p.slice(0, -2)) : f === p));
 // The first line of the boundary: an Edit or Write there is refused at once, so the agent learns it immediately.
 // The second line catches the rest (a shell command, a commit): restoreProtected after every call.
@@ -354,7 +354,10 @@ export function keepEngineerWork(before: string, merging: string): string[] {
   commitAll('Engineer work left uncommitted at the end of a call');
   return hit;
 }
-export const protectedChanges = (files: string[]) => [...new Set(files.map((f) => f.trim()).filter((f) => f && isProtectedPath(f)))];
+// Files git or GitHub give meaning beyond their content, and files that instruct agents, anywhere in the tree: put back
+// after every call like protected paths, and refused by Publish's hand-off check (scripts/handoff.ts).
+export const SPECIAL_PATH = /(^|\/)(\.gitmodules|\.gitattributes|\.lfsconfig|CODEOWNERS|CLAUDE(\.local)?\.md|AGENTS\.md|\.mcp\.json)$|(^|\/)\.claude\//;
+export const protectedChanges = (files: string[]) => [...new Set(files.map((f) => f.trim()).filter((f) => f && (isProtectedPath(f) || SPECIAL_PATH.test(f))))];
 
 // ---------- committee (feature pipeline builds; docs/IMPLEMENTATION.md "The cycle") ----------
 

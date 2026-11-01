@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { HOW, OPEN } from '@/lib/copy.ts';
+import { HOW, HOW_PERSONAL, OPEN } from '@/lib/copy.ts';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../disclaimer.tsx';
 
@@ -20,6 +20,9 @@ export default function How() {
       <ul>{HOW.excluded.map((l) => <li key={l}>{l}</li>)}</ul>
       <h2>{HOW.freezeTitle}</h2>
       <p>{HOW.freeze}</p>
+      {/* F-2 PR-5 (Q12): the personal ordering, in words, from the same constants. */}
+      <h2>{HOW_PERSONAL.title}</h2>
+      <p>{HOW_PERSONAL.text}</p>
     </main>
   );
 }

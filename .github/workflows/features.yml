@@ -15,9 +15,11 @@ on:
 concurrency:
   group: features
 
-# Agents get every tool on this throwaway runner but never a write credential: the build step gets only the Claude
-# token (scrubbed from the agents' shell commands); the deterministic prepare/publish steps use GITHUB_TOKEN to push,
-# open the PR and start CI, and the Gate decides what merges (docs/FEATURES.md → "Permissions and the failure budget").
+# Three jobs per task, so the agents' runner never holds a write token (docs/FEATURES.md → "Permissions and the failure
+# budget"; docs/AUTOPILOT.md → Security). prepare (no agents) reads GitHub and hands the agents a ready workspace;
+# build runs the agents with `contents: read` only and hands back a git bundle plus .autopilot/ results; publish, on a
+# fresh runner, runs only main's copy of the loop, verifies the hand-off (scripts/handoff.ts) and then pushes and opens
+# the PR with GITHUB_TOKEN. The Gate decides what merges.
 permissions:
   contents: write
   pull-requests: write
@@ -34,10 +36,13 @@ jobs:
     outputs:
       tasks: ${{ steps.next.outputs.tasks }}
       count: ${{ steps.next.outputs.count }}
+      base: ${{ steps.base.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+      - id: base # every new build starts from this exact commit, and Publish checks it does
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -49,11 +54,86 @@ jobs:
           FEATURE_PARALLEL: ${{ vars.FEATURE_PARALLEL || '3' }}
         run: node scripts/features.ts next
 
-  build:
+  # No agents here. Reads what the task needs from GitHub (PR, failing logs, the other builds for the brief) with a
+  # read-only token, running only main's scripts (loop/), and packs the prepared workspace for the build job.
+  prepare:
     needs: pick
     if: needs.pick.outputs.count != '0' && needs.pick.outputs.count != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      checks: read
+      statuses: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        task: ${{ fromJSON(needs.pick.outputs.tasks) }}
+    env:
+      KIND: ${{ matrix.task.kind }}
+      MODE: ${{ matrix.task.kind == 'build' && 'build' || 'fix' }} # team.ts and autopilot.ts: a conflict is a fix
+      FILE: ${{ matrix.task.file }}
+      NUMBER: ${{ matrix.task.kind == 'build' && matrix.task.id || matrix.task.number }}
+      TASK: ${{ toJSON(matrix.task) }}
+      TASKS: ${{ needs.pick.outputs.tasks }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.pick.outputs.base }}
+          path: loop # the scripts this job runs: main's, never the task branch's
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.pick.outputs.base }}
+          path: work
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Prepare branch and task
+        id: prep
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "stock-social-autopilot"
+          git config user.email "autopilot@users.noreply.github.com"
+          if [ "$KIND" = "fix" ]; then node "$GITHUB_WORKSPACE/loop/scripts/autopilot.ts" prepare; else node "$GITHUB_WORKSPACE/loop/scripts/features.ts" prepare; fi
+          node "$GITHUB_WORKSPACE/loop/scripts/features.ts" brief
+      - name: Pack the prepared workspace
+        working-directory: work
+        env:
+          BRANCH: ${{ steps.prep.outputs.branch }}
+          BASE_SHA: ${{ steps.prep.outputs.base_sha }}
+          BASE_REF: ${{ steps.prep.outputs.base || 'main' }}
+        run: |
+          node "$GITHUB_WORKSPACE/loop/scripts/handoff.ts" prep
+          tar -czf "$RUNNER_TEMP/workspace.tgz" .
+          tar -czf "$RUNNER_TEMP/loop.tgz" -C "$GITHUB_WORKSPACE/loop" scripts team
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prep-${{ matrix.task.key }}
+          path: |
+            ${{ runner.temp }}/workspace.tgz
+            ${{ runner.temp }}/loop.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  # The agents. Every tool and root on this throwaway runner, so it holds no write token at all: `contents: read` and no
+  # GitHub token in any step. It ends by handing back a bundle of its branch and .autopilot/ results as an artifact.
+  build:
+    needs: [pick, prepare]
+    name: build ${{ matrix.task.key }} # Publish finds this leg's job, and the artifact it uploaded, by this name
+    if: ${{ !cancelled() && needs.pick.outputs.count != '0' && needs.pick.outputs.count != '' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 350 # GitHub's job limit is 360; a later attempt's larger budget needs the room
+    # ponytail: a root agent here still holds the run's Actions runtime token, which reaches every artifact and cache in the run (it can read other legs' prep artifacts and seed main-scoped caches that ci.yml restores on PRs) — one workflow run per leg, and ci.yml cache keys that agent jobs can't write.
+    permissions:
+      contents: read
     strategy:
       fail-fast: false # one leg failing never stops the others
       matrix:
@@ -72,30 +152,25 @@ jobs:
       APP_SECRET_KEY: ci-only
       CRON_SECRET: ci-only
       KIND: ${{ matrix.task.kind }}
-      MODE: ${{ matrix.task.kind == 'build' && 'build' || 'fix' }} # team.ts and autopilot.ts: a conflict is a fix
+      MODE: ${{ matrix.task.kind == 'build' && 'build' || 'fix' }}
       FILE: ${{ matrix.task.file }}
       NUMBER: ${{ matrix.task.kind == 'build' && matrix.task.id || matrix.task.number }}
-      TASK: ${{ toJSON(matrix.task) }}
-      TASKS: ${{ needs.pick.outputs.tasks }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          ref: main
-          fetch-depth: 0
-          persist-credentials: false
+          name: prep-${{ matrix.task.key }}
+          path: ${{ runner.temp }}/prep
+      - name: Restore the prepared workspace and main's loop # a fix branch carries its own (possibly older) loop; always run main's
+        id: prep
+        run: |
+          tar -xzf "$RUNNER_TEMP/prep/workspace.tgz" -C "$GITHUB_WORKSPACE"
+          mkdir -p "$RUNNER_TEMP/loop" && tar -xzf "$RUNNER_TEMP/prep/loop.tgz" -C "$RUNNER_TEMP/loop"
+          echo "LOOP_DIR=$RUNNER_TEMP/loop" >> "$GITHUB_ENV"
+          node -e 'const p = require("./.autopilot/prep.json"); console.log("branch=" + p.branch + "\nbase_sha=" + p.base + "\nbase=" + p.baseRef)' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - name: Prepare branch and task
-        id: prep
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git config user.name "stock-social-autopilot"
-          git config user.email "autopilot@users.noreply.github.com"
-          if [ "$KIND" = "fix" ]; then node scripts/autopilot.ts prepare; else node scripts/features.ts prepare; fi
-          node scripts/features.ts brief
       - run: npm ci
       - name: Install Claude Code and a test browser
         run: |
@@ -120,22 +195,118 @@ jobs:
           COMMITTEE_ROUNDS: ${{ vars.COMMITTEE_ROUNDS || '5' }}
           MODEL_LEAD: ${{ vars.MODEL_LEAD }}
           MODEL_UX: ${{ vars.MODEL_UX }}
-        run: node scripts/team.ts
-      - name: Publish
+        run: node "$LOOP_DIR/scripts/team.ts"
+      - name: Hand off to Publish
+        id: handoff
         if: steps.team.outcome == 'success'
         env:
+          BASE_SHA: ${{ steps.prep.outputs.base_sha }}
+          KEY: ${{ matrix.task.key }}
+        run: |
+          # A random artifact name, drawn now, after the agents: another leg can't take it first and knock this one
+          # out. Publish reads it, and the artifact's ID, from this job's log.
+          echo "name=agent-$KEY-$(openssl rand -hex 16)" >> "$GITHUB_OUTPUT"
+          # Commit what is left, an unfinished merge included (Publish refuses committed conflict markers), then bundle
+          # only the commits since the base. No commits: no bundle, Publish reports it.
+          mkdir -p "$RUNNER_TEMP/handoff"
+          if [ -n "$(git status --porcelain)" ] || git rev-parse -q --verify MERGE_HEAD >/dev/null; then git add -A && git commit -q --no-verify -m "Work left uncommitted at the end of the run"; fi
+          if [ "$(git rev-list --count "$BASE_SHA..HEAD")" != "0" ]; then git bundle create "$RUNNER_TEMP/handoff/branch.bundle" HEAD "^$BASE_SHA"; fi
+          for f in result.json handoff.md plan.json; do if [ -f ".autopilot/$f" ]; then cp ".autopilot/$f" "$RUNNER_TEMP/handoff/"; fi; done
+      - name: Upload the hand-off
+        if: steps.team.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.handoff.outputs.name }}
+          path: ${{ runner.temp }}/handoff/
+          if-no-files-found: error
+          retention-days: 1
+
+  # A fresh runner. It runs only main's copy of the loop (loop/), never anything from the agents' job, and pushes only
+  # what scripts/handoff.ts verified: built on the trusted base, no protected path, sizes capped, text defanged.
+  publish:
+    needs: [pick, build]
+    if: ${{ !cancelled() && needs.pick.outputs.count != '0' && needs.pick.outputs.count != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write # dispatch CI on the pushed branch; read the legs' jobs and logs
+    strategy:
+      fail-fast: false
+      matrix:
+        task: ${{ fromJSON(needs.pick.outputs.tasks) }}
+    env:
+      KIND: ${{ matrix.task.kind }}
+      MODE: ${{ matrix.task.kind == 'build' && 'build' || 'fix' }}
+      FILE: ${{ matrix.task.file }}
+      NUMBER: ${{ matrix.task.kind == 'build' && matrix.task.id || matrix.task.number }}
+      GH_REPO: ${{ github.repository }}
+      GIT_LFS_SKIP_SMUDGE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: loop
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Find this leg's hand-off # the artifact ID upload-artifact logged in this leg's own job, never just a name
+        id: artifact
+        env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ steps.prep.outputs.branch }}
-          GIT_CONFIG_GLOBAL: /dev/null # agents ran on this runner: ignore any global or system git config they left
+          JOB_NAME: build ${{ matrix.task.key }}
+          ARTIFACT_PREFIX: agent-${{ matrix.task.key }}-
+        run: node "$GITHUB_WORKSPACE/loop/scripts/handoff.ts" artifact
+      - name: Download the agents' hand-off
+        id: download
+        if: steps.artifact.outputs.id != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ steps.artifact.outputs.id }}
+          merge-multiple: true # the files directly in path, not in a folder named after the artifact
+          path: ${{ runner.temp }}/handoff
+      - name: Verify the hand-off
+        id: verify
+        if: steps.download.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_DIR: ${{ runner.temp }}/handoff
+          REFUSAL_FILE: ${{ runner.temp }}/refused.md
+          GIT_CONFIG_GLOBAL: /dev/null # never the runner image's git config (lfs filters, credential helpers)
+          GIT_CONFIG_NOSYSTEM: '1'
+          BRANCH: ${{ matrix.task.kind == 'build' && matrix.task.branch || '' }}
+          BASE_SHA: ${{ matrix.task.kind == 'build' && needs.pick.outputs.base || '' }}
+          PR_NUMBER: ${{ matrix.task.kind != 'build' && matrix.task.number || '' }}
+        run: |
+          git init -q "$GITHUB_WORKSPACE/work" && cd "$GITHUB_WORKSPACE/work"
+          git config user.name "stock-social-autopilot"
+          git config user.email "autopilot@users.noreply.github.com"
+          node "$GITHUB_WORKSPACE/loop/scripts/handoff.ts" verify
+      - name: Publish
+        if: steps.verify.outcome == 'success'
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.verify.outputs.branch }}
+          GIT_CONFIG_GLOBAL: /dev/null # defense in depth: this repository was made here, from verified objects only
           GIT_CONFIG_NOSYSTEM: '1'
         run: |
-          # An agent could have planted a hook or config (core.hooksPath, url.*.insteadOf, include, credential, fsmonitor)
-          # that runs or redirects during the commit and push below: keep only the keys checkout and prepare set.
+          # Keep only the keys this job set (user, origin): nothing else can redirect or run during the push below.
           git config --local --unset-all core.hooksPath || true
           git config --local --name-only --list | sort -u | { grep -viE '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates)|user\.(name|email)|remote\.origin\.(url|fetch)|branch\..+\.(remote|merge))$' || true; } | while read -r k; do git config --local --unset-all "$k"; done
           git config --local remote.origin.url "https://github.com/$GITHUB_REPOSITORY"
           rm -rf .git/hooks .git/config.worktree
-          if [ "$KIND" = "build" ]; then node scripts/features.ts publish; exit; fi
-          node scripts/features.ts resolved
-          node scripts/autopilot.ts publish
-          node scripts/features.ts notes
+          if [ "$KIND" = "build" ]; then node "$GITHUB_WORKSPACE/loop/scripts/features.ts" publish; exit; fi
+          node "$GITHUB_WORKSPACE/loop/scripts/features.ts" resolved
+          node "$GITHUB_WORKSPACE/loop/scripts/autopilot.ts" publish
+          node "$GITHUB_WORKSPACE/loop/scripts/features.ts" notes
+      - name: Record a refused build on the feature # no PR or issue to tell; otherwise it would rebuild every round
+        if: failure() && steps.verify.outcome == 'failure' && matrix.task.kind == 'build'
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REFUSAL_FILE: ${{ runner.temp }}/refused.md
+        run: node "$GITHUB_WORKSPACE/loop/scripts/features.ts" refused

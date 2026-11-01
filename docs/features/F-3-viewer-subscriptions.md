@@ -40,6 +40,24 @@ opinion lands.
 - 2026-11-01: F-3 is ready: the pipeline builds billing and Record tools in the vendor's test mode only. Charging
   real money waits for the Privacy Policy and Terms (POLICY P6) and the data vendor's market-data answer for
   Record tools' open-position values; the owner switches it on. Why: the owner's decision.
+- 2026-11-01: The legal committee cleared Record tools (R1 to R11) and the billing core for the processor's test mode,
+  with the 25 conditions in `docs/features/logs/F-3/committee-2026-11-01.md`; nothing is barred. Why: decided by the committee under the owner's instruction of 2026-11-01; Record tools stays
+  within the publisher's exclusion so long as paid access is never fresher or richer than the free record.
+- 2026-11-01: Traders (a consented broker connection, connected or frozen) get Record tools included and never see a
+  price; a paying subscriber who connects a broker is canceled at once with an automatic pro-rata refund. Why: decided by the committee under the owner's instruction of 2026-11-01; traders
+  are never charged (F5), and it depends on nothing but the bare connection.
+- 2026-11-01: The app keeps no event payloads and no charge rows: `billing_events` holds ids, type and status and is
+  purged after 35 days; only the renewal consent record (no IP, email or name) survives account deletion, for 3 years,
+  under the processor customer id. Why: decided by the committee under the owner's instruction of 2026-11-01; minimization; the processor is the record holder for charges and tax.
+- 2026-11-01: The processor sends every billing email; the app sends none. Why: decided by the committee under the owner's instruction of 2026-11-01; it keeps the app free of any email
+  channel trader content could reach (F3b); the owner checks the processor's emails before live billing.
+- 2026-11-01: Refunds: no refunds for partial months on monthly plans; a full refund on a yearly plan canceled within 14
+  days of purchase or renewal (applied automatically); refunds required by law are always given. Grace after a failed
+  renewal is 7 days; a dispute or a full refund ends access at once. Why: decided by the committee under the owner's instruction of 2026-11-01; the consumer-protection member's recommendation.
+- 2026-11-01: After a lapse, saved views and notes stay readable, editable, exportable and deletable; only the
+  comparison locks. When a trader deletes their account, notes about them go and they leave every view; the subscriber
+  sees one line naming no one on the next visit. Why: decided by the committee under the owner's instruction of 2026-11-01; a person's own data is never held behind the paywall, and
+  nothing is pushed (F3b).
 - 2026-11-01: Refunds (Terms draft option; the owner approves the final text, POLICY H): cancel any time,
   self-serve, effective at period end. A full refund on request within 14 days of the first charge (monthly or
   annual) and of each annual renewal. Otherwise no partial refunds, except pro-rata when a paid feature or the
@@ -63,6 +81,11 @@ opinion lands.
   anti-sybil rules and clawback; a working report and appeal process; amount-only statements with no per-viewer
   data; Terms banning paid promotion and trading against one's record; a share that keeps break-even below measured
   conversion. The owner starts them. Why: decided by the idea board under the owner's instruction of 2026-11-01.
+- 2026-11-01: The Subscribe screen's refund line and the automatic refunds follow the idea board's refund decision above
+  (a full refund within 14 days of the first charge, monthly or yearly, and of each yearly renewal; canceling in that
+  window is the request), replacing the narrower line the legal committee first recorded. Why: decided by the
+  committee under the owner's instruction of 2026-11-01; the screen, the Terms and the acknowledgment must state one
+  policy (committee condition 15), and the idea board's is the more protective of the two.
 
 ## What viewers pay for (candidates; each needs the legal committee's review before build)
 Decided 2026-11-01: Record tools ships first. Alerts are barred by POLICY F3b, and paid follow or watchlist

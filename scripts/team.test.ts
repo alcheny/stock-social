@@ -314,3 +314,8 @@ else { fs.writeFileSync('work.txt', 'engineer\\n'); console.log(JSON.stringify({
   assert.match(g('log', '--format=%s'), /left uncommitted/);
   assert.equal(g('show', 'HEAD:work.txt'), 'engineer');
 });
+
+test('permissions: special git/GitHub files and agent-instruction files anywhere are put back like protected paths', () => {
+  assert.deepEqual(protectedChanges(['app/.gitattributes', 'lib/AGENTS.md', 'app/CLAUDE.md', '.mcp.json', 'x/.claude/settings.json', '.gitmodules', 'docs/CODEOWNERS', 'app/page.tsx']),
+    ['app/.gitattributes', 'lib/AGENTS.md', 'app/CLAUDE.md', '.mcp.json', 'x/.claude/settings.json', '.gitmodules', 'docs/CODEOWNERS']);
+});

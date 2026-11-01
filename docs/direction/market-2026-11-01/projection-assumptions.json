@@ -1,0 +1,155 @@
+[
+ {
+  "key": "conv",
+  "label": "Monthly viewers who pay",
+  "unit": "share",
+  "conservative": 0.005,
+  "base": 0.015,
+  "strong": 0.03,
+  "basis": "Freemium apps convert 2.1% of downloads within 35 days (subscription-app industry report, 2026); paid newsletters see about 1\u20133% of free readers pay. Monthly viewers are a less committed base than downloads, so the range sits below that."
+ },
+ {
+  "key": "annual_share",
+  "label": "Payers on the annual plan",
+  "unit": "share",
+  "conservative": 0.2,
+  "base": 0.35,
+  "strong": 0.5,
+  "basis": "34% of subscriptions are yearly (subscription-app industry report, 2026)."
+ },
+ {
+  "key": "price_monthly",
+  "label": "Monthly plan price",
+  "unit": "USD",
+  "conservative": 9.99,
+  "base": 9.99,
+  "strong": 9.99,
+  "basis": "Set by the owner on Oct 25, 2026 (F-3). Comparable products charge about $10 to $15 a month."
+ },
+ {
+  "key": "price_annual",
+  "label": "Annual plan price",
+  "unit": "USD",
+  "conservative": 99.99,
+  "base": 99.99,
+  "strong": 99.99,
+  "basis": "Set by the owner on Oct 26, 2026 (F-3): about ten months' price for twelve. Comparable annual plans run $90 to $100."
+ },
+ {
+  "key": "churn_monthly",
+  "label": "Monthly-plan cancellations per month",
+  "unit": "share",
+  "conservative": 0.12,
+  "base": 0.07,
+  "strong": 0.04,
+  "basis": "Web subscriptions lose a median 3.6% a month (4\u20135% in digital media and education); consumer subscriptions about 6.5\u20137%; app-store monthly plans keep 17% after a year, about 14% a month."
+ },
+ {
+  "key": "annual_renewal",
+  "label": "Annual plans renewed after a year",
+  "unit": "share",
+  "conservative": 0.35,
+  "base": 0.44,
+  "strong": 0.55,
+  "basis": "44.1% of yearly plans renew (subscription-app industry report, 2025)."
+ },
+ {
+  "key": "trader_share",
+  "label": "Connected traders per monthly viewer",
+  "unit": "share",
+  "conservative": 0.15,
+  "base": 0.1,
+  "strong": 0.05,
+  "basis": "Assumption: no benchmark exists for this. Every connected trader costs a broker-data fee, and traders never pay."
+ },
+ {
+  "key": "broker_per_trader",
+  "label": "Broker data per connected trader per month",
+  "unit": "USD",
+  "conservative": 2.0,
+  "base": 1.0,
+  "strong": 0.5,
+  "basis": "SnapTrade: $1 a month per connected user on the daily plan, $2 real-time; volume discounts on a custom plan. The current hourly sync gets only daily data on the $1 plan."
+ },
+ {
+  "key": "broker_floor",
+  "label": "Broker data platform fee per month",
+  "unit": "USD",
+  "conservative": 100,
+  "base": 100,
+  "strong": 100,
+  "basis": "SnapTrade platform fee."
+ },
+ {
+  "key": "platform_fixed",
+  "label": "Hosting and database fixed cost per month",
+  "unit": "USD",
+  "conservative": 80,
+  "base": 50,
+  "strong": 30,
+  "basis": "Hosting seat plus a database minimum (pricing pages, 2026)."
+ },
+ {
+  "key": "hosting_per_1k",
+  "label": "Hosting and database per 1,000 monthly viewers",
+  "unit": "USD",
+  "conservative": 10,
+  "base": 4,
+  "strong": 1,
+  "basis": "Estimate: about 30 page views and 30 MB per viewer, plus requests and database share."
+ },
+ {
+  "key": "billing_pct",
+  "label": "Billing fees as a share of revenue",
+  "unit": "share",
+  "conservative": 0.09,
+  "base": 0.065,
+  "strong": 0.045,
+  "basis": "Card fee 2.9% + $0.30, billing 0.7%, tax 0.5%: about 7.1% on a $10 monthly charge and 4.4% on $90 a year; international cards and disputes add more."
+ },
+ {
+  "key": "payout_share",
+  "label": "Share of revenue paid to traders",
+  "unit": "share",
+  "conservative": 0,
+  "base": 0,
+  "strong": 0,
+  "basis": "Set by the owner on Oct 26, 2026 (F-3): no creator payouts for now; they also need counsel first (POLICY F5)."
+ },
+ {
+  "key": "payout_fee_per_payee",
+  "label": "Payout cost per paid trader per month",
+  "unit": "USD",
+  "conservative": 2.5,
+  "base": 2.5,
+  "strong": 2.5,
+  "basis": "Connected-account fee of $2 per active account a month, plus about $0.25 and 0.5% per payout."
+ },
+ {
+  "key": "payout_minimum",
+  "label": "Smallest monthly payout",
+  "unit": "USD",
+  "conservative": 8.33,
+  "base": 8.33,
+  "strong": 8.33,
+  "basis": "Assumption: pay out quarterly from $25, since a $5 payout would lose about 45% to fees."
+ },
+ {
+  "key": "cac_paying",
+  "label": "Ad cost to win one paying viewer",
+  "unit": "USD",
+  "conservative": 400,
+  "base": 150,
+  "strong": 60,
+  "basis": "Finance apps pay about $11 per registration ($18 in fintech, mobile ad network report); divided by 3\u20138% of signups who pay."
+ },
+ {
+  "key": "paid_share",
+  "label": "New payers who came through ads",
+  "unit": "share",
+  "conservative": 0.5,
+  "base": 0.3,
+  "strong": 0.2,
+  "basis": "A commission-free broker reported over 80% of new accounts came organically or by referral (IPO filing); share links are this product's main channel."
+ }
+]

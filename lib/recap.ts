@@ -1,9 +1,13 @@
 // Pure monthly recap. Keeps each closed trade in the UTC month; no sizes or prices exist here and nothing varies by sign.
 import { confidence, evidenceLine, isNewRecord, rangeText, stats, type ConfidenceInput } from './trades.ts';
+import { stripFigures, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
+import { RECORD_STRIP, wholeRecordPreview, type RecordState } from './copy.ts';
+import { count, counted } from './format.ts';
+import { DISCLAIMER } from './share.ts';
 // FIXES-LABELS (D-24): the month's range line.
 import { FIXES_LABELS } from './copy.ts';
 import { MIN_BETS } from './confidence.ts';
-import { count } from './format.ts';
+import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 
 export type RecapTrade = ConfidenceInput & { sellId: string };
 
@@ -49,6 +53,8 @@ export function monthRecap(all: RecapTrade[], ym: string, now: Date) {
     evidence: evidenceLine(c),
     range: rangeText(c),
     bets: c.k, // FIXES-LABELS (D-24)
+    // F-12: the month's own figures (average with its range, or Too early), over the month's trades only.
+    figures: stripFigures(trades, now),
   };
 }
 
@@ -66,7 +72,38 @@ export const monthsOnRecord = (all: { closedAt: Date }[]): number =>
 export function wholeRecord(all: RecapTrade[], now: Date) {
   const s = stats(all.map(toStat));
   const c = confidence(all, now);
-  return { trades: s.trades, winRate: s.winRate, avgReturn: s.avgReturn, evidence: evidenceLine(c), range: rangeText(c), newRecord: isNewRecord(all, all.length, now) };
+  return { trades: s.trades, winRate: s.winRate, avgReturn: s.avgReturn, evidence: evidenceLine(c), range: rangeText(c), newRecord: isNewRecord(all, all.length, now), strip: stripFigures(all, now) };
+}
+
+// What the month page and image know once loaded (lib/recap-load.ts).
+export type RecapView = {
+  handle: string; displayName: string; demo: boolean; verified: boolean; state: RecordState;
+  recap: NonNullable<ReturnType<typeof monthRecap>>; record: ReturnType<typeof wholeRecord>;
+  open?: number[]; // unrealized percents, read for a connected or failed record only
+  months?: number; // FIXES-LABELS (D-24): distinct months on record (monthsOnRecord)
+  status?: StatusFacts | null; // FIXES-LABELS: status (F-11): the status-line facts beside the state
+};
+const who = (r: RecapView) => ({ state: r.state, demo: r.demo, verified: r.verified, handle: r.handle });
+// The trader's record strip (every closed trade) and the month's figures (that month's trades, no count: R3-2).
+export const recordStripInput = (r: RecapView): StripInput => ({ ...r.record.strip, ...who(r), open: r.open });
+export const monthStripInput = (r: RecapView): StripInput => ({ ...r.recap.figures, ...who(r) });
+
+export const monthCountText = (count: number) => `${counted(count, 'closed trade')} this month`;
+const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// Image alt (generateMetadata, F-4 pattern): the month and its figures, then the trader's record strip in words.
+export function monthAlt(r: RecapView, whole: Strip, month: Strip): string {
+  const m = r.recap;
+  const figures = month.figures.length ? `, ${month.alt.replace(/\.$/, '')}` : '';
+  return `${m.label} closed trades by @${r.handle} on Stock Social. ${sentence(monthCountText(m.count))}${m.monthSoFar ? ' so far' : ''}${figures}. ${RECORD_STRIP.link(r.handle)}: ${whole.alt}`;
+}
+
+// Link-preview description: the month's count, then the record under the profile's record-state rule, with the strip's
+// figures as its stats and the disclaimer whenever a figure is quoted (POLICY F3).
+export function monthDescription(r: RecapView, whole: Strip): string {
+  const rec = wholeRecordPreview({ state: r.state, demo: r.demo, verified: r.verified, trades: r.record.trades }, stripTextAfterCount(whole));
+  const base = `${monthCountText(r.recap.count)} · ${RECORD_STRIP.link(r.handle)}: ${rec}`;
+  return whole.importing ? base : `${base}. ${DISCLAIMER}`;
 }
 
 export function latestRecapYm(trades: { closedAt: Date }[]): string | null {

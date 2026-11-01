@@ -1,8 +1,9 @@
 // Pure trade math. No I/O — everything shown to users is derived here from raw activities,
 // so a bug is fixed by recomputing (see docs/DESIGN.md §2.5).
 
-import { count, counted } from './format.ts';
+import { count, counted, pct } from './format.ts';
 import { MIN_BETS, RANK_MIN_BETS, tooWide } from './confidence.ts';
+import { LATE_POSTING_DAYS, RATIO_TOLERANCE, renameRatio, resolveRatio, type CorporateAction, type Ratio } from './corporate-actions.ts';
 
 export type Activity = {
   externalId: string;
@@ -27,25 +28,161 @@ export type ClosedTrade = {
   verified: boolean;
 };
 
-type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean };
+type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean };
 
 const EPS = 1e-9;
 const DAY = 86_400_000;
+// Unit comparisons are relative to the size involved, so positions grown by splits compare like small ones.
+const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale));
 
-// FIFO, long only. One closed trade per SELL. Sells with no recorded entry are excluded, never guessed.
-export function matchTrades(activities: Activity[]): { trades: ClosedTrade[]; excluded: number } {
-  const sorted = [...activities].sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
-  const lots = new Map<string, Lot[]>();
+export type MatchResult = { trades: ClosedTrade[]; excluded: number; excludedCorporate: number };
+export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
+
+// FIFO, long only. One closed trade per SELL, or one count: every SELL is a shown trade, `excluded` or
+// `excludedCorporate`, never dropped silently.
+// - `excluded` (no recorded entry): a sell needing more units than the ledger holds, excluded whole (its matched part
+//   is not shown either): the history is missing an inflow (a buy before the imported history, a transfer in, an
+//   unrecorded split), so its basis is unknown (POLICY F3c). Sells shown earlier were priced from recorded lots and stay
+//   (TR-1, orchestrator decision 2026-11-01). The oversell empties the ledger; later buys start fresh lots.
+// - `excludedCorporate`: a sell drawing a unit an unpriceable corporate action touched (an oversell included), one
+//   dated within LATE_POSTING_DAYS before a repricing action on its pair, or one on the same day as such an action
+//   (the vendor may date the row on another day of the event than the trade's prices assume: lib/corporate-actions.ts).
+// Corporate actions (lib/corporate-actions.ts) adjust the lots: a split or stock dividend multiplies units by p/q and
+// divides price and fee per unit by it (total cost and fees conserved, holding period from the original buy); a symbol
+// change moves the lots, FIFO order kept by date; an unpriceable action taints them. At the same instant, actions apply
+// before trades (trade dates are often day-only and an action is dated on its effective day).
+export function matchTrades(activities: Activity[], actions: CorporateAction[] = []): MatchResult {
+  return replay(activities, actions).result;
+}
+
+// The lots still open after the history (test and property-check helper; the matcher's own state).
+export function openLots(activities: Activity[], actions: CorporateAction[] = []): OpenLot[] {
+  const out: OpenLot[] = [];
+  for (const [key, book] of replay(activities, actions).books) {
+    const [accountId, symbol] = [key.slice(0, key.lastIndexOf('|')), key.slice(key.lastIndexOf('|') + 1)];
+    for (const l of book.lots) out.push({ ...l, accountId, symbol });
+  }
+  return out;
+}
+
+type Book = { lots: Lot[] };
+type Event = { at: number; order: number; i: number; act?: Activity; ca?: CorporateAction };
+
+function replay(activities: Activity[], actions: CorporateAction[]): { result: MatchResult; books: Map<string, Book> } {
+  const events: Event[] = [
+    ...actions.map((ca, i) => ({ at: ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : 1, i, ca })),
+    ...activities.map((act, i) => ({ at: act.executedAt.getTime(), order: 2, i, act })),
+  ].sort((a, b) => a.at - b.at || a.order - b.order || a.i - b.i);
+  const books = new Map<string, Book>();
+  const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
-  let excluded = 0;
+  let excluded = 0, excludedCorporate = 0;
 
-  for (const a of sorted) {
+  // Repricing actions, for the late-posting window (a rename at 1:1 reprices nothing): their times per pair and, for
+  // account-wide ones, per account, sorted once; each sell looks up the first time after it.
+  const times = new Map<string, number[]>();
+  for (const ca of actions) {
+    if (ca.kind === 'symbol-change' && Math.abs(ca.inUnits - ca.outUnits) <= RATIO_TOLERANCE * ca.outUnits) continue;
+    const k = ca.kind === 'unpriceable' && ca.scope === 'account' ? `${ca.accountId}|` : `${ca.accountId}|${ca.symbol}`;
+    const list = times.get(k);
+    if (list) list.push(ca.executedAt.getTime()); else times.set(k, [ca.executedAt.getTime()]);
+  }
+  for (const list of times.values()) list.sort((x, y) => x - y);
+  const nextAfter = (list: number[] | undefined, t: number) => {
+    if (!list) return Infinity;
+    let lo = 0, hi = list.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] <= t) lo = mid + 1; else hi = mid; }
+    return lo < list.length ? list[lo] : Infinity;
+  };
+  // Same UTC day as a repricing action on the pair (or an account-wide one): the order within that day is unknown.
+  const days = new Map<string, Set<number>>();
+  for (const [k, list] of times) days.set(k, new Set(list.map((t) => Math.floor(t / DAY))));
+  const sameDayAction = (a: Activity) => {
+    const d = Math.floor(a.executedAt.getTime() / DAY);
+    return !!(days.get(`${a.accountId}|${a.symbol}`)?.has(d) || days.get(`${a.accountId}|`)?.has(d));
+  };
+  const latePosted = (a: Activity) => {
+    const t = a.executedAt.getTime();
+    const next = Math.min(nextAfter(times.get(`${a.accountId}|${a.symbol}`), t), nextAfter(times.get(`${a.accountId}|`), t));
+    return next - t <= LATE_POSTING_DAYS * DAY;
+  };
+  // In-window checks (tester round 1, reviewer round 2): a lot opened within LATE_POSTING_DAYS before a split may
+  // already be in post-split shares (the lot's own date, so lots that arrived through a rename count too), and any
+  // trade of the new symbol within that window before a rename may already hold the renamed shares. Lots touched that
+  // way are tainted, never scaled or moved on a guess.
+  const tradesAt = new Map<string, number[]>();
+  for (const a of activities) {
+    const k = `${a.accountId}|${a.symbol}`, list = tradesAt.get(k);
+    if (list) list.push(a.executedAt.getTime()); else tradesAt.set(k, [a.executedAt.getTime()]);
+  }
+  for (const list of tradesAt.values()) list.sort((x, y) => x - y);
+  const inWindowBefore = (list: number[] | undefined, at: number) => nextAfter(list, at - LATE_POSTING_DAYS * DAY - 1) < at;
+  const openedInWindow = (lots: Lot[], at: number) => lots.some((l) => l.at.getTime() >= at - LATE_POSTING_DAYS * DAY && l.at.getTime() < at);
+  // Pairs a rename emptied, by instant: an action on the old pair at that same instant is ambiguous (before or after the
+  // rename?), so it taints the lots where the rename put them, never skips them.
+  const movedTo = new Map<string, { at: number; to: string }>();
+  // Pairs a rename with a share exchange filled, by instant: a split on that pair at the same instant may be the same
+  // event reported twice (tester round 2), so it taints instead of scaling again.
+  const exchangedInto = new Map<string, number>();
+  const held = (lots: Lot[]) => lots.reduce((s, l) => s + l.units, 0);
+  const taint = (lots: Lot[]) => { for (const l of lots) l.tainted = true; };
+  // Removes `units` from the oldest lots (a cash-in-lieu fraction, shares removed by an unpriceable action).
+  const removeOldest = (lots: Lot[], units: number) => {
+    let left = units;
+    while (!tiny(left, units) && lots.length) {
+      const take = Math.min(lots[0].units, left);
+      lots[0].units -= take; left -= take;
+      if (tiny(lots[0].units, take)) lots.shift();
+    }
+  };
+  const scale = (lots: Lot[], r: Ratio) => { for (const l of lots) { l.units = (l.units * r.p) / r.q; l.price = (l.price * r.q) / r.p; l.feePerUnit = (l.feePerUnit * r.q) / r.p; } };
+
+  for (const e of events) {
+    const ca = e.ca;
+    if (ca) {
+      const key = `${ca.accountId}|${ca.symbol}`;
+      const b = book(key);
+      const moved = movedTo.get(key);
+      if (!b.lots.length && moved?.at === e.at && ca.kind !== 'symbol-change') { taint(book(moved.to).lots); }
+      if (ca.kind === 'split' || ca.kind === 'stock-dividend') {
+        if (exchangedInto.get(key) === e.at) { taint(b.lots); continue; }
+        if (!b.lots.length) continue; // nothing recorded to adjust; a later oversell is caught as missing history
+        const r = resolveRatio(held(b.lots), ca);
+        if (!r) { taint(b.lots); continue; }
+        scale(b.lots, r.ratio);
+        if (r.leftover > 0) removeOldest(b.lots, r.leftover); // cash in lieu: not a trade, not counted
+        if (openedInWindow(b.lots, e.at)) taint(b.lots);
+      } else if (ca.kind === 'symbol-change') {
+        if (!b.lots.length) continue;
+        const h = held(b.lots);
+        const r = ca.newSymbol !== ca.symbol && Math.abs(h - ca.outUnits) <= RATIO_TOLERANCE * Math.max(1, h) ? renameRatio(ca.outUnits, ca.inUnits) : null;
+        if (!r) { taint(b.lots); continue; }
+        scale(b.lots, r);
+        const toKey = `${ca.accountId}|${ca.newSymbol}`;
+        if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
+        const to = book(toKey);
+        to.lots = [...to.lots, ...b.lots].sort((x, y) => x.at.getTime() - y.at.getTime());
+        books.set(key, { lots: [] }); // a recycled ticker starts fresh lots
+        movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
+        if (r.p !== r.q) exchangedInto.set(toKey, e.at);
+      } else {
+        if (ca.scope === 'account') {
+          for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) taint(other.lots);
+        } else taint(b.lots);
+        const u = ca.units ?? 0;
+        if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
+        else if (u < 0) removeOldest(b.lots, -u);
+      }
+      continue;
+    }
+
+    const a = e.act!;
     const key = `${a.accountId}|${a.symbol}`;
-    const open = lots.get(key) ?? [];
-    lots.set(key, open);
-
+    const b = book(key);
+    const open = b.lots;
     if (a.side === 'BUY') {
-      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified });
+      // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
+      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) ? { tainted: true } : {}) });
       continue;
     }
 
@@ -54,35 +191,42 @@ export function matchTrades(activities: Activity[]): { trades: ClosedTrade[]; ex
     let entryFees = 0;
     let openedAt: Date | null = null;
     let verified = a.verified;
-    while (remaining > EPS && open.length) {
+    let tainted = false;
+    while (!tiny(remaining, a.units) && open.length) {
       const lot = open[0];
       const take = Math.min(lot.units, remaining);
       cost += take * lot.price;
       entryFees += take * lot.feePerUnit;
       openedAt ??= lot.at;
       verified &&= lot.verified;
+      tainted ||= !!lot.tainted;
       lot.units -= take;
       remaining -= take;
-      if (lot.units <= EPS) open.shift();
+      if (tiny(lot.units, a.units)) open.shift();
     }
 
-    if (remaining > EPS) excluded++;
-    const matched = a.units - remaining;
-    if (matched <= EPS || !openedAt) continue;
-
-    const exitFee = a.fee * (matched / a.units);
-    trades.push({
-      sellId: a.externalId,
-      accountId: a.accountId,
-      symbol: a.symbol,
-      openedAt,
-      closedAt: a.executedAt,
-      returnPct: (matched * a.price - cost - entryFees - exitFee) / cost,
-      holdingDays: (a.executedAt.getTime() - openedAt.getTime()) / DAY,
-      verified,
-    });
+    if (!tiny(remaining, a.units)) {
+      // Oversold: this sell only. Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
+      if (tainted) excludedCorporate++; else excluded++;
+      continue;
+    }
+    if (tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;
+    else if (openedAt) {
+      const exitFee = a.fee;
+      const t: ClosedTrade = {
+        sellId: a.externalId,
+        accountId: a.accountId,
+        symbol: a.symbol,
+        openedAt,
+        closedAt: a.executedAt,
+        returnPct: (a.units * a.price - cost - entryFees - exitFee) / cost,
+        holdingDays: (a.executedAt.getTime() - openedAt.getTime()) / DAY,
+        verified,
+      };
+      trades.push(t);
+    }
   }
-  return { trades, excluded };
+  return { result: { trades, excluded, excludedCorporate }, books };
 }
 
 export type Stats = {
@@ -157,18 +301,8 @@ export function stats(trades: Pick<ClosedTrade, 'returnPct' | 'holdingDays' | 'c
   };
 }
 
-// Signed percent. A value that rounds to zero reads "0.0%" (never "-0.0%" or "+0.0%", same as an exact zero). A loss
-// short of -100% never rounds to a total loss: it gets up to 4 more digits ("-99.98%"), and past that reads "≈-100.0%".
-export function pct(x: number, digits = 1): string {
-  const fixed = (d: number) => (x * 100).toFixed(d);
-  let s = fixed(digits);
-  if (Number(s) === 0) return `${fixed(digits).replace('-', '')}%`;
-  if (x > -1 && Number(s) <= -100) {
-    for (let d = digits + 1; d <= digits + 4 && Number(s) <= -100; d++) s = fixed(d);
-    if (Number(s) <= -100) return `≈${fixed(digits)}%`;
-  }
-  return `${x > 0 ? '+' : ''}${s}%`;
-}
+// pct() lives in lib/format.ts (F-19: one home); re-exported here so existing imports keep working.
+export { pct };
 
 // Chart navigation: arrow keys move the active point, clamped at the ends (no wrap, so the ends are obvious).
 export const stepIndex = (i: number, delta: number, n: number) => Math.min(Math.max(i + delta, 0), n - 1);
@@ -205,7 +339,11 @@ export function rangeReturn(trades: { returnPct: number; closedAt: Date }[], key
 }
 
 // ---- TR-9: how much evidence stands behind the average return (DESIGN Stage 5.2) ----
-// ponytail: open positions (TR-4) are deferred; closed trades only until that data exists.
+// ponytail: the interval reads closed trades only; open positions (TR-4, stored by F-6 in open_positions) are not bets
+// here yet — fix: count each open position as a provisional bet at its unrealized percent.
+// ponytail: bets are clustered by symbol, so a position renamed by a corporate action (lib/corporate-actions.ts) whose
+// closes straddle the rename counts as two bets (at most one extra per rename: it can move the 5-bet floor and the
+// degrees of freedom) — fix: a chain key per closed trade (a closed_trades column set by the rebuild).
 
 export type ConfidenceInput = Pick<ClosedTrade, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct' | 'holdingDays'>;
 export type Tier = 'too-early' | 'thin' | 'moderate' | 'strong';
