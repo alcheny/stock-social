@@ -23,6 +23,14 @@ publishing anyone's dollar amounts.
 - 2026-10-31: A trade's size is its share of all the trader's connected accounts, valued at the trade's entry,
   labelled "of connected accounts at entry". Why: the owner's choice; a small dedicated account can't make every
   trade look like 100%, and the label states exactly what is measured.
+- 2026-11-01: The record's headline and chart become account-weighted: each closed trade counts by its share of
+  the connected accounts, so a 1%-of-account trade barely moves the line and a 40% trade moves it a lot. It is
+  never called "account return" (only connected accounts count), and F-4's chart follows it. Why: the owner's
+  choice; an equal-weight average hides the risk taken.
+- 2026-11-01: The connected-accounts base counts cash; deposits and withdrawals are neutralised (time-weighted, as
+  funds report returns); margin can push a share above 100% and is shown as is (e.g. "130% of connected
+  accounts"); trades the vendor can't value are marked "not sized" and counted, never estimated. Why: the
+  owner's choice of the standard method.
 
 ## Acceptance criteria
 To be written once the open questions are settled.
@@ -32,9 +40,6 @@ To be written once the open questions are settled.
 - Ranking or sorting traders by position size.
 
 ## Open questions
-- Whether the record's headline and chart also become account-weighted return (each trade counted by its
-  share of the account), replacing today's equal-weight per-trade view.
-- How cash, margin (a share above 100%), deposits and withdrawals are counted in the connected-accounts base.
 - Consent: a new line in the connect consent and a one-time re-consent of existing traders, or a separate
   opt-in.
 - Legal review (2026-10-31, three independent passes: law by law, data lifecycle, misuse and enforcement; the
@@ -45,7 +50,7 @@ To be written once the open questions are settled.
   - a separate opt-in from every trader, no backfill without it (current consent promises no amounts);
   - labelled an estimate of connected accounts at entry, outside "Verified"; unsizable trades excluded and
     counted;
-  - store the band, never balances; an append-only display log of what was shown;
+  - store each trade's share, never balances; an append-only display log of what was shown;
   - insider and registered-representative warnings; Terms ban adviser advertising and paid promotion; size
     hidden for thinly traded, OTC or halted securities;
   - owner rule changes: POLICY P3, DESIGN CH-1, and a size-only withdrawal exception to TR-1/TR-5.
