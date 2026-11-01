@@ -2,7 +2,7 @@
 // UA from env (nothing fetched without it), backoff then stop. parseFiling is pure, bounded, keeps matcher fields only (C4).
 import { importerBaseAllowed } from './public-gate.ts';
 import { isLoopbackUrl, type Env } from './vendor-env.ts';
-export const MIN_GAP_MS = 250, MAX_DOC_BYTES = 2 * 1024 * 1024; const BACKOFF_MS = 1000, RETRIES = 2, TIMEOUT_MS = 10_000; // ≤ 4 req/s a process
+export const MIN_GAP_MS = 250, MAX_DOC_BYTES = 2 * 1024 * 1024; const SEND_MARGIN_MS = 25, BACKOFF_MS = 1000, RETRIES = 2, TIMEOUT_MS = 10_000; // ≤ 4 req/s a process
 export class FilingsStopped extends Error { constructor() { super('filing system refused; tick stopped'); } }
 export type IndexEntry = { id: string; url: string; filedAt: string; amends?: string };
 let worker: Promise<unknown> = Promise.resolve(), lastAt = 0; const sleep = (ms: number) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
@@ -21,7 +21,9 @@ export function filingsClient(base: string, env: Env = process.env, deadline = I
   async function send(path: string): Promise<string | null> {
     for (let i = 0; ; i++) {
       if (stopped) throw new FilingsStopped();
-      while (Date.now() < lastAt + MIN_GAP_MS) await sleep(lastAt + MIN_GAP_MS - Date.now()); // timers can fire early
+      // The filing system sees arrival times, not send times: a request sent exactly MIN_GAP_MS after the previous one can
+      // arrive a few ms closer to it (the previous one delayed in transit). SEND_MARGIN_MS keeps the gap at the receiver.
+      while (Date.now() < lastAt + MIN_GAP_MS + SEND_MARGIN_MS) await sleep(lastAt + MIN_GAP_MS + SEND_MARGIN_MS - Date.now()); // timers can fire early
       lastAt = Date.now();
       const res = await fetch(root + path, { headers: { 'user-agent': `Stock Social ${contact}` }, redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
       if (res?.status === 404) return null;
