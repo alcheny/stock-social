@@ -54,20 +54,17 @@ reviewer; 3 planning rounds, all signed):
 
 ## Testing
 - `npx tsc --noEmit`: clean.
-- `npm test`, run twice on the final tree (after the third orchestrator review, with main at 1eab2ef merged): 2268
-  tests.
-  - First run: one miss, an auth link test (`lib/auth/links.test.ts`, claimLink). It passed 3 times in a row on its
-    own, and F-24 does not touch it.
-  - Second run: 0 failures.
-  - Earlier runs on this branch also saw main's likes heavy check (`lib/likes.test.ts`) miss intermittently, on a fresh
-    database with main's own code too. This PR does not touch likes.
-  - The existing owner TODOs (H4, F-20 OQ-2) show as "not ok" in both runs.
+- `npm test`, run twice on the final tree (after the fourth orchestrator review and council cycle 5's RT-2, main at
+  84a8b03 merged): 2311 tests, 0 failures in both runs. The existing owner TODOs (H4, F-20 OQ-2) show as "not ok".
   - `lib/sync-test-hours.test.ts` (#90) passes; no F-24 test file calls `runShard` or names `sync_read_counts`.
 - New tests:
   - `lib/sync-reconcile.db.test.ts`: AC1–AC4, including AC1 over the vendor fake through the real `lib/broker.ts`.
   - `.reissue.test.ts`: AC6 (a)–(n).
   - `.confirm.test.ts`: committee option C and the reviewer's R1/R2 (each failing on dc08182).
   - `.count.test.ts`: the third review's RA1, RA2, RB, RC (each failing on 61898e3) and the savepoint invariant.
+  - `.busy.test.ts`: C7 (busy account, no widened read, reason `busy`) and C6 (a two-page call), failing on 811b398.
+  - `.hold.test.ts`: RT-2's matcher probes and an end-to-end held → counted → decided → exact-figure run, failing on
+    811b398.
   - `.log.test.ts`: AC5 and the log shapes.
   - `.copy.test.ts`: AC7, rendering the real Profile, TradePage and TradeCard.
   - `.review.test.ts`: code-review regressions; each one fails on the pre-fix commit.
@@ -81,7 +78,8 @@ reviewer; 3 planning rounds, all signed):
   - before the review fixes: 291 passed, 6 skipped, 0 failed;
   - after the first orchestrator review: 291 passed, 6 skipped, 0 failed;
   - after the second review (main at 63f48f4): 314 passed, 6 skipped, 0 failed;
-  - on the final tree (third review, main at 1eab2ef): 316 passed, 6 skipped, 0 failed.
+  - after the third review (main at 1eab2ef): 316 passed, 6 skipped, 0 failed;
+  - on the final tree (fourth review and RT-2, main at 84a8b03): 326 passed, 6 skipped, 0 failed.
 - Heavy use, per the tester: about 20–40 ms more per sync for a trader with 5,000 activities, within run-to-run noise
   next to the rebuild.
 
