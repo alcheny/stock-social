@@ -383,15 +383,14 @@ export const TITLES = {
   privacy: 'Privacy Policy \u00b7 Stock Social',
   notFound: 'Page not found \u00b7 Stock Social',
 } as const;
-// #21 (WCAG 2.4.2, 1.3.1): the root 404 page. "Trades by stock" is the nav's label after F-13 (group 1 may swap the
-// literal for its nav constant).
+// #21 (WCAG 2.4.2, 1.3.1): the root 404 page; its links use the nav's and the footer's labels.
 export const NOT_FOUND = {
   heading: 'Page not found',
   body: 'There\u2019s nothing at this address. The link may be mistyped, or the page has moved.',
   links: [
     { href: '/', label: 'Feed' },
-    { href: '/t', label: 'Trades by stock' },
-    { href: '/how', label: 'How records are calculated' },
+    { href: '/t', label: NAV.stocks },
+    { href: '/how', label: FOOTER.how },
   ],
 } as const;
 // end A11Y-FIXES copy

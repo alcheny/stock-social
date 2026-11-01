@@ -681,7 +681,11 @@ test('ticker page: Why they traded it shows the seeded thesis with a Demo badge 
   await expect(sec).toBeVisible();
   await expect(sec).toContainText('Breakout above the 50-day on volume after earnings beat');
   await expect(sec).toContainText('Demo');
-  await expect(sec.locator('a[href*="/u/"][href*="#trade-"]').first()).toBeVisible();
+  // A11Y-FIXES #22: the link is the trade's own page by sell_id (stable across rebuilds), not a profile anchor.
+  const link = sec.locator('a[href*="/u/"][href*="/trade/"]').first();
+  await expect(link).toBeVisible();
+  await expect(sec.locator('a[href*="#trade-"]')).toHaveCount(0);
+  expect((await page.request.get((await link.getAttribute('href'))!)).status()).toBe(200);
 });
 
 test('ticker page: unknown symbol has no theses section', async ({ page }) => {

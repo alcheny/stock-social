@@ -524,7 +524,7 @@ html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint 
 .swipe-hint { position: static; margin: 0 0 6px; color: var(--muted); }
 /* "Trades by stock" (D27) fits the nav at 320–390 px without horizontal overflow, ≤ 56 px tall (WCAG 1.4.10). */
 @media (max-width: 420px) { nav.top { gap: 8px; padding: 12px; } }
-@media (max-width: 360px) { nav.top a:not(.logo):not(.me) { white-space: normal; line-height: 1.1; text-align: center; } }
+@media (max-width: 420px) { nav.top a:not(.logo):not(.me) { white-space: normal; line-height: 1.1; text-align: center; } }
 @media (max-width: 340px) { nav.top { font-size: 0.8125rem; } }
 /* end F-13 */
 
@@ -567,4 +567,7 @@ h1 { overflow-wrap: anywhere; }
   .feed .row > * { padding-top: 56px; padding-bottom: 8px; }
   .feed .row > .card { gap: 8px; overflow-y: auto; scroll-padding-top: 56px; }
 }
+/* #19 (WCAG 1.4.10): at 320 px two stat tiles are 138 px wide, and a 36 px "+20.0%" (155 px) widened the profile to
+   332 px. Below 341 px the tiles stack, one per row, so the figure keeps its size and the page never scrolls sideways. */
+@media (max-width: 340px) { .stats { grid-template-columns: 1fr; } }
 /* end A11Y-FIXES */

@@ -95,10 +95,10 @@ test('F-13: the dismiss control is a labelled button reached by keyboard; Enter 
   await page.goto('/');
   const before = (await ctx.cookies()).map((c) => c.name).sort();
   await expect(line(page)).toBeVisible();
-  const tabs = await tabTo(page, 'Dismiss');
+  const tabs = await tabTo(page, 'Dismiss this note');
   expect(tabs).toBeGreaterThan(0);
   expect(tabs).toBeLessThanOrEqual(7); // skip link + nav + the line's link, then Dismiss
-  await expect(page.getByRole('button', { name: 'Dismiss' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Dismiss this note' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(line(page)).toHaveCount(0);
   expect(await page.evaluate(() => !!document.activeElement?.closest('.feed > .row .card'))).toBe(true);
@@ -157,7 +157,7 @@ test('F-13: with storage blocked both render, both can be dismissed for the page
   expect(await page.evaluate(() => { try { void localStorage.length; return false; } catch { return true; } })).toBe(true);
   await expect(line(page)).toBeVisible();
   await expect(hint(page)).toBeVisible();
-  await page.getByRole('button', { name: 'Dismiss' }).focus();
+  await page.getByRole('button', { name: 'Dismiss this note' }).focus();
   await page.keyboard.press('Enter');
   await expect(line(page)).toHaveCount(0);
   await page.locator('[data-first-card-link]').focus();
@@ -196,7 +196,10 @@ test('F-13: signed in, the line never shows; the hint is a device first run for 
   // A later page (`?after=`) never carries the line or the hint.
   const anon = await fresh(browser);
   await anon.page.goto('/');
-  const next = await anon.page.locator('a[href*="after="]').first().getAttribute('href').catch(() => null);
+  // The seeded feed may fit on one page: then there is no later page to check (no wait for a link that never comes).
+  // ponytail: the later-page check runs only when the shared DB holds more than one page — a fixture with 31+ cards would make it always run.
+  const links = anon.page.locator('a[href*="after="]');
+  const next = (await links.count()) ? await links.first().getAttribute('href') : null;
   if (next) {
     await anon.page.goto(next);
     await expect(line(anon.page)).toHaveCount(0);

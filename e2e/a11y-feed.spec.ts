@@ -52,6 +52,9 @@ test('#17: keyboard only, Tab never lands in an off-screen pane; → focuses the
   const release = await feedLock('shared');
   try {
     await page.setViewportSize({ width: 360, height: 640 });
+    // F-13's first-visit line sits above row 1 on signed-out page 1 (its own tests are e2e/f13-first-visit.spec.ts);
+    // dismissed on this device here, so "the card is in view" measures the card, not the line above it.
+    await page.addInitScript(() => { try { localStorage.setItem('ss.firstVisitLine', 'dismissed'); } catch {} });
     await page.goto('/');
     await hydrated(page);
     const row = firstRow(page), card = row.locator(':scope > .card'), pane = row.locator(':scope > .pane');
