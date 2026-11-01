@@ -4,6 +4,9 @@
 // feed-eligible (4 closes), so this spec takes no feed lock.
 import { test, expect, type Page } from '@playwright/test';
 import postgres from 'postgres';
+import { createHash } from 'node:crypto';
+// F-25: a trade page's address is its trade_key (sha256 of the closing sell's id).
+const tradeKey = (sellId: string) => createHash('sha256').update(sellId, 'utf8').digest('hex');
 import { buyFilingUrl, deleteFilers, ensureImportState, filingUrl, insertFiler, RAW_AMOUNTS } from './f7-fixture.ts';
 
 const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
@@ -153,7 +156,7 @@ test('AC 25: signed out and signed in see the same profile', async ({ browser, p
 });
 
 test('AC 14, 16, 17: the trade page links both filings, carries the line and the labels; the month page too', async ({ page }) => {
-  await page.goto(`/u/${P}/trade/${encodeURIComponent(`pub:${P}:0`)}`);
+  await page.goto(`/u/${P}/trade/${tradeKey(`pub:${P}:0`)}`);
   await expect(page.locator('.badge.public')).toHaveText('Public filing');
   await expect(page.locator('.badge.demo')).toHaveCount(1);
   await expect(page.locator('[data-public-line]')).toContainText(NOT_JOINED);
@@ -170,7 +173,7 @@ test('AC 14, 16, 17: the trade page links both filings, carries the line and the
   const desc = (await page.locator('meta[name="description"]').getAttribute('content'))!;
   expect(desc).toContain('Public filing');
   expect(desc).toContain('has not joined Stock Social');
-  await imageAlts(page, `/u/${P}/trade/${encodeURIComponent(`pub:${P}:0`)}/opengraph-image`);
+  await imageAlts(page, `/u/${P}/trade/${tradeKey(`pub:${P}:0`)}/opengraph-image`);
   expect(await page.locator('meta[name="robots"]').getAttribute('content')).toMatch(/noindex/); // fix round 3
   await common(page);
   const ym = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 7);
