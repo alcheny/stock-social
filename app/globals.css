@@ -1,22 +1,32 @@
+/* TOKENS (F-20, DS-1): the only CSS colour literals in the app, pinned per scheme in lib/a11y-contrast.test.ts
+   (lib/colour-literals.test.ts fails on any other). Values are the ones after cycle-2 fixes 12, 13 and 26: base, accent and
+   on-accent change only through the V-1 three-version test; a new colour is a new token here. Dark is the default scheme. */
 :root {
   --bg: #0b0b0f;
   --surface: #16161d;
   --text: #f4f4f6;
   --muted: #8b8b98;
-  --line: #262631;
+  --line: #262631; /* decorative only: dividers, cards, tiles (never a control boundary) */
   --up: #3cc4b4;
   --down: #ff8a5b;
   --accent: #a78bfa;
   --on-accent: #0b0b0f; /* text on the accent: 7.2:1 on the dark lilac (white was 2.72:1) */
+  --control: #6f7682; /* control borders only: 3.75/3.91 light, 4.29/3.93 dark (bg/surface) */
+  --focus: #86a8ff; /* the focus ring and the current-row cue: 6.15/6.42 light, 8.47/7.76 dark (bg/surface) */
+  --verified: var(--text); /* the Verified badge text (its tint stays built from --up) */
+  --flat: var(--muted); /* Flat results (DS-11 repoints .flat later) */
+  --demo: var(--muted); /* the Demo badge text (DS-5 gives Demo its own hue later) */
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #fafafa; --surface: #fff; --text: #111118; --muted: #6b6b78; --line: #e5e5ea;
     --up: #0b6b70; --down: #b2441b; --accent: #6d28d9; --on-accent: #fff; /* 7.1:1 */
+    --control: #7c818b; --focus: #2152d9;
     color-scheme: light;
   }
 }
+/* end TOKENS */
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, sans-serif; }
@@ -611,11 +621,7 @@ html:not([data-ss-seen~="line"]) .feed .card:has(.first-visit) .swipe-hint { dis
 
 /* A11Y-FIXES (approval council fixes, 2026-11-01). Minimal contrast tokens: the design system council's tokens may
    supersede them; lib/a11y-contrast.test.ts keeps the floor. */
-/* #13, #14 tokens: values from the design system council 2026-11-01 (§5.1), only the ones these fixes need.
-   --control: control borders only (separators, cards and tiles keep --line): 3.75/3.91 light, 4.29/3.93 dark (bg/surface).
-   --verified: the Verified badge's text (the tint stays built from --up). --focus: the :target bar (6.15/6.42, 8.47/7.76). */
-:root { --control: #6f7682; --focus: #86a8ff; --verified: var(--text); }
-@media (prefers-color-scheme: light) { :root { --control: #7c818b; --focus: #2152d9; } }
+/* #13, #14 tokens (--control, --focus, --verified) live in the TOKENS block at the top (F-20); values unchanged. */
 /* #13 text contrast (WCAG 1.4.3): Verified text was --up on its own 18% tint (3.77:1 light); a :target row drops its
    fill (which took muted text to 4.01:1) for a 3 px bar, with no fill (DS §5.1), the text staying where it was. */
 .badge.verified { color: var(--verified); }
