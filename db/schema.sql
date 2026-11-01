@@ -782,3 +782,15 @@ select schema_add_column('subscriptions', 'listed_at', 'timestamptz');
 select schema_add_index('follows_viewer_created', 'create index follows_viewer_created on follows (viewer_id, created_at desc, trader_id desc)');
 select schema_add_index('viewer_exclusions_viewer_created', 'create index viewer_exclusions_viewer_created on viewer_exclusions (viewer_id, created_at desc, trader_id desc)');
 select schema_add_index('viewer_exclusions_viewer_until', 'create index viewer_exclusions_viewer_until on viewer_exclusions (viewer_id, until desc, trader_id desc)');
+
+-- Known limits sweep 2 (`similar`): the "Similar trades" pool shared between servers (lib/similar.ts). One row per scope
+-- ('*' in production), overwritten in place by the one server that claims the rebuild (claim token + claimed_at lease).
+-- pool: the section pool as JSON text (user ids with ranking numbers derived from public records; no quantities or prices).
+create table if not exists similar_pools (
+  key text primary key,
+  hour timestamptz not null,
+  built_at timestamptz,
+  claimed_at timestamptz,
+  claim text,
+  pool text
+);

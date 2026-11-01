@@ -59,6 +59,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },
   rate_marks: { personal: true, retention: 'short', holds: 'the last import-poll time per user id; pruned by lib/rate-limit.ts after a day' },
   sitemap_chunks: { personal: false, retention: 'none', holds: 'sitemap chunk boundary symbols, indexable-symbol count, highest sitemap id published and build time (no user ids)' },
+  similar_pools: { personal: true, retention: 'short', holds: 'the Similar trades section pool: user ids with ranking numbers derived from public records (no quantities or prices); one row per scope, overwritten every 10 s while profiles are viewed; rows idle past a day are deleted by lib/privacy-purge.ts' },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.

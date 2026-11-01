@@ -122,3 +122,192 @@ dbTest('fix round 1 (D2): the profile\'s read (panes: false) reads no row trader
     await f.remove();
   }
 });
+
+// Known limits sweep 2 (`similar`): the per-request bucket walk and the pool shared between servers (similar_pools).
+// Each "server" is its own instance of the module (`./similar.ts?s=…`) with the same database. Their shared-pool rows
+// are this file's own scopes (`ids` lists of the fixtures made here), deleted in finally.
+const PURE_HOLDS = [0.2, 0.9, 1, 3, 7, 7.5, 20, 28, 29, 100, 183, 184, 400];
+function randomPool(seed: number, n: number) {
+  let x = seed;
+  const rnd = () => (x = (x * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  return Array.from({ length: n }, (_, i) => ({
+    trader: 1000 + i, score: Math.round(rnd() * 100) / 10, weight: Math.round(rnd() * 8) / 4, hold: PURE_HOLDS[Math.floor(rnd() * PURE_HOLDS.length)],
+    n: 5 + Math.floor(rnd() * 4), ...(rnd() < 0.2 ? { verified: false } : rnd() < 0.5 ? { verified: true } : {}),
+  }));
+}
+
+test('sweep 2: the bucket walk returns exactly similarCandidates(...).slice(0, SIMILAR_SPARES) on random pools, selves and skip sets', async () => {
+  const { pickFor } = await import('./similar.ts');
+  const { similarCandidates, SIMILAR_SPARES } = await import('./discovery/similar.ts');
+  for (let seed = 1; seed <= 60; seed++) {
+    const pool = randomPool(seed, seed % 7 === 0 ? 3 : 20 + seed * 5), pick = pickFor(pool);
+    for (const hold of PURE_HOLDS) for (const k of [0, 1, 5, 40]) {
+      const self = pool[(seed * 3 + k) % pool.length].trader;
+      const skip = new Set(pool.filter((_, i) => (i * 7 + seed) % 11 < Math.min(k, 10)).map((t) => t.trader));
+      assert.deepEqual(pick(self, hold, skip), similarCandidates(pool, self, hold, skip).slice(0, SIMILAR_SPARES), `seed ${seed} hold ${hold} k ${k}`);
+    }
+  }
+  assert.deepEqual(pickFor([])(1, 3, new Set()), []);
+});
+
+test('sweep 2: the shared pool text decodes to the same pool, NaN, Infinity, -0 and a missing verified included', async () => {
+  const { encodePool, decodePool } = await import('./similar.ts');
+  const pool = [...randomPool(9, 30), { trader: 1, score: Number.NaN, weight: Infinity, hold: -Infinity, n: -0 }, { trader: 2, score: -0.5, weight: 1e-7, hold: 1 / 3, n: 5, verified: false }];
+  assert.deepEqual(decodePool(encodePool(pool)), pool);
+});
+
+type Instance = typeof import('./similar.ts');
+let serverN = 0;
+async function servers(n: number, opts: { coldWaitMs?: number } = {}): Promise<Instance[]> {
+  const out: Instance[] = [];
+  for (let i = 0; i < n; i++) {
+    const m: Instance = await import(`./similar.ts?server=${++serverN}`);
+    Object.assign(m.similarTesting, { shareIds: true, dbOffsetMs: 0, builds: 0, fetches: 0, coldWaitMs: opts.coldWaitMs, beforeWrite: undefined });
+    out.push(m);
+  }
+  return out;
+}
+const builds = (ss: Instance[]) => ss.reduce((a, s) => a + s.similarTesting.builds, 0);
+const at = (ss: Instance[], dbOffsetMs: number) => { for (const s of ss) s.similarTesting.dbOffsetMs = dbOffsetMs; };
+async function row(f: { sql: Awaited<ReturnType<typeof fixture>>['sql']; traders: number[] }, key: string) {
+  return (await f.sql`select hour, built_at, claimed_at, claim, pool is not null as has_pool from similar_pools where key = ${key}`)[0];
+}
+
+dbTest('sweep 2 (AC1, AC4): three servers asking at once build the pool once; all three serve the same rows as a server-local build (today\'s path)', async () => {
+  const f = await fixture(30);
+  const ss = await servers(3, { coldWaitMs: 20_000 });
+  const key = ss[0].similarScope(f.traders);
+  try {
+    const now = Date.now(), self = f.traders[1];
+    const outs = await Promise.all(ss.map((s) => s.loadSimilar({ trader: self, hold: 3, closes: 8, ids: f.traders, now, panes: false })));
+    assert.equal(builds(ss), 1, 'one build for three servers');
+    assert.equal(ss.reduce((a, s) => a + s.similarTesting.fetches, 0), 2);
+    // Today's path: a server-local build (no shared row), the candidates by similarCandidates over feedList's pool.
+    const local: Instance = await import(`./similar.ts?server=${++serverN}`);
+    const { feedList } = await import('./feed.ts');
+    const { similarCandidates, SIMILAR_SPARES } = await import('./discovery/similar.ts');
+    const hour = Math.floor(now / 3_600_000) * 3_600_000;
+    const pool = (await feedList({ asOf: new Date(hour), day: new Date(hour).toISOString().slice(0, 10), ids: f.traders })).pool;
+    const shared = await ss[2].similarPool(now, f.traders);
+    assert.deepEqual(shared.pool, pool);
+    for (const [i, hold] of [0.5, 3, 14, 60, 300].entries()) {
+      const me = f.traders[i + 2], skip = new Set([f.traders[(i * 5 + 7) % 30]]);
+      assert.deepEqual(shared.pick(me, hold, skip), similarCandidates(pool, me, hold, skip).slice(0, SIMILAR_SPARES));
+      const opts = { trader: me, hold, closes: 8, ids: f.traders, now, panes: false };
+      assert.deepEqual(await ss[1].loadSimilar(opts), await local.loadSimilar(opts));
+    }
+    for (const o of outs) assert.deepEqual(o, outs[0]);
+    assert.equal((await row(f, key)).has_pool, true);
+  } finally {
+    await f.sql`delete from similar_pools where key = ${key}`;
+    await f.remove();
+  }
+});
+
+dbTest('sweep 2 (AC5, AC6): over simulated time the three servers rebuild at most once per SIMILAR_REFRESH_MS; a trader added after a build reaches every server within 2 intervals', async () => {
+  const f = await fixture(30);
+  const ss = await servers(3, { coldWaitMs: 20_000 });
+  const key = ss[0].similarScope(f.traders);
+  const late = f.traders[29];
+  try {
+    const t0 = Date.now() - (Date.now() % 3_600_000) + 60_000; // inside one hour throughout
+    await f.sql`delete from closed_trades where user_id = ${late}`; // not eligible at the first build
+    const ask = (dt: number) => { at(ss, dt); return Promise.all(ss.map((s) => s.similarPool(t0 + dt, f.traders))); };
+    await ask(0);
+    assert.equal(builds(ss), 1);
+    assert.ok(!(await ss[0].similarPool(t0, f.traders)).pool.some((t) => t.trader === late));
+    await f.sql`insert into closed_trades ${f.sql(Array.from({ length: 8 }, (_, i) => ({ user_id: late, sell_id: `late-${late}-${i}`, account_id: 'a', symbol: 'LT',
+      opened_at: new Date(Date.now() - 6 * DAY), closed_at: new Date(Date.now() - 3 * DAY - i * 60_000), return_pct: 0.02, holding_days: 3, verified: true })))}`;
+    for (const dt of [1_000, 5_000, 9_000]) { await ask(dt); await Promise.all(ss.map((s) => s.similarSettled())); }
+    assert.equal(builds(ss), 1, 'no rebuild inside one interval');
+    for (const dt of [11_000, 12_000, 15_000]) { await ask(dt); await Promise.all(ss.map((s) => s.similarSettled())); }
+    assert.equal(builds(ss), 2, 'one rebuild for the next interval, across all three servers');
+    for (const dt of [22_000, 25_000]) { await ask(dt); await Promise.all(ss.map((s) => s.similarSettled())); }
+    assert.ok(builds(ss) <= 3, `builds ${builds(ss)} over 25 s (a server-local cache: 9)`);
+    for (const s of ss) assert.ok((await s.similarPool(t0 + 25_000, f.traders)).pool.some((t) => t.trader === late), 'the added trader is in every server\'s pool');
+  } finally {
+    await f.sql`delete from similar_pools where key = ${key}`;
+    await f.remove();
+  }
+});
+
+dbTest('sweep 2 (AC7): a dead claim makes a cold server wait at most the cold wait, then build itself; the lease is taken over later; a stale builder\'s write is fenced off', async () => {
+  const f = await fixture(30);
+  const [a, b] = await servers(2, { coldWaitMs: 300 });
+  const key = a.similarScope(f.traders);
+  try {
+    const now = Date.now(), hour = new Date(Math.floor(now / 3_600_000) * 3_600_000);
+    await f.sql`insert into similar_pools (key, hour, claimed_at, claim) values (${key}, ${hour}, now(), 'dead')`;
+    const s = performance.now();
+    const k = await a.similarPool(now, f.traders);
+    assert.ok(performance.now() - s < 300 + 5_000, 'no wait for the 60 s lease');
+    assert.ok(k.pool.length > 0);
+    assert.equal(a.similarTesting.builds, 1);
+    assert.equal((await row(f, key)).claim, 'dead', 'the dead claim still holds inside its lease');
+    // After the lease: A claims and builds, and B takes the claim over while A is still building (A's lease looks
+    // expired to B). A's late write must not land.
+    at([a], 61_000); at([b], 61_000 + 61_000);
+    let bWrote = false;
+    a.similarTesting.beforeWrite = async () => { await b.similarPool(now + 1, f.traders); bWrote = true; };
+    a.similarPool(now + 11_000, f.traders);
+    await a.similarSettled();
+    assert.ok(bWrote);
+    const r = await row(f, key);
+    assert.equal(r.claim, null); assert.equal(r.has_pool, true);
+    const [{ ok }] = await f.sql`select built_at > now() + interval '100 seconds' as ok from similar_pools where key = ${key}`;
+    assert.equal(ok, true, 'the row holds B\'s build (claimed at +122 s), not A\'s (+61 s)');
+  } finally {
+    await f.sql`delete from similar_pools where key = ${key}`;
+    await f.remove();
+  }
+});
+
+dbTest('sweep 2 (AC8): a previous hour\'s row, or a stale one, is never served to a cold server, and a server a whole hour behind never moves the row\'s hour back', async () => {
+  const f = await fixture(30);
+  const [a, b, c] = await servers(3, { coldWaitMs: 5_000 });
+  const key = a.similarScope(f.traders);
+  try {
+    const now = Date.now(), prev = now - 3_600_000;
+    await a.similarPool(prev, f.traders);
+    assert.equal(a.similarTesting.builds, 1);
+    await b.similarPool(now, f.traders);
+    assert.equal(b.similarTesting.builds, 1, 'the cold server built the current hour');
+    const [r] = await f.sql`select ${f.sql`(extract(epoch from hour) * 1000)::float8`} as h from similar_pools where key = ${key}`;
+    assert.equal(r.h, Math.floor(now / 3_600_000) * 3_600_000);
+    at([c], 30_000);
+    await c.similarPool(prev, f.traders); // a server whose clock is an hour behind: serves the newer row, builds nothing
+    assert.equal(c.similarTesting.builds, 0);
+    const [r2] = await f.sql`select ${f.sql`(extract(epoch from hour) * 1000)::float8`} as h from similar_pools where key = ${key}`;
+    assert.equal(r2.h, r.h);
+    // A current-hour row older than SIMILAR_REFRESH_MS is not served cold either: the cold server rebuilds it.
+    const [d] = await servers(1, { coldWaitMs: 5_000 });
+    at([d], 30_000);
+    await d.similarPool(now, f.traders);
+    assert.equal(d.similarTesting.builds, 1);
+    assert.equal(d.similarTesting.fetches, 0);
+  } finally {
+    await f.sql`delete from similar_pools where key = ${key}`;
+    await f.remove();
+  }
+});
+
+dbTest('sweep 2: a trader deleted after the shared pool was built never appears from it (soft-deleted or removed)', async () => {
+  const f = await fixture(30);
+  const [a, b, c] = await servers(3, { coldWaitMs: 5_000 });
+  const key = a.similarScope(f.traders);
+  try {
+    const now = Date.now(), self = f.traders[1];
+    const first = (await a.loadSimilar({ trader: self, hold: 3, closes: 8, ids: f.traders, now, panes: false }))!.rows.map((r) => r.trader);
+    await f.sql`update users set deleted_at = now() where id = ${first[0]}`;
+    const fromB = (await b.loadSimilar({ trader: self, hold: 3, closes: 8, ids: f.traders, now, panes: false }))!.rows.map((r) => r.trader);
+    assert.equal(b.similarTesting.builds, 0, 'served from the stale shared pool');
+    assert.ok(!fromB.includes(first[0]));
+    await f.sql`delete from users where id = ${first[1]}`;
+    const fromC = (await c.loadSimilar({ trader: self, hold: 3, closes: 8, ids: f.traders, now, panes: false }))!.rows.map((r) => r.trader);
+    assert.equal(c.similarTesting.builds, 0);
+    assert.ok(!fromC.includes(first[0]) && !fromC.includes(first[1]));
+  } finally {
+    await f.sql`delete from similar_pools where key = ${key}`;
+    await f.remove();
+  }
+});
