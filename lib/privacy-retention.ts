@@ -34,6 +34,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   trade_exclusions: { personal: true, retention: 'account', holds: 'private rejected trades (preference data, kept indefinitely); one whose trade is gone for 30 days is purged' },
   privacy_orphans: { personal: true, retention: 'short', holds: 'when a like or reject first had no trade; removed when the trade returns or the row is purged' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
+  // fix-user-text B (F-9): who reported which note; both user links cascade, so a deleted profile leaves no reporter id.
+  thesis_reports: { personal: true, retention: 'account', holds: 'which signed-in reader reported which trader\'s note (by sell id) and when' },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.

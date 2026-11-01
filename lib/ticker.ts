@@ -204,7 +204,8 @@ export function relatedSymbols(rows: { symbol: string; userId: number; verified:
 
 export const THESIS_CAP = 20;
 export type ThesisRow = { id: number; handle: string; thesis: string | null; thesisStatus: string | null;
-  returnPct: number; holdingDays: number; closedAt: Date; verified: boolean };
+  returnPct: number; holdingDays: number; closedAt: Date; verified: boolean;
+  writtenAt?: Date | null; editedAt?: Date | null }; // F-9: the note's recorded dates (UserNote), when there are any
 export type ThesisItem = Omit<ThesisRow, 'thesisStatus' | 'thesis'> & { thesis: string };
 export type ThesisList = { items: ThesisItem[]; n: number; demoOnly: boolean; mixed: boolean };
 

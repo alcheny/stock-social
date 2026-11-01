@@ -34,12 +34,14 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   const out = page.cards.map((t) => {
     // The card's own fields only (the close's vendor id stays on the server).
     const row: TradeRow = { id: String(t.id), symbol: t.symbol, return_pct: t.return_pct, holding_days: t.holding_days, closed_at: t.closed_at, verified: t.verified,
-      thesis: t.thesis, thesis_status: t.thesis_status, handle: t.handle, display_name: t.display_name, user_id: t.user_id };
+      thesis: t.thesis, thesis_status: t.thesis_status, handle: t.handle, display_name: t.display_name, user_id: t.user_id,
+      thesis_written_at: t.thesis_written_at ?? null, thesis_edited_at: t.thesis_edited_at ?? null };
     return {
       id: String(t.id),
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)}
+            report={!!page.viewer && page.viewer.id !== t.user_id} /* F-9: UserNote Report */
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
           {paneOf(t)}
         </div>

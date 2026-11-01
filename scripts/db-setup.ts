@@ -15,6 +15,15 @@ if (!process.env.DATABASE_URL) {
 await sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple();
 console.log('db-setup: schema applied');
 
+// fix-user-text (F-9, D-08): re-check stored user text against the current rules after every schema apply. Theses:
+// published → held only, owner-released ones skipped (lib/thesis-review.ts). Display names: lib/handles.ts (Engineer
+// A). Counts only, never the text or an id.
+const { remoderateAll } = await import('../lib/thesis-review.ts');
+console.log(`db-setup: theses re-checked ${JSON.stringify(await remoderateAll())}`);
+// MERGE: lib/handles.ts#recheckDisplayNames lands with Engineer A; until then the import is tolerated as missing.
+const handles: { recheckDisplayNames?: () => Promise<unknown> } | null = await import('../lib/handles.ts' as string).catch(() => null);
+if (handles?.recheckDisplayNames) console.log(`db-setup: display names re-checked ${JSON.stringify(await handles.recheckDisplayNames())}`);
+
 if (process.env.VERCEL_ENV === 'preview' || process.env.SEED === '1') {
   await import('./seed.ts'); // closes the pool when done
 } else {

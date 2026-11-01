@@ -5,6 +5,7 @@ import { cardTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
+import { UserNote } from './user-note.tsx';
 
 export function Badge({ verified }: { verified: boolean }) {
   return verified
@@ -20,6 +21,7 @@ export function RowBadge({ kind }: { kind: 'verified' | 'demo' | null }) {
 export type TradeRow = {
   id: string; symbol: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean;
   thesis: string | null; thesis_status: string | null; handle: string; display_name: string; user_id: number;
+  thesis_written_at?: Date | null; thesis_edited_at?: Date | null;
 };
 
 const days = (d: number) => (d < 1 ? `${Math.max(1, Math.round(d * 24))}h` : `${d.toFixed(d < 10 ? 1 : 0)}d`);
@@ -35,7 +37,8 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date }) {
+// F-9: `report`, a signed-in reader who is not the trader: the note gets the Report control.
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, report }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; report?: boolean }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const up = t.return_pct > 0;
@@ -55,7 +58,10 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
         <div className="muted">held {days(t.holding_days)} · closed {CLOSED_DAY.format(t.closed_at)}</div>
       </div>
-      <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
+      {/* F-9: UserNote */}
+      {t.thesis_status === 'published' && t.thesis
+        ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={report ? t.id : undefined} symbol={t.symbol} />
+        : <p className="thesis"><span className="muted">No thesis posted.</span></p>}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>

@@ -36,7 +36,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const both = open && combined(trades.map((t) => t.returnPct), unrealized);
   const trust = paneTrust(trades, state);
   const chartBlock = <>
-    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} />
+    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} noteBy={handle} />{/* F-9: UserNote in the chart sheet */}
     {open && <ChartNote o={open} />}
   </>;
   const summary = p.since && p.worst && (

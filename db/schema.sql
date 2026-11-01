@@ -433,3 +433,28 @@ begin
 end $t$;
 -- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
 select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
+
+-- fix-user-text B: F-9 thesis safety (docs/features/F-9-thesis-safety.md). Additive and idempotent.
+-- When a thesis was first written and last edited (no defaults: a thesis written before these columns shows no date,
+-- never an invented one), the label of the rule that held it ('reports' for a report hold) and when the owner released
+-- it (scripts/review-theses.ts; an edit clears it, so moderation runs again). Carried with the thesis by sell_id through
+-- rebuildTrades and kept_theses (lib/sync.ts).
+select schema_add_column('closed_trades', 'thesis_written_at', 'timestamptz');
+select schema_add_column('closed_trades', 'thesis_edited_at', 'timestamptz');
+select schema_add_column('closed_trades', 'thesis_hold_rule', 'text check (char_length(thesis_hold_rule) <= 60)');
+select schema_add_column('closed_trades', 'thesis_reviewed_at', 'timestamptz');
+select schema_add_column('kept_theses', 'thesis_written_at', 'timestamptz');
+select schema_add_column('kept_theses', 'thesis_edited_at', 'timestamptz');
+select schema_add_column('kept_theses', 'thesis_hold_rule', 'text check (char_length(thesis_hold_rule) <= 60)');
+select schema_add_column('kept_theses', 'thesis_reviewed_at', 'timestamptz');
+-- One report per signed-in reader per thesis, keyed by the trader and the closing sell's id (no foreign key to
+-- closed_trades on purpose: rebuildTrades deletes and rewrites those rows, and a report must survive it). Both user
+-- links cascade, so deleting a profile removes the reports it made and the reports on its notes (lib/reports.ts).
+create table if not exists thesis_reports (
+  reporter_id int not null references users on delete cascade,
+  trader_id int not null references users on delete cascade,
+  sell_id text not null,
+  created_at timestamptz not null default now(),
+  unique (reporter_id, trader_id, sell_id)
+);
+select schema_add_index('thesis_reports_note', 'create index thesis_reports_note on thesis_reports (trader_id, sell_id, created_at)');

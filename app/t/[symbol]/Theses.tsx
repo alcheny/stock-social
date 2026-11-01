@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { THESIS_CAP, type ThesisList } from '@/lib/ticker.ts';
 import { pct } from '@/lib/trades.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
+import { UserNote } from '@/lib/user-note.ts';
 
 const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
@@ -24,7 +25,8 @@ export default function Theses({ list, symbol, badgeFor = (v) => (v ? 'verified'
               <Link href={`/u/${r.handle}#trade-${r.id}`} className="trow">
                 <span className="who">@{r.handle} <RowBadge kind={badgeFor(r.verified, r.handle)} /></span>
                 <b className={r.returnPct > 0 ? 'up' : 'down'}>{pct(r.returnPct)}</b>
-                <span style={{ flexBasis: '100%', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{r.thesis}</span>
+                {/* F-9: UserNote (no Report here: the row is one link) */}
+                <UserNote text={r.thesis} handle={r.handle} writtenAt={r.writtenAt} editedAt={r.editedAt} />
                 <span className="muted">held {held(r.holdingDays)} · {date(r.closedAt)}</span>
               </Link>
             </li>

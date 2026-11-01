@@ -454,3 +454,16 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
+
+/* fix-user-text: UserNote (F-9). A trader's note is set at body size or smaller, never larger than the verified figure
+   beside it; the attribution line is muted and smaller. Long unbroken text wraps instead of widening the page. The
+   Report control is a text button with a 44 px target; its live region sits beside it. */
+.user-note { margin: 4px 0 0; min-width: 0; flex-basis: 100%; }
+.user-note-text { margin: 0; padding: 0; font-size: 1rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.trade-card .user-note-text { margin: 12px 0 0; padding-left: 10px; border-left: 2px solid var(--line); }
+.user-note-by { display: block; margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.user-note .report-note { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; margin: 0; }
+.user-note .link-button { background: none; color: var(--muted); font-weight: 400; font-size: 13px; padding: 0 4px; min-height: 44px; min-width: 44px; text-decoration: underline; border-radius: 6px; }
+.user-note .link-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.user-note .report-status { font-size: 13px; color: var(--muted); }
+.thesis-held { margin: 4px 0 0; font-size: 13px; }

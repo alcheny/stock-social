@@ -36,6 +36,13 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
   }
 }
 
+// fix-user-text B (F-9): the thesis columns besides its text and status, copied as they are (never re-dated).
+// A closed trade now binds 15 parameters, so INSERT_CHUNK rows stay far under the 65,534 limit.
+const thesisMeta = (k: KeptThesis | undefined) => ({
+  thesis_written_at: k?.thesis_written_at ?? null, thesis_edited_at: k?.thesis_edited_at ?? null,
+  thesis_hold_rule: k?.thesis_hold_rule ?? null, thesis_reviewed_at: k?.thesis_reviewed_at ?? null,
+});
+
 // Recompute a user's closed trades from raw activities. Theses survive via sell_id. Runs in the caller's transaction
 // when given one (an import step, a sync), else in its own.
 // Reviewer fix (plan §4/§9): an account the vendor flags as simulated, even on a later sync after a real import, never
@@ -55,8 +62,9 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // simulated, a vendor correction) is kept in kept_theses by sell_id, shown nowhere, and re-attached when the trade
     // returns. Kept rows come first, so a thesis on a current closed_trades row always wins its sell_id; saveThesis
     // removes the kept row when the trader edits or clears that thesis, so a cleared thesis never comes back.
-    const aside = await tx`select sell_id, thesis, thesis_status from kept_theses where user_id = ${userId}`;
-    const live = await tx`select sell_id, thesis, thesis_status from closed_trades where user_id = ${userId} and thesis is not null`;
+    // fix-user-text B (F-9): the written and edited dates, the hold rule and the release time travel with the thesis.
+    const aside = await tx`select sell_id, thesis, thesis_status, thesis_written_at, thesis_edited_at, thesis_hold_rule, thesis_reviewed_at from kept_theses where user_id = ${userId}`;
+    const live = await tx`select sell_id, thesis, thesis_status, thesis_written_at, thesis_edited_at, thesis_hold_rule, thesis_reviewed_at from closed_trades where user_id = ${userId} and thesis is not null`;
     const kept = [...aside, ...live] as unknown as KeptThesis[];
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
@@ -73,7 +81,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           return {
             user_id: userId, sell_id: t.sellId, account_id: t.accountId, symbol: t.symbol, opened_at: t.openedAt,
             closed_at: t.closedAt, return_pct: t.returnPct, holding_days: t.holdingDays, verified: t.verified,
-            thesis: k?.thesis ?? null, thesis_status: k?.thesis_status ?? null,
+            thesis: k?.thesis ?? null, thesis_status: k?.thesis_status ?? null, ...thesisMeta(k),
           };
         }))}`;
       }
@@ -106,8 +114,10 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     await flush(open);
     const setAside = live.filter((k) => !attachedIds.has(k.sell_id as string));
     if (setAside.length) {
-      await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status })))}
-        on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status`;
+      await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status, ...thesisMeta(k as unknown as KeptThesis) })))}
+        on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status,
+          thesis_written_at = excluded.thesis_written_at, thesis_edited_at = excluded.thesis_edited_at,
+          thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at`;
     }
     const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)})
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)`;

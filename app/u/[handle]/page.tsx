@@ -14,6 +14,7 @@ import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge } from '../../ui.tsx';
+import { UserNote } from '../../user-note.tsx';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
 import { ShareCard } from './share-card.tsx';
@@ -46,7 +47,8 @@ async function load(handle: string) {
   const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
   if (!user) return null;
   const trades = await sql`
-    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
+    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status,
+      thesis_written_at, thesis_edited_at, thesis_hold_rule
     from closed_trades where user_id = ${user.id} order by closed_at desc, id desc`; // list order (lib/paging.ts)
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
@@ -254,7 +256,7 @@ export default async function Profile({ params, searchParams }: Params) {
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
-      <PerformanceChart points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
+      <PerformanceChart points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} noteBy={user.handle} />
       {open && <ChartNote o={open} />}
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
@@ -293,8 +295,9 @@ export default async function Profile({ params, searchParams }: Params) {
                 <b className={t.return_pct > 0 ? 'up' : 'down'}>{pct(t.return_pct)}</b>
               </Link>
             </div>
-            {t.thesis_status === 'published' && <p style={{ margin: '4px 0 0' }}>“{t.thesis}”</p>}
-            {isMe && t.thesis_status === 'held' && <p className="muted" style={{ margin: '4px 0 0' }}>Thesis held for review.</p>}
+            {/* F-9: UserNote (Report only for a signed-in reader who is not the author); the author sees the hold and its rule as text, muted. */}
+            {t.thesis_status === 'published' && <UserNote text={t.thesis} handle={user.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={me && !isMe ? String(t.id) : undefined} symbol={t.symbol} />}
+            {isMe && t.thesis_status === 'held' && <p className="muted thesis-held">Thesis held for review.{t.thesis_hold_rule ? ` Matched rule: ${t.thesis_hold_rule}.` : ''}</p>}
             {isMe && (
               <form action={saveThesis} className="inline">
                 <input type="hidden" name="tradeId" value={t.id} />

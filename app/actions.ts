@@ -14,6 +14,8 @@ import { checkReflection } from '@/lib/reflections.ts';
 import { checkRule } from '@/lib/rules.ts';
 import { signUpOpen } from '@/lib/launch-gate.ts';
 import { LAUNCH } from '@/lib/copy.ts';
+import { REPORT_COPY, reportMessage, reportThesis, type ReportState } from '@/lib/reports.ts';
+import { logSafe } from '@/lib/privacy-log.ts';
 
 // DEV-ONLY sign-in (/login/dev): no password, guarded like the old stub. It still goes through a signup_attempts row
 // (method 'dev') so the attestation precedes the users row on this path too.
@@ -144,4 +146,17 @@ export async function setRule(form: FormData) {
       on conflict (user_id, kind) do update set days = excluded.days, updated_at = now()`;
   }
   revalidatePath('/me/record');
+}
+
+// fix-user-text B (F-9): report a published thesis (app/report-note.tsx). The session user only, never an id from the
+// client; signed out the action refuses (the control is not rendered then either). The answer goes to a polite live
+// region and never says whether the note was held. Logged on failure as the error's class only (logSafe).
+export async function reportNote(_prev: ReportState, form: FormData): Promise<ReportState> {
+  try {
+    const user = await currentUser();
+    return { message: reportMessage(await reportThesis(user?.id ?? null, form.get('tradeId'))) };
+  } catch (e) {
+    console.error('report note failed', logSafe(e));
+    return { message: REPORT_COPY.failed };
+  }
 }
