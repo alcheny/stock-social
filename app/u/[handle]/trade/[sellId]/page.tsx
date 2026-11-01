@@ -115,8 +115,8 @@ export default async function TradePage({ params, searchParams }: Params & Searc
           F3 line (the header's "Public filing" badge names the source above them), so the F3 line is on the first screen
           at 360 and 320 with 15% to spare. */}
       {t.filings && <><PublicNotice />{/* F-7 (legal C15, AC 16): the not-joined line, then the purchase's and the sale's filings. */}
-        <p className="filing-links">{t.filings.bought.map((u) => <a key={u} className="filing-link" href={u} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.boughtName(t.symbol)}>{PUBLIC.bought}</a>)}
-          <a className="filing-link" href={t.filings.sold} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.soldName(t.symbol)}>{PUBLIC.sold}</a></p></>}
+        <p className="filing-links">{t.filings.bought.map((u, i, all) => <a key={u} className="filing-link" href={u} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.boughtNameOf(t.symbol, i + 1, all.length)}>{PUBLIC.bought}</a>)}
+          <a className="filing-link" href={t.filings.sold} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.soldNameOn(t.symbol, closed)}>{PUBLIC.sold}</a></p></>}
       {/* QA round 1 (finding 4, D-09): the thesis after the figures and their F3 line, so a 280-character thesis never
           pushes the line below the first screen; it is still the trader's own words about this trade, in full. */}
       {/* F-26: the section also holds the author's held line (author only: `own` is null for every viewer, so a viewer's page

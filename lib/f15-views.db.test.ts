@@ -1,6 +1,8 @@
 // F-15 · the view rollup against the database: deleted with the profile, never follows a handle, no identifier column,
 // only registry values stored, the four users share columns kept, and 50 concurrent beacons add up on one row.
-// Shared database: every test creates its own users and reads only rows naming them.
+// Shared database: every test creates its own users and reads only rows naming them. Cycle 4 F4-20 (C4-23): every row
+// these tests create (users, their sign-up attempts and handle reservations, the 2001-dated drop rows and the feed-key
+// rollup row) is tracked and deleted before the pool ends; nothing this file did not create is deleted.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -8,13 +10,34 @@ import { readFileSync } from 'node:fs';
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
 before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
-after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
+// What this file created, deleted in `after` before sql.end.
+const created = { users: [] as number[], attempts: [] as number[], drops: new Set<string>(), feedKeys: new Set<string>() };
+after(async () => {
+  if (!hasDb) return;
+  const { sql } = await import('./db.ts');
+  try {
+    // Reservations first: deleting a user only nulls its reservations' user_id.
+    await sql`delete from handle_reservations where user_id = any(${created.users}::bigint[])`;
+    await sql`delete from users where id = any(${created.users}::int[])`; // rollup rows and closed trades cascade
+    await sql`delete from signup_attempts where id = any(${created.attempts}::bigint[])`;
+    for (const k of created.drops) { const [ms, surface, reason] = k.split('|'); await sql`delete from view_drops where day = ${new Date(Number(ms))}::date and surface = ${surface} and reason = ${reason}`; }
+    for (const k of created.feedKeys) { const [ms, surface, via] = k.split('|'); await sql`delete from view_rollup where day = ${new Date(Number(ms))}::date and surface = ${surface} and via = ${via} and user_id is null`; }
+    const left = await sql`select (select count(*)::int from users where id = any(${created.users}::int[])) u,
+      (select count(*)::int from signup_attempts where id = any(${created.attempts}::bigint[])) a,
+      (select count(*)::int from view_rollup where user_id = any(${created.users}::int[])) r`;
+    assert.deepEqual({ ...left[0] }, { u: 0, a: 0, r: 0 }, 'every row this file created is gone');
+  } finally {
+    await sql.end({ timeout: 1 });
+  }
+});
 
 const tag = () => `f15${Math.random().toString(36).slice(2, 10)}`;
 async function user(handle = tag()): Promise<{ id: number; handle: string }> {
   const { sql } = await import('./db.ts');
   const [a] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+  created.attempts.push(Number(a.id));
   const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${handle}, ${handle}, now(), ${a.id}) returning id, handle`;
+  created.users.push(u.id);
   return u as { id: number; handle: string };
 }
 // A day far in the past that no other test writes, so counts read here are this test's own.
@@ -81,7 +104,11 @@ dbTest('F-15: only registry values are stored: 200 random beacons through the ro
     // Only this test's trader and a past day are written, so the shared table is read for this test's rows only.
     await handleBeacon(req, { viewer, viewedUserId, limited: () => 'ok',
       recordView: (k) => (k.userId === u.id ? recordView({ ...k, day }) : Promise.resolve()),
-      recordDrop: (s, r) => (s === 'profile' || s === 'month' ? recordDrop(s, r, day) : Promise.resolve()) });
+      recordDrop: (s, r) => {
+        if (s !== 'profile' && s !== 'month') return Promise.resolve();
+        created.drops.add(`${day.getTime()}|${s}|${r}`); // the same Date the write casts, so the same day
+        return recordDrop(s, r, day);
+      } });
   }
   const stored = await sql`select distinct surface, ref_class, via from view_rollup where user_id = ${u.id}`;
   assert.ok(stored.length > 0);
@@ -139,6 +166,7 @@ dbTest('F-15: a null trader key (feed) is one row too (nulls not distinct)', asy
   const { recordView } = await import('./views.ts');
   // A unique via-less key on a day only this test writes.
   const day = DAY(5);
+  created.feedKeys.add(`${day.getTime()}|how|inv_h`);
   await Promise.all(Array.from({ length: 10 }, () => recordView({ surface: 'how', userId: null, ref: 'none', via: 'inv_h', signedIn: true, selfView: false, day })));
   const rows = await sql`select n from view_rollup where day = ${day}::date and surface = 'how' and via = 'inv_h' and signed_in`;
   assert.equal(rows.length, 1);

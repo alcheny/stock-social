@@ -64,7 +64,13 @@ test('every pixel column keeps its low and high: no column of the full path reac
 // The heavy-use fixture (lib/sync.load.test.ts): 4 accounts × 2,500 seeded activities, about 4,700 closes.
 function heavyRecord() {
   const acts: Activity[] = [];
+  // Fixes cycle 4 (C4-2): the fixture's 1% oversells (sells with no recorded entry) now count most later sells of their
+  // stock, so they are left out here: this record only needs to be heavy (over 4,000 closes).
+  const held = new Map<string, number>();
   for (let a = 0; a < 4; a++) for (const r of seededActivities(`acc${a}`, 2_500, 1000 + a)) {
+    const k = `${a}|${r.symbol}`, h = held.get(k) ?? 0;
+    if (r.type === 'SELL' && r.units > h) continue;
+    held.set(k, r.type === 'SELL' ? h - r.units : h + r.units);
     acts.push({ externalId: r.id, accountId: `acc${a}`, symbol: r.symbol, side: r.type, units: r.units, price: r.price, fee: r.fee ?? 0, executedAt: new Date(r.trade_date), verified: true });
   }
   const { trades } = matchTrades(acts);

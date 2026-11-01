@@ -32,6 +32,7 @@ type Lot = { units: number; price: number; feePerUnit: number; at: Date; verifie
 
 const EPS = 1e-9;
 const DAY = 86_400_000;
+const BEFORE_HISTORY = new Date(-8.64e15); // the earliest Date: shares the history never shows (fixes cycle 4)
 // Unit comparisons are relative to the size involved, so positions grown by splits compare like small ones.
 const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale));
 
@@ -43,7 +44,16 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // - `excluded` (no recorded entry): a sell needing more units than the ledger holds, excluded whole (its matched part
 //   is not shown either): the history is missing an inflow (a buy before the imported history, a transfer in, an
 //   unrecorded split), so its basis is unknown (POLICY F3c). Sells shown earlier were priced from recorded lots and stay
-//   (TR-1, orchestrator decision 2026-11-01). The oversell empties the ledger; later buys start fresh lots.
+//   (TR-1, orchestrator decision 2026-11-01). The oversell empties the ledger.
+// - The gap (fixes cycle 4, C4-2; committee docs/features/logs/fixes-cycle4/committee-2026-11-01.md): the units an
+//   oversell lacked are earlier history (later buys are ordinary lots), a short sale (the first units bought later cover
+//   it), or a mix, and the readings then draw different buys for every later sell, for good. So after an oversell
+//   (an activity sell, an F3-1 unusable sell with units, or an unpriceable removal beyond the ledger) every later sell of
+//   the pair is counted in `excluded`, whatever its outcome (no sale size or timing the trader picks can bring one back:
+//   the red-team rule of F-30). A rename moves the mark to the new symbol (F-28). Never cleared from the rows alone.
+//   ponytail: the mark never clears, so one transfer in or pre-history sale counts every later sell of that stock in that
+//   account — fix: clear it when a vendor position read with units shows which reading is true (lib/broker.ts is
+//   protected, and storing units is a privacy call: owner item).
 // - `excludedCorporate`: a sell drawing a unit an unpriceable corporate action touched (an oversell included), one
 //   dated within LATE_POSTING_DAYS before a repricing action on its pair, or one on the same day as such an action
 //   (the vendor may date the row on another day of the event than the trade's prices assume: lib/corporate-actions.ts).
@@ -52,16 +62,27 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   units and a date opens a lot with no basis (a sell drawing it is counted). With no usable units or date, the pair's
 //   ledger is unknown from that row on (from the start when undated): its lots and every later lot of the pair are
 //   tainted, and a sell is counted. They are not repricing actions (no late-posting window, no same-day rule).
-// - Same instant (F3-5): symbol changes, then other corporate actions, then buys, then sells. In a long-only ledger a
-//   sell is filled from shares held, so a same-instant buy before it is the only order that can be true when the sell
-//   needs it; when older lots cover the sell, FIFO draws them first and the order changes nothing. A sell is never
-//   matched to a buy dated after it.
+// - Same instant (F3-5): symbol changes, then other corporate actions, then buys, then sells, then the vendor id. In a
+//   long-only ledger a sell is filled from shares held, so a same-instant buy before it is the only order that can be
+//   true when the sell needs it; when older lots cover the sell, FIFO draws them first and the order changes nothing. A
+//   sell is never matched to a buy dated after it. Fixes cycle 4 (C4-1): on a pair with evidence that a sell may not be a
+//   long close (an earlier oversell, or an unknown ledger), every sell is counted, so no same-instant short is shown
+//   there; without evidence the buy-first order stands (F-30's red-team rule; see the ponytail in `replay`).
+// - Shares an action names that the ledger lacks (C4-1, engineer): a rename's units arrive in the new symbol, a split's
+//   vendor count in the pair, as a lot with no basis at the front of FIFO (a sell drawing it is counted).
 // Corporate actions (lib/corporate-actions.ts) adjust the lots: a split or stock dividend multiplies units by p/q and
 // divides price and fee per unit by it (total cost and fees conserved, holding period from the original buy); a symbol
 // change moves the lots, FIFO order kept by date; an unpriceable action taints them. At the same instant, actions apply
 // before trades (trade dates are often day-only and an action is dated on its effective day).
-export function matchTrades(activities: Activity[], actions: CorporateAction[] = []): MatchResult {
-  return replay(activities, actions).result;
+// Bumped when a change to the matcher can change a published figure: a deploy then rebuilds every record once
+// (lib/matcher-rebuild.ts). 2: fixes cycle 4 (C4-1 ties, C4-2 the gap).
+export const MATCHER_VERSION = 2;
+
+// `orderKnown` (independent review, finding 1): the input order is the true order at a tie (public filings pass rows in
+// filing order, lib/public-trades.ts), so ties fall back to it instead of the vendor id.
+export type MatchOptions = { orderKnown?: boolean };
+export function matchTrades(activities: Activity[], actions: CorporateAction[] = [], opts: MatchOptions = {}): MatchResult {
+  return replay(activities, actions, opts).result;
 }
 
 // The lots still open after the history (test and property-check helper; the matcher's own state).
@@ -74,18 +95,28 @@ export function openLots(activities: Activity[], actions: CorporateAction[] = []
   return out;
 }
 
-type Book = { lots: Lot[] };
+type Book = { lots: Lot[]; gap?: number };
 type Event = { at: number; order: number; src: number; i: number; act?: Activity; ca?: CorporateAction };
 type TradeRow = Extract<CorporateAction, { reason: 'trade' }>;
 const isTradeRow = (ca: CorporateAction): ca is TradeRow => ca.kind === 'unpriceable' && ca.reason === 'trade';
 
-function replay(activities: Activity[], actions: CorporateAction[]): { result: MatchResult; books: Map<string, Book> } {
-  // Same-instant order (F3-5): renames, other actions, buys, sells; then actions before activities, then input order.
+function replay(activities: Activity[], actions: CorporateAction[], opts: MatchOptions = {}): { result: MatchResult; books: Map<string, Book> } {
+  // Same-instant order (F3-5): renames, other actions, buys, sells; then actions before activities; then the vendor id, a
+  // canonical order (as the rebuild's own sort), so the result never depends on the input order (fixes cycle 4, engineer
+  // round 1: two rows on one side at one instant were matched in input order); then input order.
+  // ponytail: a date-only same-day short with no evidence on its pair (no earlier oversell, no unknown ledger) is still
+  // read buy first and shown as a long (C4-1's residual, accepted by F-30: counting every same-day round trip would let a
+  // trader close losers the same day and keep winners overnight) — fix: F-30 (blocked on owner Q1(a)) and the vendor's
+  // per-brokerage date-only answer (MRC2-10).
+  // ponytail: rows on one side at one instant (two buys at different prices, for one) are matched in vendor-id order, which
+  // is deterministic and not the trader's choice but may not be the true fill order (off by at most the instant's price
+  // spread) — fix: pool the cost of tied buys and split tied sells pro rata (engineer, committee round 4).
   const sideOrder = (side: 'BUY' | 'SELL') => (side === 'BUY' ? 2 : 3);
+  const idOf = (e: Event) => (opts.orderKnown ? '' : e.act?.externalId ?? e.ca?.externalId ?? '');
   const events: Event[] = [
     ...actions.map((ca, i) => ({ at: ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : isTradeRow(ca) ? sideOrder(ca.side) : 1, src: 0, i, ca })),
     ...activities.map((act, i) => ({ at: act.executedAt.getTime(), order: sideOrder(act.side), src: 1, i, act })),
-  ].sort((a, b) => a.at - b.at || a.order - b.order || a.src - b.src || a.i - b.i);
+  ].sort((a, b) => a.at - b.at || a.order - b.order || a.src - b.src || (idOf(a) < idOf(b) ? -1 : idOf(a) > idOf(b) ? 1 : 0) || a.i - b.i);
   const books = new Map<string, Book>();
   const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
@@ -153,7 +184,9 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
       lots[0].units -= take; left -= take;
       if (tiny(lots[0].units, take)) lots.shift();
     }
+    return tiny(left, units) ? 0 : left;
   };
+  const addGap = (b: Book, units: number) => { if (units > 0) b.gap = (b.gap ?? 0) + units; };
   const scale = (lots: Lot[], r: Ratio) => { for (const l of lots) { l.units = (l.units * r.p) / r.q; l.price = (l.price * r.q) / r.p; l.feePerUnit = (l.feePerUnit * r.q) / r.p; } };
 
   for (const e of events) {
@@ -166,7 +199,7 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         // F3-1: an unusable vendor trade row (see the header). Counted when it is a sell, never priced.
         if (ca.side === 'SELL') excludedCorporate++;
         if (ca.units !== undefined && !ca.undated) {
-          if (ca.side === 'SELL') removeOldest(b.lots, ca.units);
+          if (ca.side === 'SELL') addGap(b, removeOldest(b.lots, ca.units)); // C4-2: an unusable oversell leaves a gap too
           else b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
         } else {
           taint(b.lots);
@@ -177,7 +210,14 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
       if (!b.lots.length && moved?.at === e.at && ca.kind !== 'symbol-change') { taint(book(moved.to).lots); }
       if (ca.kind === 'split' || ca.kind === 'stock-dividend') {
         if (exchangedInto.get(key) === e.at) { taint(b.lots); continue; }
-        if (!b.lots.length) continue; // nothing recorded to adjust; a later oversell is caught as missing history
+        if (!b.lots.length) {
+          // C4-1 (engineer, round 1; final and independent reviews): the vendor sends a split or stock dividend only for
+          // shares held, so on an empty ledger it says shares exist that the ledger lacks (earlier history), whatever its
+          // count (a total, a change, a reverse split's negative change) or a ratio alone. A no-basis lot of some size could
+          // hide a later oversell, so the pair gets the gap instead: every later sell is counted.
+          if (moved?.at !== e.at) addGap(b, Math.abs(ca.units ?? 0) || 1);
+          continue;
+        }
         const r = resolveRatio(held(b.lots), ca);
         if (!r) { taint(b.lots); continue; }
         scale(b.lots, r.ratio);
@@ -191,10 +231,16 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
           unknownFrom.add(unknownTo);
           taint(book(unknownTo).lots);
         }
-        if (!b.lots.length) continue;
+        // C4-2 (F-28: the pending count travels with a rename): a short renames with the shares, so the gap moves too.
+        if (b.gap && ca.newSymbol !== ca.symbol) { addGap(book(`${ca.accountId}|${ca.newSymbol}`), b.gap); b.gap = 0; }
+        // C4-1 (engineer, round 1): shares the rename says moved but the ledger doesn't hold arrive in the new symbol with
+        // no basis, so FIFO draws them (counted) before any later buy there. They predate the history, so they are dated
+        // before all of it and stay first when a later rename merges lots by date (independent review, finding 4).
+        const shadow = () => { if (ca.newSymbol !== ca.symbol && ca.inUnits > 0) book(`${ca.accountId}|${ca.newSymbol}`).lots.unshift({ units: ca.inUnits, price: 0, feePerUnit: 0, at: BEFORE_HISTORY, verified: false, tainted: true }); };
+        if (!b.lots.length) { shadow(); continue; }
         const h = held(b.lots);
         const r = ca.newSymbol !== ca.symbol && Math.abs(h - ca.outUnits) <= RATIO_TOLERANCE * Math.max(1, h) ? renameRatio(ca.outUnits, ca.inUnits) : null;
-        if (!r) { taint(b.lots); continue; }
+        if (!r) { taint(b.lots); shadow(); continue; }
         scale(b.lots, r);
         const toKey = `${ca.accountId}|${ca.newSymbol}`;
         if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
@@ -209,8 +255,11 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
           for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) taint(other.lots);
         } else taint(b.lots);
         const u = ca.units ?? 0;
-        if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
-        else if (u < 0) removeOldest(b.lots, -u);
+        // Independent review (finding 3): an unpriceable action on a pair the ledger holds none of (not shares it hands
+        // over: a spin-off's received shares) says earlier shares exist: the gap.
+        if (u <= 0 && ca.scope !== 'account' && !b.lots.length && moved?.at !== e.at) addGap(b, Math.abs(u) || 1);
+        else if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
+        else if (u < 0) addGap(b, removeOldest(b.lots, -u));
       }
       continue;
     }
@@ -225,6 +274,10 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
       continue;
     }
 
+    // C4-2: after an oversell the pair's later sells are counted (see the header), whatever their outcome.
+    // Independent review (finding 5): any gap counts, at whatever scale this sell is (addGap already ignores a residual
+    // that is tiny at the oversell's own scale), so a large later sell can't slip past a small gap.
+    const gapped = (b.gap ?? 0) > 0;
     let remaining = a.units;
     let cost = 0;
     let entryFees = 0;
@@ -245,12 +298,14 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     }
 
     if (!tiny(remaining, a.units)) {
-      // Oversold: this sell only. Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
+      // Oversold: this sell, and every later sell of the pair through the gap (C4-2). Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
       // An oversell in a pair whose ledger an unusable trade row made unknown (F3-1) is that cause, not missing history.
       if (tainted || unknownFrom.has(key)) excludedCorporate++; else excluded++;
+      addGap(b, remaining); // C4-2: a short or earlier history
       continue;
     }
     if (tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;
+    else if (gapped) excluded++; // C4-2: a short or earlier history: no buy can be matched for certain
     else if (openedAt) {
       const exitFee = a.fee;
       const t: ClosedTrade = {
