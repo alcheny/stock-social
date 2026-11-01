@@ -794,3 +794,18 @@ create table if not exists similar_pools (
   claim text,
   pool text
 );
+
+-- Known-limits sweep 2 (purge): the orphan purge's scan position (lib/privacy-purge.ts). One row per cursor step; the
+-- position is a number in the sha256 trade_key hash space (its first 32 bits), never a key, viewer or trade.
+create table if not exists privacy_purge_cursors (
+  step text primary key check (step in ('clear', 'mark-like', 'mark-reject')),
+  pos bigint not null default 0 check (pos >= 0 and pos < 4294967296),
+  span bigint not null check (span >= 1 and span <= 4294967296),
+  laps bigint not null default 0,
+  updated_at timestamptz not null default now()
+);
+-- The clearing step walks privacy_orphans by trade_key hash range, like the marking steps walk trade_likes_key and
+-- trade_exclusions_key.
+select schema_add_index('privacy_orphans_key', 'create index privacy_orphans_key on privacy_orphans (trade_key)');
+-- The users cascade deletes privacy_orphans by viewer_id, which no index leads (1M rows: 124 ms a deleted user, 3.4 ms with it).
+select schema_add_index('privacy_orphans_viewer', 'create index privacy_orphans_viewer on privacy_orphans (viewer_id)');

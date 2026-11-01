@@ -181,3 +181,150 @@ dbTest('a time box of zero stops before any batch and says so', async () => {
   const r = await purgePrivacy({ boxMs: 0, only: ['orphans'] });
   assert.deepEqual([r.ran, r.done, r.likes], [true, false, 0]);
 });
+
+// Known-limits sweep 2 (purge): the clearing and marking steps walk the trade_key hash space a window at a time from a
+// persisted cursor (privacy_purge_cursors), so a call does bounded work and a lap still reaches every key.
+const SPACE = 2 ** 32;
+const posOf = (key: string) => parseInt(key.slice(0, 8), 16);
+async function setCursor(step: string, pos: number, span: number) {
+  const { sql } = await import('./db.ts');
+  await sql`insert into privacy_purge_cursors (step, pos, span) values (${step}, ${pos}, ${span})
+    on conflict (step) do update set pos = excluded.pos, span = excluded.span`;
+}
+const lapsOf = async (step: string) => {
+  const { sql } = await import('./db.ts');
+  return Number((await sql`select laps from privacy_purge_cursors where step = ${step}`)[0]?.laps ?? 0);
+};
+
+dbTest('an orphan behind the marking cursor is marked, and a returned trade behind the clearing cursor is unmarked, on the next lap', async () => {
+  const { sql } = await import('./db.ts');
+  const { tradeKey } = await import('./likes.ts');
+  const viewer = await person('ppc');
+  const trader = await person('ppd');
+  const sell = (s: string) => `pp-${trader}-${s}`;
+  const k = (s: string) => tradeKey(sell(s));
+  const now = Date.now();
+  try {
+    await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+      values (${trader}, ${sell('back')}, 'acct', 'PPX', ${new Date(now - 2 * DAY)}, ${new Date(now - DAY)}, 0.05, 1, true)`;
+    for (const s of ['gone', 'back']) await sql`insert into trade_likes (viewer_id, trade_key, trader_id) values (${viewer}, ${k(s)}, ${trader})`;
+    await sql`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at) values ('like', ${viewer}, ${k('back')}, ${new Date(now - DAY)})`;
+    // Each cursor just past its key: the key is behind it, reached only after the lap wraps.
+    await setCursor('mark-like', (posOf(k('gone')) + 1) % SPACE, 2 ** 24);
+    await setCursor('clear', (posOf(k('back')) + 1) % SPACE, 2 ** 24);
+    const [markLaps, clearLaps] = [await lapsOf('mark-like'), await lapsOf('clear')];
+    const r = await orphansPass();
+    assert.equal(r.done, true);
+    const marks = (await sql`select trade_key from privacy_orphans where viewer_id = ${viewer}`).map((x) => x.trade_key);
+    assert.deepEqual(marks, [k('gone')], 'the orphan behind the cursor marked; the returned trade unmarked');
+    assert.ok(await lapsOf('mark-like') > markLaps && await lapsOf('clear') > clearLaps, 'both cursors wrapped');
+    assert.equal((await sql`select count(*)::int as n from trade_likes where viewer_id = ${viewer}`)[0].n, 2, 'marking and clearing delete no like');
+  } finally {
+    await sql`delete from users where id in (${viewer}, ${trader})`;
+  }
+});
+
+dbTest('a window that hits the statement timeout shrinks and leaves the cursor in place; the next call walks on and marks every orphan', async () => {
+  const { sql } = await import('./db.ts');
+  const { purgePrivacy, nextSpan, ORPHAN_STEP_MS } = await import('./privacy-purge.ts');
+  // The span rule: cut 16-fold by a timeout, halved by a slow batch (never below 1), doubled by a fast one (never past
+  // the space).
+  assert.equal(nextSpan(SPACE, 0, true), SPACE / 16);
+  assert.equal(nextSpan(1, 0, true), 1);
+  assert.equal(nextSpan(1024, ORPHAN_STEP_MS + 1, false), 512);
+  assert.equal(nextSpan(1024, 1, false), 2048);
+  assert.equal(nextSpan(SPACE, 1, false), SPACE);
+  assert.equal(nextSpan(1024, ORPHAN_STEP_MS / 2, false), 1024);
+  const viewer = await person('ppw');
+  const trader = await person('ppu');
+  const N = 20_000;
+  try {
+    await sql`insert into trade_likes (viewer_id, trade_key, trader_id)
+      select ${viewer}, encode(sha256((${`pp-${viewer}:`} || i)::bytea), 'hex'), ${trader} from generate_series(1, ${N}) i`;
+    await setCursor('mark-like', 0, SPACE); // one window over the whole space: far more than a 1 ms statement can do
+    let first;
+    for (let i = 0; ; i++) {
+      assert.ok(i < 300, 'the purge lock stays held'); first = await purgePrivacy({ only: ['orphans'], orphanSteps: ['mark-like'], timeoutMs: 1, boxMs: 300 }); /* a short box: the lock is held briefly */ if (first.ran) break; await new Promise((x) => setTimeout(x, 100)); }
+    assert.ok(first.orphanTimeouts >= 1, 'the window timed out, rolled back and shrank');
+    const laps = await lapsOf('mark-like');
+    // The next calls walk on (each within its budget) until the lap wraps.
+    for (let i = 0, ran = 0; ran < 5 && i < 50 && await lapsOf('mark-like') <= laps; i++) {
+      if ((await orphansPass({ orphanSteps: ['mark-like'] })).ran) ran++; else await new Promise((x) => setTimeout(x, 100));
+    }
+    assert.ok(await lapsOf('mark-like') > laps, 'the cursor moved on and wrapped');
+    assert.equal((await sql`select count(*)::int as n from privacy_orphans where viewer_id = ${viewer}`)[0].n, N, 'every orphan marked');
+  } finally {
+    await sql`delete from users where id in (${viewer}, ${trader})`;
+  }
+});
+
+dbTest('due marks whose trade came back never block a later due orphan; the like count is the likes removed', async () => {
+  const { sql } = await import('./db.ts');
+  const { purgePrivacy } = await import('./privacy-purge.ts');
+  const { tradeKey } = await import('./likes.ts');
+  const viewer = await person('ppb');
+  const trader = await person('ppe');
+  const sell = (s: string) => `pp-${trader}-${s}`;
+  const k = (s: string) => tradeKey(sell(s));
+  try {
+    for (const s of ['r1', 'r2', 'r3']) {
+      await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+        values (${trader}, ${sell(s)}, 'acct', 'PPX', ${at('03-01')}, ${at('03-02')}, 0.05, 1, true)`;
+    }
+    // A full batch (3) of the oldest due marks have their trade back; the real orphan is due after them. Run at a past
+    // `now` with the cursor steps off, so no other test's mark is due and none is marked at that date. A call at the real
+    // time (another test file's) may take these due rows first; the fixture is then laid again, so the count is checked
+    // on a call that found them.
+    let r;
+    for (let attempt = 1; ; attempt++) {
+      await sql`insert into trade_likes (viewer_id, trade_key, trader_id) select ${viewer}, k, ${trader} from unnest(${['r1', 'r2', 'r3', 'gone'].map(k)}::text[]) k on conflict do nothing`;
+      await sql`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at)
+        select 'like', ${viewer}, k, ${at('04-01')}::timestamptz + (k = ${k('gone')})::int * interval '1 day' from unnest(${['r1', 'r2', 'r3', 'gone'].map(k)}::text[]) k
+        on conflict (kind, viewer_id, trade_key) do update set first_seen_at = excluded.first_seen_at`;
+      for (let i = 0; ; i++) {
+        assert.ok(i < 300, 'the purge lock stays held');
+        r = await purgePrivacy({ now: NOW, only: ['orphans'], orphanSteps: [], batch: 3 });
+        if (r.ran) break;
+        await new Promise((x) => setTimeout(x, 100));
+      }
+      assert.equal(r.done, true);
+      if (r.likes > 0 || attempt >= 5) break;
+    }
+    assert.equal(r.likes, 1, 'one like removed');
+    const likes = (await sql`select trade_key from trade_likes where viewer_id = ${viewer}`).map((x) => x.trade_key).sort();
+    assert.deepEqual(likes, [k('r1'), k('r2'), k('r3')].sort(), 'likes on returned trades kept');
+    assert.equal((await sql`select count(*)::int as n from privacy_orphans where viewer_id = ${viewer}`)[0].n, 0, 'every due mark resolved');
+  } finally {
+    await sql`delete from users where id in (${viewer}, ${trader})`;
+  }
+});
+
+dbTest('the cursor holds a position in the hash space only (no viewer, key or trade), and hex keys sort in hash order under the database collation', async () => {
+  const { sql } = await import('./db.ts');
+  const { tradeKey } = await import('./likes.ts');
+  const cols = (await sql`select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'privacy_purge_cursors' order by column_name`).map((x) => x.column_name);
+  assert.deepEqual(cols, ['laps', 'pos', 'span', 'step', 'updated_at']);
+  const [o] = await sql`select '0f' < '10' as a, '9f' < 'a0' as b, 'ffffffff' < 'g' as c, '' < '00000000' as d, '7fffffff' < '80000000' as e`;
+  assert.deepEqual(Object.values(o), [true, true, true, true, true]);
+  assert.match(tradeKey('any sell id'), /^[0-9a-f]{64}$/, 'trade keys are lowercase sha256 hex');
+});
+
+dbTest('a shared Similar-trades pool idle past a day goes; a fresh one stays', async () => {
+  const { sql } = await import('./db.ts');
+  const { purgePrivacy } = await import('./privacy-purge.ts');
+  const p = `pp-sim-${Math.random().toString(36).slice(2, 8)}`;
+  // Dated at a past `now`, so no real pool (key '*' among them) is idle at that date.
+  await sql`insert into similar_pools (key, hour, built_at, claimed_at) values
+    (${`${p}-idle`}, ${at('05-01')}, ${at('05-01')}, null), (${`${p}-claimed`}, ${at('05-01')}, null, ${at('05-01')}), (${`${p}-fresh`}, ${at('05-31')}, ${new Date(NOW.getTime() - DAY / 2)}, null)`;
+  try {
+    let r;
+    for (let i = 0; ; i++) {
+      assert.ok(i < 300, 'the purge lock stays held'); r = await purgePrivacy({ now: NOW, only: ['similar'] }); if (r.ran) break; await new Promise((x) => setTimeout(x, 100)); }
+    assert.equal(r.done, true);
+    assert.ok(r.similarPools >= 2);
+    const left = (await sql`select key from similar_pools where key like ${`${p}-%`}`).map((x) => x.key);
+    assert.deepEqual(left, [`${p}-fresh`]);
+  } finally {
+    await sql`delete from similar_pools where key like ${`${p}-%`}`;
+  }
+});

@@ -60,6 +60,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   rate_marks: { personal: true, retention: 'short', holds: 'the last import-poll time per user id; pruned by lib/rate-limit.ts after a day' },
   sitemap_chunks: { personal: false, retention: 'none', holds: 'sitemap chunk boundary symbols, indexable-symbol count, highest sitemap id published and build time (no user ids)' },
   similar_pools: { personal: true, retention: 'short', holds: 'the Similar trades section pool: user ids with ranking numbers derived from public records (no quantities or prices); one row per scope, overwritten every 10 s while profiles are viewed; rows idle past a day are deleted by lib/privacy-purge.ts' },
+  privacy_purge_cursors: { personal: false, retention: 'none', holds: "the orphan purge's scan position per step: a number in the trade_key hash space, a window span and a lap count (no user, key or trade)" },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.
