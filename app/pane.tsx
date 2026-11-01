@@ -25,6 +25,7 @@ import type { PaneOptionsView } from '@/lib/options-view.ts';
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
   openedAt?: Date; // FIXES-LABELS (code review, TR-7/TR-9): the entry time behind the pane's range and "New record"
+  writtenAt?: Date | null; editedAt?: Date | null; // FIXES-CYCLE4-PART2 (F4-16): a published note's dates, for the chart sheet
 };
 
 // Fix round 2 (render cost): one formatter, not one per call (same text as toLocaleDateString with these options).

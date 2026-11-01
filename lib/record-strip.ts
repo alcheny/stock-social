@@ -59,6 +59,9 @@ export type StripInput = StripFigures & {
   // exclusions (lib/options-load.ts#paneView's label, gated per trader). The strip's average leaves options out, so it
   // says so; no option figure is ever passed in or shown.
   excludingOptions?: boolean;
+  // FIXES-CYCLE4-PART2 (F4-4, C4-9): the month's own figures ('figures' surface) of a trader with option closes end with
+  // the same qualifier, so the month makes no claim over closes it leaves out (POLICY F3a).
+  monthExcludingOptions?: boolean;
 };
 export type StripSurface = 'feed' | 'page' | 'figures' | 'image';
 export type StripTone = 'up' | 'down' | 'warn' | 'ok' | 'muted' | null;
@@ -117,6 +120,11 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
     }
     // OPTIONS: the qualifier closes the record's figures (not the month's own figures: the record strip below them says it).
     if (i.excludingOptions && surface !== 'figures') figures.push({ role: 'options', text: OPTIONS.shareLabel, tone: null, sep: ' · ' });
+    // FIXES-CYCLE4-PART2 (F4-4): the month's figures (legal-re-signed words, unchanged), Too early months too.
+    if (i.monthExcludingOptions && surface === 'figures') {
+      figures.push({ role: 'options', text: OPTIONS.shareLabel, tone: null, sep: ' · ' });
+      altParts.push(OPTIONS.altQualifier);
+    }
   }
   const text = figures.map((p) => p.sep + p.text).join('');
   const alt = [

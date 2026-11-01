@@ -279,7 +279,8 @@ test('K20: the image is a scoped text-only route, never a root opengraph file; t
   const card = read('app/home-card/route.tsx').replace(/^\s*\/\/.*$/gm, '');
   assert.match(card, /width: 1200, height: 630/);
   assert.match(card, /\{cardText\}/);
-  assert.match(card, /searchParams\.get\('d'\) !== '0'/);
+  assert.match(card, /q\.get\('d'\) !== '0'/); // FIXES-CYCLE4-PART2 (F4-8): `q` is the request's searchParams
+  assert.match(card, /const q = new URL\(req\.url\)\.searchParams;/);
   assert.doesNotMatch(card, /<img|<svg|fetch\(|\.ttf|\.woff|Stock Social|logo/i);
   assert.match(card, /'Cache-Control': 'public, max-age=3600, s-maxage=3600'/);
   const top = readdirSync(join(root, 'app'));

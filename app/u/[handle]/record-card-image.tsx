@@ -9,6 +9,7 @@
 // size; the evidence label shares the trust line's row; the 0% label sits in a gutter left of the line.
 import { OPTIONS } from '@/lib/copy.ts';
 import { IMAGE_PALETTE } from '@/lib/palette.ts';
+import { unfurlHeadRows, type HeadPill } from '@/lib/card-head.ts'; // FIXES-CYCLE4-PART2 (F4-15)
 import { CARD_LAYOUT, disclaimerLines, noOrphan, UNFURL_COLUMN_GAP, unfurlHeadlineSize, unfurlWide, type CardModel } from '@/lib/record-card.ts';
 
 const C = IMAGE_PALETTE.card; // F-20: the share-image colour table (lib/palette.ts), today's values
@@ -183,8 +184,16 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
     );
   }
 
-  const head = m.kind === 'unfurl'
-    ? <div style={{ ...row, justifyContent: 'space-between', gap: 16 }}>{who}<div style={{ ...row, gap: 12, flexShrink: 0 }}>{newRecord}{shareOnly}{badge}</div></div>
+  // FIXES-CYCLE4-PART2 (F4-15, C4-16): pills that would squeeze the @handle move to a row under it (lib/card-head.ts).
+  const rows = m.kind === 'unfurl' ? unfurlHeadRows(m) : null;
+  const pillOf = (p: HeadPill) => (p === 'newRecord' ? newRecord : p === 'options' ? shareOnly : badge);
+  const head = rows
+    ? (
+      <div style={{ ...col, gap: L.gap }}>
+        <div style={{ ...row, justifyContent: 'space-between', gap: 16 }}>{who}{rows.head.length > 0 && <div style={{ ...row, gap: 12, flexShrink: 0 }}>{rows.head.map((p) => <span key={p} style={{ display: 'flex' }}>{pillOf(p)}</span>)}</div>}</div>
+        {rows.second.length > 0 && <div style={{ ...row, flexWrap: 'wrap', gap: 12 }}>{rows.second.map((p) => <span key={p} style={{ display: 'flex' }}>{pillOf(p)}</span>)}</div>}
+      </div>
+    )
     : (
       <div style={{ ...col, gap: L.gap }}>
         <div style={{ ...row, justifyContent: 'space-between', gap: 24 }}>

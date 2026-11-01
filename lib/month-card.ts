@@ -85,6 +85,10 @@ function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: numb
     const text = fitPx(withDot, figPx) >= STRIP_BAND.minPx ? withDot : bare;
     L.push({ role: 'monthRange', text, size: Math.max(STRIP_BAND.minPx, fitPx(text, figPx)), tone: 'text', weight: 400 });
   }
+  // FIXES-CYCLE4-PART2 (F4-4, C4-9): the month's figures of a trader with option closes end with "Excluding options"
+  // (the strip's own part, legal words unchanged), on its own line; never optional, so it never gives way.
+  const options = get('options');
+  if (options) L.push({ role: 'monthOptions', text: options.text, size: Math.max(STRIP_BAND.minPx, fitPx(options.text, figPx)), tone: 'muted', weight: 400 });
   return L;
 }
 export function monthBand(r: MonthBandInput, whole: Strip, month: Strip, frozen?: string | null): ReturnType<typeof layoutBand> {

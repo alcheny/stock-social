@@ -4,6 +4,7 @@
 import { sql } from './db.ts';
 import { gateState, isSandbox } from './launch-gate.ts';
 import { isLoopbackUrl, type Env } from './vendor-env.ts';
+import { logSafe } from './privacy-log.ts'; // FIXES-CYCLE4-PART2 (F4-8)
 export const PUBLIC_SOURCES = ['insider_reports'] as const;
 export type PublicSource = (typeof PUBLIC_SOURCES)[number];
 export const PUBLIC_FEED_DELAY_DAYS = 30; // feed, similar and suggest: this long after the latest filing behind a trade
@@ -39,3 +40,34 @@ export async function filerInfo(userId: number): Promise<FilerInfo | null> {
   return !r ? null : { filerId: r.id, demo: r.demo, hidden: !!r.hidden_at, removed: !!r.removed_at, lastChecked: r.last_success_at ?? null, excluded: r.excluded ?? {}, openSymbols: r.open_symbols ?? [] };
 }
 export const filerVisible = (f: FilerInfo | null, env: Env = process.env) => !f || (publicTradersOn(env) && !f.hidden && !f.removed);
+
+// FIXES-CYCLE4-PART2 (F4-8, C4-12): whether the feed can show a public-filing record right now: the switch is on and a
+// visible filer (filerVisibleSql) has a feed-ready close (feedReadySql). The home link preview names public filings only
+// then; /how's public-filing section (cycle-4 rank 6, C4-27) is to key on this same predicate. `demo`: one such filer is
+// a fictional demo fixture (its closes are written straight to closed_trades, so lib/home-preview.ts#demoShown never
+// sees it). Switch off: false, with no query. On error: shown (the preview errs on naming the source), not remembered.
+// Remembered per server instance for PUBLIC_SHOWN_TTL_MS, like demoShown.
+export const PUBLIC_SHOWN_TTL_MS = 5 * 60_000;
+export type PublicShown = { shown: boolean; demo: boolean };
+let shownMemo: { at: number; v: PublicShown } | null = null;
+// `only` (tests on the shared database): look at these users alone, and neither read nor write the remembered answer.
+export async function publicShown(now = Date.now(), env: Env = process.env, only?: number[]): Promise<PublicShown> {
+  if (!publicTradersOn(env)) return { shown: false, demo: false };
+  if (!only && shownMemo && now - shownMemo.at < PUBLIC_SHOWN_TTL_MS) return shownMemo.v;
+  const scope = only ? sql`and u.id = any(${only})` : sql``;
+  try {
+    const [r] = await sql`select
+        exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null and u.public_filer_id is not null
+          where ${filerVisibleSql('u', env)} and ${feedReadySql('t')} ${scope}) as shown,
+        exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null join public_filers pf on pf.id = u.public_filer_id and pf.demo
+          where ${filerVisibleSql('u', env)} and ${feedReadySql('t')} ${scope}) as demo`;
+    const v = { shown: r.shown === true, demo: r.demo === true };
+    if (!only) shownMemo = { at: now, v };
+    return v;
+  } catch (e) {
+    console.error('public filing check failed', logSafe(e));
+    return { shown: true, demo: false };
+  }
+}
+// Tests only: forget the remembered answer.
+export const resetPublicShown = () => { shownMemo = null; };

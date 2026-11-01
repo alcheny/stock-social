@@ -4,11 +4,14 @@
 import { sql } from './db.ts';
 import { logSafe } from './privacy-log.ts';
 import { CHORES_3 } from './copy.ts';
+import { FIXES_CYCLE4_PART2 } from './copy.ts'; // FIXES-CYCLE4-PART2 (F4-8)
 
 export type HomePreview = { title: string; description: string; cardText: string; metaDescription: string };
 
-export function homePreview(demo: boolean): HomePreview {
-  const tail = demo ? ` ${CHORES_3.demo}` : '';
+// FIXES-CYCLE4-PART2 (F4-8, C4-12): `pub`, the feed can show a public-filing record (lib/public-gate.ts#publicShown): one
+// more sentence, before the Demo one, in every text. Title and the K20 line unchanged.
+export function homePreview(demo: boolean, pub = false): HomePreview {
+  const tail = `${pub ? ` ${FIXES_CYCLE4_PART2.homePublic}` : ''}${demo ? ` ${CHORES_3.demo}` : ''}`;
   return {
     title: CHORES_3.homeTitle,
     description: `${CHORES_3.losses}${tail}`,

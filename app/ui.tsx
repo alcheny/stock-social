@@ -22,7 +22,8 @@ import { retEms } from '@/lib/feed-focus.ts';
 
 // F-7: `kind` 'public' / 'public_demo' is the "Public filing" badge (Demo beside it on a fictional fixture), never Verified.
 export function Badge({ verified, kind = verified ? 'verified' : 'demo' }: { verified?: boolean; kind?: TrustBadge }) {
-  if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <Badge kind="demo" />}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
+  // FIXES-CYCLE4-PART2 (F4-14, C4-15): a space between the two badges, so they read "Demo Public filing", never one word.
+  if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <><Badge kind="demo" />{' '}</>}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
   return kind === 'verified'
     ? <span className="badge verified" title={VERIFIED_MEANING} /* fix #9 (F-13 group): one constant with the footer */>✓ Verified</span>
     : <span className="badge demo" title={FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20) */}>Demo</span>;

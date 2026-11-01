@@ -108,3 +108,10 @@ export async function optionHeadline(userIds: number[], gate?: (userId: number) 
 export async function loadOptionDisplayText(userId: number): Promise<string | null> {
   return optionDisplayText((await optionHeadline([userId])).get(userId)!);
 }
+
+// FIXES-CYCLE4-PART2 (F4-4, C4-9): how many shown option closes (option_trades) a trader has in [start, end), for the
+// month recap's count line. Counts only: no return, contract term or underlying is selected.
+export async function monthOptionCloseCount(userId: number, start: Date, end: Date): Promise<number> {
+  const [r] = await sql`select count(*)::int as n from option_trades where user_id = ${userId} and closed_at >= ${start} and closed_at < ${end}`;
+  return Number(r.n);
+}
