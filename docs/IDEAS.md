@@ -89,9 +89,17 @@ The whole path from idea to merged feature, with states and exit criteria: [`doc
 | 59 | Late-posted trades reach the record by insert-only reconciliation (C3-9a); vendor corrections in a revisions table (C3-9b) | council cycle 3 | **approved: F-24** for C3-9a (cycle 3, 3.60, 15/15; blocked on F-14); C3-9b flagged for owner (Q3) | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approved; owner |
 | 60 | Lapsed cycle-2 approvals re-voted: F-16 (+K18), F-17, F-20 re-approved; F-18 and F-19's sweep not re-approved | approval council cycle 3 (lapse rule) | F-16 4.07, F-17 3.93, F-20 3.67 **re-approved** (blocked); F-18 3.13 → draft; F-19 sweep 2.80 lapsed | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approved / waiting |
 | 61 | Cycle-3 briefs not approved: C3-37 day-7 marker, C3-34 health endpoint, C3-39/40 settings and locked Record tools, C3-15 disconnect, C3-16 connection health, C3-38 drop-off counts, C3-42 full export, C3-43 public since, C3-35 cached images, C3-3 oversells; C3-41/C3-45 to a design session; C3-44 chore | council cycle 3 | waiting (C3-37 3.47 flagged for owner; C3-34 and C3-39 chores; C3-3 rejected in substance, 1.47) | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | waiting |
+| 62 | One link rule for trade rows: every closed-trade row links once to its trade page; trade URLs move to the hashed `trade_key` (308 from old ids); feed card footer "This trade →" (C3-41) | council cycle 3 → design session | **decided: F-25** (design council cycle 3, all four signed; blocked on F-9 PR #65, F-11 and F-26) | [committee](features/logs/design-cycle3/committee-2026-11-01.md) | decided |
+| 63 | No empty-note line: "No thesis posted." removed; a held note shows only to its author, and viewers get the same output for held and none (C3-45, CS-6) | council cycle 3 → design session | **decided: F-26** (design council cycle 3, all four signed; blocked on F-9 PR #65) | [committee](features/logs/design-cycle3/committee-2026-11-01.md) | decided |
+| 64 | PR #71 colour follow-ups: chart bar baseline on `--control`, failed import as a warn notice (icon, box, words), dark share-image gain/loss hues (DS-6) | PR #71 hand-off | **decided: F-27** (blocked on F-20 and F-11); image hues an owner question, recommended yes | [committee](features/logs/design-cycle3/committee-2026-11-01.md) | decided (hues: owner) |
 
 ## Decisions
 
+- 2026-11-01: The design council for cycle 3's routed items decided F-25 (one link rule for trade rows, C3-41), F-26
+  (no empty-note line; a held note shown to its author only, C3-45) and F-27 (PR #71's colour follow-ups). All three are
+  blocked on in-flight work. F-27's share-image hue change and F-20's image-floor conflict go to the owner. Why: decided
+  by the committee under the owner's instruction of 2026-11-01
+  ([committee](features/logs/design-cycle3/committee-2026-11-01.md)).
 - 2026-11-01: The approval council's third cycle approved four new features: F-21 exclusion counts beside the
   headline, F-22 transfers as share moves (conditional on the owner's yes, because it amends a decided matcher rule),
   F-23 public payload precision, F-24 late-posted trades by insert-only reconciliation. It re-approved three lapsed
