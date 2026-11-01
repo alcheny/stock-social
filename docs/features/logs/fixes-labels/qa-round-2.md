@@ -121,3 +121,29 @@ The scripts and dumps are in the session scratchpad `qa2/` (the round-1 scripts 
 Severity count: 0 blocker, 2 major (1, 2), 2 minor (3, 4), 3 notes.
 **Not clean:** the round-1 majors are all fixed. The two new majors come from the F-7 merge (public pane, public
 profile) and from the profile h1 at 320.
+
+## Resolutions (engineer, final fix round, 2026-11-01)
+Tests first: new `lib/qa-round-2.test.ts` (models and source contracts), `lib/sync-removed-again.test.ts` (N2, DB),
+`lib/idle-count.test.ts` (N5, DB); our e2e extended (`e2e/fixes-labels.spec.ts`: "QA round 2 (B1, B2, Q4)" and
+"QA round 2 (N4)"; `e2e/fixes-labels-status.spec.ts`: "QA round 2 (N7, N8)" with its own `fls_gone` fixture). Main's
+tests and expectations are untouched; the F-7 order checks (pane: chart, then the not-joined line; profile: top block
+above the stats) still hold.
+
+| # | Finding | Resolution |
+|---|---|---|
+| B1 (1) | public pane F3 below the fold | `app/pane.tsx`: F-7's line and link (`publicLine`) now follow the F3 line, which sits right after the chart (both orders). A public pane's actions row holds "…" alone, so it shares the badges' line (`.pane-actions.inline`); at ≤ 400 px the feed pane starts 8 px closer under the nav and the chart's margins tighten. Measured (`fl_pub_demo`-shaped filer): signed in 531–570 (360) / 564–623 (320); signed out 510–550 / 543–602. Limit 629 (15% headroom). |
+| B2 (2) | profile F3 below the fold at 320 (public, 40-char names) | `app/u/[handle]/page.tsx`: the F3 line right after the headline figures (after the unrealized grid and combined line when open positions exist), before the evidence line; `main.profile-page` tightens at ≤ 400 px (h1 1.25rem, stats margins and tile padding, big value 28 px, F-7 top block spacing). Public profile: 492–531 (360) / 577–617 (320). The e2e walks the public Demo and non-Demo profiles, panes (signed in and out) and trade pages, and the spaced and unbroken 40-char names, at 360 and 320, scrollY 0, 15% headroom. |
+| 3 | root description | `app/layout.tsx`: "Trading records imported read-only from brokers and built from public filings. Demo records are marked Demo. Losses included." |
+| 4 (Q4) | public trade F3 headroom | `app/u/[handle]/trade/[sellId]/page.tsx`: as B1, the not-joined line and the filing links follow the record's figures and their F3 line (the header's "Public filing" badge stays on top). 440–480 (360) / 440–500 (320). |
+| N2 | second removal not re-stamped | `lib/sync.ts`: `removed_at` is written again when it is null or a trade on the account executed after it (a relisting); same guards (non-empty vendor list, never on error, connection still lists an account). |
+| N3 | unguarded `statusFor` | `lib/record-status-load.ts#statusForOrNull` (null on error, counts-only log) in the pane route, trade-share and recap loads, and the profile. |
+| N4 | `:has()` only | `html.bar-hide` / `html.bar-signin` set by `app/feed-hides.tsx` / `app/feed-gestures.tsx` while their bar is up; the same 96 px rule keys on them. e2e at 360×600 and 360×690: padding 96 px, the card's F3 line inside the card and the row, nothing overflows. |
+| N5 | idle count scope | `idleCount(ids, idRange)`, passed `scope.idRange` by `coverage()`; counts only records that would show the idle line (a close, broker, not importing/failed, not Demo or filing, not frozen by removal). |
+| N6 | baseline kind on a mixed stock | `baselineKind(summary, others, self)` decides from `self ?? summary`. |
+| N7 | all accounts removed reads live | `lib/record-status.ts#recordFrozen`: every live account removed → frozen at the latest removal: "No account connected since ‹date› · record frozen" on the profile, pane, card, trade/month rows and images; no "Connected", no "updated", not idle. |
+| N8 | status wording | One date form per line (the year on every date of a line when any needs it); "Account 2 of 2 removed ‹date›"; each date and the word before it joined by no-break spaces (`glued`); trade and month status in two rows (`recordRows`). |
+| N9 | Demo repetition | `/t/[symbol]`: the sentence only in the page note (sections keep their badge; "How the trades turned out" gains one); the explainer no longer repeats it; compare: one note per Demo column only when the explainer does not already say it, none in the column's spread; trade page: the Demo badge only in "This trade". |
+| N10 | baseline label | "95% range of the average per trade (a to b)". |
+| N11 | pane F3 reads as a caption | `.pane [data-disclaimer] { margin: 8px 0 12px; }`. |
+| N12 | profile rows numeric dates | `dateText(t.closed_at, now)`; the scrubbed chart head keeps M/D/YYYY (app.spec). |
+| 5–7 | notes | Unchanged (F-11 design, F-7 AC19, pre-existing nav clip); follow-ups in the committee file. |

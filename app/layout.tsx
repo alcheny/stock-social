@@ -9,7 +9,8 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Stock Social',
   // QA round 1 (finding 1): the root description shows over a feed with Demo cards, so it names no trust state.
-  description: 'Trading records imported read-only from brokers. Demo records are marked Demo. Losses included.',
+  // QA round 2 (N1): it covers records built from public filings too (F-7).
+  description: 'Trading records imported read-only from brokers and built from public filings. Demo records are marked Demo. Losses included.',
 };
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#0b0b0f' };
 

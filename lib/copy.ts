@@ -300,7 +300,8 @@ export const FIXES_LABELS = {
   },
   tickerExplainer: {
     verified: 'Verified closed trades in this stock from connected accounts, newest first. Percentages only. Few trades means a wide range, and that is expected.',
-    demo: 'Demo closed trades in this stock, newest first. Not from a real broker. Percentages only. Few trades means a wide range, and that is expected.',
+    // QA round 2 (N9): the page note under the figures says "not from a real broker" once (FIXES_LABELS.demoPage).
+    demo: 'Demo closed trades in this stock, newest first. Percentages only. Few trades means a wide range, and that is expected.',
     mixed: 'Closed trades in this stock, newest first: some from connected accounts, some Demo. Percentages only. Few trades means a wide range, and that is expected.',
   },
   demoNote: 'Demo trades, not from a real broker.',
@@ -333,8 +334,8 @@ export const FIXES_LABELS = {
   baselineHeading: 'Closed trades recorded here: this stock and other stocks',
   // QA round 1 (finding 3): the range is the 95% range of the average per trade (the profile's wording), not the spread
   // of the trades (the dot plot's "range").
-  baselineThis: (sym: string, n: string, traders: string, range: string | null) => `${n} in ${sym} by ${traders}${range ? `: average per trade, 95% range ${range}` : ''}.`,
-  baselineOthers: (n: string, range: string | null) => `${n} in other stocks recorded here${range ? `: average per trade, 95% range ${range}` : ''}.`,
+  baselineThis: (sym: string, n: string, traders: string, range: string | null) => `${n} in ${sym} by ${traders}${range ? `: 95% range of the average per trade ${range}` : ''}.`,
+  baselineOthers: (n: string, range: string | null) => `${n} in other stocks recorded here${range ? `: 95% range of the average per trade ${range}` : ''}.`,
   baselineNote: 'Side by side for context only. Different traders, sizes and timing. Not a rating of any stock.',
   // Code review: on a stock with some Demo trades, both sides are verified trades only (the other stocks' side always is).
   // QA round 1 (finding 12): the pane's and month page's footers on a Demo record name Demo, not connected accounts.
@@ -876,6 +877,8 @@ export const STATUS_LINE = {
   frozen: (d: string) => `Disconnected ${d} · record frozen`, // outranks every freshness date
   instDisconnected: (inst: string, d: string) => `${inst} disconnected ${d}`, // one of several connections
   removed: (d: string) => `Account removed ${d}`, // TR-5, on the account's row
+  removedNumbered: (label: string, d: string) => `${label} removed ${d}`, // QA round 2 (N8): "Account 2 of 2 removed ‹date›"
+  allRemoved: (d: string) => `No account connected since ${d} · record frozen`, // QA round 2 (N7): every account removed
   accountLine: (label: string, inst: string) => `${label} · ${inst}`,
   accountOf: (i: number, n: number) => `Account ${i} of ${n}`,
   // The council's row 1 says "Demo"; "Demo data" is kept because an existing test asserts it on the profile

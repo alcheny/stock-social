@@ -18,6 +18,12 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
   // F-10 follow-up (approval cycle 2, fix #15): the fixed sign-in line closes on Escape and whenever focus moves outside
   // it, so it never covers the focused element (WCAG 2.4.11; lib/feed-focus.ts#closesSignInBar).
   const bar = useRef<HTMLParagraphElement>(null);
+  // FIXES-LABELS (QA round 2 N4): while the sign-in line is up, html.bar-signin gives the feed cards room under their F3
+  // line in browsers without :has() (app/globals.css).
+  useEffect(() => {
+    document.documentElement.classList.toggle('bar-signin', askSignIn);
+    return () => document.documentElement.classList.remove('bar-signin');
+  }, [askSignIn]);
   useEffect(() => {
     if (!askSignIn) return;
     const onKey = (e: KeyboardEvent) => { if (closesSignInBar({ type: 'keydown', key: e.key })) setAskSignIn(false); };

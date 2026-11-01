@@ -63,7 +63,8 @@ function Message({ text, children }: { text: string; children?: React.ReactNode 
   );
 }
 
-function Column({ symbol, side, id, shared, open }: { symbol: string; side: CompareSide; id: string; shared: { dots: boolean; maxCount: number }; open?: SymbolOpen }) {
+// QA round 2 (N9): `note`, the column's Demo sentence, only when the page's explainer does not already say it (both Demo).
+function Column({ symbol, side, id, shared, open, note = true }: { symbol: string; side: CompareSide; id: string; shared: { dots: boolean; maxCount: number }; open?: SymbolOpen; note?: boolean }) {
   const s = side.summary;
   const head = (
     <h2 id={id}><Link href={`/t/${encodeURIComponent(symbol)}`}>{symbol}</Link> {!s.mixed && !side.empty && <Badge verified={!s.demoOnly} />}</h2>
@@ -74,7 +75,7 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
   return (
     <section aria-labelledby={id}>
       {head}
-      {s.demoOnly && <p role="note" className="muted">{FL.demoNote}</p>}
+      {note && s.demoOnly && <p role="note" className="muted">{FL.demoNote}</p>}
       {s.mixed && <p role="note" className="muted">{FL.mixedNote}</p>}
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
@@ -121,8 +122,8 @@ export default async function Compare({ searchParams }: Props) {
       {/* FIXES-LABELS (D-09): before the columns, so it is in view with the first figures */}
       <Disclaimer />
       <div className="compare-grid">
-        <Column symbol={a} side={compare.a} id="cmp-a-h" shared={shared} open={open?.get(a)} />
-        <Column symbol={b} side={compare.b} id="cmp-b-h" shared={shared} open={open?.get(b)} />
+        <Column symbol={a} side={compare.a} id="cmp-a-h" shared={shared} open={open?.get(a)} note={compareKind(compare) !== 'demo'} />
+        <Column symbol={b} side={compare.b} id="cmp-b-h" shared={shared} open={open?.get(b)} note={compareKind(compare) !== 'demo'} />
       </div>
       {!compare.a.empty && !compare.b.empty && <p>{compareOverlapText(compareKind(compare), compare.sameTraders, a, b)}</p>}
       <p className="muted small">{COMPARE_COPY.footer}</p>

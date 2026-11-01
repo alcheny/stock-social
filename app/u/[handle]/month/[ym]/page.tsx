@@ -19,7 +19,7 @@ import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 const FL_DEMO = FL.demoNote; // FIXES-LABELS (DS-20): one Demo name
 // FIXES-LABELS (D-09 / D20, POLICY F3): the page's one F3 line is the record strip's (F-12), after the record's figures.
 import { dateText } from '@/lib/date-text.ts';
-import { recordSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
+import { recordRows, segments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
@@ -98,7 +98,8 @@ export default async function RecapPage({ params }: Params) {
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">{RECORD_STRIP.link(handle)} {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>
           {/* FIXES-LABELS: status (F-11): the record's status line, live (this page renders per request). */}
-          <StatusText segments={recordSegments(r.status, new Date()) ?? []} kind="record" />
+          {/* QA round 2 (N8): two rows like the profile (since · connection, then last close · updated). */}
+          {(recordRows(r.status, new Date()) ?? []).map((row, i) => <StatusText key={i} segments={segments(row)} kind={i ? 'record2' : 'record'} />)}
           {/* F-12: the record strip, as on the trade page (TR-3: only the importing line while an import runs). */}
           <RecordStrip strip={strip} />
         </section>

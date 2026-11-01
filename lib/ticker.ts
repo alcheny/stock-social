@@ -31,10 +31,12 @@ export function baselineVerdict(summary: TickerSummary, baseline: Baseline): Bas
 // The states that change what renders keep their names; every comparison that renders is 'shown', so the page never
 // carries clearly_lower / clearly_higher / no_clear_difference (a verdict about a stock), even as an attribute.
 export type BaselineKind = 'empty' | 'demo_only' | 'too_few_trades' | 'shown';
-export function baselineKind(summary: Pick<TickerSummary, 'demoOnly' | 'conf'>, others: { n: number }): BaselineKind {
+// QA round 2 (N6): on a mixed stock the baseline compares `self` (this stock's verified trades only), so "too few
+// trades" is decided from `self ?? summary`, the side the lines print.
+export function baselineKind(summary: Pick<TickerSummary, 'demoOnly' | 'conf'>, others: { n: number }, self?: { conf: Confidence | null } | null): BaselineKind {
   if (others.n === 0) return 'empty';
   if (summary.demoOnly) return 'demo_only';
-  if (!summary.conf?.perTrade) return 'too_few_trades';
+  if (!(self ?? summary).conf?.perTrade) return 'too_few_trades';
   return 'shown';
 }
 

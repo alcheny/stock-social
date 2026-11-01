@@ -94,7 +94,8 @@ test('idle (no successful sync for 30 days): line2 "Last close ‹date› · not
   const f = facts({ lastSyncedAt: ref });
   const l = statusParts(f, NOW, 'live');
   assert.equal(l.idle, true);
-  assert.equal(text(l.line2), `Last close ${dateText(f.lastClose!, NOW)} · not updated since ${dateText(ref, NOW, { year: 'always' })}`);
+  // QA round 2 (N8): one date form per line, so the last close carries the year beside the idle date.
+  assert.equal(text(l.line2), `Last close ${dateText(f.lastClose!, NOW, { year: 'always' })} · not updated since ${dateText(ref, NOW, { year: 'always' })}`);
   assert.doesNotMatch(all(l), /\b(inactive|stale|abandoned|dead|quit|stopped|warning|unreliable)\b/i);
   assert.equal(text(statusParts(f, NOW, 'static').card), `Not updated since ${dateText(ref, NOW, { year: 'always' })}`);
 });
@@ -127,10 +128,10 @@ test('accountLabels: real accounts of consented connections in link order; paper
   assert.equal(accountLabels([conn(1, [acct('a1'), acct('p1', { isPaper: true })])]).size, 0);
 });
 
-test('two accounts, one removed: "Account 1 of 2 · ‹inst›", "Account 2 of 2 · Account removed ‹Mon D, YYYY›"; a lone removed account says "Account removed ‹Mon D, YYYY›"', () => {
+test('two accounts, one removed: "Account 1 of 2 · ‹inst›", "Account 2 of 2 removed ‹Mon D, YYYY›" (QA round 2 N8); a lone removed account says "Account removed ‹Mon D, YYYY›"', () => {
   const r = ago(4 * DAY);
   const l = statusParts(facts({ accounts: 2, connections: [conn(1, [acct('a1'), acct('a2', { removedAt: r })])] }), NOW, 'live');
-  assert.deepEqual(l.accounts.map((p) => p.text), ['Account 1 of 2 · Fake Brokerage', `Account 2 of 2 · Account removed ${dateText(r, NOW, { year: 'always' })}`]);
+  assert.deepEqual(l.accounts.map((p) => p.text), ['Account 1 of 2 · Fake Brokerage', `Account 2 of 2 removed ${dateText(r, NOW, { year: 'always' })}`]);
   const one = statusParts(facts({ connections: [conn(1, [acct('a1', { removedAt: r }), acct('p', { isPaper: true })])] }), NOW, 'live');
   assert.deepEqual(one.accounts.map((p) => p.text), [`Account removed ${dateText(r, NOW, { year: 'always' })}`]);
 });

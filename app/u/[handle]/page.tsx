@@ -47,10 +47,11 @@ import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
 // FIXES-LABELS: status (F-11 / D-12 / fix #4): the record status line.
-import { statusFor } from '@/lib/record-status-load.ts';
+import { statusForOrNull as statusFor } from '@/lib/record-status-load.ts'; // QA round 2 (N3): guarded, null on error
 import { segments, statusParts } from '@/lib/record-status.ts';
 import { STATUS_LINE } from '@/lib/copy.ts';
 import { StatusList, StatusText } from '../../status-line.tsx';
+import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' dates follow the year rule
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
@@ -199,7 +200,8 @@ export default async function Profile({ params, searchParams }: Params) {
   const connected = allVerified ? connectedLine(brokers, accounts) : 'Demo data';
   // FIXES-LABELS: status. Live mode: this page is rendered per request; "updated" is the last successful sync.
   const statusF = await statusFor(user.id, state);
-  const status = statusF ? statusParts(statusF, new Date(), 'live') : null;
+  const now = new Date(); // QA round 2 (N12): one request time for the rows' dates
+  const status = statusF ? statusParts(statusF, now, 'live') : null;
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
@@ -212,7 +214,7 @@ export default async function Profile({ params, searchParams }: Params) {
   const similar = await similarP;
 
   return (
-    <main className="page">
+    <main className="page profile-page">{/* QA round 2 (B2): .profile-page tightens the h1 on a phone (globals.css) */}
       <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
       {/* PR-2b: one line reserved, so the badge arriving when an import finishes does not push the banner down. */}
       <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
@@ -295,6 +297,9 @@ export default async function Profile({ params, searchParams }: Params) {
       {/* F-6: the unrealized grid directly under the realized one, same size (TR-4), then the combined average. */}
       {open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={long} />}
       {both && <CombinedLine c={both} />}
+      {/* FIXES-LABELS (D-09): the F3 line right after the headline figures. QA round 2 (B2): before the evidence line, so
+          it is on the first screen at 320 px with an F-7 top block or a 40-character name above the figures. */}
+      <Disclaimer />
       <div className="evidence">
         <p style={{ margin: 0 }}>
           {/* F-4 rework: the card's evidence (shown); F-6: "Closed trades: " scopes it when there are open positions. */}
@@ -307,8 +312,6 @@ export default async function Profile({ params, searchParams }: Params) {
           95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence.
         </details>
       </div>
-      {/* FIXES-LABELS (D-09): after the headline block's evidence line */}
-      <Disclaimer />
       <section className="stats">
         <div className="stat"><b>{count(s.trades)}</b><small>closed trades</small></div>
         <div className="stat"><b>{s.profitFactor === null ? '—' : s.profitFactor.toFixed(2)}</b><small>profit factor</small></div>
@@ -359,7 +362,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {listed.map((t) => (
           <li key={t.id} id={`trade-${t.id}`} tabIndex={-1}>
             <div className="line">
-              <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
+              <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{dateText(t.closed_at, now)}</span></span>
               <Link className="trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
                 <b className={toneClass(t.return_pct)}>{pct(t.return_pct)}</b>
               </Link>

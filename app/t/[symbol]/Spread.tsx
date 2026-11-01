@@ -1,5 +1,6 @@
 import { spreadCaption, type Spread as SpreadData } from '@/lib/ticker.ts';
 import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
+import { Badge } from '../../ui.tsx'; // QA round 2 (N9)
 
 const X0 = 16, W = 328, COL = W / 12, BASE = 120, TOP = 14;
 const colX = (i: number) => X0 + i * COL;
@@ -19,9 +20,8 @@ export default function Spread({ spread, returns, symbol, demoOnly, mixed, share
   const stacks = new Map<number, number>();
   return (
     <Wrap {...(bare ? {} : { 'aria-label': 'Outcome spread' })}>
-      {!bare && <h2>How the trades turned out</h2>}
+      {!bare && <h2>How the trades turned out {demoOnly && <Badge verified={false} />}</h2>}{/* QA round 2 (N9): a badge, not the sentence again */}
       <p className="muted small" style={{ marginTop: 0 }}>{dots ? 'Each dot is one trade.' : 'Each bar counts trades in a 10-point range.'}</p>
-      {demoOnly && <p role="note" className="muted small">{FL.demoNote}</p>}
       {mixed && <p role="note" className="muted small">{FL.mixedNote}</p>}
       <svg className="spread" viewBox="0 0 360 170" role="img" aria-label={caption} data-symbol={symbol}>
         <title>{caption}</title>

@@ -11,6 +11,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { feedLock } from './feed-lock.ts';
 import { dateText } from '../lib/date-text.ts';
+import { deleteFilers, ensureImportState, insertFiler } from './f7-fixture.ts';
 
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 const VIEW = { width: 360, height: 740 };
@@ -21,6 +22,10 @@ const DAY = 86_400_000;
 const THESIS = `${'Bought the breakout after earnings and sold into strength two days later. '.repeat(4)}`.slice(0, 280);
 const OLD_CLOSE = new Date('2020-05-30T15:00:00Z');
 const BASE = 'http://localhost:3000'; // playwright.config.ts baseURL
+// QA round 2 (B1, B2, Q4): two public-filing (F-7) filers of this spec's own, fictional, feed-eligible (6 closes past
+// their floor, one flat), one Demo and one not.
+const PUB_DEMO = 'fl_pub_demo', PUB_REAL = 'fl_pub_real';
+const PUB_CLOSES = [0.31, -0.27, 0, 0.22, -0.19, 0.17].map((r, i) => ({ symbol: `ZQL${i}`, r, daysAgo: 0.02 + i * 0.002, hold: 2, feedAfterDaysAgo: 0.01 }));
 
 test.describe.configure({ mode: 'serial' });
 
@@ -53,9 +58,14 @@ test.beforeAll(async () => {
   const [m] = await sql`select t.sell_id, to_char(t.closed_at at time zone 'UTC', 'YYYY-MM') as ym from closed_trades t join users u on u.id = t.user_id
     where u.handle = 'momentum_maya' order by t.closed_at desc limit 1`;
   maya.sell = m.sell_id; maya.ym = m.ym;
+  await deleteFilers(sql, [PUB_DEMO, PUB_REAL]);
+  await ensureImportState(sql);
+  await insertFiler(sql, { handle: PUB_DEMO, name: 'Fictional Filer QA Two', openSymbols: ['ZQLQ'], closes: PUB_CLOSES });
+  await insertFiler(sql, { handle: PUB_REAL, name: 'Fictional Filer QA Plain', demo: false, closes: PUB_CLOSES });
 });
 test.afterAll(async () => {
   await sql`delete from users where handle = ${OWNER}`;
+  await deleteFilers(sql, [PUB_DEMO, PUB_REAL]);
   await releaseFeed?.();
   await sql.end({ timeout: 1 });
 });
@@ -380,7 +390,7 @@ test('AC5 + AC6: the chart\'s ends and at-rest subline, a 2020 close with its ye
     await expect(base.locator('h2')).toContainText('Closed trades recorded here: this stock and other stocks');
     await expect(base).not.toContainText(/geometric|sits above|sits below|No clear difference|all other stocks|per-trade range/i);
     const lines = [await base.getByTestId('baseline-this').innerText(), await base.getByTestId('baseline-others').innerText()];
-    expect(lines.filter((l) => l.includes('average per trade, 95% range')).length % 2, lines.join(' | ')).toBe(0);
+    expect(lines.filter((l) => l.includes('95% range of the average per trade')).length % 2, lines.join(' | ')).toBe(0);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
@@ -396,7 +406,7 @@ test('code review (TR-9, TR-7): the swipe pane prints the profile\'s 95% range a
     const at = await feedPageWith(handle);
     if (!at) { test.info().annotations.push({ type: 'note', description: `${handle} has no feed card today` }); continue; }
     await page.goto(at);
-    const pane = page.locator(`.row[data-handle="${handle}"]`).first().locator('section.pane');
+    const pane = page.locator(`.feed > .row[data-handle="${handle}"]`).first().locator('section.pane');
     const paneRange = pane.locator('.stat.big .range');
     if (range) await expect(paneRange).toHaveText(range);
     else await expect(paneRange).toHaveCount(0);
@@ -431,5 +441,100 @@ test('QA 5: an unbroken 40-character display name never widens the profile or th
     }
   } finally {
     await sql`update users set display_name = 'FL Owner' where id = ${owner}`;
+  }
+});
+
+// The feed row of `handle`, walking this page's own feed pages (signed in or out) through the plain "more" link.
+async function feedRowOf(page: Page, handle: string): Promise<Locator> {
+  let url: string | null = '/';
+  for (let i = 0; i < 40 && url; i++) {
+    await page.goto(url);
+    const row = page.locator(`.feed > .row[data-handle="${handle}"]`).first();
+    if (await row.count()) return row;
+    url = await page.locator('.feed-more a.button[href*="after="]').first().getAttribute('href').catch(() => null);
+  }
+  throw new Error(`${handle} not in the feed`);
+}
+
+test('QA round 2 (B1, B2, Q4): public-filing profiles, panes and trade pages, and 40-character names: the F3 line on the first screen at 360 and 320, no scrolling, 15% headroom', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const SPACED = 'Fictional Owner With A Long Display Name';
+  expect(SPACED).toHaveLength(40);
+  const out = await browser.newContext({ viewport: VIEW, javaScriptEnabled: false });
+  const inn = await browser.newContext({ viewport: VIEW, javaScriptEnabled: false });
+  const anon = await out.newPage();
+  const signed = await inn.newPage();
+  await signIn(signed, OWNER);
+  try {
+    for (const width of [360, 320]) {
+      for (const p of [anon, signed]) await p.setViewportSize({ width, height: 740 });
+      // B2: the public-filing profiles (F-7 top block above the stats) and their trade pages (Q4).
+      for (const h of [PUB_DEMO, PUB_REAL]) {
+        await anon.goto(`/u/${h}`);
+        expect(await anon.evaluate(() => window.scrollY)).toBe(0);
+        await expect(anon.locator('[data-public-top]')).toBeVisible();
+        await inPlainView(anon, anon.locator('main [data-disclaimer]').first(), `profile ${h} at ${width}px`);
+        await anon.goto(`/u/${h}/trade/${encodeURIComponent(`pub:${h}:0`)}`);
+        expect(await anon.evaluate(() => window.scrollY)).toBe(0);
+        await expect(anon.locator('main [data-public-line]').first()).toBeVisible();
+        await inPlainView(anon, anon.locator('section[aria-labelledby="whole-record"] [data-disclaimer]'), `trade ${h} at ${width}px`);
+        expect(await anon.evaluate(() => document.documentElement.scrollWidth), `${h} ${width}px`).toBeLessThanOrEqual(width);
+      }
+      // B1: the public pane, signed out and signed in (the actions row adds a line): F3 right after the chart, then
+      // F-7's sentence and its link.
+      for (const [p, who] of [[anon, 'signed out'], [signed, 'signed in']] as const) {
+        for (const h of [PUB_DEMO, PUB_REAL]) {
+          const row = await feedRowOf(p, h);
+          await row.evaluate((el) => el.scrollIntoView());
+          await row.evaluate((el) => el.scrollTo({ left: el.clientWidth }));
+          const pane = row.locator('section.pane');
+          await inPlainView(p, pane.locator('[data-disclaimer]'), `pane ${h} ${who} at ${width}px`);
+          const order = await pane.evaluate((el) => [...el.querySelectorAll('figure.chart, [data-disclaimer], [data-public-line]')].map((n) => n.matches('[data-disclaimer]') ? 'F3' : n.tagName));
+          expect(order, `pane ${h} ${who}`).toEqual(['FIGURE', 'F3', 'P']);
+        }
+      }
+      // B2: 40-character display names, spaced and unbroken, on the profile.
+      for (const name of [SPACED, 'W'.repeat(40)]) {
+        await sql`update users set display_name = ${name} where id = ${owner}`;
+        await anon.goto(`/u/${OWNER}`);
+        expect(await anon.evaluate(() => window.scrollY)).toBe(0);
+        await expect(anon.locator('h1')).toHaveText(name);
+        await inPlainView(anon, anon.locator('main [data-disclaimer]').first(), `profile with a 40-character name (${name.slice(0, 6)}…) at ${width}px`);
+        expect(await anon.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      }
+      await sql`update users set display_name = 'FL Owner' where id = ${owner}`;
+    }
+  } finally {
+    await sql`update users set display_name = 'FL Owner' where id = ${owner}`;
+    await out.close(); await inn.close();
+  }
+});
+
+test('QA round 2 (N4): with the sign-in line raised at a phone height (481-699 px), the card keeps room under its F3 line and nothing in it is clipped; the room comes from a class too (no :has needed)', async ({ browser }) => {
+  test.setTimeout(120_000);
+  for (const height of [600, 690]) {
+    const ctx = await browser.newContext({ viewport: { width: 360, height }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    try {
+      const page = await ctx.newPage();
+      await page.goto('/');
+      const row = page.locator('.feed > .row[data-trade]').first();
+      const ret = (await row.locator('.card .hero .ret').boundingBox())!;
+      const x = Math.round(ret.x + ret.width / 2), y = Math.round(ret.y + ret.height / 2);
+      await touches(page, async (send) => { await send('touchStart', x, y); await send('touchEnd'); await page.waitForTimeout(90); await send('touchStart', x, y); await send('touchEnd'); });
+      await expect(page.locator('.signin-line')).toContainText('Sign in to like trades.');
+      await expect(page.locator('html')).toHaveClass(/\bbar-signin\b/);
+      const card = row.locator('article.card');
+      expect(await card.evaluate((el) => getComputedStyle(el).paddingBottom), `${height}`).toBe('96px');
+      // The card's last line (the F3 line) is inside the card and the row, not cut by the row's hidden overflow.
+      const line = card.locator('[data-disclaimer]');
+      const [l, c, r] = [(await line.boundingBox())!, (await card.boundingBox())!, (await row.boundingBox())!];
+      expect(l.y + l.height, `${height}: in the card`).toBeLessThanOrEqual(c.y + c.height + 1);
+      expect(l.y + l.height, `${height}: in the row`).toBeLessThanOrEqual(r.y + r.height + 1);
+      expect(await card.evaluate((el) => el.scrollHeight <= el.clientHeight + 1), `${height}: nothing overflows`).toBe(true);
+      await inPlainView(page, line, `card under the sign-in line at ${height}px`, 0);
+      // Closing the line drops the class (and the room) again.
+      await page.locator('.signin-line button').click();
+      await expect(page.locator('html')).not.toHaveClass(/\bbar-signin\b/);
+    } finally { await ctx.close(); }
   }
 });

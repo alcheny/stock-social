@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db.ts';
 import { records } from '@/lib/feed.ts';
 import { recordStates } from '@/lib/connections.ts';
-import { statusFor } from '@/lib/record-status-load.ts'; // FIXES-LABELS: status
+import { statusForOrNull as statusFor } from '@/lib/record-status-load.ts'; // FIXES-LABELS: status (QA round 2 N3: guarded, null on error)
 import { paneSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 

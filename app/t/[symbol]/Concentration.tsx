@@ -15,7 +15,7 @@ export default function Concentration({ c, symbol, demoOnly, mixed }: { c: Conce
   return (
     <section aria-label="Concentration check" data-testid="concentration" data-symbol={symbol} data-kind={c.kind}>
       <h2>Concentration check {demo && <Badge verified={false} />}</h2>
-      {demo && <p role="note" className="muted small">{FL.demoNote}</p>}
+      {/* QA round 2 (N9): the Demo sentence is said once, in the page note; the heading badge marks the section */}
       {mix && <p role="note" className="muted small">{FL.mixedNote}</p>}
       {c.kind === 'single' && <p style={{ marginTop: 0 }}>One trader made all {c.n} trades here.</p>}
       {c.kind === 'tie' && <p style={{ marginTop: 0 }}>{c.tied === 2 ? 'The two busiest traders' : 'The busiest traders'} each made {c.each} of {c.n} trades ({y}% each).</p>}

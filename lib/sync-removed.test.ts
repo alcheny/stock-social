@@ -96,6 +96,9 @@ dbTest('idle count: the same predicate as idleSince (last sync, else earliest li
     await sql`update users set last_synced_at = ${lastSyncDaysAgo === null ? null : new Date(Date.now() - lastSyncDaysAgo * DAY)} where id = ${u.id}`;
     for (const c of conns) await sql`insert into connections (attempt_id, user_id, state, consent_at, connected_at, disconnected_at)
       select signup_attempt_id, id, 'connected', ${new Date(Date.now() - c.consentDaysAgo * DAY)}, now(), ${c.disconnected ? new Date() : null} from users where id = ${u.id}`;
+    // QA round 2 (N5): the idle line needs a close, so every fixture has one (a record without one is lib/idle-count.test.ts's).
+    await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+      values (${u.id}, ${`${tag}${name}-s`}, 'a', 'AAA', ${new Date(Date.now() - 100 * DAY)}, ${new Date(Date.now() - 99 * DAY)}, 0.01, 1, true)`;
     return u.id;
   };
   const ids = [

@@ -87,14 +87,14 @@ test('AC6: baseline lines state counts and one measure on both sides, never a ve
   for (const [s, o] of cases) {
     const l = baselineLines('NVDA', s, o);
     for (const t of [l.this, l.others, l.note, FL.baselineHeading, FL.baselineThisTile, FL.baselineOthersTile]) assert.doesNotMatch(t, banned, t);
-    const ranges = [l.this, l.others].filter((t) => /average per trade, 95% range/.test(t)).length;
+    const ranges = [l.this, l.others].filter((t) => /95% range of the average per trade/.test(t)).length;
     assert.ok(ranges === 0 || ranges === 2, `${l.this} | ${l.others}`);
     assert.equal(l.ranged, ranges === 2);
   }
   const l = baselineLines('NVDA', many, othersMany);
   assert.ok(l.ranged);
-  assert.match(l.this, /^8 closed trades in NVDA by 8 traders: average per trade, 95% range \(.+ to .+\)\.$/);
-  assert.match(l.others, /^40 closed trades in other stocks recorded here: average per trade, 95% range \(.+ to .+\)\.$/);
+  assert.match(l.this, /^8 closed trades in NVDA by 8 traders: 95% range of the average per trade \(.+ to .+\)\.$/);
+  assert.match(l.others, /^40 closed trades in other stocks recorded here: 95% range of the average per trade \(.+ to .+\)\.$/);
   // Either side under MIN_BETS bets: both lines print the count only.
   assert.equal(baselineLines('NVDA', many, othersFew).others, '3 closed trades in other stocks recorded here.');
   assert.equal(baselineLines('NVDA', few, othersMany).this, `${MIN_BETS - 1} closed trades in NVDA by ${MIN_BETS - 1} traders.`);

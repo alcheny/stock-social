@@ -11,7 +11,7 @@ export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: Ho
     <section aria-label="Trades by hold time" data-testid="hold-time" data-symbol={symbol}>
       <h2>By hold time {demoOnly && <Badge verified={false} />}</h2>
       <p className="muted small" style={{ marginTop: 0 }}>Trades grouped by how long they were held. A group needs at least {MIN_HOLD_BUCKET} trades before a rate is shown.</p>
-      {demoOnly && <p role="note" className="muted small">{FL.demoNote}</p>}
+      {/* QA round 2 (N9): the Demo sentence is said once, in the page note; the heading badge marks the section */}
       {mixed && <p role="note" className="muted small">{FL.mixedNote}</p>}
       <p className="muted small" data-testid="hold-caption">{caption}</p>
       <table className="hold-table">

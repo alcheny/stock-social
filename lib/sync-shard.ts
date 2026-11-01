@@ -417,7 +417,7 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
     where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections')`).map((x) => [x.name as string, Number(x.setting)]));
   const db = { statementTimeoutMs: settings.statement_timeout ?? 0, idleInTxMs: settings.idle_in_transaction_session_timeout ?? 0, maxConnections: settings.max_connections ?? 0 };
   let idle: number | null = null;
-  try { idle = await idleCount(scope.ids); } catch (e) { console.error('sync idle count failed', logSafe(e)); } // FIXES-LABELS: status
+  try { idle = await idleCount(scope.ids, scope.idRange); /* QA round 2 (N5): the same scope */ } catch (e) { console.error('sync idle count failed', logSafe(e)); } // FIXES-LABELS: status
   const workers = Math.max(1, Math.min(cfg.concurrency, POOL_MAX - 2));
   const check = dbConfigCheck(db, { shards: of, workers, maxSyncCostMs: syncCost(SYNC_FIT_CAP), userLeaseMs: SYNC_LEASE_MS });
   const out: Coverage = {

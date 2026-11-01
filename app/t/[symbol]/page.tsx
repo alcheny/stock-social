@@ -181,7 +181,7 @@ export default async function Ticker({ params, searchParams }: Params) {
         <section aria-labelledby="also-h">
           <h2 id="also-h">Also closed by these traders</h2>
           <p className="muted small">Other stocks closed by people who have closed {symbol}. This is not a recommendation, and no returns are shown.</p>
-          {s.demoOnly && <p className="muted small">{FL.demoNote}</p>}
+          {/* QA round 2 (N9): the Demo sentence is said once, in the page note */}
           <ul className="rows ticker-rows">
             {related.map((r) => (
               <li key={r.symbol} className="related-li">

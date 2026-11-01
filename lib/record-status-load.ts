@@ -95,3 +95,12 @@ export async function statusFacts(userIds: number[], states: Map<number, RecordS
 export async function statusFor(userId: number, state: PublicState): Promise<StatusFacts | null> {
   return (await statusFacts([userId], new Map([[userId, { state }]]))).get(userId) ?? null;
 }
+
+// QA round 2 (N3): the pane, trade-share and recap reads guard the status line as the feed does (statusRowsOrEmpty): its
+// read failing leaves the line out (null), never the response or the page. Logged as a count only. `load` is a test hook.
+export function statusForOrNull(userId: number, state: PublicState, load: (id: number, state: PublicState) => Promise<StatusFacts | null> = statusFor): Promise<StatusFacts | null> {
+  return Promise.resolve().then(() => load(userId, state)).catch((e: unknown) => {
+    console.error('status facts failed, status line left out', JSON.stringify({ traders: 1 }), logSafe(e));
+    return null;
+  });
+}

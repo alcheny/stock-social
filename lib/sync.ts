@@ -367,13 +367,18 @@ export async function syncUser(
       and not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${tx(accounts.length ? accounts.map((a) => a.id) : [''])})`;
     // FIXES-LABELS: status (F-11, TR-5 "Account removed ‹date›"). Only after the vendor's list came back (a fetch error has
     // already thrown) and is not empty (an empty list is the disconnect path above): a confirmed real account the list
-    // no longer has, whose connection still lists at least one account, is stamped once; never cleared, like
-    // disconnected_at. Its trades stay listed (TR-1).
+    // no longer has, whose connection still lists at least one account, is stamped once (again after a relisting with a
+    // trade, QA round 2 N2); never cleared, like disconnected_at. Its trades stay listed (TR-1).
     // ponytail: an account removed while the vendor list is empty is recorded as a disconnect, not a removal — vendor per-account removal events
     if (accounts.length) {
       const listed = accounts.map((a) => a.id);
+      // QA round 2 (N2): stamped again when it was listed again in between (a trade on it executed after the last stamp,
+      // which only a later listing imports), so a second removal shows its own date (lib/record-status-load.ts hides a
+      // stamp older than such a trade).
       await tx`update broker_accounts b set removed_at = ${now}
-        where b.user_id = ${user.id} and b.removed_at is null and b.confirmed_at is not null and not b.is_paper and b.account_id not in ${tx(listed)}
+        where b.user_id = ${user.id} and b.confirmed_at is not null
+          and (b.removed_at is null or exists (select 1 from activities av where av.user_id = b.user_id and av.account_id = b.account_id and av.executed_at > b.removed_at))
+          and not b.is_paper and b.account_id not in ${tx(listed)}
           and exists (select 1 from connections c, jsonb_array_elements(c.accounts) a
             where c.user_id = ${user.id} and c.state = 'connected' and a->>'id' = b.account_id and coalesce((a->>'isPaper')::boolean, false) = false
               and exists (select 1 from jsonb_array_elements(c.accounts) l where l->>'id' in ${tx(listed)}))`;
@@ -442,11 +447,30 @@ export async function syncAll<U extends { id: number }>(users: U[], sync: (u: U)
 // FIXES-LABELS: status (F-11): the number of idle records, the predicate of lib/record-status.ts#idleSince in SQL: a
 // record with a live (not disconnected) consented connected connection whose last successful sync, or else its earliest
 // live consent, is IDLE_DAYS old or more. A frozen record (every connection disconnected) is not idle. A count only.
-export async function idleCount(ids?: number[]): Promise<number> {
+// QA round 2 (N5): only records that would show the idle line: at least one close, a broker record (no Demo data, not
+// built from public filings), no consented import running or failed, and not frozen by every live account being
+// removed (lib/record-status.ts#recordFrozen; a removal older than a later trade on that account does not count, as in
+// lib/record-status-load.ts). `idRange` is lib/sync-shard.ts's Scope.idRange (the coverage step's scope).
+// ponytail: the import/failed test is per consented connection, not lib/connections.ts#aggregateRecord's full rule (a legacy claim, paper-only links) — fix: store the record state per user and read it here
+export async function idleCount(ids?: number[], idRange?: [number, number]): Promise<number> {
   if (ids && !ids.length) return 0;
-  const [{ n }] = await sql`select count(*)::int as n from users u,
+  const [{ n }] = await sql`with live as (
+      select u.id as user_id, x.a->>'id' as account_id,
+        exists (select 1 from broker_accounts ba where ba.user_id = u.id and ba.account_id = x.a->>'id' and ba.removed_at is not null
+          and not exists (select 1 from activities av where av.user_id = u.id and av.account_id = ba.account_id and av.executed_at > ba.removed_at)) as removed
+      from users u join connections c on c.user_id = u.id and c.state = 'connected' and c.consent_at is not null and c.disconnected_at is null,
+        jsonb_array_elements(c.accounts) x(a)
+      where coalesce((x.a->>'isPaper')::boolean, false) = false ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
+        ${idRange ? sql`and u.id between ${idRange[0]} and ${idRange[1]}` : sql``})
+    select count(*)::int as n from users u,
       lateral (select min(c.consent_at) as first from connections c where c.user_id = u.id and c.state = 'connected' and c.consent_at is not null and c.disconnected_at is null) l
     where u.deleted_at is null and l.first is not null ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
-      and coalesce(u.last_synced_at, l.first) <= now() - make_interval(days => ${IDLE_DAYS})`;
+      ${idRange ? sql`and u.id between ${idRange[0]} and ${idRange[1]}` : sql``}
+      and coalesce(u.last_synced_at, l.first) <= now() - make_interval(days => ${IDLE_DAYS})
+      and u.public_filer_id is null
+      and exists (select 1 from closed_trades t where t.user_id = u.id)
+      and not exists (select 1 from activities d where d.user_id = u.id and d.source = 'demo')
+      and not exists (select 1 from connections c where c.user_id = u.id and c.consent_at is not null and c.state in ('importing', 'failed'))
+      and not (exists (select 1 from live where live.user_id = u.id) and not exists (select 1 from live where live.user_id = u.id and not live.removed))`;
   return n as number;
 }

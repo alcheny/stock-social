@@ -5,7 +5,7 @@ import { monthRecap, monthsOnRecord, wholeRecord, type RecapView } from './recap
 import { filerVisibleSql } from './public-gate.ts';
 import { openPercents } from './trade-share-load.ts';
 import { routeHandle } from './params.ts';
-import { statusFor } from './record-status-load.ts'; // FIXES-LABELS: status
+import { statusForOrNull as statusFor } from './record-status-load.ts'; // FIXES-LABELS: status (QA round 2 N3: guarded, null on error)
 
 // The only query behind the recap page and card. Reads closed_trades (so recaps stay public after disconnect), plus the
 // open positions' unrealized percents for the strip's open count on a connected or failed record (F-12).

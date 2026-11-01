@@ -4,7 +4,7 @@ import { publicRecord } from './connections.ts';
 import { tradeSharePayload, type TradeView } from './trade-share.ts';
 import type { RecordState } from './copy.ts';
 import { routeHandle } from './params.ts';
-import { statusFor } from './record-status-load.ts'; // FIXES-LABELS: status
+import { statusForOrNull as statusFor } from './record-status-load.ts'; // FIXES-LABELS: status (QA round 2 N3: guarded, null on error)
 import { filerVisibleSql } from './public-gate.ts';
 import { openingFilings, type PubRow } from './public-trades.ts';
 

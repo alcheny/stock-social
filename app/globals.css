@@ -547,6 +547,30 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    headroom at rest (e2e/record-strip.spec.ts). Landscape (<= 480 px) keeps F-10's own tight padding. */
 @media (min-height: 700px) { .feed .row > .card { padding-bottom: 96px; } }
 @media (min-height: 481px) { body:has(.hide-bar > p, .signin-line:not(:empty)) .feed .row > .card { padding-bottom: 96px; } }
+/* QA round 2 (N4): the same room without :has() — app/feed-hides.tsx and app/feed-gestures.tsx set these classes on <html>
+   while their bar is raised (a browser with neither :has nor JavaScript has no bar to raise). */
+@media (min-height: 481px) { html.bar-hide .feed .row > .card, html.bar-signin .feed .row > .card { padding-bottom: 96px; } }
+/* QA round 2 (B1): a public-filing pane's actions row holds the "…" menu alone (no Follow, no New record), so it shares
+   the badges' line; on a phone the pane starts closer under the nav and the chart's margins tighten, so the F3 line
+   right after the chart is on the first screen at 320×740 signed in, with 15% to spare. */
+.pane-actions.inline { flex-basis: auto; margin-left: auto; }
+/* ponytail: the public pane's 15% headroom at 320×740 signed in is measured with a 22-character filer name (6 px to spare); a longer name wraps the header further — fix: let the chart's scrub hint collapse on phones (main's chart) */
+@media (max-width: 400px) { .feed .row > .pane { padding-top: 56px; } .pane > figure.chart { margin: 8px 0 4px; } }
+/* QA round 2 (N11): the pane's F3 line stands apart from the summary sentence under it (not read as its caption). */
+.pane [data-disclaimer] { margin: 8px 0 12px; }
+/* QA round 2 (N8): the trade and month pages' status in two rows, set as one block like the profile's. */
+.trade-card [data-status="record"] { margin-bottom: 2px; }
+.trade-card [data-status="record2"] { margin-top: 0; }
+/* QA round 2 (B2): the profile tightens on a phone (as the trade and month pages do), so the F3 line after the headline
+   figures is on the first screen at 360×740 and 320×740 with 15% to spare, with a 40-character name or an F-7 top block. */
+@media (max-width: 400px) {
+  .profile-page h1 { font-size: 1.25rem; line-height: 1.25; margin-top: 8px; }
+  .profile-page .stats { margin: 8px 0; }
+  .profile-page .stat { padding: 10px; }
+  .profile-page .stat.big b { font-size: 28px; }
+  .profile-page .public-top { margin-bottom: 8px; }
+  .profile-page .public-top p { margin: 2px 0; }
+}
 /* D-05: the chart's first and last close, under the plot. */
 /* position: relative holds its sr-only sentence inside it (in the off-screen pane it would widen the page). */
 .chart-ends { position: relative; display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin: 4px 0 0; }

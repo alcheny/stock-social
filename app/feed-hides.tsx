@@ -25,6 +25,12 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
   const [hidden, setHidden] = useState<string[]>([]);
   const [trades, setTrades] = useState<string[]>([]);
   const [bar, setBar] = useState<Bar | null>(null);
+  // FIXES-LABELS (QA round 2 N4): while the bar is raised, html.bar-hide gives the feed cards room under their F3 line in
+  // browsers without :has() (app/globals.css).
+  useEffect(() => {
+    document.documentElement.classList.toggle('bar-hide', !!bar);
+    return () => document.documentElement.classList.remove('bar-hide');
+  }, [bar]);
   const timer = useRef(0);
   const undoBtn = useRef<HTMLButtonElement>(null);
   const anchor = useRef<Element | null>(null); // the row to keep at the top after the next change

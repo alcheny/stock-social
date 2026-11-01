@@ -60,7 +60,7 @@ dbTest('statusFacts: one query for the id set; frozen, two-account-removed, demo
     assert.equal(t.accounts, 2);
     assert.deepEqual(t.connections[0].accounts.map((a) => [a.id, a.isPaper, a.removedAt?.getTime() ?? null]), [[`${tag}-t1`, false, null], [`${tag}-t2`, false, removed.getTime()], [`${tag}-tp`, true, null]]);
     const tl = statusParts(t, now, 'live');
-    assert.deepEqual(tl.accounts.map((p) => p.text.replace(/removed .*/, 'removed')), ['Account 1 of 2 · Fake Brokerage', 'Account 2 of 2 · Account removed']);
+    assert.deepEqual(tl.accounts.map((p) => p.text.replace(/removed .*/, 'removed')), ['Account 1 of 2 · Fake Brokerage', 'Account 2 of 2 removed']);
     assert.match(tl.line2.map((p) => p.text).join(' · '), /^Last close .* · updated 2 hours ago$/);
     assert.equal(statusParts(f.get(none)!, now, 'live').show, false);
     // The caller's state wins: the same facts while importing show nothing.

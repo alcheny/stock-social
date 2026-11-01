@@ -65,3 +65,18 @@ What confused or stopped me (all non-blocking):
    "← Feed" on trade and month (20 px), and the chart dot links (12×12). Main's `tap44` is not applied to these.
 10. **Fixture data:** `qa2_idle` shows a close after its last sync, which reads as a contradiction. Real data can't
     produce it, so fix the fixture.
+
+## Follow-ups recorded in the final fix round (not in this branch)
+- Feed card close date: main's record strip replaces the "closed ‹date›" line, so a card shows a return with no date
+  (business lead 2). Owner: the strip's feature (F-10/F-12).
+- "Too early to tell" on cards and "Past results: unclear" on the profile read as verdicts (business lead 6): F-12/F-19.
+- Tap targets under 44 px that predate this branch: nav links, "← @handle's record" and "← Feed" on trade and month,
+  the chart's dot links (UX lead 9); apply main's `tap44`.
+- 200% zoom (180×370) horizontal overflow (QA round 1 #14, round 2 #14): wrap the nav and tabs, clamp() the headings.
+- The nav link "Publish your trades" is cut at 320 px (QA round 2 note 7).
+- The `qa2_idle` QA fixture shows a close after its last sync, which real data cannot produce (UX lead 10): fix the
+  fixture script, not the product.
+- The mixed-stock note ("Includes Demo trades, marked Demo…") still repeats per section on `/t/[symbol]`; the Demo
+  sentence is said once (N9), the mixed one could follow the same rule.
+- The owner's own profile pushes the figures and the F3 line below the fold with its action buttons (UX lead 8):
+  recheck once F-4 settles.

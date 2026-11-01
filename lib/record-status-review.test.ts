@@ -2,7 +2,9 @@
 // - item 5: a failed status read leaves the line out (an empty map), logged as counts only, never failing the feed.
 // - item 9: an account removed and later listed again (a trade on it after the removal) no longer reads "Account removed".
 // - item 11 (C3-5): a record none of whose connections carries disconnected_at always gets the live line, never
-//   "Disconnected" or "record frozen", also after an idle period and with a removed account.
+//   "Disconnected" or "record frozen", also after an idle period and with a removed account. QA round 2 (N7) amends it:
+//   with every live account removed no account is connected, and the record is frozen ("No account connected since
+//   ‹date› · record frozen", lib/qa-round-2.test.ts), still never "Disconnected".
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -56,16 +58,14 @@ const facts = (extra: Partial<StatusFacts>): StatusFacts => ({
 });
 const FROZEN = /Disconnected|record frozen|frozen/i;
 
-test('item 11: no disconnected_at on any connection → the live line, never frozen: fresh, idle, never synced, a removed account, two connections', () => {
+test('item 11: no disconnected_at on any connection and an account left → the live line, never frozen: fresh, idle, never synced, a removed account', () => {
   const cases: [string, StatusFacts][] = [
     ['fresh', facts({})],
     ['idle 45 days', facts({ lastSyncedAt: ago(45 * DAY) })],
     ['idle a year', facts({ lastSyncedAt: ago(365 * DAY) })],
     ['never synced, consent 400 days ago', facts({ lastSyncedAt: null })],
     ['one of two accounts removed', facts({ connections: [conn(1, [acct('a1'), acct('a2', ago(10 * DAY))])] })],
-    ['the only account removed', facts({ accounts: 1, connections: [conn(1, [acct('a1', ago(10 * DAY))])] })],
-    ['removed and idle', facts({ lastSyncedAt: ago(60 * DAY), accounts: 1, connections: [conn(1, [acct('a1', ago(50 * DAY))])] })],
-    ['two connections, all accounts removed', facts({ connections: [conn(1, [acct('a1', ago(5 * DAY))]), conn(2, [acct('b1', ago(4 * DAY))])] })],
+    ['two connections, one account removed', facts({ connections: [conn(1, [acct('a1', ago(5 * DAY))]), conn(2, [acct('b1')])] })],
   ];
   for (const [label, f] of cases) {
     for (const mode of ['live', 'static'] as const) {
@@ -76,8 +76,7 @@ test('item 11: no disconnected_at on any connection → the live line, never fro
       const live = f.connections.flatMap((c) => c.accounts).filter((x) => !x.isPaper && !x.removedAt).length;
       const removedAny = f.connections.some((c) => c.accounts.some((x) => x.removedAt));
       if (!removedAny) assert.equal(l.line1[1].text, connectedLine(f.brokers, f.accounts), `${label} ${mode}: line 1 is the live Connected line`);
-      else if (live) assert.equal(l.line1[1].text, connectedLine(['Fake Brokerage'], live), `${label} ${mode}: live accounts counted`);
-      else assert.equal(l.line1.length, 1, `${label} ${mode}: no account left, no Connected part`);
+      else assert.equal(l.line1[1].text, connectedLine(['Fake Brokerage'], live), `${label} ${mode}: live accounts counted`);
       for (const part of [...l.line1, ...l.line2, ...l.card]) assert.doesNotMatch(part.text, FROZEN, `${label} ${mode}: ${part.text}`);
     }
     for (const segs of [paneSegments(f, NOW), recordSegments(f, NOW), cardSegments(f, NOW)]) {
@@ -88,7 +87,7 @@ test('item 11: no disconnected_at on any connection → the live line, never fro
   const idle = statusParts(cases[1][1], NOW, 'live');
   assert.equal(idle.idle, true);
   assert.ok(idle.card.length > 0);
-  assert.match(statusParts(cases[4][1], NOW, 'live').accounts.map((p) => p.text).join(' | '), /Account removed/);
+  assert.match(statusParts(cases[4][1], NOW, 'live').accounts.map((p) => p.text).join(' | '), /Account 2 of 2 removed /);
 });
 
 // ---- item 9 ----
@@ -112,7 +111,7 @@ dbTest('item 9: "Account removed" is left out once a trade on that account execu
     const f = (await statusFacts([u], new Map([[u, { state: 'connected' as const }]]))).get(u)!;
     assert.deepEqual(f.connections[0].accounts.map((a) => [a.id, a.removedAt?.getTime() ?? null]), [[ids[0], null], [ids[1], removed.getTime()], [ids[2], null]]);
     const l = statusParts({ ...f, firstEntry: new Date(Date.now() - 30 * DAY) }, new Date(), 'live');
-    assert.deepEqual(l.accounts.map((p) => p.text.replace(/removed .*/, 'removed')), ['Account 1 of 3 · Fake Brokerage', 'Account 2 of 3 · Account removed', 'Account 3 of 3 · Fake Brokerage']);
+    assert.deepEqual(l.accounts.map((p) => p.text.replace(/removed .*/, 'removed')), ['Account 1 of 3 · Fake Brokerage', 'Account 2 of 3 removed', 'Account 3 of 3 · Fake Brokerage']);
     // Display only: the stored stamp is unchanged.
     const [row] = await sql`select removed_at from broker_accounts where account_id = ${ids[2]}`;
     assert.equal((row.removed_at as Date).getTime(), removed.getTime());
@@ -126,7 +125,8 @@ test('QA round 1 (finding 6): a removed account leaves the Connected count; (fin
   const two = statusParts(facts({ accounts: 2, connections: [conn(1, [acct('a1'), acct('a2', ago(3 * DAY))])] }), NOW, 'live');
   assert.equal(two.line1[1].text, 'Connected: Fake Brokerage (1 account)');
   const one = statusParts(facts({ accounts: 1, connections: [conn(1, [acct('a1', ago(3 * DAY))])] }), NOW, 'live');
-  assert.equal(one.line1.map((p) => p.text).join(' · '), 'Record since Jan 5, 2026');
+  // QA round 2 (N7): with the only account removed nothing is connected: the record is frozen at the removal.
+  assert.equal(one.line1.map((p) => p.text).join(' · '), 'Record since Jan 5, 2026 · No account connected since Oct 29, 2026 · record frozen');
   assert.match(one.accounts[0].text, /^Account removed /);
   // No removal: today's exact line (the vendor's institutions and the profile's account count).
   assert.equal(statusParts(facts({ accounts: 3 }), NOW, 'live').line1[1].text, 'Connected: Fake Brokerage (3 accounts)');

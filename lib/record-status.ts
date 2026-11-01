@@ -50,7 +50,7 @@ export function frozenAt(connections: StatusConnection[]): Date | null {
 // The record's reference time (its last successful sync, else its earliest live consent: a record that has not synced
 // yet right after connecting is not idle) when it is 30 days old or more and the record is not frozen; else null.
 export function idleSince(f: Pick<StatusFacts, 'lastSyncedAt' | 'connections'>, now: Date): Date | null {
-  if (frozenAt(f.connections)) return null;
+  if (recordFrozen(f.connections)) return null;
   const live = f.connections.filter((c) => !c.disconnectedAt);
   if (!live.length) return null;
   const ref = f.lastSyncedAt ?? new Date(Math.min(...live.map((c) => c.consentAt.getTime())));
@@ -74,26 +74,50 @@ function realAccounts(connections: StatusConnection[]): (StatusAccount & { conne
 
 const institutionOf = (c: StatusConnection, a?: StatusAccount) => (a?.institution ?? '').trim() || (c.institution ?? '').trim() || (c.accounts.find((x) => (x.institution ?? '').trim())?.institution ?? '').trim() || 'The broker';
 
+// QA round 2 (N7): a record whose live connections still list accounts but every one of them is removed (and the rest of
+// its connections are disconnected) has no account connected: it is frozen at the latest removal or disconnect, like a
+// disconnected record. `kind` picks the words ("Disconnected ‹d›" or "No account connected since ‹d›").
+export type Frozen = { at: Date; kind: 'disconnected' | 'removed' };
+export function recordFrozen(connections: StatusConnection[]): Frozen | null {
+  const all = frozenAt(connections);
+  if (all) return { at: all, kind: 'disconnected' };
+  const live = connections.filter((c) => !c.disconnectedAt);
+  const real = realAccounts(live);
+  if (!live.length || !real.length || real.some((a) => !a.removedAt)) return null;
+  const times = [...real.map((a) => a.removedAt!.getTime()), ...connections.filter((c) => c.disconnectedAt).map((c) => c.disconnectedAt!.getTime())];
+  return { at: new Date(Math.max(...times)), kind: 'removed' };
+}
+
+// QA round 2 (N8): one date form per line. A dated part is built lazily and a line is rendered once its parts are known:
+// the year shows on every date of the line when any of them needs it (static mode, a record date the council writes
+// with the year, or a date outside now's year), else on none.
+type Lazy = { text: string } | { d: Date; words: (abs: string) => string; year?: boolean; rel?: boolean };
 export function statusParts(f: StatusFacts, now: Date, mode: Mode): StatusLine {
   if (f.state === 'importing' || f.state === 'failed' || f.source === 'none' || f.source === 'filing' || !f.firstEntry) return NONE;
-  // Design system R3: the web year rule ('auto') for last close; the year always on images and cached renders, and
-  // always for the record's own dates (since, disconnect, removal, idle), which the council writes ‹Mon D, YYYY›.
-  const year = mode === 'static' ? 'always' : 'auto';
-  const t = (d: Date, y: 'auto' | 'always' = year, rel = false): PartTime => ({ iso: d.toISOString(), abs: dateText(d, now, { year: y }), ...(rel && mode === 'live' ? { rel: now.getTime() - d.getTime() < 60_000 ? S.justNow : relativeText(d, now) } : {}) });
-  const dated = (d: Date, words: (abs: string) => string, y: 'auto' | 'always' = year): Part => { const time = t(d, y); return { text: words(time.abs), time }; };
-  const long = (d: Date, words: (abs: string) => string) => dated(d, words, 'always');
+  const yearOf = (d: Date) => d.getUTCFullYear();
+  const render = (line: Lazy[]): Part[] => {
+    const year = mode === 'static' || line.some((p) => 'd' in p && (p.year || yearOf(p.d) !== yearOf(now))) ? 'always' : 'auto';
+    return line.map((p) => {
+      if (!('d' in p)) return p;
+      const time: PartTime = { iso: p.d.toISOString(), abs: dateText(p.d, now, { year }),
+        ...(p.rel && mode === 'live' ? { rel: now.getTime() - p.d.getTime() < 60_000 ? S.justNow : relativeText(p.d, now) } : {}) };
+      return { text: p.words(time.rel ?? time.abs), time };
+    });
+  };
+  // Design system R3: the record's own dates (since, disconnect, removal, idle) are written ‹Mon D, YYYY›.
+  const long = (d: Date, words: (abs: string) => string): Lazy => ({ d, words, year: true });
   const since = long(f.firstEntry, S.since);
-  const lastClose = f.lastClose ? [dated(f.lastClose, S.lastClose)] : [];
-  if (f.source === 'demo') return { ...NONE, show: true, line1: [since, { text: S.demoLink }] };
+  const lastClose: Lazy[] = f.lastClose ? [{ d: f.lastClose, words: S.lastClose }] : [];
+  if (f.source === 'demo') return { ...NONE, show: true, line1: render([since, { text: S.demoLink }]) };
 
-  const frozen = frozenAt(f.connections);
-  const idleRef = idleSince(f, now);
+  const frozen = recordFrozen(f.connections);
+  const idleRef = frozen ? null : idleSince(f, now);
   const gone = f.connections.filter((c) => c.disconnectedAt);
-  let line1: Part[];
-  let line2: Part[];
-  let card: Part[] = [];
+  let line1: Lazy[];
+  let line2: Lazy[];
+  let card: Lazy[] = [];
   if (frozen) {
-    const part = long(frozen, S.frozen);
+    const part = long(frozen.at, frozen.kind === 'removed' ? S.allRemoved : S.frozen);
     line1 = [since, part];
     line2 = lastClose; // frozen wins: no "updated", no idle
     card = [part];
@@ -104,20 +128,19 @@ export function statusParts(f: StatusFacts, now: Date, mode: Mode): StatusLine {
       line1 = [since, { text: connectedLine(insts, live.length) }, ...gone.map((c) => long(c.disconnectedAt!, (d) => S.instDisconnected(institutionOf(c), d)))];
     } else if (realAccounts(f.connections).some((a) => a.removedAt)) {
       // QA round 1 (finding 6): with a removed account, "Connected:" counts the live (not removed) accounts only, as the
-      // partial branch does; with none left it names no connection (the account line says removed).
+      // partial branch does (with none left the record is frozen above, QA round 2 N7).
       const live = realAccounts(f.connections).filter((a) => !a.removedAt);
       const insts = [...new Set(live.map((a) => institutionOf(a.connection, a)))];
-      line1 = live.length ? [since, { text: connectedLine(insts, live.length) }] : [since];
+      line1 = [since, { text: connectedLine(insts, live.length) }];
     } else {
       line1 = [since, { text: connectedLine(f.brokers, f.accounts) }];
     }
     if (idleRef) {
       const part = long(idleRef, S.idle);
       line2 = [...lastClose, part];
-      card = [{ ...part, text: part.text[0].toUpperCase() + part.text.slice(1) }]; // the card's line starts a sentence
+      card = [{ ...part, words: (d: string) => { const w = S.idle(d); return w[0].toUpperCase() + w.slice(1); } }]; // the card's line starts a sentence
     } else if (f.lastSyncedAt) {
-      const time = t(f.lastSyncedAt, year, true);
-      line2 = [...lastClose, { text: S.updated(time.rel ?? time.abs), time }];
+      line2 = [...lastClose, { d: f.lastSyncedAt, words: S.updated, rel: true }];
     } else {
       line2 = lastClose;
     }
@@ -126,9 +149,9 @@ export function statusParts(f: StatusFacts, now: Date, mode: Mode): StatusLine {
   const labels = accountLabels(f.connections);
   const real = realAccounts(f.connections);
   const accounts: Part[] = labels.size
-    ? real.map((a) => (a.removedAt ? long(a.removedAt, (d) => S.accountLine(labels.get(a.id)!, S.removed(d))) : { text: S.accountLine(labels.get(a.id)!, institutionOf(a.connection, a)) }))
-    : real.length === 1 && real[0].removedAt ? [long(real[0].removedAt, S.removed)] : [];
-  return { show: true, line1, line2, accounts, card, frozen, idle: !!idleRef };
+    ? real.map((a) => render([a.removedAt ? long(a.removedAt, (d) => S.removedNumbered(labels.get(a.id)!, d)) : { text: S.accountLine(labels.get(a.id)!, institutionOf(a.connection, a)) }])[0])
+    : real.length === 1 && real[0].removedAt ? render([long(real[0].removedAt, S.removed)]) : [];
+  return { show: true, line1: render(line1), line2: render(line2), accounts, card: render(card), frozen: frozen?.at ?? null, idle: !!idleRef };
 }
 
 // Parts → render segments joined by ' · '. A dated part splits around its shown date, which becomes a segment with an
@@ -152,6 +175,17 @@ export function segments(parts: Part[]): Segment[] {
 // absolute date beside it, visibly ("2 hours ago (Nov 1)"); a title tooltip alone is not there on touch.
 export const timeText = (s: Segment): string => (s.title ? `${s.text} (${s.title})` : s.text);
 
+// QA round 2 (N8): each date stays on one line with the word before it ("Disconnected Nov 1, 2026", "removed Oct 28,
+// 2026", "updated 2 hours ago (Nov 1)"): the shown time's spaces and the space right before it are no-break spaces, so
+// a row wraps only at " · " and between other words. Pure, so the rendered text is unit-tested.
+export const NBSP = '\u00a0';
+export function glued(segs: Segment[]): Segment[] {
+  return segs.map((s, i) => {
+    if (s.iso) return { ...s, text: s.text.replace(/ /g, NBSP), ...(s.title ? { title: s.title.replace(/ /g, NBSP) } : {}) };
+    return segs[i + 1]?.iso && s.text.endsWith(' ') ? { ...s, text: `${s.text.slice(0, -1)}${NBSP}` } : s;
+  });
+}
+
 // The feed card's segments (static: the feed page's rows are also sent by the paging action and may be shown later):
 // a frozen or idle record only, else undefined (nothing renders).
 export function cardSegments(f: StatusFacts | undefined, now: Date): Segment[] | undefined {
@@ -162,14 +196,21 @@ export function cardSegments(f: StatusFacts | undefined, now: Date): Segment[] |
 // QA round 1 (finding 11): a Demo record's "Demo data" is the strip label right under this line, so the line says it
 // once (here only "Record since ‹date›").
 export function recordSegments(f: StatusFacts | null | undefined, now: Date): Segment[] | undefined {
+  const rows = recordRows(f, now);
+  return rows && segments(rows.flat());
+}
+// QA round 2 (N8): the trade and month pages print the status in two rows like the profile (row 1: since and the
+// connection; row 2: last close and updated), each row with one date form. Parts, not segments: the caller renders
+// each row with segments().
+export function recordRows(f: StatusFacts | null | undefined, now: Date): Part[][] | undefined {
   const l = f ? statusParts(f, now, 'live') : null;
   if (!l?.show) return undefined;
-  return segments(f!.source === 'demo' ? l.line1.filter((p) => p.text !== S.demoLink) : [...l.line1, ...l.line2]);
+  return (f!.source === 'demo' ? [l.line1.filter((p) => p.text !== S.demoLink)] : [l.line1, l.line2]).filter((r) => r.length);
 }
 // Trade and month images: a frozen record's line, absolute date with the year, never relative; else null.
 export function imageFrozenText(f: StatusFacts | null | undefined, now: Date): string | null {
   const l = f ? statusParts(f, now, 'static') : null;
-  return l?.show && l.frozen ? S.frozen(dateText(l.frozen, now, { year: 'always' })) : null;
+  return l?.show && l.frozen ? l.card.map((p) => p.text).join(' · ') : null; // QA round 2 (N7): the same words as the card
 }
 // The pane's segments (static: the pane JSON is cached 60 s): line 1 without "Record since" (the pane says since when
 // already), then line 2.
