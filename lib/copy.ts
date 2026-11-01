@@ -308,6 +308,19 @@ export const CLOSES_PAGING = {
 
 export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated', skip: 'Skip to disclaimer and legal links' } as const;
 
+// F-13 (first-visit line, swipe hint, nav)
+// end F-13
+
+
+
+// A11Y-FIXES: feed (group 2)
+// end A11Y-FIXES feed
+
+
+
+// A11Y-FIXES: copy, titles (group 3)
+// end A11Y-FIXES copy
+
 // Privacy work (2026-11-01): the launch gate's closed states (lib/launch-gate.ts, committee D6–D8). No date, no promise.
 export const LAUNCH = {
   closed: "Sign-up isn't open yet. Existing accounts can still sign in.",
