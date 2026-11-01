@@ -31,6 +31,18 @@ the stock image, reusing F-10's `RecordStrip`. Approved by the approval council
   "whole record". Why: approved by the approval council (UX lead). The wording was corrected after the orchestrator's review
   of #44: "full record" is a completeness claim that fix #8 removes (POLICY F3a), and F-11 bans it. Idea 16's
   "full-record link" names the link's target, not its text.
+- 2026-11-01 (build committee, `logs/F-12/committee-2026-11-01.md`): the month page drops its win rate, "Past results:"
+  verdict and the "Too few trades" branch; every month shows the count line, the average with its range (or "Too early to
+  tell"), best and worst, and the trade list. Why: D-24 / POLICY F3b (Q13 stays the owner's question about images).
+- 2026-11-01 (build committee): the record heading reads "@‹handle›'s record" and back links "← @‹handle›'s record"; the
+  trade page's duplicate footer record link is removed. Why: POLICY F3a; one link per destination.
+- 2026-11-01 (build committee): month image drops best and worst (kept on the page). Record lines 35 px at 1200 wide,
+  the range line ≥ 30 px, nothing under 26 px, contrast ≥ 4.5:1; anti-crop band x 309–891. Why: the legibility-floor
+  open question, decided by the committee.
+- 2026-11-01 (build committee), owner note: the stock image shows status, symbol, closed-trade count, trader count with
+  "losses included" and the disclaimer, and no pooled average, range, win rate or verdict. Its alt text is static and
+  states no figures, so the image-alt AC applies to the trade and month images. Why: a per-stock average with a range
+  rates the stock (F3b), and pooled bets are not the profile's statistic; the /t pages belong to another session.
 
 ## Acceptance criteria
 - [ ] Trade and month pages show the shared `RecordStrip` with closed-trade count, average per trade with its range

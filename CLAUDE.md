@@ -20,6 +20,9 @@ violations on every PR. The rules that matter most while working:
 - `docs/COMPLIANCE.md` is the reference behind POLICY: which laws sit behind each rule and the per-change
   checklist (its Section 1) that every PR answers under a `## Compliance` heading.
 
+Working in parallel with other clients: `docs/process/README.md`; check `docs/process/coordination.md` and open PRs before
+claiming work.
+
 ## Product
 
 **Stock Social**: public, verified trading records pulled read-only from supported brokers. Traders connect a
@@ -110,10 +113,16 @@ plus `Status: rework`. Don't write code in a design session unless asked. The fe
 (`features.yml`, switch `FEATURES`) builds ready features in parallel (up to `FEATURE_PARALLEL`), coordinating
 shared files through briefs and hand-off notes, and auto-merges each green PR once it contains the latest main; it
 runs until nothing is ready or rework, and it's separate from the autopilot (docs/FEATURES.md).
+Mechanics: `docs/FEATURES.md` → "How Claude runs a design session (chat)" and "The pipeline (CI)".
 
 ## Autopilot
 
 Team member specs live in `team/` (overview: `team/README.md`); the autopilot reads them directly.
+
+Three lanes build this repo (glossary and how they coexist: `docs/process/README.md`):
+- Lane A, the autopilot loop: `docs/AUTOPILOT.md`.
+- Lane B, the feature pipeline: `docs/FEATURES.md`.
+- Lane C, interactive orchestrator sessions: `docs/process/`.
 
 This repo is built by an autonomous loop: see `docs/AUTOPILOT.md` (modes, branch teams, controls, hard
 rules). Modes: `request` (humans file every task), `human` (business lead ⇄ engineer plan, humans make the final merge), `auto` (identical process; business-lead makes the final merge).
@@ -139,8 +148,11 @@ variant (each following the Branch team process in `docs/AUTOPILOT.md`, writing 
 Trade-offs, What to measure). Don't pick yourself. Decisions are recorded only by `/choose`/`/reject`
 (human) or business-lead via the Judge workflow (`AUTOPILOT_MODE=auto`) into `docs/DECISIONS.md`; read that file before
 proposing directions.
+Open question for the owner: `docs/process/decisions-and-authority.md` → Open questions (Q1).
 
 ## Known limits (marked `ponytail:` in code)
 
 - Options are skipped in `fetchActivities`; long-only FIFO.
 - `/api/sync` loops users sequentially (~5k/hour). Next steps: shard by `user_id % N`, then a queue.
+
+Convention: `docs/process/quality.md` → Ponytail convention.

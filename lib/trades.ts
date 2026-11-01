@@ -1,7 +1,7 @@
 // Pure trade math. No I/O — everything shown to users is derived here from raw activities,
 // so a bug is fixed by recomputing (see docs/DESIGN.md §2.5).
 
-import { count, counted } from './format.ts';
+import { count, counted, pct } from './format.ts';
 import { MIN_BETS, RANK_MIN_BETS, tooWide } from './confidence.ts';
 import { LATE_POSTING_DAYS, RATIO_TOLERANCE, renameRatio, resolveRatio, type CorporateAction, type Ratio } from './corporate-actions.ts';
 
@@ -301,18 +301,8 @@ export function stats(trades: Pick<ClosedTrade, 'returnPct' | 'holdingDays' | 'c
   };
 }
 
-// Signed percent. A value that rounds to zero reads "0.0%" (never "-0.0%" or "+0.0%", same as an exact zero). A loss
-// short of -100% never rounds to a total loss: it gets up to 4 more digits ("-99.98%"), and past that reads "≈-100.0%".
-export function pct(x: number, digits = 1): string {
-  const fixed = (d: number) => (x * 100).toFixed(d);
-  let s = fixed(digits);
-  if (Number(s) === 0) return `${fixed(digits).replace('-', '')}%`;
-  if (x > -1 && Number(s) <= -100) {
-    for (let d = digits + 1; d <= digits + 4 && Number(s) <= -100; d++) s = fixed(d);
-    if (Number(s) <= -100) return `≈${fixed(digits)}%`;
-  }
-  return `${x > 0 ? '+' : ''}${s}%`;
-}
+// pct() lives in lib/format.ts (F-19: one home); re-exported here so existing imports keep working.
+export { pct };
 
 // Chart navigation: arrow keys move the active point, clamped at the ends (no wrap, so the ends are obvious).
 export const stepIndex = (i: number, delta: number, n: number) => Math.min(Math.max(i + delta, 0), n - 1);

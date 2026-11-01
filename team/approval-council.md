@@ -2,7 +2,7 @@
 
 The owner delegated (2026-11-01) the choice of new functions and requirements to a large committee: the ideas the
 council elects most strongly over several rounds are approved without waiting for the owner, become feature files,
-and are built by the parallel committee process (`docs/features/logs/coordination-2026-11-01.md`,
+and are built by the parallel committee process (`docs/process/coordination.md`,
 `docs/IMPLEMENTATION.md`). The owner can still overrule any approval, and owner decisions always win.
 
 ## Where ideas come from
@@ -56,4 +56,5 @@ recommendation.
 The orchestrator numbers the feature (F-<n>), adds it to the coordination map with the files it owns and its
 merge position, and starts a build session for it (or folds it into a running session that owns the same files).
 The build follows the committee cycle: plan debate, tests first, tester, user tests, independent review, CI.
+Steps in `docs/IMPLEMENTATION.md` → The cycle (interactive differences: `docs/process/lifecycle.md`).
 Every cycle's votes are filed in `docs/ideas/approval-<date>.md` and the register in `docs/IDEAS.md` is updated.
