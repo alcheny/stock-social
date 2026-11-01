@@ -309,6 +309,19 @@ export const CLOSES_PAGING = {
 export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated', skip: 'Skip to disclaimer and legal links' } as const;
 
 // F-13 (first-visit line, swipe hint, nav)
+// D27 and SW-1, verbatim (lib/f13-copy.test.ts). `demo` is the existing profile-card alt sentence, no new claim.
+// If F-7 public profiles enter the feed, `line` becomes false for them and goes back to the idea board (2026-11-01).
+export const FIRST_VISIT = {
+  line: 'Verified trades, straight from the broker. Losses included.',
+  how: FOOTER.how,
+  dismiss: 'Dismiss',
+  demo: 'Demo data, not a real broker record.',
+  hint: 'Swipe ← for profile',
+} as const;
+export const NAV = { stocks: 'Trades by stock' } as const;
+// Fix #9 (POLICY F3a): the Verified badge's title and the footer's Verified sentence share this one definition.
+export const VERIFIED_MEANING = 'Imported read-only from the trader’s broker. It doesn’t verify identity or imply endorsement.';
+export const verifiedMeansFooter = () => `“Verified” means ${VERIFIED_MEANING[0].toLowerCase()}${VERIFIED_MEANING.slice(1)}`;
 // end F-13
 
 
