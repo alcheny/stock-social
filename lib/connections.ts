@@ -2,6 +2,7 @@
 // import (one vendor page per step, one transaction per step under the per-user advisory lock), expiry and staleness
 // clocks, and vendor cleanup. docs/features/F-1-broker-connection.md decisions; docs/features/logs/F-1/plan.md §1, §8.
 import { sql } from './db.ts';
+import { markGenuine, markTwins } from './reconcile.ts';
 import type { TransactionSql } from 'postgres';
 import * as vendor from './broker.ts';
 import type { BrokerUser, VendorAccount } from './broker.ts';
@@ -577,6 +578,12 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         await insertActivities(c.user_id!, 'snaptrade', page.activities, tx);
         await insertCorporateActions(tx, c.user_id!, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
         await insertOptionActivities(c.user_id!, 'snaptrade', options, tx); // OPTIONS
+        // F-24 (D5): a row with an older stored twin (a reconnect re-reads the whole history) is held until a read lists
+        // both; a pair this page listed both rows of is genuine.
+        // ponytail: two genuine identical fills split across two import pages are held until the account's first pass
+        // (at least a week after the claim) — fix: keep the import's listed ids for the pair check, as a pass does.
+        await markTwins(tx, c.user_id!);
+        await markGenuine(tx, c.user_id!, page.activities.map((a) => a.externalId));
         return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
       }
       // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.

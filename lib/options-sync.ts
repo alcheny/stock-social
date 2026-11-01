@@ -196,7 +196,17 @@ export async function withRenames(tx: TransactionSql, userId: number, taint: { a
 
 /** D4 (a)–(d), round 3: the whole record rebuild, in one transaction. Callers use this instead of rebuildTrades. */
 export async function rebuildRecord(userId: number, tx?: TransactionSql, asOf = new Date()) {
+  // F-24 (D4): every rebuild that changes or removes a close already shown (share or option) is counted and logged
+  // (lib/reconcile.ts#logRewrites: the internal user id and counts only). Theses are not part of the comparison.
+  // ponytail: the snapshot reads every close's hash twice per rebuild, even when nothing new was stored — fix: take it
+  // only when the transaction stored a raw row, changed a re-issue state or the account set (reliability r1-8).
   const run = async (tx: TransactionSql) => {
+    const before = await snapshotCloses(tx, userId);
+    const out = await rebuildAll(tx);
+    await logRewrites(tx, userId, before);
+    return out;
+  };
+  const rebuildAll = async (tx: TransactionSql) => {
     const shares = await rebuildTrades(userId, tx); // (a) unchanged
     // (b) + (c): share closes in the same account and stock whose hold spans an exercise or assignment day. Their
     // theses are kept aside (re-attached by sell_id when the taint goes), the closes are removed and counted.
@@ -404,4 +414,43 @@ export async function replaceAccountOptionPositions(tx: TransactionSql, userId: 
         option_right = excluded.option_right, option_expiry = excluded.option_expiry, fetched_at = now()`;
   }
   await purgeOccPositions(tx, userId);
+}
+
+// F-24 (docs/features/F-24-late-sell-reconciliation.md): the option side of the late-postings work, here because this file
+// is the one allowed to read the option tables (lib/options-load.test.ts AC23).
+/** Option rows with an older twin stored in this transaction (counted, not held: plan item 10, owner item). */
+export async function optionTwins(tx: TransactionSql, userId: number): Promise<number> {
+  const [{ n }] = await tx`select count(distinct n.external_id)::int as n from option_activities n join option_activities e on e.user_id = n.user_id and e.source = n.source
+      and e.account_id is not distinct from n.account_id and e.contract_key is not distinct from n.contract_key and e.kind is not distinct from n.kind
+      and e.open_close is not distinct from n.open_close and e.executed_at = n.executed_at and e.contract_units is not distinct from n.contract_units
+      and e.share_price is not distinct from n.share_price and e.external_id <> n.external_id and e.created_at < n.created_at
+    where n.user_id = ${userId} and n.source = 'snaptrade' and n.created_at = now()`;
+  return n as number;
+}
+
+// ---- D4: the close-change log ----
+type Snapshot = { ids: string[]; hashes: string[] };
+const closes = (db: Db, userId: number) => db`select 's:' || sell_id as id, md5((account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)::text) as h
+    from closed_trades where user_id = ${userId}
+  union all select 'o:' || close_id, md5((account_id, underlying, option_right, option_expiry, opened_at, closed_at, return_pct, holding_days, verified)::text)
+    from option_trades where user_id = ${userId}`;
+/** The user's shown closes (share and option), as ids and row hashes (theses left out: a thesis edit is the trader's). */
+export async function snapshotCloses(tx: TransactionSql, userId: number): Promise<Snapshot> {
+  const [r] = await tx`select coalesce(array_agg(id), '{}') as ids, coalesce(array_agg(h), '{}') as hashes from (${closes(tx, userId)}) c`;
+  return { ids: r.ids as string[], hashes: r.hashes as string[] };
+}
+/** Compares the closes now with a snapshot. Changed or removed closes that were already shown are added to
+ *  users.closes_rewritten and logged (the internal user id and counts only). */
+export async function logRewrites(tx: TransactionSql, userId: number, before: Snapshot) {
+  const [r] = await tx`with b as (select * from unnest(${before.ids}::text[], ${before.hashes}::text[]) b(id, h)), a as (${closes(tx, userId)})
+    select count(*) filter (where a.id is not null and b.id is not null and a.h is distinct from b.h)::int as changed,
+      count(*) filter (where a.id is null)::int as removed, count(*) filter (where b.id is null)::int as added
+    from b full join a on a.id = b.id`;
+  const changed = r.changed as number, removed = r.removed as number, added = r.added as number;
+  if (changed + removed > 0) {
+    await tx`update users set closes_rewritten = closes_rewritten + ${changed + removed} where id = ${userId}`;
+    const id = userId;
+    console.log('sync closes rewritten', id, JSON.stringify({ changed, removed, added }));
+  }
+  return { changed, removed, added };
 }

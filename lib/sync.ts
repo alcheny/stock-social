@@ -9,9 +9,12 @@ import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pa
 import { firstByKey, moveUnlistedPositions, replaceListedPositions, settleAccountPositions } from './positions.ts';
 import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
+// F-24 late-posted trades (docs/features/F-24-late-sell-reconciliation.md): the pass cursor, the re-issue states and the
+// rebuild's hold filter.
+import { bringForward, dropUnread, markGenuine, markTwins, notReissued, pageFailureCounts, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
-import { insertOptionActivities, lastOptionActivityAt, markBackfilled, pendingBackfill, moveUnlistedOptionPositions, rebuildRecord, replaceAccountOptionPositions, saveBackfill } from './options-sync.ts';
+import { insertOptionActivities, optionTwins, lastOptionActivityAt, markBackfilled, pendingBackfill, moveUnlistedOptionPositions, rebuildRecord, replaceAccountOptionPositions, saveBackfill } from './options-sync.ts';
 import type { OptionRow } from './options.ts';
 import type { PositionSplit } from './broker.ts';
 
@@ -132,6 +135,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
+        and ${notReissued(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
       for (const r of page) {
@@ -160,6 +164,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
+        and ${notReissued(tx)}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
       maxHeld = Math.max(maxHeld, rows.length);
       await flush(rows.map((r) => ({
@@ -177,7 +182,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at,
           thesis_reports_from = excluded.thesis_reports_from, thesis_checked_version = excluded.thesis_checked_version`;
     }
-    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)}
+    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)} and ${notReissued(tx)}
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
@@ -409,6 +414,11 @@ export async function syncUser(
   const shiftMs = opts.shiftMs ?? 0;
   // The vendor reads that returned (recorded only after each call returns), for the marks written after the transaction.
   const readActs: string[] = [], readPos: string[] = [];
+  // F-24: accounts planned for a pass page this sync, and those whose page step threw an error that counts (after the
+  // transaction: reconcile_failures).
+  let recPlanned: string[] = [];
+  const recFailed = new Set<string>();
+  let committed = false;
   const consentedAuths = async (tx: TransactionSql) => new Set((await tx`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
       where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`).map((r) => r.auth as string));
   const lock = async (tx: TransactionSql) => (await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${user.id}) as got`)[0].got as boolean;
@@ -493,6 +503,9 @@ export async function syncUser(
       // Accounts that read a backfill history page this sync in place of their week (their recent sells are not read).
       let pagedIds: string[] = [];
       let read = 0;
+      // F-24: the ids each read listed, so a pair it listed both rows of is genuine (a week read: only inside its window).
+      const listedBy: string[] = [];
+      let weekListed: string[] = [], weekFrom: Date | null = null;
       if (!last && broker.fetchActivitiesPage) {
         // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
         const limit = broker.pageLimit ?? PAGE_LIMIT;
@@ -500,6 +513,7 @@ export async function syncUser(
           for (let offset = 0; ; offset += limit) {
             const page = await broker.fetchActivitiesPage(bu, id, offset, limit, sink);
             if (offset === 0) readActs.push(id); // F-14 (code review): marked once its first page returned
+            listedBy.push(...page.activities.map((a) => a.externalId));
             await insertActivities(user.id, 'snaptrade', page.activities, tx);
             await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
@@ -507,6 +521,7 @@ export async function syncUser(
             if (page.done) break;
           }
         }
+        await restartPeriod(tx, user.id, actIds, t); // F-24: a whole-history read; the next pass a period later
         if (allRead) await markBackfilled(tx, user.id); // OPTIONS: the whole history was read with the option types
         // OPTIONS × F-14 (review nit): a gated account waits, but those read in full owe no backfill (cursor -1).
         else if (actIds.length) await saveBackfill(tx, user.id, real, new Map(actIds.map((id) => [id, -1])));
@@ -518,15 +533,22 @@ export async function syncUser(
         // ponytail: under F-14 a backfill page is that account's daily activities read, so a history of k pages takes about
         // k days to backfill its options — the vendor's written answer (MR-1) on history pages would let them go hourly.
         const backfill = broker.fetchActivitiesPage ? await pendingBackfill(tx, user.id) : new Map<string, number>();
-        const paged = actIds.filter((id) => backfill.has(id));
-        pagedIds = paged;
-        const windowed = actIds.filter((id) => !backfill.has(id));
+        // F-24 (plan §3): a due pass page replaces the account's week read (the option backfill's page wins). Only under
+        // `cadence` (the shard runner's production path), and only for accounts due today (`actIds` ⊆ real: consented,
+        // not frozen, not paper), so the pass stays inside F-14's one activities read per account per 24 h.
+        const passes = opts.cadence && broker.fetchActivitiesPage ? await plannedPages(tx, user.id, actIds.filter((id) => !backfill.has(id)), t) : new Map<string, PassPlan>();
+        recPlanned = [...passes.keys()];
+        const paged = actIds.filter((id) => backfill.has(id) || passes.has(id));
+        pagedIds = actIds.filter((id) => backfill.has(id));
+        const windowed = actIds.filter((id) => !backfill.has(id) && !passes.has(id));
+        weekFrom = new Date(since.getTime() + 86_400_000); // a day clear of the window's time-zone boundary
         if (opts.cadence) {
           // F-14 (code review): one call per account, each recorded as it returns, so a failure on a later account
           // still marks the reads already made (G2's floor applies to them).
           for (const id of windowed) {
             const got = tradeRead(await broker.fetchActivities(bu, since, [id], sink));
             readActs.push(id);
+            weekListed.push(...got.activities.map((a) => a.externalId));
             await insertActivities(user.id, 'snaptrade', got.activities, tx);
             await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
@@ -534,6 +556,7 @@ export async function syncUser(
           }
         } else {
           const got = windowed.length ? tradeRead(await broker.fetchActivities(bu, since, windowed, sink)) : { activities: [], unusable: [] };
+          weekListed = got.activities.map((a) => a.externalId);
           await insertActivities(user.id, 'snaptrade', got.activities, tx);
           await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
           await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
@@ -541,16 +564,36 @@ export async function syncUser(
         }
         const progress = new Map<string, number>();
         for (const id of paged) {
-          const limit = broker.pageLimit ?? PAGE_LIMIT, offset = backfill.get(id)!;
-          const page = await broker.fetchActivitiesPage!(bu, id, offset, limit, sink);
-          readActs.push(id);
-          await insertActivities(user.id, 'snaptrade', page.activities, tx);
-          await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: the option backfill page too
-          await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
-          read += page.activities.length;
-          progress.set(id, page.done ? -1 : offset + limit);
+          const limit = broker.pageLimit ?? PAGE_LIMIT;
+          const pass = backfill.has(id) ? undefined : passes.get(id);
+          const offset = pass ? pass.offset : backfill.get(id)!;
+          try {
+            const page = await broker.fetchActivitiesPage!(bu, id, offset, limit, sink);
+            readActs.push(id);
+            await insertActivities(user.id, 'snaptrade', page.activities, tx);
+            await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: the option backfill page too
+            await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
+            read += page.activities.length;
+            const ids = page.activities.map((a) => a.externalId);
+            listedBy.push(...ids);
+            if (!pass) {
+              progress.set(id, page.done ? -1 : offset + limit);
+              if (page.done) await restartPeriod(tx, user.id, [id], t); // F-24: the backfill read the whole history
+              continue;
+            }
+            // F-24: a page of this account's pass. Rows it inserted are checked for twins before the pass end decides.
+            await markTwins(tx, user.id);
+            const listed = [...ids, ...(page.unusable ?? []).map((u) => u.externalId)];
+            const r = await recordPage(tx, user.id, id, pass, limit, listed, page.done, t);
+            // A one-page pass read the whole history in one call, a superset of the week read; any other page is a
+            // history page: positions-only rule (TR-4) and "Updated" keeps its value (plan §3).
+            if (!r.onePage) pagedIds.push(id);
+          } catch (e) {
+            if (pass && pageFailureCounts(e)) recFailed.add(id);
+            throw e;
+          }
         }
-        if (paged.length) await saveBackfill(tx, user.id, real, progress);
+        if (progress.size) await saveBackfill(tx, user.id, real, progress);
         if (!last && allRead) await markBackfilled(tx, user.id); // the since-2000 read is the whole history
       }
       // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
@@ -564,6 +607,18 @@ export async function syncUser(
           await insertCorporateActions(tx, user.id, 'snaptrade', moves.actions);
           read += moves.activities.length;
         }
+      }
+      // F-24 (D5, plan §2): every row this transaction stored with an older twin is held until a read lists both rows or
+      // a complete pass decides it; a pair one read listed both rows of is genuine (a week read: only inside its window).
+      const found = await markTwins(tx, user.id);
+      const cleared = (await markGenuine(tx, user.id, listedBy)) + (weekFrom ? await markGenuine(tx, user.id, weekListed, undefined, weekFrom) : 0);
+      if (opts.cadence) await bringForward(tx, user.id, t); // a row a week read could not decide: the next pass comes sooner
+      await dropUnread(tx, user.id, real); // retention: an account no longer read drops its running pass's ids
+      const optTwins = await optionTwins(tx, user.id);
+      if (found || cleared || optTwins) {
+        const { id } = user; // the internal id and counts only (lib/privacy-logs.test.ts)
+        const counts = await reissueCounts(tx, user.id);
+        console.log('sync reissues', id, JSON.stringify({ found, cleared, pending: counts.pending, suspected: counts.suspected, optionTwins: optTwins }));
       }
       // F-14 (G4): rebuilt when activities were read or the account set changed, so last_synced_at means "activities
       // last read" (the freshness line, the queue order, the coverage age). Always without `cadence`.
@@ -634,7 +689,7 @@ export async function syncUser(
         opts.report?.({ accounts: real.length, activitiesRead: actIds.length, positionsRead: broker.fetchPositions ? posIds.length : 0, deferred, rebuilt });
       }
       return read;
-    });
+    }).then((r) => { committed = r !== 'skipped'; return r; });
   } catch (e) {
     // A cut at the route's end (RouteDeadlineError, lib/sync-shard.ts) is not a failed sync: its reads leave no marks, so
     // the next call reads at once instead of waiting out the 6 h floor (orchestrator review).
@@ -645,6 +700,12 @@ export async function syncUser(
     if (opts.cadence && (readActs.length || readPos.length)) {
       const { id } = user; // the internal id only (lib/privacy-logs.test.ts)
       try { await writeMarks(id, readActs, readPos, shiftMs); } catch (e) { console.error('sync marks failed', id, logSafe(e)); }
+    }
+    // F-24 (plan item 7): a page step that failed counts toward giving its pass up; a committed sync clears the counts.
+    const recIds = committed ? recPlanned : [...recFailed];
+    if (recIds.length) {
+      const { id } = user;
+      try { await writeReconcileFailures(id, recIds, !committed); } catch (e) { console.error('sync reconcile marks failed', id, logSafe(e)); }
     }
   }
 }
