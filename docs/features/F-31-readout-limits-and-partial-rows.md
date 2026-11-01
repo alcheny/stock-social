@@ -1,7 +1,6 @@
 # F-31 · The readout states its limits and splits trader and filer views
 
-Status: blocked
-Blocked: waits for fixes F4-11 and F4-12 (cycle-4 fixes list, branch `claude/fixes-cycle4`, not yet pushed) to merge, since both edit `scripts/f15-readout.ts`, unless the fixes builder takes F-31 on the same branch
+Status: building
 Start conditions: F4-11 (demo filers in the demo exclusion) and F4-12 (invite views on Demo profiles) merge
 (`docs/direction/cycle4-2026-11-01.md` §5), or the same builder carries all three. It is its own build slot (the readout
 slot).
