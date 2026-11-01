@@ -407,7 +407,8 @@ export type Coverage = {
   of: number; missingShards: number; unclaimedPrevRound: number; neverSynced: number; stalestHours: number;
   inBackoff: number; refused: number; quarantined: number; oldestRefusalHours: number; dbConfigOk: boolean; dbProblems: string[];
   db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
-  // F-14 (G9): the cadence's evidence. Activities reads in the last 24 h over connected real accounts (≤ 1 by the cap;
+  // F-14 (G9): the cadence's evidence, over the accounts still read (a live connection's snapshot, not disconnected,
+  // not simulated; code review). Activities reads in the last 24 h over connected real accounts (≤ 1 by the cap;
   // `capBreach` above 1.05), and the oldest activities and positions reads of connected real accounts (alarms above
   // 26 h and 18 h: reads drift to about every 25 h; positions normally go 12–13 h unread before the read an activities
   // read forces, up to about 17 h with round jitter and late marks, tester's trace).
@@ -436,9 +437,15 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
       (select count(*)::int from s where s.sync_failure_kind = 'quarantined') as quarantined,
       (select coalesce(extract(epoch from clock.t - min(s.sync_failing_since)) / 3600, 0)::float8 from s, clock where s.sync_failure_kind = 'refused' group by clock.t) as "oldestRefusalHours",
       (select coalesce(sum(n.activities), 0)::int from sync_read_counts n, clock where n.hour > clock.t - interval '24 hours' and n.hour <= clock.t) as "activitiesReads24h",
-      (select count(*)::int from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null) as "realAccounts",
-      (select case when bool_or(ba.activities_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.activities_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null, clock group by clock.t) as "oldestActivitiesReadHours",
-      (select case when bool_or(ba.positions_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.positions_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null, clock group by clock.t) as "oldestPositionsReadHours"`;
+      (select count(*)::int from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null
+        and exists (select 1 from connections lc, jsonb_array_elements(lc.accounts) la where lc.user_id = s.id and lc.state = 'connected'
+          and lc.disconnected_at is null and la->>'id' = ba.account_id)) as "realAccounts",
+      (select case when bool_or(ba.activities_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.activities_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null
+        and exists (select 1 from connections lc, jsonb_array_elements(lc.accounts) la where lc.user_id = s.id and lc.state = 'connected'
+          and lc.disconnected_at is null and la->>'id' = ba.account_id), clock group by clock.t) as "oldestActivitiesReadHours",
+      (select case when bool_or(ba.positions_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.positions_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null
+        and exists (select 1 from connections lc, jsonb_array_elements(lc.accounts) la where lc.user_id = s.id and lc.state = 'connected'
+          and lc.disconnected_at is null and la->>'id' = ba.account_id), clock group by clock.t) as "oldestPositionsReadHours"`;
   const settings = Object.fromEntries((await sql`select name, setting from pg_settings
     where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections')`).map((x) => [x.name as string, Number(x.setting)]));
   const db = { statementTimeoutMs: settings.statement_timeout ?? 0, idleInTxMs: settings.idle_in_transaction_session_timeout ?? 0, maxConnections: settings.max_connections ?? 0 };

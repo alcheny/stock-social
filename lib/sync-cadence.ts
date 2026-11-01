@@ -34,8 +34,11 @@ const free = (col: Frag, every: number, t: Frag, consent: Frag) =>
 // Future timestamps count as free (G1); the window ignores reads in the future.
 export function dueSql(accountId: Frag, userId: Frag, t: Frag) {
   // Aliases are prefixed (cad_*) so an outer query's own aliases (c, a, u) can be used in the arguments.
+  // A consent dated past the clock's slack (connected_at is written from the app's clock) is ignored, so a skewed or
+  // buggy connected_at never turns the throttle off (code review).
   const consent = sql`coalesce((select max(cad_c.connected_at) from connections cad_c, jsonb_array_elements(cad_c.accounts) cad_a
-      where cad_c.user_id = ${userId} and cad_c.state = 'connected' and cad_a->>'id' = ${accountId}), '-infinity'::timestamptz)`;
+      where cad_c.user_id = ${userId} and cad_c.state = 'connected' and cad_a->>'id' = ${accountId}
+        and cad_c.connected_at <= ${t} + ${ms(FUTURE_SLACK_MS)}), '-infinity'::timestamptz)`;
   const reads = sql`coalesce(cad_m.positions_reads, '{}'::timestamptz[])`;
   const last24 = sql`(select count(*)::int from unnest(${reads}) cad_r(r) where r > ${t} - ${ms(ACTIVITIES_EVERY_MS)} and r <= ${t} + ${ms(FUTURE_SLACK_MS)})`;
   const lastPos = sql`(select max(r) from unnest(${reads}) cad_r(r) where r <= ${t} + ${ms(FUTURE_SLACK_MS)})`;

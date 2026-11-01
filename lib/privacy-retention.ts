@@ -17,8 +17,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   corporate_actions: { personal: true, retention: 'account', holds: 'raw broker corporate-action rows (splits, stock dividends, renames): symbols, share counts, account ids; deleted with the profile' },
   closed_trades: { personal: true, retention: 'account', holds: 'derived public record: symbols, dates, percent returns, holding periods, theses' },
   // Sharded sync (docs/SYNC.md): one row per shard: its lease, heartbeat and last run's counts. No user ids.
-  // F-14 sync cadence: the last successful activities read of an account whose sync then failed (vendor account id).
-  sync_read_marks: { personal: true, retention: 'account', holds: 'vendor account id and the time its activities were last read by a failed sync' },
+  // F-14 sync cadence: per account (vendor account id), the last successful vendor reads, whatever the sync's outcome.
+  sync_read_marks: { personal: true, retention: 'account', holds: 'vendor account id, the time of its last successful activities read and its last 4 positions reads (written after every hourly sync, whatever its outcome)' },
   // F-14: vendor reads per hour, counts only.
   sync_read_counts: { personal: false, retention: 'none', holds: 'hourly counts of vendor reads (numbers only)' },
   sync_shards: { personal: false, retention: 'none', holds: 'per-shard sync lease, heartbeat and run counters (numbers only)' },

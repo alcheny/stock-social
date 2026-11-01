@@ -5,7 +5,7 @@ import { AccountClaimedError, claimIn } from './claims.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
 import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pairKey } from './corporate-actions.ts';
-import { replaceAccountPositions, replacePositions } from './positions.ts';
+import { replaceAccountPositions, replacePositions, settleAccountPositions } from './positions.ts';
 import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
 
@@ -401,19 +401,29 @@ export async function syncUser(
         for (const id of actIds) {
           for (let offset = 0; ; offset += limit) {
             const page = await broker.fetchActivitiesPage(bu, id, offset, limit);
+            if (offset === 0) readActs.push(id); // F-14 (code review): marked once its first page returned
             await insertActivities(user.id, 'snaptrade', page.activities, tx);
             read += page.activities.length;
             if (page.done) break;
           }
-          readActs.push(id);
         }
       } else {
         // The hourly case: the last week before the newest stored activity (bounded by a week of trading, not the history).
         const since = last ? new Date(last.getTime() - BACKFILL_MS) : new Date('2000-01-01');
-        const acts = actIds.length ? await broker.fetchActivities(bu, since, actIds) : [];
-        readActs.push(...actIds);
-        await insertActivities(user.id, 'snaptrade', acts, tx);
-        read = acts.length;
+        if (opts.cadence) {
+          // F-14 (code review): one call per account, each recorded as it returns, so a failure on a later account
+          // still marks the reads already made (G2's floor applies to them).
+          for (const id of actIds) {
+            const acts = await broker.fetchActivities(bu, since, [id]);
+            readActs.push(id);
+            await insertActivities(user.id, 'snaptrade', acts, tx);
+            read += acts.length;
+          }
+        } else {
+          const acts = actIds.length ? await broker.fetchActivities(bu, since, actIds) : [];
+          await insertActivities(user.id, 'snaptrade', acts, tx);
+          read = acts.length;
+        }
       }
       // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
       // rebuild applies them. Counted: SYNC_REQUESTS_PER_ACCOUNT is 3 (activities, positions, share moves), so syncCost,
@@ -446,8 +456,9 @@ export async function syncUser(
             const rows = (await broker.fetchPositions(bu, id)).map((p) => ({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct }));
             readPos.push(id);
             if (withActs.has(id)) {
-              // Read with this account's activities (and its rebuild): the vendor's list replaces the account's rows.
-              await replaceAccountPositions(tx, user.id, [id], rows);
+              // Read with this account's activities (and its rebuild): listed positions are updated and added; one the
+              // vendor no longer lists goes once its sell is imported (or after 3 days unlisted), lib/positions.ts.
+              await settleAccountPositions(tx, user.id, id, rows);
             } else if (rows.length) {
               // G3 (TR-4): a positions-only read adds and updates, never removes, so a position closed at a loss stays
               // listed until the read that also publishes its closed trade.
