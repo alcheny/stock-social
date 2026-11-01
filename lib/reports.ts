@@ -18,6 +18,9 @@ export const REPORT_HOLD_AT = 3;
 export const REPORT_INTERVAL_MS = 60_000;
 export const REPORT_RULE = 'reports';
 const ID = /^[0-9]{1,18}$/;
+// #82: a card names its close by the stable trade_key (64 hex: sha256 of the sell id, lib/likes.ts#tradeKey), which
+// survives rebuildTrades; a row id (what older pages sent) is still accepted, with the same rules.
+const TRADE_KEY = /^[0-9a-f]{64}$/;
 
 export type ReportOutcome = 'reported' | 'held' | 'signed-out' | 'invalid' | 'not-found' | 'own' | 'already' | 'rate';
 export type ReportDeps = { allow: (key: string, tx: TransactionSql) => boolean | Promise<boolean> };
@@ -27,7 +30,8 @@ export const defaultReportDeps: ReportDeps = { allow: (key, tx) => hit(limitKey(
 
 export async function reportThesis(reporterId: number | null | undefined, tradeId: unknown, deps: ReportDeps = defaultReportDeps): Promise<ReportOutcome> {
   if (!reporterId) return 'signed-out';
-  if (typeof tradeId !== 'string' || !ID.test(tradeId)) return 'invalid';
+  if (typeof tradeId !== 'string' || !(ID.test(tradeId) || TRADE_KEY.test(tradeId))) return 'invalid';
+  const byKey = TRADE_KEY.test(tradeId);
   return sql.begin(async (tx): Promise<ReportOutcome> => {
     // The row lock serializes reports on one note, so the third distinct reporter always sees the other two.
     // Fix round 4 (item 2): a note that is missing, empty or not published (held for any rule, including by these
@@ -36,7 +40,7 @@ export async function reportThesis(reporterId: number | null | undefined, tradeI
     // author is told it is their own (they know their note exists).
     const [t] = await tx`select t.user_id, t.sell_id, t.thesis_status, t.thesis_reports_from, t.thesis_edited_at from closed_trades t
       join users u on u.id = t.user_id and ${visibleUser('u')} and u.public_filer_id is null -- F-7: filers have no notes; F-16: nor a hidden profile
-      where t.id = ${tradeId} and t.thesis is not null and t.thesis <> '' for update of t`;
+      where ${byKey ? sql`t.trade_key = ${tradeId}` : sql`t.id = ${tradeId}`} and t.thesis is not null and t.thesis <> '' for update of t`;
     if (!t) return 'not-found';
     if (t.user_id === reporterId) return 'own';
     if (t.thesis_status !== 'published') return 'not-found';
