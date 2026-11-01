@@ -763,3 +763,16 @@ create table if not exists sitemap_chunks (
   published int not null,
   built_at timestamptz not null default now()
 );
+
+-- Known-limits sweep 2 (billing): the daily reconciliation is one pass resumed tick by tick (lib/billing.ts#reconcile).
+-- billing_runs 'reconcile': the pass in progress (start, phase, cursor = the last processor subscription id handled,
+-- failures at that cursor) and its lease (a token fencing every pass write, and its expiry).
+-- 'reconcile_daily' (no new columns): when grace expiry and the purges last ran.
+select schema_add_column('billing_runs', 'pass_started_at', 'timestamptz');
+select schema_add_column('billing_runs', 'phase', $d$text check (phase in ('list', 'missing'))$d$);
+select schema_add_column('billing_runs', 'cursor', 'text');
+select schema_add_column('billing_runs', 'fails', 'int not null default 0');
+select schema_add_column('billing_runs', 'lease_id', 'text');
+select schema_add_column('billing_runs', 'lease_until', 'timestamptz');
+-- When the current pass last listed or fetched this subscription; rows the pass has not seen are fetched one by one.
+select schema_add_column('subscriptions', 'listed_at', 'timestamptz');

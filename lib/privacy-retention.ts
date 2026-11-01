@@ -47,7 +47,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   billing_customers: { personal: true, retention: 'account', holds: 'the processor customer id of a subscriber; deleted with the account after the processor customer is deleted' },
   subscriptions: { personal: true, retention: 'account', holds: 'processor subscription id, plan, status, period dates, grace and dispute times; deleted with the account after the subscription is canceled at the processor' },
   billing_events: { personal: false, retention: 'short', holds: 'processor event id, type, object and customer ids, processing state; no payload; purged 35 days after receipt and at the customer\'s account deletion' },
-  billing_runs: { personal: false, retention: 'none', holds: 'when the daily billing reconciliation last started' },
+  billing_runs: { personal: false, retention: 'none', holds: 'when the daily billing reconciliation and the daily grace expiry and purges last ran; the pass in progress (start, phase, last processor subscription id handled, failures at it) and its lease' },
   billing_consents: { personal: true, retention: 'reserved', holds: 'renewal consent: plan, disclosure version and hash, time; no IP, email or name. At account deletion the user link is removed and the row is kept 3 years under the processor customer id (legal defense of renewal consent), then purged' },
   record_views: { personal: true, retention: 'account', holds: 'a subscriber\'s private saved comparison: name only; deleted with the account' },
   record_view_traders: { personal: true, retention: 'account', holds: 'the traders in a private saved view and their order; deleted with the view or either account' },
