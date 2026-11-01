@@ -26,11 +26,17 @@
 # (docs/features/) are the owner's decisions, written in design sessions; agents can't edit them.
 /scripts/features.ts @alcheny
 /scripts/features.test.ts @alcheny
+
+# The hand-off check between the agents' job and Publish (docs/AUTOPILOT.md → Security)
+/scripts/handoff.ts @alcheny
+/scripts/handoff.test.ts @alcheny
 /docs/FEATURES.md @alcheny
 /docs/AUTOPILOT.md @alcheny
 /team/ @alcheny
 /.claude/agents/ @alcheny
 /CLAUDE.md @alcheny
+/AGENTS.md @alcheny
+/.mcp.json @alcheny
 /playwright.config.ts @alcheny
 
 # Product decisions (CEO-owned); DECISIONS.md is written only by the Choose and Judge workflows
