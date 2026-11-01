@@ -64,7 +64,12 @@ const page = (state: 'connected' | 'failed') => renderToStaticMarkup(createEleme
 const notices = (html: string) => html.match(/<p [^>]*class="[^"]*\bwarn-notice\b[^"]*"[^>]*>[\s\S]*?<\/p>/g) ?? [];
 const count = (html: string, cls: string) => (html.match(new RegExp(`class="(?:[^"]* )?${cls}(?: [^"]*)?"`, 'g')) ?? []).length;
 // The words of a notice: its text with tags removed (the icon carries none).
-const words = (n: string) => n.replace(/<svg[\s\S]*?<\/svg>/, '').replace(/<[^>]+>/g, '').replace(/&#x27;/g, "'").trim();
+// Tags stripped until nothing changes (a single pass can leave a tag formed by what it removed); entities decoded last.
+const words = (n: string) => {
+  let t = n, prev;
+  do { prev = t; t = t.replace(/<[^>]*>/g, ''); } while (t !== prev);
+  return t.replace(/&#x27;/g, "'").trim();
+};
 
 // ---- AC1, AC2: the bar baseline ----
 test('F-27 AC1: the bar baseline in Spread and Timeline is drawn in --control; no chart baseline in app/t/[symbol]/ uses --line', () => {

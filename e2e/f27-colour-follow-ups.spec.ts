@@ -73,7 +73,7 @@ const pane = (page: Page) => page.locator(`.row[data-trade="${top.id}"] section.
 async function oneNotice(page: Page, scope: Locator, where: string) {
   const n = scope.locator('.warn-notice');
   await expect(n, `${where}: one notice`).toHaveCount(1);
-  await expect(n.locator('span').first(), `${where}: words`).toHaveText(new RegExp(`^${WORDS.replace(/[.,]/g, '\\$&')}`));
+  await expect(n.locator('span').first(), `${where}: words`).toHaveText(new RegExp(`^${WORDS.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   const [warn, text] = [await token(page, 'warn'), await token(page, 'text')];
   const s = await n.evaluate((el) => {
     const cs = getComputedStyle(el), icon = el.querySelector('[data-warn-icon]')!, words = el.querySelector(':scope > span')!;
