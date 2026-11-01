@@ -21,7 +21,8 @@ dbTest('visibleUser / visibleUserIds skip a user marked for deletion', async () 
   const tag = `vu${Math.random().toString(36).slice(2, 9)}`;
   const sym = tag.toUpperCase().slice(0, 8);
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
-  const mk = async (h: string) => createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: h });
+  const attempts: number[] = [];
+  const mk = async (h: string) => { const a = await createAttempt({ method: 'dev', attested: true }); attempts.push(a); return createUserForAttempt(a, { handle: h }); };
   const live = await mk(`${tag}a`);
   const gone = await mk(`${tag}b`);
   await sql`update users set deleted_at = now() where id = ${gone.id}`;
@@ -38,5 +39,9 @@ dbTest('visibleUser / visibleUserIds skip a user marked for deletion', async () 
     assert.deepEqual(users.map((u) => isVisibleUser(u as { deleted_at: Date | null })), [true, false]);
   } finally {
     await sql`delete from users where id in (${live.id}, ${gone.id})`;
+    {
+      await sql`delete from funnel_events where attempt_id in ${sql(attempts)}`;
+      await sql`delete from signup_attempts where id in ${sql(attempts)}`;
+    }
   }
 });

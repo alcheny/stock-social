@@ -69,7 +69,9 @@ test('fix #19: a flat figure is uncolored on /me/likes and /me/record', async ()
   assert.equal(tone(0.0004), 'flat');
   assert.equal(tone(-0.0006), 'down');
   assert.equal(tone(0.0006), 'up');
-  assert.match(src('app/open-rows.tsx'), /export const toneClass = \(x: number\) => \{ const t = tone\(x\); return t === 'flat' \? undefined : t; \};/);
+  // Wherever F-19 moves tone(), toneClass stays tone() with 'flat' mapped to no class (app/open-rows.tsx is JSX, so it
+  // can't be imported here).
+  assert.match(src('app/open-rows.tsx'), /export const toneClass = [^\n]*tone\(x\)[^\n]*'flat' \? undefined/);
   assert.doesNotMatch(src('app/me/likes/page.tsx'), /> 0 \? 'up' : 'down'/);
   assert.match(src('app/me/likes/page.tsx'), /className=\{toneClass\(r\.returnPct\)\}/);
   assert.match(src('app/me/record/page.tsx'), /const sign = toneClass;/);
