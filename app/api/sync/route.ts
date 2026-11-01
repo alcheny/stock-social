@@ -13,6 +13,8 @@ import { logSafe } from '@/lib/privacy-log.ts';
 import { purgePrivacy, type PrivacyPurgeReport } from '@/lib/privacy-purge.ts';
 import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
 import { gateReport } from '@/lib/launch-gate.ts';
+import { publicTradersOn } from '@/lib/public-gate.ts';
+import { importPublicFilings, type ImportReport } from '@/lib/public-import.ts';
 
 const PRIVACY_SLOT_MS = 5_000;
 const PRIVACY_STAGE_MS = 10_000;
@@ -85,6 +87,9 @@ export async function POST(req: NextRequest) {
   // Only traders with a connected (consented) connection and no import in progress, each claimed once per round
   // (lib/sync.ts), in this shard, by bounded concurrent workers under the shard's lease (lib/sync-shard.ts).
   const run = syncs ? await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt) }) : null;
+  // F-7: public filings, one bounded stage after the broker sync, once per cron mark (≤ 20 s, its own try/catch), switch on only.
+  let publicImport: ImportReport | null = null;
+  try { if (zero && publicTradersOn() && left() > 0) publicImport = await importPublicFilings({ boxMs: Math.min(20_000, left()) }); } catch (e) { console.error('public import failed', logSafe(e)); }
   await privacyStages(Math.min(PRIVACY_STAGE_MS, left()));
   let cover: Coverage | null = null;
   let launch: ReturnType<typeof gateReport> | null = null;
@@ -98,7 +103,7 @@ export async function POST(req: NextRequest) {
   const { failedIds = [], ...counters } = run ?? {};
   return NextResponse.json({
     ok: run?.done ?? 0, skipped: run?.skipped ?? 0, failed: failedIds, unclaimed: run?.remaining ?? null, stoppedAtDeadline: run?.stoppedAtDeadline ?? false,
-    run: run ? counters : null, coverage: cover, ...housekeeping, ...(zero ? { privacy, displayLog, launch, ms } : {}),
+    run: run ? counters : null, coverage: cover, ...housekeeping, ...(zero ? { privacy, displayLog, publicImport, launch, ms } : {}),
   });
 }
 

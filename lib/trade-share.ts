@@ -31,6 +31,7 @@ export function tradeSharePayload(i: TradeShareInput, today: Date) {
 export type TradeView = ReturnType<typeof tradeSharePayload> & {
   handle: string; displayName: string; state: RecordState; verified: boolean;
   open?: number[]; // unrealized percents, read for a connected or failed record only
+  filings?: { sold: string; bought: string[] } | null; // F-7: a public record's filing links
 };
 
 export const tradeStripInput = (t: TradeView): StripInput => ({
