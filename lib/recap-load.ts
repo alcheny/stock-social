@@ -4,6 +4,7 @@ import { publicRecord } from './connections.ts';
 import { monthRecap, wholeRecord, type RecapView } from './recap.ts';
 import { openPercents } from './trade-share-load.ts';
 import { routeHandle } from './params.ts';
+import { optionHeadline, paneView } from './options-load.ts'; // OPTIONS: the strip's "Excluding options", gated per trader
 
 // The only query behind the recap page and card. Reads closed_trades (so recaps stay public after disconnect), plus the
 // open positions' unrealized percents for the strip's open count on a connected or failed record (F-12).
@@ -17,5 +18,6 @@ export async function loadRecap(handle: string, ym: string) {
   const recap = monthRecap(all, ym, now);
   if (!recap) return null;
   const state = (await publicRecord(Number(u.id))).state;
-  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: wholeRecord(all, now), open: await openPercents(Number(u.id), state) } satisfies RecapView;
+  const excludingOptions = paneView((await optionHeadline([Number(u.id)])).get(Number(u.id))!).label; // OPTIONS
+  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: wholeRecord(all, now), open: await openPercents(Number(u.id), state), excludingOptions } satisfies RecapView;
 }

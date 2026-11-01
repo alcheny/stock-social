@@ -44,7 +44,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     const badge = paneTrust(page.byUser.get(t.user_id) ?? [], state).badge;
     badges.set(t.user_id, badge);
     const demo = badge === 'demo';
-    const s = f && recordStrip({ ...f, state, demo, verified: !demo, handle: t.handle }, 'feed');
+    const s = f && recordStrip({ ...f, state, demo, verified: !demo, handle: t.handle, excludingOptions: page.options?.get(t.user_id)?.label /* OPTIONS */ }, 'feed');
     strips.set(t.user_id, s);
     return s;
   };

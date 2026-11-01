@@ -4,6 +4,7 @@ import { publicRecord } from './connections.ts';
 import { tradeSharePayload, type TradeView } from './trade-share.ts';
 import type { RecordState } from './copy.ts';
 import { routeHandle } from './params.ts';
+import { optionHeadline, paneView } from './options-load.ts'; // OPTIONS: the strip's "Excluding options", gated per trader
 
 // The only query behind the trade page and card. A held thesis is nulled in SQL, so it never reaches rendering code.
 export async function loadTradeShare(handle: string, sellId: string) {
@@ -25,7 +26,8 @@ export async function loadTradeShare(handle: string, sellId: string) {
   // the profile's rule (a failed import is never presented as a whole verified record).
   const verified = all.length > 0 && all.every((r) => r.verified);
   const state = (await publicRecord(Number(t.user_id))).state;
-  return { ...payload, handle, displayName: t.display_name as string, state, verified, open: await openPercents(Number(t.user_id), state) } satisfies TradeView;
+  const excludingOptions = paneView((await optionHeadline([Number(t.user_id)])).get(Number(t.user_id))!).label; // OPTIONS
+  return { ...payload, handle, displayName: t.display_name as string, state, verified, open: await openPercents(Number(t.user_id), state), excludingOptions } satisfies TradeView;
 }
 
 // F-12 (F-6 on every surface): the trader's open positions as unrealized percents, for the strip's open count. Read only

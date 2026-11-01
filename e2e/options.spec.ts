@@ -367,3 +367,25 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(renderToStaticMarkup(h('div', null, h(ShareTradesLabel, { show: paneView({ gate: 'closed', counts: counts() }).label }), h(PaneOptions, { v: paneView({ gate: 'closed', counts: counts() }) })))).toBe('<div></div>');
   });
 }
+
+// ---- Fix round 4 (legal round 3 demand 5, AC 24): the F-10/F-12 record strip carries the qualifier on the demo trader
+// with options, on the trade page and the month page and in their image alt text, and never an option figure; a trader
+// without options keeps the strip as it was.
+test('fix round 4: the record strip says "Excluding options" on the demo trader\'s trade and month pages (and their alt text); not on a trader without options', async ({ page }) => {
+  const [t] = await sql`select c.sell_id, to_char(c.closed_at, 'YYYY-MM') as ym from closed_trades c join users u on u.id = c.user_id where u.handle = 'yolo_yuki' order by c.closed_at desc limit 1`;
+  test.skip(!t, 'the demo data is not seeded (npm run db:seed)');
+  for (const path of [`/u/yolo_yuki/trade/${encodeURIComponent(t.sell_id)}`, `/u/yolo_yuki/month/${t.ym}`]) {
+    await page.goto(path);
+    const strip = page.locator('section[aria-labelledby="whole-record"] [data-strip]');
+    await expect(strip).toContainText(`losses included · ${OPTIONS.shareLabel}`);
+    const alt = (await page.locator('meta[property="og:image:alt"]').first().getAttribute('content')) ?? '';
+    expect(alt, path).toContain('Excluding options.');
+    const html = await page.content();
+    for (const bad of ['Call option', 'Put option', '123.45', 'Options:']) expect(html, path).not.toContain(bad);
+    expect(html, path).not.toMatch(OCC);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  }
+  const [m] = await sql`select c.sell_id from closed_trades c join users u on u.id = c.user_id where u.handle = 'momentum_maya' order by c.closed_at desc limit 1`;
+  await page.goto(`/u/momentum_maya/trade/${encodeURIComponent(m.sell_id)}`);
+  await expect(page.locator('section[aria-labelledby="whole-record"] [data-strip]')).not.toContainText(OPTIONS.shareLabel);
+});
