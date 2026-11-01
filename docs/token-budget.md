@@ -113,6 +113,13 @@ compared with the cap's low end. `none` when the worst case fits under cap low; 
 but the point case (spend + Σ running point + Σ admitted point) fits under cap high; `likely` when even
 the point case is over cap high.
 
+**Fill** (the owner's aim is to end each window with nothing left). `fill.expectedUnusedUsd` = cap point −
+spend − Σ running remaining (point) − Σ admitted estimates (point); work that will not finish before reset
+still counts in full. When it is positive the plan asks for more work: `recommendAdmitUsd`, and
+`suggestedKinds`, the kinds whose typical hours fit before the reset and whose point prior fits in the
+unused budget, biggest first, so near the reset it recommends shorter items. Zero under a brake; null
+while the cap is unknown.
+
 The governor never limits rate: it has no per-hour limits, pacing or concurrency caps, in code or in its
 default config. It only keeps running sessions' reserves and queues work that would not fit under 100%.
 
