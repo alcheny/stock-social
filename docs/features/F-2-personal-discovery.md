@@ -1,7 +1,6 @@
 # F-2 · Personalized discovery of traders and records
 
-Status: blocked
-Blocked: PR-5 needs counsel's opinion (plan H2) before it is built and the Privacy Policy update (H4) before real viewers; PR-6 follows PR-5. PR-1 to PR-4 and PR-3b are merged.
+Status: ready
 
 ## Why
 A viewer who has looked at or followed certain traders and records should see more of what they like:
@@ -67,6 +66,10 @@ advice. The owner has been told this and the scope below respects it.
 - 2026-11-01: Viewers also get "Personalize my feed: Off": with it off, ordering ignores follows, likes and
   activity and falls back to the order everyone gets, minus the viewer's own hides. Why: the owner adopted the
   legal committee's recommendation; it is cheap and strengthens the legal position.
+- 2026-11-01: F-2 is ready again: the pipeline builds PR-5 (behavior-based ordering) and PR-6 with the legal
+  committee's conditions as acceptance criteria, its findings standing in for counsel's opinion (POLICY, owner
+  decision 2026-11-01). Real viewers still wait for the Privacy Policy (H4). PR-1 to PR-4 and PR-3b are merged.
+  Why: the owner's decision.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
@@ -94,6 +97,19 @@ Each one testable; the pipeline writes a test for every line.
 - [ ] Tests: cold start (no signals), one signal, many signals, a viewer who only reads losing records,
       heavy use (thousands of viewers scored per hour), and the deterministic fallback when the model
       call fails.
+- [ ] "Personalize with my activity" is off by default, On and Off equally prominent; with it off, no
+      impression, dwell or skip is logged and none is used; "Clear my activity" deletes the events and any
+      derived affinities at once (tests prove both).
+- [ ] "Personalize my feed: Off" makes ordering ignore follows, likes and activity: the viewer gets the order
+      everyone gets, minus their own hides.
+- [ ] Likes and rejects affect ordering for 90 days, fading over the window (`signalsFor`, `viewerProfile`);
+      they stay stored until removed or the account is deleted; orphaned rows are purged.
+- [ ] A "Hidden trades" list with "Show again", and a persistent "N trades hidden by you. Show them" line,
+      keyboard and screen-reader operable, ship before behavior-based ordering.
+- [ ] The watchlist is never an ordering input, and no watch or unwatch event is written while the symbol
+      flag is off.
+- [ ] No reason line names a security to buy, sell or hold; every reason is a fact about the trader's record
+      or the viewer's own actions (POLICY F1a).
 
 ## Out of scope
 - Trade recommendations, "AI picks", price targets, anything personalized about a symbol to buy.
