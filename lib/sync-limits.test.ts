@@ -228,3 +228,18 @@ test('parseCall: no parameters and of=1 do everything; of > 1 (shard 0 too) sync
   for (const q of ['task=other', 'task=housekeeping&shard=0&of=2', 'task=housekeeping&of=0', 'task=housekeeping&of=2000', 'task=housekeeping&of=x', 'shard=1', 'shard=2&of=2'])
     assert.ok('error' in p(q), q);
 });
+
+// Coordination with PR #40: every request-count rule reads one constant, so a third vendor read per account changes it in
+// one place.
+test('the per-account request count is one constant: syncRequests, syncCost, SYNC_FIT_CAP and accountsThatFit agree with it', async () => {
+  const S = await import('./sync.ts');
+  const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
+  const k = S.SYNC_REQUESTS_PER_ACCOUNT;
+  for (const n of [0, 1, 2, 5]) {
+    assert.equal(S.syncRequests(n), 1 + k * n);
+    assert.equal(S.syncCost(n), (1 + k * n) * VENDOR_TIMEOUT_MS);
+  }
+  // The cap is the most accounts whose worst case fits one call; one more does not.
+  assert.ok(S.syncCost(S.SYNC_FIT_CAP) <= S.SYNC_ROUTE_MAX_S * 1000 && S.syncCost(S.SYNC_FIT_CAP + 1) > S.SYNC_ROUTE_MAX_S * 1000);
+  assert.equal(S.accountsThatFit(S.syncCost(3)), 3);
+});

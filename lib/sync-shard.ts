@@ -9,7 +9,7 @@ import { POOL_MAX, sql } from './db.ts';
 import { logSafe } from './privacy-log.ts';
 import { VENDOR_TIMEOUT_MS } from './broker.ts';
 import {
-  accountsOf, claimable, clockSql, defaultBroker, syncable, syncCost, syncUser, SYNC_FIT_CAP, SYNC_LEASE_MS, ROUND_MS,
+  accountsOf, claimable, clockSql, defaultBroker, syncable, syncCost, syncRequests, syncUser, SYNC_FIT_CAP, SYNC_LEASE_MS, ROUND_MS,
   type Broker, type SyncableUser,
 } from './sync.ts';
 import {
@@ -131,9 +131,9 @@ export async function finish(u: Claimed, end: End, shift = 0): Promise<boolean> 
   return false;
 }
 
-// ponytail: a request beyond the prepaid 1 + 2n (another page on a first sync) waits for its token inside the trader's
+// ponytail: a request beyond the prepaid syncRequests(n) (another page on a first sync) waits for its token inside the trader's
 // transaction, holding its connection — rare; prepaying from the account's page count would avoid it.
-// Every vendor request a sync makes takes a token. The trader's expected requests (1 + 2n) are taken before the claim,
+// Every vendor request a sync makes takes a token. The trader's expected requests (syncRequests(n) = 1 + SYNC_REQUESTS_PER_ACCOUNT × n) are taken before the claim,
 // outside its transaction; a request beyond them (another page on a first sync, an account the snapshot did not have)
 // takes one more as it goes.
 function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, count: { n: number }): Broker {
@@ -257,7 +257,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       if (stop()) return;
       const c = await next();
       if (!c) return;
-      const requests = 1 + 2 * c.accounts;
+      const requests = syncRequests(c.accounts);
       // The first trader a run takes is always dispatched (it has the whole call; SYNC_FIT_CAP keeps its cost under it),
       // so a trader with many accounts is never deferred forever by shard 0's housekeeping (review should-fix 2).
       const first = !firstTaken;

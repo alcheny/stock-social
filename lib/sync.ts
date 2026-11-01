@@ -241,9 +241,14 @@ export const syncDeadline = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S 
 // sync of 5+ accounts takes seconds. Next step: split the sync per account like the import (a change to syncUser's
 // one-transaction rule, D4/D5: its own design session).
 export const syncRouteEnd = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000;
-export const syncCost = (accounts: number) => (1 + 2 * accounts) * VENDOR_TIMEOUT_MS;
-export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / 2);
-export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs / VENDOR_TIMEOUT_MS - 1) / 2);
+// Sharded sync (coordination with the corporate-actions PR #40): the vendor reads a sync makes per real account, in one
+// constant that syncCost, SYNC_FIT_CAP, accountsThatFit and the shard runner's request budget all read (2 today:
+// activities and positions; a third read per account changes only this number and the tests that state its values).
+export const SYNC_REQUESTS_PER_ACCOUNT = 2;
+export const syncRequests = (accounts: number) => 1 + SYNC_REQUESTS_PER_ACCOUNT * accounts;
+export const syncCost = (accounts: number) => syncRequests(accounts) * VENDOR_TIMEOUT_MS;
+export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / SYNC_REQUESTS_PER_ACCOUNT);
+export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs / VENDOR_TIMEOUT_MS - 1) / SYNC_REQUESTS_PER_ACCOUNT);
 
 // `deadline` (epoch ms on `clock`, the instance's own clock: it measures this call's duration only) stops claiming
 // once reached; `report` receives what the end-of-call log line says; `clock`, `release` and the rest are test hooks.
