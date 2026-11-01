@@ -26,9 +26,18 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
 - 2026-11-01: If F-7 public profiles enter the feed, the line becomes false for them. It then goes back to the idea
   board for new wording, which the council may not change. Why: the decisions keeper's F-7 interface condition.
 
+- 2026-11-01: The line's wording follows the design system council (PR #48, `docs/direction/design-system-2026-11-01.md`
+  §2.5 R5), relayed by the orchestrator: "Closed trades imported read-only from connected broker accounts. Losses
+  included.", then "Demo records are marked Demo." beside the Demo badge while page 1 holds a demo card, then the link
+  "How records are calculated →"; the dismiss button is named "Dismiss this note". D27's mechanism is unchanged. Why:
+  D27's sentence called demo cards verified (the seed is all demo) and "straight from" hid that Stock Social calculates
+  the returns (POLICY F3a). The council's "one slot at a time" rule (Notice first, hint after dismissal or on card 2)
+  assumes the Notice sits in the card; here the line is its own block above the first card, so both show without
+  sharing a slot (see Open questions).
+
 ## Acceptance criteria
-- [ ] Signed out, the first visit shows exactly "Verified trades, straight from the broker. Losses included." linking to
-      the "How records are calculated" page. It never shows signed in, and it stays dismissed after dismissal (e2e).
+- [ ] Signed out, the first visit shows exactly "Closed trades imported read-only from connected broker accounts. Losses
+      included." (design system council wording, 2026-11-01) linking to the "How records are calculated" page. It never shows signed in, and it stays dismissed after dismissal (e2e).
 - [ ] While the feed shows any demo record, the Demo badge is in the same 360 px viewport as the line (e2e).
 - [ ] The first card shows "Swipe ← for profile" once. It is gone after the first swipe or → key and not shown again
       on that device (e2e).
@@ -44,6 +53,8 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
 - Measuring bounce and pane-open rate (waits for C17), the sign-in paths (D21, waiting) and other copy changes.
 
 ## Open questions
-- None from the council.
+- The design system council's slot rule (the hint only after the line is dismissed, or on card 2). Built here: the line
+  is a separate block above card 1, so the hint shows on card 1 from the first visit (SW-1 text). The council or the
+  owner may ask for the hint to wait until the line is dismissed.
 
 ## Rework notes

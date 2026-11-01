@@ -5,7 +5,7 @@ import { expect, test, type Browser, type BrowserContextOptions, type Page } fro
 import postgres from 'postgres';
 import { feedLock } from './feed-lock.ts';
 
-const LINE = 'Verified trades, straight from the broker. Losses included.';
+const LINE = 'Closed trades imported read-only from connected broker accounts. Losses included.'; // design system council §2.5
 const HINT = 'Swipe ← for profile';
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 let release: () => Promise<void>;
