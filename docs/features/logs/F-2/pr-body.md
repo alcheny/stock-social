@@ -7,7 +7,7 @@ F-2 PR-5 (event log, opt-in implicit logger, personal scoring) and PR-6 (heavy u
 - **Activity log** (criteria 2, 3):
   - `discovery_events` stores viewer, surface, target (trader, trade or symbol), type and time only.
   - It is written by `POST /api/events` only for a signed-in viewer with both switches On; anyone else gets 204 and nothing is stored.
-  - The route is same-origin only, takes ≤ 8 KB and ≤ 50 events a batch, one batch per viewer per 2 s (a row lock, so it holds across instances), and ≤ 2,000 events a day.
+  - The route is same-origin only, takes ≤ 8 KB and ≤ 50 events a batch, at most 3 batches per viewer per 10 s (a row lock, so it holds across instances), and ≤ 2,000 events a day.
   - Only implicit reading events are logged; explicit choices stay in their own tables.
   - The logger (`app/discovery-log.tsx`) is mounted only when both switches are On.
 - **Personal ordering** (criteria 1, 4, 7, 8, 11, 14, 16, 17):
@@ -40,18 +40,19 @@ Guard tests: the page and its paging action call `lib/discovery/personal-feed.ts
 ## Testing
 
 - `npx tsc --noEmit`: clean.
-- `npm test` on a fresh empty database: 716 pass, 0 fail, 16 skipped, 1 todo (H4 Privacy Policy text, owner).
+- `npm test` on a fresh empty database: 726 pass, 0 fail, 16 skipped, 1 todo (H4 Privacy Policy text, owner).
 - New tests:
   - `lib/discovery/f2-personal.test.ts`: 16 cases. Fade, weights, sign invariance, caps and exploration on 1,000 generated personal feeds, section evidence order, reasons, copy scan, event parsing, same-origin.
-  - `lib/f2-personal.db.test.ts`: 16 cases. Columns, switches, gate and cap, Clear, watchlist, Off and cold-start orders, follow raises, page stability, two viewers, loader failure, guard on personal reads, deletion, purge rules, hidden trades.
+  - `lib/f2-personal.db.test.ts`: 17 cases. Includes Personalize On vs Off with choices made before asOf (fails if the switch is ignored). Columns, switches, gate and cap, Clear, watchlist, Off and cold-start orders, follow raises, page stability, two viewers, loader failure, guard on personal reads, deletion, purge rules, hidden trades.
   - `lib/discovery/f2-privacy.test.ts`: a visible todo until H4.
 - `LOAD=1 node --test lib/discovery/f2-heavy.load.test.ts`:
-  - 5,000 viewers × 500 events scored in 2.0 s.
-  - Event batches: p95 25.7 ms with at most 10 in flight. All 200 at once queue on the pool's 10 connections: p95 ~450–500 ms, logged only. No rows lost.
-  - Deleting a trader named by 100,000 viewers' events: 105 ms.
-  - 200,000 orphan likes marked in 1 call and purged in 1 call.
-- `npx playwright test e2e/f2-personal.spec.ts`: 4 passed at 360 px.
+  - 5,000 viewers × 500 events scored in 1.6 s.
+  - Event batches: p95 22 ms with at most 10 in flight. All 200 at once queue on the pool's 10 connections: p95 ~420 ms, logged only. No rows lost.
+  - Deleting a trader named by 100,000 viewers' events: 104 ms.
+  - 200,000 orphan likes marked in 1 call (keyset walk) and purged in 1 call.
+- `npx playwright test e2e/f2-personal.spec.ts e2e/likes.spec.ts e2e/section.spec.ts e2e/follow.spec.ts`: all pass. f2-personal checks at 360 px that the notes line is fully in view below the nav.
 - The full e2e suite passes. likes and section were re-run alone after merging the date fix (12 passed).
+- QA: tester findings fixed and retested (`test-pr5-tester.md`); the user test's usability demands fixed (`committee-pr5-user-test.md`); independent and orchestrator reviews addressed (committee record items 23–27).
 - `BASE_REF=main node scripts/compliance.ts auto`: ok. `node scripts/autopilot.ts guard origin/main`: ok.
 - `npm run build`: ok.
 
@@ -69,7 +70,7 @@ Guard tests: the page and its paging action call `lib/discovery/personal-feed.ts
 6. **Sign-up and age:** unchanged.
 7. **Vendors or dependencies:** none added.
 8. **Accessibility:** every control is ≥ 44 px. `aria-pressed` carries the switch state, and the ✓ mark is visual only. Accessible names start with the visible text. Status lines use `role="status"`. Keyboard and no-JS paths are tested.
-9. **Security:** the events route is same-origin, auth-gated, size-capped and rate-limited in Postgres. Every query is parameterized and keyed by the viewer. Crafted `?saved=`/`?back=` values state nothing false.
+9. **Security:** the events route is same-origin, auth-gated, size-capped and rate-limited in Postgres, and reads the body with a byte cap. Every query is parameterized and keyed by the viewer. Crafted `?saved=`/`?back=` values state nothing false.
 10. **Claims:** no "AI", "smart" or "for you". The suggestion and endorsement word lists pass.
 11. **Checkout:** none.
 
