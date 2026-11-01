@@ -114,3 +114,11 @@ exits 0 with no conflict, with the block after `.rt-card:focus`.
     35 px tall); six stay on one row at 320 px. Why: decided by the committee under the owner's instruction of
     2026-11-01; target-size finding from the trust session's 360 px user test, added to this fix set by the
     orchestrator; POLICY A1 44 px targets. Tested at 320 and 360 (e2e, measured) and pinned in the unit test.
+
+## Rebase onto #55 (2026-11-01)
+
+19. 2026-11-01: #55 (F-13 + cycle-1 a11y fixes) merged first; this branch dropped the F-13 twin and its own nav rule,
+    builds on #55's `--control` / `--focus` and `lib/a11y-contrast.test.ts`, and keeps only its additions (#26 tokens,
+    #12 `.hl`, #14 bar room and bar borders, range-button size). Tests that duplicated #55's (control list, `--control`
+    floor, Verified text, #18 nav and reflow) moved to #55's own tests. Why: decided by the committee under the owner's
+    instruction of 2026-11-01; the orchestrator asked that each rule exist once.
