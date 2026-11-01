@@ -1,6 +1,6 @@
 # F-3 · Viewer subscriptions (traders never pay)
 
-Status: draft
+Status: ready
 
 ## Why
 Traders supply the verified records and must be incentivized to connect and keep connections live.
@@ -32,13 +32,19 @@ opinion lands.
 - 2026-11-01: The first paid feature is "Record tools": viewers compare traders side by side, save views and keep
   private notes, all pull-only (nothing is ever pushed to them). No free trial at launch. It is built only after
   the legal committee reviews its exact feature list (in place of a written securities opinion, POLICY owner
-  decision 2026-11-01).
+  decision 2026-11-01). Why: the owner adopted the legal committee's recommendation; event alerts are barred by
+  POLICY F3b.
 - 2026-11-01: The billing vendor is the payment processor recommended in the owner's private billing proposal:
   hosted checkout and customer portal, sales-tax handling, and a connected-accounts product for creator payouts
-  later. It is named in the repo once the integration is built (POLICY T1). Why: the owner's choice. Why: the owner adopted the legal committee's recommendation; event alerts
-  are barred by POLICY F3b.
+  later. It is named in the repo once the integration is built (POLICY T1). Why: the owner's choice.
+- 2026-11-01: F-3 is ready: the pipeline builds billing and Record tools in the vendor's test mode only. Charging
+  real money waits for the Privacy Policy and Terms (POLICY P6) and the data vendor's market-data answer for
+  Record tools' open-position values; the owner switches it on. Why: the owner's decision.
 
-## What viewers pay for (candidates; each needs the counsel opinion before build)
+## What viewers pay for (candidates; each needs the legal committee's review before build)
+Decided 2026-11-01: Record tools ships first. Alerts are barred by POLICY F3b, and paid follow or watchlist
+limits are ruled out (legal committee); the list below is kept as the original brainstorm.
+
 - Delayed "ride-along" view of a trader's open positions with entry percentages (DESIGN §3.3).
 - Alerts when followed traders close a trade or publish a thesis.
 - Deeper analytics across traders: compare, screens, exports; the free profile keeps its own numbers.
@@ -69,6 +75,20 @@ Each one testable; the pipeline writes a test for every line.
       failed, past due, canceled, resumed, refunded, disputed; plus replay, out-of-order and malformed
       signature.
 - [ ] Heavy use: 100,000 webhook events in an hour are processed without duplicates or lost events.
+- [ ] Billing runs in the vendor's test mode only: the app refuses a live key unless the owner's switch
+      `LIVE_BILLING=on` is set (test).
+- [ ] Record tools compares traders in the viewer's chosen order with each record's interval and lower
+      bound, losses shown like gains; no sorting by return or lower bound, no highlight, verdict or "who to
+      follow"; identical for every subscriber; no list of open positions.
+- [ ] Record tools' saved views and private notes are visible only to their owner, included in export and
+      deleted with the account; nothing in Record tools is shareable (no permalink, share image or button;
+      noindex).
+- [ ] Every Record tools surface carries "Not investment advice. Past performance does not guarantee
+      future results."
+- [ ] No message whose content or timing comes from trader content is sent by any channel (POLICY F3b);
+      billing emails carry no handle, symbol, return or record field (test).
+- [ ] No entitlement check is keyed by a symbol or sits under `app/t/**`; no Record tools action writes
+      `discovery_events`; follow and watchlist limits are the same for every viewer (tests).
 
 ## Design outlook
 
@@ -83,8 +103,8 @@ Each one testable; the pipeline writes a test for every line.
    money.** Pages read your row. Webhooks and a nightly reconciliation keep the row correct.
 4. **Idempotent by construction.** Every inbound event is stored by its vendor ID before processing;
    every outbound create call carries an idempotency key.
-5. **Nothing paid touches the record.** Paid features are additive layers (alerts, analytics,
-   ride-along). The record and the share card are untouched by plan state.
+5. **Nothing paid touches the record.** Paid features are additive layers (Record tools first). The
+   record and the share card are untouched by plan state.
 
 ### Data model (additions to `db/schema.sql`, idempotent)
 - `billing_customers(user_id pk, vendor_customer_id unique, created_at)`
@@ -152,14 +172,14 @@ Each one testable; the pipeline writes a test for every line.
 - Audit trail: `billing_events` is append-only.
 - Terms, refund policy and the disclaimer on every paid analytics surface ("Not investment advice.
   Past performance does not guarantee future results.").
-- The paid tier must not become advice: no "top picks", no alerts phrased as prompts to act
-  ("@x just bought" is a fact; "buy now" is not allowed; POLICY F1).
+- The paid tier must not become advice: no "top picks", no verdicts, nothing pushed (POLICY F1, F3b).
 
 ### Rollout order
-1. Counsel opinion on the paid features list (DESIGN §3.3 gate).
+1. The legal committee's review of Record tools' exact feature list (in place of counsel, POLICY owner
+   decision 2026-11-01).
 2. Schema + `lib/billing.ts` + webhook inbox + reconciliation, behind a feature flag, with tests.
-3. One plan, hosted checkout and portal, in the vendor's test mode end to end.
-4. The first paid feature (recommended: alerts, lowest regulatory surface).
+3. Monthly and annual plans, hosted checkout and portal, in the vendor's test mode end to end.
+4. Record tools, the first paid feature (decided 2026-11-01).
 5. Creator payouts last, after a separate counsel review.
 
 ## Out of scope
