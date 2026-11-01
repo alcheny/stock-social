@@ -24,6 +24,7 @@
 //     down, the others are answered
 //   POST /_accounts {userId, accounts: FakeAccount[]}   (F-14 tests) replaces a registered user's accounts (as the portal
 //     would link them, rows and positions included), so a test can change what the vendor lists between rounds
+//   POST /_remove {accountId} | {all: true}        drops one account from the listing, or every account (FIXES-LABELS: status)
 //   GET  /_state                                   users, their connections and accounts, for assertions
 //     (bulk users below are not listed: there can be 100,000 of them)
 //   POST /_bulk {prefix, from, to, accounts?, activities?, slowEvery?, slowOffset?, slowMs?, failEvery?, failOffset?, failStatus?}
@@ -161,6 +162,17 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       return json({ ok: true });
     }
     if (p === '/_fail' && req.method === 'POST') { fail = await body(); return json({ ok: true }); }
+    // FIXES-LABELS: status (F-11, TR-5): POST /_remove {accountId, userId?} drops that account from the listing (an account
+    // removed at the broker); {all: true, userId?} empties the listing (a disconnect). Without userId, every user's.
+    if (p === '/_remove' && req.method === 'POST') {
+      const b = await body();
+      let n = 0;
+      for (const [id, u] of users) {
+        if (b.userId && b.userId !== id) continue;
+        for (const k of [...u.accounts.keys()]) if (b.all || k === b.accountId) { u.accounts.delete(k); n++; }
+      }
+      return json({ ok: true, removed: n });
+    }
     if (p === '/_post') {
       res.writeHead(200, { 'content-type': 'text/html' });
       return res.end(`<!doctype html><title>post</title><script>parent.postMessage(JSON.parse(${JSON.stringify(url.searchParams.get('m') ?? 'null')}), '*');</script>`);
