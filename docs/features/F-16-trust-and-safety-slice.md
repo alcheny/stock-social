@@ -153,5 +153,6 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
 
 ## Build log
 - 2026-11-01: F-16 and F-17 built as one slot on `claude/f16-f17-trust-safety` (committee record `docs/features/logs/F-16-F-17/committee-2026-11-01.md`, plan `plan.md` v3); Status set to built in its PR. Every acceptance criterion is met except the axe scan: hand-built checks (labels, roles, focus, keyboard-only, 44 px) stand in until the owner authorizes axe-core (MPL-2.0) or accepts them, so that box stays open. Owner items: approve the anti-impersonation line and the takedown wording, set the role mailbox, choose an email sender, the K18 age-assurance method, accept the ≤300 s image / ≤60 s JSON cache window after a hide.
+- 2026-11-01: integration step. Merged main (#87 F-26, #77 F-20, #90, #91); the report page's focus outline uses F-20's `--focus` token; main's C1 route walk maps `/u/[handle]/report`; T3 asserts the pane's stats start on the first screen (after #85's pane F3 line). F4-17 (assigned by the orchestrator): the author's held line has id `held-<trade id>` (an optional `id` on F-26's `HeldNote`), and that row's thesis input names it in `aria-describedby` and is `aria-invalid` while held (`lib/f4-17-held-field.test.ts`, `e2e/f4-17-held-field.spec.ts`).
 
 ## Rework notes

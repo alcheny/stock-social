@@ -437,11 +437,11 @@ export default async function Profile({ params, searchParams }: Params) {
             {t.filing_url && <a className="filing-link" href={t.filing_url} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.filingName(t.symbol, day(t.closed_at))}>{PUBLIC.filing}</a>}
             {/* F-9: UserNote (Report only for a signed-in reader who is not the author); the author sees the hold and its reason in plain words, muted (fix round 2: lib/report-copy.ts#heldLine). */}
             {t.thesis_status === 'published' && <UserNote text={t.thesis} handle={user.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={me && !isMe ? String(t.id) : undefined} symbol={t.symbol} />}
-            {isMe && t.thesis_status === 'held' && !!t.thesis && <HeldNote rule={t.thesis_hold_rule} />}{/* F-26: the one held-line markup (lib/user-note.ts); an empty note is never held */}
+            {isMe && t.thesis_status === 'held' && !!t.thesis && <HeldNote rule={t.thesis_hold_rule} id={`held-${t.id}`} />}{/* F-26: the one held-line markup (lib/user-note.ts); an empty note is never held */}
             {isMe && (
               <form action={saveThesis} className="inline">
                 <input type="hidden" name="tradeId" value={t.id} />
-                <input type="text" name="thesis" maxLength={280} defaultValue={t.thesis ?? ''} placeholder="Why did you take this trade?" aria-label={`Thesis for ${t.symbol}`} />
+                <input type="text" name="thesis" maxLength={280} defaultValue={t.thesis ?? ''} placeholder="Why did you take this trade?" aria-label={`Thesis for ${t.symbol}`} {...(t.thesis_status === 'held' && !!t.thesis ? { 'aria-describedby': `held-${t.id}`, 'aria-invalid': true } : {})} />{/* F4-17: the held reason describes its field */}
                 <button>Save</button>
               </form>
             )}

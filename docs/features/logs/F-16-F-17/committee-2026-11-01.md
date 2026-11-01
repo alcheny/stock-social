@@ -136,6 +136,13 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
   besides main's D-09 F3 line after the pane's figures. Main's new `lib/record-status-load.ts` read joins the
   predicate; two of main's source pins follow (the stock image's read is now the predicate; /t search moved to SQL).
 - Status set to `built` on both feature files, with a Build log line. The axe criterion stays unchecked (owner).
+- Integration step (engineer): main merged again (#87 F-26, #77 F-20, #90, #91). Conflicts kept both sides: F-26's
+  published-only SQL with F-16's visible-user predicate (feed, pane chart), F-26's `HeldNote` import with F-17's rename
+  helpers, both CSS blocks and both copy blocks. F-26's `lib/own-note.ts` author read joins the F-16 allowlist (the
+  trade page applies the predicate before it). The report page's focus outline moved to F-20's `--focus`. Main's C1
+  route walk maps `/u/[handle]/report`; T3 now asserts the pane's stats start on the first screen, since #85's pane F3
+  line sits between the chart and the summary. F4-17 built here: the held line's id `held-<trade id>` describes the
+  row's thesis input (`aria-describedby`, `aria-invalid` while held); test: its description equals `heldLine(rule)`.
 
 ## Follow-ups (not in this PR)
 
