@@ -9,7 +9,10 @@ export function logSafe(e: unknown): string {
   const x = (e ?? {}) as { name?: unknown; status?: unknown; code?: unknown; response?: { status?: unknown } };
   const parts: string[] = [];
   const name = e instanceof Error ? e.constructor.name || e.name : typeof e === 'object' && e !== null ? 'object' : typeof e;
-  parts.push(NAME.test(name) ? name : 'Error');
+  // A production build minifies class names (a database error reads "u"): a one- or two-letter name is replaced by a
+  // stable label, DbError when the code is a SQLSTATE (five digits or capitals), else Error.
+  const sqlstate = typeof x.code === 'string' && /^[0-9A-Z]{5}$/.test(x.code);
+  parts.push(!NAME.test(name) ? 'Error' : name.length <= 2 ? (sqlstate ? 'DbError' : 'Error') : name);
   const status = typeof x.status === 'number' ? x.status : typeof x.response?.status === 'number' ? x.response.status : null;
   if (status !== null && Number.isInteger(status)) parts.push(`status ${status}`);
   if (typeof x.code === 'string' && CODE.test(x.code)) parts.push(`code ${x.code}`);

@@ -25,8 +25,10 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 // CHORES-3 (K20): every feed page carries the home link preview (lib/home-preview.ts); the page sets no title.
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const after = (await searchParams).after;
-  const p = homePreview(await demoShown());
-  const image = { url: '/home-card', width: 1200, height: 630, type: 'image/png', alt: p.cardText };
+  const demo = await demoShown();
+  const p = homePreview(demo);
+  // The card's URL carries the demo state, so its public cache always matches this page (app/home-card/route.tsx).
+  const image = { url: `/home-card?d=${demo ? 1 : 0}`, width: 1200, height: 630, type: 'image/png', alt: p.cardText };
   const preview: Metadata = {
     metadataBase: new URL(siteOrigin()),
     description: p.metaDescription,
