@@ -10,7 +10,7 @@ import { replaceListedPositions } from './positions.ts';
 import { logSafe } from './privacy-log.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
-import { insertOptionActivities, lastOptionActivityAt, markBackfilled, pendingBackfill, rebuildRecord, replaceOptionPositions, saveBackfill } from './options-sync.ts';
+import { insertOptionActivities, lastOptionActivityAt, markBackfilled, pendingBackfill, moveUnlistedOptionPositions, rebuildRecord, replaceAccountOptionPositions, saveBackfill } from './options-sync.ts';
 import type { OptionRow } from './options.ts';
 import type { PositionSplit } from './broker.ts';
 
@@ -492,7 +492,10 @@ export async function syncUser(
       const splits = new Map<string, PositionSplit>(); // OPTIONS (D7)
       for (const id of real) for (const p of await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
       await replaceListedPositions(tx, user.id, real, positions); // F3-4: per account read
-      await replaceOptionPositions(tx, user.id, real, splits, { listed: true, resetCounts: true }); // OPTIONS (D7), per account read (F3-4)
+      // OPTIONS (D7), per account read (F3-4): unlisted accounts' rows move aside, then every listed account is replaced
+      // (replaceAccountOptionPositions' user-wide path: the totals are this read's, never added to).
+      await moveUnlistedOptionPositions(tx, user.id, real);
+      await replaceAccountOptionPositions(tx, user.id, real, real, splits);
     }
     return read;
   });

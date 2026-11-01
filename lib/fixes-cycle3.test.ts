@@ -401,34 +401,47 @@ dbTest('options (b): the hourly option-backfill page path stores unusable share 
   }
 });
 
-dbTest('options (c): option positions are replaced per account read; an unlisted account\'s move to a private table; import steps add counts after the first', async () => {
+dbTest('options (c): option positions are replaced per account read; totals never grow over rounds; an unlisted account\'s move to a private table; an import keeps an earlier connection\'s', async () => {
   const { sql, tag, mkUser, cleanup } = await setup();
-  const { replaceOptionPositions } = await import('./options-sync.ts');
+  const { moveUnlistedOptionPositions, replaceAccountOptionPositions, replaceImportedOptionPositions } = await import('./options-sync.ts');
   const a1 = `${tag}-a1`, a2 = `${tag}-a2`;
   const pos = (k: string) => ({ positionKey: k, underlying: 'XYZ', right: 'CALL' as const, expiry: '2026-12-11', unrealizedPct: 0.1 });
-  const split = (k: string, short = 0) => ({ options: [pos(k)], short, unsupported: 0 });
+  const split = (k: string, short = 0) => ({ options: [pos(k)], short, unsupported: 0, optionOther: 0 });
   try {
     const u = await mkUser('a');
     const shown = async () => (await sql`select account_id from open_option_positions where user_id = ${u.id} order by account_id`).map((r) => r.account_id);
     const kept = async () => (await sql`select account_id from unlisted_option_positions where user_id = ${u.id}`).map((r) => r.account_id);
     const short = async () => (await sql`select open_options_short from users where id = ${u.id}`)[0].open_options_short;
-    // Import of a1 (first step resets the counts), then a second connection's import of a2 (its first step).
-    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1], new Map([[a1, split('k1', 1)]]), { resetCounts: true }));
-    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a2], new Map([[a2, split('k2')]])));
-    assert.deepEqual(await shown(), [a1, a2]); // a1's positions survive a2's import
-    assert.equal(await short(), 1); // added, not reset
-    // A sync that lists only a1: a2's move to the private table, kept; counts are this read's.
-    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1], new Map([[a1, split('k1', 2)]]), { listed: true, resetCounts: true }));
+    const sync = (listed: string[], splits: Map<string, ReturnType<typeof split>>) => sql.begin(async (tx) => {
+      await moveUnlistedOptionPositions(tx, u.id, listed);
+      await replaceAccountOptionPositions(tx, u.id, listed, listed, splits);
+    });
+    // First connection's import (a1), then a second connection's import (a2): a1's rows and count stay.
+    await sql.begin((tx) => replaceImportedOptionPositions(tx, u.id, [a1], [a1], new Map([[a1, split('k1', 1)]])));
+    await sql.begin((tx) => replaceImportedOptionPositions(tx, u.id, [a2], [a2], new Map([[a2, split('k2', 2)]])));
+    assert.deepEqual(await shown(), [a1, a2]);
+    assert.equal(await short(), 3);
+    // Two rounds of per-account reads of the same positions leave the totals unchanged (never added up).
+    const both = new Map([[a1, split('k1', 1)], [a2, split('k2', 2)]]);
+    await sync([a1, a2], both);
+    await sync([a1, a2], both);
+    assert.equal(await short(), 3);
+    await sql.begin((tx) => replaceImportedOptionPositions(tx, u.id, [a2], [a2], new Map([[a2, split('k2', 2)]]))); // a re-import of a2
+    await sql.begin((tx) => replaceImportedOptionPositions(tx, u.id, [a2], [a2], new Map([[a2, split('k2', 2)]])));
+    assert.equal(await short(), 3);
+    // A sync that lists only a1: a2's rows move to the private table, kept; the totals are a1's.
+    await sync([a1], new Map([[a1, split('k1', 1)]]));
     assert.deepEqual(await shown(), [a1]);
     assert.deepEqual(await kept(), [a2]);
-    assert.equal(await short(), 2);
-    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1], new Map([[a1, split('k1')]]), { listed: true, resetCounts: true })); // still unlisted
+    assert.equal(await short(), 1);
+    await sync([a1], new Map([[a1, split('k1', 1)]]));
     assert.deepEqual(await kept(), [a2]);
     // Relisted: fresh rows, the private copy goes.
-    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1, a2], new Map([[a1, split('k1')], [a2, split('k2')]]), { listed: true, resetCounts: true }));
+    await sync([a1, a2], both);
     assert.deepEqual(await shown(), [a1, a2]);
     assert.deepEqual(await kept(), []);
-    await sql.begin((tx) => replaceOptionPositions(tx, u.id, [a1], new Map([[a1, split('k1')]]), { listed: true, resetCounts: true }));
+    assert.equal(await short(), 3);
+    await sync([a1], new Map([[a1, split('k1', 1)]]));
     await sql`delete from users where id = ${u.id}`; // profile deletion (cascade)
     assert.equal(Number((await sql`select count(*) from unlisted_option_positions where account_id in (${a1}, ${a2})`)[0].count), 0);
   } finally {

@@ -12,7 +12,7 @@ import { insertActivities, USER_LOCK } from './sync.ts';
 import { insertCorporateActions } from './corporate-actions.ts';
 import { replaceAccountPositions } from './positions.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D5, D7): option rows, the record rebuild and the consent line's hash.
-import { insertOptionActivities, rebuildRecord, replaceOptionPositions } from './options-sync.ts';
+import { insertOptionActivities, rebuildRecord, replaceImportedOptionPositions } from './options-sync.ts';
 import { CURRENT_CONSENT_HASH } from './consent-versions.ts';
 import type { OptionRow } from './options.ts';
 import { ownsAttempt } from './auth/links.ts';
@@ -604,7 +604,7 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         }
         // F3-4: per account read, so an import never deletes an earlier connection's positions (options too).
         await replaceAccountPositions(tx, c.user_id!, read, positions);
-        await replaceOptionPositions(tx, c.user_id!, read, splits, { resetCounts: first }); // OPTIONS (D7), per account read (F3-4)
+        await replaceImportedOptionPositions(tx, c.user_id!, real.map((a) => a.id), read, splits); // OPTIONS (D7), per account read (F3-4)
         const { pos: _pos, ...rest } = cur;
         return save({ ...rest, rebuilt: true, ...(k < real.length ? { pos: k } : {}) }, true);
       }

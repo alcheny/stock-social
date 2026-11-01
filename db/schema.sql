@@ -882,3 +882,7 @@ create table if not exists unlisted_option_positions (
   unlisted_at timestamptz not null default now(),
   primary key (user_id, account_id, position_key)
 );
+-- F-14 × OPTIONS: the open option counts per vendor account ({account id: {short, unsupported, other}}), so a cadence
+-- sync that reads one account's positions replaces that account's counts; the users totals are their sum. Null until
+-- the first user-wide positions write (lib/options-sync.ts#replaceAccountOptionPositions).
+select schema_add_column('users', 'open_options_by_account', 'jsonb');
