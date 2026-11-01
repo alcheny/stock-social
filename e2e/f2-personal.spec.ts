@@ -180,18 +180,23 @@ test('criterion 15: "N trades hidden by you. Show them" on the feed, then the Hi
 });
 
 test('criterion 13: "Personalize my feed: Off" gives the order everyone gets; a follow with it On shows the order line', async ({ browser }) => {
-  const release = await feedLock('shared');
+  // Exclusive: it compares whole feed orders across loads, so no other test may add a feed-eligible trader meanwhile.
+  const release = await feedLock('exclusive');
   const h = handle();
   const { ctx, page } = await phone(browser);
   const anon = await browser.newContext({ viewport: { width: 360, height: 640 } });
   try {
     const order = async (p: Page) => p.locator('.feed > .row[data-trade]').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-trade')));
     const a = await anon.newPage();
-    await a.goto('/');
-    const everyone = await order(a);
+    // The feed's order moves with the clock and with other tests' writes to shared demo records, so each comparison loads
+    // the signed-out page and this viewer's page together and retries until two loads seconds apart agree.
+    const same = () => expect.poll(async () => {
+      await Promise.all([a.goto('/'), page.goto('/')]);
+      const [x, y] = await Promise.all([order(a), order(page)]);
+      return JSON.stringify(x) === JSON.stringify(y) && x.length > 0;
+    }, { timeout: 30_000, intervals: [500, 1_000, 2_000] }).toBe(true);
     await signIn(page, h);
-    await page.goto('/');
-    expect(await order(page)).toEqual(everyone); // cold start: the order everyone gets
+    await same(); // cold start: the order everyone gets
     // Follow the last trader on page 1 (made before the next session's asOf).
     const last = await page.locator('.feed > .row[data-handle]').last().getAttribute('data-handle');
     await sql`insert into follows (viewer_id, trader_id, created_at) select v.id, t.id, now() - interval '1 minute' from users v, users t where v.handle = ${h} and t.handle = ${last}`;
@@ -203,7 +208,7 @@ test('criterion 13: "Personalize my feed: Off" gives the order everyone gets; a 
     await sql`update users set personalize_feed = false where handle = ${h}`;
     await page.goto('/');
     await expect(page.locator('.feed-notes')).toHaveCount(0);
-    expect(await order(page)).toEqual(everyone);
+    await same(); // Off: the order everyone gets
   } finally {
     await anon.close(); await ctx.close(); await removeUser(h); await release();
   }
