@@ -68,6 +68,58 @@ trimmed; only its overlap with D-08 is built here). Every role was a separate su
 - Turning the review page on once real admin identity exists; the 3-reporter hold only means something after real
   auth (the dev stub makes accounts cheap).
 
+## Decisions taken after the build started (2026-11-01)
+
+12. **"Verified" and copy trading are held only as claims** (business lead user test, revising decision 2): "verified"
+    about the trader, the record, the returns or the site, and copy trading as an offer ("copy my trades"). "An
+    unverified rumor" and "copy trading names were hot" publish.
+13. **A small figure about this trade is talk.** A first-person figure under the big-claim threshold with a span, or one
+    that names this trade or position, publishes; figures tied to the account, a system, a year or a monthly rate, dollar
+    gains over a period, "turned X into Y", win-rate and accuracy claims, calls ("strong buy", "load up now") and
+    third-party-free price targets (with "my", "$" or a price) are held. A single "my pick" or "best pick" is talk;
+    plural, dated or free picks are held; an analyst's target is talk.
+14. **The author's held line says why and what to do**, in plain words, muted: "Thesis held for review. Only you can see
+    it. Held because it has ‹explanation›. Edit it to publish, or it stays held until reviewed." A report hold names no
+    count. A reader is never told a note is held (every report answer reads "Reported. Thank you.").
+15. **A report hold sticks** through an edit and through clearing and rewriting the note, until the owner releases it;
+    reports count only after the last release (`thesis_reports_from`).
+16. **Handle errors name the rule and the next step** ("That handle is taken. Try another." and the like), with the
+    format rule visible under the field; the edit panel opens on an error. An active reservation answers "reserved".
+17. **Handles:** reserved words are also matched with 1/l/i, 0/o and other digit-for-letter readings, plurals, "the_"
+    forms and underscores removed; demo handles also with doubled letters collapsed. Concurrent renames to look-alike
+    handles are serialized (advisory lock on the skeleton).
+18. **The feed card's note has no byline** (the card already names the trader) and keeps F-10's two-line clamp.
+
 ## Build, QA, review
 
-(Filled in as the build runs.)
+- **Build:** Engineer A (text safety, moderation, handles and names) and Engineer B (F-9) built in parallel worktrees,
+  tests first; merged into the branch with concatenated schema blocks.
+- **QA:** three tester rounds. Round 1: 3 blocking (release-then-edit re-counted old reports; invisible fillers
+  survived; 10 of 80 ordinary theses held) plus 8 minor. Round 2: all fixed; 4 new blocking (decimals as sentence
+  ends, singular "my pick", subject-dropped claims, pick word order). Round 3: all fixed; 1.6% false holds on 125 new
+  ordinary theses and 30% of 50 new abuse attempts published, which drove fix round 3 (this-trade figures, DM offers,
+  hype and calls, dollar claims, messenger handles, dotless domains). Each round's cases are now in
+  `lib/moderation-v2.test.ts` (both directions).
+- **User test at 360 px:** UX lead CHANGES (blocking: the handle error was hidden inside the collapsed "Change handle"
+  panel) then SIGN; business lead CHANGES (held line, false holds on "verified" and copy trading, byline on the card)
+  then SIGN.
+- **Code review:** three independent passes. Fixed: an edit after a release re-counted old reports; a concurrent sync
+  could undo a report hold (rows now locked); the dev sign-in could 500; clear-then-rewrite escaped a report hold; a
+  link rule took polynomial time on adversarial input (now linear, with a timing test); a flaky CLI test; an empty
+  published thesis after cleanup; the report rate slot spent on a lost race; "could not report" revealed hidden notes.
+
+## Follow-ups and known limits (each marked `ponytail:` in code)
+
+- 301 redirects from renamed handles (old links 404 for the 365-day hold).
+- OD-12 (b) permanent retirement and (c) a rename limit: the owner's call. Until then one account can hold several
+  old handles through repeated renames.
+- Report action on profiles (POLICY U2, pre-launch); handle-led page titles (D-18).
+- The review page stays off (and refused in production) until real admin identity exists; the owner CLI is the release
+  path. The CLI lists 200 held notes at a time.
+- The three-reporter hold means little while the dev sign-in stub makes accounts cheap.
+- Report control not on `/t` rows or the chart sheet.
+- Phrase rules are English only; a first-person gain under 20% with no time total publishes; spaced "@ plainword",
+  spaced endings that are English words, phone digits spelt as words and a bare "name com" publish.
+- Handles: other users' handles are compared with the basic skeleton only (1→l, underscores kept).
+- Pre-existing items the user test saw outside this change: profile vs trade-page range rounding, the doubled brackets
+  on the trade page's evidence line, the `/t` hold-time table header at 360 px.
