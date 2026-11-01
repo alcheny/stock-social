@@ -294,8 +294,11 @@ test('PR-3 fix round 7 (business lead re-sit, demand 3): before the first close 
 
 test('fix round 8 (tester re-run 4): exclusion counts are pluralized, never "(s)"', async () => {
   const { PROFILE } = await import('./copy.ts');
-  assert.equal(PROFILE.excludedPositions(1), '1 earlier position excluded: no matching entry in the imported history.');
-  assert.equal(PROFILE.excludedPositions(2), '2 earlier positions excluded: no matching entry in the imported history.');
+  // Fixes cycle 4 (C4-1, C4-2): the line names every cause the count holds (was "earlier position … no matching entry").
+  // Fixes cycle 4 (UX lead, round 4): /how discloses the date-only same-day residual (F-30) next to the short-sale bullet.
+  assert.ok(HOW.excluded.includes('Some brokers send only the date of a trade. On those, a buy and a sell of one stock on the same day are read buy first, so a same-day short sale with no earlier sign of one can appear as a long trade (a known limit).'));
+  assert.equal(PROFILE.excludedPositions(1), "1 sell excluded: a short sale or earlier history means no buy in the imported history can be matched to it for certain.");
+  assert.equal(PROFILE.excludedPositions(2), "2 sells excluded: a short sale or earlier history means no buy in the imported history can be matched to them for certain.");
   assert.equal(PROFILE.excludedFuture(1), '1 imported trade excluded: dated in the future by the broker.');
   assert.equal(PROFILE.excludedFuture(1_200), '1,200 imported trades excluded: dated in the future by the broker.');
   for (const n of [1, 2]) for (const t of [PROFILE.excludedPositions(n), PROFILE.excludedFuture(n)]) assert.ok(!t.includes('(s)'), t);

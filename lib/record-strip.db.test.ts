@@ -118,3 +118,63 @@ dbTest('F-10 AC3 (K equality): the strip from records() rows equals stripEvidenc
     await sql`delete from users where id in ${sql(ids)}`;
   }
 });
+
+// F4-19 (cycle 4, C4-22): AC4 with the options gate forced open (test-only: a covering scope line and consent version,
+// restored in finally) and every trader holding options. The gate is one query for the page's traders; the rule still
+// runs per trader, so open, re-consented, old-hash and demo traders each keep their own state.
+dbTest('F-10 AC4 (F4-19): with the options gate open and option holders on every card, ~10 and ~30 traders issue the same number of statements', async () => {
+  const { sql } = await import('./db.ts');
+  const { loadFeedPage } = await import('./feed.ts');
+  const { PUBLIC_FIELDS } = await import('./privacy-fields.ts');
+  const { OPTION_PUBLIC_COLUMNS, optionsPublic } = await import('./options-gate.ts');
+  const { CONSENT_VERSIONS, consentHash, CURRENT_CONSENT_HASH } = await import('./consent-versions.ts');
+  const { traderOptionsPublic } = await import('./options-load.ts');
+  const tag = `fo${Math.random().toString(36).slice(2, 8)}`;
+  const ids = await traders(tag, 40);
+  PUBLIC_FIELDS.push({ words: 'for options, call or put, expiry date and percent return on the premium paid', columns: [...OPTION_PUBLIC_COLUMNS] });
+  const covering = { line: `${tag} future line`, publicColumns: [...PUBLIC_FIELDS.flatMap((f) => f.columns)] };
+  (CONSENT_VERSIONS as unknown as (typeof covering)[]).push(covering);
+  try {
+    assert.equal(optionsPublic(), true);
+    const NEW = consentHash(covering.line);
+    const now = Date.now();
+    await closes(tag, ids, now - 600_000);
+    // Every trader holds options (a counted close); four kinds in turn: demo, re-consented, old hash, two accounts one unheld.
+    await sql`update users set excluded_options_other = 1 where id in ${sql(ids)}`;
+    const acts: Record<string, unknown>[] = [];
+    const conns: Record<string, unknown>[] = [];
+    ids.forEach((u, t) => {
+      const kind = t % 4, acc = `${tag}-${t}`;
+      acts.push({ user_id: u, source: kind === 0 ? 'demo' : 'snaptrade', external_id: `${acc}-o`, account_id: acc, raw: sql.json({}) });
+      if (kind === 3) acts.push({ user_id: u, source: 'snaptrade', external_id: `${acc}-o2`, account_id: `${acc}-x`, raw: sql.json({}) });
+      if (kind !== 0) conns.push({ user_id: u, hash: kind === 2 ? CURRENT_CONSENT_HASH : NEW, accounts: sql.json([{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false }]) });
+    });
+    await sql`insert into option_activities ${sql(acts)}`;
+    for (const c of conns) await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, connected_at, consent_scope_hash, accounts, options_backfilled_at)
+      select signup_attempt_id, id, 'connected', now(), now(), now(), ${c.hash as string}, ${c.accounts as never}, now() from users where id = ${c.user_id as number}`;
+    const few = ids.slice(0, 10), many = ids.slice(10, 40);
+    await loadFeedPage(undefined, { now, ids: ids.slice(0, 3) });
+    log.length = 0;
+    const p10 = await loadFeedPage(undefined, { now, ids: few });
+    const n10 = app().length;
+    log.length = 0;
+    const p30 = await loadFeedPage(undefined, { now, ids: many });
+    const n30 = app().length;
+    assert.ok(p10.cards.length > 0 && p30.cards.length > 0);
+    assert.equal(n30, n10, `statements: ${n10} for ~10 traders, ${n30} for ~30`);
+    // The batch gives each trader the state the single-trader gate gives: demo and re-consented open, the rest closed.
+    for (const p of [p10, p30]) {
+      const shown = [...new Set(p.cards.map((c) => c.user_id))];
+      assert.ok(shown.length > 3);
+      for (const id of shown) {
+        const t = ids.indexOf(id);
+        assert.equal(p.options?.get(id)?.open, t % 4 < 2, `trader ${t}`);
+        assert.equal(await traderOptionsPublic(id), t % 4 < 2, `single gate, trader ${t}`);
+      }
+    }
+  } finally {
+    PUBLIC_FIELDS.pop();
+    (CONSENT_VERSIONS as unknown[]).pop();
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});

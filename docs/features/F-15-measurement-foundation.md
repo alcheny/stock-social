@@ -222,5 +222,9 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
 - Owner: rule on MRC2-3 (gate definitions). Until then the readout reports strict DESIGN numbers and labels anything
   else as partial.
 - Retention bound for rollup rows: the build proposes a number in the PR; the owner may change it.
+- Owner: run the bot filter's real-device check before any gate is read: real phones, real in-app browsers and real
+  link-preview services against a profile, recording counted versus dropped with drop reasons only (the validation
+  script simulates these shapes on one machine). Also Stage Beta row B14a in `docs/direction/business-2026-11-01.md`
+  (added by cycle 4, F4-13).
 
 ## Rework notes

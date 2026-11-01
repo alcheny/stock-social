@@ -2,7 +2,9 @@
 // Round 4/5 additions: indirect excluded, feed floor keyed to the latest filing). Fictional filers and symbols only.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchPublic, type PubRow } from './public-trades.ts';
+import { filerDisplayName, filerHandles, matchPublic, type PubRow } from './public-trades.ts';
+import { sanitizeUserText } from './text-safety.ts';
+import { handleVerdict } from './handles.ts';
 import { PUBLIC_FEED_DELAY_DAYS, PLACEHOLDER_ATTESTED_AT } from './public-gate.ts';
 
 const DAY = 86_400_000;
@@ -172,6 +174,9 @@ dbTest('AC 29: no users row until a priced close; then a marked row with the pla
     from users u join signup_attempts a on a.id = u.signup_attempt_id where u.id = ${out.userId}`;
   assert.match(u.handle, /^pf_[a-z0-9_]+$/);
   assert.ok(u.handle.length <= 20);
+  // F4-7 (C4-11): the stored name is the cleaned form users get (lib/text-safety.ts#sanitizeUserText, 40 code points);
+  // for this plain name that is still its first 40 characters.
+  assert.equal(u.display_name, sanitizeUserText(long, 40));
   assert.equal(u.display_name, long.slice(0, 40));
   assert.equal(u.adult_attested_at.getTime(), PLACEHOLDER_ATTESTED_AT.getTime());
   assert.equal(u.attempt_at.getTime(), 0);
@@ -205,4 +210,60 @@ dbTest('a removed filer is never rebuilt and never gets a users row', async () =
   await sql`update public_filers set removed_at = now() where id = ${id}`;
   assert.equal((await sql.begin((tx) => rebuildPublicTrades(id, tx, 'Removed Fictional'))).userId, null);
   assert.equal((await sql`select count(*)::int as n from users where public_filer_id = ${id}`)[0].n, 0);
+});
+
+// F4-7 (C4-11): filer names and handles pass the same identity rules as users. Fictional probe names only.
+const PRODUCT = ['Stock', 'Social'].join(' ');
+const PROBES = {
+  rlo: 'Avery \u202Eelpmaxe\u202C Placeholder', zeroWidth: 'Quinn\u200B\u200B\u200BFictional', check: 'Riley Example \u2714',
+  verified: 'Verified Capital Group', leet: 'Ver1fied Holdings', product: `${PRODUCT} Holdings Partners`,
+};
+const handleOk = (h: string) => {
+  assert.match(h, /^pf_[a-z0-9_]+$/, h); assert.ok(h.length <= 20, h); assert.ok(!h.endsWith('_'), h);
+  assert.equal(handleVerdict(h, { others: [], demo: [] }), 'ok', h);
+};
+
+test('F4-7: filer handles drop reserved words, never end in "_", and fall back to pf_filer_<id36>', () => {
+  for (const name of Object.values(PROBES)) { const hs = filerHandles(name, 4242); assert.ok(hs.length >= 1); hs.forEach(handleOk); }
+  // The three probes from the review: no "verified" handle, no trailing "_" from the product name.
+  assert.equal(filerHandles(PROBES.verified, 7)[0], 'pf_capital_group');
+  assert.ok(!filerHandles(PROBES.product, 7).some((h) => /stock_?social/.test(h)));
+  assert.ok(!filerHandles(PROBES.leet, 7).some((h) => /ver1fied/.test(h)));
+  // Nothing usable left: the numbered fallback.
+  assert.deepEqual(filerHandles('Verified Official', 1295), ['pf_filer', 'pf_filer_zz']);
+  assert.deepEqual(filerHandles('\u200B\u200B', 36).at(-1), 'pf_filer_10');
+  // An ordinary name keeps the old shape (existing handles stay stable).
+  assert.deepEqual(filerHandles('Morgan Fictional-Placeholder', 35), ['pf_morgan_fictio', 'pf_morgan_fi_z', 'pf_filer_z']);
+});
+
+test('F4-7: filer display names are cleaned like users\' names; a refused name falls back to the handle', () => {
+  const h = 'pf_example';
+  assert.equal(filerDisplayName(PROBES.rlo, h), 'Avery elpmaxe Placeholder');
+  assert.equal(filerDisplayName(PROBES.zeroWidth, h), 'QuinnFictional');
+  for (const k of ['check', 'verified', 'leet', 'product'] as const) assert.equal(filerDisplayName(PROBES[k], h), h, k);
+  assert.equal(filerDisplayName('  Casey   Example  ', h), 'Casey Example');
+  assert.equal(filerDisplayName('x'.repeat(60), h), 'x'.repeat(40));
+  for (const name of Object.values(PROBES)) assert.ok(!/[\u200B-\u200F\u202A-\u202E\u2066-\u2069]/.test(filerDisplayName(name, h)));
+});
+
+dbTest('F4-7: a filer named "Verified ..." gets a clean handle and the handle as its name', async () => {
+  const { sql } = await import('./db.ts');
+  const { rebuildPublicTrades } = await import('./public-trades.ts');
+  const id = await filer([row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0 }), row({ code: 'S', units: 10, held_after: 0, price: 11, day: 2 })]);
+  const out = await sql.begin((tx) => rebuildPublicTrades(id, tx, PROBES.verified));
+  assert.ok(out.userId);
+  const [u] = await sql`select handle, display_name from users where id = ${out.userId}`;
+  handleOk(u.handle);
+  assert.ok(!/verified/.test(u.handle));
+  assert.equal(u.display_name, u.handle);
+});
+
+test('fixes cycle 4, independent review 1: rows 9 and 10 of one filing keep filing order through the matcher (+50%, not -25%)', () => {
+  const f = 'fone';
+  const rows = [
+    row({ code: 'P', units: 100, held_after: 100, price: 10, day: 0, filing_id: f, external_id: `${f}:9` }),
+    row({ code: 'P', units: 100, held_after: 200, price: 20, day: 0, filing_id: f, external_id: `${f}:10` }),
+    row({ code: 'S', units: 100, held_after: 100, price: 15, day: 5 }),
+  ];
+  assert.deepEqual(pct(rows), [50]);
 });
