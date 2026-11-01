@@ -688,7 +688,11 @@ test('ticker page: Why they traded it shows the seeded thesis with a Demo badge 
   await expect(sec).toBeVisible();
   await expect(sec).toContainText('Breakout above the 50-day on volume after earnings beat');
   await expect(sec).toContainText('Demo');
-  await expect(sec.locator('a[href*="/u/"][href*="#trade-"]').first()).toBeVisible();
+  // A11Y-FIXES #22: the link is the trade's own page by sell_id (stable across rebuilds), not a profile anchor.
+  const link = sec.locator('a[href*="/u/"][href*="/trade/"]').first();
+  await expect(link).toBeVisible();
+  await expect(sec.locator('a[href*="#trade-"]')).toHaveCount(0);
+  expect((await page.request.get((await link.getAttribute('href'))!)).status()).toBe(200);
 });
 
 test('ticker page: unknown symbol has no theses section', async ({ page }) => {
@@ -696,13 +700,15 @@ test('ticker page: unknown symbol has no theses section', async ({ page }) => {
   await expect(page.getByTestId('theses')).toHaveCount(0);
 });
 
-test('ticker page: unknown and invalid symbols are calm 200s', async ({ page }) => {
+test('ticker page: an unknown symbol is a calm 200, an invalid one a real 404', async ({ page }) => {
   let res = await page.goto('/t/ZZZZ');
   expect(res?.status()).toBe(200);
   await expect(page.getByText('No verified closed trades in ZZZZ yet.')).toBeVisible();
+  // A11Y-FIXES #21: an invalid symbol is a real 404 (was a soft 200), on the root not-found page.
   res = await page.goto('/t/%3Cscript%3E');
-  expect(res?.status()).toBe(200);
-  await expect(page.getByText("doesn't look like a ticker")).toBeVisible();
+  expect(res?.status()).toBe(404);
+  await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
+  await expect(page).toHaveTitle('Page not found · Stock Social');
 });
 
 test('ticker index: lists seeded symbols with no performance numbers, sort is safe, nav links to it', async ({ page }) => {
@@ -717,7 +723,7 @@ test('ticker index: lists seeded symbols with no performance numbers, sort is sa
   const syms = await page.locator('.ticker-rows a b').allInnerTexts();
   expect(syms).toEqual([...syms].sort());
   await page.goto('/');
-  await page.locator('nav.top').getByRole('link', { name: 'Stocks' }).click();
+  await page.locator('nav.top').getByRole('link', { name: 'Trades by stock' }).click(); // F-13 (D27): the nav label
   await expect(page).toHaveURL(/\/t$/);
   await page.goto('/t/NVDA');
   await expect(page.getByRole('link', { name: /All stocks/ }).first()).toHaveAttribute('href', '/t');
@@ -764,7 +770,7 @@ test('compare page: two seeded symbols in URL order, noindex, honest empty state
     ['/t/compare?a=ZZZZ&b=NVDA', 'No verified closed trades in ZZZZ yet.'],
     ['/t/compare?a=NVDA&b=nvda', 'Choose two different stocks. You chose NVDA twice.'],
     ['/t/compare?a=ZZZZ&b=YYYY', 'No verified closed trades in ZZZZ or YYYY yet.'],
-    ['/t/compare', 'Choose two stocks to compare.'],
+    ['/t/compare', 'Choose two stocks to compare.'], // A11Y-FIXES #11
   ];
   for (const [url, text] of cases) {
     const r = await page.goto(url);
@@ -1133,6 +1139,9 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
     const otherPane = other.locator('.pane');
     await expect(otherPane.locator('.chart-hit')).toBeAttached();
     await expect(otherPane.locator('figure.chart')).toHaveAttribute('data-chart', 'stand-in');
+    // A11Y-FIXES #17: a pane at rest off screen is inert (not focusable); the keyboard route into it is →.
+    await other.evaluate((el) => el.scrollIntoView());
+    await expect.poll(async () => { await page.keyboard.press('ArrowRight'); return other.evaluate((el) => el.scrollLeft); }).toBeGreaterThan(300);
     await otherPane.locator('.chart-stack').focus();
     await expect(otherPane.locator('figure.chart')).toHaveAttribute('data-chart', 'full');
     await page.keyboard.press('ArrowLeft');

@@ -9,7 +9,7 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
+import { CLOSES_PAGING, connectedLine, DEMO_PROFILE, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
 import { cardAlt, cardDescription, cardEvidence, evidenceRangeText } from '@/lib/record-card.ts';
 import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
@@ -196,7 +196,8 @@ export default async function Profile({ params, searchParams }: Params) {
   const shareable = state === 'connected' || state === 'none';
   // F-4 rework: the share prompt quotes the card's own range (around the average it prints) and alt, from its model.
   const promptCard = isMe && !claimed && shareable && sharePromptShowing ? await loadRecordCard(user.handle, 'unfurl') : null;
-  const connected = allVerified ? connectedLine(brokers, accounts) : 'Demo data';
+  // A11Y-FIXES #10 (POLICY P2, F3a): a demo profile says so and never mentions connected accounts (mixed records count as demo).
+  const connected = allVerified ? `${connectedLine(brokers, accounts)}. ${DEMO_PROFILE.connectedOnly}` : DEMO_PROFILE.line;
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
@@ -232,7 +233,7 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
       {complete && first && !pub && (
         <p className="muted small" style={{ marginTop: 0 }}>
-          Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.
+          Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}
         </p>
       )}
 
@@ -279,7 +280,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {open && <RealizedLabel />}
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         {/* F-6: with open positions, tone by the printed sign beside the unrealized row ("0.0%" uncolored in both). */}
-        <div className="stat big"><b className={open ? toneClass(s.avgReturn) : s.avgReturn > 0 ? 'up' : 'down'}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
+        <div className="stat big"><b className={toneClass(s.avgReturn)}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
           {/* PR-2b: "Too early to tell" is said once, in the evidence line below; here only an actual range. */}
           {range && <small className="range">{`${range} · 95% range`}</small>}
         </div>
@@ -333,7 +334,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {open && openAsOf && <p className="muted small" data-open>{OPEN.asOf(asOfDay(openAsOf))}</p>}
         <ul className="rows positions">
           {positions.map((p) => (
-            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={open ? toneClass(p.pct) : p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
+            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={toneClass(p.pct)}>{pct(p.pct)}</b></div></li>
           ))}
         </ul>
       </>}
@@ -350,7 +351,7 @@ export default async function Profile({ params, searchParams }: Params) {
             <div className="line">
               <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
               <Link className="trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
-                <b className={t.return_pct > 0 ? 'up' : 'down'}>{pct(t.return_pct)}</b>
+                <b className={toneClass(t.return_pct)}>{pct(t.return_pct)}</b>
               </Link>
             </div>
             {t.filing_url && <a className="filing-link" href={t.filing_url} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.filingName(t.symbol, day(t.closed_at))}>{PUBLIC.filing}</a>}

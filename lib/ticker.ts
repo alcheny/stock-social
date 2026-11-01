@@ -203,7 +203,7 @@ export function relatedSymbols(rows: { symbol: string; userId: number; verified:
 }
 
 export const THESIS_CAP = 20;
-export type ThesisRow = { id: number; handle: string; thesis: string | null; thesisStatus: string | null;
+export type ThesisRow = { id: number; sellId: string; handle: string; thesis: string | null; thesisStatus: string | null; // A11Y-FIXES #22: the stable key
   returnPct: number; holdingDays: number; closedAt: Date; verified: boolean;
   writtenAt?: Date | null; editedAt?: Date | null }; // F-9: the note's recorded dates (UserNote), when there are any
 export type ThesisItem = Omit<ThesisRow, 'thesisStatus' | 'thesis'> & { thesis: string };

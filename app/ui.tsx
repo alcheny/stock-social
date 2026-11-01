@@ -6,6 +6,9 @@ import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
 import { UserNote } from '@/lib/user-note.ts';
+// F-13: the SW-1 hint and the Verified definition (fix #9).
+import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
+import { SwipeHint } from './first-visit-client.tsx';
 import { RecordStrip } from './record-strip.tsx';
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
@@ -15,7 +18,7 @@ import { retEms } from '@/lib/feed-focus.ts';
 export function Badge({ verified, kind = verified ? 'verified' : 'demo' }: { verified?: boolean; kind?: TrustBadge }) {
   if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <Badge kind="demo" />}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
   return kind === 'verified'
-    ? <span className="badge verified" title="Pulled read-only from the trader's broker. Cannot be edited.">✓ Verified</span>
+    ? <span className="badge verified" title={VERIFIED_MEANING} /* fix #9 (F-13 group): one constant with the footer */>✓ Verified</span>
     : <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>;
 }
 
@@ -54,6 +57,14 @@ const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'nume
 const CLOSED_DAY_YEAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.getUTCFullYear() ? CLOSED_DAY : CLOSED_DAY_YEAR).format(d);
 
+// F-7: a public-record card shows its card line in place of the thesis (filers post none).
+// F-7: a public filer's card carries its own line, never a note. F-9: a published thesis renders through UserNote (no byline:
+// the card's header already names the trader; `report` is the Report control the feed passes for a signed-in reader).
+const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
+  : t.thesis_status === 'published' && t.thesis
+    ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} />
+    : <p className="thesis"><span className="muted">No thesis posted.</span></p>;
+
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
 // F-10: `strip`, the trader's record strip (lib/record-strip.ts#recordStrip, 'feed'): it takes the place of the
 // "held · closed" line, so the hero reads symbol, return, record. DS-22 (design system council, PR #48): the trust badge
@@ -63,10 +74,11 @@ export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.get
 // the trader. Passed in, not imported here, so this card stays free of the server-action module (lib/f10-feed-card.test.ts
 // renders it outside Next).
 // F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date() }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date }) {
+// F-13: `hint`, page 1's first card: the SW-1 line and the dismiss focus target; `notice`, the first-visit line.
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report, now = new Date(), hint, notice }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; report?: React.ReactNode; now?: Date; hint?: boolean; notice?: React.ReactNode }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
-  const up = t.return_pct > 0;
+  const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
   const trust = cardTrust(t, state);
   const pub = isPublicRecord(state); // F-7: the card line in place of the thesis (filers post none)
   // F-10 follow-up #18: the figure's length caps its size (app/globals.css "F-10 follow-ups"), so "+12345.6%" fits the card.
@@ -74,7 +86,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
   return (
     <article className="card">
       <header>
-        <Link href={`/u/${t.handle}`} className="who">
+        <Link href={`/u/${t.handle}`} className="who" data-first-card-link={hint || undefined}>
           <WhoName name={t.display_name} handle={t.handle} />
         </Link>
         {!strip && <RowBadge kind={trust.badge} />}
@@ -83,16 +95,14 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
-        <div className={`ret ${up ? 'up' : 'down'}`} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>
+        <div className={tc ? `ret ${tc}` : 'ret'} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>
         {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now)}</div>}
       </div>
-      {/* F-7: a public filer's card carries its own line, never a note. F-9: UserNote; fix round 2: no byline, the card's header already names the trader */}
-      {pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
-        : t.thesis_status === 'published' && t.thesis
-        ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} />
-        : <p className="thesis"><span className="muted">No thesis posted.</span></p>}
+      {/* F-13: on page 1's first card the first-visit line takes the thesis slot until it is dismissed (F-10's one-screen budget). */}
+      {notice ? <div className="fv-slot">{notice}{thesisLine(t, pub, report)}</div> : thesisLine(t, pub, report)}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
+        {hint && <SwipeHint text={FIRST_VISIT.hint} />}
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
         {/* F-10 (user test 2026-11-01, F-10 AC10): with the record line, the disclaimer is in view on every card, so the
             first screen at 360 px carries it (the site footer sits below the fold). */}
