@@ -40,13 +40,13 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 
 // FIFO, long only. One closed trade per SELL, or one count: every SELL is a shown trade, `excluded` or
 // `excludedCorporate`, never dropped silently.
-// - `excluded` (no recorded entry): a sell with no lots, and every sell of an oversold episode. A sell needing more
-//   units than the ledger holds proves this (account, symbol)'s history is missing an inflow (a buy before the imported
-//   history, a transfer in, an unrecorded split or stock dividend), so the FIFO basis of that sell AND of every sell
-//   since the ledger was last empty is unknown: all of them are excluded, wins and losses alike (POLICY F3c; the
-//   episode boundary is a heuristic, the missing inflow may predate it).
-// - `excludedCorporate`: a sell drawing a unit an unpriceable corporate action touched, or one dated within
-//   LATE_POSTING_DAYS before a repricing action on its pair (lib/corporate-actions.ts).
+// - `excluded` (no recorded entry): a sell needing more units than the ledger holds, excluded whole (its matched part
+//   is not shown either): the history is missing an inflow (a buy before the imported history, a transfer in, an
+//   unrecorded split), so its basis is unknown (POLICY F3c). Sells shown earlier were priced from recorded lots and stay
+//   (TR-1, orchestrator decision 2026-11-01). The oversell empties the ledger; later buys start fresh lots.
+// - `excludedCorporate`: a sell drawing a unit an unpriceable corporate action touched (an oversell included), one
+//   dated within LATE_POSTING_DAYS before a repricing action on its pair, or one on the same day as such an action
+//   (the vendor may date the row on another day of the event than the trade's prices assume: lib/corporate-actions.ts).
 // Corporate actions (lib/corporate-actions.ts) adjust the lots: a split or stock dividend multiplies units by p/q and
 // divides price and fee per unit by it (total cost and fees conserved, holding period from the original buy); a symbol
 // change moves the lots, FIFO order kept by date; an unpriceable action taints them. At the same instant, actions apply
@@ -65,7 +65,7 @@ export function openLots(activities: Activity[], actions: CorporateAction[] = []
   return out;
 }
 
-type Book = { lots: Lot[]; episode: ClosedTrade[] };
+type Book = { lots: Lot[] };
 type Event = { at: number; order: number; i: number; act?: Activity; ca?: CorporateAction };
 
 function replay(activities: Activity[], actions: CorporateAction[]): { result: MatchResult; books: Map<string, Book> } {
@@ -74,9 +74,8 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     ...activities.map((act, i) => ({ at: act.executedAt.getTime(), order: 2, i, act })),
   ].sort((a, b) => a.at - b.at || a.order - b.order || a.i - b.i);
   const books = new Map<string, Book>();
-  const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [], episode: [] })); return b; };
+  const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
-  const dropped = new Set<string>();
   let excluded = 0, excludedCorporate = 0;
 
   // Repricing actions, for the late-posting window (a rename at 1:1 reprices nothing): their times per pair and, for
@@ -94,6 +93,13 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     let lo = 0, hi = list.length;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] <= t) lo = mid + 1; else hi = mid; }
     return lo < list.length ? list[lo] : Infinity;
+  };
+  // Same UTC day as a repricing action on the pair (or an account-wide one): the order within that day is unknown.
+  const days = new Map<string, Set<number>>();
+  for (const [k, list] of times) days.set(k, new Set(list.map((t) => Math.floor(t / DAY))));
+  const sameDayAction = (a: Activity) => {
+    const d = Math.floor(a.executedAt.getTime() / DAY);
+    return !!(days.get(`${a.accountId}|${a.symbol}`)?.has(d) || days.get(`${a.accountId}|`)?.has(d));
   };
   const latePosted = (a: Activity) => {
     const t = a.executedAt.getTime();
@@ -156,8 +162,7 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
         const to = book(toKey);
         to.lots = [...to.lots, ...b.lots].sort((x, y) => x.at.getTime() - y.at.getTime());
-        to.episode.push(...b.episode);
-        books.set(key, { lots: [], episode: [] }); // a recycled ticker starts fresh lots
+        books.set(key, { lots: [] }); // a recycled ticker starts fresh lots
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
         if (r.p !== r.q) exchangedInto.set(toKey, e.at);
       } else {
@@ -168,7 +173,6 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
         else if (u < 0) removeOldest(b.lots, -u);
       }
-      if (!b.lots.length) b.episode = []; // emptied by an action (cash in lieu, shares removed): the next buy starts afresh
       continue;
     }
 
@@ -177,7 +181,8 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     const b = book(key);
     const open = b.lots;
     if (a.side === 'BUY') {
-      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified });
+      // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
+      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) ? { tainted: true } : {}) });
       continue;
     }
 
@@ -201,13 +206,11 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     }
 
     if (!tiny(remaining, a.units)) {
-      // Oversold: this sell and every sell shown since the ledger was last empty.
-      excluded += 1 + b.episode.length;
-      for (const t of b.episode) dropped.add(t.sellId);
-      b.episode = [];
+      // Oversold: this sell only. Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
+      if (tainted) excludedCorporate++; else excluded++;
       continue;
     }
-    if (tainted || latePosted(a)) excludedCorporate++;
+    if (tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;
     else if (openedAt) {
       const exitFee = a.fee;
       const t: ClosedTrade = {
@@ -221,11 +224,9 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         verified,
       };
       trades.push(t);
-      b.episode.push(t);
     }
-    if (!open.length) b.episode = [];
   }
-  return { result: { trades: dropped.size ? trades.filter((t) => !dropped.has(t.sellId)) : trades, excluded, excludedCorporate }, books };
+  return { result: { trades, excluded, excludedCorporate }, books };
 }
 
 export type Stats = {

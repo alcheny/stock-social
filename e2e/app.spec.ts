@@ -999,10 +999,7 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
       expect(evidenceWeight(confidence(rows.map((r) => ({ symbol: r.symbol, openedAt: r.opened_at, closedAt: r.closed_at, returnPct: r.return_pct, holdingDays: r.holding_days })), new Date()))).toBeGreaterThan(0);
     }
     const total = made.reduce((s, t) => s + t.ids.length, 0);
-    // Corporate actions (F3c, PR #40): a seeded orphan sell now excludes its whole oversold episode, so the same
-    // deterministic histories give ~4,037 closes per trader (201,844 in all) instead of over 4,500. This floor only checks
-    // that the fixture is heavy; the page-weight assertions below are unchanged.
-    expect(total).toBeGreaterThan(HEAVY * 4_000);
+    expect(total).toBeGreaterThan(HEAVY * 4_500);
     // Only the fixture's traders have a close in the recent window (see above); the old dates come back in `finally`.
     aside = await sql`update closed_trades t set closed_at = least(o.closed_at, now()) - ${RECENT_HOURS + 24} * interval '1 hour'
       from (select id, closed_at from closed_trades where closed_at > now() - ${RECENT_HOURS} * interval '1 hour'
@@ -1111,10 +1108,7 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
     await page.goto(`/u/${handle}`);
     const full = await capture(page.locator('figure.chart'), 'profile');
     console.log(`# feed: pane chart ${small.map((s) => s.points).join('/')} path points (ALL/1Y), profile chart ${full.map((s) => s.points).join('/')}`);
-    // The profile keeps full resolution. Corporate actions (F3c, PR #40): heavy records now hold 3,784 to 4,313 closes (an
-    // orphan sell excludes its oversold episode), so the floor is this record's own close count, not a fixed 4,000.
-    const [{ n: closesShown }] = await sql`select count(*)::int as n from closed_trades c join users u on u.id = c.user_id where u.handle = ${handle}`;
-    expect(full[0].points).toBeGreaterThanOrEqual(closesShown);
+    expect(full[0].points).toBeGreaterThan(4_000); // the profile keeps full resolution
     for (const k of [0, 1]) {
       expect(small[k].head).toBe(full[k].head);
       expect(small[k].label).toBe(full[k].label);

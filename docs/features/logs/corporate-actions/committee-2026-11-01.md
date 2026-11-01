@@ -21,7 +21,7 @@ Owner's standing instruction (2026-11-01): decide open questions with the commit
 
 | # | Decision | Why | Votes |
 |---|---|---|---|
-| Q1 | **Oversell safety net, inside `matchTrades`.** A sell needing more units than the ledger holds is excluded whole. So is every sell shown since that pair's ledger was last empty. Exclusion ignores whether the trades won or lost. | An oversell proves the position's history is missing an inflow: an unrecorded split or stock dividend, a transfer in, or a buy before the imported history. That makes the FIFO basis of that sell, and of the earlier sells in the episode, unknown. The episode boundary is a heuristic, since the missing inflow may predate it. This is the only protection that works before the broker change. | Quant B, business lead B, engineer B with a recorded dissent: the engineer wanted the owner's explicit OK to flip one existing assertion. Adopted under the owner's standing instruction and flagged first in the PR. |
+| Q1 (replaced, see "Orchestrator review") | **Oversell safety net, inside `matchTrades`.** A sell needing more units than the ledger holds is excluded whole. So is every sell shown since that pair's ledger was last empty. Exclusion ignores whether the trades won or lost. | An oversell proves the position's history is missing an inflow: an unrecorded split or stock dividend, a transfer in, or a buy before the imported history. That makes the FIFO basis of that sell, and of the earlier sells in the episode, unknown. The episode boundary is a heuristic, since the missing inflow may predate it. This is the only protection that works before the broker change. | Quant B, business lead B, engineer B with a recorded dissent: the engineer wanted the owner's explicit OK to flip one existing assertion. Adopted under the owner's standing instruction and flagged first in the PR. |
 | Q1a | The existing test "partial unmatched sell keeps the matched part" keeps its inputs and its count. Its title changes and its assertion flips: the matched part is no longer shown. The test count does not drop. | It is a stricter rule and a correctness fix under F3c, not a weakening. | all |
 | Count | **Every removed sell adds 1** to `excluded` (the `excluded_positions` counter). Invariant: shown + excluded + excludedCorporate = number of SELL rows. | Round 3. The quant blocked counting once per episode: 5 trades vanishing with the counter rising by 1 hides 4 of them (TR-1). Per sell is already the counter's meaning, so the existing copy stays accurate. | all (round 3) |
 | Q2 | Vendor units are read two ways against the shares the ledger holds: as the change in shares and as the new total. A ratio is accepted only when exactly one candidate p:q fits, or one confirmed by the parsed description ("2 FOR 1"). It must fit exactly, or with a cash-in-lieu leftover of at least 0 and under 1 share. Candidates: n:1 and 1:n up to 100, and p,q up to 10. Stock dividends use (q+k):q with q up to 100. Ambiguous, disagreeing, or ledger empty with no ratio means unpriceable. | Vendors report split units inconsistently. Guessing a ratio is exactly the wrong-return case F3c forbids. | all |
@@ -110,6 +110,22 @@ No blocking defect. The tester's brute force found 0 wrong resolutions across:
 Remaining minor case: a true ratio with a side above 100 (57:113, 101:1) can still resolve to a nearby grid ratio.
 This came up in 14,470 of 8.05M generated cases. No real split or stock dividend uses such ratios. Odd merger
 exchanges arrive as renames, which need an exact match and are excluded otherwise.
+
+## Orchestrator review (2026-11-01), decided under the owner's delegation
+- **Q1 is replaced.** An oversell excludes only the oversold sell (whole, matched part included). Sells shown earlier
+  were priced from recorded lots and stay shown (TR-1: no per-trade hiding). The committee's episode rule could make an
+  already-shown loss disappear: buy 100 @ 100, sell 50 @ 50 (-50%), then an unimported share and a sell of 51 removed
+  the -50%. The oversell empties the ledger, and later buys start fresh lots. Each oversold sell still adds 1 to
+  `excluded`. The flipped `lib/trades.test.ts` assertion stands (the oversold sell's matched part is not shown).
+- **Same-day trades.** A trade on the same UTC day as a repricing action is never priced on a guess, because the vendor
+  may date the row on the ex-date or the payable date. Same-day sells are excluded and counted as corporate, and same-day
+  buys are tainted. This replaces "actions apply first" for pricing; the order is kept only for bookkeeping. Examples
+  that used to publish a wrong return: +120% (sell at pre-split price on the day), -45% (buy at pre-split price on the
+  day), +1000% (the same for a reverse split).
+- An oversell that draws lots an unresolved split left unscaled is counted in `excluded_corporate`, not
+  `excluded_positions`.
+- With the episode rule gone, the heavy-feed e2e fixture is back above its original floors (4,595 to 4,802 closes per
+  trader), so `e2e/app.spec.ts` is unchanged by this PR.
 
 ## Follow-ups (not in this change)
 - Widen the rival check past 100:100 if real data ever shows ratios that large.

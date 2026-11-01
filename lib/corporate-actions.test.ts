@@ -48,9 +48,17 @@ test('split between two partial sells: the first at the old basis, the second at
   assert.deepEqual([m.excluded, m.excludedCorporate], [0, 0]);
 });
 
-test('split and sell on the same day: the action applies first', () => {
-  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 200, 55, 20)], [split(20, 2, 1)]);
-  near(m.trades[0].returnPct, 0.1);
+// Orchestrator review (2026-11-01): the vendor may date the row on another day of the event than the trade's prices
+// assume, so trades on the action's day are never priced on a guess (this test used to expect +10%).
+test('trades on the day of a split are excluded and counted: a sell that day, and a buy that day (its lots tainted)', () => {
+  const sellSameDay = accounted([t('BUY', 100, 100, 1), t('SELL', 200, 55, 20)], [split(20, 2, 1)]);
+  assert.deepEqual([sellSameDay.trades.length, sellSameDay.excludedCorporate], [0, 1]);
+  const preSplitPrice = accounted([t('BUY', 100, 100, 1), t('SELL', 100, 110, new Date(d(20).getTime() + 15 * 3_600_000))], [split(20, 2, 1)]);
+  assert.deepEqual([preSplitPrice.trades.length, preSplitPrice.excludedCorporate], [0, 1]); // never +120%
+  const buySameDay = accounted([t('BUY', 100, 100, new Date(d(20).getTime() + 3_600_000)), t('SELL', 100, 55, 40)], [split(20, 2, 1)]);
+  assert.deepEqual([buySameDay.trades.length, buySameDay.excludedCorporate], [0, 1]); // never -45%
+  const reverse = accounted([t('BUY', 100, 10, new Date(d(20).getTime() + 3_600_000)), t('SELL', 10, 110, 40)], [split(20, 1, 10)]);
+  assert.deepEqual([reverse.trades.length, reverse.excluded + reverse.excludedCorporate], [0, 1]); // never +1000%
 });
 
 test('reverse split with cash in lieu, ratio stated by the vendor: 105 shares 1:10 become 10 (0.5 paid in cash); the fraction is removed, not a trade, not counted; without the stated ratio it is unpriceable', () => {
@@ -138,14 +146,20 @@ test('mix across accounts: a split in one account leaves the same symbol in anot
   assert.deepEqual(m.trades.map((x) => [x.accountId, Math.round(x.returnPct * 1e6) / 1e6]), [['acc', 0.1], ['acc2', 0.1]]);
 });
 
-test('oversold episode: every sell since the ledger was last empty is excluded and counted, wins and losses alike; earlier episodes stay', () => {
-  const win = [t('BUY', 10, 100, 1), t('SELL', 10, 110, 2), t('BUY', 10, 100, 3), t('SELL', 5, 150, 4), t('SELL', 10, 150, 5)];
-  const loss = [t('BUY', 10, 100, 1), t('SELL', 10, 110, 2), t('BUY', 10, 100, 3), t('SELL', 5, 50, 4), t('SELL', 10, 50, 5)];
-  for (const acts of [win, loss]) {
-    const m = accounted(acts);
-    assert.deepEqual([m.trades.length, m.excluded], [1, 2]);
-    near(m.trades[0].returnPct, 0.1);
-  }
+// Orchestrator decision under the owner's delegation (2026-11-01), replacing the committee's episode rule: an oversell
+// excludes only the oversold sell; sells already priced from recorded lots stay shown (TR-1: no per-trade hiding).
+test('an oversold sell is excluded alone; an earlier loss priced from recorded lots stays shown (wins and losses alike)', () => {
+  const loss = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 50, 2), t('SELL', 51, 50, 3)]);
+  assert.deepEqual([loss.trades.length, loss.excluded], [1, 1]);
+  near(loss.trades[0].returnPct, -0.5);
+  const win = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 150, 2), t('SELL', 51, 150, 3)]);
+  assert.deepEqual([win.trades.length, win.excluded], [1, 1]);
+  near(win.trades[0].returnPct, 0.5);
+});
+
+test('an oversell drawing lots an unresolved split left unscaled is counted as corporate, not as missing history', () => {
+  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 200, 55, 40)], [splitUnits(20, 200)]);
+  assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [0, 0, 1]);
 });
 
 test('a pair with only actions, or actions on symbols with no lots, never crashes and shows nothing', () => {
@@ -173,7 +187,7 @@ test('a stored rename to the same symbol is unpriceable: the lots stay and are t
   assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [0, 0, 1]);
 });
 
-test('an action that empties the lots ends the episode: a later oversell leaves the earlier trade shown', () => {
+test('an action that empties the lots: a later oversell leaves the earlier trade shown', () => {
   const acts = [t('BUY', 10, 100, 1), t('SELL', 5, 110, 2), t('BUY', 10, 100, 40), t('SELL', 20, 100, 41)];
   const m = accounted(acts, [unpriceable(20, { scope: 'pair', units: -5 })]);
   assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [1, 1, 0]);

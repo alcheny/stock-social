@@ -283,7 +283,7 @@ export const HOW = {
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
     // Corporate actions (F3c): only what is true today. Split adjustment goes live with the owner's broker change
     // (docs/features/logs/corporate-actions/committee-2026-11-01.md); its /how sentence lands with it.
-    'A position that sells more shares than its imported history holds (for example after a stock split the import did not record) is excluded whole, wins and losses alike.',
+    'A sell of more shares than the imported history holds (for example after a stock split the import did not record) is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
   ],
