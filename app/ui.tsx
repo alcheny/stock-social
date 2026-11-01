@@ -6,6 +6,7 @@ import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
 import { RecordStrip } from './record-strip.tsx';
+import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
 
 export function Badge({ verified }: { verified: boolean }) {
@@ -65,6 +66,9 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
+        {/* F-10 (user test 2026-11-01, F-10 AC10): with the record line, the disclaimer is in view on every card, so the
+            first screen at 360 px carries it (the site footer sits below the fold). */}
+        {strip && <p className="card-disclaimer" data-disclaimer>{DISCLAIMER}</p>}
       </footer>
     </article>
   );

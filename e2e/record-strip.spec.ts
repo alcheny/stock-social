@@ -21,6 +21,7 @@ const FIXTURES = {
   f10_early: { closes: [0.9, -0.85, 0.95, -0.8, 0.9], open: [] as number[] },
 };
 const HANDLES = Object.keys(FIXTURES);
+const LONG_THESIS = 'Bought after the second earnings beat in a row and a raised outlook; sold when the move stalled near the old high. '.repeat(3).slice(0, 280);
 
 test.describe.configure({ mode: 'serial' });
 let releaseFeed: (() => Promise<void>) | null = null;
@@ -35,6 +36,8 @@ test.beforeAll(async () => {
       user_id: u.id, sell_id: `${handle}-${i}`, account_id: 'a', symbol: `${handle === 'f10_strip' ? 'FTS' : 'FTE'}${i}`,
       opened_at: new Date(Date.now() - (i + 3) * 3_600_000 - 2 * DAY), closed_at: new Date(Date.now() - (i + 1) * 3_600_000),
       return_pct: r, holding_days: 2, verified: true,
+      // The worst case for the card's height: a 280-character thesis on the newest close of f10_strip.
+      ...(handle === 'f10_strip' && i === 0 ? { thesis: LONG_THESIS, thesis_status: 'published' } : { thesis: null, thesis_status: null }),
     })))}`;
     await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, last_progress_at, connected_at)
       values (${u.signup_attempt_id}, ${u.id}, 'connected', now(), now(), now(), now() - interval '3 days')`;
@@ -63,7 +66,7 @@ test('F-10 AC1/AC2/AC3/AC6: one strip per card in place of "held · closed"; Too
     await expect(cards.nth(k)).not.toContainText(/held [\d.]+[hd] · closed/);
   }
   const strip = cardOf(page, 'f10_strip').locator('[data-strip]');
-  await expect(strip).toContainText(/^(✓ Verified |Demo )?12 closed trades · \+\d+\.\d% average per trade \(.+ to .+\)$/);
+  await expect(strip).toContainText(/^(✓ Verified |Demo )?12 closed trades · \+\d+\.\d% average per trade \(.+ to .+\) · 95% range$/);
   const early = cardOf(page, 'f10_early').locator('[data-strip]');
   await expect(early).toHaveText(/^(✓ Verified |Demo )?5 closed trades · Too early to tell$/);
   // DS-22: the trust badge leads the record line, not the header.
@@ -87,11 +90,15 @@ test('F-10 AC8: reflow at 320, 360×640 and 780×360: no horizontal scroll, the 
     await strip.scrollIntoViewIfNeeded();
     const box = (await strip.boundingBox())!;
     const lh = await strip.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.45);
-    // Two lines from 360 px up; at 320 px the badge leading the line (DS-22) takes it to three, the design system
-    // council's own budget for the 320 px box (§4.3).
-    expect(box.height, `${w}x${h}`).toBeLessThanOrEqual(lh * (w <= 320 ? 3 : 2) * 1.15);
+    // With the badge leading (DS-22) and the range labelled (user test 2026-11-01), three lines at phone widths, the design
+    // system council's own budget for the 320 px box (§4.3); two in landscape.
+    expect(box.height, `${w}x${h}`).toBeLessThanOrEqual(lh * (w >= 780 ? 2 : 3) * 1.15);
     // Nothing clipped: the strip fits its card.
     const card = (await cardOf(page, 'f10_strip').boundingBox())!;
+    // The card's disclaimer stays inside its screen even with a 280-character thesis (rows are one screen tall).
+    const row = (await page.locator('.row[data-handle="f10_strip"]').first().boundingBox())!;
+    const disc = (await cardOf(page, 'f10_strip').locator('[data-disclaimer]').boundingBox())!;
+    expect(disc.y + disc.height, `${w}x${h} disclaimer`).toBeLessThanOrEqual(row.y + row.height + 1);
     expect(box.x).toBeGreaterThanOrEqual(card.x - 1);
     expect(box.x + box.width).toBeLessThanOrEqual(card.x + card.width + 1);
   }
@@ -107,6 +114,9 @@ test('business lead glance: at 360×640 signed out, the first card\'s return and
   const first = page.locator('.card').first();
   await expect(first.locator('.ret')).toBeInViewport({ ratio: 1 });
   await expect(first.locator('[data-strip]')).toBeInViewport({ ratio: 1 });
+  // F-10 AC10: the disclaimer is on the first screen too.
+  await expect(first.locator('[data-disclaimer]')).toHaveText(DISCLAIMER);
+  await expect(first.locator('[data-disclaimer]')).toBeInViewport({ ratio: 1 });
 });
 
 test('F-10 AC9: the strip is real text after the return in the card\'s reading order, never hidden from assistive tech', async ({ page }) => {

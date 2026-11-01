@@ -59,7 +59,7 @@ test('F-10 AC1/AC9: a card given a strip shows it as real text in the hero, afte
   assert.ok(hero.indexOf('ACME') < hero.indexOf('-5.2%') && hero.indexOf('-5.2%') < hero.indexOf('data-strip'), hero);
   const p = hero.slice(hero.indexOf('<p class="record-strip"'));
   assert.doesNotMatch(p.slice(0, p.indexOf('>')), /aria-hidden/);
-  assert.match(figures(p), /^40 closed trades · \+0\.9% average per trade \([+-]\d+\.\d% to [+-]\d+\.\d%\)$/);
+  assert.match(figures(p), /^40 closed trades · \+0\.9% average per trade \([+-]\d+\.\d% to [+-]\d+\.\d%\) · 95% range$/);
   assert.equal(figures(p), strip.text);
   assert.doesNotMatch(html, /held \S+ · closed/);
   assert.doesNotMatch(text(html), /held /);

@@ -97,7 +97,9 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
       const range = evidenceRangeText(i.evidence)!;
       figures.push({ role: 'average', text: `${pct(i.avg)} ${SHARE_CARD.perTrade}`, tone: toneOf(i.avg), sep: first });
       figures.push({ role: 'range', text: range, tone: null, sep: ' ' });
-      if (surface !== 'feed') figures.push({ role: 'rangeLabel', text: RECORD_STRIP.rangeLabel, tone: null, sep: ' · ' });
+      // Every surface labels the range, the feed card too (user test 2026-11-01: a bare range under a big return reads as
+      // the trader's lowest and highest trade).
+      figures.push({ role: 'rangeLabel', text: RECORD_STRIP.rangeLabel, tone: null, sep: ' · ' });
       altParts.push(`${SHARE_CARD.perTrade} ${pct(i.avg)}, ${words(i.evidence.perTrade!.low, i.evidence.perTrade!.high)}`);
     }
     if (full) {
@@ -150,8 +152,12 @@ const imageTone = (t: StripTone): ImageTone => (t === 'up' || t === 'down' || t 
 export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolean; hero: ImageLine[] }): ImageLine[] {
   const L: ImageLine[] = [];
   if (s.label) L.push({ role: 'label', text: s.label.text, size: 28, tone: imageTone(s.label.tone), weight: 700 });
-  L.push({ role: 'handle', text: `@${o.handle}${o.newRecord && !s.importing ? ' · New record' : ''}`, size: 28, tone: 'muted', weight: 400 });
   L.push(...o.hero);
+  // Which figures are the trader's record (user test 2026-11-01: a month's own average stacked on the record's read as two
+  // answers): the record's name, as on the page, right above them.
+  // "New record" stays on the profile and the record card (design system council #48 §2.4), not on these images.
+  void o.newRecord;
+  L.push({ role: 'handle', text: RECORD_STRIP.link(o.handle), size: 28, tone: 'muted', weight: 400 });
   if (s.importing) {
     L.push({ role: 'importing', text: SHARE_CARD.importingBody, size: STRIP_BAND.recordPx, tone: 'text', weight: 700 });
     for (const [k, part] of noteLines(SHARE_CARD.importingNote).entries()) L.push({ role: `importingNote${k}`, text: part, size: STRIP_BAND.minPx, tone: 'muted', weight: 400 });

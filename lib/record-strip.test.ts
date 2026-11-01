@@ -35,7 +35,7 @@ const range = (trades: ConfidenceInput[]) => evidenceRangeText(cardEvidence(trad
 
 test('F-10 AC1 / F-12 AC1: count, average per trade and range from the whole record, losses included', () => {
   const s = recordStrip(input(R.winning), 'feed');
-  assert.equal(s.text, `40 closed trades · ${s.figures[1].text} ${range(R.winning)}`);
+  assert.equal(s.text, `40 closed trades · ${s.figures[1].text} ${range(R.winning)} · 95% range`);
   assert.match(s.figures[1].text, /^\+0\.9% average per trade$/);
   // Dropping a loss changes the average: the strip reads every trade, losses included.
   const mixed = [...R.winning.slice(0, 39), tr('LOSS', 200, 201, -0.5)];

@@ -518,3 +518,4 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .record-strip b.down { color: var(--down); }
 .record-strip-block .record-strip { font-size: 1rem; margin: 4px 0; }
 .record-strip-block .strip-label { margin: 0; }
+.card-disclaimer { margin: 4px 0 0; font-size: 0.875rem; }
