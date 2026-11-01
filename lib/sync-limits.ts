@@ -228,6 +228,9 @@ export class LatencyWindow {
 // whose bound would end within ROUTE_END_MARGIN_MS of the end is refused with RouteDeadlineError, a transient failure:
 // the trader's transaction rolls back (nothing published), its attempt is cleared and it keeps its round claim.
 export const ROUTE_END_MARGIN_MS = 10_000;
+// The margin in proportion to a request's bound (10 s at the 30 s production bound), so a time-scaled test keeps the
+// production proportions.
+export const routeEndMargin = (boundMs: number) => Math.round(ROUTE_END_MARGIN_MS * boundMs / 30_000);
 export class RouteDeadlineError extends Error {
   name = 'RouteDeadlineError';
   constructor() { super('vendor request refused: it could end past the route deadline'); }

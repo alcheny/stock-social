@@ -13,7 +13,7 @@ import {
   type Broker, type SyncableUser,
 } from './sync.ts';
 import {
-  BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, LatencyWindow, plannedSyncMs, ROUTE_END_MARGIN_MS, RouteDeadlineError, TRANSIENT_LIMIT, classify, dbConfigCheck, runConfig, TokenBucket,
+  BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, LatencyWindow, plannedSyncMs, routeEndMargin, RouteDeadlineError, TRANSIENT_LIMIT, classify, dbConfigCheck, runConfig, TokenBucket,
   type FailureKind, type RunConfig, type Shard,
 } from './sync-limits.ts';
 
@@ -143,8 +143,9 @@ export async function finish(u: Claimed, end: End, shift = 0): Promise<boolean> 
 type Guard = { clock: () => number; routeEnd: number; boundMs: number };
 function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, count: { n: number }, latency?: LatencyWindow, guard?: Guard): Broker {
   const pay = async (n: number) => {
-    // Refused before it starts (and before its token) when its bound could reach the route's last ROUTE_END_MARGIN_MS.
-    if (guard && guard.routeEnd !== Infinity && guard.clock() + guard.boundMs > guard.routeEnd - ROUTE_END_MARGIN_MS) throw new RouteDeadlineError();
+    // Refused before it starts (and before its token) when its bound could reach the route's last margin (10 s at the
+    // production bound).
+    if (guard && guard.routeEnd !== Infinity && guard.clock() + guard.boundMs > guard.routeEnd - routeEndMargin(guard.boundMs)) throw new RouteDeadlineError();
     count.n += n;
     const free = Math.min(prepaid.left, n);
     prepaid.left -= free;
@@ -280,11 +281,12 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       const first = !firstTaken;
       firstTaken = true;
       // Fit rule v2 (committee round 3): the trader's requests at this run's observed p99 plus one whole bound for a
-      // straggler (the worst case, every request at the bound, until 50 requests are timed), plus the token wait.
+      // straggler (the worst case, every request at the bound, until 50 requests are timed), plus the route-end guard's
+      // margin and the token wait — so a trader is not dispatched only to be cut by the guard.
       // ponytail: a trader dispatched near the end whose requests then time out can still overrun the call; it rolls back
       // (nothing published), its lease lapses and the attempt counts as unfinished (two in a row quarantine it) — a
       // per-account resumable sync (the follow-up PR) removes the overrun.
-      if (!first && routeEnd !== Infinity && plannedSyncMs(requests, bound, latency.p99()) + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
+      if (!first && routeEnd !== Infinity && plannedSyncMs(requests, bound, latency.p99()) + routeEndMargin(bound) + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
         unfit.push(c.id); popped.delete(c.id); r.deferred++; stopReason = 'deadline';
         // Nothing smaller can fit either, or the list has grown past a few pages: stop reading the queue (the exclusion
         // list rides on every page query).
