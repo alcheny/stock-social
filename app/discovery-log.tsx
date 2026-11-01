@@ -7,7 +7,7 @@ import { useEffect } from 'react';
 // failure. It measures visibility with IntersectionObserver, so reading by keyboard or screen reader counts the same as
 // touch. What it sends, per card (a trade, by the card's id) or section row (a trader, by handle), once per page view:
 // - impression: at least 60% visible for 500 ms;
-// - dwell_long (≥ 5 s visible), dwell_short (1 to 5 s) or skip (seen, under 1 s), when it leaves view or the page hides;
+// - dwell_long (≥ 5 s visible in all), dwell_short (1 to 5 s) or skip (seen, under 1 s): one per card, when the page hides;
 // - swipe_open: the card's pane came into view (the opening swipe, SW-1);
 // - profile_open: a link to a trader's profile was followed from the feed.
 // One batch of at most 50 every 10 s and on pagehide (sendBeacon; text/plain, so no preflight); at most 500 queued. A
@@ -40,25 +40,33 @@ export function DiscoveryLog() {
       if (handle) return { target: { kind: 'trader', handle }, surface: 'section', key: `h${handle}` };
       return null;
     };
+    // Time in view adds up across views; one outcome per card (review fix 9), sent when the page hides.
     const left = (el: Element) => {
-      const w = what(el), t0 = since.get(el);
+      const t0 = since.get(el);
       clearTimeout(timers.get(el));
-      if (!w || t0 === undefined) return;
+      if (t0 === undefined) return;
       since.delete(el);
-      const ms = (total.get(el) ?? 0) + performance.now() - t0;
-      total.set(el, ms);
-      const type = ms >= LONG_MS ? 'dwell_long' : ms >= SHORT_MS ? 'dwell_short' : 'skip';
-      push({ type, surface: w.surface, target: w.target }, `${type}:${w.key}`);
+      total.set(el, (total.get(el) ?? 0) + performance.now() - t0);
     };
+    const dwell = () => {
+      for (const [el, ms] of total) {
+        const w = what(el);
+        if (!w) continue;
+        const type = ms >= LONG_MS ? 'dwell_long' : ms >= SHORT_MS ? 'dwell_short' : 'skip';
+        push({ type, surface: w.surface, target: w.target }, `d:${w.key}`);
+      }
+    };
+    const inView = new Set<Element>();
     const cards = new IntersectionObserver((entries) => {
       for (const en of entries) {
         const el = en.target, w = what(el);
         if (!w) continue;
         if (en.intersectionRatio >= VISIBLE) {
+          inView.add(el);
           if (since.has(el)) continue;
           since.set(el, performance.now());
           timers.set(el, window.setTimeout(() => push({ type: 'impression', surface: w.surface, target: w.target }, `i:${w.key}`), IMPRESSION_MS));
-        } else left(el);
+        } else { inView.delete(el); left(el); }
       }
     }, { threshold: [0, VISIBLE] });
     // The opening swipe: a card's pane (its second child) scrolled into view.
@@ -90,8 +98,12 @@ export function DiscoveryLog() {
       push({ type: 'profile_open', surface: a!.closest('.suggest') ? 'section' : 'feed', target: { kind: 'trader', handle: m[1] } }, `p:${m[1]}`);
     };
     document.addEventListener('click', click, true);
-    const hide = () => { for (const el of [...since.keys()]) left(el); flush(true); };
-    const vis = () => { if (document.visibilityState === 'hidden') hide(); };
+    const hide = () => { for (const el of [...since.keys()]) left(el); dwell(); flush(true); };
+    // Review fix 8: back in view, the cards still on screen are measured again (no observer callback comes for them).
+    const vis = () => {
+      if (document.visibilityState === 'hidden') hide();
+      else for (const el of inView) if (!since.has(el)) since.set(el, performance.now());
+    };
     window.addEventListener('pagehide', hide);
     document.addEventListener('visibilitychange', vis);
     const every = window.setInterval(() => flush(false), FLUSH_MS);

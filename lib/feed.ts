@@ -323,9 +323,13 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const profile = personal?.personalize && personal.profile.signals > 0 ? personal.profile : null;
   const shapes = profile ? traderShapes(kept) : null;
   const rel = profile ? relevanceOf(profile, shapes!) : null;
-  const slots = rel ? personalSlots(`${opts.viewer}|${c.day}|${c.asOf}|${opts.ids ? opts.ids.join(',') : '*'}|${[...shaping].sort().join(',')}`, now,
-      () => personalList(kept.ranked.filter((s) => !shaping.has(s.trader)), rel, c.day, (kept.extra ?? []).filter((s) => !shaping.has(s.trader))).map(({ card, explore }) => ({ ...card, explore })))
-    : kept.ranked.some((s) => shaping.has(s.trader)) ? shapeList(kept.ranked, shaping, c.day).map(({ card, explore }) => ({ ...card, explore })) : kept.mixed;
+  // Review fix 1: a shaped list mixes from the same exploration pool as everyone's (`extra`), minus the hidden traders.
+  const extra = (kept.extra ?? []).filter((s) => !shaping.has(s.trader));
+  const build = () => rel ? personalList(kept.ranked.filter((s) => !shaping.has(s.trader)), rel, c.day, extra).map(({ card, explore }) => ({ ...card, explore }))
+    : kept.ranked.some((s) => shaping.has(s.trader)) ? shapeList(kept.ranked, shaping, c.day, extra).map(({ card, explore }) => ({ ...card, explore })) : kept.mixed;
+  // Review fix 2: with a personal loader, the list page 1 built is kept per viewer and cursor, whatever the profile says
+  // on a later page (an unlike, "Clear my activity" or a switch turned Off never shifts the pages of a running session).
+  const slots = opts.viewer && opts.personal ? personalSlots(`${opts.viewer}|${c.day}|${c.asOf}|${opts.ids ? opts.ids.join(',') : '*'}|${[...shaping].sort().join(',')}`, now, build) : build();
   const sliced = pageOf(slots, c);
   const page = { ...sliced, items: displayFilter(sliced.items, hidden) };
   // The page's cards as they are now (a thesis held since page 1 is not shown; a corrected return shows corrected). A

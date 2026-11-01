@@ -201,7 +201,10 @@ test('criterion 9: every new F-2 string passes the suggestion and endorsement wo
   assert.equal(PERSONALIZE.orderLine(false, true, false, true), 'Ordered using your likes and activity.');
   assert.equal(HIDDEN_TRADES.line(1), '1 trade hidden by you.');
   assert.equal(HIDDEN_TRADES.line(3), '3 trades hidden by you.');
-  assert.equal(HIDDEN_TRADES.showThemFor(1), 'Show 1 hidden trade');
+  assert.equal(HIDDEN_TRADES.showThemFor(1), 'Show them: 1 hidden trade');
+  assert.equal(HIDDEN_TRADES.line(1_001), '1,000+ trades hidden by you.');
+  for (const [name, shown] of [[HIDDEN_TRADES.showThemFor(3), HIDDEN_TRADES.showThem], [PERSONALIZE.changeFor, PERSONALIZE.change], [PERSONALIZE.removeFor('x_y'), PERSONALIZE.remove]] as const)
+    assert.ok(name.startsWith(shown), `the name "${name}" starts with the visible "${shown}" (WCAG 2.5.3)`);
   // The durations in the copy are the constant's.
   assert.match(PERSONALIZE.feedExplain, new RegExp(`${FADE_DAYS} days`));
   assert.match(PERSONALIZE.activityExplain, new RegExp(`${FADE_DAYS} days`));

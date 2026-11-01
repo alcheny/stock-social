@@ -97,13 +97,13 @@ const KEY = /^[0-9a-f]{64}$/;
 const AFTER = /^([0-9]{1,17})\.([0-9a-f]{64})$/;
 export const HIDDEN_PAGE = 30;
 
-// The viewer's own number of hidden trades whose close exists, for their feed line, read as at most HIDDEN_COUNT_MAX
-// keys (the line says that many at most; nothing here counts anyone else's).
+// The viewer's own number of hidden trades whose close exists, for their feed line, read as at most HIDDEN_COUNT_MAX + 1
+// rows (past HIDDEN_COUNT_MAX the line says "1,000+"; nothing here counts anyone else's).
 export const HIDDEN_COUNT_MAX = 1_000;
 export async function hiddenTradeCount(viewer: number): Promise<number> {
-  return (await sql`select x.trade_key from trade_exclusions x
+  return (await sql`select 1 from trade_exclusions x
     where x.viewer_id = ${viewer} and exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-      where t.trade_key = x.trade_key and t.user_id = x.trader_id) limit ${HIDDEN_COUNT_MAX}`).length;
+      where t.trade_key = x.trade_key and t.user_id = x.trader_id) limit ${HIDDEN_COUNT_MAX + 1}`).length;
 }
 
 export type HiddenTrade = { key: string; handle: string; name: string; symbol: string; sellId: string; closedAt: Date; verified: boolean };

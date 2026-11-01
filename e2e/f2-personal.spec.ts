@@ -141,7 +141,7 @@ test('criterion 15: "N trades hidden by you. Show them" on the feed, then the Hi
     const first = page.locator('.feed > .row[data-trade]').first();
     expect((await first.boundingBox())!.y).toBeLessThan(640); // demand 4: the notes stay one quiet line
     await shoot(page, 'feed-notes-360');
-    const link = page.getByRole('link', { name: 'Show 1 hidden trade' });
+    const link = page.getByRole('link', { name: 'Show them: 1 hidden trade' });
     const box = (await link.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(44);
     await link.focus();
@@ -180,7 +180,7 @@ test('criterion 13: "Personalize my feed: Off" gives the order everyone gets; a 
     await sql`insert into follows (viewer_id, trader_id, created_at) select v.id, t.id, now() - interval '1 minute' from users v, users t where v.handle = ${h} and t.handle = ${last}`;
     await page.goto('/');
     await expect(page.locator('.feed-notes')).toContainText('Ordered using your follows.');
-    await expect(page.getByRole('link', { name: 'Change how your feed is ordered' })).toHaveAttribute('href', '/me/personalize');
+    await expect(page.getByRole('link', { name: 'Change: how your feed is ordered' })).toHaveAttribute('href', '/me/personalize');
     await shoot(page, 'feed-personal-360');
     await sql`update users set personalize_feed = false where handle = ${h}`;
     await page.goto('/');

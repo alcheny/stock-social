@@ -422,10 +422,20 @@ select schema_add_column('users', 'activity_batch_at', 'timestamptz');
 -- F-2 PR-5 (owner 2026-11-01: preference data is stored until the viewer removes it): when the viewer ended an
 -- exclusion themselves (Undo, "Show again", a new follow). The purge deletes only those, a day later, and ended 'unfollow'
 -- rows (the system's −1 record of a removed follow); a "Not interested" that ran its 90 days stays stored, unread.
-select schema_add_column('viewer_exclusions', 'ended_at', 'timestamptz');
--- Backfill (idempotent, deletes nothing): rows that ended before their 90 days were ended by the viewer.
-update viewer_exclusions set ended_at = until where ended_at is null and until <= now() and until < created_at + interval '90 days' - interval '1 minute';
+-- Backfill once, when the column is added (deletes nothing): rows that ended before their 90 days were ended by the viewer.
+-- Never on a later apply: every test file applies this file, and an update here would touch rows other sessions hold.
+do $f$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'viewer_exclusions' and column_name = 'ended_at') then
+    alter table viewer_exclusions add column ended_at timestamptz;
+    update viewer_exclusions set ended_at = until where until <= now() and until < created_at + interval '90 days' - interval '1 minute';
+  end if;
+end $f$;
 -- Orphans: a like or hidden trade whose close is gone is marked, and deleted only if still gone 30 days later (a rebuild
 -- or a quarantine can bring a close back; marking is cleared when it does).
 select schema_add_column('trade_likes', 'orphan_at', 'timestamptz');
 select schema_add_column('trade_exclusions', 'orphan_at', 'timestamptz');
+-- Review fixes 5, 6: the purge reads only the rows it may delete, and the orphan marks, through partial indexes (expired
+-- "Not interested" rows are kept, so a scan over every exclusion would grow with history).
+select schema_add_index('viewer_exclusions_purgeable', $$create index viewer_exclusions_purgeable on viewer_exclusions (until) where reason = 'unfollow' or ended_at is not null$$);
+select schema_add_index('trade_likes_orphan', 'create index trade_likes_orphan on trade_likes (orphan_at) where orphan_at is not null');
+select schema_add_index('trade_exclusions_orphan', 'create index trade_exclusions_orphan on trade_exclusions (orphan_at) where orphan_at is not null');

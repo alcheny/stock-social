@@ -424,6 +424,7 @@ export const SIMILAR = {
 // ---- F-2 PR-5: hidden trades, personalization switches, personal section (docs/features/logs/F-2/plan-pr5-ux-lead.md) ----
 // Durations come from the constants (lib/discovery/personal.ts#FADE_DAYS = 90), never typed twice.
 const F2_DAYS = 90;
+const HIDDEN_LINE_MAX = 1_000; // lib/likes.ts#HIDDEN_COUNT_MAX: past it the line says "1,000+"
 export const HIDDEN_TRADES = {
   title: 'Hidden trades',
   explain: 'Trades you hid stay out of your feed until you show them again. Only you can see this list.',
@@ -436,9 +437,10 @@ export const HIDDEN_TRADES = {
   older: 'Older hidden trades',
   backLink: 'Following and hidden',
   // The feed's line, signed in and only when N > 0.
-  line: (n: number) => `${n} ${n === 1 ? 'trade' : 'trades'} hidden by you.`,
+  line: (n: number) => `${n > HIDDEN_LINE_MAX ? `${HIDDEN_LINE_MAX.toLocaleString('en-US')}+` : n} ${n === 1 ? 'trade' : 'trades'} hidden by you.`,
   showThem: 'Show them',
-  showThemFor: (n: number) => `Show ${n} hidden ${n === 1 ? 'trade' : 'trades'}`,
+  // The accessible name starts with the visible text (WCAG 2.5.3, review fix 4).
+  showThemFor: (n: number) => `Show them: ${n > HIDDEN_LINE_MAX ? `${HIDDEN_LINE_MAX.toLocaleString('en-US')}+` : n} hidden ${n === 1 ? 'trade' : 'trades'}`,
 };
 export const PERSONALIZE = {
   title: 'Personalize your feed',
@@ -467,7 +469,7 @@ export const PERSONALIZE = {
     return `Ordered using your ${list}.`;
   },
   change: 'Change',
-  changeFor: 'Change how your feed is ordered',
+  changeFor: 'Change: how your feed is ordered',
   // /me/following: "Not interested" rows that ran their 90 days (stored until removed, owner 2026-11-01).
   expiredHeading: 'No longer applied',
   expiredExplain: `These hides ran their ${F2_DAYS} days and no longer change your feed. They stay saved until you remove them.`,

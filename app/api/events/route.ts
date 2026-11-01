@@ -14,8 +14,10 @@ export async function POST(req: NextRequest) {
   if (!sameOrigin(req.headers)) return new NextResponse(null, { status: 403, headers: noStore });
   const me = await currentUser();
   if (!me) return new NextResponse(null, { status: 204, headers: noStore });
+  // Review fix 7: a declared size over the cap is refused before the body is read; the read body is measured in bytes.
+  if (Number(req.headers.get('content-length') ?? 0) > BATCH_BYTES) return new NextResponse(null, { status: 413, headers: noStore });
   const text = await req.text();
-  if (text.length > BATCH_BYTES) return new NextResponse(null, { status: 413, headers: noStore });
+  if (Buffer.byteLength(text) > BATCH_BYTES) return new NextResponse(null, { status: 413, headers: noStore });
   let body: unknown;
   try { body = JSON.parse(text); } catch { return new NextResponse(null, { status: 400, headers: noStore }); }
   const events = parseBatch(body);

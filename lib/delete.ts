@@ -55,7 +55,7 @@ export async function purgeOrphans(conn: Conn, o: { batch: number; end: number; 
     () => conn`update trade_likes l set orphan_at = null where orphan_at is not null and exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id)`,
     () => conn`update trade_exclusions l set orphan_at = null where orphan_at is not null and exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id)`,
   ];
-  for (const s of steps) await s();
+  for (const s of steps) { if (o.clock() >= o.end) return { deleted, done: false }; await s(); }
   const loops = [
     () => conn`update trade_likes set orphan_at = now() where (viewer_id, trade_key) in (select viewer_id, trade_key from trade_likes l where orphan_at is null
       and not exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id) limit ${o.batch})`,

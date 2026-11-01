@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { settingsFor } from '@/lib/discovery/activity.ts';
+import { hasActivity, settingsFor } from '@/lib/discovery/activity.ts';
 import { HIDDEN_TRADES, PERSONALIZE } from '@/lib/copy.ts';
 import { clearActivityForm, setActivityForm, setPersonalizeForm } from './actions.ts';
 
@@ -16,9 +16,9 @@ type Saved = keyof typeof PERSONALIZE.saved;
 export default async function Personalize({ searchParams }: { searchParams?: Promise<{ saved?: string }> }) {
   const me = await currentUser();
   if (!me) redirect('/login');
-  const s = await settingsFor(me.id);
+  const [s, stored] = await Promise.all([settingsFor(me.id), hasActivity(me.id)]);
   const saved = (await searchParams)?.saved;
-  const ok: Record<Saved, boolean> = { feedOn: s.personalize, feedOff: !s.personalize, activityOn: s.activity, activityOff: !s.activity, cleared: true, nothing: true };
+  const ok: Record<Saved, boolean> = { feedOn: s.personalize, feedOff: !s.personalize, activityOn: s.activity, activityOff: !s.activity, cleared: !stored, nothing: !stored }; // review fix 3: "cleared" only when nothing is stored
   const status = typeof saved === 'string' && Object.hasOwn(ok, saved) && ok[saved as Saved] ? PERSONALIZE.saved[saved as Saved] : '';
   const pair = (id: string, title: string, on: boolean, act: (on: boolean) => Promise<void>) => (
     <div role="group" aria-labelledby={id} className="switch-pair">

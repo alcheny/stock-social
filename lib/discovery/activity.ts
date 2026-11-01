@@ -28,6 +28,9 @@ export async function setPersonalize(viewer: number, on: boolean): Promise<void>
 export async function setActivity(viewer: number, on: boolean): Promise<void> {
   await sql`update users set activity_log_on_at = ${on ? sql`coalesce(activity_log_on_at, now())` : null} where id = ${viewer}`;
 }
+export async function hasActivity(viewer: number): Promise<boolean> {
+  return (await sql`select 1 from discovery_events where viewer_id = ${viewer} limit 1`).length > 0;
+}
 export async function clearActivity(viewer: number): Promise<number> {
   return (await sql`delete from discovery_events where viewer_id = ${viewer}`).count;
 }
