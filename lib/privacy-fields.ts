@@ -29,7 +29,30 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
+  // FIXES-LABELS (code review): the other columns the record status line's loader (lib/record-status-load.ts) reads;
+  // lib/privacy-fields-status.test.ts holds every column that loader reads to one of these lists.
+  'users.id': 'key', 'activities.user_id': 'key', 'connections.id': 'key', 'connections.user_id': 'key',
+  'broker_accounts.user_id': 'key', 'broker_accounts.connection_id': 'key',
+  'activities.source': 'shown as the Demo badge (record source)',
+  'activities.account_id': 'counted for the public account count, never shown (the account number itself is private)',
+  'activities.executed_at': 'trade time, compared only (a trade on a removed account after its removal), never shown by the status line',
+  'connections.state': 'record state (importing, connected, failed), shown as which status line appears',
+  'connections.accounts': 'the consented account list: ids counted and labelled "Account i of n", never shown; its paper flag filters; its institution names are the public institution names',
+  'broker_accounts.confirmed_at': 'flag (a pre-connection claim), never shown',
 };
+
+// FIXES-LABELS (code review, POLICY P6): record state the status line publishes (DESIGN TR-5 / F-11), each date shown on
+// the profile, the feed pane and the trade and month pages. Not in the consent line yet: CONSENT_SCOPE_LINE is owner
+// copy, and the owner must name these before any non-demo user connects (ponytail at lib/copy.ts#CONSENT_SCOPE_LINE).
+export type RecordStateField = Field & { reason: string };
+const STATE_REASON = 'record state shown by the status line, DESIGN TR-5 / F-11; the consent line must name it before any non-demo user connects (POLICY P6) — owner copy';
+export const RECORD_STATE_FIELDS: RecordStateField[] = [
+  { words: 'last update', columns: ['users.last_synced_at'], reason: STATE_REASON },
+  { words: 'disconnected date', columns: ['connections.disconnected_at'], reason: STATE_REASON },
+  { words: 'account removed date', columns: ['broker_accounts.removed_at'], reason: STATE_REASON },
+  // The idle line's date before a record's first sync is its earliest live consent (lib/record-status.ts#idleSince).
+  { words: 'connection date (an idle record\'s date before its first update)', columns: ['connections.consent_at'], reason: STATE_REASON },
+];
 
 const list = (xs: string[]) => (xs.length > 2 ? `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}` : xs.join(' and '));
 const listNoComma = (xs: string[]) => `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;

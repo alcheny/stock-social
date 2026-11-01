@@ -40,7 +40,7 @@ test('trustKind: demo-only rows are Demo, some demo rows are mixed, the rest ver
 test('AC1: the Demo and mixed stock-page strings (title, description, explainer, notes, image subtitle and corner, alt) never say verified; verified keeps "verified trades"', () => {
   for (const kind of ['demo', 'mixed'] as const) {
     const s = tickerSummary(rows(6, kind === 'demo' ? false : (i) => i > 0), today);
-    const texts = [FL.tickerTitle[kind]('NVDA'), tickerDescription('NVDA', s), FL.tickerExplainer[kind], FL.imageSub[kind], FL.imageStatus[kind], FL.tickerAlt, FL.demoNote, FL.mixedNote, FL.demoPage, FL.indexTitle, FL.indexDescription, FL.indexIntro, FL.indexAria];
+    const texts = [FL.tickerTitle[kind]('NVDA'), tickerDescription('NVDA', s), FL.tickerExplainer[kind], FL.demoNote, FL.mixedNote, FL.demoPage, FL.indexTitle, FL.indexDescription, FL.indexIntro, FL.indexAria];
     for (const t of texts) assert.doesNotMatch(t, VERIFIED, t);
     assert.match(FL.tickerTitle[kind]('NVDA'), /Demo/);
     assert.match(tickerDescription('NVDA', s), /Demo/);
@@ -70,6 +70,10 @@ test('AC2: compare with a Demo side: title, description, explainer and overlap n
   for (const t of [FL.compareTitle.mixed('NVDA', 'AMD'), FL.compareExplainer.mixed, compareDescription('NVDA', 'AMD', one)]) assert.doesNotMatch(t, VERIFIED, t);
   assert.match(compareDescription('NVDA', 'AMD', one), /Includes Demo trades\. Sample data/);
   assert.equal(compareOverlapText('verified', 1, 'A', 'B'), '1 trader closed verified trades in both A and B.');
+  // QA round 1 (finding 2): a mixed pair counts verified traders and says the Demo trades are left out of the count.
+  assert.equal(compareOverlapText(compareKind(one), 0, 'NVDA', 'AMD'), 'No trader has closed verified trades in both NVDA and AMD yet. Demo trades are not counted here.');
+  assert.equal(compareOverlapText('mixed', 2, 'NVDA', 'AMD'), '2 traders closed verified trades in both NVDA and AMD. Demo trades are not counted here.');
+  assert.equal(compareOverlapText('verified', 0, 'A', 'B'), 'No trader has closed verified trades in both yet.');
   assert.equal(FL.compareExplainer.verified, 'Verified closed trades in each stock, side by side. Percentages only. Few trades means a wide range, and that is expected.');
 });
 
@@ -83,14 +87,14 @@ test('AC6: baseline lines state counts and one measure on both sides, never a ve
   for (const [s, o] of cases) {
     const l = baselineLines('NVDA', s, o);
     for (const t of [l.this, l.others, l.note, FL.baselineHeading, FL.baselineThisTile, FL.baselineOthersTile]) assert.doesNotMatch(t, banned, t);
-    const ranges = [l.this, l.others].filter((t) => /per-trade range/.test(t)).length;
+    const ranges = [l.this, l.others].filter((t) => /average per trade, 95% range/.test(t)).length;
     assert.ok(ranges === 0 || ranges === 2, `${l.this} | ${l.others}`);
     assert.equal(l.ranged, ranges === 2);
   }
   const l = baselineLines('NVDA', many, othersMany);
   assert.ok(l.ranged);
-  assert.match(l.this, /^8 closed trades in NVDA by 8 traders: per-trade range \(.+ to .+\)\.$/);
-  assert.match(l.others, /^40 closed trades in other stocks recorded here: per-trade range \(.+ to .+\)\.$/);
+  assert.match(l.this, /^8 closed trades in NVDA by 8 traders: average per trade, 95% range \(.+ to .+\)\.$/);
+  assert.match(l.others, /^40 closed trades in other stocks recorded here: average per trade, 95% range \(.+ to .+\)\.$/);
   // Either side under MIN_BETS bets: both lines print the count only.
   assert.equal(baselineLines('NVDA', many, othersFew).others, '3 closed trades in other stocks recorded here.');
   assert.equal(baselineLines('NVDA', few, othersMany).this, `${MIN_BETS - 1} closed trades in NVDA by ${MIN_BETS - 1} traders.`);
@@ -111,7 +115,7 @@ test('AC12 + D-24: every FIXES_LABELS string passes PROMO, the banned claims and
     assert.doesNotMatch(s, /\b(signal|edge|skill|beat|outperform|winner)\b/i, s);
   }
   assert.equal(FL.monthOf('1'), 'The only month on record');
-  assert.equal(FL.monthOf('14'), '1 of 14 months on record');
-  assert.equal(FL.monthNoRange('3', '5'), 'No range yet: 3 of the 5 separate bets needed');
-  assert.equal(FL.monthRange('(-1.0% to +2.0%)'), '95% range (-1.0% to +2.0%)');
+  assert.equal(FL.monthOf('14'), 'One of 14 months on record');
+  assert.equal(FL.monthOf('2'), 'One of 2 months on record');
+  assert.equal(FL.monthOf('1,204'), 'One of 1,204 months on record');
 });

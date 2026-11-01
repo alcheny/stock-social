@@ -1,8 +1,9 @@
-// Fixes-labels plan AC15 (D-24): a month shows numbers and a range only, never a verdict; "1 of N months on record".
+// Fixes-labels plan AC15 (D-24): a month shows numbers and a range only, never a verdict; "One of N months on record".
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { monthRangeText, monthRecap, monthsOnRecord, type RecapTrade } from './recap.ts';
+import { monthRecap, monthsOnRecord, type RecapTrade } from './recap.ts';
 import { MIN_BETS } from './confidence.ts';
+import { recordStrip } from './record-strip.ts';
 
 const NOW = new Date(Date.UTC(2026, 10, 1));
 const DAY = 86_400_000;
@@ -12,14 +13,17 @@ const mk = (id: string, closed: string, r = 0.02, hold = 2): RecapTrade => {
 };
 const sept = (n: number) => Array.from({ length: n }, (_, i) => mk(`t${i}`, new Date(Date.UTC(2026, 8, 1 + i * 2)).toISOString(), i % 3 ? 0.03 : -0.02));
 
-test('AC15: monthRecap carries the bets behind the month; the month line is a range or "No range yet: k of the min separate bets needed", never a verdict', () => {
+// Code review: the month page's one month line is F-12's figures strip (monthStripInput), so AC15 is held there.
+test('AC15: monthRecap carries the bets behind the month; the month line (F-12 figures) is a range or Too early, never a verdict', () => {
+  const line = (m: NonNullable<ReturnType<typeof monthRecap>>) => recordStrip({ ...m.figures, state: 'connected', demo: false, verified: true, handle: 'x' }, 'figures').text;
   const few = monthRecap(sept(3), '2026-09', NOW)!;
-  assert.equal(few.bets, 3);
-  assert.equal(monthRangeText(few), `No range yet: 3 of the ${MIN_BETS} separate bets needed`);
+  assert.equal(few.figures.evidence.k, 3);
+  assert.ok(few.figures.evidence.k < MIN_BETS);
+  assert.match(line(few), /Too early/);
   const many = monthRecap(sept(8), '2026-09', NOW)!;
-  assert.equal(many.bets, 8);
-  assert.match(monthRangeText(many)!, /^95% range \([+−-]?\d+\.\d% to [+−-]?\d+\.\d%\)$/);
-  for (const m of [few, many]) assert.doesNotMatch(monthRangeText(m) ?? '', /Past results|above zero|below zero|unclear|Evidence|Too early/);
+  assert.equal(many.figures.evidence.k, 8);
+  assert.match(line(many), /\([+−-]?\d+\.\d% to [+−-]?\d+\.\d%\)/);
+  for (const m of [few, many]) assert.doesNotMatch(line(m), /Past results|above zero|below zero|unclear|Evidence/);
 });
 
 test('AC15: monthsOnRecord counts distinct UTC months; edges at UTC midnight', () => {
@@ -31,7 +35,7 @@ test('AC15: monthsOnRecord counts distinct UTC months; edges at UTC midnight', (
 // Merged with F-12 (main #54): the month image draws lib/record-strip.ts's band (monthBand); monthCard is the adapter F-12
 // kept for its tests. The adapter carries the band's three disclaimer rows (lib/record-strip.ts DISCLAIMER_LINES) and the
 // frozen line moved to the band, so the frozen budget and the ≥ 28 px rows are checked on the band below.
-test('AC15/AC16: the month card: record line the size of the month line, "1 of N months", the F3 rows at ≥ 28 px, and room for every optional line', async () => {
+test('AC15/AC16: the month card: record line the size of the month line, "One of N months", the F3 rows at ≥ 28 px, and room for every optional line', async () => {
   const { monthCard, monthCardFits, MONTH_CARD } = await import('./month-card.ts');
   const { DISCLAIMER } = await import('./share.ts');
   const base = (o: { state: 'importing' | 'connected' | 'failed' | 'none'; demo: boolean; monthSoFar: boolean; months?: number }) => ({
@@ -52,7 +56,7 @@ test('AC15/AC16: the month card: record line the size of the month line, "1 of N
     assert.ok(c.disclaimer.size >= 28);
     const month = c.top.find((l) => l.role === 'month')!, record = c.bottom.find((l) => l.role === 'record');
     if (record) assert.equal(record.size, month.size);
-    assert.equal(c.top.find((l) => l.role === 'of')?.text, '1 of 14 months on record');
+    assert.equal(c.top.find((l) => l.role === 'of')?.text, 'One of 14 months on record');
     assert.ok(c.top.find((l) => l.role === 'label')!.size <= 64);
     for (const l of [...c.top, ...c.bottom]) assert.doesNotMatch(l.text, /\bago\b/);
   }
@@ -60,7 +64,7 @@ test('AC15/AC16: the month card: record line the size of the month line, "1 of N
   assert.equal(monthCard(base({ state: 'connected', demo: false, monthSoFar: false })).top.some((l) => l.role === 'of'), false);
 });
 
-test('AC16 (with F-12): the month and trade images, as drawn (the band), keep the F3 rows at ≥ 28 px with "1 of N months" and a frozen line; a failed import\'s month at the F-12 floor at least', async () => {
+test('AC16 (with F-12): the month and trade images, as drawn (the band), keep the F3 rows at ≥ 28 px with "One of N months" and a frozen line; a failed import\'s month at the F-12 floor at least', async () => {
   const { monthBand } = await import('./month-card.ts');
   const { recordStripInput, monthStripInput, wholeRecord } = await import('./recap.ts');
   const { recordStrip, STRIP_BAND, lineWidth, DISCLAIMER_LINES } = await import('./record-strip.ts');
@@ -79,10 +83,10 @@ test('AC16 (with F-12): the month and trade images, as drawn (the band), keep th
     for (const l of rows) assert.ok(l.size >= (state === 'failed' && !demo ? STRIP_BAND.minPx : 28) && lineWidth(l) <= STRIP_BAND.width, `${state} ${demo} ${l.size}`);
     // Beside a failed import's two note lines the band has no room for it (the page keeps the status line).
     if (!demo && state !== 'failed') assert.ok(band.lines.some((l) => l.role === 'frozen' && l.text === frozen), `${state}: frozen`);
-    // "1 of N months" is optional: it gives way to a frozen line and to a disclaimer under 28 px.
+    // "One of N months" is optional: it gives way to a frozen line and to a disclaimer under 28 px.
     if (state === 'connected' || state === 'none') {
       const plain = monthBand(r, recordStrip(recordStripInput(r), 'image'), recordStrip(monthStripInput(r), 'figures'), null);
-      assert.ok(plain.lines.some((l) => l.role === 'monthOf' && l.text === '1 of 14 months on record'), `${state} ${demo}: of`);
+      assert.ok(plain.lines.some((l) => l.role === 'monthOf' && l.text === 'One of 14 months on record'), `${state} ${demo}: of`);
       for (const l of plain.lines.filter((x) => x.role.startsWith('disclaimer'))) assert.ok(l.size >= 28, `${state} ${demo} plain ${l.size}`);
     }
     for (const l of band.lines) assert.doesNotMatch(l.text, /\bago\b/);

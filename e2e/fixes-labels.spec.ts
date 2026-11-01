@@ -76,10 +76,6 @@ const meets = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && 
 
 // The F3 line is in the viewport, whole, and under none of the fixed overlays. `fold`: the share of the viewport's
 // height it must leave below it (15% headroom on a page; a feed card ends at its bar zone instead, checked apart).
-// The record's figures (the strip) centred in the viewport, as a reader scrolling to them sees them.
-async function recordInView(page: Page) {
-  await page.locator('section[aria-labelledby="whole-record"] [data-strip]').evaluate((el) => el.scrollIntoView({ block: 'center' }));
-}
 
 async function inPlainView(page: Page, line: Locator, what: string, fold = 0.15) {
   await expect(line, what).toHaveText(DISCLAIMER);
@@ -142,8 +138,7 @@ test('C1 (AC7): every route that shows a percent figure has the F3 line in plain
         await page.getByText(PCT).first().scrollIntoViewIfNeeded();
       }
       // Merged with F-12 (main #54): the trade and month pages carry one F3 line, the record strip's, right after the
-      // record's figures; with the figures in view, the F3 line is in view with them.
-      if (route === '/u/[handle]/trade/[sellId]' || route === '/u/[handle]/month/[ym]') await recordInView(page);
+      // record's figures. QA round 1 (finding 4): on the first screen, with no scrolling, like every other route.
       const line = route === '/' ? page.locator('.feed > .row').first().locator('article.card [data-disclaimer]') : page.locator('main [data-disclaimer]').first();
       await inPlainView(page, line, route, route === '/' ? 0 : 0.15);
     }
@@ -275,23 +270,35 @@ test('AC8 + AC15: the trade and month pages carry one F3 line, right after the r
   await expect(page.locator('main [data-disclaimer]')).toHaveCount(1);
   const tradeRecord = page.locator('section[aria-labelledby="whole-record"]');
   await expect(tradeRecord.locator('[data-strip] + [data-disclaimer]')).toHaveCount(1);
-  await recordInView(page);
   await inPlainView(page, tradeRecord.locator('[data-disclaimer]'), 'the trade page\'s record');
   await expect(trade.locator('.badge.demo')).toHaveText('Demo');
+  // QA round 1 (finding 4): first screen, no scrolling, at 360×740 and 320×740, with a 280-character thesis too (the
+  // thesis sits after the figures) and on the month pages.
+  for (const width of [360, 320]) {
+    await page.setViewportSize({ width, height: 740 });
+    for (const url of [`/u/momentum_maya/trade/${encodeURIComponent(maya.sell)}`, `/u/${OWNER}/trade/${OWNER}-0`, `/u/momentum_maya/month/${maya.ym}`, `/u/${OWNER}/month/${new Date(lastClose).toISOString().slice(0, 7)}`]) {
+      await page.goto(url);
+      expect(await page.evaluate(() => window.scrollY), url).toBe(0);
+      await inPlainView(page, page.locator('section[aria-labelledby="whole-record"] [data-disclaimer]'), `${url} at ${width}px`);
+    }
+    await page.goto(`/u/${OWNER}/trade/${OWNER}-0`);
+    await expect(page.locator('section[aria-labelledby="trade-thesis"] blockquote')).toContainText(THESIS.slice(0, 60));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), `${width}px`).toBeLessThanOrEqual(width);
+  }
+  await page.setViewportSize(VIEW);
 
   await page.goto(`/u/momentum_maya/month/${maya.ym}`);
   const month = page.locator('section[aria-labelledby="this-month"]');
   await expect(page.locator('main [data-disclaimer]')).toHaveCount(1);
   const monthRecord = page.locator('section[aria-labelledby="whole-record"]');
   await expect(monthRecord.locator('[data-strip] + [data-disclaimer]')).toHaveCount(1);
-  await recordInView(page);
   await inPlainView(page, monthRecord.locator('[data-disclaimer]'), 'the month page\'s record');
   await expect(month).not.toContainText('Past results');
   await expect(month).not.toContainText('Evidence');
   // F-12's month figures: the month's average with its 95% range, or Too early to tell; never a win rate.
   await expect(month.locator('[data-strip-scope="month"]')).toHaveText(/^([+−-]?[\d.,]+% average per trade \(.+ to .+\) · 95% range|≈?[+−-]?[\d.,]+% average per trade \(.+ to .+\) · 95% range|Too early to tell)$/);
   await expect(month).not.toContainText(/win rate/i);
-  await expect(page.getByTestId('month-of')).toHaveText(/^(The only month on record|1 of \d+ months on record)$/);
+  await expect(page.getByTestId('month-of')).toHaveText(/^(The only month on record|One of \d+ months on record)$/);
 });
 
 test('AC3: Demo pages (profile, pane, trade, month, stock, compare) and their images name Demo and never say verified', async ({ page, request }) => {
@@ -320,6 +327,13 @@ test('AC3: Demo pages (profile, pane, trade, month, stock, compare) and their im
     if (img && (/\/(trade|month)\//.test(url) || url === '/t/NVDA')) images.push(new URL(img).pathname);
   }
   expect(await page.title()).toMatch(/Demo/); // the compare page: "NVDA vs AVGO Demo trades"
+  // QA round 1 (finding 1): the feed (`/`, Demo cards among others) and every page without its own description inherit
+  // the root description, which names no trust state.
+  await page.goto('/');
+  expect(await page.title(), '/: title').not.toMatch(VERIFIED);
+  for (const sel of ['meta[name="description"]', 'meta[property="og:description"]']) {
+    for (const m of await page.locator(sel).all()) expect(await m.getAttribute('content'), `/: ${sel}`).not.toMatch(VERIFIED);
+  }
   // The pane of the Demo record (the feed's, read without JavaScript as the server renders it).
   const at = await feedPageWith('momentum_maya');
   if (at) await page.goto(at);
@@ -364,9 +378,58 @@ test('AC5 + AC6: the chart\'s ends and at-rest subline, a 2020 close with its ye
   await expect(base).toBeVisible();
   if (await base.getAttribute('data-kind') !== 'empty') {
     await expect(base.locator('h2')).toContainText('Closed trades recorded here: this stock and other stocks');
-    await expect(base).not.toContainText(/geometric|sits above|sits below|No clear difference|all other stocks/i);
+    await expect(base).not.toContainText(/geometric|sits above|sits below|No clear difference|all other stocks|per-trade range/i);
     const lines = [await base.getByTestId('baseline-this').innerText(), await base.getByTestId('baseline-others').innerText()];
-    expect(lines.filter((l) => l.includes('per-trade range')).length % 2, lines.join(' | ')).toBe(0);
+    expect(lines.filter((l) => l.includes('average per trade, 95% range')).length % 2, lines.join(' | ')).toBe(0);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
+test('code review (TR-9, TR-7): the swipe pane prints the profile\'s 95% range and New record for the same record; QA 12: a Demo pane says Demo, not connected accounts', async ({ page }) => {
+  await page.setViewportSize(VIEW);
+  let checked = 0;
+  for (const handle of [OWNER, 'momentum_maya']) {
+    await page.goto(`/u/${handle}`);
+    const profRange = page.locator('main section.stats .stat.big .range');
+    const range = (await profRange.count()) ? (await profRange.first().innerText()).trim() : null;
+    const isNew = (await page.locator('main .badge.new').count()) > 0;
+    const at = await feedPageWith(handle);
+    if (!at) { test.info().annotations.push({ type: 'note', description: `${handle} has no feed card today` }); continue; }
+    await page.goto(at);
+    const pane = page.locator(`.row[data-handle="${handle}"]`).first().locator('section.pane');
+    const paneRange = pane.locator('.stat.big .range');
+    if (range) await expect(paneRange).toHaveText(range);
+    else await expect(paneRange).toHaveCount(0);
+    await expect(pane.locator('header .badge.new')).toHaveCount(isNew ? 1 : 0);
+    if (handle === 'momentum_maya') {
+      await expect(pane).not.toContainText('connected accounts');
+      await expect(pane).toContainText('Demo trades, not from a real broker');
+    }
+    checked++;
+  }
+  expect(checked).toBeGreaterThan(0);
+  // The fixture record is days old: New record (TR-7), as on its profile.
+  await page.goto(`/u/${OWNER}`);
+  await expect(page.locator('main .badge.new').first()).toBeVisible();
+});
+
+test('QA 5: an unbroken 40-character display name never widens the profile or the feed card at 360 and 320', async ({ page }) => {
+  await sql`update users set display_name = ${'W'.repeat(40)} where id = ${owner}`;
+  try {
+    for (const width of [360, 320]) {
+      await page.setViewportSize({ width, height: 740 });
+      await page.goto(`/u/${OWNER}`);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), `profile ${width}`).toBeLessThanOrEqual(width);
+      const at = await feedPageWith(OWNER);
+      if (!at) continue;
+      await page.goto(at);
+      const card = page.locator(`.row[data-handle="${OWNER}"]`).first().locator('article.card');
+      const box = (await card.boundingBox())!;
+      expect(box.width, `card ${width}`).toBeLessThanOrEqual(width);
+      const disc = (await card.locator('[data-disclaimer]').boundingBox())!;
+      expect(disc.x + disc.width, `card disclaimer ${width}`).toBeLessThanOrEqual(width);
+    }
+  } finally {
+    await sql`update users set display_name = 'FL Owner' where id = ${owner}`;
+  }
 });

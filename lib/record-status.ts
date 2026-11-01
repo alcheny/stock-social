@@ -102,6 +102,12 @@ export function statusParts(f: StatusFacts, now: Date, mode: Mode): StatusLine {
       const live = realAccounts(f.connections.filter((c) => !c.disconnectedAt)).filter((a) => !a.removedAt);
       const insts = [...new Set(live.map((a) => institutionOf(a.connection, a)))];
       line1 = [since, { text: connectedLine(insts, live.length) }, ...gone.map((c) => long(c.disconnectedAt!, (d) => S.instDisconnected(institutionOf(c), d)))];
+    } else if (realAccounts(f.connections).some((a) => a.removedAt)) {
+      // QA round 1 (finding 6): with a removed account, "Connected:" counts the live (not removed) accounts only, as the
+      // partial branch does; with none left it names no connection (the account line says removed).
+      const live = realAccounts(f.connections).filter((a) => !a.removedAt);
+      const insts = [...new Set(live.map((a) => institutionOf(a.connection, a)))];
+      line1 = live.length ? [since, { text: connectedLine(insts, live.length) }] : [since];
     } else {
       line1 = [since, { text: connectedLine(f.brokers, f.accounts) }];
     }
@@ -142,6 +148,10 @@ export function segments(parts: Part[]): Segment[] {
   return out;
 }
 
+// QA round 1 (finding 9; F-11 AC7, plan §1 `{rel} ({abs})`): what a time segment shows. A relative time shows its
+// absolute date beside it, visibly ("2 hours ago (Nov 1)"); a title tooltip alone is not there on touch.
+export const timeText = (s: Segment): string => (s.title ? `${s.text} (${s.title})` : s.text);
+
 // The feed card's segments (static: the feed page's rows are also sent by the paging action and may be shown later):
 // a frozen or idle record only, else undefined (nothing renders).
 export function cardSegments(f: StatusFacts | undefined, now: Date): Segment[] | undefined {
@@ -149,9 +159,12 @@ export function cardSegments(f: StatusFacts | undefined, now: Date): Segment[] |
   return l?.show && l.card.length ? segments(l.card) : undefined;
 }
 // The trade and month pages (dynamic, live): line 1 then line 2, the first line of "Their whole record".
+// QA round 1 (finding 11): a Demo record's "Demo data" is the strip label right under this line, so the line says it
+// once (here only "Record since ‹date›").
 export function recordSegments(f: StatusFacts | null | undefined, now: Date): Segment[] | undefined {
   const l = f ? statusParts(f, now, 'live') : null;
-  return l?.show ? segments([...l.line1, ...l.line2]) : undefined;
+  if (!l?.show) return undefined;
+  return segments(f!.source === 'demo' ? l.line1.filter((p) => p.text !== S.demoLink) : [...l.line1, ...l.line2]);
 }
 // Trade and month images: a frozen record's line, absolute date with the year, never relative; else null.
 export function imageFrozenText(f: StatusFacts | null | undefined, now: Date): string | null {

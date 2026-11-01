@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { toneView } from '@/lib/tone-view.ts'; // QA round 1 (finding 8): tone of the printed value
 import type { PublicState } from '@/lib/connections.ts';
 import { asOfDay, OPEN, RECORD_BODY } from '@/lib/copy.ts';
 import { cardTrust } from '@/lib/pane.ts';
@@ -51,7 +52,6 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, now = new Date(), strip, stripBadge, status }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; now?: Date; strip?: Strip; stripBadge?: 'verified' | 'demo' | null; status?: Segment[] }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
-  const up = t.return_pct > 0;
   const trust = cardTrust(t, state);
   return (
     <article className="card">
@@ -62,10 +62,10 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         {!strip && <RowBadge kind={trust.badge} />}
         {menu}
       </header>
-      {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
+      {trust.incomplete && <p role="status" className="warn record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
-        <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
+        <div className={`ret ${toneView(t.return_pct).cls}`}>{pct(t.return_pct)}</div>
         {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {dateText(t.closed_at, now) /* FIXES-LABELS (D-05): the year when it is not this year */}</div>}
       </div>
       {status && <StatusText segments={status} kind="card" />}{/* FIXES-LABELS: status */}

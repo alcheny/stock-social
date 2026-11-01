@@ -159,15 +159,17 @@ test('F-11 frozen record: the trade and month pages say so first in "Their whole
 test('F-11 two accounts, one removed: "Account 1 of 2 · ‹inst›" and "Account 2 of 2 · Account removed ‹date›"; line 2 "Last close ‹date› · updated ‹relative›" in <time datetime>', async ({ page }) => {
   await page.goto('/u/fls_two');
   const block = page.locator('.record-status-block');
-  expect(await said(block.locator('[data-status="line1"]'))).toMatch(/^Record since .+ · Connected: Fake Brokerage \(2 accounts\)$/);
+  // QA round 1 (finding 6): the Connected count is the live (not removed) accounts.
+  expect(await said(block.locator('[data-status="line1"]'))).toMatch(/^Record since .+ · Connected: Fake Brokerage \(1 account\)$/);
   const items = block.getByRole('list', { name: 'Accounts in this record' }).locator('li');
   await expect(items).toHaveText(['Account 1 of 2 · Fake Brokerage', `Account 2 of 2 · Account removed ${dateText(REMOVED, now(), { year: 'always' })}`]);
   await expect(items.nth(1).locator(`time[datetime="${REMOVED.toISOString()}"]`)).toHaveCount(1);
   const line2 = block.locator('[data-status="line2"]');
-  expect(await said(line2)).toMatch(/^Last close [A-Z][a-z]{2} \d{1,2}(, \d{4})? · updated 2 hours ago$/);
-  // The relative time is a <time> whose datetime is the last successful sync and whose title is its absolute date.
+  expect(await said(line2)).toMatch(/^Last close [A-Z][a-z]{2} \d{1,2}(, \d{4})? · updated 2 hours ago \([A-Z][a-z]{2} \d{1,2}(, \d{4})?\)$/);
+  // The relative time is a <time> whose datetime is the last successful sync, showing its absolute date beside it
+  // (QA round 1, finding 9), also as its title.
   const rel = line2.locator('time').last();
-  await expect(rel).toHaveText('2 hours ago');
+  await expect(rel).toHaveText(/^2 hours ago \([A-Z][a-z]{2} \d{1,2}(, \d{4})?\)$/);
   expect(await rel.getAttribute('title')).toMatch(/^[A-Z][a-z]{2} \d{1,2}(, \d{4})?$/);
   const iso = (await rel.getAttribute('datetime'))!;
   expect(Math.abs(Date.parse(iso) - (Date.now() - 2 * 3_600_000))).toBeLessThan(10 * 60_000);

@@ -29,7 +29,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   }
 
   // FIXES-LABELS: status (F-11): a frozen record says so; absolute date with the year, never relative. FIXES-LABELS
-  // (D-24): r.months adds "1 of N months on record" under the label.
+  // (D-24): r.months adds "One of N months on record" under the label.
   const frozen = imageFrozenText(r.status, new Date());
   const { lines } = monthBand(r, recordStrip(recordStripInput(r), 'image'), recordStrip(monthStripInput(r), 'figures'), frozen);
   return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);

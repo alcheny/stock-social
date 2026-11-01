@@ -7,6 +7,7 @@ import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
 // FIXES-LABELS (D-05): the chart says when it starts and ends; the at-rest subline names the last close.
 import { dateText } from '@/lib/date-text.ts';
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+import { chartRestSub } from '@/lib/chart-sub.ts';
 
 const W = 640, H = 240, T = 16, B = 16;
 
@@ -111,7 +112,7 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   const at = active === null ? null : pts[active];
   const shown = at ? at.value : last;
   // The scrubbed date stays numeric (M/D/YYYY); at rest, FIXES-LABELS (D-05): "‹range› · last close ‹date›".
-  const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : FL.chartSub(spec.label, dateText(new Date(allT1), now));
+  const sub = at ? new Date(at.at).toLocaleDateString('en-US') + (at.trade ? ` · ${at.trade.symbol}` : '') : chartRestSub(spec.label, allT1, now); // code review: no last close → the plain label
   // FIXES-LABELS (D-05): the plotted span's ends. ALL: the series' first and last close; other ranges: the first and
   // last close drawn in the range. None while a range is still loading.
   const closes = pts.filter((p) => p.trade);

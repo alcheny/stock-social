@@ -28,7 +28,7 @@ export function RecordStrip({ strip, lead }: { strip: Strip; lead?: React.ReactN
   return (
     <div className="record-strip-block">
       {strip.label && <p className={`small strip-label ${strip.label.tone === 'ok' ? 'up' : 'muted'}`}>{strip.label.text}</p>}
-      {strip.note && <p role="status" className="down record-failed">{strip.note}</p>}
+      {strip.note && <p role="status" className="warn record-failed">{strip.note}</p>}
       {strip.importing
         ? <p role="status" className="muted importing">{strip.importing}</p>
         : <p className="record-strip" data-strip><Figures parts={strip.figures} /></p>}

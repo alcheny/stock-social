@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
-import { COMPARE_COPY, compareDescription, compareKind, compareOverlapText, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
+import { COMPARE_COPY, compareDescription, compareEvidenceText, compareKind, compareOverlapText, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
 // FIXES-LABELS (D-03): title, explainer, notes and overlap by the pair's state; Demo is never "verified".
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
-import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
+import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
 import Spread from '../[symbol]/Spread.tsx';
@@ -85,7 +85,7 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
       {open && <p className="small" data-open>{OPEN.compare(OPEN.line(open.o, pct), asOfDay(open.asOf))}</p>}
       <div className="evidence">
-        <p style={{ margin: 0 }}>{side.tier === 'too-early' && <b>{COMPARE_COPY.tooEarly}. </b>}{evidenceLine(c)}</p>
+        <p style={{ margin: 0 }}>{side.tier === 'too-early' && <b>{COMPARE_COPY.tooEarly}. </b>}{compareEvidenceText(c) /* QA round 1 (finding 13): no verdict */}</p>
       </div>
       <Spread spread={side.spread} returns={side.returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} shared={shared} bare />
     </section>

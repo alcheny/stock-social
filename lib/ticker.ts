@@ -1,4 +1,4 @@
-import { confidence, pct, rangeText, stats, type Confidence } from './trades.ts';
+import { confidence, evidenceLine, pct, rangeText, stats, type Confidence } from './trades.ts';
 // FIXES-LABELS: D-03 / D-07 copy builders read the one copy block.
 import { FIXES_LABELS, type TrustKind } from './copy.ts';
 import { counted } from './format.ts';
@@ -25,6 +25,17 @@ export function baselineVerdict(summary: TickerSummary, baseline: Baseline): Bas
   if (baseline.perTrade > pt.high) return out('clearly_lower');
   if (baseline.perTrade < pt.low) return out('clearly_higher');
   return out('no_clear_difference');
+}
+
+// FIXES-LABELS (code review, POLICY F3b): what the baseline section says about itself in public HTML (its data-kind).
+// The states that change what renders keep their names; every comparison that renders is 'shown', so the page never
+// carries clearly_lower / clearly_higher / no_clear_difference (a verdict about a stock), even as an attribute.
+export type BaselineKind = 'empty' | 'demo_only' | 'too_few_trades' | 'shown';
+export function baselineKind(summary: Pick<TickerSummary, 'demoOnly' | 'conf'>, others: { n: number }): BaselineKind {
+  if (others.n === 0) return 'empty';
+  if (summary.demoOnly) return 'demo_only';
+  if (!summary.conf?.perTrade) return 'too_few_trades';
+  return 'shown';
 }
 
 export type TickerRow = { userId: number; returnPct: number; holdingDays: number; openedAt: Date; closedAt: Date; verified: boolean };
@@ -315,6 +326,8 @@ export function parseCompare(a: string | undefined, b: string | undefined): Pars
   return sa === sb ? { kind: 'same', a: sa } : { kind: 'ok', a: sa, b: sb };
 }
 
+// ponytail: explainer, overlap, demoOnly and mixed are unused since the F-12 merge (the compare page reads
+// FIXES_LABELS.compareExplainer / compareOverlap and its notes) — remove with their assertions in lib/compare.test.ts
 export const COMPARE_COPY = {
   title: 'Compare stocks · Stock Social',
   explainer: 'Verified closed trades in each stock, side by side. Percentages only. Few trades means a wide range, and that is expected.',
@@ -356,9 +369,16 @@ export function compareKind(c: Compare): TrustKind {
   return sides.some((x) => x.demoOnly || x.mixed) ? 'mixed' : 'verified';
 }
 
-// sameTraders counts verified rows only, so a mixed compare keeps the verified wording; an all-Demo one never says it.
-export const compareOverlapText = (kind: TrustKind, n: number, a: string, b: string): string =>
-  FIXES_LABELS.compareOverlap[kind === 'demo' ? 'demo' : 'verified'](n, a, b);
+// QA round 1 (finding 13, POLICY F3b): a page about a security never rates it. /t/compare prints each stock's evidence
+// tier, bets and span (and its range above), never the "Past results: above zero / below zero / unclear" verdict.
+export function compareEvidenceText(c: Confidence): string {
+  const line = evidenceLine(c);
+  return line.startsWith('Past results: ') ? line.slice(line.indexOf('Evidence: ')) : line;
+}
+
+// sameTraders counts verified rows only: a mixed compare says so and that Demo trades are left out (QA round 1); an
+// all-Demo one never says verified.
+export const compareOverlapText = (kind: TrustKind, n: number, a: string, b: string): string => FIXES_LABELS.compareOverlap[kind](n, a, b);
 
 // /t/SYMBOL meta description: the count names the state, then the headline numbers. No sample-data tail.
 export function tickerDescription(symbol: string, s: TickerSummary): string {
@@ -368,12 +388,14 @@ export function tickerDescription(symbol: string, s: TickerSummary): string {
 
 // D-07: this stock and the other stocks recorded here, as counts with the same 95% per-trade range on both sides, or
 // counts only on both when either side has no range (under MIN_BETS bets). Never a verdict or a difference.
-export function baselineLines(symbol: string, s: TickerSummary, others: { n: number; conf: Confidence | null }) {
+// `s` is this stock's side: the page's summary, or on a mixed stock its verified trades only (`verifiedOnly`, code review:
+// the other stocks' side is verified trades only, so both sides are the same population and the line says so).
+export function baselineLines(symbol: string, s: Pick<TickerSummary, 'n' | 'traders' | 'conf'> & { verifiedOnly?: boolean }, others: { n: number; conf: Confidence | null }) {
   const a = s.conf ? rangeText(s.conf) : null;
   const b = others.conf ? rangeText(others.conf) : null;
   const ranged = a !== null && b !== null;
   return {
-    this: FIXES_LABELS.baselineThis(symbol, counted(s.n, 'closed trade'), counted(s.traders, 'trader'), ranged ? a : null),
+    this: FIXES_LABELS.baselineThis(symbol, counted(s.n, s.verifiedOnly ? 'verified closed trade' : 'closed trade'), counted(s.traders, 'trader'), ranged ? a : null),
     others: FIXES_LABELS.baselineOthers(counted(others.n, 'closed trade'), ranged ? b : null),
     note: FIXES_LABELS.baselineNote,
     ranged,

@@ -76,6 +76,9 @@ export const PROFILE = {
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
 // Privacy work (2026-11-01): the consent screen's public-scope line, owner copy.
+// ponytail: the status line publishes record-state dates this line does not name (lib/privacy-fields.ts#RECORD_STATE_FIELDS)
+// — the owner must add "connection status dates (last update, disconnected, account removed)" (and the connection date an
+// idle record falls back to) before real users connect (POLICY P6); lib/privacy-fields.test.ts then pins the new line.
 export const CONSENT_SCOPE_LINE = 'Public: percent returns, symbols, dates, holding periods, institution names, account count, and your current open positions with unrealized percent. Private: quantities, prices, fees and account numbers. Your public record is also used to describe your trading style and to order traders for readers.';
 
 export const CONSENT = {
@@ -299,9 +302,6 @@ export const FIXES_LABELS = {
   demoNote: 'Demo trades, not from a real broker.',
   mixedNote: 'Includes Demo trades, marked Demo. The figures include them.',
   demoPage: 'This page shows Demo trades only, not from a real broker.',
-  imageSub: { verified: 'verified closed trades', demo: 'Demo trades', mixed: 'closed trades, includes Demo' },
-  imageStatus: { verified: 'Verified from broker', demo: 'Demo', mixed: 'Includes Demo' },
-  tickerAlt: 'Trading records by stock on Stock Social',
   indexTitle: 'Trades by stock · Stock Social',
   indexDescription: 'Closed trades by stock: trade counts and traders, percentages only, losses included. Demo trades are marked Demo.',
   indexIntro: 'Stocks with closed trades from connected accounts or Demo data. Open a stock to see its trades, losses included. Percentages only.',
@@ -321,19 +321,27 @@ export const FIXES_LABELS = {
   compareOverlap: {
     verified: (n: number, a: string, b: string) => (n === 0 ? 'No trader has closed verified trades in both yet.' : `${n} trader${n === 1 ? '' : 's'} closed verified trades in both ${a} and ${b}.`),
     demo: (n: number, a: string, b: string) => (n === 0 ? 'No trader has closed trades in both yet.' : `${n} trader${n === 1 ? '' : 's'} closed trades in both ${a} and ${b}.`),
+    // QA round 1 (finding 2): a pair with Demo trades counts verified traders and says the Demo trades are left out.
+    mixed: (n: number, a: string, b: string) => `${n === 0 ? `No trader has closed verified trades in both ${a} and ${b} yet.` : `${n} trader${n === 1 ? '' : 's'} closed verified trades in both ${a} and ${b}.`} Demo trades are not counted here.`,
   },
   // D-07: facts, the traders' records as subject, one measure on both sides (D-10), no verdict. `n` is counted() text
   // ("1 closed trade", "12 closed trades"), so one trade reads in the singular.
   baselineHeading: 'Closed trades recorded here: this stock and other stocks',
-  baselineThis: (sym: string, n: string, traders: string, range: string | null) => `${n} in ${sym} by ${traders}${range ? `: per-trade range ${range}` : ''}.`,
-  baselineOthers: (n: string, range: string | null) => `${n} in other stocks recorded here${range ? `: per-trade range ${range}` : ''}.`,
+  // QA round 1 (finding 3): the range is the 95% range of the average per trade (the profile's wording), not the spread
+  // of the trades (the dot plot's "range").
+  baselineThis: (sym: string, n: string, traders: string, range: string | null) => `${n} in ${sym} by ${traders}${range ? `: average per trade, 95% range ${range}` : ''}.`,
+  baselineOthers: (n: string, range: string | null) => `${n} in other stocks recorded here${range ? `: average per trade, 95% range ${range}` : ''}.`,
   baselineNote: 'Side by side for context only. Different traders, sizes and timing. Not a rating of any stock.',
+  // Code review: on a stock with some Demo trades, both sides are verified trades only (the other stocks' side always is).
+  // QA round 1 (finding 12): the pane's and month page's footers on a Demo record name Demo, not connected accounts.
+  paneFoot: { real: "Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.", demo: 'Demo trades, not from a real broker, losses included.' },
+  monthFoot: { real: "Recaps list the month's closed trades from connected accounts, and none can be hidden.", demo: "Recaps list the month's Demo trades, not from a real broker, and none can be hidden." },
+  baselineMixedNote: 'Both sides count verified trades only. The Demo trades in this stock are left out of this comparison.',
   baselineThisTile: 'This stock',
   baselineOthersTile: 'Other stocks recorded here',
   // D-24: months show numbers and a range only.
-  monthRange: (range: string) => `95% range ${range}`,
-  monthNoRange: (k: string, min: string) => `No range yet: ${k} of the ${min} separate bets needed`,
-  monthOf: (n: string) => (n === '1' ? 'The only month on record' : `1 of ${n} months on record`),
+  // Code review: "One of N", not "1 of N" (which reads as a position, "month 1").
+  monthOf: (n: string) => (n === '1' ? 'The only month on record' : `One of ${n} months on record`),
   // D-05: chart ends and the at-rest subline.
   chartSub: (rangeLabel: string, d: string) => `${rangeLabel} · last close ${d}`,
   chartEnds: (a: string, b: string) => `First close ${a}, last close ${b}`,

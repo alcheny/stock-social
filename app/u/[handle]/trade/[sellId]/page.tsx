@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { toneView } from '@/lib/tone-view.ts'; // QA round 1 (finding 8): tone of the printed value
+const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
@@ -59,7 +61,7 @@ export default async function TradePage({ params }: Params) {
   const strip = recordStrip(tradeStripInput(t), 'page');
 
   return (
-    <main className="page">
+    <main className="page trade-page">{/* QA round 1 (finding 4): .trade-page tightens on a phone (globals.css) */}
       <p>
         <Link href={`/u/${t.handle}`}>← {RECORD_STRIP.link(t.handle)}</Link>{' '}
         {t.demo && <span className="badge demo" title={FL_DEMO}>Demo</span>}
@@ -68,9 +70,8 @@ export default async function TradePage({ params }: Params) {
         <section className="trade-card" aria-labelledby="this-trade">
           <h2 id="this-trade">This trade <RowBadge kind={paneTrust([{ verified: t.verified }], t.state).badge} /></h2>
           <h1 style={{ margin: 0 }}>{t.symbol}</h1>
-          <p className={`big ${t.returnPct > 0 ? 'up' : t.returnPct < 0 ? 'down' : ''}`}><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</p>
+          <p className={`big ${toneView(t.returnPct).cls}`}><span className="sr-only">{`${toneView(t.returnPct).word} `}</span>{pct(t.returnPct)}</p>
           <p className="muted small">{held(t.holdingDays)} · closed {closed}</p>
-          {t.thesis && <blockquote>“{t.thesis}”</blockquote>}
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">{RECORD_STRIP.link(t.handle)} {whole.stats && t.newRecord && <span className="badge new">New record</span>}</h2>
@@ -82,6 +83,14 @@ export default async function TradePage({ params }: Params) {
           <RecordStrip strip={strip} />
         </section>
       </div>
+      {/* QA round 1 (finding 4, D-09): the thesis after the figures and their F3 line, so a 280-character thesis never
+          pushes the line below the first screen; it is still the trader's own words about this trade, in full. */}
+      {t.thesis && (
+        <section className="trade-card trade-thesis" aria-labelledby="trade-thesis">
+          <h2 id="trade-thesis">{FL_THESIS}</h2>
+          <blockquote>“{t.thesis}”</blockquote>
+        </section>
+      )}
       <TradeShare isOwner={me !== null && me.handle === t.handle} path={path} title={`${t.symbol} ${pct(t.returnPct)} · @${t.handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       {!me && !t.demo && <JoinCta handle={t.handle} via="trade" />}

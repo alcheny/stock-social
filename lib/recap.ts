@@ -2,11 +2,8 @@
 import { confidence, evidenceLine, isNewRecord, rangeText, stats, type ConfidenceInput } from './trades.ts';
 import { stripFigures, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
 import { RECORD_STRIP, wholeRecordPreview, type RecordState } from './copy.ts';
-import { count, counted } from './format.ts';
+import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
-// FIXES-LABELS (D-24): the month's range line.
-import { FIXES_LABELS } from './copy.ts';
-import { MIN_BETS } from './confidence.ts';
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 
 export type RecapTrade = ConfidenceInput & { sellId: string };
@@ -52,20 +49,14 @@ export function monthRecap(all: RecapTrade[], ym: string, now: Date) {
     trades,
     evidence: evidenceLine(c),
     range: rangeText(c),
-    bets: c.k, // FIXES-LABELS (D-24)
     // F-12: the month's own figures (average with its range, or Too early), over the month's trades only.
     figures: stripFigures(trades, now),
   };
 }
 
-// ---- FIXES-LABELS ---- (D-24): a month shows its numbers and a 95% range, never a verdict. Under MIN_BETS bets it says
-// how many separate bets there are of the number a range needs; with enough bets but no finite range, nothing.
-export function monthRangeText(m: { range: string | null; bets: number }): string | null {
-  if (m.range) return FIXES_LABELS.monthRange(m.range);
-  return m.bets < MIN_BETS ? FIXES_LABELS.monthNoRange(count(m.bets), count(MIN_BETS)) : null;
-}
-
-// Distinct UTC months (YYYY-MM) with a closed trade: "1 of N months on record".
+// ---- FIXES-LABELS ---- (D-24): a month shows its numbers and a 95% range, never a verdict: the month page's F-12
+// figures strip (monthStripInput below) is the one month line.
+// Distinct UTC months (YYYY-MM) with a closed trade: "One of N months on record".
 export const monthsOnRecord = (all: { closedAt: Date }[]): number =>
   new Set(all.map((t) => `${t.closedAt.getUTCFullYear()}-${t.closedAt.getUTCMonth()}`)).size;
 

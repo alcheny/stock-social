@@ -1,6 +1,6 @@
 import { sql } from './db.ts';
 import { recordStates, type RecordStatus } from './connections.ts';
-import { statusRows, withStates } from './record-status-load.ts'; // FIXES-LABELS: status
+import { statusRowsOrEmpty, withStates } from './record-status-load.ts'; // FIXES-LABELS: status
 import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 import { groupByUser } from './pane.ts';
 import { confidence, evidenceWeight, rankTraders, type ConfidenceInput } from './trades.ts';
@@ -372,8 +372,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
   // F-2 PR-4: signed in, the page's closes this viewer rejected (for good, O3) leave the page as a gap, in place.
   // FIXES-LABELS: status (F-11): the status facts for the record-state id set, one query, side by side with the reads below.
-  const statusP = statusRows(withSection ? [...new Set([...traders, ...candIds])] : traders);
-  statusP.catch(() => {}); // awaited below; never an unhandled rejection meanwhile
+  // FIXES-LABELS (code review): a failed status read leaves the line out (an empty map), never the feed.
+  const statusP = statusRowsOrEmpty(withSection ? [...new Set([...traders, ...candIds])] : traders);
   const [rows, states, panes, following, people, rejected, opens] = await Promise.all([
     page.items.length ? sql`
       select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name

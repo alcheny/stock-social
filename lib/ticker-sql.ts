@@ -6,6 +6,7 @@
 // in the last bit, and bets are summed in a different order.
 import type postgres from 'postgres';
 import { sql as defaultSql } from './db.ts';
+import { logSafe } from './privacy-log.ts';
 import { confidenceFromClusters, confidenceFromSums, type Cluster, type Confidence } from './trades.ts';
 import {
   MIN_HOLD_BUCKET, MIN_REST, normalizeSymbol,
@@ -214,8 +215,9 @@ async function tickerPageIn(db: Db, symbol: string, today: Date, cap: number): P
 export async function relatedSymbolsSql(symbol: string, db: Db = defaultSql): Promise<RelatedSymbol[]> {
   const rows = (await db`
     with o as (
-      select symbol, user_id, verified from closed_trades
-      where symbol <> ${symbol} and user_id in (select distinct user_id from closed_trades where symbol = ${symbol}))
+      -- FIXES-LABELS (code review): live users only, as tradesOf (a deleted user's trades are on no page).
+      select t.symbol, t.user_id, t.verified from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+      where t.symbol <> ${symbol} and t.user_id in (select distinct user_id from closed_trades where symbol = ${symbol}))
     select symbol, count(distinct user_id)::int as traders, count(*)::int as trades, not bool_or(verified) as demo_only
     from o where (select count(distinct user_id) from o) >= 2
     group by symbol
@@ -232,6 +234,8 @@ export const likePrefix = (s: string) => `${s.replace(/[\\%_]/g, (c) => `\\${c}`
 // tickerIndex() + filterTickerIndex() + the page's slice, in SQL. `total` is every symbol (the page's empty state and
 // "Showing X of Y"), `matched` the rows the search matched before the cap. Sort is one of two fixed fragments.
 // ponytail: the group by still reads every closed trade per request; at ~10^6 rows keep a per-symbol summary table.
+// ponytail: counts include deleted users' trades (unlike tradesOf) — lib/ticker-sql.test.ts's tickerIndexPage reference
+// aggregates every closed trade, so joining live users here needs that test's reference changed by its owner first
 export async function tickerIndexPage(q: unknown, sort: TickerSort, cap = TICKER_INDEX_CAP, db: Db = defaultSql): Promise<TickerIndexPage> {
   return snapshot(db, (tx) => tickerIndexIn(tx, q, sort, cap));
 }
@@ -268,13 +272,25 @@ async function tickerIndexIn(db: Db, q: unknown, sort: TickerSort, cap: number):
 // confidence() path as this stock's: trades in every symbol but this one, verified (or Demo) rows only, live users only.
 // One bet = one trader's overlapping holds in one stock (gaps and islands per (user_id, symbol), boundary inclusive, as
 // confidence() clusters). Returns ONE row of clustering sums, never one row per bet; m and R come from a CTE.
+// ponytail: per-request full scan — every uncached /t/SYMBOL render runs two window sorts over all other symbols' closed
+// trades (verified or Demo); fix: cache the result per (symbol, verified), or keep a per-symbol summary table of the
+// clustering sums and subtract this symbol's row
 export async function othersConfidence(symbol: string, verified: boolean, db: Db = defaultSql): Promise<{ n: number; winRate: number | null; conf: Confidence }> {
+  const { n, winRate, conf } = await sideConfidence(db, symbol, 'others', verified);
+  return { n, winRate, conf };
+}
+
+// FIXES-LABELS (code review): one side of the baseline, clustered as confidence() does: 'others' = every other symbol,
+// 'this' = this symbol only (one bet = one trader's overlapping holds, as on the page). Live users only.
+type Side = { n: number; winRate: number | null; conf: Confidence; traders: number };
+async function sideConfidence(db: Db, symbol: string, side: 'others' | 'this', verified: boolean): Promise<Side> {
+  const where = side === 'this' ? db`t.symbol = ${symbol}` : db`t.symbol <> ${symbol}`;
   const [r] = (await db`
     with s as (
       select t.id, t.user_id, t.symbol, t.return_pct as rp, ln(greatest(1 + t.return_pct, 1e-9)) as x, greatest(t.holding_days, 1) as dd,
              date_trunc('milliseconds', t.opened_at) as o, date_trunc('milliseconds', t.closed_at) as c
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-      where t.symbol <> ${symbol} and t.verified = ${verified}),
+      where ${where} and t.verified = ${verified}),
     w as (
       select s.*, max(c) over (partition by user_id, symbol order by o, id rows between unbounded preceding and 1 preceding) as pa
       from s),
@@ -288,12 +304,40 @@ export async function othersConfidence(symbol: string, verified: boolean, db: Db
            (select sum((b.x - b.n * mr.m) ^ 2) from b) as ss_m,
            (select sum((b.x - mr.r * b.d) ^ 2) from b) as ss_r,
            (select min(o) from s) as first_open, (select max(c) from s) as last_close,
-           (select count(*) filter (where rp > 0 and rp <> 'NaN') from s)::int as wins
-    from mr`) as unknown as { wins: number; n: number; k: number; sx: number; sd: number; ss_m: number | null; ss_r: number | null; first_open: Date | null; last_close: Date | null }[];
+           (select count(*) filter (where rp > 0 and rp <> 'NaN') from s)::int as wins,
+           (select count(distinct user_id) from s)::int as traders
+    from mr`) as unknown as { wins: number; traders: number; n: number; k: number; sx: number; sd: number; ss_m: number | null; ss_r: number | null; first_open: Date | null; last_close: Date | null }[];
   const spanDays = r.first_open && r.last_close ? (r.last_close.getTime() - r.first_open.getTime()) / DAY : 0;
   return {
     n: r.n,
+    traders: r.traders,
     winRate: r.n ? r.wins / r.n : null,
     conf: confidenceFromSums({ n: r.n, k: r.k, spanDays, sumX: Number(r.sx), sumD: Number(r.sd), ssM: Number(r.ss_m ?? 0), ssR: Number(r.ss_r ?? 0) }),
   };
+}
+
+// FIXES-LABELS (code review): /t/SYMBOL's page data and its baseline in ONE snapshot. The baseline compares like with
+// like: the other stocks' verified rows (Demo rows for a Demo-only stock), and on a mixed stock this stock's verified
+// rows only, so both sides are the same population (`self`; null = the page's own summary is that side). A failed
+// baseline read leaves the section out (`baseline: null`), never the page.
+export type TickerBaseline = { others: { n: number; winRate: number | null; conf: Confidence }; self: Side | null };
+export async function tickerPageWithBaseline(symbol: string, today: Date, cap = TICKER_ROWS_CAP, db: Db = defaultSql): Promise<TickerPage & { baseline: TickerBaseline | null }> {
+  return snapshot(db, async (tx) => {
+    const page = await tickerPageIn(tx, symbol, today, cap);
+    const s = page.summary;
+    const read = async (q: Db): Promise<TickerBaseline> => {
+      const [o, self] = await Promise.all([
+        sideConfidence(q, symbol, 'others', !s.demoOnly),
+        s.mixed ? sideConfidence(q, symbol, 'this', true) : Promise.resolve(null),
+      ]);
+      return { others: { n: o.n, winRate: o.winRate, conf: o.conf }, self };
+    };
+    // A savepoint keeps the snapshot usable when the baseline's statement fails.
+    const sp = (tx as unknown as { savepoint?: (fn: (q: Db) => Promise<TickerBaseline>) => Promise<TickerBaseline> }).savepoint;
+    let baseline: TickerBaseline | null = null;
+    if (s.n) {
+      try { baseline = await (sp ? sp.call(tx, read) : read(tx)); } catch (e) { console.error('ticker baseline failed, section left out', logSafe(e)); }
+    }
+    return { ...page, baseline };
+  });
 }

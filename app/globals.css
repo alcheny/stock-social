@@ -510,6 +510,38 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
 /* ---- FIXES-LABELS (docs/features/logs/fixes-labels/plan.md §4) ---- */
+/* QA round 1 (finding 7, cycle-2 #25): a failed import is a warning, not a loss. --warn reads >= 4.5:1 on --bg and
+   --surface in both schemes (dark #fbbf24: 11.8:1 / 10.8:1; light #92400e: 6.8:1 / 7.1:1); a warning sign before the
+   words, so the state is never carried by colour alone (the words already say it; the sign has empty alt text). */
+:root { --warn: #fbbf24; }
+@media (prefers-color-scheme: light) { :root { --warn: #92400e; } }
+.warn { color: var(--warn); }
+.record-failed::before { content: "\26A0\FE0E  "; content: "\26A0\FE0E  " / ""; }
+/* QA round 1 (finding 5, cycle-2 #18): an unbroken 40-character display name wraps instead of widening the card, the
+   pane or the profile. */
+.card { min-width: 0; }
+.card .who { min-width: 0; overflow-wrap: anywhere; }
+.page h1 { overflow-wrap: anywhere; min-width: 0; }
+/* ponytail: at 200% zoom (180×370) and 200% text size the nav link, the chart range tabs, the trade box h1 and the
+   by-month caption overflow horizontally (QA round 1 finding 14, WCAG 1.4.4/1.4.10, pre-existing) — fix: wrap the nav and
+   tabs and let those headings shrink with clamp() */
+/* QA round 1 (finding 4, D-09): the trade page's thesis sits after the figures; the month page tightens on a phone so
+   the F3 line under the record is on the first screen at 360×740 and 320×740 with 15% to spare. */
+.trade-thesis { margin-top: 12px; }
+.trade-thesis blockquote { margin: 0; }
+@media (max-width: 400px) {
+  .trade-card .month-figures .record-strip { font-size: 1.25rem; }
+  .trade-grid .trade-card { padding: 12px; }
+  .month-page h1 { font-size: 1.5rem; line-height: 1.25; margin: 8px 0 4px; }
+  .month-page > p, .trade-page > p { margin: 6px 0; }
+  .month-page .trade-card h2, .trade-page .trade-card h2 { margin-bottom: 4px; }
+  main.month-page, main.trade-page { padding-top: 60px; }
+  .month-page .trade-grid, .trade-page .trade-grid { gap: 8px; }
+  .trade-page .trade-card .big { font-size: 34px; }
+  .month-page h1 .so-far { display: none; }
+  .month-page section[aria-labelledby="this-month"] > p:last-child { margin-bottom: 0; }
+  .month-page .record-strip-block [data-disclaimer], .trade-page .record-strip-block [data-disclaimer] { margin: 8px 0; }
+}
 /* D-09: the F3 line, static small muted text (contrast ≥ 4.5:1 on --bg and --surface in both themes). */
 .disclaimer { margin: 0; }
 /* The feed card ends with the F3 line; room below it for the Undo and sign-in bars (16 + 62 + 16), so they never cover it. */

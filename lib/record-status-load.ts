@@ -4,6 +4,7 @@
 // render clock (F-11 AC2): "updated" is whatever the last completed rebuild wrote. The record state is the caller's
 // (lib/connections.ts#recordStates), so a page that already has it never computes it twice.
 import { sql } from './db.ts';
+import { logSafe } from './privacy-log.ts';
 import type { RecordStatus, PublicState } from './connections.ts';
 import type { StatusConnection, StatusFacts } from './record-status.ts';
 
@@ -14,6 +15,8 @@ const date = (s: string | null) => (s ? new Date(s) : null);
 
 // ponytail: the account count and the demo check scan each trader's activities (as the profile's own reads do) — a
 // per-user account count and source flag written by the sync would make them constant-time on a feed page
+// ponytail: an account the vendor lists again but with no trade after its removal still reads "Account removed" — fix:
+// stamp a per-account last_listed_at in lib/sync.ts and compare it with removed_at here
 export async function statusRows(userIds: number[]): Promise<Map<number, StatusRow>> {
   const ids = [...new Set(userIds)].map(Number);
   const out = new Map<number, StatusRow>();
@@ -26,7 +29,12 @@ export async function statusRows(userIds: number[]): Promise<Map<number, StatusR
     ), conns as (
       select c.user_id, jsonb_agg(jsonb_build_object('id', c.id, 'consentAt', c.consent_at, 'disconnectedAt', c.disconnected_at, 'institution', c.institution,
         'accounts', (select coalesce(jsonb_agg(jsonb_build_object('id', x.a->>'id', 'isPaper', coalesce((x.a->>'isPaper')::boolean, false),
-            'institution', x.a->>'institution', 'removedAt', ba.removed_at) order by x.ord), '[]'::jsonb)
+            'institution', x.a->>'institution',
+            -- FIXES-LABELS (code review): a removed account the vendor listed again (a trade on it executed after the
+            -- removal, which only a later listing imports) no longer reads "Account removed"; removed_at itself is never
+            -- cleared (lib/sync.ts).
+            'removedAt', case when exists (select 1 from activities av where av.user_id = c.user_id and av.account_id = ba.account_id
+              and av.executed_at > ba.removed_at) then null else ba.removed_at end) order by x.ord), '[]'::jsonb)
           from jsonb_array_elements(c.accounts) with ordinality x(a, ord)
           left join broker_accounts ba on ba.account_id = x.a->>'id' and ba.user_id = c.user_id)) order by c.id) as list
       from connections c where c.user_id = any(${ids}::int[]) and c.consent_at is not null and c.state = 'connected' group by c.user_id
@@ -59,6 +67,16 @@ export async function statusRows(userIds: number[]): Promise<Map<number, StatusR
     });
   }
   return out;
+}
+
+// FIXES-LABELS (code review): the status line is an extra on the feed; its read failing leaves the line out (an empty
+// map), never the page. Logged as counts only. `load` is a test hook.
+export function statusRowsOrEmpty(userIds: number[], load: (ids: number[]) => Promise<Map<number, StatusRow>> = statusRows): Promise<Map<number, StatusRow>> {
+  const traders = userIds.length;
+  return Promise.resolve().then(() => load(userIds)).catch((e: unknown) => {
+    console.error('status rows failed, status line left out', JSON.stringify({ traders }), logSafe(e));
+    return new Map<number, StatusRow>();
+  });
 }
 
 export function withStates(rows: Map<number, StatusRow>, states: Map<number, RecordStatus | { state: PublicState }>): Map<number, StatusFacts> {

@@ -8,7 +8,7 @@ import { DISCLAIMER } from './share.ts';
 import { pct } from './trades.ts';
 import { count, count as fmtCount, counted } from './format.ts';
 import { DISCLAIMER_LINES, DISCLAIMER_STEPS, fitDisclaimer, fitPx, layoutBand, recordStrip, STRIP_BAND, stripImageLines, type ImageLine, type Strip, type StripFigures } from './record-strip.ts';
-// FIXES-LABELS (D-09, D-24): the F3 line at ≥ 28 px (lib/image-fit.ts); "1 of N months on record".
+// FIXES-LABELS (D-09, D-24): the F3 line at ≥ 28 px (lib/image-fit.ts); "One of N months on record".
 import { FIXES_LABELS } from './copy.ts';
 import { MONTH_DISCLAIMER_SIZE } from './image-fit.ts';
 
@@ -28,6 +28,8 @@ export type MonthCardInput = {
 // Largest size (≤ 96) at which the text fits the card's width at an average glyph width of 0.6 em.
 export const fitSize = (text: string, max = 96, width = INNER_W) => Math.min(max, Math.floor(width / (Math.max(text.length, 1) * MONTH_CARD.glyph)));
 
+// ponytail: unused since the F-12 merge (the month image draws monthBand) — remove with lib/month-card.test.ts,
+// lib/f12-strip.test.ts's adapter test and the monthCard cases in lib/fixes-labels-month.test.ts
 export function monthCard(r: MonthCardInput) {
   const { recap: m, record: w } = r;
   const trust = imageTrust('month', { state: r.state, demo: r.demo, verified: r.verified, empty: false });
@@ -60,7 +62,7 @@ export function monthCard(r: MonthCardInput) {
 // Hero lines between the handle and the strip: the month's label (52 px, down to 40 when space runs short), the month's
 // count line, then its figures (average and range, or Too early) at 30 px (down to the 26 px floor). No win rate and no
 // best or worst on the image (committee 2026-11-01; both stay on the page).
-// FIXES-LABELS (D-24): `months`, "1 of N months on record" under the label (optional: it gives way first). FIXES-LABELS:
+// FIXES-LABELS (D-24): `months`, "One of N months on record" under the label (optional: it gives way first). FIXES-LABELS:
 // status: `frozen`, a frozen record's line (lib/record-status.ts#imageFrozenText), in the strip after the record.
 type MonthBandInput = { handle: string; recap: { label: string; monthSoFar: boolean; count: number }; record: { newRecord: boolean }; months?: number };
 function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: number): ImageLine[] {
@@ -83,7 +85,7 @@ function monthHero(r: MonthBandInput, month: Strip, labelPx: number, figPx: numb
   return L;
 }
 export function monthBand(r: MonthBandInput, whole: Strip, month: Strip, frozen?: string | null): ReturnType<typeof layoutBand> {
-  // FIXES-LABELS (D-09, F-11): what gives way, in order. Every line at a disclaimer of ≥ 28 px; then without "1 of N
+  // FIXES-LABELS (D-09, F-11): what gives way, in order. Every line at a disclaimer of ≥ 28 px; then without "One of N
   // months" (a frozen line outranks it); last, F-12's own rule (optional lines drop, the largest disclaimer that fits).
   // ponytail: beside a failed import's two note lines the frozen line gives way on the month image (the page shows it) — move the failed note to the label line to make room
   const steps28 = DISCLAIMER_STEPS.filter((x) => x >= 28);

@@ -17,9 +17,11 @@ import { Disclaimer } from './disclaimer.tsx';
 import { FIXES_LABELS } from '@/lib/copy.ts';
 import type { Segment } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { StatusText } from './status-line.tsx'; // FIXES-LABELS: status
+import { paneEvidence } from '@/lib/pane-evidence.ts'; // FIXES-LABELS (code review): the profile's range and New record
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
+  openedAt?: Date; // FIXES-LABELS (code review, TR-7/TR-9): the entry time behind the pane's range and "New record"
 };
 
 // Fix round 2 (render cost): one formatter, not one per call (same text as toLocaleDateString with these options).
@@ -43,6 +45,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const open = openSummary(unrealized);
   const both = open && combined(trades.map((t) => t.returnPct), unrealized);
   const trust = paneTrust(trades, state);
+  const ev = paneEvidence(trades, now); // FIXES-LABELS (code review, TR-9 / TR-7)
   const chartBlock = <>
     <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} />
     {open && <ChartNote o={open} />}
@@ -50,17 +53,19 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const summary = p.since && p.worst && (
     <p className="summary">
       Since first closed trade, {day(p.since)}: {counted(p.count, 'closed trade')}. Worst: {p.worst.symbol}{' '}
-      <b className={p.worst.returnPct > 0 ? 'up' : 'down'}>{pct(p.worst.returnPct)}</b>.
+      <b className={toneClass(p.worst.returnPct)}>{pct(p.worst.returnPct)}</b>.
       {trust.badge === 'demo' && <span className="muted"> {FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20): one Demo name */}</span>}
     </p>
   );
-  const incomplete = trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>;
+  const incomplete = trust.incomplete && <p role="status" className="warn record-failed">{RECORD_BODY.failed}</p>;
   const long = open ? longValues(pct(p.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const figures = <>
     <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
       {open && <RealizedLabel />}
       <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
-      <div className="stat big"><b className={open ? toneClass(p.avgReturn) : p.avgReturn > 0 ? 'up' : 'down'}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>
+      <div className="stat big"><b className={toneClass(p.avgReturn) /* QA round 1 (finding 8): tone of the printed value */}>{pct(p.avgReturn)}</b><small>avg return / trade</small>
+        {ev.rangeLine && <small className="range">{ev.rangeLine}</small>}{/* FIXES-LABELS (code review, TR-9): as on the profile */}
+      </div>
     </section>
     {open && <OpenGrid o={open} asOf={openAsOf} long={long} />}
     {both && <CombinedLine c={both} />}
@@ -78,6 +83,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
             squeeze the name away, and the name ends in an ellipsis. */}
         <Link href={`/u/${handle}`} className="who" style={{ minWidth: `min(100%, ${handle.length + 4}ch)` }}><WhoName name={name} handle={handle} /></Link>
         {trust.badge && <Badge verified={trust.badge === 'verified'} />}
+        {state !== 'importing' && trades.length > 0 && ev.newRecord && <span className="badge new">New record</span>}{/* FIXES-LABELS (code review, TR-7) */}
         {viewer?.signedIn && <div className="pane-actions"><FollowButton handle={handle} following={viewer.following} signedIn /><NotInterested handle={handle} /></div>}
       </header>
       {/* F-6 (business lead D1): with open positions the figures lead, as on the profile (the pane is where most viewers
@@ -89,12 +95,12 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         {p.recent.map((t) => (
           <li key={t.id} className={t.id === highlight ? 'line hl' : 'line'} aria-current={t.id === highlight ? 'true' : undefined}>
             <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
-            <b className={t.returnPct > 0 ? 'up' : 'down'}>{pct(t.returnPct)}</b>
+            <b className={toneClass(t.returnPct)}>{pct(t.returnPct)}</b>
           </li>
         ))}
       </ul>
       <p><Link href={`/u/${handle}`} className="button">See full profile →</Link></p>
-      <p className="muted">Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.</p>
+      <p className="muted">{FIXES_LABELS.paneFoot[trust.badge === 'demo' ? 'demo' : 'real'] /* QA round 1 (finding 12) */}</p>
     </section>
   );
 }

@@ -3,13 +3,13 @@ import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
 import { recordStates, type PublicState } from '@/lib/connections.ts';
 import { rowBadge } from '@/lib/pane.ts';
-import { baselineVerdict, decodeSymbolParam, isIndexableTicker, selectTheses, tickerDescription, trustKind } from '@/lib/ticker.ts';
-import { othersConfidence, relatedSymbolsSql, tickerHeadline, tickerPage, type TickerPage } from '@/lib/ticker-sql.ts';
+import { decodeSymbolParam, isIndexableTicker, selectTheses, tickerDescription, trustKind } from '@/lib/ticker.ts';
+import { relatedSymbolsSql, tickerHeadline, tickerPageWithBaseline, type TickerBaseline, type TickerPage } from '@/lib/ticker-sql.ts';
 // FIXES-LABELS (D-03): the page names one state, Demo, and never calls Demo trades verified.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
-import { pct, rangeText, type Confidence } from '@/lib/trades.ts';
+import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
 import Spread from './Spread.tsx';
@@ -33,10 +33,11 @@ const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
 const heldWords = (d: number) => (d < 1 ? 'less than a day' : `${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
 
 // The summary and charts are SQL aggregates over every trade (lib/ticker-sql.ts); only the CAP newest rows are read.
-async function load(raw: string): Promise<{ symbol: string | null; d: TickerPage | null; rows: TickerPage['rows'] }> {
+async function load(raw: string): Promise<{ symbol: string | null; d: (TickerPage & { baseline: TickerBaseline | null }) | null; rows: TickerPage['rows'] }> {
   const symbol = decodeSymbolParam(raw);
   if (!symbol) return { symbol: null, d: null, rows: [] };
-  const d = await tickerPage(symbol, new Date(), CAP);
+  // FIXES-LABELS (code review): the baseline is read in the page's own snapshot.
+  const d = await tickerPageWithBaseline(symbol, new Date(), CAP);
   return { symbol, d, rows: d.rows };
 }
 
@@ -102,21 +103,9 @@ export default async function Ticker({ params, searchParams }: Params) {
   const stateByHandle = new Map<string, PublicState>(named.map((r) => [r.handle, states.get(r.user_id)?.state ?? 'connected']));
   const badgeFor = (verified: boolean, handle: string) => rowBadge(verified, stateByHandle.get(handle));
   const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified })));
-  // Cohort follows the ticker: verified rows if it has any, otherwise the Demo rows. One aggregate, this symbol excluded.
-  let baseline: ReturnType<typeof baselineVerdict> | null = null;
-  let others: { n: number; winRate: number | null; conf: Confidence | null } = { n: 0, winRate: null, conf: null };
-  try {
-    const [agg] = (await sql`
-      select count(*)::int as n,
-             avg((return_pct > 0)::int)::float8 as win_rate,
-             exp(avg(ln(greatest(1 + return_pct, 1e-9)))) - 1 as per_trade
-      from closed_trades
-      where symbol <> ${symbol} and verified = ${!s.demoOnly}`) as unknown as { n: number; win_rate: number | null; per_trade: number | null }[];
-    const num = (v: unknown) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v));
-    baseline = baselineVerdict(s, { n: agg?.n ?? 0, winRate: num(agg?.win_rate), perTrade: num(agg?.per_trade), demoOnly: s.demoOnly });
-    // FIXES-LABELS (D-07): the other stocks' count and 95% range from the same confidence() path as this stock's.
-    others = await othersConfidence(symbol, !s.demoOnly);
-  } catch { baseline = null; }
+  // Cohort follows the ticker: verified rows if it has any, otherwise the Demo rows, this symbol excluded; on a mixed
+  // stock this stock's side is its verified rows too (lib/ticker-sql.ts#tickerPageWithBaseline, same snapshot).
+  const baseline = d.baseline;
   const open = (await symbolOpen(symbol)).get(symbol);
   // Last, after all page queries, so page content is unaffected.
   await markSeen(symbol, watchState);
@@ -156,7 +145,7 @@ export default async function Ticker({ params, searchParams }: Params) {
 
       <Concentration c={d.concentration} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
 
-      {baseline && <Baseline result={baseline} summary={s} symbol={symbol} others={others} />}
+      {baseline && <Baseline summary={s} symbol={symbol} others={baseline.others} self={baseline.self} />}
 
       {spread.n > 0 && (
         <>

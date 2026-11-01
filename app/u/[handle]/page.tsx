@@ -206,7 +206,7 @@ export default async function Profile({ params, searchParams }: Params) {
           line survives the refresh that follows the end of the import. */}
       <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />
       {state === 'failed' && (
-        <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
+        <p role={isMe ? 'alert' : 'status'} className="warn record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
       )}
       {/* FIXES-LABELS: status. Two rows (design system StatusLine): row 1 (since · connected, partial or frozen), row 2
           (last close · updated, or the idle fact), then the accounts when there are two or more. A record the
@@ -263,7 +263,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {open && <RealizedLabel />}
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         {/* F-6: with open positions, tone by the printed sign beside the unrealized row ("0.0%" uncolored in both). */}
-        <div className="stat big"><b className={open ? toneClass(s.avgReturn) : s.avgReturn > 0 ? 'up' : 'down'}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
+        <div className="stat big"><b className={toneClass(s.avgReturn) /* QA round 1 (finding 8): tone of the printed value */}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
           {/* PR-2b: "Too early to tell" is said once, in the evidence line below; here only an actual range. */}
           {range && <small className="range">{`${range} · 95% range`}</small>}
         </div>
@@ -314,7 +314,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {open && openAsOf && <p className="muted small" data-open>{OPEN.asOf(asOfDay(openAsOf))}</p>}
         <ul className="rows positions">
           {positions.map((p) => (
-            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={open ? toneClass(p.pct) : p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
+            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={toneClass(p.pct)}>{pct(p.pct)}</b></div></li>
           ))}
         </ul>
       </>}
@@ -331,7 +331,7 @@ export default async function Profile({ params, searchParams }: Params) {
             <div className="line">
               <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
               <Link className="trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
-                <b className={t.return_pct > 0 ? 'up' : 'down'}>{pct(t.return_pct)}</b>
+                <b className={toneClass(t.return_pct)}>{pct(t.return_pct)}</b>
               </Link>
             </div>
             {t.thesis_status === 'published' && <p style={{ margin: '4px 0 0' }}>“{t.thesis}”</p>}

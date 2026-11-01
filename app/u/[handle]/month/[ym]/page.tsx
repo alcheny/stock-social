@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { toneView } from '@/lib/tone-view.ts'; // QA round 1 (finding 8): tone of the printed value
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
@@ -12,7 +13,7 @@ import { RecordStrip } from '@/app/record-strip.tsx';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
 import { count } from '@/lib/format.ts';
-// FIXES-LABELS (D-24): numbers and a range only in "This month" (F-12's month figures); "1 of N months on record" under the h1.
+// FIXES-LABELS (D-24): numbers and a range only in "This month" (F-12's month figures); "One of N months on record" under the h1.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 const FL_DEMO = FL.demoNote; // FIXES-LABELS (DS-20): one Demo name
 // FIXES-LABELS (D-09 / D20, POLICY F3): the page's one F3 line is the record strip's (F-12), after the record's figures.
@@ -60,21 +61,27 @@ export default async function RecapPage({ params }: Params) {
     <section className="trade-card" aria-label={title}>
       <h2>{title}</h2>
       <Link href={link(t.sellId)} style={{ display: 'block', minHeight: 44, padding: '4px 0' }}>
-        <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</span>
+        <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{`${toneView(t.returnPct).word} `}</span>{pct(t.returnPct)}</span>
         <span className="muted small">{held(t.holdingDays)}</span>
       </Link>
     </section>
   );
 
   return (
-    <main className="page">
+    <main className="page month-page">{/* QA round 1 (finding 4): .month-page tightens on a phone (globals.css) */}
       <p>
         <Link href={`/u/${handle}`}>← {RECORD_STRIP.link(handle)}</Link>{' '}
         {r.demo && <span className="badge demo" title={FL_DEMO}>Demo</span>}
       </p>
-      <h1>{m.label} {m.monthSoFar && <span className="muted small">month so far</span>}</h1>
-      {r.months ? <p className="muted small" data-testid="month-of">{FL.monthOf(count(r.months))}</p> : null}
-      {m.monthSoFar && <p className="muted small">Not a complete month. Trades close through today.</p>}
+      <h1>{m.label} {m.monthSoFar && <span className="muted small so-far">month so far</span>}</h1>
+      {/* QA round 1 (finding 4): one muted line under the h1 (on a phone the h1's "month so far" gives way to it). */}
+      {(r.months || m.monthSoFar) ? (
+        <p className="muted small month-head">
+          {r.months ? <span data-testid="month-of">{FL.monthOf(count(r.months))}</span> : null}
+          {r.months && m.monthSoFar ? ' · ' : null}
+          {m.monthSoFar && <span>Month so far: not a complete month. Trades close through today.</span>}
+        </p>
+      ) : null}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-month">
           <h2 id="this-month">This month</h2>
@@ -102,7 +109,7 @@ export default async function RecapPage({ params }: Params) {
             <Link href={link(t.sellId)} style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, minHeight: 44, alignItems: 'center' }}>
               <span className="muted">{day(t.closedAt)}</span>
               <b>{t.symbol}</b>
-              <span><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</span>
+              <span><span className="sr-only">{`${toneView(t.returnPct).word} `}</span>{pct(t.returnPct)}</span>
               <span className="muted">{held(t.holdingDays)}</span>
             </Link>
           </li>
@@ -110,7 +117,7 @@ export default async function RecapPage({ params }: Params) {
       </ol>
       <TradeShare isOwner={false} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
-      <p className="muted small">Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</p>
+      <p className="muted small">{FL.monthFoot[r.demo ? 'demo' : 'real'] /* QA round 1 (finding 12) */}</p>
       {!me && !r.demo && <JoinCta handle={handle} via="month" />}
       <p><Link href="/">← Feed</Link></p>
     </main>
