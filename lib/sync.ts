@@ -5,6 +5,7 @@ import { AccountClaimedError, claimIn } from './claims.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
 import { replacePositions } from './positions.ts';
+import { logSafe } from './privacy-log.ts';
 
 const BACKFILL_MS = 7 * 86_400_000; // brokers post late corrections; re-read the last week
 // Per-user advisory lock (F-1: a sync is one transaction; a second one for the same user waits or is skipped).
@@ -272,17 +273,17 @@ export async function syncTick<R>(opts: {
       } else ok++;
     } catch (e) {
       failed.push(u.id);
-      console.error('sync failed', u.id, e instanceof Error ? e.message : e);
+      console.error('sync failed', u.id, logSafe(e));
     } finally {
       // PR-3 fix round 4 (engineer note): a database connection lost here must not abort the tick (the route would
       // answer 500 and the traders after this one would go unsynced by this call). The lease is left to lapse after
       // SYNC_LEASE_MS; a lapsed lease makes the trader claimable again, so at worst it is synced once more that round
       // (a re-sync is idempotent: the last week re-read, the same rows).
-      try { await release(u); } catch (e) { console.error('sync lease release failed', u.id, e instanceof Error ? e.message : e); }
+      try { await release(u); } catch (e) { console.error('sync lease release failed', u.id, logSafe(e)); }
     }
   }
   let unclaimed: number | null = null;
-  try { unclaimed = await unclaimedCount({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0 }); } catch (e) { console.error('sync unclaimed count failed', e instanceof Error ? e.message : e); }
+  try { unclaimed = await unclaimedCount({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0 }); } catch (e) { console.error('sync unclaimed count failed', logSafe(e)); }
   // Traders left because they did not fit the time left are a stop at the deadline too.
   if (!stopped && fit < SYNC_FIT_CAP && (unclaimed ?? 0) > 0) stopped = true;
   const report: TickReport = { ok, skipped, failed: failed.length, unclaimed, stoppedAtDeadline: stopped };
@@ -360,7 +361,7 @@ export async function syncAll<U extends { id: number }>(users: U[], sync: (u: U)
       ok++;
     } catch (e) {
       failed.push(u.id);
-      console.error('sync failed', u.id, e instanceof Error ? e.message : e);
+      console.error('sync failed', u.id, logSafe(e));
     }
   }
   return { ok, failed };
