@@ -844,3 +844,6 @@ h1 { overflow-wrap: anywhere; }
 @media (max-width: 340px) { .feed .row > .card { gap: 12px; } }
 /* FIXES-LABELS: status (QA round 2 N8, merge with main): a date and the word before it never break apart. */
 .status-glue { white-space: nowrap; }
+
+/* F-26: the trade page's link under the author's held line, on its own line (a 44 px target, lib/user-note.ts#HeldNote). */
+.held-edit { margin: 0; }
