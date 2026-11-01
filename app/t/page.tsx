@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
+import { visibleUserIds } from '@/lib/visible-users.ts';
 import { redirect } from 'next/navigation';
 import { filterTickerIndex, parseTickerSort, tickerIndex, watchSummary, type SymbolAggregate, type TickerSort, type WatchItem } from '@/lib/ticker.ts';
 import { currentUser } from '@/lib/session.ts';
@@ -13,8 +14,9 @@ const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: '
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 export const metadata: Metadata = {
-  title: 'Stocks with verified trades · Stock Social',
-  description: 'Browse every stock with verified closed trades: trade counts and traders, percentages only, losses included.',
+  // Fixes #1 and #8: the index lists demo symbols too (marked Demo), so it doesn't call them verified or claim "every".
+  title: 'Stocks with closed trades · Stock Social',
+  description: 'Stocks with closed trades on Stock Social: trade counts and traders, percentages only, losses included. Demo data is marked Demo.',
 };
 
 // One query for all of the user's watches (max 25). Counts only: no returns. demoOnly uses ALL of a symbol's trades.
@@ -25,7 +27,7 @@ async function loadStrip(): Promise<WatchItem[]> {
   if (!watches.length) return [];
   const trades = (await sql`
     select symbol, closed_at, verified from closed_trades
-    where symbol in (select symbol from ticker_watches where user_id = ${user.id})`) as unknown as { symbol: string; closed_at: Date; verified: boolean }[];
+    where symbol in (select symbol from ticker_watches where user_id = ${user.id}) and user_id in (${visibleUserIds()})`) as unknown as { symbol: string; closed_at: Date; verified: boolean }[];
   return watchSummary(
     watches.map((w) => ({ symbol: w.symbol, lastSeenAt: w.last_seen_at })),
     trades.map((t) => ({ symbol: t.symbol, closedAt: t.closed_at, verified: t.verified })),
@@ -64,7 +66,7 @@ export default async function Stocks({ searchParams }: Props) {
   const aggs = (await sql`
     select symbol, count(*)::int as trades, count(distinct user_id)::int as traders,
            max(closed_at) as last_closed_at, count(*) filter (where verified)::int as verified_trades
-    from closed_trades group by symbol`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number }[];
+    from closed_trades where user_id in (${visibleUserIds()}) group by symbol`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number }[];
   const all = tickerIndex(
     aggs.map((a): SymbolAggregate => ({ symbol: a.symbol, trades: a.trades, traders: a.traders, lastClosedAt: a.last_closed_at, verifiedTrades: a.verified_trades })),
     sort,
@@ -74,7 +76,7 @@ export default async function Stocks({ searchParams }: Props) {
       <main className="page">
         <h1>Stocks</h1>
         <Strip strip={strip} />
-        <p>No verified trades yet.</p>
+        <p>No closed trades yet.</p>
         <p className="muted">Stocks appear here when a trader connects a broker and closes a position.</p>
         <p><Link href="/">Back to the feed</Link></p>
       </main>
@@ -100,7 +102,7 @@ export default async function Stocks({ searchParams }: Props) {
       <p><Link href="/">← Feed</Link></p>
       <h1>Stocks</h1>
       <Strip strip={strip} />
-      <p className="muted">Stocks with at least one verified closed trade from connected accounts. Open a stock to see its trades, losses included. Percentages only.</p>
+      <p className="muted">Stocks with at least one closed trade. Trades from connected broker accounts are verified; demo data is marked Demo. Open a stock to see its trades, losses included. Percentages only.</p>
       <form role="search" action="/t" method="get" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <label htmlFor="q">Find a stock</label>
         <input id="q" name="q" type="search" defaultValue={rawQ} placeholder="NVDA" maxLength={10} autoCapitalize="characters" autoCorrect="off" spellCheck={false} style={{ minHeight: 44 }} />
@@ -113,7 +115,7 @@ export default async function Stocks({ searchParams }: Props) {
       </nav>
       {(f.kind === 'none' || f.kind === 'invalid') ? (
         <>
-          <p>No stock with verified trades matches “{q.slice(0, 20)}”.</p>
+          <p>No stock with closed trades matches “{q.slice(0, 20)}”.</p>
           <p className="muted">Stocks appear here once a trader closes a position in them.</p>
           <p><Link href={clearHref} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>See all stocks</Link></p>
         </>
@@ -125,7 +127,7 @@ export default async function Stocks({ searchParams }: Props) {
           {searching && <> · <Link href={clearHref}>Clear search</Link></>}
         </p>
       )}
-      <ul className="rows ticker-rows" aria-label="Stocks with verified trades">
+      <ul className="rows ticker-rows" aria-label="Stocks with closed trades">
         {rows.map((r) => {
           const when = date(r.lastClosedAt);
           return (
@@ -133,7 +135,7 @@ export default async function Stocks({ searchParams }: Props) {
               <Link
                 href={`/t/${encodeURIComponent(r.symbol)}`}
                 className="trow"
-                aria-label={`${r.symbol}, ${plural(r.trades, 'trade')}, ${plural(r.traders, 'trader')}, last closed ${when}${r.demoOnly ? ', sample data' : ''}`}
+                aria-label={`${r.symbol}, ${plural(r.trades, 'trade')}, ${plural(r.traders, 'trader')}, last closed ${when}${r.demoOnly ? ', demo data' : ''}`}
               >
                 <span className="who"><b>{r.symbol}</b> {r.demoOnly && <Badge verified={false} />}</span>
                 <span className="muted">{plural(r.trades, 'trade')} · {plural(r.traders, 'trader')} · last closed {when}</span>

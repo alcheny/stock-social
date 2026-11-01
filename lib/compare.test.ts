@@ -66,10 +66,10 @@ test('compare: copy has no verdict wording', () => {
   const strings: string[] = [
     COMPARE_COPY.title, COMPARE_COPY.explainer, COMPARE_COPY.pick, COMPARE_COPY.invalid('XX'), COMPARE_COPY.same('NVDA'),
     COMPARE_COPY.bothEmpty('A', 'B'), COMPARE_COPY.emptySide('A'), COMPARE_COPY.overlap(0, 'A', 'B'), COMPARE_COPY.overlap(1, 'A', 'B'),
-    COMPARE_COPY.overlap(2, 'A', 'B'), COMPARE_COPY.footer, COMPARE_COPY.tooEarly, COMPARE_COPY.demoOnly, COMPARE_COPY.mixed,
+    COMPARE_COPY.overlap(2, 'A', 'B'), COMPARE_COPY.footer, COMPARE_COPY.demoOnly, COMPARE_COPY.mixed,
     compareDescription('A', 'B', c), compareDescription('A', 'B', compareTickers(A, [], today)),
     compareDescription('A', 'B', compareTickers([], [], today)), compareDescription('A', 'B', compareTickers([row(1, 0, 5, 0.1, false)], B, today)),
   ];
   for (const s of strings) assert.doesNotMatch(s, /winner|better|beats|outperform/i);
-  assert.match(compareDescription('A', 'B', compareTickers([row(1, 0, 5, 0.1, false)], B, today)), /Sample data/);
+  assert.match(compareDescription('A', 'B', compareTickers([row(1, 0, 5, 0.1, false)], B, today)), /Demo data/);
 });

@@ -7,6 +7,8 @@ import { LIKES } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { removeLikeForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
+import { toneClass } from '../../open-rows.tsx';
+import { Disclaimer } from '../../disclaimer.tsx';
 
 export const metadata: Metadata = { title: `${LIKES.title} · Stock Social`, robots: { index: false, follow: false } };
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -22,13 +24,14 @@ export default async function Likes({ searchParams }: { searchParams?: Promise<{
     <main className="page">
       <h1>{LIKES.title}</h1>
       <p className="muted">{LIKES.private}</p>
+      <Disclaimer />
       {rows.length ? (
         <ul className="rows people likes">
           {rows.map((r) => (
             <li key={r.key} className="line">
               <span className="who-col">
                 <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}>{LIKES.closed(r.symbol, DAY.format(r.closedAt))}</Link>{' '}
-                <b className={r.returnPct > 0 ? 'up' : 'down'}>{pct(r.returnPct)}</b>
+                <b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b>
                 <span className="small"><WhoName name={r.name} handle={r.handle} /></span>
               </span>
               <form action={removeLikeForm.bind(null, r.key, after)}><button className="secondary" aria-label={LIKES.removeFor(r.symbol)}>{LIKES.remove}</button></form>

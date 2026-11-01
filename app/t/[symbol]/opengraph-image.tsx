@@ -2,12 +2,15 @@
 import { ImageResponse } from 'next/og';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { sql } from '@/lib/db.ts';
+import { visibleUserIds } from '@/lib/visible-users.ts';
 import { decodeSymbolParam, tickerSummary, type TickerRow, type TickerSummary } from '@/lib/ticker.ts';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
+// Fix #1: wording only ("verified" only for an all-verified stock, demo data called Demo); F-12 owns the strip and disclaimer.
+import { STOCK_LABELS, tradesWord } from '@/lib/stock-labels.ts';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
-export const alt = 'Verified trading records by stock on Stock Social';
+export const alt = STOCK_LABELS.imageAlt;
 
 const frame = { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 64, background: '#0b0b0f', color: '#f4f4f6', fontFamily: 'sans-serif' } as const;
 
@@ -30,15 +33,15 @@ function neutral(title: string, line: string, footer: string) {
 export default async function Card({ params }: { params: Promise<{ symbol: string }> }) {
   try {
     const symbol = decodeSymbolParam((await params).symbol);
-    if (!symbol) return neutral('Stock Social', 'Verified trades by stock', 'Stock Social · verified trading records');
-    const found = (await sql`select user_id, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where symbol = ${symbol}`) as unknown as
+    if (!symbol) return neutral('Stock Social', STOCK_LABELS.imageNeutralLine, STOCK_LABELS.imageNeutralFooter);
+    const found = (await sql`select user_id, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where symbol = ${symbol} and user_id in (${visibleUserIds()})`) as unknown as
       { user_id: number; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean }[];
-    if (!found.length) return neutral(symbol, 'No verified trades yet', 'Stock Social · verified trading records');
+    if (!found.length) return neutral(symbol, STOCK_LABELS.imageEmpty, STOCK_LABELS.imageNeutralFooter);
     const rows: TickerRow[] = found.map((r) => ({ userId: r.user_id, returnPct: r.return_pct, holdingDays: r.holding_days, openedAt: r.opened_at, closedAt: r.closed_at, verified: r.verified }));
     const s: TickerSummary = tickerSummary(rows, new Date());
     const c = s.conf!;
     const range = rangeText(c);
-    const status = s.demoOnly ? 'Sample data' : s.mixed ? 'Includes sample data' : 'Verified from broker' /* no check mark: the image font has no glyph for it */;
+    const status = STOCK_LABELS.imageStatus(s);
     const good = !s.demoOnly && !s.mixed;
     return new ImageResponse(
       (
@@ -49,7 +52,7 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{symbol}</span>
-            <span style={{ fontSize: 32, color: '#8b8b98' }}>verified closed trades</span>
+            <span style={{ fontSize: 32, color: '#8b8b98' }}>{tradesWord(s)}</span>
           </div>
           <div style={{ display: 'flex', gap: 72 }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -72,6 +75,6 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
       size,
     );
   } catch {
-    return neutral('Stock Social', 'Verified trades by stock', 'Stock Social · verified trading records');
+    return neutral('Stock Social', STOCK_LABELS.imageNeutralLine, STOCK_LABELS.imageNeutralFooter);
   }
 }

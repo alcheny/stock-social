@@ -180,7 +180,7 @@ test('decodeSymbolParam', () => {
 });
 
 const th = (id: number, closeDay: number, over: Partial<ThesisRow> = {}): ThesisRow => ({
-  id, handle: 'h', thesis: `why ${id}`, thesisStatus: 'published', returnPct: 0.05, holdingDays: 3, closedAt: new Date(t0 + closeDay * DAY), verified: true, ...over,
+  id, sellId: `s${id}`, handle: 'h', thesis: `why ${id}`, thesisStatus: 'published', returnPct: 0.05, holdingDays: 3, closedAt: new Date(t0 + closeDay * DAY), verified: true, ...over,
 });
 
 test('selectTheses: empty', () => {

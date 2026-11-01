@@ -713,3 +713,14 @@ export const BILLING = {
   deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
 } as const;
 export { billingDate };
+
+// Fixes cycle 2 (trust rows, approval council 2026-11-01), fix #5 (POLICY P6/P3). The join card makes no claim about
+// what is public (the connect step lists it exactly); it says what stays private. Never "only percentages": the handle,
+// name, symbols, dates, broker name, open positions and published reasons are public too.
+export const PUBLIC_SHORT = {
+  join: 'Read-only broker connection. Sizes, prices and balances stay private. 18+.',
+  // The owner's share prompt: built from lib/privacy-fields.ts PUBLIC_FIELDS (one list, no hand-kept copy), plus the
+  // profile's own fields and the trader's published reasons.
+  sharePrompt: (fieldWords: string[]) =>
+    `Public: your handle, display name, any reasons you publish, ${fieldWords.join(', ')}; losses included. Never sizes, prices or balances. Your broker login stays private.`,
+};

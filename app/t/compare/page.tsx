@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
+import { visibleUserIds } from '@/lib/visible-users.ts';
 import { COMPARE_COPY, compareDescription, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
+import { toneClass } from '../../open-rows.tsx';
+import { Disclaimer } from '../../disclaimer.tsx';
 import Spread from '../[symbol]/Spread.tsx';
 // F-6: open positions per stock, one aggregate line per column.
 import { asOfDay, OPEN } from '@/lib/copy.ts';
@@ -20,7 +23,7 @@ async function load(searchParams: Props['searchParams']) {
   if (parsed.kind !== 'ok') return { parsed };
   const rows = (await sql`
     select t.user_id, t.symbol, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
-    from closed_trades t where t.symbol in (${parsed.a}, ${parsed.b})`) as unknown as (TradeRow & { symbol: string })[];
+    from closed_trades t where t.symbol in (${parsed.a}, ${parsed.b}) and t.user_id in (${visibleUserIds()})`) as unknown as (TradeRow & { symbol: string })[];
   const side = (s: string): TickerRow[] => rows.filter((r) => r.symbol === s).map(toTicker);
   return { parsed, compare: compareTickers(side(parsed.a), side(parsed.b), new Date()), open: await symbolOpen(parsed.a, parsed.b) };
 }
@@ -29,7 +32,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   const { parsed, compare } = await load(searchParams);
   if (parsed.kind !== 'ok' || !compare) return { title: COMPARE_COPY.title, robots: { index: false } };
   return {
-    title: `${parsed.a} vs ${parsed.b} verified trades · Stock Social`,
+    title: `${parsed.a} vs ${parsed.b} closed trades · Stock Social`,
     description: compareDescription(parsed.a, parsed.b, compare),
     robots: { index: false },
   };
@@ -74,14 +77,17 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
       {s.mixed && <p role="note" className="muted">{COMPARE_COPY.mixed}</p>}
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
-        <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : s.avgReturn! < 0 ? 'down' : ''}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
+        <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
           <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
         </div>
       </div>
+      {/* Fix #2 (cycle 2, POLICY F3): after each column's figures; at 360 px column B is a screen below column A. */}
+      <Disclaimer />
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
       {open && <p className="small" data-open>{OPEN.compare(OPEN.line(open.o, pct), asOfDay(open.asOf))}</p>}
       <div className="evidence">
-        <p style={{ margin: 0 }}>{side.tier === 'too-early' && <b>{COMPARE_COPY.tooEarly}. </b>}{evidenceLine(c)}</p>
+        {/* Fix #24: evidenceLine already starts "Too early to tell" for this tier; no second "too early" before it. */}
+        <p style={{ margin: 0 }}>{evidenceLine(c)}</p>
       </div>
       <Spread spread={side.spread} returns={side.returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} shared={shared} bare />
     </section>
@@ -100,6 +106,7 @@ export default async function Compare({ searchParams }: Props) {
       <Message text={COMPARE_COPY.bothEmpty(a, b)}>
         {/* F-6 (tester Low 1): open positions per stock even when neither has closed trades. */}
         {[a, b].map((x) => { const o = open?.get(x); return o && <p key={x} className="small" data-open>{x}: {OPEN.compareBare(OPEN.line(o.o, pct), asOfDay(o.asOf))}</p>; })}
+        {[a, b].some((x) => open?.get(x)) && <Disclaimer />}
         <p><Link href={`/t/${encodeURIComponent(a)}`}>{a}</Link> · <Link href={`/t/${encodeURIComponent(b)}`}>{b}</Link></p>
       </Message>
     );

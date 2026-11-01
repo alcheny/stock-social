@@ -9,11 +9,14 @@ import { REASONS, REASON_LABEL, reflectionInsights, type Reason } from '@/lib/re
 import { RULE_KINDS, RULE_LABEL, ruleAdherence, ruleOutcomes, rulesByReason, ruleTrend, signedPct, tradesLabel, type RuleKind } from '@/lib/rules.ts';
 import { setReflection, setRule } from '@/app/actions.ts';
 import { Badge } from '../../ui.tsx';
+import { toneClass } from '../../open-rows.tsx';
+import { Disclaimer } from '../../disclaimer.tsx';
 
 export const metadata: Metadata = { title: 'My record · Stock Social', robots: { index: false, follow: false } };
 
 const FEW = 'too few trades to say';
-const sign = (x: number) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
+// Fix #19 (cycle 2): tone by the printed sign ("0.0%" is flat, uncolored), shared with every other figure.
+const sign = toneClass;
 
 export default async function MyRecord() {
   const me = await currentUser();
@@ -69,11 +72,12 @@ export default async function MyRecord() {
       <h1 style={{ marginBottom: 4 }}>My record {demo && <Badge verified={false} />}</h1>
       <p className="muted" style={{ marginTop: 0 }}>Only you can see this page. It&apos;s a description of your closed trades, not advice.</p>
       <p><Link href={`/u/${me.handle}`}>← Back to my profile</Link></p>
+      <Disclaimer />
 
       {r.total === 0 ? (
         <div className="rec-card">
           <p style={{ margin: 0 }}>No closed trades yet. Once a trade you&apos;ve connected closes, your habits appear here.</p>
-          <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will pick them up.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
+          <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will include them.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
         </div>
       ) : <>
         {r.total < MIN_TRADES && <p className="muted">You have {r.total} closed trade{r.total === 1 ? '' : 's'}. Figures need at least {MIN_TRADES} trades behind them.</p>}
@@ -195,7 +199,7 @@ export default async function MyRecord() {
       </>}
 
       <h2>Your rules</h2>
-      <p className="muted">Pick up to two rules for yourself. This page only counts how your closed trades measured up. It is private. A hold of exactly N days counts as following the rule.</p>
+      <p className="muted">Choose up to two rules for yourself. This page only counts how your closed trades measured up. It is private. A hold of exactly N days counts as following the rule.</p>
       <div className="rec-grid">
         {RULE_KINDS.map((kind) => {
           const rule = rules.find((x) => x.kind === kind);

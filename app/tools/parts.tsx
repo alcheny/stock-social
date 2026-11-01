@@ -10,7 +10,7 @@ import { FocusMessage } from './focus.tsx';
 export function Disclaimer() {
   return (
     <div className="rt-disclaimer">
-      <p><b>{DISCLAIMER}</b></p>
+      <p data-disclaimer><b>{DISCLAIMER}</b></p>
       <nav aria-label="Legal" className="rt-legal">
         <Link href="/terms">{FOOTER.terms}</Link>
         <Link href="/privacy">{FOOTER.privacy}</Link>

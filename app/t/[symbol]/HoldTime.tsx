@@ -2,6 +2,7 @@ import { holdCaption, MIN_HOLD_BUCKET, type HoldBuckets } from '@/lib/ticker.ts'
 import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
+import { STOCK_LABELS } from '@/lib/stock-labels.ts';
 
 // Fixed time order, no bars, no highlight, no ranking. A rate appears only for a group with enough trades.
 export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: HoldBuckets; symbol: string; demoOnly: boolean; mixed: boolean }) {
@@ -10,8 +11,8 @@ export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: Ho
     <section aria-label="Trades by hold time" data-testid="hold-time" data-symbol={symbol}>
       <h2>By hold time {demoOnly && <Badge verified={false} />}</h2>
       <p className="muted small" style={{ marginTop: 0 }}>Trades grouped by how long they were held. A group needs at least {MIN_HOLD_BUCKET} trades before a rate is shown.</p>
-      {demoOnly && <p role="note" className="muted small">Sample data, not from a real broker.</p>}
-      {mixed && <p role="note" className="muted small">Includes sample data marked Demo.</p>}
+      {demoOnly && <p role="note" className="muted small">{STOCK_LABELS.demoNote}</p>}
+      {mixed && <p role="note" className="muted small">{STOCK_LABELS.mixedNote}</p>}
       <p className="muted small" data-testid="hold-caption">{caption}</p>
       <table className="hold-table">
         <caption className="sr-only">{caption}</caption>
@@ -36,7 +37,7 @@ export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: Ho
         ))}
         </tbody>
       </table>
-      <p className="muted small">Different traders, different sizes and timing. Hold time is not a signal on its own.</p>
+      <p className="muted small">Different traders, different sizes and timing. Hold time alone doesn't explain the results.</p>
     </section>
   );
 }

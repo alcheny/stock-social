@@ -39,7 +39,7 @@ export default function Watch({ symbol, state, capHit }: { symbol: string; state
           ? <button type="submit" aria-pressed="true" aria-label={`Watching ${symbol}. Tap to unwatch.`} className="watch-btn" style={{ minHeight: 44 }}>Watching</button>
           : <button type="submit" className="watch-btn" style={{ minHeight: 44 }}>Watch</button>}
       </form>
-      <p className="muted small">Private. We'll show new verified closed trades on the stock index. No notifications.</p>
+      <p className="muted small">Private. We'll show new closed trades on the stock index. No notifications.</p>
       {capHit && !cap.ok && <p role="status">{cap.message}</p>}
     </div>
   );
