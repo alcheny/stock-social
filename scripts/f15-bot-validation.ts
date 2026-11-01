@@ -93,16 +93,16 @@ async function main() {
     await sql`delete from users where id = ${u.id}`; // its rollup rows cascade
   }
   const scripted = ['nojs', 'headless', 'preview', 'post'];
-  const pct = (x: number, n: number) => `${((100 * x) / n).toFixed(1)}%`;
+  const share = (x: number, n: number) => `${((100 * x) / n).toFixed(1)}%`;
   const dropped = (k: string) => out[k].n - out[k].counted;
   const all = scripted.reduce((s, k) => s + dropped(k), 0);
   const js = ['headless', 'preview', 'post'].reduce((s, k) => s + dropped(k), 0);
   const noRate = scripted.reduce((s, k) => s + out[k].n - out[k].counted - (out[k].drops.rate ?? 0), 0);
   console.log('\n| group | n | counted | dropped | drop reasons |\n|---|---|---|---|---|');
   for (const [k, v] of Object.entries(out)) console.log(`| ${k} | ${v.n} | ${v.counted} | ${v.n - v.counted} | ${JSON.stringify(v.drops)} |`);
-  console.log(`\nScripted (200): dropped ${all}/200 = ${pct(all, 200)}; script-running and direct posts alone (150): ${js}/150 = ${pct(js, 150)}`);
-  console.log(`Without the rate rule: dropped ${noRate}/200 = ${pct(noRate, 200)}`);
-  console.log(`Human (50): counted ${out.human.counted}/50 = ${pct(out.human.counted, 50)}; false-count rate ${pct(200 - all, 200)}`);
+  console.log(`\nScripted (200): dropped ${all}/200 = ${share(all, 200)}; script-running and direct posts alone (150): ${js}/150 = ${share(js, 150)}`);
+  console.log(`Without the rate rule: dropped ${noRate}/200 = ${share(noRate, 200)}`);
+  console.log(`Human (50): counted ${out.human.counted}/50 = ${share(out.human.counted, 50)}; false-count rate ${share(200 - all, 200)}`);
   console.log(`Pass: ${all / 200 >= 0.95 && js / 150 >= 0.95 && out.human.counted / 50 >= 0.95 ? 'yes' : 'no'}`);
 }
 
