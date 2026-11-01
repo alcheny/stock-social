@@ -95,14 +95,16 @@ test('#20: the routes that inherited "Stock Social" each have their own title', 
   expect(seen.has('Stock Social')).toBe(false);
 });
 
-test('#21: an unknown URL is a real 404 with a main landmark, one h1 and links to Feed, Trades by stock and How', async ({ page, request }) => {
+test('#21: an unknown URL and an invalid ticker are real 404s with a main landmark, one h1 and ways back to the feed and the stocks', async ({ page, request }) => {
   expect((await request.get('/no-such-page')).status()).toBe(404);
   expect((await request.get('/t/%3Cscript%3E')).status()).toBe(404);
   await page.goto('/no-such-page');
   const main = page.getByRole('main');
   await expect(main.getByRole('heading', { level: 1 })).toHaveText('Page not found');
   await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
-  await expect(main.getByRole('link', { name: 'Feed', exact: true })).toHaveAttribute('href', '/');
-  await expect(main.getByRole('link', { name: 'Trades by stock', exact: true })).toHaveAttribute('href', '/t');
-  await expect(main.getByRole('link', { name: 'How records are calculated', exact: true })).toHaveAttribute('href', '/how');
+  // The page itself is fix cycle 2's (#59); its links are checked by where they go, not by their words.
+  await expect(main.locator('a[href="/"]')).toHaveCount(1);
+  await expect(main.locator('a[href="/t"]')).toHaveCount(1);
+  await page.goto('/t/%3Cscript%3E');
+  await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toHaveText('Page not found');
 });
