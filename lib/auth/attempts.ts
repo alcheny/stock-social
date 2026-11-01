@@ -152,7 +152,7 @@ export async function signInWithIdentity(attemptId: number, id: Identity, opts: 
 // One transaction (fix committee decision 8): the verdict, the update, and the old handle reserved for
 // HANDLE_RESERVED_DAYS with this account's id, so only this trader can take it back (on account deletion the id goes
 // null and the bare reservation stays). A lost race on the unique handle is a HandleTakenError, never a 500.
-// ponytail: old links show the neutral retired page by design (F-17); nothing to add.
+// Old links show the neutral retired page by design (F-17); that is a decision, not a limit, so no ponytail note.
 // F-17 (plan §6.1, Q8, v2 B3): at most one rename per RENAME_DAYS (users.handle_renamed_at, clock from opts.now) and
 // at most RENAME_HOLD_CAP = 1 held old handle per account: a new rename ends the older hold (until = now(); the purge,
 // lib/privacy-purge.ts, removes the row later). Nothing here deletes a row. Leaving the untouched provisional handle

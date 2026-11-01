@@ -189,10 +189,12 @@ test('F-17 (v2 B3): changeHandle deletes nothing: no `delete from` anywhere in i
   assert.match(changeHandleSrc(), /update handle_reservations set until = now\(\) where handle = \$\{handle\} and user_id = \$\{userId\}/);
 });
 
-test('F-17 (v2 B5): the old-links ponytail names no 301 or redirect', () => {
+test('F-17 (v2 B5): the old-links note names no 301 or redirect, and no ponytail does', () => {
   const s = src('./auth/attempts.ts');
   const ponytails = s.split('\n').filter((l) => /ponytail:/.test(l));
-  assert.ok(ponytails.some((l) => l.includes('old links show the neutral retired page by design (F-17); nothing to add')));
+  // Lead review: the neutral retired page is a decision, not a limit, so it is a plain note (the convention keeps
+  // `ponytail:` for limits with a next step).
+  assert.match(s, /Old links show the neutral retired page by design \(F-17\)/);
   for (const l of ponytails) assert.doesNotMatch(l, /\b301\b|redirect/i, l);
   assert.doesNotMatch(s, /no rename-frequency limit/, 'the rename limit exists now');
 });
