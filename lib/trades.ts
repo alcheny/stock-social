@@ -205,6 +205,8 @@ export function rangeReturn(trades: { returnPct: number; closedAt: Date }[], key
 }
 
 // ---- TR-9: how much evidence stands behind the average return (DESIGN Stage 5.2) ----
+// ponytail: the 95% range reads closed trades only, so holding losers still narrows it (D-48) — add
+// open_positions.opened_at (the earliest unmatched FIFO lot) and feed open positions in at days held so far.
 // Closed trades only. Open positions exist since F-6 (lib/open-split.ts shows them beside every realized figure), but
 // the F-6 decision of 2026-11-01 keeps this range closed-only and says so in words. Including them at their unrealized
 // return and days held so far (DESIGN TR-9 inputs; design council D-48) is its own feature: open_positions stores no

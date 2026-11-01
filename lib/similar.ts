@@ -14,6 +14,8 @@ import { SIMILAR_MIN, SIMILAR_SPARES, similarCandidates, similarRows } from './d
 const HOUR = 3_600_000;
 export const SIMILAR_REFRESH_MS = 10_000; // a kept pool older than this is rebuilt in the background (it serves meanwhile)
 type Kept = { built: number; pool: Promise<SectionTrader[]>; next?: Promise<SectionTrader[]> };
+// ponytail: per process, and rebuilt every SIMILAR_REFRESH_MS with a full feed list each time on every server that
+// serves profiles — refresh with the feed's hourly asOf, or share the pool between servers.
 const kept = new Map<string, Kept>();
 // Row traders' records for their sheets, kept as long as a pool: most profiles in one holding bucket show the same few
 // traders, so a heavy record is read once per SIMILAR_REFRESH_MS, not once per profile view.

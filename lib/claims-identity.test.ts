@@ -135,6 +135,44 @@ dbTest('the same profile reconnecting (new vendor id, same identity) is allowed;
   }
 });
 
+// QA 2026-11-01 (H1): two profiles that shared an account before identities were stored (a past dodge, two vendor ids).
+// Once the identity arrives, the older claim keeps the account whichever profile syncs first.
+dbTest('a past dodge resolves to the older claim, whichever profile syncs first; paper accounts carry no identity', async () => {
+  const { sql, tag, mkUser, users, accounts, cleanup } = await setup();
+  const { claimIn } = await import('./claims.ts');
+  const now = new Date();
+  try {
+    for (const dodgerFirst of [true, false]) {
+      const a = await mkUser(`a${+dodgerFirst}`), b = await mkUser(`b${+dodgerFirst}`);
+      users.push(a.id, b.id);
+      const va = `${tag}-${+dodgerFirst}-a`, vb = `${tag}-${+dodgerFirst}-b`, inst = `${tag}-${+dodgerFirst}`;
+      accounts.push(va, vb);
+      // Claimed before identities existed: A first, then B through a fresh connection.
+      await sql`insert into broker_accounts (account_id, user_id, claimed_at, confirmed_at) values
+        (${va}, ${a.id}, now() - interval '2 days', now() - interval '2 days'), (${vb}, ${b.id}, now() - interval '1 day', now() - interval '1 day')`;
+      const sync = (u: number, v: string) => sql.begin(async (tx) => {
+        const r = await claimIn(tx, u, [vendorAcct(v, inst)], { confirmed: true, now });
+        if (!r.ok) throw new Error('conflict');
+      }).then(() => 'ok', (e: Error) => e.message);
+      const order = dodgerFirst ? [[b.id, vb], [a.id, va]] as const : [[a.id, va], [b.id, vb]] as const;
+      for (const [u, v] of order) await sync(u, v);
+      assert.equal(await sync(a.id, va), 'ok', `the older claim keeps the account (dodger first: ${dodgerFirst})`);
+      assert.equal(await sync(b.id, vb), 'conflict', `the later claim is refused (dodger first: ${dodgerFirst})`);
+      assert.equal(await sync(a.id, va), 'ok');
+    }
+    // Paper accounts: no identity, so a simulated account never refuses another profile's link.
+    const p = await mkUser('p'), q = await mkUser('q');
+    users.push(p.id, q.id);
+    accounts.push(`${tag}-p1`, `${tag}-p2`);
+    const paper = (id: string) => vendorAcct(id, 'PAPER', { isPaper: true, institution: 'Sandbox' });
+    assert.deepEqual(await sql.begin((tx) => claimIn(tx, p.id, [paper(`${tag}-p1`)], { confirmed: true, now })), { ok: true });
+    assert.deepEqual(await sql.begin((tx) => claimIn(tx, q.id, [paper(`${tag}-p2`)], { confirmed: true, now })), { ok: true });
+    assert.equal((await sql`select count(*)::int as n from broker_accounts where account_id in (${`${tag}-p1`}, ${`${tag}-p2`}) and identity is not null`)[0].n, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
 dbTest('two profiles racing on one brokerage account under two vendor ids: exactly one wins', async () => {
   const { sql, tag, mkUser, users, accounts, cleanup } = await setup();
   const { claimIn } = await import('./claims.ts');
@@ -202,15 +240,14 @@ dbTest('connect flow: a fresh link of an owned brokerage account is refused befo
     assert.equal((await completeLink({ userId: null, attemptId: attempt }, d3)).kind, 'refused');
     assert.equal((await sql`select 1 from broker_accounts where account_id in (${v3}, ${`${tag}-free`})`).length, 0);
     assert.equal((await sql`select user_id from signup_attempts where id = ${attempt}`)[0].user_id, null);
-    // The owner, signed out, linking the same account under a new vendor id (brokerage-first) signs in to their profile.
+    // The owner, signed out, linking the same account under a new vendor id (brokerage-first): refused, not signed in
+    // (signing in through the identity alone is the owner's auth decision), and nothing claimed.
     const attempt2 = await createAttempt({ method: 'brokerage', attested: true });
     const d5 = vendor([vendorAcct(`${tag}-v5`, inst, { authorizationId: 'auth-back' })]);
     accounts.push(`${tag}-v5`);
     await startConnection({ userId: null, attemptId: attempt2 }, 'r', d5);
-    const back = await completeLink({ userId: null, attemptId: attempt2 }, d5);
-    assert.equal(back.kind, 'signin');
-    assert.equal((back as { userId: number }).userId, owner.id);
-    assert.equal((await sql`select 1 from broker_accounts where account_id = ${`${tag}-v5`}`).length, 0); // nothing new claimed
+    assert.equal((await completeLink({ userId: null, attemptId: attempt2 }, d5)).kind, 'refused');
+    assert.equal((await sql`select 1 from broker_accounts where account_id = ${`${tag}-v5`}`).length, 0);
     // The owner reconnecting the same account under a new vendor id, signed in, is not refused.
     const d4 = vendor([vendorAcct(`${tag}-v4`, inst, { authorizationId: 'auth-again' })]);
     accounts.push(`${tag}-v4`);

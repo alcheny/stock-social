@@ -536,6 +536,8 @@ export async function reconcile(): Promise<ReconcileReport> {
   const local = new Set<string>(rows.map((x) => x.vendor_subscription_id as string));
   const listed = new Set<string>();
   let after: string | undefined;
+  // ponytail: pages through every processor subscription with no time box inside the sync tick; a function killed at its
+  // limit skips the day's reconciliation — box it and keep `starting_after` as a cursor that resumes on the next tick.
   for (;;) {
     const page = await vendor('GET', '/v1/subscriptions', { limit: 100, starting_after: after }); // D8: excludes canceled
     const data = (page.data ?? []) as VendorSub[];

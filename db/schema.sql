@@ -195,11 +195,14 @@ create table if not exists signup_attempts (
   adult_attested_at timestamptz not null,
   snaptrade_user_id text,
   snaptrade_secret_enc text,
+  -- ponytail: no index, so deleting a user scans signup_attempts for this set-null — add a partial index (referred_by_user_id) where not null.
   referred_by_user_id int references users(id) on delete set null,
   referred_surface text,
+  -- ponytail: no index, so a user deletion and the own-profile read (max(id) where user_id = …) scan signup_attempts — add an index (user_id).
   user_id int references users(id) on delete set null,
   completed_at timestamptz
 );
+-- ponytail: users.signup_attempt_id has no index, so the purge's per-attempt check and attempt deletes scan users — add one.
 select schema_add_column('users', 'signup_attempt_id', 'bigint references signup_attempts(id)');
 select schema_add_column('users', 'deleted_at', 'timestamptz');
 -- Backfill, once: rows from before F-1 attested through the dev form at created_at; one attempt each, then the column is
@@ -221,6 +224,7 @@ create table if not exists identities (
   user_id int not null references users on delete cascade,
   provider text not null check (provider in ('provider_a', 'provider_b', 'email')),
   subject text not null,
+  -- ponytail: no index, so sign-in by email scans identities — add an index (email).
   email text,
   created_at timestamptz not null default now(),
   unique (provider, subject)
@@ -240,6 +244,7 @@ select schema_add_index('sessions_user', 'create index sessions_user on sessions
 -- Passwordless email links: single use, 15 minutes, hashed token.
 create table if not exists login_links (
   token_hash text primary key,
+  -- ponytail: no index, so account deletion's email match scans login_links — add a partial index (email) where email <> ''.
   email text not null,
   attempt_id bigint not null references signup_attempts(id),
   expires_at timestamptz not null,
@@ -270,6 +275,7 @@ select schema_add_index('funnel_events_attempt', 'create index funnel_events_att
 -- provisional claim of a brokerage-first attempt that has no users row yet (confirmed into broker_accounts at consent).
 create table if not exists connections (
   id bigint generated always as identity primary key,
+  -- ponytail: no index, so the attempt purge's per-attempt check and attempt deletes scan connections — add an index (attempt_id).
   attempt_id bigint not null references signup_attempts(id),
   user_id int references users(id) on delete cascade,
   vendor_authorization_id text,
@@ -400,6 +406,7 @@ create table if not exists subscriptions (
   id int generated always as identity primary key,
   user_id int not null references users on delete cascade,
   vendor_subscription_id text unique not null,
+  -- ponytail: no index, so each dispute webhook's update by customer scans subscriptions — add an index (vendor_customer_id).
   vendor_customer_id text not null,
   plan text not null check (plan in ('monthly', 'annual')),
   status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused', 'incomplete')),

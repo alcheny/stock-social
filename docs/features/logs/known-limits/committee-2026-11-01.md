@@ -136,3 +136,45 @@ Crafted cursor 47 hours old, page 2, 500 traders (12 heavy), medians of 7 reads:
 
 The existing `lib/feed.load.test.ts` suite (6 cases, including 150,000 late activities and 150,000 listed traders' late
 closes, stale and analyzed statistics) passes unchanged on the new filter.
+
+## Tester QA and independent code review (round 1)
+
+Both ran on fresh context against the committed diff; 19 new tests pass; no blocking defect in items 1, 3, 4, 5.
+
+| Finding | By | Decision |
+|---|---|---|
+| H1: once identities arrive, a past dodge resolves by sync order: the dodger syncing first locks the earliest claimant out | tester, reviewer | Fixed: an identity clash goes to the older claim (a new claim is always the later one); test for both sync orders |
+| M1: signing in by identity alone lets anyone who can sign in to the brokerage account (a joint holder) into the profile | tester | Reverted to refusing: an auth decision for the owner (open question below) |
+| L1: paper accounts carry identities; shared sandbox ids would refuse real links | tester | Fixed: no identity on paper accounts; tested |
+| L2: a signed-out owner with an unfinished link is told "claimed" | tester | Moot after M1 (every identity-only brokerage-first link is refused); copy unchanged |
+| L3: a SELL with the same vendor id from the other source, imported after the close, no longer makes it late | tester | Not reachable (demo ids carry their own prefix); `ponytail:` note in lib/feed.ts |
+| L4 / review 4: stale `/sitemap-index.xml` comment | both | Fixed |
+| L5: `/sitemap.xml` answers with home and /t on a database error | tester | Kept (today's behavior; the first sitemap must always answer); noted in app/sitemap.ts |
+| L6: the TR-9 note lost its `ponytail:` marker though D-48 stays open | tester | Fixed: marked again |
+| Review 2: identity locks sorted by text but keyed by hash | reviewer | Fixed: one statement locks the distinct hashes in order |
+| Review 3: the identity hash in `connections.accounts` is not in the retention map | reviewer | Fixed: SCHEMA_MAP text |
+| Review 5: two sitemap tests only match source text | reviewer | Kept as structure checks; behavior is covered by the DB test and the e2e sitemap test |
+| Review 6: the per-server count cache can list a sitemap another server 404s for up to 10 minutes | reviewer | `ponytail:` note in lib/sitemaps.ts |
+
+## Added by the orchestrator (2026-11-01)
+
+- **ponytail sweep.** Every limit left gets `ponytail: <what is limited> — <what would fix it>` at its place; the sweep
+  (read-only subagent) found 20 unmarked limits outside other sessions' files; 19 are marked (list in the PR body). Not
+  edited: `scripts/handoff.ts:248` (the loop's publish step; its 50-finding cut is reported in the PR body instead).
+- **Privacy purge (lib/privacy-purge.ts).** Reproduced: 220,000 due orphans with stale statistics, one orphan batch ran
+  past 10 minutes (cancelled; the plan scanned closed_trades per orphan row, its estimate 162 rows). Fix: each orphan
+  batch in its own transaction with `set local enable_seqscan = off` (every check is an index probe), and `analyze
+  privacy_orphans` after a mark of a batch or more. `LOAD=1 node --test lib/privacy-purge.load.test.ts`: 220,000 rows in
+  5.5 s over 49 batches, slowest batch 1.05 s (box 20 s). The clearing step's walk over every orphan stays a `ponytail:`.
+- **Flaky e2e (e2e/section.spec.ts:90).** Root cause: specs that create feed-eligible traders (5+ closes) without the
+  feed lock: `share-card.spec.ts` (heavy fixtures that rank high in the section pool), `app.spec.ts#makeTrader` and the
+  dividend_dan trend test. The section test holds the lock exclusively; those now hold it shared while their data exists
+  (`makeTrader(…, held = true)` for callers that already hold it exclusively). The assertion is unchanged.
+
+## Open questions for the owner
+
+- Should an owner who links the same brokerage account again while signed out (new vendor id, same institution
+  identity) be signed in to their profile? It would also admit anyone else who can sign in to that brokerage account.
+  Today: refused.
+- The one-line `lib/broker.ts` change that turns the identity check on (PR body). Before it lands, run
+  `scripts/shared-accounts.ts` (counts) against production; past dodges then resolve to the older claim on their syncs.

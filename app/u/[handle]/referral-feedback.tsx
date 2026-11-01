@@ -17,6 +17,7 @@ export function ReferralFeedback({ handles, byVia }: { handles: string[]; byVia:
     <>
     <p className="muted small">
       {n} {n === 1 ? 'trader' : 'traders'} connected from your link:{' '}
+      {/* ponytail: handles past MAX_SHOWN are not named and nothing says so (the total is shown) — add "and N more". */}
       {handles.slice(0, MAX_SHOWN).map((h, i) => (
         <span key={h}>
           {i > 0 && ', '}

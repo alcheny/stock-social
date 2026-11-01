@@ -22,7 +22,7 @@ export function partitionClaims(requested: string[], owners: Map<string, number>
 const ROLLBACK = Symbol('rollback');
 
 // Claim every account for userId, or none. Insert-then-check: the primary key picks one winner in a race.
-// A deleted profile keeping its claim is future work (needs the 1-year handle hold; `on delete cascade` releases it today).
+// ponytail: a deleted profile releases its claims (`on delete cascade`) — keep them through the 1-year handle hold.
 export async function claimAccounts(userId: number, accountIds: string[]): Promise<{ ok: true } | { ok: false; conflicts: string[] }> {
   const ids = [...new Set(accountIds)];
   if (!ids.length) return { ok: true };
@@ -49,10 +49,10 @@ export async function claimAccounts(userId: number, accountIds: string[]): Promi
 // within an institution, not across them (committee 2026-11-01, Q1: a false refusal of an honest trader is worse).
 // The key is derived from APP_SECRET_KEY with HKDF under its own label; rotating APP_SECRET_KEY orphans these hashes,
 // as it already orphans the stored vendor secrets (lib/broker.ts).
-// ponytail: lib/broker.ts#listAccounts (protected) does not pass `institution_account_id` through yet, so no account
-// has an identity and the dodge stays open until the owner adds it (`institutionAccountId: a.institution_account_id ??
-// null` on VendorAccount); every caller here already forwards it. Profiles that shared an account through a second
-// connection before that are not detectable (no identity was ever stored for them).
+// ponytail: the identity check is inactive, so a fresh connection still dodges the claim — lib/broker.ts#listAccounts
+// (protected, the owner's) must pass the vendor's field through (`institutionAccountId: a.institution_account_id ??
+// null` on VendorAccount); every caller here already forwards it. Past dodges then resolve on their next syncs: the
+// older claim keeps the account and the later profile's syncs are refused (AccountClaimedError).
 const IDENTITY_LABEL = 'stock-social/broker-account-identity/v1';
 // Advisory lock class for an identity's claim check (USER_LOCK in lib/sync.ts is 1, ATTEMPT_LOCK in lib/connections.ts 2).
 export const IDENTITY_LOCK = 3;
@@ -102,12 +102,19 @@ export async function claimIn(tx: TransactionSql, userId: number, accounts: Clai
   const seen = new Map(accounts.map((a) => [a.id, a]));
   const ids = [...seen.keys()];
   if (!ids.length) return { ok: true };
-  const identity = new Map([...seen.values()].map((a) => [a.id, identityOf(a)]));
-  const identities = [...new Set([...identity.values()].filter((k): k is string => !!k))].sort();
+  // Paper accounts carry no identity (simulated accounts may share institution ids across people; QA 2026-11-01).
+  const identity = new Map([...seen.values()].map((a) => [a.id, a.isPaper ? null : identityOf(a)]));
+  const identities = [...new Set([...identity.values()].filter((k): k is string => !!k))];
   // The identity lives on the claim row, so it is released exactly when the claim is (a provisional claim's cleanup,
-  // the users cascade). Its check is not a key, so each identity is locked first (sorted: two claims never wait on
-  // each other): of two profiles racing on one account under two vendor ids, the second sees the first's row.
-  for (const k of identities) await tx`select pg_advisory_xact_lock(${IDENTITY_LOCK}, hashtext(${k}))`;
+  // the users cascade). Its check is not a key, so each identity is locked first, in the order of the lock keys (two
+  // claims never wait on each other): of two profiles racing on one account under two vendor ids, the second sees the
+  // first's row.
+  if (identities.length) await tx`select pg_advisory_xact_lock(${IDENTITY_LOCK}, h) from (select distinct hashtext(x) as h from unnest(${identities}::text[]) x order by 1) s`;
+  // This profile's claims of these accounts from before this call: an older claim keeps its account when another
+  // profile's claim carries the same identity (below).
+  const before = identities.length
+    ? new Map((await tx`select account_id, claimed_at from broker_accounts where account_id in ${tx(ids)} and user_id = ${userId}`).map((r) => [r.account_id as string, r.claimed_at as Date]))
+    : new Map<string, Date>();
   // Sorted by account id: two claims over overlapping accounts lock their rows in one order (no deadlock).
   const rows = [...seen.values()].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)).map((a) => ({
     account_id: a.id, user_id: userId, connection_id: o.connectionId ?? null, confirmed_at: o.confirmed ? o.now : null,
@@ -121,7 +128,17 @@ export async function claimIn(tx: TransactionSql, userId: number, accounts: Clai
     where broker_accounts.user_id = excluded.user_id`;
   const owners = await tx`select account_id, user_id from broker_accounts where account_id in ${tx(ids)}`;
   const conflicts = partitionClaims(ids, new Map(owners.map((r) => [r.account_id as string, r.user_id as number])), userId);
-  const taken = new Set((await identityOwners(tx, identities)).filter((r) => r.user_id !== userId).map((r) => r.identity));
-  for (const id of ids) if (taken.has(identity.get(id) ?? '') && !conflicts.includes(id)) conflicts.push(id);
+  // The same brokerage account claimed by another profile under another vendor id: the earlier claim keeps it. A new
+  // claim (a fresh connection: the dodge) is always the later one. Between two claims made before identities were
+  // stored (a past dodge), the older claim wins whichever profile syncs first; the later one's syncs are refused.
+  if (identities.length) {
+    const others = await tx`select identity, account_id, claimed_at from broker_accounts where identity in ${tx(identities)} and user_id <> ${userId}`;
+    for (const id of ids) {
+      const k = identity.get(id), mine = before.get(id);
+      if (!k || conflicts.includes(id)) continue;
+      const older = others.some((r) => r.identity === k && (!mine || (r.claimed_at as Date) < mine || ((r.claimed_at as Date).getTime() === mine.getTime() && (r.account_id as string) < id)));
+      if (older) conflicts.push(id);
+    }
+  }
   return conflicts.length ? { ok: false, conflicts } : { ok: true };
 }

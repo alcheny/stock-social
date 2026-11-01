@@ -11,7 +11,10 @@
 //   - likes and rejected trades whose trade has been gone for 30 days (marked when first seen gone, unmarked if the
 //     trade comes back). Preference data with a live trade is never removed on a timer (owner, 2026-11-01).
 // Account deletion is separate and removes everything (lib/delete.ts).
+import type { ReservedSql } from 'postgres';
 import { sql } from './db.ts';
+
+type ReserveSql = ReservedSql<Record<string, never>>;
 
 export const PRIVACY_PURGE_LOCK = 41; // (41, 0). USER_LOCK 1 (lib/sync.ts), ATTEMPT_LOCK 2 (lib/connections.ts), PURGE_LOCK 3 (lib/discovery/purge.ts)
 export const PRIVACY_PURGE_BOX_MS = 20_000;
@@ -55,6 +58,8 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
              or (o.kind = 'like' and not exists (select 1 from trade_likes l where l.viewer_id = o.viewer_id and l.trade_key = o.trade_key))
              or (o.kind = 'reject' and not exists (select 1 from trade_exclusions x where x.viewer_id = o.viewer_id and x.trade_key = o.trade_key))
           limit ${batch})`).count],
+        // ponytail: both marking steps anti-join all of trade_likes / trade_exclusions with closed_trades every tick, even
+        // when nothing is orphaned — mark orphans when the rebuild drops a close (trade_key) instead of scanning.
         ['orphansMarked', async () => (await conn`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at)
           select 'like', l.viewer_id, l.trade_key, ${now}::timestamptz from trade_likes l
           where not exists (select 1 from closed_trades c where c.trade_key = l.trade_key)
@@ -85,12 +90,16 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
       const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' ? k : 'orphans');
       for (const [key, step] of steps) {
         if (opts.only && !opts.only.includes(stepOf(key))) continue;
+        let marked = 0;
         for (;;) {
           if (clock() >= end) return r;
-          const n = await step();
+          const n = stepOf(key) === 'orphans' ? await indexOnly(conn, step) : await step();
           (r[key] as number) += n;
+          if (key === 'orphansMarked') marked += n;
           if (n < batch) break;
         }
+        // A large mark leaves privacy_orphans' statistics stale until autovacuum: refresh them now.
+        if (marked >= batch) await conn`analyze privacy_orphans`;
       }
       r.done = true;
       return r;
@@ -99,6 +108,27 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
     }
   } finally {
     conn.release();
+  }
+}
+
+// Known limit removed 2026-11-01 (orchestrator, from the privacy session): with 200,000 freshly marked orphans and no
+// statistics yet, the planner took closed_trades (or trade_exclusions) for a tiny table and scanned it once per orphan
+// row inside one batch: 167 s and more for a batch, while the box is only checked between batches. Each orphan batch
+// now runs in its own transaction with sequential scans off (`set local`, so nothing leaks to the pooled connection):
+// every check is a probe of an index the tables already have (closed_trades_trade_key, the likes' and rejects' primary
+// keys, privacy_orphans' primary key and privacy_orphans_seen), whatever the statistics say (lib/privacy-purge.load.test.ts).
+// ponytail: the clearing step still walks every orphan row each tick until it finds a batch (linear in privacy_orphans,
+// one index probe or three per row) — keep a resume cursor, or unmark orphans from the rebuild when a trade returns.
+async function indexOnly(conn: ReserveSql, step: () => Promise<number>): Promise<number> {
+  await conn`begin`;
+  try {
+    await conn`set local enable_seqscan = off`;
+    const n = await step();
+    await conn`commit`;
+    return n;
+  } catch (e) {
+    await conn`rollback`;
+    throw e;
   }
 }
 

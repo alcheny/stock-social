@@ -26,7 +26,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },
   handle_reservations: { personal: false, retention: 'reserved', holds: 'a deleted handle and its release date' },
   funnel_events: { personal: false, retention: 'short', holds: 'sign-up step names and times per attempt; purged with an unfinished attempt' },
-  connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot; a signed-out unfinished one is purged with its attempt' },
+  connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot (with a keyed hash of each account\'s institution identity, never the identifier); a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
   follows: { personal: true, retention: 'account', holds: 'private follows' },
   viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; ended rows purged after a day' },

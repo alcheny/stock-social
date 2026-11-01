@@ -312,22 +312,16 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
   }
   const owners = await sql`select account_id, user_id, confirmed_at from broker_accounts where account_id in ${sql(real.map((a) => a.id))}`;
   // The same brokerage account under a new vendor id (a fresh connection) is owned by whoever claimed its stable identity
-  // (lib/claims.ts): another profile's, the link is refused. A brokerage-first attempt signs in only when one profile
-  // confirmed every real account (by vendor id, or by identity) and owns every identity it carries; otherwise refused.
-  const idOwners = await identityOwners(sql, [...new Set(real.flatMap((a) => (a.identity ? [a.identity] : [])))]);
+  // (lib/claims.ts): another profile's, the link is refused. A brokerage-first attempt signs in only through vendor ids
+  // one profile confirmed, as before, and any identity it carries must be that profile's too. Signing in through the
+  // identity alone (an owner linking the same account again while signed out) is refused for now: it would let anyone
+  // who can sign in to the brokerage account (a joint holder) into the profile, an auth decision for the owner (QA M1).
+  const idOwners = await identityOwners(sql, [...new Set(real.flatMap((a) => (a.identity && !a.isPaper ? [a.identity] : [])))]);
   if (who.userId === null) {
-    // Each real account's confirmed owner: by its vendor id, or else by its identity (the owner linking the same
-    // account again under a new vendor id while signed out signs in, like the vendor-id path).
-    const byId = new Map(owners.map((o) => [o.account_id as string, o]));
-    const ownerOf = real.map((a) => {
-      const o = byId.get(a.id);
-      if (o) return o.confirmed_at ? (o.user_id as number) : null;
-      const k = a.identity ? idOwners.filter((x) => x.identity === a.identity) : [];
-      return k.length && k.every((x) => x.confirmed && x.user_id === k[0].user_id) ? k[0].user_id : null;
-    });
-    const confirmedBy = new Set(ownerOf);
-    if (confirmedBy.size === 1 && ownerOf[0] !== null && idOwners.every((o) => o.user_id === ownerOf[0])) {
-      const userId = ownerOf[0];
+    const confirmedBy = new Set(owners.filter((o) => o.confirmed_at).map((o) => o.user_id as number));
+    if (owners.length && confirmedBy.size === 1 && owners.every((o) => o.confirmed_at) && owners.length === real.length
+      && idOwners.every((o) => confirmedBy.has(o.user_id))) {
+      const userId = [...confirmedBy][0];
       const [u] = await sql`select handle from users where id = ${userId} and deleted_at is null`;
       if (u) {
         await completeAttempt(who.attemptId, userId);
@@ -478,7 +472,7 @@ export async function cleanupAttempts(deps: Deps = realDeps, now?: Date, opts: {
       ${ids ? sql`and a.id in ${sql(ids.length ? ids : [0])}` : sql``}
       and not exists (select 1 from connections c where c.attempt_id = a.id and (c.state in ('pending', 'importing', 'connected') or c.cleanup_done_at is null))
       and not exists (select 1 from users x where x.snaptrade_user_id = a.snaptrade_user_id)
-    order by id`;
+    order by id`; // ponytail: no limit and lowest id first, so a vendor delete that keeps failing is retried ahead of every newer attempt each tick — add a last-tried time, order by it and limit the read
   let n = 0;
   for (const [i, r] of rows.entries()) {
     if (clock() >= until) {
@@ -629,6 +623,8 @@ export async function tick(deps: Deps = realDeps, now = new Date(), deadline = I
   const errors: number[] = [];
   let advanced = 0, cleaned = 0;
   const left = () => Date.now() < deadline;
+  // ponytail: both loops restart from the lowest id each tick, so rows that keep failing go first and newer imports and
+  // cleanups past the deadline wait — order by a last-attempted time with a backoff.
   for (const r of await sql`select id from connections where state = 'importing' order by id`) {
     if (!left()) break;
     try { await drive(Number(r.id), deps, now, MAX_STEPS_PER_TICK, deadline); advanced++; } catch (e) { errors.push(Number(r.id)); console.error('import step failed', r.id, errStatus(e)); }

@@ -40,6 +40,10 @@ export async function indexableCount(opts: { prefix?: string } = {}): Promise<nu
 
 // robots.txt and every further sitemap request read the count (Next.js calls generateSitemaps per request to check the
 // id): kept COUNT_TTL_MS per server, so a crawl of k sitemaps runs about k + 1 aggregations, not 2k.
+// ponytail: the count is cached per server, so for up to COUNT_TTL_MS one server's robots.txt can list a sitemap
+// another server answers 404 — share the count (a table refreshed on the tick) when there is more than one server.
+// ponytail: every sitemap request groups all of closed_trades by symbol and pages it by offset — keep the indexable
+// symbols in a table refreshed on the tick and page it by symbol.
 export const COUNT_TTL_MS = 10 * 60_000;
 let counted: { n: number; at: number } | null = null;
 export async function indexableCountCached(now = Date.now()): Promise<number> {

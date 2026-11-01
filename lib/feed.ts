@@ -25,6 +25,8 @@ import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTIO
 // quarantines activities dated more than a day ahead (lib/sync.ts#FUTURE_GRACE_HOURS), so such closes should not exist.
 export const RECENCY_HOURS = 48;
 export const MAX_DECAY = 600;
+// ponytail: a day's list holds at most FEED_LIST_MAX (350) cards, so most of thousands of eligible traders never appear
+// that day and the feed just ends — scale EXPLORE_EXTRA with the eligible count, or say the day's list has ended.
 export const FEED_CANDIDATES = 200;
 // F-2 PR-1b: eligible traders outside the candidates read for exploration and the section, one card each (their best
 // recent close), at most EXPLORE_EXTRA a day in a day-seeded order; the cursor admits offsets up to FEED_LIST_MAX.
@@ -72,6 +74,8 @@ export type FeedCandidate = {
 // anyway, whatever was imported since. The same closes are left out as before (the trigger's match is the old filter's:
 // the sell's activity by vendor id, any source); null (no sell activity, or imported more than 49 hours before the
 // column existed) reads as imported before asOf, as a missing activity did.
+// ponytail: the time is read once, when the close is inserted, so a SELL with the same vendor id from the other source
+// imported later does not make it late (the old filter did) — not reachable while demo ids carry their own prefix.
 const importedBy = (col: ReturnType<typeof sql>, asOf: Date) => sql`(${col} is null or ${col} <= ${asOf})`;
 
 // `ids` is a test hook (rank only these traders); the feed passes none.
@@ -103,6 +107,8 @@ async function candidatesAt(opts: { ids?: number[]; asOf?: Date; day?: string })
   const recent = await candidateQuery(opts, true);
   const top = recent.filter((t) => !t.x);
   if (top.length === FEED_CANDIDATES && Number(top[top.length - 1].score) > SIZE_MAX * Math.exp(-RECENT_HOURS / RECENCY_HOURS)) return recent;
+  // ponytail: when the window cannot prove the 200, this ranks every close in closed_trades (a window sort over the whole
+  // table) per (day, asOf) and per server — widen the window in steps (14, 60, 365 days) before the full pass.
   return candidateQuery(opts, false);
 }
 
@@ -174,6 +180,8 @@ export async function records(userIds: number[]): Promise<PaneRow[]> {
   if (userIds.length > 8) return (await Promise.all([0, 1].map((h) => records1(userIds.filter((_, i) => i % 2 === h))))).flat();
   return records1(userIds);
 }
+// ponytail: a page reads its traders' whole records (~50,000 closes for heavy ones), so its cost grows with record size,
+// not with its 30 cards — keep a downsampled series and the stats per trader, refreshed on sync, and read those.
 async function records1(userIds: number[]): Promise<PaneRow[]> {
   if (!userIds.length) return [];
   const rows = await sql`
@@ -287,6 +295,8 @@ export type SectionRow = { userId: number; handle: string; name: string; reason:
 // kept too, for a viewer whose exclusions shape the list.
 type Slot = { key: string; trader: number; symbol: string; explore: boolean; score: number };
 type Kept = { asOf: number; mixed: Slot[]; ranked: Slot[]; pool: SectionTrader[] };
+// ponytail: kept lists and weights are per process, so every server (and every restart) builds them again — keep the
+// built list per (day, asOf) in a shared table when there is more than one server.
 const lists = new Map<string, Kept>();
 const LIST_CACHE_MAX = 256;
 // Tests: forget every kept list and weight (a cold server), or only the lists (fix round 2: a page whose list this

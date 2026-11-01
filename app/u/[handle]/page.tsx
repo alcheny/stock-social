@@ -42,6 +42,8 @@ import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
+// ponytail: generateMetadata and the page each call load() (and the record card reads the record again), so one view
+// reads the whole record 3–4 times — wrap load and loadRecordCard in React cache() so each runs once per request.
 async function load(handle: string) {
   const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
   if (!user) return null;

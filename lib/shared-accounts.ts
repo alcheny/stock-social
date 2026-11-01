@@ -19,6 +19,9 @@ export const notShared = (db: Db, userId: number) =>
 // connection, so this needs one vendor user behind both profiles; activity ids are unique per source, so each activity
 // row belongs to the profile that imported it first and the claimant's own record may lack some of the account's trades.
 // Moving rows between profiles is a data change for the owner; the report counts the activities involved.
+// ponytail: only same-vendor-id duplicates are found here, and the claimant's record may lack the rows the other profile
+// imported first — past dodges under two vendor ids resolve through the identity claim (lib/claims.ts) once
+// lib/broker.ts passes the identity; moving activity rows to the claimant needs the owner's decision.
 export type Scope = number[] | undefined;
 const shared = (db: Db, scope: Scope) => db`
   select distinct a.account_id, a.user_id from activities a join broker_accounts b on b.account_id = a.account_id

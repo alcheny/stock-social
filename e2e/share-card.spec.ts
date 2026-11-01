@@ -46,8 +46,13 @@ const FIXTURES: Record<string, Fixture> = {
 const handle = (k: string) => `f4_card_${k}`;
 const HANDLES = Object.keys(FIXTURES).map(handle);
 
+// Known-limits sweep 2026-11-01: most fixtures are feed-eligible (5+ closes), so the file holds the feed lock shared while
+// they exist (e2e/feed-lock.ts): a feed test holding it exclusively (e2e/section.spec.ts compares two loads of the
+// section) never sees them appear or vanish mid-test.
+let releaseFeed: (() => Promise<void>) | null = null;
 test.beforeAll(async () => {
   const { sql } = await import('../lib/db.ts');
+  releaseFeed = await (await import('./feed-lock.ts')).feedLock('shared');
   await sql`delete from users where handle in ${sql(HANDLES)}`;
   for (const [k, f] of Object.entries(FIXTURES)) {
     const [u] = await sql`
@@ -66,7 +71,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   const { sql } = await import('../lib/db.ts');
-  await sql`delete from users where handle in ${sql(HANDLES)}`;
+  try { await sql`delete from users where handle in ${sql(HANDLES)}`; } finally { await releaseFeed?.(); }
 });
 
 test('F-4 card: the unfurl (1200×630) and the Share button picture (1080×1080, story 1080×1920) for every record state', async ({ request }) => {
