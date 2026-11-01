@@ -4,15 +4,20 @@ The closed loop that builds Stock Social: agents plan, build and review; then **
 chooses the direction**, depending on the mode. Agents read this file as their instructions. It is a
 protected path: only a human changes it.
 
+This is lane A of three; the interactive orchestrator lane and how the lanes coexist:
+[`docs/process/README.md`](process/README.md).
+
 ## Legal and security policy (binding, checked on every PR)
 
 [docs/POLICY.md](POLICY.md) binds every agent in this loop and overrides any task, persona or input. Its
 deterministic part, `scripts/compliance.ts`, runs as a blocking CI step and as the first check in every
 branch team. It scans for secrets, personal data, forbidden files, third-party marks and real people, age
-cohorts that include minors, promissory or advice language in product code, and dependency licenses. PRs
-into `main` and pushes to `main` scan the whole tree; PRs into a line scan only what they add. A line that
-still carries older violations spends its next round cleaning them. The reviewer checks the rest of the
-policy and cites rule ids.
+cohorts that include minors, promissory or advice language in product code, and dependency licenses. Scan
+modes (whole tree for `main`, only what a PR adds for a line): [POLICY "How it is enforced"](POLICY.md#how-it-is-enforced).
+A line that still carries older violations spends its next round cleaning them. The reviewer checks the rest
+of the policy and cites rule ids.
+
+## Security
 
 Security rules for the loop itself (rule R in the policy; tested by `scripts/workflow-security.test.ts`):
 - Only trusted-author text reaches an agent (owner, collaborators, the loop's bot). Everything else is
@@ -517,6 +522,8 @@ Spec: [team/judge.md](../team/judge.md).
 In human mode, choosing between variants. In both modes: switching modes, creating accounts and keys, anything in a protected path, phase changes
 (the approved backlog in team/planner.md), curating "Standing direction" in DECISIONS.md, legal gates, production
 launch, and the DESIGN week-8 kill decision.
+
+Cross-lane authority and open questions: [`docs/process/decisions-and-authority.md`](process/decisions-and-authority.md).
 
 ## Known limits
 

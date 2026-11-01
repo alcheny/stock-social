@@ -20,3 +20,6 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Rework notes
 Feedback after trying a built version (each item also becomes a dated decision above).
+
+## Build log
+Appended by the feature pipeline's publish step (scripts/features.ts).
