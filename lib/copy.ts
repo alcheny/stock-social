@@ -897,3 +897,19 @@ export const PUBLIC_SHORT = {
 // of single trades.
 // ponytail: not shown on any screen yet — the F-19 sweep rework places it on the stats-row What's-this after F-18 merges.
 export const RANGE_NOTE = 'the range is for the average, not one trade';
+
+// ---- CHORES-3 (approval council cycle 3 chores; docs/features/logs/chores-cycle3/plan.md) ----
+// K20: the home link preview. The design system council's positioning line (docs/direction/design-system-2026-11-01.md
+// :27) and, while demo records exist, its Demo sentence (:441). No product name, logo, figure or completeness claim
+// before the name is cleared (POLICY T5a). D27's first-visit line (FIRST_VISIT.line) is not changed.
+// C3-39: Record tools' entry points while checkout is closed for the viewer (each matches /tools' own line).
+export const CHORES_3 = {
+  position: 'Closed trades imported read-only from connected broker accounts. Losses included.',
+  homeTitle: 'Closed trades imported read-only from connected broker accounts.',
+  losses: 'Losses included.',
+  demo: 'Demo records are marked Demo.',
+  seeToolsNotOpen: 'See Record tools (not open yet)',
+  seeToolsUnavailable: 'See Record tools (not available right now)',
+  backToFeed: 'Back to the feed',
+} as const;
+// end CHORES-3
