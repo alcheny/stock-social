@@ -378,3 +378,30 @@ create table if not exists trade_exclusions (
 -- Fix round 1: when the hidden trade was liked, the like's time (Undo restores the like; a hidden trade is never liked).
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
+
+-- Sharded hourly sync (docs/SYNC.md; committee docs/features/logs/sync/committee-2026-11-01.md). A trader's shard is
+-- `id % of`; the per-user round claim above stays the durable record of who is synced this round.
+-- Trader-specific failures back off (1 h doubling, capped at 24 h): the count and the earliest next attempt.
+select schema_add_column('users', 'sync_failures', 'int not null default 0');
+select schema_add_column('users', 'sync_retry_at', 'timestamptz');
+-- Claims whose sync never finished (the process died): incremented at claim, cleared when an attempt ends. Two
+-- unfinished claims quarantine the trader (a backoff), so one poison record never stalls its shard.
+select schema_add_column('users', 'sync_attempts', 'int not null default 0');
+-- The shard's queue order (stalest first), read a page at a time.
+select schema_add_index('users_sync_order', 'create index users_sync_order on users (last_synced_at nulls first, id) where snaptrade_user_id is not null and deleted_at is null');
+-- One row per shard of a shard count: the run lease (database clock, fenced by `holder`), a heartbeat, and the last
+-- run's counters (numbers only) for the coverage report.
+create table if not exists sync_shards (
+  of int not null check (of between 1 and 1024),
+  shard int not null check (shard >= 0 and shard < of),
+  lease_until timestamptz,
+  holder text,
+  run_started_at timestamptz,
+  heartbeat_at timestamptz,
+  last_run jsonb,
+  primary key (of, shard)
+);
+-- The current failure streak: its class ('refused', 'trader', 'quarantined') and when it began (shard 0's coverage line
+-- reports refusals and the oldest one's age, numbers only). Cleared by a successful sync.
+select schema_add_column('users', 'sync_failure_kind', $d$text check (sync_failure_kind in ('refused','trader','quarantined'))$d$);
+select schema_add_column('users', 'sync_failing_since', 'timestamptz');

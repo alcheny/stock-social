@@ -116,7 +116,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
   return tx ? run(tx) : sql.begin(run);
 }
 
-type Broker = {
+export type Broker = {
   listAccounts: typeof listAccounts; // with the authorization, paper and sync flags
   fetchActivities: typeof fetchActivities;
   // PR-3 (heavy-use): a sync with no stored history reads it page by page (one page held at a time) when available.
@@ -124,13 +124,13 @@ type Broker = {
   fetchPositions?: typeof fetchPositions;
   pageLimit?: number;
 };
-const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions };
+export const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions };
 
 export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
 // `connected`, and never while an import runs (the tick's steps own that row). A pending link, a failed import and a
 // profile being deleted are never synced.
-const syncable = () => sql`u.snaptrade_user_id is not null and u.deleted_at is null
+export const syncable = () => sql`u.snaptrade_user_id is not null and u.deleted_at is null
     and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
     and not exists (select 1 from connections c where c.user_id = u.id and c.state = 'importing')`;
 export async function usersToSync(): Promise<SyncableUser[]> {
@@ -173,13 +173,13 @@ export type ClaimedUser = SyncableUser & { lease: string; prev: string | null };
 // `maxAccounts` (fix round 6): only traders whose consented real accounts, capped at SYNC_FIT_CAP, are at most this many.
 export type ClaimScope = { shiftMs?: number; ids?: number[]; except?: number[]; maxAccounts?: number };
 // The database clock (shifted by the test hook) and the start of its round; and the claim rule over them.
-const clockSql = (shiftMs: number) => sql`select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
+export const clockSql = (shiftMs: number) => sql`select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
         date_trunc('hour', now() + ${shiftMs}::float8 * interval '1 millisecond' - ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond', 'UTC')
           + ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond' as round_start`;
-const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_until <= clock.t)
+export const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_until <= clock.t)
         and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)`;
 // A trader's real accounts under its connected connections' snapshots (what a sync reads; paper accounts are not read).
-const accountsOf = () => sql`(select count(*) from connections c, jsonb_array_elements(c.accounts) a
+export const accountsOf = () => sql`(select count(*) from connections c, jsonb_array_elements(c.accounts) a
         where c.user_id = u.id and c.state = 'connected' and coalesce((a->>'isPaper')::boolean, false) = false)`;
 export async function claimNextUser(scope: ClaimScope = {}): Promise<ClaimedUser | null> {
   const { shiftMs = 0, ids, except, maxAccounts } = scope;
