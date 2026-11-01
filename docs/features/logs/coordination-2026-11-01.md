@@ -278,3 +278,5 @@ to it, unbuilt (each owner builds the row as the record states it, or hands it b
   move to the sessions that still own their files: F4-17 → `claude/f16-f17-trust-safety` (profile page); F4-16 and F4-14 →
   `claude/f26-held-like-none` (`lib/feed.ts`, the pane-chart route, `app/ui.tsx`); F4-4 → a small follow-up after PR #77
   (`lib/record-strip.ts`) and F-16/F-17 (the month page) merge. F4-8 waits on PR #77 only (the labels wording is on main).
+- **Update after #87 (F-26) and #77 (F-20) merged (63f48f4):** the orchestrator moved F4-4, F4-8, F4-14, F4-15 and F4-16 to a
+  part-2 session (`claude/fixes-cycle4-part2`); F4-17 stays with `claude/f16-f17-trust-safety`.
