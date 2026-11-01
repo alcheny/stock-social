@@ -16,7 +16,9 @@ export async function people(n: number, prefix = 'f9') {
 
 /** One buy and one sell per symbol for `user` (source 'demo'), then a rebuild. Returns the closes by sell id. */
 export async function trades(user: number, tag: string, n: number, account = `${tag}-acct`) {
-  const { insertActivities, rebuildTrades } = await import('./sync.ts');
+  const { insertActivities } = await import('./sync.ts');
+  // Options merge (#62): the record is rebuilt through its one sanctioned entry point (rebuildTrades, then the option steps).
+  const { rebuildRecord } = await import('./options-sync.ts');
   const { sql } = await import('./db.ts');
   const t0 = Date.now() - 10 * 86_400_000;
   const acts = [];
@@ -25,7 +27,7 @@ export async function trades(user: number, tag: string, n: number, account = `${
     acts.push({ externalId: `${tag}-s${i}`, accountId: account, symbol: `F${i}`, side: 'SELL' as const, units: 1, price: 11, fee: 0, executedAt: new Date(t0 + 86_400_000 + i * 3_600_000), verified: false, raw: {} });
   }
   await insertActivities(user, 'demo', acts);
-  await rebuildTrades(user);
+  await rebuildRecord(user);
   const rows = await sql`select id::text as id, sell_id from closed_trades where user_id = ${user} order by sell_id`;
   return rows.map((r) => ({ id: r.id as string, sell: r.sell_id as string }));
 }
