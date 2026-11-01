@@ -28,10 +28,13 @@ test('sell with no recorded entry is excluded, not guessed', () => {
   assert.ok(Math.abs(trades[0].returnPct - 0.1) < 1e-12);
 });
 
-test('partial unmatched sell keeps the matched part and counts as excluded', () => {
+// Corporate actions (POLICY F3c, committee 2026-11-01): this test used to assert that the matched part was shown at
+// +10%. An oversell proves the position's recorded history is missing shares (an unrecorded split, a transfer in), so the
+// matched part's basis is unknown: the whole sell is excluded and counted, never shown with a possibly wrong return.
+test('partial unmatched sell is excluded whole and counted (its matched part is not shown)', () => {
   const { trades, excluded } = matchTrades([act('BUY', 2, 10, 1), act('SELL', 3, 11, 2)]);
   assert.equal(excluded, 1);
-  assert.ok(Math.abs(trades[0].returnPct - 0.1) < 1e-12);
+  assert.equal(trades.length, 0);
 });
 
 test('a trade touching any demo activity is not verified', () => {

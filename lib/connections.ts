@@ -9,6 +9,7 @@ import { AccountClaimedError, claimIn } from './claims.ts';
 import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
+import { insertCorporateActions } from './corporate-actions.ts';
 import { replaceAccountPositions, replacePositions } from './positions.ts';
 import { ownsAttempt } from './auth/links.ts';
 import { unsignToken } from './auth/sessions.ts';
@@ -77,7 +78,8 @@ export function clockState(c: ClockRow, now: Date): 'expired' | 'failed' | null 
 // Import cursor: account index and page offset of the current pass. A pass re-reads every account; a second pass runs
 // when the vendor's initial sync was still filling during the first one, so the record ends complete (TR-3).
 // `pos` (fix round 6): after the rebuild, the accounts whose positions are read so far, while some are still unread.
-export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; pos?: number; checkedAt?: number; retries?: number; retryAt?: number };
+// `m` (corporate actions, F3c): the next account whose share-moving rows the import reads, after the trade pages.
+export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; pos?: number; checkedAt?: number; retries?: number; retryAt?: number; m?: number };
 export const startCursor = (): Cursor => ({ i: 0, offset: 0, pass: 1 });
 // A vendor 429, 5xx or transport error defers the next step: 30 s doubling per consecutive failure, capped at one hour.
 // Progress is not recorded while waiting, so the 24 h stale clock still ends an import the vendor never resumes.
@@ -97,7 +99,8 @@ export type Connection = {
   import_cursor: Cursor; imported_count: number; accounts: SnapAccount[]; cleanup_done_at: Date | null; failure_reason: string | null;
   disconnected_at: Date | null;
 };
-export type Deps = Pick<typeof vendor, 'registerUser' | 'connectUrl' | 'listAccounts' | 'fetchActivitiesPage' | 'fetchPositions' | 'deleteConnection' | 'deleteUser'> & { pageLimit?: number };
+export type Deps = Pick<typeof vendor, 'registerUser' | 'connectUrl' | 'listAccounts' | 'fetchActivitiesPage' | 'fetchPositions' | 'deleteConnection' | 'deleteUser'> & { pageLimit?: number }
+  & { fetchShareMoves?: typeof vendor.fetchShareMoves }; // corporate actions (F3c): optional, so test deps without it import trades only
 export const realDeps: Deps = vendor;
 
 const norm = (c: Record<string, unknown>): Connection => ({ ...(c as Connection), id: Number(c.id), attempt_id: Number(c.attempt_id) });
@@ -519,6 +522,16 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         const page = await deps.fetchActivitiesPage(bu, real[cur.i].id, cur.offset, limit);
         await insertActivities(c.user_id!, 'snaptrade', page.activities, tx);
         return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
+      }
+      // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.
+      // ponytail: an account with more than one page (1,000) of share-moving rows makes several bounded requests in this
+      // step, more than the step's reserve assumes — fix: keep an offset in the cursor and read one page per step.
+      if (!cur.rebuilt && deps.fetchShareMoves && (cur.m ?? 0) < real.length) {
+        const k = cur.m ?? 0;
+        const moves = await deps.fetchShareMoves(bu, real[k].id);
+        await insertActivities(c.user_id!, 'snaptrade', moves.activities, tx);
+        await insertCorporateActions(tx, c.user_id!, 'snaptrade', moves.actions);
+        return save({ ...cur, m: k + 1 }, true, c.imported_count + moves.activities.length);
       }
       if (!cur.rebuilt || cur.pos !== undefined) {
         const first = !cur.rebuilt;

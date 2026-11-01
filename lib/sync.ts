@@ -1,9 +1,10 @@
 import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
-import { fetchActivities, fetchActivitiesPage, fetchPositions, listAccounts, PAGE_LIMIT, VENDOR_TIMEOUT_MS } from './broker.ts';
+import { fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves, listAccounts, PAGE_LIMIT, VENDOR_TIMEOUT_MS } from './broker.ts';
 import { AccountClaimedError, claimIn } from './claims.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
+import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pairKey } from './corporate-actions.ts';
 import { replacePositions } from './positions.ts';
 import { logSafe } from './privacy-log.ts';
 
@@ -57,7 +58,7 @@ const thesisMeta = (k: KeptThesis | undefined) => ({
 // way and repeated rebuilds give byte-identical rows (defect 3: the read had no order at all). Returns what it wrote and
 // the most activity rows it held at once.
 type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string };
-export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number }> {
+export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
   const run = async (tx: TransactionSql) => {
     // Reviewer fix round 2: a rebuild never deletes a thesis. One whose trade is not produced now (its account is flagged
     // simulated, a vendor correction) is kept in kept_theses by sell_id, shown nowhere, and re-attached when the trade
@@ -75,10 +76,17 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
     let written = 0, excluded = 0, maxHeld = 0;
-    const flush = async (rows: Activity[]) => {
+    // Corporate actions (POLICY F3c): the user's actions, read once. Pairs linked by a symbol change form a chain, skipped
+    // by the stream below and matched together afterwards (one query per chain); account-wide actions reach every pair.
+    const actions = await loadCorporateActions(tx, userId, notFuture(tx));
+    const chainOf = chainsOf(actions);
+    const actionsOf = actionIndex(actions);
+    let excludedCorporate = 0;
+    const flush = async (rows: Activity[], keys?: Set<string>) => {
       if (!rows.length) return;
-      const m = matchTrades(rows);
+      const m = matchTrades(rows, actions.length ? actionsOf(keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
       excluded += m.excluded;
+      excludedCorporate += m.excludedCorporate;
       const { attached } = reattachTheses(kept, m.trades);
       for (let i = 0; i < m.trades.length; i += INSERT_CHUNK) {
         await tx`insert into closed_trades ${tx(m.trades.slice(i, i + INSERT_CHUNK).map((t) => {
@@ -110,6 +118,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
           price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
         };
         if (open.length && (open[0].accountId !== a.accountId || open[0].symbol !== a.symbol)) { await flush(open); open = []; }
+        if (chainOf.has(pairKey(a.accountId, a.symbol))) continue; // matched with its chain below
         open.push(a);
         maxHeld = Math.max(maxHeld, open.length + page.length);
       }
@@ -118,6 +127,22 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       after = { account_id: last.account_id, symbol: last.symbol, at: last.at, external_id: last.external_id, source: last.source };
     }
     await flush(open);
+    // Corporate actions: each rename chain's pairs, read and matched together (in the stream's total order).
+    const chains = new Map<string, string[]>();
+    for (const [k, root] of chainOf) chains.set(root, [...(chains.get(root) ?? []), k]);
+    for (const keys of chains.values()) {
+      const pairs = keys.map((k) => [k.slice(0, k.lastIndexOf('|')), k.slice(k.lastIndexOf('|') + 1)]);
+      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
+        from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
+        and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+        and ${notFuture(tx)}
+        order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
+      maxHeld = Math.max(maxHeld, rows.length);
+      await flush(rows.map((r) => ({
+        externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,
+        price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
+      })), new Set(keys));
+    }
     const setAside = live.filter((k) => !attachedIds.has(k.sell_id as string));
     if (setAside.length) {
       await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status, ...thesisMeta(k as unknown as KeptThesis) })))}
@@ -129,7 +154,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)})
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
-    return { trades: written, excluded, future: future as number, maxHeld };
+    await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
+    return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
   };
   return tx ? run(tx) : sql.begin(run);
 }
@@ -140,9 +166,10 @@ type Broker = {
   // PR-3 (heavy-use): a sync with no stored history reads it page by page (one page held at a time) when available.
   fetchActivitiesPage?: typeof fetchActivitiesPage;
   fetchPositions?: typeof fetchPositions;
+  fetchShareMoves?: typeof fetchShareMoves; // corporate actions (F3c): each real account's share-moving rows
   pageLimit?: number;
 };
-const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions };
+const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves };
 
 export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
@@ -252,7 +279,7 @@ export const syncDeadline = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S 
 // leaves the others unclaimed (counted in the log) for the next call, which starts with the whole budget. n is capped at
 // SYNC_FIT_CAP, the most a whole call fits, so a trader with more accounts is still claimed, at the start of a call.
 // ponytail: past SYNC_FIT_CAP accounts (or an activity read over one vendor page per account) a sync can still overrun;
-// it then rolls back and its lease lapses, as before. Next step: split the sync per account like the import.
+// it then rolls back and its lease lapses, as before — fix: split the sync per account like the import.
 export const syncRouteEnd = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000;
 export const syncCost = (accounts: number) => (1 + 2 * accounts) * VENDOR_TIMEOUT_MS;
 export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / 2);
@@ -357,6 +384,18 @@ export async function syncUser(
       const acts = real.length ? await broker.fetchActivities(bu, since, real) : [];
       await insertActivities(user.id, 'snaptrade', acts, tx);
       read = acts.length;
+    }
+    // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
+    // rebuild applies them.
+    // ponytail: one more vendor request per account than syncCost counts (1 + 2n), so a trader near SYNC_FIT_CAP accounts
+    // can overrun the route (it then rolls back and is retried) — fix: count it in syncCost with the sharded-sync budget.
+    if (broker.fetchShareMoves) {
+      for (const id of real) {
+        const moves = await broker.fetchShareMoves(bu, id);
+        await insertActivities(user.id, 'snaptrade', moves.activities, tx);
+        await insertCorporateActions(tx, user.id, 'snaptrade', moves.actions);
+        read += moves.activities.length;
+      }
     }
     await rebuild(user.id, tx);
     if (broker.fetchPositions) {
