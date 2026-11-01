@@ -10,11 +10,11 @@ import { Badge, WhoName } from './ui.tsx';
 import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
-import { OPEN } from '@/lib/copy.ts';
+import { OPEN, OPTIONS } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from './open-rows.tsx';
 // OPTIONS (docs/features/logs/options/plan.md D5, AC 24): the label and the count line (or the options line once open).
 import { PaneOptions, ShareTradesLabel } from './u/[handle]/options-block.tsx';
-import type { PaneOptionsView } from '@/lib/options-view.ts';
+import { isOptionsLine, type PaneOptionsView } from '@/lib/options-view.ts';
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
@@ -88,7 +88,8 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         ))}
       </ul>
       <p><Link href={`/u/${handle}`} className="button">See full profile →</Link></p>
-      <p className="muted">Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.</p>
+      {/* OPTIONS fix round 2: the note follows the gate (the paneView line), so it can't go stale when the gate opens. */}
+      <p className="muted">{OPTIONS.paneNote(isOptionsLine(options?.line))}</p>
     </section>
   );
 }

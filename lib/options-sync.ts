@@ -4,6 +4,7 @@
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { FUTURE_GRACE_HOURS, INSERT_CHUNK, rebuildTrades } from './sync.ts';
+import { chainsOf, loadCorporateActions, pairKey } from './corporate-actions.ts';
 import { contractKey, matchOptions, zeroCounts, type Counts, type OptionRow } from './options.ts';
 import type { OptionPosition, PositionSplit } from './broker.ts';
 
@@ -114,6 +115,33 @@ export async function exerciseDays(tx: Db, userId: number): Promise<{ account_id
       and o.executed_at is not null and ${notPaper(tx, userId)} and ${notFuture(tx)}` as never;
 }
 
+// Theses of closes the rebuild removes go to kept_theses (re-attached by sell_id if the close returns), with the same
+// `on conflict` as rebuildTrades.
+async function keepTheses(tx: TransactionSql, userId: number, rows: readonly Record<string, unknown>[]) {
+  if (!rows.length) return;
+  await tx`insert into kept_theses ${tx(rows.map((k) => ({ user_id: userId, sell_id: k.sell_id as string, thesis: k.thesis as string, thesis_status: k.thesis_status as string })))}
+    on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status`;
+}
+
+// Each taint row widened to every symbol of its rename chain in the same account (lib/corporate-actions.ts#chainsOf,
+// the user's actions as rebuildTrades reads them: paper accounts and future-dated rows left out).
+export async function withRenames(tx: TransactionSql, userId: number, taint: { account_id: string; underlying: string; day: string }[]) {
+  if (!taint.length) return taint;
+  const chainOf = chainsOf(await loadCorporateActions(tx, userId, notFuture(tx)));
+  if (!chainOf.size) return taint;
+  const members = new Map<string, string[]>(); // chain id → its pair keys
+  for (const [k, id] of chainOf) { const g = members.get(id); if (g) g.push(k); else members.set(id, [k]); }
+  const out = new Map<string, { account_id: string; underlying: string; day: string }>();
+  for (const t of taint) {
+    const id = chainOf.get(pairKey(t.account_id, t.underlying));
+    for (const k of id ? members.get(id)! : [pairKey(t.account_id, t.underlying)]) {
+      const symbol = k.slice(k.lastIndexOf('|') + 1);
+      out.set(`${t.account_id}|${symbol}|${t.day}`, { account_id: t.account_id, underlying: symbol, day: t.day });
+    }
+  }
+  return [...out.values()];
+}
+
 /** D4 (a)–(d), round 3: the whole record rebuild, in one transaction. Callers use this instead of rebuildTrades. */
 export async function rebuildRecord(userId: number, tx?: TransactionSql, asOf = new Date()) {
   const run = async (tx: TransactionSql) => {
@@ -123,12 +151,17 @@ export async function rebuildRecord(userId: number, tx?: TransactionSql, asOf = 
     // This is part of the rebuild that derives closed_trades (re-applied on every rebuild), not a patch of stored rows.
     // ponytail: K8 the exercise-day rule removes every share close in that account and stock whose hold spans the day (it
     // can remove an unrelated trade, and it keeps delivered buys, whose basis leaves out the premium); shares delivered or
-    // removed by an exercise or assignment may also arrive as PR #40's transfer-in or adjustment rows (its lot handling)
-    // — the exact rule, per delivered or removed lot, belongs inside the share matcher once PR #40 has merged.
+    // removed by an exercise or assignment may also arrive as PR #40's transfer-in or adjustment rows (its lot handling;
+    // renames are followed, fix round 2) — the exact rule, per delivered or removed lot, belongs inside the share matcher.
     // Fix round 1 (review 5, QA 3): an option row stored on the share path before the importer routed it (an OCC string as
     // its symbol) never becomes a public close: removed here on every rebuild, counted as an option exclusion.
+    // Fix round 2 (re-review B): their theses are kept aside first, as the taint step does.
+    await keepTheses(tx, userId, await tx`select sell_id, thesis, thesis_status from closed_trades
+      where user_id = ${userId} and upper(symbol) ~ ${OCC_SQL_PATTERN} and thesis is not null`);
     const occRemoved = (await tx`delete from closed_trades where user_id = ${userId} and upper(symbol) ~ ${OCC_SQL_PATTERN}`).count;
-    const taint = await exerciseDays(tx, userId);
+    // Fix round 2 (re-review A): a rename (PR #40's chain matching) gives the close the new symbol, so each taint row
+    // covers every symbol in its rename chain, in the same account, as rebuildTrades matches them.
+    const taint = await withRenames(tx, userId, await exerciseDays(tx, userId));
     let removed = 0;
     if (taint.length) {
       const hit = await tx`select c.sell_id, c.thesis, c.thesis_status from closed_trades c
@@ -136,11 +169,7 @@ export async function rebuildRecord(userId: number, tx?: TransactionSql, asOf = 
           on t.account_id = c.account_id and t.underlying = c.symbol
          and (c.opened_at at time zone 'UTC')::date <= t.day and t.day <= (c.closed_at at time zone 'UTC')::date
         where c.user_id = ${userId} group by c.sell_id, c.thesis, c.thesis_status`;
-      const kept = hit.filter((h) => h.thesis !== null);
-      if (kept.length) {
-        await tx`insert into kept_theses ${tx(kept.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status })))}
-          on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status`;
-      }
+      await keepTheses(tx, userId, hit.filter((h) => h.thesis !== null));
       if (hit.length) removed = (await tx`delete from closed_trades where user_id = ${userId} and sell_id in ${tx(hit.map((h) => h.sell_id as string))}`).count;
     }
     await tx`update users set excluded_exercise_shares = ${removed} where id = ${userId}`;

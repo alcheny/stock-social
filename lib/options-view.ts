@@ -45,6 +45,8 @@ export function oldestRead(shareReads: Date[], optionAsOf: Date | null): Date | 
  *  per-kind counts (a client fetches the pane as JSON). */
 export type PaneOptionsView = { label: boolean; line: string | null };
 export const paneView = (m: OptionHeadline): PaneOptionsView => ({ label: shareLabel(m.counts), line: optionDisplayText(m) });
+/** Whether a pane line is the open-gate options line (the gated count line never starts with it). */
+export const isOptionsLine = (line: string | null | undefined) => !!line && line.startsWith(OPTIONS.lineHead(0, '').slice(0, 'Options:'.length));
 
 /** L9: the text the display log stores: the options line when open, the gated count line when closed, null when the
  *  trader has no options. Only what this file returned. */

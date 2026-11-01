@@ -377,6 +377,11 @@ export const OPTIONS = {
   // Fix round 1 (QA 9): open options the importer can't price exactly (not futures).
   openOther: (n: number) => `${counted(n, 'open option')} not shown: the importer can't price ${n === 1 ? 'it' : 'them'} exactly.`,
   listTitle: 'Option trades',
+  // Fix round 2 (re-review C): the pane's closing note follows the gate: options are not shown while gated (or absent),
+  // and summarized in the options line once open.
+  paneNote: (open: boolean) => open
+    ? "Closed share trades from connected accounts are published, losses included; option trades are summarized above. Positions with no recorded entry aren't shown."
+    : "Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.",
   call: 'Call option',
   put: 'Put option',
   unsupported: (n: number) => `Plus ${counted(n, 'open position')} not shown: futures and similar contracts are out of scope.`,
