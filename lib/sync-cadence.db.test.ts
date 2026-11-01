@@ -14,15 +14,16 @@ import { ACTIVITIES_EVERY_MS, ATTEMPT_FLOOR_MS, FUTURE_SLACK_MS, POSITIONS_EVERY
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL', timeout: 180_000 }, fn);
-const PORT = 6300 + Math.floor(Math.random() * 600);
-const base = `http://127.0.0.1:${PORT}`;
+let base = ''; // the fake's, on a free port (port 0)
 let server: Server | null = null;
 
 before(async () => {
   if (!hasDb) return;
   const { sql } = await import('./db.ts');
   await sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple();
-  server = (await (await import('../e2e/fakes/vendor.ts')).startVendorFake(PORT)).server;
+  const fake = await (await import('../e2e/fakes/vendor.ts')).startVendorFake(0);
+  server = fake.server;
+  base = fake.base;
   process.env.SNAPTRADE_BASE_URL = base;
   process.env.SNAPTRADE_CLIENT_ID = 'test';
   process.env.SNAPTRADE_CONSUMER_KEY = 'test-consumer';
