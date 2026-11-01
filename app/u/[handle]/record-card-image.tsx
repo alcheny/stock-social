@@ -121,7 +121,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   // Breathing room around the range and before the count (user test), except where the 630 px card has none to spare:
   // two extra rows (failed-import note and open positions) or a wide card.
   const tight = !!(m.note && o) || wide;
-  const [labelA, labelB] = m.open || wide ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
+  const [labelA, labelB] = m.open || wide || m.shareLabel /* OPTIONS */ ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
   const unfurlAverage = (
     <div style={col}>
       <div style={{ ...row, gap: 20 }}>
@@ -157,7 +157,10 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
           </div>
           {plot}
         </div>
-        <span style={{ ...t(f.body, C.muted), lineHeight: 1, whiteSpace: 'nowrap', marginTop: 4, flexShrink: 0 }}>{m.caption}</span>
+        {/* OPTIONS: the options line takes the caption's row (two lines at most; the model gave the chart's row up). */}
+        {m.optionsLine
+          ? <span style={{ ...t(f.body, C.muted), lineHeight: 1, marginTop: 4, flexShrink: 0 }}>{m.optionsLine}</span>
+          : <span style={{ ...t(f.body, C.muted), lineHeight: 1, whiteSpace: 'nowrap', marginTop: 4, flexShrink: 0 }}>{m.caption}</span>}
         {o && <div style={{ display: 'flex', marginTop: L.gap, flexShrink: 0 }}>{openRow(f.body, true)}</div>}
       </div>
     );
@@ -167,6 +170,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
         <div style={m.kind === 'square' ? { ...row, gap: 28 } : col}>{average}</div>
         {plot}
         <div style={{ display: 'flex', gap: 48 }}>{count}{period}</div>
+        {m.optionsLine && <span style={t(f.body, C.muted)}>{m.optionsLine}</span>/* OPTIONS */}
         {openBlock}
       </div>
     );

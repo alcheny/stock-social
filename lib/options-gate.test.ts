@@ -44,7 +44,7 @@ test('AC15: every column of the option tables is in exactly one of PUBLIC_FIELDS
     assert.ok(columns(t).includes(col), `${c} exists`);
   }
   assert.deepEqual([...GATED_COLUMNS].sort(), [...OPTION_PUBLIC_COLUMNS].sort());
-  for (const col of ['option_activities.units', 'option_activities.price', 'option_activities.strike_milli', 'option_activities.fee', 'option_activities.account_id']) assert.ok(priv.has(col), col);
+  for (const col of ['option_activities.contract_units', 'option_activities.share_price', 'option_activities.strike_milli', 'option_activities.fee', 'option_activities.account_id']) assert.ok(priv.has(col), col);
 });
 
 test('D5 consent versions: append-only, pinned hashes, the last entry is the current line with the columns of PUBLIC_FIELDS', () => {

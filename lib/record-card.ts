@@ -8,7 +8,7 @@
 // the chart/count/period hierarchy, one trust label at every size, the 0% label in a gutter, no orphans, the printed
 // link from the configured origin, and the alt text built from this model.
 import { counted } from './format.ts';
-import { imageTrust, SHARE_CARD, type RecordState } from './copy.ts';
+import { imageTrust, OPTIONS, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { confidence, headline, isNewRecord, pct, type Confidence, type ConfidenceInput, type Tier } from './trades.ts';
 import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, trustSign, type Span, type SpanUnit } from './confidence.ts';
@@ -160,6 +160,9 @@ export type CardInput = {
   now: Date;
   link: string | null; // the profile link printed on the square / story pictures (they travel without an unfurl)
   open?: number[]; // F-6: unrealized percent of each open position (0.05 = +5%), nothing else
+  // OPTIONS (docs/features/logs/options/plan.md D5, AC 24): from lib/options-load.ts only: whether the headline reads
+  // "share trade", and the gated count line or the options line. No option figure otherwise.
+  options?: { shareLabel: boolean; line: string | null };
 };
 
 // F-6 on the card (committee 2026-11-01): the open positions in words, percent only, no symbols, no combined figure and
@@ -243,6 +246,8 @@ export type CardModel = {
   disclaimer: string;
   chart: CardChart | null;
   open: CardOpen | null; // F-6: the unrealized part, beside the realized figures
+  shareLabel: boolean; // OPTIONS: the headline label names share trades
+  optionsLine: string | null; // OPTIONS: the count line (gated) or the options line
 };
 
 export function recordCard(i: CardInput): CardModel {
@@ -261,6 +266,7 @@ export function recordCard(i: CardInput): CardModel {
     newRecord: false, trust: null, caption: null, link: i.kind === 'unfurl' ? null : i.link, disclaimer: DISCLAIMER, chart: null,
     // F-6: open positions only where the profile lists them (a broker record) and never while an import runs.
     open: i.state !== 'none' && t.stats ? cardOpen(i.open ?? []) : null,
+    shareLabel: !!i.options?.shareLabel, optionsLine: t.stats ? i.options?.line ?? null : null, // OPTIONS
   };
   if (body !== null) return card;
 
@@ -278,12 +284,13 @@ export function recordCard(i: CardInput): CardModel {
   // 2026-10-31: about 24% of the preview with every element kept); the square and story keep theirs (30%).
   const range = c.perTrade ? SHARE_CARD.likely(pct(c.perTrade.low), pct(c.perTrade.high)) : null;
   const wide = i.kind === 'unfurl' && unfurlWide(pct(avg), range);
-  const box = { w: L.chart.w - (wide ? UNFURL_WIDE_SHIFT : 0), h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut : 0) };
+  // OPTIONS: on the unfurl the options line takes the caption's row and wraps once; the chart gives up that row.
+  const box = { w: L.chart.w - (wide ? UNFURL_WIDE_SHIFT : 0), h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut : 0) - (card.optionsLine && i.kind === 'unfurl' ? L.noteCut : 0) };
   return {
     ...card,
     headline: pct(avg),
     headlineTone: tone(avg),
-    headlineLabel: card.open ? SHARE_CARD.perClosedTrade : SHARE_CARD.perTrade,
+    headlineLabel: card.shareLabel ? (card.open ? OPTIONS.cardPerClosedShareTrade : OPTIONS.cardPerShareTrade) : card.open ? SHARE_CARD.perClosedTrade : SHARE_CARD.perTrade, // OPTIONS
     range,
     count: `${countValue} · ${SHARE_CARD.lossesIncluded}`, countValue, countNote: SHARE_CARD.lossesIncluded,
     period: `${since(first)} · ${periodLength}`, periodSince: since(first), periodLength,
@@ -309,6 +316,7 @@ export function cardAlt(m: CardModel): string {
     parts.push(`${m.count}.`, `${m.period}.`, `Chart: ${m.caption}.`, `${m.evidence}.`);
     if (m.trust) parts.push(m.trust);
   }
+  if (m.optionsLine) parts.push(m.optionsLine); // OPTIONS
   if (m.open) parts.push(`${SHARE_CARD.openAlt} ${[counted(m.open.count, 'position'), m.open.split, m.open.spread].filter(Boolean).join(', ')}.`);
   if (m.link) parts.push(`${m.link}.`);
   parts.push(m.disclaimer);

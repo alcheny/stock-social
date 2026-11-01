@@ -45,6 +45,10 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   record_notes: { personal: true, retention: 'account', holds: 'a subscriber\'s private note about a trader; deleted with either account' },
   record_tool_notices: { personal: true, retention: 'account', holds: 'a count of traders removed from a subscriber\'s views and notes since the last dismissal; no trader id' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
+  // OPTIONS (docs/features/logs/options/plan.md D1, L8): deleted with the account (the users cascade).
+  option_activities: { personal: true, retention: 'account', holds: 'raw broker option activities: contract terms, strikes, quantities, prices, fees, cash, account ids' },
+  option_trades: { personal: true, retention: 'account', holds: 'derived long option closes: underlying, call or put, expiry, dates, percent returns; public only through the consent gate' },
+  open_option_positions: { personal: true, retention: 'account', holds: 'long open option positions: underlying, call or put, expiry, unrealized percent; public only through the consent gate' },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.
