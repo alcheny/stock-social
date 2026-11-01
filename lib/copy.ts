@@ -325,6 +325,8 @@ export const HOW = {
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded sells, never guessed).',
     // Fixes cycle 4 (C4-2; UX lead, committee).
     'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), every later sell of that stock in that account is excluded and counted too, wins and losses alike: the history can\u2019t show which buys are left.',
+    // Fixes cycle 4 (UX lead, round 4): the disclosure of F-30's accepted residual (lib/trades.ts ponytail in `replay`).
+    'Some brokers send only the date of a trade. On those, a buy and a sell of one stock on the same day are read buy first, so a same-day short sale with no earlier sign of one can appear as a long trade (a known limit).',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
     // Fixes cycle 3, F3-1 (lib/trades.ts): unusable broker trade rows are counted, never dropped.
     'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.',

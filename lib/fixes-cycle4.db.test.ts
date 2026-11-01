@@ -36,23 +36,24 @@ dbTest('C4-1/C4-2 deploy rebuild: a record built by the old matcher loses its ma
   const { rebuildRecord } = await import('./options-sync.ts');
   try {
     const u = await mkUser('a');
-    // The record's C4-1 probe: a date-only short on 2026-10-01.
-    await insertActivities(u, 'snaptrade', [row('s1', 'SELL', 100, 15, '2026-10-01T00:00:00Z'), row('b1', 'BUY', 100, 14, '2026-10-01T00:00:00Z')]);
-    // The old matcher published it as +7.1% (buys before sells); a trader wrote a thesis on it. Simulated here as the
-    // stored state a deploy finds (the test's own fixture rows; production never patches closed_trades).
+    // The record's C4-2 probe: a short (nothing held), its cover, then a long round trip.
+    await insertActivities(u, 'snaptrade', [row('s0', 'SELL', 100, 15, '2026-10-01T14:00:00Z'), row('b0', 'BUY', 100, 14, '2026-10-02T14:00:00Z'),
+      row('b1', 'BUY', 100, 20, '2026-10-05T14:00:00Z'), row('s1', 'SELL', 100, 18, '2026-10-14T14:00:00Z')]);
+    // The old matcher published the last sell as +28.6% from the cover; a trader wrote a thesis on it. Simulated here as
+    // the stored state a deploy finds (the test's own fixture rows; production never patches closed_trades).
     await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified, thesis, thesis_status)
-      values (${u}, ${`${tag}-s1`}, ${`${tag}-acc`}, 'FAKE', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', ${15 / 14 - 1}, 0, true, 'Fictional note.', 'published')`;
+      values (${u}, ${`${tag}-s1`}, ${`${tag}-acc`}, 'FAKE', '2026-10-02T14:00:00Z', '2026-10-14T14:00:00Z', ${18 / 14 - 1}, 12, true, 'Fictional note.', 'published')`;
     assert.equal(await rebuildAllForMatcher(9001, [u]), 1);
     assert.deepEqual(await closes(u), []);
     const [usr] = await sql`select excluded_positions from users where id = ${u}`;
-    assert.equal(usr.excluded_positions, 1);
+    assert.equal(usr.excluded_positions, 2);
     const [kept] = await sql`select thesis, thesis_status from kept_theses where user_id = ${u} and sell_id = ${`${tag}-s1`}`;
     assert.deepEqual([kept.thesis, kept.thesis_status], ['Fictional note.', 'published']);
-    // The vendor later sends hours for the same rows (a buy, then the sell): the close is published again with its thesis.
-    await sql`update activities set executed_at = '2026-10-01T14:00:00Z' where user_id = ${u} and external_id = ${`${tag}-b1`}`;
-    await sql`update activities set executed_at = '2026-10-01T15:00:00Z' where user_id = ${u} and external_id = ${`${tag}-s1`}`;
+    // The vendor later corrects the first row's date to after the round trip (test fixture edit): there is no oversell
+    // any more, so FIFO prices the close from the first buy and it is published again with its thesis.
+    await sql`update activities set executed_at = '2026-10-20T14:00:00Z' where user_id = ${u} and external_id = ${`${tag}-s0`}`;
     await rebuildRecord(u);
-    assert.deepEqual(await closes(u), [['s1', 0.071429, 'Fictional note.']]);
+    assert.deepEqual((await closes(u)).filter((c) => c[0] === 's1'), [['s1', 0.285714, 'Fictional note.']]);
   } finally {
     await cleanup();
   }
@@ -91,13 +92,13 @@ dbTest('C4-2 (reliability condition 7): option rows on the share path with a gap
       { ...row('os2', 'SELL', 1, 4, '2026-10-03T14:00:00Z'), symbol: occ }, // counted for the gap
       row('s0', 'SELL', 10, 5, '2026-10-01T14:00:00Z'), // a share sell with no entry: counted once
       row('b1', 'BUY', 10, 10, '2026-10-02T14:00:00Z'), row('b2', 'BUY', 30, 10, '2026-10-02T14:00:00Z'),
-      row('s1', 'SELL', 10, 11, '2026-10-04T14:00:00Z'), // the gap of 10 and this sell fit in the alike @10 lots: shown
+      row('s1', 'SELL', 10, 11, '2026-10-04T14:00:00Z'), // after the share gap: counted
     ]);
     await rebuildRecord(u);
-    assert.deepEqual(await closes(u), [['s1', 0.1, null]]);
+    assert.deepEqual(await closes(u), []);
     const [usr] = await sql`select excluded_positions, excluded_corporate from users where id = ${u}`;
-    // Both option-pair sells leave the share counts (removeOptionPairs), the share orphan stays: 1 + 0 + 1 shown = 2 share sells.
-    assert.deepEqual([usr.excluded_positions, usr.excluded_corporate], [1, 0]);
+    // Both option-pair sells leave the share counts (removeOptionPairs); the two share sells stay counted: 2 share sells.
+    assert.deepEqual([usr.excluded_positions, usr.excluded_corporate], [2, 0]);
   } finally {
     await cleanup();
   }
