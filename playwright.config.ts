@@ -1,9 +1,10 @@
 import { defineConfig } from '@playwright/test';
+import path from 'node:path';
 
 // Runs against a production build (`npm run build` first) with seeded demo data.
 // The browser renders system-ui/sans-serif in DejaVu Sans on every machine (e2e/fonts.conf), so a layout that fits in a
 // session container also fits on the CI runner.
-const FONTCONFIG_FILE = new URL('./e2e/fonts.conf', import.meta.url).pathname;
+const FONTCONFIG_FILE = path.resolve('e2e/fonts.conf'); // run from the repo root, as npm scripts and CI do
 
 export default defineConfig({
   testDir: 'e2e',
