@@ -88,7 +88,9 @@ dbTest('a failure anywhere in a sync leaves activities, closed_trades, claims an
   }
 });
 
-dbTest('disconnect after connecting (TR-5): accounts the vendor no longer lists mark the connection disconnected; the record freezes and nothing is deleted', async () => {
+// Fixes cycle 3 (F3-3): this test pinned a freeze on one response. A freeze now needs the accounts missing from two
+// successful lists at least FREEZE_CONFIRM_HOURS apart; the rest of the test (record frozen, nothing deleted) is unchanged.
+dbTest('disconnect after connecting (TR-5): accounts the vendor no longer lists mark the connection disconnected once the absence is confirmed; the record freezes and nothing is deleted', async () => {
   const { sql, tag, user, act, count, cleanup } = await setup();
   const { syncUser } = await import('./sync.ts');
   const acc = `${tag}-acc`;
@@ -100,7 +102,11 @@ dbTest('disconnect after connecting (TR-5): accounts the vendor no longer lists 
     await syncUser(user, { listAccounts: async () => vendorAcc([acc]), fetchActivities: async () => [act('b1', acc, 'BUY', 100, 1), act('s1', acc, 'SELL', 120, 2)] });
     assert.equal(await count('closed_trades'), 1);
     assert.equal((await sql`select disconnected_at from connections where id = ${c.id}`)[0].disconnected_at, null);
-    await syncUser(user, { listAccounts: async () => [], fetchActivities: async () => [] });
+    const { FREEZE_CONFIRM_HOURS } = await import('./sync.ts');
+    const now = Date.now();
+    await syncUser(user, { listAccounts: async () => [], fetchActivities: async () => [] }, undefined, new Date(now));
+    assert.equal((await sql`select disconnected_at from connections where id = ${c.id}`)[0].disconnected_at, null); // one response: not yet
+    await syncUser(user, { listAccounts: async () => [], fetchActivities: async () => [] }, undefined, new Date(now + FREEZE_CONFIRM_HOURS * 3_600_000));
     assert.ok((await sql`select disconnected_at from connections where id = ${c.id}`)[0].disconnected_at);
     assert.equal(await count('activities'), 2);
     assert.equal(await count('closed_trades'), 1);

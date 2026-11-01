@@ -46,7 +46,7 @@ test('import routing through the public functions: each row lands on exactly one
     const page = await b.fetchActivitiesPage(u, 'ot-acc', 0, 1000, (r) => sunk.push(...r.map((x) => x.externalId)));
     const shares = page.activities.map((a) => a.externalId);
     const week: string[] = [];
-    const weekShares = (await b.fetchActivities(u, new Date('2025-01-01'), ['ot-acc'], (r) => week.push(...r.map((x) => x.externalId)))).map((a) => a.externalId);
+    const weekShares = (await b.fetchActivities(u, new Date('2025-01-01'), ['ot-acc'], (r) => week.push(...r.map((x) => x.externalId)))).activities.map((a) => a.externalId); // F3-1: { activities, unusable }
     CASES.forEach(([raw, want], i) => {
       const id = `ot-${i}`;
       for (const [s, o] of [[shares, sunk], [weekShares, week]]) {

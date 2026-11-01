@@ -773,6 +773,22 @@ end $t$;
 -- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
 select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');
 
+-- Fixes cycle 3 (docs/direction/cycle3-2026-11-01.md F3-3): a freeze (TR-5) needs confirmed absence. Set by the sync on
+-- the first successful account list that lists none of the connection's accounts, cleared when one is listed again;
+-- `disconnected_at` is stamped only by a later list, at least lib/sync.ts#FREEZE_CONFIRM_HOURS after, that still lists none.
+select schema_add_column('connections', 'missing_since', 'timestamptz');
+-- F3-4: open positions are replaced per account read. The last positions of an account the latest read did not list are
+-- kept here with their read time, private and rendered nowhere, until the owner decides OD-9 (owner question Q2); an
+-- account listed again gets fresh rows in open_positions and its rows here are removed. Deleted with the profile.
+create table if not exists unlisted_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  symbol text not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null,
+  unlisted_at timestamptz not null default now(),
+  primary key (user_id, account_id, symbol)
+);
 -- OPTIONS (docs/features/logs/options/plan.md D1, D5, D7). Raw option activities, append-only like `activities`: one
 -- row per vendor row, parsed columns nullable so a malformed row is stored and counted, never guessed. Strike, units,
 -- price, fee, amount and the OCC ticker are private (never read by a public surface).
@@ -852,6 +868,24 @@ select schema_add_column('connections', 'options_backfill_cursor', $d$jsonb not 
 -- OPTIONS fix round 1 (QA 12): a close is unique per trader. The earlier unique(close_id) stays (it can't be dropped
 -- here); a collision across traders is counted, never silently dropped (lib/options-sync.ts#rebuildOptionTrades).
 select schema_add_index('option_trades_user_close', 'create unique index option_trades_user_close on option_trades (user_id, close_id)');
+-- Fixes cycle 3, F3-4 (merge with options): the last option positions of an account the latest sync read did not list,
+-- kept with their read time, private and rendered nowhere until the owner decides OD-9 (Q2), like unlisted_positions.
+create table if not exists unlisted_option_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  position_key text not null,
+  underlying text not null,
+  option_right text not null check (option_right in ('CALL', 'PUT')),
+  option_expiry date not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null,
+  unlisted_at timestamptz not null default now(),
+  primary key (user_id, account_id, position_key)
+);
+-- F-14 × OPTIONS: the open option counts per vendor account ({account id: {short, unsupported, other}}), so a cadence
+-- sync that reads one account's positions replaces that account's counts; the users totals are their sum. Null until
+-- the first user-wide positions write (lib/options-sync.ts#replaceAccountOptionPositions).
+select schema_add_column('users', 'open_options_by_account', 'jsonb');
 
 -- ---- F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts, first slice ----
 -- One row per day and class, counted by one upsert per beacon (lib/views.ts#recordView). Aggregate only: no IP, user
