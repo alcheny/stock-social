@@ -154,3 +154,26 @@ All four signed the round-4 rule.
 - Non-blocking (fixed): a stale "this sell only" comment; one failing record no longer stops the deploy rebuild (counted,
   version left open). Ponytail: an old-code sync between the rebuild and the cutover can rebuild one active record with the
   old matcher until its next sync.
+
+## Round 6: decisions from the orchestrator's independent review of #89
+The review found no blocker on surfaces live today, and seven findings, each now with a regression test that fails on the
+earlier head:
+1. Public filings: the vendor-id tie-break compared filing rows as strings ("10" before "9"); `matchTrades(…, {
+   orderKnown: true })` from `matchPublic` keeps filing order (public outputs equal main's again).
+2. Options (F4-2 hole): the trader picks the exercise day, so a same-day exercise hid a loss. A same-day exercise or
+   assignment now counts a close under `contradict` only when the two readings (exercise before vs after the closes)
+   give different figures or a reading goes flat or short; otherwise the close is shown. Ponytail (reliability): with
+   two lots at different costs a trader willing to spend an exercise can still have a loss counted; fix needs an
+   exercise-order field or per-contract lot ids from the vendor (owner item).
+3. A split, stock-dividend or pair-scoped unpriceable row (not shares it hands over) on a pair the ledger holds none of
+   marks the gap, whatever its count (ratio-only and reverse splits published a guessed basis).
+4. A rename's no-basis lot is dated before all history, so a later rename's date merge keeps it first.
+5. Any gap counts every later sell at whatever size (it was tested at the later sell's scale); a residual is an oversell
+   when it isn't tiny at the oversell's own scale (relative, as today; no absolute threshold: fractional units are real).
+6. The deploy rebuild keeps per-record progress (`matcher_rebuilt`) and a time budget, so one failing record never
+   restarts the rest.
+7. Moderation v4 false positives (hyphenated tickers, "the bio of the CEO", "investing club", exchange suffixes) publish.
+Copy: the /how gap bullet now names every cause and the rename case.
+
+All four signed (UX lead, engineer, business lead on the options suite going green, reliability with the item-2
+ponytail).
