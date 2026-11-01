@@ -1,6 +1,7 @@
 // F-11 / TR-5 (docs/features/logs/fixes-labels/plan.md §3 "removed_at write", "Idle counter", §6 item 11): a sync stamps
 // broker_accounts.removed_at only after the vendor's account list came back and was not empty, only for a confirmed real
-// account no longer listed whose connection still lists at least one account, once, never cleared. An empty list is
+// account no longer listed whose connection still lists at least one account, once; a later list that names it again
+// clears it (PR #85 review B1: a short list labels the account row only until then). An empty list is
 // the disconnect path (connections.disconnected_at), never a removal. The idle count is one number in the counts-only
 // sync tick line. Every fixture here is this file's own (unique tag); nothing counts rows it did not create.
 import { after, before, test } from 'node:test';
@@ -35,7 +36,7 @@ async function setup(accountIds: string[], paper: string[] = []) {
   return { sql, tag, user, ids, paperIds, connectionId: Number(c.id), removed, broker, cleanup: async () => { await sql`delete from users where id = ${u.id}`; await sql`delete from broker_accounts where account_id in ${sql([...ids, ...paperIds])}`; } };
 }
 
-dbTest('removed_at: one of two accounts unlisted → only that one stamped; a later list without it keeps the first date; listing it again never clears it', async () => {
+dbTest('removed_at: one of two accounts unlisted → only that one stamped; a later list without it keeps the first date; listing it again clears it (B1)', async () => {
   const { syncUser } = await import('./sync.ts');
   const h = await setup(['a1', 'a2']);
   try {
@@ -50,7 +51,7 @@ dbTest('removed_at: one of two accounts unlisted → only that one stamped; a la
     assert.equal((await h.removed())[h.ids[1]]?.getTime(), t1.getTime()); // written once
     await syncUser(h.user, h.broker([vacc(h.ids[0]), vacc(h.ids[1])]), undefined, t2);
     r = await h.removed();
-    assert.equal(r[h.ids[1]]?.getTime(), t1.getTime()); // never cleared
+    assert.equal(r[h.ids[1]], null); // listed again: cleared (B1)
     assert.equal((await h.sql`select disconnected_at from connections where id = ${h.connectionId}`)[0].disconnected_at, null); // not a disconnect
   } finally {
     await h.cleanup();

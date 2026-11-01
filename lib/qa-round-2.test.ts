@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cardSegments, glued, imageFrozenText, idleSince, paneSegments, timeText, recordFrozen, recordRows, segments, statusParts, type StatusConnection, type StatusFacts, type Part } from './record-status.ts';
+import { cardSegments, glued, imageFrozenText, idleSince, paneSegments, timeText, frozenAt, noAccountSince, recordRows, segments, statusParts, type StatusConnection, type StatusFacts, type Part } from './record-status.ts';
 import { statusForOrNull } from './record-status-load.ts';
 import { baselineKind, baselineLines } from './ticker.ts';
 import { FIXES_LABELS as FL, STATUS_LINE as S } from './copy.ts';
@@ -27,43 +27,48 @@ const facts = (extra: Partial<StatusFacts> = {}): StatusFacts => ({
 const text = (ps: Part[]) => ps.map((p) => p.text).join(' · ');
 const join = (s?: { text: string }[]) => s?.map((x) => x.text).join('') ?? '';
 
-test('N7: every live account removed → frozen at the latest removal, "No account connected since ‹date› · record frozen", on every surface; never Connected (0 accounts), "updated" or Disconnected', () => {
+// PR #85 review (B1, committee option b): every live account removed is NOT frozen ("record frozen" comes from a
+// confirmed disconnect only, so a flapping vendor list can never freeze a live record). Line 1 says "No account
+// connected since ‹date›" and line 2 keeps the live "updated" (or idle) part. The flap itself: lib/sync-removed-flap.test.ts.
+test('N7 (amended by B1): every live account removed → "No account connected since (date)" at the latest removal, never frozen; line 2 keeps "updated" or the idle fact; never Connected (0 accounts) or Disconnected', () => {
   const r1 = ago(10 * DAY), r2 = ago(4 * DAY);
-  const cases: [string, StatusFacts, Date][] = [
-    ['the only account removed', facts({ connections: [conn(1, [acct('a1', r1)])] }), r1],
-    ['removed and idle', facts({ lastSyncedAt: ago(60 * DAY), connections: [conn(1, [acct('a1', ago(50 * DAY))])] }), ago(50 * DAY)],
-    ['two connections, all accounts removed', facts({ accounts: 2, connections: [conn(1, [acct('a1', r1)]), conn(2, [acct('b1', r2)])] }), r2],
-    ['one connection disconnected, the other\'s accounts removed', facts({ accounts: 2, connections: [conn(1, [acct('a1')], ago(20 * DAY)), conn(2, [acct('b1', r2)])] }), r2],
+  const cases: [string, StatusFacts, Date, boolean][] = [
+    ['the only account removed', facts({ connections: [conn(1, [acct('a1', r1)])] }), r1, false],
+    ['removed and idle', facts({ lastSyncedAt: ago(60 * DAY), connections: [conn(1, [acct('a1', ago(50 * DAY))])] }), ago(50 * DAY), true],
+    ['two connections, all accounts removed', facts({ accounts: 2, connections: [conn(1, [acct('a1', r1)]), conn(2, [acct('b1', r2)])] }), r2, false],
+    ['one connection disconnected, the other\'s accounts removed', facts({ accounts: 2, connections: [conn(1, [acct('a1')], ago(20 * DAY)), conn(2, [acct('b1', r2)])] }), r2, false],
   ];
-  for (const [label, f, at] of cases) {
-    assert.deepEqual(recordFrozen(f.connections), { at, kind: 'removed' }, label);
-    assert.equal(idleSince(f, NOW), null, label);
+  for (const [label, f, at, idle] of cases) {
+    assert.equal(frozenAt(f.connections), null, label);
+    assert.equal(noAccountSince(f.connections)?.getTime(), at.getTime(), label);
+    assert.equal(!!idleSince(f, NOW), idle, label);
     const words = S.allRemoved(dateText(at, NOW, { year: 'always' }));
     for (const mode of ['live', 'static'] as const) {
       const l = statusParts(f, NOW, mode);
-      assert.equal(l.frozen?.getTime(), at.getTime(), label);
-      assert.equal(l.idle, false, label);
+      assert.equal(l.frozen, null, label);
+      assert.equal(l.idle, idle, label);
       assert.equal(l.line1[1].text, words, `${label} ${mode}`);
-      assert.equal(text(l.line2), `Last close ${dateText(f.lastClose!, NOW, { year: mode === 'static' ? 'always' : 'auto' })}`, `${label} ${mode}: frozen wins, last close only`);
-      assert.equal(text(l.card), words, label);
+      assert.match(text(l.line2), idle ? / · not updated since / : / · updated /, `${label} ${mode}: the live line 2`);
       const all = [l.line1, l.line2, l.card].map(text).join(' | ');
-      assert.doesNotMatch(all, /Connected:|\(0 accounts?\)|updated|not updated since|Disconnected/, `${label} ${mode}: ${all}`);
+      assert.doesNotMatch(all, /Connected:|\(0 accounts?\)|record frozen|frozen|Disconnected/, `${label} ${mode}: ${all}`);
     }
-    // The same words on the pane, the feed card, the trade and month rows and the images.
-    assert.match(join(paneSegments(f, NOW)), new RegExp(`^${words} · Last close `), label);
-    assert.equal(join(cardSegments(f, NOW)), words, label);
-    assert.equal(text(recordRows(f, NOW)![0]), `Record since Jan 5, 2026 · ${words}`, label);
-    assert.equal(imageFrozenText(f, NOW), words, label);
+    // The same words on the pane and the trade and month rows; the feed card and the images show a frozen record
+    // (or, the card, an idle one) only.
+    assert.match(join(paneSegments(f, NOW)), new RegExp(`^${words}( · Fake Brokerage disconnected [^·]+)? · Last close `), label);
+    assert.equal(join(cardSegments(f, NOW)), idle ? text(statusParts(f, NOW, 'static').card) : '', label);
+    assert.equal(text(recordRows(f, NOW)![0]).startsWith(`Record since Jan 5, 2026 · ${words}`), true, label);
+    assert.equal(imageFrozenText(f, NOW), null, label);
   }
-  // All connections disconnected keeps the Disconnected words; an account left keeps the live line.
+  // All connections disconnected keeps the Disconnected words and is frozen; an account left keeps the live line.
   const d = ago(2 * DAY);
-  assert.deepEqual(recordFrozen([conn(1, [acct('a1', r1)], d)]), { at: d, kind: 'disconnected' });
+  assert.equal(frozenAt([conn(1, [acct('a1', r1)], d)])?.getTime(), d.getTime());
+  assert.equal(noAccountSince([conn(1, [acct('a1', r1)], d)]), null);
   assert.equal(imageFrozenText(facts({ connections: [conn(1, [acct('a1')], d)] }), NOW), S.frozen(dateText(d, NOW, { year: 'always' })));
-  assert.equal(recordFrozen([conn(1, [acct('a1', r1), acct('a2')])]), null);
+  assert.equal(noAccountSince([conn(1, [acct('a1', r1), acct('a2')])]), null);
   assert.equal(statusParts(facts({ accounts: 2, connections: [conn(1, [acct('a1', r1), acct('a2')])] }), NOW, 'live').line1[1].text, 'Connected: Fake Brokerage (1 account)');
-  // A live connection that lists no real account (only a simulated one, or none) is not frozen by removal.
-  assert.equal(recordFrozen([conn(1, [])]), null);
-  assert.equal(recordFrozen([conn(1, [{ ...acct('p1', r1), isPaper: true }])]), null);
+  // A live connection that lists no real account (only a simulated one, or none) has no "No account connected" part.
+  assert.equal(noAccountSince([conn(1, [])]), null);
+  assert.equal(noAccountSince([conn(1, [{ ...acct('p1', r1), isPaper: true }])]), null);
 });
 
 test('N8: one date form per line: the year on every date of a line when any needs it, on none otherwise; static always has it', () => {

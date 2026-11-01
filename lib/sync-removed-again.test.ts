@@ -44,10 +44,10 @@ dbTest('N2: removed, listed again with a trade after the removal, then missing a
     await syncUser(h.user, h.broker([vacc(h.ids[0]), vacc(h.ids[1])]), undefined, t0);
     await syncUser(h.user, h.broker([vacc(h.ids[0])]), undefined, t1);
     assert.equal((await h.removedAt(h.ids[1]))?.getTime(), t1.getTime());
-    // Listed again: the relisting imports a trade executed after the removal; removed_at is never cleared.
+    // Listed again: the relisting imports a trade executed after the removal; PR #85 review (B1): the listing clears removed_at.
     await h.trade(h.ids[1], new Date(t1.getTime() + 3 * DAY));
     await syncUser(h.user, h.broker([vacc(h.ids[0]), vacc(h.ids[1])]), undefined, new Date(t1.getTime() + 4 * DAY));
-    assert.equal((await h.removedAt(h.ids[1]))?.getTime(), t1.getTime());
+    assert.equal(await h.removedAt(h.ids[1]), null);
     let f = (await statusFacts([h.uid], new Map([[h.uid, { state: 'connected' as const }]]))).get(h.uid)!;
     assert.equal(f.connections[0].accounts.find((a) => a.id === h.ids[1])!.removedAt, null); // shown as listed again
     // Missing again: stamped with the second removal's date.

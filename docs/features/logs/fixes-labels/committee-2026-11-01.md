@@ -80,3 +80,25 @@ What confused or stopped me (all non-blocking):
   sentence is said once (N9), the mixed one could follow the same rule.
 - The owner's own profile pushes the figures and the F3 line below the fold with its action buttons (UX lead 8):
   recheck once F-4 settles.
+
+## 2026-11-01: PR #85 review B1 (a flapping vendor list froze a live record)
+**Finding.** QA round 2's N7 called a record "record frozen" when every live account had `broker_accounts.removed_at`,
+while `connections.disconnected_at` was null. `removed_at` came from one short vendor list (no F3-3 two-list
+confirmation) and was never cleared when the account was listed again, so a list that flapped (both → a1 → a2 → both,
+or a real plus a simulated account with one list showing only the simulated one) left a healthy, syncing connection
+reading "No account connected since ‹date› · record frozen" with no "updated".
+
+**Decision: option (b), with (a).** "Record frozen" comes only from F3-3's confirmed disconnect (`disconnected_at`), so a
+flapping list can never freeze a live record; a connection with `disconnected_at` null always shows the live line.
+- (a) After every successful, non-empty vendor list, `syncUser` clears `removed_at` for each account the list names;
+  the existing guarded stamping stays. A short list now labels only that account's row ("Account N of M removed
+  ‹date›"), never the record, until the account is listed again.
+- (b) Every live account removed reads "No account connected since ‹date›" on line 1 (no "frozen"), with line 2's
+  "updated" (or the idle fact) as on any live record; the feed card and the trade and month images show nothing for
+  it (they show a frozen record, or on the card an idle one). The idle count counts such a record when it is idle.
+- (c) The pin "no disconnected_at → never frozen, for every input" (lib/record-status-review.test.ts, item 11) is back
+  in its stronger form, with every-account-removed cases; the flap repros are lib/sync-removed-flap.test.ts.
+
+Same push (review nits): a partly disconnected record marks the disconnected connection's account rows "Account N of M
+disconnected ‹date›"; the owner's share prompt and share card follow the headline figures and their F3 line; the stock
+page's summary tiles tighten at 320 px; the C1 route walk runs at 320×740 and covers the owner's own profile.

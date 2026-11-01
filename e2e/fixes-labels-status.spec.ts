@@ -28,7 +28,8 @@ const FIXTURES: Record<string, Fx> = {
   fls_live: { closes: recent([0.44, -0.43, 0.42, -0.41, 0.4]), accounts: ['fls-l1'], syncedAgoMs: 3_600_000, consentDaysAgo: 30 },
   // Live, no successful sync for 35 days: the idle fact.
   fls_idle: { closes: recent([-0.46, 0.4, -0.39, 0.38, -0.37]), accounts: ['fls-i1'], syncedAgoMs: 35 * DAY, consentDaysAgo: 120 },
-  // QA round 2 (N7): the only account removed, the connection still "connected", synced three hours ago (not feed-eligible).
+  // QA round 2 (N7): the only account removed, the connection still "connected" with no disconnected_at, synced three
+  // hours ago (not feed-eligible). PR #85 review (B1): not frozen; the live line 2 with "updated".
   fls_gone: { closes: recent([0.07, -0.05]).map((c) => ({ ...c, daysAgo: c.daysAgo + 5 })), accounts: ['fls-g1'], removed: 'fls-g1', syncedAgoMs: 3 * 3_600_000, consentDaysAgo: 60 },
 };
 const HANDLES = Object.keys(FIXTURES);
@@ -191,25 +192,28 @@ test('F-11 two accounts, one removed: "Account 1 of 2 · (inst)" and "Account 2 
   await narrow(page);
 });
 
-test('QA round 2 (N7, N8): every account removed: "No account connected since (date) · record frozen" on the profile, the pane and the trade page; never "Connected", "(0 accounts)" or "updated"; each date glued to its word', async ({ page, request }) => {
-  const gone = `No account connected since ${dateText(REMOVED, now(), { year: 'always' })} · record frozen`;
+test('QA round 2 (N7, N8), PR #85 review (B1): every account removed, no disconnect: "No account connected since (date)" with the live "updated" on the profile, the pane and the trade page; never "record frozen", "Connected", "(0 accounts)" or "Disconnected"; each date glued to its word', async ({ page, request }) => {
+  const gone = `No account connected since ${dateText(REMOVED, now(), { year: 'always' })}`;
   await page.goto('/u/fls_gone');
   const block = page.locator('.record-status-block');
   expect(await said(block.locator('[data-status="line1"]'))).toMatch(new RegExp(`^Record since [A-Z][a-z]{2} \\d{1,2}, \\d{4} · ${gone}$`));
-  expect(await said(block.locator('[data-status="line2"]'))).toMatch(/^Last close [A-Z][a-z]{2} \d{1,2}(, \d{4})?$/);
+  expect(await said(block.locator('[data-status="line2"]'))).toMatch(/^Last close [A-Z][a-z]{2} \d{1,2}(, \d{4})? · updated 3 hours ago \([A-Z][a-z]{2} \d{1,2}(, \d{4})?\)$/);
   await expect(block.getByRole('list', { name: 'Accounts in this record' }).locator('li')).toHaveText([`Account removed ${dateText(REMOVED, now(), { year: 'always' })}`]);
-  for (const t of ['Connected:', '0 accounts', 'updated', 'Disconnected']) await expect(page.locator('main')).not.toContainText(t);
-  // N8: the word before a date and the date are joined by no-break spaces (one line at 360).
+  for (const t of ['record frozen', 'Connected:', '0 accounts', 'Disconnected']) await expect(page.locator('main')).not.toContainText(t);
+  // N8: the word before a date and the date are kept together (one line at 360).
   await glue(block.locator('[data-status="line1"]'), `since ${dateText(REMOVED, now(), { year: 'always' })}`);
   await narrow(page);
-  // The pane JSON and the trade page say the same.
+  // The pane JSON and the trade page say the same, with "updated" (absolute on the cached pane).
   const json = await (await request.get('/u/fls_gone/pane')).json();
-  expect((json.status as { text: string }[]).map((x) => x.text).join('')).toMatch(new RegExp(`^${gone} · Last close `));
+  const paneText = (json.status as { text: string }[]).map((x) => x.text).join('');
+  expect(paneText).toMatch(new RegExp(`^${gone} · Last close .+ · updated [A-Z][a-z]{2} \\d{1,2}, \\d{4}$`));
+  expect(paneText).not.toMatch(/record frozen|Disconnected/);
   await page.goto(`/u/fls_gone/trade/${encodeURIComponent('fls_gone-0')}`);
   const box = page.locator('section[aria-labelledby="whole-record"]');
   expect(await said(box.locator('[data-status="record"]'))).toMatch(new RegExp(`^Record since .+ · ${gone}$`));
-  await expect(box.locator('[data-status="record2"]')).toHaveCount(1);
+  expect(await said(box.locator('[data-status="record2"]'))).toMatch(/^Last close .+ · updated 3 hours ago \(.+\)$/);
   await expect(page.locator('main')).not.toContainText('Connected:');
+  await expect(page.locator('main')).not.toContainText('record frozen');
   // The frozen record's own Disconnected line keeps "Disconnected" and its date together too.
   await page.goto('/u/fls_frozen');
   await glue(page.locator('.record-status-block [data-status="line1"]'), `Disconnected ${dateText(DISCONNECTED, now(), { year: 'always' })}`);

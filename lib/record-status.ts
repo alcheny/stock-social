@@ -50,7 +50,7 @@ export function frozenAt(connections: StatusConnection[]): Date | null {
 // The record's reference time (its last successful sync, else its earliest live consent: a record that has not synced
 // yet right after connecting is not idle) when it is 30 days old or more and the record is not frozen; else null.
 export function idleSince(f: Pick<StatusFacts, 'lastSyncedAt' | 'connections'>, now: Date): Date | null {
-  if (recordFrozen(f.connections)) return null;
+  if (frozenAt(f.connections)) return null;
   const live = f.connections.filter((c) => !c.disconnectedAt);
   if (!live.length) return null;
   const ref = f.lastSyncedAt ?? new Date(Math.min(...live.map((c) => c.consentAt.getTime())));
@@ -74,18 +74,18 @@ function realAccounts(connections: StatusConnection[]): (StatusAccount & { conne
 
 const institutionOf = (c: StatusConnection, a?: StatusAccount) => (a?.institution ?? '').trim() || (c.institution ?? '').trim() || (c.accounts.find((x) => (x.institution ?? '').trim())?.institution ?? '').trim() || 'The broker';
 
-// QA round 2 (N7): a record whose live connections still list accounts but every one of them is removed (and the rest of
-// its connections are disconnected) has no account connected: it is frozen at the latest removal or disconnect, like a
-// disconnected record. `kind` picks the words ("Disconnected ‹d›" or "No account connected since ‹d›").
-export type Frozen = { at: Date; kind: 'disconnected' | 'removed' };
-export function recordFrozen(connections: StatusConnection[]): Frozen | null {
-  const all = frozenAt(connections);
-  if (all) return { at: all, kind: 'disconnected' };
+// QA round 2 (N7), amended by the PR #85 review (B1, committee option b): a record whose live connections still list
+// accounts but every real one of them is removed (and the rest of its connections are disconnected) has no account
+// connected: line 1 says "No account connected since ‹d›" (the latest removal or disconnect). It is NOT frozen: "record
+// frozen" comes only from disconnected_at (frozenAt: F3-3's confirmed, two-list disconnect), so a vendor list that
+// flaps can never freeze a live record, and a connection without disconnected_at always shows the live line.
+export function noAccountSince(connections: StatusConnection[]): Date | null {
+  if (frozenAt(connections)) return null;
   const live = connections.filter((c) => !c.disconnectedAt);
   const real = realAccounts(live);
   if (!live.length || !real.length || real.some((a) => !a.removedAt)) return null;
   const times = [...real.map((a) => a.removedAt!.getTime()), ...connections.filter((c) => c.disconnectedAt).map((c) => c.disconnectedAt!.getTime())];
-  return { at: new Date(Math.max(...times)), kind: 'removed' };
+  return new Date(Math.max(...times));
 }
 
 // QA round 2 (N8): one date form per line. A dated part is built lazily and a line is rendered once its parts are known:
@@ -112,28 +112,27 @@ export function statusParts(f: StatusFacts, now: Date, mode: Mode, demoText: str
   const lastClose: Lazy[] = f.lastClose ? [{ d: f.lastClose, words: S.lastClose }] : [];
   if (f.source === 'demo') return { ...NONE, show: true, line1: render([since, { text: demoText }]) };
 
-  const frozen = recordFrozen(f.connections);
+  const frozen = frozenAt(f.connections);
   const idleRef = frozen ? null : idleSince(f, now);
   const gone = f.connections.filter((c) => c.disconnectedAt);
   let line1: Lazy[];
   let line2: Lazy[];
   let card: Lazy[] = [];
   if (frozen) {
-    const part = long(frozen.at, frozen.kind === 'removed' ? S.allRemoved : S.frozen);
+    const part = long(frozen, S.frozen);
     line1 = [since, part];
     line2 = lastClose; // frozen wins: no "updated", no idle
     card = [part];
   } else {
+    // "Connected:" counts the live (not removed) accounts once any account is removed or a connection disconnected
+    // (QA round 1, finding 6); with none left, "No account connected since ‹d›" takes its place (B1: not frozen).
+    const none = noAccountSince(f.connections);
+    const live = realAccounts(f.connections.filter((c) => !c.disconnectedAt)).filter((a) => !a.removedAt);
+    const connected: Lazy = none ? long(none, S.allRemoved) : { text: connectedLine([...new Set(live.map((a) => institutionOf(a.connection, a)))], live.length) };
     if (gone.length) {
-      const live = realAccounts(f.connections.filter((c) => !c.disconnectedAt)).filter((a) => !a.removedAt);
-      const insts = [...new Set(live.map((a) => institutionOf(a.connection, a)))];
-      line1 = [since, { text: connectedLine(insts, live.length) }, ...gone.map((c) => long(c.disconnectedAt!, (d) => S.instDisconnected(institutionOf(c), d)))];
+      line1 = [since, connected, ...gone.map((c) => long(c.disconnectedAt!, (d) => S.instDisconnected(institutionOf(c), d)))];
     } else if (realAccounts(f.connections).some((a) => a.removedAt)) {
-      // QA round 1 (finding 6): with a removed account, "Connected:" counts the live (not removed) accounts only, as the
-      // partial branch does (with none left the record is frozen above, QA round 2 N7).
-      const live = realAccounts(f.connections).filter((a) => !a.removedAt);
-      const insts = [...new Set(live.map((a) => institutionOf(a.connection, a)))];
-      line1 = [since, { text: connectedLine(insts, live.length) }];
+      line1 = [since, connected];
     } else {
       line1 = [since, { text: connectedLine(f.brokers, f.accounts) }];
     }
@@ -151,9 +150,12 @@ export function statusParts(f: StatusFacts, now: Date, mode: Mode, demoText: str
   const labels = accountLabels(f.connections);
   const real = realAccounts(f.connections);
   const accounts: Part[] = labels.size
-    ? real.map((a) => render([a.removedAt ? long(a.removedAt, (d) => S.removedNumbered(labels.get(a.id)!, d)) : { text: S.accountLine(labels.get(a.id)!, institutionOf(a.connection, a)) }])[0])
+    ? real.map((a) => render([a.removedAt ? long(a.removedAt, (d) => S.removedNumbered(labels.get(a.id)!, d))
+      // PR #85 review (nit 2): on a partly disconnected record, the disconnected connection's rows say so with its date.
+      : !frozen && a.connection.disconnectedAt ? long(a.connection.disconnectedAt, (d) => S.disconnectedNumbered(labels.get(a.id)!, d))
+      : { text: S.accountLine(labels.get(a.id)!, institutionOf(a.connection, a)) }])[0])
     : real.length === 1 && real[0].removedAt ? render([long(real[0].removedAt, S.removed)]) : [];
-  return { show: true, line1: render(line1), line2: render(line2), accounts, card: render(card), frozen: frozen?.at ?? null, idle: !!idleRef };
+  return { show: true, line1: render(line1), line2: render(line2), accounts, card: render(card), frozen, idle: !!idleRef };
 }
 
 // Parts → render segments joined by ' · '. A dated part splits around its shown date, which becomes a segment with an
@@ -227,7 +229,7 @@ export function recordRows(f: StatusFacts | null | undefined, now: Date): Part[]
 // Trade and month images: a frozen record's line, absolute date with the year, never relative; else null.
 export function imageFrozenText(f: StatusFacts | null | undefined, now: Date): string | null {
   const l = f ? statusParts(f, now, 'static') : null;
-  return l?.show && l.frozen ? l.card.map((p) => p.text).join(' · ') : null; // QA round 2 (N7): the same words as the card
+  return l?.show && l.frozen ? l.card.map((p) => p.text).join(' · ') : null; // the same words as the card (a disconnect only, B1)
 }
 // The pane's segments (static: the pane JSON is cached 60 s): line 1 without "Record since" (the pane says since when
 // already), then line 2.

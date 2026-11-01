@@ -1,6 +1,7 @@
 // Fixes-labels QA round 2 (N5): the sync's idle count counts only records that would show the idle line
 // (lib/record-status.ts#statusParts): a broker record with at least one close, no consented import running or failed,
-// not Demo, not built from public filings, not frozen (every connection disconnected, or every live account removed);
+// not Demo, not built from public filings, not frozen (every connection disconnected; PR #85 review B1: a record whose
+// live accounts are all removed is not frozen, shows the idle line and is counted);
 // and the coverage step passes its whole scope (Scope.idRange too). Every fixture is this file's own (a unique tag).
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +14,7 @@ after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout
 
 const DAY = 86_400_000;
 
-dbTest('N5: idle count = records showing the idle line (a close, live, not importing or failed, not Demo, not frozen by removal); idRange scopes it', async () => {
+dbTest('N5: idle count = records showing the idle line (a close, live, not importing or failed, not Demo; every account removed is not frozen, B1); idRange scopes it', async () => {
   const { sql } = await import('./db.ts');
   const { idleCount } = await import('./sync.ts');
   const { coverage } = await import('./sync-shard.ts');
@@ -42,17 +43,18 @@ dbTest('N5: idle count = records showing the idle line (a close, live, not impor
   try {
     const idle = await mk('idle'); // counted
     const oneRemoved = await mk('one', { removed: 'one' }); // counted: an account left
-    const ids = [idle, oneRemoved,
+    const allRemoved = await mk('allrm', { removed: 'all' }); // counted: every live account removed is not frozen (B1), so idle
+    const ids = [idle, oneRemoved, allRemoved,
       await mk('noclose', { close: false }), // no close: no status line
-      await mk('allrm', { removed: 'all' }), // every live account removed: frozen, not idle (N7)
       await mk('imp', { state: 'importing' }), // an import running: no status line
       await mk('fail', { state: 'failed' }), // a failed import: the failed note, no status line
       await mk('demo', { demo: true }), // Demo data: "Demo data", never idle
     ];
-    assert.equal(await idleCount(ids), 2);
+    assert.equal(await idleCount(ids), 3);
     // Scope.idRange (lib/sync-shard.ts): the range alone, and with ids.
     const lo = Math.min(...ids), hi = Math.max(...ids);
-    assert.equal(await idleCount(ids, [lo, hi]), 2);
+    assert.equal(await idleCount(ids, [lo, hi]), 3);
+    assert.equal(await idleCount(ids, [allRemoved, allRemoved]), 1);
     assert.equal(await idleCount(ids, [oneRemoved, oneRemoved]), 1);
     assert.equal(await idleCount(undefined, [idle, idle]), 1);
     // The coverage step passes its whole scope.

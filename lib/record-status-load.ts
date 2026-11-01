@@ -15,8 +15,6 @@ const date = (s: string | null) => (s ? new Date(s) : null);
 
 // ponytail: the account count and the demo check scan each trader's activities (as the profile's own reads do) — a
 // per-user account count and source flag written by the sync would make them constant-time on a feed page
-// ponytail: an account the vendor lists again but with no trade after its removal still reads "Account removed" — fix:
-// stamp a per-account last_listed_at in lib/sync.ts and compare it with removed_at here
 export async function statusRows(userIds: number[]): Promise<Map<number, StatusRow>> {
   const ids = [...new Set(userIds)].map(Number);
   const out = new Map<number, StatusRow>();
@@ -30,9 +28,9 @@ export async function statusRows(userIds: number[]): Promise<Map<number, StatusR
       select c.user_id, jsonb_agg(jsonb_build_object('id', c.id, 'consentAt', c.consent_at, 'disconnectedAt', c.disconnected_at, 'institution', c.institution,
         'accounts', (select coalesce(jsonb_agg(jsonb_build_object('id', x.a->>'id', 'isPaper', coalesce((x.a->>'isPaper')::boolean, false),
             'institution', x.a->>'institution',
-            -- FIXES-LABELS (code review): a removed account the vendor listed again (a trade on it executed after the
-            -- removal, which only a later listing imports) no longer reads "Account removed"; removed_at itself is never
-            -- cleared (lib/sync.ts).
+            -- FIXES-LABELS (code review): a removed account the vendor listed again no longer reads "Account removed":
+            -- the sync clears removed_at when a list names the account again (PR #85 review B1, lib/sync.ts), and a
+            -- trade on it executed after the removal (which only a later listing imports) hides an older stamp too.
             'removedAt', case when exists (select 1 from activities av where av.user_id = c.user_id and av.account_id = ba.account_id
               and av.executed_at > ba.removed_at) then null else ba.removed_at end) order by x.ord), '[]'::jsonb)
           from jsonb_array_elements(c.accounts) with ordinality x(a, ord)

@@ -470,14 +470,17 @@ export async function syncUser(
       // FIXES-LABELS: status (F-11, TR-5 "Account removed ‹date›"). Only after the vendor's list came back (a fetch error has
       // already thrown) and is not empty (an empty list is the confirmed-freeze path above, F3-3): a confirmed real account
       // the list no longer has, whose connection still lists at least one account, is stamped once (again after a relisting
-      // with a trade, QA round 2 N2); never cleared, like disconnected_at. Its trades stay listed (TR-1); its last positions
-      // move aside with the per-account positions read below (replaceListedPositions, F3-4).
+      // with a trade, QA round 2 N2). PR #85 review (B1): every account the list names again has its stamp cleared first, so
+      // a flapping list labels an account row only until the account is listed again; a removal never freezes the record
+      // (only disconnected_at does, lib/record-status.ts). Its trades stay listed (TR-1); its last positions move aside with
+      // the per-account positions read below (replaceListedPositions, F3-4).
       // F-14: the list is read on every run, cadence or not (only activities and positions wait for their due time), so
       // every run that reaches here fetched it (lib/sync-removed-cadence.test.ts).
       // ponytail: an account removed while the vendor list is empty is recorded as a disconnect, not a removal — vendor per-account removal events
-      // ponytail: one short list stamps removed_at (no F3-3 two-list confirmation as for disconnected_at) — confirm with a missing_since per account if vendor short lists show up
+      // ponytail: one short list stamps removed_at (no F3-3 two-list confirmation as for disconnected_at), which labels only that account's row, never the record, until the account is listed again — confirm with a missing_since per account if vendor short lists show up
       if (accounts.length) {
         const listed = accounts.map((a) => a.id);
+        await tx`update broker_accounts set removed_at = null where user_id = ${user.id} and removed_at is not null and account_id in ${tx(listed)}`;
         // QA round 2 (N2): stamped again when it was listed again in between (a trade on it executed after the last stamp,
         // which only a later listing imports), so a second removal shows its own date (lib/record-status-load.ts hides a
         // stamp older than such a trade).
@@ -696,20 +699,13 @@ export async function syncAll<U extends { id: number }>(users: U[], sync: (u: U)
 // record with a live (not disconnected) consented connected connection whose last successful sync, or else its earliest
 // live consent, is IDLE_DAYS old or more. A frozen record (every connection disconnected) is not idle. A count only.
 // QA round 2 (N5): only records that would show the idle line: at least one close, a broker record (no Demo data, not
-// built from public filings), no consented import running or failed, and not frozen by every live account being
-// removed (lib/record-status.ts#recordFrozen; a removal older than a later trade on that account does not count, as in
-// lib/record-status-load.ts). `idRange` is lib/sync-shard.ts's Scope.idRange (the coverage step's scope).
+// built from public filings), and no consented import running or failed. PR #85 review (B1): a record whose live
+// accounts are all removed is not frozen (only disconnected_at freezes), so it shows the idle line and is counted.
+// `idRange` is lib/sync-shard.ts's Scope.idRange (the coverage step's scope).
 // ponytail: the import/failed test is per consented connection, not lib/connections.ts#aggregateRecord's full rule (a legacy claim, paper-only links) — fix: store the record state per user and read it here
 export async function idleCount(ids?: number[], idRange?: [number, number]): Promise<number> {
   if (ids && !ids.length) return 0;
-  const [{ n }] = await sql`with live as (
-      select u.id as user_id, x.a->>'id' as account_id,
-        exists (select 1 from broker_accounts ba where ba.user_id = u.id and ba.account_id = x.a->>'id' and ba.removed_at is not null
-          and not exists (select 1 from activities av where av.user_id = u.id and av.account_id = ba.account_id and av.executed_at > ba.removed_at)) as removed
-      from users u join connections c on c.user_id = u.id and c.state = 'connected' and c.consent_at is not null and c.disconnected_at is null,
-        jsonb_array_elements(c.accounts) x(a)
-      where coalesce((x.a->>'isPaper')::boolean, false) = false ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
-        ${idRange ? sql`and u.id between ${idRange[0]} and ${idRange[1]}` : sql``})
+  const [{ n }] = await sql`
     select count(*)::int as n from users u,
       lateral (select min(c.consent_at) as first from connections c where c.user_id = u.id and c.state = 'connected' and c.consent_at is not null and c.disconnected_at is null) l
     where u.deleted_at is null and l.first is not null ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
@@ -718,7 +714,6 @@ export async function idleCount(ids?: number[], idRange?: [number, number]): Pro
       and u.public_filer_id is null
       and exists (select 1 from closed_trades t where t.user_id = u.id)
       and not exists (select 1 from activities d where d.user_id = u.id and d.source = 'demo')
-      and not exists (select 1 from connections c where c.user_id = u.id and c.consent_at is not null and c.state in ('importing', 'failed'))
-      and not (exists (select 1 from live where live.user_id = u.id) and not exists (select 1 from live where live.user_id = u.id and not live.removed))`;
+      and not exists (select 1 from connections c where c.user_id = u.id and c.consent_at is not null and c.state in ('importing', 'failed'))`;
   return n as number;
 }

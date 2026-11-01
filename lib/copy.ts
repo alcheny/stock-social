@@ -1002,7 +1002,10 @@ export const STATUS_LINE = {
   instDisconnected: (inst: string, d: string) => `${inst} disconnected ${d}`, // one of several connections
   removed: (d: string) => `Account removed ${d}`, // TR-5, on the account's row
   removedNumbered: (label: string, d: string) => `${label} removed ${d}`, // QA round 2 (N8): "Account 2 of 2 removed ‹date›"
-  allRemoved: (d: string) => `No account connected since ${d} · record frozen`, // QA round 2 (N7): every account removed
+  // QA round 2 (N7): every live account removed. PR #85 review (B1): not "record frozen" (that comes from a confirmed
+  // disconnect only), so the live "updated" part follows on line 2.
+  allRemoved: (d: string) => `No account connected since ${d}`,
+  disconnectedNumbered: (label: string, d: string) => `${label} disconnected ${d}`, // PR #85 review (nit 2): a row of a disconnected connection on a partly disconnected record
   accountLine: (label: string, inst: string) => `${label} · ${inst}`,
   accountOf: (i: number, n: number) => `Account ${i} of ${n}`,
   // The council's row 1 says "Demo"; "Demo data" is kept because an existing test asserts it on the profile
