@@ -130,8 +130,9 @@ test('cycle-2 #20: the trade and month images call notFound() for a missing reco
   assert.match(code(read('app/u/[handle]/trade/[sellId]/opengraph-image.tsx')), /\btradeBand\(/);
 });
 
-test('review: the stock image counts closed trades of live traders only (users.deleted_at is null, the page rule)', () => {
+// F-16 (plan §5.2, §0.7): the page rule is now the visible-user predicate (not deleted, not hidden), so this pins it.
+test('review: the stock image counts closed trades of live traders only (the visible-user predicate, the page rule)', () => {
   const s = code(read('app/t/[symbol]/opengraph-image.tsx'));
   const q = s.slice(s.indexOf('from closed_trades'), s.indexOf('as unknown as'));
-  assert.match(q, /join users u on u\.id = t\.user_id and u\.deleted_at is null/);
+  assert.match(q, /join users u on u\.id = t\.user_id and \$\{visibleUser\('u'\)\}/);
 });

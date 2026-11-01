@@ -78,3 +78,109 @@ dbTest('the predicate skips a hidden user in every form, and handleStatus names 
     await sql`delete from signup_attempts where id in ${sql(attempts)}`;
   }
 });
+
+// ---- F-16 predicate sweep (plan §5.2, §7; engineer A): the reads that moved onto the predicate skip a hidden trader;
+// the feed's snapshot list keeps its order (E5); the hidden trader keeps their own account (E11). ----
+type Fx = { sql: typeof import('./db.ts').sql; ids: number[]; attempts: number[]; tag: string; sym: string };
+async function fixture(n: number): Promise<Fx & { users: { id: number; handle: string }[] }> {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `fs${Math.random().toString(36).slice(2, 9)}`;
+  const sym = `Q${tag.toUpperCase().slice(2, 8)}`;
+  const attempts: number[] = [], users: { id: number; handle: string }[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = await createAttempt({ method: 'dev', attested: true });
+    attempts.push(a);
+    users.push(await createUserForAttempt(a, { handle: `${tag}${i}` }));
+  }
+  // Five recent closes each (feed eligibility), distinct sizes so the ranking is total.
+  for (const [k, u] of users.entries()) {
+    for (let j = 0; j < 5; j++) {
+      await sql`insert into closed_trades (user_id, account_id, symbol, sell_id, return_pct, holding_days, opened_at, closed_at, verified)
+        values (${u.id}, 'acc', ${sym}, ${`${tag}-${k}-${j}`}, ${0.05 + k * 0.03 + j * 0.001}, 3, now() - interval '5 days', now() - ${`${k * 7 + j} minutes`}::interval, true)`;
+    }
+    await sql`insert into open_positions (user_id, account_id, symbol, unrealized_pct, fetched_at) values (${u.id}, 'acc', ${sym}, 0.02, now())`;
+  }
+  return { sql, ids: users.map((u) => u.id), attempts, tag, sym, users };
+}
+async function cleanup(f: Fx) {
+  await f.sql`delete from users where id in ${f.sql(f.ids)}`;
+  await f.sql`delete from funnel_events where attempt_id in ${f.sql(f.attempts)}`;
+  await f.sql`delete from signup_attempts where id in ${f.sql(f.attempts)}`;
+}
+
+dbTest('E5: the feed list as of a time before a hide keeps its order; as of now the hidden trader is out', async () => {
+  const f = await fixture(3);
+  try {
+    const { feedList, feedCandidates } = await import('./feed.ts');
+    const asOf = new Date(Date.now() - 1000);
+    const day = asOf.toISOString().slice(0, 10);
+    const order = async (at: Date) => (await feedList({ asOf: at, day, ids: f.ids })).list.map((t) => t.sell_id);
+    const before = await order(asOf);
+    const hid = f.users[1];
+    assert.ok(before.some((s) => s.startsWith(`${f.tag}-1-`)), 'the trader is listed before the hide');
+    await f.sql`update users set hidden_at = now() where id = ${hid.id}`;
+    // Recomputed from the database after the hide, as of the same time: the same list, the same order (a gap, never a shift).
+    assert.deepEqual(await order(asOf), before);
+    const now = await order(new Date());
+    assert.ok(now.length > 0);
+    assert.ok(!now.some((s) => s.startsWith(`${f.tag}-1-`)), 'as of now the hidden trader is not listed');
+    assert.ok(!(await feedCandidates({ ids: f.ids })).some((t) => t.user_id === hid.id));
+  } finally { await cleanup(f); }
+});
+
+dbTest('the swept public reads skip a hidden trader (trade, month, record card, likes, follows, display log, compare)', async () => {
+  const f = await fixture(2);
+  try {
+    const [live, hid] = f.users;
+    const { loadTradeShare } = await import('./trade-share-load.ts');
+    const { loadRecap } = await import('./recap-load.ts');
+    const { recordCardLoader } = await import('../app/u/[handle]/record-card-data.ts');
+    const { profileReads } = await import('../app/u/[handle]/load.ts');
+    const { like } = await import('./likes.ts');
+    const { followable } = await import('./follows.ts');
+    const { snapshotsFor } = await import('./display-log.ts');
+    const { compareCards } = await import('./record-tools.ts');
+    const sell = `${f.tag}-1-0`;
+    const [{ id: tradeId }] = await f.sql`select id::text as id from closed_trades where sell_id = ${sell}`;
+    const ym = new Date().toISOString().slice(0, 7);
+    const card = () => recordCardLoader(profileReads((fn) => fn))(hid.handle, 'unfurl');
+    const reads = async () => ({
+      trade: !!(await loadTradeShare(hid.handle, sell)),
+      month: !!(await loadRecap(hid.handle, ym)),
+      card: !!(await card()),
+      followable: await followable(hid.id),
+      log: (await snapshotsFor([hid.id], new Date())).has(hid.id),
+      closed: (await compareCards([{ id: hid.id, handle: hid.handle, name: hid.handle }]))[0].closed,
+    });
+    assert.deepEqual(await reads(), { trade: true, month: true, card: true, followable: true, log: true, closed: 5 });
+    await f.sql`update users set hidden_at = now() where id = ${hid.id}`;
+    assert.deepEqual(await reads(), { trade: false, month: false, card: false, followable: false, log: false, closed: 0 });
+    assert.equal(await like(live.id, tradeId), false, 'a hidden trader\'s trade is no like target');
+    assert.equal((await snapshotsFor([live.id], new Date())).has(live.id), true, 'the visible trader is untouched');
+  } finally { await cleanup(f); }
+});
+
+dbTest('E11: a hidden trader still signs in, loads settings and downloads their own data', async () => {
+  const f = await fixture(2);
+  try {
+    const [hid, other] = f.users;
+    await f.sql`update users set hidden_at = now() where id = ${hid.id}`;
+    const { findLiveUserByHandle } = await import('./handles.ts');
+    assert.deepEqual(await findLiveUserByHandle(hid.handle), { id: hid.id });
+    const { createSession, userIdForSession } = await import('./auth/sessions.ts');
+    assert.equal(await userIdForSession(await createSession(hid.id)), hid.id);
+    // The settings page's own reads (app/settings/page.tsx).
+    const { hasSubscribed } = await import('./billing.ts');
+    const { notesLineApplies } = await import('./delete.ts');
+    assert.equal(typeof await hasSubscribed(hid.id), 'boolean');
+    assert.equal(typeof await notesLineApplies(hid.id), 'boolean');
+    // Their own export (app/account/export/route.ts): their saved view, with the trader it holds.
+    const [v] = await f.sql`insert into record_views (owner_id, name) values (${hid.id}, 'Mine') returning id`;
+    await f.sql`insert into record_view_traders (view_id, trader_id, position) values (${v.id}, ${other.id}, 0)`;
+    const { exportFor } = await import('./record-tools.ts');
+    const out = await exportFor(hid.id);
+    assert.deepEqual(out.views.map((x) => [x.name, x.traders]), [['Mine', [other.handle]]]);
+    assert.ok(out.disclaimer.length > 0);
+  } finally { await cleanup(f); }
+});

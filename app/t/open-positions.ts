@@ -1,8 +1,9 @@
 // F-6 · open positions on the stock pages (docs/features/logs/F-6/plan.md §1.5, §6): the aggregate only, never a list
-// of who holds the stock (POLICY F1/F3b). Counted for traders not deleted whose record is connected or failed (an
+// of who holds the stock (POLICY F1/F3b). Counted for visible traders (not deleted, not hidden: F-16) whose record is connected or failed (an
 // importing record is not presented, TR-3; a record with no consented connection shows no positions). Percent only.
 import { cache } from 'react';
 import { sql } from '@/lib/db.ts';
+import { visibleUser } from '@/lib/visible-users.ts';
 import { recordStates } from '@/lib/connections.ts';
 import { openSummary, type OpenSummary } from '@/lib/open-split.ts';
 
@@ -14,7 +15,7 @@ export const symbolOpen = cache(async (...symbols: string[]): Promise<Map<string
   if (!symbols.length) return out;
   const rows = (await sql`
     select p.symbol, p.user_id, p.unrealized_pct, p.fetched_at
-    from open_positions p join users u on u.id = p.user_id and u.deleted_at is null
+    from open_positions p join users u on u.id = p.user_id and ${visibleUser('u')}
     where p.symbol = any(${symbols})`) as unknown as { symbol: string; user_id: number; unrealized_pct: number; fetched_at: Date }[];
   if (!rows.length) return out;
   const states = await recordStates(rows.map((r) => r.user_id));

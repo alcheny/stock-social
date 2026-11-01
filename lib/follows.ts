@@ -6,6 +6,7 @@
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { filerVisibleSql } from './public-gate.ts';
+import { visibleUser } from './visible-users.ts';
 import { EXCLUSION_DAYS, FEED_HIDES_UNFOLLOWED } from './discovery/weights.ts';
 import type { ExclusionRow } from './discovery/exclusions.ts';
 
@@ -23,8 +24,10 @@ export async function traderId(handle: unknown): Promise<number | null> {
 // Low 3; an empty list after unfollowing everyone does not bring it back).
 // F-7 (legal C16): a public-record filer can't be followed; `followable` lets the action refuse it, and the insert
 // itself skips one.
+// F-16 (plan v2 E12): a hidden trader can't be newly followed or liked. traderId stays deletion-only so a viewer can still
+// unfollow, or end a "Not interested" on, a trader in their own lists (private lists are untouched).
 export async function followable(trader: number): Promise<boolean> {
-  return (await sql`select 1 from users where id = ${trader} and public_filer_id is null`).length > 0;
+  return (await sql`select 1 from users u where u.id = ${trader} and u.public_filer_id is null and ${visibleUser('u')}`).length > 0;
 }
 export async function follow(viewer: number, trader: number): Promise<{ first: boolean }> {
   return sql.begin(async (tx) => {

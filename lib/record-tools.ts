@@ -14,6 +14,7 @@ import { paneTrust } from './pane.ts';
 import { followHandles, traderId } from './follows.ts';
 import { exportSubscription } from './billing.ts';
 import { toneClass } from './open-split.ts';
+import { visibleId, visibleUser } from './visible-users.ts';
 
 // F-3: set by /tools/signin, read once by the sign-in landing (lib/auth/landing.ts) to come back to Record tools.
 export const AFTER_SIGNIN_COOKIE = 'after_signin';
@@ -86,7 +87,8 @@ export async function addTrader(owner: number, viewId: unknown, handle: unknown)
   if (!view) return { ok: false, reason: 'view' };
   const trader = await traderId(typeof handle === 'string' ? handle.trim().replace(/^@/, '').toLowerCase() : handle);
   // F-7 (legal C21): public-filing records are never behind a paid feature, so a filer can't be added to a view.
-  if (!trader || (await sql`select 1 from users where id = ${trader} and public_filer_id is not null`).length) return { ok: false, reason: 'unknown' };
+  // F-16: a hidden trader is unknown here too (the add names nobody the public can't see).
+  if (!trader || (await sql`select 1 from users u where u.id = ${trader} and (u.public_filer_id is not null or not ${visibleUser('u')})`).length) return { ok: false, reason: 'unknown' };
   if (view.traders.some((t) => t.id === trader)) return { ok: false, reason: 'duplicate' };
   if (view.traders.length >= MAX_TRADERS) return { ok: false, reason: 'full' };
   // E7: one add at a time per view, so two concurrent adds can never make a fifth trader.
@@ -205,7 +207,7 @@ export async function compareCards(traders: ViewTrader[], now = new Date()): Pro
 // view) — share a cached per-trader summary once the profile has one.
 async function card(t: ViewTrader, now: Date): Promise<Card> {
   const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate from users where id = ${t.id}`;
-  const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id}`;
+  const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id} and ${visibleId(t.id)}`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${t.id} and source = 'snaptrade'`;
   const { public: { state, paper } } = await publicRecordDetail(t.id);
   const brokers = await recordInstitutions(t.id);

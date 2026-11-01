@@ -15,9 +15,9 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const src = (f: string) => readFileSync(`${root}${f}`, 'utf8');
 const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = join(d, f); return statSync(p).isDirectory() ? walk(p) : [p]; });
 
-// ponytail: these stock files still read closed_trades / open_positions with their own `deleted_at is null` or none —
-// fix: the follow-up after claude/fix-truthful-labels merges moves them onto lib/visible-users.ts and empties this list.
-const PENDING_VISIBLE = ['app/t/compare/page.tsx', 'app/t/[symbol]/opengraph-image.tsx', 'app/t/open-positions.ts'];
+// F-16 predicate sweep (plan §0.7, §13 A): every stock file is on lib/visible-users.ts, so nothing is pending. The
+// app-wide check is lib/f16-visible-reads.test.ts.
+const PENDING_VISIBLE: string[] = [];
 
 test('fix #4: every closed_trades / open_positions read on the stock pages, index and sitemap uses the visible-user predicate', () => {
   // lib/sitemaps.ts: the sitemaps' reads (known limits PR #52 moved them out of app/sitemap.ts to page past 5,000 symbols).
