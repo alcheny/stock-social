@@ -3,6 +3,7 @@ import { sql } from '@/lib/db.ts';
 import { records } from '@/lib/feed.ts';
 import { recordStates } from '@/lib/connections.ts';
 import { optionHeadline, paneView } from '@/lib/options-load.ts'; // OPTIONS (AC 24): the pane's label and line, gated per trader
+import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
 // (app/lazy-pane.tsx), so the profile no longer renders three other traders' records. Public like the profile (signed
@@ -13,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   // Reviewer (tester Low): a handle outside the signup pattern (a NUL byte made Postgres throw, a 500) is a 404 before any query.
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const no = () => NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
-  const [user] = await sql`select id from users where handle = ${handle} and deleted_at is null`;
+  const [user] = await sql`select id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
   if (!user) return no();
   // F-6: the trader's open positions (unrealized percent only), served for a connected or failed record only, as on the feed.
   const [rows, states, positions, options] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),
@@ -24,5 +25,5 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const shown = state === 'connected' || state === 'failed' ? positions : [];
   const open = shown.map((p) => p.unrealized_pct as number);
   const openAsOf = shown.length ? Math.min(...shown.map((p) => (p.fetched_at as Date).getTime())) : null;
-  return NextResponse.json({ state, trades, open, openAsOf, options: paneView(options.get(user.id as number)!) /* the flag and the line only (QA 2) */ }, { headers: { 'cache-control': 'public, max-age=60' } });
+  return NextResponse.json({ state, trades, open, openAsOf, options: paneView(options.get(user.id as number)!) /* the flag and the line only (QA 2) */ }, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
 }

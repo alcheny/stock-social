@@ -58,6 +58,8 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
 type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string };
 export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
   const run = async (tx: TransactionSql) => {
+    // F-7: a public filer's trades come from its filings only (lib/public-trades.ts); this rebuild never touches them.
+    if ((await tx`select 1 from users where id = ${userId} and public_filer_id is not null`).length) throw new Error('public filer: not a broker record');
     // Reviewer fix round 2: a rebuild never deletes a thesis. One whose trade is not produced now (its account is flagged
     // simulated, a vendor correction) is kept in kept_theses by sell_id, shown nowhere, and re-attached when the trade
     // returns. Kept rows come first, so a thesis on a current closed_trades row always wins its sell_id; saveThesis

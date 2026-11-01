@@ -4,7 +4,8 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { RECORD_STRIP, wholeRecordView } from '@/lib/copy.ts';
+import { isPublicRecord, PUBLIC, RECORD_STRIP, wholeRecordView } from '@/lib/copy.ts';
+import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { tradeAlt, tradeDescription, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
@@ -39,6 +40,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
     description: tradeDescription(t, strip),
     openGraph: { images: [{ url, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
+    ...(isPublicRecord(t.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
   };
 }
 
@@ -56,7 +58,11 @@ export default async function TradePage({ params }: Params) {
       <p>
         <Link href={`/u/${t.handle}`}>← {RECORD_STRIP.link(t.handle)}</Link>{' '}
         {t.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
+        {isPublicRecord(t.state) && <Badge kind={t.state} />}
       </p>
+      {t.filings && <><PublicNotice />{/* F-7 (legal C15, AC 16): the not-joined line, then the purchase's and the sale's filings. */}
+        <p className="filing-links">{t.filings.bought.map((u) => <a key={u} className="filing-link" href={u} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.boughtName(t.symbol)}>{PUBLIC.bought}</a>)}
+          <a className="filing-link" href={t.filings.sold} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.soldName(t.symbol)}>{PUBLIC.sold}</a></p></>}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-trade">
           <h2 id="this-trade">This trade</h2>
@@ -75,7 +81,7 @@ export default async function TradePage({ params }: Params) {
       </div>
       <TradeShare isOwner={me !== null && me.handle === t.handle} path={path} title={`${t.symbol} ${pct(t.returnPct)} · @${t.handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
-      {!me && !t.demo && <JoinCta handle={t.handle} via="trade" />}
+      {!me && !t.demo && !t.filings && <JoinCta handle={t.handle} via="trade" />}
       <p><Link href="/">← Feed</Link></p>
     </main>
   );

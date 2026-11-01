@@ -31,7 +31,7 @@ export default async function HiddenTrades({ searchParams }: { searchParams?: Pr
               <li key={r.key} className="line">
                 <span className="who-col">
                   <Link href={`/u/${r.handle}`}><WhoName name={r.name} handle={r.handle} /></Link>
-                  <span className="small"><span className="closed">{!r.verified && <RowBadge kind="demo" />}{HIDDEN_TRADES.closed(r.symbol, day)}</span>
+                  <span className="small"><span className="closed"><RowBadge kind={r.filer ?? (r.verified ? null : 'demo')} />{HIDDEN_TRADES.closed(r.symbol, day)}</span>
                     <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}>{HIDDEN_TRADES.trade}</Link></span>
                 </span>
                 <form action={showTradeAgainForm.bind(null, r.key, sp.after)}>

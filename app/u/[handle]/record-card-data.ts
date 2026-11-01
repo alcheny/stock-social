@@ -4,6 +4,7 @@
 import { sql } from '@/lib/db.ts';
 import { publicRecord } from '@/lib/connections.ts';
 import { isDemoUser } from '@/lib/demo.ts';
+import { filerVisibleSql } from '@/lib/public-gate.ts';
 import { cardLink, recordCard, type CardKind, type CardModel } from '@/lib/record-card.ts';
 import { optionHeadline, paneView } from '@/lib/options-load.ts'; // OPTIONS (AC 24): the flag and the line only
 
@@ -11,9 +12,10 @@ import { optionHeadline, paneView } from '@/lib/options-load.ts'; // OPTIONS (AC
 // let the page pass its rows in once the profile and the card share one loader.
 export async function loadRecordCard(handle: string, kind: CardKind): Promise<CardModel | null> {
   if (typeof handle !== 'string' || !handle) return null;
-  const [user] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;
+  const [user] = await sql`select id, display_name, public_filer_id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
   if (!user) return null; // no card for an unknown handle or a profile being deleted (the profile itself is 404 too)
   const rows = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${user.id}`;
+  if (user.public_filer_id && !rows.length) return null; // F-7: a filer with no priced close has no page, so no card
   // F-6: the unrealized percent of each open position only (no symbol, no account): the card prints no symbols.
   // recordCard decides whether they show (a broker record, no import running), as the profile lists them.
   const [{ state }, demo, open, options] = await Promise.all([publicRecord(Number(user.id)), isDemoUser(Number(user.id)),

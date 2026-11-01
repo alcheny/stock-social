@@ -129,7 +129,8 @@ export const RECORD_BODY = {
   failed: 'The import did not finish, so this record may be incomplete.',
   retry: 'Try again',
 } as const;
-export type RecordState = 'importing' | 'connected' | 'failed' | 'none';
+// F-7: 'public' / 'public_demo' (a fictional fixture) is a record built from public filings (lib/connections.ts#recordStates).
+export type RecordState = 'importing' | 'connected' | 'failed' | 'none' | 'public' | 'public_demo';
 // The S8 empty-record line belongs to a finished import only; a failed one says so instead.
 // Committee fix (item 8): the importing line only while nothing is listed yet; with trades listed the banner says it.
 export const recordBodyCopy = (state: RecordState, closes: number): string | null =>
@@ -172,6 +173,7 @@ export type ShareCardText = { label: string | null; tone: 'ok' | 'muted' | 'warn
 // body null = show the stats; note null = show the evidence line.
 export function shareCardText(x: { state: RecordState; demo: boolean; verified: boolean; empty: boolean }): ShareCardText {
   const body = x.empty ? SHARE_CARD.empty : null;
+  if (isPublicRecord(x.state)) return { label: publicLabel(x.state), tone: 'muted', body, note: PUBLIC.imageLine }; // F-7
   if (x.demo) return { label: SHARE_CARD.demo, tone: 'muted', body, note: null };
   if (x.state === 'importing') return { label: SHARE_CARD.importing, tone: 'muted', body: SHARE_CARD.importingBody, note: SHARE_CARD.importingNote };
   if (x.state === 'failed') return { label: SHARE_CARD.failed, tone: 'warn', body, note: RECORD_BODY.failed };
@@ -217,6 +219,7 @@ export const RECORD_STRIP = {
 } as const;
 export type WholeRecordView = { stats: boolean; line: string | null; tone: 'muted' | 'warn' | null };
 export function wholeRecordView(x: { state: RecordState; demo: boolean }): WholeRecordView {
+  if (isPublicRecord(x.state)) return { stats: true, line: `${PUBLIC.badge}. ${PUBLIC.notJoined}`, tone: null }; // F-7: previews only
   if (x.demo) return { stats: true, line: null, tone: null };
   if (x.state === 'importing') return { stats: false, line: WHOLE_RECORD.importing, tone: 'muted' };
   if (x.state === 'failed') return { stats: true, line: RECORD_BODY.failed, tone: 'warn' };
@@ -232,6 +235,7 @@ export function wholeRecordPreview(x: { state: RecordState; demo: boolean; verif
 // Fix round 6: the whole-record count in a link preview's description says "verified" only when the profile would
 // (a whole record, every trade from the broker); "demo" for a demo profile; plain "closed" otherwise.
 export function recordCountText(x: { state: RecordState; demo: boolean; verified: boolean; trades: number }): string {
+  if (isPublicRecord(x.state)) return `${counted(x.trades, 'closed trade')} from public filings`; // F-7: never "verified"
   const kind = x.demo ? 'demo' : x.verified && x.trades > 0 && (x.state === 'connected' || x.state === 'none') ? 'verified' : 'closed';
   return counted(x.trades, `${kind} trade`);
 }
@@ -284,6 +288,7 @@ export const connectedLine = (institutions: string[], accounts: number): string 
 // The profile's link-preview text. With no closes there is no stats line (never "0 closed trades · % win rate"): the
 // profile's own empty-record words instead. While importing, the banner line (no stats, TR-3).
 export function profileDescription(x: { state: RecordState; demo: boolean; verified: boolean; trades: number; stats: string }): string {
+  if (isPublicRecord(x.state)) return `${PUBLIC.badge} · ${PUBLIC.notJoined} ${recordCountText(x)} · ${x.stats}`; // F-7 (C15)
   if (x.state === 'importing' && !x.demo) return RECORD_BODY.banner(x.trades, false); // public text: never "your"
   const failed = x.state === 'failed' && !x.demo ? `${RECORD_BODY.failed} ` : '';
   if (x.trades === 0) return x.state === 'failed' ? `${failed}${SHARE_CARD.empty}.` : x.state === 'connected' ? RECORD_BODY.connected : RECORD_BODY.none;
@@ -782,6 +787,50 @@ export const BILLING = {
   deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
 } as const;
 export { billingDate };
+// ---- F-7 public-record traders (docs/features/logs/F-7/plan.md Round 4 item 1, Round 5 items 3-6; legal C9-C12, C15, C18,
+// C24). Never "Verified"; no advice, signals or completeness claims (lib/f7-trust.test.ts walks every string).
+export const isPublicRecord = (s: string): s is 'public' | 'public_demo' => s === 'public' || s === 'public_demo';
+const publicLabel = (s: 'public' | 'public_demo') => (s === 'public_demo' ? `Demo · ${PUBLIC.badge}` : PUBLIC.badge);
+const sales = (n: number) => counted(n, 'sale'), BUILT = 'Built from public filings.';
+export const PUBLIC = {
+  badge: 'Public filing', badgeTitle: 'Built from public filings, not from a broker connection. Not Verified: it does not verify identity or completeness.', kind: 'Company insider',
+  notJoined: `${BUILT} This person has not joined Stock Social, has not connected a broker, has not reviewed this record and does not endorse it.`,
+  since: (first: string, checked: string) => `Record since ${first} · last checked ${checked}`, notYet: 'not yet', correction: 'Request a correction or removal →',
+  caveat: 'Filings can be late, amended or missing.', stale: 'This record may be out of date.',
+  imageLine: 'This person has not joined Stock Social.', // the share image's line (the alt and unfurl carry notJoined)
+  // The trade and month images' alt (og and twitter): the label and the not-joined line, never Verified or an amount.
+  imageAlt: (what: string, s: 'public' | 'public_demo'): string => `${what} on Stock Social: ${publicLabel(s)}. ${PUBLIC.notJoined}`,
+  cardLine: 'Company insider · from a public filing', cardFooter: 'See their record, wins and losses →',
+  filing: 'Filing ↗', filingName: (symbol: string, day: string) => `Public filing for the ${symbol} sale closed ${day}, opens another site`,
+  sold: 'Sold: filing ↗', bought: 'Bought: filing ↗', boughtName: (symbol: string) => `Public filing for the ${symbol} purchase, opens another site`, soldName: (symbol: string) => `Public filing for the ${symbol} sale, opens another site`,
+  openTitle: 'Open positions', openNote: 'Only shares bought in open-market purchases shown in the filings and not yet sold. This is not the person’s full holdings, and current value isn’t available from the filings, so no percent is shown.',
+  recap: 'Recaps list the month\u2019s closed trades built from public filings, and none can be hidden.',
+  paneFoot: 'Closed trades built from public filings, losses included. Sales that can’t be priced from the filings are excluded and counted on the profile.',
+  excluded: {
+    no_price: (n: number) => `${sales(n)} excluded: no priced open-market purchase before them in the filings (for example shares received as pay).`,
+    unreconciled: (n: number) => `${sales(n)} excluded: holdings didn't reconcile, possibly a stock split.`,
+    derivative: (n: number) => `${counted(n, 'derivative transaction')} excluded: options and other derivatives are not matched.`, gift: (n: number) => `${counted(n, 'gift')} excluded: not an open-market sale.`,
+    other: (n: number) => `${counted(n, 'other disposal')} excluded: not an open-market sale (for example shares withheld for tax).`, indirect: (n: number) => `${counted(n, 'transaction')} in indirectly held shares excluded.`,
+  } as Record<string, (n: number) => string>,
+  excludedOther: (n: number) => `${counted(n, 'transaction')} excluded for another reason.`,
+  how: { title: 'Public filing records', link: 'Corrections and removal requests', lines: [
+    'Some profiles are built from company insiders’ transaction reports on the securities regulator’s public filing system. These people have not joined Stock Social.',
+    'Only open-market purchases and open-market sales are matched, first in, first out, per security. Returns come from the prices in the reports, before fees.',
+    'Shares received any other way (grants, exercises, gifts, earlier holdings) have no known cost, so a sale that uses them is excluded and counted, never estimated. Indirect holdings and derivatives are excluded too.',
+    'Filings can be late, amended or missing. An amendment replaces what it amends and the record is rebuilt.', 'Open positions show symbols only: the filings give no current price. "Public filing" is not Verified and does not verify identity or completeness.'] },
+  page: { title: 'Public filing records', askTitle: 'Ask for a correction or removal', unset: 'Requests open before launch.',
+    description: 'What Public filing records are: built from company insiders’ public transaction reports. The person has not joined Stock Social and has not reviewed the record.',
+    ask: 'If this is your record, or something in it is wrong, write to the address below. We will review your request and reply.', lines: [
+      'Profiles marked "Public filing" are built from company insiders’ transaction reports on the securities regulator’s public filing system, not from a broker connection.',
+      'The person has not joined Stock Social, has not connected a broker, has not reviewed the record and does not endorse it.',
+      'Only open-market purchases matched to later open-market sales are shown, as percentages. Sales that can’t be priced from the filings, indirect holdings and derivatives are excluded and counted on each profile.',
+      'Filings can be late, amended or missing, so a record can be out of date or partial.'] },
+};
+// The profile's exclusion lines, one per reason above 0, in a fixed order; a reason this release doesn't name is still counted.
+export function publicExclusions(excluded: Record<string, number>): string[] {
+  const known = Object.keys(PUBLIC.excluded), other = Object.entries(excluded).filter(([k, n]) => !known.includes(k) && n > 0).reduce((a, [, n]) => a + n, 0);
+  return [...known.filter((k) => (excluded[k] ?? 0) > 0).map((k) => PUBLIC.excluded[k](excluded[k])), ...(other ? [PUBLIC.excludedOther(other)] : [])];
+}
 
 // Fixes cycle 2 (trust rows, approval council 2026-11-01), fix #5 (POLICY P6/P3). The join card makes no claim about
 // what is public (the connect step lists it exactly); it says what stays private. Never "only percentages": the handle,
