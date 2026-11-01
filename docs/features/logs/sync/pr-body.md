@@ -51,8 +51,8 @@ Removes the known limit "`/api/sync` loops users sequentially (~5k traders/hour)
 
 **For the owner: CLAUDE.md "Known limits"** (owner-only, so not edited here). Suggested replacement for the second bullet:
 > `/api/sync` is sharded (`?shard=i&of=N`, docs/SYNC.md): ≈155k traders a round on 40 shards × 6 workers at 12 req/s,
-> extrapolated from the measured per-shard rate (1.56× over 100k). Switch-on gate in docs/SYNC.md (vendor quota in writing, the "Last updated" line, the owner's TR-5
-> refusal rule, `dbConfigOk`). Remaining ponytail (lib/sync.ts): a sync past SYNC_FIT_CAP accounts, or reading more than
+> extrapolated from the measured per-shard rate (1.56× over 100k). Switch-on gate in docs/SYNC.md (vendor quota and cost in
+> writing, the "Last updated" line, the owner's TR-5 refusal rule, `dbConfigOk`, the housekeeping cron entry). Remaining ponytail (lib/sync.ts): a sync past SYNC_FIT_CAP accounts, or reading more than
 > one vendor page per account, can still overrun and roll back. The runner quarantines such a trader; per-account
 > checkpoints are a follow-up PR.
 
@@ -72,7 +72,7 @@ The hosting plan must allow 5-minute crons and 41 entries.
 
 ## Known limits (each marked `ponytail:` at its place)
 
-- `lib/sync.ts` (SYNC_FIT_CAP): a sync of more than 4 accounts, or one reading more than one vendor page per account, can
+- `lib/sync.ts` (SYNC_FIT_CAP): a sync of more than 3 accounts (SYNC_FIT_CAP after #40), or one reading more than one vendor page per account, can
   still overrun the call and roll back. The runner dispatches such a trader first in a call and quarantines it after two
   overruns. Fix: a resumable per-account sync, as a follow-up PR (orchestrator-agreed).
 - `lib/sync-shard.ts` (fit check): a trader dispatched near a call's end whose requests then slow down is cut by the
@@ -81,10 +81,10 @@ The hosting plan must allow 5-minute crons and 41 entries.
   its own budget. Fix: a budget row in the database.
 - `lib/sync-shard.ts` (breaker): its window covers one run, so an outage is re-detected by every shard's run. Fix: a
   shared breaker row.
-- `lib/sync-shard.ts` (prepaid tokens): a request beyond the prepaid 1 + 2n waits for its token inside the trader's
+- `lib/sync-shard.ts` (prepaid tokens): a request beyond the prepaid 1 + 3n waits for its token inside the trader's
   transaction (rare). Fix: prepay from the page count.
-- `lib/sync-shard.ts` (coverage): the counts scan every syncable trader on each unsharded or housekeeping call (tens of ms at 100k). Fix:
-  sum the shards' `last_run` counters past a few million.
+- `lib/sync-shard.ts` (coverage): the counts scan every syncable trader on each unsharded or housekeeping call (tens of ms at
+  100k). Fix: sum the shards' `last_run` counters past a few million.
 - `db/schema.sql` (`users_sync_order`): the shard filter runs after the index, so each page reads past other shards'
   rows (21–26 ms a page at 100k). Fix: an expression index for a fixed shard count.
 - `app/api/sync/route.ts`: the cron schedule is a deploy setting for the owner (above).
@@ -95,8 +95,8 @@ The hosting plan must allow 5-minute crons and 41 entries.
 
 ## Decisions taken by the committee
 
-The committee was the business lead, the engineer and a reliability reviewer. It held two rounds and all three signed;
-an independent code review followed. The log is `docs/features/logs/sync/committee-2026-11-01.md`.
+The committee was the business lead, the engineer and a reliability reviewer. It held three rounds and all three signed (the third after #40 changed the cost
+of a sync, signed on the re-measurement); an independent code review and the orchestrator's review followed. The log is `docs/features/logs/sync/committee-2026-11-01.md`.
 
 - **Cursor:** the per-user round claims are the durable cursor, with no id watermark. The shard row holds the lease, the
   heartbeat and the last run's counts.
@@ -116,22 +116,24 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
 - **Housekeeping** runs once per cron mark, never waiting on a lease: in the unsharded call, or in its own call when
   sharded (orchestrator review). A busy shard answers 200 `{busy: true}`.
 - **Shard lease:** 60 s, fenced by its holder, renewed every 15 s.
-- **Coverage report** (unsharded or housekeeping call): missing shards, traders not claimed last round, never-synced traders, the stalest age,
-  backoff, refusals with the oldest refusal's age, quarantine, and `dbConfigOk`.
+- **Coverage report** (unsharded or housekeeping call): missing shards, traders not claimed last round, never-synced
+  traders, the stalest age, backoff, refusals with the oldest refusal's age, quarantine, and `dbConfigOk`.
 - **Deferred to the owner, and part of the switch-on gate:**
   - a visible "Last updated ‹date›" line, which is a product change for the three-variant process;
   - the TR-5 rule for refusals;
-  - the vendor's quota in writing.
+  - the vendor's quota and its cost in writing (480 req/s for the plan).
 
 ## Testing
 
 - `npx tsc --noEmit`: clean.
-- `npm test` (after merging main at e12a834): **920 tests, 901 pass, 0 fail**, 1 todo (owner), the rest skipped (opt-in
-  LOAD tests). New files:
-  - `lib/sync-limits.test.ts` (17 unit tests, including the call modes);
-  - `lib/sync-shard.test.ts` (12 DB tests): shard assignment, deadline then resume, overlapping runs, the lease and
+- `npm test` (after merging main with #40 and #42), run twice: **1035 tests, 1016 pass, 0 fail**, 1 todo (owner), the
+  rest skipped (opt-in LOAD tests). One of the two runs hit a race in `lib/auth/links.test.ts` (`purgeExpiredLinks() >= 1`
+  against a parallel global purge; not this PR's code); it passed 5 of 5 on its own and in the other full run. New files:
+  - `lib/sync-limits.test.ts` (21 unit tests, including the call modes, the latency window and the planned-time rule);
+  - `lib/sync-shard.test.ts` (14 DB tests): shard assignment, deadline then resume, overlapping runs, the lease and
     fencing, backoff by class, breaker, quarantine and skipped, the rate bound, coverage, failure isolation with the real
-    `syncUser`, the first-dispatch fit rule, and the transient streak;
+    `syncUser`, the first-dispatch fit rule, the transient streak, the metered broker passing every read (share moves
+    included), and the route-end guard (cut, rolled back, given back, synced by the next call);
   - `lib/db-pool.test.ts`;
   - `lib/sync-route.test.ts`: the housekeeping order with the billing reconciliation; the secret checked before the
     parameters; GET is POST.
@@ -154,9 +156,12 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
   - The first round-3 run found that the route-end guard's margin was not scaled in the time-scaled test (1.25×, 35,901
     cuts). The margin now scales with the bound and is part of the fit check.
 - `npm run build`: ok.
-- e2e against `npm run start` and the vendor fake: `e2e/sync-shards.spec.ts` (new: auth before parameters for POST and
-  GET, 400s, sharded vs housekeeping vs unsharded answers), `e2e/connect.spec.ts`, `e2e/app.spec.ts`,
-  `e2e/privacy-gate.spec.ts`: **95 passed** on the final code.
+- **Full Playwright suite** against `npm run start` and the vendor fake, including the new `e2e/sync-shards.spec.ts`
+  (auth before parameters for POST and GET, 400s, sharded vs housekeeping vs unsharded answers): **179 passed, 6
+  skipped, 1 failed**.
+  - The failure was `e2e/section.spec.ts` "demo-only feed", which saw 203 leftover `rt…` users written to the local
+    database by `lib/record-tools.test.ts` (F-3), not by this PR. After removing them locally the spec passed 6 of 6. CI
+    uses a fresh database.
   - The e2e run regenerates F-2 screenshots; they are restored to main's and are not part of this PR.
   - Locally the pinned Playwright needed the pre-installed Chromium via a throwaway local config, not committed.
   - A new `e2e/cron-lock.ts` serializes cron calls across spec files: `connect.spec.ts` and `privacy-gate.spec.ts` take
@@ -171,8 +176,8 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
    operational.
 2. **Personal data collected, stored, shown or sent?**
    - New per-trader operational fields on `users`: `sync_failures`, `sync_retry_at`, `sync_attempts`,
-     `sync_failure_kind`, `sync_failing_since`, `sync_transients`. They are internal, never shown, and deleted with the account (the users
-     row).
+     `sync_failure_kind`, `sync_failing_since`, `sync_transients`. They are internal, never shown, and deleted with the
+     account (the users row).
    - `sync_shards` holds counts only (SCHEMA_MAP: not personal).
    - Logs carry counts. Per-failure lines carry the internal id, the failure class and `logSafe(e)`, never the error's
      message (`lib/privacy-logs.test.ts` passes).
