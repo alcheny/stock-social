@@ -6,6 +6,7 @@ import { AccountClaimedError } from '@/lib/claims.ts';
 import { CONNECT_COOKIE, consent, decline, getConnection, NotPendingError, ownsConnection, parseConnectionId } from '@/lib/connections.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser, rememberMethod, signIn } from '@/lib/session.ts';
+import { cancelIfTrader } from '@/lib/billing.ts';
 
 async function owned(form: FormData) {
   const id = parseConnectionId(form.get('c'));
@@ -25,6 +26,9 @@ export async function consentAction(form: FormData) {
     if (e instanceof AccountClaimedError) redirect(me ? `/u/${me.handle}?connect=account-claimed` : `/connect/result?c=${c.id}&k=refused`);
     throw e;
   }
+  // F-3 (committee condition 14): a paying subscriber who connects a broker is canceled at once with a pro-rata refund.
+  // Never blocks the connection: on a processor error the nightly reconciliation finishes it.
+  try { await cancelIfTrader(user.userId); } catch (e) { console.error('billing: cancel on connect failed', e instanceof Error ? e.message : 'unknown'); }
   if (!me) {
     // Sign-in by completing a connection. The attempt is consumed: its browser binding has no further use.
     await signIn(user.userId);

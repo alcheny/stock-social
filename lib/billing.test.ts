@@ -123,7 +123,7 @@ dbTest('start: hosted checkout with tax by the processor, an opaque reference on
   const cs = fake.state().checkouts.at(-1)!;
   assert.equal(cs.automatic_tax, true);
   assert.equal(cs.success_url, 'http://app.test/account?activating=1');
-  assert.equal(cs.cancel_url, 'http://app.test/tools');
+  assert.equal(cs.cancel_url, 'http://app.test/tools#subscribe');
   const sent = fake.calls.filter((c) => c.method === 'POST').map((c) => decodeURIComponent(c.body)).join('\n');
   assert.doesNotMatch(sent, new RegExp(`${tag}|Test viewer|email|name\\]|user_id|\\b${u}\\b`));
   assert.match(String(cs.client_reference_id), /^ss_[0-9a-f]{24}$/);
@@ -171,20 +171,27 @@ dbTest('every lifecycle event with recorded payloads: created, trial ending, ren
   assert.equal((await row(u))!.cancel_at_period_end, false);
   await fake.lifecycle(sub.id, 'refund_partial');
   assert.equal((await row(u))!.status, 'active', 'a partial refund changes nothing');
-  await fake.lifecycle(sub.id, 'dispute');
-  assert.equal((await row(u))!.status, 'unpaid');
-  assert.equal(await ent(u), false);
-  const [flag] = await sql`select count(*)::int as n from billing_events where type = 'charge.dispute.created' and flagged and vendor_object_id like 'dp_%'`;
-  assert.ok(flag.n >= 1, 'a dispute is flagged for a human');
-  await fake.emit('customer.subscription.updated', sub as never);
-  assert.equal((await row(u))!.status, 'unpaid', 'a later event does not lift the dispute');
-  await fake.lifecycle(sub.id, 'dispute_won');
-  assert.equal((await row(u))!.status, 'active');
+  assert.equal(await ent(u), true);
   await fake.lifecycle(sub.id, 'refund_full');
   assert.equal((await row(u))!.status, 'canceled', 'a full refund ends access at once');
   assert.equal((await row(u))!.ended_reason, 'refund');
   assert.equal(await ent(u), false);
   assert.equal(fake.subs.get(sub.id)!.status, 'canceled');
+  // Disputed: unpaid at once, flagged for a human, and the processor stops renewing (engineer D2).
+  const again = await subscribe(u);
+  await fake.lifecycle(again.id, 'dispute');
+  const disputed = (await sql`select status, disputed_at from subscriptions where vendor_subscription_id = ${again.id}`)[0];
+  assert.ok(disputed.disputed_at, 'the dispute is recorded');
+  assert.equal(disputed.status, 'canceled', 'unpaid at once, then canceled at the processor');
+  assert.equal(await ent(u), false);
+  assert.equal(fake.subs.get(again.id)!.status, 'canceled', 'no renewal charge to someone without access');
+  const [flag] = await sql`select count(*)::int as n from billing_events where type = 'charge.dispute.created' and flagged and vendor_customer_id is null`;
+  assert.ok(flag.n >= 1, 'a dispute is flagged for a human');
+  await fake.lifecycle(again.id, 'dispute_won');
+  const after = (await sql`select status, disputed_at from subscriptions where vendor_subscription_id = ${again.id}`)[0];
+  assert.equal(after.disputed_at, null);
+  assert.equal(after.status, 'canceled', 'resuming after a dispute goes through the Subscribe screen again');
+  assert.equal(fake.refunds.length, 0, 'a dispute or a canceled refund never refunds twice');
   void b;
 });
 
@@ -338,8 +345,10 @@ dbTest('nightly reconciliation: drift is found, fixed and counted; missing rows 
   now += 8 * DAY;
   await sql`update subscriptions set grace_until = now() - interval '1 second' where user_id = ${u}`;
   const r2 = await b.reconcile();
-  assert.ok(r2.graceExpired + r2.mismatches >= 1);
-  assert.equal((await row(u))!.status, 'unpaid');
+  assert.ok(r2.graceExpired >= 1);
+  assert.equal((await row(u))!.status, 'canceled', 'grace over: no access, and the processor stops retrying (engineer D3)');
+  assert.equal(fake.subs.get(sub.id)!.status, 'canceled');
+  assert.equal(await ent(u), false);
 });
 
 dbTest('account deletion cancels at the processor first (no further charge), deletes the processor customer and every billing row except the consent, re-keyed and kept 3 years', async () => {
@@ -370,7 +379,7 @@ test('the app stores no card data or personal billing fields: no PAN, CVV, expir
   const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
   const block = schema.slice(schema.indexOf('-- ---- F-3'));
   const tables = [...block.matchAll(/create table if not exists (\w+) \(([\s\S]*?)\n\);/g)].filter((m) => /^billing|^subscriptions/.test(m[1]));
-  assert.deepEqual(tables.map((m) => m[1]).sort(), ['billing_consents', 'billing_customers', 'billing_events', 'subscriptions']);
+  assert.deepEqual(tables.map((m) => m[1]).sort(), ['billing_consents', 'billing_customers', 'billing_events', 'billing_runs', 'subscriptions']);
   for (const [, name, cols] of tables) {
     const names = cols.split('\n').map((l) => l.trim().split(/\s+/)[0]).filter((w) => /^[a-z_]+$/.test(w) && w !== 'check' && w !== 'primary');
     for (const c of names) assert.doesNotMatch(c, /card|pan$|cvv|cvc|exp|last4|brand|email|name|address|postal|zip|phone|ip$|payload|amount|tax/, `${name}.${c}`);
@@ -405,7 +414,7 @@ dbTest('heavy use: concurrent deliveries with duplicates are stored once each an
       outcomes.set(r.outcome, (outcomes.get(r.outcome) ?? 0) + 1);
     }
   };
-  await Promise.all(Array.from({ length: 8 }, worker));
+  await Promise.all(Array.from({ length: 32 }, worker)); // engineer D1: more workers than pool connections
   const ms = Date.now() - started;
   const [{ n: stored }] = await sql`select count(*)::int as n from billing_events where vendor_event_id like ${`evt_load_${tag}_%`} and processed_at is not null`;
   assert.equal(stored, total, 'every event stored once and processed');
@@ -413,4 +422,33 @@ dbTest('heavy use: concurrent deliveries with duplicates are stored once each an
   assert.equal((await sql`select count(*)::int as n from subscriptions where user_id = ${u}`)[0].n, 1);
   console.log(`# load: ${total * 2} deliveries (${total} unique) in ${ms} ms, ${Math.round((total * 2) / (ms / 3_600_000))} per hour`);
   await sql`delete from billing_events where vendor_event_id like ${`evt_load_${tag}_%`}`;
+});
+
+dbTest('a subscription the processor moved to unpaid itself is canceled there by the reconciliation (engineer E2)', async () => {
+  const b = await import('./billing.ts');
+  const u = await user();
+  const sub = await subscribe(u);
+  await fake.lifecycle(sub.id, 'unpaid');
+  assert.equal((await row(u))!.status, 'unpaid');
+  assert.equal((await row(u))!.grace_until, null);
+  await b.reconcile();
+  assert.equal(fake.subs.get(sub.id)!.status, 'canceled');
+  assert.equal((await row(u))!.status, 'canceled');
+});
+
+dbTest('an earlier partial refund lowers the pro-rata refund but never blocks it, and a retry never refunds twice (engineer E3)', async () => {
+  const b = await import('./billing.ts');
+  const u = await user();
+  const sub = await subscribe(u);
+  await fake.lifecycle(sub.id, 'refund_partial'); // 499 of 999 refunded by someone else
+  now += 15 * DAY;
+  await makeTrader(u);
+  await b.cancelIfTrader(u);
+  const ours = fake.refunds.filter((r) => (r.metadata as { subscription?: string }).subscription === sub.id);
+  assert.equal(ours.length, 1);
+  const share = Math.floor(999 * (sub.current_period_end - now / 1000) / (sub.current_period_end - sub.current_period_start));
+  assert.equal(ours[0].amount, Math.min(share, 999 - 499));
+  await b.reconcile(); // the backstop finds nothing left to do
+  await b.cancelIfTrader(u);
+  assert.equal(fake.refunds.filter((r) => (r.metadata as { subscription?: string }).subscription === sub.id).length, 1);
 });

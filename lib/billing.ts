@@ -11,6 +11,8 @@
 // - The app sends no email: every billing notice is the processor's (condition 21).
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from './db.ts';
+import { BILLING } from './copy.ts';
+import { DISCLAIMER } from './share.ts';
 
 export type Plan = 'monthly' | 'annual';
 export const PLANS: Record<Plan, { cents: number; label: string; interval: 'month' | 'year' }> = {
@@ -91,7 +93,7 @@ async function vendor(method: 'GET' | 'POST' | 'DELETE', path: string, params?: 
   const c = cfg();
   const body = params ? formEncode(params) : '';
   const url = `${c.base}${path}${method === 'GET' && body ? `?${body}` : ''}`;
-  const headers: Record<string, string> = { authorization: `Bearer ${c.key}` };
+  const headers: Record<string, string> = { authorization: `Bearer ${c.key}`, 'stripe-version': API_VERSION };
   if (method !== 'GET' && body) headers['content-type'] = 'application/x-www-form-urlencoded';
   if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
   const res = await billingDeps.fetch(url, { method, headers, body: method !== 'GET' && body ? body : undefined, signal: AbortSignal.timeout(20_000) });
@@ -100,6 +102,9 @@ async function vendor(method: 'GET' | 'POST' | 'DELETE', path: string, params?: 
   return json;
 }
 const enc = encodeURIComponent;
+// Pinned (engineer D6): the shapes read below (subscription.current_period_*, invoice.payment_intent and .charge) are
+// this version's; the fake processor answers in exactly this shape and refuses any other version.
+export const API_VERSION = '2024-06-20';
 
 // ---- references, customers, consent ---------------------------------------------------------------------------------
 
@@ -129,11 +134,35 @@ async function ensureCustomer(userId: number): Promise<string> {
 }
 
 export const DISCLOSURE_VERSION = '2026-11-01';
+// The next charge if the subscriber pays today: one month or one year on, in UTC.
+export function nextCharge(plan: Plan, now: Date): Date {
+  const d = new Date(now);
+  if (plan === 'annual') d.setUTCFullYear(d.getUTCFullYear() + 1); else d.setUTCMonth(d.getUTCMonth() + 1);
+  return d;
+}
+// The full text the Subscribe screen shows for a plan, in order (committee condition 15); the consent record hashes it.
+export function disclosureText(plan: Plan, now: Date): string {
+  return [
+    BILLING.title, DISCLAIMER, BILLING.whatYouGet,
+    plan === 'annual' ? BILLING.planAnnual : BILLING.planMonthly,
+    plan === 'annual' ? BILLING.renewAnnual(nextCharge('annual', now)) : BILLING.renewMonthly(nextCharge('monthly', now)),
+    BILLING.noTrial, BILLING.cancelHow, BILLING.refund, BILLING.card,
+    plan === 'annual' ? BILLING.agreeAnnual : BILLING.agreeMonthly,
+    plan === 'annual' ? BILLING.subscribeAnnual : BILLING.subscribeMonthly,
+  ].join('\n');
+}
 export const disclosureHash = (text: string) => createHash('sha256').update(`${DISCLOSURE_VERSION}\n${text}`).digest('hex');
 
 export class CheckoutRefused extends Error {
   reason: 'trader' | 'subscribed' | 'consent';
   constructor(reason: 'trader' | 'subscribed' | 'consent') { super(`checkout refused: ${reason}`); this.reason = reason; }
+}
+
+// D10: return URLs come from the configured site URL, never a request's Host header.
+export function siteOrigin(env: Record<string, string | undefined> = process.env): string {
+  const site = env.NEXT_PUBLIC_SITE_URL?.trim();
+  const vercel = env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  return (site || (vercel ? (/^https?:\/\//.test(vercel) ? vercel : `https://${vercel}`) : 'http://localhost:3000')).replace(/\/+$/, '');
 }
 
 // Hosted checkout. `disclosure` is the full text shown above the button, which the consent record hashes (condition 16).
@@ -143,6 +172,10 @@ export async function startCheckout(i: { userId: number; plan: Plan; agreed: boo
   if (await isTrader(i.userId)) throw new CheckoutRefused('trader');
   const [live] = await sql`select 1 from subscriptions where user_id = ${i.userId} and status in ('trialing', 'active', 'past_due')`;
   if (live) throw new CheckoutRefused('subscribed');
+  // D3: an ended row whose subscription the processor still holds (unpaid, paused) is canceled there first, so an old
+  // invoice can never succeed beside the new subscription.
+  const stale = await sql`select vendor_subscription_id from subscriptions where user_id = ${i.userId} and status in ('unpaid', 'paused')`;
+  for (const x of stale) await cancelWithRefund(i.userId, { id: x.vendor_subscription_id as string } as VendorSub, 0, 'grace');
   const customer = await ensureCustomer(i.userId);
   const [consent] = await sql`insert into billing_consents (user_id, vendor_customer_id, plan, disclosure_version, disclosure_hash, livemode)
     values (${i.userId}, ${customer}, ${i.plan}, ${DISCLOSURE_VERSION}, ${disclosureHash(i.disclosure)}, ${c.live}) returning id`;
@@ -152,7 +185,7 @@ export async function startCheckout(i: { userId: number; plan: Plan; agreed: boo
     line_items: [{ price: c.prices[i.plan], quantity: 1 }],
     automatic_tax: { enabled: true }, customer_update: { address: 'auto' },
     subscription_data: { metadata: { ref } },
-    success_url: `${i.origin}/account?activating=1`, cancel_url: `${i.origin}/tools`,
+    success_url: `${i.origin}/account?activating=1`, cancel_url: `${i.origin}/tools#subscribe`,
   }, `checkout-${ref}-${consent.id}`);
   return session.url as string;
 }
@@ -240,24 +273,32 @@ export async function handleWebhook(raw: string, signature: string | null): Prom
   if (!!ev.livemode !== c.live) return { status: 400, outcome: 'rejected' }; // a test-mode app never applies live events
   const obj = (ev.data?.object ?? {}) as Obj;
   const customer = idOf(obj.customer);
-  return sql.begin(async (tx) => {
-    await tx`insert into billing_events (vendor_event_id, type, vendor_object_id, vendor_customer_id, livemode)
-      values (${ev.id}, ${ev.type}, ${idOf(obj)}, ${customer}, ${!!ev.livemode}) on conflict (vendor_event_id) do nothing`;
-    // Concurrent deliveries of one event wait here; the second sees it processed and is a no-op.
-    const [row] = await tx`select processed_at from billing_events where vendor_event_id = ${ev.id} for update`;
-    if (row.processed_at) return { status: 200, outcome: 'duplicate' } as WebhookResult;
-    try {
-      const flagged = await applyEvent(ev.type, obj);
-      await tx`update billing_events set processed_at = now(), error_code = null, flagged = flagged or ${flagged === true} where vendor_event_id = ${ev.id}`;
-      return { status: 200, outcome: flagged === null ? 'ignored' : 'processed' } as WebhookResult;
-    } catch (e) {
-      const code = e instanceof VendorError ? `vendor_${e.status}` : e instanceof ApplyError ? e.code : 'internal';
-      await tx`update billing_events set error_code = ${code} where vendor_event_id = ${ev.id}`;
-      console.error('billing webhook failed', ev.id, code);
-      return { status: 500, outcome: 'failed' } as WebhookResult;
+  // No transaction spans the processor calls (engineer D1: a held transaction per event exhausted the pool). The row is
+  // stored once by event id; a delivery claims it (2-minute lease) before applying, so concurrent duplicates are no-ops.
+  await sql`insert into billing_events (vendor_event_id, type, vendor_object_id, vendor_customer_id, livemode)
+    values (${ev.id}, ${ev.type}, ${idOf(obj)}, ${customer}, ${!!ev.livemode}) on conflict (vendor_event_id) do nothing`;
+  const [claim] = await sql`update billing_events set claimed_at = now() where vendor_event_id = ${ev.id} and processed_at is null
+    and (claimed_at is null or claimed_at < now() - interval '2 minutes') returning vendor_event_id`;
+  if (!claim) return { status: 200, outcome: 'duplicate' };
+  try {
+    const flagged = await applyEvent(ev.type, obj);
+    await sql`update billing_events set processed_at = now(), error_code = null, flagged = flagged or ${flagged === true} where vendor_event_id = ${ev.id}`;
+    return { status: 200, outcome: flagged === null ? 'ignored' : 'processed' };
+  } catch (e) {
+    // D7: an event naming a customer or price this app does not know will not change on retry: stored, flagged, 200.
+    if (e instanceof ApplyError && PERMANENT.has(e.code)) {
+      await sql`update billing_events set processed_at = now(), error_code = ${e.code}, flagged = true where vendor_event_id = ${ev.id}`;
+      console.error('billing webhook flagged', ev.id, e.code);
+      return { status: 200, outcome: 'processed' };
     }
-  });
+    const code = e instanceof VendorError ? `vendor_${e.status}` : e instanceof ApplyError ? e.code : 'internal';
+    await sql`update billing_events set error_code = ${code}, claimed_at = null where vendor_event_id = ${ev.id}`;
+    console.error('billing webhook failed', ev.id, code);
+    return { status: 500, outcome: 'failed' };
+  }
 }
+
+const PERMANENT = new Set(['unknown_customer', 'unknown_price', 'second_live_subscription', 'dispute_without_customer']);
 
 class ApplyError extends Error {
   code: string;
@@ -353,25 +394,34 @@ async function applyRefundPolicy(userId: number, sub: VendorSub, d: ReturnType<t
   const now = billingDeps.now();
   if (await isTrader(userId)) return cancelWithRefund(userId, sub, refundShare(d.plan, d.current_period_start, d.current_period_end, now, 'trader'), 'trader');
   if (d.cancel_at_period_end) {
-    const share = refundShare(d.plan, d.current_period_start, d.current_period_end, now, 'cancel');
+    const asked = secs(sub.canceled_at) ?? now; // D5: when the subscriber asked, not when the event is processed
+    const share = refundShare(d.plan, d.current_period_start, d.current_period_end, asked, 'cancel');
     if (share > 0) return cancelWithRefund(userId, sub, share, 'refund');
   }
 }
 
-// Cancels now; refunds `share` of the latest paid invoice (rounded down to the cent). Idempotent per subscription.
-async function cancelWithRefund(userId: number, sub: VendorSub, share: number, reason: 'trader' | 'refund' | 'deletion') {
-  const inv = idOf(sub.latest_invoice);
-  if (share > 0 && inv) {
-    const invoice = await vendor('GET', `/v1/invoices/${enc(inv)}`);
-    const paid = Number(invoice.amount_paid ?? 0);
-    const pi = idOf(invoice.payment_intent) ?? idOf(((invoice.payments as Obj | undefined)?.data as Obj[] | undefined)?.[0]?.payment && (((invoice.payments as Obj).data as Obj[])[0].payment as Obj).payment_intent);
-    const amount = Math.floor(paid * share);
-    if (pi && amount > 0) await vendor('POST', '/v1/refunds', { payment_intent: pi, amount }, `refund-${sub.id}-${reason}`);
-  }
+// Cancels now, then refunds `share` of the latest paid invoice (rounded down to the cent) unless that charge already
+// carries a refund (engineer D4: cancel first, so a retry never refunds twice). Idempotent per subscription.
+async function cancelWithRefund(userId: number, sub: VendorSub, share: number, reason: 'trader' | 'refund' | 'deletion' | 'dispute' | 'grace') {
   try { await vendor('DELETE', `/v1/subscriptions/${enc(sub.id)}`); } catch (e) { if (!(e instanceof VendorError && e.status === 404)) throw e; }
-  await sql`update subscriptions set status = 'canceled', ended_reason = ${reason}, cancel_at_period_end = false, updated_at = now()
+  await sql`update subscriptions set status = 'canceled', ended_reason = coalesce(ended_reason, ${ENDED[reason]}), cancel_at_period_end = false, updated_at = now()
     where vendor_subscription_id = ${sub.id} and user_id = ${userId}`;
+  const inv = idOf(sub.latest_invoice);
+  if (!(share > 0) || !inv) return;
+  const invoice = await vendor('GET', `/v1/invoices/${enc(inv)}`);
+  const chargeId = idOf(invoice.charge);
+  const pi = idOf(invoice.payment_intent);
+  if (!chargeId || !pi) return;
+  const charge = await vendor('GET', `/v1/charges/${enc(chargeId)}`);
+  const paid = Number(invoice.amount_paid ?? 0), refunded = Number(charge.amount_refunded ?? 0);
+  // E3: an earlier refund made by someone else (a partial goodwill refund) lowers what is left, never blocks this one;
+  // a refund this app already made for this subscription (tagged in its metadata) is never made twice.
+  const ours = await vendor('GET', '/v1/refunds', { payment_intent: pi, limit: 100 });
+  if (((ours.data ?? []) as Obj[]).some((r) => (r.metadata as Obj | undefined)?.subscription === sub.id)) return;
+  const amount = Math.min(Math.floor(paid * share), paid - refunded);
+  if (amount > 0) await vendor('POST', '/v1/refunds', { payment_intent: pi, amount, metadata: { subscription: sub.id } }, `refund-${sub.id}`);
 }
+const ENDED: Record<string, string | null> = { trader: 'trader', refund: 'refund', deletion: 'deletion', dispute: null, grace: null };
 
 // Condition 19: a full refund ends access at once (the subscription is canceled); a partial refund changes nothing.
 async function applyRefund(charge: Obj) {
@@ -390,12 +440,28 @@ async function applyDispute(dispute: Obj, open: boolean) {
   const customer = idOf(charge.customer);
   if (!customer) throw new ApplyError('dispute_without_customer');
   if (open) {
-    await sql`update subscriptions set disputed_at = coalesce(disputed_at, now()), status = case when status = 'canceled' then status else 'unpaid' end, updated_at = now()
-      where vendor_customer_id = ${customer} and status <> 'canceled'`;
+    // D2: access ends here and the processor stops renewing (no charge to someone without access).
+    const rows = await sql`update subscriptions set disputed_at = coalesce(disputed_at, now()), status = case when status = 'canceled' then status else 'unpaid' end, updated_at = now()
+      where vendor_customer_id = ${customer} and status <> 'canceled' returning user_id, vendor_subscription_id`;
+    for (const r of rows) await cancelWithRefund(r.user_id as number, { id: r.vendor_subscription_id as string } as VendorSub, 0, 'dispute');
     return;
   }
   const rows = await sql`update subscriptions set disputed_at = null, updated_at = now() where vendor_customer_id = ${customer} and disputed_at is not null returning vendor_subscription_id`;
   for (const r of rows) await syncSubscription(r.vendor_subscription_id as string);
+}
+
+// D9, condition 14: called right after a broker connection is consented; the nightly reconciliation is the backstop.
+// A live subscription of a user who is now a trader is canceled at once with a pro-rata refund.
+export async function cancelIfTrader(userId: number): Promise<void> {
+  const rows = await sql`select vendor_subscription_id from subscriptions where user_id = ${userId} and status in ('trialing', 'active', 'past_due')`;
+  if (!rows.length || !(await isTrader(userId))) return;
+  for (const r of rows) await syncSubscription(r.vendor_subscription_id as string);
+}
+
+// The account page's line for a trader whose paid plan was canceled when they connected (condition 14).
+export async function canceledOnConnect(userId: number): Promise<boolean> {
+  const [r] = await sql`select 1 from subscriptions where user_id = ${userId} and ended_reason = 'trader' limit 1`;
+  return !!r;
 }
 
 // ---- nightly reconciliation -----------------------------------------------------------------------------------------
@@ -417,7 +483,7 @@ export async function reconcile(): Promise<ReconcileReport> {
   }
   let after: string | undefined;
   for (;;) {
-    const page = await vendor('GET', '/v1/subscriptions', { status: 'all', limit: 100, starting_after: after });
+    const page = await vendor('GET', '/v1/subscriptions', { limit: 100, starting_after: after }); // D8: excludes canceled
     const data = (page.data ?? []) as VendorSub[];
     for (const sub of data) {
       if (known.has(sub.id) || ['canceled', 'incomplete_expired'].includes(sub.status)) continue;
@@ -427,13 +493,31 @@ export async function reconcile(): Promise<ReconcileReport> {
     if (!page.has_more || !data.length) break;
     after = data[data.length - 1].id;
   }
-  r.graceExpired = (await sql`update subscriptions set status = 'unpaid', updated_at = now() where status = 'past_due' and grace_until <= now()`).count;
+  // D3: grace over → no access and the processor stops retrying (a later success would charge someone without access).
+  // E2: also any row the processor itself moved to unpaid (no grace window recorded).
+  const expired = await sql`update subscriptions set status = 'unpaid', updated_at = now()
+    where status = 'unpaid' or (status = 'past_due' and grace_until <= now()) returning user_id, vendor_subscription_id`;
+  for (const x of expired) {
+    try { await cancelWithRefund(x.user_id as number, { id: x.vendor_subscription_id as string } as VendorSub, 0, 'grace'); r.graceExpired++; } catch { r.failed++; }
+  }
   const ids = traders.map((x) => x.vendor_subscription_id as string);
   if (ids.length) r.tradersCanceled = (await sql`select count(*)::int as n from subscriptions where vendor_subscription_id in ${sql(ids)} and status = 'canceled'`)[0].n;
   r.eventsPurged = (await sql`delete from billing_events where received_at < now() - ${EVENT_RETENTION_DAYS} * interval '1 day'`).count;
   r.consentsPurged = (await sql`delete from billing_consents where user_id is null and retain_until < now()`).count;
   console.log('billing reconcile', JSON.stringify(r));
   return r;
+}
+
+// Engineer D16: the hourly /api/sync tick runs the reconciliation once a day (no new cron). One caller wins the day.
+export const RECONCILE_EVERY_HOURS = 23;
+export async function reconcileIfDue(): Promise<ReconcileReport | null> {
+  if (!billingAvailable()) return null;
+  const [won] = await sql`insert into billing_runs (job, last_at) values ('reconcile', now())
+    on conflict (job) do update set last_at = now() where billing_runs.last_at < now() - ${RECONCILE_EVERY_HOURS} * interval '1 hour'
+    returning job`;
+  if (!won) return null;
+  // E4: a run that fails gives the day back, so the next tick tries again.
+  try { return await reconcile(); } catch (e) { await sql`update billing_runs set last_at = now() - interval '1 day' where job = 'reconcile'`; throw e; }
 }
 
 // ---- account deletion (condition 20) --------------------------------------------------------------------------------

@@ -1,0 +1,66 @@
+// F-3 · shared pieces of Record tools and the account page (docs/features/logs/F-3/plan.md §2, §4). Server components.
+import Link from 'next/link';
+import { BILLING, FOOTER, RECORD_TOOLS, billingDate } from '@/lib/copy.ts';
+import { DISCLAIMER } from '@/lib/share.ts';
+import { nextCharge, type Plan } from '@/lib/billing.ts';
+import { subscribe } from './actions.ts';
+
+// Committee K8: the disclaimer in plain view at the top of every surface, with the three legal links.
+export function Disclaimer() {
+  return (
+    <div className="rt-disclaimer">
+      <p><b>{DISCLAIMER}</b></p>
+      <nav aria-label="Legal" className="rt-legal">
+        <Link href="/terms">{FOOTER.terms}</Link>
+        <Link href="/privacy">{FOOTER.privacy}</Link>
+        <Link href="/how">{FOOTER.how}</Link>
+      </nav>
+    </div>
+  );
+}
+
+export const TestModeLabel = ({ on }: { on: boolean }) => (on ? <p className="badge test-mode">{BILLING.testMode}</p> : null);
+
+// Committee K9, K15, K22, K23: every disclosure visible above the buttons, never collapsed. One form per plan
+// (engineer D11), each with its own unchecked agreement box and button, so no plan is preselected and the box names
+// the price of the button beside it; the server refuses a submit whose box is not ticked. "Not now" carries the same
+// class as Subscribe (equal weight).
+export function SubscribeBlock({ signedIn, testMode, error, chosen, now }: { signedIn: boolean; testMode: boolean; error: string | null; chosen: Plan | null; now: Date }) {
+  const errText = error === 'agree' ? BILLING.errAgree : error === 'plan' ? BILLING.errPlan : error === 'checkout' ? BILLING.errCheckout : null;
+  const plans: { plan: Plan; label: string; renew: string; agree: string; button: string }[] = [
+    { plan: 'monthly', label: BILLING.planMonthly, renew: BILLING.renewMonthly(nextCharge('monthly', now)), agree: BILLING.agreeMonthly, button: BILLING.subscribeMonthly },
+    { plan: 'annual', label: BILLING.planAnnual, renew: BILLING.renewAnnual(nextCharge('annual', now)), agree: BILLING.agreeAnnual, button: BILLING.subscribeAnnual },
+  ];
+  return (
+    <section id="subscribe" className="rt-subscribe" aria-labelledby="sub-h">
+      <h2 id="sub-h">{BILLING.title}</h2>
+      <TestModeLabel on={testMode} />
+      <p>{BILLING.whatYouGet}</p>
+      <p>{BILLING.noTrial}</p>
+      <p>{BILLING.cancelHow}</p>
+      <p>{BILLING.refund}</p>
+      <p>{BILLING.card}</p>
+      {errText && <p role="alert" className="down" id="sub-err">{errText}</p>}
+      {plans.map((p) => (
+        <form key={p.plan} action={subscribe} className="rt-plan-form" aria-labelledby={`plan-${p.plan}`}>
+          <h3 id={`plan-${p.plan}`}>{p.label}</h3>
+          <p className="small">{p.renew}</p>
+          {signedIn && <>
+            <input type="hidden" name="plan" value={p.plan} />
+            <input type="hidden" name="shown" value={now.toISOString()} />
+            <label className="rt-check"><input type="checkbox" name="agreed" value={p.plan} aria-invalid={error === 'agree' && chosen === p.plan ? true : undefined} aria-describedby={error === 'agree' && chosen === p.plan ? 'sub-err' : undefined} /> {p.agree}</label>
+            <button className="button wide choice">{p.button}</button>
+          </>}
+        </form>
+      ))}
+      {!signedIn && <Link className="button wide choice" href="/login">{BILLING.signIn}</Link>}
+      <Link className="button wide choice" href="/">{BILLING.notNow}</Link>
+    </section>
+  );
+}
+
+export function PastDueBanner({ until }: { until: Date }) {
+  return <p role="alert" className="rt-banner">{RECORD_TOOLS.pastDue(until)} <Link href="/account">{BILLING.manage}</Link></p>;
+}
+
+export const fmt = billingDate;

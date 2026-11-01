@@ -6,6 +6,7 @@ import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
 import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
 import { purgeDiscovery, type PurgeReport } from '@/lib/discovery/purge.ts';
+import { reconcileIfDue } from '@/lib/billing.ts';
 
 // Cron: POST /api/sync with `Authorization: Bearer $CRON_SECRET`, every 5 minutes and never at :30 (request #7 as amended;
 // rounds run :30 to :30, lib/sync.ts).
@@ -32,6 +33,8 @@ export async function POST(req: NextRequest) {
   // throws, the traders below are claimed exactly as before.
   let purged: PurgeReport | null = null;
   try { purged = await purgeDiscovery(); } catch (e) { console.error('discovery purge failed', e instanceof Error ? e.message : e); }
+  // F-3: the billing reconciliation, once a day (lib/billing.ts#reconcileIfDue). Never a branch for the sync below.
+  try { await reconcileIfDue(); } catch (e) { console.error('billing reconcile failed', e instanceof Error ? e.message : 'unknown'); }
   // Only traders with a connected (consented) connection and no import in progress, each claimed by one caller per
   // round (lib/sync.ts#syncTick), so overlapping cron calls split the traders instead of syncing each one twice.
   // ponytail: one caller is sequential, ~5k traders/hour; more concurrent calls add throughput, then a queue (DESIGN §2.7)

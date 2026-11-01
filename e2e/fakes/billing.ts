@@ -12,12 +12,12 @@
 //         {status, times}, POST /_clock {now}.
 // Fictional data only (POLICY P2): no names, emails or card numbers are ever created or stored.
 import { createServer, type Server } from 'node:http';
-import { signPayload } from '../../lib/billing.ts';
+import { API_VERSION, signPayload } from '../../lib/billing.ts';
 
 type Obj = Record<string, unknown>;
 export type FakeSub = {
   id: string; object: 'subscription'; customer: string; status: string; cancel_at_period_end: boolean;
-  current_period_start: number; current_period_end: number; latest_invoice: string; livemode: boolean;
+  current_period_start: number; current_period_end: number; latest_invoice: string; livemode: boolean; canceled_at: number | null;
   items: { data: { price: { id: string }; current_period_start: number; current_period_end: number }[] }; metadata: Obj;
 };
 export type FakeEvent = { id: string; type: string; livemode: boolean; created: number; data: { object: Obj } };
@@ -80,7 +80,7 @@ export function createBillingFake(o: BillingFakeOptions) {
   }
   function newSub(customer: string, priceId: string): FakeSub {
     const start = sec(), end = periodEnd(start, priceId);
-    const sub: FakeSub = { id: id('sub'), object: 'subscription', customer, status: 'active', cancel_at_period_end: false, current_period_start: start, current_period_end: end, latest_invoice: '', livemode: false, items: { data: [{ price: { id: priceId }, current_period_start: start, current_period_end: end }] }, metadata: {} };
+    const sub: FakeSub = { id: id('sub'), object: 'subscription', customer, status: 'active', cancel_at_period_end: false, canceled_at: null, current_period_start: start, current_period_end: end, latest_invoice: '', livemode: false, items: { data: [{ price: { id: priceId }, current_period_start: start, current_period_end: end }] }, metadata: {} };
     subs.set(sub.id, sub);
     return sub;
   }
@@ -98,8 +98,8 @@ export function createBillingFake(o: BillingFakeOptions) {
       case 'payment_failed': { const inv = pay(sub, undefined, false); sub.status = 'past_due'; await emit('invoice.payment_failed', inv); await emit('customer.subscription.updated', sub); break; }
       case 'payment_recovered': { const inv = pay(sub); sub.status = 'active'; await emit('invoice.paid', inv); await emit('customer.subscription.updated', sub); break; }
       case 'unpaid': sub.status = 'unpaid'; await emit('customer.subscription.updated', sub); break;
-      case 'cancel_now': sub.status = 'canceled'; await emit('customer.subscription.deleted', sub); break;
-      case 'resume': sub.cancel_at_period_end = false; await emit('customer.subscription.resumed', sub); break;
+      case 'cancel_now': sub.status = 'canceled'; sub.canceled_at = sec(); await emit('customer.subscription.deleted', sub); break;
+      case 'resume': sub.cancel_at_period_end = false; sub.canceled_at = null; await emit('customer.subscription.resumed', sub); break;
       case 'trial_will_end': await emit('customer.subscription.trial_will_end', sub); break;
       case 'refund_full': case 'refund_partial': {
         const inv = invoices.get(sub.latest_invoice)!; const ch = charges.get(inv.charge as string)!;
@@ -129,6 +129,7 @@ export function createBillingFake(o: BillingFakeOptions) {
     if (p.startsWith('/v1/')) {
       calls.push({ method, path: p, body: method === 'GET' ? url.search : body });
       if (!/^Bearer (sk|rk)_test_/.test(headers.authorization ?? '')) return json(401, { error: { code: 'invalid_api_key' } });
+      if (headers['stripe-version'] !== API_VERSION) return json(400, { error: { code: 'api_version_invalid' } });
       if (fail.times > 0) { fail.times--; return json(fail.status, { error: { code: 'fake_failure' } }); }
       const key = headers['idempotency-key'];
       if (key && idem.has(key)) { const r = idem.get(key)!; return json(r.status, r.body); }
@@ -157,8 +158,8 @@ export function createBillingFake(o: BillingFakeOptions) {
       const live = [...subs.values()].filter((x) => x.customer === s.customer && !['canceled', 'incomplete_expired'].includes(x.status));
       if (method === 'POST' && m[2]) {
         for (const sub of live) {
-          if (m[2] === 'cancel') sub.cancel_at_period_end = true;
-          if (m[2] === 'resume') sub.cancel_at_period_end = false;
+          if (m[2] === 'cancel') { sub.cancel_at_period_end = true; sub.canceled_at = sec(); }
+          if (m[2] === 'resume') { sub.cancel_at_period_end = false; sub.canceled_at = null; }
           if (m[2] === 'switch') { const to = sub.items.data[0].price.id === o.prices.monthly ? o.prices.annual : o.prices.monthly; sub.items.data[0].price.id = to; setPeriod(sub, sec()); pay(sub); }
           await emit('customer.subscription.updated', sub);
         }
@@ -204,7 +205,8 @@ export function createBillingFake(o: BillingFakeOptions) {
       portals.set(s.id, s); return json(200, s);
     }
     if (p === '/v1/subscriptions' && method === 'GET') {
-      const all = [...subs.values()].filter((s) => f.get('status') === 'all' || s.status === (f.get('status') ?? 'active'));
+      const st = f.get('status'); // no status: every subscription that is not canceled (the processor's default)
+      const all = [...subs.values()].filter((s) => (st === 'all' ? true : st ? s.status === st : s.status !== 'canceled'));
       const after = f.get('starting_after'); const limit = Number(f.get('limit') ?? 10);
       const start = after ? all.findIndex((s) => s.id === after) + 1 : 0;
       const data = all.slice(start, start + limit);
@@ -212,17 +214,20 @@ export function createBillingFake(o: BillingFakeOptions) {
     }
     if ((m = p.match(/^\/v1\/subscriptions\/(\w+)$/))) {
       const sub = subs.get(m[1]); if (!sub) return notFound();
-      if (method === 'DELETE') { if (sub.status !== 'canceled') { sub.status = 'canceled'; await emit('customer.subscription.deleted', sub); } }
+      if (method === 'DELETE') { if (sub.status !== 'canceled') { sub.status = 'canceled'; sub.canceled_at = sec(); await emit('customer.subscription.deleted', sub); } }
       return json(200, sub as unknown as Obj);
     }
     if ((m = p.match(/^\/v1\/invoices\/(\w+)$/))) { const x = invoices.get(m[1]); return x ? json(200, x) : notFound(); }
     if ((m = p.match(/^\/v1\/charges\/(\w+)$/))) { const x = charges.get(m[1]); return x ? json(200, x) : notFound(); }
+    if (p === '/v1/refunds' && method === 'GET') {
+      return json(200, { object: 'list', data: refunds.filter((r) => r.payment_intent === f.get('payment_intent')), has_more: false });
+    }
     if (p === '/v1/refunds' && method === 'POST') {
       const pi = f.get('payment_intent'); const amount = Number(f.get('amount'));
       const ch = [...charges.values()].find((c) => c.payment_intent === pi);
       if (!ch || !(amount > 0) || amount > (ch.amount as number) - (ch.amount_refunded as number)) return json(400, { error: { code: 'parameter_invalid' } });
       ch.amount_refunded = (ch.amount_refunded as number) + amount;
-      const r = { id: id('re'), object: 'refund', payment_intent: pi, amount };
+      const r = { id: id('re'), object: 'refund', payment_intent: pi, amount, metadata: { subscription: f.get('metadata[subscription]') } };
       refunds.push(r);
       await emit('charge.refunded', ch);
       return json(200, r);

@@ -417,10 +417,16 @@ create table if not exists billing_events (
   received_at timestamptz not null default now(),
   processed_at timestamptz,
   error_code text,
-  flagged boolean not null default false
+  flagged boolean not null default false,
+  claimed_at timestamptz -- a delivery's 2-minute lease while it applies the event (concurrent duplicates are no-ops)
 );
 select schema_add_index('billing_events_received', 'create index billing_events_received on billing_events (received_at)');
 select schema_add_index('billing_events_customer', 'create index billing_events_customer on billing_events (vendor_customer_id)');
+-- When the daily reconciliation last started (lib/billing.ts#reconcileIfDue, run from the hourly sync tick).
+create table if not exists billing_runs (
+  job text primary key,
+  last_at timestamptz not null
+);
 -- Renewal consent (committee condition 16): the full disclosure text's version and hash, never an IP, email or name.
 -- At account deletion user_id is nulled and the row is kept 3 years under the processor customer id (retain_until).
 create table if not exists billing_consents (
