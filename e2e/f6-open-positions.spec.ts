@@ -248,9 +248,12 @@ test('F-6 (business lead D5): at 360 px every big value sits on one line at one 
     await page.goto(`/u/${h}`);
     const values = page.locator('main > section.stats .stat.big b');
     await expect(values).toHaveCount(4);
-    const m = await values.evaluateAll((bs) => bs.map((b) => ({ size: getComputedStyle(b).fontSize, rects: b.getClientRects().length, over: b.scrollWidth > b.clientWidth + 1 })));
+    // Headroom, not a bare fit: each value's text uses at most 80% of its box here, since other machines' fonts render
+    // wider (CI's did, by more than this container's 3% margin before long values took the smaller size).
+    const m = await values.evaluateAll((bs) => bs.map((b) => { const r = document.createRange(); r.selectNodeContents(b);
+      return { size: getComputedStyle(b).fontSize, rects: b.getClientRects().length, over: b.scrollWidth > b.clientWidth + 1, used: r.getBoundingClientRect().width / b.clientWidth }; }));
     expect(new Set(m.map((x) => x.size)).size, h).toBe(1);
-    for (const x of m) { expect(x.rects, h).toBe(1); expect(x.over, h).toBe(false); }
+    for (const x of m) { expect(x.rects, h).toBe(1); expect(x.over, h).toBe(false); expect(x.used, h).toBeLessThanOrEqual(0.8); }
     expect(await page.evaluate(() => document.documentElement.scrollWidth), h).toBeLessThanOrEqual(360);
   }
 });

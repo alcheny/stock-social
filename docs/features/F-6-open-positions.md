@@ -57,5 +57,12 @@ account divided between realized and unrealized gains and losses.
 - Resolved by the committee during the build (owner's instruction of 2026-11-01); record: docs/features/logs/F-6/committee-2026-11-01.md.
 - Follow-up (own feature): include open positions in the 95% range (TR-9) at days held so far: needs an additive
   `open_positions.opened_at` (the earliest unmatched FIFO lot) and changes feed ranking, so it needs its own plan.
+- Idea board 2026-11-01 (idea 9): add the market-data gate: unrealized values reach real users only after the
+  vendor's written answer or a separately licensed price source (its terms bar redistributing market data). Chart:
+  realized-only line with a labeled unrealized marker (fits CH-1); "Open: N positions · X% unrealized" beside each
+  headline; "prices as of ‹time›"; image URL changes with the figure; per-security pages show aggregate counts only.
+- Idea board 2026-11-01 (idea 9): owner's call: withhold the symbol on thin names or delay new positions, and one
+  "Open" line instead of splitting every stat. The range has three definitions (TR-9, F-4, F-6); one rule must
+  govern.
 
 ## Rework notes

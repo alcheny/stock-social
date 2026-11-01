@@ -38,7 +38,7 @@ import { SimilarSection } from './similar-section.tsx';
 // F-6: open positions in every number.
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { asOfDay, OPEN } from '@/lib/copy.ts';
-import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, toneClass } from '../../open-rows.tsx';
+import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
@@ -98,6 +98,7 @@ export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
   const { user, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf } = data;
+  const long = open ? longValues(pct(s.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const both = open && combined(trades.map((t) => t.return_pct as number), positions.map((p) => p.pct));
   const me = await currentUser();
   const isMe = me?.id === user.id;
@@ -224,7 +225,7 @@ export default async function Profile({ params, searchParams }: Params) {
 
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
       {complete && trades.length > 0 && <>
-      <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined}>
+      <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
         {open && <RealizedLabel />}
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         {/* F-6: with open positions, tone by the printed sign beside the unrealized row ("0.0%" uncolored in both). */}
@@ -234,7 +235,7 @@ export default async function Profile({ params, searchParams }: Params) {
         </div>
       </section>
       {/* F-6: the unrealized grid directly under the realized one, same size (TR-4), then the combined average. */}
-      {open && <OpenGrid o={open} asOf={openAsOf ?? undefined} />}
+      {open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={long} />}
       {both && <CombinedLine c={both} />}
       <div className="evidence">
         <p style={{ margin: 0 }}>
@@ -257,7 +258,7 @@ export default async function Profile({ params, searchParams }: Params) {
       {open && <ChartNote o={open} />}
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
-      {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} />}
+      {complete && trades.length === 0 && open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={longValues(pct(open.avg), String(open.n))} />}
       {user.excluded_positions > 0 && (
         <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
       )}

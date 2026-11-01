@@ -8,6 +8,10 @@ import { pct } from '@/lib/trades.ts';
 
 export const toneClass = (x: number) => { const t = tone(x); return t === 'flat' ? undefined : t; };
 
+// Long values (8+ characters, e.g. "+6122.6%") take a smaller shared size in both grids (data-long), so every big value
+// keeps a fifth of its tile spare at 360 px whatever the font (CI's renders wider) and the two rows stay equal (TR-4).
+export const longValues = (...shown: string[]) => (shown.some((t) => t.length >= 8) ? true : undefined);
+
 // The realized grid's row label (first child of the existing grid, spanning it). The grid itself carries the same
 // words as its region name (UX lead D3), so the visible label is not read twice.
 export function RealizedLabel() {
@@ -16,10 +20,10 @@ export function RealizedLabel() {
 
 // The unrealized grid: same size as the realized headline directly above it (TR-4: "as prominent as the headline").
 // `asOf`: the oldest read of the positions, so a record that stopped refreshing never reads as current (D3).
-export function OpenGrid({ o, asOf }: { o: OpenSummary; asOf?: Date }) {
+export function OpenGrid({ o, asOf, long }: { o: OpenSummary; asOf?: Date; long?: true }) {
   const label = OPEN.unrealizedLabel + (asOf ? OPEN.asOfLabel(asOfDay(asOf)) : '');
   return (
-    <section className="stats open-stats" data-open aria-label={label}>
+    <section className="stats open-stats" data-open data-long={long} aria-label={label}>
       <p className="row-label" aria-hidden="true">{label}</p>
       <div className="stat big"><b>{count(o.n)}</b><small>{OPEN.positions(o)}</small></div>
       <div className="stat big"><b className={toneClass(o.avg)}>{pct(o.avg)}</b><small>{OPEN.avgUnrealized}</small></div>
