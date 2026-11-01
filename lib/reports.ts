@@ -32,7 +32,7 @@ export async function reportThesis(reporterId: number | null | undefined, tradeI
     // slot is spent, so a reader can't tell a held note from a missing one. A held note needs no more reports. Only the
     // author is told it is their own (they know their note exists).
     const [t] = await tx`select t.user_id, t.sell_id, t.thesis_status, t.thesis_reports_from from closed_trades t
-      join users u on u.id = t.user_id and u.deleted_at is null
+      join users u on u.id = t.user_id and u.deleted_at is null and u.public_filer_id is null -- F-7: filers have no notes
       where t.id = ${tradeId} and t.thesis is not null and t.thesis <> '' for update of t`;
     if (!t) return 'not-found';
     if (t.user_id === reporterId) return 'own';

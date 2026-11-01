@@ -383,6 +383,7 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 /* F-2 PR-3 (UX follow-up, PR-1 and PR-2): a long name gives way first; the handle stays whole in the pane header. */
 .pane .who strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pane .who .muted { flex: none; }
+.pane:has([data-public-line]) .who { flex-wrap: wrap; white-space: normal; } .pane:has([data-public-line]) .who strong { overflow: visible; overflow-wrap: anywhere; } /* F-7: a filer's long name wraps */
 /* Fix round 1: the tray label shows only once it is wholly revealed (never cut mid-swipe); no motion. */
 @supports (animation-timeline: view()) {
   .stray span { animation: stray-whole linear both; animation-timeline: view(inline); animation-range: exit 0% exit 100%; }
@@ -544,6 +545,12 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
   .feed .card .user-note .report-status { white-space: nowrap; line-height: 1; }
 }
 /* end fix-user-text: UserNote */
+/* ---- F-7 public-record traders: the "Public filing" badge (text on surface, accent ring), the top block, filing links. */
+.badge.public { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+.public-top { margin: 0 0 12px; }
+.public-top p, .public-line { margin: 4px 0; overflow-wrap: anywhere; }
+.filing-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; }
+.filing-links { display: flex; flex-wrap: wrap; column-gap: 16px; margin: 0; }
 /* F-10 / F-12: the record strip (app/record-strip.tsx). Figures in the muted colour; the average and "Too early to tell"
    bold in the text colour (the same weight, committee 2026-11-01), the average toned by its printed sign. */
 .record-strip { margin: 0; font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }

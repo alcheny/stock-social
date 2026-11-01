@@ -9,7 +9,8 @@ import { MoreMenu } from './not-interested.tsx';
 // quiet: the button reads "Liked" and a small mark sits by the menu; no count, no motion, no celebration (POLICY). The
 // toggle is optimistic (a like is neither money nor a record) and a refusal puts it back. The double tap
 // (app/feed-gestures.tsx) clicks the same button. Without JavaScript both are form posts.
-export function CardMenu({ id, symbol, handle, liked: first }: { id: string; symbol: string; handle: string; liked: boolean }) {
+// F-7 (legal C16): `likeable` false on a public-record card: no Like, so the double tap (which clicks it) does nothing.
+export function CardMenu({ id, symbol, handle, liked: first, likeable = true }: { id: string; symbol: string; handle: string; liked: boolean; likeable?: boolean }) {
   const [liked, setLiked] = useState(first);
   const [said, setSaid] = useState('');
   return (
@@ -17,7 +18,7 @@ export function CardMenu({ id, symbol, handle, liked: first }: { id: string; sym
       {liked && <span className="like-mark" title={LIKES.mark}><span aria-hidden="true">♥</span><span className="sr-only">{LIKES.mark}</span></span>}
       <MoreMenu label={LIKES.more(symbol)}>
         <div className="menu-pop">
-          <form action={likeForm.bind(null, id, first)} onSubmit={async (e) => {
+          {likeable && <form action={likeForm.bind(null, id, first)} onSubmit={async (e) => {
             e.preventDefault();
             const now = !liked;
             setLiked(now);
@@ -28,7 +29,7 @@ export function CardMenu({ id, symbol, handle, liked: first }: { id: string; sym
             <button type="submit" className="secondary" data-like aria-pressed={liked} aria-label={LIKES.likeLabel}>
               <span aria-hidden="true">{liked ? '♥' : '♡'}</span> {liked ? LIKES.liked : LIKES.like}
             </button>
-          </form>
+          </form>}
           <form action={rejectTradeForm.bind(null, id)} onSubmit={(e) => {
             e.preventDefault();
             const d = e.currentTarget.closest('details');

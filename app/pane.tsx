@@ -1,12 +1,12 @@
 import Link from 'next/link';
 import { paneSummary, paneTrust } from '@/lib/pane.ts';
 import type { PublicState } from '@/lib/connections.ts';
-import { RECORD_BODY } from '@/lib/copy.ts';
+import { isPublicRecord, PUBLIC, RECORD_BODY } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { counted } from '@/lib/format.ts';
 import { paneChart, paneChartSrc, type PackedChart } from '@/lib/chart-series.ts';
 import { PerformanceChart } from './u/[handle]/chart.tsx';
-import { Badge, WhoName } from './ui.tsx';
+import { Badge, PublicNotice, WhoName } from './ui.tsx';
 import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
@@ -35,9 +35,11 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const open = openSummary(unrealized);
   const both = open && combined(trades.map((t) => t.returnPct), unrealized);
   const trust = paneTrust(trades, state);
+  const pub = isPublicRecord(state); // F-7: no Follow; the not-joined line right under the chart (it stays above the fold)
   const chartBlock = <>
     <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} noteBy={handle} />{/* F-9: UserNote in the chart sheet */}
     {open && <ChartNote o={open} />}
+    {pub && <PublicNotice />}
   </>;
   const summary = p.since && p.worst && (
     <p className="summary">
@@ -64,8 +66,8 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         {/* Fix round 1 (UX 6): room for the whole handle plus the start of the name; the header wraps before it would
             squeeze the name away, and the name ends in an ellipsis. */}
         <Link href={`/u/${handle}`} className="who" style={{ minWidth: `min(100%, ${handle.length + 4}ch)` }}><WhoName name={name} handle={handle} /></Link>
-        {trust.badge && <Badge verified={trust.badge === 'verified'} />}
-        {viewer?.signedIn && <div className="pane-actions"><FollowButton handle={handle} following={viewer.following} signedIn /><NotInterested handle={handle} /></div>}
+        {trust.badge && <Badge kind={trust.badge} />}
+        {viewer?.signedIn && <div className="pane-actions">{!pub && <FollowButton handle={handle} following={viewer.following} signedIn />}<NotInterested handle={handle} /></div>}
       </header>
       {/* F-6 (business lead D1): with open positions the figures lead, as on the profile (the pane is where most viewers
           meet a record, SW-1); without them, today's order. */}
@@ -80,7 +82,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         ))}
       </ul>
       <p><Link href={`/u/${handle}`} className="button">See full profile →</Link></p>
-      <p className="muted">Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.</p>
+      <p className="muted">{pub ? PUBLIC.paneFoot : "Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown."}</p>
     </section>
   );
 }

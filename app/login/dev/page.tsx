@@ -28,6 +28,7 @@ export default async function DevLogin({ searchParams }: { searchParams?: Promis
       <form action={login}>
         {ref && <input type="hidden" name="ref" value={ref} />}
         {via && <input type="hidden" name="via" value={via} />}
+        {sp?.error === 'handle' && <p role="alert" className="down small">That handle is taken or reserved.</p>}
         <label htmlFor="handle">Handle</label>
         <input id="handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} placeholder="lowercase, 3–20 chars" defaultValue={devLoginHandleValue(sp?.handle)} autoFocus={field === 'handle'} aria-describedby={desc('handle', 'handle-hint')} />
         <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>

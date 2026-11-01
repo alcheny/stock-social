@@ -20,6 +20,7 @@ import { signUpOpen } from '@/lib/launch-gate.ts';
 import { LAUNCH } from '@/lib/copy.ts';
 import { REPORT_COPY, reportMessage, reportThesis, type ReportState } from '@/lib/reports.ts';
 import { logSafe } from '@/lib/privacy-log.ts';
+import { isFilerHandle } from '@/lib/public-gate.ts';
 
 // DEV-ONLY sign-in (/login/dev): no password, guarded like the old stub. It still goes through a signup_attempts row
 // (method 'dev') so the attestation precedes the users row on this path too.
@@ -33,6 +34,7 @@ export async function login(form: FormData) {
   // account the launch gate, the typed display name and the handle verdict. The typed handle comes back, the name never.
   const back = (code: string): never => redirect(devLoginRedirect(code, form.get('handle')));
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) back('handle-format');
+  if (isFilerHandle(handle)) back('handle-reserved'); // F-7: a public filer is never signed into or signed up as
   if (form.get('adult') !== 'on') back('attest');
   const known = await findLiveUserByHandle(handle); // fix round 3: a profile pending deletion is no account here
   if (!known) {

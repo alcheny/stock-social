@@ -32,6 +32,7 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.thesis_written_at': 'when the trader wrote the note', 'closed_trades.thesis_edited_at': 'when the trader last edited the note',
   'closed_trades.thesis_hold_rule': 'moderation state (rule that held the note)', 'closed_trades.thesis_reviewed_at': 'moderation state (owner release time)',
   'closed_trades.thesis_reports_from': 'moderation state (reports count from this release time)',
+  'closed_trades.filing_url': 'link to the public filing behind a public-record trade (F-7)', 'closed_trades.feed_after': 'feed floor, internal (F-7)',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
   'closed_trades.sell_imported_at': 'when the closing sell was imported, internal (feed paging)',
 };

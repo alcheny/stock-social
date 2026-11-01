@@ -33,6 +33,7 @@ export type TradeView = ReturnType<typeof tradeSharePayload> & {
   open?: number[]; // unrealized percents, read for a connected or failed record only
   // F-9 (fix-user-text): the note's dates and the trade id for the Report control; never part of the share image data.
   note?: { tradeId: string; writtenAt: Date | null; editedAt: Date | null };
+  filings?: { sold: string; bought: string[] } | null; // F-7: a public record's filing links
 };
 
 export const tradeStripInput = (t: TradeView): StripInput => ({

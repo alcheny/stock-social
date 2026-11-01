@@ -141,7 +141,8 @@ export async function latestConnection(userId: number): Promise<Connection | nul
 // do. A pre-F-1 claim (confirmed, no connection) counts as connected. The state never derives from "has a vendor id".
 // Fix round 3: the state is over ALL consented connections, never the newest one (TR-3): a trader can hold several,
 // and a newer finished one must not present a still-running import as a whole record.
-export type PublicState = 'importing' | 'connected' | 'failed' | 'none';
+// F-7: 'public' / 'public_demo', built from public filings (set in recordStates only); trust rules branch on it, never on verified.
+export type PublicState = 'importing' | 'connected' | 'failed' | 'none' | 'public' | 'public_demo';
 export type AggregateRow = Pick<Connection, 'id' | 'state' | 'consent_at' | 'imported_count' | 'accounts'>;
 export type RecordStatus = { state: PublicState; imported: number; importing: number[] };
 // Pure. importing while any consented connection imports; else failed while a consented import failed and no later
@@ -174,7 +175,10 @@ export async function recordStates(userIds: number[]): Promise<Map<number, Recor
   if (!ids.length) return out;
   const rows = await sql`select user_id, id, state, consent_at, imported_count, accounts from connections where user_id = any(${ids}) and consent_at is not null order by id`;
   const legacy = new Set((await sql`select distinct user_id from broker_accounts where user_id = any(${ids}) and confirmed_at is not null and connection_id is null`).map((r) => Number(r.user_id)));
+  const filers = new Map((await sql`select u.id, pf.demo from users u join public_filers pf on pf.id = u.public_filer_id where u.id = any(${ids})`).map((r) => [Number(r.id), r.demo as boolean]));
   for (const id of ids) {
+    const demo = filers.get(id);
+    if (demo !== undefined) { out.set(id, { state: demo ? 'public_demo' : 'public', imported: 0, importing: [] }); continue; } // F-7
     const mine = rows.filter((r) => Number(r.user_id) === id).map((r) => ({ ...(r as unknown as AggregateRow), id: Number(r.id) }));
     out.set(id, aggregateRecord(mine, legacy.has(id)));
   }
@@ -186,6 +190,7 @@ export async function publicRecord(userId: number): Promise<{ state: PublicState
 // The profile's read: the public state and simulated count, plus the summed import count for the banner.
 export async function publicRecordDetail(userId: number): Promise<{ public: { state: PublicState; paper: number }; imported: number }> {
   const status = await recordStatus(userId);
+  if (status.state === 'public' || status.state === 'public_demo') return { public: { state: status.state, paper: 0 }, imported: 0 }; // F-7
   const [r] = await sql`select
     exists (select 1 from connections where user_id = ${userId} and consent_at is not null) as consented,
     ${legacyClaim(userId)} as legacy,

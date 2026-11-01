@@ -7,6 +7,7 @@ import { legacyVia, normalizeHandle, type ReferredSurface } from '../referral.ts
 import { SignUpClosedError } from '../launch-gate.ts';
 import { checkDisplayName, checkHandle, HANDLE_RESERVED_DAYS, lockHandleSkeleton, type HandleVerdict, type NameReasonCode } from '../handles.ts';
 import { sanitizeUserText } from '../text-safety.ts';
+import { isFilerHandle } from '../public-gate.ts';
 
 export const METHODS = ['provider_a', 'provider_b', 'email', 'brokerage', 'dev'] as const;
 export type Method = (typeof METHODS)[number];
@@ -73,6 +74,7 @@ export async function createUserForAttempt(attemptId: number, i: { handle?: stri
   for (let tries = 0; tries < 5; tries++) {
     const handle = i.handle ? normalizeHandle(i.handle) : provisionalHandle();
     if (!handle) throw new HandleTakenError('format');
+    if (isFilerHandle(handle)) throw new HandleTakenError('reserved'); // F-7: filer handles are never signed up
     // Fix round 1: a chosen handle is checked and inserted under its skeleton's lock, so two look-alike sign-ups can't
     // both pass the check (lib/handles.ts#lockHandleSkeleton). A blank name falls back to the handle unchecked: the
     // handle rules already apply to it.
@@ -155,6 +157,7 @@ export async function signInWithIdentity(attemptId: number, id: Identity, opts: 
 export async function changeHandle(userId: number, raw: unknown): Promise<string> {
   const handle = normalizeHandle(raw);
   if (!handle) throw new HandleTakenError('format');
+  if (isFilerHandle(handle)) throw new HandleTakenError('reserved'); // F-7: nobody renames into a filer handle
   try {
     return await sql.begin(async (tx) => {
       const [me] = await tx`select handle from users where id = ${userId} for update`;

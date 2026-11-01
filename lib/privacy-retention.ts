@@ -53,6 +53,11 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   record_view_traders: { personal: true, retention: 'account', holds: 'the traders in a private saved view and their order; deleted with the view or either account' },
   record_notes: { personal: true, retention: 'account', holds: 'a subscriber\'s private note about a trader; deleted with either account' },
   record_tool_notices: { personal: true, retention: 'account', holds: 'a count of traders removed from a subscriber\'s views and notes since the last dismissal; no trader id' },
+  // F-7 public-record traders: kept until a removal request (lib/public-import.ts#filerAction); class 'account' = the profile's life.
+  public_filers: { personal: true, retention: 'account', holds: 'public filer id, demo flag, exclusion counts, open symbols, hidden/removed times; after removal only the id, source and removed time' },
+  public_transactions: { personal: true, retention: 'account', holds: 'raw public filing rows: symbols, codes, share counts, prices, dates, filing links; deleted on removal' },
+  public_import_state: { personal: false, retention: 'none', holds: 'import cursor and last successful run per source' },
+  public_filer_log: { personal: true, retention: 'account', holds: 'corrections log: filer id, action, reason code and time; no requester details' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
   // fix-user-text B (F-9): who reported which note; both user links cascade, so a deleted profile leaves no reporter id.
   thesis_reports: { personal: true, retention: 'account', holds: 'which signed-in reader reported which trader\'s note (by sell id) and when' },
