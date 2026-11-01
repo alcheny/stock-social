@@ -740,3 +740,13 @@ begin
 end $t$;
 -- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
 select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');
+
+-- Stalest-first tick and attempt sweep (known-limits sweep 2, item connections): the last time a tick (or the attempt
+-- sweep) claimed the row for a try, on the database clock. Null = never tried, so it goes first. Each read orders by
+-- (tried_at nulls first, id) and claims a row by compare-and-set on the stamp it read, so a row that keeps failing moves
+-- to the back and two overlapping ticks never start the same try. Additive; the partial indexes match each read's WHERE.
+select schema_add_column('connections', 'tick_tried_at', 'timestamptz');
+select schema_add_column('signup_attempts', 'sweep_tried_at', 'timestamptz');
+select schema_add_index('connections_tick_import', 'create index connections_tick_import on connections (tick_tried_at nulls first, id) where state = ''importing''');
+select schema_add_index('connections_tick_cleanup', 'create index connections_tick_cleanup on connections (tick_tried_at nulls first, id) where cleanup_done_at is null and state in (''declined'', ''expired'')');
+select schema_add_index('signup_attempts_sweep', 'create index signup_attempts_sweep on signup_attempts (sweep_tried_at nulls first, id) where snaptrade_user_id is not null');
