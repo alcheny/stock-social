@@ -1,6 +1,6 @@
 # F-21 · Exclusion counts beside the headline (pane and record strip)
 
-Status: blocked
+Status: draft
 Blocked: waits for fix F3-2 (cycle-3 fixes list: the pane's TR-9 range and "New record", same `app/pane.tsx` file) and F-22 if the owner says yes (the ledger slot, whose transferred-out count joins the shared sum)
 Start conditions: fix F3-2 merges (`docs/direction/cycle3-2026-11-01.md` §5). F-22 merges first where both are ready; if
 the owner declines F-22, this feature starts after F3-2 alone (Open questions). Shares one build slot with F-23 (same
@@ -47,6 +47,12 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
   Why: approved by the approval council (cycle 3); RE (found in round 1), MR.
 - 2026-11-01: Sequencing and lapse: starts after fix F3-2 merges; if F3-2 has not merged by the next approval council
   (cycle 4), this approval lapses to that council. Why: approved by the approval council (cycle 3); lapse rule.
+
+- 2026-11-01: Lapsed at approval council cycle 4: F3-2 had not merged and F-22 was not decided. It was voted again and
+  not re-approved: second-vote mean 3.47, below the 3.5 approval floor (`docs/ideas/approval-2026-11-01-cycle4.md`). The
+  file and every decision above are kept word for word. It returns to the next council once F3-2 merges, starting after
+  F3-2 alone if the owner declines F-22. Why: approval council cycle 4; lapse rule; DK, EN, PF (a third lapse while F3-2
+  sits on a branch with no PR).
 
 ## Acceptance criteria
 - [ ] A fixture record with `excluded_corporate = 2` shows the exclusion line on the pane, signed out, at 360 px (e2e);
