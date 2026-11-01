@@ -13,10 +13,11 @@ Feature: `docs/features/F-24-late-sell-reconciliation.md` (now `Status: built`).
 - **Insert-only:** inserts stay `on conflict (source, external_id) do nothing`. No raw row is updated or deleted, and
   closes change only through `rebuildTrades`/`rebuildRecord`.
 - **Re-issues (D5):** a newly stored row whose account, symbol, side, time, units and price equal a row stored before
-  the transaction is held in a side table, `activity_reissues` (pending, genuine or suspected). Activities stay raw, and
+  the transaction is held in a side table, `activity_reissues` (pending, confirm, genuine or suspected). Activities stay raw, and
   the rebuild leaves out every held row.
-  - Genuine: one vendor response (one pass page, one week read or one import page) listed the row and every unheld
-    twin. That is final.
+  - Genuine: one vendor response (one pass page, one week read or one import page) decides by count. Per twin group,
+    at most k − p listed held rows are cleared, where k is the rows listed and p the unheld rows, oldest first. The
+    record keeps as many fills as the vendor lists. A read of a full vendor page or more decides nothing. Final.
   - Confirm: a complete pass listed the row and its twins, but never on one page. The account's next daily read is
     widened to the twins' trade date (one call, inside F-14's budget), and it decides.
   - Suspected: what no single read could clear. Held and counted; a later pass can re-examine it.
@@ -158,7 +159,7 @@ reviewer; 3 planning rounds, all signed):
   - Nit: the retention text names the failure counters.
 
 ## Owner items
-- Confirm that held rows (pending or suspected) are kept out of the record and counted for the owner only, so a held
+- Confirm that held rows (pending, confirm or suspected) are kept out of the record and counted for the owner only, so a held
   genuine fill can be absent until its pass decides it (D5's trade-off). See the owner queries in `docs/SYNC.md`.
 - AC6 is built for share rows: a re-issued option close can show twice until you decide to hold option twins too.
 - The symbol-less row limit, the widened read's page overlap and per-page id lists for multi-page reads (L1: such a read
