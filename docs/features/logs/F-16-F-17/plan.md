@@ -861,3 +861,19 @@ outside text-safety.
   - `lib/auth/attempts.ts`, `app/auth/actions.ts`, `lib/handles.ts`, `app/login/dev/page.tsx`;
   - tests: `handles.db.test`, `attempts.test`, `f17-*`, `e2e/f17-handles.spec`.
   - D exports `HANDLE_REASON.soon`, `RENAME_RULE` and `nextRenameAt` from `lib/handles.ts` for C.
+
+## R3. Round 3 changes (v3, signed)
+
+- **Engineer (round 2, blocking): B3's `until = now()` changes two existing assertions.** `lib/auth/attempts.test.ts:158`
+  and `:162` assert no `handle_reservations` row for a taken-back handle. Under B3 the row stays with its hold ended.
+  Both are rewritten to the same strength: no active hold on the handle (`until > now()` returns 0 rows) and the row's
+  `user_id` is still this account. They join §0.7's decision-mapped changes. `lib/f17-rename.db.test.ts` adds a step:
+  rename back, then rename away again; the ended row is re-held through the existing `on conflict (handle) do update`
+  (`lib/auth/attempts.ts:177-178`).
+- **Business lead (round 2, conditions on B4):** the `no-store` assertions run on the production build
+  (`npm run start`, as `npm run test:e2e` does), never under `next dev`. If the `proxy.ts` fallback is needed it sets
+  `private, no-store` on `/u/*` page responses only (dynamic pages; never on the image routes), and an e2e pins that a
+  visible profile's og image keeps `public, max-age=300`.
+- **Owner list (Q13) adds:** cached share images and JSON may outlive a hide or a rename by at most 300 s and 60 s.
+
+Signed: business lead (round 2), engineer (round 2, with the item above, which is the engineer's own fix verbatim).

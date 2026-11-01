@@ -38,3 +38,33 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
   the target lookup; the trader's own export and account reads stay on the deletion-only rule; follows; filer handles
   answer 'none'; inject `now` in rename tests; merge static tests; keep `getByLabel('New handle')`.
 - Votes on §12 Q1–Q13: both reviewers voted the UX lead's recommended option on every question.
+
+### Round 2 (plan v2)
+
+- The UX lead accepted every demand (§R2 maps each one). **Business lead: SIGN**, with two conditions on B4 (no-store
+  checked on the production build; a proxy fallback covers only `/u/*` pages, never images). **Engineer: CHANGES**, one
+  blocking: B3 changes `lib/auth/attempts.test.ts:158,162`; rewrite both to "no active hold, row still this account's"
+  and add a re-hold step. Folded in verbatim as §R3 (v3); both signatures stand on v3.
+
+## Decisions (2026-11-01, committee's recommended option; both reviewers voted it)
+
+1. Q1: the integrated vendor's word stays in `RESERVED` under POLICY T1's integrated-vendor exception; a test pins it
+   as the only vendor entry. The owner may read F-17's clause literally and remove it.
+2. Q2: a hold row is `{handle, until, user_id}`; the account link is nulled on deletion, and the release date stays.
+3. Q3: look-alike checks keep the existing superset (every account, plus reserved, demo and F-7 handles at runtime).
+4. Q4: NFKC applies in matching only (stored names stay NFC, F-9 fix round 5); full-width forms are refused.
+5. Q5: "a profile report has an empty `sell_id`" is enforced in code with a db test, not a schema constraint.
+6. Q6: one report per reporter and profile, ever (the existing unique row).
+7. Q7: the owner digest is a script (`scripts/trust-digest.ts`), not a page.
+8. Q8: leaving the untouched provisional handle and renaming back to one's own held handle don't start the 30-day
+   clock.
+9. Q9: a hidden trader sees one private, neutral line on their own profile; it never says "reported" or "review".
+10. Q10: "rename chain" covers the handle chain (held old handles) and the ticker chain; the predicate is keyed on the
+    user id.
+11. Q11: the "New handle" label becomes visible.
+12. Q12: a hidden profile answers 404 with the neutral notice, `private, no-store`.
+13. Q13: owner-only items: approve the anti-impersonation line and the takedown wording, set the role mailbox, choose
+    an email sender, choose the K18 age-assurance method, authorize axe-core (MPL-2.0) or accept the hand-built
+    checks, confirm Q1, accept the ≤300 s image / ≤60 s JSON cache window.
+14. Share images send `public, max-age=300` (engineer E2): `ImageResponse` otherwise caches for a year.
+15. No edit to `app/pane.tsx`: the line mounts beside `ProfilePane` at its two call sites.

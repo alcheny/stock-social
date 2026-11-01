@@ -64,6 +64,13 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 - 2026-11-01: A rename changes every handle-keyed share image, card and cache key, so no card or image is served under
   a freed or held handle. Rejection messages name the field and the rule in visible text, use `role=alert` and move
   focus to the field. Why: approved by the approval council (cycle 3); RE, EN, A11Y, UX.
+- 2026-11-01: The integrated vendor's word stays in the reserved list under POLICY T1's integrated-vendor exception, pinned by a test as the only vendor entry; the owner may read the decision literally and remove it. Why: decided by the committee under the owner's instruction of 2026-11-01; removal would weaken four existing assertions and let vendor-impersonating handles through (Q1).
+- 2026-11-01: A hold row is `{handle, until, user_id}`: the account link (needed for rename-back and the one-hold cap) is nulled on deletion and the release date stays. Why: decided by the committee under the owner's instruction of 2026-11-01; "only the handle and a release date" read as no personal data beyond the holding account's id (Q2).
+- 2026-11-01: Look-alike checks keep the existing superset (every account's handle, plus reserved, demo and F-7 handles at runtime). Why: decided by the committee under the owner's instruction of 2026-11-01; stricter, and narrowing it would weaken existing tests (Q3).
+- 2026-11-01: NFKC applies when matching; stored names stay NFC. Why: decided by the committee under the owner's instruction of 2026-11-01; storing NFKC damages some scripts (F-9 fix round 5); full-width forms are still refused (Q4).
+- 2026-11-01: Leaving the untouched provisional handle and renaming back to one's own held handle don't start the 30-day clock; a taken-back hold ends with `until = now()`, never a delete. Why: decided by the committee under the owner's instruction of 2026-11-01; at most one hold exists either way, and nothing is deleted (Q8, business lead B3).
+- 2026-11-01: The "New handle" label is visible. Why: decided by the committee under the owner's instruction of 2026-11-01; WCAG 3.3.2, and the rule message sits beside a visible field name (Q11).
+- 2026-11-01: Brand words stay substring rules; only "Verified" and "Official" match on word boundaries. Why: decided by the committee under the owner's instruction of 2026-11-01; a name that embeds the product's name still impersonates it (engineer E7).
 
 ## Acceptance criteria
 - [ ] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and

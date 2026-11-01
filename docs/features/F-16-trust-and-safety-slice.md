@@ -83,6 +83,13 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
   audit row is written in the same transaction as the hide. The report action is a quiet menu item, never next to
   Follow or Share. Why: approved by the approval council (cycle 3); red team (reports are a weapon), TS, RE, UX, PD
   (veto condition: CS for the reporter limits and hidden identity).
+- 2026-11-01: Profile reports extend F-9's `thesis_reports` table (target, category, resolution columns; a profile report has an empty `sell_id`), one report per reporter and profile, ever. Why: decided by the committee under the owner's instruction of 2026-11-01; one table, and the unique row gives "report once" and "one open report" at no cost (Q5, Q6).
+- 2026-11-01: The owner digest is a script, `scripts/trust-digest.ts`, never a page. Why: decided by the committee under the owner's instruction of 2026-11-01; no route, no session to misuse, the same pattern as `scripts/review-theses.ts` (Q7).
+- 2026-11-01: A hidden profile answers 404 with the neutral notice and `private, no-store`; its trader sees one private neutral line on their own profile that never says "reported" or "review". Why: decided by the committee under the owner's instruction of 2026-11-01; due process without marking the trader publicly, and the same answer as its images and JSON (Q9, Q12).
+- 2026-11-01: "Rename chain" covers both the handle chain (held old handles) and the ticker chain; the predicate is keyed on the user id. Why: decided by the committee under the owner's instruction of 2026-11-01; one key reaches both (Q10).
+- 2026-11-01: Share images send `public, max-age=300`, so a hide reaches a cached image within 300 s and cached JSON within 60 s; the owner accepts that window. Why: decided by the committee under the owner's instruction of 2026-11-01; `ImageResponse` otherwise caches for a year (engineer E2).
+- 2026-11-01: The anti-impersonation line mounts beside the profile pane at its two call sites, never inside `app/pane.tsx`. Why: decided by the committee under the owner's instruction of 2026-11-01; that file belongs to another session (F-11).
+- 2026-11-01: The "axe e2e" criterion is met by hand-built accessibility checks until the owner authorizes axe-core (MPL-2.0, not on the allowed licence list) or accepts the substitute; the box stays unchecked until then. Why: decided by the committee under the owner's instruction of 2026-11-01; no new dependency without the owner (POLICY C2, H).
 
 ## Acceptance criteria
 - [ ] A test fails on any `from closed_trades` read under `app/` or `lib/` that lacks the shared visible-user predicate
