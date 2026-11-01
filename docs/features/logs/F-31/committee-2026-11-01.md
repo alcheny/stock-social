@@ -33,3 +33,18 @@ after debate; each member is a fresh-context subagent and none grades work it wr
 - D8: Source scan over every `select` in the readout's `sql` templates; no path allowlist.
 - D9: "Under each G3 row" = under the strict G3 row (business lead confirmed).
 - D10: Whether filer views count toward G3 stays the owner's (MRC2-3); the limits block says so.
+
+## Build and review (2026-11-01)
+
+- Engineer: tests first for AC1–AC8 (`scripts/f31-readout.test.ts`, `scripts/f31-readout-scan.test.ts`,
+  `scripts/f31-readout.db.test.ts`), then the code. Orchestrator fix: the AC4 cap-mark read-back moved to a far-future day
+  so a parallel purge can't race it.
+- Tester round 1: two spec defects, no live leak (406,199-case subtraction search clean; handle, id, filer key absent from
+  file, stdout and stderr; markCapDay memo and backoff verified). Fixed: the source scan now refuses `*_id` columns and
+  whole-row references; the two wording changes are recorded in plan.md "Build deviations" (an existing test forbids
+  "signed-in" in the readout).
+- Business lead: PASS (strict G3 identical to the pre-F-31 text in all 8 weeks; every decision visible; no subtraction
+  path). UX lead: PASS (plain wording; every state in words; no meaning by colour). Non-blocking notes for the owner: the
+  `address cap` row repeats a long phrase per week (decided wording, D3); a top-3 share row is the first follow-up.
+- Independent code review: no blocking findings. Fixed: the AC5 test now checks the internal table rows themselves.
+  Kept: the self-views row's week complement (plan E9); the documented ponytail on a lost untrusted mark.

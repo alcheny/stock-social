@@ -530,3 +530,12 @@ The business lead approved D1–D5 and D7–D10, and confirmed D9 as the strict 
 |---|---|---|
 | BL-R3 | INTERNAL_RUNS_LINE only when the state is `set` | Done. `none-valid` prints no internal rows, so there is nothing to compare across runs. Updated in §2 and in the AC5 test (§8): `none-valid` has no INTERNAL_RUNS_LINE; `set` has it, pinned as a literal. |
 | EN-R3 (optional, adopted) | INTERNAL_LINE wording | INTERNAL_LINE (§3.5) adds: "The G1 row may reveal how many listed accounts have a connected broker." |
+
+### Build deviations (2026-11-01, recorded after tester round 1)
+
+| Item | Plan text | Built text | Reason |
+|---|---|---|---|
+| LIMIT_LINES[1] (§2) | "only signed-in self-views are removed" | "only self-views made while signed in are removed" | The existing test `scripts/f15-readout.test.ts` ("G4 has no signed-in count") forbids `/signed-in/i` anywhere in the readout, and tests are never weakened. Same meaning; the row label "(signed in)" is unchanged. |
+| SELF_LINE (§3.5) | "counts signed-in traders' views of their own profile, trade and month pages" | "counts traders' views of their own profile, trade and month pages made while signed in" | Same reason. |
+| AC7 source scan (§8) | named banned columns | also refuses any `*_id` column, whole-row references (`u`, `u::text`, `row(u.*)`) and `alias.*` anywhere in an item | Tester round 1: the plan's list let whole-row composites and other id columns through. |
+| Baseline file | `scripts/f31-readout-baseline.ts` | `scripts/f31-readout-baseline.test.ts` | Its printed text names `share_action`; as a `.test.ts` file it is test data for `lib/f15-isolation.test.ts`, whose allowlist stays unchanged. It holds no test. |

@@ -69,16 +69,34 @@ function selectLists(body: string): string[][][] {
   return lists;
 }
 
+// Table names and aliases after from/join in a body: a select item naming one bare (not before ".") returns the whole
+// row, id and handle included (tester round 1).
+const NOT_ALIAS = new Set(['where', 'join', 'left', 'right', 'inner', 'full', 'outer', 'cross', 'on', 'using', 'group', 'order', 'limit', 'as', 'lateral', 'union', 'having', 'select']);
+function aliases(body: string): Set<string> {
+  const t = tokens(body), out = new Set<string>();
+  for (let j = 0; j < t.length - 1; j++) {
+    if ((t[j] !== 'from' && t[j] !== 'join') || !/^[a-z_]/.test(t[j + 1]) || NOT_ALIAS.has(t[j + 1])) continue;
+    out.add(t[j + 1]);
+    const a = t[j + 2] === 'as' ? t[j + 3] : t[j + 2];
+    if (a && /^[a-z_]/.test(a) && !NOT_ALIAS.has(a) && !ENDS.has(a)) out.add(a);
+  }
+  return out;
+}
+// Any column named like an id (`*_id`) is refused the same way as the named ones (tester round 1).
+const banned = (k: string) => BANNED.has(k) || /^[a-z_][a-z0-9_]*_id$/.test(k);
+
 // Why one select item is refused, or null.
-function itemProblem(item: string[]): string | null {
+function itemProblem(item: string[], rows: Set<string> = new Set()): string | null {
   const text = item.join(' ');
-  if (text === '*' || (item.length === 3 && item[1] === '.' && item[2] === '*')) return `star: ${text}`;
+  if (item.some((k, j) => k === '*' && (j === 0 || item[j - 1] === '.'))) return `star: ${text}`;
+  if (item.some((k, j) => k === 'row' && item[j + 1] === '(')) return `row constructor: ${text}`;
+  if (item.some((k, j) => rows.has(k) && item[j + 1] !== '.' && item[j - 1] !== '.')) return `whole row: ${text}`;
   const asAt = item.lastIndexOf('as');
-  if (asAt >= 0 && BANNED.has(item[asAt + 1])) return `banned alias: ${text}`;
+  if (asAt >= 0 && banned(item[asAt + 1])) return `banned alias: ${text}`;
   for (let j = 0; j < item.length; j++) {
     const k = item[j];
     if (AGGS.has(k)) return `aggregate ${k}: ${text}`;
-    if (!BANNED.has(k)) continue;
+    if (!banned(k)) continue;
     const next = item.slice(j + 1, j + 4);
     const operand = (next[0] === 'is' && (next[1] === 'null' || (next[1] === 'not' && next[2] === 'null')))
       || (next[0] === '=' && (next[1] === '$param' || (next[1] === 'any' && next[2] === '(')));
@@ -87,7 +105,7 @@ function itemProblem(item: string[]): string | null {
   return null;
 }
 
-const problems = (body: string) => selectLists(body).flat().map(itemProblem).filter((p): p is string => p !== null);
+const problems = (body: string) => { const rows = aliases(body); return selectLists(body).flat().map((i) => itemProblem(i, rows)).filter((p): p is string => p !== null); };
 
 test('F-31 AC7: the scanner finds nested literals, strips comments and refuses every must-fail item', () => {
   const src = "const a = sql<{ n: number }[]>`select ${x}, n from t where u = ${sql`select u.id from users u`}`; // sql`select u.handle`\nconst b = `select u.handle`;";
@@ -100,6 +118,11 @@ test('F-31 AC7: the scanner finds nested literals, strips comments and refuses e
     assert.equal(problems(`select n from (select ${bad} from users u) q`).length, 1, `${bad} (nested)`);
   }
   assert.equal(problems('select n from t -- , u.id\n where 1 = 1').length, 0, '-- comments are stripped');
+  // Tester round 1: whole-row composites and other id columns.
+  for (const bad of ['select u from users u', 'select u::text from users u', 'select row(u.*) from users u', 'select u.public_filer_id from users u',
+    'select u.snaptrade_user_id from users u', 'select u.referred_by_user_id from users u', 'select users from users', 'select n, x from users u join t x on true']) {
+    assert.equal(problems(bad).length, 1, bad);
+  }
 });
 
 test('F-31 AC7: count(*), select 1 and comparisons of a banned column with a parameter pass', () => {

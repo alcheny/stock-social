@@ -1,6 +1,6 @@
 # F-31 · The readout states its limits and splits trader and filer views
 
-Status: building
+Status: built
 Start conditions: F4-11 (demo filers in the demo exclusion) and F4-12 (invite views on Demo profiles) merge
 (`docs/direction/cycle4-2026-11-01.md` §5), or the same builder carries all three. It is its own build slot (the readout
 slot).
@@ -61,19 +61,19 @@ C4-4 (rank 3) and C4-31 (rank 4), merged in round 0. Approved by the approval co
 - 2026-11-01: "tagged link" means a share or invite via; in-app nav and profile codes stay out. Why: decided by the committee under the owner's instruction of 2026-11-01; in-app links are not landings from outside; plan D7.
 
 ## Acceptance criteria
-- [ ] DB test: with one fictional real-filer view and one fictional trader view, both partial rows print. The strict
+- [x] DB test: with one fictional real-filer view and one fictional trader view, both partial rows print. The strict
       G3 row equals today's value for the same data.
-- [ ] Small-cell rules hold for the partial rows and the concentration row. A test shows no suppressed weekly or
+- [x] Small-cell rules hold for the partial rows and the concentration row. A test shows no suppressed weekly or
       cumulative cell can be recovered by subtraction.
-- [ ] The limits block prints above the first G-row on every run. A text test pins its sentences.
-- [ ] With the cap not shown to be live, the "not readable as a gate" flag prints beside the strict rows, and the
+- [x] The limits block prints above the first G-row on every run. A text test pins its sentences.
+- [x] With the cap not shown to be live, the "not readable as a gate" flag prints beside the strict rows, and the
       strict rows still print.
-- [ ] With the internal-handles env unset, "internal accounts: not removed" prints. With it set, G1 and G3 partial
+- [x] With the internal-handles env unset, "internal accounts: not removed" prints. With it set, G1 and G3 partial
       rows print and no handle appears in the output or logs.
-- [ ] The concentration row prints the largest single profile's share, with no id, handle or return, and is
+- [x] The concentration row prints the largest single profile's share, with no id, handle or return, and is
       suppressed under 5.
-- [ ] No row selects a user id, handle, return or filing name (source scan in the test).
-- [ ] With the env unset and no new data, output changes only by the new block and rows.
+- [x] No row selects a user id, handle, return or filing name (source scan in the test).
+- [x] With the env unset and no new data, output changes only by the new block and rows.
 
 ## Out of scope
 - Changing what any gate measures (MRC2-3, owner).
@@ -87,3 +87,4 @@ C4-4 (rank 3) and C4-31 (rank 4), merged in round 0. Approved by the approval co
 ## Rework notes
 
 ## Build log
+- 2026-11-01: built on `claude/f31-readout-limits` through the committee cycle (plan signed in round 3; tester, business lead, UX lead and independent review in `docs/features/logs/F-31/committee-2026-11-01.md`). Address-cap marks in the new `view_cap_days` table; internal handles from env `READOUT_INTERNAL_HANDLES`.
