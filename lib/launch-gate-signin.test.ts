@@ -55,9 +55,13 @@ test('every real sign-up and connect path checks the gate before it writes or ca
   const brokerage = actions.slice(actions.indexOf("if (method === 'brokerage') {"));
   assert.ok(brokerage.indexOf('signUpOpen()') < brokerage.indexOf('createAttempt('), 'brokerage-first: gate before the attempt row');
   for (const f of ['app/auth/email/route.ts', 'app/auth/callback/[provider]/route.ts']) {
-    const s = src(f);
+    // Security hardening (F14) moved the email link's claim and sign-in into lib/auth/email-finish.ts (shared by the
+    // link's GET and its confirm step's POST): the same two checks hold there, and its behaviour is tested in
+    // lib/auth/links.hardening.test.ts (closed gate → /login?error=closed, nothing written).
+    const s = f === 'app/auth/email/route.ts' ? src('lib/auth/email-finish.ts') : src(f);
     assert.match(s, /signInWithIdentity\([^;]*\{ allowNew: signUpOpen\([^)]*\) \}\)/, f);
-    assert.match(s, /if \(e instanceof SignUpClosedError\) return NextResponse\.redirect\(`\$\{base\}\/login\?error=closed`, 303\);/, f);
+    if (f === 'app/auth/email/route.ts') assert.match(s, /if \(e instanceof SignUpClosedError\) return '\/login\?error=closed';/, f);
+    else assert.match(s, /if \(e instanceof SignUpClosedError\) return NextResponse\.redirect\(`\$\{base\}\/login\?error=closed`, 303\);/, f);
   }
   const cb = src('app/auth/callback/[provider]/route.ts');
   assert.ok(cb.indexOf('SignUpClosedError) return') < cb.indexOf("return fail('exchange')"), 'caught before the generic provider failure');
