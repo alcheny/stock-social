@@ -149,3 +149,18 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
 - UX7: profile tap targets under 44 px on chart points, ticker links and "What's this?" (existing profile code).
 - BL3/UX3: a safe return path from `/login` to the page that sent the viewer there (auth owners).
 - F-26: pass `tradeKey(t.sell_id)` in the profile and trade-page note slots (coordination note).
+
+## Final integration (2026-11-01)
+
+- Main merged again: #87 (F-26), #77 (F-20), #90, #91, #92 (stock surfaces on the predicate), #94 (likes by
+  trade_key alone), #89 (fixes cycle 4: F4-7 filer identities now pass `checkDisplayName` and the handle rules, which
+  work unchanged with F-17's). Conflicts kept both sides; `lib/likes.ts` keeps #94's lookup with F-16's predicate.
+  F-26's new author read (`lib/own-note.ts`) joins the read scanner's allowlist (the trade page 404s a hidden trader
+  before it). The report outline's focus ring moves to F-20's `--focus`. Main's #85 route map gains
+  `/u/<h>/report`.
+- F4-17 (assigned by #89's hand-off): the held reason describes the thesis input (`held-<id>`, `aria-invalid` while
+  held); `lib/f4-17-held-field.test.ts`, `e2e/f4-17-held-field.spec.ts`.
+- A flake in `e2e/f16-not-found.spec.ts` (no `<title>` yet on one 404): Next 16 can stream the head, so the specs now
+  poll the title and then require exactly one. Three back-to-back runs passed.
+- The F-17 old-links note is a plain comment (a decision, not a limit), so it is no longer a `ponytail:`.
+- Compliance: the one tree item (`@img/sharp-wasm32` licence in `node_modules`) appears identically on origin/main.
