@@ -589,6 +589,8 @@ export async function syncUser(
             const r = await recordPage(tx, user.id, id, pass, limit, listed, [...listed, ...optionIds], page.done, t);
             // A one-page pass read the whole history in one call, a superset of the week read; any other page is a
             // history page: positions-only rule (TR-4) and "Updated" keeps its value (plan §3).
+            // ponytail: "Updated" keeps the trader's value on any page day, so another account's week read that day is not
+            // reflected for up to a day — fix: a per-account recent-read stamp (rejected in round 2 as more than it buys).
             if (!r.onePage) pagedIds.push(id);
           } catch (e) {
             if (pass && pageFailureCounts(e)) recFailed.add(id);

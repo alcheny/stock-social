@@ -419,6 +419,8 @@ export async function replaceAccountOptionPositions(tx: TransactionSql, userId: 
 // F-24 (docs/features/F-24-late-sell-reconciliation.md): the option side of the late-postings work, here because this file
 // is the one allowed to read the option tables (lib/options-load.test.ts AC23).
 /** Option rows with an older twin stored in this transaction (counted, not held: plan item 10, owner item). */
+// ponytail: option twins are counted, not held, so a re-issued option close can show twice until the owner decides —
+// fix: the same hold (an option_activities filter in rebuildOptionTrades) and decisions as share rows.
 export async function optionTwins(tx: TransactionSql, userId: number): Promise<number> {
   const [{ n }] = await tx`select count(distinct n.external_id)::int as n from option_activities n join option_activities e on e.user_id = n.user_id and e.source = n.source
       and e.account_id is not distinct from n.account_id and e.contract_key is not distinct from n.contract_key and e.kind is not distinct from n.kind

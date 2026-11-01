@@ -24,6 +24,9 @@ export const RECONCILE_EVERY_MS = 7 * DAY_MS;
 // Pacing: a later page of a pass waits at least this long after the previous one, so the account's daily reads go
 // page, week, page, week (its recent trades wait at most one extra day). 47 h, not 48: hourly rounds jitter.
 export const RECONCILE_PAGE_GAP_MS = 47 * 3_600_000;
+// ponytail: a k-page history takes about 2k days per pass (≈ 20 days at 10 pages), so a late row deep in a long history
+// waits up to that plus the period — fix: the vendor's written answer on history pages (MR-1) would let pages run apart
+// from the daily activities read.
 // Each later page starts this many rows back and must list the previous page's last ids again (a vendor list that
 // shifted between pages, days apart, would otherwise skip a row and make it look absent).
 export const RECONCILE_OVERLAP = 50;
@@ -204,6 +207,8 @@ async function decidePass(tx: TransactionSql, userId: number, accountId: string,
  *  vendor shows as many fills as are kept (QA D1: with two genuine identical fills stored, a re-issue of one of them is
  *  not cleared by the other being listed). `minAt`: only rows dated on or after it (a week read decides only inside its
  *  window, a day clear of its time-zone boundary). */
+// ponytail: genuine is final, so an original the vendor later stops listing (a cancel or correction) keeps both rows
+// published — fix: the owner's answer on vendor corrections (C3-9b, cycle-3 Q3).
 export async function markGenuine(tx: TransactionSql, userId: number, listed: string[], accountId?: string, minAt?: Date): Promise<number> {
   if (!listed.length) return 0;
   const r = await tx`update activity_reissues r set state = 'genuine', decided_at = now()
@@ -220,6 +225,8 @@ export async function markGenuine(tx: TransactionSql, userId: number, listed: st
  *  account, symbol, side, time, units and price; another vendor id) is a possible re-issue, held `pending` until a read
  *  lists both or a complete pass decides it. Rows that arrive together were listed by the same read, so they are never
  *  each other's re-issue (two genuine identical fills are never held). Returns how many were found. */
+// ponytail: twins stored before F-24 are never swept (both stay published as they were) — fix: a one-off owner-run check
+// over stored twin groups, deciding each with a complete pass.
 export async function markTwins(tx: TransactionSql, userId: number): Promise<number> {
   // The new rows are read first (materialized), so each twin lookup goes through activities_user_pair whatever the
   // table's statistics (QA D5: before an analyze the planner chose a scan over every pair of rows).
@@ -245,6 +252,8 @@ export async function bringForward(tx: TransactionSql, userId: number, t: Frag, 
 }
 
 /** Retention: an account no longer read (frozen, simulated, unconsented) drops its running pass's listed ids. */
+// ponytail: a trader whose every connection is frozen is never synced (lib/sync.ts#syncable), so a pass left running there
+// keeps its listed ids (vendor ids `activities` already holds) — fix: clear them in the freeze step (F3-3).
 export async function dropUnread(tx: TransactionSql, userId: number, real: string[]) {
   await tx`update broker_accounts set reconcile_offset = null, reconcile_tail = null, reconcile_seen = null, reconcile_missing = null, reconcile_pages = 0, reconcile_valid = true
     where user_id = ${userId} and (reconcile_offset is not null or reconcile_seen is not null or reconcile_tail is not null or reconcile_missing is not null)
