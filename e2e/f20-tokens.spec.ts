@@ -1,6 +1,6 @@
 // F-20 (design tokens and the contrast test; docs/features/F-20-design-tokens-and-contrast-test.md): the browser side of
 // lib/a11y-contrast.test.ts's token checks.
-// - The computed-style snapshot: on the feed, a feed row's pane and a profile, signed out and signed in, light and dark,
+// - The computed-style snapshot: on the feed, a feed row's pane, a profile and the signed-in switch pages, signed out and signed in, light and dark,
 //   every element's computed colours (text, background, borders, outline, shadow, SVG fill and stroke) are grouped by the
 //   element's signature (tag, classes and the state attributes styles key on, with two ancestors). The groups are
 //   compared with e2e/fixtures/f20-style-baseline.json, captured from main before the token layer (06edbdf, which
@@ -112,6 +112,12 @@ test('F-20 computed-style snapshot: feed, pane and profile show no colour change
     now[scheme] = await surfaces(page, 'out');
     await signIn(page);
     Object.assign(now[scheme], await surfaces(page, 'in'));
+    // The signed-in switch pages: .switch-pair's selected cue (DS-27 keeps outlines for focus only).
+    for (const path of ['/me/personalize', '/settings']) {
+      await page.goto(path);
+      await expect(page.locator('main')).toBeVisible();
+      Object.assign(now[scheme], await snapshot(page, `in ${path} |`));
+    }
     await ctx.close();
   }
   // Stored compactly: each distinct colour tuple once, each signature as indexes into that list.
