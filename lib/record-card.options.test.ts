@@ -53,7 +53,7 @@ test('F4-5: the unfurl description carries ", excluding options" after the headl
   assert.equal(d.replace(`, ${OPTIONS.altQualifier}`, '').replace(` · ${gated}`, ''), p);
   // Open positions: the count line still follows the evidence, the open line after it.
   const o = recordCard({ ...base, kind: 'unfurl', open: [0.1], options: { shareLabel: true, line: gated } });
-  assert.match(cardDescription(o, 'F6 LINE')!, new RegExp(` · ${gated.replace(/[.']/g, '\\$&')} · F6 LINE$`));
+  assert.ok(cardDescription(o, 'F6 LINE')!.endsWith(` · ${gated} · F6 LINE`));
   // Open options only (no share label): the line shows, no qualifier.
   const l = recordCard({ ...base, kind: 'unfurl', options: { shareLabel: false, line: OPTIONS.gated(0, 1) } });
   assert.doesNotMatch(cardDescription(l)!, /excluding options/);
