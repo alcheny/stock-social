@@ -37,6 +37,7 @@ export const NOT_A_FIELD: Record<string, string> = {
   'option_trades.verified': 'shown as the Verified badge',
   'open_option_positions.user_id': 'key', 'open_option_positions.position_key': 'key (contract key, never shown)',
   'open_option_positions.fetched_at': 'freshness, internal',
+  'closed_trades.sell_imported_at': 'when the closing sell was imported, internal (feed paging)',
 };
 
 // OPTIONS (D5): option columns the current scope line does not name. They are imported and counted but shown only once

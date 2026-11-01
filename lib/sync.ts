@@ -2,6 +2,7 @@ import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
 import { fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves, listAccounts, PAGE_LIMIT, VENDOR_TIMEOUT_MS } from './broker.ts';
 import { AccountClaimedError, claimIn } from './claims.ts';
+import { notShared } from './shared-accounts.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
 import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pairKey } from './corporate-actions.ts';
@@ -100,6 +101,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
         from activities a where a.user_id = ${userId}
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+        and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
@@ -140,7 +142,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status`;
     }
     const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)})
-      and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)`;
+      and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+      and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
     await tx`update users set excluded_corporate = ${excludedCorporate} where id = ${userId}`; // corporate actions (F3c)
     return { trades: written, excluded, future: future as number, maxHeld, excludedCorporate };
