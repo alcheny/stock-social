@@ -1,6 +1,6 @@
 # F-22 · Transfers as share moves, not repricings
 
-Status: blocked
+Status: draft
 Blocked: waits for the owner's yes on amending the matcher's transfer rule (`lib/trades.ts:52` "an unpriceable action taints them" and the corporate-actions committee's "when in doubt, exclude and count"), F-14 (PR #64, `claude/f14-sync-cadence`, `lib/sync.ts`) and cycle-3 fixes F3-1, F3-5, F3-15 (`lib/trades.ts`, exclusion copy)
 Start conditions: the owner answers the flag in `docs/ideas/approval-2026-11-01-cycle3.md` (Flags for the owner, 1) with
 yes; F-14 (PR #64) merges (both edit `lib/sync.ts`); fixes F3-1, F3-5 and F3-15 merge, and the `claude/fix-truthful-labels`
@@ -42,6 +42,13 @@ brief C3-2 (rank 1). Approved by the approval council (`docs/ideas/approval-2026
 - 2026-11-01: Sequencing and lapse: built in the ledger slot after F-14, the cycle-3 fixes F3-1, F3-5, F3-15 and the
   truthful-labels branch. If the owner has not answered, or a prerequisite has not merged, by the next approval
   council (cycle 4), this approval lapses to that council. Why: approved by the approval council (cycle 3); EN.
+
+- 2026-11-01: Lapsed at approval council cycle 4: the owner had not answered cycle-3 flag 1, and F3-15 and
+  `claude/fix-truthful-labels` had not merged. It was voted again and not re-approved: second-vote mean 3.47, below
+  the 3.5 approval floor (`docs/ideas/approval-2026-11-01-cycle4.md`). The file and every decision above, including
+  the basis rule, are kept word for word. The council puts flag 1 to the owner again with cycle-4 Q1 (the same matcher
+  sitting). If the owner says yes, it returns to the next council for the matcher slot after F-28 and F-30. Why:
+  approval council cycle 4; lapse rule; BL, PF, GR, UX (unchanged facts, unanswered owner question).
 
 ## Acceptance criteria
 - [ ] Fictional probe 1: buy 100, transfer 1 in, sell the 100 recorded units at -60% → a -60% close is shown and the
