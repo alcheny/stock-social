@@ -98,11 +98,26 @@ never priced against a buy the broker dated after it.
 
 ### Round 2 (revised plan and working tree)
 - **Business lead: SIGN** after one copy fix: the /how line's second clause read as contradicting the first; now
-  "With no share count, that includes every later trade of the same stock in the same account; with no date, every
-  trade of it." Recency wording "(a close counts about a third as much after each 48 hours)"; the test computes the
+  "With no share count, that includes the later trades of the same stock in the same account; with no date, all of its
+  trades there." (The business lead's first wording said "every later trade" / "every trade of it"; e2e caught it against
+  POLICY's completeness-word rule, so "every trade" is gone and the meaning is kept.) Recency wording "(a close counts about a third as much after each 48 hours)"; the test computes the
   feed's score formula at `RECENCY_HOURS` instead of a bare constant.
 - **Reliability reviewer: SIGN.** Follow-up taken: trade rows in an account marked as another profile's
   (`shared_account_marks`) are not loaded, like that account's activities (test).
+
+### Round 3 (independent code review and tester QA of b0b632e)
+- **Code review:** one verified defect, fixed: an oversell after an unusable row with no units or date (no lot left in
+  the pair) was counted as `excluded` ("no matching entry in the imported history"), the wrong cause; it now counts
+  under `excludedCorporate` (test). Non-blocking, fixed: `unlisted_positions.account_id` joins the private "account
+  numbers" field.
+- **Tester:** 100k random single-pair matcher cases and 60k with splits and renames held every invariant (each sell
+  counted once, returns equal to a reference FIFO, no buy dated after its sell). Two defects, fixed with tests: lots a
+  rename moves into a pair whose ledger an unusable row made unknown were priced (now tainted); a fee that is not a
+  finite number published a NaN or -Infinity return (the row is now unusable and counted; strings must be plain
+  decimals, so '0x10' is not read as 16).
+- **e2e:** the first /how wording contained "every trade", which the /how spec rejects (POLICY completeness words);
+  reworded, and the unit test now checks it too. `e2e/connect.spec.ts` pins the corporate exclusion line: updated to
+  the new wording (same assertion).
 
 ## 3. Decisions
 1. Unusable vendor trade rows live in `corporate_actions` (kind `unpriceable`, reason `trade`), counted in

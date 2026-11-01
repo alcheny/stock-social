@@ -130,9 +130,12 @@ test('F3-1: toActivities keeps every share trade row: usable rows are activities
     { ...base, id: 'div', price: 0, type: 'DIVIDEND' },
     { ...base, id: undefined, price: 0 },
     { ...base, id: 'nosym', symbol: null, price: 0 },
+    { ...base, id: 'feenan', fee: 'abc' as never }, // QA: a fee that is no number would publish NaN
+    { ...base, id: 'feeinf', fee: Infinity },
+    { ...base, id: 'hex', price: '0x10' as never }, // not read as 16
   ]);
   assert.deepEqual(activities.map((a) => [a.externalId, a.side, a.units, a.price, a.fee]), [['ok', 'SELL', 10, 12, 1], ['str', 'SELL', 3, 12.5, 1]]);
-  assert.deepEqual(unusable.map((a) => a.externalId), ['p0', 'pnull', 'pneg', 'u0', 'nodate', 'baddate']);
+  assert.deepEqual(unusable.map((a) => a.externalId), ['p0', 'pnull', 'pneg', 'u0', 'nodate', 'baddate', 'feenan', 'feeinf', 'hex']);
   for (const a of unusable) { assert.equal(a.kind, 'unpriceable'); assert.ok(a.kind === 'unpriceable' && a.reason === 'trade'); assert.ok(a.raw); }
   const by = new Map(unusable.map((a) => [a.externalId, a as unknown as { side: string; units?: number; undated?: boolean; executedAt: Date }]));
   assert.deepEqual([by.get('p0')!.side, by.get('p0')!.units, by.get('p0')!.undated], ['SELL', 10, undefined]);

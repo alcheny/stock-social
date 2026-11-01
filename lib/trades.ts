@@ -190,6 +190,7 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
         const to = book(toKey);
         to.lots = [...to.lots, ...b.lots].sort((x, y) => x.at.getTime() - y.at.getTime());
+        if (unknownFrom.has(toKey)) taint(to.lots); // F3-1: lots moved into a pair whose ledger is unknown
         books.set(key, { lots: [] }); // a recycled ticker starts fresh lots
         if (unknownFrom.has(key)) unknownFrom.add(toKey); // F3-1: an unknown ledger stays unknown under its new symbol
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
@@ -236,7 +237,8 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
 
     if (!tiny(remaining, a.units)) {
       // Oversold: this sell only. Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
-      if (tainted) excludedCorporate++; else excluded++;
+      // An oversell in a pair whose ledger an unusable trade row made unknown (F3-1) is that cause, not missing history.
+      if (tainted || unknownFrom.has(key)) excludedCorporate++; else excluded++;
       continue;
     }
     if (tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;

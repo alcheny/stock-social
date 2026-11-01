@@ -312,7 +312,7 @@ export const HOW = {
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
     // Fixes cycle 3, F3-1 (lib/trades.ts): unusable broker trade rows are counted, never dropped.
-    'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes every later trade of the same stock in the same account; with no date, every trade of it.',
+    'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.',
     'A sell of more shares than the imported history holds (for example after a stock split the broker did not report) is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',

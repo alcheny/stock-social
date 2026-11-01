@@ -208,21 +208,25 @@ export function fromVendorRows(accountId: string, rows: VendorRow[]): { activiti
 
 // ---- Unusable trade rows (fixes cycle 3, F3-1: count, never drop) ----
 // A share BUY/SELL row from the vendor's trade read that has an id and a symbol but no usable price (missing, 0,
-// negative or not a number), units (missing, 0 or not a number) or date (missing or unparseable). It can't be an activity
+// negative or not a number, or a fee that is not a finite number), units (missing, 0 or not a number) or date (missing or unparseable). It can't be an activity
 // (`activities` requires all three), so it is stored here as an unpriceable action with reason 'trade' and the matcher
 // counts it (lib/trades.ts). Null when the row is usable, which lib/broker.ts#toActivities then imports as an activity.
 // ponytail: whether the vendor ever sends a real close at a price of 0, and how often such rows occur, is unverified (vendor
 // question list) — fix: price a 0 close as -100% only once the vendor documents it.
 // A number, or a numeric string; null, '' and anything else are NaN (Number(null) and Number('') would read as 0).
-export const vendorNumber = (x: unknown): number => (typeof x === 'number' ? x : typeof x === 'string' && x.trim() !== '' ? Number(x) : NaN);
-export type TradeVendorRow = { id: string; symbol: string; type: 'BUY' | 'SELL'; trade_date?: string | null; price?: unknown; units?: unknown };
+// Strings must be plain decimals ('12.5', '-3', '1e-2'); '0x10' is not read as 16.
+const DECIMAL = /^\s*[-+]?(\d+(\.\d*)?|\.\d+)(e[-+]?\d+)?\s*$/i;
+export const vendorNumber = (x: unknown): number => (typeof x === 'number' ? x : typeof x === 'string' && DECIMAL.test(x) ? Number(x) : NaN);
+export type TradeVendorRow = { id: string; symbol: string; type: 'BUY' | 'SELL'; trade_date?: string | null; price?: unknown; units?: unknown; fee?: unknown };
 export function unusableTrade(accountId: string, row: TradeVendorRow): (CorporateAction & { raw: unknown }) | null {
   const price = vendorNumber(row.price);
   const units = Math.abs(vendorNumber(row.units));
   const at = row.trade_date ? new Date(row.trade_date) : null;
   const dated = !!at && !Number.isNaN(at.getTime());
   const hasUnits = Number.isFinite(units) && units > 0;
-  if (dated && hasUnits && Number.isFinite(price) && price > 0) return null;
+  // A fee that is present but not a finite number makes the price unusable too (it would publish NaN or -Infinity).
+  const feeOk = row.fee === undefined || row.fee === null || Number.isFinite(vendorNumber(row.fee));
+  if (dated && hasUnits && Number.isFinite(price) && price > 0 && feeOk) return null;
   return {
     externalId: row.id, accountId, symbol: row.symbol, executedAt: dated ? at! : new Date(0), kind: 'unpriceable', reason: 'trade', side: row.type,
     ...(hasUnits ? { units } : {}), ...(dated ? {} : { undated: true }), raw: row,

@@ -148,7 +148,7 @@ export function toActivities(accountId: string, rows: { id?: string; symbol?: { 
     const bad = unusableTrade(accountId, { ...a, id: a.id, symbol, type: a.type });
     if (bad) { unusable.push(bad); continue; }
     out.push({
-      externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(vendorNumber(a.units)), price: vendorNumber(a.price), fee: Math.abs(a.fee ?? 0),
+      externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(vendorNumber(a.units)), price: vendorNumber(a.price), fee: Math.abs(a.fee === undefined || a.fee === null ? 0 : vendorNumber(a.fee)),
       executedAt: new Date(a.trade_date!), verified: true, raw: a,
     });
   }

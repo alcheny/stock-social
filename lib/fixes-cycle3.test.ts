@@ -30,7 +30,8 @@ test('F3-15 + F3-1: the corporate exclusion line names every cause it counts; /h
   const line = HOW.excluded.find((x) => x.startsWith('Trade rows the broker sent'));
   assert.ok(line);
   assert.match(line, /excluded and counted, never guessed/);
-  assert.ok(line.endsWith('With no share count, that includes every later trade of the same stock in the same account; with no date, every trade of it.'));
+  assert.doesNotMatch(line, /every trade|any broker/i); // POLICY: no completeness claims (e2e/connect.spec.ts checks /how)
+  assert.ok(line.endsWith('With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.'));
 });
 
 // ---- F3-5: shuffling same-instant rows changes no published figure ----

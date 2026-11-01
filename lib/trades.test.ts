@@ -234,3 +234,23 @@ test('F3-1 + F3-5: an unpriceable sell at the same instant as a buy is placed af
   assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(12)), [0.1]);
   assert.equal(m.excludedCorporate, 1);
 });
+
+test('F3-1 (review): an oversell after a row with no units or date is counted under that cause, not as missing history', () => {
+  for (const row of [unusable('BUY', 1), unusable('BUY', null, 100), unusable('SELL', 1)]) {
+    const m = matchTrades([act('SELL', 100, 12, 2)], [row]);
+    assert.equal(m.excluded, 0);
+    assert.equal(m.excludedCorporate, row.kind === 'unpriceable' && row.reason === 'trade' && row.side === 'SELL' ? 2 : 1);
+  }
+});
+
+test('F3-1 (QA): lots a rename moves into a pair whose ledger is unknown are tainted, never priced', () => {
+  const rename: CorporateAction = { externalId: `r${n++}`, accountId: 'acc', symbol: 'OLD', executedAt: d(30), kind: 'symbol-change', newSymbol: 'NEW', outUnits: 10, inUnits: 10 };
+  const rows = [act('BUY', 10, 10, 1, 0, { symbol: 'OLD' }), act('SELL', 10, 12, 60, 0, { symbol: 'NEW' })];
+  for (const day of [null, 20]) {
+    const bad: CorporateAction = { ...unusable('SELL', day), symbol: 'NEW' };
+    const m = matchTrades(rows, [rename, bad]);
+    assert.equal(m.trades.length, 0, `unusable row day ${day}`);
+    assert.equal(m.excludedCorporate, 2);
+  }
+  assert.equal(matchTrades(rows, [rename]).trades.length, 1); // without the unusable row, the renamed lot prices
+});
