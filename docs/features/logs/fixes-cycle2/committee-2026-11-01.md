@@ -95,3 +95,13 @@ Orchestrator's review nits (3) and (4), built before the labels branch merges:
   instead of "Page not found". Its share preview says "Page not found" and its card image link is a 404.
 Nits (1) and (2) (compare and stock image onto the predicate, HoldTime "not a signal") wait for
 `claude/fix-truthful-labels` (`app/t/**`).
+
+## Follow-up PR 2 (branch `claude/fixes-cycle2-trust-3`, after #85 merged as 8e3e9a5)
+The LATER set, minus what #55 and #85 already put on main (#20 invalid tickers, #22 thesis links, #24, the HoldTime
+sentence, two toneClass sites).
+- 2026-11-01: compare, the stock share image and `app/t/open-positions.ts` read through `lib/visible-users.ts`;
+  `PENDING_VISIBLE` is empty and its ponytail is resolved. Why: decided by the committee under the owner's instruction
+  of 2026-11-01; fix #4 asks for one predicate in every stock query, and F-16 extends that one place.
+- 2026-11-01: the last three sign checks under `app/t` (HoldTime, Concentration, compare stats) use `toneClass`, and a
+  test fails on any `? 'up' :` style check there. Why: decided by the committee under the owner's instruction of
+  2026-11-01; fix #19 — a value that prints "0.0%" must not be painted as a gain or a loss.
