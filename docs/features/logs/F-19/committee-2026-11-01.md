@@ -48,7 +48,7 @@ autonomously; open questions take the committee's recommended option after debat
    comments would conflict with F-18's stats-row rewrite and the open card, pane, trade, month and stock sessions.
 9. **Ranking pinned in a new file** (`lib/ranking.f19.test.ts`): `confidence()` fields, `RANK_MIN_BETS`, `MIN_BETS`,
    evidence weights, `rankTraders` order and `headline()`'s D23 keys, values computed on origin/main and on this branch
-   (identical). No existing test file is edited.
+   (identical). (The QA round below edited one existing F-6 test to follow the move.)
 10. **Cut from this slice:** `imagePct`, `rangeLine`, `figureEms`, the §3 form. Why: not in the first slice's criteria;
     they wait for the render test (O-18) and F-18.
 
