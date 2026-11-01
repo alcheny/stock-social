@@ -8,7 +8,7 @@
 // the chart/count/period hierarchy, one trust label at every size, the 0% label in a gutter, no orphans, the printed
 // link from the configured origin, and the alt text built from this model.
 import { counted } from './format.ts';
-import { imageTrust, SHARE_CARD, type RecordState } from './copy.ts';
+import { imageTrust, isPublicRecord, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { confidence, headline, isNewRecord, pct, type Confidence, type ConfidenceInput, type Tier } from './trades.ts';
 import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, trustSign, type Span, type SpanUnit } from './confidence.ts';
@@ -288,7 +288,7 @@ export function recordCard(i: CardInput): CardModel {
     count: `${countValue} · ${SHARE_CARD.lossesIncluded}`, countValue, countNote: SHARE_CARD.lossesIncluded,
     period: `${since(first)} · ${periodLength}`, periodSince: since(first), periodLength,
     evidence: evidenceLabel(c),
-    newRecord: isNewRecord(i.trades, n, i.now),
+    newRecord: isNewRecord(i.trades, n, i.now) && !isPublicRecord(i.state), // F-7 (C17): never on a public record
     trust: trustLine(c, span),
     caption: SHARE_CARD.chartCaption,
     chart: cardChart(i.trades, box, zeroGutter(i.kind)),

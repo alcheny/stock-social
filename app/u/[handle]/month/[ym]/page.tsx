@@ -4,7 +4,8 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { RECORD_STRIP, wholeRecordView } from '@/lib/copy.ts';
+import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
+import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthAlt, monthCountText, monthDescription, monthStripInput, recordStripInput } from '@/lib/recap.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
@@ -35,6 +36,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title: `${r.recap.label} · @${r.handle} · Stock Social`,
     description: monthDescription(r, whole),
     openGraph: { images: [{ url: `/u/${r.handle}/month/${r.recap.ym}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: monthAlt(r, whole, month) }] },
+    ...(isPublicRecord(r.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
   };
 }
 
@@ -52,7 +54,7 @@ export default async function RecapPage({ params }: Params) {
     <section className="trade-card" aria-label={title}>
       <h2>{title}</h2>
       <Link href={link(t.sellId)} style={{ display: 'block', minHeight: 44, padding: '4px 0' }}>
-        <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</span>
+        <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
         <span className="muted small">{held(t.holdingDays)}</span>
       </Link>
     </section>
@@ -63,7 +65,9 @@ export default async function RecapPage({ params }: Params) {
       <p>
         <Link href={`/u/${handle}`}>← {RECORD_STRIP.link(handle)}</Link>{' '}
         {r.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
+        {isPublicRecord(r.state) && <Badge kind={r.state} />}
       </p>
+      {isPublicRecord(r.state) && <PublicNotice />}
       <h1>{m.label} {m.monthSoFar && <span className="muted small">month so far</span>}</h1>
       {m.monthSoFar && <p className="muted small">Not a complete month. Trades close through today.</p>}
       <div className="trade-grid">
@@ -84,14 +88,14 @@ export default async function RecapPage({ params }: Params) {
       <div className="trade-grid">
         {m.count === 1 ? <Pick title="Only trade this month" t={m.best} /> : <><Pick title="Best trade" t={m.best} /><Pick title="Worst trade" t={m.worst} /></>}
       </div>
-      <h2>All trades this month</h2>
+      <h2>{isPublicRecord(r.state) ? 'Closed trades this month' : 'All trades this month'}</h2>
       <ol className="small" style={{ listStyle: 'none', padding: 0 }}>
         {m.trades.map((t) => (
           <li key={t.sellId}>
             <Link href={link(t.sellId)} style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, minHeight: 44, alignItems: 'center' }}>
               <span className="muted">{day(t.closedAt)}</span>
               <b>{t.symbol}</b>
-              <span><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</span>
+              <span><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
               <span className="muted">{held(t.holdingDays)}</span>
             </Link>
           </li>
@@ -99,8 +103,8 @@ export default async function RecapPage({ params }: Params) {
       </ol>
       <TradeShare isOwner={false} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
-      <p className="muted small">Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</p>
-      {!me && !r.demo && <JoinCta handle={handle} via="month" />}
+      <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : <>Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</>}</p>
+      {!me && !r.demo && !isPublicRecord(r.state) && <JoinCta handle={handle} via="month" />}
       <p><Link href="/">← Feed</Link></p>
     </main>
   );

@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<!-- fictional fixture -->
+<ownershipDocument><schemaVersion>X1</schemaVersion><periodOfReport>2026-03-30</periodOfReport>
+<issuer><issuerCik>0000000001</issuerCik><issuerName>Fictional Widgets &amp; Gadgets Co</issuerName><issuerTradingSymbol>QZXC</issuerTradingSymbol></issuer>
+<reportingOwner><reportingOwnerId><rptOwnerCik>9000000101</rptOwnerCik><rptOwnerName>Avery &amp; Fictional</rptOwnerName></reportingOwnerId>
+  <reportingOwnerAddress><rptOwnerStreet1>1 Imaginary Lane</rptOwnerStreet1><rptOwnerCity>Nowhereville</rptOwnerCity></reportingOwnerAddress>
+  <reportingOwnerRelationship><isDirector>1</isDirector><isOfficer>1</isOfficer><isTenPercentOwner>0</isTenPercentOwner><isOther>0</isOther><officerTitle>Chief Imaginary Officer</officerTitle></reportingOwnerRelationship></reportingOwner>
+<nonDerivativeTable><nonDerivativeTransaction><securityTitle><value>Common Stock</value></securityTitle><transactionDate><value>2026-03-30</value></transactionDate>
+  <transactionCoding><transactionFormType>X</transactionFormType><transactionCode>P</transactionCode></transactionCoding>
+  <transactionAmounts><transactionShares><value>200</value></transactionShares><transactionPricePerShare><value>10.5</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>A</value></transactionAcquiredDisposedCode></transactionAmounts>
+  <postTransactionAmounts><sharesOwnedFollowingTransaction><value>1200</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+  <ownershipNature><directOrIndirectOwnership><value>D</value></directOrIndirectOwnership></ownershipNature>
+  <footnoteId id="F1"/></nonDerivativeTransaction>
+<nonDerivativeTransaction><securityTitle><value>Common Stock</value></securityTitle><transactionDate><value>2026-03-31</value></transactionDate>
+  <transactionCoding><transactionFormType>X</transactionFormType><transactionCode>S</transactionCode></transactionCoding>
+  <transactionAmounts><transactionShares><value>50</value></transactionShares><transactionPricePerShare><value>11.25</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode></transactionAmounts>
+  <postTransactionAmounts><sharesOwnedFollowingTransaction><value>1150</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+  <ownershipNature><directOrIndirectOwnership><value>D</value></directOrIndirectOwnership></ownershipNature>
+  <footnoteId id="F1"/></nonDerivativeTransaction>
+<nonDerivativeTransaction><securityTitle><value>Common Stock</value></securityTitle><transactionDate><value>2026-03-31</value></transactionDate>
+  <transactionCoding><transactionFormType>X</transactionFormType><transactionCode>G</transactionCode></transactionCoding>
+  <transactionAmounts><transactionShares><value>25</value></transactionShares><transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode></transactionAmounts>
+  <postTransactionAmounts><sharesOwnedFollowingTransaction><value>1125</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+  <ownershipNature><directOrIndirectOwnership><value>D</value></directOrIndirectOwnership></ownershipNature>
+  <footnoteId id="F1"/></nonDerivativeTransaction>
+<nonDerivativeTransaction><securityTitle><value>Common Stock</value></securityTitle><transactionDate><value>2026-03-31</value></transactionDate>
+  <transactionCoding><transactionFormType>X</transactionFormType><transactionCode>P</transactionCode></transactionCoding>
+  <transactionAmounts><transactionShares><value>70</value></transactionShares><transactionPricePerShare><value>10</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>A</value></transactionAcquiredDisposedCode></transactionAmounts>
+  <postTransactionAmounts><sharesOwnedFollowingTransaction><value>70</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+  <ownershipNature><directOrIndirectOwnership><value>I</value></directOrIndirectOwnership><natureOfOwnership><value>By Fictional Family Holding Trust</value></natureOfOwnership></ownershipNature>
+  <footnoteId id="F1"/></nonDerivativeTransaction>
+<nonDerivativeHolding><securityTitle><value>Common Stock</value></securityTitle><postTransactionAmounts><sharesOwnedFollowingTransaction><value>999</value></sharesOwnedFollowingTransaction></postTransactionAmounts></nonDerivativeHolding></nonDerivativeTable>
+<derivativeTable><derivativeTransaction><securityTitle><value>Common Stock</value></securityTitle><transactionDate><value>2026-03-30</value></transactionDate>
+  <transactionCoding><transactionFormType>X</transactionFormType><transactionCode>M</transactionCode></transactionCoding>
+  <transactionAmounts><transactionShares><value>300</value></transactionShares><transactionPricePerShare><value>0</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>A</value></transactionAcquiredDisposedCode></transactionAmounts>
+  <postTransactionAmounts><sharesOwnedFollowingTransaction><value>300</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+  <ownershipNature><directOrIndirectOwnership><value>D</value></directOrIndirectOwnership></ownershipNature>
+  <footnoteId id="F1"/></derivativeTransaction></derivativeTable>
+<footnotes><footnote id="F1">Fictional footnote text that must never be stored.</footnote></footnotes>
+<remarks>Fictional remarks that must never be stored.</remarks>
+<ownerSignature><signatureName>Fictional Signer</signatureName><signatureDate>2026-04-02</signatureDate></ownerSignature>
+</ownershipDocument>
