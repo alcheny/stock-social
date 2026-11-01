@@ -15,6 +15,9 @@ import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { Badge, PublicNotice } from '../../ui.tsx';
+import { UserNote } from '../../user-note.tsx';
+import { heldLine } from '@/lib/report-copy.ts';
+import { HANDLE_RULE, profileHandleError } from '@/lib/handles.ts';
 // F-7 public-record traders.
 import { isPublicRecord, PUBLIC, publicExclusions } from '@/lib/copy.ts';
 import { filerInfo, filerVisible, PUBLIC_STALE_DAYS } from '@/lib/public-gate.ts';
@@ -49,6 +52,9 @@ import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/opti
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
 
+// The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
+// in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
+
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
 
 // ponytail: generateMetadata and the page each call load() (and the record card reads the record again), so one view
@@ -61,7 +67,8 @@ async function load(handle: string) {
   const filer = user.public_filer_id ? await filerInfo(user.id) : null;
   if (!filerVisible(filer)) return null;
   const trades = await sql`
-    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url
+    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url,
+      thesis_written_at, thesis_edited_at, thesis_hold_rule
     from closed_trades where user_id = ${user.id} order by closed_at desc, id desc`; // list order (lib/paging.ts)
   if (filer && !trades.length) return null; // F-7 (plan Round 4 item 2): no page without a priced closed trade
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
@@ -206,6 +213,7 @@ export default async function Profile({ params, searchParams }: Params) {
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
+  const handleError = isMe ? profileHandleError((await searchParams)?.handle) : undefined;
   const listed = trades.slice(win.start, win.start + win.shown);
   const firstNew = win.next !== null ? trades[win.end] : null;
 
@@ -216,7 +224,8 @@ export default async function Profile({ params, searchParams }: Params) {
 
   return (
     <main className="page">
-      <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
+      {/* fix-user-text fix round 5 (item 5): the name is isolated (<bdi>), like WhoName. */}
+      <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : <bdi>{user.display_name}</bdi>}</h1>
       {/* PR-2b: one line reserved, so the badge arriving when an import finishes does not push the banner down. */}
       <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
         {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge kind={trust.badge} />}{pub && <span className="muted"> {PUBLIC.kind}</span>} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
@@ -259,14 +268,17 @@ export default async function Profile({ params, searchParams }: Params) {
       {/* F-2 PR-2 fix round 1: Settings (sign out, delete my profile, following and hidden traders) is reachable by tapping. */}
       {isMe && <p className="settings-link"><Link className="tap" href="/settings">{SETTINGS.title}</Link></p>}
       {isMe && (
-        <details className="handle-edit">
+        // Fix round 2 (D): with a rejection the panel renders open and the field takes focus, so the error is seen; the
+        // rule is a visible hint and the field's title, so a pattern failure explains itself.
+        <details className="handle-edit" open={!!handleError}>
           <summary className="button secondary">{PROFILE.changeHandle}</summary>
           <form action={setHandle} className="inline">
             <label htmlFor="new-handle" className="sr-only">New handle</label>
-            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" defaultValue={user.handle} aria-describedby={(await searchParams)?.handle === 'taken' ? 'handle-err' : undefined} />
+            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} defaultValue={user.handle} autoFocus={!!handleError} aria-describedby={handleError ? 'handle-hint handle-err' : 'handle-hint'} />
             <button>Save</button>
           </form>
-          {(await searchParams)?.handle === 'taken' && <p id="handle-err" role="alert" className="down small">That handle is taken or reserved, or not 3–20 lowercase letters, numbers or _.</p>}
+          <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>
+          {handleError && <p id="handle-err" role="alert" className="down small">{handleError}</p>}
         </details>
       )}
       {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
@@ -313,7 +325,7 @@ export default async function Profile({ params, searchParams }: Params) {
         <div className="stat"><b>{s.medianHoldingDays.toFixed(1)}d</b><small>median hold</small></div>
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
-      <PerformanceChart shareOnly={shareLabel(opt.counts)} points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
+      <PerformanceChart shareOnly={shareLabel(opt.counts)} points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} noteBy={user.handle} />
       {open && <ChartNote o={open} />}
       </>}
       {/* F-6: open positions and no closes: the unrealized grid alone (the closed-trades section below says there are none). */}
@@ -360,8 +372,9 @@ export default async function Profile({ params, searchParams }: Params) {
               </Link>
             </div>
             {t.filing_url && <a className="filing-link" href={t.filing_url} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.filingName(t.symbol, day(t.closed_at))}>{PUBLIC.filing}</a>}
-            {t.thesis_status === 'published' && <p style={{ margin: '4px 0 0' }}>“{t.thesis}”</p>}
-            {isMe && t.thesis_status === 'held' && <p className="muted" style={{ margin: '4px 0 0' }}>Thesis held for review.</p>}
+            {/* F-9: UserNote (Report only for a signed-in reader who is not the author); the author sees the hold and its reason in plain words, muted (fix round 2: lib/report-copy.ts#heldLine). */}
+            {t.thesis_status === 'published' && <UserNote text={t.thesis} handle={user.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={me && !isMe ? String(t.id) : undefined} symbol={t.symbol} />}
+            {isMe && t.thesis_status === 'held' && <p className="muted thesis-held">{heldLine(t.thesis_hold_rule)}</p>}
             {isMe && (
               <form action={saveThesis} className="inline">
                 <input type="hidden" name="tradeId" value={t.id} />

@@ -49,3 +49,12 @@ test('duplicate sell_id: last wins, earlier is orphaned; inputs not mutated', ()
   assert.deepEqual(kept, keptClone);
   assert.deepEqual(trades, tradesClone);
 });
+
+// Fix round 4 (item 5): a kept copy emptied by the stored-text cleanup is never re-attached as a note.
+test('an empty or blank kept thesis is not attached (it is returned as not attached)', () => {
+  const { attached, orphaned } = reattachTheses([k('s1', '', null), k('s2', '  ', null), k('s3', 'kept note')], [{ sellId: 's1' }, { sellId: 's2' }, { sellId: 's3' }]);
+  assert.equal(attached.has('s1'), false);
+  assert.equal(attached.has('s2'), false);
+  assert.equal(attached.get('s3')?.thesis, 'kept note');
+  assert.deepEqual(orphaned.map((x) => x.sell_id), ['s1', 's2']);
+});

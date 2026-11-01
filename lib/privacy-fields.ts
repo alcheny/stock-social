@@ -32,6 +32,11 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.id': 'key', 'closed_trades.user_id': 'key', 'closed_trades.sell_id': 'key (vendor activity id, never shown)',
   'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
+  // fix-user-text B (F-9): shown with the note it dates ("Written ‹date›"); the hold rule only to the note's author.
+  'closed_trades.thesis_written_at': 'when the trader wrote the note', 'closed_trades.thesis_edited_at': 'when the trader last edited the note',
+  'closed_trades.thesis_hold_rule': 'moderation state (rule that held the note)', 'closed_trades.thesis_reviewed_at': 'moderation state (owner release time)',
+  'closed_trades.thesis_reports_from': 'moderation state (reports count from this release time)',
+  'closed_trades.thesis_checked_version': 'moderation state (rules version the note was last checked at)',
   'closed_trades.filing_url': 'link to the public filing behind a public-record trade (F-7)', 'closed_trades.feed_after': 'feed floor, internal (F-7)',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
   // OPTIONS (docs/features/logs/options/plan.md D1, D5): keys and flags of the option tables.

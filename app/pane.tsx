@@ -41,7 +41,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const pub = isPublicRecord(state); // F-7: no Follow; the not-joined line right under the chart (it stays above the fold)
   const chartBlock = <>
     {/* OPTIONS fix round 3 (UX B1): with the label, the caption says the chart excludes options too. */}
-    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} shareOnly={!!options?.label} />
+    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} shareOnly={!!options?.label} noteBy={handle} />{/* F-9: UserNote in the chart sheet */}
     {open && <ChartNote o={open} />}
     {pub && <PublicNotice />}
   </>;

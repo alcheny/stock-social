@@ -4,6 +4,7 @@
 // with no personal data. The two-step screen (S9) is PR-2a; this is the action behind it.
 import { sql } from './db.ts';
 import { deleteUser } from './broker.ts';
+import { HANDLE_RESERVED_DAYS } from './handles.ts';
 import { endBillingForDeletion } from './billing.ts';
 import { logSafe } from './privacy-log.ts';
 
@@ -11,7 +12,7 @@ export type DeletableUser = { id: number; handle: string; snaptrade_user_id: str
 // F-3: endBilling cancels the processor subscription and deletes the processor customer first (committee condition 20).
 export type DeleteDeps = { deleteVendorUser: (u: { snaptradeUserId: string; secretEnc: string }) => Promise<void>; endBilling?: (userId: number) => Promise<void> };
 
-export const HANDLE_RESERVED_DAYS = 365;
+export { HANDLE_RESERVED_DAYS };
 
 // A vendor user already gone (404) counts as deleted; any other vendor error keeps the row, marked, for the hourly retry.
 export const defaultDeleteDeps: DeleteDeps = {
