@@ -21,7 +21,7 @@ export function filingsClient(base: string, env: Env = process.env, deadline = I
   async function send(path: string): Promise<string | null> {
     for (let i = 0; ; i++) {
       if (stopped) throw new FilingsStopped();
-      await sleep(lastAt + MIN_GAP_MS - Date.now());
+      while (Date.now() < lastAt + MIN_GAP_MS) await sleep(lastAt + MIN_GAP_MS - Date.now()); // timers can fire early
       lastAt = Date.now();
       const res = await fetch(root + path, { headers: { 'user-agent': `Stock Social ${contact}` }, redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
       if (res?.status === 404) return null;
