@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { access, billingAvailable, isPlan, testMode, type Access } from '@/lib/billing.ts';
-import { compareCards, followOptions, getView, listNotes, listViews, MAX_TRADERS, MAX_VIEWS, NOTE_MAX, removedNotice, type Card, type View } from '@/lib/record-tools.ts';
+import { compareCards, followOptions, getView, listNotes, listViews, MAX_TRADERS, MAX_VIEWS, removedNotice, type Card, type View } from '@/lib/record-tools.ts';
 import { BILLING, RECORD_TOOLS } from '@/lib/copy.ts';
 import { Badge } from '../ui.tsx';
 import { FocusMessage } from './focus.tsx';
@@ -140,7 +140,7 @@ function NoteForm({ trader, handle, body, view }: { trader: number; handle: stri
         <input type="hidden" name="trader" value={trader} />
         <input type="hidden" name="view" value={view} />
         <label htmlFor={id}>{RECORD_TOOLS.noteLabel(handle)}</label>
-        <textarea id={id} name="body" rows={4} maxLength={NOTE_MAX} defaultValue={body} aria-describedby={`${id}-c`} />
+        <textarea id={id} name="body" rows={4} defaultValue={body} aria-describedby={`${id}-c`} />
         <p id={`${id}-c`} className="muted small">{RECORD_TOOLS.noteCount([...body].length)}</p>
         <button className="button secondary" aria-label={`Save note about @${handle}`}>{RECORD_TOOLS.saveNote}</button>
       </form>

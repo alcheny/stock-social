@@ -518,3 +518,16 @@ dbTest('deletion is never blocked by billing switched off: local billing rows go
   assert.ok(errs.some((e) => /processor cleanup needed/.test(e)));
   assert.doesNotMatch(errs.join('\n'), /cus_|sub_|ss_/);
 });
+
+dbTest('a signed event with no object id, or a dispute with no charge, is stored, flagged and answered 200, never retried for days (QA L1)', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  const t = Math.floor(now / 1000);
+  for (const [type, object] of [['customer.subscription.updated', {}], ['charge.dispute.created', { id: 'dp_x' }]] as const) {
+    const id = `evt_noobj_${tag}_${type}_${Date.now()}`;
+    const raw = JSON.stringify({ id, type, livemode: false, data: { object } });
+    assert.deepEqual(await b.handleWebhook(raw, b.signPayload(raw, SECRET, t)), { status: 200, outcome: 'processed' });
+    const [e] = await sql`select flagged, error_code, processed_at is not null as done from billing_events where vendor_event_id = ${id}`;
+    assert.deepEqual({ ...e }, { flagged: true, error_code: type.startsWith('charge') ? 'dispute_without_customer' : 'missing_object', done: true });
+  }
+});

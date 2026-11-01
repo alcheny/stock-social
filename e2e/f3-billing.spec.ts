@@ -151,12 +151,18 @@ test('F-3 traders never see a price: connected, frozen (failed after consent) an
 test('F-3 a public record is the same for a subscriber, a lapsed subscriber and a non-subscriber (no paywall, no blur)', async ({ page }) => {
   const [maya] = await demo();
   const id = await signIn(page, handle());
-  const snap = async () => { await page.goto(`/u/${maya}`); return page.locator('main').innerText(); };
+  // The record itself (headline stats, range, evidence, chart summary, every closed trade), after lazy sections settle.
+  const snap = async () => {
+    await page.goto(`/u/${maya}`);
+    await page.waitForLoadState('networkidle');
+    return (await page.locator('main .stats, main .evidence, main ul.rows, main h1').allInnerTexts()).join('\n');
+  };
   const before = await snap();
   const sub = await subscribeRow(id);
   const during = await snap();
   await sql`update subscriptions set status = 'canceled' where vendor_subscription_id = ${sub}`;
   const after = await snap();
+  expect(before).toMatch(/win rate/);
   expect(during).toBe(before);
   expect(after).toBe(before);
   for (const path of [`/u/${maya}`, '/']) {
@@ -255,6 +261,7 @@ test('F-3 lapsed: views and notes stay readable, editable and downloadable; only
   await page.getByRole('button', { name: 'Create view' }).click();
   await page.getByLabel('Add a trader by exact handle').fill(traders[0]);
   await page.getByRole('button', { name: 'Add', exact: true }).first().click();
+  await expect(page.locator('#rt-msg')).toHaveText('Trader added in position 1 of 1.');
   await (await note(page, traders[0])).fill('kept after a lapse');
   await page.getByRole('button', { name: `Save note about @${traders[0]}` }).click();
   const viewUrl = page.url().split('&')[0];
@@ -289,8 +296,10 @@ test('F-3 a trader who deletes their account leaves the subscriber\'s views and 
   await page.getByRole('button', { name: 'Create view' }).click();
   await page.getByLabel('Add a trader by exact handle').fill(gone);
   await page.getByRole('button', { name: 'Add', exact: true }).first().click();
+  await expect(page.locator('#rt-msg')).toHaveText('Trader added in position 1 of 1.');
   await (await note(page, gone)).fill('about them');
   await page.getByRole('button', { name: `Save note about @${gone}` }).click();
+  await expect(page.locator('#rt-msg')).toHaveText('Note saved.');
   await other.goto('/settings?confirm=1');
   await other.getByTestId('delete-final').click();
   await expect(other).toHaveURL(/localhost:3000\/$/);

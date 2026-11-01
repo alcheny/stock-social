@@ -300,7 +300,7 @@ export async function handleWebhook(raw: string, signature: string | null): Prom
   }
 }
 
-const PERMANENT = new Set(['unknown_customer', 'unknown_price', 'second_live_subscription', 'dispute_without_customer']);
+const PERMANENT = new Set(['unknown_customer', 'unknown_price', 'second_live_subscription', 'dispute_without_customer', 'missing_object']);
 
 class ApplyError extends Error {
   code: string;
@@ -309,7 +309,7 @@ class ApplyError extends Error {
 
 // Returns whether a human should look (a dispute), or null when the event type is not one the app acts on.
 async function applyEvent(type: string, obj: Obj): Promise<boolean | null> {
-  if (type.startsWith('customer.subscription.')) { await syncSubscription(idOf(obj)!); return false; }
+  if (type.startsWith('customer.subscription.')) { const id = idOf(obj); if (!id) throw new ApplyError('missing_object'); await syncSubscription(id); return false; }
   if (type === 'checkout.session.completed') { const s = idOf(obj.subscription); if (s) await syncSubscription(s); return false; }
   if (type.startsWith('invoice.')) { const s = invoiceSubscription(obj); if (s) await syncSubscription(s); return false; }
   if (type === 'charge.refunded') { await applyRefund(obj); return false; }
@@ -454,7 +454,9 @@ async function applyRefund(charge: Obj) {
 
 // Condition 19: a dispute sets `unpaid` at once and flags the event; a dispute closed as won clears it.
 async function applyDispute(dispute: Obj, open: boolean) {
-  const charge = await vendor('GET', `/v1/charges/${enc(idOf(dispute.charge) ?? '')}`);
+  const chargeId = idOf(dispute.charge);
+  if (!chargeId) throw new ApplyError('dispute_without_customer');
+  const charge = await vendor('GET', `/v1/charges/${enc(chargeId)}`);
   const customer = idOf(charge.customer);
   if (!customer) throw new ApplyError('dispute_without_customer');
   if (open) {

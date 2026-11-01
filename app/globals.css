@@ -458,6 +458,7 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 @media (min-width: 720px) { .rt-cards.rt-n2 { grid-template-columns: repeat(2, 1fr); } .rt-cards.rt-n3 { grid-template-columns: repeat(3, 1fr); } .rt-cards.rt-n4 { grid-template-columns: repeat(2, 1fr); } }
 .rt-card { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px; min-width: 0; }
 .rt-card h2 { font-size: 1.1rem; margin: 0 0 4px; overflow-wrap: anywhere; }
+.rt h1, .rt-views a, .rt-confirm p { overflow-wrap: anywhere; min-width: 0; } /* QA M1: a 60-character view name */
 .rt-pos { margin: 0; }
 .rt-figures { margin: 8px 0; display: grid; gap: 6px; }
 .rt-figures div { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
