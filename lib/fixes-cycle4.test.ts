@@ -146,3 +146,12 @@ test('code review: a date-only buy opened in the late-posting window before a sp
     assert.equal(m.excluded + m.excludedCorporate, 2);
   }
 });
+
+test('final review: a stock dividend or split count on an empty ledger marks the gap, so a smaller count never hides an oversell', () => {
+  // 100 shares from before the history; a stock dividend of 10 (new shares only); BUY 100 @10; SELL 110 @11; BUY 100 @20;
+  // SELL 100 @22. A no-basis lot of 10 hid the oversell and showed +10% (true FIFO: +120% from the @10 lot).
+  const div = { externalId: 'dv', accountId: 'acc1', symbol: 'FAKE', executedAt: new Date('2026-09-01T00:00:00Z'), kind: 'stock-dividend', units: 10 } as const;
+  const m = matchTrades([row('BUY', 100, 10, '2026-09-10T14:00:00Z'), row('SELL', 110, 11, '2026-09-20T14:00:00Z'), row('BUY', 100, 20, '2026-10-01T14:00:00Z'), row('SELL', 100, 22, '2026-10-05T14:00:00Z')], [div]);
+  assert.deepEqual(m.trades, []);
+  assert.equal(m.excluded + m.excludedCorporate, 2);
+});

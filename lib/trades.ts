@@ -207,10 +207,11 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
       if (ca.kind === 'split' || ca.kind === 'stock-dividend') {
         if (exchangedInto.get(key) === e.at) { taint(b.lots); continue; }
         if (!b.lots.length) {
-          // C4-1 (engineer, round 1): a vendor share count says shares exist that the ledger lacks (earlier history). FIFO
-          // would draw them before any later buy, so they are a lot with no basis (a total or a change: at least the shares
-          // received). A ratio alone says nothing about a count, so nothing is added (as before).
-          if (ca.units !== undefined && ca.units > 0) b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
+          // C4-1 (engineer, round 1; final review): a vendor share count says shares exist that the ledger lacks (earlier
+          // history), but not how many (a stock dividend's count is the new shares only, a split's may be the change), so a
+          // lot of that size could hide a later oversell. The pair gets the gap instead: every later sell is counted. A
+          // ratio alone says nothing about a count, so nothing is marked (as before).
+          if (ca.units !== undefined && ca.units > 0) addGap(b, ca.units);
           continue;
         }
         const r = resolveRatio(held(b.lots), ca);
@@ -287,7 +288,7 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     }
 
     if (!tiny(remaining, a.units)) {
-      // Oversold: this sell only. Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
+      // Oversold: this sell, and every later sell of the pair through the gap (C4-2). Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
       // An oversell in a pair whose ledger an unusable trade row made unknown (F3-1) is that cause, not missing history.
       if (tainted || unknownFrom.has(key)) excludedCorporate++; else excluded++;
       addGap(b, remaining); // C4-2: a short or earlier history

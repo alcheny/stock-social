@@ -146,3 +146,11 @@ of the stock and shows as a count). It goes to the owner with the vendor positio
   reading; S1 stays an owner item, fixed by reading the vendor position).
 
 All four signed the round-4 rule.
+
+## Final fresh-context review of the round-4 rule
+- Blocking (fixed): a split or stock-dividend row with a vendor count on an empty ledger added a no-basis lot of that size;
+  a stock dividend's count is the new shares only, so the lot could be smaller than the real holding and hide the
+  oversell the gap needs (+10% shown, true FIFO +120%). Such a row now marks the gap. Test: "final review: …".
+- Non-blocking (fixed): a stale "this sell only" comment; one failing record no longer stops the deploy rebuild (counted,
+  version left open). Ponytail: an old-code sync between the rebuild and the cutover can rebuild one active record with the
+  old matcher until its next sync.

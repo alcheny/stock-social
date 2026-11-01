@@ -19,12 +19,21 @@ export async function rebuildAllForMatcher(version = MATCHER_VERSION, ids?: numb
     where ${ids ? sql`u.id in ${sql(ids.length ? ids : [0])} and` : sql``}
       (exists (select 1 from activities a where a.user_id = u.id) or exists (select 1 from corporate_actions c where c.user_id = u.id))
     order by u.id`;
+  // A record that fails to rebuild doesn't stop the deploy (final review): it is counted, and the version is written only
+  // when every record rebuilt, so the next deploy tries them all again. Counts only, never an id.
+  let failed = 0;
   for (const u of users) {
-    await sql.begin(async (tx) => {
-      await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${u.id as number})`;
-      await rebuildRecord(u.id as number, tx);
-    });
+    try {
+      await sql.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${u.id as number})`;
+        await rebuildRecord(u.id as number, tx);
+      });
+    } catch { failed++; }
   }
-  if (!ids) await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
+  if (failed) console.error(`matcher rebuild: ${failed} records failed; the version stays open`);
+  else if (!ids) await sql`insert into matcher_runs (version) values (${version}) on conflict (version) do nothing`;
+  // ponytail: a sync running old code between this rebuild and the cutover can rebuild one active record with the old
+  // matcher after the version is written; its next sync on the new code fixes it — fix: key closed_trades rows by matcher
+  // version and rebuild stale ones on read.
   return users.length;
 }
