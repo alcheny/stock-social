@@ -76,7 +76,7 @@ trimmed; only its overlap with D-08 is built here). Every role was a separate su
 13. **A small figure about this trade is talk.** A first-person figure under the big-claim threshold with a span, or one
     that names this trade or position, publishes; figures tied to the account, a system, a year or a monthly rate, dollar
     gains over a period, "turned X into Y", win-rate and accuracy claims, calls ("strong buy", "load up now") and
-    third-party-free price targets (with "my", "$" or a price) are held. A single "my pick" or "best pick" is talk;
+    the trader's own price targets (with "my", "$" or a price) are held. A single "my pick" or "best pick" is talk;
     plural, dated or free picks are held; an analyst's target is talk.
 14. **The author's held line says why and what to do**, in plain words, muted: "Thesis held for review. Only you can see
     it. Held because it has ‹explanation›. Edit it to publish, or it stays held until reviewed." A report hold names no
