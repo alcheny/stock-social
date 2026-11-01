@@ -85,7 +85,7 @@ async function insert(xs: { user: number; symbol: string; day: number; r: number
 
 dbTest('item 3 + 8: tickerPageWithBaseline: a mixed stock\'s own side is its verified rows (count, traders, win rate, range); a verified stock has none; one snapshot', async () => {
   const { sql } = await import('./db.ts');
-  const { tickerPageWithBaseline, othersConfidence, tickerPage } = await import('./ticker-sql.ts');
+  const { tickerPageWithBaseline, othersConfidence, tickerPage } = await import('../app/t/ticker-sql.ts');
   const sym = `M${rand()}`, pure = `P${rand()}`;
   const [a, b, c] = await users(3);
   const xs: { user: number; symbol: string; day: number; r: number; verified?: boolean }[] = [];
@@ -118,9 +118,9 @@ dbTest('item 3 + 8: tickerPageWithBaseline: a mixed stock\'s own side is its ver
 });
 
 dbTest('item 8: the page and its baseline run in one transaction (the baseline is no longer a separate read)', async () => {
-  const src = readFileSync(new URL('./ticker-sql.ts', import.meta.url), 'utf8');
+  const src = readFileSync(new URL('../app/t/ticker-sql.ts', import.meta.url), 'utf8');
   const fn = src.slice(src.indexOf('export async function tickerPageWithBaseline'));
-  assert.match(fn, /return snapshot\(db, async \(tx\) =>/);
+  assert.match(fn, /return snapshot\(sql, async \(tx\) =>/);
   assert.match(fn, /sideConfidence\(q, symbol, 'others'/);
   assert.match(src.slice(0, src.indexOf('export async function othersConfidence')), /ponytail: per-request full scan[\s\S]*cache the result per \(symbol, verified\)/);
   const page = readFileSync(new URL('../app/t/[symbol]/page.tsx', import.meta.url), 'utf8');
@@ -129,7 +129,7 @@ dbTest('item 8: the page and its baseline run in one transaction (the baseline i
 
 dbTest('item 6: relatedSymbolsSql leaves out a deleted user\'s trades (counts and the two-trader floor)', async () => {
   const { sql } = await import('./db.ts');
-  const { relatedSymbolsSql } = await import('./ticker-sql.ts');
+  const { relatedSymbolsSql } = await import('../app/t/ticker-sql.ts');
   const p = rand().slice(0, 4);
   const main = `D${p}`, other = `D${p}O`, only = `D${p}G`;
   const [a, b, gone] = await users(3);

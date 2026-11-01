@@ -1,11 +1,15 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { login } from '../../actions.ts';
 import { normalizeHandle, normalizeVia } from '@/lib/referral.ts';
 import { devAuthAllowed } from '@/lib/session.ts';
 import { memoryOutbox } from '@/lib/auth/email.ts';
 
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Dev sign-in · Stock Social', robots: { index: false } };
+
 // DEV-ONLY sign-in (no password). Exists only when ALLOW_DEV_AUTH=1 (or outside production); e2e uses it.
-export default async function DevLogin({ searchParams }: { searchParams?: Promise<{ ref?: string; via?: string }> }) {
+export default async function DevLogin({ searchParams }: { searchParams?: Promise<{ ref?: string; via?: string; error?: string }> }) {
   if (!devAuthAllowed()) notFound();
   const sp = await searchParams;
   const ref = normalizeHandle(sp?.ref);
@@ -18,6 +22,7 @@ export default async function DevLogin({ searchParams }: { searchParams?: Promis
       <form action={login}>
         {ref && <input type="hidden" name="ref" value={ref} />}
         {via && <input type="hidden" name="via" value={via} />}
+        {sp?.error === 'handle' && <p role="alert" className="down small">That handle is taken or reserved.</p>}
         <label htmlFor="handle">Handle</label>
         <input id="handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" placeholder="lowercase, 3–20 chars" />
         <label htmlFor="name">Display name</label>

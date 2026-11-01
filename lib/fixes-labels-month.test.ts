@@ -82,7 +82,10 @@ test('AC16 (with F-12): the month and trade images, as drawn (the band), keep th
     assert.equal(rows.map((l) => l.text).join(' '), DISCLAIMER);
     for (const l of rows) assert.ok(l.size >= (state === 'failed' && !demo ? STRIP_BAND.minPx : 28) && lineWidth(l) <= STRIP_BAND.width, `${state} ${demo} ${l.size}`);
     // Beside a failed import's two note lines the band has no room for it (the page keeps the status line).
-    if (!demo && state !== 'failed') assert.ok(band.lines.some((l) => l.role === 'frozen' && l.text === frozen), `${state}: frozen`);
+    // The frozen line, whole (split over two lines at its " · " when it is wider than the band at the floor size).
+    const frozenText = (ls: typeof band.lines) => ls.filter((l) => l.role.startsWith('frozen')).map((l) => l.text).join(' · ');
+    if (!demo && state !== 'failed') assert.equal(frozenText(band.lines), frozen, `${state}: frozen`);
+    for (const l of band.lines.filter((x) => x.role.startsWith('frozen'))) assert.ok(lineWidth(l) <= STRIP_BAND.width, `${state}: frozen fits the width`);
     // "One of N months" is optional: it gives way to a frozen line and to a disclaimer under 28 px.
     if (state === 'connected' || state === 'none') {
       const plain = monthBand(r, recordStrip(recordStripInput(r), 'image'), recordStrip(monthStripInput(r), 'figures'), null);
@@ -93,10 +96,11 @@ test('AC16 (with F-12): the month and trade images, as drawn (the band), keep th
     const pick = all[all.length - 1];
     const p = tradeSharePayload({ symbol: 'ABCDEFGHIJ', returnPct: -0.987, holdingDays: 0.2, closedAt: pick.closedAt, thesis: 'A thesis that runs well past the width of one line of the band, so it is clipped', thesisStatus: 'published', demo, allTrades: all }, NOW);
     const t = { ...p, handle: 'abcdefghijklmnopqrst', displayName: 'A', state, verified: !demo, open: [0.1] };
-    const tb = tradeBand(recordStrip(tradeStripInput(t), 'image'), t, demo ? null : frozen);
+    const tb = tradeBand(t, recordStrip(tradeStripInput(t), "image"), demo ? null : frozen);
     assert.ok(tb.fits, `trade ${state} ${demo}: fits`);
     for (const l of tb.lines.filter((x) => x.role.startsWith('disclaimer'))) assert.ok(l.size >= 28, `trade ${state} ${demo} ${l.size}`);
-    if (!demo && state !== 'failed') assert.ok(tb.lines.some((l) => l.role === 'frozen'), `trade ${state}: frozen`);
+    if (!demo && state !== 'failed') assert.equal(frozenText(tb.lines), frozen, `trade ${state}: frozen`);
+    assert.deepEqual(tb.tooWide, [], `trade ${state} ${demo}: nothing too wide`);
     assert.match(tb.lines.filter((l) => l.role.startsWith('held')).map((l) => l.text).join(' '), /closed [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
   }
 });

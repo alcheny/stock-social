@@ -46,7 +46,7 @@ export async function statusRows(userIds: number[]): Promise<Map<number, StatusR
           and coalesce((x.a->>'isPaper')::boolean, false) = false and coalesce(btrim(x.a->>'institution'), '') <> ''
         group by 1, 2) i group by user_id
     )
-    select u.id, u.last_synced_at, cl.first_entry, cl.last_close, coalesce(ac.n, 0) as accounts,
+    select u.id, u.last_synced_at, u.public_filer_id is not null as filer, cl.first_entry, cl.last_close, coalesce(ac.n, 0) as accounts,
       coalesce(cn.list, '[]'::jsonb) as connections, coalesce(i.list, '{}'::text[]) as brokers,
       exists (select 1 from activities d where d.user_id = u.id and d.source = 'demo') as demo,
       exists (select 1 from connections c where c.user_id = u.id and c.consent_at is not null and c.state in ('importing', 'connected', 'failed')) as consented,
@@ -61,7 +61,8 @@ export async function statusRows(userIds: number[]): Promise<Map<number, StatusR
       accounts: c.accounts.map((a) => ({ id: a.id, isPaper: a.isPaper, institution: a.institution, removedAt: date(a.removedAt) })),
     }));
     out.set(Number(r.id), {
-      source: r.demo ? 'demo' : r.consented || r.legacy ? 'broker' : 'none',
+      // F-7: a profile built from public filings (users.public_filer_id) gets no broker status line ('filing' → show false).
+      source: r.filer ? 'filing' : r.demo ? 'demo' : r.consented || r.legacy ? 'broker' : 'none',
       firstEntry: (r.first_entry as Date | null) ?? null, lastClose: (r.last_close as Date | null) ?? null, lastSyncedAt: (r.last_synced_at as Date | null) ?? null,
       brokers: r.brokers as string[], accounts: r.accounts as number, connections,
     });

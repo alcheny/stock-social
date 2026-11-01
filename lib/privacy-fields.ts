@@ -28,6 +28,7 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.id': 'key', 'closed_trades.user_id': 'key', 'closed_trades.sell_id': 'key (vendor activity id, never shown)',
   'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
+  'closed_trades.filing_url': 'link to the public filing behind a public-record trade (F-7)', 'closed_trades.feed_after': 'feed floor, internal (F-7)',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
   // FIXES-LABELS (code review): the other columns the record status line's loader (lib/record-status-load.ts) reads;
   // lib/privacy-fields-status.test.ts holds every column that loader reads to one of these lists.
@@ -39,6 +40,8 @@ export const NOT_A_FIELD: Record<string, string> = {
   'connections.state': 'record state (importing, connected, failed), shown as which status line appears',
   'connections.accounts': 'the consented account list: ids counted and labelled "Account i of n", never shown; its paper flag filters; its institution names are the public institution names',
   'broker_accounts.confirmed_at': 'flag (a pre-connection claim), never shown',
+  'users.public_filer_id': 'flag (an F-7 public filing profile: no broker status line), never shown',
+  'closed_trades.sell_imported_at': 'when the closing sell was imported, internal (feed paging)',
 };
 
 // FIXES-LABELS (code review, POLICY P6): record state the status line publishes (DESIGN TR-5 / F-11), each date shown on

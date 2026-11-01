@@ -16,6 +16,7 @@ import { checkReflection } from '@/lib/reflections.ts';
 import { checkRule } from '@/lib/rules.ts';
 import { signUpOpen } from '@/lib/launch-gate.ts';
 import { LAUNCH } from '@/lib/copy.ts';
+import { isFilerHandle } from '@/lib/public-gate.ts';
 
 // DEV-ONLY sign-in (/login/dev): no password, guarded like the old stub. It still goes through a signup_attempts row
 // (method 'dev') so the attestation precedes the users row on this path too.
@@ -24,6 +25,7 @@ export async function login(form: FormData) {
   const handle = normalizeHandle(form.get('handle')) ?? '';
   const name = String(form.get('name') ?? '').trim() || handle;
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) throw new Error('Handle: 3–20 lowercase letters, numbers or _');
+  if (isFilerHandle(handle)) redirect('/login/dev?error=handle'); // F-7: a public filer is never signed into
 
   // Recorded only on insert: an existing handle signs in and keeps its referral.
   const refHandle = normalizeHandle(form.get('ref'));
@@ -61,7 +63,9 @@ export async function markSharePromptSeen() {
   await sql`update users set share_prompt_seen_at = now() where id = ${user.id} and share_prompt_seen_at is null`;
 }
 
-// Story-image adoption: first click on a Save link. Session user only, idempotent.
+// Fix #27 (cycle 2): the first completed share of the record from the profile's "Share my record" button (share sheet
+// or link copied). The column keeps its old name (share_image_saved_at, from the removed Save image link). Session user
+// only, idempotent.
 export async function markShareImageSaved() {
   const user = await currentUser();
   if (!user) return;

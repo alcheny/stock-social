@@ -34,7 +34,7 @@ export function SuggestSection({ page, pane }: { page: FeedPage; pane: (userId: 
             return (
               <li key={r.userId} data-handle={r.handle}>
                 <SuggestRow handle={r.handle} name={r.name} signedIn={!!page.viewer} pane={<>{pane(r.userId, false /* FIXES-LABELS: the sheet's .sheet-note is its one F3 line */)}<p className="muted small sheet-note" tabIndex={-1}>{DISCLAIMER}</p></>}
-                  actions={page.viewer && <><FollowButton handle={r.handle} following={false} signedIn /><NotInterested handle={r.handle} /></>}>
+                  actions={page.viewer && <>{!trust.badge?.startsWith('public') && <FollowButton handle={r.handle} following={false} signedIn />}<NotInterested handle={r.handle} /></>}>
                   <span className="sname"><WhoName name={r.name} handle={r.handle} /></span>
                   <span className="sfacts"><RowBadge kind={trust.badge} />{trust.incomplete && <span className="badge new">{SECTION.incomplete}</span>}<span className="sreason">{rowReason(r)}</span></span>
                 </SuggestRow>

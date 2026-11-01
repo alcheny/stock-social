@@ -1,4 +1,4 @@
-// lib/ticker-sql.ts: the ticker pages' SQL aggregates equal the in-memory helpers in lib/ticker.ts on the same rows.
+// app/t/ticker-sql.ts: the ticker pages' SQL aggregates equal the in-memory helpers in lib/ticker.ts on the same rows.
 // The reference side reads rows exactly as the pages did before (every row, newest first) and runs the JS helpers.
 // Fixtures use their own random symbols and handles and remove only their own users.
 import { after, before, test } from 'node:test';
@@ -49,7 +49,7 @@ async function reference(symbol: string, today: Date) {
   const rows = (await sql`
     select t.id, t.user_id, u.handle, u.display_name, t.symbol, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
     from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-    where t.symbol = ${symbol} order by t.closed_at desc, t.id desc`) as unknown as (import('./ticker.ts').TradeRow & { id: number })[];
+    where t.symbol = ${symbol} and t.filing_url is null order by t.closed_at desc, t.id desc`) as unknown as (import('./ticker.ts').TradeRow & { id: number })[];
   const tr = rows.map(T.toTicker);
   const returns = rows.map((r) => T.toSpreadPct(r.return_pct)).filter(Number.isFinite);
   const verified = rows.filter((r) => r.verified);
@@ -83,7 +83,7 @@ async function shown(s: import('./ticker.ts').TickerSummary) {
 }
 
 async function assertSame(symbol: string, today: Date) {
-  const { tickerPage, tickerHeadline } = await import('./ticker-sql.ts');
+  const { tickerPage, tickerHeadline } = await import('../app/t/ticker-sql.ts');
   const ref = await reference(symbol, today);
   const got = await tickerPage(symbol, today, 4);
   const head = await tickerHeadline(symbol);
@@ -170,7 +170,7 @@ dbTest('every concentration kind, an empty symbol, a tiny record (dots) and a Na
 dbTest('relatedSymbolsSql equals relatedSymbols on the pre-SQL overlap rows: counts, demo flag, tie order and the cap of 8', async () => {
   const { sql } = await import('./db.ts');
   const { relatedSymbols } = await import('./ticker.ts');
-  const { relatedSymbolsSql } = await import('./ticker-sql.ts');
+  const { relatedSymbolsSql } = await import('../app/t/ticker-sql.ts');
   const p = rand().slice(0, 4);
   const main = `R${p}`;
   const [a, b, c, solo] = await users(4);
@@ -204,7 +204,7 @@ dbTest('relatedSymbolsSql equals relatedSymbols on the pre-SQL overlap rows: cou
 dbTest('tickerIndexPage equals tickerIndex + filterTickerIndex + slice in one snapshot: both sorts, prefix, exact, none, invalid, and the cap after filtering', async () => {
   const { sql } = await import('./db.ts');
   const { filterTickerIndex, tickerIndex } = await import('./ticker.ts');
-  const { tickerIndexPage } = await import('./ticker-sql.ts');
+  const { tickerIndexPage } = await import('../app/t/ticker-sql.ts');
   const p = `X${rand().slice(0, 4)}`;
   const [a, b] = await users(2);
   const same = '2026-05-01T00:00:00.000';
@@ -219,7 +219,7 @@ dbTest('tickerIndexPage equals tickerIndex + filterTickerIndex + slice in one sn
     const aggs = (await tx`
       select symbol, count(*)::int as trades, count(distinct user_id)::int as traders,
              max(closed_at) as last_closed_at, count(*) filter (where verified)::int as verified_trades
-      from closed_trades group by symbol`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number }[];
+      from closed_trades where filing_url is null and user_id in (select id from users where deleted_at is null) group by symbol`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number }[];
     for (const sort of ['recent', 'az'] as const) {
       const all = tickerIndex(aggs.map((x) => ({ symbol: x.symbol, trades: x.trades, traders: x.traders, lastClosedAt: x.last_closed_at, verifiedTrades: x.verified_trades })), sort);
       for (const [q, cap] of [[p, 100], [p, 3], [`${p}A`, 100], [` ${p.toLowerCase()}a `, 100], [`${p}Z`, 100], ['a%b', 100], ['_', 100], ['', 5], [undefined, 5], [['x'], 5]] as [unknown, number][]) {
@@ -242,7 +242,7 @@ dbTest('tickerIndexPage equals tickerIndex + filterTickerIndex + slice in one sn
 });
 
 test('likePrefix escapes LIKE wildcards and the escape character; the pages hold no ponytail note for what moved to SQL', async () => {
-  const { likePrefix } = await import('./ticker-sql.ts');
+  const { likePrefix } = await import('../app/t/ticker-sql.ts');
   assert.equal(likePrefix('BRK.B'), 'BRK.B%');
   assert.equal(likePrefix('a%_\\'), 'a\\%\\_\\\\%');
   const page = readFileSync(new URL('../app/t/[symbol]/page.tsx', import.meta.url), 'utf8');
@@ -250,5 +250,6 @@ test('likePrefix escapes LIKE wildcards and the escape character; the pages hold
   assert.doesNotMatch(page + index, /ponytail/);
   // The symbol page no longer reads every closed trade or groups the overlap in JS.
   assert.doesNotMatch(page, /relatedSymbols\(|tickerSummary\(|order by t\.closed_at desc, t\.id desc`\)/);
-  assert.doesNotMatch(readFileSync(new URL('../app/t/[symbol]/opengraph-image.tsx', import.meta.url), 'utf8'), /from closed_trades/);
+  // The stock share image keeps its own read (main's lib/f12-followups.test.ts pins it), counting what the page counts.
+  assert.match(readFileSync(new URL('../app/t/[symbol]/opengraph-image.tsx', import.meta.url), 'utf8'), /u\.deleted_at is null where t\.symbol = \$\{symbol\} and t\.filing_url is null/);
 });

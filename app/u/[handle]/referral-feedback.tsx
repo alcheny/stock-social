@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 const MAX_SHOWN = 20;
-const LABELS: Record<string, string> = { profile: 'your profile link', trade: 'a trade link', month: 'your monthly recap' };
+const LABELS: Record<string, string> = { profile: 'your profile link', trade: 'a trade link', month: 'your monthly recap', nav: 'the sign-in link on your pages' };
 
 // Owner-only, plain text: which traders connected a broker from this trader's link. Nothing at 0.
 export function ReferralFeedback({ handles, byVia }: { handles: string[]; byVia: Record<string, number> }) {
@@ -17,6 +17,7 @@ export function ReferralFeedback({ handles, byVia }: { handles: string[]; byVia:
     <>
     <p className="muted small">
       {n} {n === 1 ? 'trader' : 'traders'} connected from your link:{' '}
+      {/* ponytail: handles past MAX_SHOWN are not named and nothing says so (the total is shown) — add "and N more". */}
       {handles.slice(0, MAX_SHOWN).map((h, i) => (
         <span key={h}>
           {i > 0 && ', '}

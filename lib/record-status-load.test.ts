@@ -71,3 +71,31 @@ dbTest('statusFacts: one query for the id set; frozen, two-account-removed, demo
     await sql`delete from broker_accounts where account_id like ${`${tag}-%`}`;
   }
 });
+
+dbTest('statusFacts: an F-7 public filing profile (users.public_filer_id) is source "filing" and gets no status line, on any state', async () => {
+  const { sql } = await import('./db.ts');
+  const { statusFacts } = await import('./record-status-load.ts');
+  const { statusParts, cardSegments, paneSegments } = await import('./record-status.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const tag = `p${Math.random().toString(36).slice(2, 9)}`;
+  const [pf] = await sql`insert into public_filers (source, filer_key, demo) values ('insider_reports', ${`${tag}-k`}, true) returning id`;
+  const u = (await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}u` })).id;
+  try {
+    await sql`update users set public_filer_id = ${pf.id}, last_synced_at = now() - interval '40 days' where id = ${u}`;
+    await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+      values (${u}, ${`${tag}-s`}, 'a', 'AAA', now() - interval '30 days', now() - interval '10 days', 0.05, 20, false)`;
+    const now = new Date();
+    for (const state of ['connected', 'public', 'public_demo'] as const) {
+      const f = (await statusFacts([u], new Map([[u, { state }]]))).get(u)!;
+      assert.equal(f.source, 'filing');
+      const p = statusParts(f, now, 'live');
+      assert.equal(p.show, false, state);
+      assert.deepEqual(p.card, []);
+      assert.ok(!(cardSegments(f, now)?.length), `${state}: no card line`);
+      assert.ok(!(paneSegments(f, now)?.length), `${state}: no pane line`);
+    }
+  } finally {
+    await sql`delete from users where id = ${u}`;
+    await sql`delete from public_filers where id = ${pf.id}`;
+  }
+});

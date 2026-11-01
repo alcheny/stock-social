@@ -331,9 +331,10 @@ export function parseCompare(a: string | undefined, b: string | undefined): Pars
 export const COMPARE_COPY = {
   title: 'Compare stocks · Stock Social',
   explainer: 'Verified closed trades in each stock, side by side. Percentages only. Few trades means a wide range, and that is expected.',
-  pick: 'Pick two stocks to compare.',
+  // Fix #11 (cycle 2, POLICY F1a): no "pick" in product copy.
+  pick: 'Choose two stocks to compare.',
   invalid: (raw: string) => `${raw} doesn't look like a ticker symbol.`,
-  same: (a: string) => `Pick two different stocks. You chose ${a} twice.`,
+  same: (a: string) => `Choose two different stocks. You chose ${a} twice.`,
   bothEmpty: (a: string, b: string) => `No verified closed trades in ${a} or ${b} yet.`,
   emptySide: (s: string) => `No verified closed trades in ${s} yet.`,
   overlap: (n: number, a: string, b: string) => n === 0

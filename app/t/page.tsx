@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
+import { visibleUserIds } from '@/lib/visible-users.ts';
 import { redirect } from 'next/navigation';
 import { parseTickerSort, watchSummary, type TickerSort, type WatchItem } from '@/lib/ticker.ts';
-import { tickerIndexPage } from '@/lib/ticker-sql.ts';
+import { tickerIndexPage } from './ticker-sql.ts';
 import { currentUser } from '@/lib/session.ts';
 import { Badge } from '../ui.tsx';
 // FIXES-LABELS (D-03): the index names Demo and never calls Demo trades verified.
@@ -28,7 +29,7 @@ async function loadStrip(): Promise<WatchItem[]> {
   if (!watches.length) return [];
   const trades = (await sql`
     select symbol, closed_at, verified from closed_trades
-    where symbol in (select symbol from ticker_watches where user_id = ${user.id})`) as unknown as { symbol: string; closed_at: Date; verified: boolean }[];
+    where filing_url is null and symbol in (select symbol from ticker_watches where user_id = ${user.id}) and user_id in (${visibleUserIds()})`) as unknown as { symbol: string; closed_at: Date; verified: boolean }[];
   return watchSummary(
     watches.map((w) => ({ symbol: w.symbol, lastSeenAt: w.last_seen_at })),
     trades.map((t) => ({ symbol: t.symbol, closedAt: t.closed_at, verified: t.verified })),
@@ -62,7 +63,7 @@ export default async function Stocks({ searchParams }: Props) {
   const strip = await loadStrip();
   const sort = parseTickerSort(sp.sort);
   const rawQ = (Array.isArray(sp.q) ? sp.q[0] : sp.q) ?? '';
-  // Search, sort and the cap run in SQL (lib/ticker-sql.ts): the query is a normalized symbol as a bound, escaped LIKE
+  // Search, sort and the cap run in SQL (app/t/ticker-sql.ts): the query is a normalized symbol as a bound, escaped LIKE
   // prefix, and the sort is one of two fixed order-by fragments, so no user text is interpolated.
   const f = await tickerIndexPage(rawQ, sort, CAP);
   if (!f.total) {

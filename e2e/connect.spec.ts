@@ -9,6 +9,7 @@ import type { Server } from 'node:http';
 import postgres from 'postgres';
 import { startVendorFake, type FakeAccount, type FakeActivity, type FakeCorporateRow } from './fakes/vendor.ts';
 import { feedLock } from './feed-lock.ts';
+import { cronLock } from './cron-lock.ts';
 
 const VENDOR_PORT = Number(process.env.VENDOR_FAKE_PORT ?? 4102);
 let vendor: { server: Server; base: string };
@@ -95,9 +96,12 @@ const step = async (req: APIRequestContext): Promise<{ state: string; imported: 
   }
 };
 const tick = async (req: APIRequestContext) => {
-  const r = await req.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } });
-  expect(r.status()).toBe(200);
-  return r.json();
+  const release = await cronLock('shared'); // e2e/cron-lock.ts: never interleaved with the sharded-sync spec's calls
+  try {
+    const r = await req.post('/api/sync', { headers: { authorization: `Bearer ${cronSecret}` } });
+    expect(r.status()).toBe(200);
+    return r.json();
+  } finally { await release(); }
 };
 
 test('/how explains what Verified means and what is excluded, percent only, with the disclaimer; Terms, Privacy and How links are in the footer of every page', async ({ page }) => {
@@ -660,11 +664,19 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await scenario([{ id: a2, activities: recent(a2, 2) }, { id: a3, activities: recent(a3, 2) }]);
   await connectThrough(page);
   await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
-  await page.getByRole('button', { name: 'Import my record' }).click();
-  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
-  expect((await step(page.request)).state).toBe('importing');
-  await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
-  expect((await step(page.request)).state).toBe('failed');
+  // Known-limits sweep 2026-11-01: another file's cron tick drives every importing connection, so one landing between
+  // these steps finished the import early (flaky in full runs). The tick callers hold e2e/cron-lock.ts shared; this
+  // holds it exclusively from consent to the failure, so only these steps move this import.
+  const noTicks = await cronLock('exclusive');
+  try {
+    await page.getByRole('button', { name: 'Import my record' }).click();
+    await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+    expect((await step(page.request)).state).toBe('importing');
+    await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
+    expect((await step(page.request)).state).toBe('failed');
+  } finally {
+    await noTicks();
+  }
   // Signed out: still in the feed (incompleteness is never hidden), but never presented as whole.
   await feed.goto('/');
   await expect(feed.locator(`a[href="/u/${handle}"]`).first()).toBeAttached();

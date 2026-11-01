@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { FeedPage } from '@/lib/feed.ts';
 import { feedPaneChart } from '@/lib/chart-series.ts';
-import { FEED } from '@/lib/copy.ts';
+import { FEED, isPublicRecord } from '@/lib/copy.ts';
 import { ProfilePane } from './pane.tsx';
 import { TradeCard, type TradeRow } from './ui.tsx';
 import { SuggestSection } from './suggest-section.tsx';
@@ -9,7 +9,7 @@ import { CardMenu } from './card-menu.tsx';
 import { SECTION_AT } from '@/lib/discovery/section.ts';
 import { cardSegments, paneSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { recordStrip, type Strip } from '@/lib/record-strip.ts';
-import { paneTrust } from '@/lib/pane.ts';
+import { paneTrust, type TrustBadge } from '@/lib/pane.ts';
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -41,7 +41,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   // F-10: one record strip per card trader, from the figures loadFeedPage computed (page.strips): formatting only here.
   // Demo = not every row verified (the pane's trust rule, paneTrust).
   const strips = new Map<number, Strip | undefined>();
-  const badges = new Map<number, 'verified' | 'demo' | null>();
+  const badges = new Map<number, TrustBadge | null>();
   const stripOf = (t: { user_id: number; handle: string }) => {
     if (strips.has(t.user_id)) return strips.get(t.user_id);
     const f = page.strips?.get(t.user_id);
@@ -63,7 +63,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} now={now} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
             status={cardSegments(page.status?.get(t.user_id), now)} /* FIXES-LABELS: status */
-            menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
+            menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} likeable={!isPublicRecord(page.records.get(t.user_id)?.state ?? 'none')} /> : undefined} />
           {paneOf(t)}
         </div>
       ),

@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { toneView } from '@/lib/tone-view.ts'; // QA round 1 (finding 8): tone of the printed value
 import type { PublicState } from '@/lib/connections.ts';
-import { asOfDay, OPEN, RECORD_BODY } from '@/lib/copy.ts';
-import { cardTrust } from '@/lib/pane.ts';
+import { asOfDay, isPublicRecord, OPEN, PUBLIC, RECORD_BODY } from '@/lib/copy.ts';
+import { cardTrust, type TrustBadge } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
@@ -15,16 +15,24 @@ import { StatusText } from './status-line.tsx'; // FIXES-LABELS: status
 import { RecordStrip } from './record-strip.tsx';
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
+import { retEms } from '@/lib/feed-focus.ts';
 
-export function Badge({ verified }: { verified: boolean }) {
-  return verified
+// F-7: `kind` 'public' / 'public_demo' is the "Public filing" badge (Demo beside it on a fictional fixture), never Verified.
+export function Badge({ verified, kind = verified ? 'verified' : 'demo' }: { verified?: boolean; kind?: TrustBadge }) {
+  if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <Badge kind="demo" />}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
+  return kind === 'verified'
     ? <span className="badge verified" title="Pulled read-only from the trader's broker. Cannot be edited.">✓ Verified</span>
     : <span className="badge demo" title={FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20) */}>Demo</span>;
 }
 
 // A badge chosen by a trust rule (paneTrust / cardTrust / rowBadge): null shows none.
-export function RowBadge({ kind }: { kind: 'verified' | 'demo' | null }) {
-  return kind ? <Badge verified={kind === 'verified'} /> : null;
+export function RowBadge({ kind }: { kind: TrustBadge | null }) {
+  return kind ? <Badge kind={kind} /> : null;
+}
+
+// F-7 (legal C15, plan Round 5 item 4): the not-joined line and correction link on a public record's pages and pane.
+export function PublicNotice({ link = true }: { link?: boolean }) {
+  return <p className="public-line" data-public-line>{PUBLIC.notJoined}{link && <> <Link className="tap44" href="/public-records">{PUBLIC.correction}</Link></>}</p>;
 }
 
 export type TradeRow = {
@@ -41,18 +49,25 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 }
 
 // FIXES-LABELS (D-05): the close date is lib/date-text.ts#dateText (one cached formatter per variant, UTC).
+// F-10 follow-up (approval cycle 2, fix #23): a date outside the current UTC year carries its year ("May 30, 2020"), so an
+// old close never reads as recent (design system rule: dates in UTC, the year only when it is not this year).
+export const closedDay = (d: Date, now: Date) => dateText(d, now);
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
 // F-10: `strip`, the trader's record strip (lib/record-strip.ts#recordStrip, 'feed'): it takes the place of the
 // "held · closed" line, so the hero reads symbol, return, record. DS-22 (design system council, PR #48): the trust badge
 // then leads the record line in .hero, not the header. `stripBadge`: the record-level badge (paneTrust, code review
 // 2026-11-01), since it labels the record's figures; without it, the card's own. Without a strip (other callers) the card is unchanged.
+// F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
 // FIXES-LABELS: status: `status`, the card's status segments (lib/record-status.ts `card`, static mode: only a frozen or
 // idle record has any), between the hero and the thesis.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, now = new Date(), strip, stripBadge, status }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; now?: Date; strip?: Strip; stripBadge?: 'verified' | 'demo' | null; status?: Segment[] }) {
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, now = new Date(), strip, stripBadge, status }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; now?: Date; strip?: Strip; stripBadge?: TrustBadge | null; status?: Segment[] }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const trust = cardTrust(t, state);
+  const pub = isPublicRecord(state); // F-7: the card line in place of the thesis (filers post none)
+  // F-10 follow-up #18: the figure's length caps its size (app/globals.css "F-10 follow-ups"), so "+12345.6%" fits the card.
+  const ret = pct(t.return_pct);
   return (
     <article className="card">
       <header>
@@ -65,11 +80,11 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       {trust.incomplete && <p role="status" className="warn record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
-        <div className={`ret ${toneView(t.return_pct).cls}`}>{pct(t.return_pct)}</div>
-        {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {dateText(t.closed_at, now) /* FIXES-LABELS (D-05): the year when it is not this year */}</div>}
+        <div className={`ret ${toneView(t.return_pct).cls}`} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>
+        {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now) /* FIXES-LABELS (D-05): the year when it is not this year */}</div>}
       </div>
       {status && <StatusText segments={status} kind="card" />}{/* FIXES-LABELS: status */}
-      <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
+      {pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p> : <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>

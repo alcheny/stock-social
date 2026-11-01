@@ -11,11 +11,13 @@ import { setReflection, setRule } from '@/app/actions.ts';
 import { Badge } from '../../ui.tsx';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
+import { toneClass } from '../../open-rows.tsx';
 
 export const metadata: Metadata = { title: 'My record · Stock Social', robots: { index: false, follow: false } };
 
 const FEW = 'too few trades to say';
-const sign = (x: number) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
+// Fix #19 (cycle 2): tone by the printed sign ("0.0%" is flat, uncolored), shared with every other figure.
+const sign = toneClass;
 
 export default async function MyRecord() {
   const me = await currentUser();
@@ -75,7 +77,7 @@ export default async function MyRecord() {
       {r.total === 0 ? (
         <div className="rec-card">
           <p style={{ margin: 0 }}>No closed trades yet. Once a trade you&apos;ve connected closes, your habits appear here.</p>
-          <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will pick them up.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
+          <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will include them.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
         </div>
       ) : <>
         {/* FIXES-LABELS (D-09): before the first block of figures, so it is in view on arrival */}
@@ -127,11 +129,11 @@ export default async function MyRecord() {
         <h2>Wins versus losses</h2>
         <div className="rec-grid">
           <div className="rec-card">
-            <dl className="rec-dl"><div><dt>Average win</dt><dd className={r.winLoss.avgWin === null ? 'muted' : 'up'}>{r.winLoss.avgWin === null ? FEW : pct(r.winLoss.avgWin)}</dd></div></dl>
+            <dl className="rec-dl"><div><dt>Average win</dt><dd className={r.winLoss.avgWin === null ? 'muted' : sign(r.winLoss.avgWin)}>{r.winLoss.avgWin === null ? FEW : pct(r.winLoss.avgWin)}</dd></div></dl>
             <p className="muted small">from {r.winLoss.wins} win{r.winLoss.wins === 1 ? '' : 's'}</p>
           </div>
           <div className="rec-card">
-            <dl className="rec-dl"><div><dt>Average loss</dt><dd className={r.winLoss.avgLoss === null ? 'muted' : 'down'}>{r.winLoss.avgLoss === null ? FEW : pct(r.winLoss.avgLoss)}</dd></div></dl>
+            <dl className="rec-dl"><div><dt>Average loss</dt><dd className={r.winLoss.avgLoss === null ? 'muted' : sign(r.winLoss.avgLoss)}>{r.winLoss.avgLoss === null ? FEW : pct(r.winLoss.avgLoss)}</dd></div></dl>
             <p className="muted small">from {r.winLoss.losses} loss{r.winLoss.losses === 1 ? '' : 'es'}</p>
           </div>
         </div>
@@ -199,7 +201,7 @@ export default async function MyRecord() {
       </>}
 
       <h2>Your rules</h2>
-      <p className="muted">Pick up to two rules for yourself. This page only counts how your closed trades measured up. It is private. A hold of exactly N days counts as following the rule.</p>
+      <p className="muted">Choose up to two rules for yourself. This page only counts how your closed trades measured up. It is private. A hold of exactly N days counts as following the rule.</p>
       <div className="rec-grid">
         {RULE_KINDS.map((kind) => {
           const rule = rules.find((x) => x.kind === kind);
@@ -283,7 +285,7 @@ export default async function MyRecord() {
       </div>
 
       <p className="muted small">
-        Percentages only. Computed from your verified closed trades each time you open this page.
+        Percentages only. Computed from your closed trades{demo ? ' (including demo data)' : ''} each time you open this page.
         {me.excluded_positions > 0 && <> Trades with no recorded entry are excluded: {me.excluded_positions}.</>}
       </p>
     </main>

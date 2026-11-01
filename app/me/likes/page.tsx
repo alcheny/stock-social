@@ -9,6 +9,7 @@ import { removeLikeForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
 import { Disclaimer } from '../../disclaimer.tsx';
+import { toneClass } from '../../open-rows.tsx';
 
 export const metadata: Metadata = { title: `${LIKES.title} · Stock Social`, robots: { index: false, follow: false } };
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -32,7 +33,7 @@ export default async function Likes({ searchParams }: { searchParams?: Promise<{
             <li key={r.key} className="line">
               <span className="who-col">
                 <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}>{LIKES.closed(r.symbol, DAY.format(r.closedAt))}</Link>{' '}
-                <b className={r.returnPct > 0 ? 'up' : 'down'}>{pct(r.returnPct)}</b>
+                <b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b>
                 <span className="small"><WhoName name={r.name} handle={r.handle} /></span>
               </span>
               <form action={removeLikeForm.bind(null, r.key, after)}><button className="secondary" aria-label={LIKES.removeFor(r.symbol)}>{LIKES.remove}</button></form>

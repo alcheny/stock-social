@@ -5,8 +5,8 @@
 import { ImageResponse } from 'next/og';
 // FIXES-LABELS (D-09): the F3 lines at the band's disclaimer size (lib/record-strip.ts DISCLAIMER_PX, from lib/image-fit.ts, DS-19).
 import { DISCLAIMER } from '@/lib/share.ts';
-import { decodeSymbolParam, type TickerSummary } from '@/lib/ticker.ts';
-import { tickerHeadline } from '@/lib/ticker-sql.ts';
+import { sql } from '@/lib/db.ts';
+import { decodeSymbolParam, tickerSummary, type TickerRow } from '@/lib/ticker.ts';
 import { fitPx, layoutBand, STRIP_BAND, type ImageLine } from '@/lib/record-strip.ts';
 import { disclaimerAtFoot, stockImageLines } from '@/lib/stock-image.ts';
 import { RecordStripImage } from '@/app/record-strip.tsx';
@@ -28,12 +28,19 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
   try {
     const symbol = decodeSymbolParam((await params).symbol);
     if (!symbol) return neutral('Stock Social', 'Verified trades by stock');
-    // The page's own SQL summary (lib/ticker-sql.ts, live users only), so the card and the page count the same trades.
-    const s: TickerSummary = (await tickerHeadline(symbol)).summary;
-    if (!s.n) return neutral(symbol, 'No verified trades yet');
+    // Deleted traders' trades are not counted (the page's rule: users.deleted_at is null), nor F-7 filings, as on the page.
+    // ponytail: the card keeps its own full read (lib/f12-followups.test.ts pins this query) — switch it to
+    // app/t/ticker-sql.ts#tickerHeadline (the page's SQL summary) when that test moves to the shared predicate.
+    const found = (await sql`select t.user_id, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.symbol = ${symbol} and t.filing_url is null`) as unknown as
+      { user_id: number; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean }[];
+    if (!found.length) return neutral(symbol, 'No verified trades yet');
+    const rows: TickerRow[] = found.map((r) => ({ userId: r.user_id, returnPct: r.return_pct, holdingDays: r.holding_days, openedAt: r.opened_at, closedAt: r.closed_at, verified: r.verified }));
+    const s = tickerSummary(rows, new Date());
     const { lines } = layoutBand(stockImageLines({ symbol, n: s.n, traders: s.traders, demoOnly: s.demoOnly, mixed: s.mixed }));
     return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);
   } catch {
+    // ponytail: a database error still answers 200 with the neutral picture — answer 500 (no catch) as the trade and month
+    // images do, when the truthful-labels branch's rewrite of this read lands.
     return neutral('Stock Social', 'Verified trades by stock');
   }
 }

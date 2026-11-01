@@ -1,3 +1,4 @@
+// Lives under app/t/ beside open-positions.ts so the stock pages' visible-user guard (lib/fixes-cycle2-trust.test.ts) reads its SQL.
 // Ticker pages' data in SQL: /t/SYMBOL (summary, charts, capped trade list, "Also closed by these traders"), its
 // metadata and share card, and the /t index. Each function returns what the in-memory helpers in lib/ticker.ts return
 // for the same rows (equivalence tests: lib/ticker-sql.test.ts), but no query ships one row per closed trade.
@@ -5,45 +6,46 @@
 // the same order the pages read rows). The 95% ranges match to ~1e-15: Postgres ln() and the JS Math.log() may differ
 // in the last bit, and bets are summed in a different order.
 import type postgres from 'postgres';
-import { sql as defaultSql } from './db.ts';
-import { logSafe } from './privacy-log.ts';
-import { confidenceFromClusters, confidenceFromSums, type Cluster, type Confidence } from './trades.ts';
+import { sql as defaultSql } from '../../lib/db.ts';
+import { logSafe } from '../../lib/privacy-log.ts';
+import { visibleUser, visibleUserIds } from '../../lib/visible-users.ts';
+import { confidenceFromClusters, confidenceFromSums, type Cluster, type Confidence } from '../../lib/trades.ts';
 import {
   MIN_HOLD_BUCKET, MIN_REST, normalizeSymbol,
   type Concentration, type HoldBucket, type HoldBuckets, type MonthBucket, type RelatedSymbol, type Spread, type SpreadBin,
   type Timeline, type TickerIndexRow, type TickerSort, type TickerSummary,
-} from './ticker.ts';
+} from '../../lib/ticker.ts';
 
 export type Db = postgres.ISql;
 const DAY = 86_400_000;
 
 // A page's several statements read one snapshot (as the single full read they replace did), so a rebuild that commits
 // between two of them can't make the count and the list disagree. A caller's own transaction is used as is.
-const snapshot = <T>(db: Db, fn: (tx: Db) => Promise<T>): Promise<T> =>
-  db === defaultSql ? (defaultSql.begin('isolation level repeatable read read only', (tx) => fn(tx)) as Promise<T>) : fn(db);
+const snapshot = <T>(sql: Db, fn: (tx: Db) => Promise<T>): Promise<T> =>
+  sql === defaultSql ? (defaultSql.begin('isolation level repeatable read read only', (tx) => fn(tx)) as Promise<T>) : fn(sql);
 export const TICKER_ROWS_CAP = 500;
 export const TICKER_INDEX_CAP = 100;
 
 type ScopeRow = { scope: string; n: number; wins: number; sum: number | null; verified: number; traders: number; verified_traders: number; first_open: Date; last_close: Date };
 type BetRow = { scope: string; user_id: number; x: number; d: number; n: number };
 
-// One symbol's trades, as the pages read them: live users only. Times are cut to milliseconds because the JS helpers
+// One symbol's trades, as the pages read them: visible users only (lib/visible-users.ts), no public-filing trades (F-7). Times are cut to milliseconds because the JS helpers
 // compare Date values; `closed_at`/`id` keep full precision for ordering, which is the page's row order.
 // hb = holdIndex() in lib/ticker.ts (NaN and negatives fall to 0). NaN sorts above every number in Postgres, so the
 // sign tests below exclude it explicitly, as `NaN > 0` is false in JS.
-const tradesOf = (db: Db, symbol: string) => db`
+const tradesOf = (sql: Db, symbol: string) => sql`
   select t.id, t.user_id, t.return_pct as r, t.holding_days as h, t.closed_at, t.verified as v,
          date_trunc('milliseconds', t.opened_at) as o, date_trunc('milliseconds', t.closed_at) as c,
          case when t.holding_days = 'NaN' or t.holding_days < 1 then 0 when t.holding_days < 7 then 1
               when t.holding_days < 28 then 2 else 3 end as hb
-  from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-  where t.symbol = ${symbol}`;
+  from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
+  where t.symbol = ${symbol} and t.filing_url is null`; // F-7 (legal C18): public filings stay off stock pages
 
 // Headline numbers per scope: 'all', 'h0'..'h3' (hold buckets) and 'rest' (everyone but the single most active trader,
 // only when exactly one trader has the most trades). `sum` is in the page's row order, so averages are exact.
-async function scopes(db: Db, symbol: string, full: boolean): Promise<{ rows: ScopeRow[]; top: number; tied: number; leader: number | null }> {
-  const rows = (await db`
-    with s as (${tradesOf(db, symbol)}),
+async function scopes(sql: Db, symbol: string, full: boolean): Promise<{ rows: ScopeRow[]; top: number; tied: number; leader: number | null }> {
+  const rows = (await sql`
+    with s as (${tradesOf(sql, symbol)}),
     pu as (select user_id, count(*)::int as cnt from s group by user_id),
     lead as (select user_id from pu where cnt = (select max(cnt) from pu)),
     solo as (select case when (select count(*) from lead) = 1 then (select user_id from lead) end as leader),
@@ -66,9 +68,9 @@ async function scopes(db: Db, symbol: string, full: boolean): Promise<{ rows: Sc
 // entry, ties in the page's row order, as confidence()'s stable sort sees them.
 // ponytail: the 95% range reads one row per bet (bets ≤ trades); a symbol with ~10^5 non-overlapping bets would want the
 // two variance sums in SQL instead.
-async function bets(db: Db, symbol: string, full: boolean): Promise<BetRow[]> {
-  return (await db`
-    with s as (${tradesOf(db, symbol)}),
+async function bets(sql: Db, symbol: string, full: boolean): Promise<BetRow[]> {
+  return (await sql`
+    with s as (${tradesOf(sql, symbol)}),
     w as (
       select s.*, ln(greatest(1 + r, 1e-9)) as x, greatest(h, 1) as dd,
              max(c) over (partition by user_id order by o, closed_at desc, id desc rows between unbounded preceding and 1 preceding) as pa,
@@ -103,8 +105,8 @@ export function summaryFrom(g: ScopeRow | undefined, betRows: BetRow[]): TickerS
 export type TickerHeadline = { summary: TickerSummary; verifiedTrades: number; verifiedTraders: number };
 
 // What generateMetadata and the share card need: the summary of every trade, nothing else.
-export async function tickerHeadline(symbol: string, db: Db = defaultSql): Promise<TickerHeadline> {
-  const [s, b] = await snapshot(db, (tx) => Promise.all([scopes(tx, symbol, false), bets(tx, symbol, false)]));
+export async function tickerHeadline(symbol: string, sql: Db = defaultSql): Promise<TickerHeadline> {
+  const [s, b] = await snapshot(sql, (tx) => Promise.all([scopes(tx, symbol, false), bets(tx, symbol, false)]));
   const all = s.rows.find((r) => r.scope === 'all');
   return { summary: summaryFrom(all, b.filter((r) => r.scope === 'all')), verifiedTrades: all?.verified ?? 0, verifiedTraders: all?.verified_traders ?? 0 };
 }
@@ -118,10 +120,10 @@ const monthIndex = (d: Date) => d.getUTCFullYear() * 12 + d.getUTCMonth();
 const monthKey = (idx: number) => `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
 
 // monthlyTimeline(): bucket 0 is 'earlier', 1..24 the UTC months ending at today's (future dates clamp into the last).
-async function timeline(db: Db, symbol: string, today: Date): Promise<Timeline> {
+async function timeline(sql: Db, symbol: string, today: Date): Promise<Timeline> {
   const first = monthIndex(today) - 23;
-  const rows = (await db`
-    with s as (${tradesOf(db, symbol)})
+  const rows = (await sql`
+    with s as (${tradesOf(sql, symbol)})
     select least(24, greatest(0, (extract(year from c at time zone 'UTC') * 12 + extract(month from c at time zone 'UTC') - 1)::int - ${first} + 1)) as b,
            (count(*) filter (where r > 0 and r <> 'NaN'))::int as up, (count(*) filter (where r < 0))::int as down, count(*)::int as n
     from s group by 1`) as unknown as { b: number; up: number; down: number; n: number }[];
@@ -134,16 +136,16 @@ async function timeline(db: Db, symbol: string, today: Date): Promise<Timeline> 
 
 // outcomeSpread() on toSpreadPct() values (percent, Math.round = floor(x + 0.5)), non-finite dropped. `returns` (the
 // dots) is filled only under 10 trades, the only time the chart draws one dot per trade.
-async function spread(db: Db, symbol: string): Promise<{ spread: Spread; returns: number[] }> {
-  const vals = db`
-    select floor(r * 1e8 + 0.5) / 1e6 as v, closed_at, id from (${tradesOf(db, symbol)}) s
+async function spread(sql: Db, symbol: string): Promise<{ spread: Spread; returns: number[] }> {
+  const vals = sql`
+    select floor(r * 1e8 + 0.5) / 1e6 as v, closed_at, id from (${tradesOf(sql, symbol)}) s
     where r not in ('NaN', 'Infinity', '-Infinity')`;
   const [binRows, mid] = await Promise.all([
-    db`
+    sql`
       select case when v < -50 then 0 when v >= 50 then 11 else floor(v / 10)::int + 6 end as bin, count(*)::int as n,
              (count(*) filter (where v > 0))::int as up, (count(*) filter (where v < 0))::int as down, min(v) as min, max(v) as max
       from (${vals}) v group by 1` as unknown as Promise<{ bin: number; n: number; up: number; down: number; min: number; max: number }[]>,
-    db`
+    sql`
       select v, rn, cnt from (select v, closed_at, id, row_number() over (order by v) as rn, count(*) over () as cnt from (${vals}) v) z
       where cnt < 10 or rn in ((cnt + 1) / 2, cnt / 2 + 1)
       order by closed_at desc, id desc` as unknown as Promise<{ v: number; rn: string; cnt: string }[]>,
@@ -167,17 +169,17 @@ export type TickerPage = TickerHeadline & {
 };
 
 // Everything /t/SYMBOL shows, with the trade list capped at `cap` (newest first). The summary and charts cover all trades.
-export async function tickerPage(symbol: string, today: Date, cap = TICKER_ROWS_CAP, db: Db = defaultSql): Promise<TickerPage> {
-  return snapshot(db, (tx) => tickerPageIn(tx, symbol, today, cap));
+export async function tickerPage(symbol: string, today: Date, cap = TICKER_ROWS_CAP, sql: Db = defaultSql): Promise<TickerPage> {
+  return snapshot(sql, (tx) => tickerPageIn(tx, symbol, today, cap));
 }
 
-async function tickerPageIn(db: Db, symbol: string, today: Date, cap: number): Promise<TickerPage> {
+async function tickerPageIn(sql: Db, symbol: string, today: Date, cap: number): Promise<TickerPage> {
   const [s, b, tl, sp, rows] = await Promise.all([
-    scopes(db, symbol, true), bets(db, symbol, true), timeline(db, symbol, today), spread(db, symbol),
-    db`
+    scopes(sql, symbol, true), bets(sql, symbol, true), timeline(sql, symbol, today), spread(sql, symbol),
+    sql`
       select t.id, t.user_id, u.handle, u.display_name, t.symbol, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
-      from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-      where t.symbol = ${symbol}
+      from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
+      where t.symbol = ${symbol} and t.filing_url is null
       order by t.closed_at desc, t.id desc
       limit ${cap}` as unknown as Promise<TickerRowOut[]>,
   ]);
@@ -212,12 +214,13 @@ async function tickerPageIn(db: Db, symbol: string, today: Date, cap: number): P
 
 // relatedSymbols() in SQL: other symbols closed by anyone who closed this one, hidden unless at least 2 such traders
 // have other symbols, most shared traders first, ties by symbol (code-point order, as JS `<`), 8 at most.
-export async function relatedSymbolsSql(symbol: string, db: Db = defaultSql): Promise<RelatedSymbol[]> {
-  const rows = (await db`
+export async function relatedSymbolsSql(symbol: string, sql: Db = defaultSql): Promise<RelatedSymbol[]> {
+  const rows = (await sql`
     with o as (
-      -- FIXES-LABELS (code review): live users only, as tradesOf (a deleted user's trades are on no page).
-      select t.symbol, t.user_id, t.verified from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-      where t.symbol <> ${symbol} and t.user_id in (select distinct user_id from closed_trades where symbol = ${symbol}))
+      -- FIXES-LABELS (code review): visible users only, as tradesOf (a deleted user's trades are on no page); no F-7 filings.
+      select t.symbol, t.user_id, t.verified from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
+      where t.symbol <> ${symbol} and t.filing_url is null
+        and t.user_id in (select distinct user_id from closed_trades where symbol = ${symbol} and filing_url is null))
     select symbol, count(distinct user_id)::int as traders, count(*)::int as trades, not bool_or(verified) as demo_only
     from o where (select count(distinct user_id) from o) >= 2
     group by symbol
@@ -234,14 +237,13 @@ export const likePrefix = (s: string) => `${s.replace(/[\\%_]/g, (c) => `\\${c}`
 // tickerIndex() + filterTickerIndex() + the page's slice, in SQL. `total` is every symbol (the page's empty state and
 // "Showing X of Y"), `matched` the rows the search matched before the cap. Sort is one of two fixed fragments.
 // ponytail: the group by still reads every closed trade per request; at ~10^6 rows keep a per-symbol summary table.
-// ponytail: counts include deleted users' trades (unlike tradesOf) — lib/ticker-sql.test.ts's tickerIndexPage reference
-// aggregates every closed trade, so joining live users here needs that test's reference changed by its owner first
-export async function tickerIndexPage(q: unknown, sort: TickerSort, cap = TICKER_INDEX_CAP, db: Db = defaultSql): Promise<TickerIndexPage> {
-  return snapshot(db, (tx) => tickerIndexIn(tx, q, sort, cap));
+// Visible users only (lib/visible-users.ts, as the index's reads on main) and no F-7 public-filing trades.
+export async function tickerIndexPage(q: unknown, sort: TickerSort, cap = TICKER_INDEX_CAP, sql: Db = defaultSql): Promise<TickerIndexPage> {
+  return snapshot(sql, (tx) => tickerIndexIn(tx, q, sort, cap));
 }
 
-async function tickerIndexIn(db: Db, q: unknown, sort: TickerSort, cap: number): Promise<TickerIndexPage> {
-  const [{ total }] = (await db`select count(distinct symbol)::int as total from closed_trades`) as unknown as { total: number }[];
+async function tickerIndexIn(sql: Db, q: unknown, sort: TickerSort, cap: number): Promise<TickerIndexPage> {
+  const [{ total }] = (await sql`select count(distinct symbol)::int as total from closed_trades where filing_url is null and user_id in (${visibleUserIds()})`) as unknown as { total: number }[];
   let kind: TickerIndexPage['kind'] = 'all';
   let symbol: string | undefined;
   if (typeof q === 'string' && q.trim()) {
@@ -250,13 +252,13 @@ async function tickerIndexIn(db: Db, q: unknown, sort: TickerSort, cap: number):
     symbol = s;
     kind = 'prefix';
   }
-  const order = sort === 'az' ? db`symbol collate "C"` : db`date_trunc('milliseconds', max(closed_at)) desc, symbol collate "C"`;
-  const where = symbol ? db`where symbol like ${likePrefix(symbol)}` : db``;
-  const rows = (await db`
+  const order = sort === 'az' ? sql`symbol collate "C"` : sql`date_trunc('milliseconds', max(closed_at)) desc, symbol collate "C"`;
+  const prefix = symbol ? sql`and symbol like ${likePrefix(symbol)}` : sql``;
+  const rows = (await sql`
     select symbol, count(*)::int as trades, count(distinct user_id)::int as traders, max(closed_at) as last_closed_at,
            count(*) filter (where verified)::int as verified_trades, count(*) over ()::int as matched,
            bool_or(symbol = ${symbol ?? ''}) as exact
-    from closed_trades ${where}
+    from closed_trades where filing_url is null and user_id in (${visibleUserIds()}) ${prefix}
     group by symbol
     order by bool_or(symbol = ${symbol ?? ''}) desc, ${order}
     limit ${cap}`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number; matched: number; exact: boolean }[];
@@ -275,22 +277,22 @@ async function tickerIndexIn(db: Db, q: unknown, sort: TickerSort, cap: number):
 // ponytail: per-request full scan — every uncached /t/SYMBOL render runs two window sorts over all other symbols' closed
 // trades (verified or Demo); fix: cache the result per (symbol, verified), or keep a per-symbol summary table of the
 // clustering sums and subtract this symbol's row
-export async function othersConfidence(symbol: string, verified: boolean, db: Db = defaultSql): Promise<{ n: number; winRate: number | null; conf: Confidence }> {
-  const { n, winRate, conf } = await sideConfidence(db, symbol, 'others', verified);
+export async function othersConfidence(symbol: string, verified: boolean, sql: Db = defaultSql): Promise<{ n: number; winRate: number | null; conf: Confidence }> {
+  const { n, winRate, conf } = await sideConfidence(sql, symbol, 'others', verified);
   return { n, winRate, conf };
 }
 
 // FIXES-LABELS (code review): one side of the baseline, clustered as confidence() does: 'others' = every other symbol,
 // 'this' = this symbol only (one bet = one trader's overlapping holds, as on the page). Live users only.
 type Side = { n: number; winRate: number | null; conf: Confidence; traders: number };
-async function sideConfidence(db: Db, symbol: string, side: 'others' | 'this', verified: boolean): Promise<Side> {
-  const where = side === 'this' ? db`t.symbol = ${symbol}` : db`t.symbol <> ${symbol}`;
-  const [r] = (await db`
+async function sideConfidence(sql: Db, symbol: string, side: 'others' | 'this', verified: boolean): Promise<Side> {
+  const where = side === 'this' ? sql`t.symbol = ${symbol}` : sql`t.symbol <> ${symbol}`;
+  const [r] = (await sql`
     with s as (
       select t.id, t.user_id, t.symbol, t.return_pct as rp, ln(greatest(1 + t.return_pct, 1e-9)) as x, greatest(t.holding_days, 1) as dd,
              date_trunc('milliseconds', t.opened_at) as o, date_trunc('milliseconds', t.closed_at) as c
-      from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-      where ${where} and t.verified = ${verified}),
+      from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
+      where ${where} and t.filing_url is null and t.verified = ${verified}),
     w as (
       select s.*, max(c) over (partition by user_id, symbol order by o, id rows between unbounded preceding and 1 preceding) as pa
       from s),
@@ -321,8 +323,8 @@ async function sideConfidence(db: Db, symbol: string, side: 'others' | 'this', v
 // rows only, so both sides are the same population (`self`; null = the page's own summary is that side). A failed
 // baseline read leaves the section out (`baseline: null`), never the page.
 export type TickerBaseline = { others: { n: number; winRate: number | null; conf: Confidence }; self: Side | null };
-export async function tickerPageWithBaseline(symbol: string, today: Date, cap = TICKER_ROWS_CAP, db: Db = defaultSql): Promise<TickerPage & { baseline: TickerBaseline | null }> {
-  return snapshot(db, async (tx) => {
+export async function tickerPageWithBaseline(symbol: string, today: Date, cap = TICKER_ROWS_CAP, sql: Db = defaultSql): Promise<TickerPage & { baseline: TickerBaseline | null }> {
+  return snapshot(sql, async (tx) => {
     const page = await tickerPageIn(tx, symbol, today, cap);
     const s = page.summary;
     const read = async (q: Db): Promise<TickerBaseline> => {

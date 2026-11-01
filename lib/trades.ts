@@ -344,6 +344,11 @@ export function rangeReturn(trades: { returnPct: number; closedAt: Date }[], key
 // ponytail: bets are clustered by symbol, so a position renamed by a corporate action (lib/corporate-actions.ts) whose
 // closes straddle the rename counts as two bets (at most one extra per rename: it can move the 5-bet floor and the
 // degrees of freedom) — fix: a chain key per closed trade (a closed_trades column set by the rebuild).
+// Closed trades only. Open positions exist since F-6 (lib/open-split.ts shows them beside every realized figure), but
+// the F-6 decision of 2026-11-01 keeps this range closed-only and says so in words. Including them at their unrealized
+// return and days held so far (DESIGN TR-9 inputs; design council D-48) is its own feature: open_positions stores no
+// opening date (it needs an additive opened_at, the earliest unmatched FIFO lot), and the change moves feed ranking
+// (lib/feed.ts weights). docs/features/F-6-open-positions.md → Open questions.
 
 export type ConfidenceInput = Pick<ClosedTrade, 'symbol' | 'openedAt' | 'closedAt' | 'returnPct' | 'holdingDays'>;
 export type Tier = 'too-early' | 'thin' | 'moderate' | 'strong';
@@ -368,7 +373,7 @@ export const tCrit95 = (df: number) => (df <= 30 ? T95[Math.max(df, 1) - 1] : 1.
 export type Cluster = { x: number; d: number; n: number };
 
 export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
-  void today; // reserved for open positions (TR-4)
+  void today; // reserved for open positions (TR-4, see above)
   const n = trades.length;
   const bySymbol = new Map<string, ConfidenceInput[]>();
   // F-2 PR-1 fix round 1 (load check): push, not copy (a copy per trade was quadratic in a symbol's trade count).
@@ -395,7 +400,7 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   return confidenceFromClusters(clusters, n, spanDays);
 }
 
-// The statistics on already-clustered bets. lib/ticker-sql.ts clusters in SQL and calls this with one row per bet, so
+// The statistics on already-clustered bets. app/t/ticker-sql.ts clusters in SQL and calls this with one row per bet, so
 // both paths share every formula below. n = trades, spanDays = (last exit - first entry) in days.
 export function confidenceFromClusters(clusters: Cluster[], n: number, spanDays: number): Confidence {
   const k = clusters.length;
@@ -410,7 +415,7 @@ export function confidenceFromClusters(clusters: Cluster[], n: number, spanDays:
 }
 
 // FIXES-LABELS (round 3, engineer): the one formula, on the clustering sums. k = bets, sumX/sumD = Σx/Σd over bets,
-// ssM = Σ(x − n·m)² with m = sumX / n, ssR = Σ(x − R·d)² with R = sumX / sumD. lib/ticker-sql.ts#othersConfidence
+// ssM = Σ(x − n·m)² with m = sumX / n, ssR = Σ(x − R·d)² with R = sumX / sumD. app/t/ticker-sql.ts#othersConfidence
 // computes these in SQL as one row, so a pool of many bets never ships one row per bet.
 export type BetSums = { n: number; k: number; spanDays: number; sumX: number; sumD: number; ssM: number; ssR: number };
 export function confidenceFromSums(s: BetSums): Confidence {

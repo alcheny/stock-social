@@ -32,6 +32,8 @@ export async function createSession(userId: number, now = new Date(), replacing:
   const token = randomBytes(32).toString('base64url');
   const expires = new Date(now.getTime() + SESSION_DAYS * 86_400_000);
   await sql.begin(async (tx) => {
+    // F-7 (legal C2): no session ever attaches to a public filer's row, whatever the sign-in path.
+    if ((await tx`select 1 from users where id = ${userId} and public_filer_id is not null`).length) throw new Error('public filer: no sign-in');
     if (replacing) await tx`delete from sessions where token_hash = ${hashToken(replacing)}`;
     await tx`insert into sessions (token_hash, user_id, created_at, expires_at, last_seen_at) values (${hashToken(token)}, ${userId}, ${now}, ${expires}, ${now})`;
   });

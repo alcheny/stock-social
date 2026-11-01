@@ -4,7 +4,7 @@
 // Pure, except the bounded per-trader memo the feed uses (feedStrips).
 import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { headline, pct, type ConfidenceInput, type Tier } from './trades.ts';
-import { imageLabel, RECORD_BODY, RECORD_STRIP, SHARE_CARD, shareCardText, WHOLE_RECORD, type RecordState } from './copy.ts';
+import { imageLabel, isPublicRecord, PUBLIC, RECORD_BODY, RECORD_STRIP, SHARE_CARD, shareCardText, WHOLE_RECORD, type RecordState } from './copy.ts';
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
 import { DISCLAIMER_SIZE } from './image-fit.ts'; // FIXES-LABELS (D-09, DS-19)
@@ -80,7 +80,7 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
   const t = shareCardText({ state: i.state, demo: i.demo, verified: i.verified, empty: i.evidence.n === 0 });
   const label = full && t.label ? { text: imageLabel(t.label)!, tone: (t.tone === 'warn' ? 'warn' : t.tone === 'ok' ? 'ok' : 'muted') as StripTone } : null;
   const importing = !i.demo && i.state === 'importing';
-  const note = full && !i.demo && i.state === 'failed' ? RECORD_BODY.failed : null;
+  const note = full && !i.demo && i.state === 'failed' ? RECORD_BODY.failed : surface === 'image' && isPublicRecord(i.state) ? PUBLIC.imageLine : null; // F-7: images carry the not-joined line
   const tooEarly = i.evidence.tier === 'too-early' || !i.evidence.perTrade;
   const figures: StripPart[] = [];
   const altParts: string[] = [];
@@ -202,10 +202,20 @@ export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolea
   }
   // FIXES-LABELS: status. Beside a failed import's two note lines the band may have no room for it: there (only) it is
   // optional, and the page keeps the full status line.
-  if (o.frozen) L.push({ role: 'frozen', text: o.frozen, size: Math.max(STRIP_BAND.minPx, fitPx(o.frozen, STRIP_BAND.minPx)), tone: 'muted', weight: 400, ...(s.note ? { optional: true } : {}) });
-  if (s.note) for (const [k, part] of noteLines(s.note).entries()) L.push({ role: `note${k}`, text: part, size: STRIP_BAND.minPx, tone: 'warn', weight: 400 });
+  // At the floor size "Disconnected ‹Mon D, YYYY› · record frozen" is wider than the band (cycle-2 #9's width rule): it
+  // then goes on two lines, split at its " · " (the second line role `frozen1`).
+  if (o.frozen) for (const [k, part] of frozenLines(o.frozen).entries()) L.push({ role: k ? `frozen${k}` : 'frozen', text: part, size: STRIP_BAND.minPx, tone: 'muted', weight: 400, ...(s.note ? { optional: true } : {}) });
+  // F-7: a public record's not-joined line is muted; a failed import's note is warn (FIXES-LABELS).
+  if (s.note) for (const [k, part] of noteLines(s.note).entries()) L.push({ role: `note${k}`, text: part, size: STRIP_BAND.minPx, tone: s.note === PUBLIC.imageLine ? 'muted' : 'warn', weight: 400 });
   L.push(...disclaimerImageLines(o.disclaimerPx ?? DISCLAIMER_BAND_PX)); // FIXES-LABELS (D-09): ≥ 28 px; callers step it
   return L;
+}
+
+// FIXES-LABELS: status. The frozen line whole when it fits the band at the floor size, else split at its last " · ".
+export function frozenLines(text: string): string[] {
+  if (fitPx(text, STRIP_BAND.minPx) >= STRIP_BAND.minPx) return [text];
+  const cut = text.lastIndexOf(' · ');
+  return cut < 0 ? [text] : [text.slice(0, cut), text.slice(cut + 3)];
 }
 
 // The failed-import line in at most two band-wide lines at the floor size, split at a word.

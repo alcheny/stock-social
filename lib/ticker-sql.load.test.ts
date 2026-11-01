@@ -1,4 +1,4 @@
-// Scale check for lib/ticker-sql.ts: one symbol with thousands of closed trades. The page data comes back with the
+// Scale check for app/t/ticker-sql.ts: one symbol with thousands of closed trades. The page data comes back with the
 // trade list capped, aggregates equal to the JS helpers over every row, and well inside a generous time bound.
 // Runs in `npm test` whenever DATABASE_URL is set (the fixture is small enough); its symbols and handles are its own.
 import { after, before, test } from 'node:test';
@@ -69,7 +69,7 @@ dbTest(`one symbol with ${FIX.traders * FIX.perTrader} trades: capped list, exac
   const { sql } = await import('./db.ts');
   const T = await import('./ticker.ts');
   const { pct, rangeText, evidenceLine } = await import('./trades.ts');
-  const { tickerPage, tickerHeadline, relatedSymbolsSql, tickerIndexPage } = await import('./ticker-sql.ts');
+  const { tickerPage, tickerHeadline, relatedSymbolsSql, tickerIndexPage } = await import('../app/t/ticker-sql.ts');
   await fixture();
   const n = FIX.traders * FIX.perTrader;
   const today = new Date();
@@ -87,7 +87,7 @@ dbTest(`one symbol with ${FIX.traders * FIX.perTrader} trades: capped list, exac
   const all = (await sql`
     select t.id, t.user_id, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
     from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-    where t.symbol = ${SYM} order by t.closed_at desc, t.id desc`) as unknown as (import('./ticker.ts').TradeRow & { id: number })[];
+    where t.symbol = ${SYM} and t.filing_url is null order by t.closed_at desc, t.id desc`) as unknown as (import('./ticker.ts').TradeRow & { id: number })[];
   const tr = all.map(T.toTicker);
   const ref = T.tickerSummary(tr, today);
   const shown = (s: import('./ticker.ts').TickerSummary) => [s.n, s.wins, s.traders, s.mixed, pct(s.avgReturn!), rangeText(s.conf!), evidenceLine(s.conf!), s.conf!.k];

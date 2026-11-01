@@ -76,7 +76,7 @@ test('confidenceFromSums is confidenceFromClusters on the same bets (one formula
 
 dbTest('othersConfidence equals JS clustering by (trader, stock) over the other stocks, verified or Demo, live users only', async () => {
   const { sql } = await import('./db.ts');
-  const { othersConfidence } = await import('./ticker-sql.ts');
+  const { othersConfidence } = await import('../app/t/ticker-sql.ts');
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
   const tag = `to${Math.random().toString(36).slice(2, 8)}`;
   const ids: number[] = [];
@@ -101,7 +101,7 @@ dbTest('othersConfidence equals JS clustering by (trader, stock) over the other 
       const ref = (await tx`
         select t.user_id, t.symbol, t.return_pct, t.holding_days, date_trunc('milliseconds', t.opened_at) as o, date_trunc('milliseconds', t.closed_at) as c
         from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-        where t.symbol <> ${X} and t.verified = ${verified}`) as unknown as { user_id: number; symbol: string; return_pct: number; holding_days: number; o: Date; c: Date }[];
+        where t.symbol <> ${X} and t.filing_url is null and t.verified = ${verified}`) as unknown as { user_id: number; symbol: string; return_pct: number; holding_days: number; o: Date; c: Date }[];
       const js = jsClusters(ref.map((r) => ({ key: `${r.user_id}:${r.symbol}`, openedAt: r.o, closedAt: r.c, returnPct: r.return_pct, holdingDays: r.holding_days })));
       const got = await othersConfidence(X, verified, tx as never);
       assert.equal(got.n, ref.length);

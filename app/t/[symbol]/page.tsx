@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
+import { visibleUser, visibleUserIds } from '@/lib/visible-users.ts';
 import { recordStates, type PublicState } from '@/lib/connections.ts';
 import { rowBadge } from '@/lib/pane.ts';
 import { decodeSymbolParam, isIndexableTicker, selectTheses, tickerDescription, trustKind } from '@/lib/ticker.ts';
-import { relatedSymbolsSql, tickerHeadline, tickerPageWithBaseline, type TickerBaseline, type TickerPage } from '@/lib/ticker-sql.ts';
+import { relatedSymbolsSql, tickerHeadline, tickerPageWithBaseline, type TickerBaseline, type TickerPage } from '../ticker-sql.ts';
 // FIXES-LABELS (D-03): the page names one state, Demo, and never calls Demo trades verified.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 // FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
@@ -32,7 +33,7 @@ const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: '
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
 const heldWords = (d: number) => (d < 1 ? 'less than a day' : `${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
 
-// The summary and charts are SQL aggregates over every trade (lib/ticker-sql.ts); only the CAP newest rows are read.
+// The summary and charts are SQL aggregates over every trade (app/t/ticker-sql.ts); only the CAP newest rows are read.
 async function load(raw: string): Promise<{ symbol: string | null; d: (TickerPage & { baseline: TickerBaseline | null }) | null; rows: TickerPage['rows'] }> {
   const symbol = decodeSymbolParam(raw);
   if (!symbol) return { symbol: null, d: null, rows: [] };
@@ -92,8 +93,8 @@ export default async function Ticker({ params, searchParams }: Params) {
   // Held text is never selected: status is filtered in SQL, and selectTheses re-checks it.
   const thesisRows = (await sql`
     select t.id, t.user_id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status
-    from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-    where t.symbol = ${symbol} and t.thesis_status = 'published' and t.thesis is not null
+    from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
+    where t.symbol = ${symbol} and t.filing_url is null and t.thesis_status = 'published' and t.thesis is not null
     order by t.closed_at desc, t.id desc
     limit 20`) as unknown as { id: number; user_id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null }[];
   // Fix round 5 (TR-3): one batched read of the record state of every trader named on the page (listed rows and
@@ -104,7 +105,7 @@ export default async function Ticker({ params, searchParams }: Params) {
   const badgeFor = (verified: boolean, handle: string) => rowBadge(verified, stateByHandle.get(handle));
   const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified })));
   // Cohort follows the ticker: verified rows if it has any, otherwise the Demo rows, this symbol excluded; on a mixed
-  // stock this stock's side is its verified rows too (lib/ticker-sql.ts#tickerPageWithBaseline, same snapshot).
+  // stock this stock's side is its verified rows too (app/t/ticker-sql.ts#tickerPageWithBaseline, same snapshot).
   const baseline = d.baseline;
   const open = (await symbolOpen(symbol)).get(symbol);
   // Last, after all page queries, so page content is unaffected.

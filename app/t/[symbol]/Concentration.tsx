@@ -5,7 +5,7 @@ import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
 
 // Counts only: no handles, no links, no ranking. Says how much of the record rests on one trader.
-// `c` is lib/ticker.ts#concentration() of every trade, computed in SQL by lib/ticker-sql.ts#tickerPage.
+// `c` is lib/ticker.ts#concentration() of every trade, computed in SQL by app/t/ticker-sql.ts#tickerPage.
 export default function Concentration({ c, symbol, demoOnly, mixed }: { c: ConcentrationData | null; symbol: string; demoOnly: boolean; mixed: boolean }) {
   if (!c) return null;
   const rest = c.kind === 'compare' ? c.rest : null;

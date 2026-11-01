@@ -42,7 +42,11 @@ export function groupByUser<T extends { userId: number }>(rows: T[]): Map<number
 // record never reaches the pane: the feed leaves it out until it is whole). A failed
 // import stays in the feed (incompleteness is never hidden) but is never presented as whole: no Verified badge, and
 // the profile's incomplete line beside the stats. Demo data keeps its Demo badge.
-export function paneTrust(trades: { verified: boolean }[], state: PublicState): { badge: 'verified' | 'demo' | null; incomplete: boolean } {
+// F-7: a record built from public filings always shows its own badge (Demo beside it on a fictional fixture), never
+// Verified, whatever the rows say (legal C9, C11).
+export type TrustBadge = 'verified' | 'demo' | 'public' | 'public_demo';
+export function paneTrust(trades: { verified: boolean }[], state: PublicState): { badge: TrustBadge | null; incomplete: boolean } {
+  if (state === 'public' || state === 'public_demo') return { badge: state, incomplete: false };
   const verified = trades.length > 0 && trades.every((t) => t.verified);
   if (state === 'failed') return { badge: verified ? null : 'demo', incomplete: true };
   return { badge: verified ? 'verified' : 'demo', incomplete: false };
@@ -56,6 +60,6 @@ export function cardTrust(t: { verified: boolean }, state: PublicState = 'connec
 
 // Fix round 5 (TR-3): a per-trade row elsewhere (stock page trade and thesis rows) gets its badge by the same rule: no
 // Verified badge beside a trader whose record state is failed; Demo kept for demo data.
-export function rowBadge(verified: boolean, state?: PublicState): 'verified' | 'demo' | null {
+export function rowBadge(verified: boolean, state?: PublicState): TrustBadge | null {
   return cardTrust({ verified }, state).badge;
 }

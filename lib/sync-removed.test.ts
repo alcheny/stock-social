@@ -122,6 +122,16 @@ dbTest('idle count: the same predicate as idleSince (last sync, else earliest li
     assert.ok(Object.values(body).every((v) => typeof v === 'number' || typeof v === 'boolean' || v === null), line);
     assert.deepEqual(Object.keys(body), ['ok', 'skipped', 'failed', 'unclaimed', 'stoppedAtDeadline', 'idle']); // counts only, no id
     assert.doesNotMatch(line, new RegExp(tag));
+    // Sharded sync (main #46): the route's tick is runShard + shard 0's coverage step; the idle count rides on coverage
+    // (the call's fleet-level, numbers-only report), over the same scope.
+    const { coverage } = await import('./sync-shard.ts');
+    const covLines: string[] = [];
+    const cov = await coverage(1, { ids }, undefined, (l) => covLines.push(l));
+    assert.equal(cov.idle, 2);
+    assert.equal((await coverage(1, { ids: [] }, undefined, (l) => covLines.push(l))).idle, 0);
+    const covLine = covLines.find((l) => l.startsWith('sync coverage '))!;
+    assert.equal(typeof JSON.parse(covLine.slice('sync coverage '.length)).idle, 'number');
+    assert.doesNotMatch(covLines.join('\n'), new RegExp(tag));
   } finally {
     console.log = log;
     await sql`delete from users where id in ${sql(ids)}`;
