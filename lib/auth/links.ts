@@ -34,6 +34,22 @@ export async function claimLink(token: string, now = new Date()): Promise<Claim>
   return { status: 'ok', email: String(row.email), attemptId: Number(row.attempt_id) };
 }
 
+// Security hardening (2026-11-01), F14: the link's status and attempt, without claiming it. Opening the link (a GET,
+// which mail scanners and link previews also send) only reads; the claim happens for the browser that asked for the
+// link, or after the confirm step's POST (app/auth/email).
+export type Peek = { status: 'ok'; attemptId: number; email: string } | { status: Exclude<LinkStatus, 'ok'> };
+export async function peekLink(token: string, now = new Date()): Promise<Peek> {
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(token)) return { status: 'missing' };
+  const [row] = await sql`select email, attempt_id, expires_at, used_at from login_links where token_hash = ${hashToken(token)}`;
+  const status = linkStatus(row as LinkRow | undefined, now);
+  return status === 'ok' ? { status, attemptId: Number(row.attempt_id), email: String(row.email) } : { status };
+}
+// The confirm step names the address the link was for, masked: enough for a lured visitor to see it is not theirs.
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  return at < 1 ? '•••' : `${email[0]}•••${email.slice(at)}`;
+}
+
 // Expired rows (claimed or not) go with their address: from the hourly tick and lazily before every send.
 export async function purgeExpiredLinks(now = new Date()): Promise<number> {
   const rows = await sql`delete from login_links where expires_at <= ${now} returning 1`;

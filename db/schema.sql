@@ -610,3 +610,31 @@ create table if not exists corporate_actions (
 select schema_add_index('corporate_actions_user', 'create index corporate_actions_user on corporate_actions (user_id, executed_at)');
 -- Sells the importer can't price exactly because of a corporate action, counted by the rebuild (shown on the profile).
 select schema_add_column('users', 'excluded_corporate', 'int not null default 0');
+
+-- Security hardening (2026-11-01)
+-- Shared fixed-window rate limits (lib/rate-limit.ts#hit): one row per key and window, counted by an upsert, so every
+-- server instance sees the same count. Keys are scope + HMAC, never an address or an IP. Old windows are pruned by
+-- hit() itself, never here.
+create table if not exists rate_limits (
+  key text not null,
+  window_start timestamptz not null,
+  n int not null,
+  primary key (key, window_start)
+);
+-- The ticker page, its card, compare, browse and the sitemap read closed_trades by symbol.
+select schema_add_index('closed_trades_symbol', 'create index closed_trades_symbol on closed_trades (symbol, closed_at desc)');
+-- Security hardening review (2026-11-01): the prune in lib/rate-limit.ts reads old windows by start time.
+select schema_add_index('rate_limits_window', 'create index rate_limits_window on rate_limits (window_start)');
+-- The last time per key (the import poll: one step per trader per second, lib/rate-limit.ts#intervalAllowed), shared by
+-- every instance. Keys are a scope and an id; marks older than a day are pruned by the same file, never here.
+create table if not exists rate_marks (
+  key text primary key,
+  at timestamptz not null
+);
+-- The vendor portal framing probe's answer per vendor origin (lib/portal-probe.ts), shared by every instance. Vendor
+-- origins only, no personal data; a row is overwritten when it is asked again after `until`.
+create table if not exists portal_probes (
+  origin text primary key,
+  mode text not null check (mode in ('embedded', 'redirect')),
+  until timestamptz not null
+);
