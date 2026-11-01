@@ -101,3 +101,24 @@ user and account with a cascade from `users` (engineer, already so).
 - The trailing window is `> t − 24 h` in the SQL and the tests alike.
 
 **Signed: business lead, engineer, reliability reviewer (round 3).**
+
+## After the build: tester and code review (taken)
+
+- Tester (six bugs, fixed with tests):
+  - the consent clause ignored the attempt mark, so a rolled-back first read was re-read every round;
+  - future positions marks stayed in the window;
+  - first-sync pages were not counted;
+  - the coverage window had no upper bound;
+  - `-infinity` arithmetic failed on PostgreSQL 16;
+  - two CI rules were broken by the first commit (privacy-log arguments; `delete from` in `lib/sync.ts`).
+
+  Read stamps now use `clock_timestamp()` after the vendor calls. The positions alarm moves to 18 h, against normal gaps
+  of 12–17 h.
+- Independent code review:
+  - activities are read one account per call and each read is marked as it returns, so a failure on a later account
+    still bounds the earlier ones;
+  - a combined read removes a vanished position only once its sell is imported, or after 3 days unlisted, so a vendor
+    whose holdings update before the sell posts does not hide the loss for a day (TR-4);
+  - coverage counts only accounts still read (a live, not-disconnected connection's snapshot);
+  - a `connected_at` ahead of the database clock is ignored;
+  - the retention text is corrected.
