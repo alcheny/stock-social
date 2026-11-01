@@ -85,3 +85,7 @@ F-21 (slot partner) is draft and not built: this cycle owns the pane, pane-chart
   one-day chart prints one end date ("First and last close ‹date›"); (4) the failed line has `role="status"` and its
   link does not wrap before the arrow. Business lead demand 2: `e2e/f23-display.spec.ts` checks the last key step and
   the right-edge release on the three seeded demo records, in UTC and Pacific/Auckland.
+
+## Round 4: user test re-check (360 px, UTC and Pacific/Auckland, HEAD 65ddada)
+- UX lead: compliance PASS, usability PASS. All four demands were verified on the demo records: same-instant order matches the list, a right-edge release opens the top row, a one-day chart has one end date, and the failed line has `role="status"` and does not wrap. The note dates (#95) show in the chart sheet. For later, not F-23: pane rows print "11/1/2026" where profile rows print "Nov 1".
+- Business lead: compliance PASS, usability PASS. Demands 1–3 are met. The probe's residual risk stays with the owner and the AI legal committee.
