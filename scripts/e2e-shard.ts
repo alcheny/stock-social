@@ -17,11 +17,11 @@ import { readFileSync } from 'node:fs';
 
 export type ListedTest = { file: string; titles: string[] };
 
-// Seconds per test, measured per file on CI (run of 2026-10-26, 2 workers). Rough is fine: they only balance.
-// Keyed as Playwright names files: relative to the test directory (e2e/), which is also what --test-list expects.
+// Seconds per test, measured per file on CI with one worker per shard (run of 2026-11-01). Rough is fine: they only
+// balance. Keyed as Playwright names files: relative to the test directory (e2e/), which is what --test-list expects.
 export const WEIGHTS: Record<string, number> = {
-  'app.spec.ts': 2, 'connect.spec.ts': 5.8, 'follow.spec.ts': 6.8, 'likes.spec.ts': 6.2,
-  'section.spec.ts': 6.7, 'signin.spec.ts': 0.75, 'similar.spec.ts': 13,
+  'app.spec.ts': 1.3, 'connect.spec.ts': 5.1, 'follow.spec.ts': 6.2, 'likes.spec.ts': 6.1, 'section.spec.ts': 6.6,
+  'share-card.spec.ts': 2.5, 'signin.spec.ts': 0.6, 'similar.spec.ts': 15.2,
 };
 export const DEFAULT_WEIGHT = 4; // a new spec file, until its weight is measured
 
