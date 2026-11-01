@@ -71,7 +71,7 @@ Traders never pay and never see a price.
 ## Testing
 All gates were run locally on the merged branch (latest main, after the orchestrator's review fixes):
 - `npx tsc --noEmit`: clean.
-- `npm test` (twice): 749 tests, 737 pass, 0 fail, 12 skipped (all pre-existing skips). New: `lib/billing.test.ts` (24) and
+- `npm test` (twice): 787 tests, 775 pass, 0 fail, 12 skipped (all pre-existing skips). New: `lib/billing.test.ts` (25) and
   `lib/record-tools.test.ts` (10). They cover:
   - every lifecycle event (created, trial ending, renewed, payment failed, past due with grace, canceled at period end,
     resumed, refunded partial and full, disputed and won);
@@ -85,7 +85,7 @@ All gates were run locally on the merged branch (latest main, after the orchestr
   `node_modules/@img/sharp-wasm32`, which this container's `npm ci` installs; no package file changed.
 - `node scripts/autopilot.ts guard origin/main`: ok.
 - `npm run build`: ok.
-- `npx playwright test` (the whole suite, server with the fake-processor env): 141 passed, 3 skipped (pre-existing).
+- `npx playwright test` (the whole suite, server with the fake-processor env): 143 passed, 3 skipped (pre-existing), 1 failed: `section.spec.ts:90` (F-2), which passes 3 of 3 alone and depends on shared feed state between workers; this PR touches neither the feed nor sections.
   `e2e/f3-billing.spec.ts`: 10 tests, all pass with the fake processor. Without billing env (as CI runs it): 7 pass,
   3 skip and say why.
 - The cycle:
@@ -149,6 +149,10 @@ Committee record: `docs/features/logs/F-3/committee-2026-11-01.md`.
   `LIVE_BILLING=on`), `STRIPE_WEBHOOK_SECRET` (comma-separated for rotation), `STRIPE_PRICE_MONTHLY`,
   `STRIPE_PRICE_ANNUAL`, `STRIPE_API_BASE` (tests only; refused with a live key), `LIVE_BILLING` (unset until
   `live-billing-checklist.md` is done) and `BILLING_CONTACT` (a role address).
+- Privacy rules from main (#31): the new tables are in `lib/privacy-retention.ts` (the consent record is `reserved`: 3
+  years under the processor customer id, legal defense of renewal consent); the "Sign in to subscribe" cookie is in
+  `lib/privacy-cookies.ts`; server logs go through `logSafe`; checkout sits behind the launch gate (closed: only an
+  allowlisted account may check out; the Subscribe screen says "Subscriptions are not open yet").
 - Orchestrator review fixes in this push:
   - the cancel line states both cases (within 14 days: ends at once with a full refund; after: at period end);
   - a subscriber on a price no longer configured keeps their plan (grandfathered), and their account deletion never
