@@ -62,7 +62,7 @@ export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.get
 // the card's header already names the trader; `report` is the Report control the feed passes for a signed-in reader).
 const thesisLine = (t: TradeRow, pub: boolean, report?: React.ReactNode) => pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p>
   : t.thesis_status === 'published' && t.thesis
-    ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} />
+    ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} report={report} byline={false} textClass="thesis" />
     : <p className="thesis"><span className="muted">No thesis posted.</span></p>;
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).

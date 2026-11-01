@@ -189,3 +189,13 @@ test('feed card: the note takes its own height in the card column (flex-basis au
   assert.match(block, /^\.user-note \{[^}]*flex-basis: 100%/m);
   assert.match(block, /^\.feed \.card \.user-note \{ flex-basis: auto; \}/m);
 });
+
+// Merge with FIXES-CYCLE2-A11Y (#71): the feed card's note text is also the card's `.thesis` (its layout checks and
+// slot rules address that class); other surfaces keep the plain quote.
+test('feed card: the note text carries the card thesis class; other surfaces do not', async () => {
+  const { renderToStaticMarkup } = await import('react-dom/server' as string) as { renderToStaticMarkup: (e: unknown) => string };
+  const { UserNote } = await import('./user-note.ts');
+  assert.match(renderToStaticMarkup(UserNote({ text: 'x', handle: 'h', textClass: 'thesis' })), /<blockquote class="user-note-text thesis">/);
+  assert.match(renderToStaticMarkup(UserNote({ text: 'x', handle: 'h' })), /<blockquote class="user-note-text">/);
+  assert.match(read('../app/ui.tsx'), /byline=\{false\} textClass="thesis" \/>/);
+});
