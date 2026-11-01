@@ -293,7 +293,7 @@ export const G2_COHORT_LINE = '14-day share rate per weekly cohort: not printed 
 export const G2_OUTCOME_LINE = 'sheet = the share sheet resolved, not that anything was posted; copy = the link copied; both as the trader\'s own browser reports them';
 // No date is printed: the first row's day would say that some trader shared on that day (orchestrator review).
 export const g2PreSliceLine = (_first?: string | null) =>
-  'Shares made before the share_action rows began are not counted (the old users columns are not read)';
+  'Shares made before the share_action rows began are not counted (the old users columns are not read).';
 
 export function g2Cells(traders: SharerRow[]): Record<G2Cell, number> {
   const c = Object.fromEntries(G2_CELLS.map((k) => [k, 0])) as Record<G2Cell, number>;
@@ -337,7 +337,9 @@ function g2Section(input: ReadoutInput, lastDay: string): string[] {
     const n = vis.reduce((s, k) => s + cells[k], 0);
     const rest = G2_GROUPS[group].filter((k) => !ks.includes(k));
     const restN = rest.reduce((s, k) => s + cells[k], 0);
-    if (vis.length < ks.length || (rest.some((k) => hidden.has(k)) && restN < SMALL)) return `≥ ${fmt(n)} of ${fmt(g1)}`;
+    // A lower bound carries its percent so it reads against the threshold (business lead BL-1); a bound of 0 says nothing
+    // and reads as "none", so it prints "(s)" (UX lead UX-1).
+    if (vis.length < ks.length || (rest.some((k) => hidden.has(k)) && restN < SMALL)) return n === 0 ? '(s)' : `≥ ${fmt(n)} of ${fmt(g1)} (≥ ${Math.floor((100 * n) / g1)}%)`;
     return g1 === 0 ? `0 of 0` : `${fmt(n)} of ${fmt(g1)} (${Math.round((100 * n) / g1)}%)`;
   };
   const first = g2?.firstDay != null ? isoDay(g2.firstDay) : null;

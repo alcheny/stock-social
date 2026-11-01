@@ -32,7 +32,7 @@ export async function loadTradeShare(handle: string, sellId: string) {
   // F-7: the sale's and opening purchase's filing links (C17: never a New record). ponytail: only the first matched purchase is linked (closed_trades keeps no lot list) — store the matched buys' filing ids at rebuild to link each.
   const bought = t.public_filer_id ? openingFilings(await sql<PubRow[]>`select * from public_transactions where filer_id = ${t.public_filer_id}`, t.symbol, t.opened_at) : [];
   const filings = t.filing_url ? { sold: t.filing_url as string, bought } : null;
-  return { ...payload, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, open: await openPercents(Number(t.user_id), state), excludingOptions } satisfies TradeView;
+  return { ...payload, sellId, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, open: await openPercents(Number(t.user_id), state), excludingOptions } satisfies TradeView;
 }
 
 // F-12 (F-6 on every surface): the trader's open positions as unrealized percents, for the strip's open count. Read only

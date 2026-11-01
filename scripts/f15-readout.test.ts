@@ -322,7 +322,7 @@ test('G2: strict row, threshold verbatim, partial rows and fixed lines', () => {
   assert.ok(g2.includes('| partial: shared the picture |  | 6 of 20 (30%) |'));
   assert.ok(g2.includes(G2_COHORT_LINE));
   assert.equal(G2_COHORT_LINE, '14-day share rate per weekly cohort: not printed (gate definition, MRC2-3, owner)');
-  assert.ok(g2.includes('Shares made before the share_action rows began are not counted (the old users columns are not read)'));
+  assert.ok(g2.includes('Shares made before the share_action rows began are not counted (the old users columns are not read).'));
   assert.ok(!g2.includes('2026-09-02')); // the first row's day is never printed
   assert.ok(g2.includes(G2_OUTCOME_LINE));
   assert.equal(G2_OUTCOME_LINE, 'sheet = the share sheet resolved, not that anything was posted; copy = the link copied; both as the trader\'s own browser reports them');
@@ -369,4 +369,25 @@ test('G2: no handle, id or return reaches the output from the trader rows', () =
   const traders = [...many(9, { card: true, sheet: true }), ...many(6, {})].map((t) => ({ ...t, ...leaky }) as SharerRow);
   const md = buildReadout(g2Input(traders), NOW);
   for (const bad of ['zed_trader', '987654', '12.34', '@']) assert.ok(!md.includes(bad), bad);
+});
+
+test('G2 lower bounds read against the threshold: "≥ n of G1 (≥ p%)", never "≥ 0 of …" (business lead BL-1, UX lead UX-1)', () => {
+  let seed = 4242;
+  const rnd = () => ((seed = (seed * 48271) % 2147483647) / 2147483647);
+  let bounds = 0;
+  for (let i = 0; i < 80; i++) {
+    const traders = Array.from({ length: 5 + Math.floor(rnd() * 10) }, () => {
+      const card = rnd() < 0.5, story = rnd() < 0.3, record = rnd() < 0.3;
+      const any = card || story || record;
+      return T({ card, story, record, sheet: any && rnd() < 0.5, copy: any && rnd() < 0.7, down: any && rnd() < 0.3 });
+    });
+    const g2 = buildReadout(g2Input(traders), NOW).split('## G2')[1].split('## G3')[0];
+    assert.doesNotMatch(g2, /≥ 0 of/);
+    for (const m of g2.matchAll(/≥ (\d+) of (\d+)( \(≥ (\d+)%\))?/g)) {
+      bounds++;
+      assert.ok(m[3], `a bound without its percent: ${m[0]}`);
+      assert.equal(Number(m[4]), Math.floor((100 * Number(m[1])) / Number(m[2])));
+    }
+  }
+  assert.ok(bounds > 0, 'the fixtures produce lower bounds');
 });

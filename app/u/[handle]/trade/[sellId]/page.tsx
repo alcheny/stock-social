@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const url = `/u/${t.handle}/trade/${encodeURIComponent(sellId)}/opengraph-image`;
   return {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
-    alternates: { canonical: tradePath(t.handle, decodeSellId(sellId)!) }, // F-15 second half: the share link's spelling, untagged
+    alternates: { canonical: tradePath(t.handle, t.sellId!) }, // F-15 second half: the stored id's spelling, untagged
     description: tradeDescription(t, strip),
     openGraph: { images: [{ url, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
     ...(isPublicRecord(t.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
@@ -51,8 +51,11 @@ export default async function TradePage({ params }: Params) {
   const t = await load(params);
   if (!t) notFound();
   const me = await currentUser();
-  // F-15 second half: the matched sell id's one spelling (lib/share.ts#tradePath), the same as the canonical link.
-  const path = tradePath(t.handle, decodeSellId((await params).sellId)!);
+  // F-15 second half: the stored sell id's one spelling (lib/share.ts#tradePath), the same as the canonical link.
+  // ponytail: this framework hands generateMetadata and the page the segment in different decoded forms, so a sell id
+  // holding '%' (or a double-encoded address) can load in one and not the other (a 200 page with the site title and no
+  // canonical, or a 404 with the trade's title) — fix: one decode rule for both in lib/trade-share-load.ts#decodeSellId.
+  const path = tradePath(t.handle, t.sellId!);
   const closed = new Date(t.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   const whole = wholeRecordView({ state: t.state, demo: t.demo });
   const strip = recordStrip(tradeStripInput(t), 'page');

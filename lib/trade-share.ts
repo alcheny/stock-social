@@ -33,6 +33,7 @@ export type TradeView = ReturnType<typeof tradeSharePayload> & {
   open?: number[]; // unrealized percents, read for a connected or failed record only
   excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
   filings?: { sold: string; bought: string[] } | null; // F-7: a public record's filing links
+  sellId?: string; // F-15 second half: the stored sell id the row matched (the page's one spelling, lib/share.ts#tradePath)
 };
 
 export const tradeStripInput = (t: TradeView): StripInput => ({

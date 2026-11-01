@@ -33,7 +33,11 @@ dbTest('F-15 share_action: one row per completed own share (surface, outcome, si
   assert.equal(await writeShareAction(me, `/u/${u.handle}`, 'copied', false), true);
   assert.equal(await writeShareAction(me, `/u/${u.handle}?via=card`, 'shared', true), true);
   assert.equal(await writeShareAction(me, `/u/${u.handle}/trade/${u.handle}-0`, 'shared', false), true);
-  assert.equal(await writeShareAction(me, `/u/${u.handle}/month/2026-10`, 'copied', false), true);
+  const ym = new Date(Date.now() - 86_400_000).toISOString().slice(0, 7); // the fixture's closes are a day old
+  assert.equal(await writeShareAction(me, `/u/${u.handle}/month/${ym}`, 'copied', false), true);
+  // An address that is not a page (QA note 3): no such trade, no close in that month.
+  assert.equal(await writeShareAction(me, `/u/${u.handle}/trade/no-such-trade`, 'copied', false), false);
+  assert.equal(await writeShareAction(me, `/u/${u.handle}/month/1999-01`, 'copied', false), false);
   const r = await rows(u.id);
   assert.deepEqual(r.map((x) => [x.surface, x.outcome, x.record_sign]), [['card', 'copy', 'up'], ['month', 'copy', 'up'], ['story', 'sheet', 'up'], ['trade', 'sheet', 'up']]);
   const utc = new Date().toISOString().slice(0, 10);

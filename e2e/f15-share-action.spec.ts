@@ -95,3 +95,17 @@ test('a failing write never touches the share: one tap, "Link copied" announced,
   expect(errors).toEqual([]);
   expect(await rows(t.id)).toEqual([]);
 });
+
+test('owner: the "Your record is live" prompt\'s Share writes one card row; the prompt\'s old column still records the copy', async ({ page }) => {
+  const t = await trader(page);
+  await sql`update users set snaptrade_user_id = ${'f15-' + t.handle}, last_synced_at = now(), share_prompt_seen_at = null, share_prompt_action = null where id = ${t.id}`;
+  await page.reload();
+  const prompt = page.getByRole('region', { name: 'Your record is live.' });
+  await expect(prompt).toBeVisible();
+  await prompt.getByRole('button', { name: 'Share my record' }).click();
+  await expect(prompt.getByRole('button', { name: 'Link copied' })).toBeVisible();
+  await expect(page.locator('[aria-live="polite"]', { hasText: 'Link copied' })).toHaveCount(1);
+  await expect.poll(() => rows(t.id)).toEqual(['card/copy']);
+  await expect.poll(async () => (await sql`select share_prompt_action a from users where id = ${t.id}`)[0].a).toBe('copied');
+  await sql`update users set snaptrade_user_id = null where id = ${t.id}`;
+});

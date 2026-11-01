@@ -27,13 +27,25 @@ export const SHARE_ACTION_LOCK = 15;
 // query (?via=…) and fragment; no trailing slash, no dot segments. The handle rule is the one handles are made with
 // (lib/follows.ts HANDLE, signup and the handle form): keep the two in step.
 const RECORD_PATH = /^\/u\/([a-z0-9_]{3,20})(?:\/(trade)\/[^/]+|\/(month)\/\d{4}-(?:0[1-9]|1[0-2]))?$/;
-export function shareTarget(path: unknown, picture: unknown): { handle: string; surface: ShareSurface } | null {
+export type ShareTarget = { handle: string; surface: ShareSurface; detail: string | null };
+export function shareTarget(path: unknown, picture: unknown): ShareTarget | null {
   if (typeof path !== 'string' || path.length > 300) return null;
-  const m = RECORD_PATH.exec(path.split(/[?#]/)[0]);
+  const p = path.split(/[?#]/)[0];
+  const m = RECORD_PATH.exec(p);
   if (!m || /(^|\/)\.\.?(\/|$)/.test(path)) return null;
   const kind = m[2] ?? m[3];
-  if (kind) return picture === true ? null : { handle: m[1], surface: kind as 'trade' | 'month' };
-  return { handle: m[1], surface: picture === true ? 'story' : 'card' };
+  if (!kind) return { handle: m[1], surface: picture === true ? 'story' : 'card', detail: null };
+  if (picture === true) return null;
+  let detail: string;
+  try { detail = decodeURIComponent(p.slice(p.indexOf(`/${kind}/`) + kind.length + 2)); } catch { return null; }
+  return detail.includes('\0') ? null : { handle: m[1], surface: kind as 'trade' | 'month', detail };
+}
+async function pageExists(userId: number, surface: ShareSurface, detail: string): Promise<boolean> {
+  const [r] = surface === 'trade'
+    ? await sql`select exists (select 1 from closed_trades where user_id = ${userId} and sell_id = ${detail}) e`
+    : await sql`select exists (select 1 from closed_trades where user_id = ${userId}
+        and closed_at >= ${detail + '-01'}::timestamp at time zone 'UTC' and closed_at < (${detail + '-01'}::timestamp + interval '1 month') at time zone 'UTC') e`;
+  return r.e as boolean;
 }
 export const shareOutcome = (how: unknown): ShareOutcome | null => (how === 'shared' ? 'sheet' : how === 'copied' ? 'copy' : null);
 
@@ -65,6 +77,8 @@ export async function writeShareAction(viewer: ShareViewer, path: unknown, how: 
   const [{ n }] = await sql<{ n: number }[]>`select count(*)::int n from share_action where user_id = ${viewer.id} and day = (now() at time zone 'utc')::date`;
   if (n >= SHARE_CAP_PER_DAY) return false;
   if (await isDemoUser(viewer.id)) return false;
+  // A trade or month address must be a page that exists (QA note 3): the trader's own closed trade, or a close in that month.
+  if (target.detail !== null && !(await pageExists(viewer.id, target.surface, target.detail))) return false;
   const sign = await recordSign(viewer.id);
   const rows = await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(${SHARE_ACTION_LOCK}, ${viewer.id})`; // count then insert, one caller per trader

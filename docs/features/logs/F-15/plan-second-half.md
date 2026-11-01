@@ -218,3 +218,16 @@ Every demand is accepted; where the two differ, the choice is stated.
   first-share query is gone; a scheme-less `NEXT_PUBLIC_SITE_URL` gets `https://` and the layout's `metadataBase` can't
   throw; a cheap capped count runs first; the readout and a `ponytail:` say completion is the trader's own browser's
   report. Kept: the trade page re-decodes the matched param (it equals the stored sell id the row matched on).
+
+## QA and user test (2026-11-01) and fixes (`qa-second-half.md`, `user-test-second-half.md`)
+- Bug C1: the trade page's canonical and Share link now come from the stored sell id the loaded row carries
+  (`TradeView.sellId`), not from re-decoding the segment. The framework hands metadata and the page the segment in
+  different decoded forms, so a sell id holding '%' still loads in one and not the other: that older loader rule is
+  marked `ponytail:` on the page (fix: one decode rule in `lib/trade-share-load.ts#decodeSellId`).
+- Note 3: a trade or month address must be an existing page of the owner before a row is written.
+- Note 4: an e2e now walks the "Your record is live" prompt's Share.
+- B1 case 2 (feed scroll restored after going back from a profile) is dropped: the user test found the feed resets on
+  that navigation on main too (it unmounts with or without the template), so the case would test old behaviour, not
+  this change; the existing e2e keeps scroll and the open pane across the beacon.
+- Readout: a lower bound prints its percent ("≥ 6 of 8 (≥ 75%)"); a bound of 0 prints "(s)"; the pre-slice line ends
+  with a period (BL-1, UX-1, UX-2; property test over 80 random sets).

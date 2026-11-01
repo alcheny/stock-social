@@ -11,11 +11,13 @@ import { siteOrigin } from './site.ts';
 import { siteOrigin as billingSiteOrigin } from './billing.ts';
 
 test('F-15 share_action: the surface comes from the path shape and the picture flag; story only for a profile picture', () => {
-  assert.deepEqual(shareTarget('/u/maya', false), { handle: 'maya', surface: 'card' });
-  assert.deepEqual(shareTarget('/u/maya', true), { handle: 'maya', surface: 'story' });
-  assert.deepEqual(shareTarget('/u/maya?via=card', false), { handle: 'maya', surface: 'card' });
-  assert.deepEqual(shareTarget('/u/maya/trade/abc%2F1', false), { handle: 'maya', surface: 'trade' });
-  assert.deepEqual(shareTarget('/u/maya/month/2026-10#x', false), { handle: 'maya', surface: 'month' });
+  assert.deepEqual(shareTarget('/u/maya', false), { handle: 'maya', surface: 'card', detail: null });
+  assert.deepEqual(shareTarget('/u/maya', true), { handle: 'maya', surface: 'story', detail: null });
+  assert.deepEqual(shareTarget('/u/maya?via=card', false), { handle: 'maya', surface: 'card', detail: null });
+  assert.deepEqual(shareTarget('/u/maya/trade/abc%2F1', false), { handle: 'maya', surface: 'trade', detail: 'abc/1' });
+  assert.deepEqual(shareTarget('/u/maya/month/2026-10#x', false), { handle: 'maya', surface: 'month', detail: '2026-10' });
+  assert.equal(shareTarget('/u/maya/trade/a%00b', false), null);
+  assert.equal(shareTarget('/u/maya/trade/%E0%A4%A', false), null); // a bad escape
   assert.equal(shareTarget('/u/maya/trade/abc', true), null); // a picture share off the profile writes nothing
   assert.equal(shareTarget('/u/maya/month/2026-10', true), null);
   for (const p of ['/u/Maya', '/u/%6Daya', '/u/maya/', '/u/a/../b', '/u/maya/../dan', '/u/maya/month/2026-13', '/u/maya/month/x',
@@ -38,7 +40,7 @@ test('F-15 tradePath: one spelling from the stored sell id, used by the share li
   assert.equal(tradePath('maya', 'abc'), '/u/maya/trade/abc');
   assert.equal(tradePath('maya', 'a/b c'), '/u/maya/trade/a%2Fb%20c');
   const page = readFileSync(new URL('../app/u/[handle]/trade/[sellId]/page.tsx', import.meta.url), 'utf8');
-  assert.equal((page.match(/tradePath\(t\.handle, decodeSellId\(/g) ?? []).length, 2); // canonical and share link
+  assert.equal((page.match(/tradePath\(t\.handle, t\.sellId!\)/g) ?? []).length, 2); // canonical and share link, from the stored id
   assert.doesNotMatch(page, /const path = `\/u\/\$\{t\.handle\}\/trade\//);
 });
 
