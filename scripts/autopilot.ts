@@ -343,6 +343,19 @@ export const failed = (r: RollupItem) =>
   (r.name === 'check' || r.context === 'ai-review') &&
   ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED'].includes((r.conclusion || r.state || '').toUpperCase());
 
+// `gh run view --log-failed` prints every failed job's lines, each starting "<job>\t<step>\t". CI fails several jobs
+// at once (e2e shards, then the `check` aggregate), so keep the last `n` lines of each job, not of the whole log:
+// otherwise the last job's tail would push the earlier shards' failure summaries out of the fix task.
+export function tailPerJob(log: string, n: number): string {
+  const jobs = new Map<string, string[]>();
+  for (const line of log.split('\n')) {
+    const job = line.includes('\t') ? line.slice(0, line.indexOf('\t')) : '';
+    if (!jobs.has(job)) jobs.set(job, []);
+    jobs.get(job)!.push(line);
+  }
+  return [...jobs.values()].flatMap((lines) => lines.slice(-n)).join('\n');
+}
+
 // Read checks from the commit, not the PR's statusCheckRollup: GitHub leaves runs started by
 // workflow_dispatch (which is how the loop runs CI) out of the PR rollup.
 export function ownChecks(sha: string): RollupItem[] {
@@ -553,7 +566,7 @@ function prepare() {
     const logs = ownChecks(pr.headRefOid).filter(failed).map((r) => {
       const run = r.detailsUrl?.match(/actions\/runs\/(\d+)/)?.[1];
       let log = '';
-      try { log = run ? gh('run', 'view', run, '--log-failed').split('\n').slice(-250).join('\n') : ''; } catch { /* log may be gone */ }
+      try { log = run ? tailPerJob(gh('run', 'view', run, '--log-failed'), 250) : ''; } catch { /* log may be gone */ }
       return `### Failing: ${r.name ?? r.context}\n\n\`\`\`\n${log || '(no log available)'}\n\`\`\``;
     });
     const review = pr.comments.filter((c) => c.body.includes(REVIEW)).at(-1)?.body ?? '';
