@@ -1,7 +1,6 @@
 # F-17 · Handle and name integrity: reserved handles, rename hold, display-name rules
 
-Status: blocked
-Blocked: waits for F-9 to merge (PR #65, `claude/fix-user-text-safety`) with F-9's acceptance criteria met on main (its normaliser and `checkDisplayName` in `lib/handles.ts`)
+Status: built
 Start conditions: F-9 merges first (its normaliser in `lib/moderation.ts` is reused). Security hardening (#42, which
 edits `lib/auth/attempts.ts` and `app/auth/actions.ts`) has merged (ea7cd52).
 
@@ -73,35 +72,35 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 - 2026-11-01: Brand words stay substring rules; only "Verified" and "Official" match on word boundaries. Why: decided by the committee under the owner's instruction of 2026-11-01; a name that embeds the product's name still impersonates it (engineer E7).
 
 ## Acceptance criteria
-- [ ] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and
+- [x] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and
       a test find no third-party or person name in it, its tests or fixtures (veto condition: DK, LG, CS).
-- [ ] Sign-up and rename refuse every reserved handle and a look-alike of a reserved, demo, connected or F-7 handle
+- [x] Sign-up and rename refuse every reserved handle and a look-alike of a reserved, demo, connected or F-7 handle
       (unit test per class).
-- [ ] A db test renames one user 50 times in a loop: the second rename within 30 days is refused, and at most one hold
+- [x] A db test renames one user 50 times in a loop: the second rename within 30 days is refused, and at most one hold
       row exists for that user.
-- [ ] A new rename releases the older hold, and the holder can rename back to its held handle (db test).
-- [ ] A hold row stores only the handle string and a release date, at most one year out. `deleteProfile` leaves no
+- [x] A new rename releases the older hold, and the holder can rename back to its held handle (db test).
+- [x] A hold row stores only the handle string and a release date, at most one year out. `deleteProfile` leaves no
       orphan hold linked to the person, and a hold never blocks deletion (db test) (veto condition: DK, LG).
-- [ ] The old path returns 404 with a neutral "This handle is no longer in use" page, its own title, no profile content
+- [x] The old path returns 404 with a neutral "This handle is no longer in use" page, its own title, no profile content
       and no link to the new handle (e2e).
-- [ ] Display names: NFKC applied, direction controls stripped, check and seal glyphs refused, whole words "Verified"
+- [x] Display names: NFKC applied, direction controls stripped, check and seal glyphs refused, whole words "Verified"
       and "Official" refused (unit tests, including a bidi name) (veto condition: LG).
-- [ ] A name that contains "official" only inside a longer word is accepted (unit test).
-- [ ] The display-name check calls F-9's normaliser; a test fails on a second confusables map (veto condition: DK).
-- [ ] Each rejection names its rule beside the field, with `aria-describedby` and `aria-invalid`, and is announced on
+- [x] A name that contains "official" only inside a longer word is accepted (unit test).
+- [x] The display-name check calls F-9's normaliser; a test fails on a second confusables map (veto condition: DK).
+- [x] Each rejection names its rule beside the field, with `aria-describedby` and `aria-invalid`, and is announced on
       submit. An e2e checks one reserved-handle and one bidi rejection on sign-up and on rename.
-- [ ] Rejection logs hold no handle attempt tied to a person, no email and no display name (log scanner test) (veto
+- [x] Rejection logs hold no handle attempt tied to a person, no email and no display name (log scanner test) (veto
       condition: LG).
-- [ ] While the launch gate is closed, a rename onto a listed handle is refused (test).
-- [ ] The PR answers COMPLIANCE §1 Q2 (fields, location, visibility, deletion).
-- [ ] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
+- [x] While the launch gate is closed, a rename onto a listed handle is refused (test).
+- [x] The PR answers COMPLIANCE §1 Q2 (fields, location, visibility, deletion).
+- [x] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
-- [ ] A test fails if any of sign-up, rename, display name, search or reports normalises text without importing the
+- [x] A test fails if any of sign-up, rename, display name, search or reports normalises text without importing the
       one normaliser.
-- [ ] The confusables set (mixed script, zero-width, bidi override, full-width, case fold) is refused or folded as the
+- [x] The confusables set (mixed script, zero-width, bidi override, full-width, case fold) is refused or folded as the
       decisions above require (unit tests).
-- [ ] After a rename, the old handle's share image, card and og:image URLs no longer serve the trader's content (test).
-- [ ] A rejected handle or name shows its rule in visible text tied to the field, announced with `role=alert`, focus on
+- [x] After a rename, the old handle's share image, card and og:image URLs no longer serve the trader's content (test).
+- [x] A rejected handle or name shows its rule in visible text tied to the field, announced with `role=alert`, focus on
       the field (e2e at 360 px).
 
 ## Out of scope
@@ -111,5 +110,8 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 
 ## Open questions
 - None from the council.
+
+## Build log
+- 2026-11-01: F-16 and F-17 built as one slot on `claude/f16-f17-trust-safety` (committee record `docs/features/logs/F-16-F-17/committee-2026-11-01.md`, plan `plan.md` v3); Status set to built in its PR. Every acceptance criterion is met. Owner items: confirm Q1 (the integrated vendor's word kept in the reserved list under POLICY T1).
 
 ## Rework notes

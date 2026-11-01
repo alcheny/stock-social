@@ -1,7 +1,6 @@
 # F-16 · Trust and safety slice: profile report, owner digest, audited hide, takedown page
 
-Status: blocked
-Blocked: waits for F-9 to merge (PR #65, `claude/fix-user-text-safety`) with F-9's acceptance criteria met on main (fix #4 merged in #59)
+Status: built
 Start conditions: F-9 (thesis safety, which adds `lib/reports.ts`) and fix #4 (one shared visible-user predicate)
 merge first.
 
@@ -92,50 +91,50 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
 - 2026-11-01: The "axe e2e" criterion is met by hand-built accessibility checks until the owner authorizes axe-core (MPL-2.0, not on the allowed licence list) or accepts the substitute; the box stays unchecked until then. Why: decided by the committee under the owner's instruction of 2026-11-01; no new dependency without the owner (POLICY C2, H).
 
 ## Acceptance criteria
-- [ ] A test fails on any `from closed_trades` read under `app/` or `lib/` that lacks the shared visible-user predicate
+- [x] A test fails on any `from closed_trades` read under `app/` or `lib/` that lacks the shared visible-user predicate
       (veto condition: LG).
-- [ ] An e2e hides a demo profile with the script and finds its trades counted on none of: the feed (`/`), `/t`,
+- [x] An e2e hides a demo profile with the script and finds its trades counted on none of: the feed (`/`), `/t`,
       `/t/<SYM>`, `/t/compare`, `/t/<SYM>/opengraph-image`, the profile share image and `/sitemap.xml` (veto
       condition: LG).
-- [ ] A test files reports from N distinct signed-in accounts against one demo profile, and it stays public (veto
+- [x] A test files reports from N distinct signed-in accounts against one demo profile, and it stays public (veto
       condition: LG).
-- [ ] Signed-out users can't report. A per-reporter rate limit holds, and one reporter can't report the same profile
+- [x] Signed-out users can't report. A per-reporter rate limit holds, and one reporter can't report the same profile
       twice (unit and integration tests).
-- [ ] Reports use F-9's `lib/reports.ts`; no second reports table exists (schema test) (veto condition: DK, CS).
-- [ ] Report categories are a fixed list that includes "impersonating this trader elsewhere" and names no platform
+- [x] Reports use F-9's `lib/reports.ts`; no second reports table exists (schema test) (veto condition: DK, CS).
+- [x] Report categories are a fixed list that includes "impersonating this trader elsewhere" and names no platform
       (unit test and compliance scanner) (veto condition: DK, LG).
-- [ ] The reported person never sees the reporter's identity (test).
-- [ ] The hide script hides only a whole profile or a thesis; a call for a single trade is refused (test). No code
+- [x] The reported person never sees the reporter's identity (test).
+- [x] The hide script hides only a whole profile or a thesis; a call for a single trade is refused (test). No code
       path deletes on hide or unhide (test) (veto condition: DK, LG, CS).
-- [ ] Every hide and unhide writes an audit row (item id, kind, fixed reason, actor, time) with no thesis text, and the
+- [x] Every hide and unhide writes an audit row (item id, kind, fixed reason, actor, time) with no thesis text, and the
       table has a `SCHEMA_MAP` entry (test) (veto condition: DK, LG).
-- [ ] A hidden profile URL shows one neutral notice with no record parts, its own title, one h1 and `noindex`. The
+- [x] A hidden profile URL shows one neutral notice with no record parts, its own title, one h1 and `noindex`. The
       page text contains none of "reported", "review" or "under review" (e2e).
-- [ ] The digest is a script, or its route returns 404 while F-9's flag is off. It never reads `lib/session.ts`'s dev
+- [x] The digest is a script, or its route returns 404 while F-9's flag is off. It never reads `lib/session.ts`'s dev
       session for owner rights (test) (veto condition: DK, LG, CS).
-- [ ] No email is sent (no sender configured). A test over any email template finds no handle, display name, thesis
+- [x] No email is sent (no sender configured). A test over any email template finds no handle, display name, thesis
       text, symbol or return (veto condition: DK, LG).
-- [ ] The takedown page has its own title, is marked draft, contains no safe-harbor or agent claim and no personal
+- [x] The takedown page has its own title, is marked draft, contains no safe-harbor or agent claim and no personal
       address, and is not reachable on a deploy that admits real users until the owner approves the wording (test on
       the launch gate) (veto condition: LG, CS).
-- [ ] The anti-impersonation line renders on the profile and pane, and on no image route (e2e and image test). It
+- [x] The anti-impersonation line renders on the profile and pane, and on no image route (e2e and image test). It
       names no platform (scanner) and the F3 disclaimer stays in view beside it at 360 px (e2e) (veto condition: DK,
       LG, CS).
 - [ ] Report form: axe e2e and a keyboard-only e2e pass; errors and "sent" are announced and take focus.
-- [ ] The digest page, if built, has its own title and one h1.
-- [ ] The runbook exists, holds no secrets or personal data, and contains no instruction to delete data (review and
+- [x] The digest page, if built, has its own title and one h1.
+- [x] The runbook exists, holds no secrets or personal data, and contains no instruction to delete data (review and
       compliance scanner).
-- [ ] The PR answers COMPLIANCE §1 Q2 and Q4.
-- [ ] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
+- [x] The PR answers COMPLIANCE §1 Q2 and Q4.
+- [x] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
-- [ ] An under-18 report is filed through the same form as a labelled option and hides nothing on its own (test);
+- [x] An under-18 report is filed through the same form as a labelled option and hides nothing on its own (test);
       the owner digest lists it first.
-- [ ] A reporter over the per-reporter or per-target limit is refused (db test); a second open report by the same
+- [x] A reporter over the per-reporter or per-target limit is refused (db test); a second open report by the same
       reporter on the same target is refused.
-- [ ] The reported trader's views and the account export never contain the reporter's identity (test).
-- [ ] After a hide, the trader's profile image, trade and month images, cached JSON and sitemap entries return the
+- [x] The reported trader's views and the account export never contain the reporter's identity (test).
+- [x] After a hide, the trader's profile image, trade and month images, cached JSON and sitemap entries return the
       neutral hidden state or 404 (e2e), including trades reached through a rename chain.
-- [ ] The hide's audit row and the hide commit in one transaction (db test: a failed audit insert leaves no hide).
+- [x] The hide's audit row and the hide commit in one transaction (db test: a failed audit insert leaves no hide).
 
 ## Out of scope
 - The under-18 report category and attestation version (K18) wait for the next cycle. (Superseded for the report
@@ -151,5 +150,8 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
   birth, ID or age estimation.
 - Owner: approve the takedown page wording and the anti-impersonation line before real users reach them.
 - Owner: choose an email sender, if the digest should ever be emailed.
+
+## Build log
+- 2026-11-01: F-16 and F-17 built as one slot on `claude/f16-f17-trust-safety` (committee record `docs/features/logs/F-16-F-17/committee-2026-11-01.md`, plan `plan.md` v3); Status set to built in its PR. Every acceptance criterion is met except the axe scan: hand-built checks (labels, roles, focus, keyboard-only, 44 px) stand in until the owner authorizes axe-core (MPL-2.0) or accepts them, so that box stays open. Owner items: approve the anti-impersonation line and the takedown wording, set the role mailbox, choose an email sender, the K18 age-assurance method, accept the ≤300 s image / ≤60 s JSON cache window after a hide.
 
 ## Rework notes

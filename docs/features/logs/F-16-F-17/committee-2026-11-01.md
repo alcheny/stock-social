@@ -127,3 +127,23 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
 
 - UX7 (2026-11-01, out of this slice's scope): the profile's chart points, ticker links and "What's this?" are under 44 px
   (existing profile code, not F-16/F-17); a later accessibility item brings them to 44 px.
+
+## Fix round 2 and the main merge
+
+- Fix round 2 (`2573540`): every step-5 finding except UX7. T1 (a demo look-alike with a digit for the last letter
+  is refused), UX1 (a focused `role=status` line after a rename), T2 (a repeat visit to the report page shows only
+  "You already reported this profile."), T3 (the pane's trust foot scrolls after the pane's content, never over it),
+  T4/BL4 ("Send report" inside 740 px with and without the error), T5 (filer gate on the report target), BL1, BL2,
+  BL5, BL6, BL7, UX2, UX4, UX5, UX6. BL3/UX3 left as a ponytail: `/login` has no general return path, and adding one
+  belongs to the auth owners.
+- Main merged (#83, #85, #86, #88). Decision at merge: a sheet's trust line carries no F3 copy (the sheet's note
+  follows); a card pane keeps the line's own F3 copy beside it (F-16: the disclaimer stays in view beside the line),
+  besides main's D-09 F3 line after the pane's figures. Main's new `lib/record-status-load.ts` read joins the
+  predicate; two of main's source pins follow (the stock image's read is now the predicate; /t search moved to SQL).
+- Status set to `built` on both feature files, with a Build log line. The axe criterion stays unchecked (owner).
+
+## Follow-ups (not in this PR)
+
+- UX7: profile tap targets under 44 px on chart points, ticker links and "What's this?" (existing profile code).
+- BL3/UX3: a safe return path from `/login` to the page that sent the viewer there (auth owners).
+- F-26: pass `tradeKey(t.sell_id)` in the profile and trade-page note slots (coordination note).
