@@ -37,6 +37,36 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
   approved by the approval council (cycle 3); UX, PD, CS.
 - 2026-11-01: Sequencing and lapse: starts after F-14 merges; if F-14 has not merged by the next approval council
   (cycle 4), this approval lapses to that council. Why: approved by the approval council (cycle 3); lapse rule.
+- 2026-11-01: A pass runs every 7 days per account. Each of its pages replaces that day's week read, so the requests per
+  account per day are unchanged, and later pages wait at least 47 hours, so an account's daily reads alternate page,
+  week, page, week. An account with no due date gets its own weekday, from a hash of its id, and is never due within 7
+  days of its claim. Why: decided by the committee under the owner's instruction of 2026-11-01; it matches the 7-day re-read window, costs no vendor request beyond F-14's caps, and spreads
+  the first passes over a week without a table rewrite at deploy (committee log, rounds 1–3).
+- 2026-11-01: Possible re-issues live in a side table, `activity_reissues`, in one of three states: pending, genuine or
+  suspected. The rebuild leaves out every row that is not genuine. Any read that lists both rows of a pair makes the pair
+  genuine, and genuine is final. A week read can clear a held row but never mark one suspected. Rows that arrive together
+  are never treated as each other's re-issue. Twins stored before F-24 are not swept. Why: decided by the committee under the owner's instruction of 2026-11-01; D5's "only when its original id
+  is absent from that full read", without ever pulling a close already shown.
+- 2026-11-01: A pass decides only when it is complete:
+  - no break in the 50-row page overlap;
+  - every stored listable row from before the pass is listed, except the originals of held rows.
+  A pass whose only shortfall is ids the previous pass also missed also decides. Invalid and abandoned passes are counted
+  and logged. Why: decided by the committee under the owner's instruction of 2026-11-01; a vendor list that shifts between pages days apart must never make a genuine fill look absent, and one
+  vendor cancel must never hold an account undecided forever.
+- 2026-11-01: Two counted failures of a page step in a row give the pass up, and the week is read instead. Code errors
+  count. Outages, rate limits, timeouts and route-deadline cuts do not. Why: decided by the committee under the owner's instruction of 2026-11-01; a page that always fails must not starve an
+  account's recent trades or quarantine the trader.
+- 2026-11-01: Every rebuild, through `rebuildRecord`, compares share and option closes by id and row hash. Changed or
+  removed closes are added to `users.closes_rewritten` and logged with the internal user id and counts only. Why: decided by the committee under the owner's instruction of 2026-11-01; D4 says
+  "every rebuild"; the counter and the log line are the log and the count D4 asks for.
+- 2026-11-01: Option twins are counted in the `sync reissues` log line but not held. AC6 is built for share rows, so a
+  re-issued option close can show twice until the owner decides. Why: decided by the committee under the owner's instruction of 2026-11-01; holding them would roughly double the re-issue code
+  for a rare case; this is listed as an owner item.
+- 2026-11-01: A multi-page pass's page counts as a history page:
+  - it follows the positions-only rule (TR-4);
+  - "Updated" (`last_synced_at`) keeps its value, through F-14's mechanism.
+  A one-page pass that returns everything counts as the week read. Why: decided by the committee under the owner's instruction of 2026-11-01; it reuses F-14's existing rules instead of adding
+  a column; a one-day skew across accounts is a known limit.
 
 ## Acceptance criteria
 - [ ] Fake-vendor e2e: a SELL dated 10 days before the newest stored trade appears in `closed_trades` after
