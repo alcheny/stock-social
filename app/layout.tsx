@@ -20,7 +20,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // F-2 PR-1 fix round 1 (UX follow-up 8): who is viewing, for the feed's end card only (app/feed-rows.tsx#FeedEnd shows
   // "See your record" to a viewer who publishes). The feed itself reads no session.
   const viewer = !me ? 'guest' : (await sql`select exists (select 1 from closed_trades where user_id = ${me.id}) as p`)[0].p ? 'publisher' : 'member';
-  // F-13: the request nonce for the inline script (the nonce CSP, PR #42); undefined until that lands, which is harmless.
+  // F-13: the request's CSP nonce (proxy.ts, lib/csp.ts) for the inline pre-paint script; without it the browser blocks it.
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     // F-13: the pre-paint script sets <html data-ss-seen> before hydration, so React accepts the DOM's attribute.
