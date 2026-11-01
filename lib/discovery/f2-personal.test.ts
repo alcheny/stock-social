@@ -196,6 +196,9 @@ test('criterion 9: every new F-2 string passes the suggestion and endorsement wo
   const all = allCopy();
   for (const s of [SECTION_PERSONAL.heading, PERSONALIZE.activityExplain, HIDDEN_TRADES.title, HOW_PERSONAL.text]) assert.ok(all.includes(s), s);
   // Singular and plural (business lead Q11), and "hidden"/"hide" pass the lists.
+  assert.equal(PERSONALIZE.orderLine(true, false, false, false), 'Ordered using your follows.');
+  assert.equal(PERSONALIZE.orderLine(true, true, true, false), 'Ordered using your follows, likes and hides.');
+  assert.equal(PERSONALIZE.orderLine(false, true, false, true), 'Ordered using your likes and activity.');
   assert.equal(HIDDEN_TRADES.line(1), '1 trade hidden by you.');
   assert.equal(HIDDEN_TRADES.line(3), '3 trades hidden by you.');
   assert.equal(HIDDEN_TRADES.showThemFor(1), 'Show 1 hidden trade');

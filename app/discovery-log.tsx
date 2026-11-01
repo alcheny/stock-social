@@ -10,8 +10,9 @@ import { useEffect } from 'react';
 // - dwell_long (≥ 5 s visible), dwell_short (1 to 5 s) or skip (seen, under 1 s), when it leaves view or the page hides;
 // - swipe_open: the card's pane came into view (the opening swipe, SW-1);
 // - profile_open: a link to a trader's profile was followed from the feed.
-// Batches of at most 50, every 10 s and on pagehide (sendBeacon; text/plain, so no preflight). A refused batch is dropped.
-const VISIBLE = 0.6, IMPRESSION_MS = 500, LONG_MS = 5_000, SHORT_MS = 1_000, FLUSH_MS = 10_000, BATCH = 50;
+// One batch of at most 50 every 10 s and on pagehide (sendBeacon; text/plain, so no preflight); at most 500 queued. A
+// refused batch is dropped (nothing retries).
+const VISIBLE = 0.6, IMPRESSION_MS = 500, LONG_MS = 5_000, SHORT_MS = 1_000, FLUSH_MS = 10_000, BATCH = 50, QUEUE_MAX = 500;
 type Target = { kind: 'trade'; id: string } | { kind: 'trader'; handle: string };
 type Ev = { type: string; surface: 'feed' | 'section' | 'pane'; target: Target };
 
@@ -24,15 +25,15 @@ export function DiscoveryLog() {
     const timers = new Map<Element, number>();
     const push = (e: Ev, key?: string) => {
       if (key) { if (once.has(key)) return; once.add(key); }
-      queue.push(e);
-      if (queue.length >= BATCH) flush(false);
+      if (queue.length < QUEUE_MAX) queue.push(e);
     };
     const send = (events: Ev[], beacon: boolean) => {
       const body = JSON.stringify({ events });
       if (beacon && navigator.sendBeacon?.('/api/events', new Blob([body], { type: 'text/plain' }))) return;
       fetch('/api/events', { method: 'POST', body, keepalive: true, credentials: 'same-origin', headers: { 'content-type': 'text/plain' } }).catch(() => {});
     };
-    const flush = (beacon: boolean) => { while (queue.length) send(queue.splice(0, BATCH), beacon); };
+    // One batch per flush: the route takes one batch per viewer per 2 s, so a second one at once would be refused.
+    const flush = (beacon: boolean) => { if (queue.length) send(queue.splice(0, BATCH), beacon); };
     const what = (el: Element): { target: Target; surface: Ev['surface']; key: string } | null => {
       const trade = (el as HTMLElement).dataset.trade, handle = (el as HTMLElement).dataset.handle;
       if (el.matches('.row') && trade) return { target: { kind: 'trade', id: trade }, surface: 'feed', key: `t${trade}` };
@@ -87,7 +88,6 @@ export function DiscoveryLog() {
       const m = a && /^\/u\/([a-z0-9_]{3,20})(?:$|[/?#])/.exec(a.getAttribute('href') ?? '');
       if (!m || !a!.closest('.feed')) return;
       push({ type: 'profile_open', surface: a!.closest('.suggest') ? 'section' : 'feed', target: { kind: 'trader', handle: m[1] } }, `p:${m[1]}`);
-      flush(true);
     };
     document.addEventListener('click', click, true);
     const hide = () => { for (const el of [...since.keys()]) left(el); flush(true); };

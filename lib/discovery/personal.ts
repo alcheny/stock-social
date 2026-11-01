@@ -46,30 +46,34 @@ export type Profile = {
   seen: Set<number>; // traders with any logged event in the window (activity On only), for "New to you"
   activity: boolean; // events were read (the activity switch is On)
   signals: number; // inputs that count now (> 0: the order line and "More like what you read")
+  uses: Uses; // which kinds of input count now (the order line names only those)
 };
+export type Uses = { follows: boolean; likes: boolean; hides: boolean; activity: boolean };
 export const EMPTY_INPUTS: Inputs = { follows: [], likes: [], rejects: [], hidden: [], unfollows: [], events: [] };
 
 export function viewerProfile(i: Inputs, now: number): Profile {
   const direct = new Map<number, number>(), symbols = new Map<string, number>(), seen = new Set<number>();
   let signals = i.follows.length;
-  const add = (c: { trader: number | null; symbol?: string | null; at: number }, w: number) => {
+  const uses: Uses = { follows: i.follows.length > 0, likes: false, hides: false, activity: false };
+  const add = (c: { trader: number | null; symbol?: string | null; at: number }, w: number, kind?: keyof Uses) => {
     const f = fade(c.at, now);
     if (!f || !w) return;
     signals++;
+    if (kind) uses[kind] = true;
     if (c.trader !== null) direct.set(c.trader, (direct.get(c.trader) ?? 0) + w * f);
     if (c.symbol) symbols.set(c.symbol, (symbols.get(c.symbol) ?? 0) + w * f);
   };
-  for (const c of i.likes) add(c, WEIGHTS.like);
-  for (const c of i.rejects) add(c, WEIGHTS.notInterested);
-  for (const c of i.hidden) add(c, WEIGHTS.notInterested);
-  for (const c of i.unfollows) add(c, WEIGHTS.unfollow);
+  for (const c of i.likes) add(c, WEIGHTS.like, 'likes');
+  for (const c of i.rejects) add(c, WEIGHTS.notInterested, 'hides');
+  for (const c of i.hidden) add(c, WEIGHTS.notInterested, 'hides');
+  for (const c of i.unfollows) add(c, WEIGHTS.unfollow, 'follows');
   for (const e of i.events) {
     if (e.trader !== null && fade(e.at, now)) seen.add(e.trader);
-    add(e, IMPLICIT[e.type] ?? 0);
+    add(e, IMPLICIT[e.type] ?? 0, 'activity');
   }
   for (const [t, v] of direct) direct.set(t, Math.min(DIRECT_MAX, Math.max(DIRECT_MIN, v)));
   const liked = [...new Set([...i.likes].filter((c) => fade(c.at, now) > 0).sort((a, b) => b.at - a.at).map((c) => c.trader))];
-  return { direct, symbols, follows: new Set(i.follows), liked, seen, activity: !!i.activity, signals };
+  return { direct, symbols, follows: new Set(i.follows), liked, seen, activity: !!i.activity, signals, uses };
 }
 
 // What the ordering knows of each candidate trader: their holding bucket and the symbols of their listed closes.

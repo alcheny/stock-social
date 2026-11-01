@@ -53,7 +53,7 @@ export default async function Feed({ searchParams }: Props) {
       <h1 className="sr-only">{page.offset > 0 ? FEED_COUNTS.position(page.from, page.to) : FEED.heading}</h1>
       <FeedKeys />
       {page.viewer && <FeedHides />}
-      {page.viewer && page.offset === 0 && <FeedNotes order={page.personal ? { activity: page.personal.activity } : null} hidden={hiddenN} />}
+      {page.viewer && page.offset === 0 && <FeedNotes order={page.personal?.uses ?? null} hidden={hiddenN} />}
       {page.settings?.personalize && page.settings.activity && <DiscoveryLog />}
       <FeedGestures signedIn={!!page.viewer} />
       <FeedRows page={page} />

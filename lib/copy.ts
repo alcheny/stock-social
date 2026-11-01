@@ -460,8 +460,12 @@ export const PERSONALIZE = {
     nothing: 'There was no activity to clear.',
   },
   // The feed's order line, signed in, personalize On, at least one choice in the window.
-  orderLine: 'Ordered using your follows, likes and hides.',
-  orderLineActivity: 'Ordered using your follows, likes, hides and activity.',
+  // Names only the kinds of choice that count now (business lead Q11).
+  orderLine: (follows: unknown, likes: unknown, hides: unknown, activity: unknown) => {
+    const kinds = [follows && 'follows', likes && 'likes', hides && 'hides', activity && 'activity'].filter(Boolean) as string[];
+    const list = kinds.length > 1 ? `${kinds.slice(0, -1).join(', ')} and ${kinds.at(-1)}` : kinds[0] ?? 'choices';
+    return `Ordered using your ${list}.`;
+  },
   change: 'Change',
   changeFor: 'Change how your feed is ordered',
   // /me/following: "Not interested" rows that ran their 90 days (stored until removed, owner 2026-11-01).

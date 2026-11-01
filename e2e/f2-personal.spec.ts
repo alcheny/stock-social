@@ -179,7 +179,7 @@ test('criterion 13: "Personalize my feed: Off" gives the order everyone gets; a 
     const last = await page.locator('.feed > .row[data-handle]').last().getAttribute('data-handle');
     await sql`insert into follows (viewer_id, trader_id, created_at) select v.id, t.id, now() - interval '1 minute' from users v, users t where v.handle = ${h} and t.handle = ${last}`;
     await page.goto('/');
-    await expect(page.locator('.feed-notes')).toContainText('Ordered using your follows, likes and hides.');
+    await expect(page.locator('.feed-notes')).toContainText('Ordered using your follows.');
     await expect(page.getByRole('link', { name: 'Change how your feed is ordered' })).toHaveAttribute('href', '/me/personalize');
     await shoot(page, 'feed-personal-360');
     await sql`update users set personalize_feed = false where handle = ${h}`;

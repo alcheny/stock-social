@@ -9,7 +9,7 @@ import { exclusionsFor, followingAmong, sectionSkips } from './follows.ts';
 import { rejectedAmong } from './likes.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
 // F-2 PR-5: personal ordering (pure) and the loader type; the loader itself is passed in by the page (lib/discovery/personal-load.ts).
-import { personalList, personalPool, personalReason, relevanceOf, type PersonalReason, type TraderShape } from './discovery/personal.ts';
+import { personalList, personalPool, personalReason, relevanceOf, type PersonalReason, type TraderShape, type Uses } from './discovery/personal.ts';
 import type { Personal, PersonalLoader } from './discovery/personal-load.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
@@ -274,7 +274,7 @@ export type FeedPage = {
   liked?: Set<string>;
   // F-2 PR-5: signed in with personalization On and at least one choice counted: the order line and the personal
   // section heading show (app/feed-notes.tsx, app/suggest-section.tsx). Never anyone else's data.
-  personal?: { signals: number; activity: boolean };
+  personal?: { signals: number; uses: Uses };
 };
 // F-2 PR-5: `why`, the personal reason line when one is true (lib/discovery/personal.ts#personalReason).
 export type SectionRow = { userId: number; handle: string; name: string; reason: Reason; why?: PersonalReason };
@@ -376,7 +376,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     cards, offset: c.offset, asOf: new Date(c.asOf), next: page.next && encodeCursor(page.next),
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
     viewer: following && { id: opts.viewer!, following }, section,
-    ...(profile ? { personal: { signals: profile.signals, activity: profile.activity && profile.seen.size > 0 } } : {}),
+    ...(profile ? { personal: { signals: profile.signals, uses: profile.uses } } : {}),
   };
 }
 
