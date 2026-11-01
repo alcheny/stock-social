@@ -126,7 +126,9 @@ test('criterion 15: "N trades hidden by you. Show them" on the feed, then the Hi
     await signIn(page, h);
     await page.goto('/');
     await expect(page.locator('.feed-notes')).toHaveCount(0); // none hidden: absent
-    const row = page.locator('.feed > .row[data-trade]').first();
+    // A seeded demo trader's card, never position 0: another spec's fixture trader can rank first and be deleted by its
+    // afterAll while this test holds feedLock('shared').
+    const row = page.locator(['momentum_maya', 'dividend_dan', 'yolo_yuki'].map((h) => `.feed > .row[data-trade][data-handle="${h}"]`).join(', ')).first();
     const trade = await row.getAttribute('data-trade');
     const who = await row.getAttribute('data-handle');
     // Hide it through the card's "…" menu (the keyboard route).
