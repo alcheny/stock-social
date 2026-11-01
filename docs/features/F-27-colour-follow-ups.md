@@ -1,7 +1,6 @@
 # F-27 · Colour follow-ups: chart baseline, warn notice, share-image hues
 
-Status: blocked
-Blocked: waits for F-20 (design tokens and contrast test; its build session owns the `app/globals.css` tokens, including `--warn`, and the share-image colour table) and F-11 (branch `claude/fix-truthful-labels`, which moves the failed line to `.warn` and defines `--warn`) to merge into main
+Status: building
 
 ## Why
 PR #71 (merged as 06edbdf) retuned gain and loss for colour blindness (light #0b6b70 / #b2441b, dark #3cc4b4 /
@@ -59,6 +58,18 @@ is still told apart from a loss mainly by hue.
   and changes no token value. Why: decided by the committee under the owner's instruction of 2026-11-01; F-20 owns the
   tokens and the image table, and F-11's branch rewrites the same four failed-line sites and both chart files.
 
+- 2026-11-01: `WarnNotice` (`app/warn-notice.tsx`) takes only `role` and `children`; the profile's retry link is passed
+  inside the words, and the component always carries `.record-failed`. The notice is a flex row that never wraps: the
+  icon (1em, `margin-top: 0.225em`, centred on the first line) stays beside the words when they wrap, and the old
+  `.record-failed` flex rule is removed so one rule owns the box. Why: decided by the committee under the owner's
+  instruction of 2026-11-01; the simplest component that serves the four failed-import sites (DS-17's later sites add
+  a prop when they arrive), and one source of truth for the layout (engineer and business lead review, round 1).
+- 2026-11-01: The share-image hue question (OQ-A) is not F-27's: main already draws the page's gain/loss on images
+  under F-20's OQ-1, which is flagged to the owner and may be reverted there. F-27 neither decides nor pins those hues
+  (its AC12 test checks only the image warn tone and that F-20's pin exists). Why: decided by the committee under the
+  owner's instruction of 2026-11-01; the owner question lives in F-20, and a copy here would break on an owner reversal
+  F-27 does not own.
+
 ## Acceptance criteria
 - [ ] The bar baseline `<line>` in `Spread.tsx` and `Timeline.tsx` has `stroke="var(--control)"`, and no chart
       baseline in `app/t/[symbol]/` uses `var(--line)` (source test). Its computed stroke equals `--control` in light
@@ -98,6 +109,8 @@ is still told apart from a loss mainly by hue.
 - `role="status"` on every failed card announcing on appended pages (logged for F-20 and F-11).
 
 ## Open questions
+- 2026-11-01 note (committee): the first question below now lives in F-20's OQ-1 (main already draws #3cc4b4 /
+  #ff8a5b on images under it, flagged to the owner). F-27 changes nothing either way.
 - Owner (the same question as F-20's OQ-1 on `claude/f20-design-tokens`; one answer settles both): may the dark
   share images move gain/loss from #22c55e / #f43f5e to the page's #3cc4b4 / #ff8a5b? The values
   live in `lib/record-strip.ts` `IMAGE_COLOURS` and `app/u/[handle]/record-card-image.tsx` `C`, or in F-20's single

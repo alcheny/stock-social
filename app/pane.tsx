@@ -21,6 +21,7 @@ import { paneEvidence } from '@/lib/pane-evidence.ts'; // FIXES-LABELS (code rev
 // OPTIONS (docs/features/logs/options/plan.md D5, AC 24): the label and the count line (or the options line once open).
 import { PaneOptions, ShareTradesLabel } from './u/[handle]/options-block.tsx';
 import type { PaneOptionsView } from '@/lib/options-view.ts';
+import { WarnNotice } from './warn-notice.tsx'; // F-27
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
@@ -66,7 +67,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
       {trust.badge === 'demo' && <span className="muted"> {FIXES_LABELS.demoNote /* FIXES-LABELS (DS-20): one Demo name */}</span>}
     </p>
   );
-  const incomplete = trust.incomplete && <p role="status" className="warn record-failed">{RECORD_BODY.failed}</p>;
+  const incomplete = trust.incomplete && <WarnNotice role="status">{RECORD_BODY.failed}</WarnNotice>;
   const long = open ? longValues(pct(p.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const figures = <>
     {options && <ShareTradesLabel show={options.label} />}
