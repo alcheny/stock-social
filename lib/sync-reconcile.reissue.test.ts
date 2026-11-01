@@ -4,15 +4,20 @@
 // (a) a re-issue (the vendor lists N, a new id with E's account, symbol, side, time, units and price, and no longer E):
 //     N is 'suspected' after the pass, and the close is published once;
 // (b) both listed: 'genuine', two closes;
-// (c) E on page 1 and N on page 2 of a multi-page pass: genuine;
+// (c) a pair is genuine only when ONE vendor response lists both rows: E only on page 1 and N only on page 2 of a
+//     multi-page pass → N suspected, one close; twins that are neighbours across the page boundary, inside the 50-row
+//     overlap (page 2 lists both) → genuine, two closes;
 // (d) a week read inserting N with E unlisted: held, never shown twice, the pass brought forward; a week read listing
 //     both: genuine at once when N is dated a day inside the window, held when it is not;
 // (e) two identical fills arriving in the same read (a week read, an import page) are never held;
-// (f) a genuine losing fill held across pages is back in closed_trades and the stats after the deciding pass;
+// (f) a genuine losing fill held across pages (its twin its neighbour, on the next page's overlap) is back in
+//     closed_trades and the stats after the deciding pass;
 // (g) an unstable order between page calls makes the pass invalid ('shifted'): it decides nothing, counted;
 // (h) a stored row the vendor never lists: the first pass decides nothing ('missing'); the next with the same shortfall
 //     decides;
-// (i) no activities row is ever updated or deleted (all columns and xmin compared).
+// (i) no activities row is ever updated or deleted (all columns and xmin compared);
+// (j)-(l) QA D1, D2, D7; (m) the orchestrator's repro: E listed on page 1 before its re-issue, N on page 2 after it
+//     (with and without a zero net shift of the list) → never genuine, never two closes.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -148,12 +153,12 @@ dbTest('(b) genuine: the full read lists both E and N → genuine, two closes', 
   } finally { await t.cleanup(); }
 });
 
-dbTest('(c) boundary: E on page 1 and N on page 2 of a multi-page pass → genuine (a week read between the pages)', async () => {
+dbTest('(c1) E only on page 1 (outside the overlap) and N only on page 2 → N suspected, exactly one close', async () => {
   const t = await trader();
   try {
     const { b1, e, n } = pair(t, 12, -30);
     // 65 rows listed: B1, E at 5, 62 filler buys, N last (index 64). pageLimit 60 > RECONCILE_OVERLAP (50): page 1 is
-    // rows 0..59, page 2 starts 50 back (offset 10) and lists rows 10..64 (55 < 60: done).
+    // rows 0..59, page 2 starts 50 back (offset 10) and lists rows 10..64 (55 < 60: done). E is not on page 2.
     const fill = Array.from({ length: 62 }, (_, i) => t.row(`f${i}`, 'BUY', 1, 5, at(-15 + i / 100), 'FL'));
     const stored = [b1, ...fill.slice(0, 4), e, ...fill.slice(4)];
     await t.store(stored);
@@ -171,15 +176,47 @@ dbTest('(c) boundary: E on page 1 and N on page 2 of a multi-page pass → genui
     assert.equal(t.v.weekCalls, weeks + 1);
     assert.deepEqual(t.v.pageCalls, [0]);
     assert.equal(await t.state('n'), null, 'the week read did not list N');
-    await t.round(75); // page 2: N inserted, its twin E listed on page 1
+    await t.round(75); // page 2: N inserted; E was listed only on page 1, days before
+    assert.deepEqual(t.v.pageCalls, [0, 10]);
+    assert.equal(await t.state('n'), 'suspected', 'no single response listed both rows');
+    assert.deepEqual((await t.closes()).map((r) => r.sell_id), [e.externalId], 'exactly one close');
+    assert.ok(t.inSync.every((x) => x <= 1), `never two closes: ${t.inSync.join(',')}`);
+    const cur = await t.cursor();
+    assert.equal(cur.reconcile_offset, null);
+    assert.equal(cur.reconcile_invalid, 0, 'the pass decided');
+    assert.equal(cur.reconcile_seen, null, 'listed ids dropped at the pass end');
+    snap = await t.unchanged(snap, '(c1)');
+  } finally { await t.cleanup(); }
+});
+
+dbTest('(c2) twins that are neighbours across the page boundary, both inside the overlap (page 2 lists both) → genuine, two closes', async () => {
+  const t = await trader();
+  try {
+    const { b1, e, n } = pair(t, 12, -30);
+    // 64 stored rows with E at 59 (page 1's last row, inside page 2's overlap). The vendor then posts N next to E (60):
+    // page 2 (offset 10) lists rows 10..64, E and N both.
+    const fill = Array.from({ length: 62 }, (_, i) => t.row(`f${i}`, 'BUY', 1, 5, at(-15 + i / 100), 'FL'));
+    const stored = [b1, ...fill.slice(0, 58), e, ...fill.slice(58)];
+    assert.equal(stored.indexOf(e), 59);
+    await t.store(stored);
+    t.v.list = stored;
+    t.broker.pageLimit = 60;
+    await t.round(0);
+    const snap = await t.raw();
+    await t.due();
+    await t.round(25); // page 1
+    assert.deepEqual(t.v.pageCalls, [0]);
+    t.v.list = [...stored.slice(0, 60), n, ...stored.slice(60)]; // N listed right after E
+    await t.round(50); // the week read
+    assert.equal(await t.state('n'), null);
+    await t.round(75); // page 2 lists E and N in one response
     assert.deepEqual(t.v.pageCalls, [0, 10]);
     assert.equal(await t.state('n'), 'genuine');
     assert.equal((await t.closes()).length, 2, 'two genuine identical fills, two closes');
     const cur = await t.cursor();
     assert.equal(cur.reconcile_offset, null);
     assert.equal(cur.reconcile_invalid, 0);
-    assert.equal(cur.reconcile_seen, null, 'listed ids dropped at the pass end');
-    snap = await t.unchanged(snap, '(c)');
+    await t.unchanged(snap, '(c2)');
   } finally { await t.cleanup(); }
 });
 
@@ -304,8 +341,8 @@ dbTest('(f) a genuine LOSING fill held pending across pages is back in closed_tr
   const { stats } = await import('./trades.ts');
   try {
     const { b1, e, n } = pair(t, 8, -30); // sold at a loss
-    // 65 rows listed: N at 5 (page 1), E last at 64 (page 2 only); filler buys newer than the pair, so no week read
-    // window reaches it.
+    // 65 rows listed: N at 59 (page 1's last row), E its neighbour at 60 (page 2 only); page 2 (offset 10) lists both.
+    // Filler buys newer than the pair, so no week read window reaches it.
     const fill = Array.from({ length: 62 }, (_, i) => t.row(`f${i}`, 'BUY', 1, 5, at(-10 + i / 100), 'FL'));
     await t.store([b1, e, ...fill]);
     t.v.list = [b1, e, ...fill];
@@ -315,7 +352,8 @@ dbTest('(f) a genuine LOSING fill held pending across pages is back in closed_tr
     const shown = await t.closes();
     assert.equal(shown.length, 1);
     assert.ok(Number(shown[0].return_pct) < 0, 'a losing close');
-    t.v.list = [b1, ...fill.slice(0, 4), n, ...fill.slice(4), e];
+    t.v.list = [b1, ...fill.slice(0, 58), n, e, ...fill.slice(58)];
+    assert.deepEqual([t.v.list.indexOf(n), t.v.list.indexOf(e)], [59, 60]);
     await t.due();
     await t.round(25); // page 1 inserts N; E is not on it
     assert.equal(await t.state('n'), 'pending');
@@ -326,7 +364,7 @@ dbTest('(f) a genuine LOSING fill held pending across pages is back in closed_tr
     assert.deepEqual(t.v.pageCalls, [0]);
     assert.equal(await t.state('n'), 'pending');
     assert.equal((await t.closes()).length, 1);
-    await t.round(75); // page 2 lists E: the pair is genuine
+    await t.round(75); // page 2 lists N and E in one response: the pair is genuine
     assert.deepEqual(t.v.pageCalls, [0, 10]);
     assert.equal(await t.state('n'), 'genuine');
     const c = await t.closes();
@@ -493,4 +531,119 @@ dbTest('(l) QA D7: a held row the vendor no longer lists does not make the pass 
     assert.equal((await t.closes()).length, 1);
     await t.unchanged(snap, '(l)');
   } finally { console.log = orig; await t.cleanup(); }
+});
+
+for (const variant of [1, 2] as const) {
+  dbTest(`(m) orchestrator repro, variant ${variant}: E listed on page 1, then re-issued as N (listed on page 2${variant === 2 ? ', a late row at 0: zero net shift' : ''}) → never genuine, never two closes`, async () => {
+    const t = await trader();
+    try {
+      const { b1, e, n } = pair(t, 12, -30);
+      // pageLimit 60, 64 stored rows, E at position 1.
+      const fill = Array.from({ length: 62 }, (_, i) => t.row(`f${i}`, 'BUY', 1, 5, at(-15 + i / 100), 'FL'));
+      const stored = [b1, e, ...fill];
+      await t.store(stored);
+      t.v.list = stored;
+      t.broker.pageLimit = 60;
+      const check = async (when: string) => {
+        assert.notEqual(await t.state('n'), 'genuine', `${when}: never genuine`);
+        assert.ok((await t.closes()).length <= 1, `${when}: at most one close`);
+        assert.ok(t.inSync.every((x) => x <= 1), `${when}: at most one close inside every sync: ${t.inSync.join(',')}`);
+      };
+      await t.round(0);
+      await check('h0');
+      const snap = await t.raw();
+      await t.due();
+      await t.round(25); // page@0 lists E
+      assert.deepEqual(t.v.pageCalls, [0]);
+      await check('h25');
+      // The vendor drops E and appends N; variant 2 also lists a late row at position 0.
+      const late = t.row('late', 'BUY', 1, 5, at(-40), 'LT');
+      t.v.list = [...(variant === 2 ? [late] : []), b1, ...fill, n];
+      await t.round(74); // page@10 lists N
+      assert.deepEqual(t.v.pageCalls, [0, 10]);
+      await check('h74');
+      if (variant === 2) {
+        assert.equal(await t.state('n'), 'suspected');
+        assert.equal((await t.cursor()).reconcile_invalid, 0, 'the pass decided');
+      } else {
+        // Variant 1 shifted the list by one row (the pass may end invalid); the next pass decides.
+        await t.due();
+        await t.round(99);
+        await check('h99');
+        await t.round(148);
+        await check('h148');
+        assert.equal(await t.state('n'), 'suspected');
+      }
+      assert.deepEqual((await t.closes()).map((r) => r.sell_id), [e.externalId], 'one close');
+      await t.unchanged(snap, `(m${variant})`);
+    } finally { await t.cleanup(); }
+  });
+}
+
+// (n): an import (importStep) checks twins against this page and the account's previous import page.
+async function importRun(rows: (tag: string, acc: string) => { stored: Row[]; listed: Row[] }, pageLimit: number) {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
+  const { startConnection, completeLink, consent, importStep } = await import('./connections.ts');
+  const { insertActivities } = await import('./sync.ts');
+  const tag = `rn${Math.random().toString(36).slice(2, 9)}`;
+  const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}u` });
+  const [{ signup_attempt_id: attempt }] = await sql`select signup_attempt_id from users where id = ${u.id}`;
+  const acc = `${tag}-a`;
+  const { stored, listed } = rows(tag, acc);
+  if (stored.length) await insertActivities(u.id, 'snaptrade', stored); // an earlier connection's rows (a reconnect)
+  const pages: number[] = [];
+  const deps = {
+    pageLimit,
+    registerUser: async (ref: number | string) => ({ snaptradeUserId: `${tag}-v${ref}`, secretEnc: 'enc' }),
+    connectUrl: async () => 'https://vendor.example/portal',
+    listAccounts: async () => [{ id: acc, authorizationId: `auth-${acc}`, institution: 'x', isPaper: false, initialSyncCompleted: true }],
+    fetchActivitiesPage: async (_u: unknown, _a: string, offset: number, limit = pageLimit) => {
+      pages.push(offset);
+      const activities = listed.slice(offset, offset + limit);
+      return { activities, unusable: [], done: activities.length < limit };
+    },
+    fetchPositions: async () => [],
+    deleteConnection: async () => {}, deleteUser: async () => {},
+  };
+  const cleanup = async () => { await sql`delete from users where id = ${u.id}`; await sql`delete from broker_accounts where account_id = ${acc}`; };
+  try {
+    await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'https://app.example/connect/done', deps as never);
+    const out = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps as never);
+    const id = (out as { id: number }).id;
+    await consent(id, new Date(), deps as never);
+    for (let i = 0; i < 10; i++) if ((await importStep(id, deps as never)).state !== 'importing') break;
+  } catch (e) { await cleanup(); throw e; }
+  const state = async (x: string) => (await sql`select state from activity_reissues where source = 'snaptrade' and external_id = ${`${tag}-${x}`}`)[0]?.state ?? null;
+  const closes = async () => (await sql`select sell_id from closed_trades where user_id = ${u.id} order by sell_id`).map((r) => r.sell_id as string);
+  return { sql, tag, u, pages, state, closes, cleanup };
+}
+const importRow = (tag: string, acc: string, id: string, side: 'BUY' | 'SELL', units: number, price: number, d: Date): Row => ({
+  externalId: `${tag}-${id}`, accountId: acc, symbol: 'XX', side, units, price, fee: 0, executedAt: d, verified: true, raw: { type: side },
+});
+
+dbTest('(n1) two genuine identical fills split across two import pages (A last on page 1, B first on page 2) are never held: both closes shown', async () => {
+  const r = await importRun((tag, acc) => ({
+    stored: [],
+    listed: [importRow(tag, acc, 'b', 'BUY', 20, 10, at(-30)), importRow(tag, acc, 'fa', 'SELL', 10, 12, at(-20)), importRow(tag, acc, 'fb', 'SELL', 10, 12, at(-20))],
+  }), 2);
+  try {
+    assert.deepEqual(r.pages, [0, 2], 'A last on page 1, B first on page 2');
+    assert.equal((await r.sql`select count(*)::int as n from activities where user_id = ${r.u.id}`)[0].n, 3);
+    assert.notEqual(await r.state('fb'), 'pending', 'B not held');
+    assert.notEqual(await r.state('fb'), 'suspected');
+    assert.deepEqual(await r.closes(), [`${r.tag}-fa`, `${r.tag}-fb`].sort(), 'both closes shown');
+  } finally { await r.cleanup(); }
+});
+
+dbTest('(n2) a re-issue found by a reconnect import (E stored earlier, the vendor lists N only) stays held', async () => {
+  const r = await importRun((tag, acc) => {
+    const b = importRow(tag, acc, 'b', 'BUY', 20, 10, at(-30)), e = importRow(tag, acc, 'e', 'SELL', 10, 12, at(-20));
+    return { stored: [b, e], listed: [b, importRow(tag, acc, 'n', 'SELL', 10, 12, at(-20))] };
+  }, 1); // one row per page: N's page follows B's, so prev ∪ page is checked too
+  try {
+    assert.deepEqual(r.pages, [0, 1, 2]);
+    assert.equal(await r.state('n'), 'pending', 'held until a read lists E with it or a pass decides');
+    assert.deepEqual(await r.closes(), [`${r.tag}-e`], 'one close, under the original id');
+  } finally { await r.cleanup(); }
 });

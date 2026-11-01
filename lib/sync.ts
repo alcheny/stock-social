@@ -11,7 +11,7 @@ import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
 // F-24 late-posted trades (docs/features/F-24-late-sell-reconciliation.md): the pass cursor, the re-issue states and the
 // rebuild's hold filter.
-import { bringForward, dropUnread, markGenuine, markTwins, notReissued, pageFailureCounts, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
+import { bringForward, dropUnread, markGenuine, markTwins, notReissued, pageFailureCounts, passPageLimitOk, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
 import { insertOptionActivities, optionTwins, lastOptionActivityAt, markBackfilled, pendingBackfill, moveUnlistedOptionPositions, rebuildRecord, replaceAccountOptionPositions, saveBackfill } from './options-sync.ts';
@@ -537,7 +537,7 @@ export async function syncUser(
         // F-24 (plan §3): a due pass page replaces the account's week read (the option backfill's page wins). Only under
         // `cadence` (the shard runner's production path), and only for accounts due today (`actIds` ⊆ real: consented,
         // not frozen, not paper), so the pass stays inside F-14's one activities read per account per 24 h.
-        const passes = opts.cadence && broker.fetchActivitiesPage ? await plannedPages(tx, user.id, actIds.filter((id) => !backfill.has(id)), t) : new Map<string, PassPlan>();
+        const passes = opts.cadence && broker.fetchActivitiesPage && passPageLimitOk(broker.pageLimit ?? PAGE_LIMIT) ? await plannedPages(tx, user.id, actIds.filter((id) => !backfill.has(id)), t) : new Map<string, PassPlan>();
         recPlanned = [...passes.keys()];
         const paged = actIds.filter((id) => backfill.has(id) || passes.has(id));
         pagedIds = actIds.filter((id) => backfill.has(id));

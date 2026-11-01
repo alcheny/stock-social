@@ -102,7 +102,9 @@ export function clockState(c: ClockRow, now: Date): 'expired' | 'failed' | null 
 // when the vendor's initial sync was still filling during the first one, so the record ends complete (TR-3).
 // `pos` (fix round 6): after the rebuild, the accounts whose positions are read so far, while some are still unread.
 // `m` (corporate actions, F3c): the next account whose share-moving rows the import reads, after the trade pages.
-export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; pos?: number; checkedAt?: number; retries?: number; retryAt?: number; m?: number };
+// `prev` (F-24): the activity ids of the account's previous import page, so twins split across two pages are checked
+// together (cleared when the import moves to the next account).
+export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; pos?: number; checkedAt?: number; retries?: number; retryAt?: number; m?: number; prev?: string[] };
 export const startCursor = (): Cursor => ({ i: 0, offset: 0, pass: 1 });
 // A vendor 429, 5xx or transport error defers the next step: 30 s doubling per consecutive failure, capped at one hour.
 // Progress is not recorded while waiting, so the 24 h stale clock still ends an import the vendor never resumes.
@@ -599,12 +601,14 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         await insertCorporateActions(tx, c.user_id!, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
         await insertOptionActivities(c.user_id!, 'snaptrade', options, tx); // OPTIONS
         // F-24 (D5): a row with an older stored twin (a reconnect re-reads the whole history) is held until a read lists
-        // both; a pair this page listed both rows of is genuine.
-        // ponytail: two genuine identical fills split across two import pages are held until the account's first pass
-        // (at least a week after the claim) — fix: keep the import's listed ids for the pair check, as a pass does.
+        // both. A pair is genuine when this page, or this page with the account's previous import page, lists both rows:
+        // import pages run back to back (seconds apart, not a pass's days), and twins sorted by date are neighbours, so
+        // two genuine identical fills split across a page boundary are never held (orchestrator review of #84).
+        const ids = page.activities.map((a) => a.externalId);
         await markTwins(tx, c.user_id!);
-        await markGenuine(tx, c.user_id!, page.activities.map((a) => a.externalId));
-        return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
+        await markGenuine(tx, c.user_id!, [...(cur.prev ?? []), ...ids]);
+        const next = advanceCursor(cur, page.done, limit);
+        return save(page.done ? next : { ...next, prev: ids }, true, c.imported_count + page.activities.length);
       }
       // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.
       // ponytail: an account with more than one page (1,000) of share-moving rows makes several bounded requests in this

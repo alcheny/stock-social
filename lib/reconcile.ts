@@ -30,6 +30,8 @@ export const RECONCILE_PAGE_GAP_MS = 47 * 3_600_000;
 // Each later page starts this many rows back and must list the previous page's last ids again (a vendor list that
 // shifted between pages, days apart, would otherwise skip a row and make it look absent).
 export const RECONCILE_OVERLAP = 50;
+// A pass needs pages longer than the overlap (each page must move the cursor forward): lib/sync.ts plans none otherwise.
+export const passPageLimitOk = (limit: number) => limit > RECONCILE_OVERLAP;
 // Failed syncs in a row that were to read a page: then the pass is given up and the week read instead.
 export const RECONCILE_MAX_FAILURES = 2;
 // Rows the activities read lists (share moves such as REI come from another read and are never in its listing).
@@ -155,8 +157,12 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
   const step = Math.max(1, limit - RECONCILE_OVERLAP);
   const bound = Math.ceil(p.reconcile_expect / step) + 2;
   const seen = plan.start ? [...new Set(listed)] : [...new Set([...(p.reconcile_seen ?? []), ...listed])];
-  // Any read that lists both rows of a pair shows the pair is genuine (whatever the pass's validity).
-  const early = await markGenuine(tx, userId, seen, accountId);
+  // A pair is genuine only when ONE vendor response lists both rows: this page alone, never the pass's union of pages
+  // (pages are days apart, so the union can hold an original from before its re-issue and the re-issue from after;
+  // orchestrator review of #84). Twins sorted by trade date are neighbours, and the 50-row overlap puts any two
+  // neighbours on one page, so genuine twins are still found; twins further apart stay held (the safe side). `seen`
+  // serves only the completeness check below.
+  const early = await markGenuine(tx, userId, listed, accountId);
   if (!done && pages > bound) {
     await giveUp(tx, userId, accountId, t, 'bound');
     return { complete: false, onePage: false, decided: null };
@@ -186,21 +192,21 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
     await giveUp(tx, userId, accountId, t, valid ? 'missing' : 'shifted');
     return { complete: true, onePage: plan.start, decided: null };
   }
-  const decided = await decidePass(tx, userId, accountId, seen);
+  const decided = await decidePass(tx, userId, accountId);
   decided.genuine += early;
   await endPass(tx, userId, accountId, t);
   await tx`update broker_accounts set reconcile_invalid = 0 where user_id = ${userId} and account_id = ${accountId}`;
   return { complete: true, onePage: plan.start, decided };
 }
 
-/** A complete pass decides the account's held rows: listed with every unheld twin → genuine, else suspected. */
-async function decidePass(tx: TransactionSql, userId: number, accountId: string, seen: string[]) {
-  const genuine = await markGenuine(tx, userId, seen, accountId);
-  // What a complete pass leaves pending is suspected: a twin it did not list, or the held row itself no longer listed
-  // (QA D2: never left pending forever).
+/** A complete pass decides the account's held rows: those its pages did not clear (markGenuine, one page at a time) are
+ *  suspected. */
+async function decidePass(tx: TransactionSql, userId: number, accountId: string) {
+  // What a complete pass leaves pending is suspected: no single page listed it with every unheld twin (a twin missing,
+  // listed only on another page, or the held row itself no longer listed; QA D2: never left pending forever).
   const s = await tx`update activity_reissues set state = 'suspected', decided_at = now()
     where user_id = ${userId} and account_id = ${accountId} and state = 'pending'`;
-  return { genuine, suspected: s.count };
+  return { genuine: 0, suspected: s.count };
 }
 
 /** A held row is genuine when one read listed it and every other row of its twin group that is not itself held: the

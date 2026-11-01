@@ -123,3 +123,18 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
   - the SYNC.md definitions did not match the code;
   - a ponytail was needed for symbol-less vendor rows.
   All three were fixed. Then PASS: the stagger test ran 30 times without a failure.
+
+## Orchestrator review of #84 (taken)
+- **Blocking:** a re-issue that fell between two pass pages was counted twice, permanently. A pass's pages are about 2
+  days apart, but `markGenuine` ran over the union of every id the pass had listed so far, so that union could hold the
+  original E from before its re-issue and the re-issue N from after it. N went `genuine` (final) and both rows
+  published, even through a zero-net-shift overlap. Fix: a pair is genuine only when one vendor response (one page or
+  one week read) lists both rows, and a complete pass marks everything still pending `suspected`. Neighbouring twins
+  share a page through the 50-row overlap, so genuine twins are still found. Tests: (c) rewritten, (f) reworked, (m)
+  the repro in both variants.
+- **Nits:**
+  - The import now checks each page with the account's previous import page, so neighbouring twins split across an
+    import page boundary are never held (test (n)).
+  - A pass is planned only when the page limit exceeds the 50-row overlap (`passPageLimitOk`).
+  - The PR body states the local compliance exit status precisely.
+

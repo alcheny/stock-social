@@ -170,13 +170,16 @@ finds those rows:
   re-issue is never published twice:
   - `pending`: held until a read decides it. A week read that finds one and cannot decide it brings the account's next
     pass forward (never an account whose pass ran in that sync: an ended or given-up pass waits its period);
-  - `genuine`: one read listed the row and every twin of it that is not itself held (so the vendor shows as many
-    fills as are kept; a week read only inside its window, a day clear of its time-zone boundary). The row is kept and
-    published. Final;
-  - `suspected`: what a complete pass leaves pending (a twin it did not list, or the held row itself no longer listed).
-    Held, counted for the owner. Held rows and their twins never make a pass short.
-  The connect-time import (`importStep`) checks its pages the same way. Option rows are counted (`optionTwins`), not held:
-  a re-issued option close can show twice until the owner decides (owner item).
+  - `genuine`: ONE vendor response (one pass page, or one week read) listed the row and every twin of it that is not
+    itself held, so the vendor shows as many fills as are kept (a week read only inside its window, a day clear of its
+    time-zone boundary). Never the union of a pass's pages: they are days apart, so it could hold an original from
+    before its re-issue and the re-issue from after. Twins sorted by date are neighbours and the 50-row overlap puts
+    neighbours on one page, so genuine twins are still found. The row is kept and published. Final;
+  - `suspected`: what a complete pass leaves pending (no single page listed it with every unheld twin, or the held row
+    itself is no longer listed). Held, counted for the owner. Held rows and their twins never make a pass short.
+  The connect-time import (`importStep`) checks each page together with the account's previous import page (pages
+  run back to back, seconds apart), so genuine twins split across a page boundary are never held. Option rows are
+  counted (`optionTwins`), not held: a re-issued option close can show twice until the owner decides (owner item).
 - **Close-change count:** every rebuild compares the trader's closes (share and option) before and after, by id and a
   hash of the shown fields (theses left out). Closes that were shown and are now changed or removed are added to
   `users.closes_rewritten` and logged. Added closes are not counted. The count is shown nowhere yet.

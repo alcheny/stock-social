@@ -15,10 +15,10 @@ Feature: `docs/features/F-24-late-sell-reconciliation.md` (now `Status: built`).
 - **Re-issues (D5):** a newly stored row whose account, symbol, side, time, units and price equal a row stored before
   the transaction is held in a side table, `activity_reissues` (pending, genuine or suspected). Activities stay raw, and
   the rebuild leaves out every held row.
-  - Genuine: a read listed the row and every unheld twin. That is final.
+  - Genuine: one vendor response (one pass page or one week read) listed the row and every unheld twin. That is final.
   - Suspected: what a complete pass leaves pending.
   - Rows that arrive together are never held.
-  - `importStep` checks its pages the same way.
+  - `importStep` checks each page together with the account's previous import page.
 - **Complete pass:**
   - Each later page overlaps the previous one by 50 rows, and exactly 50 shared vendor ids must come back.
   - Every listable row stored before the pass must be listed, except held rows and their twins.
@@ -59,8 +59,9 @@ reviewer; 3 planning rounds, all signed):
   - `.copy.test.ts`: AC7, rendering the real Profile, TradePage and TradeCard.
   - `.review.test.ts`: code-review regressions; each one fails on the pre-fix commit.
   - One test added to `lib/sync-cadence.tr4.test.ts`, and `e2e/f24-found-close.spec.ts` at 360 px.
-- `BASE_REF=main node scripts/compliance.ts auto`: the only finding is an existing dependency license under
-  `node_modules` (`@img/sharp-wasm32`). This PR does not change `package.json` or the lockfile.
+- `BASE_REF=main node scripts/compliance.ts auto`: exits 1 locally with exactly one violation, the license of
+  `node_modules/@img/sharp-wasm32` (an optional native dependency this container installed). It is not in this diff:
+  this PR changes neither `package.json` nor the lockfile. CI's `static` job runs the same check and is green.
 - `node scripts/autopilot.ts guard origin/main`: ok.
 - `npm run build`: ok.
 - Full `npx playwright test` (one worker) on a fresh seeded database:
@@ -99,11 +100,20 @@ reviewer; 3 planning rounds, all signed):
 - Genuine is final: a later vendor cancel keeps both rows (`markGenuine`; owner Q3).
 - Option twins are counted, not held (`optionTwins`).
 - "Updated" can lag by up to a day across accounts on page days (`lib/sync.ts`).
-- Two identical fills split across two import pages are held until the first pass (`importStep`).
 - A vendor row with an id but no symbol inside the overlap ends that account's multi-page passes `shifted` every time
   (`recordPage`). The fix needs `lib/broker.ts`.
 - A trader whose every connection is frozen keeps a running pass's ids (`dropUnread`).
 - The close snapshot is taken on every rebuild, not gated (`rebuildRecord`).
+
+## Orchestrator review fixes
+- **Blocking:** a pair is genuine only when ONE vendor response lists both rows. Before, a pass's union of pages could
+  join an original listed before its re-issue with the re-issue listed after, days later, and publish both. A complete
+  pass now marks every still-pending row `suspected`. Neighbouring twins share a page through the 50-row overlap. Tests:
+  (c) rewritten, (f) reworked, (m) the repro in both variants, each failing on the previous head.
+- **Nits:**
+  - Import pages are checked with the account's previous import page (test (n)).
+  - A pass needs a page limit above the overlap (`passPageLimitOk`).
+  - The compliance note above is precise.
 
 ## Owner items
 - Confirm that held rows (pending or suspected) are kept out of the record and counted for the owner only, so a held
