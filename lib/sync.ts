@@ -528,7 +528,10 @@ export async function syncUser(
       const lastOption = await lastOptionActivityAt(tx, user.id);
       const last: Date | null = lastShare && lastOption ? (lastShare > lastOption ? lastShare : lastOption) : (lastShare ?? lastOption);
       const options: (OptionRow & { raw: unknown })[] = [];
-      const sink = (rows: (OptionRow & { raw: unknown })[]) => { options.push(...rows); };
+      // F-24 (orchestrator review C6): lib/broker.ts#fetchActivities calls the sink once per internal vendor page, so the
+      // calls count the pages a read made (rows dropped by toActivities, e.g. with no symbol, still take a page's room).
+      let sinkPages = 0;
+      const sink = (rows: (OptionRow & { raw: unknown })[]) => { sinkPages++; options.push(...rows); };
       // OPTIONS × F-14: "the whole history was read" holds only when every real account was (a gated account waits).
       const allRead = actIds.length === real.length;
       // Accounts that read a backfill history page this sync in place of their week (their recent sells are not read).
@@ -591,6 +594,7 @@ export async function syncUser(
             const from = await plannedConfirm(tx, user.id, id);
             const widened = from ? new Date(Math.min(since.getTime(), from.getTime() - 86_400_000)) : since;
             if (from) confirmPlanned.push(id);
+            sinkPages = 0;
             const got = tradeRead(await broker.fetchActivities(bu, widened, [id], sink));
             readActs.push(id);
             // Orchestrator re-review L1: fetchActivities pages internally by PAGE_LIMIT rows with no overlap, so a call that
@@ -598,7 +602,7 @@ export async function syncUser(
             // suspected; the next pass re-examines them).
             // ponytail: a busy account's week or widened read past PAGE_LIMIT rows never clears a held row — fix: per-page id
             // lists from lib/broker.ts#fetchActivities (owner), so each internal page decides on its own.
-            const oneResponse = got.activities.length + got.unusable.length + options.length < PAGE_LIMIT;
+            const oneResponse = sinkPages <= 1 && got.activities.length + got.unusable.length + options.length < PAGE_LIMIT;
             await insertActivities(user.id, 'snaptrade', got.activities, tx);
             await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
@@ -612,9 +616,11 @@ export async function syncUser(
             } else if (oneResponse) weekListed.push(...got.activities.map((a) => a.externalId));
           }
         } else {
+          sinkPages = 0;
           const got = windowed.length ? tradeRead(await broker.fetchActivities(bu, since, windowed, sink)) : { activities: [], unusable: [] };
           // L1: a call of a full page or more is several vendor responses: it decides nothing (see the cadence branch).
-          if (got.activities.length + got.unusable.length + options.length < PAGE_LIMIT) weekListed = got.activities.map((a) => a.externalId);
+          // One page per account at most (the sink is called once per internal page of each account read).
+          if (sinkPages <= windowed.length && got.activities.length + got.unusable.length + options.length < PAGE_LIMIT) weekListed = got.activities.map((a) => a.externalId);
           await insertActivities(user.id, 'snaptrade', got.activities, tx);
           await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
           await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS

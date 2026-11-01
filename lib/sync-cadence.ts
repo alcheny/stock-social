@@ -91,6 +91,14 @@ export async function writeMarks(userId: number, activities: string[], positions
 // G7: the vendor requests one trader's due reads make (an estimate for the shard runner's budget, computed with the same
 // rule as `decide`): 1 account list, then per real consented account 3 (activities, share moves, positions) when
 // activities are read, 1 when only positions are.
+/** F-24: the stored rows a read of the account from `since` returns (share BUY/SELL rows, unusable trade rows and
+ *  option rows): the widened confirm read's size estimate, used by its budget charge and by lib/reconcile.ts. */
+export const confirmRowsSql = (userId: Frag, accountId: Frag, since: Frag) => sql`(
+    (select count(*) from activities cr_x where cr_x.user_id = ${userId} and cr_x.account_id = ${accountId} and cr_x.source = 'snaptrade'
+      and cr_x.raw->>'type' in ('BUY', 'SELL') and cr_x.executed_at >= ${since})
+    + (select count(*) from corporate_actions cr_u where cr_u.user_id = ${userId} and cr_u.account_id = ${accountId} and cr_u.source = 'snaptrade'
+      and cr_u.kind = 'unpriceable' and cr_u.detail->>'reason' = 'trade' and cr_u.executed_at >= ${since})
+    + ${optionRowsSince(userId, accountId, since)})`;
 // F-24 committee (option C): an account's widened confirm read (from a day before its earliest 'confirm' row) may span
 // more than one vendor page; the extra pages are charged too: ceil(stored rows since that date / 1,000) − 1, over the
 // rows the read returns (share BUY/SELL rows, unusable trade rows and option rows; the same base as a pass's page bound).
@@ -100,11 +108,7 @@ export function dueRequestsSql(userId: Frag, t: Frag) {
   return sql`(select 1 + coalesce(sum(case when d.consent_new or (d.activities_due and d.positions_24h < ${POSITIONS_PER_DAY}) then 3
         when not d.activities_due and d.positions_own then 1 else 0 end), 0)::int
       + (select coalesce(sum(greatest(ceil((
-            (select count(*) from activities req_x where req_x.user_id = ${userId} and req_x.account_id = req_f.account_id and req_x.source = 'snaptrade'
-              and req_x.raw->>'type' in ('BUY', 'SELL') and req_x.executed_at >= req_f.since - interval '1 day')
-            + (select count(*) from corporate_actions req_u where req_u.user_id = ${userId} and req_u.account_id = req_f.account_id and req_u.source = 'snaptrade'
-              and req_u.kind = 'unpriceable' and req_u.detail->>'reason' = 'trade' and req_u.executed_at >= req_f.since - interval '1 day')
-            + ${optionRowsSince(userId, sql`req_f.account_id`, sql`req_f.since - interval '1 day'`)}
+            ${confirmRowsSql(userId, sql`req_f.account_id`, sql`req_f.since - interval '1 day'`)}
           ) / 1000.0)::int - 1, 0)), 0)::int
         from (select req_r.account_id, min(req_n.executed_at) as since from activity_reissues req_r
             join activities req_n on req_n.source = req_r.source and req_n.external_id = req_r.external_id

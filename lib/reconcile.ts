@@ -11,6 +11,8 @@ import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { DB_WIDE, TRANSPORT_CODES } from './sync-limits.ts';
 import { optionActivityCount } from './options-sync.ts';
+import { confirmRowsSql } from './sync-cadence.ts';
+import { PAGE_LIMIT } from './broker.ts';
 
 type Db = TransactionSql | typeof sql;
 // A query fragment (postgres.js), interpolated into a larger statement.
@@ -104,7 +106,7 @@ async function endPass(tx: TransactionSql, userId: number, accountId: string, t:
     reconcile_seen = null, reconcile_pages = 0, reconcile_valid = true where user_id = ${userId} and account_id = ${accountId}`;
 }
 /** A pass that ends without deciding (or is abandoned): counted per account and logged (internal id and reason only). */
-type InvalidReason = 'shifted' | 'missing' | 'bound' | 'failures' | 'confirm';
+type InvalidReason = 'shifted' | 'missing' | 'bound' | 'failures' | 'confirm' | 'busy';
 async function giveUp(tx: TransactionSql, userId: number, accountId: string, t: Frag, reason: InvalidReason) {
   await endPass(tx, userId, accountId, t);
   await countInvalid(tx, userId, accountId, reason);
@@ -240,6 +242,17 @@ export async function endConfirm(tx: TransactionSql, userId: number, accountId: 
 export async function plannedConfirm(tx: TransactionSql, userId: number, accountId: string): Promise<Date | null> {
   const from = await confirmFrom(tx, userId, accountId);
   if (!from) return null;
+  // Orchestrator review C7: a window holding a full vendor page or more would be several responses, which decide nothing
+  // (L1), so the read would be wasted and the rows would cycle confirm → suspected every pass. Such rows are suspected
+  // at once, counted with reason 'busy', and no widened read is made.
+  // ponytail: a busy account's genuine identical fill listed far from its twin stays held (counted) — fix: an end date on
+  // lib/broker.ts#fetchActivities (a two-day window around the twins fits one page) or per-page id lists (owner).
+  const [{ n: rows }] = await tx`select ${confirmRowsSql(sql`${userId}::int`, sql`${accountId}::text`, sql`${from}::timestamptz - interval '1 day'`)}::int as n`;
+  if (Number(rows) >= PAGE_LIMIT) {
+    await endConfirm(tx, userId, accountId);
+    await countInvalid(tx, userId, accountId, 'busy');
+    return null;
+  }
   const [r] = await tx`select confirm_failures as n from sync_read_marks where user_id = ${userId} and account_id = ${accountId}`;
   if (Number(r?.n ?? 0) < CONFIRM_MAX_FAILURES) return from;
   await endConfirm(tx, userId, accountId);
