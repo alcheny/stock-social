@@ -61,6 +61,9 @@ const SLOPE_MIN_GAP_MS = 15 * MIN;
 const BURN_MISMATCH = 3;             // history slope vs the sessions' burns: report a gap above this factor
 const MISMATCH_QUIET_MS = 15 * MIN;  // … unless a session started or finished this recently (the slope lags then)
 const BRACKET_WIDE = 1.25;           // calibrated cap high / low above this is reported
+// ponytail: a resetsAt more than 30 days old is taken as garbage (e.g. 0) rather than rolled onto a grid that far
+// back — the provider's windows are hours or days long, so a real reading is never that stale.
+const RESETS_AT_MAX_AGE_MS = 30 * 24 * H;
 
 // --- Plan shape ------------------------------------------------------------------------------------------------
 
@@ -85,7 +88,7 @@ export type Plan = {
   spend: { windowUsd: number };
   reserve: { totalUsd: number; lowUsd: number; highUsd: number; carriesOverUsd: number; safety: number; sessions: SessionReserve[] };
   capacity: { headroomUsd: number | null; nextWindowHeadroomUsd: number | null; admitAt: AdmitAt; admittedLowUsd: number; admittedPointUsd: number; admittedHighUsd: number };
-  resume: { ids: string[]; next: string | null; fitting: string[]; rule: string };
+  resume: { ids: string[]; next: string | null; fitting: string[]; all: string[]; rule: string };
   admit: Item[];
   queued: (Item & { reason: string; reasonCode: ReasonCode; nextAdmitAt: string | null })[];
   projection: {
@@ -146,25 +149,38 @@ function windowOf(atMs: number, anchorResetsMs: number, durMs: number): number {
 
 // --- Spend, remaining cost and cap: the exported building blocks --------------------------------------------------
 
-export type SpendSession = { costUsd: number; startedAtMs: number; lastActiveAtMs: number };
+export type SpendSession = { costUsd: number; startedAtMs: number; lastActiveAtMs: number; pausedHours?: number; windowStartCostUsd?: number | null };
 
-// Window spend: a session that started inside the window counts in full; one that started before counts pro rata.
-export function windowSpend(sessions: SpendSession[], windowStartMs: number): number {
+// Hours the session has actually worked: its active span (startedAt to lastActiveAt), or the time since it started
+// less the time it spent paused, whichever is less (a pause still running lies after lastActiveAt, one that ended
+// lies inside the span).
+// ponytail: paused time is known only when the orchestrator passes pausedHours; without it, a resumed session's pause
+// counts as active time — the provider's per-session active time would replace both.
+const activeHours = (s: SpendSession, nowMs: number) =>
+  Math.max(0, Math.min(s.lastActiveAtMs - s.startedAtMs, nowMs - s.startedAtMs - (s.pausedHours ?? 0) * H)) / H;
+
+// Window spend: a session that started inside the window counts in full; one that started before counts what it
+// spent since the window start (costUsd − windowStartCostUsd) when that is known, else pro rata over active hours.
+// Where its paused hours fell is unknown: `pauses: 'before'` puts them before the window start (the most spend in this
+// window: the safe side for admission), 'after' inside it (the least: the safe side for cap evidence).
+export function windowSpend(sessions: SpendSession[], windowStartMs: number, nowMs?: number, pauses: 'before' | 'after' = 'before'): number {
   return sum(sessions.map((s) => {
     if (s.startedAtMs >= windowStartMs) return s.costUsd;
+    if (s.windowStartCostUsd != null) return Math.min(s.costUsd, Math.max(0, s.costUsd - s.windowStartCostUsd));
     if (s.lastActiveAtMs <= windowStartMs) return 0;
-    // ponytail: pro rata assumes an even burn over the active span of a session that spans the window start — a
-    // cost reading taken at each window start would give the exact split.
-    return s.costUsd * (s.lastActiveAtMs - windowStartMs) / (s.lastActiveAtMs - s.startedAtMs);
+    // ponytail: pro rata assumes an even burn over the active hours, and puts the paused hours at one end (before
+    // the window start for admission, inside it for cap evidence) because where they fell is unknown —
+    // windowStartCostUsd from the orchestrator gives the exact split.
+    const active = activeHours(s, nowMs ?? s.lastActiveAtMs);
+    const span = (s.lastActiveAtMs - s.startedAtMs) / H;
+    // The paused hours that lie inside the active span (a pause still running lies after lastActiveAt).
+    const pausedInSpan = span - active;
+    const inside = (s.lastActiveAtMs - windowStartMs) / H - (pauses === 'after' ? pausedInSpan : 0);
+    return active <= 0 ? (pauses === 'after' ? 0 : s.costUsd) : s.costUsd * Math.min(1, Math.max(0, inside) / active);
   }));
 }
 
-export type RunningSession = SpendSession & { kind: string; phase?: string | null; recent?: { costUsd: number; atMs: number } | null; pausedHours?: number };
-
-// Hours the session has actually worked: its active span (startedAt to lastActiveAt) less the time it spent paused.
-// ponytail: paused time is known only when the orchestrator passes pausedHours; without it, a resumed session's pause
-// counts as active time — the provider's per-session active time would replace both.
-const activeHours = (s: RunningSession) => Math.max(0, (s.lastActiveAtMs - s.startedAtMs) / H - (s.pausedHours ?? 0));
+export type RunningSession = SpendSession & { kind: string; phase?: string | null; recent?: { costUsd: number; atMs: number } | null };
 export type Remaining = { priorUsd: Range | null; burnUsdPerHour: number; projectedBurnUsdPerHour: number; remainingHours: number; remaining: Range; basis: 'prior' | 'burn' | 'floor' };
 
 export function priorFor(kind: string, phase: string | null | undefined, priors: Readonly<Record<string, Prior>> = DEFAULT_PRIORS): Prior {
@@ -177,7 +193,7 @@ function burnRate(s: RunningSession, nowMs: number): number {
   if (recentUsable(s, nowMs)) return (s.costUsd - s.recent!.costUsd) / ((nowMs - s.recent!.atMs) / H);
   // ponytail: without a recent reading the burn is the lifetime average, which lags a session that just sped up or
   // went idle (and understates the orchestrator while it drives many sessions) — pass `recent` for every session.
-  return s.costUsd / Math.max(MIN_ACTIVE_HOURS, activeHours(s));
+  return s.costUsd / Math.max(MIN_ACTIVE_HOURS, activeHours(s, nowMs));
 }
 
 // Remaining cost of a running session, three times (low/point/high prior): max(prior − spent, burn × hours, floor).
@@ -188,7 +204,7 @@ export function remainingCost(s: RunningSession, nowMs: number, resetsAtMs: numb
   const p = priorFor(s.kind, s.phase, priors);
   const burn = burnRate(s, nowMs);
   // Age is active age: idle and paused time does not move a session through its typical hours.
-  const ageHours = activeHours(s);
+  const ageHours = activeHours(s, nowMs);
   const toReset = Math.max(0, (resetsAtMs - nowMs) / H);
   // The orchestrator runs until reset (looking ahead at most the lookahead); a session past its typical hours is
   // expected to need half as long again as its overrun so far (at least the tail); the reserve splits it at the reset.
@@ -221,7 +237,8 @@ function inWindowPart(r: Range, hours: number | null, hoursToReset: number | nul
   return hoursToReset === null || hours === null || hours <= 0 || hours <= hoursToReset ? r : scale(r, Math.max(0, hoursToReset) / hours);
 }
 
-export type Reading = { atMs: number; totalCostUsd: number; status: string | null; resetsAtMs: number };
+// `own` marks the snapshot's own status reading: it ranks after every history reading at the same time.
+export type Reading = { atMs: number; totalCostUsd: number; status: string | null; resetsAtMs: number; own?: boolean };
 type CapOptions = { capUsd?: number | null; warnFraction: number; currentResetsAtMs: number };
 
 const ref = (r: Reading): ReadingRef => ({ at: iso(r.atMs), spendUsd: cents(r.totalCostUsd), status: r.status ?? '', resetsAt: iso(r.resetsAtMs) });
@@ -233,9 +250,11 @@ const describe = (r: Reading) => `${r.status === 'rejected' ? 'a rejected' : 'th
 // turned allowed_warning (and spend the orchestrator cannot see, like a person's own sessions, makes it low) — a
 // percent-used or remaining-tokens figure from the provider would replace this estimate.
 export function estimateCap(readings: Reading[], o: CapOptions, onIssue: (code: string, detail: string) => void = () => {}): Cap {
-  // Readings at the same time are ordered allowed, allowed_warning, rejected, then by spend, so input order never matters.
+  // Readings at the same time: the snapshot's own last, the rest ordered allowed, allowed_warning, rejected, then by
+  // spend, so input order never matters.
   const severity = (st: string | null) => (st === 'rejected' ? 3 : st === 'allowed_warning' ? 2 : st === 'allowed' ? 1 : 0);
-  const sorted = readings.map((r) => ({ ...r })).sort((a, b) => a.atMs - b.atMs || severity(a.status) - severity(b.status) || a.totalCostUsd - b.totalCostUsd);
+  const sorted = readings.map((r) => ({ ...r })).sort((a, b) => a.atMs - b.atMs || Number(!!a.own) - Number(!!b.own)
+    || severity(a.status) - severity(b.status) || a.totalCostUsd - b.totalCostUsd);
   const wf = o.warnFraction;
   const cur = o.currentResetsAtMs;
   let lowerBoundUsd = sorted.reduce((m, r) => (r.status === 'allowed' && r.resetsAtMs === cur ? Math.max(m, r.totalCostUsd / wf) : m), 0);
@@ -247,7 +266,8 @@ export function estimateCap(readings: Reading[], o: CapOptions, onIssue: (code: 
   const allowedBefore = (x: Reading) => sorted.filter((r) => r.status === 'allowed' && r.resetsAtMs === x.resetsAtMs && r.atMs < x.atMs).pop();
   // A rejection followed in its window by a non-rejected reading at the same spend or more has cleared (the provider's
   // window rolls), so it no longer caps anything.
-  const clearedRejections = sorted.filter((r) => r.status === 'rejected' && sorted.some((x) => x.resetsAtMs === r.resetsAtMs && x.atMs > r.atMs
+  // "Followed" is by sorted position, so the snapshot's own reading follows a history reading at the same second.
+  const clearedRejections = sorted.filter((r, i) => r.status === 'rejected' && sorted.some((x, j) => x.resetsAtMs === r.resetsAtMs && j > i
     && (x.status === 'allowed' || x.status === 'allowed_warning') && x.totalCostUsd >= r.totalCostUsd - EPS));
   if (clearedRejections.length) {
     onIssue('rejection-cleared', `${clearedRejections.length} rejected reading(s) followed by allowed spend at or above them no longer cap the window`);
@@ -286,10 +306,11 @@ export function estimateCap(readings: Reading[], o: CapOptions, onIssue: (code: 
   // above that spend) caps it instead; a disproved calibration stays dropped in later windows.
   const srcSeen = seenIn(sourceWindow);
   if (srcSeen && srcSeen.totalCostUsd > high + EPS) {
-    const later = sorted.find((r) => r.status === 'rejected' && r.resetsAtMs === sourceWindow && r.atMs > srcSeen.atMs && r.totalCostUsd >= srcSeen.totalCostUsd - EPS);
+    const at = sorted.indexOf(srcSeen);
+    const later = sorted.find((r, i) => r.status === 'rejected' && r.resetsAtMs === sourceWindow && i > at && r.totalCostUsd >= srcSeen.totalCostUsd - EPS);
     if (!later) {
       onIssue('cap-disproved', `${usd(srcSeen.totalCostUsd)} was spent ${sourceWindow === cur ? 'this window' : 'in the window it was calibrated in'} without a rejection (${iso(srcSeen.atMs)}), above the high end ${usd(high)} that ${describe(top)} gave; the cap is unknown until a new warning`);
-      return { ...unknown, lowerBoundUsd: Math.max(lowerBoundUsd, seenIn(cur)?.totalCostUsd ?? 0) };
+      return { ...unknown, lowerBoundUsd: Math.max(lowerBoundUsd, srcSeen.totalCostUsd) };
     }
     const before = allowedBefore(later);
     high = later.totalCostUsd;
@@ -300,16 +321,23 @@ export function estimateCap(readings: Reading[], o: CapOptions, onIssue: (code: 
   }
   low = Math.max(low, Math.min(high, srcSeen?.totalCostUsd ?? 0));
 
-  // A calibration from an older window must agree with this window's readings.
-  if (sourceWindow < cur && lowerBoundUsd > high + EPS) {
-    onIssue('cap-stale', `the cap calibrated in an older window (high ${usd(high)}) is disproved by this window's allowed readings (above ${usd(lowerBoundUsd)}); treated as unknown until a new warning`);
-    return unknown;
+  // A calibration from an older window must agree with every later window held in history, this one included: an
+  // allowed reading at A there proves the cap above A / warnFraction. (Later windows hold no warning or rejection, or
+  // one of them would be the source, so their highest non-rejected spend is an allowed A ≤ A / warnFraction.)
+  const laterWindows = [...new Set(sorted.filter((r) => r.resetsAtMs > sourceWindow && r.resetsAtMs <= cur).map((r) => r.resetsAtMs))].sort((a, b) => a - b);
+  for (const w of laterWindows) {
+    const lb = sorted.reduce((m, r) => (r.status === 'allowed' && r.resetsAtMs === w ? Math.max(m, r.totalCostUsd / wf) : m), 0);
+    if (lb > high + EPS) {
+      onIssue('cap-stale', `the cap calibrated in an older window (high ${usd(high)}) is disproved by ${w === cur ? "this window's" : `the window to ${iso(w)}'s`} allowed readings (above ${usd(lb)}); treated as unknown until a new warning`);
+      return unknown;
+    }
   }
   if (sourceWindow < cur && lowerBoundUsd > low + EPS) {
     onIssue('cap-raised', `this window's allowed readings prove the cap is above ${usd(lowerBoundUsd)}; the low end of the older calibration (${usd(low)}) is raised`);
     low = lowerBoundUsd;
   }
-  // No separate current-window seen check: if cur is the source, the check above ran; otherwise cur holds only allowed readings, so lowerBoundUsd >= seen and cap-stale/cap-raised cover it.
+  // No separate current-window seen check: if cur is the source, the check above ran; otherwise cur holds only allowed
+  // readings, so lowerBoundUsd ≥ seen and the later-window check and cap-raised cover it.
   const highBy = describe(top);
   if (lowerBoundUsd > high + EPS) {
     if (rejectedUsed && top === rejectedUsed) {
@@ -338,7 +366,8 @@ function show(v: unknown): string {
 }
 
 type Config = { capUsd: number | null; warnFraction: number; safety: number; admitAt: AdmitAt; orchestratorLookaheadHours: number; priors: Record<string, Prior> };
-type Session = RunningSession & { id: string; kind: Kind; phase: string | null; priority: number; done: boolean; paused: boolean };
+// startKnown / lastActiveKnown: the time was given and valid (not defaulted or clamped to now).
+type Session = RunningSession & { id: string; kind: Kind; phase: string | null; priority: number; done: boolean; paused: boolean; startKnown: boolean; lastActiveKnown: boolean };
 type QueueItem = { id: string; kind: Kind; phase: string | null; priority: number; estimate: Range };
 
 // A money field: reported when it was a string (accepted) or invalid (error, counted as 0 / ignored).
@@ -443,12 +472,12 @@ function normConfig(c: Ctx, raw: unknown): Config {
   return cfg;
 }
 
-// A time that may not be missing or in the future: clamped to now, with an issue.
-function pastTime(c: Ctx, v: unknown, where: string, missingCode: string): number {
+// A time that may not be missing or in the future: clamped to now, with an issue (`known` false then).
+function pastTime(c: Ctx, v: unknown, where: string, missingCode: string): { ms: number; known: boolean } {
   const ms = parseTime(v);
-  if (ms === null) { warn(c, missingCode, `${where} missing or invalid; now used`); return c.nowMs; }
-  if (ms > c.nowMs) { warn(c, 'future-time', `${where} ${iso(ms)} is after now; clamped to now`); return c.nowMs; }
-  return ms;
+  if (ms === null) { warn(c, missingCode, `${where} missing or invalid; now used`); return { ms: c.nowMs, known: false }; }
+  if (ms > c.nowMs) { warn(c, 'future-time', `${where} ${iso(ms)} is after now; clamped to now`); return { ms: c.nowMs, known: false }; }
+  return { ms, known: true };
 }
 
 function normSession(c: Ctx, raw: unknown, i: number): (Session & { generatedId: boolean }) | null {
@@ -460,8 +489,10 @@ function normSession(c: Ctx, raw: unknown, i: number): (Session & { generatedId:
   const cost = money(c, raw.costUsd, `${where}: costUsd`, 'bad-cost');
   if (cost === undefined && (raw.costUsd === undefined || raw.costUsd === null)) warn(c, 'bad-cost', `${where}: costUsd missing; counted as 0`);
   const costUsd = cost ?? 0;
-  const startedAtMs = pastTime(c, raw.startedAt, `${where}: startedAt`, 'no-start');
-  let lastActiveAtMs = pastTime(c, raw.lastActiveAt, `${where}: lastActiveAt`, 'no-last-active');
+  const start = pastTime(c, raw.startedAt, `${where}: startedAt`, 'no-start');
+  const last = pastTime(c, raw.lastActiveAt, `${where}: lastActiveAt`, 'no-last-active');
+  const startedAtMs = start.ms;
+  let lastActiveAtMs = last.ms;
   if (lastActiveAtMs < startedAtMs) {
     warn(c, 'active-before-start', `${where}: lastActiveAt is before startedAt; startedAt used`);
     lastActiveAtMs = startedAtMs;
@@ -480,12 +511,22 @@ function normSession(c: Ctx, raw: unknown, i: number): (Session & { generatedId:
   const { kind, phase } = normKindPhase(c, raw.kind, raw.phase, where);
   let pausedHours = 0;
   if (raw.pausedHours !== undefined && raw.pausedHours !== null) {
-    if (isHours(raw.pausedHours)) pausedHours = Math.min(raw.pausedHours, (lastActiveAtMs - startedAtMs) / H);
-    else warn(c, 'bad-paused-hours', `${where}: pausedHours ${show(raw.pausedHours)} is not a number of hours; 0 used`);
+    const since = (c.nowMs - startedAtMs) / H;
+    if (!isHours(raw.pausedHours)) warn(c, 'bad-paused-hours', `${where}: pausedHours ${show(raw.pausedHours)} is not a number of hours; 0 used`);
+    else if (raw.pausedHours > since + EPS) {
+      warn(c, 'paused-hours-above-span', `${where}: pausedHours ${raw.pausedHours} is more than the ${cents(since)}h since it started; clamped`);
+      pausedHours = since;
+    } else pausedHours = raw.pausedHours;
+  }
+  let windowStartCostUsd: number | null = money(c, raw.windowStartCostUsd, `${where}: windowStartCostUsd`, 'bad-window-start-cost') ?? null;
+  if (windowStartCostUsd !== null && windowStartCostUsd > costUsd + EPS) {
+    warn(c, 'window-start-above-cost', `${where}: windowStartCostUsd ${usd(windowStartCostUsd)} is above the cost ${usd(costUsd)}; nothing counted in this window`);
+    windowStartCostUsd = costUsd;
   }
   return {
     id, generatedId, kind, phase, priority: normPriority(c, raw.priority, where), costUsd, startedAtMs, lastActiveAtMs,
     done: normFlag(c, raw.done, `${where}: done`, 'bad-done', false), paused: normFlag(c, raw.paused, `${where}: paused`, 'bad-paused', false), recent, pausedHours,
+    windowStartCostUsd, startKnown: start.known, lastActiveKnown: last.known && lastActiveAtMs === last.ms,
   };
 }
 
@@ -573,14 +614,18 @@ function normWindow(c: Ctx, raw: unknown): Window {
   const { status, recased } = normStatus(w.status);
   if (recased) warn(c, 'status-case', `window.status ${show(w.status)} read as ${status}`);
   const parsed = parseTime(w.resetsAt);
-  const resetsAtMs = parsed === null ? null : seconds(parsed);
+  let resetsAtMs = parsed === null ? null : seconds(parsed);
+  if (resetsAtMs !== null && (resetsAtMs <= 0 || resetsAtMs < c.nowMs - RESETS_AT_MAX_AGE_MS)) {
+    error(c, 'resets-at-implausible', `window.resetsAt ${iso(resetsAtMs)} is at or before 1970 or more than 30 days before now; treated as missing, nothing is admitted until it is known`);
+    resetsAtMs = null;
+  }
   const rolledOver = resetsAtMs !== null && resetsAtMs - durMs <= c.nowMs && c.nowMs >= resetsAtMs;
   // Fail safe: an unreadable overage flag counts as overage (a brake), unless the window rolled over (no effect then).
   const overage = normFlag(c, w.isUsingOverage, 'window.isUsingOverage', 'bad-overage', true, rolledOver ? 'warn' : 'error');
   const base = { type, durMs, rolledOver: false, status, isUsingOverage: overage };
 
   if (resetsAtMs === null) {
-    if (isW) error(c, 'no-resets-at', 'window.resetsAt missing or invalid; nothing is admitted until it is known');
+    if (isW && parsed === null) error(c, 'no-resets-at', 'window.resetsAt missing or invalid; nothing is admitted until it is known');
     return { ...base, resetsAtMs: c.nowMs + durMs, spendFromMs: -Infinity, assumed: true, bad: true };
   }
   if (resetsAtMs - durMs > c.nowMs) {
@@ -607,7 +652,12 @@ function normHistory(c: Ctx, raw: unknown, win: Window): Reading[] {
   for (const r of raw) {
     if (!isObj(r)) { bad++; continue; }
     if (r.windowKnown !== undefined && r.windowKnown !== true && r.windowKnown !== false) quirks++;
-    if (r.windowKnown === false || r.windowKnown === 'false' || (Object.hasOwn(r, 'resetsAt') && r.resetsAt === null)) { noWindow++; continue; }
+    if (r.windowKnown === false || r.windowKnown === 'false' || (Object.hasOwn(r, 'resetsAt') && r.resetsAt === null)) {
+      // Reported only while recent: older ones are left over from an earlier blind start (prune them).
+      const at = parseTime(r.at);
+      if (at !== null && at >= c.nowMs - win.durMs) noWindow++;
+      continue;
+    }
     if (r.type !== undefined && r.type !== win.type) { otherType++; continue; }
     const at = parseTime(r.at);
     const m = readMoney(r.totalCostUsd);
@@ -700,7 +750,8 @@ function admission(queue: Item[], runningIds: Set<string>, brake: Brake, cap: Ca
       warn(c, 'bootstrap', `no window, no running session and no history: ${item.id} is admitted alone to obtain a rate-limit reading`);
       admit.push(item);
     } else if (brake !== 'none') {
-      queued.push({ ...item, reason: `brake ${brake}: nothing is admitted until it clears`, reasonCode: 'brake', nextAdmitAt: waitUntil });
+      const reason = bootstrap && admit.length ? `brake ${brake}: bootstrap: one item admitted to obtain a reading; the rest wait until it clears` : `brake ${brake}: nothing is admitted until it clears`;
+      queued.push({ ...item, reason, reasonCode: 'brake', nextAdmitAt: waitUntil });
     } else if (stopper !== null) {
       queued.push({ ...item, reason: `behind ${stopper} (strict priority order)`, reasonCode: 'behind', nextAdmitAt: waitUntil });
     } else if (!cap.known || (need <= left + EPS && (carry <= EPS || carry <= nextLeft + EPS))) {
@@ -763,10 +814,13 @@ function projectionOf(cap: Cap, spend: number, reserves: SessionReserve[], admit
 // Fill: what the window would leave unused at reset if everything goes to plan, and how many items of one kind
 // that buys: limited by this window (each item's part before the reset) and by the next (its part after).
 function fillOf(cap: Cap, spend: number, reserves: SessionReserve[], admit: Item[], brake: Brake, hoursToReset: number | null,
-  priors: Record<string, Prior>, stopper: Item | null, headroom: number | null): Plan['fill'] {
+  priors: Record<string, Prior>, stopper: Item | null, headroom: number | null, bootstrap = false): Plan['fill'] {
   const none = { suggestions: [] as FillSuggestion[], suggestedKinds: [] as string[], blockedBy: null as string | null };
   const unused = cap.known ? cap.point! - spend - sum(reserves.map((s) => s.inWindow.point)) - sum(admit.map((a) => a.inWindow.point)) : null;
-  if (brake !== 'none') return { ...none, expectedUnusedUsd: unused, recommendAdmitUsd: 0, message: `brake ${brake}: no new work until it clears` };
+  if (brake !== 'none') {
+    return { ...none, expectedUnusedUsd: unused, recommendAdmitUsd: 0,
+      message: bootstrap && admit.length ? `brake ${brake}: bootstrap: one item admitted to obtain a reading; no more new work until it clears` : `brake ${brake}: no new work until it clears` };
+  }
   if (unused === null) return { ...none, expectedUnusedUsd: null, recommendAdmitUsd: null, message: 'cap unknown: everything queued is admitted while status is allowed or allowed_warning; nothing to estimate yet' };
   if (stopper) {
     return { ...none, blockedBy: stopper.id, expectedUnusedUsd: unused, recommendAdmitUsd: 0,
@@ -815,12 +869,22 @@ function pauseOf(brake: Brake, win: Window, running: Session[], reserves: Sessio
   const nothingRunning = !active.some((r) => r.kind !== 'orchestrator');
   const now = spend + sum(active.map((r) => r.inWindow.point));
   const next = sum(active.map((r) => r.carriesOverUsd));
-  const fits = (id: string) => {
+  const fitsWith = (id: string, nowUsd: number, nextUsd: number) => {
     const r = reserves.find((x) => x.id === id)!;
-    return now + r.inWindow.point <= cap.high! + EPS && (r.carriesOverUsd <= EPS || next + r.carriesOverUsd <= cap.high! + EPS);
+    return nowUsd + r.inWindow.point <= cap.high! + EPS && (r.carriesOverUsd <= EPS || nextUsd + r.carriesOverUsd <= cap.high! + EPS);
   };
-  const fitting = !cap.known || nothingRunning ? ids : ids.filter(fits);
+  const fitting = !cap.known || nothingRunning ? ids : ids.filter((id) => fitsWith(id, now, next));
   const resumeNext = fitting[0] ?? null;
+  // The paused sessions that fit together, greedily in order (with nothing else running, the first always).
+  const all: string[] = [];
+  let nowAll = now, nextAll = next;
+  for (const id of fitting) {
+    if (cap.known && !(nothingRunning && !all.length) && !fitsWith(id, nowAll, nextAll)) continue;
+    const r = reserves.find((x) => x.id === id)!;
+    all.push(id);
+    nowAll += r.inWindow.point;
+    nextAll += r.carriesOverUsd;
+  }
   const until = win.status === 'rejected' && win.isUsingOverage ? 'status allowed or allowed_warning and isUsingOverage false'
     : brake === 'rejected' ? 'status allowed or allowed_warning' : 'isUsingOverage false';
   const rule = stall ? `pause the listed sessions in order, one per tick, until the brake is none (${until}); the orchestrator is never paused`
@@ -830,8 +894,8 @@ function pauseOf(brake: Brake, win: Window, running: Session[], reserves: Sessio
       : null;
   return {
     pause: { stallRisk: stall || runningFits === false, reason, rule, needed: recommend.length > 0, next: recommend[0] ?? null, recommend },
-    resume: { ids, next: resumeNext, fitting,
-      rule: ids.length ? 'resume the listed sessions one per tick: next is the first that fits under the cap, in both windows, with the work actually running (with nothing but the orchestrator running, the first); resuming while running work is over the cap changes nothing in the plan, since paused reserves are already charged' : 'nothing to resume' },
+    resume: { ids, next: resumeNext, fitting, all,
+      rule: ids.length ? 'resume resume.all now (or next one per tick if you prefer): all is the paused sessions that fit together, next the first that fits alone, under the cap in both windows with the work actually running (with the cap unknown or nothing but the orchestrator running, the first always); resuming while running work is over the cap changes nothing in the plan, since paused reserves are already charged' : 'nothing to resume' },
   };
 }
 
@@ -854,10 +918,11 @@ function summaryOf(p: Omit<Plan, 'summary'>, runningOverUsd: number | null): str
   }
   const ids = p.admit.map((a) => a.id);
   const parts = [`Admit ${ids.length} of ${ids.length + p.queued.length} queued${ids.length ? ` (${firstThree(ids)})` : ''}`];
-  if (p.resume.next) parts.push(`resume ${p.resume.next} now`);
+  if (p.resume.all.length) parts.push(`resume ${firstThree(p.resume.all)} now`);
   else if (p.resume.ids.length) parts.push(`holding ${p.resume.ids.length} paused`);
   parts.push(money, `overshoot ${p.projection.overshoot.risk}`);
   if (runningOverUsd !== null) parts.push(`running work over cap by ${usd(runningOverUsd)}`);
+  if (p.projection.overshoot.nextWindowFits === false) parts.push('next window over cap');
   const unused = p.fill.recommendAdmitUsd ?? 0;
   const reached = p.cap.known && p.spend.windowUsd >= p.cap.high! - EPS;
   const hit = p.projection.capHitAt;
@@ -923,14 +988,21 @@ export function plan(snapshot: unknown): Plan {
 
   // ponytail: spend the orchestrator cannot see (a person's own sessions on the same account) is missing, so the
   // window's history readings are a floor on it — a provider-reported window total would replace both.
-  const fromSessions = windowSpend(sessions, win.spendFromMs);
+  // A windowStartCostUsd names the window the snapshot reported; after a rollover it is the old window's.
+  const spendSessions = win.rolledOver ? sessions.map((s) => ({ ...s, windowStartCostUsd: null })) : sessions;
+  const fromSessions = windowSpend(spendSessions, win.spendFromMs, c.nowMs);
   const fromHistory = maxOf(history.filter((h) => h.resetsAtMs === win.resetsAtMs).map((h) => h.totalCostUsd), 0);
   if (fromHistory > fromSessions + 0.005) warn(c, 'history-above-spend', `history shows ${usd(fromHistory)} spent this window, more than the sessions' ${usd(fromSessions)}; the larger used`);
   const spend = Math.max(fromSessions, fromHistory);
+  // Cap evidence (the snapshot's own reading, and the historyEntry that becomes a later reading) uses the spend the
+  // sessions prove, with paused hours placed inside the window: an overstated reading would raise the calibrated cap
+  // or disprove a right one. The two differ only for a session that spans the window start with paused hours and
+  // no windowStartCostUsd.
+  const provenSpend = Math.max(windowSpend(spendSessions, win.spendFromMs, c.nowMs, 'after'), fromHistory);
 
   // The snapshot's own status is a reading only for a usable window it was read in (not stale, not invented).
   const statusReading = !win.bad && !win.rolledOver ? win.status : null;
-  const readings = statusReading ? [...history, { atMs: nowMs, totalCostUsd: spend, status: statusReading, resetsAtMs: win.resetsAtMs }] : history;
+  const readings = statusReading ? [...history, { atMs: nowMs, totalCostUsd: provenSpend, status: statusReading, resetsAtMs: win.resetsAtMs, own: true }] : history;
   const cap = estimateCap(readings, { capUsd: cfg.capUsd, warnFraction: cfg.warnFraction, currentResetsAtMs: win.resetsAtMs }, (code, detail) => warn(c, code, detail));
 
   const running = sessions.filter((s) => !s.done);
@@ -943,7 +1015,14 @@ export function plan(snapshot: unknown): Plan {
   }
   const nextHeadroom = cap.known ? cap.high! - sum(reserves.map((s) => s.carriesOverUsd)) : null;
   const brake = chooseBrake(win, parsedNow !== null);
-  const bootstrap = brake === 'bad-window' && win.assumed && running.length === 0 && !(Array.isArray(snap.history) && snap.history.length);
+  // Cold start: no window at all, no child session running (the orchestrator does not count) and no history entry
+  // that holds a reading (entries written without a window, or without a status, do not).
+  const reading = (h: unknown) => isObj(h) && h.windowKnown !== false && h.windowKnown !== 'false' && h.status != null && !(Object.hasOwn(h, 'resetsAt') && h.resetsAt === null);
+  const bootstrap = brake === 'bad-window' && win.assumed && !running.some((s) => s.kind !== 'orchestrator')
+    && !(Array.isArray(snap.history) && snap.history.some(reading));
+  if (bootstrap) {
+    for (const i of c.issues) i.detail = i.detail.replace('nothing is admitted until it is known', 'only one bootstrap item is admitted until it is known');
+  }
   const { admit, queued, stopper } = admission(queue, new Set(running.map((s) => s.id)), brake, cap, headroom, nextHeadroom, cfg.admitAt, win, c, bootstrap);
 
   // The projected burn is the running (not paused) sessions' own; the history slope is reported beside it.
@@ -951,7 +1030,8 @@ export function plan(snapshot: unknown): Plan {
   const historyBurn = historySlope(history, spend, win, nowMs);
   if (historyBurn !== null) {
     const [hi, lo] = historyBurn > burn ? [historyBurn, burn] : [burn, historyBurn];
-    const churn = sessions.some((s) => s.startedAtMs >= nowMs - MISMATCH_QUIET_MS || (s.done && s.lastActiveAtMs >= nowMs - MISMATCH_QUIET_MS));
+    // Only times that were given count: a missing one defaults to now and would look like a fresh start or finish.
+    const churn = sessions.some((s) => (s.startKnown && s.startedAtMs >= nowMs - MISMATCH_QUIET_MS) || (s.done && s.lastActiveKnown && s.lastActiveAtMs >= nowMs - MISMATCH_QUIET_MS));
     if (hi > 0 && hi > BURN_MISMATCH * lo && !churn) {
       warn(c, 'burn-mismatch', `history burn ${usd(historyBurn)}/h and the running sessions' projected ${usd(burn)}/h differ by over ${BURN_MISMATCH}x (information only: the projection uses the sessions' burn, paused sessions excluded; `
         + (historyBurn > burn ? 'sessions that just finished, or spend outside the listed sessions)' : 'lifetime averages overstate the current burn, or history readings are missing)'));
@@ -969,11 +1049,11 @@ export function plan(snapshot: unknown): Plan {
     reserve: { totalUsd: reserve('point'), lowUsd: reserve('low'), highUsd: reserve('high'), carriesOverUsd: sum(reserves.map((s) => s.carriesOverUsd)), safety: cfg.safety, sessions: reserves },
     capacity: { headroomUsd: headroom, nextWindowHeadroomUsd: nextHeadroom, admitAt: cfg.admitAt, admittedLowUsd: sumAdmit('low'), admittedPointUsd: sumAdmit('point'), admittedHighUsd: sumAdmit('high') },
     resume, admit, queued, projection,
-    fill: fillOf(cap, spend, reserves, admit, brake, hoursToReset, cfg.priors, queue.find((q) => q.id === stopper) ?? null, headroom),
+    fill: fillOf(cap, spend, reserves, admit, brake, hoursToReset, cfg.priors, queue.find((q) => q.id === stopper) ?? null, headroom, bootstrap),
     pause,
     issues: c.issues,
     // A plan without a usable window writes no status or window, so it can never count or calibrate later.
-    historyEntry: { at: iso(nowMs)!, totalCostUsd: cents(spend), status: win.bad ? null : statusReading, resetsAt: win.bad ? null : iso(win.resetsAtMs), type: win.type, windowKnown: !win.bad },
+    historyEntry: { at: iso(nowMs)!, totalCostUsd: cents(provenSpend), status: win.bad ? null : statusReading, resetsAt: win.bad ? null : iso(win.resetsAtMs), type: win.type, windowKnown: !win.bad },
   };
   const out = finiteOnly(rounded(body), 'plan', c.issues);
   // Keep `summary` second in the printed JSON, after `version` and `now`.
