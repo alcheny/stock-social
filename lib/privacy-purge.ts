@@ -72,8 +72,8 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
           where not exists (select 1 from closed_trades c where c.trade_key = x.trade_key)
             and (select 1 from privacy_orphans o where o.kind = 'reject' and o.viewer_id = x.viewer_id and o.trade_key = x.trade_key limit 1) is null
           limit ${batch} on conflict do nothing`).count],
-        ['likes', () => removeDue(conn, 'like', now, batch)],
-        ['rejects', () => removeDue(conn, 'reject', now, batch)],
+        ['likes', () => removeDue(conn, 'like', now, batch, () => timeLeft(conn, wallEnd))],
+        ['rejects', () => removeDue(conn, 'reject', now, batch, () => timeLeft(conn, wallEnd))],
       ];
       const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' ? k : 'orphans');
       for (const [key, step] of steps) {
@@ -118,11 +118,15 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
 // ponytail: the clearing step walks orphan rows each tick until it finds a batch (linear in privacy_orphans, an index
 // probe or three per row) — keep a resume cursor, or unmark orphans from the rebuild when a trade returns.
 const PLAN_SAFE = ['enable_seqscan', 'enable_hashjoin', 'enable_mergejoin', 'enable_material'];
+// The statement timeout, set to the time left in the box before each statement of a batch (orchestrator review: one
+// timeout for a multi-statement batch let it overrun up to its statement count times).
+const timeLeft = (conn: ReserveSql, wallEnd: number) =>
+  conn`select set_config('statement_timeout', ${String(Math.max(50, wallEnd - Date.now()))}, true)`.then(() => undefined);
 async function indexOnly(conn: ReserveSql, step: () => Promise<number>, wallEnd: number): Promise<number | null> {
   await conn`begin`;
   try {
     for (const g of PLAN_SAFE) await conn`select set_config(${g}, 'off', true)`;
-    await conn`select set_config('statement_timeout', ${String(Math.max(50, wallEnd - Date.now()))}, true)`;
+    await timeLeft(conn, wallEnd);
     const n = await step();
     await conn`commit`;
     return n;
@@ -137,12 +141,13 @@ async function indexOnly(conn: ReserveSql, step: () => Promise<number>, wallEnd:
 // then those marks. Each row is found by one primary-key probe per key (a scalar subquery with LIMIT 1, which the planner
 // cannot turn into a join over the whole table) and deleted by row address (ctid = any(array(...)), a TID scan): no plan
 // choice can rescan a table per row. A mark whose trade came back is left to the clearing step.
-async function removeDue(conn: ReserveSql, kind: 'like' | 'reject', now: Date, batch: number): Promise<number> {
+async function removeDue(conn: ReserveSql, kind: 'like' | 'reject', now: Date, batch: number, renew: () => Promise<void>): Promise<number> {
   const due = await conn`select viewer_id, trade_key from privacy_orphans
     where kind = ${kind} and first_seen_at < ${now}::timestamptz - ${ORPHAN_GRACE_DAYS} * interval '1 day'
     order by first_seen_at limit ${batch}`;
   if (!due.length) return 0;
   const vs = due.map((d) => d.viewer_id as number), ts = due.map((d) => d.trade_key as string);
+  await renew();
   const gone = kind === 'like'
     ? await conn`delete from trade_likes l where l.ctid = any(array(
           select (select y.ctid from trade_likes y where y.viewer_id = k.v and y.trade_key = k.t limit 1) from unnest(${vs}::int[], ${ts}::text[]) as k(v, t)))
@@ -153,6 +158,7 @@ async function removeDue(conn: ReserveSql, kind: 'like' | 'reject', now: Date, b
         and not exists (select 1 from closed_trades c where c.trade_key = x.trade_key)
         returning x.viewer_id, x.trade_key`;
   if (!gone.length) return 0;
+  await renew();
   return (await conn`delete from privacy_orphans where ctid = any(array(
       select (select o.ctid from privacy_orphans o where o.kind = ${kind} and o.viewer_id = k.v and o.trade_key = k.t limit 1)
       from unnest(${gone.map((g) => g.viewer_id as number)}::int[], ${gone.map((g) => g.trade_key as string)}::text[]) as k(v, t)))`).count;

@@ -36,6 +36,14 @@ test('further sitemaps: a database error fails the request at run time and lists
   assert.match(src, /props: \{ id: Promise<string> \}/, 'Next.js 16: the id arrives as a promise');
 });
 
+test('every sitemap read of closed_trades uses the visible-user predicate (fix #4, lib/visible-users.ts)', () => {
+  const src = readFileSync(new URL('./sitemaps.ts', import.meta.url), 'utf8');
+  const reads = [...src.matchAll(/sql`([^`]*)`/g)].map((m) => m[1]).filter((q) => /\bfrom closed_trades\b/.test(q));
+  assert.ok(reads.length >= 1);
+  for (const q of reads) assert.match(q, /\$\{visibleUserIds\(\)\}/, q);
+  assert.doesNotMatch(readFileSync(new URL('../app/sitemap.ts', import.meta.url), 'utf8'), /from closed_trades/, 'app/sitemap.ts reads through lib/sitemaps.ts');
+});
+
 test('robots.txt lists every sitemap and falls back to /sitemap.xml alone', () => {
   const src = readFileSync(new URL('../app/robots.ts', import.meta.url), 'utf8');
   assert.match(src, /sitemap: sitemapUrls\(/);
