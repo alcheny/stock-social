@@ -1,6 +1,6 @@
 # F-29 · Gated options wording that is true for every record
 
-Status: ready
+Status: building
 Start conditions: met. `claude/fix-truthful-labels` merged in #85, F-20 merged in #77, and the AI legal committee
 signed the interim words at approval council cycle 5 (Decisions, 2026-11-01, re-approval). It rides the pane/strip
 build slot with F-21 and F-34 (one builder owns the pane's line order); its first commit rebases on F-23 (#97) if #97
