@@ -171,12 +171,16 @@ finds those rows:
   re-issue is never published twice:
   - `pending`: held until a read decides it. A week read that finds one and cannot decide it brings the account's next
     pass forward (never an account whose pass ran in that sync: an ended or given-up pass waits its period);
-  - `genuine`: ONE vendor response (one pass page, or one week read) listed the row and every twin of it that is not
-    itself held, so the vendor shows as many fills as are kept (a week read only inside its window, a day clear of its
-    time-zone boundary). Never the union of a pass's pages: they are days apart, so it could hold an original from
-    before its re-issue and the re-issue from after. Twins sorted by date are neighbours and the 50-row overlap puts
-    neighbours on one page, so genuine twins are still found. The row is kept and published. Final;
-  - `confirm`: a complete pass listed the row and every unheld twin, but never on one page. The account's next daily
+  - `genuine`: ONE vendor response (one pass page, one week read, one import page) decides by count. Per twin group, k
+    is the group's rows that response listed and p the group's rows not held (listed or not); at most k − p of the
+    group's listed held rows are cleared, the oldest stored first, so the record keeps as many fills as the vendor lists
+    (a re-issued original, never listed again, cannot hide a genuine late twin). A week read decides only inside its
+    window, a day clear of its time-zone boundary. Never the union of a pass's pages: they are days apart, so it could
+    hold an original from before its re-issue and the re-issue from after. A `fetchActivities` call that returned a
+    full vendor page (1,000 rows) or more is several responses (it pages internally with no overlap), so it decides
+    nothing. ponytail: per-page id lists from `lib/broker.ts` (owner) would let each internal page decide. The row is
+    kept and published. Final;
+  - `confirm`: a complete pass listed enough of the group's rows to clear it by the same count, but never on one page. The account's next daily
     activities read (inside F-14's budget) is widened to a day before the row's trade date: one call, a superset of the
     week read. It makes the row genuine when it lists both, otherwise suspected (the one week read that can suspect).
     Two failed syncs in a row that were to make it give it up (rows suspected, reason `confirm`, the week read). Held;

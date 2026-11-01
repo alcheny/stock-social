@@ -143,11 +143,22 @@ reviewer; 3 planning rounds, all signed):
     other's rows as its own, in the twin check and in the import count. The import concurrency test caught it.
   - Since #85 split the trade page's figures and note into two sections, the AC7 checks cover both.
 
+- **Third review (BLOCK on 61898e3, M1):**
+  - M1: one response now clears held twins by count (at most k − p per twin group, oldest first), so a re-issued
+    original can't hide a genuine late twin. Tests: RA1, RA2.
+  - L1: a `fetchActivities` call of a full vendor page or more decides nothing. Test: RB.
+  - L2: the widened read's budget counts every row kind. Test: RC.
+  - L3: a static test pins "no savepoint around these inserts" (the `xmin` rule depends on it).
+  - Nit: the retention text names the failure counters.
+
 ## Owner items
 - Confirm that held rows (pending or suspected) are kept out of the record and counted for the owner only, so a held
   genuine fill can be absent until its pass decides it (D5's trade-off). See the owner queries in `docs/SYNC.md`.
 - AC6 is built for share rows: a re-issued option close can show twice until you decide to hold option twins too.
-- The symbol-less row limit needs a `lib/broker.ts` change (raw vendor ids per page).
+- The symbol-less row limit, the widened read's page overlap and per-page id lists for multi-page reads (L1: such a read
+  decides nothing today) need a `lib/broker.ts` change.
+- For an old confirm date, the widened read is in effect a whole-history read in one sync: the burst the pass's pacing
+  avoids while MR-1 (the vendor's answer on history pages) is open.
 - CLAUDE.md "Sync paths" (protected) could mention the weekly full-history pass.
 - A true re-issue whose original the vendor still lists in one read is published twice (D5's own "lists both" rule)
   until the corrections question (cycle-3 Q3) is decided.

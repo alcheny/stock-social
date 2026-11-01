@@ -164,3 +164,18 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
   questions are recorded in the feature file.
 - **F3, nit:** the `!last` whole-history read now checks twins page by page.
 
+## Orchestrator third review of #84 (61898e3: BLOCK on M1) — taken
+- **M1, medium:** a held genuine fill stayed hidden forever when its unheld original was re-issued (never listed by id
+  again). Fix: one response clears by count. Per twin group, at most k − p of its listed held rows are cleared, where k
+  is the rows listed and p the unheld rows, oldest first. The same rule decides `confirm`. QA D1 and R1 still hold.
+  Tests: RA1, RA2.
+- **L1:** a `fetchActivities` call is several vendor pages with no overlap, so a call of 1,000 rows or more decides
+  nothing. Its widened confirm rows become suspected, and the next pass re-examines them. Test: RB. Ponytail and owner
+  item: per-page id lists from `lib/broker.ts`.
+- **L2:** the widened read's budget charge counts listable share rows, unusable trade rows and option rows, the same
+  base as the pass's page bound. Test: RC.
+- **L3:** "stored by this transaction" relies on no insert running inside a savepoint. A static invariant test pins it.
+- **Nit:** the `sync_read_marks` retention text names the new failure counters.
+- **Owner flag:** for an old confirm date, the widened read is in effect a whole-history read in one sync, the burst the
+  pass's pacing avoids while MR-1 is open.
+
