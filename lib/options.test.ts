@@ -113,61 +113,98 @@ function reference(rows: OptionRow[], asOf: Date): RefOut {
       && list.some((y) => (y.kind === 'BUY' || y.kind === 'SELL') && dayOf(y) === dayOf(x))).map(dayOf));
     const unlabelled = (x: OptionRow) => (x.kind === 'BUY' || x.kind === 'SELL') && !x.openClose;
     const racing = (x: OptionRow) => unlabelled(x) && list.some((y) => unlabelled(y) && y.kind !== x.kind && when(y) === when(x));
-    let pos = 0;
-    let costs: { c: number; at: Date }[] = [];
-    let dirty = false;
-    for (const x of list) {
+    // F4-2 review: the walk runs on a state and reports through `put`, so a fuzzy day can be tried in two readings.
+    type Unit = { c: number; at: Date; v: boolean };
+    type St = { pos: number; costs: Unit[]; dirty: boolean };
+    type Shown = { r: number; at: Date; v: boolean };
+    type Put = (id: string, l: Label, shown?: Shown) => void;
+    const walk = (x: OptionRow, st: St, put: Put, forced: boolean) => {
       const q = Math.abs(x.units ?? 0);
       const fee = Math.abs(x.fee ?? 0);
-      const set = (l: Label) => labels.set(x.externalId, l);
-      const spoil = (l: Label, after: number) => { set(l); pos = after; costs = []; dirty = pos !== 0; };
-      if (!dirty && pos === 0 && racing(x) && !fuzzy.has(dayOf(x))) { pos += x.kind === 'BUY' ? q : -q; set('open'); costs = []; dirty = pos !== 0; continue; }
-      if (dirty || fuzzy.has(dayOf(x))) {
+      const set = (l: Label, shown?: Shown) => put(x.externalId, l, shown);
+      const spoil = (l: Label, after: number) => { set(l); st.pos = after; st.costs = []; st.dirty = st.pos !== 0; };
+      const show = (used: Unit[], value: number) => set('shown', { r: value, at: new Date(Math.min(...used.map((u) => u.at.getTime()))), v: x.verified && used.every((u) => u.v) });
+      if (!st.dirty && !forced && st.pos === 0 && racing(x)) { st.pos += x.kind === 'BUY' ? q : -q; set('open'); st.costs = []; st.dirty = st.pos !== 0; return; }
+      if (st.dirty || forced) {
         // Unknown basis until flat: buys add, sells subtract, events close toward zero.
-        if (x.kind === 'BUY') pos += q; else if (x.kind === 'SELL') pos -= q;
-        else { const k = Math.min(q || Math.abs(pos), Math.abs(pos)); pos += pos > 0 ? -k : k; }
+        if (x.kind === 'BUY') st.pos += q; else if (x.kind === 'SELL') st.pos -= q;
+        else { const k = Math.min(q || Math.abs(st.pos), Math.abs(st.pos)); st.pos += st.pos > 0 ? -k : k; }
         set(x.kind === 'OPTIONASSIGNMENT' ? 'short' : x.openClose === 'BUY_TO_OPEN' || x.openClose === 'SELL_TO_OPEN' ? 'open' : 'contradict');
-        costs = [];
-        dirty = pos !== 0;
-        continue;
+        st.costs = [];
+        st.dirty = st.pos !== 0;
+        return;
       }
+      const pos = st.pos;
       if (x.kind === 'BUY') {
         const opening = x.openClose ? x.openClose === 'BUY_TO_OPEN' : pos >= 0;
         if (x.openClose && x.openClose !== 'BUY_TO_OPEN' && x.openClose !== 'BUY_TO_CLOSE') spoil('contradict', pos + q);
         else if (opening) {
           if (pos < 0) spoil('contradict', pos + q);
-          else { for (let i = 0; i < q; i++) costs.push({ c: x.price! * m + fee / q, at: x.executedAt! }); pos += q; set('open'); }
+          else { for (let i = 0; i < q; i++) st.costs.push({ c: x.price! * m + fee / q, at: x.executedAt!, v: x.verified }); st.pos += q; set('open'); }
         } else if (pos === 0) set('noOpen');
         else if (pos > 0) spoil('contradict', pos + q);
         else if (q > -pos) spoil('flip', pos + q);
-        else { pos += q; set('short'); }
+        else { st.pos += q; set('short'); }
       } else if (x.kind === 'SELL') {
         const opening = x.openClose ? x.openClose === 'SELL_TO_OPEN' : pos <= 0;
         if (x.openClose && x.openClose !== 'SELL_TO_OPEN' && x.openClose !== 'SELL_TO_CLOSE') spoil('contradict', pos - q);
-        else if (opening) { if (pos > 0) spoil('contradict', pos - q); else { pos -= q; set('open'); } }
+        else if (opening) { if (pos > 0) spoil('contradict', pos - q); else { st.pos -= q; set('open'); } }
         else if (pos === 0) set('noOpen');
         else if (pos < 0) spoil('contradict', pos - q);
         else if (q > pos) spoil('flip', pos - q);
         else {
-          const used = costs.splice(0, q), basis = used.reduce((a, u) => a + u.c, 0);
-          pos -= q;
-          if (bad) set(bad); else { set('shown'); returns.set(x.externalId, (q * x.price! * m - fee - basis) / basis); }
+          const used = st.costs.splice(0, q), basis = used.reduce((a, u) => a + u.c, 0);
+          st.pos -= q;
+          if (bad) set(bad); else show(used, (q * x.price! * m - fee - basis) / basis);
         }
       } else if (x.kind === 'OPTIONEXPIRATION') {
         if (pos > 0) {
           const k = Math.min(q || pos, pos);
-          const used = costs.splice(0, k), basis = used.reduce((a, u) => a + u.c, 0);
-          pos -= k;
-          if (x.amount) set('expiryCash'); else if (bad) set(bad); else { set('shown'); returns.set(x.externalId, (-fee - basis) / basis); }
-        } else if (pos < 0) { pos += Math.min(q || -pos, -pos); set('short'); } else set('noOpen');
+          const used = st.costs.splice(0, k), basis = used.reduce((a, u) => a + u.c, 0);
+          st.pos -= k;
+          if (x.amount) set('expiryCash'); else if (bad) set(bad); else show(used, (-fee - basis) / basis);
+        } else if (pos < 0) { st.pos += Math.min(q || -pos, -pos); set('short'); } else set('noOpen');
       } else if (x.kind === 'OPTIONEXERCISE') {
-        if (pos > 0) { const k = Math.min(q || pos, pos); costs.splice(0, k); pos -= k; set('exercise'); }
+        if (pos > 0) { const k = Math.min(q || pos, pos); st.costs.splice(0, k); st.pos -= k; set('exercise'); }
         else if (pos < 0) spoil('contradict', pos); else set('noOpen');
       } else {
         if (pos > 0) spoil('contradict', pos);
-        else { set('short'); if (pos < 0) pos += Math.min(q || -pos, -pos); }
+        else { set('short'); if (pos < 0) st.pos += Math.min(q || -pos, -pos); }
       }
+    };
+    const record: Put = (id, l, shown) => { labels.set(id, l); if (shown) returns.set(id, shown.r); };
+    const st: St = { pos: 0, costs: [], dirty: false };
+    // F4-2 review (finding 2): a fuzzy day is tried with its stamped exercises and assignments just before the day's first
+    // close and just after its last. Same result for every row, and no close meeting a flat position or going past it:
+    // the day is walked (early reading). Otherwise, or already dirty: every row of the day takes the unknown-basis walk.
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+    for (let i = 0; i < list.length;) {
+      const d = dayOf(list[i]);
+      if (!fuzzy.has(d)) { walk(list[i++], st, record, false); continue; }
+      const day = list.filter((x) => dayOf(x) === d);
+      i += day.length;
+      if (st.dirty) { for (const x of day) walk(x, st, record, true); continue; }
+      const stamped = (x: OptionRow) => (x.kind === 'OPTIONEXERCISE' || x.kind === 'OPTIONASSIGNMENT') && x.executedAt!.getTime() % DAY !== 0;
+      const evs = day.filter(stamped), others = day.filter((x) => !stamped(x));
+      const closes = others.map((x, k) => (x.openClose === 'BUY_TO_OPEN' || x.openClose === 'SELL_TO_OPEN' ? -1 : k)).filter((k) => k >= 0);
+      if (!closes.length) { for (const x of [...others, ...evs]) walk(x, st, record, false); continue; }
+      const lo = closes[0], hi = closes[closes.length - 1] + 1;
+      const early = [...others.slice(0, lo), ...evs, ...others.slice(lo)];
+      const late = [...others.slice(0, hi), ...evs, ...others.slice(hi)];
+      const trial = (seq: OptionRow[]) => {
+        const s: St = { pos: st.pos, dirty: st.dirty, costs: st.costs.map((u) => ({ ...u })) };
+        const got = new Map<string, { l: Label; shown?: Shown }>();
+        for (const x of seq) walk(x, s, (id, l, shown) => got.set(id, { l, shown }), false);
+        const off = s.dirty || [...got.values()].some((g) => g.l === 'noOpen' || g.l === 'flip' || g.l === 'contradict');
+        return { s, got, off };
+      };
+      const A = trial(early), B = trial(late);
+      const same = !A.off && !B.off && A.s.pos === B.s.pos && A.s.costs.length === B.s.costs.length
+        && A.s.costs.every((u, k) => near(u.c, B.s.costs[k].c) && u.at.getTime() === B.s.costs[k].at.getTime() && u.v === B.s.costs[k].v)
+        && [...A.got].every(([id, g]) => { const h = B.got.get(id); return !!h && h.l === g.l && (!g.shown || (!!h.shown && near(g.shown.r, h.shown.r) && g.shown.at.getTime() === h.shown.at.getTime() && g.shown.v === h.shown.v)); });
+      for (const x of same ? early : day) walk(x, st, record, !same);
     }
+    const { pos, dirty } = st;
     if (!dirty && pos > 0 && Math.floor((asOf.getTime() - Date.parse(`${list[0].expiry}T00:00:00Z`)) / DAY) > 5) dangling++;
   }
   return { labels, returns, dangling };
@@ -417,23 +454,47 @@ test('F4-2 inferred side: an unlabelled buy and sell at one instant on a flat ne
   assert.deepEqual(only([row('1', 'BUY', null), row('2', 'SELL', null, { price: 2 })]), { shown: 1 });
 });
 
-test('F4-2 exercise or assignment with an hour on a day the contract trades: that day\'s closes are counted (contradict), tainted until flat', () => {
+test('F4-2 exercise or assignment with an hour on a day the contract trades: that day\'s closes are counted (contradict) when the two readings differ or a close meets a flat position, tainted until flat', () => {
   const at = (iso: string) => new Date(iso);
-  const open2 = row('1', 'BUY', 'BUY_TO_OPEN', { units: 2, executedAt: at('2026-11-10T15:00:00Z') });
+  // Two lots at different costs: with the exercise before the sell, the sell closes the 3.00 lot (-33%); after it, the
+  // 1.00 lot (+100%). The exercise's 14:00Z may be the vendor's stamp, so neither close of that day is ordered on it.
+  const lots = [row('1', 'BUY', 'BUY_TO_OPEN', { price: 1, executedAt: at('2026-11-10T15:00:00Z') }), row('5', 'BUY', 'BUY_TO_OPEN', { price: 3, executedAt: at('2026-11-11T15:00:00Z') })];
   const sell = row('2', 'SELL', 'SELL_TO_CLOSE', { price: 2, executedAt: at('2026-11-14T15:00:00Z') });
-  // The exercise's 14:00Z may be the vendor's stamp, not the event's: neither close of that day is ordered on it.
-  assert.deepEqual(only([open2, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T14:00:00Z') })]), { shown: 0, contradict: 2 });
-  assert.deepEqual(only([open2, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T16:00:00Z') })]), { shown: 0, contradict: 2 });
+  assert.deepEqual(only([...lots, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T14:00:00Z') })]), { shown: 0, contradict: 2 });
+  assert.deepEqual(only([...lots, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T16:00:00Z') })]), { shown: 0, contradict: 2 });
+  // Open 2 (one lot), sell 1 and exercise 1 on that day: both readings close the same 1.00 lot, so the sell gives +100%
+  // either way and is shown (finding 2: counting it would let the day of an exercise hide a figure). Before the review
+  // fix this case was { shown: 0, contradict: 2 }.
+  const open2 = row('1', 'BUY', 'BUY_TO_OPEN', { units: 2, executedAt: at('2026-11-10T15:00:00Z') });
+  assert.deepEqual(only([open2, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T14:00:00Z') })]), { shown: 1, exercise: 1 });
+  assert.deepEqual(only([open2, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T16:00:00Z') })]), { shown: 1, exercise: 1 });
+  // One contract held: with the exercise first, the sell would meet a flat position.
+  const open1 = row('1', 'BUY', 'BUY_TO_OPEN', { executedAt: at('2026-11-10T15:00:00Z') });
+  assert.deepEqual(only([open1, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T16:00:00Z') })]), { shown: 0, contradict: 2 });
   // Date-only (00:00:00Z): it orders at the end of its day, as before.
-  assert.deepEqual(only([open2, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T00:00:00Z') })]), { shown: 1, exercise: 1 });
+  assert.deepEqual(only([...lots, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-14T00:00:00Z') })]), { shown: 1, exercise: 1 });
   // On a day with no trade of the contract: ordered on its stamp, as before.
-  assert.deepEqual(only([open2, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-13T14:00:00Z') })]), { shown: 1, exercise: 1 });
-  // Net left open after that day: tainted until flat, so the next close is counted too.
-  const open3 = { ...open2, units: 3 };
-  assert.deepEqual(only([open3, sell, row('3', 'OPTIONEXERCISE', null, { units: 1, executedAt: at('2026-11-14T14:00:00Z') }), row('4', 'SELL', 'SELL_TO_CLOSE', { price: 2, executedAt: at('2026-11-16T15:00:00Z') })]), { shown: 0, contradict: 3 });
-  // An assignment on such a day stays short (D4); the day's buy-to-close is counted under contradict.
-  const short2 = row('1', 'SELL', 'SELL_TO_OPEN', { units: 2, executedAt: at('2026-11-10T15:00:00Z') });
-  assert.deepEqual(only([short2, row('2', 'BUY', 'BUY_TO_CLOSE', { executedAt: at('2026-11-14T15:00:00Z') }), row('3', 'OPTIONASSIGNMENT', null, { executedAt: at('2026-11-14T13:00:00Z') })]), { shown: 0, short: 1, contradict: 1 });
+  assert.deepEqual(only([...lots, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at('2026-11-13T14:00:00Z') })]), { shown: 1, exercise: 1 });
+  // Net left open after a counted day: tainted until flat, so the next close is counted too.
+  const lots3 = [lots[0], { ...lots[1], units: 2 }];
+  assert.deepEqual(only([...lots3, sell, row('3', 'OPTIONEXERCISE', null, { units: 1, executedAt: at('2026-11-14T14:00:00Z') }), row('4', 'SELL', 'SELL_TO_CLOSE', { price: 2, executedAt: at('2026-11-16T15:00:00Z') })]), { shown: 0, contradict: 3 });
+  // An assignment on such a day stays short (D4); the buy-to-close that would meet a flat position is counted under contradict.
+  const short1 = row('1', 'SELL', 'SELL_TO_OPEN', { executedAt: at('2026-11-10T15:00:00Z') });
+  assert.deepEqual(only([short1, row('2', 'BUY', 'BUY_TO_CLOSE', { executedAt: at('2026-11-14T15:00:00Z') }), row('3', 'OPTIONASSIGNMENT', null, { executedAt: at('2026-11-14T13:00:00Z') })]), { shown: 0, short: 1, contradict: 1 });
+});
+
+test('F4-2 review (finding 2): an exercise cannot hide a loss by its day: buy 10 at 5.00, sell 9 at 2.00 and exercise 1 on one day shows the -60% close, as on another day', () => {
+  const at = (iso: string) => new Date(iso);
+  const buy = row('1', 'BUY', 'BUY_TO_OPEN', { units: 10, price: 5, executedAt: at('2026-11-10T15:00:00Z') });
+  const sell = row('2', 'SELL', 'SELL_TO_CLOSE', { units: 9, price: 2, executedAt: at('2026-11-14T15:00:00Z') });
+  for (const stamp of ['2026-11-13T14:00:00Z', '2026-11-14T14:00:00Z', '2026-11-14T16:00:00Z', '2026-11-14T00:00:00Z']) {
+    const m = matchOptions([buy, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at(stamp) })], new Date('2026-11-30'));
+    assert.deepEqual(m.trades.map((t) => [t.closeId, Math.round(t.returnPct * 1e9) / 1e9]), [['2', -0.6]], stamp);
+    assert.deepEqual(only([buy, sell, row('3', 'OPTIONEXERCISE', null, { executedAt: at(stamp) })]), { shown: 1, exercise: 1 }, stamp);
+  }
+  // Same for an assignment of a short lot: both readings give the same short counts, so nothing moves to contradict.
+  const sto = row('1', 'SELL', 'SELL_TO_OPEN', { units: 2, executedAt: at('2026-11-10T15:00:00Z') });
+  assert.deepEqual(only([sto, row('2', 'BUY', 'BUY_TO_CLOSE', { executedAt: at('2026-11-14T15:00:00Z') }), row('3', 'OPTIONASSIGNMENT', null, { executedAt: at('2026-11-14T13:00:00Z') })]), { shown: 0, short: 2 });
 });
 
 test('F4-2 an assignment dated before expiry keeps its order: a later trade of the same contract opens and closes normally', () => {
