@@ -68,7 +68,7 @@ Traders never pay and never see a price.
 ## Testing
 All gates were run locally on the merged branch (main at the sharded-CI merge):
 - `npx tsc --noEmit`: clean.
-- `npm test`: 737 tests, 725 pass, 0 fail, 12 skipped (all pre-existing skips). New: `lib/billing.test.ts` (24) and
+- `npm test`: 737 tests, 725 pass, 0 fail, 12 skipped (all pre-existing skips). New: `lib/billing.test.ts` (22) and
   `lib/record-tools.test.ts` (10). They cover:
   - every lifecycle event (created, trial ending, renewed, payment failed, past due with grace, canceled at period end,
     resumed, refunded partial and full, disputed and won);
