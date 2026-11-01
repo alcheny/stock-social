@@ -14,7 +14,7 @@ The product work the Privacy Policy depends on (the legal committee's privacy fi
      - `?error=closed` shows a focused alert.
      - `/connect` says it isn't open, right under the heading, and keeps only the profile, settings or sign-in links.
      - Consent offers only "Don't import".
-   - While closed, nobody can rename onto a listed handle. In a production build with dev auth on, a handle alone never passes.
+   - While closed, nobody can rename onto a listed handle. A production build with dev sign-in on lets no one connect, and its dev form creates no new accounts (existing handles still sign in).
 2. **Policy-accuracy tests (CI):**
    - `COOKIE_TABLE` (`lib/privacy-cookies.ts`): a scanner fails on any cookie write not in the table, a row nothing sets, or a lifetime longer than the row says.
    - `PUBLIC_FIELDS` / `PRIVATE_FIELDS` (`lib/privacy-fields.ts`): the consent line must equal the text built from these lists, and every column of the public record tables must be classified.
@@ -28,7 +28,7 @@ The product work the Privacy Policy depends on (the legal committee's privacy fi
    - `logSafe` (`lib/privacy-log.ts`) keeps only an error's class, status and code.
    - It is used in `lib/sync.ts`, `app/t/[symbol]/Watch.tsx`, `app/api/sync/route.ts` and `app/auth/email/route.ts`.
    - `lib/privacy-logs.test.ts` scans every console call in server code: any method, bracket access, aliases, and `JSON.stringify` of object literals with each entry checked. Before the fix it was red on `sync.ts` and the sync route.
-5. **Purges on the tick** (`lib/privacy-purge.ts`, after the traders are synced, boxed by the time left):
+5. **Purges on the tick** (`lib/privacy-purge.ts`, a fixed 5 s slot before the sync plus time left after it):
    - expired sessions;
    - unused sign-in links;
    - unfinished sign-ups older than 30 days, with their funnel steps, links and signed-out connections;
@@ -36,11 +36,11 @@ The product work the Privacy Policy depends on (the legal committee's privacy fi
 6. **Append-only display log** (`display_log`, `lib/display-log.ts`):
    - One row per public record per UTC day: headline, 95% range, closed-trade count, open-position summary, evidence line. Percent only, from the profile's own functions.
    - A trigger refuses every update and direct delete. Rows go only with the account (the users cascade).
-   - `displayedOn(user, day)` returns the latest row on or before the day, with `gap` set when that row is older than the day asked for.
+   - `displayedOn(user, day)` returns the latest row on or before the day, with `gap` set when that row is older than the day asked for, and `asOf` (when the row was taken, UTC).
 
 ## Decisions taken by the committee
 
-The full record is at `docs/features/logs/privacy/committee-2026-11-01.md`: D1–D16 from planning, D17–D24 from review. The main ones:
+The full record is at `docs/features/logs/privacy/committee-2026-11-01.md`: D1–D16 from planning, D17–D24 from review, D25–D28 from the orchestrator's review. The main ones:
 - **D1:** an email allowlist, so the owner can create an account while closed.
 - **D2:** the sandbox fails closed.
 - **D5:** no account enumeration. The link is sent for any address; the refusal comes only after it is used.
@@ -49,6 +49,8 @@ The full record is at `docs/features/logs/privacy/committee-2026-11-01.md`: D1�
 - **D13/D19:** the privacy stages run after the sync, with their own lock `(41,0)`.
 - **D14:** the display-log trigger.
 - **D17:** account deletion keeps F-1's anonymous funnel rows (tested in `lib/delete.test.ts`) and now blanks vendor ids on them. Changing F-1's decision is the owner's call.
+- **D25:** closed means no connection on a production build with dev sign-in, and the dev form creates accounts only while sign-up is open.
+- **D26/D27:** a fixed privacy slot before the sync; the display log reports when each row was taken (`asOf`).
 - **D24:** what Next.js logs for an uncaught error is outside the scanner's scope. `onRequestError` filtering is left to the security-hardening session.
 
 Test changes: three existing tests changed to follow the new behavior.
@@ -69,7 +71,7 @@ Shared files, additive edits:
 
 All run locally against Postgres:
 - `npx tsc --noEmit`: clean.
-- `npm test`: 733 tests, 721 pass, 0 fail, 12 skipped. The base had 687 tests, so the count went up.
+- `npm test`: 742 tests, 730 pass, 0 fail, 12 skipped. The base had 687 tests, so the count went up.
 - `node scripts/autopilot.ts guard origin/main`: ok.
 - `BASE_REF=main node scripts/compliance.ts auto`: one finding, in `node_modules/@img/sharp-wasm32` (an optional dependency's license). The untouched base branch shows the same finding in this container, so it comes from the local install, not this change.
 - `npm run build`: ok.
@@ -96,7 +98,7 @@ User tests at 360×640, light and dark, on a closed-gate server and a sandbox se
 6. **Sign-up, age, identity?** Yes: the launch gate closes real sign-up until the owner opens it (P6). The 18+ attestation is unchanged and every path keeps it.
 7. **Vendors, dependencies?** None added. `package.json` is untouched by this PR.
 8. **Accessibility:** closed notices use `role="status"`, and the refusals use a focused `role="alert"`. Controls are at least 44 px. No horizontal scroll at 360 px.
-9. **Security:** the gate is checked before any vendor call. Allowlists are env only. In production with dev auth on, a handle alone can't pass. Allowlisted handles can't be taken by a rename. The tick's report carries list sizes only.
+9. **Security:** the gate is checked before any vendor call. Allowlists are env only. While closed, a production build with dev sign-in on lets no one connect. Allowlisted handles can't be taken by a rename. The tick's report carries list sizes only.
 10. **Claims?** The closed copy gives no date and makes no promise.
 11. **Checkout?** No.
 
