@@ -1,7 +1,7 @@
 // Pure layout model for the month recap share card (fix round 6, POLICY F3). The image draws exactly these lines, in
 // this order, each on one line (no wrapping; ellipsis as a backstop), so the card's height is fixed by the font sizes
 // and the disclaimer always fits. The label's size shrinks with its length so the longest month label stays on one line.
-import { imageTrust, type RecordState } from './copy.ts';
+import { imageTrust, isPublicRecord, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { pct } from './trades.ts';
 
@@ -36,7 +36,7 @@ export function monthCard(r: MonthCardInput) {
   // The incomplete line takes the evidence line's place, as on the profile card.
   if (trust.note) bottom.push({ role: 'note', text: trust.note, size: 26, warn: trust.tone === 'warn', muted: trust.tone !== 'warn' });
   else bottom.push({ role: 'evidence', text: w.range ? `${w.evidence} ${w.range}` : w.evidence || 'Too early to tell', size: 26, muted: true });
-  if (trust.stats && w.newRecord) bottom.push({ role: 'new', text: 'New record · short record, wide uncertainty', size: 26, muted: true });
+  if (trust.stats && w.newRecord && !isPublicRecord(r.state)) bottom.push({ role: 'new', text: 'New record · short record, wide uncertainty', size: 26, muted: true });
   return { header: { label: trust.label, tone: trust.tone }, top, bottom, disclaimer: { role: 'disclaimer', text: DISCLAIMER, size: 22, muted: true } as CardLine };
 }
 

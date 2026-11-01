@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { FeedPage } from '@/lib/feed.ts';
 import { feedPaneChart } from '@/lib/chart-series.ts';
-import { FEED } from '@/lib/copy.ts';
+import { FEED, isPublicRecord } from '@/lib/copy.ts';
 import { ProfilePane } from './pane.tsx';
 import { TradeCard, type TradeRow } from './ui.tsx';
 import { SuggestSection } from './suggest-section.tsx';
@@ -40,7 +40,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)}
-            menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
+            menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} likeable={!isPublicRecord(page.records.get(t.user_id)?.state ?? 'none')} /> : undefined} />
           {paneOf(t)}
         </div>
       ),

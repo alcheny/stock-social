@@ -31,7 +31,7 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
   try {
     const symbol = decodeSymbolParam((await params).symbol);
     if (!symbol) return neutral('Stock Social', 'Verified trades by stock', 'Stock Social · verified trading records');
-    const found = (await sql`select user_id, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where symbol = ${symbol}`) as unknown as
+    const found = (await sql`select user_id, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where symbol = ${symbol} and filing_url is null`) as unknown as
       { user_id: number; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean }[];
     if (!found.length) return neutral(symbol, 'No verified trades yet', 'Stock Social · verified trading records');
     const rows: TickerRow[] = found.map((r) => ({ userId: r.user_id, returnPct: r.return_pct, holdingDays: r.holding_days, openedAt: r.opened_at, closedAt: r.closed_at, verified: r.verified }));

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db.ts';
 import { records } from '@/lib/feed.ts';
 import { recordStates } from '@/lib/connections.ts';
+import { filerVisibleSql } from '@/lib/public-gate.ts';
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
 // (app/lazy-pane.tsx), so the profile no longer renders three other traders' records. Public like the profile (signed
@@ -12,7 +13,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   // Reviewer (tester Low): a handle outside the signup pattern (a NUL byte made Postgres throw, a 500) is a 404 before any query.
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const no = () => NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
-  const [user] = await sql`select id from users where handle = ${handle} and deleted_at is null`;
+  const [user] = await sql`select id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
   if (!user) return no();
   // F-6: the trader's open positions (unrealized percent only), served for a connected or failed record only, as on the feed.
   const [rows, states, positions] = await Promise.all([records([user.id as number]), recordStates([user.id as number]),

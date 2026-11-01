@@ -20,9 +20,14 @@ export async function traderId(handle: unknown): Promise<number | null> {
 
 // `first`: this viewer has never been shown the privacy line (a flag on the viewer, set once: fix round 1, tester
 // Low 3; an empty list after unfollowing everyone does not bring it back).
+// F-7 (legal C16): a public-record filer can't be followed; `followable` lets the action refuse it, and the insert
+// itself skips one.
+export async function followable(trader: number): Promise<boolean> {
+  return (await sql`select 1 from users where id = ${trader} and public_filer_id is null`).length > 0;
+}
 export async function follow(viewer: number, trader: number): Promise<{ first: boolean }> {
   return sql.begin(async (tx) => {
-    await tx`insert into follows (viewer_id, trader_id) values (${viewer}, ${trader}) on conflict do nothing`;
+    await tx`insert into follows (viewer_id, trader_id) select ${viewer}, ${trader} where not exists (select 1 from users where id = ${trader} and public_filer_id is not null) on conflict do nothing`;
     await endExclusion(viewer, trader, tx);
     const seen = await tx`update users set follow_notice_at = now() where id = ${viewer} and follow_notice_at is null returning 1`;
     return { first: seen.length > 0 };

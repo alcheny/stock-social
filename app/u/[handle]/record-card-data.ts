@@ -4,11 +4,12 @@
 import { sql } from '@/lib/db.ts';
 import { publicRecord } from '@/lib/connections.ts';
 import { isDemoUser } from '@/lib/demo.ts';
+import { filerVisibleSql } from '@/lib/public-gate.ts';
 import { cardLink, recordCard, type CardKind, type CardModel } from '@/lib/record-card.ts';
 
 export async function loadRecordCard(handle: string, kind: CardKind): Promise<CardModel | null> {
   if (typeof handle !== 'string' || !handle) return null;
-  const [user] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;
+  const [user] = await sql`select id, display_name from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
   if (!user) return null; // no card for an unknown handle or a profile being deleted (the profile itself is 404 too)
   const rows = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${user.id}`;
   const [{ state }, demo] = await Promise.all([publicRecord(Number(user.id)), isDemoUser(Number(user.id))]);

@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
+import { isPublicRecord, PUBLIC, wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
+import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
@@ -52,7 +53,9 @@ export default async function RecapPage({ params }: Params) {
       <p>
         <Link href={`/u/${handle}`}>← @{handle}&apos;s full record</Link>{' '}
         {r.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
+        {isPublicRecord(r.state) && <Badge kind={r.state} />}
       </p>
+      {isPublicRecord(r.state) && <PublicNotice />}
       <h1>{m.label} {m.monthSoFar && <span className="muted small">month so far</span>}</h1>
       {m.monthSoFar && <p className="muted small">Not a complete month. Trades close through today.</p>}
       <div className="trade-grid">
@@ -101,9 +104,9 @@ export default async function RecapPage({ params }: Params) {
       </ol>
       <TradeShare isOwner={false} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
-      <p className="muted small">Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</p>
+      <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : <>Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</>}</p>
       <p><Link href={`/u/${handle}`}>See their record, wins and losses →</Link></p>
-      {!me && !r.demo && <JoinCta handle={handle} via="month" />}
+      {!me && !r.demo && !isPublicRecord(r.state) && <JoinCta handle={handle} via="month" />}
       <p><Link href="/">← Feed</Link></p>
     </main>
   );

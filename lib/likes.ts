@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { sql } from './db.ts';
 import type { Signal } from './discovery/weights.ts';
-import { unfollowsFor } from './follows.ts';
+import { followable, unfollowsFor } from './follows.ts';
 
 export const tradeKey = (sellId: string) => createHash('sha256').update(sellId, 'utf8').digest('hex');
 export const LIKES_PAGE = 50;
@@ -20,6 +20,7 @@ async function close(viewer: number, id: unknown): Promise<{ key: string; trader
 
 export async function like(viewer: number, id: unknown): Promise<boolean> {
   const c = await close(viewer, id);
+  if (c && !(await followable(c.trader))) return false; // F-7 (C16): no Like on a public-record trade
   if (c) await sql`insert into trade_likes (viewer_id, trade_key, trader_id) values (${viewer}, ${c.key}, ${c.trader}) on conflict do nothing`;
   return !!c;
 }

@@ -454,3 +454,10 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
+
+/* ---- F-7 public-record traders: the "Public filing" badge (text on surface, accent ring), the top block, filing links. */
+.badge.public { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+.public-top { margin: 0 0 12px; }
+.public-top p, .public-line { margin: 4px 0; overflow-wrap: anywhere; }
+.filing-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; }
+.filing-links { display: flex; flex-wrap: wrap; column-gap: 16px; margin: 0; }

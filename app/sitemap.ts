@@ -12,7 +12,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       select symbol, max(closed_at) as last_closed_at,
              count(*) filter (where verified) as verified_trades,
              count(distinct user_id) filter (where verified) as verified_traders
-      from closed_trades group by symbol order by symbol limit 5000`) as unknown as
+      from closed_trades where filing_url is null -- F-7: public filings stay off stock pages
+      group by symbol order by symbol limit 5000`) as unknown as
       { symbol: string; last_closed_at: Date; verified_trades: string | number; verified_traders: string | number }[];
     const mapped: SitemapRow[] = rows.slice(0, SITEMAP_LIMIT).map((r) => ({
       symbol: r.symbol, lastClosedAt: new Date(r.last_closed_at),
