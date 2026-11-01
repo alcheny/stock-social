@@ -1,7 +1,6 @@
 # F-18 · One trust language: one Verified, one Demo, no completeness words
 
-Status: blocked
-Blocked: waits for F-20, F-10, F-11, F-12, F-13 and fixes #1, #2, #8, #9, #10 (approval council cycle 2 fixes list)
+Status: draft
 Start conditions: F-20 (design tokens and contrast test) lands first in the shared `app/globals.css` slot. F-10, F-11,
 F-12 and F-13 merge, and fixes #1, #2, #8, #9 and #10 merge.
 
@@ -63,6 +62,11 @@ the idea board rules on D25 and D27.
   #9 and #10 merge, and duplicates none of those fixes. If F-10..F-13 and those fixes have not merged by the next
   approval council, this approval lapses to that council. Why: approved by the approval council (cycle 2); RT, DK,
   CS, EN (veto condition: DK, LG, CS).
+
+- 2026-11-01: Lapsed at approval council cycle 3: F-20, F-11, F-13 and fixes #1, #2 and #10 had not merged. It was
+  voted again and not re-approved (after-debate mean 3.13, below the cut; `docs/ideas/approval-2026-11-01-cycle3.md`). The file and its decisions are kept;
+  it returns to the next council once F-20 and its other prerequisites merge. Its false-label parts are on the fixes
+  lists (cycle-2 fixes #1, #8, #10). Why: approval council cycle 3; lapse rule; BL, PF, CS (it would sit idle).
 
 ## Acceptance criteria
 - [ ] A test fails on any Verified or Demo label, icon or colour defined outside `TRUST_LOOK` / `lib/copy.ts` in `app/`

@@ -1,6 +1,6 @@
 # F-4 · Share card: simple first, the eye-catching elements
 
-Status: rework
+Status: built
 
 ## Why
 The share card (the image a profile link unfurls into, also used by the one-click Share button) is
@@ -188,3 +188,4 @@ Each one testable; the pipeline writes a test for every line.
 - 2026-10-26: Built to these decisions (record card for the unfurl and the Share button picture, 5-bet floor, ±10-point threshold, trust-line table); details, test results and open items in `docs/features/logs/F-4/build-engineer.md`.
 - 2026-11-01: Rebuilt to the decisions of 2026-10-31 and 2026-11-01 with F-6's share-card part; committee record
   `docs/features/logs/F-4/committee-2026-11-01.md`, build, QA and test results `docs/features/logs/F-4/build-2026-11-01.md`.
+- 2026-11-01: Merged to main in #35 (6dde868) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.

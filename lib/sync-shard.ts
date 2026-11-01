@@ -161,6 +161,7 @@ function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, coun
   // an outlier among them is hidden; and a read past one vendor page (an activities week or a share-move history over
   // 1,000 rows) makes requests the guard cannot see — timing and guarding each request needs lib/broker.ts (protected)
   // to take a per-request hook.
+  const paged = new Set<string>(); // accounts whose first activities page this run was counted (F-14 G9)
   const timed = async <T>(n: number, call: () => Promise<T>): Promise<T> => {
     await pay(n);
     const t0 = performance.now();
@@ -170,10 +171,17 @@ function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, coun
     pageLimit: b.pageLimit,
     // F-14 (G9): the reads of each kind, counted as they are made (numbers only).
     listAccounts: (u) => { if (reads) reads.accountLists++; return timed(1, () => b.listAccounts(u)); },
-    fetchActivities: (u, since, accountIds) => { if (reads) reads.activitiesReads += accountIds?.length ?? 1; return timed(Math.max(1, accountIds?.length ?? 1), () => b.fetchActivities(u, since, accountIds)); },
-    // A first sync's paged read counts once per account (its first page), like the hourly read (F-14 tester fix).
-    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (u: Parameters<NonNullable<Broker['fetchActivitiesPage']>>[0], id: string, offset: number, limit?: number) => { if (reads && offset === 0) reads.activitiesReads++; return timed(1, () => b.fetchActivitiesPage!(u, id, offset, limit)); } } : {}),
-    ...(b.fetchPositions ? { fetchPositions: (u: Parameters<NonNullable<Broker['fetchPositions']>>[0], id: string) => { if (reads) reads.positionsReads++; return timed(1, () => b.fetchPositions!(u, id)); } } : {}),
+    // OPTIONS (final review blocking 1): every argument is forwarded, the option sinks included (fetchActivities' 4th,
+    // fetchActivitiesPage's 5th, fetchPositions' 3rd); a wrapper that drops one silently stops option imports.
+    fetchActivities: (...args: Parameters<Broker['fetchActivities']>) => { if (reads) reads.activitiesReads += args[2]?.length ?? 1; return timed(Math.max(1, args[2]?.length ?? 1), () => b.fetchActivities(...args)); },
+    // A first sync's paged read counts once per account (its first page), like the hourly read (F-14 tester fix); so does
+    // an option backfill page read in place of the week (OPTIONS merge: its first page this run, at any offset).
+    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (...args: Parameters<NonNullable<Broker['fetchActivitiesPage']>>) => {
+      const key = `${args[0].snaptradeUserId}\u0000${args[1]}`;
+      if (reads && !paged.has(key)) { paged.add(key); reads.activitiesReads++; }
+      return timed(1, () => b.fetchActivitiesPage!(...args));
+    } } : {}),
+    ...(b.fetchPositions ? { fetchPositions: (...args: Parameters<NonNullable<Broker['fetchPositions']>>) => { if (reads) reads.positionsReads++; return timed(1, () => b.fetchPositions!(...args)); } } : {}),
     // Corporate actions (#40): each real account's share moves; every broker function the sync uses must pass through.
     ...(b.fetchShareMoves ? { fetchShareMoves: (u: Parameters<NonNullable<Broker['fetchShareMoves']>>[0], id: string) => timed(1, () => b.fetchShareMoves!(u, id)) } : {}),
   };

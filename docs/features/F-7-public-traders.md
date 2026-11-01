@@ -1,6 +1,6 @@
 # F-7 · Public traders: profiles built from publicly available trading records
 
-Status: ready
+Status: built
 
 ## Why
 Some of the most-watched traders never connect a broker, but their trades are public: large investors, legislators,
@@ -123,3 +123,6 @@ Written by the committee in the build's plan debate (`docs/features/logs/F-7/pla
 - A launch switch for showing real filers in production, and what the e2e and demo data use.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #56 (d98f32d) and #67 (3d66114) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.

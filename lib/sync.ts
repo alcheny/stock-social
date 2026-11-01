@@ -9,6 +9,11 @@ import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pa
 import { replaceAccountPositions, replacePositions, settleAccountPositions } from './positions.ts';
 import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
+// OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
+// rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
+import { insertOptionActivities, lastOptionActivityAt, markBackfilled, pendingBackfill, rebuildRecord, replaceAccountOptionPositions, replaceOptionPositions, saveBackfill } from './options-sync.ts';
+import type { OptionRow } from './options.ts';
+import type { PositionSplit } from './broker.ts';
 
 const BACKFILL_MS = 7 * 86_400_000; // brokers post late corrections; re-read the last week
 // Per-user advisory lock (F-1: a sync is one transaction; a second one for the same user waits or is skipped).
@@ -352,7 +357,7 @@ export type SyncOpts = { cadence?: boolean; shiftMs?: number; report?: (r: Caden
 export async function syncUser(
   user: { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null },
   broker: Broker = defaultBroker,
-  rebuild: (userId: number, tx: TransactionSql) => Promise<unknown> = rebuildTrades,
+  rebuild: (userId: number, tx: TransactionSql) => Promise<unknown> = (id, tx) => rebuildRecord(id, tx), // OPTIONS
   now = new Date(),
   opts: SyncOpts = {},
 ): Promise<number | 'skipped'> {
@@ -398,37 +403,67 @@ export async function syncUser(
       }
       const changed = opts.cadence ? (await shape()) !== before || disconnected.count > 0 : true;
       // Fix round 6: a quarantined future date never sets the re-read window (it would skip the real last week).
-      const [{ last }] = await tx`select max(executed_at) as last from activities where user_id = ${user.id} and source = 'snaptrade' and ${notFuture(tx)}`;
+      const [{ last: lastShare }] = await tx`select max(executed_at) as last from activities where user_id = ${user.id} and source = 'snaptrade' and ${notFuture(tx)}`;
+      // OPTIONS (AC 11): the newest row across both raw tables sets the window, so an options-only trader re-reads a week.
+      const lastOption = await lastOptionActivityAt(tx, user.id);
+      const last: Date | null = lastShare && lastOption ? (lastShare > lastOption ? lastShare : lastOption) : (lastShare ?? lastOption);
+      const options: (OptionRow & { raw: unknown })[] = [];
+      const sink = (rows: (OptionRow & { raw: unknown })[]) => { options.push(...rows); };
+      // OPTIONS × F-14: "the whole history was read" holds only when every real account was (a gated account waits).
+      const allRead = actIds.length === real.length;
       let read = 0;
       if (!last && broker.fetchActivitiesPage) {
         // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
         const limit = broker.pageLimit ?? PAGE_LIMIT;
         for (const id of actIds) {
           for (let offset = 0; ; offset += limit) {
-            const page = await broker.fetchActivitiesPage(bu, id, offset, limit);
+            const page = await broker.fetchActivitiesPage(bu, id, offset, limit, sink);
             if (offset === 0) readActs.push(id); // F-14 (code review): marked once its first page returned
             await insertActivities(user.id, 'snaptrade', page.activities, tx);
+            await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
             read += page.activities.length;
             if (page.done) break;
           }
         }
+        if (allRead) await markBackfilled(tx, user.id); // OPTIONS: the whole history was read with the option types
       } else {
         // The hourly case: the last week before the newest stored activity (bounded by a week of trading, not the history).
         const since = last ? new Date(last.getTime() - BACKFILL_MS) : new Date('2000-01-01');
+        // OPTIONS (fix round 1, review 4): an account still owed its one-time option backfill reads its next history page
+        // instead of the week (the same request count); the others read the week as before. F-14: only due accounts read.
+        // ponytail: under F-14 a backfill page is that account's daily activities read, so a history of k pages takes about
+        // k days to backfill its options — the vendor's written answer (MR-1) on history pages would let them go hourly.
+        const backfill = broker.fetchActivitiesPage ? await pendingBackfill(tx, user.id) : new Map<string, number>();
+        const paged = actIds.filter((id) => backfill.has(id));
+        const windowed = actIds.filter((id) => !backfill.has(id));
         if (opts.cadence) {
           // F-14 (code review): one call per account, each recorded as it returns, so a failure on a later account
           // still marks the reads already made (G2's floor applies to them).
-          for (const id of actIds) {
-            const acts = await broker.fetchActivities(bu, since, [id]);
+          for (const id of windowed) {
+            const acts = await broker.fetchActivities(bu, since, [id], sink);
             readActs.push(id);
             await insertActivities(user.id, 'snaptrade', acts, tx);
+            await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
             read += acts.length;
           }
         } else {
-          const acts = actIds.length ? await broker.fetchActivities(bu, since, actIds) : [];
+          const acts = windowed.length ? await broker.fetchActivities(bu, since, windowed, sink) : [];
           await insertActivities(user.id, 'snaptrade', acts, tx);
+          await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
           read = acts.length;
         }
+        const progress = new Map<string, number>();
+        for (const id of paged) {
+          const limit = broker.pageLimit ?? PAGE_LIMIT, offset = backfill.get(id)!;
+          const page = await broker.fetchActivitiesPage!(bu, id, offset, limit, sink);
+          readActs.push(id);
+          await insertActivities(user.id, 'snaptrade', page.activities, tx);
+          await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
+          read += page.activities.length;
+          progress.set(id, page.done ? -1 : offset + limit);
+        }
+        if (paged.length) await saveBackfill(tx, user.id, real, progress);
+        if (!last && allRead) await markBackfilled(tx, user.id); // the since-2000 read is the whole history
       }
       // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
       // rebuild applies them. Counted: SYNC_REQUESTS_PER_ACCOUNT is 3 (activities, positions, share moves), so syncCost,
@@ -448,10 +483,12 @@ export async function syncUser(
       const [{ prev }] = opts.cadence ? await tx`select last_synced_at as prev from users where id = ${user.id}` : [{ prev: null }];
       if (rebuilt) await rebuild(user.id, tx);
       if (broker.fetchPositions) {
+        const splits = new Map<string, PositionSplit>(); // OPTIONS (D7)
         if (!opts.cadence) {
           const positions = [];
-          for (const id of real) for (const p of await broker.fetchPositions(bu, id)) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
+          for (const id of real) for (const p of await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
           await replacePositions(tx, user.id, positions);
+          await replaceOptionPositions(tx, user.id, null, splits); // OPTIONS
         } else {
           // Accounts no longer real (disconnected, simulated) lose their positions on every sync (engineer 3).
           // (Through lib/positions.ts: lib/reflections.test.ts allows no delete in this file but closed_trades'.)
@@ -459,7 +496,7 @@ export async function syncUser(
           await replaceAccountPositions(tx, user.id, gone, []);
           const withActs = new Set(actIds);
           for (const id of posIds) {
-            const rows = (await broker.fetchPositions(bu, id)).map((p) => ({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct }));
+            const rows = (await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })).map((p) => ({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct }));
             readPos.push(id);
             if (withActs.has(id)) {
               // Read with this account's activities (and its rebuild): listed positions are updated and added; one the
@@ -472,6 +509,9 @@ export async function syncUser(
                 on conflict (user_id, account_id, symbol) do update set unrealized_pct = excluded.unrealized_pct, fetched_at = now()`;
             }
           }
+          // OPTIONS × F-14: the option positions of the accounts read now are replaced, and those of accounts no longer
+          // real dropped; the others (not due) stay as last read, their counts with them (lib/options-sync.ts).
+          await replaceAccountOptionPositions(tx, user.id, real, posIds, splits);
         }
       }
       if (opts.cadence) {

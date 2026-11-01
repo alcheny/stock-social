@@ -794,3 +794,87 @@ begin
 end $t$;
 -- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
 select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');
+
+-- OPTIONS (docs/features/logs/options/plan.md D1, D5, D7). Raw option activities, append-only like `activities`: one
+-- row per vendor row, parsed columns nullable so a malformed row is stored and counted, never guessed. Strike, units,
+-- price, fee, amount and the OCC ticker are private (never read by a public surface).
+create table if not exists option_activities (
+  id bigint generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  source text not null check (source in ('snaptrade', 'demo')),
+  external_id text not null,
+  account_id text,
+  contract_key text,
+  kind text,
+  open_close text,
+  underlying text,
+  underlying_type text,
+  option_right text,
+  expiry date,
+  strike_milli bigint,
+  multiplier int,
+  occ_ticker text,
+  contract_units double precision,
+  share_price double precision,
+  fee double precision,
+  cash_amount double precision,
+  currency text,
+  executed_at timestamptz,
+  raw jsonb not null,
+  created_at timestamptz not null default now(),
+  unique (source, external_id)
+);
+select schema_add_index('option_activities_keyset', 'create index option_activities_keyset on option_activities (user_id, account_id, contract_key, executed_at, external_id)');
+-- OPTIONS: derived long option closes, rebuilt per user (lib/options-sync.ts#rebuildOptionTrades). Percent only: no
+-- strike, units, prices or fees, on purpose.
+create table if not exists option_trades (
+  id bigint generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  close_id text not null unique,
+  account_id text not null,
+  verified boolean not null,
+  underlying text not null,
+  option_right text not null check (option_right in ('CALL', 'PUT')),
+  option_expiry date not null,
+  opened_at timestamptz not null,
+  closed_at timestamptz not null,
+  return_pct double precision not null,
+  holding_days double precision not null
+);
+select schema_add_index('option_trades_user', 'create index option_trades_user on option_trades (user_id, closed_at desc)');
+-- OPTIONS: long open option positions (percent per share, D7). Shorts and futures-type kinds are counts on users.
+create table if not exists open_option_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  position_key text not null,
+  underlying text not null,
+  option_right text not null check (option_right in ('CALL', 'PUT')),
+  option_expiry date not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null default now(),
+  primary key (user_id, account_id, position_key)
+);
+select schema_add_column('users', 'excluded_options_short', 'int not null default 0');
+select schema_add_column('users', 'excluded_options_other', 'int not null default 0');
+select schema_add_column('users', 'open_options_short', 'int not null default 0');
+select schema_add_column('users', 'open_unsupported', 'int not null default 0');
+-- OPTIONS (D5): sha256 of the consent scope line the trader consented under (lib/consent-versions.ts). Null for every
+-- consent before this column existed: those stay gated (K9).
+select schema_add_column('connections', 'consent_scope_hash', 'text');
+-- OPTIONS (D6, L9): the options line or the gated count line the profile displayed, as lib/options-load.ts returned it.
+select schema_add_column('display_log', 'options_line', 'text');
+-- OPTIONS fix round 1: share closes removed by the exercise-day rule are counted on their own (QA 8); malformed or
+-- unsupported-underlying option positions are an options count, not a futures one (QA 9).
+select schema_add_column('users', 'excluded_exercise_shares', 'int not null default 0');
+select schema_add_column('users', 'open_options_other', 'int not null default 0');
+-- OPTIONS fix round 1 (review 4): one-time per-connection option backfill. Null until the connection's whole activity
+-- history has been read with the option types (lib/options-sync.ts); the cursor holds each account's next offset.
+select schema_add_column('connections', 'options_backfilled_at', 'timestamptz');
+select schema_add_column('connections', 'options_backfill_cursor', $d$jsonb not null default '{}'$d$);
+-- OPTIONS fix round 1 (QA 12): a close is unique per trader. The earlier unique(close_id) stays (it can't be dropped
+-- here); a collision across traders is counted, never silently dropped (lib/options-sync.ts#rebuildOptionTrades).
+select schema_add_index('option_trades_user_close', 'create unique index option_trades_user_close on option_trades (user_id, close_id)');
+-- F-14 × OPTIONS: the open option counts per vendor account ({account id: {short, unsupported, other}}), so a cadence
+-- sync that reads one account's positions replaces that account's counts; the users totals are their sum. Null until
+-- the first user-wide positions write (lib/options-sync.ts#replaceAccountOptionPositions).
+select schema_add_column('users', 'open_options_by_account', 'jsonb');
