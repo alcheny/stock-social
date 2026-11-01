@@ -4,7 +4,7 @@
 // - #13 text (WCAG 1.4.3): the Verified and Demo badge text ≥ 4.5:1 on the badge's own background over bg and surface;
 //   the `:target` row draws no fill that lowers its text below 4.5:1 (text, muted, up, down on bg and surface).
 // - #14 control boundaries (WCAG 1.4.11): inputs, `.secondary` buttons and `summary` controls draw their border with
-//   `--control-line`, ≥ 3:1 against bg and surface.
+//   `--control`, ≥ 3:1 against bg and surface. Token names and values: the design system council 2026-11-01 (§5.1).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -33,9 +33,18 @@ const dark = (r: Rule) => r.media.every((m) => !/prefers-color-scheme:\s*light/.
 const scheme = { dark, light } as const;
 const decls = (body: string) => [...body.matchAll(/([a-z-]+)\s*:\s*([^;]+)/gi)].map((m) => [m[1].trim(), m[2].trim()] as const);
 const hex6 = (h: string) => (h.length === 4 ? `#${[...h.slice(1)].map((c) => c + c).join('')}` : h).toLowerCase();
+// Hex tokens, and tokens that name another (`--verified: var(--text)`), resolved after the cascade.
 const tokensFor = (on: (r: Rule) => boolean) => {
+  const raw: Record<string, string> = {};
+  for (const r of rules) if (r.sels.includes(':root') && on(r)) for (const [k, v] of decls(r.body)) if (k.startsWith('--')) raw[k.slice(2)] = v;
   const t: Record<string, string> = {};
-  for (const r of rules) if (r.sels.includes(':root') && on(r)) for (const [k, v] of decls(r.body)) if (k.startsWith('--') && /^#[0-9a-f]{3,6}\b/i.test(v)) t[k.slice(2)] = hex6(v.match(/^#[0-9a-f]{3,6}/i)![0]);
+  const resolve = (k: string, seen = 0): string | undefined => {
+    const v = raw[k];
+    if (!v || seen > 8) return undefined;
+    const hex = v.match(/^#[0-9a-f]{3,6}\b/i), ref = v.match(/^var\(--([a-z0-9-]+)\)$/i);
+    return hex ? hex6(hex[0]) : ref ? resolve(ref[1], seen + 1) : undefined;
+  };
+  for (const k of Object.keys(raw)) { const v = resolve(k); if (v) t[k] = v; }
   return t;
 };
 // The value the cascade ends on for `prop` (or any of `props`) on exactly `sel`, among rules outside size media queries.
@@ -88,24 +97,33 @@ for (const [name, on] of Object.entries(scheme)) {
       if (bar) assert.ok(contrast(t[bar], t[base]) >= 3, `${name} :target bar --${bar} on ${base}`);
     }
   });
-  test(`#14 --control-line is at least 3:1 against bg and surface (${name})`, () => {
-    assert.ok(t['control-line'], '--control-line is defined');
+  test(`#14 --control is at least 3:1 against bg and surface (${name})`, () => {
+    assert.ok(t['control'], '--control is defined');
     for (const base of ['bg', 'surface']) {
-      const r = contrast(t['control-line'], t[base]);
-      assert.ok(r >= 3, `${name} --control-line ${t['control-line']} on --${base} ${t[base]} is ${r.toFixed(2)}:1`);
+      const r = contrast(t['control'], t[base]);
+      assert.ok(r >= 3, `${name} --control ${t['control']} on --${base} ${t[base]} is ${r.toFixed(2)}:1`);
     }
   });
 }
 
-// Every selector that draws a control's border today ends its cascade on --control-line.
+// Every selector that draws a control's border today ends its cascade on --control.
 const CONTROLS = ['input', 'textarea', 'select', '.pane .back', '.share-prompt .actions .secondary', '.trade-share .secondary',
   '.badge-embed .secondary', '.new-trades .secondary', '.rec-chips button', '.auth .button.secondary', '.auth button.secondary',
   '.handle-edit summary.secondary', '.follow.secondary', '.more-menu .secondary', '.people .secondary',
-  '.pane-actions .button.secondary', '.more-menu summary'];
-test('#14 inputs, .secondary buttons and summary controls draw their border with --control-line', () => {
+  '.pane-actions .button.secondary', '.more-menu summary', '.switch-pair .switch', '.personalize form > button.secondary',
+  '.rt .button.choice', '.rt button.choice', '.rt .button.secondary', '.rt button.secondary', '.rt-form input', '.rt-form select',
+  '.rt-note textarea'];
+test('#14 inputs, .secondary buttons and summary controls draw their border with --control', () => {
   for (const sel of CONTROLS) {
     const v = last(sel, ['border', 'border-color']);
     assert.ok(v, `${sel} has a border rule`);
-    assert.match(v!.value, /var\(--control-line\)/, `${sel} ends on "${v!.prop}: ${v!.value}"`);
+    assert.match(v!.value, /var\(--control\)/, `${sel} ends on "${v!.prop}: ${v!.value}"`);
   }
+});
+
+// #19 (committee B4): the feed card scrolls inside itself only on a short viewport; at 360×640 it keeps the row's clip.
+test('#19 the feed card sets overflow-y: auto only inside @media (max-height: 480px)', () => {
+  const auto = rules.filter((r) => r.sels.some((s) => /\.card$/.test(s) && s.includes('.feed')) && decls(r.body).some(([k, v]) => /^overflow(-y)?$/.test(k) && /auto|scroll/.test(v)));
+  assert.ok(auto.length > 0, 'a short-viewport rule lets the card scroll');
+  for (const r of auto) assert.ok(r.media.length > 0 && r.media.every((m) => /max-height:\s*480px/.test(m)), `overflow on the card outside the short-viewport query: ${r.media.join(' ')}`);
 });

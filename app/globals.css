@@ -511,10 +511,60 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
 
 /* F-13 (first-visit line, swipe hint, nav reflow) */
+/* Already dismissed or used on this device: hidden before the first paint (the pre-paint script in app/layout.tsx). */
+html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint { display: none; }
+/* The signed-out twin of .feed-notes: in flow, its own snap stop above the first card; never fixed, sticky or over the
+   card. No transition or animation, so reduced motion needs no override. */
+.feed .first-visit { position: static; scroll-snap-align: start; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 4px 8px; padding: 64px max(20px, calc((100% - 560px) / 2)) 12px; }
+.first-visit p { margin: 0; }
+.first-visit .fv-line { font-size: 0.9375rem; color: var(--text); }
+.first-visit .fv-line a { display: inline-block; }
+.first-visit .fv-demo { margin-top: 4px; font-size: 0.875rem; color: var(--muted); }
+.first-visit .quiet-x { min-width: 44px; min-height: 44px; margin: -10px -10px 0 0; background: transparent; color: var(--muted); border: 0; padding: 0; font-weight: 400; font-size: 1.25rem; line-height: 1; }
+.swipe-hint { position: static; margin: 0 0 6px; color: var(--muted); }
+/* "Trades by stock" (D27) fits the nav at 320–390 px without horizontal overflow, ≤ 56 px tall (WCAG 1.4.10). */
+@media (max-width: 420px) { nav.top { gap: 8px; padding: 12px; } }
+@media (max-width: 360px) { nav.top a:not(.logo):not(.me) { white-space: normal; line-height: 1.1; text-align: center; } }
+@media (max-width: 340px) { nav.top { font-size: 0.8125rem; } }
 /* end F-13 */
 
 
 
 /* A11Y-FIXES (approval council fixes, 2026-11-01). Minimal contrast tokens: the design system council's tokens may
    supersede them; lib/a11y-contrast.test.ts keeps the floor. */
+/* #13, #14 tokens: values from the design system council 2026-11-01 (§5.1), only the ones these fixes need.
+   --control: control borders only (separators, cards and tiles keep --line): 3.75/3.91 light, 4.29/3.93 dark (bg/surface).
+   --verified: the Verified badge's text (the tint stays built from --up). --focus: the :target bar (6.15/6.42, 8.47/7.76). */
+:root { --control: #6f7682; --focus: #86a8ff; --verified: var(--text); }
+@media (prefers-color-scheme: light) { :root { --control: #7c818b; --focus: #2152d9; } }
+/* #13 text contrast (WCAG 1.4.3): Verified text was --up on its own 18% tint (3.77:1 light); a :target row drops its
+   fill (which took muted text to 4.01:1) for a 3 px bar, with no fill (DS §5.1), the text staying where it was. */
+.badge.verified { color: var(--verified); }
+.rows li:target { background: none; box-shadow: inset 3px 0 0 var(--focus); margin-left: -12px; padding-left: 12px; }
+/* #14 control boundaries (WCAG 1.4.11): each selector that draws a control's border, repeated so it wins by order. */
+input, textarea, select,
+.pane .back,
+.share-prompt .actions .secondary, .trade-share .secondary, .badge-embed .secondary, .new-trades .secondary,
+.rec-chips button, .auth .button.secondary, .auth button.secondary, .handle-edit summary.secondary,
+.follow.secondary, .more-menu .secondary, .people .secondary, .pane-actions .button.secondary, .more-menu summary,
+.switch-pair .switch, .personalize form > button.secondary,
+.rt .button.choice, .rt button.choice, .rt .button.secondary, .rt button.secondary,
+.rt-form input, .rt-form select, .rt-note textarea { border-color: var(--control); }
+/* #15 the fixed nav never hides focus (WCAG 2.4.11): scrollers keep focus and anchors below the nav (72 px) and off the
+   bottom edge. Not on .feed itself (it would move every snap point); the feed's pane scrolls inside itself. The rows'
+   own 72 px margin is dropped where the scroller now pads, so an anchor does not land 144 px down. */
+html { scroll-padding-top: 72px; scroll-padding-bottom: 16px; }
+.feed > .row > .pane { scroll-padding-top: 72px; }
+.page .rows li, .feed > .row > .pane .rows li { scroll-margin-top: 0; }
+/* #19 reflow (WCAG 1.4.10, 1.4.4; POLICY P2: Demo always visible): a 20-character handle or a long name wraps instead
+   of widening the page or pushing the badge off screen; the big return is capped by the viewport height, and on a
+   short viewport the feed card scrolls inside itself instead of clipping (only there: at 360×640 it stays hidden). */
+h1 { overflow-wrap: anywhere; }
+.card header .who { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.card header .badge { flex-shrink: 0; }
+.ret { font-size: clamp(40px, min(22vw, 16vh), 120px); }
+@media (max-height: 480px) {
+  .feed .row > * { padding-top: 56px; padding-bottom: 8px; }
+  .feed .row > .card { gap: 8px; overflow-y: auto; scroll-padding-top: 56px; }
+}
 /* end A11Y-FIXES */

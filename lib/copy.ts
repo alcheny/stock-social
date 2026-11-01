@@ -4,6 +4,7 @@
 import { count, counted } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
 import { EXCLUSION_DAYS } from './discovery/weights.ts';
+import { tone, type Tone } from './open-split.ts'; // A11Y-FIXES #23 (group 3)
 
 export const SIGNIN = {
   title: 'Publish your trades',
@@ -316,13 +317,14 @@ export const CLOSES_PAGING = {
 export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated', skip: 'Skip to disclaimer and legal links' } as const;
 
 // F-13 (first-visit line, swipe hint, nav)
-// D27 and SW-1, verbatim (lib/f13-copy.test.ts). `demo` is the existing profile-card alt sentence, no new claim.
+// D27's mechanism with the design system council's wording (2026-11-01, §2.5 R5: D27's sentence called demo cards
+// verified and hid that Stock Social calculates the returns), SW-1 verbatim (lib/f13-copy.test.ts).
 // If F-7 public profiles enter the feed, `line` becomes false for them and goes back to the idea board (2026-11-01).
 export const FIRST_VISIT = {
-  line: 'Verified trades, straight from the broker. Losses included.',
-  how: FOOTER.how,
-  dismiss: 'Dismiss',
-  demo: 'Demo data, not a real broker record.',
+  line: 'Closed trades imported read-only from connected broker accounts. Losses included.',
+  how: `${FOOTER.how} →`,
+  dismiss: 'Dismiss this note',
+  demo: 'Demo records are marked Demo.',
   hint: 'Swipe ← for profile',
 } as const;
 export const NAV = { stocks: 'Trades by stock' } as const;
@@ -334,11 +336,64 @@ export const verifiedMeansFooter = () => `“Verified” means ${VERIFIED_MEANIN
 
 
 // A11Y-FIXES: feed (group 2)
+// #18 (WCAG 2.5.3, 4.1.2): the card's Like button is named by its visible text ("Like" / "Liked", state in aria-pressed);
+// this note is its accessible description.
+// ponytail: LIKES.likeLabel is now unused but kept in place (shared block of the feed's copy) — delete it with the next LIKES edit.
+export const A11Y_FEED = {
+  likeNote: 'Only you can see likes.',
+} as const;
 // end A11Y-FIXES feed
 
 
 
 // A11Y-FIXES: copy, titles (group 3)
+// #5 (POLICY P6, P3; committee B1, B2): what is public, said without calling a subset "only". The share prompt lists
+// everything a signed-out profile renders (handle, name, symbols, dates, percent returns, open positions, theses).
+export const PUBLIC_SCOPE = {
+  joinLead: 'Verify your own record.',
+  join: 'Read-only broker connection. Public trades show percentages, never quantities, prices or balances. 18+.',
+  share: 'Public: your handle and name, your closed trades (symbol, dates and percent return, losses included), your open positions with unrealized percent, your win rate and average return, and any thesis you post. Never quantities, prices, fees or balances. Your broker login stays private.',
+} as const;
+// #8 (POLICY F3a): no completeness claims in the trade and month images' alts, the recap description or the back links.
+export const IMAGE_ALT = {
+  trade: 'One closed trade on Stock Social, with the trader\u2019s record',
+  month: 'A month of trades on Stock Social, with the trader\u2019s record',
+} as const;
+export const RECAP_RECORD_LABEL = 'record to date';
+export const recordLink = (handle: string) => `\u2190 @${handle}\u2019s record`;
+// #10 (POLICY P2, F3a): a demo profile says it is demo data; "connected accounts" only on a broker record.
+export const DEMO_PROFILE = {
+  line: 'Demo data, not a real broker record.',
+  connectedOnly: 'Only trades from connected accounts are shown.',
+} as const;
+// #23 (POLICY A1; WCAG 1.4.1, 1.3.1): the word beside a percent, from the printed sign (lib/open-split.ts#tone), so
+// "0.0%" is never called a gain or a loss.
+export const SIGN_WORD: Record<Tone, string> = { up: 'Gain', down: 'Loss', flat: 'No change' };
+export const signWord = (x: number): string => SIGN_WORD[tone(x)];
+// #20 (WCAG 2.4.2): a distinct title on each route that inherited the bare "Stock Social".
+export const TITLES = {
+  login: 'Sign in \u00b7 Stock Social',
+  loginSent: 'Check your email \u00b7 Stock Social',
+  loginDev: 'Dev sign-in \u00b7 Stock Social',
+  connect: 'Before you connect \u00b7 Stock Social',
+  consent: 'Confirm what gets imported \u00b7 Stock Social',
+  continue: 'Connecting your broker \u00b7 Stock Social',
+  result: 'Connection result \u00b7 Stock Social',
+  terms: 'Terms of Service \u00b7 Stock Social',
+  privacy: 'Privacy Policy \u00b7 Stock Social',
+  notFound: 'Page not found \u00b7 Stock Social',
+} as const;
+// #21 (WCAG 2.4.2, 1.3.1): the root 404 page. "Trades by stock" is the nav's label after F-13 (group 1 may swap the
+// literal for its nav constant).
+export const NOT_FOUND = {
+  heading: 'Page not found',
+  body: 'There\u2019s nothing at this address. The link may be mistyped, or the page has moved.',
+  links: [
+    { href: '/', label: 'Feed' },
+    { href: '/t', label: 'Trades by stock' },
+    { href: '/how', label: 'How records are calculated' },
+  ],
+} as const;
 // end A11Y-FIXES copy
 
 // Privacy work (2026-11-01): the launch gate's closed states (lib/launch-gate.ts, committee D6–D8). No date, no promise.

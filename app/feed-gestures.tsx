@@ -96,9 +96,34 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
       feed.removeEventListener('touchmove', onTouchMove); feed.removeEventListener('touchend', onTouchEnd); feed.removeEventListener('touchcancel', onTouchEnd);
     };
   }, [signedIn]);
+  useSignInLineDismiss(askSignIn, () => setAskSignIn(false)); // A11Y-FIXES #16
   return (
     <p className="signin-line" role="status">
       {askSignIn && <>{LIKES.signIn} <Link href="/login">{LIKES.signInLink}</Link> <button type="button" className="quiet-x" aria-label={LIKES.close} onClick={() => setAskSignIn(false)}>×</button></>}
     </p>
   );
+}
+
+// A11Y-FIXES #16 (WCAG 2.4.11, committee decision 2): the fixed signed-out line can never sit over a focused element. While
+// it shows it closes on Esc, on focus moving anywhere outside it, and when the feed scrolls half a row or more (another row). It keeps
+// role="status" and never takes focus itself.
+function useSignInLineDismiss(open: boolean, close: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const line = document.querySelector('.signin-line'), feed = document.querySelector<HTMLElement>('.feed');
+    const start = feed?.scrollTop ?? 0; // rows are one feed height each: half a height away is another row
+    // ponytail: the shorter snap stops (notes line, "Loading…") count by height too, so a scroll past one alone may not close it — match the row element in view if that matters.
+    const moved = () => !!feed && Math.abs(feed.scrollTop - start) >= feed.clientHeight / 2;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    const onFocus = (e: FocusEvent) => { if (!line?.contains(e.target as Node)) close(); };
+    let frame = 0;
+    const onScroll = (e: Event) => {
+      if (e.target !== feed || frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; if (moved()) close(); });
+    };
+    addEventListener('keydown', onKey);
+    addEventListener('focusin', onFocus);
+    feed?.addEventListener('scroll', onScroll, { passive: true });
+    return () => { removeEventListener('keydown', onKey); removeEventListener('focusin', onFocus); feed?.removeEventListener('scroll', onScroll); cancelAnimationFrame(frame); };
+  }, [open]); // `close` is a fresh arrow each render; only `open` matters
 }

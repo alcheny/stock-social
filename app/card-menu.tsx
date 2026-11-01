@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { LIKES } from '@/lib/copy.ts';
+import { A11Y_FEED, LIKES } from '@/lib/copy.ts';
 import { likeForm, likeTrade, rejectTradeForm, unlikeTrade } from './discovery-actions.ts';
 import { MoreMenu } from './not-interested.tsx';
 
@@ -25,9 +25,11 @@ export function CardMenu({ id, symbol, handle, liked: first }: { id: string; sym
             const r = await (now ? likeTrade(id) : unlikeTrade(id)).catch(() => ({ ok: false }));
             if (!r.ok) { setLiked(!now); setSaid(''); }
           }}>
-            <button type="submit" className="secondary" data-like aria-pressed={liked} aria-label={LIKES.likeLabel}>
+            {/* A11Y-FIXES #18: the name is the visible text; the note is the description. */}
+            <button type="submit" className="secondary" data-like aria-pressed={liked} aria-describedby={`like-note-${id}`}>
               <span aria-hidden="true">{liked ? '♥' : '♡'}</span> {liked ? LIKES.liked : LIKES.like}
             </button>
+            <span id={`like-note-${id}`} hidden>{A11Y_FEED.likeNote}</span>
           </form>
           <form action={rejectTradeForm.bind(null, id)} onSubmit={(e) => {
             e.preventDefault();

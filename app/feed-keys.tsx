@@ -1,9 +1,11 @@
 'use client';
 import { useEffect } from 'react';
+import { useFeedInert } from './feed-inert.ts';
 
 // Feed row navigation: → opens the profile pane of the card in view, ← returns to the trade.
 // Ignores keys the chart or a form already handled; back buttons scroll their own row.
 export function FeedKeys() {
+  useFeedInert(); // A11Y-FIXES #17: the off-screen half of each row is inert; → / ← / Back move focus (app/feed-inert.ts)
   useEffect(() => {
     const go = (row: Element, left: number) =>
       row.scrollTo({ left, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
