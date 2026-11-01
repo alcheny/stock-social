@@ -171,7 +171,7 @@ test('F-27 AC10: a double tap on the warn icon of a failed record\'s card likes 
     const b = (await icon.boundingBox())!;
     const x = Math.round(b.x + b.width / 2), y = Math.round(b.y + b.height / 2);
     // The tap lands on the icon's centre; the icon ignores it, so the hit is the notice (inside the card).
-    expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.warn-notice'), [x, y])).toBe(true);
+    expect(await page.evaluate(([px, py]) => { const el = document.elementFromPoint(px, py); return !!el && !el.closest('svg') && !!el.closest('.warn-notice'); }, [x, y])).toBe(true);
     const cdp = await ctx.newCDPSession(page);
     const tap = async () => {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });

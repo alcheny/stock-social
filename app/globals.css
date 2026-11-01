@@ -556,11 +556,7 @@ body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pa
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
 /* ---- FIXES-LABELS (docs/features/logs/fixes-labels/plan.md §4) ---- */
-/* QA round 1 (finding 7, cycle-2 #25): a failed import is a warning, not a loss. --warn reads >= 4.5:1 on --bg and
-   --surface in both schemes (dark #fbbf24: 11.8:1 / 10.8:1; light #92400e: 6.8:1 / 7.1:1); a warning sign before the
-   words, so the state is never carried by colour alone (the words already say it; the sign has empty alt text). */
-/* F-20: --warn's values (dark #fbbf24, light #92400e) live in the TOKENS block at the top of this file. */
-/* F-27 replaced the .warn rule and the .record-failed::before glyph with the warn notice (block "F-27" below). */
+/* QA round 1 (finding 7): a failed import is a warning, not a loss: the warn notice, block "F-27" at the end of this file. */
 /* QA round 1 (finding 5, cycle-2 #18): an unbroken 40-character display name wraps instead of widening the card, the
    pane or the profile. */
 .card { min-width: 0; }
