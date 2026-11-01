@@ -513,3 +513,39 @@ dbTest('metered broker: a sharded run with the real syncUser reads accounts, act
     await h.cleanup(of);
   }
 });
+
+// Committee round 3 (reliability + engineer): no sync is ever killed by the platform at the route's end. A vendor
+// request whose bound could reach the route's last 10 s is refused; the trader's transaction rolls back (nothing
+// published), its attempt is cleared, it keeps its round claim, and it is neither backed off nor counted transient.
+dbTest('route-end guard: a sync whose next request could end past the route deadline is cut, rolled back and given back to the round (the next call syncs it), with no attempt, streak or backoff', async () => {
+  const h = await harness();
+  const of = freshOf();
+  try {
+    const [t] = await h.inShard(1, of, 0);
+    let wall = 1_000_000;
+    const broker = {
+      listAccounts: async () => { wall += 5_000; return [{ id: t.acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }]; },
+      // A slow read: afterwards only 35 s are left, so a 30 s request could end inside the last 10 s.
+      fetchActivities: async () => { wall += 60_000; return [{ externalId: `${t.tag}-b`, accountId: t.acc, symbol: 'AAA', side: 'BUY' as const, units: 1, price: 10, fee: 0, executedAt: new Date(Date.UTC(2024, 0, 1)), verified: true, raw: {} }]; },
+      fetchPositions: async () => [],
+      fetchShareMoves: async () => ({ activities: [], actions: [] }),
+    };
+    const r = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(5), jitterMs: 0, config: cfg(1), log: h.quiet,
+      broker: broker as unknown as import('./sync.ts').Broker, clock: () => wall, routeEnd: wall + 100_000, vendorBoundMs: 30_000 });
+    assert.deepEqual([r.done, r.cutAtDeadline, r.transient, r.failed, r.quarantined], [0, 1, 0, 0, 0], JSON.stringify(r));
+    assert.deepEqual(r.failedIds, []);
+    const row = await h.row(t.id);
+    assert.equal(row.sync_attempts, 0);
+    assert.equal(row.sync_retry_at, null);
+    assert.equal(row.sync_lease_until, null);
+    assert.equal(row.sync_claimed_at, null, 'its round claim is given back');
+    // The next call in the same round takes it first and syncs it.
+    const ok = h.counter(async () => 1);
+    const r2 = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(10), jitterMs: 0, config: cfg(1), log: h.quiet, sync: ok.sync });
+    assert.equal(r2.done, 1);
+    assert.equal((await h.sql`select sync_transients from users where id = ${t.id}`)[0].sync_transients, 0);
+    assert.equal((await h.sql`select count(*)::int as n from activities where user_id = ${t.id}`)[0].n, 0, 'rolled back: nothing published');
+  } finally {
+    await h.cleanup(of);
+  }
+});

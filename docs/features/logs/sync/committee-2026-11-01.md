@@ -126,3 +126,34 @@ capacity table).
   not retried every round forever.
 - The 155k capacity is labeled as extrapolated from the measured per-shard rate (about 11 shards ran at once on a
   100-connection server).
+
+## Round 3 (after #40: three vendor reads per account)
+
+PR #40 (corporate actions, on main) adds a share-move read per account, so a sync costs 1 + 3n vendor requests
+(`SYNC_REQUESTS_PER_ACCOUNT = 3`; `SYNC_FIT_CAP` 4 → 3). With the signed worst-case fit rule, a 2-account trader is
+dispatchable only in a call's first 90 s, and the 100k LOAD test no longer covered a round (93.5k of 98.9k healthy
+synced, headroom 1.00x; the run also found the load test's broker wrapper dropping the new read, which the runner had
+prepaid, now fixed, and the runner's own metered broker now passes `fetchShareMoves`).
+
+Chair's proposal: fit rule v2 (the run's observed p99 per request plus one whole bound, the worst case until 50
+requests are timed) and the plan 40 shards x 6 workers at 12 req/s per shard.
+
+- **Business lead: SIGN** with conditions. (1) Ask whether the share-move read must run hourly: corporate actions are
+  rare, and a daily cadence would bring the cost back to 1 + 2n. That is #40's / F-14's (sync cadence) decision, so it is
+  recorded here as an open question for the owner and the F-14 build, not changed in this PR. (2) The vendor's written
+  confirmation covers cost as well as rate at the plan's 480 req/s (gate item 1, taken). (3) Re-measure at >= 1.5x
+  before this counts as signed (below).
+- **Reliability reviewer: OBJECT, then SIGN with changes, both taken.** (1) No platform kills: a whole run's in-flight
+  syncs die at the route's end, which would count unfinished attempts and quarantine healthy traders after two slow
+  calls. The metered broker now refuses any vendor request whose bound could end within 10 s of the route's end
+  (`RouteDeadlineError`): the trader's transaction rolls back, nothing is published, its attempt is cleared and its
+  round claim given back, counted `cutAtDeadline`, no backoff, no streak, not in the breaker. (2) The estimate follows
+  current latency: the p99 over the last 200 timed requests, never below the first 50 requests' p99.
+- **Engineer: OBJECT on the same point (route-end kills → false quarantines), then SIGN.** Taken as above. Pitfalls
+  noted: requests within a sync are sequential, so n x p99 is conservative (kept; never p50); the token wait is estimated
+  before the take, not counted twice; 40 x 6 at 12 req/s balances C/L and RPS/requests exactly (2.18 traders/s), so it is
+  accepted only on the measurement below.
+
+**Chair's change after sign-off:** a cut sync gives its round claim back (as a lock-skipped sync does) rather than
+keeping it, so the next call in the same round takes it first instead of the next round. It is strictly better for
+coverage and has no double-sync risk, since the cut sync rolled back.

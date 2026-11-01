@@ -1,7 +1,7 @@
 // Sharded hourly sync load test (committee docs/features/logs/sync/committee-2026-11-01.md, row T and round 2): 100,000
 // synthetic traders against the in-repo vendor fake (e2e/fakes/vendor.ts, its `/_bulk` control), a 2-account mix, 1% slow
 // traders whose vendor calls exceed the request bound, 0.1% traders the vendor answers 400, with vendor latency, every
-// shard of the production plan (docs/SYNC.md: 32 shards x 6 workers, 10 req/s per shard), asserting full coverage of a
+// shard of the production plan (docs/SYNC.md: 40 shards x 6 workers, 12 req/s per shard), asserting full coverage of a
 // round with >= 1.5x headroom; plus a latency-model test in real time.
 // Skipped unless LOAD=1 (and DATABASE_URL), so `npm test` stays fast. How to run:
 //   set -a && . ./.env && set +a && LOAD=1 node --test lib/sync-shard.load.test.ts
@@ -11,16 +11,16 @@
 // simulated in a few minutes and a shard's work per call is the production one: vendor latency 0.5 s / K per request (the
 // plan's p95, applied to every request: conservative), the request bound 30 s / K (vendorTimeout.ms), a call's window the
 // route's 300 s / K with the 90 s / K reserve (deadline, routeEnd, vendorBoundMs), the start jitter 15 s / K, and the
-// vendor budget 10 x K requests a second per shard. Concurrency (6) and the shard count (32) are the plan's. Leases,
+// vendor budget 12 x K requests a second per shard. Concurrency (6) and the shard count (40) are the plan's. Leases,
 // backoff and the database's round (1 h) are not scaled: each simulated round runs on its own shifted database clock
 // (`shiftMs`). The database's own time per trader is not scaled either, so at K = 10 it weighs ten times more against
 // the vendor's than in production: the measured calls are an upper bound, and the log splits a sync's time in two.
 // Production runs each shard in its own function instance; here shards run in worker threads (one event loop and one
 // pool each: a single loop driving 12 shards saturated one core long before the database). One server with
-// max_connections 100 cannot hold 32 x 8 connections, so the shards run in batches (11 at once on such a server), each
+// max_connections 100 cannot hold 40 x 8 connections, so the shards run in batches (11 at once on such a server), each
 // batch through the same round on the same round clock. Shards are disjoint (asserted), so a batch does exactly what its
 // shards would do with the others running elsewhere; the per-shard figures are what the plan multiplies, and the log
-// extrapolates them to 32 shards. The cron: a round is 11 calls; each call is one runShard per shard (concurrently),
+// extrapolates them to 40 shards. The cron: a round is 11 calls; each call is one runShard per shard (concurrently),
 // each with its own scaled window.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -43,20 +43,20 @@ const loadTest = (name: string, fn: () => Promise<void>) => {
 export const K = 10;
 export const MODEL = {
   traders: Number(process.env.LOAD_TRADERS) || 100_000, // LOAD_TRADERS=n: a smaller fleet, a quick check of the harness only
-  of: 32, concurrency: 6, rps: 10 * K, page: 500,
+  of: 40, concurrency: 6, rps: 12 * K, page: 500, // the plan after #40's third read per account (committee round 3)
   latencyMs: 500 / K, boundMs: 30_000 / K, routeMs: 300_000 / K, reserveMs: 90_000 / K, jitterMs: 15_000 / K,
   callsPerRound: 11,
-  // Trader i (id lo + i, lo a multiple of 32, so shard = i % 32) has accounts[i % 64]: 1 for i % 64 < 32, else 2, so
-  // every shard alternates 1- and 2-account traders (half each; 4 vendor requests a trader on average). A pattern of
-  // period 2 would put all 2-account traders in the odd shards.
-  accounts: [...Array<number>(32).fill(1), ...Array<number>(32).fill(2)],
-  // Periods coprime with 32 spread the slow and failing traders over every shard (100 and 1000 would put them all in
+  // Trader i (id lo + i, lo a multiple of 40, so shard = i % 40) has accounts[i % 80]: 1 for i % 80 < 40, else 2, so
+  // every shard alternates 1- and 2-account traders (half each; 1 + 3 × 1.5 = 5.5 vendor requests a trader on average).
+  // A pattern of period 2 would put all 2-account traders in the odd shards.
+  accounts: [...Array<number>(40).fill(1), ...Array<number>(40).fill(2)],
+  // Periods coprime with 40 spread the slow and failing traders over every shard (100 and 1000 would put them all in
   // the shards = 1 mod 4).
   slow: { every: 101, offset: 37, ms: 2 * 30_000 / K }, // ~1%: every request held twice the bound (a timeout: transient)
   fail: { every: 1009, offset: 501, status: 400 }, // ~0.1%: the vendor answers 400 (trader-specific: backed off)
 };
 // The latency-model test (real time, one shard).
-export const LATENCY = { traders: 150, concurrency: 6, rps: 10, ms: 200, jitterMs: 300 }; // uniform 200–500 ms a request
+export const LATENCY = { traders: 150, concurrency: 6, rps: 12, ms: 200, jitterMs: 300 }; // uniform 200–500 ms a request
 // The bounds (asserted). Headroom: a round's calls used are at most 11 / 1.5 (the committee's >= 1.5x). The latency
 // model's measured throughput is within ±25% of min(C / L_trader, RPS / requests_per_trader).
 // Calls are whole, so "calls used" is measured two ways: whole calls (the worst shard's count of calls until its queue
@@ -102,7 +102,9 @@ async function shardWorker() {
         let vendor = 0;
         const timed = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A) => { const v = performance.now(); try { return await f(...a); } finally { vendor += performance.now() - v; } };
         const wrapped: Broker = { pageLimit: b.pageLimit, listAccounts: timed(b.listAccounts), fetchActivities: timed(b.fetchActivities),
-          ...(b.fetchActivitiesPage ? { fetchActivitiesPage: timed(b.fetchActivitiesPage) } : {}), ...(b.fetchPositions ? { fetchPositions: timed(b.fetchPositions) } : {}) };
+          ...(b.fetchActivitiesPage ? { fetchActivitiesPage: timed(b.fetchActivitiesPage) } : {}), ...(b.fetchPositions ? { fetchPositions: timed(b.fetchPositions) } : {}),
+          // #40: the share-move read per account; every read the runner's metered broker hands over must pass through.
+          ...(b.fetchShareMoves ? { fetchShareMoves: timed(b.fetchShareMoves) } : {}) };
         const out = await syncUser(u, wrapped);
         timing.n++; timing.syncMs += performance.now() - t; timing.vendorMs += vendor;
         return out;
@@ -236,7 +238,7 @@ async function bulkTraders(p: string, handlePrefix: string, n: number, accounts:
   const { sql } = await import('./db.ts');
   // Explicit ids far above the identity sequence: other sessions may insert users meanwhile, so a sequence range could
   // interleave with theirs, and `idRange` must cover this file's traders only. Trader i is id lo + i.
-  const lo = ID_BASE + Math.floor(Math.random() * 60_000) * 3200; // a multiple of 32: trader i is in shard i % 32
+  const lo = ID_BASE + Math.floor(Math.random() * 60_000) * 3200; // a multiple of 40 (and 32): trader i is in shard i % 40
   const [r] = await sql`with ins as (
       insert into users (id, handle, display_name, adult_attested_at, snaptrade_user_id, snaptrade_secret_enc, signup_attempt_id)
       overriding system value
@@ -287,14 +289,14 @@ async function explainPage(shard: number, range: [number, number], shiftMs: numb
   return { exec, plan };
 }
 
-loadTest('100,000 traders, 32 shards x 6 workers, 2-account mix, 1% slow, 0.1% failing, scaled latency: one round covers every healthy trader exactly once with >= 1.5x headroom (whole calls >= 1.15x); slow traders retried next round, failing ones backed off', async () => {
+loadTest('100,000 traders, 40 shards x 6 workers, 2-account mix, 1% slow, 0.1% failing, scaled latency: one round covers every healthy trader exactly once with >= 1.5x headroom (whole calls >= 1.15x); slow traders retried next round, failing ones backed off', async () => {
   const { sql } = await import('./db.ts');
   const { ROUND_MS } = await import('./sync.ts');
   const M = MODEL;
 
   // Connections: a shard's 6 workers hold at most one connection each at a time (a sync's transaction, or a claim, page
   // or release between syncs); each worker thread's pool adds 2 for heartbeats and page reads; the test thread keeps its
-  // own. Batches of equal size, as many shards at once as the server holds (all 32 on a server sized for production).
+  // own. Batches of equal size, as many shards at once as the server holds (all 40 on a server sized for production).
   const threads = Math.max(1, availableParallelism() - 1); // one core for the database and the fake
   const fit = Math.max(1, Math.min(M.of, Math.floor((budget.free - MAIN_POOL - 2 * threads) / M.concurrency)));
   const batchCount = Math.ceil(M.of / fit);
@@ -397,7 +399,7 @@ loadTest('100,000 traders, 32 shards x 6 workers, 2-account mix, 1% slow, 0.1% f
     });
     const worstFractional = Math.max(...fractional);
     const reqPer = sum('requests') / (sum('done') + sum('transient') + sum('failed'));
-    const designRate = Math.min(M.concurrency / (4 * M.latencyMs / 1000), M.rps / 4);
+    const designRate = Math.min(M.concurrency / (reqPer * M.latencyMs / 1000), M.rps / reqPer); // reqPer: 1 + 3n, measured
     const healthyPerShard = kinds.healthy.length / M.of;
     const vendorPer = timing.vendorMs / timing.n, dbPer = (timing.syncMs - timing.vendorMs) / timing.n;
     // Production speed: the vendor part times K, the database part as measured here (not scaled).
@@ -405,7 +407,7 @@ loadTest('100,000 traders, 32 shards x 6 workers, 2-account mix, 1% slow, 0.1% f
     const prodRate = Math.min(M.concurrency / lProd, (M.rps / K) / reqPer);
     log(`round 1: ${round1Ms} ms; calls used per shard: fractional max ${worstFractional.toFixed(2)} of ${M.callsPerRound} (headroom ${(M.callsPerRound / worstFractional).toFixed(2)}x), ` +
       `whole max ${worstCalls} (headroom ${(M.callsPerRound / worstCalls).toFixed(2)}x; per shard ${shards.map((s) => callsUsed.get(s) ?? '-').join(',')}); ` +
-      `done ${sum('done')}, transient ${sum('transient')}, failed ${sum('failed')}, refused ${sum('refused')}, quarantined ${sum('quarantined')}, skipped ${sum('skipped')}, deferred ${sum('deferred')}, releaseFailed ${sum('releaseFailed')}, ` +
+      `done ${sum("done")}, cut ${sum("cutAtDeadline")}, transient ${sum('transient')}, failed ${sum('failed')}, refused ${sum('refused')}, quarantined ${sum('quarantined')}, skipped ${sum('skipped')}, deferred ${sum('deferred')}, releaseFailed ${sum('releaseFailed')}, ` +
       `requests ${sum('requests')} (${reqPer.toFixed(2)} a trader), pages ${sum('pages')}, token wait ${sum('tokenWaitMs')} ms, breaker ${r1.some((r) => r.breaker)}, lease lost ${r1.some((r) => r.leaseLost)}, aborted ${r1.some((r) => r.aborted)}; ` +
       `peak database connections ${peak1}; failure lines ${failureLines}`);
     log(`a healthy trader's sync: ${(timing.syncMs / timing.n).toFixed(0)} ms = vendor ${vendorPer.toFixed(0)} ms (scaled by K) + database ${dbPer.toFixed(0)} ms (not scaled)`);
@@ -423,8 +425,13 @@ loadTest('100,000 traders, 32 shards x 6 workers, 2-account mix, 1% slow, 0.1% f
     assert.equal(sum('transient'), kinds.slow.length, 'every slow trader timed out once (transient)');
     assert.equal(sum('failed'), kinds.fail.length, 'every failing trader failed once (trader-specific)');
     assert.deepEqual(r1.flatMap((r) => r.failedIds).sort((a, b) => a - b), [...kinds.slow, ...kinds.fail].sort((a, b) => a - b), 'the failed ids are the slow and failing traders');
-    const notOnce = [...kinds.healthy, ...kinds.slow, ...kinds.fail].filter((id) => attempts[1].get(id) !== 1);
-    assert.equal(notOnce.length, 0, `every trader attempted exactly once in round 1 (${notOnce.length} not)`);
+    // Committee round 3: a sync refused at a call's end (cutAtDeadline: rolled back, nothing published) is attempted again
+    // by a later call of the round; every other trader is attempted exactly once, and every sync that ran, ran once.
+    const all = [...kinds.healthy, ...kinds.slow, ...kinds.fail];
+    const never = all.filter((id) => !attempts[1].get(id));
+    assert.equal(never.length, 0, `every trader attempted in round 1 (${never.length} not)`);
+    const extra = all.reduce((a, id) => a + (attempts[1].get(id)! - 1), 0);
+    assert.equal(extra, sum('cutAtDeadline'), 'attempts beyond one per trader are exactly the syncs cut at a call\'s end');
     assert.equal(attempts[1].size, M.traders, 'no trader outside the range attempted');
     const wrongShard = [...shardSeen].filter(([id, s]) => s.size !== 1 || !s.has(id % M.of));
     assert.equal(wrongShard.length, 0, 'every trader in exactly its own shard: shards disjoint');
@@ -478,7 +485,7 @@ loadTest('100,000 traders, 32 shards x 6 workers, 2-account mix, 1% slow, 0.1% f
   }
 });
 
-loadTest('latency model: one shard, real-time vendor latency 200–500 ms, rps 10, concurrency 6: throughput within ±25% of min(C / L_trader, RPS / requests_per_trader)', async () => {
+loadTest('latency model: one shard, real-time vendor latency 200–500 ms, rps 12, concurrency 6: throughput within ±25% of min(C / L_trader, RPS / requests_per_trader)', async () => {
   const { ROUND_MS } = await import('./sync.ts');
   const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
   const L = LATENCY;

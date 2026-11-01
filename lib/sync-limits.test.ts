@@ -243,3 +243,33 @@ test('the per-account request count is one constant: syncRequests, syncCost, SYN
   assert.ok(S.syncCost(S.SYNC_FIT_CAP) <= S.SYNC_ROUTE_MAX_S * 1000 && S.syncCost(S.SYNC_FIT_CAP + 1) > S.SYNC_ROUTE_MAX_S * 1000);
   assert.equal(S.accountsThatFit(S.syncCost(3)), 3);
 });
+
+// Committee round 3: fit rule v2 and the route-end guard.
+test('LatencyWindow: no estimate before 50 requests; p99 over the last 200, never below the first 50 requests\' p99; recomputed at most once a second', async () => {
+  const { LatencyWindow } = await import('./sync-limits.ts');
+  const w = new LatencyWindow();
+  for (let i = 0; i < 49; i++) w.record(100);
+  assert.equal(w.p99(0), null);
+  w.record(900); // the 50th: the first 50's p99 is 900 (the largest of 50 at index 48.5 → 48... sorted[48] = 100) 
+  const first = w.p99(0)!;
+  assert.ok(first === 100 || first === 900);
+  // 200 fast requests later the window holds only fast ones, but the floor (the first 50's p99) holds.
+  for (let i = 0; i < 300; i++) w.record(10);
+  assert.equal(w.p99(0), first, 'cached within a second');
+  assert.equal(w.p99(2_000), first, 'the floor holds');
+  // A mid-run slowdown raises it at once (after the cache second).
+  for (let i = 0; i < 200; i++) w.record(5_000);
+  assert.equal(w.p99(4_000), 5_000);
+});
+
+test('plannedSyncMs: the worst case (every request at the bound) without an estimate; requests at p99 (capped at the bound) plus one bound with one', async () => {
+  const { plannedSyncMs } = await import('./sync-limits.ts');
+  assert.equal(plannedSyncMs(7, 30_000, null), 210_000);
+  assert.equal(plannedSyncMs(7, 30_000, 500), 7 * 500 + 30_000);
+  assert.equal(plannedSyncMs(7, 30_000, 60_000), 7 * 30_000 + 30_000);
+});
+
+test('RouteDeadlineError is transient (never held against the trader)', async () => {
+  const { RouteDeadlineError } = await import('./sync-limits.ts');
+  assert.equal(classify(new RouteDeadlineError()), 'transient');
+});

@@ -128,7 +128,7 @@ export function classify(e: unknown): FailureKind {
   const status = errStatus(e);
   if (status !== undefined) return status === 429 || status >= 500 ? 'transient' : status === 401 || status === 403 || status === 404 ? 'refused' : 'trader';
   const x = e as { name?: unknown; code?: unknown } | null;
-  if (x?.name === 'VendorTimeoutError' || x?.name === 'AxiosError') return 'transient';
+  if (x?.name === 'VendorTimeoutError' || x?.name === 'AxiosError' || x?.name === 'RouteDeadlineError') return 'transient';
   if (typeof x?.code === 'string' && (TRANSPORT_CODES.has(x.code) || DB_WIDE.test(x.code))) return 'transient';
   // A code error (a vendor response shape we do not expect, a bug): not the trader's fault and, at scale, a fleet-wide
   // cause the breaker must see. Never backed off; retried next round like a transient failure (review should-fix 1).
@@ -193,4 +193,47 @@ export function parseCall(params: URLSearchParams): Call | { error: string } {
   const shard = parseShard(params);
   if ('error' in shard) return shard;
   return { mode: shard.of === 1 ? 'all' : 'shard', shard };
+}
+
+// Fit rule v2 (committee round 3, after #40's third read per account): a run times its vendor requests and plans with
+// their observed p99 instead of the 30 s worst case for every request. A bounded ring of the last `size` durations
+// (failures and timeouts included, so a slow vendor raises the estimate); `p99()` is null until `min` are recorded,
+// and is recomputed at most once per `everyMs`.
+// Round 3 (reliability): the p99 follows current latency — it is taken over the last `size` (200) requests — and never
+// drops below the p99 of the run's first `min` (50), so a run that slows down mid-way raises its estimate at once.
+export class LatencyWindow {
+  private ring: number[] = [];
+  private next = 0;
+  private floor: number | null = null; // the p99 of the first `min` requests
+  private cached: { at: number; p99: number } | null = null;
+  private readonly size: number;
+  private readonly min: number;
+  private readonly everyMs: number;
+  constructor(size = 200, min = 50, everyMs = 1_000) { this.size = size; this.min = min; this.everyMs = everyMs; }
+  record(ms: number) {
+    if (this.ring.length < this.size) this.ring.push(ms); else this.ring[this.next] = ms;
+    this.next = (this.next + 1) % this.size;
+    if (this.floor === null && this.ring.length === this.min) { this.floor = LatencyWindow.p99Of(this.ring); this.cached = null; }
+  }
+  get count() { return this.ring.length; }
+  private static p99Of(xs: number[]) { const sorted = [...xs].sort((a, b) => a - b); return sorted[Math.floor(0.99 * (sorted.length - 1))]; }
+  p99(now = performance.now()): number | null {
+    if (this.floor === null) return null;
+    if (!this.cached || now - this.cached.at >= this.everyMs) this.cached = { at: now, p99: Math.max(this.floor, LatencyWindow.p99Of(this.ring)) };
+    return this.cached.p99;
+  }
+}
+
+// Round 3 (reliability + engineer): a sync never runs into the platform's kill at the route's end. A vendor request
+// whose bound would end within ROUTE_END_MARGIN_MS of the end is refused with RouteDeadlineError, a transient failure:
+// the trader's transaction rolls back (nothing published), its attempt is cleared and it keeps its round claim.
+export const ROUTE_END_MARGIN_MS = 10_000;
+export class RouteDeadlineError extends Error {
+  name = 'RouteDeadlineError';
+  constructor() { super('vendor request refused: it could end past the route deadline'); }
+}
+// The time a trader's sync is planned to need: every request at the run's p99 (never above the bound) plus one whole
+// bound for a straggler; with no estimate yet, every request at the bound (the signed worst case).
+export function plannedSyncMs(requests: number, boundMs: number, p99: number | null): number {
+  return p99 === null ? requests * boundMs : requests * Math.min(boundMs, p99) + boundMs;
 }

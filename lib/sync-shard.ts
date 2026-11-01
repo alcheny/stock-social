@@ -13,7 +13,7 @@ import {
   type Broker, type SyncableUser,
 } from './sync.ts';
 import {
-  BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, TRANSIENT_LIMIT, classify, dbConfigCheck, runConfig, TokenBucket,
+  BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, LatencyWindow, plannedSyncMs, ROUTE_END_MARGIN_MS, RouteDeadlineError, TRANSIENT_LIMIT, classify, dbConfigCheck, runConfig, TokenBucket,
   type FailureKind, type RunConfig, type Shard,
 } from './sync-limits.ts';
 
@@ -36,7 +36,7 @@ const backoffSql = () => sql`least(${BACKOFF_CAP_MS}::float8, ${BACKOFF_BASE_MS}
 
 export type RunReport = {
   of: number; shard: number; busy: boolean;
-  done: number; skipped: number; deferred: number; transient: number; refused: number; failed: number; quarantined: number; releaseFailed: number;
+  done: number; skipped: number; deferred: number; transient: number; cutAtDeadline: number; refused: number; failed: number; quarantined: number; releaseFailed: number;
   remaining: number | null; inBackoff: number | null;
   stoppedAtDeadline: boolean; breaker: boolean; leaseLost: boolean; aborted: boolean;
   concurrency: number; requests: number; tokenWaitMs: number; pages: number; ms: number;
@@ -96,7 +96,7 @@ export async function quarantine(id: number, shift = 0): Promise<boolean> {
 }
 // How an attempt ends. Every statement applies only while the in-flight lease is still this claim's (compared as the
 // database wrote it, `::text`), so a stale worker never touches a newer claim.
-type End = 'done' | 'skipped' | FailureKind;
+type End = 'done' | 'skipped' | 'cut' | FailureKind;
 // Returns true when the attempt quarantined the trader (its TRANSIENT_LIMIT-th transient failure in a row).
 export async function finish(u: Claimed, end: End, shift = 0): Promise<boolean> {
   const mine = sql`users.id = ${u.id} and users.sync_lease_until = ${u.lease}::text::timestamptz`;
@@ -107,6 +107,10 @@ export async function finish(u: Claimed, end: End, shift = 0): Promise<boolean> 
     // Another sync holds the trader's lock: the round claim it replaced goes back and the attempt is undone.
     await sql`update users set sync_claimed_at = ${u.prev}::text::timestamptz, sync_lease_until = null,
       sync_attempts = greatest(users.sync_attempts - 1, 0) where ${mine}`;
+  } else if (end === 'cut') {
+    // Refused at the route's end (RouteDeadlineError): not a failure of any kind — no streak, no backoff, no attempt. The
+    // round claim it replaced goes back (as for a skipped sync), so the next call in this round takes it first.
+    await sql`update users set sync_claimed_at = ${u.prev}::text::timestamptz, sync_lease_until = null, sync_attempts = 0 where ${mine}`;
   } else if (end === 'transient') {
     // Not the trader's fault: no backoff; the round claim stays, so it is retried next round. Unless it is the
     // TRANSIENT_LIMIT-th in a row: then the trader is quarantined (a backoff), so a record that always times out (or
@@ -136,21 +140,31 @@ export async function finish(u: Claimed, end: End, shift = 0): Promise<boolean> 
 // Every vendor request a sync makes takes a token. The trader's expected requests (syncRequests(n) = 1 + SYNC_REQUESTS_PER_ACCOUNT × n) are taken before the claim,
 // outside its transaction; a request beyond them (another page on a first sync, an account the snapshot did not have)
 // takes one more as it goes.
-function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, count: { n: number }): Broker {
+type Guard = { clock: () => number; routeEnd: number; boundMs: number };
+function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, count: { n: number }, latency?: LatencyWindow, guard?: Guard): Broker {
   const pay = async (n: number) => {
+    // Refused before it starts (and before its token) when its bound could reach the route's last ROUTE_END_MARGIN_MS.
+    if (guard && guard.routeEnd !== Infinity && guard.clock() + guard.boundMs > guard.routeEnd - ROUTE_END_MARGIN_MS) throw new RouteDeadlineError();
     count.n += n;
     const free = Math.min(prepaid.left, n);
     prepaid.left -= free;
     if (n > free) await bucket.take(n - free);
   };
+  // Each call is timed after its tokens are taken (vendor time only); `n` requests share the call's duration (a
+  // multi-account activities read is one call of n requests).
+  const timed = async <T>(n: number, call: () => Promise<T>): Promise<T> => {
+    await pay(n);
+    const t0 = performance.now();
+    try { return await call(); } finally { const per = (performance.now() - t0) / n; for (let i = 0; i < n; i++) latency?.record(per); }
+  };
   return {
     pageLimit: b.pageLimit,
-    listAccounts: async (u) => { await pay(1); return b.listAccounts(u); },
-    fetchActivities: async (u, since, accountIds) => { await pay(Math.max(1, accountIds?.length ?? 1)); return b.fetchActivities(u, since, accountIds); },
-    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: async (u: Parameters<NonNullable<Broker['fetchActivitiesPage']>>[0], id: string, offset: number, limit?: number) => { await pay(1); return b.fetchActivitiesPage!(u, id, offset, limit); } } : {}),
-    ...(b.fetchPositions ? { fetchPositions: async (u: Parameters<NonNullable<Broker['fetchPositions']>>[0], id: string) => { await pay(1); return b.fetchPositions!(u, id); } } : {}),
+    listAccounts: (u) => timed(1, () => b.listAccounts(u)),
+    fetchActivities: (u, since, accountIds) => timed(Math.max(1, accountIds?.length ?? 1), () => b.fetchActivities(u, since, accountIds)),
+    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (u: Parameters<NonNullable<Broker['fetchActivitiesPage']>>[0], id: string, offset: number, limit?: number) => timed(1, () => b.fetchActivitiesPage!(u, id, offset, limit)) } : {}),
+    ...(b.fetchPositions ? { fetchPositions: (u: Parameters<NonNullable<Broker['fetchPositions']>>[0], id: string) => timed(1, () => b.fetchPositions!(u, id)) } : {}),
     // Corporate actions (#40): each real account's share moves; every broker function the sync uses must pass through.
-    ...(b.fetchShareMoves ? { fetchShareMoves: async (u: Parameters<NonNullable<Broker['fetchShareMoves']>>[0], id: string) => { await pay(1); return b.fetchShareMoves!(u, id); } } : {}),
+    ...(b.fetchShareMoves ? { fetchShareMoves: (u: Parameters<NonNullable<Broker['fetchShareMoves']>>[0], id: string) => timed(1, () => b.fetchShareMoves!(u, id)) } : {}),
   };
 }
 
@@ -191,7 +205,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   // count (a manual call during a sharded schedule) add their own — a budget row in the database would bound the fleet.
   const bucket = o.bucket ?? new TokenBucket(cfg.rps, cfg.burst);
   const r: RunReport = {
-    of: sh.of, shard: sh.shard, busy: false, done: 0, skipped: 0, deferred: 0, transient: 0, refused: 0, failed: 0, quarantined: 0, releaseFailed: 0,
+    of: sh.of, shard: sh.shard, busy: false, done: 0, skipped: 0, deferred: 0, transient: 0, cutAtDeadline: 0, refused: 0, failed: 0, quarantined: 0, releaseFailed: 0,
     remaining: null, inBackoff: null, stoppedAtDeadline: false, breaker: false, leaseLost: false, aborted: false,
     concurrency, requests: 0, tokenWaitMs: 0, pages: 0, ms: 0,
   };
@@ -219,6 +233,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   // ponytail: the breaker's window is one run's attempts; an outage is re-detected by every run of every shard (20
   // attempts each) — a shared breaker row would stop the fleet after the first.
   const breaker = new Breaker();
+  const latency = new LatencyWindow();
   const failedIds: number[] = [];
   const queue: { id: number; accounts: number }[] = [];
   const inflight = new Set<number>();
@@ -264,9 +279,12 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       // so a trader with many accounts is never deferred forever by shard 0's housekeeping (review should-fix 2).
       const first = !firstTaken;
       firstTaken = true;
-      // ponytail: the fit check assumes every request takes its whole bound (30 s), so a 2-account trader is claimed only
-      // in a call's first ~150 s, ~15% of a mixed shard's throughput (docs/SYNC.md) — a measured p99 bound would fit more.
-      if (!first && routeEnd !== Infinity && syncCost(c.accounts) / VENDOR_TIMEOUT_MS * bound + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
+      // Fit rule v2 (committee round 3): the trader's requests at this run's observed p99 plus one whole bound for a
+      // straggler (the worst case, every request at the bound, until 50 requests are timed), plus the token wait.
+      // ponytail: a trader dispatched near the end whose requests then time out can still overrun the call; it rolls back
+      // (nothing published), its lease lapses and the attempt counts as unfinished (two in a row quarantine it) — a
+      // per-account resumable sync (the follow-up PR) removes the overrun.
+      if (!first && routeEnd !== Infinity && plannedSyncMs(requests, bound, latency.p99()) + bucket.estimateWaitMs(requests) > routeEnd - clock()) {
         unfit.push(c.id); popped.delete(c.id); r.deferred++; stopReason = 'deadline';
         // Nothing smaller can fit either, or the list has grown past a few pages: stop reading the queue (the exclusion
         // list rides on every page query).
@@ -288,22 +306,24 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       const count = { n: 0 };
       let end: End;
       try {
-        end = (await sync(u, metered(broker, bucket, { left: requests }, count))) === 'skipped' ? 'skipped' : 'done';
+        end = (await sync(u, metered(broker, bucket, { left: requests }, count, latency, { clock, routeEnd, boundMs: bound }))) === 'skipped' ? 'skipped' : 'done';
       } catch (e) {
-        end = classify(e);
+        end = e instanceof RouteDeadlineError ? 'cut' : classify(e);
         // The internal id, the failure class and the error's class and status; never the message (lib/privacy-log.ts).
-        if (end === 'transient') console.error('sync failed transient', u.id, logSafe(e));
+        if (end === 'cut') console.error('sync cut at the route deadline', u.id);
+        else if (end === 'transient') console.error('sync failed transient', u.id, logSafe(e));
         else if (end === 'refused') console.error('sync failed refused', u.id, logSafe(e));
         else console.error('sync failed trader', u.id, logSafe(e));
       }
       r.requests += count.n;
-      if (end !== 'done' && end !== 'skipped') failedIds.push(u.id);
+      if (end !== 'done' && end !== 'skipped' && end !== 'cut') failedIds.push(u.id);
       if (end === 'done') r.done++;
       else if (end === 'skipped') { r.skipped++; passed.push(u.id); }
+      else if (end === 'cut') r.cutAtDeadline++;
       else if (end === 'transient') r.transient++;
       else if (end === 'refused') r.refused++;
       else r.failed++;
-      if (end !== 'skipped') breaker.record(end === 'transient' || end === 'refused');
+      if (end !== 'skipped' && end !== 'cut') breaker.record(end === 'transient' || end === 'refused');
       try { if (await finish(u, end, shift())) r.quarantined++; } catch (e) {
         // The lease lapses after SYNC_LEASE_MS; the attempt stays counted (visible here, so a false quarantine is too).
         r.releaseFailed++;
