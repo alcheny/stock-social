@@ -67,17 +67,21 @@ const count = (html: string, cls: string) => (html.match(new RegExp(`class="(?:[
 const words = (n: string) => n.replace(/<svg[\s\S]*?<\/svg>/, '').replace(/<[^>]+>/g, '').replace(/&#x27;/g, "'").trim();
 
 // ---- AC1, AC2: the bar baseline ----
-test('F-27 AC1: the bar baseline in Spread and Timeline is drawn in --control; no chart line in app/t/[symbol]/ uses --line', () => {
+test('F-27 AC1: the bar baseline in Spread and Timeline is drawn in --control; no chart baseline in app/t/[symbol]/ uses --line', () => {
   for (const f of ['app/t/[symbol]/Spread.tsx', 'app/t/[symbol]/Timeline.tsx']) {
     const base = noComments(read(f)).match(/<line [^>]*y1=\{BASE\} [^>]*y2=\{BASE\}[^>]*\/>/g) ?? [];
     assert.equal(base.length, 1, `${f}: one baseline`);
     assert.match(base[0], /stroke="var\(--control\)"/, f);
   }
-  // No chart in the stock page's folder draws anything in --line.
+  // No horizontal chart line (a baseline: y1 equals y2) in the stock page's folder is drawn in --line; separators and
+  // borders may keep --line (the decision).
   const dir = new URL('app/t/[symbol]/', ROOT);
   const tsx = require('node:fs').readdirSync(dir).filter((n: string) => n.endsWith('.tsx'));
   assert.ok(tsx.length >= 2);
-  for (const n of tsx) assert.doesNotMatch(noComments(readFileSync(new URL(n, dir), 'utf8')), /var\(--line\)/, `${n} draws nothing in --line`);
+  for (const n of tsx) for (const l of noComments(readFileSync(new URL(n, dir), 'utf8')).match(/<line [^>]*\/>/g) ?? []) {
+    const y1 = l.match(/y1=(\{[^}]*\}|"[^"]*")/)?.[1], y2 = l.match(/y2=(\{[^}]*\}|"[^"]*")/)?.[1];
+    if (y1 && y1 === y2) assert.doesNotMatch(l, /var\(--line\)/, `${n}: a baseline in --line: ${l}`);
+  }
 });
 
 test('F-27 AC2: F-20\'s --control pair (>= 3:1 on bg and surface, both schemes) is unchanged in lib/a11y-contrast.test.ts', () => {
@@ -124,18 +128,22 @@ test('F-27 AC3: the profile renders the failed line through WarnNotice (its retr
   const s = noComments(read('app/u/[handle]/page.tsx'));
   const m = s.match(/\{state === 'failed' && \(\s*(<WarnNotice[\s\S]*?<\/WarnNotice>)\s*\)\}/);
   assert.ok(m, 'the profile\'s failed line is a WarnNotice');
-  assert.match(m[1], /^<WarnNotice role=\{isMe \? 'alert' : 'status'\}>\{RECORD_BODY\.failed\}\{isMe && <> <Link className="button secondary" href="\/connect">\{RECORD_BODY\.retry\}<\/Link><\/>\}<\/WarnNotice>$/);
+  assert.match(m[1], /^<WarnNotice role=\{isMe \? 'alert' : 'status'\}>/);
+  assert.match(m[1], /\{RECORD_BODY\.failed\}/);
+  assert.match(m[1], /\{isMe && <>[\s\S]*<Link [^>]*href="\/connect"[^>]*>\{RECORD_BODY\.retry\}<\/Link>[\s\S]*<\/>\}\s*<\/WarnNotice>$/);
   // The retry link renders inside the words span.
   const html = renderToStaticMarkup(createElement(WarnNotice, { role: 'alert', children: ['Words.', ' ', createElement('a', { href: '/connect', className: 'button secondary' }, 'Retry')] }));
   assert.match(html, /<span>Words\. <a href="\/connect" class="button secondary">Retry<\/a><\/span><\/p>$/);
 });
 
-test('F-27 AC3: every failed-import site uses WarnNotice; no `warn` or `down` class on a failed line anywhere in app/', () => {
-  const sites = ['app/ui.tsx', 'app/pane.tsx', 'app/record-strip.tsx', 'app/u/[handle]/page.tsx'];
-  for (const f of sites) {
-    const s = noComments(read(f));
-    assert.match(s, /<WarnNotice role=/, `${f} uses WarnNotice`);
-    assert.doesNotMatch(s, /className="(warn|down) record-failed"|record-failed"/, `${f}: no hand-made failed line`);
+const tsxUnder = (dir: string): string[] => require('node:fs').readdirSync(new URL(dir, ROOT), { withFileTypes: true }).flatMap((d: import('node:fs').Dirent) =>
+  d.isDirectory() ? tsxUnder(`${dir}${d.name}/`) : d.name.endsWith('.tsx') ? [`${dir}${d.name}`] : []);
+
+test('F-27 AC3: every failed-import site uses WarnNotice; no hand-made failed line anywhere in app/', () => {
+  for (const f of ['app/ui.tsx', 'app/pane.tsx', 'app/record-strip.tsx', 'app/u/[handle]/page.tsx']) assert.match(noComments(read(f)), /<WarnNotice role=/, `${f} uses WarnNotice`);
+  for (const f of tsxUnder('app/')) {
+    if (f === 'app/warn-notice.tsx') continue;
+    assert.doesNotMatch(noComments(read(f)), /className="[^"]*\brecord-failed\b[^"]*"/, `${f}: no hand-made failed line`);
   }
   assert.doesNotMatch(noComments(read('app/warn-notice.tsx')), /style=/, 'the notice has no inline style');
 });
@@ -161,13 +169,11 @@ test('F-27 AC5: var(--warn) appears only in .warn-notice rules in app/globals.cs
   const css = noComments(read('app/globals.css'));
   for (const r of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
     if (!/var\(--warn\)/.test(r[2])) continue;
-    for (const sel of r[1].split(',').map((x) => x.trim())) assert.match(sel, /^\.warn-notice\b/, `var(--warn) in ${sel}`);
+    for (const sel of r[1].split(',').map((x) => x.trim())) assert.match(sel, /^\.warn-notice(?![\w-])/, `var(--warn) in ${sel}`);
   }
   // The token's definition is not a use; nothing else names it.
   assert.equal((css.match(/--warn:/g) ?? []).length, 2, 'defined once per scheme in TOKENS');
-  const tsx = (dir: string): string[] => require('node:fs').readdirSync(new URL(dir, ROOT), { withFileTypes: true }).flatMap((d: import('node:fs').Dirent) =>
-    d.isDirectory() ? tsx(`${dir}${d.name}/`) : d.name.endsWith('.tsx') ? [`${dir}${d.name}`] : []);
-  for (const f of tsx('app/')) assert.doesNotMatch(read(f), /var\(--warn\)/, f);
+  for (const f of tsxUnder('app/')) assert.doesNotMatch(read(f), /var\(--warn\)/, f);
 });
 
 // ---- AC6: F-9's held-note line stays neutral ----

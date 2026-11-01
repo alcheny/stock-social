@@ -1,6 +1,6 @@
 # F-27 · Colour follow-ups: chart baseline, warn notice, share-image hues
 
-Status: building
+Status: built
 
 ## Why
 PR #71 (merged as 06edbdf) retuned gain and loss for colour blindness (light #0b6b70 / #b2441b, dark #3cc4b4 /
@@ -71,11 +71,11 @@ is still told apart from a loss mainly by hue.
   F-27 does not own.
 
 ## Acceptance criteria
-- [ ] The bar baseline `<line>` in `Spread.tsx` and `Timeline.tsx` has `stroke="var(--control)"`, and no chart
+- [x] The bar baseline `<line>` in `Spread.tsx` and `Timeline.tsx` has `stroke="var(--control)"`, and no chart
       baseline in `app/t/[symbol]/` uses `var(--line)` (source test). Its computed stroke equals `--control` in light
       and dark (e2e on a demo stock page).
-- [ ] `lib/a11y-contrast.test.ts` #14 (`--control` ≥ 3:1 on bg and surface, both schemes) passes unchanged.
-- [ ] At each of the four failed-import sites, the rendered line is one `WarnNotice` with:
+- [x] `lib/a11y-contrast.test.ts` #14 (`--control` ≥ 3:1 on bg and surface, both schemes) passes unchanged.
+- [x] At each of the four failed-import sites, the rendered line is one `WarnNotice` with:
       - an `aria-hidden` icon (`[data-warn-icon]`) with `pointer-events: none`;
       - a box whose computed border colour is `--warn`;
       - its unchanged words (`RECORD_BODY.failed` on card, pane and profile, the strip's `note` on the strip) in
@@ -83,21 +83,21 @@ is still told apart from a loss mainly by hue.
       - no `down` or `.warn` class and no `::before` glyph.
 
       Render tests, plus e2e with a seeded failed record in light and dark.
-- [ ] An e2e computed-style scan of a failed record's feed card, pane, profile and trade page, in light and dark, finds
+- [x] An e2e computed-style scan of a failed record's feed card, pane, profile and trade page, in light and dark, finds
       every element whose computed `color`, `border-*-color`, `outline-color`, `background-color`, `fill` or `stroke`
       equals `--warn` inside a `.warn-notice` that holds
       `[data-warn-icon]` and visible words.
-- [ ] In `app/globals.css`, `var(--warn)` appears only inside `.warn-notice` rules (the `--warn:` definition is not a
+- [x] In `app/globals.css`, `var(--warn)` appears only inside `.warn-notice` rules (the `--warn:` definition is not a
       use), and no `.tsx` inline style uses `var(--warn)` (source test).
-- [ ] No element with the held-note class carries the `down` class or `.warn-notice` (render test).
-- [ ] F-20's colour-blind test still covers gain, loss and Flat only, with no exemption list (source test on the test
+- [x] No element with the held-note class carries the `down` class or `.warn-notice` (render test).
+- [x] F-20's colour-blind test still covers gain, loss and Flat only, with no exemption list (source test on the test
       file).
-- [ ] A failed record's feed card, pane and trade page each render exactly one `.warn-notice` (render tests).
-- [ ] The warn border is ≥ 3:1 against `--surface` and the notice text ≥ 4.5:1, in both schemes (contrast test).
-- [ ] A double tap that lands on the warn icon on a failed record's card still likes it (signed in) (e2e).
-- [ ] At 320×640, 360×640 and 780×360, the F-10 15% headroom check and the disclaimer check pass unchanged for a
+- [x] A failed record's feed card, pane and trade page each render exactly one `.warn-notice` (render tests).
+- [x] The warn border is ≥ 3:1 against `--surface` and the notice text ≥ 4.5:1, in both schemes (contrast test).
+- [x] A double tap that lands on the warn icon on a failed record's card still likes it (signed in) (e2e).
+- [x] At 320×640, 360×640 and 780×360, the F-10 15% headroom check and the disclaimer check pass unchanged for a
       failed record's card (the box adds about 18 px) (e2e).
-- [ ] No share-image colour value changes in this feature: F-20's image-table pin still passes.
+- [x] No share-image colour value changes in this feature: F-20's image-table pin still passes.
 
 ## Out of scope
 - Any token value change (F-20, V-1), the Demo hue on images (O-2), a light share-image palette (DS-6's light half).
@@ -134,3 +134,8 @@ is still told apart from a loss mainly by hue.
 ## Rework notes
 
 ## Build log
+- 2026-11-01: built on `claude/f27-colour-follow-ups` (one PR on F-20's token layer; no token or image colour change).
+  Every criterion has a test: `lib/f27-colour-follow-ups.test.ts` (source, render, contrast) and
+  `e2e/f27-colour-follow-ups.spec.ts` (computed styles light and dark, the --warn scan, the double tap on the icon,
+  F-10 headroom at 320×640, 360×640 and 780×360, the author's notice with its 44 px retry). Committee record:
+  `docs/features/logs/F-27/committee-2026-11-01.md`. Screenshots: `docs/features/logs/F-27/screenshots/`.
