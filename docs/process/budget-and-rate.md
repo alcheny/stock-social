@@ -69,12 +69,12 @@ before every `create_session`. It is the manual form of what the governor comput
 fill recommendation, brakes). It never starts or stops anything, never reads the clock and has no
 dependencies.
 
-- **Status, checked 2026-11-01 09:35 UTC:** work in progress on branch `claude/token-budget-governor`
-  (head `a06ff78`), **not on main**, no PR. The branch adds `docs/token-budget.md` (the spec and method),
+- **Status, checked 2026-11-01 09:47 UTC:** work in progress on branch `claude/token-budget-governor`
+  (head `52728e0`), **not on main**, no PR. The branch adds `docs/token-budget.md` (the spec and method),
   `scripts/token-budget.ts`, `scripts/token-budget.test.ts` and
   `docs/features/logs/token-budget/review-2026-11-01.md`. At that time the review log held the owner's
-  corrections, the build and round 1 (three reviewers plus the tester, with blocking findings); no later round
-  was logged yet.
+  corrections, the build, round 1 (three reviewers plus the tester, with blocking findings; fixes in `8d8bd28`)
+  and round 2 (three new reviewers, still blocking findings in every lens, 20 fixes handed to the engineer).
 - **What it adds beyond this file:** cost priors per session kind (low / point / high, calibrated on
   2026-11-01), pro-rata spend for a session that started before the window, cap calibration that carries over
   between windows, an overshoot-risk rating, and a pause order under a brake. The method lives in its spec.
@@ -99,13 +99,14 @@ lane-C PRs).
 
 | Measure (2026-11-01) | Value | Method |
 |---|---|---|
-| CI runs created that day | 116 | `gh api 'repos/{owner}/{repo}/actions/workflows/ci.yml/runs?created=2026-11-01'` → `total_count`, read 09:35 UTC |
-| Gate runs created that day | 217, ≈ 0.4 min wall each | same, `gate.yml`; mean of `updated_at − run_started_at` over the first 99 completed runs |
-| One CI run after #29 (sharded layout) | ≈ 3 min wall, ≈ 12 job-minutes (7 jobs) | jobs API of the 6 latest completed CI runs at 09:35 UTC: max − min of job times (wall), and the sum of job durations |
+| CI runs created that day | 126 | `gh api 'repos/{owner}/{repo}/actions/workflows/ci.yml/runs?created=2026-11-01'` → `total_count`, read 09:47 UTC |
+| Gate runs created that day | 230, ≈ 0.4 min wall each | same, `gate.yml`, read 09:41 UTC; mean of `updated_at − run_started_at` over the newest 100 completed runs: 0.44 min |
+| One CI run after #29 (sharded layout) | ≈ 3.6 min wall (median 213 s), ≈ 12.5 job-minutes (7 jobs, `notify-gate` skipped and not counted) | jobs API of the 71 successful sharded runs at 09:41 UTC: last job end − first job start (wall), and the sum of job durations (medians) |
+| Job-minutes used that day | ≈ 1,220 | sum of job durations over 113 of the 116 completed CI runs at 09:41 UTC; 3 runs that straddle the API's +1 h timestamp jump (each reading ≈ 66 min) left out |
 
-Rough order of magnitude: 116 runs × ≈ 12 job-minutes ≈ 1,390 job-minutes in one morning, plus the Gate
-runs (billing rounds each job up to a whole minute). Runs before #29 merged (08:05 UTC) used the older
-layout, so this is not a measurement. Plan limits and the cost of running over are in
+So ≈ 1,220 job-minutes of CI in one morning, plus the Gate runs (billing rounds each job up to a whole minute,
+so the billed figure is higher). Runs on branches without #29 (merged 08:05 UTC) used the older one-job
+layout. Plan limits and the cost of running over are in
 [AUTOPILOT.md → Known limits](../AUTOPILOT.md#known-limits). Actual usage is shown only on the owner's billing
 settings page, which sessions cannot read.
 
@@ -140,13 +141,15 @@ sessions):
 | Council (idea board, direction, approval, business) | $30–50 |
 | Independent review subagent (one per PR) | $1–4 |
 
-The governor branch's priors use the same data (for example build low $20 / point $40 / high $55, council
-$30 / $40 / $50, review $1 / $3 / $4).
+The governor branch's priors use the same data (`DEFAULT_PRIORS` at head `52728e0`: build low $20 / point $40 /
+high $55, council $30 / $40 / $60 (high raised from $50 in the round-1 fixes), review $1 / $3 / $4).
 
 ## Measured throughput
 
-Method: count merge commits on main by **committer date**
-(`git log origin/main --since=2026-11-01T06:00Z --format='%h %cI %s'`, run at 09:35 UTC). The GitHub pulls
+Method: count the PR commits on main's first-parent line by **committer date**
+(`git log origin/main --first-parent --since=2026-11-01T06:00Z --format='%h %cI %s'`, the lines ending in `(#n)`;
+run at 09:48 UTC by fact-checker FC2). Without `--first-parent` the log also lists the branch commits that #25
+brought in as a merge commit. The GitHub pulls
 API's `merged_at` and `created_at` read 1 h late for events after about 08:00 UTC that day (for example #43:
 API 09:56Z, committer date 08:56Z, container clock 09:20Z at the time). The suspected cause is the
 daylight-saving change in the committer's time zone. Never use API timestamps for 2026-11-01 without
@@ -170,19 +173,20 @@ cross-checking.
 | #45 | 09:20 | business council |
 | #35 | 09:23 | F-4 rework |
 | #30 | 09:32 | F-2 PR-5/6 |
+| #47 | 09:38 | market research council, cycle 2 |
 
-- **19 merges in 07:05–09:32 UTC** (2 h 27 min = 2.45 h): 19 / 2.45 ≈ **7.8 merges/h**. 3 of them are
-  dependency bumps (#26, #27, #28), so 16 / 2.45 ≈ 6.5 work-item merges/h.
-- By clock hour: 07:00–08:00: 3; 08:00–09:00: 9; 09:00–09:32: 7.
+- **20 merges in 07:05–09:38 UTC** (2 h 33 min = 2.55 h): 20 / 2.55 ≈ **7.8 merges/h**. 3 of them are
+  dependency bumps (#26, #27, #28), so 17 / 2.55 ≈ 6.7 work-item merges/h.
+- By clock hour: 07:00–08:00: 3; 08:00–09:00: 9; 09:00–09:38: 8.
 - 10 merges in 07:53–08:56, and 6 in 09:13–09:23.
 - The orchestrator's earlier "12 PRs merged between 07:50 and 09:00" counts #26 and #27, which merged at
   07:05. It holds as "12 in 07:05–08:56".
-- The FACTS figure of 18 merges in 07:05–09:23 (≈ 7.8/h) was taken before #30 merged.
+- The FACTS figure of 18 merges in 07:05–09:23 (18 / 2.3 h ≈ 7.8/h) was taken before #30 and #47 merged.
 
 ## Bottlenecks
 
 - **CI round trips and review fix rounds** are the main bottleneck (orchestrator report, 2026-11-01). Each
-  merge moves main, every open session then merges main, and each push runs full CI (≈ 3 min wall) again.
+  merge moves main, every open session then merges main, and each push runs full CI (median ≈ 3.7 min, [quality.md → CI layout](quality.md#ci-layout)) again.
 - **Red CI**: the root causes on 2026-11-01 (font mismatch, a shared-database race, a layout bug, new-test
   fixtures) and their fixes are in [quality.md → Red CI on 2026-11-01](quality.md#red-ci-on-2026-11-01).
 - **Merges one at a time**: merges are serialized by rule
@@ -197,7 +201,7 @@ cross-checking.
 |---|---|---|
 | Spend over a window | Sum `get_session` usage `cost_usd` (and output / cache-read tokens) over the sessions active in a stated UTC window; divide by the window in hours | Orchestrator only (session ids are private) |
 | Window and status | `get_session` → `rate_limit_info` (`status`, `resetsAt`, overage) | Orchestrator only |
-| Merge throughput | `git log origin/main --since=<UTC> --format='%h %cI %s'`; count merge commits; divide by the window | Any client (git fetch works in cloud sessions) |
+| Merge throughput | `git log origin/main --first-parent --since=<UTC> --format='%h %cI %s'`; count the lines ending in `(#n)`; divide by the window | Any client (git fetch works in cloud sessions) |
 | CI duration per run | `gh api repos/{owner}/{repo}/actions/runs/<id>/jobs`: max − min of job times (wall), sum of job durations (job-minutes) | Any client (REST) |
 | CI runs per day | `gh api 'repos/{owner}/{repo}/actions/workflows/ci.yml/runs?created=<date>'` → `total_count` | Any client (REST) |
 
@@ -213,7 +217,7 @@ tools or git: `gh pr list` (GraphQL) fails in cloud sessions.
 3. Capacity: compare that range with the budget left in the window (orchestrator only). At a constant
    $292/h, the 5 h 25 min from 09:35 to the 15:00 UTC reset would spend ≈ $1,580; rule 8 then says fill the
    rest with research, business and design work.
-4. Time: items ÷ the work-item merge rate (≈ 6.5/h on 2026-11-01), with the dependencies in
+4. Time: items ÷ the work-item merge rate (≈ 6.7/h on 2026-11-01), with the dependencies in
    coordination.md's merge order as the floor (an item that starts only after another merges cannot finish
    before it).
 
@@ -229,6 +233,6 @@ tools or git: `gh pr list` (GraphQL) fails in cloud sessions.
   a per-token usage figure from the provider would remove it.
 - Spend from sessions the orchestrator cannot see (the owner's own sessions, lanes A/B if they share the
   cap) is missing, so a calibrated cap comes out low — reading the account's usage directly would remove it.
-- The Actions-minutes figure is an order of magnitude from mixed CI layouts — reading the owner's billing
-  page for that day would replace it.
+- The Actions-minutes figure is unbilled job time from the jobs API, with 3 runs left out — reading the owner's
+  billing page for that day would replace it.
 - The unit costs come from one day — re-measuring over more windows would firm them up.

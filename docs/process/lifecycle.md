@@ -121,7 +121,7 @@ committee) and its Decisions. Those steps are not restated here. **Lane-C differ
 - Legal joins the plan debate where the item touches POLICY or COMPLIANCE (orchestrator report, 2026-11-01).
 - Open questions found during the cycle are handled under the owner's delegation of 2026-11-01 ("open questions
   decided by the committee's recommended option and recorded"; text and scope in
-  [decisions-and-authority.md → Delegations by the owner](decisions-and-authority.md#delegations-by-the-owner)). How
+  [decisions-and-authority.md → Delegations and process decisions by the owner](decisions-and-authority.md#delegations-and-process-decisions-by-the-owner)). How
   far it reaches against IMPLEMENTATION.md Hard stops and its 2026-10-22 "the feature waits" decision is open question
   Q3; until the owner answers, both texts stand as written.
 - An in-session independent code review (a fresh-context reviewer subagent, `team/reviewer.md`) runs after the
@@ -142,7 +142,8 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
 - **Who:** the build session.
 - **Input:** the session's branch. **Output:** one PR per session into `main`, label `feature`. The label collides
   with lane B when `FEATURES` is on ([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on));
-  #41 and #42 shipped with no label; label policy is open question Q4.
+  #41 merged with no label, and #42 and #46 are open with none (REST `pulls`, 09:47 UTC 2026-11-01); label policy is
+  open question Q4.
 - **Open it early as a draft: the draft PR is the claim** ([collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work)).
   The Gate ignores draft PRs (`scripts/autopilot.ts` gate: `pr.isDraft` → "not an open autopilot or feature PR").
 - **Body:** `## Compliance` (COMPLIANCE §1 answers; [quality.md → Compliance](quality.md#compliance)),
@@ -186,8 +187,8 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
 - **After the merge:** the orchestrator checks `check` on main's new commit. If it is red: stop merges, open a fix
   item at merge position 1, and tell sessions not to merge main until it is green. Otherwise it sends every open
   session "main moved to `<sha>`, merge it" (collaboration.md [Messaging](collaboration.md#messaging)).
-- A PR that touches a CODEOWNERS path is still merged by the orchestrator in practice (#25, 2026-11-01); whether that
-  is allowed is open question Q6.
+- A PR that touches a CODEOWNERS path is still merged by the orchestrator in practice (#25, 2026-11-01, which also went
+  in as a merge commit, not a squash); whether that is allowed is open question Q6.
 
 ### 13. Archive
 - **Who:** the orchestrator.
@@ -196,8 +197,8 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
 
 ### 14. After merge: feature Status
 - docs/FEATURES.md has lane B's publish step set `Status: built` in the feature's PR. Lane C has no such step.
-  Observed on main at 09:30 UTC 2026-11-01: F-6 merged in #33 and F-3 merged in #36 still read `Status: ready`;
-  F-4 merged in #35 still reads `Status: rework`.
+  Observed on main at 09:47 UTC 2026-11-01: F-6 merged in #33, F-3 merged in #36 and F-2 after #30 (its PR-5 and
+  PR-6) still read `Status: ready`; F-4 merged in #35 still reads `Status: rework`.
 - Consequence: with `FEATURES=on`, lane B would pick these features up again and rebuild them.
 - Who sets `built` in lane C is open question Q8. This file never edits a feature file.
 
@@ -246,7 +247,7 @@ A session at a hard stop sets its row to `blocked`, says what the owner should d
 - No lane-C step sets a feature file's `Status: built`, so lane B would rebuild merged features when switched on — the
   owner answers Q8, or a publish step for lane C is added.
 - The verdict marker of stage 9 was defined on 2026-11-01; before it, review findings went to sessions by message, and
-  PRs #35 and #42 carried no review comments (REST `issues/<n>/comments`, 09:30 UTC) — reviews posting the marker
+  PRs #35 and #42 carried no review comments (REST `issues/<n>/comments`, 09:47 UTC) — reviews posting the marker
   from now on removes this.
 - Stages 1–4 depend on the register's writer, which three texts describe differently — the owner answers Q2.
 - The privacy build (#31) merged with no recorded passing committee re-sit after its round-2 FAIL verdicts — a re-sit

@@ -65,10 +65,12 @@ than once and a test must not depend on an earlier test in its file.
 feature PR and logs "not an open autopilot or feature PR" (`scripts/autopilot.ts` gate: a lane-B feature PR needs a
 `feature/` head and the bot as author). It merges nothing in lane C.
 
-**Duration, measured:** 59 successful `ci.yml` runs created on 2026-11-01 (REST `actions/workflows/ci.yml/runs?created=2026-11-01&status=success`,
-then `actions/runs/<id>/timing` → `run_duration_ms`; queried 09:33 UTC by the W2 writer): median 222 s (3 min 42 s),
-range 181–385 s; the newest 48 runs: median 214.5 s. The earlier figure "about 3 minutes" (orchestrator report) is the
-fast end of this range.
+**Duration, measured:** 84 successful `ci.yml` runs created on 2026-11-01 (REST `actions/workflows/ci.yml/runs?created=2026-11-01&status=success`,
+then `actions/runs/<id>/timing` → `run_duration_ms`; layout from `actions/runs/<id>/jobs`; queried 09:41 UTC by
+fact-checker FC2). Sharded layout (71 runs): median 222 s (3 min 42 s), range 181–421 s; first job start to last job
+end (jobs API): median 213 s. Old one-job layout (10 runs): median 363.5 s, range 309–381 s. Excluded: 2 old-layout
+runs whose `run_duration_ms` reads ≈ 66 min because their timestamps straddle the API's +1 h jump, and 1 run with no
+timing yet. The earlier figure "about 3 minutes" (orchestrator report) is the fast end of the sharded range.
 
 ## Rendering determinism
 
@@ -88,8 +90,9 @@ fast end of this range.
   "skipped": team/reviewer.md condition 2). CI enforces two parts of it: the test count may not
   drop, and `db/schema.sql` may not gain a `drop`, `truncate` or `delete from` line (`scripts/autopilot.ts`
   `guardFindings`; SQL comments are ignored).
-- **Feed lock:** an e2e test that fills or reads the shared feed holds `e2e/feed-lock.ts` (`feedLock('exclusive')` for
-  the heavy-feed test, `'shared'` for the others).
+- **Feed lock:** an e2e test that fills or reads the shared feed holds `e2e/feed-lock.ts`: `feedLock('exclusive')` for a
+  test that fills or reshapes the feed (the heavy-feed test in `app.spec.ts` and others: 17 call sites in `app`,
+  `section`, `follow` and `f2-personal` specs, grep 09:47 UTC), `'shared'` for a test that only looks for its own rows.
 - **Shared test database:** rules in [collaboration.md → Shared test database](collaboration.md#shared-test-database).
 - **Privacy maps** (lesson of 2026-11-01, orchestrator report; each map is held to the code by a unit test, verified
   by grep 09:30 UTC):
@@ -151,8 +154,8 @@ Each list lives in one file; this table names the list and what it does, and lis
 | `scripts/handoff.ts` `verify` | Refuses a build hand-off with a protected path (except the team's own logs), a symlink, a submodule, CODEOWNERS or an agent-instruction file | Lane B publish |
 
 Who may merge a lane-C PR that touches these paths: [decisions-and-authority.md](decisions-and-authority.md#owner-only)
-(open question Q6). A `/approve` comment on a lane-C PR runs `autopilot.ts approve`, which only posts an approval
-marker for that head; the Gate ignores lane-C PRs, so nothing merges.
+(open question Q6). A `/approve` comment on a lane-C PR runs `autopilot.ts approve`, which posts an approval
+marker for that head and dispatches the Gate; the Gate ignores lane-C PRs, so nothing merges.
 
 ## Diff size
 
@@ -162,11 +165,12 @@ cap; the orchestrator and the reviewer judge size.
 
 ## Red CI on 2026-11-01
 
-- **Count (REST, W2 writer, 09:33 UTC):** 32 `ci.yml` runs with `conclusion=failure` created on 2026-11-01, of 114
-  runs (`actions/workflows/ci.yml/runs?created=2026-11-01&status=failure`). 17 ran before the sharded layout (one job,
-  06:55–07:29 UTC run start; 14 on the orchestrator's branch, 2 on main, 1 on a dependency branch). 15 ran in the
-  sharded layout: an `e2e` shard failed in 10, `static` in 4 (2 runs had both), and 3 failed in `check` alone on
-  branches still on the old layout (failed jobs per run from `actions/runs/<id>/jobs`).
+- **Count (REST, fact-checker FC2, 09:47 UTC):** 32 `ci.yml` runs with `conclusion=failure` created on 2026-11-01, of
+  126 runs (`actions/workflows/ci.yml/runs?created=2026-11-01&status=failure`). Layout and failed jobs per run from
+  `actions/runs/<id>/jobs`: 20 ran on the old one-job layout (only `check` failed): 17 started 06:55–07:23 UTC
+  (14 on the orchestrator's branch, 2 on main, 1 on a dependency branch) and 3 later ones on branches that had not yet
+  merged #29 (2 privacy, 1 F-2). 12 ran on the sharded layout (3 of them on #29's own branch before it merged): an
+  `e2e` shard failed in 10, `static` in 4 (2 runs had both).
 - **Root causes (orchestrator report, not recounted):** font mismatch 5, shared-database race 1 (fixed in #31), one real
   layout bug, new-test fixtures for the rest. Assigning each red run to a cause needs its job log; not done here.
 - The API's run timestamps on that day may read +1 h after about 08:00 UTC (see budget-and-rate.md
