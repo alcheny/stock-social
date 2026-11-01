@@ -3,6 +3,8 @@
 // line), so the app can show what it displayed on a past date. Percent only: no quantities, prices or amounts. Rows are
 // never updated or removed (a database trigger refuses both) except with the account (the users cascade).
 // The text comes from the same functions the profile uses (lib/trades.ts, lib/copy.ts, lib/positions.ts).
+// A day's row is the record as of the first tick after 00:00 UTC that day (code review 9): wherever a past display is
+// shown, it says "as of the start of <day> (UTC)"; a later change the same day appears in the next day's row.
 import { sql } from './db.ts';
 import { confidence, evidenceLine, pct, rangeText, stats } from './trades.ts';
 import { winRateText } from './copy.ts';

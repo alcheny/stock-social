@@ -1,7 +1,7 @@
 // Privacy work (2026-11-01): the launch gate (lib/launch-gate.ts), decisions D1–D3.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { gateReport, gateState, isSandbox, mayConnect, signUpOpen } from './launch-gate.ts';
+import { gateReport, gateState, handleReserved, isSandbox, mayConnect, signUpOpen } from './launch-gate.ts';
 
 const prod = { NODE_ENV: 'production' };
 const sandbox = { NODE_ENV: 'production', ALLOW_DEV_AUTH: '1', SNAPTRADE_BASE_URL: 'http://127.0.0.1:4102', SNAPTRADE_CLIENT_ID: 'e2e' };
@@ -61,6 +61,16 @@ test('the sandbox (the e2e production test build) is open; each condition flippe
     assert.equal(gateState(env), 'closed', why);
   }
   assert.equal(isSandbox({ ...sandbox, AUTH_EMAIL_SEND_URL: 'http://localhost:9/send', AUTH_EMAIL_PROVIDER_ISSUER: 'http://[::1]:4103' }), true);
+});
+
+test('a rename can\'t take a listed handle while closed; with the dev sign-in on in production a handle alone never passes', () => {
+  const env = { ...prod, SNAPTRADE_CLIENT_ID: 'real', LAUNCH_ALLOWLIST: 'owner_test', LAUNCH_ALLOWLIST_EMAILS: 'owner@example.test' };
+  assert.equal(handleReserved('Owner_Test', env), true);
+  assert.equal(handleReserved('someone', env), false);
+  assert.equal(handleReserved('owner_test', { ...env, LAUNCH_OPEN: '1' }), false);
+  const dev = { ...env, ALLOW_DEV_AUTH: '1' };
+  assert.equal(mayConnect({ handle: 'owner_test' }, dev), false);
+  assert.equal(mayConnect({ handle: 'owner_test', emails: ['owner@example.test'] }, dev), true);
 });
 
 test('production with ALLOW_DEV_AUTH=1 but the real vendor configured stays closed; local dev with no vendor is a sandbox', () => {

@@ -45,12 +45,18 @@ export function signUpOpen(email: string | null = null, env: Env = process.env):
 export function mayConnect(who: { handle: string; emails?: (string | null)[] } | null, env: Env = process.env): boolean {
   if (gateState(env) !== 'closed') return true;
   if (!who) return false;
-  if (allowedHandles(env).includes(who.handle.toLowerCase())) return true;
+  // A production build with the dev sign-in on lets anyone sign in as any handle, so a handle proves nothing there
+  // (code review 2); only a verified email can pass. Renames onto a listed handle are refused (app/auth/actions.ts).
+  const devAuthInProduction = env.NODE_ENV === 'production' && env.ALLOW_DEV_AUTH === '1';
+  if (!devAuthInProduction && allowedHandles(env).includes(who.handle.toLowerCase())) return true;
   const emails = allowedEmails(env);
   return (who.emails ?? []).some((e) => !!e && emails.includes(e.toLowerCase()));
 }
 
 /** For the tick's report: the state and the list sizes, never the entries. */
 export const gateReport = (env: Env = process.env) => ({ gate: gateState(env), allowHandles: allowedHandles(env).length, allowEmails: allowedEmails(env).length });
+
+/** A handle reserved for the owner's testing while closed: nobody may rename onto it (an existing holder keeps it). */
+export const handleReserved = (handle: string, env: Env = process.env) => gateState(env) === 'closed' && allowedHandles(env).includes(handle.toLowerCase());
 
 export class SignUpClosedError extends Error { constructor() { super('sign-up is not open yet'); } }

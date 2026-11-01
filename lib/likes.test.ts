@@ -48,8 +48,14 @@ test('only lib/likes.ts, lib/delete.ts name trade_likes and trade_exclusions; ev
   assert.ok(purge.length >= 4);
   for (const q of purge) {
     assert.doesNotMatch(q, /count\s*\(/i, q);
-    assert.match(q, /(not exists \(select 1 from closed_trades c where c\.trade_key = [lx]\.trade_key\)|privacy_orphans)/, q);
-    if (/^\s*(with gone as \(\s*)?delete from trade_(likes|exclusions)/i.test(q)) assert.match(q, /not exists \(select 1 from closed_trades/, q);
+    if (/^\s*insert into privacy_orphans/i.test(q) || /delete from trade_(likes|exclusions)/i.test(q)) {
+      // Marking and removing: only rows whose trade matches no closed trade.
+      assert.match(q, /not exists \(select 1 from closed_trades c where c\.trade_key = [lx]\.trade_key\)/, q);
+    } else {
+      // Anything else only clears marks (privacy_orphans), never touching the likes or rejects themselves.
+      assert.match(q, /^\s*delete from privacy_orphans/i, q);
+      assert.doesNotMatch(q, /delete from trade_|insert into trade_|update trade_/i, q);
+    }
   }
   const statements = [...readFileSync(join(root, 'lib/likes.ts'), 'utf8').matchAll(/sql`([^`]*)`/g)].map((m) => m[1]).filter((q) => tables.test(q));
   assert.ok(statements.length >= 8);
@@ -62,10 +68,15 @@ test('only lib/likes.ts, lib/delete.ts name trade_likes and trade_exclusions; ev
 
 test('no like copy carries a number or a count', async () => {
   const { LIKES } = await import('./copy.ts');
-  // Privacy work (owner copy, 2026-11-01): the likes line says there is no count, in exactly these words; that phrase is
-  // the only mention allowed, and the line must keep saying it.
-  assert.match(LIKES.private, /no one sees a count\./);
-  for (const v of Object.values(LIKES)) { const t = (typeof v === 'function' ? (v as (...a: string[]) => string)('KQ', 'Jan') : v).replace('no one sees a count.', ''); assert.doesNotMatch(t, /\d|\bcount\b|people|others/i, t); }
+  // Privacy work (owner copy, 2026-11-01): LIKES.private states that no count exists, in the owner's exact words, held by
+  // the exact-string test below; every other like line is held to this rule unchanged.
+  for (const [k, v] of Object.entries(LIKES)) { if (k === 'private') continue; const t = typeof v === 'function' ? (v as (...a: string[]) => string)('KQ', 'Jan') : v; assert.doesNotMatch(t, /\d|\bcount\b|people|others/i, t); }
+});
+
+test('the likes privacy line is exactly the owner\'s text: it names no number and says no one sees a count', async () => {
+  const { LIKES } = await import('./copy.ts');
+  assert.equal(LIKES.private, 'Only you can see your likes. Traders are never told and no one sees a count. Likes help order your own feed.');
+  assert.doesNotMatch(LIKES.private, /\d|people|others/);
 });
 
 dbTest('trade_key equals node:crypto sha256 (UTF-8) for a\\b, \\x41, \\\\, \\001, a trailing \\ and non-ASCII text; no input error', async () => {

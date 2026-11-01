@@ -4,6 +4,7 @@ import { signInWithIdentity } from '@/lib/auth/attempts.ts';
 import { origin, rememberMethod, signIn } from '@/lib/session.ts';
 import { landingFor } from '@/lib/auth/landing.ts';
 import { SignUpClosedError, signUpOpen } from '@/lib/launch-gate.ts';
+import { logSafe } from '@/lib/privacy-log.ts';
 
 // The emailed link lands here. Single use: the row is claimed atomically (and its address blanked) before any sign-in
 // happens. Redirects go to the request's own origin (lib/session.ts#origin), never the server's idea of its hostname,
@@ -20,7 +21,10 @@ export async function GET(req: Request) {
     user = await signInWithIdentity(claim.attemptId, { provider: 'email', subject: claim.email, email: claim.email }, { allowNew: signUpOpen(claim.email) });
   } catch (e) {
     if (e instanceof SignUpClosedError) return NextResponse.redirect(`${base}/login?error=closed`, 303);
-    throw e;
+    // Privacy (code review 10, tester 3): a database error here can quote the address; log its class only and answer
+    // like a used link instead of letting the framework log the full error.
+    console.error('email sign-in failed', logSafe(e));
+    return NextResponse.redirect(`${base}/login?error=used`, 303);
   }
   await signIn(user.id);
   await rememberMethod('email');

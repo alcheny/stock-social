@@ -1,7 +1,7 @@
 // Privacy work (2026-11-01): the cookie table (lib/privacy-cookies.ts) lists exactly the cookies the code sets.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { COOKIE_TABLE } from './privacy-cookies.ts';
@@ -11,7 +11,7 @@ const sources = (dir: string): string[] => readdirSync(join(root, dir)).flatMap(
   const p = join(root, dir, f);
   return statSync(p).isDirectory() ? sources(relative(root, p)) : /\.tsx?$/.test(f) && !/\.test\.ts$/.test(f) ? [relative(root, p)] : [];
 });
-const files = [...sources('app'), ...sources('lib'), 'instrumentation.ts'];
+const files = [...sources('app'), ...sources('lib'), ...['instrumentation.ts', 'proxy.ts', 'middleware.ts'].filter((f) => existsSync(join(root, f)))];
 const read = (f: string) => readFileSync(join(root, f), 'utf8');
 
 // String constants across the code (`export const X_COOKIE = 'name'`), to resolve a write's first argument.
@@ -22,10 +22,15 @@ type Write = { file: string; name: string; maxAge: string | null };
 export function cookieWrites(file: string, text: string): Write[] {
   const src = text.replace(/(^|\s)\/\/[^\n]*/g, '$1'); // comments are documentation, not writes
   const out: Write[] = [];
-  // cookies().set(NAME, ...), jar.set(NAME, ...), res.cookies.set(NAME, ...)
-  for (const m of src.matchAll(/(?:cookies\(\)\)?|\bjar|\.cookies)\s*\.set\(\s*([A-Z][A-Z0-9_]*|'[^']*'|"[^"]*")([^;]*)/g)) {
-    const arg = m[1];
-    const name = /^['"]/.test(arg) ? arg.slice(1, -1) : constants.get(arg) ?? `<unresolved ${arg}>`;
+  // Every receiver that holds a cookie store: cookies(), `.cookies` on a response or request, cookieStore, and any
+  // variable assigned from cookies() (`const store = await cookies()`).
+  const stores = ['jar', ...[...src.matchAll(/\b(?:const|let|var)\s+(\w+)\s*=\s*(?:await\s+)?cookies\(\)/g)].map((m) => m[1])];
+  const receiver = `(?:cookies\\(\\)\\)?|\\.cookies|\\bcookieStore|\\b(?:${stores.join('|')}))`;
+  for (const m of src.matchAll(new RegExp(`${receiver}\\s*\\.set\\(\\s*([^,)]*)([^;]*)`, 'g'))) {
+    const arg = m[1].trim();
+    const obj = arg.startsWith('{') ? (m[1] + m[2]).match(/name:\s*(['"`])([^'"`]*)\1/) : null;
+    const literal = arg.match(/^(['"`])([^'"`$]*)\1$/);
+    const name = obj ? obj[2] : literal ? literal[2] : /^[A-Z][A-Z0-9_]*$/.test(arg) ? constants.get(arg) ?? `<unresolved ${arg}>` : `<unresolved ${arg}>`;
     out.push({ file, name, maxAge: m[2].match(/maxAge:\s*([^,}]+)/)?.[1].trim() ?? null });
   }
   // Raw headers: Set-Cookie: name=..., and document.cookie = 'name=...'
@@ -65,4 +70,7 @@ test('the scanner reads every write form and fails on unreadable ones', () => {
   assert.deepEqual(cookieWrites('x', "(await cookies()).set('a', v, { maxAge: 600 }); jar.set(SESSION_COOKIE, v); res.cookies.set(\"b\", v)").map((w) => w.name), ['a', 'sid', 'b']);
   assert.deepEqual(cookieWrites('x', "headers: { 'Set-Cookie': 'c=1; Path=/' }; document.cookie = 'd=1'").map((w) => w.name), ['c', 'd']);
   assert.deepEqual(cookieWrites('x', "h.append('set-cookie', value)").map((w) => w.name), ['<unreadable Set-Cookie>']);
+  // Forms the tester found missing (QA 4): another variable, the object form, a variable name, backticks, cookieStore.
+  assert.deepEqual(cookieWrites('x', "const store = await cookies(); store.set('t1', v); (await cookies()).set({ name: 't2', value: v }); jar.set(name, v); jar.set(`t3`, v); cookieStore.set('t4', v)").map((w) => w.name),
+    ['t1', 't2', '<unresolved name>', 't3', 't4']);
 });

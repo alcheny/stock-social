@@ -24,3 +24,19 @@ they differ.
 | D14 | Display log append-only | A trigger refuses every update, and a delete unless the users row is already gone (the cascade). Truncate can't be trapped (the schema guard forbids the word): known limit. Demo records are written with `demo = true`. Own time box; `on conflict do nothing` resumes on later ticks; deleted users skipped. | BL 5, Eng 6, 9 |
 | D15 | Log scope | Server code only. `'use client'` files log to the viewer's own browser console, never to our logs (`share-card.tsx`, `share-prompt.tsx` out of scope, said here). Numeric user ids stay. `logSafe` (class, status, code) is the reducer; `errStatus` in `lib/connections.ts` stays for its control-flow use. The scanner was red on today's code (`app/api/sync/route.ts`, `lib/sync.ts`) before the fix. | BL 6, Eng 8 |
 | D16 | Copy | Owner copy verbatim. The likes test "no like copy carries a count" allows only the owner's exact phrase "no one sees a count" (a statement that there is none). | BL 8 |
+
+## Round 2 (after the build): user tests, QA and code review
+
+Business lead: FAIL (display-log starvation), compliance PASS. UX lead: compliance PASS, usability FAIL (closed
+`/connect` said so too late). Tester: 5 defects. Code review: nothing blocking, 5 should-fix. All fixed as below.
+
+| # | Finding | Decision (recommended option) |
+|---|---|---|
+| D17 | Tester 1: a deleted account's sign-up attempts stay | Kept as F-1 designed and tested (`lib/delete.test.ts`: "the funnel row survives without the person"): deletion nulls the user link; it now also blanks any vendor id left on those attempts, so nothing on them points at the person. Retention map says so. Changing F-1's decision is the owner's call. |
+| D18 | BL 1: empty records starve the display log | Empty records are filtered in SQL; test with four empty records before a real one and room for one snapshot. |
+| D19 | BL 2: stages before the sync take its time | The privacy purge and display log run after `syncTick`, each boxed to min(10 s, time left before the route's end − 30 s), skipped when none is left; ms per stage in the tick JSON. |
+| D20 | BL 3, code review 9: a missing day | `displayedOn` returns `asked`, `day` and `gap`; a day's row is "as of the start of the day (UTC)". |
+| D21 | UX 1–4 | Closed `/connect` shows the status under the heading and only the way out (no trust notice); closed `/login` is titled "Sign in". The header nav's 21 px links and the chart's 35 px buttons predate this work: left to their owners. |
+| D22 | Code review 2, tester 5, review 6: dev sign-in and renames vs. the handle allowlist | In a production build with the dev sign-in on, a handle alone never passes (only a verified email). While closed, nobody may rename onto a listed handle. |
+| D23 | Code review 1, 4, 5; tester 2, 4: scanners | Log scanner: any console method or bracket access, aliasing is a failure, `JSON.stringify` only of an object literal with every entry checked (or the typed sync report). Cookie scanner: any variable assigned from `cookies()`, the object form, backticks, `cookieStore`, unresolved names fail, `proxy.ts`/`middleware.ts` scanned. Likes test: marking and removing statements must carry the closed-trade check; the original "no count" rule is restored for every other line and `LIKES.private` is held by an exact-string test. |
+| D24 | Code review 10, tester 3: framework logs of uncaught errors | The email route reduces any other error with `logSafe` and answers like a used link; the provider callback already answers every error generically. Out of the scanner's scope (said in the test); `onRequestError` filtering is left to the security-hardening session. |

@@ -20,7 +20,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   kept_theses: { personal: true, retention: 'account', holds: 'theses whose trade is excluded' },
   trade_reflections: { personal: true, retention: 'account', holds: 'private trade reason tags' },
   trade_rules: { personal: true, retention: 'account', holds: 'private personal rules (kind and day count)' },
-  signup_attempts: { personal: true, retention: 'short', holds: '18+ attestation, method, referral, vendor ids of a brokerage-first attempt; unfinished ones purged after 30 days, finished ones kept with the account' },
+  signup_attempts: { personal: true, retention: 'short', holds: '18+ attestation, method, referral, vendor ids of a brokerage-first attempt; unfinished ones purged after 30 days; on account deletion finished ones lose their user link and vendor ids and stay as anonymous funnel rows' },
   identities: { personal: true, retention: 'account', holds: 'sign-in provider subject and email address' },
   sessions: { personal: true, retention: 'session', holds: 'hashed session token and user id; purged at expiry' },
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },

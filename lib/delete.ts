@@ -36,6 +36,10 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
       or email in (select email from identities where user_id = ${u.id} and email is not null)`;
     await tx`insert into handle_reservations (handle, until) values (${u.handle}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day')
       on conflict (handle) do update set until = excluded.until`;
+    // Privacy work (committee D17): the account's attempts stay as anonymous funnel rows (user_id goes null with the
+    // users row, F-1 design); any vendor id left on one is blanked here, so nothing on them points at the person.
+    await tx`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null
+      where (user_id = ${u.id} or id = (select signup_attempt_id from users where id = ${u.id})) and snaptrade_user_id is not null`;
     await tx`delete from users where id = ${u.id}`;
   });
 }
