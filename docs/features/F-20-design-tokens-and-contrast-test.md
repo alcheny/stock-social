@@ -1,7 +1,6 @@
 # F-20 · Design tokens and the contrast test
 
-Status: blocked
-Blocked: waits for cycle-2 fix #26 (light gain/loss under deuteranopia) and a check that PR #55 (merged as 92d03f4, with `lib/a11y-contrast.test.ts`) covered fixes #12 and #13
+Status: built
 Start conditions: fixes #12, #13 and #26 merge, and the F-13 contrast-test branch (`lib/a11y-contrast.test.ts` on
 `claude/f13-a11y-fixes`) merges. F-20 lands before F-18 in their shared `app/globals.css` slot.
 
@@ -93,27 +92,30 @@ test that every later change must pass. Approved by the approval council
   the fixes plus the one stated focus change.
 
 ## Acceptance criteria
-- [ ] A node test pins every token's resolved value per scheme to the post-fix values; computed styles of sampled
+- [x] A node test pins every token's resolved value per scheme to the post-fix values; computed styles of sampled
       routes in both schemes are equal before and after the token layer.
-- [ ] Base, accent and on-accent values are unchanged (pinned test) (veto condition: DK, CS).
-- [ ] `lib/badge-contrast.test.ts` still exists and passes; the test count does not drop (veto condition: DK).
-- [ ] The contrast test checks every text and UI token pair in light and dark: ≥ 4.5:1 text, ≥ 3:1 large text, UI
+- [x] Base, accent and on-accent values are unchanged (pinned test) (veto condition: DK, CS).
+- [x] `lib/badge-contrast.test.ts` still exists and passes; the test count does not drop (veto condition: DK).
+- [x] The contrast test checks every text and UI token pair in light and dark: ≥ 4.5:1 text, ≥ 3:1 large text, UI
       parts and focus ring (veto condition: LG).
-- [ ] The gain-versus-loss colour-blind floor is ΔE00 ≥ 9 under protan, deutan and tritan, and passes on main after
+- [x] The gain-versus-loss colour-blind floor is ΔE00 ≥ 9 under protan, deutan and tritan, and passes on main after
       fix #26. No lower floor appears in the test.
-- [ ] Share-image colours come from one exported table that both tests read. No `opengraph-image.tsx` or image helper
+- [x] Share-image colours come from one exported table that both tests read. No `opengraph-image.tsx` or image helper
       keeps inline hex, and the table's values equal today's image colours.
-- [ ] A test fails on any colour literal outside the token file and the image colour table.
-- [ ] Every outline uses `var(--focus)` with a computed 2 px `outline-offset` on sampled controls; the ring is ≥ 3:1
+- [x] A test fails on any colour literal outside the token file and the image colour table.
+- [x] Every outline uses `var(--focus)` with a computed 2 px `outline-offset` on sampled controls; the ring is ≥ 3:1
       against bg and surface.
-- [ ] No externally hosted font or asset is loaded (test) (veto condition: LG).
-- [ ] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
+- [x] No externally hosted font or asset is loaded (test) (veto condition: LG).
+- [x] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
 - [ ] The contrast test enumerates the disclaimer, gain/loss/Flat (protan, deutan, tritan), the Demo and Verified
       badges, the focus ring and the share-image colour table, each at its floor.
-- [ ] A test fails if any floor constant is below the cycle-2 values (4.5:1 text, 3:1 large text, UI and focus,
+- [x] A test fails if any floor constant is below the cycle-2 values (4.5:1 text, 3:1 large text, UI and focus,
       ΔE00 ≥ 9).
-- [ ] A computed-style snapshot of profile, pane and feed shows no colour change beyond fixes #12, #13 and #26.
+- [x] A computed-style snapshot of profile, pane and feed shows no colour change beyond fixes #12, #13 and #26.
+- Not met (owner, OQ-2): light Flat vs gain is ΔE00 2.8 (protan), 7.0 (deutan), 19.5 (tritan), below 9. The pair runs at
+  the floor as a `todo` test; every other enumerated pair, including Flat vs loss in both schemes and Flat vs gain in
+  dark, passes. That one box stays open until the owner rules.
 
 ## Out of scope
 - Base and accent changes (V-1), type, spacing and radius collapse (V-2): variant tests, not approved.
@@ -137,5 +139,10 @@ test that every later change must pass. Approved by the approval council
 - Owner (approval council cycle 3, flag 7): should the contrast floors live in a protected file (for example
   `scripts/invariants.test.ts`), so the change that breaks them cannot lower them? The council may not change a
   guardrail itself.
+
+## Build log
+- 2026-11-01: Built on `claude/f20-design-tokens` (committee record `logs/F-20/committee-2026-11-01.md`, plan
+  `logs/F-20/plan.md`, QA `logs/F-20/qa-2026-11-01.md`). One criterion is partly open (light Flat vs gain, OQ-2, a `todo`
+  test); the share-image gain/loss hues changed by committee decision (OQ-1), flagged to the owner. Merges after F-11.
 
 ## Rework notes
