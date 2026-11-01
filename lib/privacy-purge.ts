@@ -12,8 +12,11 @@
 //     trade comes back). Preference data with a live trade is never removed on a timer (owner, 2026-11-01);
 //   - F-15: aggregate view counts (view_rollup, view_drops) older than VIEW_RETENTION_DAYS (lib/views.ts).
 // Account deletion is separate and removes everything (lib/delete.ts).
+import type { ReservedSql } from 'postgres';
 import { sql } from './db.ts';
 import { VIEW_RETENTION_DAYS } from './views.ts'; // F-15
+
+type ReserveSql = ReservedSql<Record<string, never>>;
 
 export const PRIVACY_PURGE_LOCK = 41; // (41, 0). USER_LOCK 1 (lib/sync.ts), ATTEMPT_LOCK 2 (lib/connections.ts), PURGE_LOCK 3 (lib/discovery/purge.ts)
 export const PRIVACY_PURGE_BOX_MS = 20_000;
@@ -36,6 +39,8 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
   const end = clock() + Math.min(opts.boxMs ?? PRIVACY_PURGE_BOX_MS, PRIVACY_PURGE_BOX_MS);
   const batch = opts.batch ?? PRIVACY_PURGE_BATCH;
   const now = opts.now ?? new Date();
+  // The statement timeout of an orphan batch runs on the wall clock (the `clock` hook may be a test's counter).
+  const wallEnd = Date.now() + Math.min(opts.boxMs ?? PRIVACY_PURGE_BOX_MS, PRIVACY_PURGE_BOX_MS);
   const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, views: 0 };
   const conn = await sql.reserve();
   try {
@@ -52,38 +57,26 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
           select l.token_hash from login_links l left join signup_attempts a on a.id = l.attempt_id
           where l.expires_at <= ${now} or (l.used_at is null and a.completed_at <= ${now}) limit ${batch})`).count],
         ['attempts', () => purgeUnfinishedAttempts(now, batch)],
-        ['orphansCleared', async () => (await conn`delete from privacy_orphans where (kind, viewer_id, trade_key) in (
-          select o.kind, o.viewer_id, o.trade_key from privacy_orphans o
-          where exists (select 1 from closed_trades c where c.trade_key = o.trade_key)
-             or (o.kind = 'like' and not exists (select 1 from trade_likes l where l.viewer_id = o.viewer_id and l.trade_key = o.trade_key))
-             or (o.kind = 'reject' and not exists (select 1 from trade_exclusions x where x.viewer_id = o.viewer_id and x.trade_key = o.trade_key))
-          limit ${batch})`).count],
+        ['orphansCleared', async () => (await conn`delete from privacy_orphans where ctid = any(array(
+          select o.ctid from privacy_orphans o
+          where (select 1 from closed_trades c where c.trade_key = o.trade_key limit 1) is not null
+             or (o.kind = 'like' and (select 1 from trade_likes l where l.viewer_id = o.viewer_id and l.trade_key = o.trade_key limit 1) is null)
+             or (o.kind = 'reject' and (select 1 from trade_exclusions x where x.viewer_id = o.viewer_id and x.trade_key = o.trade_key limit 1) is null)
+          limit ${batch}))`).count],
+        // ponytail: both marking steps walk all of trade_likes / trade_exclusions (two index probes a row) every tick, even
+        // when nothing is orphaned — mark orphans when the rebuild drops a close (trade_key) instead of scanning.
         ['orphansMarked', async () => (await conn`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at)
           select 'like', l.viewer_id, l.trade_key, ${now}::timestamptz from trade_likes l
           where not exists (select 1 from closed_trades c where c.trade_key = l.trade_key)
-            and not exists (select 1 from privacy_orphans o where o.kind = 'like' and o.viewer_id = l.viewer_id and o.trade_key = l.trade_key)
+            and (select 1 from privacy_orphans o where o.kind = 'like' and o.viewer_id = l.viewer_id and o.trade_key = l.trade_key limit 1) is null
           limit ${batch} on conflict do nothing`).count],
         ['orphansMarked', async () => (await conn`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at)
           select 'reject', x.viewer_id, x.trade_key, ${now}::timestamptz from trade_exclusions x
           where not exists (select 1 from closed_trades c where c.trade_key = x.trade_key)
-            and not exists (select 1 from privacy_orphans o where o.kind = 'reject' and o.viewer_id = x.viewer_id and o.trade_key = x.trade_key)
+            and (select 1 from privacy_orphans o where o.kind = 'reject' and o.viewer_id = x.viewer_id and o.trade_key = x.trade_key limit 1) is null
           limit ${batch} on conflict do nothing`).count],
-        ['likes', async () => (await conn`with gone as (
-            delete from trade_likes l using privacy_orphans o
-            where o.kind = 'like' and o.viewer_id = l.viewer_id and o.trade_key = l.trade_key
-              and o.first_seen_at < ${now}::timestamptz - ${ORPHAN_GRACE_DAYS} * interval '1 day'
-              and not exists (select 1 from closed_trades c where c.trade_key = l.trade_key)
-              and (l.viewer_id, l.trade_key) in (select viewer_id, trade_key from privacy_orphans where kind = 'like' order by first_seen_at limit ${batch})
-            returning l.viewer_id, l.trade_key)
-          delete from privacy_orphans o using gone g where o.kind = 'like' and o.viewer_id = g.viewer_id and o.trade_key = g.trade_key`).count],
-        ['rejects', async () => (await conn`with gone as (
-            delete from trade_exclusions x using privacy_orphans o
-            where o.kind = 'reject' and o.viewer_id = x.viewer_id and o.trade_key = x.trade_key
-              and o.first_seen_at < ${now}::timestamptz - ${ORPHAN_GRACE_DAYS} * interval '1 day'
-              and not exists (select 1 from closed_trades c where c.trade_key = x.trade_key)
-              and (x.viewer_id, x.trade_key) in (select viewer_id, trade_key from privacy_orphans where kind = 'reject' order by first_seen_at limit ${batch})
-            returning x.viewer_id, x.trade_key)
-          delete from privacy_orphans o using gone g where o.kind = 'reject' and o.viewer_id = g.viewer_id and o.trade_key = g.trade_key`).count],
+        ['likes', () => removeDue(conn, 'like', now, batch, () => timeLeft(conn, wallEnd))],
+        ['rejects', () => removeDue(conn, 'reject', now, batch, () => timeLeft(conn, wallEnd))],
         // F-15: aggregate view counts older than the retention bound (the day itself is the bound's edge: kept).
         ['views', async () => (await conn`delete from view_rollup where ctid in (
           select ctid from view_rollup where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count],
@@ -93,12 +86,17 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
       const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' || k === 'views' ? k : 'orphans');
       for (const [key, step] of steps) {
         if (opts.only && !opts.only.includes(stepOf(key))) continue;
+        let marked = 0;
         for (;;) {
           if (clock() >= end) return r;
-          const n = await step();
+          const n = stepOf(key) === 'orphans' ? await indexOnly(conn, step, wallEnd) : await step();
+          if (n === null) return r; // the batch reached the box's end and rolled back: the next tick resumes
           (r[key] as number) += n;
+          if (key === 'orphansMarked') marked += n;
           if (n < batch) break;
         }
+        // A large mark leaves privacy_orphans' statistics stale until autovacuum: refresh them now.
+        if (marked >= batch) await conn`analyze privacy_orphans`;
       }
       r.done = true;
       return r;
@@ -108,6 +106,70 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
   } finally {
     conn.release();
   }
+}
+
+// Known limit removed 2026-11-01 (orchestrator, from the privacy session; reworked after the orchestrator's review):
+// with 200,000 freshly marked orphans and statistics taken while privacy_orphans was nearly empty, the planner joined a
+// batch's keys to whole tables row by row (167 s, then 158 s for one batch: a nested loop rescanning the batch per
+// orphan), while the box is only checked between batches. Now:
+// - every check against privacy_orphans, the table whose statistics go stale, is a scalar `(select 1 … limit 1)`
+//   subquery, which the planner cannot pull up into a join (an anti-join materialized every orphan and filtered it per
+//   like: quadratic under stale statistics); the closed_trades checks keep the `not exists` form lib/likes.test.ts
+//   requires of every statement that marks or removes a like or reject;
+// - every orphan batch reads its keys first (the oldest due ones through privacy_orphans_seen, LIMIT batch), looks each
+//   one up by primary key (a LIMIT 1 subquery per key) and deletes by row address (ctid = any(array(...)));
+// - each batch runs in its own transaction with sequential scans, hash joins, merge joins and materialization off
+//   (`set local`, so nothing leaks to the pooled connection), so each lookup and each closed_trades check is an index probe;
+// - each batch has a statement timeout of the time left in the box: a batch that would still overrun rolls back and the
+//   box ends there (the next tick resumes; nothing half-done).
+// lib/privacy-purge.load.test.ts: 220,000 due orphans, statistics taken while empty, every batch far inside the box.
+// ponytail: the clearing step walks orphan rows each tick until it finds a batch (linear in privacy_orphans, an index
+// probe or three per row) — keep a resume cursor, or unmark orphans from the rebuild when a trade returns.
+const PLAN_SAFE = ['enable_seqscan', 'enable_hashjoin', 'enable_mergejoin', 'enable_material'];
+// The statement timeout, set to the time left in the box before each statement of a batch (orchestrator review: one
+// timeout for a multi-statement batch let it overrun up to its statement count times).
+const timeLeft = (conn: ReserveSql, wallEnd: number) =>
+  conn`select set_config('statement_timeout', ${String(Math.max(50, wallEnd - Date.now()))}, true)`.then(() => undefined);
+async function indexOnly(conn: ReserveSql, step: () => Promise<number>, wallEnd: number): Promise<number | null> {
+  await conn`begin`;
+  try {
+    for (const g of PLAN_SAFE) await conn`select set_config(${g}, 'off', true)`;
+    await timeLeft(conn, wallEnd);
+    const n = await step();
+    await conn`commit`;
+    return n;
+  } catch (e) {
+    await conn`rollback`;
+    if ((e as { code?: string }).code === '57014') return null; // statement timeout: the box is spent
+    throw e;
+  }
+}
+
+// The oldest due marks of one kind (gone for ORPHAN_GRACE_DAYS), then their likes or rejects whose trade is still gone,
+// then those marks. Each row is found by one primary-key probe per key (a scalar subquery with LIMIT 1, which the planner
+// cannot turn into a join over the whole table) and deleted by row address (ctid = any(array(...)), a TID scan): no plan
+// choice can rescan a table per row. A mark whose trade came back is left to the clearing step.
+async function removeDue(conn: ReserveSql, kind: 'like' | 'reject', now: Date, batch: number, renew: () => Promise<void>): Promise<number> {
+  const due = await conn`select viewer_id, trade_key from privacy_orphans
+    where kind = ${kind} and first_seen_at < ${now}::timestamptz - ${ORPHAN_GRACE_DAYS} * interval '1 day'
+    order by first_seen_at limit ${batch}`;
+  if (!due.length) return 0;
+  const vs = due.map((d) => d.viewer_id as number), ts = due.map((d) => d.trade_key as string);
+  await renew();
+  const gone = kind === 'like'
+    ? await conn`delete from trade_likes l where l.ctid = any(array(
+          select (select y.ctid from trade_likes y where y.viewer_id = k.v and y.trade_key = k.t limit 1) from unnest(${vs}::int[], ${ts}::text[]) as k(v, t)))
+        and not exists (select 1 from closed_trades c where c.trade_key = l.trade_key)
+        returning l.viewer_id, l.trade_key`
+    : await conn`delete from trade_exclusions x where x.ctid = any(array(
+          select (select y.ctid from trade_exclusions y where y.viewer_id = k.v and y.trade_key = k.t limit 1) from unnest(${vs}::int[], ${ts}::text[]) as k(v, t)))
+        and not exists (select 1 from closed_trades c where c.trade_key = x.trade_key)
+        returning x.viewer_id, x.trade_key`;
+  if (!gone.length) return 0;
+  await renew();
+  return (await conn`delete from privacy_orphans where ctid = any(array(
+      select (select o.ctid from privacy_orphans o where o.kind = ${kind} and o.viewer_id = k.v and o.trade_key = k.t limit 1)
+      from unnest(${gone.map((g) => g.viewer_id as number)}::int[], ${gone.map((g) => g.trade_key as string)}::text[]) as k(v, t)))`).count;
 }
 
 // Attempts that never became an account: older than UNFINISHED_SIGNUP_DAYS, the vendor user already cleaned

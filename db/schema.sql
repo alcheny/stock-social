@@ -119,8 +119,8 @@ create table if not exists broker_accounts (
 );
 select schema_add_index('broker_accounts_user', 'create index broker_accounts_user on broker_accounts (user_id)');
 -- Backfill: existing real data is claimed by its earliest user.
--- ponytail: if two users already share an account (the exploit) their rows stay, both records showing the same trades —
--- fix: a one-off cleanup that keeps the earliest claimant's rows and deletes the other user's activities for that account.
+-- Profiles that already shared an account (the exploit) keep their raw rows: scripts/shared-accounts.ts reports them
+-- and, when the owner asks, marks them (shared_account_marks, below) so only the claimant's record shows the account.
 -- Already-claimed accounts are filtered in the same snapshot as the activities: a user deleted (with its claims and
 -- activities) by a concurrent transaction is then never re-inserted and failed on the users FK (fix round 2, PR-2a).
 -- CI review (2026-11-01, privacy PR): a users row deleted by another session between this snapshot and the insert's
@@ -201,6 +201,7 @@ create table if not exists signup_attempts (
   user_id int references users(id) on delete set null,
   completed_at timestamptz
 );
+-- ponytail: users.signup_attempt_id has no index, so the purge's per-attempt check and attempt deletes scan users — add one.
 select schema_add_column('users', 'signup_attempt_id', 'bigint references signup_attempts(id)');
 select schema_add_column('users', 'deleted_at', 'timestamptz');
 -- Backfill, once: rows from before F-1 attested through the dev form at created_at; one attempt each, then the column is
@@ -222,6 +223,7 @@ create table if not exists identities (
   user_id int not null references users on delete cascade,
   provider text not null check (provider in ('provider_a', 'provider_b', 'email')),
   subject text not null,
+  -- ponytail: no index, so sign-in by email scans identities — add an index (email).
   email text,
   created_at timestamptz not null default now(),
   unique (provider, subject)
@@ -241,6 +243,7 @@ select schema_add_index('sessions_user', 'create index sessions_user on sessions
 -- Passwordless email links: single use, 15 minutes, hashed token.
 create table if not exists login_links (
   token_hash text primary key,
+  -- ponytail: no index, so account deletion's email match scans login_links — add a partial index (email) where email <> ''.
   email text not null,
   attempt_id bigint not null references signup_attempts(id),
   expires_at timestamptz not null,
@@ -271,6 +274,7 @@ select schema_add_index('funnel_events_attempt', 'create index funnel_events_att
 -- provisional claim of a brokerage-first attempt that has no users row yet (confirmed into broker_accounts at consent).
 create table if not exists connections (
   id bigint generated always as identity primary key,
+  -- ponytail: no index, so the attempt purge's per-attempt check and attempt deletes scan connections — add an index (attempt_id).
   attempt_id bigint not null references signup_attempts(id),
   user_id int references users(id) on delete cascade,
   vendor_authorization_id text,
@@ -490,6 +494,7 @@ create table if not exists subscriptions (
   id int generated always as identity primary key,
   user_id int not null references users on delete cascade,
   vendor_subscription_id text unique not null,
+  -- ponytail: no index, so each dispute webhook's update by customer scans subscriptions — add an index (vendor_customer_id).
   vendor_customer_id text not null,
   plan text not null check (plan in ('monthly', 'annual')),
   status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused', 'incomplete')),
@@ -679,6 +684,7 @@ create table if not exists portal_probes (
   until timestamptz not null
 );
 
+<<<<<<< HEAD
 -- ---- F-15 (docs/features/F-15-measurement-foundation.md): aggregate daily view counts, first slice ----
 -- One row per day and class, counted by one upsert per beacon (lib/views.ts#recordView). Aggregate only: no IP, user
 -- agent, viewer id, session id, cookie, referrer URL, path, query or time of day. user_id is the viewed trader (profile,
@@ -708,3 +714,56 @@ create table if not exists view_drops (
   n int not null default 0,
   primary key (day, surface, reason)
 );
+=======
+-- Known limits 2026-11-01 (docs/features/logs/known-limits/committee-2026-11-01.md).
+-- TR-6, a stable account identity: a keyed hash of the institution and the vendor's institution account id
+-- (lib/claims.ts#accountIdentity; never the raw identifier). Not unique: one profile may hold the same brokerage account
+-- under several vendor ids (one per connection); a second profile may not (checked under a per-identity lock).
+select schema_add_column('broker_accounts', 'identity', 'text');
+select schema_add_index('broker_accounts_identity', 'create index broker_accounts_identity on broker_accounts (identity) where identity is not null');
+-- TR-6, accounts shared before the claim existed: a profile holding activities of an account broker_accounts gives to
+-- another profile (the earliest activity's, from the backfill above). Marked only by the owner's script
+-- (scripts/shared-accounts.ts --mark), never by this file; nothing is deleted. A marked (account, profile) is left out
+-- of that profile's rebuild like a simulated account, so the earliest claim alone shows the account's trades.
+create table if not exists shared_account_marks (
+  account_id text not null,
+  user_id int not null references users on delete cascade,
+  marked_at timestamptz not null default now(),
+  primary key (user_id, account_id)
+);
+-- Feed paging, bounded (lib/feed.ts#importedBy): when the closing sell of each close was imported (its activity's
+-- created_at). A feed page pinned to asOf leaves out closes whose sell was imported after asOf; reading this per close
+-- replaced reading every sell imported since asOf, which a crafted `?after=` could make large. Set by the trigger below
+-- on every insert (the rebuild inserts every close after its activities), so no writer has to set it. Null reads as
+-- "imported before any cursor": added once with a backfill of only the sells of the last 49 hours (cursors live at
+-- most 48 hours, lib/discovery/pager.ts#CURSOR_MAX_AGE_MS), inside the branch that adds the column, so later applies
+-- and the parallel test files never run it.
+-- One unique-index probe per row (activities' unique (source, external_id); no user index for the planner to prefer on
+-- a fresh import's unanalyzed rows). The same match as the feed's old late filter: any source, the sell side.
+create or replace function closed_trades_sell_imported_at() returns trigger language plpgsql as $f$
+begin
+  new.sell_imported_at := (select max(created_at) from activities where source in ('snaptrade', 'demo') and external_id = new.sell_id and side = 'SELL');
+  return new;
+end $f$;
+do $si$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'closed_trades' and column_name = 'sell_imported_at') then
+    alter table closed_trades add column sell_imported_at timestamptz;
+    update closed_trades t set sell_imported_at = a.created_at
+      from (select external_id, max(created_at) as created_at from activities where created_at > now() - interval '49 hours' and side = 'SELL' group by external_id) a
+      where a.external_id = t.sell_id;
+    -- In the same block (orchestrator review): no close is inserted between the backfill and the trigger.
+    if not exists (select 1 from pg_trigger where tgname = 'closed_trades_sell_imported_at' and not tgisinternal) then
+      create trigger closed_trades_sell_imported_at before insert on closed_trades for each row execute function closed_trades_sell_imported_at();
+    end if;
+  end if;
+end $si$;
+do $t$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'closed_trades_sell_imported_at' and not tgisinternal) then
+    create trigger closed_trades_sell_imported_at before insert on closed_trades for each row execute function closed_trades_sell_imported_at();
+  end if;
+end $t$;
+-- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
+select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');
+>>>>>>> origin/main
