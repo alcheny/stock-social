@@ -81,7 +81,7 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
       {open && <p className="small" data-open>{OPEN.compare(OPEN.line(open.o, pct), asOfDay(open.asOf))}</p>}
       <div className="evidence">
-        <p style={{ margin: 0 }}>{side.tier === 'too-early' && <b>{COMPARE_COPY.tooEarly}. </b>}{evidenceLine(c)}</p>
+        <p style={{ margin: 0 }}>{evidenceLine(c)}</p>{/* A11Y-FIXES #25: evidenceLine already starts "Too early to tell" */}
       </div>
       <Spread spread={side.spread} returns={side.returns} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} shared={shared} bare />
     </section>
