@@ -91,3 +91,44 @@ that ignores the fold is not a check of what the viewer sees.
 
 What would change my mind on D1: seeing that viewers mostly open full profiles rather than panes. The pane-open rate
 in the funnel events would settle it in a week. Until then, the pane is the main surface.
+
+## Round 2 (HEAD 97d3c83, PR #33)
+
+**Compliance: PASS.** **Usability / business: PASS, on one condition (D5, a regression this round introduced). The fix is CSS only and needs no committee re-sit; the tester verifies it.**
+
+Tested: my own `next start -p 3300` on the current `.next` (BUILD_ID 08:00, which contains the round-2 copy), 360×800, JS
+on, touch, light and dark, against the same `f6bl_*` fixtures (deleted afterwards). Screenshots: `screenshots/bl-r2-*.png`.
+Correction to round 1: my round-1 server on 3300 was not stopped, although I reported it was (the port check used a
+missing `ss`). I found and killed it this round before testing. Every number below comes from the fresh server.
+
+| Demand | Result | Evidence |
+|---|---|---|
+| D1 pane leads with the figures | **Delivered** | Swiped pane, 360×800: realized grid y=157, unrealized grid y=294–518, combined line y=534–580, chart starts at y=596. The −40.0% and the −3.4% combined are both in the first viewport, light and dark (`bl-r2-feed-pane-light.png`, `-dark.png`). A demo trader with no positions has 0 `[data-open]` and keeps today's order. |
+| D2 evidence scoped first | **Delivered** | "Closed trades: above zero · Evidence: thin (…)" and "Closed trades: Too early to tell: …". The trailing sentence is gone. A no-position record still reads "Past results: …". |
+| D3 dated unrealized row | **Delivered** | "Unrealized · open positions at current value · as of Oct 31" on the profile and the pane |
+| D4 count once, no-break spaces | **Delivered** | "6" over "open positions · 0 up, 6 down"; the HTML contains "0 up" |
+
+Checked again: `/t` (the no-closes stock no longer says "figures above"), `/t/compare` (the empty column likewise),
+`/how` (the corrected stock-page sentence), the footer disclaimer on every page, no horizontal scroll, percent only.
+The sell-winners/hold-losers trader is now caught at a glance on the profile, the feed card and the pane, which are
+the three places a viewer meets a record.
+
+### Remaining demand
+5. **D5 (condition): a percent never splits across lines.** The new `.open-stats .stat b { overflow-wrap: anywhere }`
+   breaks "−40.0%" into "−40.0" / "%" at 360 px: the tile is 160 px wide and the value is 104 px tall against 52 px for "+7.6%".
+   It is fine at 375 and 414. This happens on the profile and the pane (`bl-r2-profile-holder.png`, `bl-r2-feed-pane-light.png`). The number F-6 exists to show
+   is the one that looks broken, and a two-digit loss is the typical case for a holder. Fix: keep the value on one
+   line (`white-space: nowrap`) and size both grids' values with one shared rule (e.g. `font-size: clamp(…)` on
+   `.stats .stat.big b`), so TR-4's equal font-size still holds and nothing overflows. Verify: e2e at 360 px with unrealized
+   −99.9% and realized −40.0%. Every `.stat.big b` in both grids has the same computed font-size and the same height
+   (one line), `scrollWidth ≤ 360`, and the text is unbroken (`b.getClientRects().length === 1`).
+
+Notes, not demands:
+- An open-only record's unfurl text no longer mentions its open positions (decision 20, pinned by an existing e2e).
+  The profile shows them. F-4's share card should carry them.
+- Share card images are deferred to F-4 (decision 21). AC1's "share card at every size" stays open until then, and
+  the PR does not claim it.
+- The `open_positions(symbol)` index is additive. CI's schema guard allows it.
+
+Demo sentence (unchanged): "This trader wins 85% of closed trades. One row down, at the same size: 6 positions still
+open, all down, −40%. Counting those, the average is −3.4%."

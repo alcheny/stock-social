@@ -443,6 +443,6 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .open-also { margin: 8px 0 0; overflow-wrap: anywhere; }
 .open-also b { font-variant-numeric: tabular-nums; }
 .open-ticker p { overflow-wrap: anywhere; }
-/* F-6 (tester Medium 1): a large unrealized percent wraps inside its card instead of widening the page at 360 px. */
-.open-stats .stat { min-width: 0; }
-.open-stats .stat b { overflow-wrap: anywhere; }
+/* F-6 (tester Medium 1, business lead D5): with open positions, both grids' big values share one size that fits a
+   360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
+.stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(20px, 7vw, 36px); white-space: nowrap; }

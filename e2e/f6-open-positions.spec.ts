@@ -28,6 +28,8 @@ const FIXTURES: Record<string, Fixture> = {
   // Every open position losing; closed trades all won.
   f6_losing: { connection: 'connected', closes: old('F6A', [0.1, 0.05, 0.12]), open: [{ account: 'a', symbol: 'F6A', pct: -0.1 }, { account: 'a', symbol: 'F6B', pct: -0.25 }, { account: 'a', symbol: 'F6C', pct: -0.4 }] },
   f6_openonly: { connection: 'connected', closes: [], open: [{ account: 'a', symbol: 'F6D', pct: -0.05 }] },
+  // Extreme values (business lead D5): realized -40.0% and an unrealized average of thousands of percent, one line each.
+  f6_wide: { connection: 'connected', closes: old('F6W', [-0.4]), open: [{ account: 'a', symbol: 'F6W', pct: -0.999 }, { account: 'a', symbol: 'F6X', pct: 123.45 }] },
   f6_none: { connection: 'connected', closes: old('F6N', [0.1, -0.05, 0.08]), open: [] },
   // Not presented: no consented connection, or an import running (TR-3).
   f6_stray: { closes: old('F6S', [0.1, -0.05, 0.08]), open: [{ account: 'a', symbol: 'F6A', pct: 0.9 }] },
@@ -234,4 +236,16 @@ test('F-6: the Similar trades pane (/u/<h>/pane) carries open positions for a co
   expect(stray.open).toEqual([]);
   expect(stray.openAsOf).toBeNull();
   expect((await request.get('/u/f6_importing/pane')).status()).toBe(404);
+});
+
+test('F-6 (business lead D5): at 360 px every big value sits on one line at one size in both grids, nothing widens the page', async ({ page }) => {
+  for (const h of ['f6_wide', 'f6_losing', 'f6_mixed']) {
+    await page.goto(`/u/${h}`);
+    const values = page.locator('main > section.stats .stat.big b');
+    await expect(values).toHaveCount(4);
+    const m = await values.evaluateAll((bs) => bs.map((b) => ({ size: getComputedStyle(b).fontSize, rects: b.getClientRects().length, over: b.scrollWidth > b.clientWidth + 1 })));
+    expect(new Set(m.map((x) => x.size)).size, h).toBe(1);
+    for (const x of m) { expect(x.rects, h).toBe(1); expect(x.over, h).toBe(false); }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), h).toBeLessThanOrEqual(360);
+  }
 });
