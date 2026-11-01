@@ -87,8 +87,24 @@ const strip = (s: string) => s
 // script moved into place on the client: timing, not content. Each segment is put back where its boundary is.
 const resolveStreamed = (s: string) => {
   const seg = new Map<string, string>();
-  s = s.replace(/<div hidden id="S:(\d+)">([\s\S]*?)<\/div><script[^>]*>([^<]*?)\$RC\("B:\1","S:\1"\)<\/script>/g, (_m, n: string, body: string, pre: string) => { seg.set(n, body); return pre ? `<script>${pre}</script>` : ''; });
-  return s.replace(/<!--\$\?--><template id="B:(\d+)"><\/template>/g, (m, n: string) => (seg.has(n) ? `<!--$-->${seg.get(n)}` : m));
+  s = s.replace(/<div hidden id="S:(\d+)">([\s\S]*?)<\/div><script[^>]*>((?:(?!<\/script>)[\s\S])*?)\$RC\("B:\1","S:\1"\)<\/script>/g, (_m, n: string, body: string) => { seg.set(n, body); return ''; });
+  s = s.replace(/<!--\$\?--><template id="B:(\d+)"><\/template>/g, (m, n: string) => (seg.has(n) ? `<!--$-->${seg.get(n)}` : m));
+  // A boundary that resolved empty may also arrive as a pending template whose fill is not a hidden segment: an empty
+  // pending boundary is an empty resolved one (any content it later gets still shows up as a difference).
+  s = s.replace(/<!--\$\?--><template id="B:\d+"><\/template><!--\/\$-->/g, '<!--$--><!--/$-->');
+  // React's streaming runtime ($RC, $RT, …: the code that moves late segments) is sent only when something streamed late.
+  return s.replace(/<script[^>]*>(?:(?!<\/script>)[\s\S])*?\$R[A-Z](?:(?!<\/script>)[\s\S])*?<\/script>/g, '');
+};
+// The flight data (RSC rows "id:payload") is streamed in the order rows resolve, split across inline push scripts at
+// arbitrary points: timing, not content. Its rows are joined, sorted and compared as one block; each row's content
+// (ids included) is still compared exactly.
+// Hint rows (":HL…") have an empty id.
+const flightRows = (t: string) => t.split(/\n(?=[0-9a-f]*:)/).map((r) => r.replace(/\n+$/, '')).filter(Boolean).sort().join('\n');
+const flightApart = (s: string) => {
+  let flight = '';
+  const rest = s.replace(/<script[^>]*>self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)<\/script>/g, (_m, str: string) => { flight += JSON.parse(str) as string; return ''; });
+  // The flight bootstrap (`push([0])`) sits wherever the first flight chunk lands: it carries no content.
+  return `${rest.replace(/<script[^>]*>\(self\.__next_f=self\.__next_f\|\|\[\]\)\.push\(\[0\]\)<\/script>/g, '')}\n--flight--\n${flightRows(flight)}`;
 };
 // Next streams metadata: its <title> and <meta> tags land in the head or later in the body depending on when
 // generateMetadata resolves (timing, not content). They are compared as a sorted set, beside the rest of the page.
@@ -111,7 +127,8 @@ async function grab(api: APIRequestContext, path: string, init?: { method?: 'POS
   const r = init?.method === 'POST' ? await api.post(path, { headers: init.headers, data: init.data }) : await api.get(path, { maxRedirects: 0 });
   const buf = await r.body();
   const ct = r.headers()['content-type'] ?? '';
-  const body = ct.startsWith('image/') ? `${ct}:${buf.toString('base64')}` : ct.startsWith('text/html') ? metaApart(resolveStreamed(strip(buf.toString('utf8')))) : strip(buf.toString('utf8'));
+  const body = ct.startsWith('image/') ? `${ct}:${buf.toString('base64')}` : ct.startsWith('text/html') ? metaApart(flightApart(resolveStreamed(strip(buf.toString('utf8')))))
+    : ct.startsWith('text/x-component') ? flightRows(strip(buf.toString('utf8'))) : strip(buf.toString('utf8'));
   return { body, cc: r.headers()['cache-control'] ?? null, status: r.status() };
 }
 
