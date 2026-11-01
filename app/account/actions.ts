@@ -5,10 +5,14 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { portalUrl, siteOrigin } from '@/lib/billing.ts';
 
-export async function openPortal() {
+export async function openPortal() { return portal(false); }
+// "Cancel subscription" opens the portal's cancel flow for the live subscription directly.
+export async function openCancel() { return portal(true); }
+
+async function portal(cancel: boolean) {
   const me = await currentUser();
   if (!me) redirect('/login');
   let url: string | null = null;
-  try { url = await portalUrl(me.id, siteOrigin()); } catch (e) { console.error('portal failed', e instanceof Error ? e.message : 'unknown'); }
+  try { url = await portalUrl(me.id, siteOrigin(), cancel); } catch (e) { console.error('portal failed', e instanceof Error ? e.message : 'unknown'); }
   redirect(url ?? '/account?e=portal');
 }

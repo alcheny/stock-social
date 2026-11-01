@@ -203,7 +203,8 @@ export function createBillingFake(o: BillingFakeOptions) {
     if (p === '/v1/billing_portal/sessions' && method === 'POST') {
       const customer = f.get('customer');
       if (!customer || !customers.has(customer)) return json(400, { error: { code: 'parameter_invalid' } });
-      const s = { id: id('bps'), object: 'billing_portal.session', customer, return_url: f.get('return_url'), url: '' };
+      const s = { id: id('bps'), object: 'billing_portal.session', customer, return_url: f.get('return_url'), url: '',
+        flow: f.get('flow_data[type]'), flowSubscription: f.get('flow_data[subscription_cancel][subscription]') };
       s.url = `${o.base ?? ''}/portal/${s.id}`;
       portals.set(s.id, s); return json(200, s);
     }

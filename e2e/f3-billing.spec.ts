@@ -286,6 +286,18 @@ test('F-3 lapsed: views and notes stay readable, editable and downloadable; only
   await expect(page.getByText('You have no active subscription.')).toBeVisible();
 });
 
+test('F-3 a first payment still being confirmed: no second checkout offered, and a way to stop it (orchestrator review 5)', async ({ page }) => {
+  const id = await signIn(page, handle());
+  await subscribeRow(id, 'incomplete');
+  await page.goto('/account');
+  await expect(page.getByText('Your payment is being confirmed. You do not need to pay again. To stop it, open Manage subscription.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Manage subscription' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Subscribe again' })).toHaveCount(0);
+  await page.goto('/tools');
+  await expect(page.getByText(/^Your payment is being confirmed\./)).toBeVisible();
+  await expect(page.locator('#subscribe')).toHaveCount(0);
+});
+
 test('F-3 a trader who deletes their account leaves the subscriber\'s views and notes; one line says so until dismissed, naming no one', async ({ page, browser }) => {
   const id = await signIn(page, handle());
   await subscribeRow(id);

@@ -128,7 +128,9 @@ dbTest('start: hosted checkout with tax by the processor, an opaque reference on
   assert.equal(cs.success_url, 'http://app.test/account?activating=1');
   assert.equal(cs.cancel_url, 'http://app.test/tools#subscribe');
   const sent = fake.calls.filter((c) => c.method === 'POST').map((c) => decodeURIComponent(c.body)).join('\n');
-  assert.doesNotMatch(sent, new RegExp(`${tag}|Test viewer|email|name\\]|user_id|\\b${u}\\b`));
+  assert.doesNotMatch(sent, new RegExp(`${tag}|Test viewer|email|name\\]|user_id`));
+  // The user id is never a value sent to the processor (field by field: a bare \b1\b would match quantity=1).
+  for (const c of fake.calls.filter((x) => x.method === 'POST')) for (const [k, val] of new URLSearchParams(c.body)) if (k !== 'line_items[0][quantity]') assert.notEqual(val, String(u), k);
   assert.match(String(cs.client_reference_id), /^ss_[0-9a-f]{24}$/);
   const [consent] = await sql`select * from billing_consents where user_id = ${u}`;
   assert.equal(consent.plan, 'annual');
@@ -546,4 +548,35 @@ dbTest('a signed event with no object id, or a dispute with no charge, is stored
     const [e] = await sql`select flagged, error_code, processed_at is not null as done from billing_events where vendor_event_id = ${id}`;
     assert.deepEqual({ ...e }, { flagged: true, error_code: type.startsWith('charge') ? 'dispute_without_customer' : 'missing_object', done: true });
   }
+});
+
+dbTest('"Cancel subscription" opens the portal straight on the cancel flow for the live subscription (orchestrator review 4)', async () => {
+  const b = await import('./billing.ts');
+  const u = await user();
+  const sub = await subscribe(u);
+  await b.portalUrl(u, 'http://app.test', true);
+  const calls = fake.calls.filter((c) => c.path === '/v1/billing_portal/sessions');
+  const p = new URLSearchParams(calls.at(-1)!.body);
+  assert.equal(p.get('flow_data[type]'), 'subscription_cancel');
+  assert.equal(p.get('flow_data[subscription_cancel][subscription]'), sub.id);
+  await b.portalUrl(u, 'http://app.test');
+  assert.equal(new URLSearchParams(fake.calls.filter((c) => c.path === '/v1/billing_portal/sessions').at(-1)!.body).get('flow_data[type]'), null, 'Manage opens the portal home');
+});
+
+dbTest('after a price change, a subscriber on the old price keeps their plan (grandfathered) and their account deletion still cancels at the processor (orchestrator review 2)', async () => {
+  const { sql } = await import('./db.ts');
+  const { deleteProfile } = await import('./delete.ts');
+  const u = await user();
+  const sub = await subscribe(u);
+  const old = process.env.STRIPE_PRICE_MONTHLY;
+  process.env.STRIPE_PRICE_MONTHLY = 'price_unit_monthly_v2';
+  try {
+    now += 31 * DAY; await fake.lifecycle(sub.id, 'renew');
+    assert.equal((await row(u))!.plan, 'monthly');
+    assert.equal((await sql`select count(*)::int as n from billing_events where vendor_customer_id = ${sub.customer} and error_code = 'unknown_price'`)[0].n, 0);
+    const [{ handle }] = await sql`select handle from users where id = ${u}`;
+    await deleteProfile({ id: u, handle, snaptrade_user_id: null, snaptrade_secret_enc: null });
+    assert.equal(fake.subs.get(sub.id)!.status, 'canceled');
+    assert.equal((await sql`select count(*)::int as n from users where id = ${u}`)[0].n, 0);
+  } finally { process.env.STRIPE_PRICE_MONTHLY = old; }
 });

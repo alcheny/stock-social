@@ -5,7 +5,7 @@ import { currentUser } from '@/lib/session.ts';
 import { access, billingAvailable, canceledOnConnect, rowEntitles, testMode } from '@/lib/billing.ts';
 import { BILLING, RECORD_TOOLS } from '@/lib/copy.ts';
 import { Disclaimer, PastDueBanner, TestModeLabel } from '../tools/parts.tsx';
-import { openPortal } from './actions.ts';
+import { openCancel, openPortal } from './actions.ts';
 import { Activating } from './activating.tsx';
 
 // F-3 · the account page (docs/features/logs/F-3/plan.md §8): plan, renewal or end date, the cancel path and refund
@@ -48,10 +48,15 @@ export default async function Account({ searchParams }: { searchParams?: Promise
         {contact && <p>{BILLING.contact(contact)}</p>}
         <form action={openPortal} className="rt-actions">
           <button className="button wide choice">{BILLING.manage}</button>
-          {!a.row.cancel_at_period_end && <button className="button wide choice">{BILLING.cancel}</button>}
+          {!a.row.cancel_at_period_end && <button className="button wide choice" formAction={openCancel}>{BILLING.cancel}</button>}
         </form>
       </>}
-      {a.kind === 'none' && sp.activating !== '1' && (row && !rowEntitles(row, now)
+      {/* Orchestrator review 5: a first payment still being confirmed: no Subscribe button, and a way to stop it. */}
+      {a.kind === 'none' && row?.status === 'incomplete' && <>
+        <p role="status">{BILLING.confirming}</p>
+        <form action={openPortal} className="rt-actions"><button className="button wide choice">{BILLING.manage}</button></form>
+      </>}
+      {a.kind === 'none' && row?.status !== 'incomplete' && sp.activating !== '1' && (row && !rowEntitles(row, now)
         ? <><p>{row.ended_reason === 'refund' ? BILLING.refunded : BILLING.lapsed}</p><p><Link className="button" href="/tools#subscribe">{BILLING.subscribeAgain}</Link></p></>
         : <><p>{BILLING.none}</p><p><Link className="button" href="/tools">{BILLING.seeTools}</Link></p></>)}
       <p><a className="button secondary" href="/account/export" download>{RECORD_TOOLS.download}</a></p>

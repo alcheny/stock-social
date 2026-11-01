@@ -192,10 +192,13 @@ export async function startCheckout(i: { userId: number; plan: Plan; agreed: boo
   return session.url as string;
 }
 
-export async function portalUrl(userId: number, origin: string): Promise<string | null> {
+// `cancel`: the portal opens straight on canceling the live subscription ("as easy as sign-up"), else its home page.
+export async function portalUrl(userId: number, origin: string, cancel = false): Promise<string | null> {
   const [row] = await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`;
   if (!row) return null;
-  const s = await vendor('POST', '/v1/billing_portal/sessions', { customer: row.vendor_customer_id as string, return_url: `${origin}/account` });
+  const [live] = cancel ? await sql`select vendor_subscription_id from subscriptions where user_id = ${userId} and status in ('trialing', 'active', 'past_due') order by id desc limit 1` : [];
+  const flow = live ? { flow_data: { type: 'subscription_cancel', subscription_cancel: { subscription: live.vendor_subscription_id as string } } } : {};
+  const s = await vendor('POST', '/v1/billing_portal/sessions', { customer: row.vendor_customer_id as string, return_url: `${origin}/account`, ...flow });
   return s.url as string;
 }
 
@@ -333,10 +336,12 @@ export function mapStatus(vendorStatus: string): Status {
 const secs = (v: unknown): Date | null => (typeof v === 'number' ? new Date(v * 1000) : null);
 
 // Pure: the row the processor's object implies, given the row the app holds now.
-export function desiredRow(sub: VendorSub, prices: Record<Plan, string>, prev: Pick<SubscriptionRow, 'grace_until' | 'disputed_at' | 'ended_reason'> | null, now: Date) {
+// A price no longer configured (after a price change) keeps the plan the app already holds for that subscription
+// (grandfathered); only a subscription the app has never seen on an unknown price is refused.
+export function desiredRow(sub: VendorSub, prices: Record<Plan, string>, prev: (Pick<SubscriptionRow, 'grace_until' | 'disputed_at' | 'ended_reason'> & { plan?: Plan }) | null, now: Date) {
   const item = sub.items?.data?.[0] ?? {};
   const priceId = idOf(item.price);
-  const plan = (Object.keys(prices) as Plan[]).find((p) => prices[p] === priceId);
+  const plan = (Object.keys(prices) as Plan[]).find((p) => prices[p] === priceId) ?? prev?.plan;
   if (!plan) throw new ApplyError('unknown_price');
   let status = mapStatus(sub.status);
   const graceUntil = status === 'past_due' ? prev?.grace_until ?? new Date(now.getTime() + GRACE_DAYS * DAY) : null;
@@ -567,12 +572,13 @@ export async function endBillingForDeletion(userId: number): Promise<void> {
   // the local rows go, and a counted alert asks for a manual cleanup at the processor (no ids logged).
   if (cust && !billingAvailable()) console.error('billing: account deleted while billing is not configured; processor cleanup needed (1)');
   if (cust && billingAvailable()) {
-    const live = await sql`select vendor_subscription_id from subscriptions where user_id = ${userId} and status <> 'canceled'`;
+    const live = await sql`select vendor_subscription_id, plan from subscriptions where user_id = ${userId} and status <> 'canceled'`;
     for (const s of live) {
       let sub: VendorSub | null = null;
       try { sub = (await vendor('GET', `/v1/subscriptions/${enc(s.vendor_subscription_id)}`)) as VendorSub; } catch (e) { if (!(e instanceof VendorError && e.status === 404)) throw e; }
       if (sub && !['canceled', 'incomplete_expired'].includes(sub.status)) {
-        const d = desiredRow(sub, cfg().prices, null, billingDeps.now());
+        // The stored plan stands in for a price no longer configured: deletion never waits on a price mapping.
+        const d = desiredRow(sub, cfg().prices, { grace_until: null, disputed_at: null, ended_reason: null, plan: s.plan as Plan }, billingDeps.now());
         await cancelWithRefund(userId, sub, refundShare(d.plan, d.current_period_start, d.current_period_end, billingDeps.now(), 'cancel', isFirstPeriod(sub, d)), 'deletion');
       }
     }

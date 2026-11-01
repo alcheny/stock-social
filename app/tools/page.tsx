@@ -58,6 +58,8 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
   if (sp.view !== undefined && !view) notFound();
   const lapsed = a.kind === 'none' && (!!a.row || views.length > 0 || notes.length > 0);
   const removed = me ? await removedNotice(me.id) : false;
+  // A first payment still being confirmed: never offered checkout again (orchestrator review 5).
+  const confirming = a.kind === 'none' && a.row?.status === 'incomplete';
   const msg = message(sp);
 
   // Locked: signed out, or signed in with nothing of their own here yet. Traders never reach it (K14).
@@ -79,7 +81,8 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
       {a.kind === 'subscriber' && a.row.status === 'past_due' && a.row.grace_until && <PastDueBanner until={a.row.grace_until} />}
       {a.kind === 'subscriber' && a.row.cancel_at_period_end && a.row.current_period_end && <p className="rt-banner">{RECORD_TOOLS.endsOn(a.row.current_period_end)}</p>}
       {a.kind === 'trader' && <p className="muted">{RECORD_TOOLS.trader}</p>}
-      {lapsed && <p className="rt-banner">{RECORD_TOOLS.lapsed}</p>}
+      {confirming && <p role="status" className="rt-banner">{BILLING.confirming} <Link href="/account">{RECORD_TOOLS.account}</Link></p>}
+      {lapsed && !confirming && <p className="rt-banner">{RECORD_TOOLS.lapsed}</p>}
       {removed && <form action={dismissNoticeAction} className="rt-banner"><p role="status" style={{ margin: 0 }}>{RECORD_TOOLS.removedNotice}</p><button className="button secondary">{RECORD_TOOLS.dismiss}</button></form>}
       <p id="rt-msg" tabIndex={-1} role={msg?.error ? 'alert' : 'status'} className={msg?.error ? 'down rt-msg' : 'rt-msg'}>{msg?.text ?? ''}</p>
       {msg && <FocusMessage target={sp.m === 'moved' && sp.i ? `card-${sp.i}` : 'rt-msg'} />}
@@ -114,7 +117,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
           <button className="button">{RECORD_TOOLS.createView}</button>
         </form>
       ))}
-      {lapsed && <p><a className="button" href="#subscribe">{BILLING.subscribeAgain}</a></p>}
+      {lapsed && !confirming && <p><a className="button" href="#subscribe">{BILLING.subscribeAgain}</a></p>}
       <h2 id="notes">{RECORD_TOOLS.notesTitle}</h2>
       <p className="muted small">{RECORD_TOOLS.removedAdvance}</p>
       {notes.length ? (
@@ -127,7 +130,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
           ))}
         </ul>
       ) : <p className="muted">{RECORD_TOOLS.noNotes}</p>}
-      {lapsed && billing && <SubscribeBlock signedIn testMode={testMode(billing)} error={sp.e ?? null} chosen={isPlan(sp.p) ? sp.p : null} now={new Date()} />}
+      {lapsed && !confirming && billing && <SubscribeBlock signedIn testMode={testMode(billing)} error={sp.e ?? null} chosen={isPlan(sp.p) ? sp.p : null} now={new Date()} />}
     </main>
   );
 }
