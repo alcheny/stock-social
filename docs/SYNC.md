@@ -87,7 +87,7 @@ q is its vendor requests. Each round has 11 calls (every 5 minutes, never at :30
 
 | Plan | Assumptions | Per shard per round | Total |
 |---|---|---|---|
-| **40 shards × 6 workers, RPS 12** (the plan, committee round 3) | p95 0.5 s per request, half the traders with 2 accounts (q = 1 + 3 × 1.5 = 5.5, L ≈ 2.75 s) | design min(6/2.75, 12/5.5) = 2.18 a second × 2,310 ≈ 5,000; **measured ≈ 3,890** | **≈ 155k, extrapolated** from the measured per-shard rate × 40 (1.56× over 100k) |
+| **40 shards × 6 workers, RPS 12** (the plan, committee round 3) | p95 0.5 s per request, half the traders with 2 accounts (q = 1 + 3 × 1.5 = 5.5, L ≈ 2.75 s) | design min(6/2.75, 12/5.5) = 2.18 a second × 2,310 ≈ 5,000; **measured ≈ 3,880** | **≈ 155k, extrapolated** from the measured per-shard rate × 40 (1.55× over 100k) |
 | 32 × 6, RPS 10 (the plan before #40's third read) | the same | measured ≈ 3,125 | ≈ 100k: no headroom |
 | of=1, defaults (1 worker, RPS 2) | the same | rate-bound: 2 / 5.5 ≈ 0.36 a second × 2,310 ≈ 840 at p95 latency | the old sequential rate (~5k/hour at 0.5 s a trader) |
 
@@ -103,9 +103,9 @@ in its own call (above), every shard's window is the same.
   pass the bound, counted as transient and were synced in round 2. The 99 failing traders were backed off.
 - Nothing was deferred, cut at a call's end or falsely quarantined. Shards were disjoint, at 16.5 traders a second per
   shard in scaled time (5.45 requests a trader).
-- The worst shard used 7.07 of the round's 11 calls (**1.56× headroom**); in whole calls, 7 of 11 (1.57×).
+- The worst shard used 7.09 of the round's 11 calls (**1.55× headroom**); in whole calls, 8 of 11 (1.38×).
 - The latency-model test (one shard, real 200–500 ms latency, RPS 12, 6 workers) measured 2.17 traders a second. The
-  prediction was 2.22 (−2.4%).
+  prediction was 2.22 (−2.3%).
 
 **Why the measured figure is below the design figure.** The database's own time (about 17 ms a sync) is not scaled in
 the test, and the workers spend time waiting for pool connections. At production speed, a trader's sync is measured at

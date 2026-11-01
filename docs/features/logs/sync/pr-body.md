@@ -53,7 +53,7 @@ Removes the known limit "`/api/sync` loops users sequentially (~5k traders/hour)
 
 **For the owner: CLAUDE.md "Known limits"** (owner-only, so not edited here). Suggested replacement for the second bullet:
 > `/api/sync` is sharded (`?shard=i&of=N`, docs/SYNC.md): ≈155k traders a round on 40 shards × 6 workers at 12 req/s,
-> extrapolated from the measured per-shard rate (1.56× over 100k). Switch-on gate in docs/SYNC.md (vendor quota and cost in
+> extrapolated from the measured per-shard rate (1.55× over 100k). Switch-on gate in docs/SYNC.md (vendor quota and cost in
 > writing, the "Last updated" line, the owner's TR-5 refusal rule, `dbConfigOk`, the housekeeping cron entry). Remaining ponytail (lib/sync.ts): a sync past SYNC_FIT_CAP accounts, or reading more than
 > one vendor page per account, can still overrun and roll back. The runner quarantines such a trader; per-account
 > checkpoints are a follow-up PR.
@@ -111,7 +111,7 @@ of a sync, signed on the re-measurement); an independent code review and the orc
 - **Queue order:** stalest first (`last_synced_at nulls first, id`), so a short round rotates which traders it misses.
 - **Plan:** 40 shards × 6 workers at 12 req/s per shard (round 3, after #40's share-move read made a sync cost
   1 + 3n requests). It is sized for at least 1.5× headroom at a p95 latency with a 2-account mix, and was measured at
-  1.56×.
+  1.55×.
 - **Fit rule v2 and the route-end guard** (round 3): the observed p99 plus one bound, and no platform kills (see
   above). The share-move cadence (hourly or daily) is an open question for the owner and F-14.
 - **Backoff:**
@@ -134,14 +134,14 @@ of a sync, signed on the re-measurement); an independent code review and the orc
 ## Testing
 
 - `npx tsc --noEmit`: clean.
-- `npm test` (after merging main with #40 and #42), run twice: **1035 tests, 1016 pass, 0 fail**, 1 todo (owner), the
-  rest skipped (opt-in LOAD tests). One of the two runs hit a race in `lib/auth/links.test.ts` (`purgeExpiredLinks() >= 1`
-  against a parallel global purge; not this PR's code); it passed 5 of 5 on its own and in the other full run. New files:
+- `npm test` (after merging the latest main), run twice: **1081 tests, 1062 pass, 0 fail** both times, 1 todo (owner), the
+  rest skipped (opt-in LOAD tests). New files:
   - `lib/sync-limits.test.ts` (21 unit tests, including the call modes, the latency window and the planned-time rule);
-  - `lib/sync-shard.test.ts` (14 DB tests): shard assignment, deadline then resume, overlapping runs, the lease and
+  - `lib/sync-shard.test.ts` (15 DB tests): shard assignment, deadline then resume, overlapping runs, the lease and
     fencing, backoff by class, breaker, quarantine and skipped, the rate bound, coverage, failure isolation with the real
     `syncUser`, the first-dispatch fit rule, the transient streak, the metered broker passing every read (share moves
-    included), and the route-end guard (cut, rolled back, given back, synced by the next call);
+    included), the route-end guard (cut, rolled back, given back, synced by the next call), and the n-request guard plus the
+    first-pick cut streak (a 3-account read refused, quarantined after 5 calls);
   - `lib/db-pool.test.ts`;
   - `lib/sync-route.test.ts`: the housekeeping order with the billing reconciliation; the secret checked before the
     parameters; GET is POST.
@@ -155,21 +155,19 @@ of a sync, signed on the re-measurement); an independent code review and the orc
     traders.
   - Results: 98,912 healthy traders synced exactly once in round 1. The slow ones counted as transient and were synced
     in round 2; the failing ones were backed off. Shards were disjoint. 0 deferred, 0 cut at a call's end, 0 quarantined.
-  - The worst shard used 7.07 of the round's 11 calls (**1.56× headroom**); in whole calls, 7 of 11 (1.57×). Peak
+  - The worst shard used 7.09 of the round's 11 calls (**1.55× headroom**); in whole calls, 8 of 11 (1.38×). Peak
     database connections were 73.
   - The database server had 100 connections, so 10 shards ran at once, and the 155k total is the measured per-shard rate
     × 40, an **extrapolation**. The test drives `runShard` directly; with housekeeping in its own call, every shard's
     window is the same.
-  - Latency-model test (real 200–500 ms latency, one shard, 12 req/s): 2.17 traders/s against a predicted 2.22 (−2.4%).
+  - Latency-model test (real 200–500 ms latency, one shard, 12 req/s): 2.17 traders/s against a predicted 2.22 (−2.3%).
   - The first round-3 run found that the route-end guard's margin was not scaled in the time-scaled test (1.25×, 35,901
     cuts). The margin now scales with the bound and is part of the fit check.
 - `npm run build`: ok.
 - **Full Playwright suite** against `npm run start` and the vendor fake, including the new `e2e/sync-shards.spec.ts`
-  (auth before parameters for POST and GET, 400s, sharded vs housekeeping vs unsharded answers): **179 passed, 6
-  skipped, 1 failed**.
-  - The failure was `e2e/section.spec.ts` "demo-only feed", which saw 203 leftover `rt…` users written to the local
-    database by `lib/record-tools.test.ts` (F-3), not by this PR. After removing them locally the spec passed 6 of 6. CI
-    uses a fresh database.
+  (auth before parameters for POST and GET, 400s, sharded vs housekeeping vs unsharded answers): **188 passed, 6
+  skipped, 0 failed**. Leftover `rt…` users that F-3's `lib/record-tools.test.ts` leaves in a local database were
+  removed first; CI uses a fresh database.
   - The e2e run regenerates F-2 screenshots; they are restored to main's and are not part of this PR.
   - Locally the pinned Playwright needed the pre-installed Chromium via a throwaway local config, not committed.
   - A new `e2e/cron-lock.ts` serializes cron calls across spec files: `connect.spec.ts` and `privacy-gate.spec.ts` take
