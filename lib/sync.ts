@@ -235,7 +235,11 @@ export const syncDeadline = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S 
 // leaves the others unclaimed (counted in the log) for the next call, which starts with the whole budget. n is capped at
 // SYNC_FIT_CAP, the most a whole call fits, so a trader with more accounts is still claimed, at the start of a call.
 // ponytail: past SYNC_FIT_CAP accounts (or an activity read over one vendor page per account) a sync can still overrun;
-// it then rolls back and its lease lapses, as before. Next step: split the sync per account like the import.
+// it then rolls back and its lease lapses, as before. Sharded sync (lib/sync-shard.ts) dispatches such a trader only
+// at the start of a call, and after two overruns in a row quarantines it (backed off, counted `quarantined` in shard 0's
+// coverage line) instead of retrying it first forever. The overrun needs every request near its 30 s bound; a normal
+// sync of 5+ accounts takes seconds. Next step: split the sync per account like the import (a change to syncUser's
+// one-transaction rule, D4/D5: its own design session).
 export const syncRouteEnd = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000;
 export const syncCost = (accounts: number) => (1 + 2 * accounts) * VENDOR_TIMEOUT_MS;
 export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / 2);
