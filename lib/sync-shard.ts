@@ -13,7 +13,7 @@ import {
   type Broker, type SyncableUser,
 } from './sync.ts';
 import {
-  BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, classify, dbConfigCheck, runConfig, TokenBucket,
+  BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, TRANSIENT_LIMIT, classify, dbConfigCheck, runConfig, TokenBucket,
   type FailureKind, type RunConfig, type Shard,
 } from './sync-limits.ts';
 
@@ -97,18 +97,30 @@ export async function quarantine(id: number, shift = 0): Promise<boolean> {
 // How an attempt ends. Every statement applies only while the in-flight lease is still this claim's (compared as the
 // database wrote it, `::text`), so a stale worker never touches a newer claim.
 type End = 'done' | 'skipped' | FailureKind;
-export async function finish(u: Claimed, end: End, shift = 0) {
+// Returns true when the attempt quarantined the trader (its TRANSIENT_LIMIT-th transient failure in a row).
+export async function finish(u: Claimed, end: End, shift = 0): Promise<boolean> {
   const mine = sql`users.id = ${u.id} and users.sync_lease_until = ${u.lease}::text::timestamptz`;
   if (end === 'done') {
     await sql`update users set sync_lease_until = null, sync_attempts = 0, sync_failures = 0, sync_retry_at = null,
-      sync_failure_kind = null, sync_failing_since = null where ${mine}`;
+      sync_failure_kind = null, sync_failing_since = null, sync_transients = 0 where ${mine}`;
   } else if (end === 'skipped') {
     // Another sync holds the trader's lock: the round claim it replaced goes back and the attempt is undone.
     await sql`update users set sync_claimed_at = ${u.prev}::text::timestamptz, sync_lease_until = null,
       sync_attempts = greatest(users.sync_attempts - 1, 0) where ${mine}`;
   } else if (end === 'transient') {
-    // Not the trader's fault: no backoff; the round claim stays, so it is retried next round.
-    await sql`update users set sync_lease_until = null, sync_attempts = 0 where ${mine}`;
+    // Not the trader's fault: no backoff; the round claim stays, so it is retried next round. Unless it is the
+    // TRANSIENT_LIMIT-th in a row: then the trader is quarantined (a backoff), so a record that always times out (or
+    // whose data always throws) is never retried every round forever.
+    const hit = sql`users.sync_transients + 1 >= ${TRANSIENT_LIMIT}`;
+    const rows = await sql`with clock as (${clockSql(shift)})
+      update users set sync_lease_until = null, sync_attempts = 0,
+        sync_transients = case when ${hit} then 0 else users.sync_transients + 1 end,
+        sync_failures = case when ${hit} then users.sync_failures + 1 else users.sync_failures end,
+        sync_retry_at = case when ${hit} then clock.t + ${backoffSql()} else users.sync_retry_at end,
+        sync_failure_kind = case when ${hit} then 'quarantined' else users.sync_failure_kind end,
+        sync_failing_since = case when ${hit} then coalesce(users.sync_failing_since, clock.t) else users.sync_failing_since end
+      from clock where ${mine} returning users.sync_transients = 0 as quarantined`;
+    return rows.length === 1 && rows[0].quarantined === true;
   } else {
     await sql`with clock as (${clockSql(shift)})
       update users set sync_lease_until = null, sync_attempts = 0, sync_failures = users.sync_failures + 1,
@@ -116,6 +128,7 @@ export async function finish(u: Claimed, end: End, shift = 0) {
         sync_failing_since = coalesce(users.sync_failing_since, clock.t)
       from clock where ${mine}`;
   }
+  return false;
 }
 
 // ponytail: a request beyond the prepaid 1 + 2n (another page on a first sync) waits for its token inside the trader's
@@ -289,7 +302,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       else if (end === 'refused') r.refused++;
       else r.failed++;
       if (end !== 'skipped') breaker.record(end === 'transient' || end === 'refused');
-      try { await finish(u, end, shift()); } catch (e) {
+      try { if (await finish(u, end, shift())) r.quarantined++; } catch (e) {
         // The lease lapses after SYNC_LEASE_MS; the attempt stays counted (visible here, so a false quarantine is too).
         r.releaseFailed++;
         console.error('sync release failed', u.id, logSafe(e));

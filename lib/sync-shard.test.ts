@@ -448,3 +448,43 @@ dbTest('fit: the first trader a run takes is dispatched even when its worst-case
     await h.cleanup(of);
   }
 });
+
+// Orchestrator review nit 6: a trader that fails transiently every round (a record that always times out) is not
+// retried forever: its TRANSIENT_LIMIT-th transient failure in a row quarantines it; a success in between resets the
+// streak.
+dbTest('transient streak: TRANSIENT_LIMIT transient failures in a row quarantine the trader; a success resets the streak; other traders are unaffected', async () => {
+  const h = await harness();
+  const { TRANSIENT_LIMIT } = await import('./sync-limits.ts');
+  const of = freshOf();
+  try {
+    const [slow, other] = await h.inShard(2, of, 0);
+    const c = h.counter(async (u) => { if (u.id === slow.id) throw Object.assign(new Error('timeout'), { name: 'VendorTimeoutError' }); return 1; });
+    const run = (round: number) => h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(5 + 60 * round), jitterMs: 0, config: cfg(1), log: h.quiet, sync: c.sync });
+    for (let i = 0; i < TRANSIENT_LIMIT - 1; i++) {
+      const r = await run(i);
+      assert.equal(r.transient, 1);
+      assert.equal(r.quarantined, 0);
+      const row = await h.row(slow.id);
+      assert.equal(row.sync_retry_at, null, `round ${i}: no backoff yet`);
+    }
+    const last = await run(TRANSIENT_LIMIT - 1);
+    assert.equal(last.transient, 1);
+    assert.equal(last.quarantined, 1);
+    const q = await h.row(slow.id);
+    assert.equal(q.sync_failure_kind, 'quarantined');
+    assert.ok(q.sync_retry_at, 'backed off');
+    assert.equal((await h.sql`select sync_transients from users where id = ${slow.id}`)[0].sync_transients, 0);
+    // The next round does not dispatch it; the other trader is synced every round.
+    const before = c.count(slow.id);
+    await run(TRANSIENT_LIMIT);
+    assert.equal(c.count(slow.id), before);
+    assert.equal(c.count(other.id), TRANSIENT_LIMIT + 1);
+    // A success resets a streak: two transients, a success, then the streak starts from zero.
+    await h.sql`update users set sync_retry_at = null, sync_failure_kind = null, sync_transients = 3 where id = ${slow.id}`;
+    const ok = h.counter(async () => 1);
+    await h.H.runShard({ shard: { shard: 0, of }, ids: [slow.id], shiftMs: h.at(5 + 60 * (TRANSIENT_LIMIT + 2)), jitterMs: 0, config: cfg(1), log: h.quiet, sync: ok.sync });
+    assert.equal((await h.sql`select sync_transients from users where id = ${slow.id}`)[0].sync_transients, 0);
+  } finally {
+    await h.cleanup(of);
+  }
+});

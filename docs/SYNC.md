@@ -9,6 +9,10 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
 - `POST /api/sync?shard=i&of=N` with `Authorization: Bearer $CRON_SECRET` syncs only traders whose id satisfies
   `id % N = i`. No parameters means `shard=0&of=1`: every trader, the behavior before sharding. Parameters are checked
   after the secret: bad ones answer 400 (`0 <= i < N <= 1024`, whole numbers, both or neither).
+- **What a call does.** The unsharded call (no parameters, or `of=1`) does everything, as before: housekeeping, the
+  privacy slots, the sync and the coverage report. A sharded call (`of > 1`, shard 0 included) only syncs its shard.
+  `?task=housekeeping&of=N` runs the housekeeping, the privacy slots and the coverage report for an N-shard schedule,
+  and syncs nobody. It has its own cron entry, so no shard spends its window on housekeeping.
 - **Each trader's sync is `syncUser`, unchanged**: one transaction under the trader's lock that re-reads the last 7 days;
   any failure rolls back, so a partial record is never published (F-1 D4/D5).
 - **Rounds and the durable cursor.** Rounds run from :30 to :30 on the database clock. A trader is claimed at most once per
@@ -24,8 +28,8 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
 - **Deadline.** A run stops dispatching 90 s before the route's 300 s limit. It dispatches a trader only if
   `(1 + 2n)` vendor bounds, plus the expected wait for rate tokens, fit before the limit (n = accounts). A trader that
   does not fit is left for the next call, which starts with a full budget. A run's first trader is always dispatched
-  (`SYNC_FIT_CAP` keeps any trader's worst case under one call), so shard 0's housekeeping can never defer a trader
-  with many accounts forever.
+  (`SYNC_FIT_CAP` keeps any trader's worst case under one call), so the unsharded call's housekeeping can never defer
+  a trader with many accounts forever.
 - **Vendor budget.** Each run has a token bucket of `SYNC_VENDOR_RPS` requests per second. Because only one run per shard
   is possible, this is the shard's whole budget. A trader's `1 + 2n` requests are taken before it is claimed, outside
   its transaction. Any extra request (another page on a first sync) takes a token as it goes. The aggregate vendor
@@ -42,8 +46,12 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
     since at that scale the cause is an outage or our own credentials.
   - **Unfinished claims:** two claims that never finished (the process died mid-sync) quarantine the trader, which is a
     backoff, so one poison record never stalls its shard.
-- **Housekeeping** (expired sign-in links, the connections tick, pending deletions, the discovery purge) runs only on
-  shard 0, before and regardless of its lease. Its time is reported as `housekeepingMs`.
+- **Housekeeping** (expired sign-in links, the connections tick, pending deletions, the discovery purge, the daily billing
+  reconciliation) runs once per cron mark: in the unsharded call, or in the `task=housekeeping` call on a sharded
+  schedule. It never waits on a shard lease. Its time is reported as `housekeepingMs`. Its own vendor calls (import
+  steps, deletions) are outside the shards' request budgets.
+- **Transient streak.** A trader that fails transiently 5 rounds in a row (`TRANSIENT_LIMIT`: a record that always
+  times out, or whose own data always throws) is quarantined and backed off, never retried every round forever.
 
 ## Logs (numbers only, no personal data)
 
@@ -51,7 +59,7 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
 |---|---|---|
 | `sync run start {…}` | a run took its lease | of, shard, concurrency, rps |
 | `sync run {…}` | every call | of, shard, busy, done, skipped (lock held elsewhere), deferred (did not fit), transient, refused, failed, quarantined, releaseFailed, remaining (left this round), inBackoff, stoppedAtDeadline, breaker, leaseLost, aborted, concurrency, requests, tokenWaitMs, pages, ms |
-| `sync coverage {…}` | every shard-0 call | missingShards (no heartbeat in 15 min, counting shards that never ran), unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings |
+| `sync coverage {…}` | every unsharded or housekeeping call | missingShards (no heartbeat in 15 min, counting shards that never ran), unclaimedPrevRound, neverSynced, stalestHours, inBackoff, refused, quarantined, oldestRefusalHours, dbConfigOk, dbProblems, db settings |
 | `sync round incomplete {…}` | the previous round left traders unclaimed, or a shard is missing | of, missingShards, unclaimedPrevRound |
 | `sync failed <id> <class> <status>` | one trader's sync failed | internal user id, failure class, error name and HTTP status (never the message) |
 
@@ -61,11 +69,15 @@ Alert on `sync round incomplete`, on `breaker: true`, and on `dbConfigOk: false`
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SYNC_CONCURRENCY` | 6 (1–32) | workers per run; clamped to `DATABASE_POOL_MAX − 2` |
-| `SYNC_VENDOR_RPS` | 10 (1–1000) | vendor requests per second per shard |
+| `SYNC_CONCURRENCY` | 1 (1–32) | workers per run; clamped to `DATABASE_POOL_MAX − 2`. The plan sets 6 at switch-on |
+| `SYNC_VENDOR_RPS` | 2 (1–1000) | vendor requests per second per shard. The plan sets 10 at switch-on |
 | `SYNC_VENDOR_BURST` | = RPS | the most requests saved up |
 | `SYNC_PAGE` | 500 | traders read per queue page |
-| `SYNC_START_JITTER_MS` | 15000 | sharded calls (`of > 1`, except shard 0, which starts with housekeeping) start after a random delay up to this; 0 disables |
+| `SYNC_START_JITTER_MS` | 15000 | sharded calls (`of > 1`) other than shard 0 start after a random delay up to this; 0 disables |
+
+The defaults are today's effective rate (one worker, about 2 vendor requests a second, the old sequential tick), so
+merging this does not raise vendor load before the switch-on gate. The plan's values are set together with the
+sharded cron.
 | `DATABASE_POOL_MAX` | 10 | the app's connection pool per instance (`lib/db.ts`) |
 
 ## Capacity and the production plan
@@ -75,14 +87,17 @@ q is its vendor requests. Each round has 11 calls (every 5 minutes, never at :30
 
 | Plan | Assumptions | Per shard per round | Total |
 |---|---|---|---|
-| **32 shards × 6 workers, RPS 10** (the plan) | p95 0.5 s per request, half the traders with 2 accounts (q ≈ 4, L ≈ 2.1 s) | design min(2.8, 2.5) × 2,310 = 5,775; **measured ≈ 4,860** | **≈ 155k measured (1.55× over 100k)** |
+| **32 shards × 6 workers, RPS 10** (the plan) | p95 0.5 s per request, half the traders with 2 accounts (q ≈ 4, L ≈ 2.1 s) | design min(2.8, 2.5) × 2,310 = 5,775; **measured ≈ 4,860** | **≈ 155k, extrapolated** from the measured per-shard rate × 32 (1.55× over 100k) |
 | 16 × 6, RPS 10 | the same | ≈ 4,860 | ≈ 78k: too small |
-| of=1 (today's cron) | the same | ≈ 4,860 | ≈ 4.9k (sequential was ~5k at 0.5 s a trader) |
+| of=1, defaults (1 worker, RPS 2) | the same | rate-bound: 2 / 4 = 0.5 a second × 2,310 ≈ 1.2k at p95 latency | the old sequential rate (~5k/hour at 0.5 s a trader) |
 
 **Measured** (`lib/sync-shard.load.test.ts`, opt-in `LOAD=1`, 2026-11-01). The test runs 100,000 synthetic traders
 against the in-repo vendor fake on 32 shards × 6 workers. Time is scaled by 10: 50 ms a request, a 3 s request bound,
 30 s calls with a 9 s reserve, and 100 req/s per shard. Database time is not scaled, so the test errs on the
-conservative side.
+conservative side. The database server had 100 connections, so about 11 shards ran at once (in three batches),
+not all 32. The 155k total is therefore the measured per-shard rate times 32, an extrapolation that assumes a database
+sized for 32 × 8 connections. The test drives `runShard` directly, not the route; with housekeeping in its own call
+(above), every shard's window is the same.
 
 - Of the 100,000 traders, 98,912 healthy ones were synced exactly once in round 1. The 989 slow traders, whose requests
   pass the bound, counted as transient and were synced in round 2. The 99 failing traders were backed off.
@@ -108,7 +123,7 @@ alter role stock_social set idle_in_transaction_session_timeout = '5min';
 ```
 
 The idle timeout must sit above the largest sync cost (`(1 + 2 × SYNC_FIT_CAP) × 30 s`) and below the per-user lease
-(10 min). Shard 0's coverage line checks both timeouts and `max_connections ≥ N × (C + 2) + 20`, and reports
+(10 min). The coverage line checks both timeouts and `max_connections ≥ N × (C + 2) + 20`, and reports
 `dbConfigOk`.
 
 ## Cron setup
@@ -124,23 +139,25 @@ Today's entry (`of=1`):
 { "crons": [ { "path": "/api/sync", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" } ] }
 ```
 
-Sharded (after the switch-on gate): one entry per shard, on the same schedule:
+Sharded (after the switch-on gate): one entry per shard plus the housekeeping entry, on the same schedule:
 
 ```json
 { "crons": [
   { "path": "/api/sync?shard=0&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
   { "path": "/api/sync?shard=1&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
   …
-  { "path": "/api/sync?shard=31&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }
+  { "path": "/api/sync?shard=31&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
+  { "path": "/api/sync?task=housekeeping&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }
 ] }
 ```
 
 
-- **Today (until the gate below is met):** one call `POST /api/sync` (shard 0 of 1) every 5 minutes, never at :30:
-  `5,10,15,20,25,35,40,45,50,55,0 * * * *`. This already uses 6 concurrent workers.
-- **Sharded plan:** 32 calls on that same schedule, `POST /api/sync?shard=i&of=32` for i = 0…31. Configure them as 32
-  cron entries, or one scheduler job that sends all 32 at once. Each call has `maxDuration` 300 s. The random start
-  delay spreads them out. Set `SYNC_CONCURRENCY=6`, `SYNC_VENDOR_RPS=10` and `DATABASE_POOL_MAX=8` (C + 2).
+- **Today (until the gate below is met):** one call `/api/sync` (shard 0 of 1) every 5 minutes, never at :30:
+  `0,5,10,15,20,25,35,40,45,50,55 * * * *`. It does everything, at the default rate.
+- **Sharded plan:** 32 calls on that same schedule, `/api/sync?shard=i&of=32` for i = 0…31, plus **one housekeeping
+  call** `/api/sync?task=housekeeping&of=32` on the same schedule. Configure them as 33 cron entries, or one scheduler
+  job that sends all 33 at once. Each call has `maxDuration` 300 s. The random start delay spreads them out. Set
+  `SYNC_CONCURRENCY=6`, `SYNC_VENDOR_RPS=10` and `DATABASE_POOL_MAX=8` (C + 2).
 - Runs with different shard counts do not exclude each other: a manual unsharded call during an `of=N` schedule adds
   its own vendor budget (round claims still prevent any double sync). Avoid manual calls while sharded.
 - Changing N is safe at any time: round claims carry over, so nobody is synced twice. Leases are per (N, shard), so
@@ -158,4 +175,6 @@ Every item below must hold. Until then, the cron stays at `of=1`.
 3. **The owner has decided the TR-5 rule for vendor refusals:** whether repeated 401/403s disconnect (freeze) a record.
    Nothing clears `disconnected_at` today, so this is irreversible. Until then, refusals are counted (`refused`,
    `oldestRefusalHours`) and backed off.
-4. **Shard 0 reports `dbConfigOk: true`** against the production database, with the plan's N and C.
+4. **The coverage line reports `dbConfigOk: true`** against the production database, with the plan's N and C.
+5. **The housekeeping entry is in the cron** (`task=housekeeping&of=N`). Without it, sharded calls run no deletions,
+   purges, billing reconciliation or coverage report. Its `missingShards` must read 0 after one round.

@@ -112,3 +112,17 @@ capacity table).
   so a trader with SYNC_FIT_CAP accounts is never deferred forever on shard 0.
 - `DATABASE_POOL_MAX` is clamped to 3..500 instead of falling back to 10; a run stops reading its queue once nothing
   smaller can fit, so the exclusion list stays small; e2e cron calls across spec files are serialized by a lock.
+
+## Orchestrator review of PR #46: changes against the signed table
+
+- O4 superseded for sharded schedules: housekeeping (and the privacy slots and the coverage report) runs in its own
+  `task=housekeeping&of=N` call, not inside shard 0's sync window. A busy import tick or a deletion backlog could
+  otherwise leave shard 0 reaching only its first trader per call, which the load test (which drives `runShard`
+  directly) did not cover. The unsharded call still does everything in one, as before. The switch-on gate gains the
+  housekeeping cron entry.
+- O2 defaults: the code's defaults are today's effective rate (1 worker, 2 req/s per shard), so merging changes no
+  vendor load before the gate. The plan's values (6, 10) are set with the sharded cron.
+- O3 refined: 5 transient failures in a row (TRANSIENT_LIMIT) quarantine a trader, so a record that always times out is
+  not retried every round forever.
+- The 155k capacity is labeled as extrapolated from the measured per-shard rate (about 11 shards ran at once on a
+  100-connection server).

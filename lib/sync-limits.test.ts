@@ -40,15 +40,17 @@ test('shardOf: over ids 1..N*k every residue gets exactly k ids, each id exactly
   }
 });
 
-test('runConfig: defaults 6 workers, 10 rps, burst = rps, page 500; values are clamped and junk falls back to the default', () => {
-  assert.deepEqual(runConfig({}), { concurrency: 6, rps: 10, burst: 10, page: 500 });
-  assert.deepEqual(runConfig({ SYNC_CONCURRENCY: '', SYNC_VENDOR_RPS: '', SYNC_PAGE: '' }), { concurrency: 6, rps: 10, burst: 10, page: 500 });
+// Orchestrator review 2: the defaults are today's sequential rate (1 worker, 2 rps) until the switch-on gate.
+test('runConfig: defaults 1 worker, 2 rps, burst = rps, page 500; values are clamped and junk falls back to the default', () => {
+  assert.deepEqual(runConfig({}), { concurrency: 1, rps: 2, burst: 2, page: 500 });
+  assert.deepEqual(runConfig({ SYNC_CONCURRENCY: '', SYNC_VENDOR_RPS: '', SYNC_PAGE: '' }), { concurrency: 1, rps: 2, burst: 2, page: 500 });
+  assert.deepEqual(runConfig({ SYNC_CONCURRENCY: '6', SYNC_VENDOR_RPS: '10' }), { concurrency: 6, rps: 10, burst: 10, page: 500 }); // the plan
   assert.deepEqual(runConfig({ SYNC_VENDOR_RPS: '4' }).burst, 4); // burst follows rps
   assert.deepEqual(runConfig({ SYNC_CONCURRENCY: '100', SYNC_VENDOR_RPS: '5000', SYNC_VENDOR_BURST: '9999', SYNC_PAGE: '99999' }), { concurrency: 32, rps: 1000, burst: 1000, page: 5000 });
   assert.deepEqual(runConfig({ SYNC_CONCURRENCY: '0', SYNC_VENDOR_RPS: '0', SYNC_VENDOR_BURST: '0', SYNC_PAGE: '1' }), { concurrency: 1, rps: 1, burst: 1, page: 10 });
   assert.deepEqual(runConfig({ SYNC_CONCURRENCY: '-3' }).concurrency, 1);
   assert.deepEqual(runConfig({ SYNC_CONCURRENCY: '3.9' }).concurrency, 3);
-  assert.deepEqual(runConfig({ SYNC_CONCURRENCY: 'abc', SYNC_VENDOR_RPS: 'Infinity', SYNC_PAGE: 'NaN' }), { concurrency: 6, rps: 10, burst: 10, page: 500 });
+  assert.deepEqual(runConfig({ SYNC_CONCURRENCY: 'abc', SYNC_VENDOR_RPS: 'Infinity', SYNC_PAGE: 'NaN' }), { concurrency: 1, rps: 2, burst: 2, page: 500 });
 });
 
 // A fake clock for the bucket: sleep advances it.
@@ -211,4 +213,18 @@ test('classify: database-wide SQLSTATEs (53xxx, 57014, 55P03, 25P03, 42xxx) and 
   for (const e of [new TypeError('x'), new ReferenceError('x'), new RangeError('x')]) assert.equal(classify(e), 'transient', e.name);
   // Still the trader's: a constraint on its own rows, a plain error from its record.
   for (const code of ['23505', '23503', '22003']) assert.equal(classify(Object.assign(new Error('pg'), { code })), 'trader', code);
+});
+
+// Orchestrator review 3: what one cron call does.
+test('parseCall: no parameters and of=1 do everything; of > 1 (shard 0 too) syncs only; task=housekeeping takes of and no shard', async () => {
+  const { parseCall } = await import('./sync-limits.ts');
+  const p = (q: string) => parseCall(new URLSearchParams(q));
+  assert.deepEqual(p(''), { mode: 'all', shard: { shard: 0, of: 1 } });
+  assert.deepEqual(p('shard=0&of=1'), { mode: 'all', shard: { shard: 0, of: 1 } });
+  assert.deepEqual(p('shard=0&of=32'), { mode: 'shard', shard: { shard: 0, of: 32 } });
+  assert.deepEqual(p('shard=31&of=32'), { mode: 'shard', shard: { shard: 31, of: 32 } });
+  assert.deepEqual(p('task=housekeeping&of=32'), { mode: 'housekeeping', shard: { shard: 0, of: 32 } });
+  assert.deepEqual(p('task=housekeeping'), { mode: 'housekeeping', shard: { shard: 0, of: 1 } });
+  for (const q of ['task=other', 'task=housekeeping&shard=0&of=2', 'task=housekeeping&of=0', 'task=housekeeping&of=2000', 'task=housekeeping&of=x', 'shard=1', 'shard=2&of=2'])
+    assert.ok('error' in p(q), q);
 });

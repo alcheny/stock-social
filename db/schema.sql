@@ -414,6 +414,9 @@ create table if not exists sync_shards (
 -- reports refusals and the oldest one's age, numbers only). Cleared by a successful sync.
 select schema_add_column('users', 'sync_failure_kind', $d$text check (sync_failure_kind in ('refused','trader','quarantined'))$d$);
 select schema_add_column('users', 'sync_failing_since', 'timestamptz');
+-- Consecutive transient failures (lib/sync-limits.ts#TRANSIENT_LIMIT): at the limit the trader is quarantined (backed
+-- off) instead of being retried every round forever. Cleared by a successful sync.
+select schema_add_column('users', 'sync_transients', 'int not null default 0');
 -- ---- F-3 · Viewer subscriptions and Record tools (docs/features/F-3-viewer-subscriptions.md; legal committee record
 -- docs/features/logs/F-3/committee-2026-11-01.md). The processor holds charges, refunds, tax and card data; the app
 -- keeps ids, plan, status and dates only (committee condition 20). No card, name, email, address or tax-location column.

@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { sql } from '@/lib/db.ts';
 import { syncAll, syncDeadline, syncRouteEnd } from '@/lib/sync.ts';
 import { coverage, runShard, type Coverage } from '@/lib/sync-shard.ts';
-import { parseShard } from '@/lib/sync-limits.ts';
+import { parseCall } from '@/lib/sync-limits.ts';
 import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
 import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
@@ -20,7 +20,8 @@ const PRIVACY_STAGE_MARGIN_MS = 30_000;
 
 // Cron: POST /api/sync with `Authorization: Bearer $CRON_SECRET`, every 5 minutes and never at :30 (request #7 as amended;
 // rounds run :30 to :30, lib/sync.ts). Sharded (docs/SYNC.md): `?shard=i&of=N` syncs only traders with `id % N = i`;
-// no parameters is shard 0 of 1 (every trader). Shard 0 also runs the housekeeping and the coverage report.
+// no parameters is shard 0 of 1 (every trader, plus the housekeeping and the coverage report); on a sharded schedule
+// `?task=housekeeping&of=N` runs the housekeeping and the coverage report alone.
 // F-1 PR-3 fix round 4 (business lead 3): the function's limit, above the 30 s vendor bound with room for a sync claimed
 // at the cut-off. A literal, since the framework reads it statically; lib/sync.ts#SYNC_ROUTE_MAX_S mirrors it (tested).
 export const maxDuration = 300;
@@ -34,12 +35,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const shard = parseShard(req.nextUrl.searchParams);
-  if ('error' in shard) return NextResponse.json({ error: shard.error }, { status: 400 });
+  const call = parseCall(req.nextUrl.searchParams);
+  if ('error' in call) return NextResponse.json({ error: call.error }, { status: 400 });
+  const { shard } = call;
 
-  // Housekeeping runs once per cron mark, on shard 0, before and regardless of the shard lease (committee O4): a busy
-  // shard 0 still finishes pending deletions. Each step is safe to overlap with another call.
-  const zero = shard.shard === 0;
+  // Housekeeping runs once per cron mark: in the unsharded call (before its sync, as before) or, on an N-shard schedule,
+  // in its own `task=housekeeping` call, so no shard's sync window is spent on it (orchestrator review 3). It never
+  // waits on a shard lease (committee O4), and each step is safe to overlap with another call.
+  // ponytail: housekeeping's own vendor calls (import steps, deletions) are outside the shards' request budgets — the
+  // vendor ceiling is N × SYNC_VENDOR_RPS plus them (docs/SYNC.md); metering them needs lib/connections.ts and
+  // lib/delete.ts to take a budget.
+  const zero = call.mode !== 'shard';
+  const syncs = call.mode !== 'housekeeping';
   let housekeeping: Record<string, unknown> = {};
   if (zero) {
     const t0 = performance.now();
@@ -61,7 +68,7 @@ export async function POST(req: NextRequest) {
   // get a small fixed slot before the sync (PRIVACY_SLOT_MS each, so a busy tick can never starve them), then use any
   // time left after it (up to PRIVACY_STAGE_MS each, never within PRIVACY_STAGE_MARGIN_MS of the route's end). Both
   // resume where they stopped. Each call in its own try/catch; the log line carries counts, milliseconds and the gate
-  // state only. Sharded sync: they are housekeeping, so they run on shard 0 only (once per cron mark).
+  // state only. Sharded sync: they are housekeeping, so they run once per cron mark, with the housekeeping.
   const left = () => syncRouteEnd(startedAt) - PRIVACY_STAGE_MARGIN_MS - Date.now();
   let privacy: PrivacyPurgeReport | null = null;
   let displayLog: DisplayLogReport | null = null;
@@ -77,7 +84,7 @@ export async function POST(req: NextRequest) {
   await privacyStages(PRIVACY_SLOT_MS);
   // Only traders with a connected (consented) connection and no import in progress, each claimed once per round
   // (lib/sync.ts), in this shard, by bounded concurrent workers under the shard's lease (lib/sync-shard.ts).
-  const run = await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt) });
+  const run = syncs ? await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt) }) : null;
   await privacyStages(Math.min(PRIVACY_STAGE_MS, left()));
   let cover: Coverage | null = null;
   let launch: ReturnType<typeof gateReport> | null = null;
@@ -88,10 +95,10 @@ export async function POST(req: NextRequest) {
   }
   // `ok`, `skipped`, `failed` (internal ids), `unclaimed`, `stoppedAtDeadline` keep the unsharded call's answer; `run` is
   // the run's counters (as logged).
-  const { failedIds, ...counters } = run;
+  const { failedIds = [], ...counters } = run ?? {};
   return NextResponse.json({
-    ok: run.done, skipped: run.skipped, failed: failedIds, unclaimed: run.remaining, stoppedAtDeadline: run.stoppedAtDeadline,
-    run: counters, coverage: cover, ...housekeeping, ...(zero ? { privacy, displayLog, launch, ms } : {}),
+    ok: run?.done ?? 0, skipped: run?.skipped ?? 0, failed: failedIds, unclaimed: run?.remaining ?? null, stoppedAtDeadline: run?.stoppedAtDeadline ?? false,
+    run: run ? counters : null, coverage: cover, ...housekeeping, ...(zero ? { privacy, displayLog, launch, ms } : {}),
   });
 }
 

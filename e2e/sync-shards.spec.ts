@@ -40,29 +40,36 @@ test('sync: invalid shard parameters answer 400 with a reason and sync nothing',
   }
 });
 
-test('sync: a shard other than 0 runs only its shard (no housekeeping, no coverage); shard 0 runs both; no parameters is shard 0 of 1', async ({ request }) => {
+test('sync: a sharded call (of > 1, shard 0 included) syncs only; task=housekeeping runs the housekeeping and coverage with no sync; no parameters does both', async ({ request }) => {
   test.setTimeout(120_000); // sharded calls start after a random spread of up to 15 s
   const release = await cronLock('exclusive'); // e2e/cron-lock.ts: other files' cron calls wait
   try {
-  const other = await request.post('/api/sync?shard=1&of=2', { headers: auth });
-  expect(other.status()).toBe(200);
-  const o = await other.json();
-  expect(o.run).toMatchObject({ of: 2, shard: 1 });
-  expect(o.purgedLinks).toBeUndefined();
-  expect(o.coverage).toBeNull();
-  for (const k of ['ok', 'skipped', 'failed', 'stoppedAtDeadline']) expect(o).toHaveProperty(k);
+    for (const q of ['?shard=1&of=2', '?shard=0&of=2']) {
+      const r = await request.post(`/api/sync${q}`, { headers: auth });
+      expect(r.status(), q).toBe(200);
+      const o = await r.json();
+      expect(o.run).toMatchObject({ of: 2, shard: Number(new URLSearchParams(q).get('shard')) });
+      expect(o.purgedLinks, q).toBeUndefined();
+      expect(o.coverage, q).toBeNull();
+      for (const k of ['ok', 'skipped', 'failed', 'stoppedAtDeadline']) expect(o).toHaveProperty(k);
+    }
 
-  const zero = await (await request.post('/api/sync?shard=0&of=2', { headers: auth })).json();
-  expect(zero.run).toMatchObject({ of: 2, shard: 0 });
-  expect(zero).toHaveProperty('purgedLinks');
-  expect(zero).toHaveProperty('deletions');
-  expect(zero.coverage).toMatchObject({ of: 2 });
-  expect(typeof zero.coverage.dbConfigOk).toBe('boolean');
+    const hk = await (await request.post('/api/sync?task=housekeeping&of=2', { headers: auth })).json();
+    expect(hk.run).toBeNull();
+    expect(hk.ok).toBe(0);
+    expect(hk).toHaveProperty('purgedLinks');
+    expect(hk).toHaveProperty('deletions');
+    expect(hk).toHaveProperty('connections');
+    expect(hk.coverage).toMatchObject({ of: 2 });
+    expect(typeof hk.coverage.dbConfigOk).toBe('boolean');
+    for (const q of ['?task=other', '?task=housekeeping&shard=0&of=2', '?task=housekeeping&of=0'])
+      expect((await request.post(`/api/sync${q}`, { headers: auth })).status(), q).toBe(400);
 
-  const plain = await (await request.post('/api/sync', { headers: auth })).json();
-  expect(plain.run).toMatchObject({ of: 1, shard: 0 });
-  expect(plain.coverage).toMatchObject({ of: 1 });
-  // Counts only: the answer and its coverage carry no handles or vendor ids.
-  expect(JSON.stringify(plain)).not.toMatch(/momentum_maya|dividend_dan|yolo_yuki|stock-social-/);
+    const plain = await (await request.post('/api/sync', { headers: auth })).json();
+    expect(plain.run).toMatchObject({ of: 1, shard: 0 });
+    expect(plain).toHaveProperty('purgedLinks');
+    expect(plain.coverage).toMatchObject({ of: 1 });
+    // Counts only: the answer and its coverage carry no handles or vendor ids.
+    expect(JSON.stringify(plain)).not.toMatch(/momentum_maya|dividend_dan|yolo_yuki|stock-social-/);
   } finally { await release(); }
 });

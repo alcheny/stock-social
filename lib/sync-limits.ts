@@ -26,10 +26,16 @@ const int = (v: string | undefined, dflt: number, min: number, max: number) => {
   const n = v === undefined || v === '' ? dflt : Number(v);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : dflt;
 };
+// Defaults are today's effective rate (one worker, ~2 vendor requests a second: the sequential tick), so merging this
+// does not raise the vendor load before the switch-on gate (docs/SYNC.md; orchestrator review 2).
+// ponytail: the defaults hold production at the old sequential rate (~5k traders/hour) until the owner sets the plan's
+// SYNC_CONCURRENCY=6 and SYNC_VENDOR_RPS=10 with the 32-shard cron, after the vendor confirms the quota in writing.
+export const DEFAULT_CONCURRENCY = 1;
+export const DEFAULT_RPS = 2;
 export function runConfig(env: Record<string, string | undefined> = process.env): RunConfig {
-  const rps = int(env.SYNC_VENDOR_RPS, 10, 1, 1000);
+  const rps = int(env.SYNC_VENDOR_RPS, DEFAULT_RPS, 1, 1000);
   return {
-    concurrency: int(env.SYNC_CONCURRENCY, 6, 1, 32),
+    concurrency: int(env.SYNC_CONCURRENCY, DEFAULT_CONCURRENCY, 1, 32),
     rps,
     burst: int(env.SYNC_VENDOR_BURST, rps, 1, 1000),
     page: int(env.SYNC_PAGE, 500, 10, 5000),
@@ -95,6 +101,9 @@ export class TokenBucket {
 // at a day (committee O3). The wait is counted from the failure on the database clock. A success clears it.
 export const BACKOFF_BASE_MS = 3_600_000;
 export const BACKOFF_CAP_MS = 24 * 3_600_000;
+// A trader whose sync fails transiently this many rounds in a row (a vendor timeout on its slow record, a TypeError
+// from its own data) is backed off as `quarantined` (orchestrator review nit 6): transient never means retry forever.
+export const TRANSIENT_LIMIT = 5;
 export const backoffMs = (failures: number) => failures < 1 ? 0 : Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** Math.min(failures - 1, 30));
 
 // Failure classes (committee O3). `transient`: the vendor or the network failed for everyone (429, 5xx, a vendor
@@ -165,4 +174,23 @@ export function dbConfigCheck(s: DbSettings, plan: { shards: number; workers: nu
   const need = plan.shards * (plan.workers + 2) + 20;
   if (s.maxConnections < need) problems.push(`max_connections is below ${need}`);
   return { ok: problems.length === 0, problems };
+}
+
+// What one cron call does (orchestrator review 3). Unsharded (`of=1`, or no parameters): everything, as before —
+// housekeeping, the privacy slots, the sync of every trader, coverage. Sharded (`shard=i&of=N`, N > 1): the shard's
+// sync only, so shard 0 keeps its whole window. `task=housekeeping&of=N`: the housekeeping, the privacy slots and the
+// coverage report for an N-shard schedule, with no sync (its own cron entry, docs/SYNC.md).
+export type Call = { mode: 'all' | 'shard' | 'housekeeping'; shard: Shard };
+export function parseCall(params: URLSearchParams): Call | { error: string } {
+  const task = params.get('task');
+  if (task !== null) {
+    if (task !== 'housekeeping') return { error: 'task is housekeeping' };
+    if (params.get('shard') !== null) return { error: 'a housekeeping call takes no shard' };
+    const o = params.get('of') ?? '1';
+    if (!/^\d{1,4}$/.test(o) || Number(o) < 1 || Number(o) > MAX_SHARDS) return { error: `of is between 1 and ${MAX_SHARDS}` };
+    return { mode: 'housekeeping', shard: { shard: 0, of: Number(o) } };
+  }
+  const shard = parseShard(params);
+  if ('error' in shard) return shard;
+  return { mode: shard.of === 1 ? 'all' : 'shard', shard };
 }
