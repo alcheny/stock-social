@@ -1,6 +1,6 @@
 # F-1 · Broker connection, end to end
 
-Status: built (2026-10-23; PRs #11, #15, #16, #17; owner sets accepted)
+Status: accepted
 
 ## Why
 A trader signs up, connects a brokerage read-only, and lands on a clean, readable profile of their own
@@ -94,6 +94,7 @@ anything else.
   so the attestation always precedes the account. Why: without these the decisions above contradict
   each other or the vendor's API; none changes what the owner decided.
 - 2026-10-22: The owner confirmed F-1 is decided; Status set to ready.
+- 2026-11-01: The owner accepted F-1 as built (PRs #11, #15, #16, #17). Why: the owner's verdict.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.

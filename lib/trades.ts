@@ -2,6 +2,7 @@
 // so a bug is fixed by recomputing (see docs/DESIGN.md §2.5).
 
 import { count, counted } from './format.ts';
+import { MIN_BETS, RANK_MIN_BETS, tooWide } from './confidence.ts';
 
 export type Activity = {
   externalId: string;
@@ -254,7 +255,8 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   const k = clusters.length;
   const spanDays = n ? (Math.max(...trades.map((t) => t.closedAt.getTime())) - Math.min(...trades.map((t) => t.openedAt.getTime()))) / DAY : 0;
   const tradesPerMonth = (n / Math.max(spanDays, 30)) * 30; // display only
-  const tier: Tier = k < 10 ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
+  // F-4: below MIN_BETS (5) independent bets there is no range; from there it is always computed (t with K − 1 df).
+  const tier: Tier = k < MIN_BETS ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
   const base = { n, k, spanDays, tradesPerMonth };
   if (tier === 'too-early') return { ...base, tier, edge: null, perTrade: null, pace30: null };
 
@@ -270,6 +272,9 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   if (![...Object.values(perTrade), ...Object.values(pace30)].every(Number.isFinite)) {
     return { ...base, tier: 'too-early', edge: null, perTrade: null, pace30: null };
   }
+  // F-4: "too early" is a model state, not a count. A per-trade range wider than ±10 points keeps its interval (it is
+  // shown, widening as the sample thins) but carries no verdict and no ranking weight.
+  if (tooWide(perTrade)) return { ...base, tier: 'too-early', edge: null, perTrade, pace30 };
   const edge: Edge = pace30.low > 0 ? 'positive' : pace30.high < 0 ? 'negative' : 'unclear';
   return { ...base, tier, edge, perTrade, pace30 };
 }
@@ -283,9 +288,10 @@ const plural = (n: number, w: string) => counted(n, w);
 export function evidenceLine(c: Confidence): string {
   const grouped = c.n > c.k;
   if (c.tier === 'too-early' || !c.edge) {
+    if (c.perTrade) return `Too early to tell: the range is still too wide to say much (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''})`;
     return grouped
-      ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (10 independent bets needed)`
-      : `Too early to tell (${count(c.k)} of 10 bets)`;
+      ? `Too early to tell: ${counted(c.n, 'trade')} in ${counted(c.k, 'overlapping position')} (${MIN_BETS} independent bets needed)`
+      : `Too early to tell (${count(c.k)} of ${MIN_BETS} bets)`;
   }
   return `Past results: ${edgeText(c.edge)} · Evidence: ${c.tier} (${plural(c.k, 'bet')}${grouped ? ` from ${counted(c.n, 'trade')}` : ''}, ${plural(Math.round(c.spanDays), 'day')})`;
 }
@@ -302,7 +308,10 @@ export function isNewRecord(trades: { openedAt: Date }[], closedCount: number, t
 
 // Feed order: traders with a confident edge first (weight > 0), by weight × score; the rest keep score order.
 // weight = log-distance of the pace interval from zero in either direction, so equal losses and gains tie.
-export const evidenceWeight = (c: Confidence): number => (c.pace30 ? Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high)) : 0);
+// F-4: a too-early record (a range wider than ±10 points) never ranks ahead on its pace interval, and ranking keeps
+// its pre-F-4 floor of RANK_MIN_BETS (10) bets: F-4 changes what a record shows, not the feed order.
+export const evidenceWeight = (c: Confidence): number =>
+  (c.pace30 && c.tier !== 'too-early' && c.k >= RANK_MIN_BETS ? Math.max(0, Math.log1p(c.pace30.low), -Math.log1p(c.pace30.high)) : 0);
 
 export function rankTraders<T extends { weight: number; score: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => {

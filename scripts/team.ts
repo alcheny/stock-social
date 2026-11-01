@@ -4,21 +4,25 @@
 //   3. QA:    cheap deterministic checks first; only if they pass does the tester (LLM) review spec
 //             conformance and usability. Findings go back to the engineer. Repeat until clean (capped).
 // Each role is a separate headless Claude Code call: fresh context (no one grades their own work),
-// role-limited tools, a JSON-schema answer, and per-call turn and dollar caps. This script owns the
-// loops, the caps and the record. Agents hold no GitHub credentials; Publish pushes afterwards.
+// every tool, a JSON-schema answer, and per-call turn and dollar caps. Permissions follow the design, not the
+// tool list (docs/FEATURES.md → "Permissions and the failure budget"): after every call this script restores any
+// protected path the agent changed, and keeps edits only from the engineer's build calls; everyone else's are
+// discarded. This script owns the loops, the caps and the record. Agents hold no GitHub credentials; Publish
+// pushes afterwards, and the Gate decides what merges.
 //
 // Feature pipeline builds (SPEC_FILE, docs/FEATURES.md; docs/IMPLEMENTATION.md "The cycle") add a committee: the UX
 // lead drafts the implementation plan and the business lead and the engineer sign it (debate rounds, capped); the
 // engineer builds it tests first; the QA loop runs; then the business lead and the UX lead each user-test the
 // running app (first-time trader, first-time viewer) and return a compliance and a usability verdict. A failed
-// verdict's demands become the next round's plan (COMMITTEE_ROUNDS, default 3). Reviewers have every tool, but
+// verdict's demands become the next round's plan (COMMITTEE_ROUNDS, default 5). Reviewers have every tool, but
 // whatever they change is discarded: no member grades their own work. A hard stop or a disagreement with the
 // owner's decisions ends the build as `blocked` (features.ts publish records it). COMMITTEE=off skips it.
 //
 //   MODE=build|fix NUMBER=<issue|pr> VARIANT='{"key":"a",...}' BRANCH=... node scripts/team.ts
 //   → commits on the current branch, writes .autopilot/result.json for `autopilot.ts publish`.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { branchInfo, isLimitError, type BuildResult, type Variant } from './autopilot.ts';
 
 // ---------- pure parts (tested in scripts/team.test.ts) ----------
@@ -109,13 +113,16 @@ export function renderCommitteeDoc(d: { title: string; date: string; rounds: Com
 // ---------- roles ----------
 
 type Role = 'designer' | 'business' | 'engineer' | 'tester' | 'lead' | 'ux';
-const PROTECTED_EDITS = ['./.github/**', './docs/AUTOPILOT.md', './docs/DECISIONS.md', './docs/DESIGN.md', './scripts/autopilot.ts', './scripts/team.ts', './scripts/plan.ts', './scripts/doctor.ts', './scripts/invariants.test.ts', './docs/POLICY.md', './SECURITY.md', './scripts/compliance.ts', './scripts/compliance.test.ts', './scripts/policy.test.ts', './scripts/workflow-security.test.ts', './scripts/features.ts', './docs/FEATURES.md', './docs/features/**', './CLAUDE.md', './team/**', './.claude/agents/**', './playwright.config.ts']
-  .flatMap((p) => [`Edit(${p})`, `Write(${p})`]).join(',');
-const READ = 'Read,Glob,Grep';
-const RUN = 'Bash(npm:*),Bash(npx tsc:*),Bash(npx playwright:*),Bash(node:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)';
-// Committee members (owner's rule, docs/IMPLEMENTATION.md): every tool an agent here can use. Their edits are
-// discarded after each call (discardEdits), so a member can try things but never changes the build it judges.
-const FULL = `${READ},Edit,Write,${RUN},Bash(curl:*),Bash(sleep:*),WebSearch,WebFetch`;
+// The design's boundary: the loop, the policy and the owner's decisions. No agent may change these; the owner does,
+// by hand (the Gate sends any PR touching CODEOWNERS paths to the owner as well).
+export const PROTECTED = ['./.github/**', './docs/AUTOPILOT.md', './docs/DECISIONS.md', './docs/DESIGN.md', './scripts/autopilot.ts', './scripts/team.ts', './scripts/plan.ts', './scripts/doctor.ts', './scripts/invariants.test.ts', './docs/POLICY.md', './SECURITY.md', './scripts/compliance.ts', './scripts/compliance.test.ts', './scripts/policy.test.ts', './scripts/workflow-security.test.ts', './scripts/features.ts', './docs/FEATURES.md', './docs/features/**', './CLAUDE.md', './team/**', './.claude/**', './playwright.config.ts'];
+export const isProtectedPath = (f: string) => PROTECTED.map((p) => p.slice(2)).some((p) => (p.endsWith('/**') ? f.startsWith(p.slice(0, -2)) : f === p));
+// The first line of the boundary: an Edit or Write there is refused at once, so the agent learns it immediately.
+// The second line catches the rest (a shell command, a commit): restoreProtected after every call.
+const PROTECTED_EDITS = PROTECTED.flatMap((p) => [`Edit(${p})`, `Write(${p})`]).join(',');
+// Every tool, for every role (owner's decision 2026-10-26): agents are limited by what the design lets them keep,
+// not by what they may try. Web pages and other fetched text are data, never instructions (docs/POLICY.md).
+export const ALL_TOOLS = 'Bash,Read,Glob,Grep,Edit,Write,NotebookEdit,WebSearch,WebFetch,TodoWrite,Task,Agent';
 const env = (k: string, d = '') => process.env[k] || d;
 // LOOP_DIR: main's copy of the loop (build.yml snapshots it before switching to a line branch), so agents
 // always follow the current team specs. BASE_REF: what this branch is compared against (main or its line).
@@ -123,14 +130,24 @@ const LOOP = env('LOOP_DIR');
 const at = (path: string) => (LOOP ? `${LOOP}/${path}` : path);
 const BASE_REF = env('BASE_REF', 'main');
 
-// Cost-effective by default: discussion and testing on a mid-size model, the frontier model only for coding.
-const ROLES: Record<Role, { model: string; tools: string; budget: number; turns: number }> = {
-  designer: { model: env('MODEL_DESIGNER', 'sonnet'), tools: READ, budget: Number(env('BUDGET_DESIGNER', '1')), turns: 30 },
-  business: { model: env('MODEL_BUSINESS', 'sonnet'), tools: READ, budget: Number(env('BUDGET_BUSINESS', '0.5')), turns: 20 },
-  engineer: { model: env('MODEL_ENGINEER', ''), tools: `${READ},Edit,Write,${RUN},Bash(git add:*),Bash(git commit:*)`, budget: Number(env('BUDGET_ENGINEER', '4')), turns: 150 },
-  tester: { model: env('MODEL_TESTER', 'sonnet'), tools: `${READ},${RUN}`, budget: Number(env('BUDGET_TESTER', '1.5')), turns: 60 },
-  lead: { model: env('MODEL_LEAD', 'sonnet'), tools: FULL, budget: Number(env('BUDGET_LEAD', '2')), turns: 80 },
-  ux: { model: env('MODEL_UX', 'sonnet'), tools: FULL, budget: Number(env('BUDGET_UX', '2')), turns: 80 },
+// The failure budget grows with every attempt on the same PR (ATTEMPT, set by the pipeline): attempt 1 runs at the
+// base caps, each later attempt gets half as much again, up to 4×. From ESCALATE_AFTER on, the engineer runs on
+// MODEL_ESCALATE when it is set. A human is needed only when the attempts run out (FEATURE_MAX_ATTEMPTS).
+export const budgetScale = (attempt: number) => Math.min(4, 1 + 0.5 * Math.max(0, attempt - 1));
+const ATTEMPT = Math.max(1, Number(env('ATTEMPT', '1')) || 1);
+const SCALE = budgetScale(ATTEMPT);
+const escalated = ATTEMPT >= Number(env('ESCALATE_AFTER', '3')) && !!env('MODEL_ESCALATE');
+const cap = (k: string, d: string) => Number(env(k, d)) * SCALE;
+const turns = (n: number) => Math.round(n * SCALE);
+
+// Discussion and testing on a mid-size model by default, the frontier model for coding.
+const ROLES: Record<Role, { model: string; budget: number; turns: number }> = {
+  designer: { model: env('MODEL_DESIGNER', 'sonnet'), budget: cap('BUDGET_DESIGNER', '3'), turns: turns(60) },
+  business: { model: env('MODEL_BUSINESS', 'sonnet'), budget: cap('BUDGET_BUSINESS', '1.5'), turns: turns(40) },
+  engineer: { model: escalated ? env('MODEL_ESCALATE') : env('MODEL_ENGINEER', ''), budget: cap('BUDGET_ENGINEER', '15'), turns: turns(400) },
+  tester: { model: env('MODEL_TESTER', 'sonnet'), budget: cap('BUDGET_TESTER', '5'), turns: turns(150) },
+  lead: { model: env('MODEL_LEAD', 'sonnet'), budget: cap('BUDGET_LEAD', '6'), turns: turns(200) },
+  ux: { model: env('MODEL_UX', 'sonnet'), budget: cap('BUDGET_UX', '6'), turns: turns(200) },
 };
 
 const SCHEMAS: Record<Role, object> = {
@@ -156,25 +173,46 @@ const VERDICT_SCHEMA = { type: 'object', required: ['compliance_pass', 'complian
 
 const calls: CallLog[] = [];
 const spent = () => calls.reduce((s, c) => s + c.costUsd, 0);
-const TEAM_BUDGET = Number(env('TEAM_BUDGET_USD', '15'));
+const TEAM_BUDGET = cap('TEAM_BUDGET_USD', '100');
+const restored: string[] = []; // protected paths an agent changed and this script put back
+// A job that hits GitHub's 6-hour limit publishes nothing, so no call starts after TEAM_MINUTES (the job allows 350),
+// a running call is stopped there, and no loop runs another round of checks.
+const STARTED = Date.now();
+const timeLeft = () => Number(env('TEAM_MINUTES', '290')) * 60_000 - (Date.now() - STARTED);
+const outOfTime = () => timeLeft() <= 0;
 let hitLimit = false; // Claude usage limit: stop calling, and tell the loop to pause (auto mode)
+let unresolved = false; // a conflict task the engineer left unmerged: stop, so `features.ts resolved` fails the publish
+const stopped = () => hitLimit || unresolved || outOfTime();
+let gitState: GitSnapshot | null = null; // .git as it was before any agent ran (main)
 
-// dontAsk: exactly the allowlisted tools, no AI permission classifier. On the throwaway CI runner (no write
-// credentials; the Gate rejects loop-file changes) the classifier only added false positives, e.g. it blocked
-// a legitimate `git commit` as a "CI bypass", which lost the work and stalled a line.
+// dontAsk: every tool is allowlisted, so nothing is asked and no AI permission classifier runs. On the throwaway CI
+// runner (no write credentials; the Gate rejects loop-file changes) the classifier only added false positives,
+// e.g. it blocked a legitimate `git commit` as a "CI bypass", which lost the work and stalled a line.
+// Only the engineer's build calls (no schema of their own) keep their edits; every other call is undone afterwards.
 function ask<T>(role: Role, round: number, prompt: string, schema?: object): T | null {
-  if (hitLimit) return null;
+  if (hitLimit || unresolved) return null;
   if (spent() >= TEAM_BUDGET) { console.log(`team budget $${TEAM_BUDGET} reached; skipping ${role}`); return null; }
+  if (outOfTime()) { console.log(`team time (TEAM_MINUTES) reached; skipping ${role} so the work still publishes`); return null; }
   const r = ROLES[role];
+  const keep = role === 'engineer' && !schema;
   const spec = role === 'business' ? 'business-analyst' : role === 'lead' ? 'business-lead' : role === 'ux' ? 'ux-lead' : role;
-  const args = ['-p', `${prompt}\n\nYour role and rules: ${at(`team/${spec}.md`)} (team overview: ${at('team/README.md')}). Product rules: CLAUDE.md.`,
+  const note = keep && restored.length ? `\n\nDesign note: earlier you changed protected paths (${[...new Set(restored)].join(', ')}); they were put back. If the work needs them, say so in your summary; the owner changes them.` : '';
+  const args = ['-p', `${prompt}${note}\n\nYour role and rules: ${at(`team/${spec}.md`)} (team overview: ${at('team/README.md')}). Product rules: CLAUDE.md.`,
     ...(LOOP ? ['--add-dir', LOOP] : []),
     '--output-format', 'json', '--json-schema', JSON.stringify(schema ?? SCHEMAS[role]),
-    '--allowedTools', r.tools, '--disallowedTools', PROTECTED_EDITS, '--permission-mode', 'dontAsk', '--max-turns', String(r.turns), '--max-budget-usd', String(r.budget),
+    '--allowedTools', ALL_TOOLS, '--disallowedTools', PROTECTED_EDITS, '--permission-mode', 'dontAsk', '--max-turns', String(r.turns), '--max-budget-usd', String(r.budget),
     ...(r.model ? ['--model', r.model] : [])];
-  console.log(`→ ${role} (round ${round})`);
-  const p = spawnSync(env('CLAUDE_BIN', 'claude'), args, { encoding: 'utf8', maxBuffer: 64 << 20, env: cliEnv() });
-  const res = parseResult(p.stdout ?? '');
+  console.log(`→ ${role} (round ${round}${ATTEMPT > 1 ? `, attempt ${ATTEMPT}` : ''})`);
+  const before = git('rev-parse', 'HEAD');
+  const merging = git('rev-parse', '-q', '--verify', 'MERGE_HEAD'); // a conflict task: main is being merged in
+  const p = spawnSync(env('CLAUDE_BIN', 'claude'), args, { encoding: 'utf8', maxBuffer: 64 << 20, env: cliEnv(), timeout: Math.max(1, timeLeft()), killSignal: 'SIGKILL' });
+  if (gitState) restoreGit(gitState); // before any further git command: planted hooks or config never run
+  if (keep) {
+    restored.push(...keepEngineerWork(before, merging));
+    if (merging && git('diff', '--name-only', '--diff-filter=U')) { unresolved = true; console.log('engineer left unresolved conflicts; stopping'); }
+  } else discardSince(before);
+  // A call stopped at TEAM_MINUTES (or that could not start) failed; its partial output is not an answer.
+  const res = p.error ? { out: null, cost: 0, error: `CLI stopped: ${p.error.message}` } : parseResult(p.stdout ?? '');
   calls.push({ role, round, costUsd: res.cost, ok: !res.error });
   if (res.error) console.error(`${role} failed: ${res.error}${cliErr(p.stderr) ? ` | CLI: ${cliErr(p.stderr)}` : ''}`);
   if (res.error && isLimitError(`${res.error}\n${p.stderr ?? ''}`)) hitLimit = true;
@@ -196,7 +234,7 @@ function checks(): QaRound['findings'] {
   spawnSync('sh', ['-c', 'lsof -ti tcp:3000 | xargs -r kill -9'], { stdio: 'ignore' });
   for (const [name, cmd, extra] of steps) {
     console.log(`→ check: ${name}`);
-    const p = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...extra } });
+    const p = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8', maxBuffer: 64 << 20, env: checkEnv(extra) });
     if (p.status !== 0) {
       const out = `${p.stdout}\n${p.stderr}`.split('\n').slice(-120).join('\n').trim();
       console.log(`✖ ${name} failed:\n${out.split('\n').slice(-40).join('\n')}`); // visible in the job log for debugging
@@ -205,6 +243,12 @@ function checks(): QaRound['findings'] {
   }
   return [];
 }
+// The checks run code the agents wrote (tests, build scripts): it never gets the Claude token.
+export const checkEnv = (extra: Record<string, string>): NodeJS.ProcessEnv => {
+  const e: NodeJS.ProcessEnv = { ...process.env, ...extra };
+  delete e.CLAUDE_CODE_OAUTH_TOKEN;
+  return e;
+};
 
 // Three fix approaches that don't overlap: find the cause, shrink the change, or replace the approach.
 // A failing branch tries them in turn from the same starting commit; the first whose checks pass is kept.
@@ -220,7 +264,7 @@ function fixWithThree(round: number) {
   for (const f of FIXERS) {
     const e = ask('engineer', round, `You are the ENGINEER, working as a ${f.brief}. Fix every finding in .autopilot/feedback.md, keeping to the spec. ` +
       `${tried.length ? `Approaches already tried from this same starting point, and failed: ${tried.join('; ')}. Do something different. ` : ''}Commit your work.`);
-    if (!e) break; // budget or usage limit
+    if (!e || stopped()) break; // budget, usage limit or time: keep what this fixer did and stop
     const fs = checks();
     if (!fs.length) return console.log(`fix: ${f.key} passed the checks`);
     tried.push(`${f.key} (still failing: ${fs[0].where}: ${headline(fs[0].problem)})`);
@@ -233,8 +277,9 @@ function fixWithThree(round: number) {
 // QA loop: cheap checks → tester → engineer, until clean or the round cap. Rounds continue across calls (the
 // committee sends a build back through it).
 function qaLoop(qa: QaRound[], docPath: string): boolean {
-  const maxRounds = qa.length + Number(env('QA_ROUNDS', '20'));
+  const maxRounds = qa.length + Number(env('QA_ROUNDS', '40'));
   for (let round = qa.length + 1; round <= maxRounds; round++) {
+    if (stopped()) { console.log('team: out of time, at the usage limit or left an unresolved merge; no more QA rounds'); return false; }
     let findings = checks();
     let by: QaRound['by'] = 'checks';
     if (!findings.length) {
@@ -245,7 +290,7 @@ function qaLoop(qa: QaRound[], docPath: string): boolean {
     }
     qa.push({ round, by, pass: blocking(findings).length === 0, findings });
     if (!blocking(findings).length) return true;
-    if (round === maxRounds || spent() >= TEAM_BUDGET) return false;
+    if (round === maxRounds || spent() >= TEAM_BUDGET || stopped()) return false;
     writeFileSync('.autopilot/feedback.md', `# QA findings (round ${round}, by ${by})\n\n${blocking(findings).map((f) => `- [${f.severity}] ${f.where}: ${f.problem}`).join('\n')}\n`);
     if (by === 'checks') fixWithThree(round + 1); // deterministic failure: three different engineers, keep the first that passes
     else ask('engineer', round + 1, `You are the ENGINEER (${FIXERS[0].brief}) Fix every finding in .autopilot/feedback.md, keeping to the spec. Commit your work.`);
@@ -253,18 +298,68 @@ function qaLoop(qa: QaRound[], docPath: string): boolean {
   return false;
 }
 
-function git(...args: string[]) { return spawnSync('git', args, { encoding: 'utf8' }).stdout.trim(); }
-// A committee member may edit to try things; none of it reaches the build it judges.
-function discardEdits() {
+// Every git command this script runs ignores hooks, fsmonitor and global or system config: an agent with a shell could
+// plant any of them to run code here, where the Claude token is in the environment.
+const GIT_SAFE = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
+const runGit = (args: string[]) => spawnSync('git', [...GIT_SAFE, ...args], { encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+function git(...args: string[]) { return runGit(args).stdout.trim(); }
+// .git as it was before any agent ran: its config (url.*.insteadOf, include, credential, core.hooksPath, filters),
+// whether a worktree config existed, and where hooks live. Put back after every call, so nothing planted survives
+// into the next git command here or into Publish (which scrubs again before it pushes).
+export type GitSnapshot = { config: string; text: string; worktree: string; hadWorktree: boolean; hooks: string };
+export function gitSnapshot(): GitSnapshot {
+  const p = (x: string) => resolve(git('rev-parse', '--git-path', x));
+  const config = p('config'), worktree = p('config.worktree');
+  // Not --git-path hooks: that answers with core.hooksPath, which GIT_SAFE sets to /dev/null.
+  return { config, text: readFileSync(config, 'utf8'), worktree, hadWorktree: existsSync(worktree), hooks: join(resolve(git('rev-parse', '--git-common-dir')), 'hooks') };
+}
+// Removed first, never written or emptied through: a planted symlink (say .git/hooks → lib/) is dropped, not followed.
+export function restoreGit(s: GitSnapshot) {
+  rmSync(s.config, { force: true }); writeFileSync(s.config, s.text);
+  if (!s.hadWorktree) rmSync(s.worktree, { force: true, recursive: true });
+  rmSync(s.hooks, { force: true, recursive: true }); mkdirSync(s.hooks); // the stock hooks are only samples
+}
+// A reviewer, tester or planner may edit to try things; none of it reaches the build it judges.
+function discardSince(before: string) {
   spawnSync('sh', ['-c', 'lsof -ti tcp:3000 | xargs -r kill -9'], { stdio: 'ignore' });
-  git('reset', '--hard', 'HEAD');
+  git('reset', '--hard', before);
   git('clean', '-fd', '-e', '.autopilot');
 }
+// The engineer keeps its work, except protected paths. A protected path counts as changed only when it matches neither
+// the commit before the call nor, in a conflict task, the branch being merged in (main may have changed it: that is
+// the owner's change, not the agent's). A changed one goes back to main's copy in a merge (the owner's files win),
+// otherwise to the copy before the call, committed or not, however it was changed. Returns what was put back.
+export function restoreProtected(before: string, merging = ''): string[] {
+  const has = (ref: string, f: string) => runGit(['cat-file', '-e', `${ref}:${f}`]).status === 0;
+  const same = (ref: string, f: string) => (has(ref, f) ? runGit(['diff', '--quiet', ref, '--', f]).status === 0 : !existsSync(f));
+  // NUL-separated and without rename detection: a rename lists both paths, and a non-ASCII name comes back unquoted.
+  const changed = [...git('diff', '--no-renames', '-z', '--name-only', before).split('\0'), ...git('ls-files', '-z', '--others', '--exclude-standard').split('\0')];
+  const hit = protectedChanges(changed).filter((f) => !same(before, f) && !(merging && same(merging, f)));
+  for (const f of hit) {
+    const to = merging && has(merging, f) ? merging : before;
+    if (has(to, f)) git('checkout', to, '--', f);
+    else { git('rm', '-q', '-f', '--cached', '--ignore-unmatch', '--', f); rmSync(f, { force: true, recursive: true }); }
+  }
+  if (hit.length) {
+    console.log(`design: put back protected paths the engineer changed: ${hit.join(', ')}`);
+    commitAll(`Put back protected paths (design rule): ${hit.join(', ')}`);
+  }
+  return hit;
+}
+// After an engineer's call: protected paths go back, then whatever it left uncommitted is committed, so a later
+// reviewer's reset (discardSince) or a fixer's reset can't wipe it. In a conflict task this completes the merge once
+// every conflict is resolved; unresolved ones are left as they are (commitAll refuses), so `features.ts resolved` fails.
+export function keepEngineerWork(before: string, merging: string): string[] {
+  const hit = restoreProtected(before, merging);
+  commitAll('Engineer work left uncommitted at the end of a call');
+  return hit;
+}
+export const protectedChanges = (files: string[]) => [...new Set(files.map((f) => f.trim()).filter((f) => f && isProtectedPath(f)))];
 
 // ---------- committee (feature pipeline builds; docs/IMPLEMENTATION.md "The cycle") ----------
 
-const PLAN_ROUNDS = Number(env('PLAN_ROUNDS', '3'));
-const COMMITTEE_ROUNDS = Number(env('COMMITTEE_ROUNDS', '3'));
+const PLAN_ROUNDS = Number(env('PLAN_ROUNDS', '5'));
+const COMMITTEE_ROUNDS = Number(env('COMMITTEE_ROUNDS', '5'));
 type Review = { approve: boolean; feedback: string; disagreement: string };
 type Plan = { plan: string; summary: string; compliance: string; preauth: string[]; disagreement: string };
 
@@ -290,7 +385,6 @@ function planDebate(round: number, demands: string): { rounds: PlanRound[]; sign
       REVIEW_SCHEMA);
     const lead = review('lead', 'BUSINESS LEAD', 'Judge usability, ease of adoption and the quality bar within the decided design, and every rule in docs/POLICY.md.');
     const eng = review('engineer', 'ENGINEER (planning only: change no files)', 'Judge feasibility, size, risk, performance under heavy use, and whether the test plan covers every acceptance criterion.');
-    discardEdits();
     rounds.push({ round: r, plan: u.plan, lead: lead && { approve: lead.approve, feedback: lead.feedback }, engineer: eng && { approve: eng.approve, feedback: eng.feedback } });
     const block = [lead?.disagreement, eng?.disagreement].map((x) => x?.trim()).find(Boolean);
     if (block) return { rounds, signed: false, blocked: block };
@@ -315,7 +409,6 @@ function committeeReview(round: number): Verdict[] {
       `and as a first-time viewer arriving signed out from a shared profile link. In "user_test", one entry per persona, write in plain words what confused or stopped you. ` +
       `Then judge compliance against docs/POLICY.md and the docs/COMPLIANCE.md sections that apply ("compliance_pass", "compliance_failures"), and ${lens} ("usability_pass", "demands": concrete, testable changes). ` +
       `Pass only what you would put in front of real users. Anything you change in the files is discarded.`, VERDICT_SCHEMA);
-    discardEdits();
     if (v) vs.push({ member, ...v });
   }
   return vs;
@@ -324,9 +417,16 @@ export const demandsOf = (vs: Verdict[]) => [
   ...vs.flatMap((v) => v.compliance_failures.map((f) => `- [compliance, ${v.member}] ${f}`)),
   ...vs.flatMap((v) => v.demands.map((d) => `- [${v.member}] ${d}`)),
 ].join('\n');
-function commitAll(msg: string) { if (git('status', '--porcelain')) { git('add', '-A'); git('commit', '-m', msg); } }
+// Commits everything, and completes a pending merge even when it changed nothing. Never while a conflict is unresolved:
+// `add -A` would mark it resolved, markers and all.
+function commitAll(msg: string) {
+  if (git('diff', '--name-only', '--diff-filter=U')) return console.log(`not committing (${msg}): unresolved conflicts`);
+  const merging = runGit(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status === 0;
+  if (git('status', '--porcelain') || merging) { git('add', '-A'); git('commit', '-m', msg); }
+}
 
 function main() {
+  gitState = gitSnapshot();
   const mode = env('MODE', 'build');
   const n = Number(env('NUMBER'));
   const v = JSON.parse(env('VARIANT', '{"key":"","title":"Single","brief":""}')) as Variant;
@@ -378,7 +478,7 @@ function main() {
     fb('');
     for (let round = 1; round <= rounds && !agreed; round++) {
       const d = ask<Design>('designer', round,
-        `You are the DESIGNER. Read .autopilot/task.md (the issue and YOUR VARIANT's direction) and .autopilot/feedback.md (business analyst feedback, empty in round 1). Write the spec the engineer will build from. Put the FULL spec text in the "spec" field (you cannot write files; never return a file path).`);
+        `You are the DESIGNER. Read .autopilot/task.md (the issue and YOUR VARIANT's direction) and .autopilot/feedback.md (business analyst feedback, empty in round 1). Write the spec the engineer will build from. Put the FULL spec text in the "spec" field (files you write are discarded; never return a file path).`);
       if (!d) break;
       design = d;
       writeFileSync('.autopilot/spec.md', d.spec);
@@ -422,7 +522,7 @@ function main() {
     for (let c = 1; ; c++) {
       const vs = committeeReview(c);
       committee.at(-1)!.verdicts = vs;
-      if (committeePassed(vs) || c >= COMMITTEE_ROUNDS || hitLimit || spent() >= TEAM_BUDGET) break;
+      if (committeePassed(vs) || c >= COMMITTEE_ROUNDS || stopped() || spent() >= TEAM_BUDGET) break;
       const demands = demandsOf(vs);
       const p = planDebate(c + 1, demands || '- (a member could not answer; review the build again)');
       committee.push({ round: c + 1, plan: p.rounds, signed: p.signed, verdicts: [] });
@@ -448,7 +548,8 @@ function main() {
     ? ` Committee: passed in round ${committee.length} (business lead and UX lead).` : ` Committee: not passed after ${committee.length} round(s); open demands below.`;
   finish({
     done: !blocked, blocked, title, docPath, design, committeePath: committeeOn ? committeePath : undefined,
-    summary: `${clean ? 'Clean: all checks passed and the tester found no blocking problems' : `${open.length} open finding(s) after ${qa.length} QA round(s)`}.${verdict} Team cost $${spent().toFixed(2)}.`
+    summary: `${clean ? 'Clean: all checks passed and the tester found no blocking problems' : `${open.length} open finding(s) after ${qa.length} QA round(s)`}.${verdict} Team cost $${spent().toFixed(2)}${ATTEMPT > 1 ? ` (attempt ${ATTEMPT}, budget ×${SCALE})` : ''}.`
+      + (restored.length ? ` Design: put back protected paths the engineer changed (${[...new Set(restored)].join(', ')}); the owner changes those.` : '')
       + (open.length ? `\n\nOpen findings:\n${open.map((f) => `- [${f.severity}] ${f.where}: ${headline(f.problem)}`).join('\n')}` : '')
       + (committeeOn && !blocked && !committeePassed(last) && demandsOf(last) ? `\n\nOpen committee demands:\n${demandsOf(last)}` : ''),
   });

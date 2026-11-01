@@ -78,3 +78,57 @@ test('no workflow or agent call turns on verbose logging (public logs)', () => {
   }
   assert.ok(VERBOSE.some((re) => re.test('        show_full_output: true')), 'the detector works');
 });
+
+// Agents get every tool (docs/FEATURES.md → "Permissions and the failure budget"), so the one thing that keeps them
+// inside the design's boundary on GitHub is that the job running them never hands them a GitHub credential.
+test('the agent step (scripts/team.ts) never gets a GitHub token, and its job\'s checkouts keep none', () => {
+  let found = 0;
+  for (const f of files) {
+    const jobs = readFileSync(new URL(f, dir), 'utf8').split(/\n(?=  [\w-]+:\s*\n)/); // top-level jobs (two-space keys)
+    for (const job of jobs) {
+      if (!/node [^\n]*scripts\/team\.ts/.test(job)) continue;
+      const steps = job.split(/\n(?=\s*- (?:name|uses|id|run|if):)/);
+      for (const step of steps.filter((st) => /node [^\n]*scripts\/team\.ts/.test(st))) {
+        found++;
+        assert.doesNotMatch(step, /GH_TOKEN|GITHUB_TOKEN|github\.token|secrets\.(?!CLAUDE_CODE_OAUTH_TOKEN\b)\w+/, `${f}: the agent step must not get a GitHub token or other secret:\n${step.trim()}`);
+      }
+      for (const co of steps.filter((st) => st.includes('actions/checkout@'))) {
+        assert.match(co, /persist-credentials:\s*false/, `${f}: a checkout in a job that runs agents must not keep the token in .git/config`);
+      }
+    }
+  }
+  assert.ok(found >= 2, `found ${found} agent steps (features.yml and build.yml run scripts/team.ts)`);
+});
+
+// An agent with a shell could plant a git hook or config (core.hooksPath, url.*.insteadOf, include, credential,
+// fsmonitor) that runs or redirects during Publish, where GITHUB_TOKEN is in the environment and in the push URL.
+// Every Publish step after an agent step drops them first, and the scripts it runs ignore hooks on every git call.
+test('Publish after an agent step neutralizes planted git hooks and config before it commits or pushes', () => {
+  let found = 0;
+  for (const f of files) {
+    const jobs = readFileSync(new URL(f, dir), 'utf8').split(/\n(?=  [\w-]+:\s*\n)/);
+    for (const job of jobs) {
+      if (!/node [^\n]*scripts\/team\.ts/.test(job)) continue;
+      for (const step of job.split(/\n(?=\s*- (?:name|uses|id|run|if):)/).filter((st) => /- name: Publish\b/.test(st))) {
+        found++;
+        assert.match(step, /GIT_CONFIG_GLOBAL: \/dev\/null/, `${f}: Publish must ignore global git config`);
+        assert.match(step, /GIT_CONFIG_NOSYSTEM: '1'/, `${f}: Publish must ignore system git config`);
+        assert.match(step, /git config --local --unset-all core\.hooksPath \|\| true/, `${f}: Publish must drop core.hooksPath`);
+        assert.match(step, /git config --local --name-only --list/, `${f}: Publish must drop every config key the checkout did not set`);
+        assert.match(step, /rm -rf \.git\/hooks/, `${f}: Publish must remove planted hooks`);
+        assert.ok(step.indexOf('rm -rf .git/hooks') < step.indexOf('node '), `${f}: the scrub runs before the publish script`);
+      }
+    }
+  }
+  assert.ok(found >= 2, `found ${found} Publish steps after agent steps (features.yml and build.yml)`);
+  for (const s of ['features.ts', 'autopilot.ts', 'team.ts']) {
+    const text = readFileSync(new URL(`../scripts/${s}`, import.meta.url), 'utf8');
+    assert.match(text, /'-c', 'core\.hooksPath=\/dev\/null'/, `${s}: every git call runs with hooks off`);
+  }
+});
+
+test('autopilot fixes and rebuilds carry their attempt number to the team (failure budget)', () => {
+  const build = readFileSync(new URL('build.yml', dir), 'utf8');
+  assert.match(build, /attempt: \$\{\{ steps\.next\.outputs\.attempt \}\}/, 'pick exposes the attempt');
+  assert.match(build, /ATTEMPT: \$\{\{ needs\.pick\.outputs\.attempt \|\| '1' \}\}/, 'the branch team gets it');
+});
