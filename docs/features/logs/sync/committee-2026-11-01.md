@@ -92,3 +92,12 @@ route; missing shards come from `generate_series(0, N-1)` left-joined to `sync_s
 own count. Sizing for 256 backends goes in `docs/SYNC.md`.
 
 **Signed: business lead, engineer, reliability reviewer (round 2).** The decisions table above stands with these edits.
+
+## After the build: measured against the decisions
+
+The LOAD=1 test (100,000 traders, 32 x 6, time scaled by 10, database time unscaled) measured 1.55x headroom
+(worst shard used 7.08 of 11 calls), against the design's 1.85x. The gap is the fit check: a 2-account trader is
+claimed only while 5 request bounds fit, so late in a call a shard takes 1-account traders only. It still meets the
+signed bar (>= 1.5x); `docs/SYNC.md` reports the measured figures. The bar's margin is thin, so before switch-on the
+plan should be re-measured on the production account distribution (gate item 1 already requires re-running the
+capacity table).

@@ -6,13 +6,14 @@
 // first), so the next run resumes exactly there, and nobody is synced twice in a round.
 import { randomUUID } from 'node:crypto';
 import { POOL_MAX, sql } from './db.ts';
+import { logSafe } from './privacy-log.ts';
 import { VENDOR_TIMEOUT_MS } from './broker.ts';
 import {
   accountsOf, claimable, clockSql, defaultBroker, syncable, syncCost, syncUser, SYNC_FIT_CAP, SYNC_LEASE_MS, ROUND_MS,
   type Broker, type SyncableUser,
 } from './sync.ts';
 import {
-  BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, classify, dbConfigCheck, errLabel, runConfig, TokenBucket,
+  BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, classify, dbConfigCheck, runConfig, TokenBucket,
   type FailureKind, type RunConfig, type Shard,
 } from './sync-limits.ts';
 
@@ -165,7 +166,6 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   const bound = o.vendorBoundMs ?? VENDOR_TIMEOUT_MS;
   const leaseMs = o.leaseMs ?? SHARD_LEASE_MS, renewMs = o.renewMs ?? SHARD_RENEW_MS;
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const log = o.log ?? ((line: string) => console.log(line));
   const shift = shiftOf(o);
   const holder = o.holder ?? randomUUID();
   const sync = o.sync ?? ((u: SyncableUser, b: Broker) => syncUser(u, b));
@@ -181,16 +181,16 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   if (!(await acquireShard(sh, holder, leaseMs))) {
     r.busy = true;
     r.ms = Math.round(performance.now() - t0);
-    log(`sync run ${JSON.stringify(r)}`);
+    emit('sync run', r, o.log);
     return { ...r, failedIds: [] };
   }
-  log(`sync run start ${JSON.stringify({ of: sh.of, shard: sh.shard, concurrency, rps: cfg.rps })}`);
+  emit('sync run start', { of: sh.of, shard: sh.shard, concurrency, rps: cfg.rps }, o.log);
   let lastRenew = Date.now();
   const renew = async () => {
     try {
       if (await renewShard(sh, holder, leaseMs)) lastRenew = Date.now(); else r.leaseLost = true;
     } catch (e) {
-      console.error('sync shard renew failed', errLabel(e));
+      console.error('sync shard renew failed', logSafe(e));
       if (Date.now() - lastRenew >= leaseMs) r.leaseLost = true;
     }
   };
@@ -230,7 +230,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   // A database error outside a trader's sync (the page, a claim) stops the run cleanly: the lease is released, the
   // report is written, and claims already taken keep their leases' rules.
   const worker = async () => {
-    try { await work(); } catch (e) { r.aborted = true; console.error('sync run aborted', errLabel(e)); }
+    try { await work(); } catch (e) { r.aborted = true; console.error('sync run aborted', logSafe(e)); }
   };
   const work = async () => {
     for (;;) {
@@ -260,7 +260,10 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
         end = (await sync(u, metered(broker, bucket, { left: requests }, count))) === 'skipped' ? 'skipped' : 'done';
       } catch (e) {
         end = classify(e);
-        console.error('sync failed', u.id, end, errLabel(e)); // the internal id, the class and status; never the message
+        // The internal id, the failure class and the error's class and status; never the message (lib/privacy-log.ts).
+        if (end === 'transient') console.error('sync failed transient', u.id, logSafe(e));
+        else if (end === 'refused') console.error('sync failed refused', u.id, logSafe(e));
+        else console.error('sync failed trader', u.id, logSafe(e));
       }
       r.requests += count.n;
       if (end !== 'done' && end !== 'skipped') failedIds.push(u.id);
@@ -273,7 +276,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       try { await finish(u, end, shift()); } catch (e) {
         // The lease lapses after SYNC_LEASE_MS; the attempt stays counted (visible here, so a false quarantine is too).
         r.releaseFailed++;
-        console.error('sync release failed', u.id, errLabel(e));
+        console.error('sync release failed', u.id, logSafe(e));
       }
       inflight.delete(u.id);
     }
@@ -297,12 +300,23 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       from users u, clock where ${syncable()} and ${inShard(sh)} ${scopeSql(o)}`;
     r.remaining = c.remaining as number;
     r.inBackoff = c.inBackoff as number;
-  } catch (e) { console.error('sync remaining count failed', errLabel(e)); }
+  } catch (e) { console.error('sync remaining count failed', logSafe(e)); }
   r.stoppedAtDeadline = stopReason === 'deadline' && (r.remaining ?? 1) > 0;
   r.ms = Math.round(performance.now() - t0);
-  try { await releaseShard(sh, holder, r); } catch (e) { console.error('sync shard release failed', errLabel(e)); }
-  log(`sync run ${JSON.stringify(r)}`); // counts and durations only
+  try { await releaseShard(sh, holder, r); } catch (e) { console.error('sync shard release failed', logSafe(e)); }
+  emit('sync run', r, o.log); // counts and durations only
   return { ...r, failedIds };
+}
+
+// The log lines (numbers only). `log` is a test hook receiving the whole line; by default each kind is its own literal
+// console call, which lib/privacy-logs.test.ts can check.
+type LogKind = 'sync run start' | 'sync run' | 'sync coverage' | 'sync round incomplete';
+function emit(kind: LogKind, report: object, log?: (line: string) => void) {
+  if (log) return log(`${kind} ${JSON.stringify(report)}`);
+  if (kind === 'sync run start') console.log('sync run start', JSON.stringify(report));
+  else if (kind === 'sync run') console.log('sync run', JSON.stringify(report));
+  else if (kind === 'sync coverage') console.log('sync coverage', JSON.stringify(report));
+  else console.log('sync round incomplete', JSON.stringify(report));
 }
 
 // Shard 0's coverage step, each call (committee C and round 2): what a round missed, in numbers only. Never throws to the
@@ -312,7 +326,7 @@ export type Coverage = {
   inBackoff: number; refused: number; quarantined: number; oldestRefusalHours: number; dbConfigOk: boolean; dbProblems: string[];
   db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
 };
-export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = runConfig(), log = (line: string) => console.log(line)): Promise<Coverage> {
+export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = runConfig(), log?: (line: string) => void): Promise<Coverage> {
   const shift = shiftOf(scope)();
   const [c] = await sql`with clock as (${clockSql(shift)}), s as (
       select u.* from users u, clock where ${syncable()} ${scopeSql(scope)})
@@ -338,7 +352,7 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
     stalestHours: Math.round((c.stalestHours ?? 0) * 10) / 10, inBackoff: c.inBackoff, refused: c.refused, quarantined: c.quarantined,
     oldestRefusalHours: Math.round((c.oldestRefusalHours ?? 0) * 10) / 10, dbConfigOk: check.ok, dbProblems: check.problems, db,
   };
-  log(`sync coverage ${JSON.stringify(out)}`); // numbers only
-  if (out.unclaimedPrevRound > 0 || out.missingShards > 0) log(`sync round incomplete ${JSON.stringify({ of, missingShards: out.missingShards, unclaimedPrevRound: out.unclaimedPrevRound })}`);
+  emit('sync coverage', out, log); // numbers only
+  if (out.unclaimedPrevRound > 0 || out.missingShards > 0) emit('sync round incomplete', { of, missingShards: out.missingShards, unclaimedPrevRound: out.unclaimedPrevRound }, log);
   return out;
 }

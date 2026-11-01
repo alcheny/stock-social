@@ -71,12 +71,27 @@ q is its vendor requests. Each round has 11 calls (every 5 minutes, never at :30
 
 | Plan | Assumptions | Per shard per round | Total |
 |---|---|---|---|
-| **32 shards × 6 workers, RPS 10** (the plan) | p95 0.5 s per request, half the traders with 2 accounts (q = 4, L ≈ 2 s) | min(3, 2.5) × 2,310 = 5,775 | **185k (1.85× over 100k)** |
-| 16 × 6, RPS 10 | the same | 5,775 | 92k: too small at p95 |
-| of=1 (today's cron) | the same | 5,775 | ~5.8k (sequential was ~5k) |
+| **32 shards × 6 workers, RPS 10** (the plan) | p95 0.5 s per request, half the traders with 2 accounts (q ≈ 4, L ≈ 2.1 s) | design min(2.8, 2.5) × 2,310 = 5,775; **measured ≈ 4,860** | **≈ 155k measured (1.55× over 100k)** |
+| 16 × 6, RPS 10 | the same | ≈ 4,860 | ≈ 78k: too small |
+| of=1 (today's cron) | the same | ≈ 4,860 | ≈ 4.9k (sequential was ~5k at 0.5 s a trader) |
 
-Measured numbers are in `lib/sync-shard.load.test.ts` (opt-in, `LOAD=1`), which runs 100,000 synthetic traders against
-the in-repo vendor fake. It prints `# load:` lines; the build log in the PR records them.
+**Measured** (`lib/sync-shard.load.test.ts`, opt-in `LOAD=1`, 2026-11-01). The test runs 100,000 synthetic traders
+against the in-repo vendor fake on 32 shards × 6 workers. Time is scaled by 10: 50 ms a request, a 3 s request bound,
+30 s calls with a 9 s reserve, and 100 req/s per shard. Database time is not scaled, so the test errs on the
+conservative side.
+
+- Of the 100,000 traders, 98,912 healthy ones were synced exactly once in round 1. The 989 slow traders, whose requests
+  pass the bound, counted as transient and were synced in round 2. The 99 failing traders were backed off.
+- Shards were disjoint, at 20.6 traders a second per shard in scaled time. The worst shard used 7.08 of the round's
+  11 calls (1.55× headroom); in whole calls, 8 of 11.
+- The latency-model test (one shard, real 200–500 ms latency, RPS 10, 6 workers) measured 2.58 traders a second. The
+  prediction was 2.60 (−0.6%).
+
+**Why the measured figure is below the design figure.** The fit check (below) claims a 2-account trader only while 5
+request bounds (150 s) still fit before the call's end. Late in each call a shard therefore claims only 1-account
+traders, and 2-account traders wait for the next call. This keeps a worst-case sync from overrunning, at the cost of
+about 15% of a mixed shard's throughput. A shard whose traders all have many accounts gets proportionally less
+throughput: size N for the real account distribution.
 
 **Database:** peak connections are `N × (C + 2)` = 32 × 8 = **256**, plus the rest of the app. A pooler does not reduce
 this: each held transaction pins a server connection. Size the server for about 300 backends (`max_connections` ≥ 300,

@@ -464,3 +464,6 @@ select schema_add_index('open_positions_symbol', 'create index open_positions_sy
 -- sync load test deletes 100,000 traders: 5 minutes of scans). Partial, like users_referred_by.
 select schema_add_index('signup_attempts_user', 'create index signup_attempts_user on signup_attempts (user_id) where user_id is not null');
 select schema_add_index('signup_attempts_referred_by', 'create index signup_attempts_referred_by on signup_attempts (referred_by_user_id) where referred_by_user_id is not null');
+-- The same for broker_accounts.connection_id (on delete set null): a deleted connection scanned every claim (sharded
+-- sync load test: quadratic at 100,000 traders; profile deletions too).
+select schema_add_index('broker_accounts_connection', 'create index broker_accounts_connection on broker_accounts (connection_id) where connection_id is not null');
