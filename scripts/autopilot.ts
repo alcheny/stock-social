@@ -17,6 +17,7 @@
 //   node scripts/autopilot.ts plan-post     create planned issues, post the digest, kick Build
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { doctorViolations } from './doctor.ts';
 
 export const L = {
@@ -50,7 +51,7 @@ export const lineOf = (baseRef: string) => baseRef.match(/^line\/([a-c])$/)?.[1]
 export const LOOP_PATHS = ['/.github/', '/scripts/autopilot.ts', '/scripts/autopilot.test.ts', '/scripts/team.ts', '/scripts/team.test.ts',
   '/scripts/plan.ts', '/scripts/plan.test.ts', '/scripts/doctor.ts', '/scripts/doctor.test.ts', '/scripts/invariants.test.ts', '/team/', '/.claude/agents/', '/CLAUDE.md', '/docs/AUTOPILOT.md', '/docs/DECISIONS.md',
   '/docs/DESIGN.md', '/playwright.config.ts', '/docs/POLICY.md', '/SECURITY.md', '/scripts/compliance.ts', '/scripts/compliance.test.ts',
-  '/scripts/policy.test.ts', '/scripts/workflow-security.test.ts', '/scripts/features.ts', '/scripts/features.test.ts', '/docs/FEATURES.md',
+  '/scripts/policy.test.ts', '/scripts/workflow-security.test.ts', '/scripts/features.ts', '/scripts/features.test.ts', '/scripts/handoff.ts', '/scripts/handoff.test.ts', '/AGENTS.md', '/.mcp.json', '/docs/FEATURES.md',
   '/docs/features/'];
 export const lineTitle = (title: string, key: string) => /^line ([a-c])\b/i.exec(title)?.[1]?.toLowerCase() === key;
 
@@ -501,6 +502,7 @@ function prepare() {
       sh('git', ['fetch', authUrl(), '+refs/heads/line/*:refs/remotes/origin/line/*']); // own and the other lines
       syncLoop(v.base);
       sh('git', ['checkout', '-B', branchFor(n, ''), `origin/${v.base}`]);
+      output('base_sha', sh('git', ['rev-parse', `origin/${v.base}`]));
       const key = lineOf(v.base)!;
       const log = (ref: string) => { try { return sh('git', ['log', '--oneline', '-25', 'origin/main..' + ref]) || '(nothing yet)'; } catch { return '(not started)'; } };
       const others = LINES.filter((k) => k !== key).map((k) => `### Line ${k.toUpperCase()}\n\n\`\`\`\n${log(`origin/line/${k}`)}\n\`\`\``).join('\n\n');
@@ -508,9 +510,11 @@ function prepare() {
         `Nothing was decided up front: your direction is whatever your rounds have made it, and it keeps evolving. Stay clearly different from the other two lines, so the human ends up comparing three distinct products. Never merges to main on its own.\n\n` +
         `## How this line started\n\n${v.brief}\n\n## Your line so far (newest first)\n\n\`\`\`\n${log('HEAD')}\n\`\`\`\n\n## The other lines so far\n\n${others}\n`);
       // docs/POLICY.md: a line that still carries violations (older content, from before the policy) spends
-      // its next round cleaning them, before any new feature. CI on line PRs only checks added lines.
-      const scan = spawnSync('node', ['scripts/compliance.ts', 'tree'], { encoding: 'utf8' });
-      if (exists && existsSync('scripts/compliance.ts') && scan.status !== 0) {
+      // its next round cleaning them, before any new feature. CI on line PRs only checks added lines. The scanner is
+      // this script's own copy (main's loop), never the line's: this job holds a write token, the line is agent-written.
+      const scanner = fileURLToPath(new URL('./compliance.ts', import.meta.url));
+      const scan = spawnSync('node', [scanner, 'tree'], { encoding: 'utf8' });
+      if (exists && existsSync(scanner) && scan.status !== 0) {
         writeFileSync('.autopilot/task.md', `# Task: policy cleanup round for this line\n\nThis line has content that violates docs/POLICY.md (it predates the policy). ` +
           `Fix every violation below and change nothing else: reword to neutral generic descriptions, remove forbidden files, keep behavior and tests intact.\n\n` +
           `\`\`\`\n${scan.stderr.trim()}\n\`\`\`\n\n${readFileSync('.autopilot/line.md', 'utf8')}\n`);
@@ -530,6 +534,7 @@ function prepare() {
     const is = ghJson<{ title: string; body: string; comments: AuthoredComment[] }>('issue', 'view', String(n), '--json', 'title,body,comments');
     sh('git', ['checkout', '-B', branchFor(n, v.key)]);
     output('base', 'main');
+    output('base_sha', sh('git', ['rev-parse', 'HEAD']));
     const direction = v.key
       ? `\n\n## YOUR VARIANT: ${v.key.toUpperCase()} · ${v.title}\n\n${v.brief}\n\nTwo other agents are building the other variants in parallel. Commit fully to this direction, even where another would be better: the human is comparing directions, not polish.`
       : '';
@@ -546,6 +551,7 @@ function prepare() {
       'pr', 'view', String(n), '--json', 'title,body,headRefName,baseRefName,headRefOid,comments');
     sh('git', ['fetch', authUrl(), `${pr.headRefName}:${pr.headRefName}`]);
     sh('git', ['checkout', pr.headRefName]);
+    output('base_sha', sh('git', ['rev-parse', 'HEAD'])); // the head GitHub has, before the local merge below
     // Bring the branch up to date with its base (main, or its line) so it runs current checks; skip on conflict.
     if (pr.baseRefName !== 'main') sh('git', ['fetch', authUrl(), `+refs/heads/${pr.baseRefName}:refs/remotes/origin/${pr.baseRefName}`]);
     if (lineOf(pr.baseRefName)) syncLoop(pr.baseRefName);

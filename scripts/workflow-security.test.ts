@@ -102,15 +102,15 @@ test('the agent step (scripts/team.ts) never gets a GitHub token, and its job\'s
 
 // An agent with a shell could plant a git hook or config (core.hooksPath, url.*.insteadOf, include, credential,
 // fsmonitor) that runs or redirects during Publish, where GITHUB_TOKEN is in the environment and in the push URL.
-// Every Publish step after an agent step drops them first, and the scripts it runs ignore hooks on every git call.
+// Publish now runs in its own job on a fresh runner (below); every Publish step still drops them first, and the
+// scripts it runs ignore hooks on every git call.
 test('Publish after an agent step neutralizes planted git hooks and config before it commits or pushes', () => {
   let found = 0;
   for (const f of files) {
-    const jobs = readFileSync(new URL(f, dir), 'utf8').split(/\n(?=  [\w-]+:\s*\n)/);
-    for (const job of jobs) {
-      if (!/node [^\n]*scripts\/team\.ts/.test(job)) continue;
-      for (const step of job.split(/\n(?=\s*- (?:name|uses|id|run|if):)/).filter((st) => /- name: Publish\b/.test(st))) {
+    for (const job of jobsOf(f)) {
+      for (const step of stepsOf(job).filter((st) => /- name: Publish\b/.test(st))) {
         found++;
+        assert.doesNotMatch(job, AGENT, `${f}: Publish never runs in the agents' job`);
         assert.match(step, /GIT_CONFIG_GLOBAL: \/dev\/null/, `${f}: Publish must ignore global git config`);
         assert.match(step, /GIT_CONFIG_NOSYSTEM: '1'/, `${f}: Publish must ignore system git config`);
         assert.match(step, /git config --local --unset-all core\.hooksPath \|\| true/, `${f}: Publish must drop core.hooksPath`);
@@ -120,10 +120,112 @@ test('Publish after an agent step neutralizes planted git hooks and config befor
       }
     }
   }
-  assert.ok(found >= 2, `found ${found} Publish steps after agent steps (features.yml and build.yml)`);
-  for (const s of ['features.ts', 'autopilot.ts', 'team.ts']) {
+  assert.ok(found >= 2, `found ${found} Publish steps (features.yml and build.yml)`);
+  for (const s of ['features.ts', 'autopilot.ts', 'team.ts', 'handoff.ts']) {
     const text = readFileSync(new URL(`../scripts/${s}`, import.meta.url), 'utf8');
     assert.match(text, /'-c', 'core\.hooksPath=\/dev\/null'/, `${s}: every git call runs with hooks off`);
+  }
+});
+
+// ---------- the split: prepare (no agents) → agents (no write token) → Publish (fresh runner, main's loop) ----------
+// docs/AUTOPILOT.md → Security. A root agent can read any token its job holds, edit $LOOP_DIR, ~/.local/bin,
+// GITHUB_ENV and GITHUB_PATH; so the job that runs agents holds no write token, and Publish trusts nothing from it but
+// the artifact, which scripts/handoff.ts verifies before anything is pushed.
+const AGENT = /node [^\n]*scripts\/(team|plan)\.ts/;
+const PUBLISH = /scripts\/(features|autopilot)\.ts"? publish\b/;
+const PIPELINES = ['features.yml', 'build.yml'];
+function jobsOf(f: string): string[] {
+  const text = readFileSync(new URL(f, dir), 'utf8');
+  const at = text.indexOf('\njobs:\n');
+  return at < 0 ? [] : text.slice(at).split(/\n(?=  [\w-]+:\s*\n)/).slice(1);
+}
+const stepsOf = (job: string) => job.split(/\n(?=\s*- (?:name|uses|id|run|if|env|with|working-directory|continue-on-error):)/);
+const permissionsOf = (job: string) => /\n    permissions:\n((?: {6}\S.*\n?)+)/.exec(job)?.[1].split('\n').map((l) => l.trim()).filter(Boolean) ?? null;
+const nodeCalls = (job: string) => [...job.matchAll(/(?:^|[\s;&|(])node (?!-e )[^\n]*/g)].map((m) => m[0].trim());
+
+test('the agents\' job holds no write token: `permissions: contents: read` only, and no GitHub token in any step', () => {
+  let found = 0;
+  for (const f of PIPELINES) {
+    for (const job of jobsOf(f).filter((j) => AGENT.test(j))) {
+      found++;
+      assert.deepEqual(permissionsOf(job), ['contents: read'], `${f}: the agents' job must set job-level permissions to contents: read and nothing else`);
+      assert.doesNotMatch(job, /GH_TOKEN|GITHUB_TOKEN|github\.token|secrets\.(?!CLAUDE_CODE_OAUTH_TOKEN\b)\w+/, `${f}: no GitHub token or other secret anywhere in the agents' job`);
+      assert.doesNotMatch(job, PUBLISH, `${f}: the agents' job never publishes`);
+      assert.doesNotMatch(job, /git push|\bgh (pr|issue|api|workflow|release)\b/, `${f}: the agents' job never pushes or calls GitHub`);
+      assert.match(job, /actions\/upload-artifact@[0-9a-f]{40}[^\n]*\n(?:.*\n){0,2}\s*name: agent-/, `${f}: the agents' job hands its work over as an agent-<key> artifact`);
+    }
+  }
+  assert.ok(found >= 2, `found ${found} agent jobs (features.yml and build.yml)`);
+});
+
+test('Publish jobs never run scripts from the agents\' checkout or $LOOP_DIR: only main\'s loop/, freshly checked out', () => {
+  let found = 0;
+  for (const f of PIPELINES) {
+    for (const job of jobsOf(f).filter((j) => PUBLISH.test(j))) {
+      found++;
+      assert.doesNotMatch(job, AGENT, `${f}: Publish runs no agents`);
+      assert.doesNotMatch(job, /LOOP_DIR|\bnpm |\bnpx |cache:|actions\/cache@/, `${f}: Publish installs nothing, restores no cache and never uses $LOOP_DIR`);
+      const checkouts = stepsOf(job).filter((st) => st.includes('actions/checkout@'));
+      assert.equal(checkouts.length, 1, `${f}: Publish checks out exactly one tree, main's loop`);
+      for (const co of checkouts) {
+        assert.match(co, /ref: main\b/, `${f}: Publish's loop is main's copy`);
+        assert.match(co, /path: loop\b/, `${f}: Publish's loop is checked out to loop/`);
+        assert.match(co, /persist-credentials:\s*false/, `${f}: no token kept in .git/config`);
+      }
+      const calls = nodeCalls(job);
+      assert.ok(calls.length >= 2, `${f}: Publish runs the verify and publish scripts`);
+      for (const c of calls) assert.match(c, /^node "\$GITHUB_WORKSPACE\/loop\/scripts\/[\w-]+\.ts"/, `${f}: every script Publish runs is main's (loop/scripts/): ${c}`);
+      assert.match(permissionsOf(job)?.join('\n') ?? '', /contents: write/, `${f}: Publish sets its own (write) permissions`);
+    }
+  }
+  assert.ok(found >= 2, `found ${found} Publish jobs (features.yml and build.yml)`);
+});
+
+test('Publish verifies the downloaded hand-off before any step pushes', () => {
+  for (const f of PIPELINES) {
+    for (const job of jobsOf(f).filter((j) => PUBLISH.test(j))) {
+      const steps = stepsOf(job);
+      const download = steps.findIndex((st) => /actions\/download-artifact@[0-9a-f]{40}/.test(st) && /name: agent-/.test(st));
+      const verify = steps.findIndex((st) => /loop\/scripts\/handoff\.ts" verify/.test(st));
+      const publish = steps.findIndex((st) => PUBLISH.test(st));
+      assert.ok(download >= 0 && verify > download && publish > verify, `${f}: download (${download}) → verify (${verify}) → publish (${publish})`);
+      assert.match(steps[verify], /if: steps\.download\.outcome == 'success'/, `${f}: verify runs on the downloaded artifact`);
+      assert.match(steps[verify], /id: verify/, `${f}: the verify step has the id the publish step checks`);
+      assert.match(steps[publish], /if: steps\.verify\.outcome == 'success'/, `${f}: publish runs only after verify passed`);
+      for (const st of steps.slice(0, verify)) assert.doesNotMatch(st, /GH_TOKEN|github\.token/, `${f}: no token before the hand-off is verified`);
+      assert.match(job, /\n    needs: \[[^\]]*\b(build|variant)\b/, `${f}: Publish waits for the agents' job`);
+    }
+  }
+});
+
+test('prepare jobs run no agents and only main\'s scripts (they hold GitHub tokens)', () => {
+  let found = 0;
+  for (const f of PIPELINES) {
+    for (const job of jobsOf(f).filter((j) => /handoff\.ts" prep\b/.test(j))) {
+      found++;
+      assert.doesNotMatch(job, AGENT, `${f}: prepare runs no agents`);
+      assert.doesNotMatch(job, /CLAUDE_CODE_OAUTH_TOKEN|LOOP_DIR|\bnpm |\bnpx |cache:/, `${f}: prepare installs nothing and holds no Claude token`);
+      for (const c of nodeCalls(job)) assert.match(c, /^node "\$GITHUB_WORKSPACE\/loop\/scripts\/[\w-]+\.ts"/, `${f}: every script prepare runs is main's: ${c}`);
+      for (const co of stepsOf(job).filter((st) => st.includes('actions/checkout@'))) assert.match(co, /persist-credentials:\s*false/, `${f}: no token kept in .git/config`);
+    }
+  }
+  assert.ok(found >= 2, `found ${found} prepare jobs`);
+  // The line's own scanner is agent-written: prepare runs main's copy, beside autopilot.ts.
+  assert.match(readFileSync(new URL('../scripts/autopilot.ts', import.meta.url), 'utf8'), /new URL\('\.\/compliance\.ts', import\.meta\.url\)/);
+});
+
+// Agents' jobs run on main's ref, so with the runtime token a root agent can write cache entries every later run on
+// main (or a PR into it) may restore. Jobs that hold a write token restore none. (The agents' own jobs keep npm's
+// cache: npm checks every package against package-lock.json's integrity hashes, and those jobs are untrusted anyway.)
+test('no job that holds a write token restores a cache', () => {
+  for (const f of files) {
+    const text = readFileSync(new URL(f, dir), 'utf8');
+    const top = /^permissions:\n((?: {2}\S.*\n?)+)/m.exec(text)?.[1] ?? '';
+    for (const job of jobsOf(f)) {
+      const perms = permissionsOf(job)?.join('\n') ?? top;
+      if (!/:\s*write\b/.test(perms)) continue;
+      assert.doesNotMatch(job, /^\s*cache:\s*\S|actions\/cache@/m, `${f}: a job with a write token restores a cache:\n${job.split('\n')[0]}`);
+    }
   }
 });
 

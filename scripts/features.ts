@@ -18,7 +18,7 @@
 //   node scripts/features.ts publish   build: mark the feature built, log it, open the PR, start CI
 //   node scripts/features.ts notes     fix/conflict: refresh the PR's hand-off notes after the push
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { failed, ownChecks } from './autopilot.ts';
 
 export const STATUSES = ['draft', 'ready', 'built', 'accepted', 'rework', 'blocked'] as const;
@@ -28,6 +28,7 @@ const DIR = 'docs/features';
 const MARK = '<!-- feature-attempt -->';
 const CONFLICT_MARK = '<!-- feature-conflict -->';
 const NOTES = '## Hand-off notes';
+export const COMMITTEE_PATH = /^docs\/features\/logs\/F-\d+\/committee-\d{4}-\d{2}-\d{2}\.md$/;
 
 // Files most features touch. Parallel builds edit them only additively, each in a block named for its feature.
 export const SHARED = ['app/globals.css', 'lib/copy.ts', 'db/schema.sql', 'app/actions.ts', 'app/layout.tsx', 'app/page.tsx',
@@ -104,6 +105,10 @@ export function planRound(fs: Feature[], prs: FeaturePr[], o: { parallel: number
   }
   return r;
 }
+
+// Pure: a task with `key`, its legs' artifact names (prep-<key>, agent-<key>): the branch, with what artifact names
+// can't hold replaced. Unique within a round (one task per branch).
+export const withKey = (t: FeatureTask) => ({ ...t, key: t.branch.replace(/[^A-Za-z0-9._-]+/g, '-') });
 
 // Pure: the coordination brief one builder gets: who else is building right now, what they changed, what they
 // told the others, and the rules that keep parallel builds from blocking or overwriting each other.
@@ -212,7 +217,7 @@ function next() {
     const mark = t.kind === 'conflict' ? CONFLICT_MARK : MARK;
     gh('pr', 'comment', String(t.number), '--body', `${mark}\n${t.kind === 'conflict' ? 'Conflict resolution' : 'Fix attempt'} ${(t.kind === 'conflict' ? p.conflictAttempts : p.fixAttempts) + 1} started.`);
   }
-  output('tasks', JSON.stringify(r.tasks)); output('count', r.tasks.length);
+  output('tasks', JSON.stringify(r.tasks.map(withKey))); output('count', r.tasks.length);
   console.log(r.tasks.length ? `features: this round: ${r.tasks.map((t) => `${t.id} (${t.kind})`).join(', ')}` : 'features: nothing to do');
 }
 
@@ -222,6 +227,7 @@ function prepare() {
   if (t.kind === 'build') {
     const f = parseFeature(t.file, readFileSync(t.file, 'utf8'));
     sh('git', ['checkout', '-B', branchOf(f)]);
+    output('base_sha', sh('git', ['rev-parse', 'HEAD']));
     writeFileSync('.autopilot/task.md', `# Task: build ${f.id} · ${f.title}\n\nThe owner decided this feature in a design session. ` +
       `Build exactly what the decisions and acceptance criteria below say; don't redesign it. Every acceptance criterion needs a test.\n\n${readFileSync(t.file, 'utf8')}\n`);
     output('branch', branchOf(f));
@@ -230,6 +236,7 @@ function prepare() {
   // Conflict: merge main into the PR branch and leave the conflicted files for the engineer (fix mode).
   sh('git', ['fetch', authUrl(), `+refs/heads/${t.branch}:refs/remotes/origin/${t.branch}`, '+refs/heads/main:refs/remotes/origin/main']);
   sh('git', ['checkout', '-B', t.branch, `origin/${t.branch}`]);
+  output('base_sha', sh('git', ['rev-parse', 'HEAD'])); // the head GitHub has, before the merge below
   let conflicted: string[] = [];
   try { sh('git', ['merge', '--no-edit', 'origin/main']); } catch { conflicted = sh('git', ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(Boolean); }
   const merged = sh('git', ['log', '--oneline', '-15', `origin/${t.branch}..origin/main`]);
@@ -288,7 +295,10 @@ function publish() {
 // The committee hit a hard stop or disagreed with a decision: record it on main (status, reason and the committee's
 // record), never the half-built code, so the pipeline skips the feature until the owner clears it.
 function publishBlocked(f: Feature, reason: string, committeePath?: string) {
-  const record = committeePath && existsSync(committeePath) ? readFileSync(committeePath, 'utf8') : '';
+  // committeePath comes from the agents' result.json: only a committee record path, never a symlink (it is read here and
+  // committed to a public branch, so /proc/self/environ or a link to it would publish the token).
+  if (!(committeePath && COMMITTEE_PATH.test(committeePath) && existsSync(committeePath) && lstatSync(committeePath).isFile())) committeePath = undefined;
+  const record = committeePath ? readFileSync(committeePath, 'utf8') : '';
   sh('git', ['fetch', authUrl(), '+refs/heads/main:refs/remotes/origin/main']);
   sh('git', ['checkout', '-B', branchOf(f), 'origin/main']);
   if (record && committeePath) { mkdirSync(committeePath.slice(0, committeePath.lastIndexOf('/')), { recursive: true }); writeFileSync(committeePath, record); }

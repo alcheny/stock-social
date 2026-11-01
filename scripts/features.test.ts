@@ -145,3 +145,11 @@ test('features: every task carries its attempt number, which grows the failure b
   ], 3);
   assert.deepEqual(r.tasks.map((t) => `${t.id}:${t.kind}:${t.attempt}`), ['F-4:fix:4', 'F-5:conflict:1', 'F-6:build:1']);
 });
+
+test('round: each task carries a key its legs\' artifacts are named by (prep-<key>, agent-<key>), unique per branch', async () => {
+  const { withKey } = await import('./features.ts');
+  const t = (branch: string) => ({ kind: 'build' as const, id: 'F-4', file: 'docs/features/F-4.md', branch, number: 0, attempt: 1 });
+  assert.equal(withKey(t('feature/f-4')).key, 'feature-f-4');
+  assert.match(withKey(t('a/b:c"d<e>f|g*h?i\\j')).key, /^[A-Za-z0-9._-]+$/);
+  assert.notEqual(withKey(t('feature/f-4')).key, withKey(t('feature/f-5')).key);
+});
