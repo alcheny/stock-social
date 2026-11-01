@@ -67,3 +67,21 @@ the evidence is (a filing a viewer can open from every trade), where "source" wo
 the record is built from one kind of source only. The label lives in one copy constant (lib/copy.ts F-7 block), so a
 later design-system pass can rename it with the legal member's sign-off. Numbers and dates use the existing pct() and
 date helpers.
+
+## Fix round 1 (after the independent review, tester and user tests)
+Sources: `review.md` (no blocking findings; six verified non-blocking items fixed), `test-tester.md`,
+`committee-business-lead.md`, `committee-ux-lead.md`. The QA and user-test pass was run by one session playing the
+three roles (it had no subagent tool); each report says so.
+
+11. **AC 15's wording is aligned with plan Round 5 item 4**, which the committee signed: the full four-row top block is
+    on the profile; the pane, trade and month pages carry the badges, the not-joined sentence and the correction link.
+    Why: the feature file's AC 15 had been written wider than the signed plan; the narrower set keeps the pane's chart
+    above the fold at 360 px while every surface still says who did not join and how to ask for a correction.
+12. **The feed pane may show a filer's closes inside the 30-day floor**, as the profile does. Why: the legal condition
+    (Round 5 item 7) covers reads that bring a filer to a viewer who did not open that filer; the pane opens only when
+    the viewer swipes to that filer from a card built from closes past the floor, so nothing inside the floor is pushed.
+13. **Trade and month share-image alt text carry the label and the not-joined line; `/public-records` has its own
+    description; a filer's month page says "Closed trades this month".** Why: legal C9/C15 and the no-completeness rule
+    (POLICY F3a), from the business lead's and UX lead's demands.
+14. **Not changed in F-7:** the profile's average rounding at an exact half (+9.7% vs +9.8% elsewhere) predates F-7 and
+    affects every record; the 20 px trade-row links and 35 px chart buttons predate F-7. Recorded for a later fix.

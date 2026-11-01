@@ -66,10 +66,11 @@ Written by the committee in the build's plan debate (`docs/features/logs/F-7/pla
     trades", "trade like" and completeness claims.
 14. Labels on every surface (profile, feed card, pane, trade, month, share card): "Public filing" and, on fixtures,
     "Demo"; never a Verified badge.
-15. Top block on profile, pane, trade and month pages, in order: badges and "Company insider"; "Built from public
-    filings. This person has not joined Stock Social, has not connected a broker, has not reviewed this record and
-    does not endorse it."; "Record since … · last checked … · Request a correction or removal →" to `/public-records`;
-    "Filings can be late, amended or missing." No horizontal scroll at 360 px; the pane chart stays above the fold.
+15. Top block on the profile, in order: badges and "Company insider"; "Built from public filings. This person has
+    not joined Stock Social, has not connected a broker, has not reviewed this record and does not endorse it.";
+    "Record since … · last checked … · Request a correction or removal →" to `/public-records`; "Filings can be late,
+    amended or missing." The pane, trade and month pages show the badges, the not-joined sentence and the correction
+    link (plan Round 5 item 4). No horizontal scroll at 360 px; the pane chart stays above the fold.
 16. Each closed trade links its filing ("Filing ↗", 44 px target, named as opening another site); the trade page
     links the sale's filing.
 17. No amounts: profile, trade and pane HTML, image alt and unfurl meta contain none of the fixture's share counts
