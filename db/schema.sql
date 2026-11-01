@@ -108,6 +108,8 @@ create table if not exists closed_trades (
 );
 select schema_add_index('closed_trades_user', 'create index closed_trades_user on closed_trades (user_id, closed_at desc)');
 select schema_add_index('closed_trades_recent', 'create index closed_trades_recent on closed_trades (closed_at desc)');
+-- /t/SYMBOL (lib/ticker-sql.ts): the summary aggregates and the capped newest-first trade list read one symbol's rows.
+select schema_add_index('closed_trades_symbol', 'create index closed_trades_symbol on closed_trades (symbol, closed_at desc, id desc)');
 
 -- TR-6: a broker account belongs to one profile, ever. Claimed on first sync, never released.
 create table if not exists broker_accounts (

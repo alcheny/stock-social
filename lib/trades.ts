@@ -226,7 +226,8 @@ const T95 = [12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.2
 // Exact table for df 1..30. Beyond that 1.96 + 2.4/df: 2.040 at df=30 (table: 2.042), tends to 1.96.
 export const tCrit95 = (df: number) => (df <= 30 ? T95[Math.max(df, 1) - 1] : 1.96 + 2.4 / df);
 
-type Cluster = { x: number; d: number; n: number };
+// One independent bet: x = sum of log returns, d = sum of hold days (each at least 1), n = trades in it.
+export type Cluster = { x: number; d: number; n: number };
 
 export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   void today; // reserved for open positions (TR-4)
@@ -252,8 +253,14 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
       maxClose = Math.max(maxClose, t.closedAt.getTime());
     }
   }
-  const k = clusters.length;
   const spanDays = n ? (Math.max(...trades.map((t) => t.closedAt.getTime())) - Math.min(...trades.map((t) => t.openedAt.getTime()))) / DAY : 0;
+  return confidenceFromClusters(clusters, n, spanDays);
+}
+
+// The statistics on already-clustered bets. lib/ticker-sql.ts clusters in SQL and calls this with one row per bet, so
+// both paths share every formula below. n = trades, spanDays = (last exit - first entry) in days.
+export function confidenceFromClusters(clusters: Cluster[], n: number, spanDays: number): Confidence {
+  const k = clusters.length;
   const tradesPerMonth = (n / Math.max(spanDays, 30)) * 30; // display only
   // F-4: below MIN_BETS (5) independent bets there is no range; from there it is always computed (t with K − 1 df).
   const tier: Tier = k < MIN_BETS ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';

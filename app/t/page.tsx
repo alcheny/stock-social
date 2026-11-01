@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
 import { redirect } from 'next/navigation';
-import { filterTickerIndex, parseTickerSort, tickerIndex, watchSummary, type SymbolAggregate, type TickerSort, type WatchItem } from '@/lib/ticker.ts';
+import { parseTickerSort, watchSummary, type TickerSort, type WatchItem } from '@/lib/ticker.ts';
+import { tickerIndexPage } from '@/lib/ticker-sql.ts';
 import { currentUser } from '@/lib/session.ts';
 import { Badge } from '../ui.tsx';
 
@@ -59,17 +60,10 @@ export default async function Stocks({ searchParams }: Props) {
   const strip = await loadStrip();
   const sort = parseTickerSort(sp.sort);
   const rawQ = (Array.isArray(sp.q) ? sp.q[0] : sp.q) ?? '';
-  // No user input reaches SQL; sorting happens in tickerIndex.
-  // ponytail: when symbols exceed a few thousand, push sort + limit into SQL with a whitelisted order by.
-  const aggs = (await sql`
-    select symbol, count(*)::int as trades, count(distinct user_id)::int as traders,
-           max(closed_at) as last_closed_at, count(*) filter (where verified)::int as verified_trades
-    from closed_trades group by symbol`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number }[];
-  const all = tickerIndex(
-    aggs.map((a): SymbolAggregate => ({ symbol: a.symbol, trades: a.trades, traders: a.traders, lastClosedAt: a.last_closed_at, verifiedTrades: a.verified_trades })),
-    sort,
-  );
-  if (!all.length) {
+  // Search, sort and the cap run in SQL (lib/ticker-sql.ts): the query is a normalized symbol as a bound, escaped LIKE
+  // prefix, and the sort is one of two fixed order-by fragments, so no user text is interpolated.
+  const f = await tickerIndexPage(rawQ, sort, CAP);
+  if (!f.total) {
     return (
       <main className="page">
         <h1>Stocks</h1>
@@ -80,9 +74,8 @@ export default async function Stocks({ searchParams }: Props) {
       </main>
     );
   }
-  const f = filterTickerIndex(all, rawQ);
   if (f.kind === 'exact') redirect(`/t/${encodeURIComponent(f.symbol!)}`);
-  const rows = f.rows.slice(0, CAP);
+  const rows = f.rows;
   const order = sort === 'az' ? 'sorted A–Z' : 'most recently traded first';
   const q = rawQ.trim();
   const href = (s: TickerSort) => {
@@ -120,8 +113,8 @@ export default async function Stocks({ searchParams }: Props) {
       ) : (
         <p className="muted small">
           {f.kind === 'prefix'
-            ? `${plural(f.rows.length, 'stock')} start${f.rows.length === 1 ? 's' : ''} with “${f.symbol}”, ${order}`
-            : `${all.length > CAP ? `Showing ${rows.length} of ${all.length} stocks` : plural(all.length, 'stock')}, ${order}`}
+            ? `${plural(f.matched, 'stock')} start${f.matched === 1 ? 's' : ''} with “${f.symbol}”, ${order}`
+            : `${f.total > CAP ? `Showing ${rows.length} of ${f.total} stocks` : plural(f.total, 'stock')}, ${order}`}
           {searching && <> · <Link href={clearHref}>Clear search</Link></>}
         </p>
       )}

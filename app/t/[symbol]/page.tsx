@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
 import { recordStates, type PublicState } from '@/lib/connections.ts';
 import { rowBadge } from '@/lib/pane.ts';
-import { baselineVerdict, decodeSymbolParam, holdBuckets, isIndexableTicker, monthlyTimeline, outcomeSpread, relatedSymbols, selectTheses, tickerSummary, toSpreadPct, toTicker } from '@/lib/ticker.ts';
+import { baselineVerdict, decodeSymbolParam, isIndexableTicker, selectTheses } from '@/lib/ticker.ts';
+import { relatedSymbolsSql, tickerHeadline, tickerPage, type TickerPage } from '@/lib/ticker-sql.ts';
 import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
@@ -27,31 +28,24 @@ const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: '
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
 const heldWords = (d: number) => (d < 1 ? 'less than a day' : `${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
 
-async function load(raw: string) {
+// The summary and charts are SQL aggregates over every trade (lib/ticker-sql.ts); only the CAP newest rows are read.
+async function load(raw: string): Promise<{ symbol: string | null; d: TickerPage | null; rows: TickerPage['rows'] }> {
   const symbol = decodeSymbolParam(raw);
-  if (!symbol) return { symbol: null, rows: [] as Row[] };
-  // ponytail: fetch every row for the symbol so the summary covers all of them; only the display list is capped.
-  const rows = (await sql`
-    select t.id, t.user_id, u.handle, u.display_name, t.symbol, t.return_pct, t.holding_days,
-           t.opened_at, t.closed_at, t.verified
-    from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
-    where t.symbol = ${symbol}
-    order by t.closed_at desc, t.id desc`) as unknown as Row[];
-  return { symbol, rows };
+  if (!symbol) return { symbol: null, d: null, rows: [] };
+  const d = await tickerPage(symbol, new Date(), CAP);
+  return { symbol, d, rows: d.rows };
 }
-
-type Row = { id: number; user_id: number; handle: string; display_name: string; symbol: string; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean };
 
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const { symbol, rows } = await load((await params).symbol);
+  const symbol = decodeSymbolParam((await params).symbol);
   if (!symbol) return { title: 'Ticker not found · Stock Social', robots: { index: false } };
   const title = `${symbol} verified trades · Stock Social`;
-  if (!rows.length) return { title, description: `No verified closed trades in ${symbol} yet.`, robots: { index: false } };
-  const s = tickerSummary(rows.map(toTicker), new Date());
+  const head = await tickerHeadline(symbol);
+  const s = head.summary;
+  if (!s.n) return { title, description: `No verified closed trades in ${symbol} yet.`, robots: { index: false } };
   const tier = s.conf!.tier === 'too-early' ? 'too early' : s.conf!.tier;
-  const verifiedRows = rows.filter((r) => r.verified);
-  const thin = !isIndexableTicker({ verifiedTrades: verifiedRows.length, verifiedTraders: new Set(verifiedRows.map((r) => r.user_id)).size });
+  const thin = !isIndexableTicker({ verifiedTrades: head.verifiedTrades, verifiedTraders: head.verifiedTraders });
   return {
     title,
     ...(thin ? { robots: { index: false } } : {}),
@@ -60,12 +54,12 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 }
 
 export default async function Ticker({ params, searchParams }: Params) {
-  const { symbol, rows } = await load((await params).symbol);
+  const { symbol, rows, d } = await load((await params).symbol);
   const w = (await searchParams)?.watch;
   const capHit = (Array.isArray(w) ? w[0] : w) === 'cap';
   // Session is read only here, never in generateMetadata, sitemap, robots or the OG image.
   const watchState = symbol ? await loadWatch(symbol) : { signedIn: false, watching: false };
-  if (!symbol || !rows.length) {
+  if (!symbol || !d || !rows.length) {
     const open = symbol ? (await symbolOpen(symbol)).get(symbol) : undefined;
     await markSeen(symbol ?? '', watchState);
     return (
@@ -82,31 +76,28 @@ export default async function Ticker({ params, searchParams }: Params) {
       </main>
     );
   }
-  const s = tickerSummary(rows.map(toTicker), new Date());
+  const s = d.summary;
   const c = s.conf!;
   const range = rangeText(c);
   const shown = rows.slice(0, CAP);
-  // Fix round 5 (TR-3): one batched read of every listed trader's record state; a failed record shows no Verified badge.
-  const states = await recordStates([...new Set(rows.map((r) => r.user_id))]);
-  const stateByHandle = new Map<string, PublicState>(rows.map((r) => [r.handle, states.get(r.user_id)?.state ?? 'connected']));
-  const badgeFor = (verified: boolean, handle: string) => rowBadge(verified, stateByHandle.get(handle));
-  // ponytail: move the grouping into SQL if one symbol's traders hold thousands of trades.
-  const overlap = (await sql`
-    select o.symbol, o.user_id, o.verified
-    from closed_trades o
-    where o.symbol <> ${symbol}
-      and o.user_id in (select distinct user_id from closed_trades where symbol = ${symbol})`) as unknown as { symbol: string; user_id: number; verified: boolean }[];
-  const related = relatedSymbols(overlap.map((o) => ({ symbol: o.symbol, userId: o.user_id, verified: o.verified })), symbol);
-  // All rows, not the display cap. Non-finite values are dropped so bin counts always sum to n.
-  const returns = rows.map((r) => toSpreadPct(r.return_pct)).filter(Number.isFinite);
-  const spread = outcomeSpread(returns);
+  // Grouped in SQL: one row per related symbol, at most 8.
+  const related = await relatedSymbolsSql(symbol);
+  // All trades, not the display cap (SQL bins and median). Non-finite values are dropped so bin counts always sum to n.
+  const returns = d.returns;
+  const spread = d.spread;
   // Held text is never selected: status is filtered in SQL, and selectTheses re-checks it.
   const thesisRows = (await sql`
-    select t.id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status
+    select t.id, t.user_id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status
     from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
     where t.symbol = ${symbol} and t.thesis_status = 'published' and t.thesis is not null
     order by t.closed_at desc, t.id desc
-    limit 20`) as unknown as { id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null }[];
+    limit 20`) as unknown as { id: number; user_id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null }[];
+  // Fix round 5 (TR-3): one batched read of the record state of every trader named on the page (listed rows and
+  // theses); a failed record shows no Verified badge.
+  const named = [...rows, ...thesisRows];
+  const states = await recordStates([...new Set(named.map((r) => r.user_id))]);
+  const stateByHandle = new Map<string, PublicState>(named.map((r) => [r.handle, states.get(r.user_id)?.state ?? 'connected']));
+  const badgeFor = (verified: boolean, handle: string) => rowBadge(verified, stateByHandle.get(handle));
   const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified })));
   // Cohort follows the ticker: verified rows if it has any, otherwise the sample rows. One aggregate, this symbol excluded.
   let baseline: ReturnType<typeof baselineVerdict> | null = null;
@@ -153,7 +144,7 @@ export default async function Ticker({ params, searchParams }: Params) {
       {/* F-6 (UX lead D5): after the closed-trade figures' caveat, so each caveat sits with its own figures. */}
       {open && <OpenPositions symbol={symbol} open={open} />}
 
-      <Concentration rows={rows.map(toTicker)} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
+      <Concentration c={d.concentration} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
 
       {baseline && <Baseline result={baseline} summary={s} symbol={symbol} />}
 
@@ -164,13 +155,13 @@ export default async function Ticker({ params, searchParams }: Params) {
         </>
       )}
 
-      <Timeline timeline={monthlyTimeline(rows.map(toTicker), new Date())} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
-      <HoldTime holds={holdBuckets(rows.map(toTicker), new Date())} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
+      <Timeline timeline={d.timeline} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
+      <HoldTime holds={d.holds} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
 
       <Theses list={theses} symbol={symbol} badgeFor={badgeFor} />
 
       <h2>Trades (newest first)</h2>
-      {rows.length > CAP && <p className="muted small">Showing the {CAP} most recent of {rows.length}. The summary covers all {rows.length}.</p>}
+      {s.n > CAP && <p className="muted small">Showing the {CAP} most recent of {s.n}. The summary covers all {s.n}.</p>}
       <ul className="rows ticker-rows" aria-label={`Closed trades in ${symbol}, newest first`}>
         {shown.map((r) => (
           <li key={r.id}>
