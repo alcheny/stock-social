@@ -122,3 +122,17 @@ user and account with a cascade from `users` (engineer, already so).
   - coverage counts only accounts still read (a live, not-disconnected connection's snapshot);
   - a `connected_at` ahead of the database clock is ignored;
   - the retention text is corrected.
+
+## Orchestrator review of #64 (taken)
+
+- Blocking: the coverage test's log-id check (a bare-number match) flaked on a fresh database. It now checks the parsed
+  object: no identifier keys, and every value a number or boolean.
+- `last_synced_at` is set to the oldest real account's last activities read. It is never "now" after a rebuild that
+  only an account-set change or a partial read triggered. F-11 depends on this.
+- A cut at the route's end leaves no marks, so the next call reads at once. A test covers the production
+  (one-account-per-call) guard path.
+- A queue page stops only when an account-list-only trader would not fit (`requests <= 1`).
+- A ponytail note on the symbol-matched sell (renames, up to 3 days visible).
+- The 1.4 requests per trader-hour figure is labeled calculated.
+- The committee-accepted exception to AC1 (up to 4 activities reads a day under persistent rollbacks) is stated in
+  docs/SYNC.md and the PR body. The feature file is protected, so the owner records it there.

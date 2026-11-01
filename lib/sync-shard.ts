@@ -305,7 +305,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
         unfit.push(c.id); popped.delete(c.id); r.deferred++; stopReason = 'deadline';
         // Nothing smaller can fit either, or the list has grown past a few pages: stop reading the queue (the exclusion
         // list rides on every page query).
-        if (c.accounts <= 1 || unfit.length >= 4 * cfg.page) { exhausted = true; queue.length = 0; }
+        if (requests <= 1 || unfit.length >= 4 * cfg.page) { exhausted = true; queue.length = 0; } // 1: just the account list (F-14 review)
         continue;
       }
       await bucket.take(requests);

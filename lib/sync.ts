@@ -443,6 +443,7 @@ export async function syncUser(
       // F-14 (G4): rebuilt when activities were read or the account set changed, so last_synced_at means "activities
       // last read" (the freshness line, the queue order, the coverage age). Always without `cadence`.
       const rebuilt = actIds.length > 0 || changed;
+      const [{ prev }] = opts.cadence ? await tx`select last_synced_at as prev from users where id = ${user.id}` : [{ prev: null }];
       if (rebuilt) await rebuild(user.id, tx);
       if (broker.fetchPositions) {
         if (!opts.cadence) {
@@ -478,10 +479,23 @@ export async function syncUser(
         const stamp = tx`clock_timestamp() + ${shiftMs}::float8 * interval '1 millisecond'`;
         if (actIds.length) await tx`update broker_accounts set activities_read_at = ${stamp} where user_id = ${user.id} and account_id in ${tx(actIds)}`;
         if (posIds.length && broker.fetchPositions) await tx`update broker_accounts set positions_read_at = ${stamp} where user_id = ${user.id} and account_id in ${tx(posIds)}`;
+        // F-14 (orchestrator review): `last_synced_at` (F-11's "Updated …") is the oldest real account's last activities
+        // read, never "now" after a rebuild that only an account-set change or a partial read triggered. While any real
+        // account has never been read, the previous value stands.
+        if (rebuilt) {
+          await tx`update users set last_synced_at = coalesce((select case when bool_or(activities_read_at is null) then null else min(activities_read_at) end
+              from broker_accounts where user_id = ${user.id} and account_id in ${tx(real.length ? real : [''])}), ${prev})
+            where id = ${user.id}`;
+        }
         opts.report?.({ accounts: real.length, activitiesRead: actIds.length, positionsRead: broker.fetchPositions ? posIds.length : 0, deferred, rebuilt });
       }
       return read;
     });
+  } catch (e) {
+    // A cut at the route's end (RouteDeadlineError, lib/sync-shard.ts) is not a failed sync: its reads leave no marks, so
+    // the next call reads at once instead of waiting out the 6 h floor (orchestrator review).
+    if ((e as { name?: unknown } | null)?.name === 'RouteDeadlineError') { readActs.length = 0; readPos.length = 0; }
+    throw e;
   } finally {
     // G2: fire and forget, after the transaction (its connection is back in the pool); never fatal.
     if (opts.cadence && (readActs.length || readPos.length)) {

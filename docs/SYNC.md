@@ -74,11 +74,17 @@ hourly, but each account is read within the vendor's guidance (`lib/sync-cadence
   - Null, future or pre-consent timestamps mean "read now".
   - Every successful vendor read is also recorded after the transaction (`sync_read_marks`), so a sync that keeps
     failing reads activities at most every 6 h and positions within the same 4-a-day window.
-- **The rebuild** runs only after an activities read (or when the account set, a paper flag or a connection changed),
-  so `last_synced_at`, the freshness line, means "trades last read".
+- **The rebuild** runs only after an activities read (or when the account set, a paper flag or a connection changed).
+  `last_synced_at`, which F-11's "Updated …" line reads, is set to the oldest real account's last activities read. It
+  never becomes "now" after a rebuild that a change or a partial read triggered. While an account has never been read,
+  the previous value stands.
+- **The accepted exception to "≤ 1 activities read per 24 h"** (committee G2): when a sync keeps rolling back after its
+  read, the 6 h floor allows a retry, so up to 4 activities reads a day for that account. Committed syncs read once a
+  day.
+- **A sync cut at the route's end** (the route-end guard) leaves no marks, so the next call reads at once.
 - **The account list** is still read every round (TR-5, the claim): 1 request. Whether it may be throttled is a vendor
   question for the owner.
-- **Load:** about 1.4 vendor requests per trader-hour in steady state, against about 5.5 when every account is due. The
+- **Load (calculated, not measured):** about 1.4 vendor requests per trader-hour in steady state, against about 5.5 when every account is due. The
   plan below stays sized for the all-due hour (the first deploy, after an outage, a reconnect wave). The shard runner
   plans each trader's budget from its due reads.
 - **Evidence:** each run logs `accountLists`, `activitiesReads`, `positionsReads` and `readsDeferred`, summed hourly in

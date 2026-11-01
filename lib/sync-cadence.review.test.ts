@@ -120,3 +120,55 @@ dbTest('review 4: a connected_at ahead of the database clock never turns the thr
     assert.equal(reads, 1, 'no re-read every hour');
   } finally { await t.cleanup(); }
 });
+
+// Orchestrator review: the production (cadence) path's guard, one account per call: a sync cut at the route's end after
+// its first account's read leaves no marks, so the next call reads both accounts at once instead of waiting 6 h.
+dbTest('review 5: a cadence sync cut by the route-end guard mid-read leaves no marks and is read in full by the next call', async () => {
+  const t = await trader(2);
+  const { runShard } = await import('./sync-shard.ts');
+  try {
+    const of = 1000 + Math.floor(Math.random() * 24);
+    let wall = 1_000_000;
+    const calls: string[] = [];
+    const broker = {
+      listAccounts: async () => t.accs,
+      // The first account's read is slow: afterwards only 35 s are left, so the second account's 30 s call (plus the 10 s margin) is refused.
+      fetchActivities: async (_u: unknown, _s: Date, ids?: string[]) => { calls.push(ids![0]); if (ids![0] === t.accs[0].id) wall += 65_000; return []; },
+      fetchPositions: async () => [],
+    };
+    const shard = { shard: t.user.id % of, of };
+    const cfg = { concurrency: 1, rps: 1000, burst: 1000, page: 500 };
+    const r = await runShard({ shard, ids: [t.user.id], shiftMs: shiftAt(0), jitterMs: 0, config: cfg, log: () => {},
+      broker: broker as never, clock: () => wall, routeEnd: wall + 100_000, vendorBoundMs: 30_000 });
+    assert.equal(r.cutAtDeadline, 1, JSON.stringify(r));
+    assert.deepEqual(calls, [t.accs[0].id], 'the second account\'s call never started');
+    assert.equal((await t.sql`select count(*)::int as n from sync_read_marks where user_id = ${t.user.id}`)[0].n, 0, 'no marks for a cut');
+    assert.equal((await t.sql`select count(*)::int as n from broker_accounts where user_id = ${t.user.id} and activities_read_at is not null`)[0].n, 0);
+    // The next call (a whole budget, the next round) reads both accounts at once.
+    calls.length = 0;
+    wall = 2_000_000;
+    const r2 = await runShard({ shard, ids: [t.user.id], shiftMs: shiftAt(1), jitterMs: 0, config: cfg, log: () => {},
+      broker: { ...broker, fetchActivities: async (_u: unknown, _s: Date, ids?: string[]) => { calls.push(ids![0]); return []; } } as never,
+      clock: () => wall, routeEnd: wall + 300_000, vendorBoundMs: 30_000 });
+    assert.equal(r2.done, 1, JSON.stringify(r2));
+    assert.deepEqual(calls.sort(), t.accs.map((a) => a.id).sort());
+    await t.sql`delete from sync_shards where of = ${of}`;
+  } finally { await t.cleanup(); }
+});
+
+// Orchestrator review: last_synced_at (F-11's "Updated …") is the oldest real account's last activities read, never
+// "now" after a rebuild only an account-set change triggered.
+dbTest('review 6: a rebuild triggered by an account-set change keeps last_synced_at at the last activities read', async () => {
+  const t = await trader(2);
+  const { syncUser } = await import('./sync.ts');
+  try {
+    const broker = { listAccounts: async () => t.accs, fetchActivities: async () => [] };
+    await syncUser(t.user, broker as never, undefined, undefined, { cadence: true, shiftMs: shiftAt(0) });
+    const first = (await t.sql`select last_synced_at from users where id = ${t.user.id}`)[0].last_synced_at as Date;
+    assert.ok(Math.abs(first.getTime() - (base)) < 60_000, 'the read time on the (shifted) database clock');
+    // 3 h later the vendor lists one account fewer (an account-set change: rebuilt), but no activities are due.
+    await syncUser(t.user, { ...broker, listAccounts: async () => [t.accs[0]] } as never, undefined, undefined, { cadence: true, shiftMs: shiftAt(3) });
+    const after = (await t.sql`select last_synced_at from users where id = ${t.user.id}`)[0].last_synced_at as Date;
+    assert.equal(after.getTime(), first.getTime(), 'not advanced to now');
+  } finally { await t.cleanup(); }
+});

@@ -39,6 +39,9 @@ export function positionRows(rows: { accountId: string; symbol: string; pct: num
 // known: a SELL of that account and symbol imported since the position was last listed (the closed trade is then in
 // this transaction's rebuild), or the position unlisted for SETTLE_STALE_MS (a transfer out, no sell to wait for). A
 // vendor whose holdings update before its sell is posted no longer hides the loss until the next daily read.
+// ponytail: the closing SELL is matched by symbol, so a position under a renamed symbol (#40's renames and
+// reorganizations) or one re-listed under another symbol stays listed next to its closed trade for up to
+// SETTLE_STALE_MS — matching through lib/corporate-actions.ts's rename chain would remove it with its trade.
 export const SETTLE_STALE_MS = 3 * 86_400_000;
 export async function settleAccountPositions(tx: TransactionSql, userId: number, accountId: string, listed: OpenPosition[]) {
   if (listed.length) {

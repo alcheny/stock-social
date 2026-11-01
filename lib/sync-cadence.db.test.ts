@@ -543,8 +543,13 @@ dbTest('coverage: capRatio and capBreach from the hourly read counts, the oldest
     for (const l of lines) {
       assert.match(l, /^sync (coverage|round incomplete) \{/);
       assert.doesNotMatch(l, new RegExp(h.tag));
-      for (const id of h.ids) assert.doesNotMatch(l, new RegExp(`\\b${id}\\b`));
       const o = JSON.parse(l.slice(l.indexOf('{')));
+      // No identifier fields (orchestrator review: a bare-number match against the line flaked on a fresh database, where
+      // small user ids equal counters such as an hour count); with the value checks below, an id cannot be logged: there
+      // is no key that could carry one and no string value anywhere but the fixed problem texts.
+      const keys = (x: object): string[] => Object.entries(x).flatMap(([k, v]) => [k, ...(v && typeof v === 'object' && !Array.isArray(v) ? keys(v) : [])]);
+      for (const k of keys(o)) assert.doesNotMatch(k, /(^|_)id$|Id$|^ids?$|user|account(?!s$)|handle/i, k);
+      for (const p of (o.dbProblems ?? []) as string[]) for (const id of h.ids) assert.ok(!p.includes(String(id)), p);
       for (const [k, v] of Object.entries(o)) {
         if (k === 'dbProblems') assert.ok(Array.isArray(v) && v.every((p) => typeof p === 'string'));
         else if (k === 'db') assert.ok(Object.values(v as object).every((n) => typeof n === 'number'));

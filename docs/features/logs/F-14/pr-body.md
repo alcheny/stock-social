@@ -24,8 +24,10 @@ sync keeps each account within the vendor's guidance:
   - Null, future or pre-consent timestamps mean "read now". A future `connected_at` is ignored.
 - **Every successful vendor read** is also recorded after the transaction, whatever its outcome (`sync_read_marks`), so
   a sync that keeps failing reads activities at most every 6 h and positions within the same window.
-- **The rebuild** runs only after an activities read, or when the account set, a paper flag or a connection changed, so
-  `users.last_synced_at` (what F-11's freshness line reads) means "trades last read".
+- **The rebuild** runs only after an activities read, or when the account set, a paper flag or a connection changed.
+  `users.last_synced_at`, which F-11's "Updated …" line reads, is set to the oldest real account's last activities
+  read. It never becomes "now" after a change-only or partial rebuild. **F-11 depends on this.**
+- **A sync cut at the route's end** leaves no marks, so the next call reads at once.
 - **The shard runner** plans each trader's vendor budget from its due reads (`dueRequestsSql`); the metered broker pays
   any difference.
 - **Evidence:**
@@ -33,7 +35,7 @@ sync keeps each account within the vendor's guidance:
     `sync_read_counts`.
   - The coverage line adds `capRatio` (activities reads in 24 h ÷ accounts still read), `capBreach` above 1.05, the
     oldest activities and positions reads, and `freshnessAlarm` above 26 h and 18 h.
-- **Load:** about 1.4 vendor requests per trader-hour in steady state, against about 5.5 when every account is due. The
+- **Load (calculated from the caps, not measured):** about 1.4 vendor requests per trader-hour in steady state, against about 5.5 when every account is due. The
   40 × 6 plan in `docs/SYNC.md` stays sized for the all-due hour (the first deploy, after an outage, a reconnect wave).
 - **Without `cadence`** (`syncTick`, the existing tests), `syncUser` behaves exactly as before. Only the runner's
   production sync opts in.
@@ -77,9 +79,13 @@ The committee was the business lead, the engineer and a reliability reviewer, in
   disconnect check. Fix: throttle it if the vendor's written answer (MR-1) allows.
 - `lib/sync.ts`: the future-date quarantine is re-checked only when activities are read (about every 25 h), so a date
   the vendor corrects appears up to a day later. Fix: a nightly rebuild-only pass.
-- An account whose sync rolls back after its activities read can be read again after the 6 h floor, up to 4 times a day
-  (G2). The spec's "at most 1 activities call per 24 h" holds whenever syncs commit; the 48-round test asserts both
-  bounds.
+- **The committee-accepted exception to AC1:** an account whose sync rolls back after its activities read can be read
+  again after the 6 h floor, up to 4 times a day (G2). The spec's "at most 1 activities call per 24 h" holds whenever
+  syncs commit; the 48-round test asserts both bounds. `docs/features/F-14-sync-cadence.md` is protected, so this goes
+  to the owner to record there.
+- `lib/positions.ts`: the closing sell is matched by symbol, so a renamed or re-listed position can stay visible next to
+  its closed trade for up to 3 days. Fix: match through the rename chain in `lib/corporate-actions.ts`.
+- `lib/sync-shard.ts`: a queue page stops only when even an account-list-only trader would not fit (`requests <= 1`).
 - Positions can go about 12–17 h unread between the read an activities read forces and the next one (the own-clock
   rule leaves room for the forced read). The freshness alarm is set to 18 h accordingly.
 
@@ -103,7 +109,12 @@ The committee was the business lead, the engineer and a reliability reviewer, in
     - The business lead's reconnect condition.
     - Coverage: `capRatio`, `capBreach`, ages, alarms, a numbers-only log.
     - `dueSql` against the model in 300 random states.
-  - `lib/sync-cadence.review.test.ts` (4 DB tests): one regression test for each code-review fix.
+  - `lib/sync-cadence.review.test.ts` (6 DB tests): one regression test for each code-review fix, plus two from the
+    orchestrator's review: a cadence sync cut mid-read leaves no marks and is read in full by the next call;
+    `last_synced_at` is not advanced by a change-only rebuild.
+
+  The log-id assertion in the coverage test now checks the parsed object (no identifier keys, number or boolean values
+  only) instead of a bare-number match, which flaked on a fresh database where small user ids equal counters.
 
   Two existing runner tests were adapted to the new cadence, with the same intent:
   - `lib/sync-shard.test.ts` "failure isolation": the 403 step now runs when activities are due again (a day later).
