@@ -1,7 +1,7 @@
 'use server';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { endExclusion, exclude, follow as followTrader, traderId, unfollow as unfollowTrader } from '@/lib/follows.ts';
+import { endExclusion, exclude, follow as followTrader, followable, traderId, unfollow as unfollowTrader } from '@/lib/follows.ts';
 import { like, rejectTrade, undoRejectTrade, unlike } from '@/lib/likes.ts';
 
 // F-2 PR-2: follow, unfollow, "Not interested" and its Undo ("Show again" on /me/following is the same end). Signed in
@@ -23,7 +23,11 @@ const run = async (handle: unknown, fn: (v: number, t: number) => Promise<unknow
   return { ok: true, ...(r && typeof r === 'object' && 'first' in r ? { first: (r as { first: boolean }).first } : {}) };
 };
 
-export async function follow(handle: unknown): Promise<DiscoveryResult> { return run(handle, followTrader); }
+// F-7 (C16): a public-record filer is refused as invalid; "Not interested" still works on one.
+export async function follow(handle: unknown): Promise<DiscoveryResult> {
+  const t = await traderId(handle);
+  return t && !(await followable(t)) ? { ok: false, reason: 'invalid' } : run(handle, followTrader);
+}
 export async function unfollow(handle: unknown): Promise<DiscoveryResult> { return run(handle, unfollowTrader); }
 export async function notInterested(handle: unknown): Promise<DiscoveryResult> { return run(handle, (v, t) => exclude(v, t, 'not_interested')); }
 export async function undoNotInterested(handle: unknown): Promise<DiscoveryResult> { return run(handle, (v, t) => endExclusion(v, t)); }

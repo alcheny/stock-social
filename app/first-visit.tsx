@@ -4,12 +4,16 @@
 import Link from 'next/link';
 import type { FeedPage } from '@/lib/feed.ts';
 import { paneTrust } from '@/lib/pane.ts';
-import { FIRST_VISIT } from '@/lib/copy.ts';
+import { FIRST_VISIT, isPublicRecord } from '@/lib/copy.ts';
 import { Badge } from './ui.tsx';
 import { FirstVisitBox } from './first-visit-client.tsx';
 
 export function FirstVisit({ page }: { page: FeedPage }) {
   if (page.viewer || page.offset !== 0 || !page.cards.length) return null;
+  // F-13 decision (F-7 interface): "Verified trades, straight from the broker" is false for a public-filing record, so the
+  // line never shows on a page that holds one; new wording goes back to the idea board (D27), which the council may not set.
+  // ponytail: with F-7's launch switch on, signed-out page 1 shows no first-visit line at all — the idea board's wording for mixed feeds would bring it back.
+  if (page.cards.some((c) => isPublicRecord(page.records.get(c.user_id)?.state ?? 'none'))) return null;
   // The record-level rule F-10's strip badge uses (paneTrust over the trader's rows): a verified card from a demo record
   // still puts Demo beside the line (orchestrator review, blocking 1).
   const demo = page.cards.some((c) => paneTrust(page.byUser.get(c.user_id) ?? [c], page.records.get(c.user_id)?.state ?? 'connected').badge === 'demo');

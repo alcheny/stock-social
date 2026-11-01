@@ -85,7 +85,8 @@ export async function addTrader(owner: number, viewId: unknown, handle: unknown)
   const view = await getView(owner, viewId);
   if (!view) return { ok: false, reason: 'view' };
   const trader = await traderId(typeof handle === 'string' ? handle.trim().replace(/^@/, '').toLowerCase() : handle);
-  if (!trader) return { ok: false, reason: 'unknown' };
+  // F-7 (legal C21): public-filing records are never behind a paid feature, so a filer can't be added to a view.
+  if (!trader || (await sql`select 1 from users where id = ${trader} and public_filer_id is not null`).length) return { ok: false, reason: 'unknown' };
   if (view.traders.some((t) => t.id === trader)) return { ok: false, reason: 'duplicate' };
   if (view.traders.length >= MAX_TRADERS) return { ok: false, reason: 'full' };
   // E7: one add at a time per view, so two concurrent adds can never make a fifth trader.
@@ -156,7 +157,7 @@ export async function saveNote(owner: number, trader: unknown, rawBody: unknown)
   const body = typeof rawBody === 'string' ? rawBody.replace(/\r\n/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim() : '';
   if ([...body].length > NOTE_MAX) return 'too_long';
   // E7: a note is about a trader in one of the owner's views (or one already noted); never an arbitrary account id.
-  const [t] = await sql`select 1 from users u where u.id = ${id} and u.deleted_at is null and (
+  const [t] = await sql`select 1 from users u where u.id = ${id} and u.deleted_at is null and u.public_filer_id is null and (
     exists (select 1 from record_view_traders t join record_views v on v.id = t.view_id where v.owner_id = ${owner} and t.trader_id = ${id})
     or exists (select 1 from record_notes n where n.owner_id = ${owner} and n.trader_id = ${id}))`;
   if (!t) return 'unknown';
@@ -215,7 +216,7 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
   const show = complete && trades.length > 0;
   return {
     id: t.id, handle: t.handle, name: t.name, state,
-    badge: show ? trust.badge : null,
+    badge: show && (trust.badge === 'verified' || trust.badge === 'demo') ? trust.badge : null, // F-7: filers never reach a view
     isNew: show && isNewRecord(trades.map((x) => ({ openedAt: x.opened_at })), trades.length, now),
     since: complete && first ? first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null,
     connected: allVerified ? connectedLine(brokers, accounts) : 'Demo data',

@@ -5,6 +5,7 @@
 // it (until = now()) without deleting it, so a same-day feed cursor never changes (lib/discovery/exclusions.ts).
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
+import { filerVisibleSql } from './public-gate.ts';
 import { EXCLUSION_DAYS, FEED_HIDES_UNFOLLOWED } from './discovery/weights.ts';
 import type { ExclusionRow } from './discovery/exclusions.ts';
 
@@ -20,9 +21,14 @@ export async function traderId(handle: unknown): Promise<number | null> {
 
 // `first`: this viewer has never been shown the privacy line (a flag on the viewer, set once: fix round 1, tester
 // Low 3; an empty list after unfollowing everyone does not bring it back).
+// F-7 (legal C16): a public-record filer can't be followed; `followable` lets the action refuse it, and the insert
+// itself skips one.
+export async function followable(trader: number): Promise<boolean> {
+  return (await sql`select 1 from users where id = ${trader} and public_filer_id is null`).length > 0;
+}
 export async function follow(viewer: number, trader: number): Promise<{ first: boolean }> {
   return sql.begin(async (tx) => {
-    await tx`insert into follows (viewer_id, trader_id) values (${viewer}, ${trader}) on conflict do nothing`;
+    await tx`insert into follows (viewer_id, trader_id) select ${viewer}, ${trader} where not exists (select 1 from users where id = ${trader} and public_filer_id is not null) on conflict do nothing`;
     await endExclusion(viewer, trader, tx);
     const seen = await tx`update users set follow_notice_at = now() where id = ${viewer} and follow_notice_at is null returning 1`;
     return { first: seen.length > 0 };
@@ -86,7 +92,7 @@ export async function ownLists(viewer: number): Promise<{ following: Listed[]; h
   const [following, hidden] = await Promise.all([
     sql`select u.handle, u.display_name from follows f join users u on u.id = f.trader_id and u.deleted_at is null
       where f.viewer_id = ${viewer} order by f.created_at desc`,
-    sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
+    sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
       where x.viewer_id = ${viewer} and x.until > now() and (x.reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean) order by x.created_at desc`,
   ]);
   const listed = (r: Record<string, unknown>): Listed => ({ handle: r.handle as string, name: r.display_name as string, ...(r.until ? { until: r.until as Date } : {}) });
@@ -116,7 +122,7 @@ export async function unfollowsFor(viewer: number): Promise<{ trader: number; at
 // interested" rows that ran their 90 days on their own. No longer applied, still stored; "Remove" deletes one.
 // ponytail: one unpaged list (every expired hide of the viewer) — page it like /me/likes if a viewer collects thousands.
 export async function expiredHides(viewer: number): Promise<Listed[]> {
-  const rows = await sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
+  const rows = await sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
     where x.viewer_id = ${viewer} and x.reason = 'not_interested' and x.ended_at is null and x.until <= now() order by x.until desc`;
   return rows.map((r) => ({ handle: r.handle as string, name: r.display_name as string, until: r.until as Date }));
 }

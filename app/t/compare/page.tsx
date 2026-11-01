@@ -20,7 +20,7 @@ async function load(searchParams: Props['searchParams']) {
   if (parsed.kind !== 'ok') return { parsed };
   const rows = (await sql`
     select t.user_id, t.symbol, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
-    from closed_trades t where t.symbol in (${parsed.a}, ${parsed.b})`) as unknown as (TradeRow & { symbol: string })[];
+    from closed_trades t where t.symbol in (${parsed.a}, ${parsed.b}) and t.filing_url is null`) as unknown as (TradeRow & { symbol: string })[];
   const side = (s: string): TickerRow[] => rows.filter((r) => r.symbol === s).map(toTicker);
   return { parsed, compare: compareTickers(side(parsed.a), side(parsed.b), new Date()), open: await symbolOpen(parsed.a, parsed.b) };
 }

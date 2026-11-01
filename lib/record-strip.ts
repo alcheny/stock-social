@@ -4,7 +4,7 @@
 // Pure, except the bounded per-trader memo the feed uses (feedStrips).
 import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { headline, pct, type ConfidenceInput, type Tier } from './trades.ts';
-import { imageLabel, RECORD_BODY, RECORD_STRIP, SHARE_CARD, shareCardText, WHOLE_RECORD, type RecordState } from './copy.ts';
+import { imageLabel, isPublicRecord, PUBLIC, RECORD_BODY, RECORD_STRIP, SHARE_CARD, shareCardText, WHOLE_RECORD, type RecordState } from './copy.ts';
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
 
@@ -79,7 +79,7 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
   const t = shareCardText({ state: i.state, demo: i.demo, verified: i.verified, empty: i.evidence.n === 0 });
   const label = full && t.label ? { text: imageLabel(t.label)!, tone: (t.tone === 'warn' ? 'warn' : t.tone === 'ok' ? 'ok' : 'muted') as StripTone } : null;
   const importing = !i.demo && i.state === 'importing';
-  const note = full && !i.demo && i.state === 'failed' ? RECORD_BODY.failed : null;
+  const note = full && !i.demo && i.state === 'failed' ? RECORD_BODY.failed : surface === 'image' && isPublicRecord(i.state) ? PUBLIC.imageLine : null; // F-7: images carry the not-joined line
   const tooEarly = i.evidence.tier === 'too-early' || !i.evidence.perTrade;
   const figures: StripPart[] = [];
   const altParts: string[] = [];
@@ -178,7 +178,7 @@ export function stripImageLines(s: Strip, o: { handle: string; newRecord: boolea
     const tail = s.figures.filter((p) => p.role === 'losses' || p.role === 'open').map((p) => p.text).join(' · ');
     if (tail) L.push({ role: 'losses', text: tail, size: Math.max(STRIP_BAND.minPx, fitPx(tail, 30)), tone: 'muted', weight: 400 });
   }
-  if (s.note) for (const [k, part] of noteLines(s.note).entries()) L.push({ role: `note${k}`, text: part, size: STRIP_BAND.minPx, tone: 'warn', weight: 400 });
+  if (s.note) for (const [k, part] of noteLines(s.note).entries()) L.push({ role: `note${k}`, text: part, size: STRIP_BAND.minPx, tone: s.note === PUBLIC.imageLine ? 'muted' : 'warn', weight: 400 });
   for (const [k, d] of DISCLAIMER_LINES.entries()) L.push({ role: `disclaimer${k}`, text: d, size: STRIP_BAND.minPx, tone: 'muted', weight: 400 });
   return L;
 }
