@@ -1,7 +1,6 @@
 # F-24 · Late-posted trades reach the record (insert-only reconciliation)
 
-Status: blocked
-Blocked: waits for F-14 (sync cadence, PR #64, `claude/f14-sync-cadence`, rewrites `syncUser` and owns the per-account read limit)
+Status: built
 Start conditions: F-14 (PR #64) merges. Shares one build slot (the ledger slot) with F-22; whichever starts second merges
 `main` first.
 
@@ -93,3 +92,4 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
 ## Rework notes
 
 ## Build log
+- 2026-11-01: Built on `claude/f24-late-postings` after F-14 merged (#64, 44a134b): `lib/reconcile.ts`, the pass and re-issue steps in `lib/sync.ts#syncUser`, the hold in `rebuildTrades`, the close-change count in `rebuildRecord`, `importStep`'s twin check, schema (additive), `docs/SYNC.md` "Late postings (F-24)". Committee, QA and review record: `docs/features/logs/F-24/committee-2026-11-01.md`. No `lib/broker.ts` edit, no dependency.

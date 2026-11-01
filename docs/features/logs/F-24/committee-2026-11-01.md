@@ -91,4 +91,35 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
 7. Option twins counted, not held (owner item); TR-4 via `pagedIds`; "Updated" via F-14's `midBackfill`.
 
 ## Build, QA and review
-(appended below as they happen)
+- **Tests first, by three engineers in parallel** (fresh contexts, one file set each): AC1–AC4
+  `lib/sync-reconcile.db.test.ts` (in-memory vendor and the vendor fake over HTTP), AC5/AC6
+  `lib/sync-reconcile.log.test.ts` and `lib/sync-reconcile.reissue.test.ts`, AC7 `lib/sync-reconcile.copy.test.ts` and
+  `e2e/f24-found-close.spec.ts` (360 px), TR-4 page day in `lib/sync-cadence.tr4.test.ts`. They found two bugs, both fixed:
+  - a pass's decided states wrote no `sync reissues` line;
+  - a first page that kept failing was never given up.
+- **Independent code review** (fresh context): two blocking findings, fixed with regression tests
+  (`lib/sync-reconcile.review.test.ts`, each failing on the pre-fix commit):
+  - the overlap check took its tail from share and unusable ids out of vendor order, so options or unusable rows made
+    every multi-page pass invalid. Fix: count shared ids across every vendor row kind;
+  - the page bound counted share rows only. Fix: count option and unusable rows too.
+  Four non-blocking findings were also fixed:
+  - an ended or given-up pass was pulled forward by its own held rows;
+  - rows found by a page were missing from the log count;
+  - outage codes counted as page failures;
+  - `reconcile_missing` was not cleared on retention.
+  The stagger now uses UTC days.
+- **Tester QA loop:** no blocking defects. Fixed:
+  - D1: a re-issue among identical genuine fills was published three times. A row is now genuine only when every unheld
+    twin is listed.
+  - D2: a held row the vendor stops listing stayed pending forever. A complete pass now marks it suspected.
+  - D7: held rows made a pass short.
+  - D5: the twin lookup planned quadratically before an analyze. The new rows are now materialized first.
+  Each has a regression test, (j)–(l). Heavy use: about +20–40 ms per sync for a 5,000-activity trader, within noise
+  next to the rebuild.
+- **UX lead, 360 px:** PASS. A found close renders exactly like any close (same markup and classes, thesis attached,
+  loss shown); the diff touches no `app/` file.
+- **Business lead:** first verdict CHANGES REQUIRED:
+  - the `firstDue` floor could be due up to a day early (flaky, 3 of 18 runs);
+  - the SYNC.md definitions did not match the code;
+  - a ponytail was needed for symbol-less vendor rows.
+  All three were fixed. Then PASS: the stagger test ran 30 times without a failure.
