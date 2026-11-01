@@ -1,4 +1,6 @@
 'use server';
+import { writeShareAction } from '@/lib/share-actions.ts';
+import { logSafe } from '@/lib/privacy-log.ts';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
@@ -97,6 +99,17 @@ export async function recordTradesPromptAction(action: TradesPromptAction) {
     where id = ${user.id} and (trades_prompt_action is null or (trades_prompt_action = 'dismissed' and ${action} = 'opened'))`;
   await sql`update users set trades_prompt_seen_at = now() where id = ${user.id}`;
   revalidatePath(`/u/${user.handle}`);
+}
+
+// F-15 second half: one share row for the session user's own completed share (lib/share-actions.ts checks the
+// path is the user's own record). Fire-and-forget from the share controls: it never throws to the page.
+export async function recordShareAction(path: string, how: 'copied' | 'shared', picture: boolean) {
+  try {
+    const user = await currentUser();
+    if (user) await writeShareAction({ id: user.id, handle: user.handle }, path, how, picture);
+  } catch (e) {
+    console.error('share action failed', logSafe(e));
+  }
 }
 
 export async function recordTradeShared() {

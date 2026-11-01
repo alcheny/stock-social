@@ -10,11 +10,13 @@
 //     connections (a signed-in account's connections stay: they drive its record's state, TR-3);
 //   - likes and rejected trades whose trade has been gone for 30 days (marked when first seen gone, unmarked if the
 //     trade comes back). Preference data with a live trade is never removed on a timer (owner, 2026-11-01);
-//   - F-15: aggregate view counts (view_rollup, view_drops) older than VIEW_RETENTION_DAYS (lib/views.ts).
+//   - F-15: aggregate view counts (view_rollup, view_drops) older than VIEW_RETENTION_DAYS (lib/views.ts);
+//   - F-15 second half: share_action rows older than SHARE_RETENTION_DAYS (lib/share-actions.ts).
 // Account deletion is separate and removes everything (lib/delete.ts).
 import type { ReservedSql } from 'postgres';
 import { sql } from './db.ts';
 import { VIEW_RETENTION_DAYS } from './views.ts'; // F-15
+import { SHARE_RETENTION_DAYS } from './share-actions.ts'; // F-15 second half
 // OPTIONS (docs/features/logs/options/plan.md D7, L8): option contract symbols (they carry the strike) never stay in the
 // public open_positions table, a frozen trader's included. The option tables themselves go with the account (cascade).
 import { purgeOccPositions } from './options-sync.ts';
@@ -31,11 +33,12 @@ export type PrivacyPurgeReport = {
   ran: boolean; done: boolean;
   sessions: number; links: number; attempts: number; orphansMarked: number; orphansCleared: number; likes: number; rejects: number;
   views: number; // F-15: view_rollup and view_drops rows past VIEW_RETENTION_DAYS
+  shares: number; // F-15 second half: share_action rows past SHARE_RETENTION_DAYS
   occPositions?: number; // OPTIONS
 };
 
 // `now`, `only` and `hold` are test hooks (a test runs the dated steps at a past `now`, so other tests' rows are untouched).
-export type PurgeStep = 'sessions' | 'links' | 'attempts' | 'orphans' | 'views';
+export type PurgeStep = 'sessions' | 'links' | 'attempts' | 'orphans' | 'views' | 'shares';
 type Opts = { boxMs?: number; batch?: number; clock?: () => number; hold?: () => Promise<void>; now?: Date; only?: PurgeStep[] };
 
 export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport> {
@@ -45,7 +48,7 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
   const now = opts.now ?? new Date();
   // The statement timeout of an orphan batch runs on the wall clock (the `clock` hook may be a test's counter).
   const wallEnd = Date.now() + Math.min(opts.boxMs ?? PRIVACY_PURGE_BOX_MS, PRIVACY_PURGE_BOX_MS);
-  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, views: 0, /* OPTIONS */ occPositions: 0 };
+  const r: PrivacyPurgeReport = { ran: false, done: false, sessions: 0, links: 0, attempts: 0, orphansMarked: 0, orphansCleared: 0, likes: 0, rejects: 0, views: 0, shares: 0, /* OPTIONS */ occPositions: 0 };
   const conn = await sql.reserve();
   try {
     const [{ got }] = await conn`select pg_try_advisory_lock(${PRIVACY_PURGE_LOCK}, 0) as got`;
@@ -88,8 +91,11 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
           select ctid from view_rollup where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count],
         ['views', async () => (await conn`delete from view_drops where ctid in (
           select ctid from view_drops where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count],
+        // F-15 second half: share_action rows older than the bound (UTC days; the edge day is kept).
+        ['shares', async () => (await conn`delete from share_action where ctid in (
+          select ctid from share_action where day < (${now}::timestamptz at time zone 'utc')::date - ${SHARE_RETENTION_DAYS}::int limit ${batch})`).count],
       ];
-      const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' || k === 'views' ? k : k === 'occPositions' ? 'attempts' : 'orphans');
+      const stepOf = (k: keyof PrivacyPurgeReport): PurgeStep => (k === 'sessions' || k === 'links' || k === 'attempts' || k === 'views' || k === 'shares' ? k : k === 'occPositions' ? 'attempts' : 'orphans');
       for (const [key, step] of steps) {
         if (opts.only && !opts.only.includes(stepOf(key))) continue;
         let marked = 0;

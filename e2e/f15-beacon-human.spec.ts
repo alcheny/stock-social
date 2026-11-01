@@ -95,3 +95,30 @@ test('landing on an uncounted page from another site, then opening a profile, co
   await expect.poll(() => seen.length, { timeout: 8_000 }).toBe(1);
   expect(seen[0].body).toEqual({ path: `/u/${HANDLE}`, ref: 'internal', auto: false });
 });
+
+test('the layout mount: one beacon per counted page across first-segment changes (/u/a → /t → /u/b), none for /t', async ({ page }) => {
+  const seen = watch(page);
+  await page.goto(`/u/${HANDLE}`);
+  await expect.poll(() => seen.length, { timeout: 8_000 }).toBe(1);
+  const push = (to: string) => page.evaluate((u) => (window as unknown as { next: { router: { push(u: string): void } } }).next.router.push(u), to);
+  await push('/t');
+  await expect(page).toHaveURL(/\/t$/);
+  await page.waitForTimeout(2_500);
+  expect(seen.length).toBe(1); // the stock index is not a counted surface
+  await push('/u/dividend_dan');
+  await expect(page).toHaveURL(/\/u\/dividend_dan$/);
+  await expect.poll(() => seen.length, { timeout: 8_000 }).toBe(2);
+  await page.waitForTimeout(2_500);
+  expect(seen.map((s) => s.body.path)).toEqual([`/u/${HANDLE}`, '/u/dividend_dan']);
+});
+
+test('the layout mount adds no focusable element: the first Tab lands on the skip link, and the focus order is unchanged by the beacon', async ({ page }) => {
+  await page.goto(`/u/${HANDLE}`);
+  const order = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => !el.hasAttribute('disabled')).map((el) => `${el.tagName}:${el.getAttribute('href') ?? el.textContent?.trim().slice(0, 20)}`));
+  const before = await order();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement?.className)).toContain('skip-link');
+  await page.waitForTimeout(2_600); // the beacon has fired
+  expect(await order()).toEqual(before);
+});

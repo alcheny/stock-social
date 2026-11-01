@@ -176,12 +176,8 @@ export async function checkoutOpen(userId: number): Promise<boolean> {
   return !!u && connectAllowed({ id: u.id as number, handle: u.handle as string });
 }
 
-// D10: return URLs come from the configured site URL, never a request's Host header.
-export function siteOrigin(env: Record<string, string | undefined> = process.env): string {
-  const site = env.NEXT_PUBLIC_SITE_URL?.trim();
-  const vercel = env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  return (site || (vercel ? (/^https?:\/\//.test(vercel) ? vercel : `https://${vercel}`) : 'http://localhost:3000')).replace(/\/+$/, '');
-}
+// D10: return URLs come from the configured site URL, never a request's Host header (moved to lib/site.ts, F-15).
+export { siteOrigin } from './site.ts';
 
 // Hosted checkout. `disclosure` is the full text shown above the button, which the consent record hashes (condition 16).
 export async function startCheckout(i: { userId: number; plan: Plan; agreed: boolean; disclosure: string; origin: string }): Promise<string> {

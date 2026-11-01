@@ -1,5 +1,5 @@
 'use client';
-import { markShareImageSaved } from '../../actions.ts';
+import { markShareImageSaved, recordShareAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
 
 const best = (p: Promise<unknown>) => p.catch((e) => console.error('share record failed', e));
@@ -13,10 +13,12 @@ export function ShareCard({ handle, recapYm, recapLabel }: { handle: string; rec
       <p className="muted small" style={{ margin: 0 }}>Percentages only, losses included. Never sizes, prices or balances.</p>
       <div className="actions">
         <ShareButton url={`/u/${handle}`} title={`@${handle} on Stock Social`} label="Share my record"
-          image={`/u/${handle}/story?format=square`} onShared={() => best(markShareImageSaved())} />
+          image={`/u/${handle}/story?format=square`}
+          onShared={(how, picture) => { best(markShareImageSaved()); best(recordShareAction(`/u/${handle}`, how, picture)); }} />
         {recapYm && recapLabel && (
           <ShareButton className="secondary" url={`/u/${handle}/month/${recapYm}`} title={`${recapLabel} · @${handle} on Stock Social`}
-            label={`Share ${recapLabel.split(' ')[0]} recap`} />
+            label={`Share ${recapLabel.split(' ')[0]} recap`}
+            onShared={(how) => best(recordShareAction(`/u/${handle}/month/${recapYm}`, how, false))} />
         )}
       </div>
     </section>

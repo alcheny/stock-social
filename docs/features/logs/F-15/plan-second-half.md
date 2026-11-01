@@ -153,3 +153,59 @@ None: no dependency, vendor, font, secret, protected path or counsel item beyond
 - `sheet` means the sheet resolved, not that anything was posted; `copy` means copied, not pasted (stated in the readout).
 - Viewers' shares are not measured (by design); next step: only with F-2's opt-in log.
 - Canonical uses the configured origin; a preview deploy without `NEXT_PUBLIC_SITE_URL` points at production.
+
+## Round 2 revisions (orchestrator, after business lead BL1-BL7 and engineer EN1-EN12)
+Every demand is accepted; where the two differ, the choice is stated.
+1. **UTC day (BL1, EN2).** `day` is written explicitly as `(now() at time zone 'utc')::date` in the insert and in the
+   cap's count; no column default is relied on; the purge bound uses `(${now} at time zone 'utc')::date`. S1/S7 run with
+   the session at a non-UTC time zone.
+2. **No `format` column (BL2).** It is a function of the surface (story = profile picture; card = profile link;
+   trade/month = link). Columns: `user_id, day, surface, outcome, record_sign`. `onShared` gains the picture flag only
+   to choose `story` vs `card`; the server derives the surface from the path shape and the flag; a picture flag off the
+   profile writes nothing. The readout's "picture" row reads `surface = 'story'`.
+3. **Disjoint G2 cells (BL3, EN7).** G2 is built from disjoint per-trader base cells on the strict-G1 denominator:
+   (profile-surface sharer, other-surface-only sharer, non-sharer) and (sheet only, copy only, both, none) and (shared
+   with the record down, not), run through the readout's existing suppression; a printed row is a sum of visible cells
+   or "≥ n"/"(s)"; when G1 prints "<5" every G2 cell is "(s)". The "trade or month only" row is dropped. S12 adds the
+   12/10/12, 12/9/8 and 12/9/11 cases: no cell under 5 is derivable.
+4. **Sign = what the profile shows (BL4, EN5).** One helper `recordSign(userId)` in `lib/share-actions.ts`:
+   `select avg(return_pct), count(*) from closed_trades where user_id = $1` (the same rows the profile's `stats()`
+   reads) and `publicRecordDetail(userId).public.state`; `none` for 0 trades, `importing` or `failed`; else
+   `tone(avg)` (digits 1, as the headline). Chosen over editing the profile render (EN5: no change to a file other builds
+   edit). S6 db: equals `tone(stats(rows).avgReturn)` on the three demo profiles, an all-loss and a flat-after-rounding
+   fixture, and `none` in the importing/failed/no-trade states.
+5. **Fire and forget (BL5).** `onShared` calls the action with `void ….catch(() => {})`, never awaited before "Link
+   copied" or the sheet closing. e2e: with the action failing (DB write refused), the live region still says "Link
+   copied", no error UI, page usable.
+6. **Owner match and path (BL6, EN4, EN1).** One anchored regex after stripping `?…`/`#…`:
+   `^/u/([a-z0-9_]{3,20})(?:/trade/[^/]+|/month/\d{4}-(0[1-9]|1[0-2]))?$`, no trailing slash, no `..`; the handle must
+   equal the session user's stored handle exactly (the profile route matches exactly: a case variant is a 404, first-half
+   QA fix); the session user must be non-deleted (joined in the insert: `and u.deleted_at is null`) and not a demo user
+   (no demo row is ever written). The client gate stays (`isOwner` decides whether to call). S5 unit cases: uppercase,
+   percent-encoded, trailing slash, `/u/a/../b`, another trader's handle, `?via=` suffix, demo session, marked user.
+7. **Cap without a race (EN3).** The insert runs in `sql.begin` behind `pg_advisory_xact_lock(15, userId)` (namespace 15,
+   unused: USER_LOCK 1, ATTEMPT_LOCK 2, PURGE_LOCK 3, PRIVACY 41), count then insert. S7: 25 concurrent actions → 20 rows.
+   The race ponytail is removed.
+8. **Old columns (EN6).** Byte-for-byte: the month page now passes the real `isOwner` for the new row, and `TradeShare`
+   calls `recordTradeShared` only on a trade page (a `kind` prop), so `trade_shared_at` keeps meaning a trade share.
+9. **Deletion wording (EN1).** `deleteProfile` hard-deletes the users row, so the cascade fires; the explicit delete in
+   the mark transaction covers the window between the mark and the users row going (vendor retry).
+10. **Canonical (EN8, EN9, BL7).** `siteOrigin` moves to `lib/site.ts` (billing re-exports it, unit test: identical
+    outputs); the layout imports only `lib/site.ts` (isolation test: no billing import). Preview deploys: og/twitter
+    image URLs resolve to the production origin — stated as a known limit (billing's return URLs unchanged). The trade
+    canonical uses the stored sell id from the loaded row through the same helper that builds the trade share link
+    (`tradePath(handle, sellId)` in `lib/share.ts`, used by both); C1: canonical = shared link minus `?via=`, and an
+    over-encoded request gives the same canonical.
+11. **Isolation allow-list (EN10).** Names `share_action` only in: `lib/share-actions.ts`, `lib/privacy-purge.ts`,
+    `lib/delete.ts`, `lib/privacy-retention.ts`, `scripts/f15-readout.ts`, `db/schema.sql`, tests; any `app/**` file
+    naming it fails (the action calls the lib, it never names the table).
+12. **CI (EN11).** Schema block uses `create table if not exists` + `schema_add_index`; no drop/truncate/delete. The
+    template and `G2_TEXT` assertions are replaced in place. None of the touched files is in `.github/CODEOWNERS`
+    (checked: layout, purge, delete, schema, actions, pages). No dependency.
+13. **B1 case 3 (EN12).** Counted with a request counter, not timing.
+
+## Sign-off (round 2)
+- Business lead: SIGN (note taken: the path regex comments point at the handle rule in `lib/follows.ts`).
+- Engineer: SIGN (nits taken: `SHARE_ACTION_LOCK = 15` with all six namespaces listed; `TradeShare` `kind` is a closed
+  union with no default).
+- UX lead: plan author; no screen change.

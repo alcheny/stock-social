@@ -7,6 +7,7 @@ import { pct } from '@/lib/trades.ts';
 import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
 import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { toneClass } from '@/lib/open-split.ts';
+import { tradePath } from '@/lib/share.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { tradeAlt, tradeDescription, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
@@ -39,6 +40,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const url = `/u/${t.handle}/trade/${encodeURIComponent(sellId)}/opengraph-image`;
   return {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
+    alternates: { canonical: tradePath(t.handle, decodeSellId(sellId)!) }, // F-15 second half: the share link's spelling, untagged
     description: tradeDescription(t, strip),
     openGraph: { images: [{ url, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
     ...(isPublicRecord(t.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
@@ -49,7 +51,8 @@ export default async function TradePage({ params }: Params) {
   const t = await load(params);
   if (!t) notFound();
   const me = await currentUser();
-  const path = `/u/${t.handle}/trade/${encodeURIComponent((await params).sellId)}`;
+  // F-15 second half: the matched sell id's one spelling (lib/share.ts#tradePath), the same as the canonical link.
+  const path = tradePath(t.handle, decodeSellId((await params).sellId)!);
   const closed = new Date(t.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   const whole = wholeRecordView({ state: t.state, demo: t.demo });
   const strip = recordStrip(tradeStripInput(t), 'page');
@@ -81,7 +84,7 @@ export default async function TradePage({ params }: Params) {
           <RecordStrip strip={strip} />
         </section>
       </div>
-      <TradeShare isOwner={me !== null && me.handle === t.handle} path={path} title={`${t.symbol} ${pct(t.returnPct)} · @${t.handle} on Stock Social`} />
+      <TradeShare kind="trade" isOwner={me !== null && me.handle === t.handle} path={path} title={`${t.symbol} ${pct(t.returnPct)} · @${t.handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
       {!me && !t.demo && !t.filings && <JoinCta handle={t.handle} via="trade" />}
       <p><Link href="/">← Feed</Link></p>

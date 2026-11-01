@@ -9,9 +9,12 @@ import { FOOTER, NAV, verifiedMeansFooter } from '@/lib/copy.ts';
 import { SEEN_SCRIPT } from '@/lib/device-flag.ts';
 // F-15: the first-party view beacon (renders nothing; app/view-beacon.tsx).
 import { ViewBeacon } from './view-beacon.tsx';
+import { siteOrigin } from '@/lib/site.ts';
 import './globals.css';
 
 export const metadata: Metadata = {
+  // F-15 second half: canonical links (and image URLs) resolve against the configured public origin, never a Host header.
+  metadataBase: new URL(siteOrigin()),
   title: 'Stock Social',
   description: 'Verified trades, straight from the broker. Losses included.',
 };

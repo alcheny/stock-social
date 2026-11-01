@@ -45,3 +45,15 @@ test('F-15: the beacon is mounted once, in app/layout.tsx (F-13 merged); the roo
     assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), /<ViewBeacon\b/, f);
   }
 });
+
+test('F-15 second half: share_action is named only by its writer, the purge, deletion, the privacy map, the readout and the schema', () => {
+  const allowed = new Set(['lib/share-actions.ts', 'lib/privacy-purge.ts', 'lib/delete.ts', 'lib/privacy-retention.ts', 'scripts/f15-readout.ts']);
+  for (const f of [...files('lib'), ...files('app'), ...files('scripts')].filter((f) => !/\.test\.ts$/.test(f))) {
+    if (/\bshare_action\b/.test(readFileSync(join(root, f), 'utf8'))) assert.ok(allowed.has(f), f);
+  }
+  for (const f of files('app')) assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), /\bshare_action\b/, f);
+  // The pages reach it only through the one server action; no page, feed or ordering code imports the writer.
+  for (const f of [...files('app').filter((f) => f !== join('app', 'actions.ts')), 'lib/feed.ts']) {
+    assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), /share-actions(\.ts)?['"]/, f);
+  }
+});
