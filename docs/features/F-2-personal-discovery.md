@@ -66,6 +66,11 @@ advice. The owner has been told this and the scope below respects it.
 - 2026-11-01: Viewers also get "Personalize my feed: Off": with it off, ordering ignores follows, likes and
   activity and falls back to the order everyone gets, minus the viewer's own hides. Why: the owner adopted the
   legal committee's recommendation; it is cheap and strengthens the legal position.
+- 2026-11-01: User preference data (follows, likes, hidden traders, swiped-away trades, "Not interested",
+  watchlist, and the activity log when on) is stored indefinitely, until the viewer removes it or deletes the
+  account; nothing is deleted on a timer. How long a choice affects ordering is unchanged (the 90-day fading
+  window and the 90-day "Not interested" effect). The Privacy Policy says exactly this. Why: the owner's
+  decision.
 - 2026-11-01: F-2 is ready again: the pipeline builds PR-5 (behavior-based ordering) and PR-6 with the legal
   committee's conditions as acceptance criteria, its findings standing in for counsel's opinion (POLICY, owner
   decision 2026-11-01). Real viewers still wait for the Privacy Policy (H4). PR-1 to PR-4 and PR-3b are merged.
