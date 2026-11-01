@@ -135,5 +135,5 @@ test('review: the stock image counts closed trades of live traders only (the sha
   const q = s.slice(s.indexOf('from closed_trades'), s.indexOf('as unknown as'));
   // Cycle 2 fix #4: the rule is lib/visible-users.ts (deleted_at is null, extended by F-16), read through visibleUser('u').
   assert.match(q, /join users u on u\.id = t\.user_id and \$\{visibleUser\('u'\)\}/);
-  assert.match(read('lib/visible-users.ts'), /deleted_at is null/);
+  assert.match(code(read('lib/visible-users.ts')), /deleted_at is null/); // code only: a comment can't keep it passing
 });

@@ -63,15 +63,32 @@ test('fix #11: no "pick" or "signal" in compare copy or /me/record (POLICY F1a)'
   assert.doesNotMatch(copy, /\b(pick|signal)/i);
 });
 
-// Printed figures only: a class chosen by comparing a value with 0 ("x > 0 ? 'up'", "x < 0 ? 'down' : 'up'") instead of
-// toneClass. Chart marks that print no number (Spread.tsx dot fills) are not figures and use CSS variables, not classes.
+// Printed figures only: a class chosen by comparing a value with 0 instead of toneClass, with either answer first and
+// either side of 0, in any quoting or layout. Chart marks that print no number (Spread.tsx dot fills) are not figures
+// and use CSS variables, not up/down classes. Comments and all whitespace are removed before matching.
+const compact = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1').replace(/\s+/g, '');
+const ZERO = String.raw`0(?:\.0+)?(?![\d.])`;
+const Q = `["'\`]`;
+const OPERAND = String.raw`[\w.!()\[\]]+`;
+const SIGN_CLASS = new RegExp([
+  String.raw`[<>]=?${ZERO}\?${Q}(?:up|down)${Q}`, // x > 0 ? 'up'
+  String.raw`(?<![\w.])${ZERO}[<>]=?${OPERAND}\?${Q}(?:up|down)${Q}`, // 0 < x ? 'up'
+  String.raw`\?${Q}(?:up|down)${Q}:${Q}(?:up|down)${Q}`, // … ? 'down' : 'up'
+  String.raw`[{,](?:up|down):${OPERAND}[<>]=?${ZERO}`, // { up: x > 0 }
+  String.raw`[{,](?:up|down):(?<![\w.])${ZERO}[<>]`, // { up: 0 < x }
+].join('|'));
 test('fix #19: no printed figure on a stock surface picks its up/down class by comparing with zero', () => {
   const files = walk(`${root}app/t`).filter((f) => f.endsWith('.tsx'));
   assert.ok(files.length > 5);
-  const bad = /[<>]=? ?0 \? ["'](up|down)["']|\? ["'](up|down)["'] : ["'](up|down)["']/;
-  for (const f of files) assert.doesNotMatch(readFileSync(f, 'utf8'), bad, relative(root, f));
-  assert.match("x > 0 ? 'up' : 'down'", bad); // the check itself catches both orders
-  assert.match('x < 0 ? "down" : "up"', bad);
+  for (const f of files) assert.doesNotMatch(compact(readFileSync(f, 'utf8')), SIGN_CLASS, relative(root, f));
+  // The scan itself catches every form (review of #92).
+  for (const form of [
+    "x > 0 ? 'up' : 'down'", 'x < 0 ? "down" : "up"', "0 < b.avgReturn! ? 'up' : 0 > b.avgReturn! ? 'down' : undefined",
+    "x > 0? 'up'", "x>0?'up'", "x > 0\n  ? 'up'\n  : undefined", "x > 0.0 ? 'up' : undefined", 'x >= 0 ? `up` : `down`',
+    "s.avgReturn! < 0 ? 'down' : undefined", '{ up: x > 0, down: x < 0 }', '{ down: 0 > x }',
+  ]) assert.match(compact(form), SIGN_CLASS, form);
+  // …and does not flag toneClass, other numbers or prose.
+  for (const ok of ["className={toneClass(x)}", "n > 10 ? 'up' : null", "x > 0.5 ? 'many' : 'few'", "// x > 0 ? 'up'"]) assert.doesNotMatch(compact(ok), SIGN_CLASS, ok);
 });
 
 test('fix #19: a flat figure is uncolored on /me/likes and /me/record', async () => {
