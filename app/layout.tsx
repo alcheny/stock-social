@@ -9,7 +9,7 @@ import { FOOTER, NAV, verifiedMeansFooter } from '@/lib/copy.ts';
 import { SEEN_SCRIPT } from '@/lib/device-flag.ts';
 // F-15: the first-party view beacon (renders nothing; app/view-beacon.tsx).
 import { ViewBeacon } from './view-beacon.tsx';
-import { siteOrigin } from '@/lib/site.ts';
+import { siteOrigin } from '@/lib/site-origin.ts';
 import './globals.css';
 
 // An unparseable configured origin must never take every page down: no base then (relative URLs resolve per request).

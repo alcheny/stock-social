@@ -176,8 +176,9 @@ export async function checkoutOpen(userId: number): Promise<boolean> {
   return !!u && connectAllowed({ id: u.id as number, handle: u.handle as string });
 }
 
-// D10: return URLs come from the configured site URL, never a request's Host header (moved to lib/site.ts, F-15).
-export { siteOrigin } from './site.ts';
+// D10: return URLs come from the configured site URL, never a request's Host header. CHORES-3: the rule lives in
+// lib/site-origin.ts (shared with the feed's link preview); re-exported here for billing's callers.
+export { siteOrigin } from './site-origin.ts';
 
 // Hosted checkout. `disclosure` is the full text shown above the button, which the consent record hashes (condition 16).
 export async function startCheckout(i: { userId: number; plan: Plan; agreed: boolean; disclosure: string; origin: string }): Promise<string> {

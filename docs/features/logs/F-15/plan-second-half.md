@@ -231,3 +231,6 @@ Every demand is accepted; where the two differ, the choice is stated.
   this change; the existing e2e keeps scroll and the open pane across the beacon.
 - Readout: a lower bound prints its percent ("≥ 6 of 8 (≥ 75%)"); a bound of 0 prints "(s)"; the pre-slice line ends
   with a period (BL-1, UX-1, UX-2; property test over 80 random sets).
+
+Merge note (2026-11-01): main (#76) moved `siteOrigin` to `lib/site-origin.ts`; this branch uses it (the scheme fix moved
+there) and `lib/site.ts` is gone.

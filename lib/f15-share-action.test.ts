@@ -1,13 +1,13 @@
 // F-15 second half · share_action inputs (lib/share-actions.ts): only the three record routes, an exact handle, the
 // share class from the path shape and the picture flag, a closed outcome; the trade page's one spelling
-// (lib/share.ts#tradePath); siteOrigin moved to lib/site.ts with billing's outputs unchanged.
+// (lib/share.ts#tradePath); siteOrigin moved to lib/site-origin.ts with billing's outputs unchanged.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { shareTarget, shareOutcome, SHARE_SURFACES, RECORD_SIGNS, SHARE_OUTCOMES } from './share-actions.ts';
 import { SHARE_VIAS } from './referral.ts';
 import { tradePath, shareVia } from './share.ts';
-import { siteOrigin } from './site.ts';
+import { siteOrigin } from './site-origin.ts';
 import { siteOrigin as billingSiteOrigin } from './billing.ts';
 
 test('F-15 share_action: the surface comes from the path shape and the picture flag; story only for a profile picture', () => {
@@ -44,7 +44,7 @@ test('F-15 tradePath: one spelling from the stored sell id, used by the share li
   assert.doesNotMatch(page, /const path = `\/u\/\$\{t\.handle\}\/trade\//);
 });
 
-test('F-15 siteOrigin: moved to lib/site.ts; billing re-exports it with identical outputs; the layout imports no billing', () => {
+test('F-15 siteOrigin: moved to lib/site-origin.ts; billing re-exports it with identical outputs; the layout imports no billing', () => {
   assert.equal(billingSiteOrigin, siteOrigin);
   for (const env of [{}, { NEXT_PUBLIC_SITE_URL: 'https://app.example/' }, { VERCEL_PROJECT_PRODUCTION_URL: 'app.example' }, { VERCEL_PROJECT_PRODUCTION_URL: 'https://x.example//' }]) {
     assert.equal(billingSiteOrigin(env), siteOrigin(env));
