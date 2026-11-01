@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
 import { currentUser, devGuard, rememberMethod, signIn } from '@/lib/session.ts';
 import { completeAttempt, createAttempt, createUserForAttempt, DisplayNameError, HandleTakenError } from '@/lib/auth/attempts.ts';
-import { checkDisplayName, checkHandle, devLoginRedirect } from '@/lib/handles.ts';
+import { checkDisplayName, checkHandle, devLoginRedirect, findLiveUserByHandle } from '@/lib/handles.ts';
 import { sanitizeUserText } from '@/lib/text-safety.ts';
 import { afterSigninTools } from '@/lib/auth/landing.ts';
 import { saveThesisFor } from '@/lib/thesis-save.ts';
@@ -34,7 +34,7 @@ export async function login(form: FormData) {
   const back = (code: string): never => redirect(devLoginRedirect(code, form.get('handle')));
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) back('handle-format');
   if (form.get('adult') !== 'on') back('attest');
-  const [known] = await sql`select id from users where handle = ${handle} and deleted_at is null`; // fix round 3: a profile pending deletion is no account here
+  const known = await findLiveUserByHandle(handle); // fix round 3: a profile pending deletion is no account here
   if (!known) {
     if (!signUpOpen()) back('closed');
     // The same test createUserForAttempt applies: only a name that is not blank once cleaned is checked.
@@ -53,7 +53,7 @@ export async function login(form: FormData) {
   const referredBy = resolveReferrer({ refHandle, referrer, newHandle: handle });
   const attempt = await createAttempt({ method: 'dev', attested: form.get('adult') === 'on', referredBy, surface: referredBy ? normalizeVia(form.get('via')) : null, source: refHandle ? 'profile' : 'direct' });
 
-  const [existing] = await sql`select id from users where handle = ${handle} and deleted_at is null`; // never a profile marked for deletion
+  const [existing] = await sql`select id from users where handle = ${handle} and deleted_at is null`; // never a profile marked for deletion (same filter as findLiveUserByHandle; lib/auth/links.hardening.test.ts reads this line)
   // Launch gate (orchestrator review 1): the dev form signs existing handles in, but creates a new account only while
   // sign-up is open (the e2e sandbox counts as open). Fix round 2: the closed case already went back to the form above;
   // this throw stays as the guard for a switch flipped mid-request (lib/launch-gate-signin.test.ts checks its order).

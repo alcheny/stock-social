@@ -127,3 +127,76 @@ test('fix round 2: the author sees why a note is held; a reported note names no 
     await sql.end({ timeout: 1 });
   }
 });
+
+// Fix round 4 (F-10 AC8 with a note): a feed card with a published note, its date line and (for a reader) the Report
+// control keeps F-10's card disclaimer inside the card's row (the row hides what overflows it) at 780×360 and 360×640,
+// signed out and signed in as a reader who is not the author. On a short screen the note is one compact line with Report
+// beside it (app/globals.css, the UserNote block). The trader is this test's own (verified closes, no demo data, large
+// moves so it reaches the feed's first page); it is feed-eligible, so the shared feed lock is held while it exists.
+test('fix round 4: a feed card with a note, its date and Report keeps the disclaimer inside its row at 780×360 and 360×640', async ({ page }) => {
+  test.setTimeout(120_000);
+  const sql = (await import('postgres')).default(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
+  const { feedLock } = await import('./feed-lock.ts');
+  const release = await feedLock('shared');
+  const tag = rand();
+  const trader = `f9c${tag}`, reader = `f9d${tag}`;
+  // About 120 characters, written today, so the caption carries a date line.
+  const note = `Bought the retest of the prior base after earnings ${tag}; sold into the gap when volume dried up near the old high.`;
+  const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+    insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${trader}, ${trader}, now(), a.id from a returning id, signup_attempt_id`;
+  try {
+    const closes = [0.92, -0.88, 0.9, -0.86, 0.94, 0.89];
+    await sql`insert into closed_trades ${sql(closes.map((r, i) => ({
+      user_id: u.id, sell_id: `f9c-${tag}-${i}`, account_id: 'a', symbol: `NC${i}`,
+      opened_at: new Date(Date.now() - (i + 3) * 3_600_000 - 2 * 86_400_000), closed_at: new Date(Date.now() - (i + 1) * 3_600_000),
+      return_pct: r, holding_days: 2, verified: true, thesis: note, thesis_status: 'published', thesis_written_at: new Date(),
+    })))}`;
+    await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, last_progress_at, connected_at)
+      values (${u.signup_attempt_id}, ${u.id}, 'connected', now(), now(), now(), now() - interval '3 days')`;
+
+    const check = async (who: 'signed out' | 'reader') => {
+      for (const [w, h] of [[780, 360], [360, 640]] as const) {
+        const at = `${who} ${w}x${h}`;
+        await page.setViewportSize({ width: w, height: h });
+        await page.goto('/');
+        const row = page.locator(`.row[data-handle="${trader}"]`).first();
+        await expect(row, at).toHaveCount(1);
+        await row.scrollIntoViewIfNeeded();
+        const card = row.locator('.card').first();
+        await expect(card.locator('figure.user-note bdi'), at).toBeVisible();
+        const r = (await row.boundingBox())!;
+        const disc = card.locator('[data-disclaimer]');
+        await expect(disc, at).toBeVisible();
+        const d = (await disc.boundingBox())!;
+        // Fully inside the row's box (the row's overflow is hidden, so anything past its bottom is clipped).
+        expect(d.y, `${at} disclaimer top`).toBeGreaterThanOrEqual(r.y);
+        expect(d.y + d.height, `${at} disclaimer bottom`).toBeLessThanOrEqual(r.y + r.height - 1);
+        test.info().annotations.push({ type: 'headroom', description: `${at}: ${Math.round(r.y + r.height - (d.y + d.height))} px below the disclaimer` });
+        const report = card.getByRole('button', { name: /^Report this note/ });
+        if (who === 'signed out') {
+          await expect(report, at).toHaveCount(0);
+          continue;
+        }
+        await expect(report, at).toBeVisible();
+        const b = (await report.boundingBox())!;
+        // 44 px where it fits (360×640); never under WCAG 2.5.8's 24 px on a short screen.
+        expect(b.height, `${at} Report height`).toBeGreaterThanOrEqual(h > 480 ? 44 : 24);
+        expect(b.width, `${at} Report width`).toBeGreaterThanOrEqual(24);
+        expect(b.y + b.height, `${at} Report inside the row`).toBeLessThanOrEqual(r.y + r.height - 1);
+        // Not clipped by the note's own box either: the whole target is on screen and hit-testable at its centre.
+        const hit = await report.evaluate((el) => {
+          const box = el.getBoundingClientRect();
+          return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === el;
+        });
+        expect(hit, `${at} Report hit-testable`).toBe(true);
+      }
+    };
+    await check('signed out');
+    await signIn(page, reader);
+    await check('reader');
+  } finally {
+    await sql`delete from users where handle in (${trader}, ${reader})`;
+    await sql.end({ timeout: 1 });
+    await release();
+  }
+});

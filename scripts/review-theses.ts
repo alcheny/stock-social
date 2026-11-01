@@ -16,17 +16,20 @@ const USAGE = 'usage: review-theses.ts list [user_id] | publish <user_id> <sell_
 export const LIST_CAP = 200;
 
 /** The CLI, testable: returns the exit code. */
-export async function run(argv: string[], out: Out): Promise<number> {
+// Fix round 4: `cap` is a parameter so a test can reach the "first N shown" line; one extra row is read so the line is
+// printed only when more held theses exist than are shown.
+export async function run(argv: string[], out: Out, cap = LIST_CAP): Promise<number> {
   const [cmd, uid, sellId] = argv;
   // Fix round 3 (item 11): `list <user_id>` narrows the list to one trader.
   if (cmd === 'list' && (argv.length === 1 || (argv.length === 2 && /^[0-9]{1,10}$/.test(uid)))) {
-    const rows = await listHeld(LIST_CAP, argv.length === 2 ? Number(uid) : undefined);
-    if (!rows.length) { out('No held theses.'); return 0; }
+    const all = await listHeld(cap + 1, argv.length === 2 ? Number(uid) : undefined);
+    if (!all.length) { out('No held theses.'); return 0; }
+    const rows = all.slice(0, cap);
     for (const r of rows) {
       out(`${r.userId}\t${r.sellId}\t@${r.handle}\t${r.symbol ?? '(trade not shown)'}\trule: ${r.rule ?? 'none'}\treports: ${r.reports}${r.reviewed ? '\t(reviewed, kept held)' : ''}`);
       out(`\t${JSON.stringify(r.thesis)}`);
     }
-    if (rows.length === LIST_CAP) out(`(first ${LIST_CAP} shown; pass a user id to narrow the list)`);
+    if (all.length > cap) out(`(first ${cap} shown; pass a user id to narrow the list)`);
     return 0;
   }
   if ((cmd === 'publish' || cmd === 'keep') && argv.length === 3 && /^[0-9]{1,10}$/.test(uid) && sellId) {

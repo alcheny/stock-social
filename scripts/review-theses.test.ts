@@ -66,3 +66,21 @@ dbTest('list with no held theses for a trader says so; the page cap is named whe
     assert.equal(LIST_CAP, 200);
   } finally { await removePeople([trader]); }
 });
+
+// Fix round 4: the "first N shown" line is printed only when more held theses exist than the cap, and names the cap.
+dbTest('list with a small cap prints that many rows and the "first N shown" line; a cap above the count prints no such line', async () => {
+  const { saveThesisFor } = await import('../lib/thesis-save.ts');
+  const { tag, ids: [trader] } = await people(1, 'rx');
+  try {
+    const ts = await trades(trader, tag, 3);
+    for (const t of ts) await saveThesisFor(trader, t.id, 'DM me for the setup');
+    const out: string[] = [];
+    assert.equal(await run(['list', String(trader)], (l) => out.push(l), 2), 0);
+    assert.equal(out.filter((l) => l.startsWith(`${trader}\t`)).length, 2);
+    assert.equal(out.at(-1), '(first 2 shown; pass a user id to narrow the list)');
+    const all: string[] = [];
+    assert.equal(await run(['list', String(trader)], (l) => all.push(l), 3), 0);
+    assert.equal(all.filter((l) => l.startsWith(`${trader}\t`)).length, 3);
+    assert.ok(!all.some((l) => l.startsWith('(first')), 'no cap line when everything is shown');
+  } finally { await removePeople([trader]); }
+});

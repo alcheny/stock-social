@@ -9,6 +9,7 @@ export type KeptThesis = {
  * Re-attach theses saved before a rebuild to the rebuilt trades, keyed by the closing sell's id.
  * Theses whose sell is no longer in `trades` are returned in `orphaned`, never dropped silently.
  * Duplicate `sell_id`s in `kept`: the last wins in `attached`; earlier ones go to `orphaned`.
+ * An empty or blank thesis is never attached (it goes to `orphaned`).
  * Pure: inputs are not mutated and `thesis_status` is carried through unchanged.
  */
 export function reattachTheses<T extends { sellId: string }>(
@@ -18,7 +19,9 @@ export function reattachTheses<T extends { sellId: string }>(
   const attached = new Map<string, KeptThesis>();
   const orphaned: KeptThesis[] = [];
   for (const k of kept) {
-    if (!sells.has(k.sell_id)) { orphaned.push(k); continue; }
+    // Fix round 4 (item 5): a copy left empty by the stored-text cleanup (db/schema.sql) is never re-attached as a
+    // note (it would render and be reportable as an empty one); it stays where it is, returned as not attached.
+    if (!sells.has(k.sell_id) || !k.thesis?.trim()) { orphaned.push(k); continue; }
     const prev = attached.get(k.sell_id);
     if (prev) orphaned.push(prev);
     attached.set(k.sell_id, k);

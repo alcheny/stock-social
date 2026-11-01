@@ -254,6 +254,9 @@ test('dev sign-in: a handle whose profile is pending deletion is treated as new 
   const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../app/actions.ts', import.meta.url), 'utf8');
   const login = src.slice(src.indexOf('export async function login'), src.indexOf('export async function saveThesis'));
-  assert.match(login, /const \[known\] = await sql`select id from users where handle = \$\{handle\} and deleted_at is null`;/);
-  assert.ok(login.indexOf('const [known]') < login.indexOf("back('closed')"));
+  // Fix round 4: the lookup is lib/handles.ts#findLiveUserByHandle, whose deleted_at filter lib/handles.db.test.ts tests
+  // against the database (reverting the filter fails there).
+  assert.match(login, /const known = await findLiveUserByHandle\(handle\);/);
+  assert.match(src, /import \{[^}]*\bfindLiveUserByHandle\b[^}]*\} from '@\/lib\/handles\.ts';/);
+  assert.ok(login.indexOf('const known') < login.indexOf("back('closed')"));
 });

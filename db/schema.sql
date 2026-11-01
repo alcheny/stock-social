@@ -629,6 +629,14 @@ select schema_add_column('kept_theses', 'thesis_reviewed_at', 'timestamptz');
 -- released note that is edited is not held again by the reports made before the release (lib/reports.ts).
 select schema_add_column('closed_trades', 'thesis_reports_from', 'timestamptz');
 select schema_add_column('kept_theses', 'thesis_reports_from', 'timestamptz');
+-- Fix round 4 (block A's cleanup, placed here because it needs the columns above): a thesis the cleanup emptied carries
+-- nothing else, like a thesis its author cleared (lib/thesis-save.ts): no status, hold rule or dates (the report
+-- baseline, thesis_reports_from, stays). An emptied kept copy is never re-attached (lib/theses.ts#reattachTheses).
+-- Guarded, so a clean table is untouched.
+update closed_trades set thesis_status = null, thesis_hold_rule = null, thesis_written_at = null, thesis_edited_at = null, thesis_reviewed_at = null
+  where thesis is null and (thesis_status is not null or thesis_hold_rule is not null or thesis_written_at is not null or thesis_edited_at is not null or thesis_reviewed_at is not null);
+update kept_theses set thesis = '', thesis_status = null, thesis_hold_rule = null, thesis_written_at = null, thesis_edited_at = null, thesis_reviewed_at = null
+  where btrim(thesis) = '' and (thesis <> '' or thesis_status is not null or thesis_hold_rule is not null or thesis_written_at is not null or thesis_edited_at is not null or thesis_reviewed_at is not null);
 -- One report per signed-in reader per thesis, keyed by the trader and the closing sell's id (no foreign key to
 -- closed_trades on purpose: rebuildTrades deletes and rewrites those rows, and a report must survive it). Both user
 -- links cascade, so deleting a profile removes the reports it made and the reports on its notes (lib/reports.ts).

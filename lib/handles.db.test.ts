@@ -168,6 +168,13 @@ dbTest('checkHandle: a handle whose profile is pending deletion is taken', async
   const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_a` });
   try {
     await sql`update users set deleted_at = now() where id = ${u.id}`;
+    // Fix round 4: through the login's own lookup (app/actions.ts#login uses findLiveUserByHandle), so reverting its
+    // deleted_at filter fails here.
+    const { findLiveUserByHandle } = await import('./handles.ts');
+    assert.equal(await findLiveUserByHandle(`${tag}_a`), null);
+    await sql`update users set deleted_at = null where id = ${u.id}`;
+    assert.deepEqual(await findLiveUserByHandle(`${tag}_a`), { id: u.id });
+    await sql`update users set deleted_at = now() where id = ${u.id}`;
     assert.equal((await sql`select id from users where handle = ${`${tag}_a`} and deleted_at is null`).length, 0);
     assert.equal(await checkHandle(`${tag}_a`), 'taken');
   } finally {

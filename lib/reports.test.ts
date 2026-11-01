@@ -55,14 +55,15 @@ dbTest('signed out refuses; one report changes nothing; three distinct signed-in
     assert.equal((await status()).thesis_status, 'published');
     assert.equal(await reportThesis(c, t.id, yes), 'held');
     assert.deepEqual({ ...(await status()) }, { thesis_status: 'held', thesis_hold_rule: 'reports', thesis: 'Bought the pullback to the 20-day.' }); // held, never deleted
-    // Fix round 1 (item 8): a later reader of the held note is answered exactly like on a published one (never "not
-    // found"), the note stays held with its rule, and that reader's second press says "already" as it would before.
-    assert.equal(await reportThesis(d, t.id, yes), 'held');
+    // Fix round 4 (item 2): a later reader of the held note gets the neutral answer of a missing note on every press
+    // ("Reported. Thank you."), nothing is recorded, and the note stays held with its rule.
+    assert.equal(await reportThesis(d, t.id, yes), 'not-found');
+    assert.equal(reportMessage('not-found'), REPORT_COPY.done);
     assert.equal(reportMessage('held'), REPORT_COPY.done);
-    assert.equal(await reportThesis(d, t.id, yes), 'already');
+    assert.equal(await reportThesis(d, t.id, yes), 'not-found');
     assert.equal(await reportThesis(trader, t.id, yes), 'own');
     assert.deepEqual({ ...(await status()) }, { thesis_status: 'held', thesis_hold_rule: 'reports', thesis: 'Bought the pullback to the 20-day.' });
-    assert.equal((await sql`select count(*)::int as n from thesis_reports where trader_id = ${trader}`)[0].n, 4);
+    assert.equal((await sql`select count(*)::int as n from thesis_reports where trader_id = ${trader}`)[0].n, 3);
   } finally { await removePeople([trader, a, b, c, d]); }
 });
 
@@ -229,7 +230,8 @@ dbTest('two readers racing to be the third: both are answered "Reported. Thank y
     await sql`update closed_trades set thesis = 'Sold the first push, kept a runner.', thesis_status = 'published' where id = ${t.id}`;
     for (const r of [a, b]) assert.equal(await reportThesis(r, t.id, yes), 'reported');
     const out = await Promise.all([reportThesis(c, t.id, yes), reportThesis(d, t.id, yes)]);
-    assert.deepEqual(out.sort(), ['held', 'held']);
+    // Fix round 4: the reader who lost the race finds the note already held and gets the neutral answer.
+    assert.deepEqual(out.sort(), ['held', 'not-found']);
     assert.deepEqual(out.map(reportMessage), [REPORT_COPY.done, REPORT_COPY.done]);
     assert.equal((await sql`select thesis_status from closed_trades where id = ${t.id}`)[0].thesis_status, 'held');
   } finally { await removePeople([trader, a, b, c, d]); }
@@ -311,5 +313,40 @@ dbTest('losing the insert race answers "already" and spends no rate-limit slot; 
     assert.equal((await sql`select count(*)::int as n from thesis_reports where reporter_id = ${a} and sell_id = ${t2.sell}`)[0].n, 0);
     assert.equal(await reportThesis(a, t2.id, spy), 'reported');
     assert.equal(calls, 1);
+  } finally { await removePeople([trader, a]); }
+});
+
+// ---- Fix round 4 (item 2) ----
+
+// A held note (by a rule or by reports), an emptied note and a missing note give the same answer on the first and the
+// second press, and none of them writes a report row or spends a rate-limit slot.
+dbTest('missing, held and emptied notes: identical answers on every press, no report row, no rate slot', async () => {
+  const { sql } = await import('./db.ts');
+  const { reportThesis } = await import('./reports.ts');
+  const { tag, ids: [trader, a] } = await people(2);
+  let calls = 0;
+  const spy = { allow: () => { calls++; return true; } };
+  try {
+    const [held, byReports, empty, live] = await trades(trader, tag, 4);
+    await sql`update closed_trades set thesis = 'Note held by a rule.', thesis_status = 'held', thesis_hold_rule = 'link' where id = ${held.id}`;
+    await sql`update closed_trades set thesis = 'Note held by reports.', thesis_status = 'held', thesis_hold_rule = 'reports' where id = ${byReports.id}`;
+    await sql`update closed_trades set thesis = '', thesis_status = 'published' where id = ${empty.id}`;
+    await sql`update closed_trades set thesis = 'Published note.', thesis_status = 'published' where id = ${live.id}`;
+    const answers = async (id: string) => {
+      const first = await reportThesis(a, id, spy);
+      const second = await reportThesis(a, id, spy);
+      return [first, second, reportMessage(first), reportMessage(second)];
+    };
+    const missing = await answers('999999999999999998');
+    assert.deepEqual(missing, ['not-found', 'not-found', REPORT_COPY.done, REPORT_COPY.done]);
+    assert.deepEqual(await answers(held.id), missing);
+    assert.deepEqual(await answers(byReports.id), missing);
+    assert.deepEqual(await answers(empty.id), missing);
+    assert.equal(calls, 0, 'no rate slot spent');
+    assert.equal((await sql`select count(*)::int as n from thesis_reports where reporter_id = ${a}`)[0].n, 0, 'no report row');
+    // The reader is not rate limited by those presses: a published note is reported at once.
+    assert.equal(await reportThesis(a, live.id, spy), 'reported');
+    assert.equal(calls, 1);
+    assert.deepEqual((await sql`select thesis_status, thesis_hold_rule from closed_trades where id = ${held.id}`).map((r) => ({ ...r })), [{ thesis_status: 'held', thesis_hold_rule: 'link' }]);
   } finally { await removePeople([trader, a]); }
 });

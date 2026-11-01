@@ -153,3 +153,21 @@ test('chart sheet header: " · " between the close date and the figure', () => {
   const c = read('../app/u/[handle]/chart.tsx');
   assert.match(c, /\{chosen\.closedAt\.toLocaleDateString\('en-US'\)\}\{' · '\}<\/span><\/span>\s*<b className=\{chosen\.returnPct > 0 \? 'up' : 'down'\}>/);
 });
+
+// Fix round 4 (F-10 AC8 at 780×360): on a short screen the feed card's note is one compact line: the date takes no
+// space, Report stays on the line with a target of at least 24 px, and the note may give up height like F-10's .thesis.
+test('short screens: the feed card note is one line, the date takes no space, Report keeps a 24 px+ target', () => {
+  const css = read('../app/globals.css');
+  const start = css.indexOf('/* fix-user-text: UserNote');
+  const block = css.slice(start, css.indexOf('/* end fix-user-text: UserNote */', start));
+  const short = [...block.matchAll(/@media \(max-height: 480px\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join('\n');
+  assert.match(short, /\.feed \.card \.user-note \{[^}]*display: flex;[^}]*min-height: 0;[^}]*overflow: hidden;/);
+  assert.match(short, /\.feed \.card \.user-note-by \{[^}]*font-size: 0px;/);
+  assert.match(short, /\.feed \.card \.user-note \.report-note \{[^}]*margin: 0;/);
+  const btn = short.match(/\.feed \.card \.user-note \.link-button \{([^}]*)\}/)?.[1] ?? '';
+  assert.ok(parseFloat(btn.match(/min-height: (\d+)px/)?.[1] ?? '0') >= 24, 'Report target at least 24 px tall');
+  assert.ok(parseFloat(btn.match(/min-width: (\d+)px/)?.[1] ?? '0') >= 24, 'Report target at least 24 px wide');
+  // The button and the live region keep their own sizes (the caption's 0px hides only its bare date text).
+  assert.match(block, /\.user-note \.link-button \{[^}]*font-size: 13px/);
+  assert.match(block, /\.user-note \.report-status \{[^}]*font-size: 13px/);
+});

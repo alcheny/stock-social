@@ -132,12 +132,20 @@ export const HOLD_V2: HoldRule[] = [
   // Fix round 3 (committee: advice, calls and win-rate claims are held; POLICY F1/F2): urging others to buy or get in
   // now, rating calls, and claims never to lose. Past tense ("I bought it now that the base is set"), a hit target
   // ("Target was 52, hit it.") and a negation ("wouldn't buy it now") publish.
-  { rule: 'hype', label: 'promotion', re: new RegExp(String.raw`(?<!(?:n't|not|never|no)\s+)\bbuy\s+(?:it\s+|this\s+|them\s+|these\s+|here\s+)?(?:right\s+)?(?:now|today)\b|\bload(?:ing)?\s+up\s+(?:now|today|here|before|while)\b|(?:^|[.!?,;:]\s*)load\s+up\s*(?:[.!?]|$)|\b(?:buy|load up|get in|grab)\b[^.!?\n]{0,25}\bbefore\s+(?:it|this|they)\s+(?:rips?|runs?|moons?|pops?|explodes?|flies|takes off|skyrockets?)\b|\bstrong\s+buy\b|\bnext\s+(?:\d+|ten|hundred)[\s-]*baggers?\b|(?<!(?:n't|not|never|to|could|can)\s+)\bget\s+in\s*(?:now|before|while|early|[.!]|$)|\b(?:everyone|everybody|you|y'all|you all|people|ppl)\s+(?:should|must|needs? to|gotta|have to|has to|better)\s+(?:buy|load|get in|grab|own)\b|\bbuy[\s,!.]+buy\b|\b(?:i|we)\s+(?:never|rarely|almost never)\s+lose\b(?!\s+(?:sleep|sight|track|focus))`, 'i') },
-  { rule: 'win-rate', label: 'return claim', re: /(?<![\d.])\d[\d.]*\s*%\s*(?:win(?:ning)?[\s-]*(?:rate|ratio)|wins|winners|winning|accurate|accuracy|hit[\s-]*rate|success(?:\s+rate)?)\b|\b(?:win(?:ning)?[\s-]*(?:rate|ratio)|accuracy|hit[\s-]*rate|success rate)\s*(?:of|is|was|=|:|at)?\s*\d[\d.]*\s*%/i },
+  { rule: 'hype', label: 'promotion', re: new RegExp(String.raw`(?<!(?:n't|not|never|no)\s+)\bbuy\s+(?:it\s+|this\s+|them\s+|these\s+|here\s+)?(?:right\s+)?(?:now|today)\b|\bload(?:ing)?\s+up\s+(?:now|today|here|before|while)\b|(?:^|[.!?,;:]\s*)load\s+up\s*(?:[.!?]|$)|\b(?:buy|load up|get in|grab)\b[^.!?\n]{0,25}\bbefore\s+(?:it|this|they)\s+(?:rips?|runs?|moons?|pops?|explodes?|flies|takes off|skyrockets?)\b|\bstrong\s+buy\b(?=\s*(?:[.!,;:)\-–—]|$|(?:target|now|here|today|imo|right|on|at|for|from|zone|all day)\b))|(?<!(?:n't|not|never|to|could|can)\s+)\bget\s+in\s*(?:(?:now|before|while)\b|early\s*(?:[.!,;]|$|(?:before|while|on|here)\b)|[.!]|$)|\b(?:everyone|everybody|you|y'all|you all|people|ppl)\s+(?:should|must|needs? to|gotta|have to|has to|better)\s+(?:buy|load|get in|grab|own)\b|\bbuy[\s,!.]+buy\b|\b(?:i|we)\s+(?:never|rarely|almost never)\s+lose\b(?!\s+(?:sleep|sight|track|focus|more|much|than|over|patience|interest|discipline))`, 'i') },
+  // Fix round 4: "next 10 bagger" holds only as an offer (an offer word in the sentence, or "!"), never as a question
+  // or with a doubt ("Next 10 bagger? Doubt it.").
+  { rule: 'hype-bagger', label: 'promotion', when: baggerHolds, re: /\bnext\s+(?:\d+|ten|hundred)[\s-]*baggers?\b(?!\s*\?)(\s*!)?/i },
+  // Fix round 4: a win rate or accuracy figure is a claim about the trader's own record unless the sentence gives it a
+  // third-party subject and no first person ("Analysts have a 70% hit rate on this name", "the trial had a 70% success
+  // rate"); "92% win rate", "Verified 92% win rate" and "My signals are 95% accurate" stay held.
+  { rule: 'win-rate', label: 'return claim', when: winRateHolds, re: /(?<![\d.])\d[\d.]*\s*%\s*(?:win(?:ning)?[\s-]*(?:rate|ratio)|wins|winners|winning|accurate|accuracy|hit[\s-]*rate|success(?:\s+rate)?)\b|\b(?:win(?:ning)?[\s-]*(?:rate|ratio)|accuracy|hit[\s-]*rate|success rate)\s*(?:of|is|was|=|:|at)?\s*\d[\d.]*\s*%/i },
   // A dollar gain with a time total or span ("Made $50k this month"); "Sold $5k of it" and "Revenue $40B this year"
   // have no gain verb and publish. "Turned 1k into 50k" holds on its own.
   { rule: 'return-dollar', label: 'return claim', claim: 'dollar', re: new RegExp(String.raw`(?:${CLAUSE}|\b${FP}\s+(?:[\w']+\s+)?)(?:made|up|gained|earned|netted|banked|profited|cleared|booked|pulled in)\s+(?:about\s+|over\s+|almost\s+|nearly\s+|~)?\$\s?\d[\d.,]*`, 'i') },
-  { rule: 'return-turned', label: 'return claim', re: /\bturned\s+\$?\d[\d.,]*\s*(?:k|m|grand)?\s+into\s+\$?\d/i },
+  // Fix round 4: "turned X into Y" is money only with a "$", a k/m/grand/x unit, an amount of 1,000 or more, or the
+  // account named ("They turned 5 into 10 stores" publishes).
+  { rule: 'return-turned', label: 'return claim', when: turnedHolds, re: /\bturned\s+(?:(?:my|our|the)\s+(?:account|portfolio|port|stack|savings)|\$?\s?\d[\d.,]*\s*(?:k|m|grand|x)?)\s+into\s+\$?\s?\d[\d.,]*\s*(?:k\b|m\b|grand|x\b)?/i },
   // Stated returns, only as claims (decision 3; fix round 1): a first-person or possessive subject with a gain figure
   // (claimShape: a time total in the same sentence, or a big figure), or a sentence that opens with a figure and a time
   // total ("up 60% ytd", "YTD: +85%") — the first person left out. Price talk with another subject ("revenue grew 20%
@@ -196,10 +204,36 @@ function claimShape(text: string, at: number, match: string, mode: true | 'timed
 }
 // Fix round 3 (QA item 2): the price-target check (see the 'price-target' rule).
 const THIRD_PARTY = /\b(?:analysts?|street|consensus|banks?|brokers?|brokerage|firms?|upgraded?|upgrades|downgraded?|downgrades|their|they|sell[\s-]?side|coverage|research|desk)\b/i;
+// Fix round 4: a stated price beside the trader's own plan or exit is talk ("PT 60, stop 48.", "Hit PT 120 early.",
+// "pt 3.5 hit", "Took profits at pt 6"); with my/our or a "$" it stays held ("my PT 300", "PT $200"), and a bare one
+// ("PT 300", "price target 120 by spring") stays held. A past-tense own target ("My PT was 60") never matches: a
+// reflection, not a call.
+const PLAN = /\b(?:stops?|stopped|sl|(?<!(?:will|to|gonna|should|could|'ll|would|might)\s+)hit|hits|tagged|reached|filled|took|taking|trim(?:med|ming)?|sold|exit(?:ed)?|scal(?:e|ed|ing)\s+out|profits?)\b/i;
 function ptHolds(sentence: string, m: RegExpMatchArray): boolean {
   if (m[1] || m[2]) return true;
   if (/^[1-5]$/.test((m[3] ?? '').replace(/[.,]+$/, ''))) return false;
-  return !THIRD_PARTY.test(sentence);
+  return !THIRD_PARTY.test(sentence) && !PLAN.test(sentence);
+}
+const FIRST = /\b(?:i|we|i'm|we're|i've|we've|me|us|my|our|mine|ours)\b/i;
+const OTHER = new RegExp(String.raw`${THIRD_PARTY.source}|\b(?:trials?|study|studies|phase|drugs?|fund|funds|index|company|management|he|she|his|her|its)\b`, 'i');
+function winRateHolds(sentence: string, m: RegExpMatchArray): boolean {
+  if (FIRST.test(sentence)) return true;
+  return !OTHER.test(sentence.slice(0, Math.max(sentence.indexOf(m[0]), 0)));
+}
+const OFFER = /\b(?:load(?:ing)?|buy(?:ing)?|grab|get\s+in|own|don'?t\s+miss|before\s+it|now|today)\b/i;
+const DOUBT = /\b(?:doubt\w*|never|unlikely|hardly|isn'?t|wasn'?t|ain'?t|not\s+(?:the|a|my)|no\s+way)\b/i;
+function baggerHolds(sentence: string, m: RegExpMatchArray): boolean {
+  if (DOUBT.test(sentence)) return false;
+  return Boolean(m[1]) || OFFER.test(sentence);
+}
+// ponytail: fix round 4 trades holds for false holds — a bare "next 10 bagger" (no offer word, no "!"), a win rate
+// given a third-party subject, a stated target beside plan words ("PT 300, stop 250") and "turned 500 into 2000" (no
+// unit, under 1,000) publish; tighten them if the review queue shows promotions in those shapes.
+function turnedHolds(_sentence: string, m: RegExpMatchArray): boolean {
+  const t = m[0];
+  if (/\$|\d\s*(?:k|m|grand|x)\b|account|portfolio|port\b|stack|savings/i.test(t)) return true;
+  const first = parseFloat((t.match(/\d[\d.,]*/)?.[0] ?? '0').replace(/,/g, ''));
+  return first >= 1000;
 }
 const globalCopy = new Map<RegExp, RegExp>();
 function ruleHolds(r: HoldRule, f: string): boolean {

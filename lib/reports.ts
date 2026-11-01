@@ -27,13 +27,16 @@ export async function reportThesis(reporterId: number | null | undefined, tradeI
   if (typeof tradeId !== 'string' || !ID.test(tradeId)) return 'invalid';
   return sql.begin(async (tx): Promise<ReportOutcome> => {
     // The row lock serializes reports on one note, so the third distinct reporter always sees the other two.
-    // Fix round 1 (item 8): a held note (any rule) is found too and answers exactly like a published one, so neither a
-    // late reader nor the reporter who lost the race to hold it learns that it was held.
+    // Fix round 4 (item 2): a note that is missing, empty or not published (held for any rule, including by these
+    // reports) gets one neutral answer, 'not-found' (REPORT_COPY.done), on every press: nothing is written and no rate
+    // slot is spent, so a reader can't tell a held note from a missing one. A held note needs no more reports. Only the
+    // author is told it is their own (they know their note exists).
     const [t] = await tx`select t.user_id, t.sell_id, t.thesis_status, t.thesis_reports_from from closed_trades t
       join users u on u.id = t.user_id and u.deleted_at is null
-      where t.id = ${tradeId} and t.thesis is not null for update of t`;
+      where t.id = ${tradeId} and t.thesis is not null and t.thesis <> '' for update of t`;
     if (!t) return 'not-found';
     if (t.user_id === reporterId) return 'own';
+    if (t.thesis_status !== 'published') return 'not-found';
     // Reports count only from the last owner release (thesis_reports_from; never cleared by an edit).
     const from = t.thesis_reports_from as Date | null;
     const [dup] = await tx`select (${from}::timestamptz is null or created_at > ${from}::timestamptz) as counts from thesis_reports
@@ -53,7 +56,6 @@ export async function reportThesis(reporterId: number | null | undefined, tradeI
     // Fix round 3 (item 10): the shared limiter's slot is spent only once the report is recorded (a reader who lost the
     // insert race to their own other request spends nothing); a refused slot rolls the report back with it.
     if (!(await deps.allow(String(reporterId), tx))) throw RATE;
-    if (t.thesis_status !== 'published') return 'held';
     const [{ n }] = await tx`select count(distinct r.reporter_id)::int as n from thesis_reports r
       join users u on u.id = r.reporter_id and u.deleted_at is null
       where r.trader_id = ${t.user_id} and r.sell_id = ${t.sell_id}
@@ -67,7 +69,8 @@ export async function reportThesis(reporterId: number | null | undefined, tradeI
 const RATE = new Error('report rate');
 
 // Fix round 3 (item 10): a well-formed id that names no note (gone, or never there) is answered like a report, so the
-// answer never tells a hidden note from a missing one; a malformed id fails.
+// answer never tells a hidden note from a missing one; a malformed id fails. Fix round 4: a held note answers
+// 'not-found' too (see reportThesis).
 export function reportMessage(o: ReportOutcome): string {
   if (o === 'reported' || o === 'held' || o === 'not-found') return REPORT_COPY.done;
   if (o === 'already') return REPORT_COPY.already;

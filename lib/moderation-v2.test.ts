@@ -369,3 +369,42 @@ test('fix round 3: adversarial 280-character inputs finish in under 20 ms each',
     assert.ok(ms < 20, `${JSON.stringify(t.slice(0, 12))}… took ${ms.toFixed(1)} ms`);
   }
 });
+
+// ---- Fix round 4 (false holds on ordinary trading talk; the calls and claims stay held) ----
+
+const NEGATIVE_R4: string[] = [
+  'I never lose more than 1R per trade.', 'Strong buy volume at the open.', "Strong buy rating from the street didn't help.",
+  'Next 10 bagger? Doubt it.', 'Get in early or not at all is a bad rule.',
+  'Phase 3 trial had a 70% success rate, sold into the readout.', 'Analysts have a 70% hit rate on this name.',
+  'PT 60, stop 48.', 'Hit PT 120 early. Done.', 'pt 3.5 hit', 'Took profits at pt 6 per my plan',
+  'They turned 5 into 10 stores this year.', 'Strong buy pressure faded into the close.',
+  // a past-tense own target is a reflection, not a call
+  'My PT was 60',
+];
+
+// [text, expected label]
+const BYPASS_R4: [string, string][] = [
+  ['my PT is 300', 'picks or tips'], ['my PT 300', 'picks or tips'], ['PT $200', 'picks or tips'], ['target price 300', 'picks or tips'],
+  ['PT 300', 'picks or tips'], ['price target 120 by spring', 'picks or tips'], ['it will hit PT 300', 'picks or tips'],
+  ['I never lose', 'promotion'], ['I never lose money', 'promotion'], ['Strong buy, target 500', 'promotion'], ['Strong buy.', 'promotion'],
+  ['XYZ is a strong buy', 'promotion'], ['Strong buy on XYZ', 'promotion'], ['BUY BUY BUY', 'promotion'],
+  ['Next 100 bagger, load up', 'promotion'], ['Next 10 bagger!', 'promotion'], ['get in early!', 'promotion'], ['get in now', 'promotion'],
+  ['My signals are 95% accurate', 'return claim'], ['I never lose, 100% win rate', 'promotion'], ['92% win rate', 'return claim'],
+  ['I have a 90% win rate', 'return claim'], ['our calls hit 80% accuracy', 'return claim'],
+  ['Turned 1k into 50k', 'return claim'], ['Turned $1,000 into $40,000', 'return claim'], ['Turned my account into $40k', 'return claim'],
+  ['turned 5000 into 20000', 'return claim'],
+];
+
+test('fix round 4: trading talk around targets, win rates, "strong buy", baggers and "turned into" publishes (no rule)', () => {
+  for (const t of NEGATIVE_R4) {
+    assert.deepEqual(moderateDetail(t), { status: 'published', rule: null }, JSON.stringify(t));
+    assert.deepEqual(moderateDetail(sanitizeUserText(t)), { status: 'published', rule: null }, JSON.stringify(t));
+  }
+});
+
+test('fix round 4: own targets, calls, "never lose", win-rate and money "turned into" claims stay held', () => {
+  for (const [t, label] of BYPASS_R4) {
+    assert.deepEqual(moderateDetail(t), { status: 'held', rule: label }, JSON.stringify(t));
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(sanitizeUserText(t)));
+  }
+});

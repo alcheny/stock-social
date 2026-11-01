@@ -167,3 +167,51 @@ dbTest('schema cleanup: a thesis of stripped characters only becomes NULL with n
     assert.deepEqual(rows.map((r) => [r.thesis, r.thesis_status]), [[null, null], ['Stop under the base', 'published']]);
   } finally { await removePeople([trader]); }
 });
+
+// Fix round 4 (item 5): after the cleanup, an emptied thesis carries no status, hold rule or dates, an emptied kept copy
+// is not re-attached by rebuildTrades, and neither can be reported. Only this test's own rows are touched.
+dbTest('schema cleanup: an emptied thesis loses its rule and dates; an emptied kept copy is never re-attached or reportable', async () => {
+  const { sql } = await import('./db.ts');
+  const { readFileSync } = await import('node:fs');
+  const { rebuildTrades } = await import('./sync.ts');
+  const { reportThesis } = await import('./reports.ts');
+  const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
+  const stmt = (head: string) => {
+    const start = schema.indexOf(head);
+    assert.ok(start > 0, head);
+    return schema.slice(start, schema.indexOf(';', start));
+  };
+  const strip = stmt('update closed_trades set thesis = nullif(btrim(regexp_replace(thesis,');
+  const stripKept = stmt('update kept_theses set thesis = regexp_replace(thesis,');
+  const clear = stmt('update closed_trades set thesis_status = null, thesis_hold_rule = null,');
+  const clearKept = stmt("update kept_theses set thesis = '', thesis_status = null,");
+  const { tag, ids: [trader, a] } = await people(2);
+  try {
+    const [t1, t2, t3] = await trades(trader, tag, 3);
+    await sql`update closed_trades set thesis = ${'​‮'}, thesis_status = 'held', thesis_hold_rule = 'link',
+      thesis_written_at = now(), thesis_edited_at = now(), thesis_reviewed_at = now() where id = ${t1.id}`;
+    // A kept copy for t2's sell, made only of stripped characters, still marked published with a rule and dates.
+    await sql`insert into kept_theses (user_id, sell_id, thesis, thesis_status, thesis_hold_rule, thesis_written_at)
+      values (${trader}, ${t2.sell}, ${'​ ⁦'}, 'published', 'link', now())`;
+    await sql`update closed_trades set thesis = 'Kept as it is.', thesis_status = 'published', thesis_written_at = now() where id = ${t3.id}`;
+    for (let i = 0; i < 2; i++) { // idempotent
+      await sql.unsafe(`${strip} and user_id = $1`, [trader]);
+      await sql.unsafe(`${stripKept} and user_id = $1`, [trader]);
+      await sql.unsafe(`${clear} and user_id = $1`, [trader]);
+      await sql.unsafe(`${clearKept} and user_id = $1`, [trader]);
+    }
+    const [r1] = await sql`select thesis, thesis_status, thesis_hold_rule, thesis_written_at, thesis_edited_at, thesis_reviewed_at from closed_trades where id = ${t1.id}`;
+    assert.deepEqual({ ...r1 }, { thesis: null, thesis_status: null, thesis_hold_rule: null, thesis_written_at: null, thesis_edited_at: null, thesis_reviewed_at: null });
+    const [k] = await sql`select thesis, thesis_status, thesis_hold_rule, thesis_written_at from kept_theses where user_id = ${trader} and sell_id = ${t2.sell}`;
+    assert.deepEqual({ ...k }, { thesis: '', thesis_status: null, thesis_hold_rule: null, thesis_written_at: null });
+    const [r3] = await sql`select thesis, thesis_status from closed_trades where id = ${t3.id}`;
+    assert.deepEqual({ ...r3 }, { thesis: 'Kept as it is.', thesis_status: 'published' });
+    await rebuildTrades(trader);
+    const rows = await sql`select id::text as id, sell_id, thesis, thesis_status from closed_trades where user_id = ${trader} order by sell_id`;
+    assert.deepEqual(rows.map((r) => [r.thesis, r.thesis_status]), [[null, null], [null, null], ['Kept as it is.', 'published']]);
+    // Even a stray empty note row is never reportable.
+    await sql`update closed_trades set thesis = '', thesis_status = 'published' where id = ${rows[1].id}`;
+    assert.equal(await reportThesis(a, rows[1].id, { allow: () => true }), 'not-found');
+    assert.equal((await sql`select count(*)::int as n from thesis_reports where reporter_id = ${a}`)[0].n, 0);
+  } finally { await removePeople([trader, a]); }
+});

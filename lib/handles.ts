@@ -118,6 +118,13 @@ export function handleVerdict(raw: unknown, ctx: HandleContext): HandleVerdict {
 type Db = TransactionSql | typeof sql;
 
 // DB verdict. A reservation held by selfUserId (its own old handle) counts as free: the trader can take it back.
+// Fix round 4: the dev sign-in's account lookup (app/actions.ts#login). A profile pending deletion is no account here,
+// so its handle goes through the new-account checks (taken), never a sign-in.
+export async function findLiveUserByHandle(handle: string): Promise<{ id: number } | null> {
+  const [u] = await sql`select id from users where handle = ${handle} and deleted_at is null`;
+  return u ? { id: u.id as number } : null;
+}
+
 export async function checkHandle(handle: unknown, selfUserId?: number | null, opts: { provisional?: boolean; db?: Db } = {}): Promise<HandleVerdict> {
   const h = normalizeHandle(handle);
   if (!h) return 'format';
