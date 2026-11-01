@@ -105,3 +105,17 @@ test('404 with no redirect: an unknown segment, another handle\'s sell id, a hid
     }
   }
 });
+
+// Council cycle 5 (merge hazard with F-16/F-17): both must hold whichever branch lands second.
+test('a missing trade answers 404 titled "Page not found · Stock Social", and a legacy sell-id URL still answers 308 with ?via= kept', async ({ request, page }) => {
+  const missing = await request.get(`/u/${A.handle}/trade/${'0'.repeat(64)}`, { maxRedirects: 0 });
+  expect(missing.status()).toBe(404);
+  expect(await missing.text()).toMatch(/<title>Page not found · Stock Social<\/title>/);
+  const res = await page.goto(`/u/${A.handle}/trade/no-such-trade`);
+  expect(res?.status()).toBe(404);
+  await expect(page).toHaveTitle('Page not found · Stock Social');
+  const old = await request.get(`${legacy(A)}?via=trade`, { maxRedirects: 0 });
+  expect(old.status()).toBe(308);
+  expect(new URL(old.headers()['location'], 'http://x.invalid').search).toBe('?via=trade');
+  expect(old.headers()['location']).toMatch(new RegExp(`/u/${A.handle}/trade/[0-9a-f]{64}\\?via=trade$`));
+});

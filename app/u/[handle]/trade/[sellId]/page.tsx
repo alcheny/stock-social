@@ -8,7 +8,8 @@ import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from 
 import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { toneClass } from '@/lib/open-split.ts';
 import { decodeSellId, legacyTradeKey, loadTradeShareByKey } from '@/lib/trade-share-load.ts';
-import { tradePageHref, withQuery } from '@/lib/trade-href.ts'; // F-25: the one trade URL builder
+import { tradePageHref, withQuery } from '@/lib/trade-href.ts';
+import { metadata as notFoundMeta } from '../../../../not-found.tsx'; // F-25: one 404 title // F-25: the one trade URL builder
 import { tradeAlt, tradeDescription, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
@@ -55,7 +56,9 @@ const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)}
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const t = await load(params);
-  if (!t) return {};
+  // F-25 (council cycle 5, merge hazard with F-16/F-17): a missing trade gets the 404 page's title here, without calling
+  // notFound(): the page body still runs, so a legacy sell-id URL reaches its 308 (legacyRedirect), and anything else 404s.
+  if (!t) return { title: notFoundMeta.title };
   // F-12: the strip's words. Fix round 6: "verified" only for a whole record from the broker; "demo" for demo data.
   // Reviewer fix (TR-3): no record stats while an import runs; the incomplete line first on a failed one. The image's
   // alt text is the strip in words, declared here because a file-level alt is static (F-4 pattern).
