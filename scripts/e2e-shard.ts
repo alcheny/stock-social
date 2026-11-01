@@ -5,10 +5,13 @@
 // Exactly once, by construction: every shard reads the same `playwright test --list --reporter=json` of the same
 // commit, and `partition` is a pure function that cuts that one ordered list into disjoint, covering, contiguous
 // slices (tested in e2e-shard.test.ts). The weights only move the cut points; they never decide whether a test runs.
-// Contiguous slices keep each file's tests in declaration order, as Playwright's own sharding does.
+// Slices keep each file's tests in declaration order, but a file may be split across shards (connect.spec.ts is):
+// its beforeAll/afterAll then run once per shard it lands in, so a test must not rely on an earlier one in its file.
 //
 //   npx playwright test --list --reporter=json > list.json
-//   node scripts/e2e-shard.ts list.json <shard> <of> > shard.txt   # prints the slice; its size goes to stderr
+//   node scripts/e2e-shard.ts pick list.json <shard> <of> > shard.txt         # the slice as a --test-list
+//   npx playwright test --list --reporter=json --test-list shard.txt > got.json
+//   node scripts/e2e-shard.ts verify list.json got.json <shard> <of>        # matched exactly the slice, test by test
 //   npx playwright test --workers=1 --test-list shard.txt
 import { readFileSync } from 'node:fs';
 
@@ -53,20 +56,43 @@ export function partition<T>(items: T[], weight: (t: T) => number, shard: number
 // title that holds the delimiter or outer spaces could not be matched exactly: fail loudly instead of skipping it.
 export function testListLine(t: ListedTest): string {
   for (const title of t.titles) {
-    if (title.includes('›') || title !== title.trim()) throw new Error(`can't list ${t.file} › ${title}: "›" or outer spaces in a title`);
+    if (!title || /[›\n\r]/.test(title) || title !== title.trim()) throw new Error(`can't list ${t.file} › ${JSON.stringify(title)}: an empty title, "›", a line break or outer spaces`);
   }
   return [t.file, ...t.titles].join(' › ');
 }
 
-if (import.meta.main) {
-  const [file, shard, of] = process.argv.slice(2);
-  const tests = listedTests(JSON.parse(readFileSync(file, 'utf8')));
+const weight = (t: ListedTest) => WEIGHTS[t.file] ?? DEFAULT_WEIGHT;
+const read = (file: string) => listedTests(JSON.parse(readFileSync(file, 'utf8')));
+
+// The slice for shard/of of the full list, after checking that the N slices together are the whole list, each test once.
+export function slice(tests: ListedTest[], shard: number, of: number): ListedTest[] {
   if (!tests.length) throw new Error('no tests listed');
-  const weight = (t: ListedTest) => WEIGHTS[t.file] ?? DEFAULT_WEIGHT;
-  // Belt and braces at run time: the N slices together are the whole list, each test in exactly one.
-  const all = Array.from({ length: Number(of) }, (_, i) => partition(tests, weight, i + 1, Number(of))).flat();
+  const all = Array.from({ length: of }, (_, i) => partition(tests, weight, i + 1, of)).flat();
   if (all.length !== tests.length || all.some((t, i) => t !== tests[i])) throw new Error('slices do not cover the list exactly once');
-  const slice = partition(tests, weight, Number(shard), Number(of));
-  process.stdout.write(slice.map(testListLine).join('\n') + '\n');
-  console.error(`shard ${shard}/${of}: ${slice.length} of ${tests.length} tests`);
+  return partition(tests, weight, shard, of);
+}
+
+// What a shard's --test-list actually matched must be its slice exactly: no test missing, none extra (Playwright
+// matches a line as a title prefix, so a line could also pick up a test nested under the same title).
+export function verify(want: ListedTest[], got: ListedTest[]): string[] {
+  const key = (t: ListedTest) => JSON.stringify([t.file, ...t.titles]);
+  const w = want.map(key).sort(), g = got.map(key).sort();
+  return [...w.filter((k) => !g.includes(k)).map((k) => `missing ${k}`), ...g.filter((k) => !w.includes(k)).map((k) => `extra ${k}`),
+    ...(new Set(g).size !== g.length ? ['a test matched twice'] : [])];
+}
+
+if (import.meta.main) {
+  const [mode, ...a] = process.argv.slice(2);
+  if (mode === 'pick') {
+    const [file, shard, of] = a;
+    const s = slice(read(file), Number(shard), Number(of));
+    process.stdout.write(s.map(testListLine).join('\n') + '\n');
+    console.error(`shard ${shard}/${of}: ${s.length} tests picked`);
+  } else if (mode === 'verify') {
+    const [file, got, shard, of] = a;
+    const want = slice(read(file), Number(shard), Number(of));
+    const problems = verify(want, read(got));
+    if (problems.length) { console.error(problems.join('\n')); process.exit(1); }
+    console.error(`shard ${shard}/${of}: --test-list matched exactly the ${want.length} picked tests`);
+  } else throw new Error('usage: e2e-shard.ts pick <list.json> <shard> <of> | verify <list.json> <got.json> <shard> <of>');
 }

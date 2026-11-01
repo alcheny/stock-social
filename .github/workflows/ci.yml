@@ -72,11 +72,11 @@ jobs:
           if env -u DATABASE_URL node scripts/db-setup.ts 2> err.txt; then echo "expected failure"; exit 1; fi
           grep -q "DATABASE_URL is not set" err.txt
 
-  # Every e2e test runs exactly once: scripts/e2e-shard.ts cuts the listed suite into SHARDS contiguous slices of
-  # about equal measured time (Playwright's own --shard balances by test count, which left one slow shard), and each
-  # shard checks that its --test-list matched exactly its slice. --workers=1 runs one test at a time per shard, so the
-  # single vendor-fake port and the feed lock (e2e/feed-lock.ts) never see two workers. Each shard builds exactly as
-  # a Vercel preview does (schema + seed + next build) against its own fresh database. SHARDS must match the matrix.
+  # Every e2e test runs exactly once: scripts/e2e-shard.ts cuts the listed suite into one contiguous slice per matrix
+  # leg, of about equal measured time (Playwright's own --shard balances by test count, which left one slow shard),
+  # and each shard checks that its --test-list matched exactly its slice, test by test. --workers=1 runs one test at a
+  # time per shard, so the single vendor-fake port and the feed lock (e2e/feed-lock.ts) never see two workers. Each
+  # shard builds exactly as a Vercel preview does (schema + seed + next build) against its own fresh database.
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -100,7 +100,6 @@ jobs:
       SNAPTRADE_BASE_URL: http://127.0.0.1:4102 # the vendor fake, as in static
       SNAPTRADE_CLIENT_ID: e2e
       SNAPTRADE_CONSUMER_KEY: e2e
-      SHARDS: 4
     permissions:
       contents: read
     steps:
@@ -111,15 +110,15 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Pick this shard's tests (each test in exactly one shard)
-        env:
-          SHARD: ${{ matrix.shard }}
+        env: # from the matrix itself, so adding or removing a leg can never leave a slice unrun
+          SHARD_INDEX: ${{ strategy.job-index }}
+          SHARDS: ${{ strategy.job-total }}
         run: |
-          npx playwright test --list --reporter=json > e2e-list.json
-          node scripts/e2e-shard.ts e2e-list.json "$SHARD" "$SHARDS" > e2e-shard.txt
-          want=$(grep -c . e2e-shard.txt)
-          got=$(npx playwright test --list --test-list e2e-shard.txt | sed -n 's/^Total: \([0-9]*\) tests* in .*/\1/p')
-          echo "shard $SHARD/$SHARDS: $want tests picked, $got matched"
-          [ "$want" = "$got" ]
+          SHARD=$((SHARD_INDEX + 1))
+          npx playwright test --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/e2e-shard.ts pick "$RUNNER_TEMP/e2e-list.json" "$SHARD" "$SHARDS" > "$RUNNER_TEMP/e2e-shard.txt"
+          npx playwright test --list --reporter=json --test-list "$RUNNER_TEMP/e2e-shard.txt" > "$RUNNER_TEMP/e2e-got.json"
+          node scripts/e2e-shard.ts verify "$RUNNER_TEMP/e2e-list.json" "$RUNNER_TEMP/e2e-got.json" "$SHARD" "$SHARDS"
       - name: Playwright version
         id: pw
         run: echo "version=$(node -p "require('./node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
@@ -139,7 +138,7 @@ jobs:
         env:
           VERCEL_ENV: preview
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --reporter=list --workers=1 --test-list e2e-shard.txt
+      - run: npx playwright test --reporter=list --workers=1 --test-list "$RUNNER_TEMP/e2e-shard.txt"
 
   check: # the Gate, the doctor and the feature pipeline look for this exact job name
     needs: [static, e2e]
