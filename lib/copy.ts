@@ -730,5 +730,5 @@ export const PUBLIC_SHORT = {
   // The owner's share prompt: built from lib/privacy-fields.ts PUBLIC_FIELDS (one list, no hand-kept copy), plus the
   // profile's own fields and the trader's published reasons.
   sharePrompt: (fieldWords: string[]) =>
-    `Public: your handle, display name, any reasons you publish, ${fieldWords.join(', ')}; losses included. Never sizes, prices or balances. Your broker login stays private.`,
+    `Public: your handle, display name, any reasons you publish, ${fieldWords.slice(0, -1).join(', ')}, and ${fieldWords.at(-1)}. Losses are included. Never sizes, prices or balances. Your broker login stays private.`,
 };

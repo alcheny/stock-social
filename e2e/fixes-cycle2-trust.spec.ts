@@ -7,6 +7,11 @@ test('fix #20: an unknown address is a real 404 with its own title and a way bac
   await expect(page.locator('h1')).toHaveText('Page not found');
   await expect(page).toHaveTitle('Page not found · Stock Social');
   await expect(page.locator('meta[name="robots"][content*="noindex"]').first()).toBeAttached();
+  await page.setViewportSize({ width: 360, height: 740 });
+  for (const name of ['Back to the feed', 'All stocks']) {
+    const box = await page.locator('main').getByRole('link', { name }).boundingBox();
+    expect(box!.height, name).toBeGreaterThanOrEqual(44); // user test: a 44 px target
+  }
   await page.getByRole('link', { name: 'Back to the feed' }).click();
   await expect(page).toHaveURL(/\/$/);
 });

@@ -8,12 +8,18 @@ import Link from 'next/link';
 // Next.js adds <meta name="robots" content="noindex"> to this page itself.
 export const metadata: Metadata = { title: 'Page not found · Stock Social' };
 
+const tap = { display: 'inline-flex', alignItems: 'center', minHeight: 44 } as const;
+
 export default function NotFound() {
   return (
     <main className="page">
       <h1>Page not found</h1>
       <p>There&apos;s no page at this address. The link may be mistyped, or the page may have been removed.</p>
-      <p><Link href="/">Back to the feed</Link> · <Link href="/t">All stocks</Link></p>
+      {/* User test (cycle 2): each way back is a 44 px target at 360 px. */}
+      <p style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+        <Link href="/" style={tap}>Back to the feed</Link>
+        <Link href="/t" style={tap}>All stocks</Link>
+      </p>
     </main>
   );
 }

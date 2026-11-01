@@ -73,3 +73,14 @@ disclaimer guard, the plain-view disclaimer, #1 and the copy across `app/t/**`. 
   by sell_id; #24 compare "too early" twice; #19 in `app/t/**`.
 - 2026-11-01: `app/not-found.tsx` sets no robots tag of its own. Why: decided by the committee under the owner's
   instruction of 2026-11-01; Next.js adds noindex to the 404 page itself, so a second tag only duplicated it.
+
+## QA, review and user test (2026-11-01)
+- Tester round 1 (`qa.md`): 1 Medium, 6 Low. Fixed: /me/record said "verified closed trades" on a demo record (now
+  "closed trades (including demo data)"); average win/loss toned by sign; PENDING_VISIBLE fails once a listed file adopts
+  the predicate. Left as noted: real-referrer `via=nav` e2e (unit-tested), dynamic-title duplicates (generateMetadata).
+- Code review round 1 (`code-review.md`): nothing blocking; 4 non-blocking fixed (predicate and 404 comments now say
+  what is pending, with ponytails; #19 check survives F-19's move; the DB test removes its attempts and funnel rows).
+- User test round 1 (`user-test.md`, UX lead + business lead, 360 px, both personas): every item compliant; 2 usability
+  demands fixed: the share prompt reads as one list (", and …. Losses are included."), the 404 links are 44 px targets.
+  Out-of-scope observations passed to the orchestrator: nav link height and handle truncation (a11y session), "verified"
+  titles on demo stock pages (`claude/fix-truthful-labels`, #1), 35 px chart range buttons.

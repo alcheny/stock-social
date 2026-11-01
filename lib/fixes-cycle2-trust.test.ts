@@ -45,6 +45,8 @@ test('fix #5: no surface says only percentages are public; the share prompt name
   for (const f of PUBLIC_FIELDS) assert.ok(line.includes(f.words), f.words);
   for (const w of ['handle', 'display name', 'reasons']) assert.ok(line.includes(w), w);
   assert.doesNotMatch(line, /only percentages|percentages only/i);
+  assert.match(line, /, and your current open positions with unrealized percent\. Losses are included\./); // user test: reads as one list
+  assert.doesNotMatch(line, /;/);
   assert.match(src('app/u/[handle]/share-prompt.tsx'), /PUBLIC_SHORT\.sharePrompt\(PUBLIC_FIELDS/);
 });
 
