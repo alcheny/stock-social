@@ -20,7 +20,8 @@ const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = 
 const PENDING_VISIBLE = ['app/t/compare/page.tsx', 'app/t/[symbol]/opengraph-image.tsx', 'app/t/open-positions.ts'];
 
 test('fix #4: every closed_trades / open_positions read on the stock pages, index and sitemap uses the visible-user predicate', () => {
-  const files = [...walk(`${root}app/t`).filter((f) => /\.tsx?$/.test(f)), `${root}app/sitemap.ts`]
+  // lib/sitemaps.ts: the sitemaps' reads (known limits PR #52 moved them out of app/sitemap.ts to page past 5,000 symbols).
+  const files = [...walk(`${root}app/t`).filter((f) => /\.tsx?$/.test(f)), `${root}app/sitemap.ts`, `${root}lib/sitemaps.ts`]
     .filter((f) => !PENDING_VISIBLE.includes(relative(root, f)));
   let reads = 0;
   for (const f of files) {
