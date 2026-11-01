@@ -21,11 +21,11 @@ Set by the owner in the orchestrating chat on 2026-11-01 and relayed by the orch
    left ("Ideally, at the end, I should have no tokens left").
 3. **Running sessions can finish.** New work is admitted only against what is left after the expected
    remaining cost of the sessions already running.
-4. **When unsure, admit.** "If unsure about if new work will go over limit cap, go with the more conservative
-   estimate and risk going over the cap." The governor branch records the owner's reading as optimistic
-   admission (commit `d2c93fa`, "optimistic admission with estimate ranges (owner)"), and the orchestrator
-   relays it the same way: when it is unclear whether new work fits, admit it and accept the risk of going
-   over.
+4. **When unsure whether new work fits.** "If unsure about if new work will go over limit cap, go with the more
+   conservative estimate and risk going over the cap." Which way this reads (admit, or queue) is open question
+   Q14 in [decisions-and-authority.md](decisions-and-authority.md#open-questions-for-the-owner). Today the
+   orchestrator admits (orchestrator report, 2026-11-01), and the governor branch reads it as admit (commit
+   `d2c93fa`, "optimistic admission with estimate ranges (owner)").
 5. **Queue only clear overruns.** Queue only work that clearly exceeds 100% of the cap, and hold it until the
    window resets (`rate_limit_info.resetsAt`; the current reset time is the budget line in
    [coordination.md](coordination.md)).
@@ -66,7 +66,8 @@ before every `create_session`. It is the manual form of what the governor comput
 5. **Admit in priority order.** Start the next queued item while
    `spend + reserve + the admitted items' low estimates ≤ the cap's high estimate`. While the cap is unknown
    and the status is `allowed`, admit. Stop at the first item that does not fit, so a large important item is
-   not starved by small ones.
+   not starved by small ones. This step follows today's admit reading of rule 4 (low estimates against the high
+   cap); a queue reading would compare high estimates with the low cap (Q14).
 6. **Brake only on rejection.** On `rejected` or overage, admit nothing. Running sessions keep going; if they
    stall, pause the lowest-priority one first, never the orchestrator. The work item's State becomes
    `queued-budget` ([lifecycle.md → States](lifecycle.md#states)) until `resetsAt` passes.

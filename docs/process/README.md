@@ -67,11 +67,10 @@ For a new Claude client joining work in lane C, end to end. Each step names its 
    asks the orchestrator (or the owner) which item to take, in a `Claim request: <item>` issue
    ([collaboration.md → Messaging](collaboration.md#messaging)); with no reply within one check-in (about 30
    minutes), follow the [no-orchestrator fallback](collaboration.md#claiming-and-releasing-work).
-5. **Branch** `claude/<topic>` from `origin/main` (a child uses the name in its row):
-   [collaboration.md → Branches](collaboration.md#branches).
+5. **Branch** `claude/<topic>` from `origin/main` (a child uses the name in its row; a product change under the
+   CLAUDE.md three-versions rule uses `autopilot/issue-<n>-<a|b|c>`): [collaboration.md → Branches](collaboration.md#branches).
 6. **Claim:** push the branch, open a draft PR with the claim line, edit only your own row in coordination.md, and
    send the claim notice: [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work).
-   Until #50 merges, coordination.md is not on main: the claim is the draft PR and the notice only.
 7. **Run the stages for your work-item kind:** [lifecycle.md](lifecycle.md).
 8. **Pass the gates before every push**, after merging `origin/main`: [quality.md → Before every push](quality.md#before-every-push).
 9. **Mark the PR ready and send the full report** to `@parent` (child session) or, without session tools, as a
@@ -89,7 +88,7 @@ The single glossary. Terms owned elsewhere are defined there and only linked her
 | **Owner's own session** | A Claude session the owner drives directly (desktop, CLI or chat), for example a design session. It is not a child of the orchestrator. |
 | **Orchestrator** | The owner's orchestrating Claude session. It starts, messages, reviews, merges and archives child sessions ([architecture.md](architecture.md#actors)). |
 | **Orchestrator of record** | The one session currently acting as orchestrator, named at the top of [coordination.md](coordination.md). There is never more than one. |
-| **Child session** | A cloud Claude Code session started by the orchestrator with `create_session`. It owns one branch and one PR and reports to `@parent`. |
+| **Child session** | A cloud Claude Code session started by the orchestrator with `create_session`. It owns one branch and one PR (three for a product change under the CLAUDE.md three-versions rule, Q1) and reports to `@parent`. |
 | **Build session** | A child session whose work item is code: a feature build, cross-cutting build or fix. |
 | **Council session** | A child session whose output is a record, not code (idea board, direction councils, approval council and the other councils in [architecture.md → Actors](architecture.md#actors)). |
 | **Client** | Any Claude session working on this repo: orchestrator, child, owner's own session or collaborator's desktop/CLI session. |
@@ -97,7 +96,7 @@ The single glossary. Terms owned elsewhere are defined there and only linked her
 | **Lane** | One of the three systems that build the repo: lane A (Actions autopilot), lane B (Actions feature pipeline), lane C (interactive orchestrator). See [The three lanes](#the-three-lanes). Not the lines-mode teams A/B/C, which all run in lane A. |
 | **Switch** | A repo variable that turns a lane on: `AUTOPILOT` (lane A) or `FEATURES` (lane B). Only the owner flips one (POLICY H). |
 | **Heartbeat** | A scheduled recovery run: `features.yml` at minute 23, `build.yml` at minute 41 and `doctor.yml` at minute 11 of every hour (their `cron` lines). Each is a no-op while its switch is off. |
-| **Work item** | One unit of claimed work with one branch and, for lane C, one PR. |
+| **Work item** | One unit of claimed work with one branch and, for lane C, one PR (three variant branches and PRs for a product change under the CLAUDE.md three-versions rule, Q1). |
 | **Work-item kinds** | Feature build, cross-cutting build, fix, dependency bump, council or record, docs: [lifecycle.md → Work-item kinds](lifecycle.md#work-item-kinds). |
 | **State** | The stage a work item is in (`planned`, `claimed`, `building`, …): [lifecycle.md → States](lifecycle.md#states). Used only for work items. |
 | **Feature file** | `docs/features/F-<n>-<slug>.md`: the owner's decisions and acceptance criteria for one feature ([docs/FEATURES.md](../FEATURES.md) → Feature files). |
@@ -143,7 +142,7 @@ Defined by link only:
 - **Unreachable** (orchestrator), **No-orchestrator fallback:** [collaboration.md → Claiming and releasing work](collaboration.md#claiming-and-releasing-work); open for the owner as Q12.
 - **Merge preconditions:** [lifecycle.md → Stages](lifecycle.md#stages), stage 12.
 - **Hard stop:** [docs/IMPLEMENTATION.md](../IMPLEMENTATION.md) → Hard stops, plus lane C's two in [lifecycle.md → Hard stops](lifecycle.md#hard-stops).
-- **Open question (Q1–Q12):** [decisions-and-authority.md → Open questions for the owner](decisions-and-authority.md#open-questions-for-the-owner).
+- **Open question (Q1–Q14):** [decisions-and-authority.md → Open questions for the owner](decisions-and-authority.md#open-questions-for-the-owner).
 - **Ponytail note**, **Known limits:** [quality.md → Ponytail convention](quality.md#ponytail-convention).
 
 ## Precedence

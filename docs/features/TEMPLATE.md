@@ -22,7 +22,4 @@ Each one testable; the pipeline writes a test for every line.
 Feedback after trying a built version (each item also becomes a dated decision above).
 
 ## Build log
-Appended by the feature's build PR (the pipeline's publish step, or the build session's PR: see
-docs/process/lifecycle.md); it reaches main when that PR merges. A build session edits only its own feature file,
-and only this log, its Hand-off notes and committee decisions taken under the owner's 2026-11-01 delegation
-(docs/process/collaboration.md → Never do).
+Appended by the feature pipeline's publish step (scripts/features.ts).

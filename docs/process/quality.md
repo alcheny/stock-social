@@ -174,7 +174,7 @@ Each list lives in one file; this table names the list and what it does, and lis
 | List | What it does | Applies to |
 |---|---|---|
 | `.github/CODEOWNERS` | The Gate's `gateDecision` sends a PR touching these paths to `needs-human` | Lanes A and B. Lane C: no branch protection enforces it (docs/AUTOPILOT.md → Known limits) |
-| `scripts/team.ts` `PROTECTED` | Agents' Edit/Write to these paths is refused; anything else that reaches them is put back after each call | Lanes A and B agents. Lane C keeps away from these paths by rule ([collaboration.md → Never do](collaboration.md#never-do)), with two exceptions: records in `docs/features/logs/`, and a build session's own feature file for committee decisions under the 2026-11-01 delegation, its Build log and Hand-off notes (process-docs lead decision, Q8) |
+| `scripts/team.ts` `PROTECTED` | Agents' Edit/Write to these paths is refused; anything else that reaches them is put back after each call | Lanes A and B agents. Lane C keeps away from these paths by rule ([collaboration.md → Never do](collaboration.md#never-do)), with one exception: records in `docs/features/logs/`. Feature files get none: agents can't edit them (IMPLEMENTATION.md → Decisions, 2026-10-22); whether a lane-C build may edit its own is open question Q8 |
 | `scripts/autopilot.ts` `LOOP_PATHS` | A line PR that changes loop files is sent back to be reverted | Lane A lines |
 | `scripts/doctor.ts` `DOCTOR_FORBIDDEN` | Files the doctor may never change | The doctor |
 | `scripts/handoff.ts` `verify` | Refuses a build hand-off with a protected path (except the team's own logs under `docs/features/logs/`, `TEAM_RECORDS`), a symlink, a submodule, CODEOWNERS or an agent-instruction file | Lane B publish |

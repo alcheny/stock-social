@@ -10,7 +10,8 @@ in [FEATURES.md → How builders coordinate](../FEATURES.md#how-builders-coordin
 ## Branches
 
 - Each session creates and pushes only its own branch `claude/<topic>`, cut from `origin/main`, and opens one PR for
-  it (orchestrator report, 2026-11-01). A child session uses the exact branch name written in its coordination row
+  it (orchestrator report, 2026-11-01); a product change under the three-versions rule uses the variant branches
+  below instead. A child session uses the exact branch name written in its coordination row
   ([lifecycle.md](lifecycle.md#6-build-session-start) stage 6), never a name of its own.
 - To pick up main, merge it: `git fetch origin main && git merge origin/main`. Never rebase and never force-push
   (coordination log `docs/features/logs/coordination-2026-11-01.md`, paragraph 1: "never rebase or force-push").
@@ -24,6 +25,11 @@ in [FEATURES.md → How builders coordinate](../FEATURES.md#how-builders-coordin
   [decisions-and-authority.md → Open questions for the owner](decisions-and-authority.md#open-questions-for-the-owner).
 - Reserved prefixes, never used by lane C: `autopilot/*` (lane A, `scripts/autopilot.ts` `branchFor`) and `line/a|b|c` (lane A lines mode,
   [AUTOPILOT.md → Lines mode](../AUTOPILOT.md)), `feature/*` (lane B, `scripts/features.ts` `branchOf`), `dependabot/*` (the code host's dependency bot).
+  One exception: the variant branches `autopilot/issue-<n>-<a|b|c>`, which CLAUDE.md → "Three versions per product
+  change (interactive sessions too)" prescribes for a product change built in an interactive session. That rule
+  applies to lane C until the owner answers Q1
+  ([decisions-and-authority.md → Open questions for the owner](decisions-and-authority.md#open-questions-for-the-owner));
+  such a change then has one issue, three branches and three PRs labeled `autopilot` + `variant`, as CLAUDE.md says.
 - If someone else updated your branch on GitHub (for example GitHub's update-branch, see the next section), bring it
   in with `git pull --no-rebase origin <your branch>` before your next commit.
 
@@ -111,15 +117,11 @@ GitHub is the source of truth for claims (lead decision 2, outline 2026-11-01).
   [coordination.md](coordination.md) (State `claimed`). The update rule is in
   [coordination.md → Update rule](coordination.md#update-rule). Then send the claim notice
   ([Messaging](#messaging)).
-- **Until #50 merges**, `docs/process/` (and so coordination.md) is not on main. A claim is then the draft PR plus the
-  claim notice only; read these docs from `origin/claude/process-docs-2026-11-01` (process-docs lead, usability pass 5,
-  2026-11-01).
 - **Before you claim, check GitHub first** ([Tool recipes](#tool-recipes)); GitHub is the source of truth
   (process-docs lead, usability pass 5, 2026-11-01):
   1. list every open PR, drafts included, and the open issues;
   2. run the "Unregistered branches" recipe: it lists every remote `claude/*` branch that coordination.md does not
-     name, with its PRs (until #50 merges, run it in a checkout of `origin/claude/process-docs-2026-11-01`, where
-     coordination.md exists);
+     name, with its PRs;
   3. for each such branch, diff it against main (`git diff --name-only origin/main...origin/<branch>`). A branch
      whose diff overlaps the files you would change counts as a claim, PR or not: do not start; ask the orchestrator
      or the owner who holds it ([Messaging](#messaging));
@@ -264,11 +266,12 @@ Each item links its home.
   `scripts/handoff.ts` (`TEAM_RECORDS`) makes for lane B: a lane-C client writes its item's records under
   `docs/features/logs/`, in the directory [decisions-and-authority.md → Records](decisions-and-authority.md#records)
   names for its kind, although `PROTECTED` covers `docs/features/**` (`.github/CODEOWNERS` does not list
-  `docs/features/`). A lane-C build session may also edit its **own** feature file, and only to record committee
-  decisions taken under the owner's 2026-11-01 delegation, its Build log and its Hand-off notes (process-docs lead
-  decision, awaiting the owner: [decisions-and-authority.md → Q8](decisions-and-authority.md#open-questions-for-the-owner)).
-  Any other change to an `F-*.md` file (acceptance criteria, `Status:` beyond what the owner set, another feature's
-  file) and anything else under `docs/features/**` needs the owner. Details:
+  `docs/features/`). Feature files (`docs/features/F-*.md`) get no exception: they are the owner's decisions and
+  agents can't edit them; implementation discussion lives in `docs/features/logs/F-<n>/`, "never in the owner's
+  feature file" (IMPLEMENTATION.md → Decisions, 2026-10-22; FEATURES.md → Build (the committee cycle): "Agents
+  can't change `docs/features/`"; the `docs/features/` comment in `.github/CODEOWNERS`). Today some lane-C builds
+  do edit their own feature file; whether that should be allowed is open question Q8 ([decisions-and-authority.md → Q8](decisions-and-authority.md#open-questions-for-the-owner)),
+  and until the owner answers, the rule above stands. Details:
   [quality.md → Protected paths (mechanics)](quality.md#protected-paths-mechanics).
 - Create or renumber an `F-<n>` ([lifecycle.md → Stages](lifecycle.md#stages), stage 5).
 - Rename, move or delete shared code ([Shared files](#shared-files)).

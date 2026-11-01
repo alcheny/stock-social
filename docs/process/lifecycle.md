@@ -47,8 +47,8 @@ finished there.
 
 | Kind | Stages it passes | One PR or three variants |
 |---|---|---|
-| Feature build | 5–14 (1–4 already passed by the approval council or a design session) | One PR per session in practice. **Pending owner: CLAUDE.md "Three versions per product change" asks for three variants for any product change; lane C builds one. Open question Q1** ([decisions-and-authority.md → Open questions](decisions-and-authority.md#open-questions-for-the-owner)) |
-| Cross-cutting build (privacy, security, sync, CI speed, a known-limits sweep …) | 6–14 (stage 7 as in [Cross-cutting build without a feature file](#cross-cutting-build-without-a-feature-file)) | One PR. **Pending owner, CLAUDE.md three-versions rule, Q1** (for the parts that change the product) |
+| Feature build | 5–14 (1–4 already passed by the approval council or a design session) | Three variants: CLAUDE.md "Three versions per product change (interactive sessions too)" applies until the owner answers Q1 ([decisions-and-authority.md → Open questions](decisions-and-authority.md#open-questions-for-the-owner)). Today's lane-C feature builds ran one version each; that practice is recorded in Q1, not a rule |
+| Cross-cutting build (privacy, security, sync, CI speed, a known-limits sweep …) | 6–14 (stage 7 as in [Cross-cutting build without a feature file](#cross-cutting-build-without-a-feature-file)) | One PR, except that parts which change the product are three variants under the CLAUDE.md three-versions rule until the owner answers Q1 |
 | Fix | 6, 8–13 | One PR. Exempt from the three-versions rule by the rule's own text ("not fixes, tests or chores", CLAUDE.md) |
 | Dependency bump | 8–13 | One PR, opened by the code host's dependency bot (#26, #27, #28 on 2026-11-01). A bump of an installed package is not a *new* dependency; adding one is owner-only (POLICY H). Who reviews bumps: orchestrator report, 2026-11-01, not recorded in the repo |
 | Council or record (idea board, direction councils, approval council, business) | 6, 8–13 (the council's own rounds replace stage 7) | One PR |
@@ -157,8 +157,10 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
 
 ### 8. Pull request
 - **Who:** the build session.
-- **Input:** the session's branch. **Output:** one PR per session into `main`, label `feature`. The label collides
-  with lane B when `FEATURES` is on ([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on));
+- **Input:** the session's branch. **Output:** one PR per session into `main`, label `feature`, except a product
+  change under the CLAUDE.md three-versions rule (in force until the owner answers Q1): one issue with a
+  `## Variants` section and three PRs from `autopilot/issue-<n>-<a|b|c>`, labeled `autopilot` + `variant`
+  ([collaboration.md → Branches](collaboration.md#branches)). The `feature` label collides with lane B when `FEATURES` is on ([collaboration.md → When FEATURES or AUTOPILOT is on](collaboration.md#when-features-or-autopilot-is-on));
   not every lane-C PR carries it (current labels: [coordination.md](coordination.md#work-items)); label policy is
   open question Q4.
 - **Claim step (before stage 7): open it early as a draft; the draft PR is the claim**, followed by the claim
@@ -230,7 +232,9 @@ the verdict step, or ends without a passing re-sit, does not meet this stage.
   [coordination.md → Feature files after lane-C merges](coordination.md#feature-files-after-lane-c-merges)).
 - Consequence: with `FEATURES=on`, lane B would pick these features up again and rebuild them.
 - Who sets `built` in lane C is open question Q8. A lane-C build session never sets `Status:` beyond what the owner
-  set; what it may write in its own feature file: [collaboration.md → Never do](collaboration.md#never-do).
+  set, and edits no feature file: agents can't edit them (IMPLEMENTATION.md → Decisions, 2026-10-22;
+  [collaboration.md → Never do](collaboration.md#never-do)); today's edits by some lane-C builds to their own feature
+  file are open question Q8.
 
 ### 15. Interrupted work
 - A session that must stop mid-stage pushes its work in progress to its own branch, keeps the draft PR, and writes in
@@ -273,7 +277,7 @@ A session at a hard stop sets its row to `blocked`, says what the owner should d
 
 ## Known limits
 
-- Lane C builds one PR per product change where CLAUDE.md asks for three variants — the owner answers Q1.
+- Today's lane-C feature builds ran one version each where CLAUDE.md asks for three variants — the owner answers Q1.
 - The cross-cutting variant of stage 7 is current practice reported by the orchestrator, not an owner rule — the
   owner confirming it (or IMPLEMENTATION.md → The cycle naming it) removes this.
 - No lane-C step sets a feature file's `Status: built`, so lane B would rebuild merged features when switched on — the
