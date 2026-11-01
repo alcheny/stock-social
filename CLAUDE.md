@@ -26,7 +26,8 @@ violations on every PR. The rules that matter most while working:
 broker, closed trades appear on a public profile and in a swipe feed, and the profile link unfurls as
 a share card. Full reasoning and kill gates: `docs/DESIGN.md`. The phase sequencing there is superseded:
 features decided in design sessions (`docs/features/`) are built in number order by the process in
-`docs/IMPLEMENTATION.md`. Anything POLICY or `docs/COMPLIANCE.md` marks as needing counsel still waits.
+`docs/IMPLEMENTATION.md`. Anything POLICY or `docs/COMPLIANCE.md` marks as needing counsel uses the AI legal
+committee's findings instead (owner decision 2026-11-01, POLICY top) and still waits for the owner's call.
 
 ## Commands
 

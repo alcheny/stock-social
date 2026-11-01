@@ -1,7 +1,7 @@
 # F-5 · Position size: showing the risk behind each trade
 
 Status: blocked
-Blocked: the data vendor's written permission for public position sizes, and counsel's sign-off (legal review of 2026-10-31).
+Blocked: the data vendor's written permission for public position sizes (counsel's sign-off is replaced by the legal review's findings, owner decision 2026-11-01).
 
 ## Why
 Percent returns alone hide the risk a trader took: a +50% trade on a $1 bet and a +50% trade with the whole
@@ -61,7 +61,8 @@ To be written once the open questions are settled.
 ## Open questions
 - Owner rule changes these decisions need: POLICY P3 (a public share-of-account field) and DESIGN CH-1 (charts
   "never ... position size"); the owner amends both before the build.
-- Counsel's sign-off before real users (the full legal review is the owner's private document of 2026-10-31).
+- 2026-11-01: counsel's sign-off is replaced by the legal review's findings (POLICY, owner decision); the vendor's
+  written permission still gates the build.
 - Found during the review, outside F-5: open-position percentages are computed from the vendor's prices, which
   its market-data clause may not allow publicly; and records can't show what they displayed on a past date.
 

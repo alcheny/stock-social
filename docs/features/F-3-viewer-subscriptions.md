@@ -31,7 +31,8 @@ opinion lands.
   shape, and the billing vendor chosen must not rule it out.
 - 2026-11-01: The first paid feature is "Record tools": viewers compare traders side by side, save views and keep
   private notes, all pull-only (nothing is ever pushed to them). No free trial at launch. It is built only after
-  its own written securities opinion. Why: the owner adopted the legal committee's recommendation; event alerts
+  the legal committee reviews its exact feature list (in place of a written securities opinion, POLICY owner
+  decision 2026-11-01). Why: the owner adopted the legal committee's recommendation; event alerts
   are barred by POLICY F3b.
 
 ## What viewers pay for (candidates; each needs the counsel opinion before build)

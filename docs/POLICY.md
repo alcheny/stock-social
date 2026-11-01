@@ -15,6 +15,14 @@ every PR and push by `scripts/compliance.ts`; the rest by the reviewer, the Gate
 This is a risk-reduction policy written by AI, not legal advice. Before any public product launch, the
 owner has it reviewed by counsel (see **Before a public launch**).
 
+**Owner decision 2026-11-01: AI legal findings in place of counsel.** Wherever this file or
+`docs/COMPLIANCE.md` asks for counsel's opinion or sign-off, the owner accepts the AI legal committee's findings
+instead (the counsel packet, Privacy Policy and F3b reviews of 2026-10-26 and the position-size review of
+2026-10-31, kept privately by the owner). Their conditions apply as rules, the owner makes each call they leave
+open, and the owner carries the risk of not having a licensed attorney's written opinion. Gates that are not
+legal opinions still hold: the data vendor's written permission, a written Privacy Policy and Terms, and real
+authentication before real users.
+
 ## S. Secrets and credentials
 
 - **S1.** Never commit a secret: API keys, tokens (GitHub, Claude/Anthropic, SnapTrade, Vercel, npm,
@@ -96,8 +104,9 @@ owner has it reviewed by counsel (see **Before a public launch**).
     hold, never ranks or scores a security, and is never phrased as a prompt to act. Every reason line
     is a fact about the trader's record or the viewer's own actions ("You follow @x", "Similar holding
     periods"), never a judgment of skill or a forecast (F3b). Copy never says buy, sell, hold, pick,
-    signal or advice. Counsel's opinion on the publisher's exclusion (COMPLIANCE §2) is still required
-    before behavior-based scoring is built and before real viewers see it.
+    signal or advice. The legal committee's findings on the publisher's exclusion (COMPLIANCE §2) stand in
+    for counsel's opinion (owner decision 2026-11-01); their conditions apply before behavior-based scoring
+    is built and before real viewers see it.
 - **F2.** No promissory, misleading or exaggerated performance language anywhere in the product:
   "guaranteed", "risk-free", "can't lose", "proven strategy", "beat the market", "get rich", "easy
   money", "copy their trades". The scanner blocks these in product code.
@@ -205,7 +214,9 @@ noreply commit email, and accepts that history can't be fully scrubbed.
 
 ## Before a public launch (owner and counsel)
 
-No public product launch until counsel signs off. Publishing the code repository is not a launch.
+No public product launch until the owner signs off on each item below against the legal committee's
+findings, which stand in for counsel's sign-off (owner decision 2026-11-01). Publishing the code repository is
+not a launch.
 - Securities and adviser status (publisher's exclusion; rankings, per-security pages, badges, theses;
   paid signal sellers as users; registered advisers using cards in ads).
 - The data vendor's written permission to show users' broker-derived data publicly, its market-data
