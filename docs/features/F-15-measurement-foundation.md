@@ -165,8 +165,8 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
 - 2026-11-01: Second half: The beacon moves into app/layout.tsx (last in the body after the page content) and
   app/template.tsx is deleted. Why: decided by the committee under the owner's instruction of 2026-11-01; F-13 has
   merged; a persistent layout keeps one beacon per pathname and removes the root template's remounts.
-- 2026-11-01: Second half: Canonical links: the layout sets metadataBase from the configured public origin (lib/site.ts,
-  which billing re-exports unchanged) and the profile, trade and month pages declare their untagged address; the trade
+- 2026-11-01: Second half: Canonical links: the layout sets metadataBase from the configured public origin
+  (lib/site-origin.ts, shared with billing and the feed preview) and the profile, trade and month pages declare their untagged address; the trade
   page's canonical and Share link come from one helper over the stored sell id; og:url is not set. Why: decided by the
   committee under the owner's instruction of 2026-11-01; a shared ?via= copy is never indexed as its own page; og:url
   would make some previews drop the source class.
