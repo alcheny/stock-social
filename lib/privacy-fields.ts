@@ -14,10 +14,12 @@ export const PUBLIC_FIELDS: Field[] = [
 ];
 
 export const PRIVATE_FIELDS: Field[] = [
-  { words: 'quantities', columns: ['activities.units'] },
-  { words: 'prices', columns: ['activities.price'] },
-  { words: 'fees', columns: ['activities.fee'] },
-  { words: 'account numbers', columns: ['activities.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'broker_accounts.account_id'] },
+  // OPTIONS: the raw option columns join the existing words (no new words: the scope line is owner copy).
+  { words: 'quantities', columns: ['activities.units', /* OPTIONS */ 'option_activities.units'] },
+  { words: 'prices', columns: ['activities.price', /* OPTIONS */ 'option_activities.price', 'option_activities.strike_milli', 'option_activities.amount'] },
+  { words: 'fees', columns: ['activities.fee', /* OPTIONS */ 'option_activities.fee'] },
+  { words: 'account numbers', columns: ['activities.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'broker_accounts.account_id',
+    /* OPTIONS */ 'option_activities.account_id', 'option_trades.account_id', 'open_option_positions.account_id'] },
 ];
 
 export const PUBLIC_USE = 'Your public record is also used to describe your trading style and to order traders for readers.';
@@ -29,7 +31,21 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
+  // OPTIONS (docs/features/logs/options/plan.md D1, D5): keys and flags of the option tables.
+  'option_trades.id': 'key', 'option_trades.user_id': 'key', 'option_trades.close_id': 'key (vendor activity id, never shown)',
+  'option_trades.verified': 'shown as the Verified badge',
+  'open_option_positions.user_id': 'key', 'open_option_positions.position_key': 'key (contract key, never shown)',
+  'open_option_positions.fetched_at': 'freshness, internal',
 };
+
+// OPTIONS (D5): option columns the current scope line does not name. They are imported and counted but shown only once
+// the owner's line names them (lib/options-gate.ts#optionsPublic) and the trader consented under it. A column moves
+// from here to PUBLIC_FIELDS when the owner amends the line; lib/options-gate.test.ts puts each in exactly one map.
+export const GATED_COLUMNS: string[] = [
+  'option_trades.underlying', 'option_trades.option_right', 'option_trades.option_expiry', 'option_trades.return_pct',
+  'option_trades.opened_at', 'option_trades.closed_at', 'option_trades.holding_days',
+  'open_option_positions.underlying', 'open_option_positions.option_right', 'open_option_positions.option_expiry', 'open_option_positions.unrealized_pct',
+];
 
 const list = (xs: string[]) => (xs.length > 2 ? `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}` : xs.join(' and '));
 const listNoComma = (xs: string[]) => `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;

@@ -24,7 +24,12 @@
 import { createServer, type Server } from 'node:http';
 
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
-export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
+export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] // price and cost_basis per unit, as the SDK documents
+  // OPTIONS: option rows (BUY/SELL with option_type, and the three option events) and raw positions of any instrument
+  // kind (option, future, future_option...), both in the vendor's own shapes (AccountUniversalActivity, AccountPosition).
+  optionActivities?: FakeOptionRow[]; instruments?: unknown[] };
+export type FakeOptionRow = { id: string; type: 'BUY' | 'SELL' | 'OPTIONEXPIRATION' | 'OPTIONASSIGNMENT' | 'OPTIONEXERCISE'; option_type?: string; option_symbol?: unknown;
+  symbol?: null; units?: number; price?: number; fee?: number; amount?: number; currency?: { code: string }; trade_date: string };
 type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean; portalFrameHeaders?: boolean };
 type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: FakeActivity[]; syncDone: boolean }> };
 
@@ -181,15 +186,17 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
       const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 1000);
       // `startDate` (YYYY-MM-DD, inclusive), as the vendor documents it: the hourly sync's backfill window.
       const from = url.searchParams.get('startDate');
-      const rows = from ? a.rows.filter((r) => r.trade_date.slice(0, 10) >= from) : a.rows;
-      const data = rows.slice(offset, offset + limit).map((r) => ({ ...r, symbol: { symbol: r.symbol } }));
+      const types = url.searchParams.get('type')?.split(',');
+      const all: (FakeActivity | FakeOptionRow)[] = [...a.rows, ...(a.optionActivities ?? [])]; // OPTIONS
+      const rows = all.filter((r) => (!from || r.trade_date.slice(0, 10) >= from) && (!types || types.includes(r.type)));
+      const data = rows.slice(offset, offset + limit).map((r) => (typeof r.symbol === 'string' ? { ...r, symbol: { symbol: r.symbol } } : r));
       return json({ data, pagination: { offset, limit, total: rows.length } });
     }
     const pos = p.match(/^\/accounts\/([^/]+)\/positions\/all$/);
     if (pos) {
       const a = user.accounts.get(decodeURIComponent(pos[1]));
       if (!a) return json({ detail: 'unknown account' }, 404);
-      return json({ results: (a.positions ?? []).map((x) => ({ instrument: { kind: 'stock', id: x.symbol, symbol: x.symbol, raw_symbol: x.symbol }, units: String(x.units), price: String(x.price), cost_basis: String(x.cost_basis) })), data_freshness: { as_of: new Date().toISOString() } });
+      return json({ results: [...(a.positions ?? []).map((x) => ({ instrument: { kind: 'stock', id: x.symbol, symbol: x.symbol, raw_symbol: x.symbol }, units: String(x.units), price: String(x.price), cost_basis: String(x.cost_basis) })), ...(a.instruments ?? [])], data_freshness: { as_of: new Date().toISOString() } });
     }
     const del = p.match(/^\/connection\/([^/]+)$/);
     if (del && req.method === 'DELETE') {

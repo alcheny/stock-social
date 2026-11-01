@@ -1,7 +1,11 @@
 // The ONLY file that talks to SnapTrade (docs/DESIGN.md §2.1). Swapping vendors changes this file.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Snaptrade, SnaptradeAuth } from 'snaptrade-typescript-sdk';
+import type { AccountPosition, AccountUniversalActivity, OptionInstrument } from 'snaptrade-typescript-sdk';
 import type { Activity } from './trades.ts';
+// OPTIONS (docs/features/logs/options/plan.md D2, D7): option rows and option positions are parsed here (the vendor's
+// field names stay in this file) and handed to an optional sink; the share path below is unchanged.
+import { isOccSymbol, multiplierOf, strikeMilli, validExpiry, type OptionRow } from './options.ts';
 
 // SNAPTRADE_BASE_URL points the SDK at the in-repo fake in tests (e2e/fakes/vendor.ts); unset, the SDK uses the vendor.
 const client = () =>
@@ -91,9 +95,15 @@ export async function listAccounts(u: BrokerUser): Promise<VendorAccount[]> {
 }
 
 export const PAGE_LIMIT = 1000;
+// OPTIONS (AC 12): the three option event types, added to the activity type filter through this one list. The filter is
+// the share types plus each list; another importer's types join with one more spread in ACTIVITY_TYPES.
+export const OPTION_EVENT_TYPES = ['OPTIONEXPIRATION', 'OPTIONASSIGNMENT', 'OPTIONEXERCISE'] as const;
+export const ACTIVITY_TYPES = ['BUY', 'SELL', ...OPTION_EVENT_TYPES].join(',');
+export type OptionSink = (rows: (OptionRow & { raw: unknown })[]) => void;
 // One vendor page of an account's full history (TR-3): the chunked import reads one page per step and resumes by offset.
-export async function fetchActivitiesPage(u: BrokerUser, accountId: string, offset: number, limit = PAGE_LIMIT): Promise<{ activities: Fetched[]; done: boolean }> {
-  const { data } = await bounded((o) => client().accountInformation.getAccountActivities({ ...auth(u), accountId, type: 'BUY,SELL', offset, limit }, o));
+export async function fetchActivitiesPage(u: BrokerUser, accountId: string, offset: number, limit = PAGE_LIMIT, optionSink?: OptionSink): Promise<{ activities: Fetched[]; done: boolean }> {
+  const { data } = await bounded((o) => client().accountInformation.getAccountActivities({ ...auth(u), accountId, type: ACTIVITY_TYPES, offset, limit }, o));
+  optionSink?.(toOptionRows(accountId, data.data ?? [])); // OPTIONS
   return { activities: toActivities(accountId, data.data ?? []), done: (data.data?.length ?? 0) < limit };
 }
 
@@ -112,10 +122,13 @@ export function unrealizedPct(p: { units?: Num; price?: Num; cost_basis?: Num; a
   if (!(units > 0) || !(price > 0) || !(cost > 0)) return null;
   return (price - cost) / cost;
 }
-export async function fetchPositions(u: BrokerUser, accountId: string): Promise<VendorPosition[]> {
+export async function fetchPositions(u: BrokerUser, accountId: string, optionSink?: PositionSink): Promise<VendorPosition[]> {
   const { data } = await bounded((o) => client().accountInformation.getAllAccountPositions({ ...auth(u), accountId }, o));
   const out: VendorPosition[] = [];
-  for (const p of data.results ?? []) {
+  // OPTIONS (D7, E1): options and futures-type kinds never reach open_positions (an OCC symbol carries the strike).
+  const { equityLike, split } = splitPositionKinds(data.results ?? []);
+  optionSink?.(split);
+  for (const p of equityLike) {
     const symbol = (p.instrument as { symbol?: string } | undefined)?.symbol;
     const pct = unrealizedPct(p);
     if (symbol && pct !== null && !p.cash_equivalent) out.push({ symbol, unrealizedPct: pct });
@@ -132,11 +145,74 @@ export async function deleteUser(u: BrokerUser): Promise<void> {
   await bounded((o) => client().authentication.deleteSnapTradeUser({ userId: u.snaptradeUserId }, o));
 }
 
+// ---- OPTIONS (docs/features/logs/options/plan.md D2, D7). Separate from the share path above so another importer's
+// changes to it merge without touching these.
+// ponytail: K1 option trades are not on feed cards and the pane's last-5 list is shares only — when feed cards come, cap
+// the ranking size term at 100% for options (long losses stop at -100%, so uncapped gains would tilt toward winners).
+// ponytail: K2 no per-trade share card for options (follows K3); the record card carries the label and the line.
+// ponytail: K3 no option trade page, theses or likes on option trades — build them on option_trades.close_id.
+// ponytail: K4 similar, compare, recap, /me/record and the import banner count ignore options — read lib/options-load.ts there.
+// ponytail: K5 a corporate action on the underlying during a hold is caught only when the OCC root changes — taint the
+// contract from corporate-action rows once that importer is wired.
+// ponytail: K6 cash-settled exercise is not priced and index underlyings are outside the allowlist — price it from the
+// settlement amount if index options are ever in scope (they are not: COMPLIANCE §2).
+// K7 (per-cause counts) is at lib/options.ts#CAUSES; K8 (the exercise-day share rule) at lib/options-sync.ts#rebuildRecord.
+// ponytail: K9 consents before consent_scope_hash have no wording version, so those traders stay gated — a re-consent
+// prompt (K10) writes the current hash.
+const isOptionRow = (a: { type?: string; option_symbol?: unknown; option_type?: string; symbol?: { symbol?: string } | null }) =>
+  !!a.option_symbol || (OPTION_EVENT_TYPES as readonly string[]).includes(a.type ?? '') || (!!a.option_type && !a.symbol?.symbol);
+const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+export function toOptionRows(accountId: string, rows: AccountUniversalActivity[]): (OptionRow & { raw: unknown })[] {
+  const out: (OptionRow & { raw: unknown })[] = [];
+  for (const a of rows) {
+    if (!a.id || !isOptionRow(a)) continue;
+    const os = a.option_symbol ?? null;
+    const at = a.trade_date ? new Date(a.trade_date) : null;
+    const units = num(a.units);
+    out.push({
+      externalId: a.id, accountId, kind: a.type ?? null, openClose: a.option_type ?? null,
+      underlying: os?.underlying_symbol?.symbol ?? null, underlyingType: os?.underlying_symbol?.type?.code ?? null,
+      right: os?.option_type ?? null, expiry: validExpiry(os?.expiration_date), strikeMilli: os ? strikeMilli(os.strike_price) : null,
+      multiplier: os ? multiplierOf(os.is_mini_option) : null, occTicker: os?.ticker ?? null,
+      units: units === null ? null : Math.abs(units), price: num(a.price), fee: num(a.fee) === null ? null : Math.abs(a.fee!),
+      amount: num(a.amount), currency: a.currency?.code ?? null, executedAt: at && !Number.isNaN(at.getTime()) ? at : null, verified: true, raw: a,
+    });
+  }
+  return out;
+}
+
+// D7: an open option position as percent per share (the SDK: `cost_basis` "For options, this is per-share", `price` per
+// share), so no multiplier. Long only; shorts and futures-type kinds are counts.
+export type OptionPosition = { positionKey: string; underlying: string; right: 'CALL' | 'PUT'; expiry: string; unrealizedPct: number };
+export type PositionSplit = { options: OptionPosition[]; short: number; unsupported: number };
+export type PositionSink = (s: PositionSplit) => void;
+const UNSUPPORTED_KINDS = ['future', 'future_option', 'cfd'];
+const OPTION_UNDERLYING_KINDS = ['stock', 'etf', 'adr', 'cef'];
+export function splitPositionKinds(results: AccountPosition[]): { equityLike: AccountPosition[]; split: PositionSplit } {
+  const equityLike: AccountPosition[] = [];
+  const split: PositionSplit = { options: [], short: 0, unsupported: 0 };
+  for (const p of results) {
+    const kind = (p.instrument as { kind?: string } | undefined)?.kind;
+    if (kind === 'option') {
+      const o = p.instrument as OptionInstrument;
+      const units = Number(p.units), price = Number(p.price), cost = Number(p.cost_basis);
+      const expiry = validExpiry(o.expiration_date), sm = strikeMilli(o.strike_price);
+      const underlying = o.underlying?.symbol;
+      if (units < 0) { split.short++; continue; }
+      if (!underlying || !OPTION_UNDERLYING_KINDS.includes(o.underlying?.kind) || !expiry || sm === null || (o.option_type !== 'CALL' && o.option_type !== 'PUT')
+        || !(units > 0) || !(price >= 0) || !(cost > 0)) { split.unsupported++; continue; }
+      split.options.push({ positionKey: [underlying, expiry, o.option_type, sm, Number(o.multiplier) || 100].join('|'), underlying, right: o.option_type, expiry, unrealizedPct: (price - cost) / cost });
+    } else if (UNSUPPORTED_KINDS.includes(kind ?? '') || isOccSymbol((p.instrument as { symbol?: string } | undefined)?.symbol)) split.unsupported++;
+    else equityLike.push(p);
+  }
+  return { equityLike, split };
+}
+
 function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): Fetched[] {
   const out: Fetched[] = [];
   for (const a of rows) {
     const symbol = a.symbol?.symbol;
-    // ponytail: equities/ETFs/crypto only; options need contract-level matching (Phase 2)
+    // Option rows go to toOptionRows (OPTIONS, K1–K9 above); this path is shares, ETFs and crypto.
     if (!a.id || !symbol || a.option_symbol || !a.trade_date || !a.price || !a.units) continue;
     if (a.type !== 'BUY' && a.type !== 'SELL') continue;
     out.push({
@@ -148,7 +224,7 @@ function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?
 }
 
 // `accountIds` limits the fetch to accounts already cleared by the TR-6 claim.
-export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: string[]): Promise<Fetched[]> {
+export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: string[], optionSink?: OptionSink): Promise<Fetched[]> {
   const st = client();
   const auth = { userId: u.snaptradeUserId, userSecret: decrypt(u.secretEnc) };
   const accounts = accountIds ? accountIds.map((id) => ({ id })) : (await bounded((o) => st.accountInformation.listUserAccounts(auth, o))).data;
@@ -157,8 +233,9 @@ export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: s
   for (const account of accounts) {
     for (let offset = 0; ; offset += 1000) {
       const { data } = await bounded((o) => st.accountInformation.getAccountActivities({
-        ...auth, accountId: account.id, startDate: since, type: 'BUY,SELL', offset, limit: 1000,
+        ...auth, accountId: account.id, startDate: since, type: ACTIVITY_TYPES, offset, limit: 1000,
       }, o));
+      optionSink?.(toOptionRows(account.id, data.data ?? [])); // OPTIONS
       out.push(...toActivities(account.id, data.data ?? []));
       if ((data.data?.length ?? 0) < 1000) break;
     }

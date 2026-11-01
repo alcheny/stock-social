@@ -151,7 +151,8 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
   const units = (r: OptionRow) => Math.abs(r.units ?? 0);
   const longResult = (r: OptionRow, u: number, exit: number) => {
     // FIFO over long lots: basis = cost of the consumed contracts (entry fees included); proceeds net of the exit fee.
-    let left = u, basis = 0, openedAt: Date | null = null, verified = r.verified;
+    let left = u, basis = 0, verified = r.verified;
+    let openedAt = null as Date | null;
     while (left > 1e-12 && longLots.length) {
       const lot = longLots[0];
       const take = Math.min(lot.units, left);
