@@ -20,8 +20,8 @@ today's page.
   unrealized"; the pane (`app/pane.tsx`) leads with realized, unrealized and combined before the chart when there are open
   positions. The Similar trades pane (`/u/<h>/pane`, `app/lazy-pane.tsx`) carries the same.
 - **Stock pages** (`app/t/**`): `/t/[symbol]` gets "Open positions in {symbol}" with the aggregate only (counts,
-  average, number of traders, "not a prediction or a rating of the stock"), never who holds it; `/t/compare` one line per
-  column. `/how` explains the figures.
+  average, number of traders, "as of" the oldest read, "not a prediction or a rating of the stock"), never who holds it;
+  `/t/compare` one dated line per column. The feed card line is dated too. `/how` explains the figures.
 - **Schema** (additive, idempotent): an index on `open_positions(symbol)` via `schema_add_index`.
 
 ## Decisions taken by the committee
@@ -49,8 +49,8 @@ committee under the owner's instruction of 2026-11-01"):
 - `npm run build`: ok.
 - `npx playwright test e2e/f6-open-positions.spec.ts`: 8 passed (with connect.spec.ts: 43 passed) (profile, all losing, open with no closes, unchanged
   no-positions path incl. a demo trader, feed card and pane order, stock pages and /how, the Similar pane route; 360 px,
-  no horizontal scroll, footer disclaimer on every page). Full suite `npx playwright test` on the merged branch: 130
-  passed, 3 skipped, 0 failed.
+  no horizontal scroll, footer disclaimer on every page). Full suite `npx playwright test` on the merged branch before
+  fix round 2: 130 passed, 3 skipped, 0 failed; CI's sharded e2e reruns it on every push.
 - Load (tester, `LOAD=1 node --expose-gc --test lib/feed.load.test.ts`): every timing within the existing budgets (500
   traders / 244,000 closes: p95 page 1 198 ms, all pages 171 ms; section pages signed out 136 ms, signed in 155 ms). No
   budget raised.
@@ -82,5 +82,9 @@ Committee record: docs/features/logs/F-6/ (plan rounds, sign-offs, committee-202
 committee-ux-lead.md and committee-business-lead.md, test-tester.md, review.md, screenshots).
 
 Not in this PR: the share card images (AC1 "share card at every size", AC6 share-card e2e) ship with F-4.
+
+Committee re-sit: UX lead round 2 PASS; business lead round 2 PASS (its D5 condition fixed). The orchestrator's review
+items (dated stock pages and feed card, one date format, OPEN in the copy walk, realized tone, one read per request)
+are in fix round 2 (committee-2026-11-01.md, decisions 23-26).
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
