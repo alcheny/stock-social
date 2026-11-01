@@ -44,6 +44,35 @@ without promising a purchase." Conditions: (a) one helper for both pages (D10); 
 plan citing this record (added at §1 and §8); (c) the open state with the billing vendor's fake passes in QA;
 (d) no other entry point changes. C3-40 is not built: "Delete my profile" is unchanged.
 
-## Steps 3-6
+## Step 3: tests first
 
-Results of the QA loop, the user tests and the independent code review are recorded below as they complete.
+`lib/chores-cycle3.test.ts` (unit and database cases for every criterion) and `e2e/chores-cycle3.spec.ts` (360 px)
+were written against the plan, then the code. No existing test was changed.
+
+## Step 4: QA loop (tester, `qa.md`)
+
+Round 1: one defect. **D1 (low):** in the production build the 401 line read `cron unauthorized s status 401 …`:
+the minifier renames the `CronUnauthorized` class and `logSafe` prints the constructor's name. Fixed (the class name is
+fixed with `Object.defineProperty`; a source test pins it) and re-checked against a fresh production build: the line
+reads `cron unauthorized CronUnauthorized status 401 {"route":"sync","suppressed":0}`, one per route per minute.
+Round 2: clean.
+
+## Step 5: user tests at 360 px
+
+- Business lead (`user-test-business.md`): **PASS**, compliance pass on all six checks. Non-blocking: (1) the /account
+  link wraps to two lines at 360 px; (2) the preview's wording differs from D27's first-visit line. Decisions: (1) kept —
+  the UX lead found the wrap legible, no overflow, 44 px+ target, and the state must stay in the visible link text
+  (a11y condition); (2) out of scope — D27 changes only through the idea board (F-18), left to the next design session.
+- UX lead (`user-test-ux.md`): **PASS** (keyboard only, light and dark; contrast 18.8:1 text, 3.75:1 boundary).
+  Non-blocking: the card repeats the title sentence (as planned: the image must stand alone when a platform shows no
+  text); a square crop would cut the card's text. Follow-ups outside this diff (the /settings text links' height, the
+  repeated "Record tools" name, feed range buttons) are for the settings-lane and feed owners.
+
+## Step 6: independent code review
+
+No blocking findings. Applied: (1) the public health path reads the newest heartbeat only; the stalest-trader scan
+runs only behind the bearer; (2) `/home-card` adds `s-maxage=3600` for the CDN; (3) the demo check is remembered per
+instance for 5 minutes (a failure is not remembered); (4) `/account` reads the checkout state only where its link
+shows; (5) `cronAuthorized` compares SHA-256 digests (constant time, equal length, no length leak); (7) the fragile
+word regex in a test now uses word boundaries and an unused timer mock is gone. Not applied: (6) one bearer rule in
+the cron routes (D13: `lib/sync-route.test.ts:23` pins the inline check; tests are never weakened).
