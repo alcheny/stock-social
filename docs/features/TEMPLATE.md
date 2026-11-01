@@ -20,3 +20,7 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Rework notes
 Feedback after trying a built version (each item also becomes a dated decision above).
+
+## Build log
+Appended when the feature merges (pipeline publish step, or the build session's PR: see
+docs/process/lifecycle.md).
