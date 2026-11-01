@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
-import { boundAttempt, CONNECT_COOKIE, RateLimitedError, refuseUnbound, startConnection } from '@/lib/connections.ts';
+import { boundAttempt, CONNECT_COOKIE, crossSiteNavigation, PortalRefusedError, RateLimitedError, refuseUnbound, startConnection } from '@/lib/connections.ts';
 import { PORTAL } from '@/lib/copy.ts';
 import { currentUser, origin } from '@/lib/session.ts';
 import { connectAllowed } from '@/lib/privacy-gate-data.ts';
@@ -13,6 +13,8 @@ import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 // not match is refused and counted (lib/connections.ts#refuseUnbound).
 export async function GET(req: NextRequest) {
   const base = await origin();
+  // Security hardening (2026-11-01), F26: a navigation from another site lands on S2 (the button), never on a mint.
+  if (crossSiteNavigation(req.headers)) return NextResponse.redirect(`${base}/connect`, 303);
   const me = await currentUser();
   let who: { userId: number | null; attemptId: number };
   if (me) {
@@ -33,6 +35,9 @@ export async function GET(req: NextRequest) {
   try {
     return NextResponse.redirect(await startConnection(who, `${base}/connect/done`));
   } catch (e) {
+    // F13: a portal URL the vendor returned that is not an https vendor URL is never followed: S7a, as a portal that
+    // returned without a link (one retry, one way out).
+    if (e instanceof PortalRefusedError) return NextResponse.redirect(`${base}/connect/result?k=abandoned`, 303);
     if (!(e instanceof RateLimitedError)) throw e;
     return new NextResponse(PORTAL.tooMany, { status: 429, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '600' } });
   }

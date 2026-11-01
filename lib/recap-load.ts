@@ -2,9 +2,11 @@ import { sql } from './db.ts';
 import { isDemoUser } from './demo.ts';
 import { publicRecord } from './connections.ts';
 import { monthRecap, wholeRecord } from './recap.ts';
+import { routeHandle } from './params.ts';
 
 // The only query behind the recap page and card. Reads closed_trades only, so recaps stay public after disconnect.
 export async function loadRecap(handle: string, ym: string) {
+  if (!routeHandle(handle)) return null; // F12: junk in the URL is a 404, not a database error
   const [u] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;
   if (!u) return null;
   const rows = await sql`select sell_id, symbol, verified, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${u.id}`;

@@ -32,6 +32,14 @@ export const SIGNIN = {
   devLink: 'Dev sign-in',
 } as const;
 
+// Security hardening (2026-11-01), F14: the emailed link opened in a browser other than the one that asked for it.
+export const EMAIL_CONFIRM = {
+  title: 'Continue signing in',
+  forAddress: (masked: string) => `This link signs in the account for ${masked}.`,
+  button: 'Continue signing in',
+  notYou: 'Not your address, or you did not ask for a link? Close this page.',
+} as const;
+
 // S2 trust notice. Only the integrated vendor is named (POLICY T1); every statement is one the vendor publishes itself.
 export const TRUST_NOTICE = {
   title: 'Before you connect',
@@ -60,6 +68,10 @@ export const PROFILE = {
   // Fix round 8 (tester re-run 4): counts pluralized ("1 earlier position", "2 imported trades"), never "(s)".
   excludedPositions: (n: number) => `${counted(n, 'earlier position')} excluded: no matching entry in the imported history.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
+  // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
+  // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
+  // excluded_corporate to the session user row (lib/session.ts, protected) and a line there.
+  excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a stock split or other corporate action the importer can't price exactly.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -281,11 +293,15 @@ export const HOW = {
     'Return is the percent change between the matched buys and the sell, after the fees the broker reported. Nothing is weighted by size.',
     'Headline stats are the win rate and the average return per trade. Max drawdown is per-trade and equal-weight, not an account return.',
     'Only percentages are stored and shown: no amounts, quantities or prices.',
+    // Corporate actions (F3c, PR #40).
+    'When the broker reports a stock split, reverse split or stock dividend with an exact ratio, earlier buys are adjusted to match and the holding period still starts at the first buy. Fractional shares paid out as cash are not counted as trades.',
   ],
   excludedTitle: 'What is excluded, and counted',
   excluded: [
     'Options, short sales and other activity the importer cannot price correctly.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
+    'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
+    'A sell of more shares than the imported history holds (for example after a stock split the broker did not report) is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
   ],

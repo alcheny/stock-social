@@ -118,7 +118,8 @@ create table if not exists broker_accounts (
 );
 select schema_add_index('broker_accounts_user', 'create index broker_accounts_user on broker_accounts (user_id)');
 -- Backfill: existing real data is claimed by its earliest user.
--- ponytail: if two users already share an account (the exploit) their rows stay; cleanup is a follow-up.
+-- ponytail: if two users already share an account (the exploit) their rows stay, both records showing the same trades —
+-- fix: a one-off cleanup that keeps the earliest claimant's rows and deletes the other user's activities for that account.
 -- Already-claimed accounts are filtered in the same snapshot as the activities: a user deleted (with its claims and
 -- activities) by a concurrent transaction is then never re-inserted and failed on the users FK (fix round 2, PR-2a).
 -- CI review (2026-11-01, privacy PR): a users row deleted by another session between this snapshot and the insert's
@@ -587,3 +588,53 @@ begin
 end $t$;
 -- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
 select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
+
+-- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md): the vendor's split,
+-- stock-dividend, symbol-change and other share-moving rows, raw and immutable like `activities`, mapped by
+-- lib/corporate-actions.ts#fromVendorRows. The rebuild applies them to the FIFO lots (lib/trades.ts#matchTrades).
+-- Deleted with the profile (cascade). Filled by the sync and the import step (lib/broker.ts#fetchShareMoves).
+create table if not exists corporate_actions (
+  id bigint generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  source text not null check (source in ('snaptrade', 'demo')),
+  external_id text not null,
+  account_id text not null,
+  symbol text not null,
+  kind text not null check (kind in ('split', 'stock-dividend', 'symbol-change', 'unpriceable')),
+  detail jsonb not null,                            -- the mapped fields: ratio, units, newSymbol, reason, scope
+  executed_at timestamptz not null,
+  raw jsonb not null,                               -- full vendor payload, kept for re-derivation
+  created_at timestamptz not null default now(),
+  unique (source, external_id)
+);
+select schema_add_index('corporate_actions_user', 'create index corporate_actions_user on corporate_actions (user_id, executed_at)');
+-- Sells the importer can't price exactly because of a corporate action, counted by the rebuild (shown on the profile).
+select schema_add_column('users', 'excluded_corporate', 'int not null default 0');
+
+-- Security hardening (2026-11-01)
+-- Shared fixed-window rate limits (lib/rate-limit.ts#hit): one row per key and window, counted by an upsert, so every
+-- server instance sees the same count. Keys are scope + HMAC, never an address or an IP. Old windows are pruned by
+-- hit() itself, never here.
+create table if not exists rate_limits (
+  key text not null,
+  window_start timestamptz not null,
+  n int not null,
+  primary key (key, window_start)
+);
+-- The ticker page, its card, compare, browse and the sitemap read closed_trades by symbol.
+select schema_add_index('closed_trades_symbol', 'create index closed_trades_symbol on closed_trades (symbol, closed_at desc)');
+-- Security hardening review (2026-11-01): the prune in lib/rate-limit.ts reads old windows by start time.
+select schema_add_index('rate_limits_window', 'create index rate_limits_window on rate_limits (window_start)');
+-- The last time per key (the import poll: one step per trader per second, lib/rate-limit.ts#intervalAllowed), shared by
+-- every instance. Keys are a scope and an id; marks older than a day are pruned by the same file, never here.
+create table if not exists rate_marks (
+  key text primary key,
+  at timestamptz not null
+);
+-- The vendor portal framing probe's answer per vendor origin (lib/portal-probe.ts), shared by every instance. Vendor
+-- origins only, no personal data; a row is overwritten when it is asked again after `until`.
+create table if not exists portal_probes (
+  origin text primary key,
+  mode text not null check (mode in ('embedded', 'redirect')),
+  until timestamptz not null
+);
