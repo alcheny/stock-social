@@ -433,3 +433,13 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .likes .who-col a > * { white-space: normal; }
 .signin-line .quiet-x { background: transparent; color: var(--muted); border: 0; font-weight: 400; font-size: 1.25rem; padding: 0; }
 .nojs-done { position: fixed; z-index: 20; left: 16px; right: 16px; bottom: 16px; max-width: 528px; margin: 0 auto; padding: 12px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+
+/* ---- F-6 · Open positions in every number (docs/features/logs/F-6/plan.md §4) ---- */
+.stats > .row-label { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+.stats + .open-stats { margin-top: -8px; }
+.open-combined { margin: 0 0 12px; overflow-wrap: anywhere; }
+.open-combined b { font-variant-numeric: tabular-nums; }
+.chart-note { margin: -8px 0 16px; overflow-wrap: anywhere; }
+.open-also { margin: 8px 0 0; overflow-wrap: anywhere; }
+.open-also b { font-variant-numeric: tabular-nums; }
+.open-ticker p { overflow-wrap: anywhere; }

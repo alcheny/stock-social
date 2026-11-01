@@ -35,6 +35,10 @@ import { followingAmong, isHidden } from '@/lib/follows.ts';
 import { loadSimilar } from '@/lib/similar.ts';
 import { median } from '@/lib/discovery/section.ts';
 import { SimilarSection } from './similar-section.tsx';
+// F-6: open positions in every number.
+import { combined, openSummary } from '@/lib/open-split.ts';
+import { OPEN } from '@/lib/copy.ts';
+import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, toneClass } from '../../open-rows.tsx';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
@@ -57,8 +61,12 @@ async function load(handle: string) {
   // the banner's imported-rows line starts from the rows already stored.
   const brokers = await recordInstitutions(user.id);
   const read = state === 'importing' ? await importedRows(user.id) : 0;
-  const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct from open_positions where user_id = ${user.id} order by symbol, account_id` : [];
-  return { user, trades, state, imported, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  const positions = state !== 'none' ? await sql`select account_id, symbol, unrealized_pct, fetched_at from open_positions where user_id = ${user.id} order by symbol, account_id` : [];
+  // F-6: open positions summarized beside the realized record for a connected or failed record (TR-3: nothing while
+  // importing); null without positions, so such a record renders exactly as before. "As of": the oldest read.
+  const open = state === 'connected' || state === 'failed' ? openSummary(positions.map((p) => p.unrealized_pct as number)) : null;
+  const openAsOf = open ? new Date(Math.min(...positions.map((p) => (p.fetched_at as Date).getTime()))) : null;
+  return { user, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -79,7 +87,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const statsText = `${winRateText(s.winRate)} · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
-    description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }),
+    // F-6: with open positions, the unfurl text says so beside the closed-trade stats.
+    description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }) + (data.open ? ` · ${OPEN.line(data.open, pct)}` : ''),
     openGraph,
   };
 }
@@ -87,7 +96,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
-  const { user, trades, s, c, brokers, accounts, state, positions, paper, read } = data;
+  const { user, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf } = data;
+  const both = open && combined(trades.map((t) => t.return_pct as number), positions.map((p) => p.pct));
   const me = await currentUser();
   const isMe = me?.id === user.id;
   // F-2 PR-3b: "Similar trades" (lib/similar.ts), only for a whole record with a typical holding period; the same for every
@@ -214,17 +224,22 @@ export default async function Profile({ params, searchParams }: Params) {
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
       {complete && trades.length > 0 && <>
       <section className="stats">
+        {open && <RealizedLabel />}
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn > 0 ? 'up' : 'down'}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
           {/* PR-2b: "Too early to tell" is said once, in the evidence line below; here only an actual range. */}
           {range && <small className="range">{`${range} · 95% range`}</small>}
         </div>
       </section>
+      {/* F-6: the unrealized grid directly under the realized one, same size (TR-4), then the combined average. */}
+      {open && <OpenGrid o={open} />}
+      {both && <CombinedLine c={both} />}
       <div className="evidence">
         <p style={{ margin: 0 }}>
           {c.edge
             ? <>Past results: <b className={c.edge === 'positive' ? 'up' : c.edge === 'negative' ? 'down' : ''}>{edgeText(c.edge)}</b>{evidenceLine(c).slice(`Past results: ${edgeText(c.edge)}`.length)}</>
             : evidenceLine(c)}
+          {open && <span data-open> {OPEN.evidence}</span>}
         </p>
         <details>
           <summary>What&apos;s this?</summary>
@@ -238,6 +253,12 @@ export default async function Profile({ params, searchParams }: Params) {
         <div className="stat"><b className="down">{pct(-s.maxDrawdown)}</b><small>max drawdown (per-trade, equal-weight)</small></div>
       </section>
       <PerformanceChart points={packPoints(trades.map((t) => ({ id: String(t.id), symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at, holdingDays: t.holding_days, thesis: t.thesis_status === 'published' ? t.thesis : null })))} now={new Date()} current={win.end} />
+      {open && <ChartNote o={open} />}
+      </>}
+      {/* F-6: open positions and no closes: the unrealized grid alone, and why there is no realized figure. */}
+      {complete && trades.length === 0 && open && <>
+        <OpenGrid o={open} />
+        <p className="muted" data-open>{OPEN.noCloses}</p>
       </>}
       {user.excluded_positions > 0 && (
         <p className="muted">{PROFILE.excludedPositions(user.excluded_positions)}</p>
@@ -250,9 +271,10 @@ export default async function Profile({ params, searchParams }: Params) {
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
       {positions.length > 0 && <>
         <h2>{RECORD_BODY.positionsTitle}</h2>
+        {open && openAsOf && <p className="muted small" data-open>{OPEN.asOf(openAsOf.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }))}</p>}
         <ul className="rows positions">
           {positions.map((p) => (
-            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
+            <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={open ? toneClass(p.pct) : p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
           ))}
         </ul>
       </>}
