@@ -750,10 +750,14 @@ h1 { overflow-wrap: anywhere; }
 .f16-block { margin-top: 24px; }
 .profile-report { display: flex; justify-content: flex-end; }
 .profile-report .report-link { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; white-space: nowrap; }
-.feed > .row:has(> .trust-foot) { display: grid; grid-template-columns: 100% 100%; grid-template-rows: minmax(0, 1fr) auto; }
+/* :where keeps this at .feed .row's weight (0,2,0): it beats the row's flex, and app/feed-hides.tsx's display:none
+   (same weight, later) still hides a row. The pane keeps its whole cell (the same box as before, so swipes and the
+   chart behave as before); the foot sits over the cell's bottom, and the pane's end padding lets its last line scroll
+   clear of it. */
+.feed > .row:where(:has(> .trust-foot)) { display: grid; grid-template-columns: 100% 100%; grid-template-rows: minmax(0, 1fr) auto; }
 .feed > .row:has(> .trust-foot) > .card { grid-column: 1; grid-row: 1 / 3; }
-.feed > .row:has(> .trust-foot) > .pane { grid-column: 2; grid-row: 1; height: auto; min-height: 0; padding-bottom: 8px; }
-.feed > .row > .trust-foot { grid-column: 2; grid-row: 2; height: auto; padding-top: 8px; padding-bottom: 20px; border-top: 1px solid var(--line); background: var(--bg); }
+.feed > .row:has(> .trust-foot) > .pane { grid-column: 2; grid-row: 1 / 3; padding-bottom: 11rem; scroll-padding-bottom: 11rem; }
+.feed > .row > .trust-foot { grid-column: 2; grid-row: 2; z-index: 1; height: auto; padding-top: 8px; padding-bottom: 20px; border-top: 1px solid var(--line); background: var(--bg); }
 .trust-foot.in-pane p { margin: 0 0 4px; }
 .pane-sheet .trust-foot { padding: 0 max(16px, calc((100% - 560px) / 2)) 4px; }
 /* Report page: each radio row is a 44 px target; the alert sits between the legend and the first choice. */
