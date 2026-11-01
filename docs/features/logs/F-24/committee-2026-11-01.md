@@ -224,3 +224,20 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
   clock is its transaction start. Rounds exactly 24, 47 or 6 hours apart therefore compared by a few milliseconds that
   load decided. The test's rounds now advance a whole minute per hour; no assertion changed.
 
+## Orchestrator final review of #84 (f0d75fa: BLOCK) — taken
+- **R1, high:** "suspected keeps the pair counted" let a vendor re-issue of every id (which a reconnect can trigger)
+  empty the public record for good, and it double-counted (repro H5: 2 shown closes → 0, 4 counted). Fix: a row the
+  count rule decided suspected is the excess beyond what one response showed, a duplicate, and is left out of the
+  rebuild as before RT-2. Only undecided rows are held.
+  **Committee decision on the give-ups**, taking the orchestrator's recommended option: `busy`, two failed widened reads
+  and a multi-page widened read stay held. No read decided them, and a genuine loss may be among them. They are flagged
+  by `activity_reissues.undecided`.
+- **R2, medium:** the same-instant twin exemption still let a shown figure depend on an undecided row (H3: +140% vs
+  +20%; H4 through a rename: +60% vs +20%; 24 of 3,000 fuzz cases). Fix (the reviewer's sketch): a per-pair mark in the
+  canonical order. Every sell after a held row is counted, and a rename carries the mark. A held sell is counted only
+  when no counted twin stands for it, so each real sell is counted once.
+- **Public count (POLICY F3c):** a line on the profile and in record tools, shown only when there are any: "N sells
+  excluded while the importer checks a broker row that may repeat an earlier one." The wording is the committee's
+  (neutral; no claim, no advice); the owner's final wording is an owner item.
+- **Docs:** the RT-2 decision text now names `excluded_held` and the undecided-only rule.
+

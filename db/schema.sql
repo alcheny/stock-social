@@ -1183,3 +1183,7 @@ select schema_add_column('sync_read_marks', 'confirm_failures', 'int not null de
 -- `excludedHeld`). Their own count, never excluded_positions (whose public reason is "no recorded entry"). Shown nowhere
 -- yet: its public wording is an owner question.
 select schema_add_column('users', 'excluded_held', 'int not null default 0');
+-- Final review R1: a 'suspected' row the count rule decided is the excess beyond what one vendor response showed (a
+-- duplicate: left out of the rebuild); one suspected by a give-up (a busy account, failed or multi-page widened reads)
+-- was never decided, so it stays held (its pair's later sells counted).
+select schema_add_column('activity_reissues', 'undecided', 'boolean not null default false');

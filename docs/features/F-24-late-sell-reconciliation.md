@@ -88,18 +88,29 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
   both", POLICY F4 never hide losses) at no vendor request beyond F-14's caps, while a re-issue listed before its
   original is gone still never joins it. The accepted residual: a true re-issue whose original the vendor still lists in
   that one read is published twice (D5's own "lists both" rule; owner question below).
-- 2026-11-01: A held possible re-issue is no longer dropped from the rebuild. It goes to the matcher as a hold:
-  - a held BUY opens no lot;
-  - a held SELL is counted under `excluded`;
-  - every sell of that pair dated after the held row, or at its instant but not its own unheld twin, is counted under
-    `excluded` while the row is held.
-  Genuine prices it normally on the next rebuild. Suspected keeps the pair counted. While a row is pending, a pair's
-  later sells are counted, not shown, and they come back when it is decided. `MATCHER_VERSION` stays at 2: the output
-  changes only where a held row exists, and none exists before this feature ships. Why: decided by the committee under the owner's instruction of 2026-11-01; dropping a held row made FIFO
-  price later sells from a ledger missing (or doubling) a row: a -40% close vanished uncounted and the next sell
-  published -60% instead of +33.3% (council cycle 5 RT-2; POLICY F3c "count, never guess"). Residual for the owner: if
-  a reconnect makes the vendor re-issue ids, every re-issued pair stays counted until a read decides it (the vendor
-  makes the ids, the trader can't; vendor question below).
+- 2026-11-01: An undecided possible re-issue goes to the matcher as a hold:
+  - Held rows are pending, confirm, and give-ups (a busy account, failed or multi-page widened reads).
+  - A held row opens no lot.
+  - In the canonical replay order, every later sell of its pair is counted under `excludedHeld` (`users.excluded_held`),
+    never under `excluded`. A rename carries the mark.
+  - A held sell is counted only when no counted twin already stands for it, so each real sell is counted once.
+  A row decided genuine is priced normally on the next rebuild. A row the count rule decided suspected is the excess
+  beyond what one vendor response showed: a duplicate, left out of the rebuild as before. While a row is undecided, its
+  pair's later sells are counted, not shown, and come back when it is decided. `MATCHER_VERSION` stays at 2: nothing is
+  held before this feature ships. Why: decided by the committee under the owner's instruction of 2026-11-01; dropping a held row made FIFO price later sells from a ledger missing (or
+  doubling) a row: a -40% close vanished uncounted and the next sell published -60% instead of +33.3% (council cycle 5
+  RT-2; POLICY F3c "count, never guess"). Counting only undecided rows keeps a vendor re-issue of every id from emptying
+  the record: once read, the re-issues are decided duplicates and the originals are shown again (final review R1). The
+  canonical-order mark keeps any shown figure from depending on how a held row is decided (R2).
+- 2026-11-01: Sells counted while a possible re-issue is checked are shown publicly on the profile, next to the other
+  exclusion counts, only when there are any: "N sells excluded while the importer checks a broker row that may repeat an
+  earlier one." Why: decided by the committee under the owner's instruction of 2026-11-01; POLICY F3c and CLAUDE.md say "excluded and counted": every other exclusion has a public line, and a
+  hidden count would let sells, losses included, leave the stats without trace (F4, TR-1). The wording is the
+  committee's; the owner's final wording is an owner item.
+- 2026-11-01: The give-ups (`busy`, two failed widened reads, a multi-page widened read) stay held, not dropped. Why: decided by the committee under the owner's instruction of 2026-11-01; no
+  read decided them, so a genuine fill, possibly a loss, may be among them (the orchestrator's recommended option). A
+  flag on the row (`activity_reissues.undecided`) lets the matcher tell them apart from decided duplicates.
+
 ## Acceptance criteria
 - [ ] Fake-vendor e2e: a SELL dated 10 days before the newest stored trade appears in `closed_trades` after
       reconciliation, and a second run inserts 0 rows.

@@ -69,13 +69,12 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   tainted, and a sell is counted. They are not repricing actions (no late-posting window, no same-day rule).
 // - Held possible re-issues (F-24, council cycle 5 RT-2; POLICY F3c "count, never guess"): a row the vendor may have
 //   re-issued under a new id is passed in with `held`. It is either a second genuine fill or a duplicate, and the
-//   readings price every later sell of the pair differently. So a held BUY opens no lot; a held SELL is counted in
-//   `excludedHeld`; and every sell of the pair dated after a held row (or at its instant, other than the held row's own
-//   unheld twins, which stay shown) is counted in `excludedHeld` while the row is held (their own count: their reason is
-//   not "no recorded entry"). A row decided genuine is priced
-//   normally on the next rebuild; a suspected one keeps the pair counted (the one case where the truth is unknown).
-//   ponytail: a rename after a held row moves the lots but not the mark, so the new symbol's later sells are priced
-//   without it — fix: move the mark with the rename, as the gap does (F-28).
+//   readings price every later sell of the pair differently. So a held row opens no lot; a held sell is counted only when
+//   no counted twin already stands for it (each real sell once: a shown twin leaves it a possible further sell); every sell of the pair after it in
+//   the canonical order is counted in `excludedHeld` while the row is held (their own count: their reason is not "no
+//   recorded entry"); a rename carries the mark. A row decided genuine is priced normally on the next rebuild. Only
+//   undecided rows are held (pending, confirm, or a give-up); a row the count rule decided suspected is the excess
+//   beyond what one vendor response showed, a duplicate, and never reaches the matcher (final review R1).
 // - Same instant (F3-5): symbol changes, then other corporate actions, then buys, then sells, then the vendor id. In a
 //   long-only ledger a sell is filled from shares held, so a same-instant buy before it is the only order that can be
 //   true when the sell needs it; when older lots cover the sell, FIFO draws them first and the order changes nothing. A
@@ -135,13 +134,15 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
   const trades: ClosedTrade[] = [];
   let excluded = 0, excludedCorporate = 0, excludedHeld = 0;
-  // F-24 RT-2: the held rows per pair, known before the replay so a sell at a held row's instant is judged whatever the
-  // vendor-id order at that instant.
-  const heldBy = new Map<string, Activity[]>();
-  for (const h of activities) if (h.held) heldBy.set(`${h.accountId}|${h.symbol}`, [...(heldBy.get(`${h.accountId}|${h.symbol}`) ?? []), h]);
-  const twinOf = (a: Activity, h: Activity) => a.side === h.side && a.units === h.units && a.price === h.price;
-  const afterHeld = (key: string, a: Activity) => (heldBy.get(key) ?? []).some((h) => h !== a
-    && (h.executedAt.getTime() < a.executedAt.getTime() || (h.executedAt.getTime() === a.executedAt.getTime() && !twinOf(a, h))));
+  // F-24 RT-2 (final review R2): the pairs a held row has been reached in, in the canonical order. Every later sell of
+  // such a pair is counted, so no shown figure depends on how the held row is decided: a sell before it in the order is
+  // priced the same under both readings (held → genuine, held → dropped), and every sell after it is counted. A rename
+  // carries the mark to the new symbol, as the gap (F-28).
+  const heldKeys = new Set<string>();
+  // Each real sell is counted once (final review): a held sell repeats, or adds to, an unheld twin. Its twin counted here
+  // already stands for it; a twin shown means the held sell may be one more sell, so it is counted itself.
+  const sig = (a: Activity) => `${a.accountId}|${a.symbol}|${a.executedAt.getTime()}|${a.units}|${a.price}`;
+  const countedTwins = new Map<string, number>(), heldSells: Activity[] = [];
 
   // Repricing actions, for the late-posting window (a rename at 1:1 reprices nothing): their times per pair and, for
   // account-wide ones, per account, sorted once; each sell looks up the first time after it.
@@ -254,6 +255,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         }
         // C4-2 (F-28: the pending count travels with a rename): a short renames with the shares, so the gap moves too.
         if (b.gap && ca.newSymbol !== ca.symbol) { addGap(book(`${ca.accountId}|${ca.newSymbol}`), b.gap); b.gap = 0; }
+        if (heldKeys.has(key) && ca.newSymbol !== ca.symbol) heldKeys.add(`${ca.accountId}|${ca.newSymbol}`); // F-24 RT-2
         // C4-1 (engineer, round 1): shares the rename says moved but the ledger doesn't hold arrive in the new symbol with
         // no basis, so FIFO draws them (counted) before any later buy there. They predate the history, so they are dated
         // before all of it and stay first when a later rename merges lots by date (independent review, finding 4).
@@ -289,7 +291,10 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     const key = `${a.accountId}|${a.symbol}`;
     const b = book(key);
     const open = b.lots;
-    if (a.held) { if (a.side === 'SELL') excludedHeld++; continue; } // F-24 RT-2: no lot, no price; a held sell is counted
+    // F-24 RT-2: a held row opens no lot and prices nothing. A held sell itself is not counted: it may repeat a sell that
+    // is already shown or counted, and each real sell is counted once (final review); it is counted, or shown, when a
+    // read decides it genuine.
+    if (a.held) { heldKeys.add(key); if (a.side === 'SELL') heldSells.push(a); continue; }
     if (a.side === 'BUY') {
       // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
       open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) ? { tainted: true } : {}) });
@@ -300,7 +305,11 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     // Independent review (finding 5): any gap counts, at whatever scale this sell is (addGap already ignores a residual
     // that is tiny at the oversell's own scale), so a large later sell can't slip past a small gap.
     const gapped = (b.gap ?? 0) > 0;
-    if (afterHeld(key, a)) { excludedHeld++; continue; } // F-24 RT-2: the ledger may be missing (or doubling) a held row
+    if (heldKeys.has(key)) { // F-24 RT-2: the ledger may be missing (or doubling) a held row
+      excludedHeld++;
+      countedTwins.set(sig(a), (countedTwins.get(sig(a)) ?? 0) + 1);
+      continue;
+    }
     let remaining = a.units;
     let cost = 0;
     let entryFees = 0;
@@ -343,6 +352,11 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       };
       trades.push(t);
     }
+  }
+  for (const h of heldSells) {
+    const n = countedTwins.get(sig(h)) ?? 0;
+    if (n > 0) countedTwins.set(sig(h), n - 1); // its twin is counted already
+    else excludedHeld++; // a possible further sell beyond a shown twin
   }
   return { result: { trades, excluded, excludedCorporate, ...(excludedHeld ? { excludedHeld } : {}) }, books };
 }

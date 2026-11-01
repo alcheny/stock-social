@@ -11,7 +11,7 @@ import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
 // F-24 late-posted trades (docs/features/F-24-late-sell-reconciliation.md): the pass cursor, the re-issue states and the
 // rebuild's hold filter.
-import { bringForward, dropUnread, markGenuine, markTwins, notReissued, pageFailureCounts, passPageLimitOk, plannedConfirm, endConfirm, writeConfirmFailures, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
+import { bringForward, dropUnread, markGenuine, markTwins, notReissued, notDuplicate, heldRow, pageFailureCounts, passPageLimitOk, plannedConfirm, endConfirm, writeConfirmFailures, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
 import { IDLE_DAYS } from './record-status.ts'; // FIXES-LABELS: status
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
@@ -131,12 +131,13 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // sharing a vendor id at a page boundary lost a row.
     let after: { account_id: string; symbol: string; at: string; external_id: string; source: string } | null = null;
     for (;;) {
-      const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source, not ${notReissued(tx)} as held
+      const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source, ${heldRow(tx)} as held
         from activities a where a.user_id = ${userId}
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
+        and ${notDuplicate(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
       for (const r of page) {
@@ -159,12 +160,13 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     for (const [k, root] of chainOf) chains.set(root, [...(chains.get(root) ?? []), k]);
     for (const keys of chains.values()) {
       const pairs = keys.map((k) => [k.slice(0, k.lastIndexOf('|')), k.slice(k.lastIndexOf('|') + 1)]);
-      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source, not ${notReissued(tx)} as held
+      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source, ${heldRow(tx)} as held
         from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
+        and ${notDuplicate(tx)}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
       maxHeld = Math.max(maxHeld, rows.length);
       await flush(rows.map((r) => ({
@@ -613,7 +615,7 @@ export async function syncUser(
               // every other 'confirm' row of the account is suspected (the one exception to "a week read never suspects").
               await markTwins(tx, user.id);
               if (oneResponse) cleared += await markGenuine(tx, user.id, got.activities.map((a) => a.externalId), id, new Date(widened.getTime() + 86_400_000));
-              await endConfirm(tx, user.id, id);
+              await endConfirm(tx, user.id, id, !oneResponse); // a multi-page read decided nothing: those stay held (R1)
             } else if (oneResponse) weekListed.push(...got.activities.map((a) => a.externalId));
           }
         } else {

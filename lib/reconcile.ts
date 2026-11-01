@@ -51,6 +51,11 @@ const held = (db: Db, alias: string) => db.unsafe(`exists (select 1 from activit
 
 /** The rebuild's filter (rows aliased `a`): a possible re-issue that no read has shown to be genuine is held. */
 export const notReissued = (db: Db) => db`not exists (select 1 from activity_reissues r where r.source = a.source and r.external_id = a.external_id and r.state <> 'genuine')`;
+/** Final review R1 (rows aliased `a`): a row the count rule decided suspected is a duplicate and never reaches the
+ *  matcher, as before RT-2; an undecided one (pending, confirm, or a give-up) reaches it as a hold (`heldRow`). */
+export const notDuplicate = (db: Db) => db`not exists (select 1 from activity_reissues r where r.source = a.source and r.external_id = a.external_id and r.state = 'suspected' and not r.undecided)`;
+export const heldRow = (db: Db) => db`exists (select 1 from activity_reissues r where r.source = a.source and r.external_id = a.external_id
+  and (r.state in ('pending', 'confirm') or (r.state = 'suspected' and r.undecided)))`;
 
 export type PassPlan = { offset: number; start: boolean };
 type Cursor = { account_id: string; reconcile_offset: number | null; reconcile_started_at: Date | null; consent: Date | null; claimed_at: Date;
@@ -217,7 +222,7 @@ async function decidePass(tx: TransactionSql, userId: number, accountId: string,
   // pass did not list (or that is itself no longer listed) is suspected (QA D2: never left pending forever).
   // The same count rule as markGenuine, over the pages taken together (M1): never a genuine decision from them.
   const c = await clearByCount(tx, userId, seen, ['pending', 'suspected'], 'confirm', accountId);
-  const s = await tx`update activity_reissues set state = 'suspected', decided_at = now()
+  const s = await tx`update activity_reissues set state = 'suspected', undecided = false, decided_at = now()
     where user_id = ${userId} and account_id = ${accountId} and state = 'pending'`;
   return { genuine: 0, suspected: s.count, confirm: c.count };
 }
@@ -232,8 +237,10 @@ export async function confirmFrom(tx: TransactionSql, userId: number, accountId:
 }
 /** After the widened read: rows it listed with every unheld twin are genuine (markGenuine, by the caller); every other
  *  'confirm' row of the account is suspected. Also the give-up path (two failed widened reads). */
-export async function endConfirm(tx: TransactionSql, userId: number, accountId: string): Promise<number> {
-  const r = await tx`update activity_reissues set state = 'suspected', decided_at = now() where user_id = ${userId} and account_id = ${accountId} and state = 'confirm'`;
+export async function endConfirm(tx: TransactionSql, userId: number, accountId: string, giveUp = false): Promise<number> {
+  // `giveUp` (final review R1): no read decided these rows (a busy account, failed or multi-page widened reads), so they
+  // stay held, not dropped as duplicates.
+  const r = await tx`update activity_reissues set state = 'suspected', undecided = ${giveUp}, decided_at = now() where user_id = ${userId} and account_id = ${accountId} and state = 'confirm'`;
   return r.count;
 }
 /** The widened read for an account with 'confirm' rows, or null: after CONFIRM_MAX_FAILURES failed syncs in a row that
@@ -251,13 +258,13 @@ export async function plannedConfirm(tx: TransactionSql, userId: number, account
   const start = new Date(Math.min(from.getTime() - 86_400_000, weekFrom ? weekFrom.getTime() : Infinity));
   const [{ n: rows }] = await tx`select ${confirmRowsSql(sql`${userId}::int`, sql`${accountId}::text`, sql`${start}::timestamptz`)}::int as n`;
   if (Number(rows) >= PAGE_LIMIT) {
-    await endConfirm(tx, userId, accountId);
+    await endConfirm(tx, userId, accountId, true);
     await countInvalid(tx, userId, accountId, 'busy');
     return null;
   }
   const [r] = await tx`select confirm_failures as n from sync_read_marks where user_id = ${userId} and account_id = ${accountId}`;
   if (Number(r?.n ?? 0) < CONFIRM_MAX_FAILURES) return from;
-  await endConfirm(tx, userId, accountId);
+  await endConfirm(tx, userId, accountId, true);
   await tx`update sync_read_marks set confirm_failures = 0 where user_id = ${userId} and account_id = ${accountId}`;
   await countInvalid(tx, userId, accountId, 'confirm');
   return null;

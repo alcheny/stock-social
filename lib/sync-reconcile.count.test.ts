@@ -98,12 +98,18 @@ dbTest('RA1 (M1): a confirm row whose original is re-issued before the widened r
     assert.equal(t.v.calls.at(-1)!.kind, 'read');
     assert.equal(await t.state('f2'), 'genuine', 'the late genuine fill is kept');
     assert.notEqual(await t.state('f1x'), 'genuine', 'the re-issue stays held');
+    // Final review R2: F1x is still undecided and F2 comes after it in the canonical order, so F2's figure depends on how
+    // F1x is decided: F2 is counted (excluded_held), never priced on a guess, until a read decides F1x.
+    assert.deepEqual(await t.closes(), [f1.externalId], 'F2 counted while F1x is undecided');
+    assert.ok(Number((await t.sql`select excluded_held as n from users where id = ${t.user.id}`)[0].n) >= 1, 'and counted');
+    // Later rounds, two passes included: once a complete pass decides F1x (the count rule: a duplicate, dropped, R1),
+    // F2 is shown: the record keeps 2 closes, as many fills as one response lists. Never more than 2 in any sync.
+    await t.due();
+    for (const h of [125, 150, 175, 200]) { await t.round(h); assert.ok((await t.closes()).length <= 2, `h${h}`); }
+    await t.due();
+    for (const h of [225, 250, 275, 300]) { await t.round(h); assert.ok((await t.closes()).length <= 2, `h${h}`); }
+    assert.equal(await t.state('f1x'), 'suspected', 'F1x decided a duplicate by the count rule');
     assert.deepEqual(await t.closes(), [f1.externalId, f2.externalId].sort(), '2 closes: two fills listed in one response');
-    // Later rounds, two passes included: the record keeps 2 closes after every sync.
-    await t.due();
-    for (const h of [125, 150, 175, 200]) { await t.round(h); assert.equal((await t.closes()).length, 2, `h${h}`); }
-    await t.due();
-    for (const h of [225, 250, 275, 300]) { await t.round(h); assert.equal((await t.closes()).length, 2, `h${h}`); }
     assert.ok(t.v.calls.filter((c) => c.kind === 'page').length >= 4, 'passes ran');
     assert.notEqual(await t.state('f1x'), 'genuine');
     assert.ok(t.inSync.every((x) => x <= 2), `never more than 2 closes: ${t.inSync.join(',')}`);

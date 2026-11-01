@@ -171,10 +171,11 @@ finds those rows:
 - **Re-issues** (`activity_reissues`, one row per newer id). A newly stored row whose account, symbol, side, time, units
   and price equal a row stored **before this transaction**, under another vendor id, is a possible re-issue. Rows that
   arrive together were listed by the same read and are never held. The rebuild leaves out every row not `genuine`, so a
-  re-issue is never published twice. The rebuild passes held rows to the matcher as holds (council cycle 5 RT-2): a
-  held BUY opens no lot, a held SELL is counted (`excluded_positions`), and every later sell of that pair is counted,
-  not priced from a ledger missing a row, until the row is decided (genuine: priced normally; suspected: the pair
-  stays counted):
+  re-issue is never published twice. The rebuild passes undecided rows (pending, confirm, and give-ups flagged
+  `undecided`) to the matcher as holds (council cycle 5 RT-2): a held row opens no lot, and in the canonical order every
+  later sell of its pair is counted in `users.excluded_held` (shown on the profile when there are any), never priced
+  from a ledger missing a row; a rename carries the mark; each real sell is counted once. A row decided genuine is
+  priced normally; one the count rule decided suspected is a duplicate, left out of the rebuild:
   - `pending`: held until a read decides it. A week read that finds one and cannot decide it brings the account's next
     pass forward (never an account whose pass ran in that sync: an ended or given-up pass waits its period);
   - `genuine`: ONE vendor response (one pass page, one week read, one import page) decides by count. Per twin group, k
