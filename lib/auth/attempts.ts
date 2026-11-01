@@ -5,6 +5,7 @@ import { sql } from '../db.ts';
 import { recordFunnel } from '../funnel.ts';
 import { legacyVia, normalizeHandle, type ReferredSurface } from '../referral.ts';
 import { SignUpClosedError } from '../launch-gate.ts';
+import { isFilerHandle } from '../public-gate.ts';
 
 export const METHODS = ['provider_a', 'provider_b', 'email', 'brokerage', 'dev'] as const;
 export type Method = (typeof METHODS)[number];
@@ -55,7 +56,7 @@ export async function createUserForAttempt(attemptId: number, i: { handle?: stri
   const surface = (a.referred_by_user_id ? a.referred_surface : null) as ReferredSurface | null;
   for (let tries = 0; tries < 5; tries++) {
     const handle = i.handle ? normalizeHandle(i.handle) : provisionalHandle();
-    if (!handle) throw new HandleTakenError();
+    if (!handle || isFilerHandle(handle)) throw new HandleTakenError();
     if (!(await handleAvailable(handle))) { if (i.handle) throw new HandleTakenError(); continue; }
     const name = (i.name ?? '').trim().slice(0, 40) || handle;
     const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id, referred_by_user_id, referred_via, referred_surface)
@@ -101,7 +102,7 @@ export async function signInWithIdentity(attemptId: number, id: Identity, opts: 
 // trader typed themselves is never overwritten.
 export async function changeHandle(userId: number, raw: unknown): Promise<string> {
   const handle = normalizeHandle(raw);
-  if (!handle) throw new HandleTakenError();
+  if (!handle || isFilerHandle(handle)) throw new HandleTakenError();
   if (!(await handleAvailable(handle))) throw new HandleTakenError();
   const [u] = await sql`update users
     set handle = ${handle},

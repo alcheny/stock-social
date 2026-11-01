@@ -33,6 +33,11 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   trade_likes: { personal: true, retention: 'account', holds: 'private likes (preference data, kept indefinitely); a like whose trade is gone for 30 days is purged' },
   trade_exclusions: { personal: true, retention: 'account', holds: 'private rejected trades (preference data, kept indefinitely); one whose trade is gone for 30 days is purged' },
   privacy_orphans: { personal: true, retention: 'short', holds: 'when a like or reject first had no trade; removed when the trade returns or the row is purged' },
+  // F-7 public-record traders: kept until a removal request (lib/public-import.ts#filerAction); class 'account' = the profile's life.
+  public_filers: { personal: true, retention: 'account', holds: 'public filer id, demo flag, exclusion counts, open symbols, hidden/removed times; after removal only the id, source and removed time' },
+  public_transactions: { personal: true, retention: 'account', holds: 'raw public filing rows: symbols, codes, share counts, prices, dates, filing links; deleted on removal' },
+  public_import_state: { personal: false, retention: 'none', holds: 'import cursor and last successful run per source' },
+  public_filer_log: { personal: true, retention: 'account', holds: 'corrections log: filer id, action, reason code and time; no requester details' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
 };
 

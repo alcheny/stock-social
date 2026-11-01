@@ -10,6 +10,8 @@ import { logSafe } from '@/lib/privacy-log.ts';
 import { purgePrivacy, type PrivacyPurgeReport } from '@/lib/privacy-purge.ts';
 import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
 import { gateReport } from '@/lib/launch-gate.ts';
+import { publicTradersOn } from '@/lib/public-gate.ts';
+import { importPublicFilings, type ImportReport } from '@/lib/public-import.ts';
 
 const PRIVACY_SLOT_MS = 5_000;
 const PRIVACY_STAGE_MS = 10_000;
@@ -62,8 +64,11 @@ export async function POST(req: NextRequest) {
   await privacyStages(PRIVACY_SLOT_MS);
   let end: TickReport | null = null;
   const { ok, skipped, failed } = await syncTick({ deadline, routeEnd: syncRouteEnd(startedAt), report: (r) => { end = r; } });
+  // F-7: public filings, one bounded stage after the broker tick (≤ 20 s, its own try/catch), only with the switch on.
+  let publicImport: ImportReport | null = null;
+  try { if (publicTradersOn() && left() > 0) publicImport = await importPublicFilings({ boxMs: Math.min(20_000, left()) }); } catch (e) { console.error('public import failed', logSafe(e)); }
   await privacyStages(Math.min(PRIVACY_STAGE_MS, left()));
   const launch = gateReport();
   console.log('privacy tick', JSON.stringify({ privacy, displayLog, launch, ms })); // counts, milliseconds and the gate state only
-  return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions, purged, privacy, displayLog, launch, ms });
+  return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions, purged, privacy, displayLog, publicImport, launch, ms });
 }
