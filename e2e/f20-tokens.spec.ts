@@ -55,9 +55,16 @@ test.afterAll(async () => {
 });
 
 type Snapshot = Record<string, string[]>;
+// The one stated focus change (DS-27): an element that holds keyboard focus while sampled (the pane's handle link after →)
+// drew its ring in --accent on main and in --focus now. For exactly that element, a tuple that differs from a baseline
+// tuple only by outline-color accent -> focus is the stated change, not a token change; anything else still fails.
+const ACCENT = { light: 'rgb(109, 40, 217)', dark: 'rgb(167, 139, 250)' } as const;
+const FOCUSED = new Set<string>();
+const statedFocusChange = (scheme: (typeof SCHEMES)[number], key: string, t: string, was: string[]) =>
+  FOCUSED.has(key) && t.includes(`outline-color:${FOCUS[scheme]};`) && was.includes(t.replace(`outline-color:${FOCUS[scheme]};`, `outline-color:${ACCENT[scheme]};`));
 // Every element's computed colours, grouped by signature; each group holds the distinct colour tuples it showed.
 async function snapshot(page: Page, prefix: string): Promise<Snapshot> {
-  return page.evaluate((prefix) => {
+  const { snap, focused } = await page.evaluate((prefix) => {
     const PROPS = ['color', 'background-color', 'background-image', 'border-top-color', 'border-right-color', 'border-bottom-color',
       'border-left-color', 'outline-color', 'outline-style', 'outline-width', 'outline-offset', 'box-shadow', 'fill', 'stroke',
       'text-decoration-color', 'caret-color', 'accent-color'];
@@ -75,8 +82,13 @@ async function snapshot(page: Page, prefix: string): Promise<Snapshot> {
       const tuple = PROPS.map((p) => `${p}:${cs.getPropertyValue(p)}`).join(';');
       (out[`${prefix} ${chain}`] ??= new Set()).add(tuple);
     }
-    return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v].sort()]));
+    const active = document.activeElement;
+    const focused = active && active !== document.body && active.matches(':focus-visible')
+      ? `${prefix} ${[active.parentElement?.parentElement, active.parentElement, active].filter((e): e is Element => !!e).map(sig).join(' > ')}` : null;
+    return { snap: Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v].sort()])), focused };
   }, prefix);
+  if (focused) FOCUSED.add(focused);
+  return snap;
 }
 
 async function signIn(page: Page) {
@@ -138,7 +150,7 @@ test('F-20 computed-style snapshot: feed, pane and profile show no colour change
       const was = base[scheme][key];
       if (!was) continue;
       compared++;
-      for (const t of tuples) if (!was.includes(t)) changed.push(`${scheme} ${key}\n  now: ${t}\n  was: ${was.join('\n       ')}`);
+      for (const t of tuples) if (!was.includes(t) && !statedFocusChange(scheme, key, t, was)) changed.push(`${scheme} ${key}\n  now: ${t}\n  was: ${was.join('\n       ')}`);
     }
   }
   // The comparison covers the sampled surfaces, not a handful of elements.
