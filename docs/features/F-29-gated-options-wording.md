@@ -1,10 +1,12 @@
 # F-29 · Gated options wording that is true for every record
 
-Status: blocked
-Blocked: waits for `claude/fix-truthful-labels` to merge (it edits the pane, chart, record strip and /how lines this feature changes), PR #77 (F-20, `lib/record-strip.ts`) to merge, and the AI legal committee's signed words for the interim /how sentence and the per-surface qualifier
-Start conditions: the three prerequisites above. It is its own build slot (the /how and options copy slot). C4-27 (/how
-describes public-filing records only when they exist; 3.33, not approved) could ride the same slot if a later council
-approves it.
+Status: ready
+Start conditions: met. `claude/fix-truthful-labels` merged in #85, F-20 merged in #77, and the AI legal committee
+signed the interim words at approval council cycle 5 (Decisions, 2026-11-01, re-approval). It rides the pane/strip
+build slot with F-21 and F-34 (one builder owns the pane's line order); its first commit rebases on F-23 (#97) if #97
+merges first, since both edit `app/pane.tsx`, `app/u/[handle]/chart.tsx` and `lib/copy.ts`. C4-27 (/how describes
+public-filing records only when they exist; 3.33, not approved) could ride the same slot if a later council approves
+it.
 
 ## Why
 /how says option results show "only on records whose trader has consented to publishing them" (`lib/copy.ts:466-467` at
@@ -46,6 +48,22 @@ second-vote mean 3.87, final vote 15/15, all with conditions). Part (c) is with 
   exist. If they have not by the next approval council (cycle 5), this approval lapses to that council. Why: approved by
   the approval council (cycle 4); lapse rule.
 
+- 2026-11-01: Lapsed to approval council cycle 5 (the legal words did not yet exist) and re-approved there
+  (`docs/ideas/approval-2026-11-01-cycle5.md`: second-vote mean 4.33, final vote 15/15, all approving, 9 of them with
+  conditions). Every decision above is kept word for word. Why: approval council cycle 5; lapse rule.
+- 2026-11-01: The AI legal committee's signed interim /how words, while the gate is closed: "Option results are not
+  shown on any record at present. Where option trades or open options were imported, the record shows how many, and
+  its headline figures exclude options." The per-surface qualifier is the existing "Excluding options" and
+  `OPTIONS.altQualifier`, placed as decision (b) above. The builder uses these words exactly. Any change needs the
+  committee's re-sign in the PR. Why: approval council cycle 5; signed by the legal committee member (round 1, recorded
+  in the cycle-5 ballots) (veto condition: LC).
+- 2026-11-01: The pane/strip slot's shared criterion binds this feature: with the exclusions line (F-21), the open
+  line (F-34) and the options qualifier all present on a fictional record, the headline and the disclaimer stay in view
+  at 360 px and the layout reflows at 320 px. In the pane the order is exclusions, then open, then options qualifier,
+  one line each. Why: approval council cycle 5; UX, RT round 4, CO.
+- 2026-11-01: Status ready: the code prerequisites merged (#85, #77) and the words are signed. If #97 (F-23) merges
+  first, the first commit rebases on it. Why: approval council cycle 5; EN.
+
 ## Acceptance criteria
 - [ ] With the gate closed, the /how options paragraph never contains "consented". With it open, it shows the legal
       sentence (render test in both states).
@@ -57,6 +75,11 @@ second-vote mean 3.87, final vote 15/15, all with conditions). Part (c) is with 
 - [ ] No public surface prints "not asked" or "declined" (source scan).
 - [ ] After a gate flip in a test, no cached /how, profile or share body from before the flip is served.
 - [ ] The legal committee's sign-off is recorded with the words in the PR.
+- [ ] A test asserts the signed interim words verbatim on /how while the gate is closed.
+- [ ] The gate flips within one process in a test, and the next /how, profile and share bodies differ from the
+      pre-flip ones.
+- [ ] With F-21's and F-34's lines present (once built), the pane keeps the headline and disclaimer in view at 360 px
+      and reflows at 320 px (e2e).
 
 ## Out of scope
 - Part (c), the not-asked or declined fact (owner Q3).
