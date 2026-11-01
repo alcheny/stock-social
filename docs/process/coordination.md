@@ -49,6 +49,7 @@ conflict counts are against main at `e6731d5`.
 | F-16/F-17 trust and safety | feature build | cloud child session | `claude/f16-f17-trust-safety` (19 ahead, 1 behind, 0 conflicting) | — (no PR) | `lib/reports.ts`, `lib/trust-*.ts`, `lib/visible-users.ts`, `app/u/[handle]/report/**`, one-line edits to the profile, month and trade pages, additive `lib/copy.ts` and `db/schema.sql` | building | — | — |
 | F-24 late postings | feature build | cloud child session | `claude/f24-late-postings` (16 ahead, 0 behind, 0 conflicting) | — (no PR) | `lib/reconcile.ts`, `lib/sync.ts` (including the future-count query), `lib/options-sync.ts` (`rebuildRecord` wrapper), `lib/connections.ts`, additive `db/schema.sql` | building | — | — |
 | F-26 held like none | feature build | cloud child session | `claude/f26-held-like-none` (3 ahead, 6 behind, 2 conflicting files) | — (no PR) | `lib/user-note.ts`, `lib/own-note.ts`, `app/ui.tsx`, `app/feed-rows.tsx`, the trade page, `app/u/[handle]/pane-chart/route.ts`, `lib/feed.ts` | building | — | — |
+| Fixes, council cycle 5 | fix | cloud child session | `claude/fixes-cycle5` | opened by that session | F5-2, F5-4..F5-27 of `docs/direction/cycle5-2026-11-01.md` section 5 (committee record `docs/features/logs/fixes-cycle5/committee-2026-11-01.md`); additive `FIXES-CYCLE5` blocks in shared files. F5-14 (bounded chart series) is not built here: it builds on F-23's (#97) wire format after its 80,000-close re-measure | building | — | — |
 
 ## Merge order (current)
 

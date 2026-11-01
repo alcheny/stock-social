@@ -1062,3 +1062,38 @@ export const FIXES_CYCLE4_PART2 = {
   homePublic: 'Records built from public filings are marked Public filing.',
 } as const;
 // end FIXES-CYCLE4-PART2
+
+// FIXES-CYCLE5 (docs/direction/cycle5-2026-11-01.md section 5; committee record
+// docs/features/logs/fixes-cycle5/committee-2026-11-01.md). Additive: every new string of the cycle-5 fixes, in one
+// object, so the build's work packages never edit the same lines of this file.
+export const FC5 = {
+  // F5-2 (C5-3): a note save whose trade left the record. The second sentence shows only when the recovery box renders.
+  noteChanged: 'Your note was not saved because this trade changed.',
+  noteUnsaved: 'Your unsaved note is below. Copy it before you leave this page.',
+  noteUnsavedLabel: 'Your unsaved note',
+  // F5-24 (C5-27): the note field's visible label, its counter and what it announces.
+  noteLabel: 'Your note',
+  noteName: (symbol: string) => `Your note on ${symbol}`,
+  noteCount: (n: number) => `${n} of 280`,
+  noteNear: '20 characters left',
+  noteFull: 'Limit reached, 280 of 280',
+  notePasteCut: 'Your paste was cut to 280 characters.',
+  // F5-7 (C5-9): always in the sign-in email alert while owner Q2 (does the 18+ tick survive an error) is open.
+  attestAgain: 'Then tick “I am 18 or older” again.',
+  // F5-9 (C5-19): the /me/record takeaway names both sides.
+  winOnly: (win: string, losses: number) =>
+    losses === 0 ? `Your average win was ${win}; no losses.` : `Your average win was ${win}; ${losses} ${losses === 1 ? 'loss' : 'losses'}, too few to average.`,
+  lossOnly: (loss: string, wins: number) =>
+    wins === 0 ? `Your average loss was ${loss}; no wins.` : `Your average loss was ${loss}; ${wins} ${wins === 1 ? 'win' : 'wins'}, too few to average.`,
+  // F5-10 (C5-20): the month recap's picks never call a gain "Worst trade" or a loss "Best trade".
+  highest: 'Highest return',
+  lowest: 'Lowest return',
+  // F5-13 (C5-23): a stock page with no closed trades.
+  tickerEmptyTitle: (symbol: string) => `No closed trades in ${symbol} yet`,
+  // F5-21 (C5-24): the hide bar's Dismiss control.
+  dismiss: 'Dismiss',
+  // F5-22 (C5-25): what a rule form did.
+  ruleSet: (label: string) => `Rule set: ${label}.`,
+  ruleCleared: 'Rule cleared.',
+} as const;
+// end FIXES-CYCLE5
