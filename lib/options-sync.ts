@@ -454,3 +454,9 @@ export async function logRewrites(tx: TransactionSql, userId: number, before: Sn
   }
   return { changed, removed, added };
 }
+
+/** F-24: the account's stored broker option rows (a pass's page bound counts every row the activities read returns). */
+export async function optionActivityCount(tx: Db, userId: number, accountId: string): Promise<number> {
+  const [{ n }] = await tx`select count(*)::int as n from option_activities where user_id = ${userId} and account_id = ${accountId} and source = 'snaptrade'`;
+  return n as number;
+}

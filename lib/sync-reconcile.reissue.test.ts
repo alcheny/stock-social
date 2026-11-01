@@ -347,17 +347,18 @@ dbTest('(g) an unstable order between page calls (same-instant rows reordered) â
   try {
     const { b1, e, n } = pair(t, 12, -30);
     const same = at(-12);
-    const fill = Array.from({ length: 62 }, (_, i) => t.row(`f${i}`, 'BUY', 1, 5, same, 'FL')); // one instant
+    const fill = Array.from({ length: 66 }, (_, i) => t.row(`f${i}`, 'BUY', 1, 5, same, 'FL')); // one instant
     await t.store([b1, e, ...fill]);
     t.v.list = [b1, e, ...fill];
     t.broker.pageLimit = 60;
     await t.round(0);
     const snap = await t.raw();
-    // The re-issue: N listed, E not. Page 1 order: [B1, N, fill...]; page 2 swaps two same-instant rows (index 3 and 55),
-    // so a row of page 1's tail moves before page 2's offset and is not listed again.
+    // The re-issue: N listed, E not. Page 1 order: [B1, N, fill...] (rows 0-59); page 2 (rows 10-67) swaps two same-instant
+    // rows (index 5 and 65): the row first at 65 moves before page 2's offset and is never listed (skipped), the row
+    // first at 5 is listed twice, so page 2 shares 51 ids with page 1 instead of 50.
     const first = [b1, n, ...fill];
     const second = [...first];
-    [second[3], second[55]] = [second[55], second[3]];
+    [second[5], second[65]] = [second[65], second[5]];
     t.v.order = (call) => (call === 0 ? first : second);
     await t.due();
     await t.round(25);

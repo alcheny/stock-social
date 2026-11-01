@@ -506,6 +506,7 @@ export async function syncUser(
       // F-24: the ids each read listed, so a pair it listed both rows of is genuine (a week read: only inside its window).
       const listedBy: string[] = [];
       let weekListed: string[] = [], weekFrom: Date | null = null;
+      let passFound = 0; // possible re-issues a pass page found (counted in the log line)
       if (!last && broker.fetchActivitiesPage) {
         // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
         const limit = broker.pageLimit ?? PAGE_LIMIT;
@@ -572,6 +573,7 @@ export async function syncUser(
             readActs.push(id);
             await insertActivities(user.id, 'snaptrade', page.activities, tx);
             await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: the option backfill page too
+            const optionIds = options.map((o) => o.externalId); // F-24: every vendor row of the page counts in the overlap check
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
             read += page.activities.length;
             const ids = page.activities.map((a) => a.externalId);
@@ -582,9 +584,9 @@ export async function syncUser(
               continue;
             }
             // F-24: a page of this account's pass. Rows it inserted are checked for twins before the pass end decides.
-            await markTwins(tx, user.id);
+            passFound += await markTwins(tx, user.id);
             const listed = [...ids, ...(page.unusable ?? []).map((u) => u.externalId)];
-            const r = await recordPage(tx, user.id, id, pass, limit, listed, page.done, t);
+            const r = await recordPage(tx, user.id, id, pass, limit, listed, [...listed, ...optionIds], page.done, t);
             // A one-page pass read the whole history in one call, a superset of the week read; any other page is a
             // history page: positions-only rule (TR-4) and "Updated" keeps its value (plan §3).
             if (!r.onePage) pagedIds.push(id);
@@ -610,9 +612,11 @@ export async function syncUser(
       }
       // F-24 (D5, plan §2): every row this transaction stored with an older twin is held until a read lists both rows or
       // a complete pass decides it; a pair one read listed both rows of is genuine (a week read: only inside its window).
-      const found = await markTwins(tx, user.id);
+      const found = passFound + (await markTwins(tx, user.id));
       const cleared = (await markGenuine(tx, user.id, listedBy)) + (weekFrom ? await markGenuine(tx, user.id, weekListed, undefined, weekFrom) : 0);
-      if (opts.cadence) await bringForward(tx, user.id, t); // a row a week read could not decide: the next pass comes sooner
+      // A row found by this sync's week read that it could not decide: the next pass comes sooner (never for an account
+      // whose pass ran this sync: an ended or given-up pass waits its period).
+      if (opts.cadence) await bringForward(tx, user.id, t, recPlanned);
       await dropUnread(tx, user.id, real); // retention: an account no longer read drops its running pass's ids
       const optTwins = await optionTwins(tx, user.id);
       // Re-issue states decided in this transaction (a pass end, or a page that listed both rows), so the line is written

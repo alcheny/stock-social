@@ -1120,7 +1120,7 @@ select schema_add_column('broker_accounts', 'reconcile_page_at', 'timestamptz');
 select schema_add_column('broker_accounts', 'reconcile_started_at', 'timestamptz');
 select schema_add_column('broker_accounts', 'reconcile_pages', 'int not null default 0');
 select schema_add_column('broker_accounts', 'reconcile_expect', 'int not null default 0');
--- The previous page's last ids (the overlap check) and, for a pass of more than one page, every id it listed so far
+-- The previous page's vendor ids (the overlap check: exactly RECONCILE_OVERLAP of them must come back) and, for a pass of more than one page, every id it listed so far
 -- (the re-issue decision at the pass end). Set to null when the pass ends or restarts.
 select schema_add_column('broker_accounts', 'reconcile_tail', 'text[]');
 select schema_add_column('broker_accounts', 'reconcile_seen', 'text[]');

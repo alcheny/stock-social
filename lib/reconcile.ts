@@ -9,6 +9,8 @@
 // except writeReconcileFailures (after the transaction, like F-14's marks).
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
+import { DB_WIDE, TRANSPORT_CODES } from './sync-limits.ts';
+import { optionActivityCount } from './options-sync.ts';
 
 type Db = TransactionSql | typeof sql;
 // A query fragment (postgres.js), interpolated into a larger statement.
@@ -43,8 +45,12 @@ type Cursor = { account_id: string; reconcile_offset: number | null; reconcile_s
 const weekday = (accountId: Frag) => sql`((hashtext(${accountId}) % 7) + 7) % 7`;
 /** The first due date of an account that has none: the next occurrence of its weekday (on the database clock), never
  *  before a period after its claim (a just-connected account has just read its whole history). */
-const firstDue = (t: Frag) => sql`greatest(b.claimed_at + ${ms(RECONCILE_EVERY_MS)},
-  date_trunc('day', ${t}) + mod(${weekday(sql`b.account_id`)} - mod(floor(extract(epoch from ${t}) / 86400)::bigint, 7) + 7, 7) * interval '1 day')`;
+// Days count from the epoch in UTC, so the weekday and the day start agree whatever the session's time zone.
+const firstDue = (t: Frag) => {
+  const from = sql`greatest(b.claimed_at + ${ms(RECONCILE_EVERY_MS)}, ${t})`;
+  const day = sql`floor(extract(epoch from ${from}) / 86400)::bigint`;
+  return sql`to_timestamp(${day} * 86400) + mod(${weekday(sql`b.account_id`)} - mod(${day}, 7) + 7, 7) * interval '1 day'`;
+};
 
 /** Which of `ids` (accounts whose daily activities read is due under F-14 and that owe no option backfill) read a pass
  *  page this sync, and at which offset. A null due date is written first (the stagger). A pass is given up after
@@ -105,11 +111,14 @@ type PassRow = { reconcile_tail: string[] | null; reconcile_seen: string[] | nul
 /** Records one page of a pass (after its rows were inserted). `listed` are the page's vendor ids (activities and unusable
  *  trade rows). Returns whether the pass ended with this page and whether it was a one-page pass (page 0 `done`: the
  *  whole history in one call, a superset of the week read). */
-export async function recordPage(tx: TransactionSql, userId: number, accountId: string, plan: PassPlan, limit: number, listed: string[], done: boolean, t: Frag): Promise<PageResult> {
+export async function recordPage(tx: TransactionSql, userId: number, accountId: string, plan: PassPlan, limit: number, listed: string[], all: string[], done: boolean, t: Frag): Promise<PageResult> {
   const stamp = sql`clock_timestamp() + (${t} - now())`; // after the vendor call, on the (shifted) database clock
   if (plan.start) {
-    const [{ n }] = await tx`select count(*)::int as n from activities where user_id = ${userId} and account_id = ${accountId} and source = 'snaptrade'
-      and raw->>'type' in ${tx(LISTABLE_TYPES)}`;
+    // The page bound's base: every stored row the read can return (share rows, unusable trade rows and option rows).
+    const [{ n: shares }] = await tx`select (select count(*) from activities where user_id = ${userId} and account_id = ${accountId} and source = 'snaptrade'
+        and raw->>'type' in ${tx(LISTABLE_TYPES)}) + (select count(*) from corporate_actions where user_id = ${userId} and account_id = ${accountId}
+        and source = 'snaptrade' and kind = 'unpriceable' and detail->>'reason' = 'trade')::int as n`;
+    const n = Number(shares) + await optionActivityCount(tx, userId, accountId);
     // The pass's start is the transaction's start: rows this page just inserted are not "stored before the pass".
     await tx`update broker_accounts set reconcile_offset = 0, reconcile_started_at = now(), reconcile_pages = 0, reconcile_expect = ${n},
       reconcile_tail = null, reconcile_seen = null, reconcile_valid = true where user_id = ${userId} and account_id = ${accountId}`;
@@ -117,9 +126,15 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
   const [p] = await tx<PassRow[]>`select reconcile_tail, reconcile_seen, reconcile_pages, reconcile_expect, reconcile_valid, reconcile_missing, reconcile_started_at
     from broker_accounts where user_id = ${userId} and account_id = ${accountId}`;
   let valid = p.reconcile_valid;
-  if (!plan.start && p.reconcile_tail?.length) {
-    const here = new Set(listed);
-    if (!p.reconcile_tail.every((id) => here.has(id))) valid = false; // the list shifted under the offsets
+  if (!plan.start && p.reconcile_tail) {
+    // The page starts RECONCILE_OVERLAP vendor rows before the previous one ended, so exactly that many of its ids were on
+    // the previous page; more or fewer means the list shifted under the offsets (a row inserted or removed before the
+    // cursor) and a row may have been skipped. Every vendor row counts here (share, unusable and option rows): the order
+    // across the three lists is not kept, so the check is on the count, not the positions. A row with no id makes the
+    // count short: invalid, the safe side.
+    const prevIds = new Set(p.reconcile_tail);
+    const overlap = new Set(all.filter((id) => prevIds.has(id))).size;
+    if (overlap !== RECONCILE_OVERLAP) valid = false;
   }
   const pages = p.reconcile_pages + 1;
   const step = Math.max(1, limit - RECONCILE_OVERLAP);
@@ -133,7 +148,7 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
   }
   if (!done) {
     await tx`update broker_accounts set reconcile_offset = ${plan.offset + step}, reconcile_page_at = ${stamp}, reconcile_pages = ${pages},
-      reconcile_tail = ${listed.slice(-RECONCILE_OVERLAP)}, reconcile_seen = ${seen}, reconcile_valid = ${valid}
+      reconcile_tail = ${[...new Set(all)]}, reconcile_seen = ${seen}, reconcile_valid = ${valid}
       where user_id = ${userId} and account_id = ${accountId}`;
     return { complete: false, onePage: false, decided: null };
   }
@@ -198,17 +213,18 @@ export async function markTwins(tx: TransactionSql, userId: number): Promise<num
   return rows.length;
 }
 
-/** A pending row a week read could not decide brings its account's next pass forward (unless one is running). */
-export async function bringForward(tx: TransactionSql, userId: number, t: Frag) {
+/** A pending row found by this transaction's (week) read brings its account's next pass forward, unless a pass is
+ *  running or ran this sync (`except`): an ended or given-up pass waits its period. */
+export async function bringForward(tx: TransactionSql, userId: number, t: Frag, except: string[] = []) {
   await tx`update broker_accounts b set reconcile_due_at = ${t} where b.user_id = ${userId} and b.reconcile_offset is null
-    and (b.reconcile_due_at is null or b.reconcile_due_at > ${t})
-    and exists (select 1 from activity_reissues r where r.user_id = ${userId} and r.account_id = b.account_id and r.state = 'pending')`;
+    and (b.reconcile_due_at is null or b.reconcile_due_at > ${t}) ${except.length ? tx`and b.account_id not in ${tx(except)}` : tx``}
+    and exists (select 1 from activity_reissues r where r.user_id = ${userId} and r.account_id = b.account_id and r.state = 'pending' and r.found_at = now())`;
 }
 
 /** Retention: an account no longer read (frozen, simulated, unconsented) drops its running pass's listed ids. */
 export async function dropUnread(tx: TransactionSql, userId: number, real: string[]) {
-  await tx`update broker_accounts set reconcile_offset = null, reconcile_tail = null, reconcile_seen = null, reconcile_pages = 0, reconcile_valid = true
-    where user_id = ${userId} and (reconcile_offset is not null or reconcile_seen is not null or reconcile_tail is not null)
+  await tx`update broker_accounts set reconcile_offset = null, reconcile_tail = null, reconcile_seen = null, reconcile_missing = null, reconcile_pages = 0, reconcile_valid = true
+    where user_id = ${userId} and (reconcile_offset is not null or reconcile_seen is not null or reconcile_tail is not null or reconcile_missing is not null)
       and account_id not in ${tx(real.length ? real : [''])}`;
 }
 
@@ -226,7 +242,9 @@ export function pageFailureCounts(e: unknown): boolean {
   const status = Number(x?.status ?? x?.response?.status);
   if (status === 429 || status >= 500) return false;
   if (x?.name === 'RouteDeadlineError' || x?.name === 'VendorTimeoutError' || x?.name === 'AxiosError') return false;
-  if (typeof x?.code === 'string' && /^(E[A-Z]+|57P0\d|08\d{3}|53\d{3})$/.test(x.code)) return false; // transport and database-wide
+  // The transport and database-wide codes lib/sync-limits.ts#classify treats as outages, plus the database's
+  // serialization, deadlock and connection-state codes and the driver's own connection errors.
+  if (typeof x?.code === 'string' && (TRANSPORT_CODES.has(x.code) || DB_WIDE.test(x.code) || /^(40001|40P01)$|^CONNECT(ION)?_|^UND_ERR_|^ERR_(NETWORK|SOCKET)/.test(x.code))) return false;
   return true;
 }
 

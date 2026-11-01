@@ -187,7 +187,11 @@ dbTest('the sync reissues and sync reconcile invalid lines: the internal id and 
     assert.deepEqual(t.lines('sync reconcile invalid'), [['sync reconcile invalid', t.user.id, '{"reason":"missing"}']]);
     t.assertShapes();
     // The next pass with the same shortfall decides: N goes pending → suspected, a re-issue state change, so the sync
-    // logs its 'sync reissues' line (plan §4: "Re-issue line per sync when any state changed").
+    // logs its 'sync reissues' line (plan §4: "Re-issue line per sync when any state changed"). An ended pass waits its
+    // period (review fix: a held row no longer pulls it back), so the next one is made due here.
+    assert.ok((await t.sql`select reconcile_due_at > ${new Date(base + 60 * HOUR).toISOString()}::timestamptz as later from broker_accounts where account_id = ${t.acc.id}`)[0].later,
+      'the invalid pass set the next one a period later');
+    await t.sql`update broker_accounts set reconcile_due_at = ${new Date(base + 70 * HOUR).toISOString()} where account_id = ${t.acc.id}`;
     t.logs.length = 0;
     await t.round(75);
     assert.equal((await t.sql`select state from activity_reissues where external_id = ${n.externalId}`)[0].state, 'suspected');

@@ -119,7 +119,7 @@ finds those rows:
   not), the next one is due 7 days later. A whole-history read made another way (the first sync of a record with
   nothing stored, the option backfill's last page) restarts the period too.
 - **Stagger:** a null due date is written once, by the first sync that plans the account, as the next occurrence of the
-  account's own weekday (`((hashtext(account_id) % 7) + 7) % 7`, on the database clock), never before `claimed_at + 7 d`
+  account's own weekday (`((hashtext(account_id) % 7) + 7) % 7`, on the database clock), on or after `claimed_at + 7 d`
   (a just-claimed account has just read its whole history). From then on it compares normally, so no day is missed.
 - **Budget and pacing:**
   - A pass reads one vendor page per due daily activities read (F-14), **in place of** that day's week read. Requests
@@ -132,8 +132,10 @@ finds those rows:
     as the week read. Any other page is a history page: the account's positions take the positions-only rule (a sold
     position is never removed before its close is imported, TR-4) and `last_synced_at` keeps its value, as during an
     option backfill. ponytail: up to a day of "Updated" skew across accounts on page days.
-- **Overlap:** each later page starts 50 rows back (`RECONCILE_OVERLAP`: offset += limit − 50) and must list all of the
-  previous page's last 50 ids again. If not, the vendor's list shifted under the offsets and the pass is invalid.
+- **Overlap:** each later page starts 50 rows back (`RECONCILE_OVERLAP`: offset += limit − 50), so exactly 50 of its
+  vendor ids must also be on the previous page (share, unusable and option rows all count: the order across them is
+  not kept, so the check is on the count). More or fewer means a row was inserted or removed before the cursor and a row
+  may have been skipped: the pass is invalid. A vendor row with no id makes the count short (invalid, the safe side).
 - **Set completeness:** a pass that ended is complete when it had no overlap break and every `snaptrade` BUY or SELL row
   of the account stored before the pass started is among the ids it listed (unusable trade rows included), except the
   originals of the account's held rows, which are what is being tested. Rows that arrive during the pass cannot mask a
@@ -144,8 +146,8 @@ finds those rows:
 - **Abandoned or invalid passes** decide nothing; the next one starts a period later:
   - `shifted`: the overlap broke;
   - `missing`: a shortfall that is not the previous pass's;
-  - `bound`: more pages than `ceil(expected / (limit − 50)) + 2`, where expected is the account's stored listable rows at
-    the start;
+  - `bound`: more pages than `ceil(expected / (limit − 50)) + 2`, where expected is every stored row the read can return
+    at the start (share rows, unusable trade rows and option rows);
   - `failures`: 2 failed page steps in a row (`RECONCILE_MAX_FAILURES`). A failure counts (`pageFailureCounts`) for any
     error thrown inside the page step, code errors such as a `TypeError` included, except vendor or database outages
     (429, 5xx, a vendor timeout, transport and database-wide codes) and a cut at the route's end (`RouteDeadlineError`).
@@ -153,7 +155,8 @@ finds those rows:
     At 2 the pass is given up and the account reads its week instead.
   Each one adds 1 to `broker_accounts.reconcile_invalid` (passes in a row; a deciding pass resets it) and logs one line.
 - **Restart and retention:** a pass started before the account's latest consent or claim restarts at offset 0. An
-  account that stops being read (frozen, paper, unconsented) drops its running pass and its listed ids in the same sync.
+  account that stops being read (frozen, paper, unconsented) drops its running pass, its listed ids and its missing ids
+  in the same sync.
   ponytail: a trader whose every connection is frozen is never synced, so a pass left running there is not cleared; it
   holds only vendor ids `activities` already keeps.
 - **Rollbacks:** the cursor and the re-issue states are written inside the sync's transaction, so a failed or cut sync
@@ -162,7 +165,8 @@ finds those rows:
   and price equal a row stored **before this transaction**, under another vendor id, is a possible re-issue. Rows that
   arrive together were listed by the same read and are never held. The rebuild leaves out every row not `genuine`, so a
   re-issue is never published twice:
-  - `pending`: held until a read decides it. A week read that cannot decide it brings the account's next pass forward;
+  - `pending`: held until a read decides it. A week read that finds one and cannot decide it brings the account's next
+    pass forward (never an account whose pass ran in that sync: an ended or given-up pass waits its period);
   - `genuine`: one read listed both ids (a week read only inside its window, a day clear of its time-zone boundary). The
     row is kept and published. Final;
   - `suspected`: a complete pass did not list the original id. Held, counted for the owner.
