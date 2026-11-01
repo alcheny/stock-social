@@ -1,7 +1,6 @@
 # F-2 · Personalized discovery of traders and records
 
-Status: blocked
-Blocked: PR-5 needs counsel's opinion (plan H2) before it is built and the Privacy Policy update (H4) before real viewers; PR-6 follows PR-5. PR-1 to PR-4 and PR-3b are merged.
+Status: ready
 
 ## Why
 A viewer who has looked at or followed certain traders and records should see more of what they like:
@@ -52,6 +51,30 @@ advice. The owner has been told this and the scope below respects it.
 - 2026-10-23: the engineer and business lead disagree on the reject gesture (SW-1 reserves left/right
   on the feed). Recorded below as an owner question; until answered, the engineer builds reject so that
   it cannot collide with the profile-opening swipe.
+- 2026-11-01 (O3): Likes and rejects shape a viewer's ordering for 90 days, fading over that window, in
+  `signalsFor` and `viewerProfile`; they are stored until the viewer removes them or deletes the account, with a
+  purge of orphans. A rejected trade stays hidden for good and "Not interested" lasts 90 days, as PR-4 built.
+  The Privacy Policy says exactly this, with a test that the text matches the code. Why: the owner adopted the
+  legal committee's recommendation, separating how long a choice is used from how long it is stored.
+- 2026-11-01: Implicit activity logging (impressions, dwell, skips) is opt-in and off by default: a "Personalize
+  with my activity" switch with On and Off equally prominent; Off means nothing is logged or used, and "Clear my
+  activity" deletes it at once. The owner's rule: on by default only if that needs no legal work beyond
+  changing the Privacy Policy. It does (a notice at collection, counsel's CIPA analysis of first-party logging,
+  the age-assurance questions of SB 976 and the NY SAFE rules for activity-personalized feeds, Connecticut's
+  profiling assessment), so it is off by default until counsel clears those points; then it may switch to on
+  with notice. Why: the owner's conditional choice.
+- 2026-11-01: Viewers also get "Personalize my feed: Off": with it off, ordering ignores follows, likes and
+  activity and falls back to the order everyone gets, minus the viewer's own hides. Why: the owner adopted the
+  legal committee's recommendation; it is cheap and strengthens the legal position.
+- 2026-11-01: User preference data (follows, likes, hidden traders, swiped-away trades, "Not interested",
+  watchlist, and the activity log when on) is stored indefinitely, until the viewer removes it or deletes the
+  account; nothing is deleted on a timer. How long a choice affects ordering is unchanged (the 90-day fading
+  window and the 90-day "Not interested" effect). The Privacy Policy says exactly this. Why: the owner's
+  decision.
+- 2026-11-01: F-2 is ready again: the pipeline builds PR-5 (behavior-based ordering) and PR-6 with the legal
+  committee's conditions as acceptance criteria, its findings standing in for counsel's opinion (POLICY, owner
+  decision 2026-11-01). Real viewers still wait for the Privacy Policy (H4). PR-1 to PR-4 and PR-3b are merged.
+  Why: the owner's decision.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
@@ -79,6 +102,19 @@ Each one testable; the pipeline writes a test for every line.
 - [ ] Tests: cold start (no signals), one signal, many signals, a viewer who only reads losing records,
       heavy use (thousands of viewers scored per hour), and the deterministic fallback when the model
       call fails.
+- [ ] "Personalize with my activity" is off by default, On and Off equally prominent; with it off, no
+      impression, dwell or skip is logged and none is used; "Clear my activity" deletes the events and any
+      derived affinities at once (tests prove both).
+- [ ] "Personalize my feed: Off" makes ordering ignore follows, likes and activity: the viewer gets the order
+      everyone gets, minus their own hides.
+- [ ] Likes and rejects affect ordering for 90 days, fading over the window (`signalsFor`, `viewerProfile`);
+      they stay stored until removed or the account is deleted; orphaned rows are purged.
+- [ ] A "Hidden trades" list with "Show again", and a persistent "N trades hidden by you. Show them" line,
+      keyboard and screen-reader operable, ship before behavior-based ordering.
+- [ ] The watchlist is never an ordering input, and no watch or unwatch event is written while the symbol
+      flag is off.
+- [ ] No reason line names a security to buy, sell or hold; every reason is a fact about the trader's record
+      or the viewer's own actions (POLICY F1a).
 
 ## Out of scope
 - Trade recommendations, "AI picks", price targets, anything personalized about a symbol to buy.
@@ -86,12 +122,7 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Open questions
 - Resolved 2026-10-24 (O1): see Decisions. Build in PR-4.
-- Owner (O3): hide duration. Business lead backs 90 days (testable, accidental swipes not permanent,
-  protects reach); engineer built 90 days as one constant. Suggested split: a rejected trade stays
-  hidden permanently, a trader hidden via "Not interested" returns after 90 days.
-  PR-4 (2026-10-24) builds the committee recommendation while the owner is silent: a rejected trade stays hidden
-  for good (a `trade_exclusions` row, deleted with the account), "Not interested" stays 90 days, and the
-  trader-level −4 of a trade reject counts for 90 days (`TRADE_REJECT_TRADER_DAYS`). Still the owner's to confirm.
+- Resolved 2026-11-01 (O3): see Decisions.
 - Resolved 2026-10-24 (O2): see Decisions ("Similar trades" section). Build as PR-3b.
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
   decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.

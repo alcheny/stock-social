@@ -529,7 +529,11 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
   await p2.setViewportSize({ width: 375, height: 740 });
   await p2.goto(`/u/${handle}`);
   await expect(p2.locator('.importing')).toContainText('Importing this record'); // fix round 2: a visitor is not "you"
-  expect(await p2.locator('meta[property="og:image:alt"]').getAttribute('content')).toBe(`Trading record card for @${handle} on Stock Social: Importing record`);
+  // F-4 committee round 1, demand 9: the alt is the card in words (its label first), never "verified" while importing.
+  const importingAlt = (await p2.locator('meta[property="og:image:alt"]').getAttribute('content'))!;
+  expect(importingAlt).toMatch(new RegExp(`^Trading record card for (@${handle}|.+ \\(@${handle}\\)) on Stock Social\\. Importing record\\. Stats appear when the import finishes\\. Import in progress\\. `));
+  expect(importingAlt).not.toMatch(/verified/i);
+  expect(importingAlt).toMatch(/Not investment advice\. Past performance does not guarantee future results\.$/);
   await expect(p2.locator('.badge.verified')).toHaveCount(0);
   await expect(p2.locator('section.stats')).toHaveCount(0);
   await expect(p2.locator('main')).not.toContainText('win rate');
@@ -690,7 +694,11 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   const profileDescription = await feed.locator('meta[name="description"]').getAttribute('content');
   expect(profileDescription).toMatch(/\d+ closed trades? · /);
   expect(profileDescription!).not.toMatch(/verified/i);
-  expect(await feed.locator('meta[property="og:image:alt"]').getAttribute('content')).toBe(`Trading record card for @${handle} on Stock Social: Import did not finish`);
+  // F-4 committee round 1, demand 9: the alt is the card in words (its label first, then the incomplete line).
+  const failedAlt = (await feed.locator('meta[property="og:image:alt"]').getAttribute('content'))!;
+  expect(failedAlt).toMatch(new RegExp(`^Trading record card for (@${handle}|.+ \\(@${handle}\\)) on Stock Social\\. Import did not finish\\. The import did not finish, so this record may be incomplete\\. `));
+  expect(failedAlt).not.toMatch(/verified/i);
+  expect(failedAlt).toMatch(/Not investment advice\. Past performance does not guarantee future results\.$/);
   for (const path of [`/u/${handle}/trade/${encodeURIComponent(last.sell_id as string)}`, `/u/${handle}/month/${ym}`]) {
     await feed.goto(path);
     await expect(feed.locator('.record-failed')).toHaveText('The import did not finish, so this record may be incomplete.');

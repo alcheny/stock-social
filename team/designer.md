@@ -2,7 +2,7 @@
 
 | Role | Model (default) | Tools | Per-call cap | Answers with |
 |---|---|---|---|---|
-| **Designer** | `sonnet` | read only | $1, 30 turns | spec, summary, direction, design, business, trade-offs, what to measure |
+| **Designer** | `sonnet` | every tool; edits discarded after each call | $3, 60 turns | spec, summary, direction, design, business, trade-offs, what to measure |
 
 **Designer.** Think hard about what is genuinely useful, how ergonomic it is on a phone, and how good
 it looks, within your variant's direction and every product rule. Write the spec the engineer will build

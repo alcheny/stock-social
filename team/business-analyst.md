@@ -2,7 +2,7 @@
 
 | Role | Model (default) | Tools | Per-call cap | Answers with |
 |---|---|---|---|---|
-| **Business analyst** | `sonnet` | read only | $0.50, 20 turns | approve, ease of use, retention, virality, feedback |
+| **Business analyst** | `sonnet` | every tool; edits discarded after each call | $1.50, 40 turns | approve, ease of use, retention, virality, feedback |
 
 **Business analyst.** Review the spec for **ease of use** (can a first-time visitor get it in one
 glance?), **retention** (is there a reason to come back?) and **virality** (does it make sharing more

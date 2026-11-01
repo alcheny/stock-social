@@ -267,13 +267,15 @@ production: a Neon branch copies its parent's data.
 | `AUTOPILOT` | unset = **off** | `on` runs the loop. Anything else is the kill switch: every agent workflow skips, and the Gate merges nothing |
 | `AUTOPILOT_MODE` | unset = **human** | `request`, `human` or `auto`. See Modes |
 | `SPEC_ROUNDS` | 2 | Designer ⇄ business analyst rounds per branch |
-| `QA_ROUNDS` | 20 | Engineer ⇄ tester rounds per branch (each failing-checks round tries up to three engineers) |
-| `TEAM_BUDGET_USD` | 15 | Spend cap per branch team (all role calls) |
+| `QA_ROUNDS` | 40 | Engineer ⇄ tester rounds per branch (each failing-checks round tries up to three engineers) |
+| `TEAM_BUDGET_USD` | 100 (feature pipeline: 150) | Spend cap per branch team run (all role calls); grows with the attempt number, up to 4× |
+| `ESCALATE_AFTER` / `MODEL_ESCALATE` | 3 / unset | From this attempt on, the engineer runs on `MODEL_ESCALATE` (when set) |
+| `TEAM_MINUTES` | 290 | No agent call starts after this many minutes, so the run still publishes inside GitHub's 6-hour job limit |
 | `MODEL_ENGINEER` | CLI default | Engineer's model (building and planning); the branch team's other roles use `sonnet` |
 | `PLAN_ROUNDS` | 4 | Planning replies after business-lead's draft before the latest plan is used |
 | `PLAN_BUDGET_USD` | 6 | Spend cap per planning discussion |
 | `DAILY_PR_CAP` | unset = no cap | Optional budget guard: no new builds after this many autopilot PRs in a rolling 24h |
-| `MAX_ATTEMPTS` | 3 | Attempts per issue/PR before it's labeled `stuck` + `needs-human` |
+| `MAX_ATTEMPTS` | 10 | Attempts per issue/PR before it's labeled `stuck` + `needs-human` |
 | `MAX_READY` | 3 | Planner keeps this many `ready` issues queued |
 | `MAX_DIFF` | 800 | PRs with more changed lines go to `needs-human` |
 | `LIMIT_COOLDOWN_HOURS` | 5 | Pause new work after a Claude usage-limit error |
@@ -283,6 +285,10 @@ Secret: `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`). Requires the Clau
 ## Hard rules enforced in code
 
 - **Protected paths** (`.github/CODEOWNERS`) are never auto-merged.
+- **Every tool, inside the design:** branch-team and committee agents get every tool; after each call
+  `scripts/team.ts` keeps edits only from the engineer's build calls and puts back any protected path
+  (`PROTECTED`), however it was changed. Agents never hold a GitHub credential (`docs/FEATURES.md` →
+  "Permissions and the failure budget").
 - **Test count can't drop** and **schema changes can't add `drop`/`truncate`/`delete from`** (CI `guard`).
 - **Only trusted issues** (repo owner or the Plan workflow) are ever given to a branch team (in `request` mode, only the owner's).
 - **Merges** of single builds require CI job `check` = success **and** an `ai-review` status written by
@@ -398,10 +404,10 @@ agents hold no GitHub credentials; the Publish step pushes afterwards.
 
 | Role | Model (default) | Tools | Per-call cap | Answers with |
 |---|---|---|---|---|
-| **Designer** | `sonnet` | read only | $1, 30 turns | spec, summary, direction, design, business, trade-offs, what to measure |
-| **Business analyst** | `sonnet` | read only | $0.50, 20 turns | approve, ease of use, retention, virality, feedback |
-| **Engineer** | CLI default (frontier) | read, edit, run checks, commit | $4, 150 turns | done, title, summary |
-| **Tester** | `sonnet` | read, run checks (no edit tools) | $1.50, 60 turns | pass, findings (bug / usability / spec / note) |
+| **Designer** | `sonnet` | every tool; edits discarded | $3, 60 turns | spec, summary, direction, design, business, trade-offs, what to measure |
+| **Business analyst** | `sonnet` | every tool; edits discarded | $1.50, 40 turns | approve, ease of use, retention, virality, feedback |
+| **Engineer** | CLI default (frontier) | every tool; protected paths put back | $15, 400 turns | done, title, summary |
+| **Tester** | `sonnet` | every tool; edits discarded | $5, 150 turns | pass, findings (bug / usability / spec / note) |
 
 Each role's full spec is in `team/`: [designer](../team/designer.md), [business analyst](../team/business-analyst.md),
 [engineer](../team/engineer.md), [tester](../team/tester.md). `scripts/team.ts` points every call at its file.
@@ -411,7 +417,7 @@ Each role's full spec is in `team/`: [designer](../team/designer.md), [business 
 - **Spec loop:** up to `SPEC_ROUNDS` (default 2) designer ⇄ business rounds. If they still disagree, the
   designer makes one final revision and the record says so. The business analyst's concerns stay visible
   in the doc for the human.
-- **QA loop:** up to `QA_ROUNDS` (default 20). Each round runs the deterministic checks first, and only
+- **QA loop:** up to `QA_ROUNDS` (default 40). Each round runs the deterministic checks first, and only
   calls the tester if they pass. Failing checks go straight back to the engineer, so a broken build never
   costs a tester call.
 - **Three engineers per failing round:** when the deterministic checks fail, three engineers with
@@ -421,7 +427,7 @@ Each role's full spec is in `team/`: [designer](../team/designer.md), [business 
   The first whose checks pass is kept; failed attempts are reset. Tester findings (checks already green)
   go to the root-cause engineer alone, since only another tester call can verify them.
 - **Budget:** each call has a dollar and turn cap, and the whole team stops at `TEAM_BUDGET_USD`
-  (default $15). A typical clean run is 2 designer + 2 business + 1–2 engineer + 1 tester calls.
+  (default $100). Every cap grows with the attempt number: ×1.5 on the second attempt, up to ×4. A typical clean run is 2 designer + 2 business + 1–2 engineer + 1 tester calls.
 - **Exit:** clean (checks pass and no blocking findings) publishes. Open findings after the cap still
   publish, listed in the PR, so CI, the independent Reviewer and you can decide. **Failing checks at the
   cap also publish**: the PR goes red in CI and the fix loop keeps working on it (up to `MAX_ATTEMPTS`,
