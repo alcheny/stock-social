@@ -378,3 +378,6 @@ create table if not exists trade_exclusions (
 -- Fix round 1: when the hidden trade was liked, the like's time (Undo restores the like; a hidden trade is never liked).
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
+
+-- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
+select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
