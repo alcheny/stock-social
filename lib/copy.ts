@@ -67,7 +67,10 @@ export const PROFILE = {
   youreIn: "You're in. Next: connect your brokerage.",
   changeHandle: 'Change handle',
   // Fix round 8 (tester re-run 4): counts pluralized ("1 earlier position", "2 imported trades"), never "(s)".
-  excludedPositions: (n: number) => `${counted(n, 'earlier position')} excluded: no matching entry in the imported history.`,
+  // Fixes cycle 4 (C4-2; F-28's true-cause wording; UX lead, committee): the count also holds sells after an oversell,
+  // whose entry was recorded, so it never says "no matching entry". It counts sells (one per sell,
+  // users.excluded_positions) and names both causes without saying which applied.
+  excludedPositions: (n: number) => `${counted(n, 'sell')} excluded: a short sale or earlier history means no buy in the imported history can be matched to ${n === 1 ? 'it' : 'them'} for certain.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
   // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
   // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
@@ -394,7 +397,11 @@ export const HOW = {
     'Short options and short sales: their risk has no fixed amount to measure a percent against.',
     'Exercised or assigned options, and share trades held over the day of an exercise or assignment in that stock. These are left out of the options average, so it does not include contracts that ended in the money.',
     'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
-    'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
+    'Transfers in, and sells with no recorded entry in the imported history (shown as excluded sells, never guessed).',
+    // Fixes cycle 4 (C4-2; UX lead, committee).
+    'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), or a stock split, stock dividend or other corporate action on a stock the history shows none of, the later sells of that holding in that account (under its new symbol after a rename) are excluded and counted too, wins and losses alike: the history can\u2019t show which buys are left.',
+    // Fixes cycle 4 (UX lead, round 4): the disclosure of F-30's accepted residual (lib/trades.ts ponytail in `replay`).
+    'Some brokers send only the date of a trade. On those, a buy and a sell of one stock on the same day are read buy first, so a same-day short sale with no earlier sign of one can appear as a long trade (a known limit).',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
     // Fixes cycle 3, F3-1 (lib/trades.ts): unusable broker trade rows are counted, never dropped.
     'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.',
@@ -865,7 +872,7 @@ export const RECORD_TOOLS = {
   deleteViewConfirm: (name: string) => `Delete "${name}"? Your notes stay.`,
   keep: 'Keep it',
   updated: (d: Date) => `Updated ${billingDate(d)}`,
-  rows: { closed: 'Closed trades', winRate: 'Win rate', avg: 'Avg return / trade', range: '95% range', low: 'Lower end of range', evidence: 'Evidence', drawdown: 'Max drawdown (per-trade, equal-weight)', excluded: 'Positions excluded (no matching entry)' },
+  rows: { closed: 'Closed trades', winRate: 'Win rate', avg: 'Avg return / trade', range: '95% range', low: 'Lower end of range', evidence: 'Evidence', drawdown: 'Max drawdown (per-trade, equal-weight)', excluded: 'Sells excluded (no certain entry)' },
   importing: 'Importing: figures appear when the import finishes.',
   noTrades: 'No closed trades yet.',
   messages: {
@@ -941,6 +948,12 @@ export const PUBLIC = {
   cardLine: 'Company insider · from a public filing', cardFooter: 'See their record, wins and losses →',
   filing: 'Filing ↗', filingName: (symbol: string, day: string) => `Public filing for the ${symbol} sale closed ${day}, opens another site`,
   sold: 'Sold: filing ↗', bought: 'Bought: filing ↗', boughtName: (symbol: string) => `Public filing for the ${symbol} purchase, opens another site`, soldName: (symbol: string) => `Public filing for the ${symbol} sale, opens another site`,
+  // F4-10 (cycle 4, C4-14; WCAG 2.5.3, 2.4.4): the trade page's filing link names start with their visible words and
+  // tell purchases apart ("purchase 1 of 2"); the sale's names its close date. Replaces boughtName and soldName above on
+  // the trade page.
+  // Code review: the links are one per filing (a filing can hold several purchases), so they are numbered as filings.
+  boughtNameOf: (symbol: string, n: number, of: number) => `Bought: filing${of > 1 ? ` ${n} of ${of}` : ''} for the ${symbol} purchase, opens another site`,
+  soldNameOn: (symbol: string, day: string) => `Sold: filing for the ${symbol} sale closed ${day}, opens another site`,
   openTitle: 'Open positions', openNote: 'Only shares bought in open-market purchases shown in the filings and not yet sold. This is not the person’s full holdings, and current value isn’t available from the filings, so no percent is shown.',
   recap: 'Recaps list the month\u2019s closed trades built from public filings, and none can be hidden.',
   paneFoot: 'Closed trades built from public filings, losses included. Sales that can’t be priced from the filings are excluded and counted on the profile.',

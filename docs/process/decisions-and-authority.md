@@ -244,7 +244,7 @@ recommendation is a recommendation, not a decision.
 
 **Q9. What may the coordination budget line carry?**
 - Today: "Window resets <UTC>; admitting: yes | queue-only" only; usage snapshots stay with the orchestrator
-  (budget-and-rate.md → Admission procedure, step 8).
+  (budget-and-rate.md → Admission procedure, step 4).
 - Options: (a) as today; (b) add spend as a share of the calibrated cap; (c) add dollar figures.
 - Recommendation: (a) until there is a second orchestrator, then (b).
 
