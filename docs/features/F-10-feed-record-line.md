@@ -1,6 +1,6 @@
 # F-10 · One record line on every feed card, and the shared RecordStrip
 
-Status: ready
+Status: built
 
 ## Why
 A feed card shows one closed trade with "held · closed" and no record around it, so one lucky trade reads as a
@@ -69,3 +69,6 @@ Notes (process, not tests):
 - None from the council. The build's plan debate decides layout within the D22 wording.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #54 (50774a9) and #60 (cce9669) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.
