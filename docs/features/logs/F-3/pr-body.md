@@ -13,8 +13,10 @@ Traders never pay and never see a price.
     after 35 days);
   - entitlements read only from the app's own `subscriptions` row;
   - a 7-day grace period; disputes and full refunds end access and stop renewals;
-  - the refund policy, applied automatically: no partial-month refunds on monthly; a full refund on a yearly plan
-    canceled within 14 days; a pro-rata refund when a subscriber connects a broker;
+  - the refund policy, applied automatically: canceling within 14 days of the first charge (monthly or yearly) or of a
+    yearly renewal refunds in full and ends at once; otherwise no partial refunds; a pro-rata refund when a subscriber
+    connects a broker (this follows the idea board's refund decision now on main, so the screen and the Terms state one
+    policy);
   - a daily reconciliation (run once a day from the hourly sync tick, also `POST /api/billing/reconcile`);
   - account deletion cancels at the processor first and keeps only the renewal consent record (no name, email or IP)
     for 3 years.
@@ -56,7 +58,8 @@ Traders never pay and never see a price.
   paying subscriber who connects a broker is canceled at once with a pro-rata refund.
 - No event payloads and no charge rows are kept. Only the consent record survives deletion, for 3 years.
 - The processor sends every billing email; the app sends none.
-- Refund line, grace and disputes as above. After a lapse, views and notes stay; a deleted trader leaves views and
+- The refund line and automatic refunds follow the idea board's refund decision (merged from main; recorded in the
+  feature file). Grace and disputes as above. After a lapse, views and notes stay; a deleted trader leaves views and
   notes, and one line (naming no one) says so until dismissed.
 - Implementation plan:
   - the UX lead's plan, reviewed by the business lead and the engineer (both signed in round 2):
@@ -73,7 +76,7 @@ All gates were run locally on the merged branch (main at the sharded-CI merge):
   - every lifecycle event (created, trial ending, renewed, payment failed, past due with grace, canceled at period end,
     resumed, refunded partial and full, disputed and won);
   - replay, out-of-order delivery, malformed signature, live events in test mode;
-  - traders, the 14-day yearly refund, reconciliation, deletion;
+  - traders, the 14-day refund (first charge and yearly renewal), reconciliation, deletion;
   - failure injection between the refund and the cancel, duplicate subscriptions;
   - no card or personal fields in the billing tables;
   - heavy use: 32 workers with every event delivered twice. 3,000 events by default; `LOAD=1` runs 100,000 (215 s,
