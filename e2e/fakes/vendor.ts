@@ -19,7 +19,12 @@
 //   POST /_sync {completed: boolean, accountId?}   flips initial_sync_completed
 //   An account with `seed` and a numeric `activities` gets seededActivities (PR-3 heavy-use tests); activities honour
 //   `startDate` like the vendor's endpoint
-//   POST /_fail {status: number, times: number}    the next `times` API calls answer `status`
+//   POST /_fail {status: number, times: number, match?: string}    the next `times` API calls answer `status`; with
+//     `match` (F-14 tests), only the API calls whose path contains it (e.g. `/accounts/<id>/positions`) fail and count
+//     down, the others are answered
+//   POST /_accounts {userId, accounts: FakeAccount[]}   (F-14 tests) replaces a registered user's accounts (as the portal
+//     would link them, rows and positions included), so a test can change what the vendor lists between rounds
+//   POST /_remove {accountId} | {all: true}        drops one account from the listing, or every account (FIXES-LABELS: status)
 //   GET  /_state                                   users, their connections and accounts, for assertions
 //     (bulk users below are not listed: there can be 100,000 of them)
 //   POST /_bulk {prefix, from, to, accounts?, activities?, slowEvery?, slowOffset?, slowMs?, failEvery?, failOffset?, failStatus?}
@@ -35,7 +40,11 @@
 //     removes it.
 //   POST /_latency {ms, jitterMs?}                 every vendor API request (not the portal, not /_ controls) waits ms
 //     plus a uniform random 0..jitterMs first; {ms: 0} turns it off. Adds to `delayMs` and the bulk's `slowMs`
-//   GET  /_stats                                   {requests}: vendor API requests answered since the fake started
+//   GET  /_stats                                   {requests}: vendor API requests answered since the fake started;
+//     F-14 (additive): `accounts` {[accountId]: {activities, shareMoves, positions, failed}} counts each registered user's
+//     per-account calls (activities: the BUY,SELL reads, paged or not; shareMoves: the same endpoint with the share-move
+//     type filter; failed: answered by /_fail) and `lists` {[userId]: n} its account-list calls. Bulk users are not
+//     counted per account (there can be 100,000 of them).
 import { createServer, type Server } from 'node:http';
 
 // Corporate actions (F3c): share-moving rows (SPLIT, STOCK_DIVIDEND, REI, ADJUSTMENT...) with an optional description,
@@ -128,7 +137,10 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
   const users = new Map<string, User>();
   let next: Scenario = { accounts: [{ id: 'acct-default', activities: 4, syncDone: true }] };
   let authSeq = 0;
-  let fail: { status: number; times: number } = { status: 500, times: 0 };
+  let fail: { status: number; times: number; match?: string } = { status: 500, times: 0 };
+  // F-14: per-account call counts of registered users (GET /_stats).
+  const perAccount = new Map<string, { activities: number; shareMoves: number; positions: number; failed: number }>();
+  const lists = new Map<string, number>();
   // Port 0 asks the OS for a free port; both bases are set from the bound port once listening.
   let base = `http://127.0.0.1:${port}`;
   let refusingBase = `http://localhost:${port}`; // portalFrameHeaders: the portal on another origin
@@ -150,6 +162,17 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       return json({ ok: true });
     }
     if (p === '/_fail' && req.method === 'POST') { fail = await body(); return json({ ok: true }); }
+    // FIXES-LABELS: status (F-11, TR-5): POST /_remove {accountId, userId?} drops that account from the listing (an account
+    // removed at the broker); {all: true, userId?} empties the listing (a disconnect). Without userId, every user's.
+    if (p === '/_remove' && req.method === 'POST') {
+      const b = await body();
+      let n = 0;
+      for (const [id, u] of users) {
+        if (b.userId && b.userId !== id) continue;
+        for (const k of [...u.accounts.keys()]) if (b.all || k === b.accountId) { u.accounts.delete(k); n++; }
+      }
+      return json({ ok: true, removed: n });
+    }
     if (p === '/_post') {
       res.writeHead(200, { 'content-type': 'text/html' });
       return res.end(`<!doctype html><title>post</title><script>parent.postMessage(JSON.parse(${JSON.stringify(url.searchParams.get('m') ?? 'null')}), '*');</script>`);
@@ -163,7 +186,17 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       return json({ ok: true, users: b.to - b.from + 1 });
     }
     if (p === '/_latency' && req.method === 'POST') { const b = await body(); latency = { ms: Number(b.ms) || 0, jitterMs: Number(b.jitterMs) || 0 }; return json({ ok: true }); }
-    if (p === '/_stats') return json({ requests });
+    if (p === '/_stats') return json({ requests, accounts: Object.fromEntries(perAccount), lists: Object.fromEntries(lists) });
+    if (p === '/_accounts' && req.method === 'POST') {
+      const b = await body();
+      const user = users.get(b.userId);
+      if (!user) return json({ detail: 'unknown user' }, 404);
+      user.accounts = new Map((b.accounts as FakeAccount[]).map((a) => {
+        const rows = Array.isArray(a.activities) ? a.activities : a.seed !== undefined ? seededActivities(a.id, a.activities ?? 0, a.seed) : generateActivities(a.id, a.activities ?? 0);
+        return [a.id, { ...a, authorization: a.authorization ?? `auth-${++authSeq}`, rows, syncDone: a.syncDone !== false }];
+      }));
+      return json({ ok: true });
+    }
     if (p === '/_state') {
       const out: Record<string, { connections: Record<string, string[]> }> = {};
       for (const [id, u] of users) {
@@ -216,7 +249,21 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
     }
     requests++;
     if (latency.ms || latency.jitterMs) await new Promise((r) => setTimeout(r, latency.ms + Math.random() * latency.jitterMs));
-    if (fail.times > 0) { fail.times--; return json({ detail: 'forced failure' }, fail.status); }
+    const failNow = fail.times > 0 && (!fail.match || p.includes(fail.match));
+    if (users.has(userId)) {
+      // F-14: counted whether answered or failed (a failed call still reached the vendor).
+      const am = p.match(/^\/accounts\/([^/]+)\/(activities|positions\/all)$/);
+      if (am) {
+        const id = decodeURIComponent(am[1]);
+        const c = perAccount.get(id) ?? { activities: 0, shareMoves: 0, positions: 0, failed: 0 };
+        if (failNow) c.failed++;
+        else if (am[2] !== 'activities') c.positions++;
+        else if ((url.searchParams.get('type') ?? '').includes('SPLIT')) c.shareMoves++;
+        else c.activities++;
+        perAccount.set(id, c);
+      } else if (p === '/accounts') lists.set(userId, (lists.get(userId) ?? 0) + 1);
+    }
+    if (failNow) { fail.times--; return json({ detail: 'forced failure' }, fail.status); }
     if (next.delayMs && p.includes('/activities')) await new Promise((r) => setTimeout(r, next.delayMs));
     // The vendor API surface the app uses.
     if (p === '/snapTrade/registerUser' && req.method === 'POST') {

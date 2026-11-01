@@ -12,6 +12,14 @@ import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
+import { count } from '@/lib/format.ts';
+// FIXES-LABELS (D-24): numbers and a range only in "This month" (F-12's month figures); "One of N months on record" under the h1.
+import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+const FL_DEMO = FL.demoNote; // FIXES-LABELS (DS-20): one Demo name
+// FIXES-LABELS (D-09 / D20, POLICY F3): the page's one F3 line is the record strip's (F-12), after the record's figures.
+import { dateText } from '@/lib/date-text.ts';
+import { recordRows, segments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
+import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -23,7 +31,7 @@ async function load(p: Params['params']) {
 }
 
 const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
-const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const day = (d: Date) => dateText(d, new Date()); // FIXES-LABELS (D-05): the year when it is not this year
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const r = await load(params);
@@ -34,6 +42,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const month = recordStrip(monthStripInput(r), 'figures');
   return {
     title: `${r.recap.label} · @${r.handle} · Stock Social`,
+    alternates: { canonical: `/u/${r.handle}/month/${r.recap.ym}` }, // F-15 second half: untagged, one address
     description: monthDescription(r, whole),
     openGraph: { images: [{ url: `/u/${r.handle}/month/${r.recap.ym}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: monthAlt(r, whole, month) }] },
     ...(isPublicRecord(r.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
@@ -61,15 +70,22 @@ export default async function RecapPage({ params }: Params) {
   );
 
   return (
-    <main className="page">
+    <main className="page month-page">{/* QA round 1 (finding 4): .month-page tightens on a phone (globals.css) */}
       <p>
         <Link href={`/u/${handle}`}>← {RECORD_STRIP.link(handle)}</Link>{' '}
-        {r.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
+        {r.demo && <span className="badge demo" title={FL_DEMO}>Demo</span>}
         {isPublicRecord(r.state) && <Badge kind={r.state} />}
       </p>
       {isPublicRecord(r.state) && <PublicNotice />}
-      <h1>{m.label} {m.monthSoFar && <span className="muted small">month so far</span>}</h1>
-      {m.monthSoFar && <p className="muted small">Not a complete month. Trades close through today.</p>}
+      <h1>{m.label} {m.monthSoFar && <span className="muted small so-far">month so far</span>}</h1>
+      {/* QA round 1 (finding 4): one muted line under the h1 (on a phone the h1's "month so far" gives way to it). */}
+      {(r.months || m.monthSoFar) ? (
+        <p className="muted small month-head">
+          {r.months ? <span data-testid="month-of">{FL.monthOf(count(r.months))}</span> : null}
+          {r.months && m.monthSoFar ? ' · ' : null}
+          {m.monthSoFar && <span>Month so far: not a complete month. Trades close through today.</span>}
+        </p>
+      ) : null}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-month">
           <h2 id="this-month">This month</h2>
@@ -81,6 +97,9 @@ export default async function RecapPage({ params }: Params) {
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">{RECORD_STRIP.link(handle)} {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>
+          {/* FIXES-LABELS: status (F-11): the record's status line, live (this page renders per request). */}
+          {/* QA round 2 (N8): two rows like the profile (since · connection, then last close · updated). */}
+          {(recordRows(r.status, new Date()) ?? []).map((row, i) => <StatusText key={i} segments={segments(row)} kind={i ? 'record2' : 'record'} />)}
           {/* F-12: the record strip, as on the trade page (TR-3: only the importing line while an import runs). */}
           <RecordStrip strip={strip} />
         </section>
@@ -101,9 +120,9 @@ export default async function RecapPage({ params }: Params) {
           </li>
         ))}
       </ol>
-      <TradeShare isOwner={false} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
+      <TradeShare kind="month" isOwner={me !== null && me.handle === handle} path={`/u/${handle}/month/${m.ym}`} title={`${m.label} · @${handle} on Stock Social`} />
       <p className="muted small">Percentages only. Never sizes or prices.</p>
-      <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : <>Recaps list the month&apos;s closed trades from connected accounts, and none can be hidden.</>}</p>
+      <p className="muted small">{isPublicRecord(r.state) ? PUBLIC.recap : FL.monthFoot[r.demo ? 'demo' : 'real'] /* QA round 1 (finding 12) */}</p>
       {!me && !r.demo && !isPublicRecord(r.state) && <JoinCta handle={handle} via="month" />}
       <p><Link href="/">← Feed</Link></p>
     </main>

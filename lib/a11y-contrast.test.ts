@@ -110,9 +110,9 @@ const CYCLE2 = { text: 4.5, large: 3, ui: 3, focus: 3, cvd: 9 } as const; // wri
 // AC1: every token's resolved value per scheme, after fixes #12, #13 and #26 (value-neutral: these are main's values).
 const TOKENS_WANT = {
   light: { bg: '#fafafa', surface: '#ffffff', text: '#111118', muted: '#6b6b78', line: '#e5e5ea', up: '#0b6b70', down: '#b2441b',
-    accent: '#6d28d9', 'on-accent': '#ffffff', control: '#7c818b', focus: '#2152d9', verified: '#111118', flat: '#6b6b78', demo: '#6b6b78' },
+    accent: '#6d28d9', 'on-accent': '#ffffff', control: '#7c818b', focus: '#2152d9', verified: '#111118', flat: '#6b6b78', demo: '#6b6b78', warn: '#92400e' },
   dark: { bg: '#0b0b0f', surface: '#16161d', text: '#f4f4f6', muted: '#8b8b98', line: '#262631', up: '#3cc4b4', down: '#ff8a5b',
-    accent: '#a78bfa', 'on-accent': '#0b0b0f', control: '#6f7682', focus: '#86a8ff', verified: '#f4f4f6', flat: '#8b8b98', demo: '#8b8b98' },
+    accent: '#a78bfa', 'on-accent': '#0b0b0f', control: '#6f7682', focus: '#86a8ff', verified: '#f4f4f6', flat: '#8b8b98', demo: '#8b8b98', warn: '#fbbf24' },
 } as const;
 // AC2 (veto DK, CS): base, accent and on-accent change only through the V-1 three-version test.
 const BASE_WANT = {
@@ -224,6 +224,7 @@ for (const [name, on] of Object.entries(scheme) as [keyof typeof TOKENS_WANT, (r
     { what: 'gain text', fg: 'up', on: GROUNDS, floor: 'text' },
     { what: 'loss text', fg: 'down', on: GROUNDS, floor: 'text' },
     { what: 'Flat text', fg: 'flat', on: GROUNDS, floor: 'text' },
+    { what: 'the failed-import warning text (--warn, F-11)', fg: 'warn', on: GROUNDS, floor: 'text' },
     { what: 'the Verified badge text on its 18% --up tint', fg: 'verified', on: { mix: 'up', pct: 0.18 }, floor: 'text' },
     { what: 'the Demo badge text (on --surface)', fg: 'demo', on: ['surface'], floor: 'text' },
     { what: 'the Public filing badge text (on --surface)', fg: 'text', on: ['surface'], floor: 'text' },

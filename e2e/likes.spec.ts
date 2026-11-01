@@ -40,12 +40,22 @@ async function touches(page: Page, run: (send: (type: 'touchStart' | 'touchMove'
   await run(async (type, x, y) => { await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: x!, y: y! }] }); });
   await cdp.detach();
 }
+// firstRow is a seeded trader's card, which need not be the top one: bring its row to the top of the feed (a snapped
+// position) only when it is off screen, so a card already in view is never nudged and its swipe is never eaten by a snap.
+async function onScreen(page: Page, el: Locator) {
+  const b = await el.boundingBox(), h = page.viewportSize()!.height;
+  if (b && b.y >= 0 && b.y + b.height <= h) return;
+  await el.evaluate((e) => e.closest('.row')!.scrollIntoView({ block: 'start' }));
+  await expect.poll(async () => { const y = (await el.boundingBox())?.y; await page.waitForTimeout(100); return y === (await el.boundingBox())?.y; }).toBe(true);
+}
 async function doubleTap(page: Page, el: Locator, gap = 90) {
+  await onScreen(page, el);
   const b = (await el.boundingBox())!;
   const x = Math.round(b.x + b.width / 2), y = Math.round(b.y + b.height / 2);
   await touches(page, async (send) => { await send('touchStart', x, y); await send('touchEnd'); await page.waitForTimeout(gap); await send('touchStart', x, y); await send('touchEnd'); });
 }
 async function swipe(page: Page, el: Locator, dx: number, dy = 0) {
+  await onScreen(page, el);
   const b = (await el.boundingBox())!;
   const y = Math.round(b.y + b.height / 2), x0 = Math.round(dx < 0 ? b.x + b.width - 10 : b.x + 10);
   const steps = Math.max(2, Math.round(Math.max(Math.abs(dx), Math.abs(dy)) / 10));
@@ -56,7 +66,10 @@ async function swipe(page: Page, el: Locator, dx: number, dy = 0) {
     await send('touchEnd');
   });
 }
-const firstRow = (page: Page) => page.locator('.feed > .row[data-trade]').first();
+// The first card of a seeded demo trader (`npm run db:seed`), never position 0: another spec's fixture trader can rank
+// first, and its afterAll deletes it while this spec holds feedLock('shared') (local runs with 2+ workers).
+const SEEDED = ['momentum_maya', 'dividend_dan', 'yolo_yuki'];
+const firstRow = (page: Page) => page.locator(`.feed > .row[data-trade]:is(${SEEDED.map((h) => `[data-handle="${h}"]`).join(', ')})`).first();
 
 test('F-2 PR-4: double tap likes once, privately and quietly; again unlikes; a vertical swipe or a single tap never likes; the likes list shows it and Remove ends it; no event request', async ({ browser }) => {
   test.setTimeout(120_000);

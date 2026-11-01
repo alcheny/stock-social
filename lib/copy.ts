@@ -79,6 +79,9 @@ export const PROFILE = {
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
 // Privacy work (2026-11-01): the consent screen's public-scope line, owner copy.
+// ponytail: the status line publishes record-state dates this line does not name (lib/privacy-fields.ts#RECORD_STATE_FIELDS)
+// — the owner must add "connection status dates (last update, disconnected, account removed)" (and the connection date an
+// idle record falls back to) before real users connect (POLICY P6); lib/privacy-fields.test.ts then pins the new line.
 export const CONSENT_SCOPE_LINE = 'Public: percent returns, symbols, dates, holding periods, institution names, account count, and your current open positions with unrealized percent. Private: quantities, prices, fees and account numbers. Your public record is also used to describe your trading style and to order traders for readers.';
 
 export const CONSENT = {
@@ -278,6 +281,78 @@ export const PORTAL = {
   continue: 'Continue',
   // Fix round 2 (engineer, Low): the mint rate limit.
   tooMany: 'Too many tries. Wait a few minutes, then try again.',
+} as const;
+
+// FIXES-LABELS
+// ---- FIXES-LABELS ---- (docs/features/logs/fixes-labels/plan.md §2): D-03, D-05, D-07, D-24 copy. Params are already
+// formatted strings (count()/counted()/dateText() output). The F3 line itself stays in lib/share.ts (DISCLAIMER), never
+// here: this block is walked by allCopy(), whose banned list includes "guarantee". The F-11 status strings live in their
+// own block at the end of this file.
+export type TrustKind = 'verified' | 'demo' | 'mixed';
+export const FIXES_LABELS = {
+  // D-03 / fix #2: one state name, "Demo". Demo trades are never called verified.
+  tickerTitle: {
+    verified: (s: string) => `${s} verified trades · Stock Social`,
+    demo: (s: string) => `${s} Demo trades · Stock Social`,
+    mixed: (s: string) => `${s} closed trades, includes Demo · Stock Social`,
+  },
+  tickerCount: {
+    verified: (n: string, s: string) => `${n} verified closed trades in ${s}`,
+    demo: (n: string, s: string) => `${n} Demo closed trades in ${s}, not from a real broker`,
+    mixed: (n: string, s: string) => `${n} closed trades in ${s}, some Demo`,
+  },
+  tickerExplainer: {
+    verified: 'Verified closed trades in this stock from connected accounts, newest first. Percentages only. Few trades means a wide range, and that is expected.',
+    // QA round 2 (N9): the page note under the figures says "not from a real broker" once (FIXES_LABELS.demoPage).
+    demo: 'Demo closed trades in this stock, newest first. Percentages only. Few trades means a wide range, and that is expected.',
+    mixed: 'Closed trades in this stock, newest first: some from connected accounts, some Demo. Percentages only. Few trades means a wide range, and that is expected.',
+  },
+  demoNote: 'Demo trades, not from a real broker.',
+  mixedNote: 'Includes Demo trades, marked Demo. The figures include them.',
+  demoPage: 'This page shows Demo trades only, not from a real broker.',
+  indexTitle: 'Trades by stock · Stock Social',
+  indexDescription: 'Closed trades by stock: trade counts and traders, percentages only, losses included. Demo trades are marked Demo.',
+  indexIntro: 'Stocks with closed trades from connected accounts or Demo data. Open a stock to see its trades, losses included. Percentages only.',
+  indexAria: 'Stocks with closed trades',
+  compareTitle: {
+    verified: (a: string, b: string) => `${a} vs ${b} verified trades · Stock Social`,
+    demo: (a: string, b: string) => `${a} vs ${b} Demo trades · Stock Social`,
+    mixed: (a: string, b: string) => `${a} vs ${b} closed trades, includes Demo · Stock Social`,
+  },
+  compareExplainer: {
+    verified: 'Verified closed trades in each stock, side by side. Percentages only. Few trades means a wide range, and that is expected.',
+    demo: 'Demo closed trades in each stock, side by side. Not from a real broker. Percentages only. Few trades means a wide range, and that is expected.',
+    mixed: 'Closed trades in each stock, side by side; some are Demo. Percentages only. Few trades means a wide range, and that is expected.',
+  },
+  // ponytail: the mixed compare description keeps "Sample data" (DS-20 wants it gone) only because lib/compare.test.ts:74 asserts it — whoever owns that test changes it to "Demo trades, not from a real broker." and this tail with it
+  compareTail: { demo: ' Demo trades, not from a real broker.', mixed: ' Includes Demo trades. Sample data, not from a real broker.' },
+  compareOverlap: {
+    verified: (n: number, a: string, b: string) => (n === 0 ? 'No trader has closed verified trades in both yet.' : `${n} trader${n === 1 ? '' : 's'} closed verified trades in both ${a} and ${b}.`),
+    demo: (n: number, a: string, b: string) => (n === 0 ? 'No trader has closed trades in both yet.' : `${n} trader${n === 1 ? '' : 's'} closed trades in both ${a} and ${b}.`),
+    // QA round 1 (finding 2): a pair with Demo trades counts verified traders and says the Demo trades are left out.
+    mixed: (n: number, a: string, b: string) => `${n === 0 ? `No trader has closed verified trades in both ${a} and ${b} yet.` : `${n} trader${n === 1 ? '' : 's'} closed verified trades in both ${a} and ${b}.`} Demo trades are not counted here.`,
+  },
+  // D-07: facts, the traders' records as subject, one measure on both sides (D-10), no verdict. `n` is counted() text
+  // ("1 closed trade", "12 closed trades"), so one trade reads in the singular.
+  baselineHeading: 'Closed trades recorded here: this stock and other stocks',
+  // QA round 1 (finding 3): the range is the 95% range of the average per trade (the profile's wording), not the spread
+  // of the trades (the dot plot's "range").
+  baselineThis: (sym: string, n: string, traders: string, range: string | null) => `${n} in ${sym} by ${traders}${range ? `: 95% range of the average per trade ${range}` : ''}.`,
+  baselineOthers: (n: string, range: string | null) => `${n} in other stocks recorded here${range ? `: 95% range of the average per trade ${range}` : ''}.`,
+  baselineNote: 'Side by side for context only. Different traders, sizes and timing. Not a rating of any stock.',
+  // Code review: on a stock with some Demo trades, both sides are verified trades only (the other stocks' side always is).
+  // QA round 1 (finding 12): the pane's and month page's footers on a Demo record name Demo, not connected accounts.
+  paneFoot: { real: "Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.", demo: 'Demo trades, not from a real broker, losses included.' },
+  monthFoot: { real: "Recaps list the month's closed trades from connected accounts, and none can be hidden.", demo: "Recaps list the month's Demo trades, not from a real broker, and none can be hidden." },
+  baselineMixedNote: 'Both sides count verified trades only. The Demo trades in this stock are left out of this comparison.',
+  baselineThisTile: 'This stock',
+  baselineOthersTile: 'Other stocks recorded here',
+  // D-24: months show numbers and a range only.
+  // Code review: "One of N", not "1 of N" (which reads as a position, "month 1").
+  monthOf: (n: string) => (n === '1' ? 'The only month on record' : `One of ${n} months on record`),
+  // D-05: chart ends and the at-rest subline.
+  chartSub: (rangeLabel: string, d: string) => `${rangeLabel} · last close ${d}`,
+  chartEnds: (a: string, b: string) => `First close ${a}, last close ${b}`,
 } as const;
 
 // The profile's "Connected:" line names the institutions the vendor returned for consented real accounts; with none
@@ -530,6 +605,10 @@ export const FOLLOW = {
   noneFollowing: 'You don\u2019t follow anyone yet.',
   noneHidden: 'No one is hidden.',
   settingsLink: 'Following and hidden traders',
+  // Known-limits sweep (lists): each list pages 50 at a time; "Back to the newest" reuses CLOSES_PAGING.newest.
+  olderFollowing: 'Older follows',
+  olderHidden: 'Older hidden traders',
+  olderExpired: 'Older expired hides',
 };
 
 // F-2 PR-4: private likes and rejected trades. No count anywhere; a like is a quiet state only the viewer sees.
@@ -735,7 +814,7 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy(), /* OPTIONS */ OPTIONS].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy(), /* OPTIONS */ OPTIONS].forEach(walk);
   return out;
 }
 
@@ -769,6 +848,9 @@ export const RECORD_TOOLS = {
   addButton: 'Add',
   followLabel: 'Or choose someone you follow',
   followChoose: 'Choose…',
+  // Known-limits sweep (lists): shown only when more than FOLLOW_OPTIONS_MAX (lib/record-tools.ts) are followed.
+  followMore: 'Showing the first 100 you follow, A to Z. Type a handle above to add anyone else.',
+  followMoreNew: 'Showing the first 100 you follow, A to Z. Add anyone else by handle after you create the view.',
   addHint: 'Add 2 to 4 traders to compare.',
   addOneMore: 'Add one more trader to compare.',
   full: 'This view has 4 traders, the maximum. Remove one to add another.',
@@ -905,6 +987,32 @@ export const PUBLIC_SHORT = {
 // ponytail: not shown on any screen yet — the F-19 sweep rework places it on the stats-row What's-this after F-18 merges.
 export const RANGE_NOTE = 'the range is for the average, not one trade';
 
+// FIXES-LABELS: status
+// F-11 / D-12 / fix #4 (docs/features/logs/fixes-labels/plan.md §2, docs/features/F-11): the record status line, in the
+// design system council's settled wording (PR #48, §2.3 R3 and the StatusLine rows). Facts only: idle means no sync,
+// never no closes; no verdict and no completeness words. Params are already formatted dates (lib/date-text.ts) and
+// labels; lib/record-status.ts is the only caller.
+export const STATUS_LINE = {
+  since: (d: string) => `Record since ${d}`, // ‹Mon D, YYYY›
+  lastClose: (d: string) => `Last close ${d}`,
+  updated: (when: string) => `updated ${when}`, // ‹relative› on live pages, ‹Mon D, YYYY› on cached renders
+  justNow: 'just now', // under a minute
+  idle: (d: string) => `not updated since ${d}`, // no successful sync for 30 days; a fact, per record
+  frozen: (d: string) => `Disconnected ${d} · record frozen`, // outranks every freshness date
+  instDisconnected: (inst: string, d: string) => `${inst} disconnected ${d}`, // one of several connections
+  removed: (d: string) => `Account removed ${d}`, // TR-5, on the account's row
+  removedNumbered: (label: string, d: string) => `${label} removed ${d}`, // QA round 2 (N8): "Account 2 of 2 removed ‹date›"
+  // QA round 2 (N7): every live account removed. PR #85 review (B1): not "record frozen" (that comes from a confirmed
+  // disconnect only), so the live "updated" part follows on line 2.
+  allRemoved: (d: string) => `No account connected since ${d}`,
+  disconnectedNumbered: (label: string, d: string) => `${label} disconnected ${d}`, // PR #85 review (nit 2): a row of a disconnected connection on a partly disconnected record
+  accountLine: (label: string, inst: string) => `${label} · ${inst}`,
+  accountOf: (i: number, n: number) => `Account ${i} of ${n}`,
+  // The council's row 1 says "Demo"; "Demo data" is kept because an existing test asserts it on the profile
+  // (app.spec:152). One-token change once that expectation moves.
+  demoLink: 'Demo data',
+  accountsLabel: 'Accounts in this record',
+};
 // ---- CHORES-3 (approval council cycle 3 chores; docs/features/logs/chores-cycle3/plan.md) ----
 // K20: the home link preview. The design system council's positioning line (docs/direction/design-system-2026-11-01.md
 // :27) and, while demo records exist, its Demo sentence (:441). No product name, logo, figure or completeness claim

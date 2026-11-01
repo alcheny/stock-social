@@ -16,13 +16,14 @@
   --verified: var(--text); /* the Verified badge text (its tint stays built from --up) */
   --flat: var(--muted); /* Flat results (DS-11 repoints .flat later) */
   --demo: var(--muted); /* the Demo badge text (DS-5 gives Demo its own hue later) */
+  --warn: #fbbf24; /* a failed import (F-11 FIXES-LABELS): 11.8/10.8 dark, 6.8/7.1 light (bg/surface) */
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #fafafa; --surface: #fff; --text: #111118; --muted: #6b6b78; --line: #e5e5ea;
     --up: #0b6b70; --down: #b2441b; --accent: #6d28d9; --on-accent: #fff; /* 7.1:1 */
-    --control: #7c818b; --focus: #2152d9;
+    --control: #7c818b; --focus: #2152d9; --warn: #92400e;
     color-scheme: light;
   }
 }
@@ -554,6 +555,107 @@ body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pa
    360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
+/* ---- FIXES-LABELS (docs/features/logs/fixes-labels/plan.md §4) ---- */
+/* QA round 1 (finding 7, cycle-2 #25): a failed import is a warning, not a loss. --warn reads >= 4.5:1 on --bg and
+   --surface in both schemes (dark #fbbf24: 11.8:1 / 10.8:1; light #92400e: 6.8:1 / 7.1:1); a warning sign before the
+   words, so the state is never carried by colour alone (the words already say it; the sign has empty alt text). */
+/* F-20: --warn's values (dark #fbbf24, light #92400e) live in the TOKENS block at the top of this file. */
+.warn { color: var(--warn); }
+.record-failed::before { content: "\26A0\FE0E  "; content: "\26A0\FE0E  " / ""; }
+/* QA round 1 (finding 5, cycle-2 #18): an unbroken 40-character display name wraps instead of widening the card, the
+   pane or the profile. */
+.card { min-width: 0; }
+.card .who { min-width: 0; overflow-wrap: anywhere; }
+.page h1 { overflow-wrap: anywhere; min-width: 0; }
+/* ponytail: at 200% zoom (180×370) and 200% text size the nav link, the chart range tabs, the trade box h1 and the
+   by-month caption overflow horizontally (QA round 1 finding 14, WCAG 1.4.4/1.4.10, pre-existing) — fix: wrap the nav and
+   tabs and let those headings shrink with clamp() */
+/* QA round 1 (finding 4, D-09): the trade page's thesis sits after the figures; the month page tightens on a phone so
+   the F3 line under the record is on the first screen at 360×740 and 320×740 with 15% to spare. */
+.trade-thesis { margin-top: 12px; }
+.trade-thesis blockquote { margin: 0; }
+@media (max-width: 400px) {
+  .trade-card .month-figures .record-strip { font-size: 1.25rem; }
+  .trade-grid .trade-card { padding: 12px; }
+  .month-page h1 { font-size: 1.5rem; line-height: 1.25; margin: 8px 0 4px; }
+  .month-page > p, .trade-page > p { margin: 6px 0; }
+  .month-page .trade-card h2, .trade-page .trade-card h2 { margin-bottom: 4px; }
+  main.month-page, main.trade-page { padding-top: 60px; }
+  .month-page .trade-grid, .trade-page .trade-grid { gap: 8px; }
+  .trade-page .trade-card .big { font-size: 34px; }
+  .month-page h1 .so-far { display: none; }
+  .month-page section[aria-labelledby="this-month"] > p:last-child { margin-bottom: 0; }
+  .month-page .record-strip-block [data-disclaimer], .trade-page .record-strip-block [data-disclaimer] { margin: 8px 0; }
+}
+/* D-09: the F3 line, static small muted text (contrast ≥ 4.5:1 on --bg and --surface in both themes). */
+.disclaimer { margin: 0; }
+/* The feed card ends with the F3 line. Merge with main (#71, "bars never hide focus"): main's 94 px room under the cards
+   while a bar is raised (A11Y-FIXES #14 above) also keeps the F3 line clear of the bar, so the card keeps main's 28 px at
+   rest and this block only adds the no-:has() fallback.
+   QA round 2 (N4): the same room without :has() — app/feed-hides.tsx and app/feed-gestures.tsx set these classes on <html>
+   while their bar is raised (a browser with neither :has nor JavaScript has no bar to raise). */
+html.bar-hide .feed .row > *, html.bar-signin .feed .row > * { padding-bottom: 94px; }
+/* QA round 2 (B1): a public-filing pane's actions row holds the "…" menu alone (no Follow, no New record), so it shares
+   the badges' line; on a phone the pane starts closer under the nav and the chart's margins tighten, so the F3 line
+   right after the chart is on the first screen at 320×740 signed in, with 15% to spare. */
+.pane-actions.inline { flex-basis: auto; margin-left: auto; }
+/* ponytail: the public pane's 15% headroom at 320×740 signed in is measured with a 22-character filer name (6 px to spare); a longer name wraps the header further — fix: let the chart's scrub hint collapse on phones (main's chart) */
+@media (max-width: 400px) { .feed .row > .pane { padding-top: 56px; } .pane > figure.chart { margin: 8px 0 4px; } }
+/* QA round 2 (N11): the pane's F3 line stands apart from the summary sentence under it (not read as its caption). */
+.pane [data-disclaimer] { margin: 8px 0 12px; }
+/* Merge with main (#71: the chart's range buttons are 44 px tall, +9 px): at 320 px the public pane's F3 line keeps 15%
+   headroom by taking 4 px off the chart's and the line's top margins. */
+@media (max-width: 340px) { .pane > figure.chart { margin-top: 4px; } .pane [data-disclaimer] { margin-top: 4px; } }
+/* QA round 2 (N8): the trade and month pages' status in two rows, set as one block like the profile's. */
+.trade-card [data-status="record"] { margin-bottom: 2px; }
+.trade-card [data-status="record2"] { margin-top: 0; }
+/* QA round 2 (B2): the profile tightens on a phone (as the trade and month pages do), so the F3 line after the headline
+   figures is on the first screen at 360×740 and 320×740 with 15% to spare, with a 40-character name or an F-7 top block. */
+@media (max-width: 400px) {
+  .profile-page h1 { font-size: 1.25rem; line-height: 1.25; margin-top: 8px; }
+  .profile-page .stats { margin: 8px 0; }
+  .profile-page .stat { padding: 10px; }
+  .profile-page .stat.big b { font-size: 28px; }
+  .profile-page .public-top { margin-bottom: 8px; }
+  .profile-page .public-top p { margin: 2px 0; }
+}
+/* Merge with main (#71 #19: below 341 px the stat tiles stack, one per row): stacked, each headline tile sets its figure
+   and its label on one line (the range under them), so the F3 line after the figures stays on the first screen at
+   320×740 with 15% to spare. The tile is full width, so nothing widens the page. */
+@media (max-width: 340px) {
+  .profile-page .stat.big { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+  .profile-page .stat.big small.range { flex-basis: 100%; }
+}
+/* FIXES-LABELS (PR #85 review, nit 1): the stock page's summary tiles stack below 341 px too; like the profile's, each
+   sets its figure and label on one line (range and median under them), so the F3 line right after them is on the first
+   screen at 320×740 with 15% to spare. */
+@media (max-width: 340px) {
+  .ticker-stats { margin: 8px 0; }
+  .ticker-stats .stat { padding: 10px; }
+  .ticker-stats .stat.big b { font-size: 28px; }
+  .ticker-stats .stat.big { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+  .ticker-stats .stat.big small.range, .ticker-stats .stat.big small.median { flex-basis: 100%; }
+}
+/* D-05: the chart's first and last close, under the plot. */
+/* position: relative holds its sr-only sentence inside it (in the off-screen pane it would widen the page). */
+.chart-ends { position: relative; display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin: 4px 0 0; }
+/* A month with too few trades for a win rate: its count is words, not a figure, so it is set smaller and the box's
+   last line (the F3 line) stays in the first 740 px at 360 wide. */
+.trade-card .big.count { font-size: 28px; line-height: 1.2; }
+/* D-05: the at-rest subline ("All time · last close ‹date›") is longer than the old range label and may wrap under the
+   value: a tighter value line and one minimum height keep the header the same height at rest and while scrubbing, so
+   the scrub area never moves under the finger. */
+.chart .chart-head { min-height: 48px; }
+.chart-head .chart-value { line-height: 1; }
+.chart-head .muted { font-size: 13px; line-height: 1.15; }
+/* FIXES-LABELS: status (F-11): the record status line. Words only, muted small print (>= 4.5:1 on both themes); the
+   relative time sits with its absolute date inside one <time>, which may wrap but never widens the page. */
+.record-status-block { margin: 0 0 12px; }
+.record-status-block .record-status { margin: 0 0 2px; }
+.record-status { overflow-wrap: anywhere; }
+.card .record-status, .pane .record-status { margin: 0; }
+.record-accounts { list-style: none; padding: 0; margin: 4px 0 0; }
+.record-accounts li { margin: 0 0 2px; overflow-wrap: anywhere; }
 
 /* fix-user-text: UserNote (F-9). A trader's note is set at body size or smaller, never larger than the verified figure
    beside it; the attribution line is muted and smaller. Long unbroken text wraps instead of widening the page. The
@@ -754,3 +856,5 @@ h1 { overflow-wrap: anywhere; }
 }
 /* 320 px: the open line and the disclaimer wrap to three lines each; tighter gaps keep the card's 15% headroom. */
 @media (max-width: 340px) { .feed .row > .card { gap: 12px; } }
+/* FIXES-LABELS: status (QA round 2 N8, merge with main): a date and the word before it never break apart. */
+.status-glue { white-space: nowrap; }

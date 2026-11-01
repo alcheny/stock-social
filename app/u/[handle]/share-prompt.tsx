@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { markSharePromptSeen, recordSharePromptAction } from '../../actions.ts';
+import { markSharePromptSeen, recordShareAction, recordSharePromptAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
 import { counted } from '@/lib/format.ts';
 import { PUBLIC_SHORT } from '@/lib/copy.ts';
@@ -48,7 +48,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
       )}
       <div className="actions">
         <ShareButton url={`/u/${handle}`} title={`${displayName} on Stock Social`} label="Share my record" image={`/u/${handle}/story?format=square`}
-          onShared={(how) => { setDone(true); best(recordSharePromptAction(how)); }} />
+          onShared={(how, picture) => { setDone(true); best(recordSharePromptAction(how)); best(recordShareAction(`/u/${handle}`, how, picture)); }} />
         <button type="button" className="link" onClick={close}>{done ? 'Done' : 'Not now'}</button>
       </div>
     </section>

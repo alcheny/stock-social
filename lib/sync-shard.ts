@@ -7,10 +7,12 @@
 import { randomUUID } from 'node:crypto';
 import { POOL_MAX, sql } from './db.ts';
 import { logSafe } from './privacy-log.ts';
+import { dueRequestsSql } from './sync-cadence.ts';
 import { VENDOR_TIMEOUT_MS } from './broker.ts';
 import {
   accountsOf, claimable, clockSql, defaultBroker, syncable, syncCost, syncRequests, syncUser, SYNC_FIT_CAP, SYNC_LEASE_MS, ROUND_MS,
   type Broker, type SyncableUser,
+  idleCount,
 } from './sync.ts';
 import {
   BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, LatencyWindow, plannedSyncMs, routeEndMargin, RouteDeadlineError, TRANSIENT_LIMIT, classify, dbConfigCheck, runConfig, TokenBucket,
@@ -36,7 +38,8 @@ const backoffSql = () => sql`least(${BACKOFF_CAP_MS}::float8, ${BACKOFF_BASE_MS}
 
 export type RunReport = {
   of: number; shard: number; busy: boolean;
-  done: number; skipped: number; deferred: number; transient: number; cutAtDeadline: number; refused: number; failed: number; quarantined: number; releaseFailed: number;
+  done: number; skipped: number; deferred: number; transient: number; cutAtDeadline: number;
+  accountLists: number; activitiesReads: number; positionsReads: number; readsDeferred: number; refused: number; failed: number; quarantined: number; releaseFailed: number;
   remaining: number | null; inBackoff: number | null;
   stoppedAtDeadline: boolean; breaker: boolean; leaseLost: boolean; aborted: boolean;
   concurrency: number; requests: number; tokenWaitMs: number; pages: number; ms: number;
@@ -66,8 +69,8 @@ async function releaseShard(sh: Shard, holder: string, report: RunReport) {
 
 // The head of the shard's queue: syncable, claimable this round, not backed off, stalest first.
 async function page(sh: Shard, scope: Scope, shift: number, exclude: number[], limit: number) {
-  return sql<{ id: number; accounts: number }[]>`with clock as (${clockSql(shift)})
-    select u.id, ${accountsOf()}::int as accounts from users u, clock
+  return sql<{ id: number; accounts: number; requests: number }[]>`with clock as (${clockSql(shift)})
+    select u.id, ${accountsOf()}::int as accounts, ${dueRequestsSql(sql`u.id`, sql`clock.t`)} as requests from users u, clock
     where ${syncable()} and ${inShard(sh)} ${scopeSql(scope)} and ${claimable()} and ${notBackedOff()}
       ${exclude.length ? sql`and u.id not in ${sql(exclude)}` : sql``}
     order by u.last_synced_at nulls first, u.id limit ${limit}`;
@@ -141,7 +144,8 @@ export async function finish(u: Claimed, end: End, shift = 0): Promise<boolean> 
 // outside its transaction; a request beyond them (another page on a first sync, an account the snapshot did not have)
 // takes one more as it goes.
 type Guard = { clock: () => number; routeEnd: number; boundMs: number };
-function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, count: { n: number }, latency?: LatencyWindow, guard?: Guard): Broker {
+export type ReadCounts = { accountLists: number; activitiesReads: number; positionsReads: number };
+function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, count: { n: number }, latency?: LatencyWindow, guard?: Guard, reads?: ReadCounts): Broker {
   const pay = async (n: number) => {
     // Refused before it starts (and before its token) when its n sequential requests, each at its bound, could reach the
     // route's last margin (10 s at the production bound): a multi-account activities read is one call of n requests
@@ -158,6 +162,7 @@ function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, coun
   // an outlier among them is hidden; and a read past one vendor page (an activities week or a share-move history over
   // 1,000 rows) makes requests the guard cannot see — timing and guarding each request needs lib/broker.ts (protected)
   // to take a per-request hook.
+  const paged = new Set<string>(); // accounts whose first activities page this run was counted (F-14 G9)
   const timed = async <T>(n: number, call: () => Promise<T>): Promise<T> => {
     await pay(n);
     const t0 = performance.now();
@@ -165,12 +170,19 @@ function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, coun
   };
   return {
     pageLimit: b.pageLimit,
-    listAccounts: (u) => timed(1, () => b.listAccounts(u)),
+    // F-14 (G9): the reads of each kind, counted as they are made (numbers only).
+    listAccounts: (u) => { if (reads) reads.accountLists++; return timed(1, () => b.listAccounts(u)); },
     // OPTIONS (final review blocking 1): every argument is forwarded, the option sinks included (fetchActivities' 4th,
     // fetchActivitiesPage's 5th, fetchPositions' 3rd); a wrapper that drops one silently stops option imports.
-    fetchActivities: (...args: Parameters<Broker['fetchActivities']>) => timed(Math.max(1, args[2]?.length ?? 1), () => b.fetchActivities(...args)),
-    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (...args: Parameters<NonNullable<Broker['fetchActivitiesPage']>>) => timed(1, () => b.fetchActivitiesPage!(...args)) } : {}),
-    ...(b.fetchPositions ? { fetchPositions: (...args: Parameters<NonNullable<Broker['fetchPositions']>>) => timed(1, () => b.fetchPositions!(...args)) } : {}),
+    fetchActivities: (...args: Parameters<Broker['fetchActivities']>) => { if (reads) reads.activitiesReads += args[2]?.length ?? 1; return timed(Math.max(1, args[2]?.length ?? 1), () => b.fetchActivities(...args)); },
+    // A first sync's paged read counts once per account (its first page), like the hourly read (F-14 tester fix); so does
+    // an option backfill page read in place of the week (OPTIONS merge: its first page this run, at any offset).
+    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (...args: Parameters<NonNullable<Broker['fetchActivitiesPage']>>) => {
+      const key = `${args[0].snaptradeUserId}\u0000${args[1]}`;
+      if (reads && !paged.has(key)) { paged.add(key); reads.activitiesReads++; }
+      return timed(1, () => b.fetchActivitiesPage!(...args));
+    } } : {}),
+    ...(b.fetchPositions ? { fetchPositions: (...args: Parameters<NonNullable<Broker['fetchPositions']>>) => { if (reads) reads.positionsReads++; return timed(1, () => b.fetchPositions!(...args)); } } : {}),
     // Corporate actions (#40): each real account's share moves; every broker function the sync uses must pass through.
     ...(b.fetchShareMoves ? { fetchShareMoves: (u: Parameters<NonNullable<Broker['fetchShareMoves']>>[0], id: string) => timed(1, () => b.fetchShareMoves!(u, id)) } : {}),
   };
@@ -207,13 +219,15 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const shift = shiftOf(o);
   const holder = o.holder ?? randomUUID();
-  const sync = o.sync ?? ((u: SyncableUser, b: Broker) => syncUser(u, b));
+  // F-14: the production sync reads each account within the vendor's guidance (`cadence`); a test's own `sync` does not.
+  const sync = o.sync ?? ((u: SyncableUser, b: Broker) => syncUser(u, b, undefined, undefined,
+    { cadence: true, shiftMs: shift(), report: (c) => { r.readsDeferred += c.deferred; } }));
   const broker = o.broker ?? defaultBroker;
   // ponytail: the vendor budget is this run's, in process: one run per (of, shard) at a time, but runs of another shard
   // count (a manual call during a sharded schedule) add their own — a budget row in the database would bound the fleet.
   const bucket = o.bucket ?? new TokenBucket(cfg.rps, cfg.burst);
   const r: RunReport = {
-    of: sh.of, shard: sh.shard, busy: false, done: 0, skipped: 0, deferred: 0, transient: 0, cutAtDeadline: 0, refused: 0, failed: 0, quarantined: 0, releaseFailed: 0,
+    of: sh.of, shard: sh.shard, busy: false, done: 0, skipped: 0, deferred: 0, transient: 0, cutAtDeadline: 0, accountLists: 0, activitiesReads: 0, positionsReads: 0, readsDeferred: 0, refused: 0, failed: 0, quarantined: 0, releaseFailed: 0,
     remaining: null, inBackoff: null, stoppedAtDeadline: false, breaker: false, leaseLost: false, aborted: false,
     concurrency, requests: 0, tokenWaitMs: 0, pages: 0, ms: 0,
   };
@@ -243,7 +257,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   const breaker = new Breaker();
   const latency = new LatencyWindow();
   const failedIds: number[] = [];
-  const queue: { id: number; accounts: number }[] = [];
+  const queue: { id: number; accounts: number; requests: number }[] = [];
   const inflight = new Set<number>();
   const passed: number[] = []; // not to be offered again this run (skipped on the lock, or no longer claimable)
   const unfit: number[] = []; // did not fit the time left: the next run takes them first, with a whole budget
@@ -282,7 +296,8 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       if (stop()) return;
       const c = await next();
       if (!c) return;
-      const requests = syncRequests(c.accounts);
+      // F-14 (G7): the production sync plans with its due reads (an estimate; the metered broker pays any difference).
+      const requests = o.sync ? syncRequests(c.accounts) : Math.max(1, c.requests);
       // The first trader a run takes is always dispatched (it has the whole call; one that cannot fit even a whole call is
       // cut, and after TRANSIENT_LIMIT such cuts quarantined),
       // so a trader with many accounts is never deferred forever by shard 0's housekeeping (review should-fix 2).
@@ -299,7 +314,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
         unfit.push(c.id); popped.delete(c.id); r.deferred++; stopReason = 'deadline';
         // Nothing smaller can fit either, or the list has grown past a few pages: stop reading the queue (the exclusion
         // list rides on every page query).
-        if (c.accounts <= 1 || unfit.length >= 4 * cfg.page) { exhausted = true; queue.length = 0; }
+        if (requests <= 1 || unfit.length >= 4 * cfg.page) { exhausted = true; queue.length = 0; } // 1: just the account list (F-14 review)
         continue;
       }
       await bucket.take(requests);
@@ -317,7 +332,7 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
       const count = { n: 0 };
       let end: End;
       try {
-        end = (await sync(u, metered(broker, bucket, { left: requests }, count, latency, { clock, routeEnd, boundMs: bound }))) === 'skipped' ? 'skipped' : 'done';
+        end = (await sync(u, metered(broker, bucket, { left: requests }, count, latency, { clock, routeEnd, boundMs: bound }, r))) === 'skipped' ? 'skipped' : 'done';
       } catch (e) {
         // A cut at the route's end is given back to the round, unless the trader had the whole call (the run's first pick):
         // then it is counted as a transient failure, so a sync that can never fit a call reaches TRANSIENT_LIMIT and is
@@ -371,6 +386,15 @@ export async function runShard(o: RunOpts): Promise<RunReport & { failedIds: num
   r.stoppedAtDeadline = stopReason === 'deadline' && (r.remaining ?? 1) > 0;
   r.ms = Math.round(performance.now() - t0);
   try { await releaseShard(sh, holder, r); } catch (e) { console.error('sync shard release failed', logSafe(e)); }
+  // F-14 (G9): this run's vendor reads into the hourly bucket the coverage report sums (counts only).
+  if (r.accountLists || r.activitiesReads || r.positionsReads) {
+    try {
+      await sql`insert into sync_read_counts (hour, account_lists, activities, positions)
+        values (date_trunc('hour', now() + ${shift()}::float8 * interval '1 millisecond'), ${r.accountLists}, ${r.activitiesReads}, ${r.positionsReads})
+        on conflict (hour) do update set account_lists = sync_read_counts.account_lists + excluded.account_lists,
+          activities = sync_read_counts.activities + excluded.activities, positions = sync_read_counts.positions + excluded.positions`;
+    } catch (e) { console.error('sync read counts failed', logSafe(e)); }
+  }
   emit('sync run', r, o.log); // counts and durations only
   return { ...r, failedIds };
 }
@@ -392,7 +416,20 @@ export type Coverage = {
   of: number; missingShards: number; unclaimedPrevRound: number; neverSynced: number; stalestHours: number;
   inBackoff: number; refused: number; quarantined: number; oldestRefusalHours: number; dbConfigOk: boolean; dbProblems: string[];
   db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
+  // FIXES-LABELS: status (F-11): idle records (no successful sync for IDLE_DAYS, lib/sync.ts#idleCount), over the same
+  // scope (the whole fleet on the route); null when the count failed. A count only, never an id.
+  idle: number | null;
+  // F-14 (G9): the cadence's evidence, over the accounts still read (a live connection's snapshot, not disconnected,
+  // not simulated; code review). Activities reads in the last 24 h over connected real accounts (≤ 1 by the cap;
+  // `capBreach` above 1.05), and the oldest activities and positions reads of connected real accounts (alarms above
+  // 26 h and 18 h: reads drift to about every 25 h; positions normally go 12–13 h unread before the read an activities
+  // read forces, up to about 17 h with round jitter and late marks, tester's trace).
+  activitiesReads24h: number; realAccounts: number; capRatio: number; capBreach: boolean;
+  oldestActivitiesReadHours: number; oldestPositionsReadHours: number; freshnessAlarm: boolean;
 };
+export const ACTIVITIES_STALE_ALARM_H = 26;
+export const POSITIONS_STALE_ALARM_H = 18;
+export const CAP_BREACH_RATIO = 1.05;
 // ponytail: the coverage counts scan every syncable trader on each shard-0 call (100k rows: tens of ms) — past a few
 // million, sum the shards' `last_run` counters instead.
 export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = runConfig(), log?: (line: string) => void): Promise<Coverage> {
@@ -410,17 +447,38 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
       (select count(*)::int from s, clock where s.sync_retry_at > clock.t) as "inBackoff",
       (select count(*)::int from s where s.sync_failure_kind = 'refused') as refused,
       (select count(*)::int from s where s.sync_failure_kind = 'quarantined') as quarantined,
-      (select coalesce(extract(epoch from clock.t - min(s.sync_failing_since)) / 3600, 0)::float8 from s, clock where s.sync_failure_kind = 'refused' group by clock.t) as "oldestRefusalHours"`;
+      (select coalesce(extract(epoch from clock.t - min(s.sync_failing_since)) / 3600, 0)::float8 from s, clock where s.sync_failure_kind = 'refused' group by clock.t) as "oldestRefusalHours",
+      (select coalesce(sum(n.activities), 0)::int from sync_read_counts n, clock where n.hour > clock.t - interval '24 hours' and n.hour <= clock.t) as "activitiesReads24h",
+      (select count(*)::int from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null
+        and exists (select 1 from connections lc, jsonb_array_elements(lc.accounts) la where lc.user_id = s.id and lc.state = 'connected'
+          and lc.disconnected_at is null and la->>'id' = ba.account_id)) as "realAccounts",
+      (select case when bool_or(ba.activities_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.activities_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null
+        and exists (select 1 from connections lc, jsonb_array_elements(lc.accounts) la where lc.user_id = s.id and lc.state = 'connected'
+          and lc.disconnected_at is null and la->>'id' = ba.account_id), clock group by clock.t) as "oldestActivitiesReadHours",
+      (select case when bool_or(ba.positions_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.positions_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null
+        and exists (select 1 from connections lc, jsonb_array_elements(lc.accounts) la where lc.user_id = s.id and lc.state = 'connected'
+          and lc.disconnected_at is null and la->>'id' = ba.account_id), clock group by clock.t) as "oldestPositionsReadHours"`;
   const settings = Object.fromEntries((await sql`select name, setting from pg_settings
     where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections')`).map((x) => [x.name as string, Number(x.setting)]));
   const db = { statementTimeoutMs: settings.statement_timeout ?? 0, idleInTxMs: settings.idle_in_transaction_session_timeout ?? 0, maxConnections: settings.max_connections ?? 0 };
+  let idle: number | null = null;
+  try { idle = await idleCount(scope.ids, scope.idRange); /* QA round 2 (N5): the same scope */ } catch (e) { console.error('sync idle count failed', logSafe(e)); } // FIXES-LABELS: status
   const workers = Math.max(1, Math.min(cfg.concurrency, POOL_MAX - 2));
   const check = dbConfigCheck(db, { shards: of, workers, maxSyncCostMs: syncCost(SYNC_FIT_CAP), userLeaseMs: SYNC_LEASE_MS });
   const out: Coverage = {
     of, missingShards: c.missingShards, unclaimedPrevRound: c.unclaimedPrevRound, neverSynced: c.neverSynced,
     stalestHours: Math.round((c.stalestHours ?? 0) * 10) / 10, inBackoff: c.inBackoff, refused: c.refused, quarantined: c.quarantined,
-    oldestRefusalHours: Math.round((c.oldestRefusalHours ?? 0) * 10) / 10, dbConfigOk: check.ok, dbProblems: check.problems, db,
+    oldestRefusalHours: Math.round((c.oldestRefusalHours ?? 0) * 10) / 10, dbConfigOk: check.ok, dbProblems: check.problems, db, idle,
+    activitiesReads24h: c.activitiesReads24h, realAccounts: c.realAccounts,
+    capRatio: c.realAccounts ? Math.round((c.activitiesReads24h / c.realAccounts) * 100) / 100 : 0,
+    capBreach: c.realAccounts > 0 && c.activitiesReads24h / c.realAccounts > CAP_BREACH_RATIO,
+    // A never-read account counts as infinitely old: reported as a large number, not hidden. F-14 tester fix: computed
+    // without infinite timestamp arithmetic (`now() - '-infinity'` is an error before PostgreSQL 17).
+    oldestActivitiesReadHours: Number.isFinite(c.oldestActivitiesReadHours ?? 0) ? Math.round((c.oldestActivitiesReadHours ?? 0) * 10) / 10 : 1e6,
+    oldestPositionsReadHours: Number.isFinite(c.oldestPositionsReadHours ?? 0) ? Math.round((c.oldestPositionsReadHours ?? 0) * 10) / 10 : 1e6,
+    freshnessAlarm: false,
   };
+  out.freshnessAlarm = out.oldestActivitiesReadHours > ACTIVITIES_STALE_ALARM_H || out.oldestPositionsReadHours > POSITIONS_STALE_ALARM_H;
   emit('sync coverage', out, log); // numbers only
   if (out.unclaimedPrevRound > 0 || out.missingShards > 0) emit('sync round incomplete', { of, missingShards: out.missingShards, unclaimedPrevRound: out.unclaimedPrevRound }, log);
   return out;

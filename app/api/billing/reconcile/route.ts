@@ -4,7 +4,8 @@ import { billingAvailable, reconcile } from '@/lib/billing.ts';
 import { logUnauthorized } from '@/lib/cron-auth.ts';
 
 // F-3: run the billing reconciliation now (`Authorization: Bearer $CRON_SECRET`). The hourly /api/sync tick already
-// runs it once a day; this is for the owner and for tests. Answers counts only.
+// runs it once a day; this is for the owner and for tests. Answers counts only. Each call runs one time-boxed step of
+// the pass (lib/billing.ts#reconcile); while the answer says `done: false`, call again to continue it.
 export const maxDuration = 300;
 export async function POST(req: NextRequest) {
   const got = Buffer.from(req.headers.get('authorization') ?? '');

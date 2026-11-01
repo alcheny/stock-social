@@ -18,6 +18,12 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
   // F-10 follow-up (approval cycle 2, fix #15): the fixed sign-in line closes on Escape and whenever focus moves outside
   // it, so it never covers the focused element (WCAG 2.4.11; lib/feed-focus.ts#closesSignInBar).
   const bar = useRef<HTMLParagraphElement>(null);
+  // FIXES-LABELS (QA round 2 N4): while the sign-in line is up, html.bar-signin gives the feed cards room under their F3
+  // line in browsers without :has() (app/globals.css).
+  useEffect(() => {
+    document.documentElement.classList.toggle('bar-signin', askSignIn);
+    return () => document.documentElement.classList.remove('bar-signin');
+  }, [askSignIn]);
   useEffect(() => {
     if (!askSignIn) return;
     const onKey = (e: KeyboardEvent) => { if (closesSignInBar({ type: 'keydown', key: e.key })) setAskSignIn(false); };
@@ -82,7 +88,7 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
       g.card.style.transform = '';
       delete g.card.dataset.rejecting;
       row.scrollLeft = 0; // the drag's transform can nudge the snap; the card stays at rest
-      if (reject) dispatchEvent(new CustomEvent('ss:hide', { detail: { handle: row.dataset.handle, trade: row.dataset.trade, row } }));
+      if (reject) dispatchEvent(new CustomEvent('ss:hide', { detail: { handle: row.dataset.handle, trade: row.dataset.trade, key: row.dataset.key, row } }));
     };
     // Native snap back to the card can stop a pixel short of it (CI's browser, after a touch swipe on the pane), leaving a
     // 1 px sliver of the pane. When a row's scroll ends within 2 px of the card, it rests exactly on the card.

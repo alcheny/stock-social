@@ -409,7 +409,8 @@ const T95 = [12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.2
 // Exact table for df 1..30. Beyond that 1.96 + 2.4/df: 2.040 at df=30 (table: 2.042), tends to 1.96.
 export const tCrit95 = (df: number) => (df <= 30 ? T95[Math.max(df, 1) - 1] : 1.96 + 2.4 / df);
 
-type Cluster = { x: number; d: number; n: number };
+// One independent bet: x = sum of log returns, d = sum of hold days (each at least 1), n = trades in it.
+export type Cluster = { x: number; d: number; n: number };
 
 export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   void today; // reserved for open positions (TR-4, see above)
@@ -435,8 +436,30 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
       maxClose = Math.max(maxClose, t.closedAt.getTime());
     }
   }
-  const k = clusters.length;
   const spanDays = n ? (Math.max(...trades.map((t) => t.closedAt.getTime())) - Math.min(...trades.map((t) => t.openedAt.getTime()))) / DAY : 0;
+  return confidenceFromClusters(clusters, n, spanDays);
+}
+
+// The statistics on already-clustered bets. app/t/ticker-sql.ts clusters in SQL and calls this with one row per bet, so
+// both paths share every formula below. n = trades, spanDays = (last exit - first entry) in days.
+export function confidenceFromClusters(clusters: Cluster[], n: number, spanDays: number): Confidence {
+  const k = clusters.length;
+  if (k < MIN_BETS) return confidenceFromSums({ n, k, spanDays, sumX: 0, sumD: 0, ssM: 0, ssR: 0 });
+  const sumX = clusters.reduce((a, c) => a + c.x, 0);
+  const sumD = clusters.reduce((a, c) => a + c.d, 0);
+  const m = sumX / n;
+  const R = sumX / sumD;
+  const ssM = clusters.reduce((a, c) => a + (c.x - c.n * m) ** 2, 0);
+  const ssR = clusters.reduce((a, c) => a + (c.x - R * c.d) ** 2, 0);
+  return confidenceFromSums({ n, k, spanDays, sumX, sumD, ssM, ssR });
+}
+
+// FIXES-LABELS (round 3, engineer): the one formula, on the clustering sums. k = bets, sumX/sumD = Σx/Σd over bets,
+// ssM = Σ(x − n·m)² with m = sumX / n, ssR = Σ(x − R·d)² with R = sumX / sumD. app/t/ticker-sql.ts#othersConfidence
+// computes these in SQL as one row, so a pool of many bets never ships one row per bet.
+export type BetSums = { n: number; k: number; spanDays: number; sumX: number; sumD: number; ssM: number; ssR: number };
+export function confidenceFromSums(s: BetSums): Confidence {
+  const { n, k, spanDays, sumX, sumD, ssM, ssR } = s;
   const tradesPerMonth = (n / Math.max(spanDays, 30)) * 30; // display only
   // F-4: below MIN_BETS (5) independent bets there is no range; from there it is always computed (t with K − 1 df).
   const tier: Tier = k < MIN_BETS ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
@@ -444,12 +467,10 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
   if (tier === 'too-early') return { ...base, tier, edge: null, perTrade: null, pace30: null };
 
   const t = tCrit95(k - 1);
-  const sumX = clusters.reduce((a, c) => a + c.x, 0);
-  const sumD = clusters.reduce((a, c) => a + c.d, 0);
   const m = sumX / n;
-  const seM = Math.sqrt((k / (k - 1)) * clusters.reduce((a, c) => a + (c.x - c.n * m) ** 2, 0)) / n;
+  const seM = Math.sqrt((k / (k - 1)) * ssM) / n;
   const R = sumX / sumD;
-  const seR = Math.sqrt((k / (k - 1)) * clusters.reduce((a, c) => a + (c.x - R * c.d) ** 2, 0)) / sumD;
+  const seR = Math.sqrt((k / (k - 1)) * ssR) / sumD;
   const perTrade = { low: Math.expm1(m - t * seM), mid: Math.expm1(m), high: Math.expm1(m + t * seM) };
   const pace30 = { low: Math.expm1(30 * (R - t * seR)), mid: Math.expm1(30 * R), high: Math.expm1(30 * (R + t * seR)) };
   if (![...Object.values(perTrade), ...Object.values(pace30)].every(Number.isFinite)) {

@@ -8,6 +8,9 @@ const FONTCONFIG_FILE = path.resolve('e2e/fonts.conf'); // run from the repo roo
 
 export default defineConfig({
   testDir: 'e2e',
+  // One worker, as CI runs it (ci.yml `--workers=1`): the vendor and billing fakes listen on fixed ports
+  // (e2e/connect.spec.ts) and the feed lock assumes one test at a time; parallel workers hit EADDRINUSE.
+  workers: 1,
   use: {
     baseURL: 'http://localhost:3000',
     launchOptions: { env: { ...process.env, FONTCONFIG_FILE } },

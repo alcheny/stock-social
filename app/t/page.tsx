@@ -3,9 +3,12 @@ import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
 import { visibleUserIds } from '@/lib/visible-users.ts';
 import { redirect } from 'next/navigation';
-import { filterTickerIndex, parseTickerSort, tickerIndex, watchSummary, type SymbolAggregate, type TickerSort, type WatchItem } from '@/lib/ticker.ts';
+import { parseTickerSort, watchSummary, type TickerSort, type WatchItem } from '@/lib/ticker.ts';
+import { tickerIndexPage } from './ticker-sql.ts';
 import { currentUser } from '@/lib/session.ts';
 import { Badge } from '../ui.tsx';
+// FIXES-LABELS (D-03): the index names Demo and never calls Demo trades verified.
+import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 
 type Props = { searchParams: Promise<{ sort?: string | string[]; q?: string | string[] }> };
 
@@ -14,8 +17,8 @@ const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: '
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 export const metadata: Metadata = {
-  title: 'Stocks with verified trades · Stock Social',
-  description: 'Browse every stock with verified closed trades: trade counts and traders, percentages only, losses included.',
+  title: FL.indexTitle,
+  description: FL.indexDescription,
 };
 
 // One query for all of the user's watches (max 25). Counts only: no returns. demoOnly uses ALL of a symbol's trades.
@@ -45,7 +48,7 @@ function Strip({ strip }: { strip: WatchItem[] }) {
               <span className="who"><b>{w.symbol}</b> {w.demoOnly && <Badge verified={false} />}</span>
               <span className="muted">
                 {w.newCount === 0 ? 'No new trades'
-                  : `${w.newCount} new ${w.demoOnly ? '' : 'verified '}closed trade${w.newCount === 1 ? '' : 's'}${w.demoOnly ? ' (demo data)' : ''} since you last looked`}
+                  : `${w.newCount} new ${w.demoOnly ? '' : 'verified '}closed trade${w.newCount === 1 ? '' : 's'}${w.demoOnly ? ' (Demo)' : ''} since you last looked`}
               </span>
             </Link>
           </li>
@@ -60,17 +63,10 @@ export default async function Stocks({ searchParams }: Props) {
   const strip = await loadStrip();
   const sort = parseTickerSort(sp.sort);
   const rawQ = (Array.isArray(sp.q) ? sp.q[0] : sp.q) ?? '';
-  // No user input reaches SQL; sorting happens in tickerIndex.
-  // ponytail: when symbols exceed a few thousand, push sort + limit into SQL with a whitelisted order by.
-  const aggs = (await sql`
-    select symbol, count(*)::int as trades, count(distinct user_id)::int as traders,
-           max(closed_at) as last_closed_at, count(*) filter (where verified)::int as verified_trades
-    from closed_trades where filing_url is null and user_id in (${visibleUserIds()}) group by symbol`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number }[];
-  const all = tickerIndex(
-    aggs.map((a): SymbolAggregate => ({ symbol: a.symbol, trades: a.trades, traders: a.traders, lastClosedAt: a.last_closed_at, verifiedTrades: a.verified_trades })),
-    sort,
-  );
-  if (!all.length) {
+  // Search, sort and the cap run in SQL (app/t/ticker-sql.ts): the query is a normalized symbol as a bound, escaped LIKE
+  // prefix, and the sort is one of two fixed order-by fragments, so no user text is interpolated.
+  const f = await tickerIndexPage(rawQ, sort, CAP);
+  if (!f.total) {
     return (
       <main className="page">
         <h1>Stocks</h1>
@@ -81,9 +77,8 @@ export default async function Stocks({ searchParams }: Props) {
       </main>
     );
   }
-  const f = filterTickerIndex(all, rawQ);
   if (f.kind === 'exact') redirect(`/t/${encodeURIComponent(f.symbol!)}`);
-  const rows = f.rows.slice(0, CAP);
+  const rows = f.rows;
   const order = sort === 'az' ? 'sorted A–Z' : 'most recently traded first';
   const q = rawQ.trim();
   const href = (s: TickerSort) => {
@@ -101,7 +96,7 @@ export default async function Stocks({ searchParams }: Props) {
       <p><Link href="/">← Feed</Link></p>
       <h1>Stocks</h1>
       <Strip strip={strip} />
-      <p className="muted">Stocks with at least one verified closed trade from connected accounts. Open a stock to see its trades, losses included. Percentages only.</p>
+      <p className="muted">{FL.indexIntro}</p>
       <form role="search" action="/t" method="get" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <label htmlFor="q">Find a stock</label>
         <input id="q" name="q" type="search" defaultValue={rawQ} placeholder="NVDA" maxLength={10} autoCapitalize="characters" autoCorrect="off" spellCheck={false} style={{ minHeight: 44 }} />
@@ -121,12 +116,12 @@ export default async function Stocks({ searchParams }: Props) {
       ) : (
         <p className="muted small">
           {f.kind === 'prefix'
-            ? `${plural(f.rows.length, 'stock')} start${f.rows.length === 1 ? 's' : ''} with “${f.symbol}”, ${order}`
-            : `${all.length > CAP ? `Showing ${rows.length} of ${all.length} stocks` : plural(all.length, 'stock')}, ${order}`}
+            ? `${plural(f.matched, 'stock')} start${f.matched === 1 ? 's' : ''} with “${f.symbol}”, ${order}`
+            : `${f.total > CAP ? `Showing ${rows.length} of ${f.total} stocks` : plural(f.total, 'stock')}, ${order}`}
           {searching && <> · <Link href={clearHref}>Clear search</Link></>}
         </p>
       )}
-      <ul className="rows ticker-rows" aria-label="Stocks with verified trades">
+      <ul className="rows ticker-rows" aria-label={FL.indexAria}>
         {rows.map((r) => {
           const when = date(r.lastClosedAt);
           return (
@@ -134,7 +129,7 @@ export default async function Stocks({ searchParams }: Props) {
               <Link
                 href={`/t/${encodeURIComponent(r.symbol)}`}
                 className="trow"
-                aria-label={`${r.symbol}, ${plural(r.trades, 'trade')}, ${plural(r.traders, 'trader')}, last closed ${when}${r.demoOnly ? ', sample data' : ''}`}
+                aria-label={`${r.symbol}, ${plural(r.trades, 'trade')}, ${plural(r.traders, 'trader')}, last closed ${when}${r.demoOnly ? ', Demo' : ''}`}
               >
                 <span className="who"><b>{r.symbol}</b> {r.demoOnly && <Badge verified={false} />}</span>
                 <span className="muted">{plural(r.trades, 'trade')} · {plural(r.traders, 'trader')} · last closed {when}</span>

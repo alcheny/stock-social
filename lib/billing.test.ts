@@ -20,7 +20,15 @@ before(async () => {
   for (const [k, v] of Object.entries(ENV)) { saved[k] = process.env[k]; process.env[k] = v; }
   process.env.APP_SECRET_KEY ??= 'unit-test-secret';
   if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple();
+  // Known-limits sweep 2: the reconciliation's job rows are singletons; saved here, restored in after(), and the pass is
+  // started idle so this file's tests see only their own passes.
+  if (hasDb) {
+    const { sql } = await import('./db.ts');
+    savedRuns = [...await sql`select * from billing_runs where job in ('reconcile', 'reconcile_daily')`];
+    await sql`update billing_runs set pass_started_at = null, phase = null, cursor = null, fails = 0, lease_id = null, lease_until = null where job = 'reconcile'`;
+  }
 });
+let savedRuns: Record<string, unknown>[] = [];
 // Known-limits sweep 2026-11-01: exactly the users and attempts this file made are removed (they were left behind).
 const madeUsers: number[] = [], madeAttempts: number[] = [];
 after(async () => {
@@ -28,6 +36,8 @@ after(async () => {
   if (!hasDb) return;
   const { sql } = await import('./db.ts');
   try {
+    await sql`delete from billing_runs where job in ('reconcile', 'reconcile_daily') and job <> all(${savedRuns.map((r) => r.job as string).concat('')})`;
+    for (const r of savedRuns) await sql`update billing_runs set ${sql(r)} where job = ${r.job as string}`;
     if (madeUsers.length) await sql`delete from users where id = any(${madeUsers})`;
     if (madeAttempts.length) await sql`delete from signup_attempts where id = any(${madeAttempts}) and not exists (select 1 from users u where u.signup_attempt_id = signup_attempts.id)`;
   } finally {
@@ -608,4 +618,233 @@ dbTest('the launch gate: while sign-up is closed, checkout is refused unless the
     env.LAUNCH_OPEN = '1'; delete env.LAUNCH_ALLOWLIST;
     assert.equal(await b.checkoutOpen(u), true);
   } finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete env[k]; else env[k] = v; } }
+});
+
+// ---- known-limits sweep 2: the reconciliation is one pass, time-boxed per subscription and resumed tick by tick ----
+const reconcileRun = async () => (await (await import('./db.ts')).sql`select * from billing_runs where job = 'reconcile'`)[0];
+const listCalls = () => fake.calls.filter((c) => c.method === 'GET' && c.path === '/v1/subscriptions').map((c) => new URLSearchParams(c.body).get('starting_after'));
+const getCalls = (id: string) => fake.calls.filter((c) => c.method === 'GET' && c.path === `/v1/subscriptions/${id}`).length;
+const counter = () => { let k = 0; return () => k++; };
+// Ticks with a tiny box until the list phase is over, then default ticks until the pass completes (other files' live
+// rows in the shared database make the one-by-one phase longer than this test's own rows).
+async function drive(each?: (r: Awaited<ReturnType<typeof import('./billing.ts')['reconcile']>>) => Promise<void>, boxMs = 3) {
+  const b = await import('./billing.ts');
+  const clock = counter();
+  const reports = [];
+  for (let i = 0; i < 400; i++) {
+    const listing = (await reconcileRun())?.phase !== 'missing';
+    const r = await b.reconcile(listing ? { boxMs, clock, pageSize: 2 } : {});
+    reports.push(r);
+    if (r.done) return reports;
+    await each?.(r);
+  }
+  throw new Error('the pass never completed');
+}
+
+dbTest('reconciliation is boxed per subscription: a cut pass saves its cursor and no day mark, the next tick resumes after the last subscription handled, and a row the processor no longer lists is fetched once', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  const subs = [];
+  for (let i = 0; i < 4; i++) subs.push(await subscribe(await user()));
+  const gone = await subscribe(await user());
+  fake.subs.get(gone.id)!.status = 'canceled'; // canceled at the processor, no event delivered: not on any list page
+  const mark = (await reconcileRun())?.last_at?.getTime() ?? null;
+  const base = new Map([...subs, gone].map((s) => [s.id, getCalls(s.id)])); // the checkouts' own webhook reads
+  const cursors: (string | null)[] = [];
+  let seen = 0;
+  const reports = await drive(async (r) => {
+    assert.equal(r.done, false);
+    const run = await reconcileRun();
+    assert.equal(run.last_at?.getTime() ?? null, mark ?? run.last_at?.getTime() ?? null, 'no day mark before the pass completes');
+    if (run.phase === 'list') cursors.push(run.cursor);
+    seen = listCalls().length;
+  }, 1); // one subscription per tick
+  void seen;
+  assert.ok(reports.length >= 3, 'the pass took several ticks');
+  const starts = listCalls();
+  assert.equal(new Set(starts).size, starts.length, 'no page listed twice from the same cursor: a tick resumes after the last subscription handled');
+  for (const c of cursors) if (c) assert.ok(starts.includes(c), `a tick resumed after ${c}`);
+  for (const s of subs) assert.equal(getCalls(s.id) - base.get(s.id)!, 0, 'a listed subscription is not fetched again');
+  assert.equal(getCalls(gone.id) - base.get(gone.id)!, 1, 'a row missing from the list is fetched once per pass');
+  assert.equal((await sql`select status from subscriptions where vendor_subscription_id = ${gone.id}`)[0].status, 'canceled');
+  const run = await reconcileRun();
+  assert.equal(run.pass_started_at, null);
+  assert.equal(run.lease_id, null);
+  if (mark !== null) assert.ok(run.last_at.getTime() > mark, 'the day mark is set when the pass completes');
+});
+
+dbTest('grace expiry and the purges never run on a cut tick of a pass, and a pass cut over several ticks never expires a subscription the processor holds live', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  const first = await subscribe(await user());
+  const u = await user();
+  const live = await subscribe(u); // live at the processor; the app's row drifted to an expired grace window
+  await sql`update subscriptions set status = 'past_due', grace_until = now() - interval '1 second' where vendor_subscription_id = ${live.id}`;
+  await sql`update billing_runs set last_at = now() - interval '2 days' where job = 'reconcile_daily'`;
+  const evt = `evt_unit_old_${tag}_cut`;
+  await sql`insert into billing_events (vendor_event_id, type, livemode, received_at) values (${evt}, 'invoice.paid', false, now() - interval '36 days')`;
+  const deletes = () => fake.calls.filter((c) => c.method === 'DELETE' && c.path === `/v1/subscriptions/${live.id}`).length;
+  await drive(async (r) => {
+    assert.equal(r.graceExpired, 0);
+    assert.equal(r.eventsPurged, 0);
+    assert.equal((await sql`select count(*)::int as n from billing_events where vendor_event_id = ${evt}`)[0].n, 1);
+    assert.equal(fake.subs.get(live.id)!.status, 'active');
+    assert.equal(deletes(), 0);
+  }, 2);
+  assert.equal(fake.subs.get(live.id)!.status, 'active', 'never expired: the processor holds it live');
+  assert.equal((await row(u))!.status, 'active');
+  assert.equal(deletes(), 0);
+  assert.equal((await sql`select count(*)::int as n from billing_events where vendor_event_id = ${evt}`)[0].n, 0, 'purged on the completing tick');
+  void first;
+});
+
+dbTest('a holder whose lease ran out moves no cursor and completes nothing: the next holder resumes and completes the pass once', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  for (let i = 0; i < 3; i++) await subscribe(await user());
+  let inner: Awaited<ReturnType<typeof b.reconcile>> | null = null;
+  let afterInner: Record<string, unknown> | null = null;
+  const outer = await b.reconcile({ hold: async () => {
+    if (inner) return;
+    await sql`update billing_runs set lease_until = now() - interval '1 second' where job = 'reconcile'`; // the first holder overran
+    inner = await b.reconcile();
+    afterInner = { ...(await reconcileRun()) };
+  } });
+  assert.equal(inner!.done, true);
+  assert.equal(outer.done, false, 'the expired holder stops at its next write');
+  assert.deepEqual({ ...(await reconcileRun()) }, afterInner, 'nothing the expired holder did after losing the lease reached the pass');
+  assert.equal((await reconcileRun()).cursor, null);
+});
+
+dbTest('a list page that keeps failing at one cursor moves the pass on after 3 tries: the rest is fetched one by one and the pass completes', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  const u = await user();
+  const sub = await subscribe(u);
+  fake.subs.get(sub.id)!.status = 'past_due'; // drift the list would have found
+  fake.failOn('GET', /^\/v1\/subscriptions$/, 503, 3);
+  for (let i = 1; i <= 3; i++) {
+    await assert.rejects(b.reconcile());
+    const run = await reconcileRun();
+    assert.equal(run.lease_id, null, 'a failed tick releases its lease');
+    assert.equal(run.phase, i < 3 ? 'list' : 'missing');
+  }
+  const r = await b.reconcile();
+  assert.equal(r.done, true);
+  assert.equal((await row(u))!.status, 'past_due');
+  assert.equal((await sql`select count(*)::int as n from billing_runs where job = 'reconcile' and pass_started_at is null`)[0].n, 1);
+});
+
+dbTest('grace expiry and the purges run once per due day even while a pass is stuck, each after a fresh read (never on a processor-live subscription), and a rerun cancels nothing twice', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  const lu = await user(), eu = await user();
+  const live = await subscribe(lu), lapsed = await subscribe(eu);
+  fake.subs.get(lapsed.id)!.status = 'past_due';
+  await sql`update subscriptions set status = 'past_due', grace_until = now() - interval '1 second' where vendor_subscription_id in ${sql([live.id, lapsed.id])}`;
+  // A pass in progress for two days (stuck), and the day's grace expiry not yet run.
+  await sql`update billing_runs set pass_started_at = now() - interval '2 days', phase = 'list', cursor = null, fails = 0 where job = 'reconcile'`;
+  await sql`insert into billing_runs (job, last_at) values ('reconcile_daily', now() - interval '2 days') on conflict (job) do update set last_at = excluded.last_at`;
+  const evt = `evt_unit_old_${tag}_stuck`;
+  await sql`insert into billing_events (vendor_event_id, type, livemode, received_at) values (${evt}, 'invoice.paid', false, now() - interval '36 days')`;
+  fake.failOn('GET', /^\/v1\/subscriptions$/, 503, 1); // the stuck pass fails again this tick
+  await assert.rejects(b.reconcileIfDue());
+  assert.equal((await sql`select count(*)::int as n from billing_events where vendor_event_id = ${evt}`)[0].n, 0, 'the purge ran');
+  assert.equal(fake.subs.get(lapsed.id)!.status, 'canceled', 'grace over: canceled at the processor');
+  assert.equal((await row(eu))!.status, 'canceled');
+  assert.equal(fake.subs.get(live.id)!.status, 'active', 'live at the processor: never expired');
+  assert.equal((await row(lu))!.status, 'active');
+  const deletes = () => fake.calls.filter((c) => c.method === 'DELETE' && c.path === `/v1/subscriptions/${lapsed.id}`).length;
+  assert.equal(deletes(), 1);
+  // Not due again the same day; and a rerun (the day given back after a crash) cancels nothing twice.
+  const again = await b.reconcileIfDue();
+  assert.equal(again?.graceExpired ?? 0, 0);
+  await sql`update billing_runs set last_at = now() - interval '2 days' where job = 'reconcile_daily'`;
+  await b.reconcileIfDue();
+  assert.equal(deletes(), 1);
+});
+
+dbTest('reconcileIfDue: one caller at a time (lease), a cut pass resumes on the next tick inside the 23 hours, and the day mark is set only when the pass completes', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  for (let i = 0; i < 3; i++) await subscribe(await user());
+  await sql`insert into billing_runs (job, last_at) values ('reconcile_daily', now()) on conflict (job) do update set last_at = excluded.last_at`;
+  await sql`update billing_runs set last_at = now() - interval '1 hour' where job = 'reconcile'`;
+  assert.equal(await b.reconcileIfDue(), null, 'not due');
+  await sql`update billing_runs set last_at = now() - interval '2 days', lease_id = 'someone-else', lease_until = now() + interval '1 minute' where job = 'reconcile'`;
+  assert.equal(await b.reconcileIfDue(), null, 'another caller holds the lease');
+  await sql`update billing_runs set lease_id = null, lease_until = null where job = 'reconcile'`;
+  const cut = await b.reconcileIfDue({ boxMs: 3, clock: counter(), pageSize: 2 });
+  assert.equal(cut!.done, false);
+  const mid = await reconcileRun();
+  assert.ok(mid.pass_started_at && mid.cursor);
+  assert.ok(mid.last_at.getTime() < Date.now() - DAY, 'no day mark yet');
+  await sql`update billing_runs set last_at = now() - interval '1 hour' where job = 'reconcile'`; // not due by the clock
+  const done = await b.reconcileIfDue();
+  assert.equal(done!.done, true, 'the pass in progress is resumed whatever the day mark says');
+  const end = await reconcileRun();
+  assert.equal(end.last_at.getTime(), mid.pass_started_at.getTime(), 'the day mark is the completed pass\'s start');
+  assert.equal(await b.reconcileIfDue(), null);
+});
+
+dbTest('the trader-cancel count holds only the subscriptions the reconciliation itself canceled, whatever else touches billing rows during the pass', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  const a = await user(), c = await user();
+  await subscribe(a); await subscribe(c);
+  now += 10 * DAY;
+  await makeTrader(a); // the backstop finds this one
+  await makeTrader(c); await b.cancelIfTrader(c); // canceled before the pass, by the connect path
+  let total = 0, touched = false;
+  const reports = await drive(async () => {
+    if (touched) return;
+    touched = true;
+    await sql`update subscriptions set updated_at = now(), cancel_at_period_end = false where user_id = ${c}`; // another path writes mid-pass
+  });
+  for (const r of reports) total += r.tradersCanceled;
+  assert.ok(touched);
+  assert.equal(total, 1);
+  assert.equal((await row(a))!.status, 'canceled');
+});
+
+dbTest('checkout survives a concurrent request with the same idempotency key (409): one wait and one retry, then the stored customer; never a loop', async () => {
+  const { sql } = await import('./db.ts');
+  const b = await import('./billing.ts');
+  const sleep = b.billingDeps.sleep;
+  const waits: number[] = [];
+  const posts = () => fake.calls.filter((c) => c.method === 'POST' && c.path === '/v1/customers').length;
+  const checkout = (userId: number) => b.startCheckout({ userId, plan: 'monthly', agreed: true, disclosure: 'd', origin: 'http://app.test' });
+  try {
+    b.billingDeps.sleep = async (ms) => { waits.push(ms); };
+    // In flight once: the retry gets the customer.
+    const u = await user();
+    fake.failOn('POST', /^\/v1\/customers$/, 409, 1);
+    assert.match(await checkout(u), /\/checkout\//);
+    assert.equal(waits.length, 1);
+    assert.equal((await sql`select count(*)::int as n from billing_customers where user_id = ${u}`)[0].n, 1);
+    // The first request stored the customer while this one waited: that customer, no second call.
+    const v = await user();
+    const theirs = `cus_unit_winner_${tag}_${v}`;
+    fake.failOn('POST', /^\/v1\/customers$/, 409, 1);
+    b.billingDeps.sleep = async (ms) => { waits.push(ms); await sql`insert into billing_customers (user_id, vendor_customer_id) values (${v}, ${theirs})`; };
+    const before = posts();
+    await checkout(v).catch(() => null); // the fake has no customer by that id; only the stored row matters here
+    assert.equal((await sql`select vendor_customer_id from billing_customers where user_id = ${v}`)[0].vendor_customer_id, theirs);
+    assert.equal(posts() - before, 1);
+    assert.equal(waits.length, 2);
+    // In flight twice and nothing stored: the checkout fails (the subscriber can try again).
+    const w = await user();
+    b.billingDeps.sleep = async (ms) => { waits.push(ms); };
+    fake.failOn('POST', /^\/v1\/customers$/, 409, 2);
+    const p0 = posts();
+    await assert.rejects(checkout(w), (e: unknown) => e instanceof b.VendorError && e.status === 409);
+    assert.equal(posts() - p0, 2, 'one retry, no loop');
+    assert.equal(waits.length, 3, 'one wait');
+    // Another error is never retried.
+    const x = await user();
+    const w0 = waits.length;
+    fake.failOn('POST', /^\/v1\/customers$/, 500, 1);
+    await assert.rejects(checkout(x));
+    assert.equal(waits.length, w0);
+  } finally { b.billingDeps.sleep = sleep; }
 });

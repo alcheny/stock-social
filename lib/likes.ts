@@ -12,10 +12,16 @@ export const tradeKey = (sellId: string) => createHash('sha256').update(sellId, 
 export const LIKES_PAGE = 50;
 const ID = /^[0-9]{1,18}$/;
 
-// The close a feed card names (its closed_trades id, checked before any query), never the viewer's own.
-async function close(viewer: number, id: unknown): Promise<{ key: string; trader: number } | null> {
-  if (typeof id !== 'string' || !ID.test(id)) return null;
-  const [r] = await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.id = ${id}`;
+// The close a feed card names, never the viewer's own: by its trade_key (64 hex, what cards send: it survives
+// rebuildTrades, which deletes and re-inserts closed_trades with new ids, so a page rendered before a rebuild still
+// acts on the right close) or by its closed_trades id (older pages, no-JS forms rendered before this change). Both are
+// checked by shape before any query; the same live-trader and not-your-own rules apply either way.
+const TRADE_KEY = /^[0-9a-f]{64}$/;
+async function close(viewer: number, ref: unknown): Promise<{ key: string; trader: number } | null> {
+  if (typeof ref !== 'string' || !(TRADE_KEY.test(ref) || ID.test(ref))) return null;
+  const [r] = TRADE_KEY.test(ref)
+    ? await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.trade_key = ${ref} limit 1`
+    : await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.id = ${ref}`;
   return r && r.user_id !== viewer ? { key: r.trade_key as string, trader: r.user_id as number } : null;
 }
 

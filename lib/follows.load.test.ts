@@ -50,3 +50,45 @@ test(`heavy: a trader followed and hidden by ${VIEWERS.toLocaleString('en-US')} 
     await sql`delete from signup_attempts where id = ${attempt}`;
   }
 });
+
+// Known-limits sweep (lists): one viewer with 20,000 follows, 20,000 running hides and 20,000 expired hides. The
+// first page of each list, and Record tools' capped select, each read in < 50 ms (the old unpaged reads took longer
+// and returned every row). Its own handles under a random tag; deletes exactly what it made.
+const MANY = 20_000;
+test(`heavy: a viewer with ${MANY.toLocaleString('en-US')} follows, running hides and expired hides: each first page and the Record tools select read in < 50 ms`,
+  { skip: !LOAD ? 'heavy-use suite: set LOAD=1' : !hasDb && 'no DATABASE_URL', timeout: 900_000 }, async () => {
+  const { sql } = await import('./db.ts');
+  const F = await import('./follows.ts') as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
+  const tag = `l${Math.random().toString(36).slice(2, 7)}`;
+  const [{ id: attempt }] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+  const [{ id: viewer }] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) values (${`${tag}_v`}, 'Viewer', now(), ${attempt}) returning id`;
+  await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${tag} || '_' || i, 'T ' || i, now(), ${attempt} from generate_series(1, ${MANY * 3}) i`;
+  const ids = (from: number, to: number) => sql`select id from users where handle like ${`${tag}\\_%`} and id <> ${viewer} order by id offset ${from} limit ${to - from}`;
+  await sql`insert into follows (viewer_id, trader_id, created_at) select ${viewer}, id, now() - (id % 5000) * interval '1 second' from (${ids(0, MANY)}) t`;
+  await sql`insert into viewer_exclusions (viewer_id, trader_id, created_at, until, reason) select ${viewer}, id, now() - (id % 5000) * interval '1 second', now() + interval '60 days', 'not_interested' from (${ids(MANY, MANY * 2)}) t`;
+  await sql`insert into viewer_exclusions (viewer_id, trader_id, created_at, until, reason) select ${viewer}, id, now() - interval '100 days', now() - (id % 5000) * interval '1 second', 'not_interested' from (${ids(MANY * 2, MANY * 3)}) t`;
+  await sql`analyze follows`; await sql`analyze viewer_exclusions`;
+  const time = async (label: string, fn: () => Promise<unknown>) => {
+    await fn(); // warm
+    const t0 = performance.now();
+    const r = await fn();
+    const ms = performance.now() - t0;
+    const n = Array.isArray(r) ? r.length : r && typeof r === 'object' ? JSON.stringify(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Array.isArray(v) ? v.length : (v as { rows?: unknown[] })?.rows?.length ?? v]))) : r;
+    console.log(`${label}: ${ms.toFixed(1)} ms (${n})`);
+    return ms;
+  };
+  try {
+    const ms = [await time('ownListsFirstPage (following + hidden)', () => F.ownListsFirstPage(viewer)), await time('expiredHidesFirstPage', () => F.expiredHidesFirstPage(viewer))];
+    if (F.followHandles) ms.push(await time('followHandles(100)', () => F.followHandles(viewer, 100, [])));
+    if (F.ownFollowing) {
+      const p1 = await F.ownFollowing(viewer) as { next: string };
+      ms.push(await time('ownFollowing page 2', () => F.ownFollowing(viewer, p1.next)));
+    }
+    for (const m of ms) assert.ok(m < 50, `${m} ms`);
+  } finally {
+    await sql`delete from follows where viewer_id = ${viewer}`;
+    await sql`delete from viewer_exclusions where viewer_id = ${viewer}`;
+    await sql`delete from users where handle like ${`${tag}\\_%`}`;
+    await sql`delete from signup_attempts where id = ${attempt}`;
+  }
+});
