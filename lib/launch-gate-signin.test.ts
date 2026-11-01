@@ -68,6 +68,8 @@ test('every real sign-up and connect path checks the gate before it writes or ca
   const consent = src('app/connect/actions.ts');
   const ca = consent.slice(consent.indexOf('export async function consentAction'));
   assert.ok(ca.indexOf('connectAllowed(me)') > 0 && ca.indexOf('connectAllowed(me)') < ca.indexOf('consent(c.id)'), 'consent: before the record is imported');
-  // The dev stub (guarded by devGuard) and demo data stay outside the gate.
-  assert.doesNotMatch(src('app/actions.ts'), /launch-gate|signUpOpen|connectAllowed/);
+  // The dev stub (guarded by devGuard) signs existing handles in; a new account needs signUpOpen() before it is created.
+  const dev = src('app/actions.ts');
+  const login = dev.slice(dev.indexOf('export async function login'));
+  assert.ok(login.indexOf('if (!existing && !signUpOpen()) throw') > 0 && login.indexOf('if (!existing && !signUpOpen()) throw') < login.indexOf('createUserForAttempt('), 'dev login: gate before a new account');
 });

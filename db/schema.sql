@@ -394,6 +394,7 @@ create table if not exists privacy_orphans (
 );
 select schema_add_index('privacy_orphans_seen', 'create index privacy_orphans_seen on privacy_orphans (first_seen_at)');
 select schema_add_index('sessions_expires', 'create index sessions_expires on sessions (expires_at)');
+select schema_add_index('login_links_expires', 'create index login_links_expires on login_links (expires_at)');
 select schema_add_index('signup_attempts_open', 'create index signup_attempts_open on signup_attempts (created_at) where user_id is null and completed_at is null');
 
 -- D14: append-only display log. One row per public record per day: what the profile displayed (headline, 95% range,

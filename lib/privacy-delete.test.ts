@@ -22,20 +22,27 @@ dbTest('deleting an account removes its marks and display log; its attempts (fir
   const otherAttempt = await createAttempt({ method: 'dev', attested: true });
   const other = await createUserForAttempt(otherAttempt, { handle: `po${tag}` });
   await sql`update signup_attempts set snaptrade_user_id = ${`pd-vendor-${tag}`}, snaptrade_secret_enc = 'enc' where id = ${again}`;
+  await sql`update users set snaptrade_user_id = ${`pd-vendor-${tag}`}, snaptrade_secret_enc = 'enc' where id = ${u.id}`;
+  // Another vendor id on an attempt (not the account's, not deleted at the vendor) is left for its own cleanup.
+  await sql`update signup_attempts set snaptrade_user_id = ${`pd-other-${tag}`} where id = ${first}`;
   await sql`insert into privacy_orphans (kind, viewer_id, trade_key) values ('like', ${u.id}, 'k')`;
   await sql`insert into display_log (user_id, day, demo, headline, trade_count, open_summary, evidence) values (${u.id}, '2026-10-01', false, 'h', 0, 'n', 'e')`;
   try {
     const [row] = await sql`select id, handle, snaptrade_user_id, snaptrade_secret_enc from users where id = ${u.id}`;
-    await deleteProfile(row as never, { deleteVendorUser: async () => {} });
-    const left = await sql`select user_id, snaptrade_user_id, snaptrade_secret_enc from signup_attempts where id in (${first}, ${again})`;
+    const vendor: string[] = [];
+    await deleteProfile(row as never, { deleteVendorUser: async (v) => { vendor.push(v.snaptradeUserId); } });
+    assert.deepEqual(vendor, [`pd-vendor-${tag}`]);
+    const left = await sql`select id, user_id, snaptrade_user_id, snaptrade_secret_enc from signup_attempts where id in (${first}, ${again}) order by id`;
     assert.equal(left.length, 2);
-    for (const a of left) assert.deepEqual([a.user_id, a.snaptrade_user_id, a.snaptrade_secret_enc], [null, null, null]);
+    assert.deepEqual(left.map((a) => [a.user_id, a.snaptrade_user_id]), [[null, `pd-other-${tag}`], [null, null]]);
+    assert.equal(left[1].snaptrade_secret_enc, null);
     for (const [t, q] of [
       ['privacy_orphans', sql`select count(*)::int as n from privacy_orphans where viewer_id = ${u.id}`],
       ['display_log', sql`select count(*)::int as n from display_log where user_id = ${u.id}`],
     ] as const) assert.equal((await q)[0].n, 0, t);
     assert.equal((await sql`select user_id from signup_attempts where id = ${otherAttempt}`)[0].user_id, other.id);
   } finally {
+    await sql`update signup_attempts set snaptrade_user_id = null where id = ${first}`;
     await sql`delete from users where id in (${u.id}, ${other.id})`;
   }
 });

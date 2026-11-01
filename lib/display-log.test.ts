@@ -47,6 +47,8 @@ dbTest('one row per public record per day; a second tick that day writes nothing
     assert.ok(row);
     assert.equal(row.day, today);
     assert.equal(row.gap, false);
+    assert.match(row.asOf, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    assert.ok(Math.abs(Date.parse(row.asOf) - Date.now()) < 120_000, 'asOf is when the row was written');
     assert.equal(row.demo, true, 'demo records are logged and marked demo');
     assert.equal(row.headline, '0% win rate · -4.0% avg return / trade');
     assert.equal(row.tradeCount, 1);

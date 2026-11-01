@@ -1,5 +1,6 @@
-// Privacy work (2026-11-01, committee D10–D13): purges on the existing sync tick (app/api/sync/route.ts), after the
-// discovery purge and before the traders are synced, in its own try/catch so nothing here can stop a sync.
+// Privacy work (2026-11-01, committee D10–D13, D19): purges on the existing sync tick (app/api/sync/route.ts): a fixed
+// slot after the discovery purge and before the traders are synced, then any time left after them; each call in its own
+// try/catch so nothing here can stop a sync.
 // One caller at a time (advisory lock (41, 0), tried, never waited for); a fixed time box; batches; a call cut by its
 // box resumes on the next tick. Removes data that has no further use:
 //   - expired sessions;

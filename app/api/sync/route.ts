@@ -11,6 +11,7 @@ import { purgePrivacy, type PrivacyPurgeReport } from '@/lib/privacy-purge.ts';
 import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
 import { gateReport } from '@/lib/launch-gate.ts';
 
+const PRIVACY_SLOT_MS = 5_000;
 const PRIVACY_STAGE_MS = 10_000;
 const PRIVACY_STAGE_MARGIN_MS = 30_000;
 
@@ -42,21 +43,27 @@ export async function POST(req: NextRequest) {
   // Only traders with a connected (consented) connection and no import in progress, each claimed by one caller per
   // round (lib/sync.ts#syncTick), so overlapping cron calls split the traders instead of syncing each one twice.
   // ponytail: one caller is sequential, ~5k traders/hour; more concurrent calls add throughput, then a queue (DESIGN §2.7)
-  let end: TickReport | null = null;
-  const { ok, skipped, failed } = await syncTick({ deadline, routeEnd: syncRouteEnd(startedAt), report: (r) => { end = r; } });
-  // Privacy work (committee D13, D14, D3; business lead re-sit 2): the privacy purges and today's display-log rows run
-  // after the traders are synced, never taking their time: each is boxed to the smaller of its own 10 s and the time
-  // left before the route's end less a 30 s margin, and skipped when none is left (both resume on the next tick). Each
-  // in its own try/catch. The log line carries counts, milliseconds and the gate state only.
+  // Privacy work (committee D13, D14, D3, D19; orchestrator review 2): the privacy purges and today's display-log rows
+  // get a small fixed slot before the sync (PRIVACY_SLOT_MS each, so a busy tick can never starve them), then use any
+  // time left after it (up to PRIVACY_STAGE_MS each, never within PRIVACY_STAGE_MARGIN_MS of the route's end). Both
+  // resume where they stopped. Each call in its own try/catch; the log line carries counts, milliseconds and the gate
+  // state only.
   const left = () => syncRouteEnd(startedAt) - PRIVACY_STAGE_MARGIN_MS - Date.now();
   let privacy: PrivacyPurgeReport | null = null;
-  const t0 = Date.now();
-  try { if (left() > 0) privacy = await purgePrivacy({ boxMs: Math.min(PRIVACY_STAGE_MS, left()) }); } catch (e) { console.error('privacy purge failed', logSafe(e)); }
   let displayLog: DisplayLogReport | null = null;
-  const t1 = Date.now();
-  try { if (left() > 0) displayLog = await writeDisplayLog({ boxMs: Math.min(PRIVACY_STAGE_MS, left()) }); } catch (e) { console.error('display log failed', logSafe(e)); }
+  const ms = { privacy: 0, displayLog: 0 };
+  const privacyStages = async (boxMs: number) => {
+    const t0 = Date.now();
+    try { if (boxMs > 0) privacy = await purgePrivacy({ boxMs }); } catch (e) { console.error('privacy purge failed', logSafe(e)); }
+    const t1 = Date.now();
+    try { if (boxMs > 0 && left() > 0) displayLog = await writeDisplayLog({ boxMs }); } catch (e) { console.error('display log failed', logSafe(e)); }
+    ms.privacy += t1 - t0; ms.displayLog += Date.now() - t1;
+  };
+  await privacyStages(PRIVACY_SLOT_MS);
+  let end: TickReport | null = null;
+  const { ok, skipped, failed } = await syncTick({ deadline, routeEnd: syncRouteEnd(startedAt), report: (r) => { end = r; } });
+  await privacyStages(Math.min(PRIVACY_STAGE_MS, left()));
   const launch = gateReport();
-  const ms = { privacy: t1 - t0, displayLog: Date.now() - t1 };
   console.log('privacy tick', JSON.stringify({ privacy, displayLog, launch, ms })); // counts, milliseconds and the gate state only
   return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions, purged, privacy, displayLog, launch, ms });
 }

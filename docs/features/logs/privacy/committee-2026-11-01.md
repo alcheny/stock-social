@@ -40,3 +40,12 @@ Business lead: FAIL (display-log starvation), compliance PASS. UX lead: complian
 | D22 | Code review 2, tester 5, review 6: dev sign-in and renames vs. the handle allowlist | In a production build with the dev sign-in on, a handle alone never passes (only a verified email). While closed, nobody may rename onto a listed handle. |
 | D23 | Code review 1, 4, 5; tester 2, 4: scanners | Log scanner: any console method or bracket access, aliasing is a failure, `JSON.stringify` only of an object literal with every entry checked (or the typed sync report). Cookie scanner: any variable assigned from `cookies()`, the object form, backticks, `cookieStore`, unresolved names fail, `proxy.ts`/`middleware.ts` scanned. Likes test: marking and removing statements must carry the closed-trade check; the original "no count" rule is restored for every other line and `LIKES.private` is held by an exact-string test. |
 | D24 | Code review 10, tester 3: framework logs of uncaught errors | The email route reduces any other error with `logSafe` and answers like a used link; the provider callback already answers every error generically. Out of the scanner's scope (said in the test); `onRequestError` filtering is left to the security-hardening session. |
+
+## Round 3: orchestrator review of PR #31
+
+| # | Finding | Decision |
+|---|---|---|
+| D25 | Security: in production with the dev sign-in on, the stub signs anyone in as the allowlisted account | While closed, such a build lets no one connect (no allowlist entry passes); the dev `login` creates a new account only when `signUpOpen()` (existing handles still sign in; the e2e sandbox counts as open). Tested. |
+| D26 | Busy ticks could skip the privacy stages | A fixed 5 s slot each before the sync, then up to 10 s each of the time left after it (never within 30 s of the route's end). |
+| D27 | "As of the start of the day" overstated | `displayedOn` returns `asOf` (the row's created_at, UTC); shown as "as of <time> (UTC)". |
+| D28 | Nits | Index on `login_links (expires_at)`; deletion blanks only the vendor id it just deleted at the vendor. |

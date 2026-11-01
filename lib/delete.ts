@@ -38,8 +38,9 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
       on conflict (handle) do update set until = excluded.until`;
     // Privacy work (committee D17): the account's attempts stay as anonymous funnel rows (user_id goes null with the
     // users row, F-1 design); any vendor id left on one is blanked here, so nothing on them points at the person.
-    await tx`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null
-      where (user_id = ${u.id} or id = (select signup_attempt_id from users where id = ${u.id})) and snaptrade_user_id is not null`;
+    // Only the vendor user just deleted above (orchestrator review nit): any other vendor id stays for its own cleanup.
+    if (u.snaptrade_user_id) await tx`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null
+      where (user_id = ${u.id} or id = (select signup_attempt_id from users where id = ${u.id})) and snaptrade_user_id = ${u.snaptrade_user_id}`;
     await tx`delete from users where id = ${u.id}`;
   });
 }

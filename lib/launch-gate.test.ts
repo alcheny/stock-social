@@ -63,14 +63,15 @@ test('the sandbox (the e2e production test build) is open; each condition flippe
   assert.equal(isSandbox({ ...sandbox, AUTH_EMAIL_SEND_URL: 'http://localhost:9/send', AUTH_EMAIL_PROVIDER_ISSUER: 'http://[::1]:4103' }), true);
 });
 
-test('a rename can\'t take a listed handle while closed; with the dev sign-in on in production a handle alone never passes', () => {
+test('a rename can\'t take a listed handle while closed; with the dev sign-in on in production no allowlist entry lets anyone connect', () => {
   const env = { ...prod, SNAPTRADE_CLIENT_ID: 'real', LAUNCH_ALLOWLIST: 'owner_test', LAUNCH_ALLOWLIST_EMAILS: 'owner@example.test' };
   assert.equal(handleReserved('Owner_Test', env), true);
   assert.equal(handleReserved('someone', env), false);
   assert.equal(handleReserved('owner_test', { ...env, LAUNCH_OPEN: '1' }), false);
   const dev = { ...env, ALLOW_DEV_AUTH: '1' };
   assert.equal(mayConnect({ handle: 'owner_test' }, dev), false);
-  assert.equal(mayConnect({ handle: 'owner_test', emails: ['owner@example.test'] }, dev), true);
+  assert.equal(mayConnect({ handle: 'owner_test', emails: ['owner@example.test'] }, dev), false, 'the dev stub can sign in as the allowlisted account');
+  assert.equal(signUpOpen('owner@example.test', dev), true, 'a verified email may still create an account; it just cannot connect on such a build');
 });
 
 test('production with ALLOW_DEV_AUTH=1 but the real vendor configured stays closed; local dev with no vendor is a sandbox', () => {

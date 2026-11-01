@@ -3,8 +3,9 @@
 // line), so the app can show what it displayed on a past date. Percent only: no quantities, prices or amounts. Rows are
 // never updated or removed (a database trigger refuses both) except with the account (the users cascade).
 // The text comes from the same functions the profile uses (lib/trades.ts, lib/copy.ts, lib/positions.ts).
-// A day's row is the record as of the first tick after 00:00 UTC that day (code review 9): wherever a past display is
-// shown, it says "as of the start of <day> (UTC)"; a later change the same day appears in the next day's row.
+// A day's row is the record at the moment it was written (`asOf`, its created_at): the first tick that reached it that
+// UTC day, which may be later than midnight. Wherever a past display is shown, it says "as of <asOf> (UTC)", never "all
+// day"; a later change the same day appears in the next day's row (code review 9, orchestrator review 3).
 import { sql } from './db.ts';
 import { confidence, evidenceLine, pct, rangeText, stats } from './trades.ts';
 import { winRateText } from './copy.ts';
@@ -85,13 +86,13 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
   }
 }
 
-export type DisplayedRow = { asked: string; day: string; gap: boolean; demo: boolean; headline: string; rangeText: string | null; tradeCount: number; openSummary: string; evidence: string };
+export type DisplayedRow = { asked: string; day: string; gap: boolean; asOf: string; demo: boolean; headline: string; rangeText: string | null; tradeCount: number; openSummary: string; evidence: string };
 
 /** What this record displayed on `day`: the latest snapshot on or before it, or null when none exists. `day` is the
  *  snapshot's own date; `gap` is true when it is older than the date asked for, so a missing day is never presented as
  *  that day's display. */
 export async function displayedOn(userId: number, day: string): Promise<DisplayedRow | null> {
-  const [r] = await sql`select to_char(day, 'YYYY-MM-DD') as day, demo, headline, range_text, trade_count, open_summary, evidence
+  const [r] = await sql`select to_char(day, 'YYYY-MM-DD') as day, to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as as_of, demo, headline, range_text, trade_count, open_summary, evidence
     from display_log where user_id = ${userId} and day <= ${day}::date order by day desc limit 1`;
-  return r ? { asked: day, day: r.day, gap: r.day !== day, demo: r.demo, headline: r.headline, rangeText: r.range_text, tradeCount: r.trade_count, openSummary: r.open_summary, evidence: r.evidence } : null;
+  return r ? { asked: day, day: r.day, gap: r.day !== day, asOf: r.as_of, demo: r.demo, headline: r.headline, rangeText: r.range_text, tradeCount: r.trade_count, openSummary: r.open_summary, evidence: r.evidence } : null;
 }
