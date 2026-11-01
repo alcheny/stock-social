@@ -105,3 +105,30 @@ Decisions:
 
 Known limit, with a ponytail note in app/globals.css: a footer link's hit box reaches 14 px over the card disclaimer's
 top edge, which is non-interactive text.
+
+## Code review (independent)
+No blocking findings.
+
+Applied:
+- The query rebuild became `lib/trade-href.ts#withQuery`, with unit tests.
+- One pane row markup.
+- `loadTradeShare` is marked test-only.
+
+Kept as decided:
+- The legacy lookup runs for any segment the key lookup misses. A hex segment could be a legacy id, and the decided order
+  is key, then sell id.
+- The image route's two `next/navigation` imports stay, because lib/f12-followups.test.ts pins the `notFound` import line.
+
+## User tests at 360 and 320 px (step 5)
+UX lead, round 1, had three demands, all fixed with e2e coverage:
+- The footer boxes reached over the disclaimer. That text now paints above them, and elementFromPoint finds no link
+  there.
+- The stacked pair at 320 px now reads as one group.
+- The profile figure link now has an underline cue.
+
+Every tap went where expected, screen-reader names were correct, losses read like gains, the disclaimer was present,
+and no sell id or dollar amount appeared.
+
+Business lead: compliance PASS, usability PASS. Demand to file after merge, which does not block this PR: one
+product-wide decision on a visible tap cue for Shape R rows (pane, stock page, month page). Taste notes for chores: the
+first-visit line's Demo badge wraps alone at 360 px, and the trade page says "@handle's record" twice.
