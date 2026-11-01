@@ -37,7 +37,11 @@ test('F-15: outside tests, only the counter, the purge and the owner readout nam
   }
 });
 
-test('F-15: the beacon is not mounted in app/layout.tsx before F-13 merges (it lives in app/template.tsx)', () => {
-  assert.doesNotMatch(readFileSync(join(root, 'app/layout.tsx'), 'utf8'), /ViewBeacon|view-beacon/);
-  assert.match(readFileSync(join(root, 'app/template.tsx'), 'utf8'), /<ViewBeacon \/>/);
+test('F-15: the beacon is mounted once, in app/layout.tsx (F-13 merged); the root template is gone', () => {
+  const layout = readFileSync(join(root, 'app/layout.tsx'), 'utf8');
+  assert.equal((layout.match(/<ViewBeacon \/>/g) ?? []).length, 1);
+  assert.throws(() => statSync(join(root, 'app/template.tsx')));
+  for (const f of files('app').filter((f) => f !== join('app', 'layout.tsx') && f !== join('app', 'view-beacon.tsx'))) {
+    assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), /<ViewBeacon\b/, f);
+  }
 });
