@@ -10,6 +10,7 @@ import { sql } from './db.ts';
 import { clientIp } from './rate-limit.ts';
 import { viewVia } from './referral.ts';
 import { visibleUser } from './visible-users.ts';
+import { filerVisibleSql } from './public-gate.ts';
 
 export const VIEW_RETENTION_DAYS = 120; // proposed in the PR; the owner may change it (feature file, Open questions)
 export { BEACON_BYTES, VISIBLE_MS, SURFACES, DROP_OTHER, REF_CLASSES, DROP_REASONS, surfaceOf, refClass, isRefClass } from './views-shared.ts';
@@ -40,6 +41,8 @@ export function botReason(h: { get(name: string): string | null }, automation: u
 // undercount them, business lead R1) — fix: set TRUST_PROXY_HEADERS behind that proxy, or a shared counter.
 // ponytail: the cap is per instance, so N instances allow N × RATE_MAX a minute — fix: a shared counter keyed the same
 // way (lib/rate-limit.ts) if scripted inflation shows up in the drop counts.
+// Per address (shared by a household or an office behind one address): a few readers swiping at once.
+export const RATE_ADDR_MAX = 180;
 export const RATE_MAX = 60; // a reader swiping profiles in the pane can send one every 2 s (business lead D4)
 const RATE_KEYS = 10_000;
 type Bucket = { minute: number; n: number };
@@ -54,7 +57,13 @@ export function rateLimited(h: Headers, now = Date.now()): RateState {
   if (hour !== rate.hour) { rate.hour = hour; rate.salt = randomBytes(16); rate.buckets.clear(); }
   const ip = clientIp(h);
   if (ip === null) return 'ok';
-  const key = createHash('sha256').update(rate.salt).update(ip).update('\n').update(h.get('user-agent') ?? '').digest('base64url').slice(0, 22);
+  // Two buckets: per address (so rotating the user agent can't multiply the cap, orchestrator review 1) and per address
+  // and agent. The address is already a /56 for IPv6 (lib/rate-limit.ts#clientIp).
+  const hash = (...parts: string[]) => createHash('sha256').update(rate.salt).update(parts.join('\n')).digest('base64url').slice(0, 22);
+  const states = [bump(`a:${hash(ip)}`, minute, RATE_ADDR_MAX), bump(`u:${hash(ip, h.get('user-agent') ?? '')}`, minute, RATE_MAX)];
+  return states.includes('first-over') ? 'first-over' : states.includes('over') ? 'over' : 'ok';
+}
+function bump(key: string, minute: number, max: number): RateState {
   const b = rate.buckets.get(key);
   if (!b || b.minute !== minute) {
     if (!b && rate.buckets.size >= RATE_KEYS) rate.buckets.delete(rate.buckets.keys().next().value!);
@@ -62,7 +71,7 @@ export function rateLimited(h: Headers, now = Date.now()): RateState {
     return 'ok';
   }
   b.n += 1;
-  return b.n <= RATE_MAX ? 'ok' : b.n === RATE_MAX + 1 ? 'first-over' : 'over';
+  return b.n <= max ? 'ok' : b.n === max + 1 ? 'first-over' : 'over';
 }
 
 // The beacon's body: { path, ref, via, auto }. Anything else is dropped; null = not a beacon (nothing counted).
@@ -96,13 +105,17 @@ export async function recordDrop(surface: Surface | typeof DROP_OTHER, reason: D
 // (nothing counted). The sell id and the month are never stored.
 export async function viewedUserId(t: Target): Promise<number | null> {
   if (!t.handle) return null;
+  // The record pages' own rule (app/u/[handle]/page.tsx, lib/recap-load.ts, lib/trade-share-load.ts): a visible user,
+  // a public filer only while shown (not hidden or removed, F-7 legal C13, C19) and only with a closed trade.
+  const visible = sql`${visibleUser('u')} and ${filerVisibleSql('u')}
+    and (u.public_filer_id is null or exists (select 1 from closed_trades f where f.user_id = u.id))`;
   const [u] = t.surface === 'trade'
-    ? await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visibleUser('u')}
+    ? await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visible}
         and exists (select 1 from closed_trades c where c.user_id = u.id and c.sell_id = ${t.detail})`
     : t.surface === 'month'
-    ? await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visibleUser('u')}
+    ? await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visible}
         and exists (select 1 from closed_trades c where c.user_id = u.id
           and c.closed_at >= ${t.detail + '-01'}::timestamp at time zone 'UTC' and c.closed_at < (${t.detail + '-01'}::timestamp + interval '1 month') at time zone 'UTC')`
-    : await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visibleUser('u')}`;
+    : await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visible}`;
   return u?.id ?? null;
 }

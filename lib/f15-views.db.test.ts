@@ -96,6 +96,33 @@ dbTest('F-15: only registry values are stored: 200 random beacons through the ro
   assert.equal((await sql`select count(*)::int n from view_rollup where user_id = ${u.id} and surface = 'trade'`)[0].n, 0);
 });
 
+dbTest('F-15: a hidden or removed public filer, and a filer with no closed trade, count nothing (their pages 404)', async () => {
+  const { sql } = await import('./db.ts');
+  const { viewedUserId } = await import('./views.ts');
+  const filer = async (o: { hidden?: boolean; removed?: boolean; trade?: boolean }) => {
+    const [f] = await sql`insert into public_filers (source, filer_key, demo, hidden_at, removed_at)
+      values ('insider_reports', ${tag()}, true, ${o.hidden ? new Date() : null}, ${o.removed ? new Date() : null}) returning id`;
+    const u = await user();
+    await sql`update users set public_filer_id = ${f.id} where id = ${u.id}`;
+    if (o.trade) await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+      values (${u.id}, ${'f15-' + tag()}, 'a', 'F15X', now() - interval '3 days', now() - interval '1 day', 0.02, 2, true)`;
+    return { ...u, filerId: f.id as number };
+  };
+  const shown = await filer({ trade: true }), hidden = await filer({ hidden: true, trade: true }), removed = await filer({ removed: true, trade: true }), empty = await filer({});
+  const plain = await user(); // a broker or demo user with no trade still has a page
+  const prof = (handle: string) => viewedUserId({ surface: 'profile', handle, detail: null });
+  assert.equal(await prof(shown.handle), shown.id);
+  assert.equal(await prof(hidden.handle), null);
+  assert.equal(await prof(removed.handle), null);
+  assert.equal(await prof(empty.handle), null);
+  assert.equal(await prof(plain.handle), plain.id);
+  const [{ sell_id: sellId }] = await sql`select sell_id from closed_trades where user_id = ${hidden.id}`;
+  assert.equal(await viewedUserId({ surface: 'trade', handle: hidden.handle, detail: sellId }), null);
+  const ym = new Date(Date.now() - 86_400_000).toISOString().slice(0, 7);
+  assert.equal(await viewedUserId({ surface: 'month', handle: hidden.handle, detail: ym }), null);
+  for (const f of [shown, hidden, removed, empty]) { await sql`delete from users where id = ${f.id}`; await sql`delete from public_filers where id = ${f.filerId}`; }
+});
+
 dbTest('F-15: 50 concurrent beacons for one key make one row with count 50', async () => {
   const { sql } = await import('./db.ts');
   const { recordView } = await import('./views.ts');

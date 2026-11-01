@@ -34,3 +34,10 @@ Change after the full e2e run (2026-11-01): the beacon now sends nothing at all 
 group's 25 automation-flag visits therefore send no beacon instead of being dropped as `automation` (the route still
 drops a beacon that says so); counted stays 0 of 50, so the result above is unchanged. Pinned by
 `e2e/f15-beacon.spec.ts` ("automation: a browser that reports automation sends no beacon at all").
+
+Correction after the orchestrator's review (2026-11-01): the burst row tested one address with one user agent. Then
+the cap was keyed on address and agent together, so rotating the agent from one address got past it (1000 rotated
+posts were all allowed). The cap now has a per-address bucket (180 a minute) in front of the per-address-and-agent bucket
+(60 a minute), pinned by a unit test that rotates the agent (`lib/f15-views.test.ts`). What the cap covers: one trusted
+client address, per server instance, per minute; it does not cover many addresses, or a server with no trusted address
+header (skipped there, see Known limits).

@@ -27,6 +27,7 @@ export const G2_TEXT = 'after the share_action slice';
 export const G3_LABEL = 'views, not people';
 export const G3_OWNER_LINE = "Signed-out owner views can't be told from other views.";
 export const RECONCILE_LINE = 'Three weekly totals, read together: the G3 strict row counts profile views from external referrers only; the surface × via "all" row and the drops table "counted views" row are the same number, every counted surface and every referrer class (external, internal, none); all three exclude self-views and demo profiles, while the drop counts include demo profiles.';
+export const DELETION_LINE = "Deleting a trader removes that trader's rows, so past sums can change between runs, and two runs around a deletion can reveal that trader's counts: compare runs only with that in mind.";
 export const G4_TEXT = "strict G4 can't be read in this slice; signed-out D7 return is not measured";
 
 // ---- input ----
@@ -60,9 +61,11 @@ export function weekHeader(mondayMs: number): string {
   const a = md(mondayMs), b = md(mondayMs + 6 * DAY_MS);
   return `${isoWeekLabel(mondayMs)}, ${a.m} ${a.d}–${a.m === b.m ? '' : `${b.m} `}${b.d}`;
 }
-// The WEEKS ISO weeks ending with the one holding `now` (that one is partial).
+// The WEEKS complete ISO weeks before the one holding `now`. The current week is never printed: a partial week's count
+// would change between two runs and the difference could reveal a small count (POLICY P3); a complete week's count
+// stays fixed (except after a deletion, see the header line).
 export function weekWindow(now: Date): { from: string; to: string; mondays: number[] } {
-  const last = mondayOf(now.getTime());
+  const last = mondayOf(now.getTime()) - 7 * DAY_MS;
   const mondays = Array.from({ length: WEEKS }, (_, i) => last - (WEEKS - 1 - i) * 7 * DAY_MS);
   return { from: new Date(mondays[0]).toISOString().slice(0, 10), to: new Date(last + 6 * DAY_MS).toISOString().slice(0, 10), mondays };
 }
@@ -138,7 +141,7 @@ const parseKey = (key: string): ViewKey => { const [surface, via, e] = key.split
 export function buildReadout(input: ReadoutInput, now: Date): string {
   const { mondays } = weekWindow(now);
   const W = mondays.length, weeksIdx = mondays.map((_, w) => w);
-  const weekHead = mondays.map((m, i) => weekHeader(m) + (i === W - 1 ? ' (partial)' : ''));
+  const weekHead = mondays.map(weekHeader);
 
   // Views. Only registry values reach the counts: an unknown surface is skipped, an unknown via is counted as none.
   const views = new Base(W);
@@ -157,6 +160,8 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
   out.push('# F-15 owner readout');
   out.push('');
   out.push(`Generated ${now.toISOString().slice(0, 10)} (UTC days, ISO weeks). Owner-only; descriptive counts only; never commit this file.`);
+  out.push(`Weeks: the ${WEEKS} complete ISO weeks before this one; the current week is not printed, so a printed week does not change between runs.`);
+  out.push(DELETION_LINE);
   out.push('Strict DESIGN §3.5 numbers come first; anything else is labelled partial (gate definitions: MRC2-3, owner).');
   out.push('Demo profiles and self-views are excluded. "<5" = a count from 1 to 4; "(s)" = hidden so a small count can\'t be worked out; "≥ n" = a sum with hidden parts (n counts only the visible parts).');
   out.push('');

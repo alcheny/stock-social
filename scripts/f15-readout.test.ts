@@ -7,11 +7,11 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-  G2_TEXT, G3_LABEL, G3_OWNER_LINE, G4_TEXT, RECONCILE_LINE, buildReadout, parseOutArg, resolveOut, suppress, weekWindow,
+  G2_TEXT, G3_LABEL, G3_OWNER_LINE, G4_TEXT, DELETION_LINE, RECONCILE_LINE, buildReadout, parseOutArg, resolveOut, suppress, weekWindow,
   type ReadoutInput, type RollupRow,
 } from './f15-readout.ts';
 
-const NOW = new Date('2026-11-01T12:00:00Z'); // a Sunday: weeks 2026-W37 .. 2026-W44
+const NOW = new Date('2026-11-01T12:00:00Z'); // a Sunday in 2026-W44: printed weeks 2026-W36 .. 2026-W43
 const { mondays } = weekWindow(NOW);
 const dayOf = (week: number, offset = 0) => new Date(mondays[week] + offset * 86_400_000).toISOString().slice(0, 10);
 const view = (week: number, n: number, o: Partial<RollupRow> = {}): RollupRow =>
@@ -207,7 +207,49 @@ test('one line reconciles the three weekly totals', () => {
 
 test('week headers carry the ISO week and its UTC dates', () => {
   const md = buildReadout(fixture(), NOW);
-  assert.ok(md.includes('| 2026-W44, Oct 26–Nov 1 (partial) |'));
+  assert.ok(md.includes('| 2026-W43, Oct 19–25 |'));
   assert.ok(md.includes('| 2026-W40, Sep 28–Oct 4 |'));
-  assert.ok(md.includes('| 2026-W37, Sep 7–13 |'));
+  assert.ok(md.includes('| 2026-W36, Aug 31–Sep 6 |'));
+  assert.ok(!md.includes('W44'), 'the current week is not printed');
+  assert.ok(!md.includes('partial)'));
+  assert.ok(md.includes(DELETION_LINE));
+  assert.match(DELETION_LINE, /removes that trader's rows/);
+});
+
+// Every (table, row, week) cell of a readout, keyed by its header text.
+function cellMap(md: string): Map<string, string> {
+  const m = new Map<string, string>();
+  let head: string[] = [], section = '';
+  for (const line of md.split('\n')) {
+    if (line.startsWith('## ')) section = line;
+    if (!line.startsWith('|') || /^\|(-+\|)+$/.test(line)) { if (!line.startsWith('|')) head = []; continue; }
+    const cells = cellsOf(line);
+    if (!head.length) { head = cells; continue; }
+    const label = cells.slice(0, cells.length - head.filter((h) => /^\d{4}-W\d{2}/.test(h)).length - (head.at(-1) === 'Total' ? 1 : 0)).join(' / ');
+    head.forEach((h, i) => { if (/^\d{4}-W\d{2}/.test(h)) m.set(`${section} | ${label} | ${h}`, cells[i]); });
+  }
+  return m;
+}
+
+test('two runs (mid-week, then the next week) print the same value for every week both show', () => {
+  const mon = Date.parse('2026-11-02T00:00:00Z'); // 2026-W45
+  const d = (offset: number) => new Date(mon + offset * 86_400_000).toISOString().slice(0, 10);
+  const rows: RollupRow[] = [
+    ...Array.from({ length: 4 }, (_, i) => ({ day: d(i * 7 - 21), surface: 'profile', ref_class: 'external', via: 'inv_t', self_view: false, n: 30 })),
+    { day: d(2), surface: 'profile', ref_class: 'none', via: 'inv_t', self_view: false, n: 20 }, // by Wednesday
+    { day: d(4), surface: 'profile', ref_class: 'none', via: 'inv_t', self_view: false, n: 1 }, // one more on Friday
+  ];
+  const wed = new Date(mon + 2 * 86_400_000 + 12 * 3_600_000), fri = new Date(mon + 4 * 86_400_000 + 12 * 3_600_000);
+  const nextMon = new Date(mon + 7 * 86_400_000 + 3_600_000), nextWed = new Date(mon + 9 * 86_400_000);
+  const upTo = (t: Date) => only(rows.filter((r) => Date.parse(`${r.day}T00:00:00Z`) <= t.getTime()));
+  const a = buildReadout(upTo(wed), wed), b = buildReadout(upTo(fri), fri), c = buildReadout(upTo(nextMon), nextMon), e = buildReadout(upTo(nextWed), nextWed);
+  assert.ok(!a.includes('W45') && !b.includes('W45'), 'the running week is not printed');
+  assert.equal(a, b.replace(/Generated \S+/, `Generated ${wed.toISOString().slice(0, 10)}`)); // same week: identical counts
+  assert.ok(c.includes('2026-W45, Nov 2–8'));
+  const ma = cellMap(a), mc = cellMap(c), me = cellMap(e);
+  let shared = 0;
+  for (const [k, v] of ma) if (mc.has(k)) { shared++; assert.equal(mc.get(k), v, k); }
+  for (const [k, v] of mc) if (me.has(k)) assert.equal(me.get(k), v, k);
+  assert.ok(shared > 20, `compared ${shared} cells`);
+  assert.ok(!a.includes('| 20 |') && !a.includes('≥ 20'));
 });

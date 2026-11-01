@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { MARKS } from '../scripts/compliance.ts';
-import { REF_CLASSES, botReason, parseBeacon, rateLimited, refClass, surfaceOf, RATE_MAX, type ViewKey } from './views.ts';
+import { REF_CLASSES, botReason, parseBeacon, rateLimited, refClass, surfaceOf, RATE_MAX, RATE_ADDR_MAX, type ViewKey } from './views.ts';
+import { normalizeSymbol } from './ticker.ts';
 import { handleBeacon, type BeaconDeps } from './views-route.ts';
 
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
@@ -24,6 +25,10 @@ test('F-15 surfaceOf: the counted surfaces, record handles, and nothing else', (
   assert.deepEqual(surfaceOf('/u/maya/month/2026-10'), { surface: 'month', handle: 'maya', detail: '2026-10' });
   assert.equal(surfaceOf('/t/AAPL')?.surface, 'ticker');
   assert.equal(surfaceOf('/t/compare')?.surface, 'compare');
+  // A malformed symbol is a 404 on the ticker page: not counted; the rule equals lib/ticker.ts#normalizeSymbol.
+  for (const sym of ['AAPL', 'brk.b', 'X', 'thisisnotasymbol123', '1AB', 'A%20B', 'ABCDEFGHIJK', '-A']) {
+    assert.equal(surfaceOf(`/t/${sym}`)?.surface === 'ticker', normalizeSymbol(decodeURIComponent(sym)) !== null, sym);
+  }
   assert.equal(surfaceOf('/how')?.surface, 'how');
   assert.equal(surfaceOf('/login?ref=a')?.surface, 'login');
   for (const p of ['/me', '/settings', '/u/maya/story', '/u/maya/month/2026-13', '/u/maya/month/x', '/u/a', '/u/maya/trade/a%00b', 'u/maya', '', 3, null, '/u/' + 'a'.repeat(300), '/api/views', '/connect']) {
@@ -78,6 +83,10 @@ test('F-15 rate cap: an engaged reader (30 a minute) is never capped; a burst pa
     assert.equal(out.filter((x) => x === 'ok').length, RATE_MAX);
     assert.deepEqual(out.slice(RATE_MAX), ['first-over', 'over', 'over', 'over', 'over']);
     assert.equal(rateLimited(burst, t0 + 65_000), 'ok'); // the next minute
+    // Rotating the user agent from one address does not multiply the cap (orchestrator review, blocking 1).
+    const rot = Array.from({ length: 1000 }, (_, i) => rateLimited(hdrs({ 'x-forwarded-for': '203.0.113.9', 'user-agent': `${UA} r${i}` }), t0 + 20_000));
+    assert.equal(rot.filter((x) => x === 'ok').length, RATE_ADDR_MAX);
+    assert.equal(rot.filter((x) => x === 'first-over').length, 1);
     delete process.env.TRUST_PROXY_HEADERS;
     const anon = hdrs();
     for (let i = 0; i < 100; i++) assert.equal(rateLimited(anon, t0 + 10_000), 'ok', `anon ${i}`);

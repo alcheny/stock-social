@@ -25,7 +25,9 @@ export function surfaceOf(path: unknown): Target | null {
   if (p === '/how') return plain('how');
   if (p === '/login') return plain('login');
   if (p === '/t/compare') return plain('compare');
-  if (/^\/t\/[^/]+$/.test(p)) return plain('ticker');
+  // A ticker page 404s for a malformed symbol (lib/ticker.ts#normalizeSymbol, same rule; lib/f15-views.test.ts pins it).
+  const t = /^\/t\/([^/]+)$/.exec(p);
+  if (t) return /^[A-Z][A-Z0-9.-]{0,9}$/.test(decodeSafe(t[1]).trim().toUpperCase()) ? plain('ticker') : null;
   const m = /^\/u\/([^/]+)(?:\/(trade|month)\/([^/]+))?$/.exec(p);
   if (!m) return null;
   // The pages match the handle exactly (no case folding or trimming): /u/Maya is a 404, so it counts nothing.
