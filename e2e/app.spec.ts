@@ -1003,7 +1003,13 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
   try {
     for (let h = 0; h < HEAVY; h++) {
       const acts = [];
+      // Fixes cycle 4 (C4-2): the fixture's 1% oversells now count most later sells of their stock, so they are left out:
+      // these traders only need to be heavy and confident (as lib/downsample.test.ts#heavyRecord).
+      const held = new Map<string, number>();
       for (let a = 0; a < 4; a++) for (const r of seededActivities(`hf${h}-${a}`, 2_500, 1000 + 10 * h + a)) {
+        const k = `${a}|${r.symbol}`, have = held.get(k) ?? 0;
+        if (r.type === 'SELL' && r.units > have) continue;
+        held.set(k, r.type === 'SELL' ? have - r.units : have + r.units);
         acts.push({ externalId: r.id, accountId: `hf${h}-${a}`, symbol: r.symbol, side: r.type, units: r.units, price: r.price, fee: r.fee ?? 0, executedAt: new Date(r.trade_date), verified: true });
       }
       const closes = matchTrades(acts).trades.sort((x, y) => y.closedAt.getTime() - x.closedAt.getTime());
