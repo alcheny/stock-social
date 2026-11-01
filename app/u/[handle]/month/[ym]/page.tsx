@@ -27,7 +27,7 @@ const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'n
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const r = await load(params);
-  if (!r) return {};
+  if (!r) notFound(); // F-16/F-17: the 404 head comes from ../../not-found.tsx (hidden / retired / generic)
   // F-12: the strip's words. Reviewer fix (TR-3): the record part follows the profile's record-state rule, as on the
   // trade page. The image's alt text is declared here because it depends on the record (F-4 pattern).
   const whole = recordStrip(recordStripInput(r), 'image');

@@ -920,3 +920,21 @@ export const CHORES_3 = {
   backToFeed: 'Back to the feed',
 } as const;
 // end CHORES-3
+
+// ---- F-16 · Trust and safety slice (docs/features/F-16-trust-and-safety-slice.md; plan
+// docs/features/logs/F-16-F-17/plan.md §0.6, §5.4). Additive block. PRODUCT_NAME is used by the new F-16/F-17 copy
+// only (existing literals stay); a future rename (POLICY T5a) then changes one constant.
+export const PRODUCT_NAME = 'Stock Social';
+// The neutral 404 notices of app/u/[handle]/not-found.tsx (plan §2.1). Never "reported", "review" or a reason, no
+// name, figure or badge, no link to a new handle. Unknown handles keep app/not-found.tsx's generic page and title.
+export const HIDDEN_NOTICE = {
+  title: `Profile not available · ${PRODUCT_NAME}`,
+  h1: 'Profile not available',
+  line: 'This profile is not available right now.',
+} as const;
+export const RETIRED_NOTICE = {
+  title: `Handle no longer in use · ${PRODUCT_NAME}`,
+  h1: 'This handle is no longer in use',
+  line: 'Links to this address no longer lead to a profile.',
+} as const;
+// end F-16

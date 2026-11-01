@@ -32,7 +32,7 @@ const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)}
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { sellId } = await params;
   const t = await load(params);
-  if (!t) return {};
+  if (!t) notFound(); // F-16/F-17: the 404 head comes from ../../not-found.tsx (hidden / retired / generic)
   // F-12: the strip's words. Fix round 6: "verified" only for a whole record from the broker; "demo" for demo data.
   // Reviewer fix (TR-3): no record stats while an import runs; the incomplete line first on a failed one. The image's
   // alt text is the strip in words, declared here because a file-level alt is static (F-4 pattern).
