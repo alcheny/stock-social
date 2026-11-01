@@ -131,3 +131,13 @@ All four members answered REVISE (`plan-signoff-*.md`). These changes meet every
 
     Target ≤ 790. `productLines` runs before each push. If the diff is still over 800, the builder stops and
     flags it instead of cutting required items.
+
+## Round 5 changes (independent fresh-context sign-off, 2026-11-01)
+
+1. **`unhide` stays** (business lead demand 1; legal C13 "reversible"). Round 4 cut 11.3 is deleted; AC 23 stands as
+   written. If the diff is over 800 product lines after cuts 11.1-11.2, the builder stops and flags it.
+2. **AC 34 (business lead demand 2; C15):** the profile and month share-card data, the image alt and the unfurl
+   description each contain "Public filing" and "has not joined Stock Social"; the rendered line is at least 24 px at
+   1200x630; none shows Verified, a Demo/Verified mix-up or any amount. Node test on the card data plus the e2e alt
+   and meta scan.
+3. The feed card line is exactly "Company insider · from a public filing", with no date.

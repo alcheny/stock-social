@@ -32,3 +32,17 @@ are missing from the merge, and one owner item cannot be met as written.
 Round 4 items 8 (dry run, AC 33), 2 (no page without a priced record) and 1 (three-row block, exact copy) meet
 demands 1-3. Non-blocking: the dry run reads `PUBLIC_TRADERS=1` from its own process env only, never from deploy
 settings, so running it can't turn on the deployed routes. Switch-on still waits for the dry-run number (§5 item 3).
+
+## Independent sign-off (fresh context)
+
+Verdict: REVISE with two blocking demands (text edits to plan.md, applied in plan.md "Round 5 changes"):
+1. Keep `unhide` (Round 4 cut 11.3 broke legal C13 "hide pending review (reversible)" and AC 23). Cut 11.3 deleted; if
+   the diff is over 800, the builder stops and flags.
+2. The not-joined line on the share card with a test: new AC 34 (card data, image alt and unfurl description carry
+   "Public filing" and "has not joined Stock Social"; the line is at least 24 px at 1200x630; no Demo/Verified mix-up,
+   no amount).
+
+Non-blocking: market demand still 3 (below the bar); signed on the owner's recorded direction; switch-on waits for
+the dry run (at least 100 filers with 5+ priced closes). The dry run reads `PUBLIC_TRADERS=1` from its own process
+only. Card line exactly "Company insider · from a public filing", no date. Signs once both edits are in plan.md; no
+new debate round needed.
