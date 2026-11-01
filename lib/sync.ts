@@ -143,7 +143,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
   return tx ? run(tx) : sql.begin(run);
 }
 
-type Broker = {
+export type Broker = {
   listAccounts: typeof listAccounts; // with the authorization, paper and sync flags
   fetchActivities: typeof fetchActivities;
   // PR-3 (heavy-use): a sync with no stored history reads it page by page (one page held at a time) when available.
@@ -152,13 +152,13 @@ type Broker = {
   fetchShareMoves?: typeof fetchShareMoves; // corporate actions (F3c): each real account's share-moving rows
   pageLimit?: number;
 };
-const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves };
+export const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves };
 
 export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
 // `connected`, and never while an import runs (the tick's steps own that row). A pending link, a failed import and a
 // profile being deleted are never synced.
-const syncable = () => sql`u.snaptrade_user_id is not null and u.deleted_at is null
+export const syncable = () => sql`u.snaptrade_user_id is not null and u.deleted_at is null
     and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
     and not exists (select 1 from connections c where c.user_id = u.id and c.state = 'importing')`;
 export async function usersToSync(): Promise<SyncableUser[]> {
@@ -201,13 +201,13 @@ export type ClaimedUser = SyncableUser & { lease: string; prev: string | null };
 // `maxAccounts` (fix round 6): only traders whose consented real accounts, capped at SYNC_FIT_CAP, are at most this many.
 export type ClaimScope = { shiftMs?: number; ids?: number[]; except?: number[]; maxAccounts?: number };
 // The database clock (shifted by the test hook) and the start of its round; and the claim rule over them.
-const clockSql = (shiftMs: number) => sql`select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
+export const clockSql = (shiftMs: number) => sql`select now() + ${shiftMs}::float8 * interval '1 millisecond' as t,
         date_trunc('hour', now() + ${shiftMs}::float8 * interval '1 millisecond' - ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond', 'UTC')
           + ${ROUND_OFFSET_MS}::float8 * interval '1 millisecond' as round_start`;
-const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_until <= clock.t)
+export const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_until <= clock.t)
         and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)`;
 // A trader's real accounts under its connected connections' snapshots (what a sync reads; paper accounts are not read).
-const accountsOf = () => sql`(select count(*) from connections c, jsonb_array_elements(c.accounts) a
+export const accountsOf = () => sql`(select count(*) from connections c, jsonb_array_elements(c.accounts) a
         where c.user_id = u.id and c.state = 'connected' and coalesce((a->>'isPaper')::boolean, false) = false)`;
 export async function claimNextUser(scope: ClaimScope = {}): Promise<ClaimedUser | null> {
   const { shiftMs = 0, ids, except, maxAccounts } = scope;
@@ -257,16 +257,26 @@ export const SYNC_ROUTE_MAX_S = 300;
 export const SYNC_RESERVE_MS = 3 * VENDOR_TIMEOUT_MS;
 export const syncDeadline = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000 - SYNC_RESERVE_MS;
 // F-1 PR-3 fix round 6 (engineer re-sit, Low): the fixed reserve fit a one-account sync only. A sync of n accounts makes
-// up to 1 + 2n vendor requests (the account list, then each account's activities and positions), so the tick sizes the
-// reserve per trader: it claims a trader only if (1 + 2n) vendor bounds fit before the route's end (`routeEnd`), and
+// up to syncRequests(n) = 1 + 3n vendor requests (the account list, then each account's activities, positions and share
+// moves), so the tick sizes the reserve per trader: it claims a trader only if that many vendor bounds fit before the
+// route's end (`routeEnd`), and
 // leaves the others unclaimed (counted in the log) for the next call, which starts with the whole budget. n is capped at
 // SYNC_FIT_CAP, the most a whole call fits, so a trader with more accounts is still claimed, at the start of a call.
-// ponytail: past SYNC_FIT_CAP accounts (or an activity read over one vendor page per account) a sync can still overrun;
-// it then rolls back and its lease lapses, as before — fix: split the sync per account like the import.
+// ponytail: past SYNC_FIT_CAP accounts (or an activity or share-move read over one vendor page per account) a sync can still overrun;
+// it then rolls back and its lease lapses, as before. Sharded sync (lib/sync-shard.ts) dispatches such a trader only
+// at the start of a call, and after two overruns in a row quarantines it (backed off, counted `quarantined` in shard 0's
+// coverage line) instead of retrying it first forever. The overrun needs every request near its 30 s bound; a normal
+// sync of 5+ accounts takes seconds. Next step: split the sync per account like the import (a change to syncUser's
+// one-transaction rule, D4/D5: its own design session).
 export const syncRouteEnd = (startedAt: number) => startedAt + SYNC_ROUTE_MAX_S * 1000;
-export const syncCost = (accounts: number) => (1 + 2 * accounts) * VENDOR_TIMEOUT_MS;
-export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / 2);
-export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs / VENDOR_TIMEOUT_MS - 1) / 2);
+// Sharded sync (coordination with the corporate-actions PR #40): the vendor reads a sync makes per real account, in one
+// constant that syncCost, SYNC_FIT_CAP, accountsThatFit and the shard runner's request budget all read: 3 since #40
+// (activities, positions, and the corporate actions' share moves).
+export const SYNC_REQUESTS_PER_ACCOUNT = 3;
+export const syncRequests = (accounts: number) => 1 + SYNC_REQUESTS_PER_ACCOUNT * accounts;
+export const syncCost = (accounts: number) => syncRequests(accounts) * VENDOR_TIMEOUT_MS;
+export const SYNC_FIT_CAP = Math.floor((SYNC_ROUTE_MAX_S * 1000 / VENDOR_TIMEOUT_MS - 1) / SYNC_REQUESTS_PER_ACCOUNT);
+export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs / VENDOR_TIMEOUT_MS - 1) / SYNC_REQUESTS_PER_ACCOUNT);
 
 // `deadline` (epoch ms on `clock`, the instance's own clock: it measures this call's duration only) stops claiming
 // once reached; `report` receives what the end-of-call log line says; `clock`, `release` and the rest are test hooks.
@@ -370,8 +380,8 @@ export async function syncUser(
     }
     // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
     // rebuild applies them.
-    // ponytail: one more vendor request per account than syncCost counts (1 + 2n), so a trader near SYNC_FIT_CAP accounts
-    // can overrun the route (it then rolls back and is retried) — fix: count it in syncCost with the sharded-sync budget.
+    // Counted: SYNC_REQUESTS_PER_ACCOUNT is 3 (activities, positions, share moves), so syncCost, SYNC_FIT_CAP and the
+    // sharded runner's request budget include this read (one page per account; more pages are the ponytail above).
     if (broker.fetchShareMoves) {
       for (const id of real) {
         const moves = await broker.fetchShareMoves(bu, id);
