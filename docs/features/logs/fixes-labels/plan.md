@@ -100,8 +100,9 @@ export const FIXES_LABELS = {
 } as const;
 ```
 Params are strings (`count()`/`counted()`/`dateText()` output). `baselineOthers` uses the others' 95% range from the same
-`confidence()` path as this stock (built from one aggregate's rows, not `exp(avg(ln))`). If the pooled rows are not
-available without touching `load()`, the line drops the range and prints the count only (ponytail note). The wording of
+`confidence()` path as this stock (bets clustered in SQL as `lib/ticker-sql.ts` does, not `exp(avg(ln))`). The range is
+required on both sides; if either side is below `MIN_BETS`, both lines print the count only (never two different
+measures; round 3, business lead). The wording of
 "updated"/"as of" is the design-system council's to settle (one-block edit).
 
 ## 3. Items
@@ -199,7 +200,7 @@ Image as in D-09.
 3. Demo scan: for `/`, pane, `/u/momentum_maya`, its trade and month (sell_id, ym from the DB), `/t/NVDA`, `/t/compare?a=NVDA&b=AMD` and the three image routes: main text, `<title>`, meta description and `og:image:alt` contain "Demo" and no `/verified/i` (footer excluded). → `e2e/fixes-labels.spec.ts`.
 4. `dateText`: `'May 30'` same year, `'May 30, 2020'` otherwise, `'always'`, UTC 23:30/00:30 edges, `asOfDay` parity; `relativeText` boundaries. → `lib/date-text.test.ts`.
 5. A 2020 close on a feed card prints "2020"; the at-rest subline reads "All time · last close ‹date›"; `.chart-ends` inside `figure.chart` shows first and last close; scrub stays `M/D/YYYY`. → e2e.
-6. Baseline copy builders contain no "above", "below", "difference", "sits", "geometric", "all"; → `lib/fixes-labels-copy.test.ts`; section and `data-kind` render → existing e2e.
+6. Baseline copy builders contain no "above", "below", "difference", "sits", "geometric", "all"; both lines carry a range or neither does; → `lib/fixes-labels-copy.test.ts`; section and `data-kind` render → existing e2e.
 7. **C1 route walk**: the spec walks `app/**/page.tsx` and maps each to a URL from a fixture map (`/u/momentum_maya`, `/t/NVDA`, `/t/compare?a=NVDA&b=AMD`, trade sell_id and month ym from the DB as app.spec:473); `/me/*` and `/settings` signed in through `/login/dev` as an owner with trades; an unmapped dynamic route fails. A route "shows performance" when one regex `/[+−-]?\d+(\.\d+)?%/` matches main text; then the F3 line is in the viewport at 360×740 and intersects none of `nav.top`, `.signin-line:not(:empty)`, `.hide-bar` (bars raised first, as `likes.spec.ts`); `/how`: in view when its first `%` is scrolled into view. `/connect/*` and `/login/*` show no `%` figure. Also the open pane and the first card of the second appended feed page; feed fixture card carries a 280-char thesis. → `e2e/fixes-labels.spec.ts`.
 8. Trade and month: the F3 line is the last child of the "This trade" / "This month" box and in the viewport. → e2e.
 9. `statusParts`: frozen → `frozen` text, line2 = `lastClose` only, no "Connected", no "updated", no idle even when 40 days stale (frozen wins); live → exact `connectedLine` text; **two connections, one disconnected** → "Connected: Fake Brokerage (1 account)" plus "Fake Brokerage disconnected ‹date›"; demo → "Demo data"; importing/failed/filing → `show:false`; static mode has no `rel` and no "ago"; a failed sync (unchanged `lastSyncedAt`) leaves line2 unchanged; `now` injected, no clock read. → `lib/record-status.test.ts`.
@@ -268,3 +269,6 @@ datetime>`, ≥ 4.5:1, static text, 44 px targets unchanged. 9 Security: no. 10 
 | 26 | F-7 filing profiles unhandled | Eng 17 | `source:'filing'` → no line; value coordinated with F-7 |
 | 27 | Fix #8 and D-04 wording | BL | Declined here; out of scope |
 | 28 | Open positions as "Account i of n" | committee | Rejected for this PR; ponytail note |
+
+### Round 3
+- Business lead: remove the `baselineOthers` count-only fallback; both sides carry a range from the same path or both print counts only (applied in §2 and AC6). Non-blocking follow-up: `compareTail` keeps "Sample data, not from a real broker." only because `compare.test.ts:74` asserts it; whoever owns that test changes it to "Demo trades, not from a real broker." Business lead: SIGN after this change.
