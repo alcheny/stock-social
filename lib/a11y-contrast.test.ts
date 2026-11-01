@@ -8,58 +8,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { dark, decls, last as lastRule, light, parse, tokenOf, tokensFor as tokensForRules, type Rule } from './css-cascade.ts';
+import { contrast } from './colour-math.ts';
 
 const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
-type Rule = { sels: string[]; body: string; media: string[] };
-function parse(text: string, media: string[] = [], out: Rule[] = []): Rule[] {
-  let i = 0;
-  while (i < text.length) {
-    const open = text.indexOf('{', i);
-    if (open < 0) break;
-    const prelude = text.slice(i, open).trim();
-    let depth = 1, j = open + 1;
-    while (j < text.length && depth) { if (text[j] === '{') depth++; else if (text[j] === '}') depth--; j++; }
-    const inner = text.slice(open + 1, j - 1);
-    if (prelude.startsWith('@')) parse(inner, [...media, prelude], out);
-    else out.push({ sels: prelude.split(',').map((s) => s.trim().replace(/\s+/g, ' ')), body: inner, media });
-    i = j;
-  }
-  return out;
-}
+// F-20: the cascade walk (lib/css-cascade.ts) and the contrast maths (lib/colour-math.ts) are shared with
+// lib/fixes-cycle2-a11y.test.ts, so there is one set of contrast values.
 const rules = parse(css);
-const light = (r: Rule) => r.media.every((m) => !/prefers-color-scheme:\s*dark/.test(m) && !/max-|min-/.test(m));
-const dark = (r: Rule) => r.media.every((m) => !/prefers-color-scheme:\s*light/.test(m) && !/max-|min-/.test(m));
 const scheme = { dark, light } as const;
-const decls = (body: string) => [...body.matchAll(/([a-z-]+)\s*:\s*([^;]+)/gi)].map((m) => [m[1].trim(), m[2].trim()] as const);
-const hex6 = (h: string) => (h.length === 4 ? `#${[...h.slice(1)].map((c) => c + c).join('')}` : h).toLowerCase();
-// Hex tokens, and tokens that name another (`--verified: var(--text)`), resolved after the cascade.
-const tokensFor = (on: (r: Rule) => boolean) => {
-  const raw: Record<string, string> = {};
-  for (const r of rules) if (r.sels.includes(':root') && on(r)) for (const [k, v] of decls(r.body)) if (k.startsWith('--')) raw[k.slice(2)] = v;
-  const t: Record<string, string> = {};
-  const resolve = (k: string, seen = 0): string | undefined => {
-    const v = raw[k];
-    if (!v || seen > 8) return undefined;
-    const hex = v.match(/^#[0-9a-f]{3,6}\b/i), ref = v.match(/^var\(--([a-z0-9-]+)\)$/i);
-    return hex ? hex6(hex[0]) : ref ? resolve(ref[1], seen + 1) : undefined;
-  };
-  for (const k of Object.keys(raw)) { const v = resolve(k); if (v) t[k] = v; }
-  return t;
-};
-// The value the cascade ends on for `prop` (or any of `props`) on exactly `sel`, among rules outside size media queries.
-const last = (sel: string, props: string[], on: (r: Rule) => boolean = dark) => {
-  let v: { prop: string; value: string } | undefined;
-  for (const r of rules) if (r.sels.includes(sel) && on(r)) for (const [k, val] of decls(r.body)) if (props.includes(k)) v = { prop: k, value: val };
-  return v;
-};
+const tokensFor = (on: (r: Rule) => boolean) => tokensForRules(rules, on);
+const last = (sel: string, props: string[], on: (r: Rule) => boolean = dark) => lastRule(rules, sel, props, on);
 
 const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-const lum = (hex: string) => {
-  const c = rgb(hex).map((v) => v / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-};
-const contrast = (a: string, b: string) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 // A background as painted over `base`: none/transparent, a token, or `color-mix(in srgb, var(--x) N%, transparent)`.
 const paint = (value: string | undefined, t: Record<string, string>, base: string) => {
   if (!value || /^(none|transparent)$/.test(value)) return base;
@@ -69,7 +30,6 @@ const paint = (value: string | undefined, t: Record<string, string>, base: strin
   assert.ok(tok, `unrecognised background "${value}"`);
   return t[tok![1]];
 };
-const tokenOf = (value: string | undefined) => value?.match(/var\(--([a-z-]+)\)/)?.[1];
 
 for (const [name, on] of Object.entries(scheme)) {
   const t = tokensFor(on);
