@@ -3841,8 +3841,8 @@ then grep for what your role needs). Key cycle-1 conclusions:
   visibility ~4-7×; paid ads lose money with no trackers (P6); views gate likely misses by 1.5-50× depending on mix;
   founder needs 75-160 contacts a week for 50 connects.
 - Cycle 1 tests T1-T11 and proposals #1-#14 (Part A §11 and §13).
-Creative direction council proposals: the council scratch folder: creative.md §11 (line 1111+). Design direction council proposals:
-the council scratch folder: design.md "Proposals" (line 1188+ detail, 1467+ table).
+Creative direction council proposals: docs/direction/creative-2026-11-01.md §11 (line 1111+). Design direction council proposals:
+docs/direction/design-2026-11-01.md "Proposals" (line 1188+ detail, 1467+ table).
 
 #### Approval-council candidates (the list cycle 2 validates; group them as your role needs)
 From docs/IDEAS.md (candidate column): #13 go-to-market + gate counters; #14 projection assumptions + cheapest test; D20 disclaimer
