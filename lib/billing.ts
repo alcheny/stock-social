@@ -133,7 +133,11 @@ async function ensureCustomer(userId: number): Promise<string> {
   if (have) return have.vendor_customer_id as string;
   const ref = billingRef(userId);
   const c = await vendor('POST', '/v1/customers', { metadata: { ref } }, `customer-${ref}`);
-  await sql`insert into billing_customers (user_id, vendor_customer_id) values (${userId}, ${c.id as string}) on conflict (user_id) do nothing`;
+  // Two checkouts at once (two tabs, a double submit) get the same customer (one idempotency key per user) and insert
+  // the same row. With `on conflict (user_id)` only, the one that lost the race on the vendor_customer_id index raised
+  // 23505 instead of reading the winner's row (CI, PR #52). No target: every unique index is an arbiter, and both
+  // conflicts mean this user's own customer.
+  await sql`insert into billing_customers (user_id, vendor_customer_id) values (${userId}, ${c.id as string}) on conflict do nothing`;
   const [row] = await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`;
   return row.vendor_customer_id as string;
 }
