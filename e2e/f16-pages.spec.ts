@@ -165,7 +165,7 @@ test('Q9 / B4: the hidden trader sees one private neutral line on their own 404;
     expect(mine).not.toMatch(/report|review/i);
     expect(mine).not.toMatch(/%|Verified|Demo/);
     // Signed out, a fresh browser context (no cookies): the same notice without the private line, also no-store.
-    const ctx = await browser.newContext({ baseURL: 'http://localhost:3000' });
+    const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL });
     try {
       const anon = await ctx.newPage();
       const out = await anon.goto(`/u/${hidden}`);

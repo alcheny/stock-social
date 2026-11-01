@@ -163,7 +163,7 @@ test('fix round 2 (BL4/T4, T2, UX2): "Send report" ends by 740 px with and witho
     await expect(page.getByRole('link', { name: `Back to @${target}` })).toBeVisible();
 
     // UX2: signed out, the Sign in button is a 44 px target.
-    const ctx = await browser.newContext({ baseURL: 'http://localhost:3000', viewport: { width: 360, height: 740 } });
+    const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL, viewport: { width: 360, height: 740 } });
     try {
       const anon = await ctx.newPage();
       await anon.goto(`/u/${target}/report`);

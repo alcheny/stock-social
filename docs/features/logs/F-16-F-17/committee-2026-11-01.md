@@ -164,3 +164,32 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
   poll the title and then require exactly one. Three back-to-back runs passed.
 - The F-17 old-links note is a plain comment (a decision, not a limit), so it is no longer a `ponytail:`.
 - Compliance: the one tree item (`@img/sharp-wasm32` licence in `node_modules`) appears identically on origin/main.
+
+## Orchestrator review fixes (2026-11-01)
+
+Review of PR #100; main merged (#101, #84 F-24, #98 F-31). Each item test first.
+
+1. Record tools comparison cards (`lib/record-tools.ts#card`) check the visible-user predicate first. A hidden trader
+   gets a neutral card: no figures, no exclusion lines (F-24's `excluded_held` among them), no connected line (the
+   false "Demo data" is gone), record state `none`, and `HIDDEN_NOTICE.line` in place of "No closed trades" (new
+   `notice` field; `lib/record-tools.test.ts`'s exact key list gains it). Test: `lib/f16-private-lists.db.test.ts`.
+   The read scanner's allowlist counts F-24's new close-snapshot read in `lib/options-sync.ts` (7).
+2. Every `generateMetadata` under `app/u/[handle]/**` (profile, month, report; the trade page already did) returns
+   the not-found module's head instead of calling `notFound()`; the bodies still call `notFound()`.
+   `e2e/f16-not-found.spec.ts` passed three runs in a row.
+3. The profile, trade and month images and `/u/<h>/story` answer a missing record with `lib/share.ts#imageNotFound`
+   (404, `Cache-Control: no-store`, no body): `notFound()` in an image route sends a bare 404 with no Cache-Control.
+   The 200s keep `public, max-age=300`. `e2e/f16-hide.spec.ts` asserts the header; the cycle-2 #20 static pin
+   (`lib/f12-followups.test.ts`) now requires the helper on all four files.
+4. The rename exemption covers only the handle the system assigned: `users.provisional_handle` (additive column, set
+   by `createUserForAttempt` for a provisional handle, null for a chosen one, cleared on every rename, so renaming
+   back to it and away again counts). Accounts from before the column count their first rename (no real users yet).
+   Test: `lib/f17-rename.db.test.ts` (a chosen trader_-shaped handle, then two more: the third is refused as `soon`;
+   the assigned handle, a rename-back and away: refused on the next).
+5. `e2e/f16-pages.spec.ts`, `e2e/f16-report-form.spec.ts` and `e2e/fixes-labels.spec.ts` read the project's baseURL.
+6. Runbook Section 3: on a founded under-18 report the owner's step is `docs/COMPLIANCE.md` Section 7's procedure
+   (delete, log, review the gate). Owner item, also under F-16 Open questions: no audited owner-run account-closing
+   path exists yet; until then the hide stays.
+7. Display names: "Officiality" passes (`-ity` joins the official family's suffixes); the verified family takes no
+   suffix, so "VERIFIEDLY" is refused; "Snap Trade" (space, hyphen or underscore) is the brand. Test:
+   `lib/f17-handles.test.ts`.

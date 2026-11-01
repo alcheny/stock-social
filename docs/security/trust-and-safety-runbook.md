@@ -55,8 +55,15 @@ See what was done: `node --env-file=.env scripts/hide.ts history <user_id>` (cod
 - A hide (`may-be-under-18`) is allowed while you decide.
 - Never ask for a date of birth, an ID document or an age estimate. The product has no age-assurance method yet
   (an owner decision, F-16 Open questions).
-- Closing such an account is the owner's own decision, taken through the product's account-closing path in settings
-  or its documented owner procedure. It is never automatic and never done for you by a script or an assistant.
+- When the owner finds such a report founded, the owner's step is `docs/COMPLIANCE.md` Section 7's under-18
+  procedure, the one for a COPPA notice: delete the account, log what was done, and review the sign-up age gate.
+- Closing the account is the owner's own decision and the owner's own action, taken through the product's
+  account-closing path in settings or a documented owner procedure. It is never automatic and never done for you by
+  a script or an assistant.
+- **Owner item (open):** there is no audited, owner-run account-closing path yet. The settings path closes only the
+  signed-in account, and no owner script closes another account with an audit row. Until one exists, keep the
+  `may-be-under-18` hide in place and record the decision with `scripts/trust-digest.ts resolve`; building that path
+  is an owner decision (F-16 Open questions).
 
 ## 4. Resolving reports and repeat unfounded reporters
 

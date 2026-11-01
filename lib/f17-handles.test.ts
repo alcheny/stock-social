@@ -237,3 +237,18 @@ test('F-17 fix round 2 (UX4): after any refusal the dev form says beside the nam
   assert.match(dev, /f === 'name' && cleared \? 'name-cleared' : null\]/);
   assert.doesNotMatch(dev, /defaultValue=\{[^}]*sp\?\.name/);
 });
+
+// Orchestrator review item 7: "Officiality" is a longer word (-ity joins -ly, -dom, -ness for the official family);
+// the verified family takes no suffix ("VERIFIEDLY", "Verifiedness" read as the badge word); "Snap Trade" with a space
+// (or a hyphen or underscore, punctuation-free form) is the broker connection's name, like "Stock Social".
+test('F-17 review item 7: Officiality passes; VERIFIEDLY is refused; Snap Trade with a space is the brand', () => {
+  for (const n of ['Officiality', 'The officiality of it', 'Unofficially bullish', 'Officialdom fan', 'Unverified Hunches']) assert.ok(checkDisplayName(n).ok, n);
+  for (const n of ['VERIFIEDLY', 'Verifiedly', 'Verifiedness', 'Sam Verifiedly']) {
+    const c = checkDisplayName(n);
+    assert.ok(!c.ok && c.code === 'verified', n);
+  }
+  for (const n of ['Snap Trade', 'snap trade fan', 'SNAP TRADE', 'Snap-Trade', 'snap_trade']) {
+    const c = checkDisplayName(n);
+    assert.ok(!c.ok && c.code === 'brand', n);
+  }
+});

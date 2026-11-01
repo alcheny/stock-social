@@ -83,8 +83,10 @@ export async function createUserForAttempt(attemptId: number, i: { handle?: stri
       if (i.handle) await lockHandleSkeleton(tx, handle);
       const verdict = await checkHandle(handle, null, { provisional: !i.handle, db: tx });
       if (verdict !== 'ok') return { verdict };
-      const [u] = await tx`insert into users (handle, display_name, adult_attested_at, signup_attempt_id, referred_by_user_id, referred_via, referred_surface)
-        select ${handle}, ${typed ?? handle}, adult_attested_at, id, ${a.referred_by_user_id}, ${legacyVia(surface)}, ${surface} from signup_attempts where id = ${attemptId}
+      // F-17 (orchestrator review item 4): the handle the system assigned is stored, so only it leaves without starting
+      // the rename clock (changeHandle); a chosen handle stores none.
+      const [u] = await tx`insert into users (handle, provisional_handle, display_name, adult_attested_at, signup_attempt_id, referred_by_user_id, referred_via, referred_surface)
+        select ${handle}, ${i.handle ? null : handle}, ${typed ?? handle}, adult_attested_at, id, ${a.referred_by_user_id}, ${legacyVia(surface)}, ${surface} from signup_attempts where id = ${attemptId}
         on conflict (handle) do nothing returning id, handle`;
       return { u };
     });
@@ -155,11 +157,11 @@ export async function signInWithIdentity(attemptId: number, id: Identity, opts: 
 // Old links show the neutral retired page by design (F-17); that is a decision, not a limit, so no ponytail note.
 // F-17 (plan §6.1, Q8, v2 B3): at most one rename per RENAME_DAYS (users.handle_renamed_at, clock from opts.now) and
 // at most RENAME_HOLD_CAP = 1 held old handle per account: a new rename ends the older hold (until = now(); the purge,
-// lib/privacy-purge.ts, removes the row later). Nothing here deletes a row. Leaving the untouched provisional handle
+// lib/privacy-purge.ts, removes the row later). Nothing here deletes a row. Leaving the untouched provisional handle (the
+// one the system assigned, users.provisional_handle)
 // and renaming back to one's own active hold don't start the clock. While the launch gate is closed nobody renames onto
 // a listed handle (D22, lib/launch-gate.ts#handleReserved). Holds use the database clock (now()), as checkHandle does.
 export const RENAME_HOLD_CAP = 1;
-const PROVISIONAL = /^trader_[a-z0-9]{8}$/;
 export type ChangeHandleOpts = { env?: Env; now?: Date };
 export async function changeHandle(userId: number, raw: unknown, opts: ChangeHandleOpts = {}): Promise<string> {
   const now = opts.now ?? new Date();
@@ -168,7 +170,7 @@ export async function changeHandle(userId: number, raw: unknown, opts: ChangeHan
   if (isFilerHandle(handle)) throw new HandleTakenError('reserved'); // F-7: nobody renames into a filer handle
   try {
     return await sql.begin(async (tx) => {
-      const [me] = await tx`select handle, handle_renamed_at from users where id = ${userId} for update`;
+      const [me] = await tx`select handle, handle_renamed_at, provisional_handle from users where id = ${userId} for update`;
       if (!me) throw new Error('unknown user');
       if (me.handle === handle) return handle;
       if (handleReserved(handle, opts.env ?? process.env)) throw new HandleTakenError('reserved'); // D22, on every path
@@ -181,12 +183,16 @@ export async function changeHandle(userId: number, raw: unknown, opts: ChangeHan
       await lockHandleSkeleton(tx, handle);
       const verdict = await checkHandle(handle, userId, { db: tx });
       if (verdict !== 'ok') throw new HandleTakenError(verdict);
-      const leavesProvisional = PROVISIONAL.test(me.handle as string) && renamedAt === null;
+      // Orchestrator review item 4: only the handle the system assigned at sign-up (users.provisional_handle) is exempt,
+      // never one merely shaped like it, so renames between trader_xxxxxxxx handles count. After the free exit the
+      // exemption is used up: every rename clears provisional_handle, so renaming back to it and leaving again counts.
+      const leavesProvisional = renamedAt === null && me.provisional_handle !== null && me.handle === me.provisional_handle;
       const clock = back || leavesProvisional ? renamedAt : now;
       const [u] = await tx`update users
         set handle = ${handle},
             display_name = case when display_name = handle or btrim(display_name) = '' then ${handle} else display_name end,
-            handle_renamed_at = ${clock}
+            handle_renamed_at = ${clock},
+            provisional_handle = null
         where id = ${userId} returning handle`;
       await tx`insert into handle_reservations (handle, until, user_id) values (${me.handle as string}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day', ${userId})
         on conflict (handle) do update set until = excluded.until, user_id = excluded.user_id`;

@@ -184,12 +184,18 @@ export type NameReasonCode = keyof typeof NAME_REASON;
 // case change counts as a boundary ("VerifiedTrader", checkDisplayName's camel form). Brand words stay substring rules
 // ("StockSocialFan").
 // Fix round 1 (review item 3): the left boundary stays (so "Unofficial Notes" and "Unverified Hunches" pass), but on the
-// right only a common suffix ending the word ("-ly", "-dom", "-ness") may follow: any other letter is a compound and is
+// right only a common suffix ending the word ("-ly", "-dom", "-ness", and since review item 7 "-ity", official only) may follow: any other letter is a compound and is
 // refused whatever precedes it ("Verifiedtrader", "VERIFIEDTRADER", "Officialtrader", "THEOFFICIALDESK").
-const VERIFIED_WORD = '(?:verified|official|ver+[il1]?f[il1y]+e?d|of+[il1]c+[il1]?a[l1])';
+// Orchestrator review item 7: the suffix exception is the official family's only ("Unofficially", "Officialdom",
+// "Officiality"); a suffixed verified ("VERIFIEDLY", "Verifiedness") still reads as the badge word and is refused.
+// "Snap Trade" (a space, or a hyphen or underscore, which the punctuation-free form drops) is the brand, as
+// "Stock Social" is.
+const VERIFIED_FAMILY = '(?:verified|ver+[il1]?f[il1y]+e?d)';
+const OFFICIAL_FAMILY = '(?:official|of+[il1]c+[il1]?a[l1])';
+const VERIFIED_WORD = `(?:${VERIFIED_FAMILY}|${OFFICIAL_FAMILY})`;
 const NAME_WORDS: [RegExp, NameReasonCode][] = [
-  [new RegExp(`(?<!\\p{L})${VERIFIED_WORD}(?!\\p{L})|${VERIFIED_WORD}(?!(?:ly|dom|ness)(?!\\p{L}))(?=\\p{L})`, 'u'), 'verified'],
-  [/stock\s?social|snaptrade/, 'brand'],
+  [new RegExp(`(?<!\\p{L})${VERIFIED_WORD}(?!\\p{L})|${VERIFIED_FAMILY}(?=\\p{L})|${OFFICIAL_FAMILY}(?!(?:ly|dom|ness|ity)(?!\\p{L}))(?=\\p{L})`, 'u'), 'verified'],
+  [/stock\s?social|snap\s?trade/, 'brand'],
 ];
 // Fix round 1: a name that is only a staff or role word ("Admin", "Support Team", "The Moderators"), compared on its
 // letters and digits alone, in every look-alike reading.

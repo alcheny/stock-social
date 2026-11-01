@@ -214,3 +214,35 @@ dbTest('F-17 AC17: after a rename the old handle\'s trade card and month recap l
     await f.cleanup();
   }
 });
+
+// Orchestrator review item 4: only the handle the system assigned at sign-up (users.provisional_handle) leaves without
+// starting the clock. A trader_xxxxxxxx-shaped handle the trader typed, or reached by renaming, counts like any other.
+const shaped = () => `trader_${Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(0, 8).padEnd(8, '0')}`;
+dbTest('F-17 Q8 (review item 4): renames between trader_-shaped handles count; only the assigned one is exempt', async () => {
+  const { changeHandle } = await import('./auth/attempts.ts');
+  const tag = letters('fz');
+  const f = await fixture(tag);
+  const soon = await verdict('soon');
+  try {
+    // Chosen at sign-up, shaped like a provisional handle: not system-assigned, so the first rename starts the clock.
+    const [a, b, c] = [shaped(), shaped(), shaped()];
+    const u = await f.make(a);
+    assert.equal(await changeHandle(u.id, b), b);
+    assert.notEqual((await f.sql`select handle_renamed_at from users where id = ${u.id}`)[0].handle_renamed_at, null);
+    await assert.rejects(changeHandle(u.id, c), soon);
+    // System-assigned: leaving it is free once; a rename to another trader_ handle then counts, and the next is refused.
+    const p = await f.make();
+    assert.equal((await f.sql`select provisional_handle from users where id = ${p.id}`)[0].provisional_handle, p.handle);
+    const [x, y, z] = [shaped(), shaped(), shaped()];
+    await changeHandle(p.id, x);
+    assert.equal((await f.sql`select handle_renamed_at from users where id = ${p.id}`)[0].handle_renamed_at, null);
+    // Back to the assigned handle (the free rename-back) and away again: the exemption is used up, so this counts.
+    await changeHandle(p.id, p.handle);
+    await changeHandle(p.id, y); // the first counted rename
+    await assert.rejects(changeHandle(p.id, z), soon);
+    assert.equal((await f.sql`select handle from users where id = ${p.id}`)[0].handle, y);
+  } finally {
+    await f.sql`delete from handle_reservations where handle like 'trader_%' and user_id in ${f.sql(f.ids)}`;
+    await f.cleanup();
+  }
+});

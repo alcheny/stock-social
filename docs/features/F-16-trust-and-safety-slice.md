@@ -150,6 +150,9 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
   birth, ID or age estimation.
 - Owner: approve the takedown page wording and the anti-impersonation line before real users reach them.
 - Owner: choose an email sender, if the digest should ever be emailed.
+- Owner (2026-11-01, orchestrator review of PR #100): an audited, owner-run account-closing path for a founded
+  under-18 report (`docs/COMPLIANCE.md` Section 7: delete, log, review the gate) doesn't exist yet; until it does the
+  hide stays in place (runbook Section 3).
 
 ## Build log
 - 2026-11-01: F-16 and F-17 built as one slot on `claude/f16-f17-trust-safety` (committee record `docs/features/logs/F-16-F-17/committee-2026-11-01.md`, plan `plan.md` v3); Status set to built in its PR. Every acceptance criterion is met except the axe scan: hand-built checks (labels, roles, focus, keyboard-only, 44 px) stand in until the owner authorizes axe-core (MPL-2.0) or accepts them, so that box stays open. Owner items: approve the anti-impersonation line and the takedown wording, set the role mailbox, choose an email sender, the K18 age-assurance method, accept the ≤300 s image / ≤60 s JSON cache window after a hide.

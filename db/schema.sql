@@ -1138,6 +1138,10 @@ create table if not exists matcher_rebuilt (
 select schema_add_column('users', 'hidden_at', 'timestamptz');
 -- F-17: when this account last changed its handle (a counted rename), for the one-change-per-30-days rule.
 select schema_add_column('users', 'handle_renamed_at', 'timestamptz');
+-- F-17 (orchestrator review item 4): the trader_xxxxxxxx handle the system assigned at sign-up, null for a chosen one.
+-- Leaving exactly this handle doesn't start the rename clock (lib/auth/attempts.ts#changeHandle). No backfill: accounts
+-- from before it count their first rename (dev-auth stub, no real users yet).
+select schema_add_column('users', 'provisional_handle', 'text');
 -- One reports table (F-9's): a profile report is a row with target 'profile' and sell_id ''. The existing
 -- unique (reporter_id, trader_id, sell_id) then allows one report per reporter per profile, ever. target, category
 -- and resolution have no CHECK (widening a CHECK needs a drop, which CI forbids; precedent: the F-15 block):
