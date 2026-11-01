@@ -22,8 +22,8 @@ export default async function ReviewTheses() {
       <p className="muted small">Read-only. Release or keep with <code>scripts/review-theses.ts</code>.</p>
       {rows.length === 0 ? <p className="muted">No held notes.</p> : (
         <ul className="rows">
-          {rows.map((r) => (
-            <li key={`${r.userId}-${r.sellId}`}>
+          {rows.map((r, i) => (
+            <li key={`${r.userId}-${i}` /* F-25: no vendor activity id in the payload */}>
               <p className="small muted" style={{ margin: 0 }}>@{r.handle} · {r.symbol ?? 'trade not shown'}{r.closedAt ? ` · closed ${DAY.format(new Date(r.closedAt))}` : ''} · rule: {r.rule ?? 'none'} · reports: {r.reports}{r.reviewed ? ' · reviewed, kept held' : ''}</p>
               <p style={{ margin: '4px 0 0', overflowWrap: 'anywhere' }}><bdi>{r.thesis}</bdi></p>
             </li>

@@ -11,6 +11,8 @@ import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { OPEN, OPTIONS } from '@/lib/copy.ts';
+import { signWord, TRADE_LINK } from '@/lib/copy.ts'; // F-25
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from './open-rows.tsx';
 // FIXES-LABELS (D-09): the F3 line right after the figures, in both orders.
 import { Disclaimer } from './disclaimer.tsx';
@@ -25,6 +27,7 @@ import type { PaneOptionsView } from '@/lib/options-view.ts';
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
   openedAt?: Date; // FIXES-LABELS (code review, TR-7/TR-9): the entry time behind the pane's range and "New record"
+  tradeKey?: string; // F-25: on the 5 latest rows (lib/feed.ts#records1), the "Last 5 trades" link to the trade page
 };
 
 // Fix round 2 (render cost): one formatter, not one per call (same text as toLocaleDateString with these options).
@@ -108,9 +111,22 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
       <ul className="rows">
         {p.recent.map((t) => (
-          <li key={t.id} className={t.id === highlight ? 'line hl' : 'line'} aria-current={t.id === highlight ? 'true' : undefined}>
-            <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
-            <b className={toneClass(t.returnPct)}>{pct(t.returnPct)}</b>
+          // F-25 Shape R: each row is one link to its trade page, named by its visible text, the sign word and the suffix;
+          // the highlighted row's link carries aria-current (moved from the <li>). A row without a key (none in practice:
+          // records1 keys the 5 latest) stays plain text rather than linking elsewhere.
+          <li key={t.id}>
+            {t.tradeKey ? (
+              <Link href={tradePageHref({ handle, tradeKey: t.tradeKey })} className={t.id === highlight ? 'line f25-row hl' : 'line f25-row'} aria-current={t.id === highlight ? 'true' : undefined}>
+                <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
+                <b className={toneClass(t.returnPct)}><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</b>
+                <span className="sr-only">{TRADE_LINK.suffix(t.symbol)}</span>
+              </Link>
+            ) : (
+              <div className={t.id === highlight ? 'line hl' : 'line'} aria-current={t.id === highlight ? 'true' : undefined}>
+                <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
+                <b className={toneClass(t.returnPct)}><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</b>
+              </div>
+            )}
           </li>
         ))}
       </ul>

@@ -334,8 +334,9 @@ dbTest('a card action keyed by its trade_key survives a rebuild between render a
 test('feed card actions send the trade_key, not the row id: the row and the menu carry it, the swipe and the hide bar pass it on', () => {
   const read = (f: string) => readFileSync(join(root, f), 'utf8');
   const rows = read('app/feed-rows.tsx'), menu = read('app/card-menu.tsx'), gestures = read('app/feed-gestures.tsx'), hides = read('app/feed-hides.tsx');
-  assert.match(rows, /data-key=\{tradeKey\(t\.sell_id\)\}/);
-  assert.match(rows, /<CardMenu id=\{row\.id\} tradeKey=\{tradeKey\(t\.sell_id\)\}/);
+  // F-25: the key is the selected trade_key column (the same sha256 of the sell id), so the row code never reads sell_id.
+  assert.match(rows, /data-key=\{t\.trade_key\}/);
+  assert.match(rows, /<CardMenu id=\{row\.id\} tradeKey=\{t\.trade_key!\}/);
   for (const call of ['likeForm.bind(null, tradeKey', 'likeTrade(tradeKey)', 'unlikeTrade(tradeKey)', 'rejectTradeForm.bind(null, tradeKey', 'key: tradeKey']) assert.ok(menu.includes(call), call);
   assert.ok(gestures.includes('key: row.dataset.key'));
   assert.ok(hides.includes('rejectTradeAction(key)') && hides.includes('undoRejectTradeAction(key)'));

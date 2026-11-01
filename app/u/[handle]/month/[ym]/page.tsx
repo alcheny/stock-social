@@ -12,6 +12,8 @@ import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
+import { TRADE_LINK } from '@/lib/copy.ts'; // F-25
 import { count } from '@/lib/format.ts';
 // FIXES-LABELS (D-24): numbers and a range only in "This month" (F-12's month figures); "One of N months on record" under the h1.
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
@@ -58,13 +60,14 @@ export default async function RecapPage({ params }: Params) {
   const strip = recordStrip(recordStripInput(r), 'page');
   // The month's figures (average with its range, or Too early) under the same record-state rule: none while an import runs.
   const month = recordStrip(monthStripInput(r), 'figures');
-  const link = (id: string) => `/u/${handle}/trade/${encodeURIComponent(id)}`;
+  const link = (key: string) => tradePageHref({ handle, tradeKey: key }); // F-25: the one builder
   const Pick = ({ title, t }: { title: string; t: typeof m.best }) => (
     <section className="trade-card" aria-label={title}>
       <h2>{title}</h2>
-      <Link href={link(t.sellId)} style={{ display: 'block', minHeight: 44, padding: '4px 0' }}>
+      <Link href={link(t.tradeKey!)} className="f25-row" style={{ display: 'block', minHeight: 44, padding: '4px 0' }}>
         <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
         <span className="muted small">{held(t.holdingDays)}</span>
+        <span className="sr-only">{TRADE_LINK.suffix(t.symbol)}</span>{/* F-25 Shape R */}
       </Link>
     </section>
   );
@@ -110,12 +113,13 @@ export default async function RecapPage({ params }: Params) {
       <h2>{isPublicRecord(r.state) ? 'Closed trades this month' : 'All trades this month'}</h2>
       <ol className="small" style={{ listStyle: 'none', padding: 0 }}>
         {m.trades.map((t) => (
-          <li key={t.sellId}>
-            <Link href={link(t.sellId)} style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, minHeight: 44, alignItems: 'center' }}>
+          <li key={t.tradeKey}>
+            <Link href={link(t.tradeKey!)} className="f25-row" style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, minHeight: 44, alignItems: 'center' }}>
               <span className="muted">{day(t.closedAt)}</span>
               <b>{t.symbol}</b>
               <span><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
               <span className="muted">{held(t.holdingDays)}</span>
+              <span className="sr-only">{TRADE_LINK.suffix(t.symbol)}</span>{/* F-25 Shape R */}
             </Link>
           </li>
         ))}

@@ -861,3 +861,23 @@ h1 { overflow-wrap: anywhere; }
 
 /* F-26: the trade page's link under the author's held line, on its own line (a 44 px target, lib/user-note.ts#HeldNote). */
 .held-edit { margin: 0; }
+
+/* ---- F-25 one link rule for trade rows (docs/features/F-25-one-link-rule-for-trade-rows.md) ---- */
+/* Feed card footer: "This trade →" then "Record, wins and losses →" at 0.875rem, one line at 360 px and wider, stacked
+   below. Each link's hit box is 44 px tall; the negative block margin keeps the footer's line height (F-10's one-screen
+   budget), and the gap keeps the two boxes 8 px or more apart side by side and stacked. */
+.card .f25-card-links { display: flex; flex-wrap: wrap; align-items: center; column-gap: 16px; row-gap: 8px; font-size: 0.875rem; }
+.card .f25-card-link { display: inline-flex; align-items: center; min-height: 44px; margin-block: -14px; white-space: nowrap; }
+@media (max-width: 359.98px) {
+  .card .f25-card-links { flex-direction: column; align-items: flex-start; }
+  .card .f25-card-link { margin-block: 0; }
+  .card .f25-card-links > :first-child { margin-top: -14px; }
+  .card .f25-card-links > :last-child { margin-bottom: -14px; }
+}
+/* Shape C (the profile row's figure link): at least 44 × 44 px, a short "0.0%" padded to the width; the negative block
+   margin sits inside the row's 12 px padding, so the row keeps its height. */
+.rows .line .f25-fig { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; margin-block: -12px; }
+/* Shape R (the whole row is the link): the pane's last trades are 44 px rows inside the same 12 px padding. */
+.pane .rows a.line { color: inherit; text-decoration: none; align-items: center; min-height: 44px; margin-block: -12px; }
+/* The focus ring (F-20's :focus-visible rule) draws around the whole row: a block-level link, inside the pane's padding. */
+/* end F-25 */

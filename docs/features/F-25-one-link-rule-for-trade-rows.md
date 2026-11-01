@@ -1,7 +1,6 @@
 # F-25 · One link rule for trade rows
 
-Status: blocked
-Blocked: waits for F-9 (PR #65, `claude/fix-user-text-safety`), F-11 (branch `claude/fix-truthful-labels`, no open PR) and F-26 (the footer link builds on the note slot F-26 frees) to merge into main; it does not wait for F3-8, which it supersedes for the stock-page rows
+Status: building
 
 ## Why
 The trade page (the note, the record strip, Share) can't be reached from the feed card, the pane or the stock page's

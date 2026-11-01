@@ -1,4 +1,5 @@
 import type { Similar } from '@/lib/similar.ts';
+import { tradePageHref } from '@/lib/trade-href.ts'; // F-25
 import { SIMILAR } from '@/lib/copy.ts';
 import { paneTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
@@ -30,7 +31,7 @@ export function SimilarSection({ handle, similar, signedIn }: { handle: string; 
           {similar.rows.map((r) => {
             const state = similar.states.get(r.trader)?.state ?? 'connected';
             const trust = paneTrust([{ verified: r.verified }], state);
-            const trade = `/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`;
+            const trade = tradePageHref({ handle: r.handle, tradeKey: r.tradeKey }); // F-25: the one builder
             // Fix round 1 (D1, owner decision O2): the sheet opens on the row's trade (as the no-JS link does), with the
             // trader's pane below it (loaded on first open, D2) and the profile one step further.
             const lead = (

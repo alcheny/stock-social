@@ -152,7 +152,7 @@ test('the Report control sits 4px below the caption; the /t row link holds no no
   assert.match(block, /\.user-note \.report-note \{[^}]*margin: 4px 0 0;/);
   const t = read('../app/t/[symbol]/Theses.tsx');
   // A11Y-FIXES #22 (main) moved the row link to the trade page; the note still sits outside it.
-  const from = t.indexOf('<Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}');
+  const from = t.indexOf('<Link href={tradePageHref({ handle: r.handle, tradeKey: r.tradeKey! })}'); // F-25: the trade_key form
   assert.ok(from >= 0, 'the row link');
   const link = t.slice(from, t.indexOf('</Link>'));
   assert.ok(link.length > 0);

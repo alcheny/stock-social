@@ -101,8 +101,8 @@ export async function recordDrop(surface: Surface | typeof DROP_OTHER, reason: D
 }
 
 // A record surface's target → the visible trader's id (lib/visible-users.ts); a deleted or unknown handle, or a trade
-// page whose closing sell the trader has no closed trade for, or a month with no close (pages that answer 404), → null
-// (nothing counted). The sell id and the month are never stored.
+// page whose trade_key (F-25) the trader has no closed trade for, or a month with no close (pages that answer 404), → null
+// (nothing counted). The trade key and the month are never stored.
 export async function viewedUserId(t: Target): Promise<number | null> {
   if (!t.handle) return null;
   // The record pages' own rule (app/u/[handle]/page.tsx, lib/recap-load.ts, lib/trade-share-load.ts): a visible user,
@@ -111,7 +111,7 @@ export async function viewedUserId(t: Target): Promise<number | null> {
     and (u.public_filer_id is null or exists (select 1 from closed_trades f where f.user_id = u.id))`;
   const [u] = t.surface === 'trade'
     ? await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visible}
-        and exists (select 1 from closed_trades c where c.user_id = u.id and c.sell_id = ${t.detail})`
+        and exists (select 1 from closed_trades c where c.user_id = u.id and c.trade_key = ${t.detail})` // F-25: trade URLs carry the trade_key
     : t.surface === 'month'
     ? await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visible}
         and exists (select 1 from closed_trades c where c.user_id = u.id
