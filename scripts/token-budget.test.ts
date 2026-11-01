@@ -73,11 +73,12 @@ function nov1(config: Record<string, unknown> = {}): Record<string, unknown> {
       { id: 'ops-council', kind: 'council', priority: 3 },
       { id: 'f8-build', kind: 'build', priority: 1 },
     ],
-    // Window spend readings an hour and half an hour earlier: an aggregate burn of about $296/hour.
+    // Window spend readings consistent with the sessions above (each session's cost spread evenly over its active
+    // span): about $62/hour over the last hour.
     history: [
-      { at: '2026-11-01T06:00:00Z', totalCostUsd: 120, status: 'allowed' },
-      { at: '2026-11-01T07:55:00Z', totalCostUsd: 290, status: 'allowed' },
-      { at: '2026-11-01T08:25:00Z', totalCostUsd: 440, status: 'allowed' },
+      { at: '2026-11-01T06:00:00Z', totalCostUsd: 414.45, status: 'allowed' },
+      { at: '2026-11-01T07:55:00Z', totalCostUsd: 524.20, status: 'allowed' },
+      { at: '2026-11-01T08:25:00Z', totalCostUsd: 553.56, status: 'allowed' },
     ],
   };
 }
@@ -121,9 +122,9 @@ test('remaining cost: the floor applies when prior and burn are both small', () 
 });
 
 test('remaining cost: a kind:phase prior overrides the kind, and config priors override both', () => {
-  const small = remainingCost(sess('build', 1, 0.1, 0, { phase: 'small' }), NOW, RESET); // burn $4/h × 1.9h = 7.6
+  const small = remainingCost(sess('build', 1, 0.1, 0, { phase: 'small' }), NOW, RESET); // 6 minutes old: no burn term yet
   assert.deepEqual(small.priorUsd, { low: 5, point: 9, high: 12 });
-  assert.deepEqual(range(small.remaining), [7.6, 8, 16.5]);
+  assert.deepEqual(range(small.remaining), [4, 8, 16.5]);
   const p = plan(snap({
     config: { capUsd: 1000, priors: { 'council:fixing': 80, review: { low: 5, point: 6, high: 7 } } },
     sessions: [{ id: 'c', kind: 'council', phase: 'fixing', costUsd: 50, startedAt: ago(10), lastActiveAt: iso(NOW) }],
@@ -259,7 +260,7 @@ test('cap: calibrated from the first allowed_warning (high W / warnFraction, low
     ],
   }));
   assert.equal(p.cap.source, 'calibrated');
-  assert.ok(near(p.cap.high!, 800) && near(p.cap.point!, 800) && near(p.cap.low!, 666.67));
+  assert.ok(near(p.cap.high!, 800) && near(p.cap.point!, 733.33) && near(p.cap.low!, 666.67)); // point: the midpoint
   assert.equal(p.cap.calibratedFrom?.spendUsd, 600);
   assert.equal(p.brake, 'none');
   assert.equal(p.warning, true);
@@ -268,7 +269,7 @@ test('cap: calibrated from the first allowed_warning (high W / warnFraction, low
 
 test('cap: a warning with no allowed reading before it gives low = W; the snapshot itself counts as a reading', () => {
   const r = estimateCap([{ atMs: NOW, totalCostUsd: 450, status: 'allowed_warning', resetsAtMs: RESET }], { warnFraction: 0.75, currentResetsAtMs: RESET });
-  assert.deepEqual([r.low, r.point, r.high, r.source, r.known], [450, 600, 600, 'calibrated', true]);
+  assert.deepEqual([r.low, r.point, r.high, r.source, r.known], [450, 525, 600, 'calibrated', true]);
 });
 
 test('cap: a calibration carries over to the next window after rollover, and spend restarts', () => {
@@ -297,7 +298,7 @@ test('cap: a rejected reading at spend R lowers low and high to at most R', () =
     { atMs: NOW - H, totalCostUsd: 700, status: 'rejected', resetsAtMs: RESET },
   ];
   const r = estimateCap(readings, { warnFraction: 0.75, currentResetsAtMs: RESET }); // 600/0.75 = 800 > 700; low 450/0.75 = 600
-  assert.deepEqual([r.low, r.point, r.high, r.source], [600, 700, 700, 'calibrated']);
+  assert.deepEqual([r.low, r.point, r.high, r.source], [600, 650, 700, 'calibrated']);
   const onlyRejected = estimateCap(readings.slice(2), { warnFraction: 0.75, currentResetsAtMs: RESET });
   assert.deepEqual([onlyRejected.low, onlyRejected.high, onlyRejected.source], [700, 700, 'calibrated']);
 });
@@ -429,7 +430,7 @@ test('fill: spare budget and an empty queue → reports the unused budget and as
   const p = plan(snap({ config: { capUsd: 300 }, sessions: [build('a', 10, 1)] })); // 300 − 10 − 40 = 250 unused
   assert.ok(near(p.fill.expectedUnusedUsd!, 250, 1)); // the session was last active 1 minute ago: burn just over $10/h
   assert.equal(p.fill.recommendAdmitUsd, p.fill.expectedUnusedUsd);
-  assert.ok(near(p.fill.maxItemHours, p.window.hoursToReset));
+  assert.equal('maxItemHours' in p.fill, false); // window.hoursToReset says it
   assert.deepEqual(p.fill.suggestedKinds, ['build', 'council', 'build:small', 'review']);
   assert.match(p.fill.message, /unused at reset/);
   assert.match(p.fill.message, /queue more work/);
@@ -553,12 +554,13 @@ test('robust: an invalid now is an error issue and admits nothing', () => {
 
 // --- 7. The 2026-11-01 data and the CLI ---------------------------------------------------------------------------
 
-test('2026-11-01 data, cap $1500: spend about $590, burn about $296/h, admits under the rule and keeps the reserve', () => {
+test('2026-11-01 data, cap $1500: spend about $590, burn about $62/h, admits under the rule and keeps the reserve', () => {
   const p = plan(nov1({ capUsd: 1500 }));
   assert.equal(p.brake, 'none');
   assert.ok(p.spend.windowUsd > 560 && p.spend.windowUsd < 620, `spend ${p.spend.windowUsd}`);
   assert.equal(p.projection.burnSource, 'history');
-  assert.ok(p.projection.burnUsdPerHour > 280 && p.projection.burnUsdPerHour < 320);
+  assert.ok(p.projection.burnUsdPerHour > 55 && p.projection.burnUsdPerHour < 70, `burn ${p.projection.burnUsdPerHour}`);
+  assert.ok(!codes(p).includes('burn-mismatch'));
   assert.equal(p.reserve.sessions.length, 15); // the 6 done sessions reserve nothing
   assert.ok(p.reserve.sessions.every((s) => s.remaining.point > 0));
   assert.equal(p.reserve.sessions.find((s) => s.id === 'orchestrator')?.basis, 'burn');
@@ -627,11 +629,12 @@ function mulberry32(seed: number) {
 function randomSnapshot(rand: () => number) {
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)];
   const now = NOW + Math.floor((rand() - 0.5) * 48 * H);
-  const time = (ms: number) => pick([iso(ms), ms / 1000, ms, ms, iso(ms)]) as unknown;
+  // Mostly valid times in every format; now and then a nanosecond epoch or a time outside the Date range.
+  const time = (ms: number) => (rand() < 0.02 ? pick([ms * 1e6, 1e17, -1e17, 8.64e15 + 1]) : pick([iso(ms), ms / 1000, ms, ms, iso(ms)])) as unknown;
   const resets = rand() < 0.2 ? now - rand() * 20 * 24 * H : now + rand() * 7 * 24 * H; // some already rolled over
-  const money = () => pick([rand() * 80, rand() * 80, rand() * 5, 0, -3, NaN, '7', undefined, rand() * 400]) as unknown;
-  const kinds = ['build', 'council', 'review', 'orchestrator', 'build', 'mystery'];
-  const ids = Array.from({ length: 12 }, (_, i) => `s${i}`);
+  const money = () => pick([rand() * 80, rand() * 80, rand() * 5, 0, -3, NaN, '7', undefined, rand() * 400, 1e308, 1e-7, 2e12]) as unknown;
+  const kinds = ['build', 'council', 'review', 'orchestrator', 'build', 'mystery', '__proto__', 'constructor'];
+  const ids = [...Array.from({ length: 10 }, (_, i) => `s${i}`), 'constructor', '__proto__'];
   const sessions = Array.from({ length: Math.floor(rand() * 14) }, () => {
     const started = now - rand() * 200 * H;
     return {
@@ -643,25 +646,26 @@ function randomSnapshot(rand: () => number) {
     };
   });
   const queue = Array.from({ length: Math.floor(rand() * 12) }, () => ({
-    id: pick([...ids.slice(0, 4), 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7']), kind: pick(kinds), priority: pick([0, 1, 3, 9, undefined]),
+    id: pick([...ids.slice(0, 4), 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'toString', '__proto__']), kind: pick(kinds), priority: pick([0, 1, 3, 9, undefined]),
     estimateUsd: pick([undefined, undefined, rand() * 100, NaN, -1, 4]),
     estimateLowUsd: pick([undefined, undefined, rand() * 50, 'x']),
     estimateHighUsd: pick([undefined, undefined, rand() * 200]),
   }));
-  const history = Array.from({ length: Math.floor(rand() * 6) }, () => ({
+  const history = Array.from({ length: rand() < 0.01 ? 3000 : Math.floor(rand() * 6) }, () => ({
     at: time(now - rand() * 20 * 24 * H), totalCostUsd: money(),
     status: pick(['allowed', 'allowed', 'allowed_warning', 'rejected', 'junk', undefined]),
     resetsAt: rand() < 0.3 ? time(resets) : undefined,
   }));
   const config: Record<string, unknown> = {};
   if (rand() < 0.4) config.capUsd = pick([rand() * 2000, 1500, -5, NaN]);
-  if (rand() < 0.3) config.warnFraction = pick([0.5, 0.75, 0.9, 2, 0]);
-  if (rand() < 0.3) config.safety = pick([1, 1.5, 2, 0.3, NaN]);
-  if (rand() < 0.2) config.priors = { build: pick([30, 80, -1, { low: 10, point: 5, high: 60 }]), 'council:fixing': 60 };
+  if (rand() < 0.3) config.warnFraction = pick([0.5, 0.75, 0.9, 2, 0, 1e-320]);
+  if (rand() < 0.3) config.safety = pick([1, 1.5, 2, 0.3, NaN, 1e308]);
+  if (rand() < 0.2) config.priors = { build: pick([30, 80, -1, { low: 10, point: 5, high: 60 }, { typicalHours: 1e308 }]), 'council:fixing': 60 };
   return {
     now: rand() < 0.02 ? 'garbage' : time(now),
     window: rand() < 0.05 ? undefined : {
-      type: pick(['seven_day', 'seven_day', 'five_hour', 'monthly']), resetsAt: time(resets),
+      [rand() < 0.2 ? 'rateLimitType' : 'type']: pick(['seven_day', 'seven_day', 'five_hour', 'monthly', 'constructor', '__proto__', 'toString']),
+      resetsAt: rand() < 0.03 ? time(now + 30 * 24 * H) : time(resets),
       status: pick(['allowed', 'allowed', 'allowed', 'allowed_warning', 'rejected', 'junk', undefined]), isUsingOverage: rand() < 0.15,
     },
     config: rand() < 0.1 ? undefined : config, sessions, queue, history,
@@ -741,7 +745,7 @@ test('cap: calibration takes the most recent window with a warning, and its low 
     { atMs: NOW - H, totalCostUsd: 600, status: 'allowed_warning', resetsAtMs: RESET },
   ];
   const r = estimateCap(readings, { warnFraction: 0.75, currentResetsAtMs: RESET });
-  assert.deepEqual([r.low, r.point, r.high], [600, 800, 800]); // no allowed reading in this window → low = W
+  assert.deepEqual([r.low, r.point, r.high], [600, 700, 800]); // no allowed reading in this window → low = W; point the midpoint
   assert.equal(r.calibratedFrom?.resetsAt, iso(RESET));
   assert.equal(r.calibratedFrom?.spendUsd, 600);
 });
@@ -872,4 +876,265 @@ test('properties: every number in the plan is finite (JSON.stringify would silen
     const s = randomSnapshot(rand);
     assert.deepEqual(finiteOrNull(plan(s)), [], JSON.stringify(s));
   }
+});
+
+// --- 10. Review round 1: bug repros and the fixes -----------------------------------------------------------------
+
+test('B1 window.type inherited key (constructor/__proto__/toString) does not throw', () => {
+  for (const type of ['constructor', '__proto__', 'toString']) {
+    const p = plan(snap({ window: { type, resetsAt: RESET / 1000, status: 'allowed' } }));
+    assert.equal(p.window.type, 'seven_day', type);
+    assert.ok(codes(p).includes('unknown-window-type'), type);
+  }
+});
+
+test('B2 timestamps outside the Date range (ns epoch, 1e17, -1e17) are invalid, never a throw', () => {
+  const nsNow = plan(snap({ now: NOW * 1e6 }));
+  assert.ok(codes(nsNow).includes('bad-now'));
+  const nsReset = plan(snap({ window: { type: 'seven_day', resetsAt: RESET * 1e6, status: 'allowed' } }));
+  assert.ok(codes(nsReset).includes('no-resets-at'));
+  assert.equal(nsReset.brake, 'unknown-status');
+  const nsStart = plan(snap({ sessions: [{ id: 'a', kind: 'build', costUsd: 1, startedAt: NOW * 1e6, lastActiveAt: iso(NOW) }] }));
+  assert.ok(codes(nsStart).includes('no-start'));
+  assert.doesNotThrow(() => plan(snap({ config: {}, history: [{ at: -NOW * 1e6, totalCostUsd: 5, status: 'allowed_warning' }] })));
+  const edge = plan(snap({ now: 8.64e15, window: { type: 'seven_day', resetsAt: 8.64e15 - 1, status: 'allowed' } }));
+  assert.deepEqual(finiteOrNull(edge), []);
+});
+
+test('B3 a tiny positive burn gives a null capHitAt, not a throw', () => {
+  const p = plan(snap({ sessions: [{ id: 'a', kind: 'build', costUsd: 1e-6, startedAt: iso(NOW - 1000 * H), lastActiveAt: iso(NOW) }] }));
+  assert.equal(p.projection.capHitAt, null);
+  assert.equal(p.projection.capHitBeforeReset, false);
+});
+
+test('B4 a history of 150,000 readings does not overflow the stack', () => {
+  const history = Array.from({ length: 150_000 }, (_, i) => ({ at: iso(NOW - (i + 1) * 1000), totalCostUsd: 1, status: 'allowed' }));
+  assert.doesNotThrow(() => plan(snap({ history })));
+});
+
+test('B5 huge but finite inputs are bounded and reported, so every output number stays finite', () => {
+  const cases = [
+    snap({ sessions: [1, 2].map((i) => ({ id: `s${i}`, kind: 'build', costUsd: 1e308, startedAt: iso(NOW - H), lastActiveAt: iso(NOW) })) }),
+    snap({ config: {}, queue: [{ id: 'a', estimateUsd: 1e308 }, { id: 'b', estimateUsd: 1e308 }] }),
+    snap({ config: { capUsd: 1000, safety: 1e308 }, sessions: [{ id: 'a', kind: 'build', costUsd: 10, startedAt: iso(NOW - H), lastActiveAt: iso(NOW) }] }),
+    snap({ config: { capUsd: 1000, priors: { build: { typicalHours: 1e308 } } }, sessions: [{ id: 'a', kind: 'build', costUsd: 10, startedAt: iso(NOW - H), lastActiveAt: iso(NOW) }] }),
+    snap({ config: { warnFraction: 1e-320 }, window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'allowed_warning' }, sessions: [{ id: 'a', kind: 'build', costUsd: 10, startedAt: iso(NOW - H), lastActiveAt: iso(NOW), done: true }] }),
+  ];
+  for (const s of cases) {
+    const p = plan(s);
+    assert.deepEqual(finiteOrNull(p), [], JSON.stringify(s).slice(0, 200));
+    assert.ok(codes(p).some((c) => ['bad-cost', 'bad-estimate', 'bad-config'].includes(c)), JSON.stringify(s).slice(0, 200));
+  }
+  assert.equal(plan(snap({ config: { capUsd: 2e12 } })).cap.source, 'unknown'); // money is bounded at $1e12
+  assert.equal(plan(snap({ config: { capUsd: 1000, safety: 101 } })).reserve.safety, 1.5);
+  assert.equal(plan(snap({ config: { capUsd: 1000, safety: 100 } })).reserve.safety, 100);
+});
+
+test('B6 resetsAt more than one window ahead of now is an error and a brake, with every session counted in full', () => {
+  const p = plan(snap({ window: { type: 'five_hour', resetsAt: (NOW + 30 * H) / 1000, status: 'allowed' }, config: { capUsd: 100 },
+    sessions: [{ id: 'a', kind: 'build', costUsd: 90, startedAt: iso(NOW - H), lastActiveAt: iso(NOW), done: true }], queue: [{ id: 'q', kind: 'build', estimateUsd: 50 }] }));
+  assert.ok(p.issues.some((i) => i.code === 'window-ahead' && i.level === 'error'));
+  assert.equal(p.brake, 'unknown-status');
+  assert.deepEqual(p.admit, []);
+  assert.equal(p.spend.windowUsd, 90);
+  assert.deepEqual([p.historyEntry.status, p.historyEntry.resetsAt], [null, null]);
+});
+
+test('B7 after a rollover a missing status is not reported as a brake', () => {
+  const p = plan(snap({ window: { type: 'seven_day', resetsAt: (NOW - H) / 1000 } }));
+  assert.equal(p.brake, 'none');
+  assert.ok(!p.issues.some((i) => /treated as a brake/.test(i.detail)), JSON.stringify(p.issues));
+});
+
+test('cap: a rejected reading from an older window does not cap a newer warning calibration', () => {
+  const week = 7 * DAY;
+  const readings = [
+    { atMs: NOW - 8 * DAY, totalCostUsd: 300, status: 'rejected', resetsAtMs: RESET - week },
+    { atMs: NOW - 2 * H, totalCostUsd: 525, status: 'allowed', resetsAtMs: RESET },
+    { atMs: NOW - H, totalCostUsd: 600, status: 'allowed_warning', resetsAtMs: RESET },
+  ];
+  const r = estimateCap(readings, { warnFraction: 0.75, currentResetsAtMs: RESET });
+  assert.deepEqual([r.low, r.point, r.high], [700, 750, 800]);
+  assert.equal(r.calibratedFrom?.warning?.spendUsd, 600);
+  assert.equal(r.calibratedFrom?.allowedLow?.spendUsd, 525);
+  assert.equal(r.calibratedFrom?.rejected, undefined);
+  // The same rejected reading in the warning's own window does lower it, and calibratedFrom names it.
+  const same = estimateCap([...readings.slice(1), { atMs: NOW - 0.5 * H, totalCostUsd: 650, status: 'rejected', resetsAtMs: RESET }], { warnFraction: 0.75, currentResetsAtMs: RESET });
+  assert.deepEqual([same.low, same.high], [650, 650]);
+  assert.equal(same.calibratedFrom?.rejected?.spendUsd, 650);
+  assert.equal(same.calibratedFrom?.spendUsd, 650); // the reading that set the high end
+});
+
+test('cap: a rejected reading alone calibrates: high = R, low from the last allowed reading before it', () => {
+  const r = estimateCap([
+    { atMs: NOW - 2 * H, totalCostUsd: 450, status: 'allowed', resetsAtMs: RESET },
+    { atMs: NOW - H, totalCostUsd: 700, status: 'rejected', resetsAtMs: RESET },
+  ], { warnFraction: 0.75, currentResetsAtMs: RESET });
+  assert.deepEqual([r.low, r.point, r.high, r.source], [600, 650, 700, 'calibrated']);
+  assert.equal(r.calibratedFrom?.allowedLow?.spendUsd, 450);
+});
+
+test('cap: current-window allowed readings raise a cap carried over from an older window', () => {
+  const week = 7 * DAY;
+  const p = plan(snap({
+    config: {},
+    sessions: [build('a', 900, 5, { done: true })],
+    history: [{ at: iso(NOW - 8 * DAY), totalCostUsd: 450, status: 'allowed_warning', resetsAt: (RESET - week) / 1000 }],
+  }));
+  // Old window: low 450, high 600. This window: allowed at $900 → the cap is above 1200.
+  assert.deepEqual([p.cap.low, p.cap.point, p.cap.high], [1200, 1200, 1200]);
+  assert.ok(codes(p).includes('cap-raised'));
+});
+
+test('cap: lowerBoundUsd never exceeds a cap set by a rejected reading in this window', () => {
+  const p = plan(snap({
+    config: {},
+    window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'rejected' },
+    sessions: [build('a', 700, 5, { done: true })],
+    history: [{ at: ago(2), totalCostUsd: 600, status: 'allowed' }],
+  }));
+  assert.equal(p.cap.high, 700);
+  assert.equal(p.cap.lowerBoundUsd, 700); // 600 / 0.75 = 800 clamped
+  assert.ok(codes(p).includes('lower-bound-clamped'));
+});
+
+test('cap: a calibrated point is the midpoint, and a wide bracket is reported', () => {
+  const p = plan(snap({ config: {}, window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'allowed_warning' }, sessions: [build('a', 600, 3, { done: true })] }));
+  assert.deepEqual([p.cap.low, p.cap.point, p.cap.high], [600, 700, 800]);
+  assert.ok(codes(p).includes('cap-bracket-wide')); // 800 / 600 > 1.25
+  const narrow = estimateCap([
+    { atMs: NOW - 2 * H, totalCostUsd: 560, status: 'allowed', resetsAtMs: RESET },
+    { atMs: NOW - H, totalCostUsd: 600, status: 'allowed_warning', resetsAtMs: RESET },
+  ], { warnFraction: 0.75, currentResetsAtMs: RESET }, () => assert.fail('no issue for a narrow bracket'));
+  assert.ok(near(narrow.low!, 746.67));
+});
+
+test('window: without a usable resetsAt the plan says so instead of inventing a reset time', () => {
+  for (const s of [snap({ window: undefined }), snap({ window: { type: 'seven_day', status: 'allowed' } })]) {
+    const p = plan({ ...s, queue: [{ id: 'q', kind: 'review' }] });
+    assert.equal(p.window.resetsAt, null);
+    assert.equal(p.window.startAt, null);
+    assert.equal(p.window.hoursToReset, null);
+    assert.equal(p.window.assumed, true);
+    assert.equal(p.brake, 'unknown-status');
+    assert.equal(p.queued[0].nextAdmitAt, null);
+    assert.deepEqual([p.historyEntry.status, p.historyEntry.resetsAt], [null, null]);
+    assert.doesNotMatch(p.summary, /\d{4}-\d\d-\d\dT/);
+  }
+  assert.equal(plan(snap()).window.assumed, false);
+});
+
+test('window: rateLimitType is accepted as window.type; neither is reported', () => {
+  const p = plan(snap({ window: { rateLimitType: 'five_hour', resetsAt: (NOW + 2 * H) / 1000, status: 'allowed' } }));
+  assert.equal(p.window.type, 'five_hour');
+  assert.equal(p.window.startAt, iso(NOW - 3 * H));
+  const none = plan(snap({ window: { resetsAt: RESET / 1000, status: 'allowed' } }));
+  assert.equal(none.window.type, 'seven_day');
+  assert.ok(codes(none).includes('no-window-type'));
+});
+
+test('projection: a history slope far from the sessions\' burn is reported, and the summary names the cap-hit time', () => {
+  const s = nov1({ capUsd: 1500 });
+  s.history = [
+    { at: '2026-11-01T07:55:00Z', totalCostUsd: 290, status: 'allowed' },
+    { at: '2026-11-01T08:25:00Z', totalCostUsd: 440, status: 'allowed' },
+  ];
+  const p = plan(s);
+  assert.ok(p.projection.burnUsdPerHour > 280);
+  const issue = p.issues.find((i) => i.code === 'burn-mismatch');
+  assert.ok(issue, JSON.stringify(p.issues));
+  assert.match(issue.detail, /history/);
+  assert.equal(p.projection.capHitBeforeReset, true);
+  assert.match(p.summary, /cap hit ~\d\d:\d\dZ at current burn/);
+  assert.doesNotMatch(plan(nov1({ capUsd: 1500 })).summary, /cap hit/);
+});
+
+test('remaining cost: a session under 30 minutes old has no burn term yet (a $3.16 council at 5 minutes)', () => {
+  const r = remainingCost(sess('council', 3.16, 5 / 60), NOW, RESET);
+  assert.ok(near(r.remaining.point, 40 - 3.16, 1e-9));
+  assert.equal(r.basis, 'prior');
+  assert.ok(near(r.burnUsdPerHour, 3.16 / 0.25, 1e-9)); // still reported
+  const over = remainingCost(sess('council', 35, 5 / 60), NOW, RESET); // spent past its low prior: the burn counts
+  assert.equal(over.basis, 'burn');
+  assert.equal(DEFAULT_PRIORS.council.high, 60);
+});
+
+test('duplicates: done wins, then the larger cost, then the later lastActiveAt; id-less sessions never collide', () => {
+  const p = plan(snap({ sessions: [build('a', 30, 2), build('a', 20, 1, { done: true }), build('b', 5, 1, { lastActiveAt: ago(0.5) }), build('b', 5, 1, { lastActiveAt: ago(0.1), priority: 7 })] }));
+  assert.deepEqual(p.reserve.sessions.map((s) => [s.id, s.priority]), [['b', 7]]); // a is done
+  assert.equal(p.spend.windowUsd, 25);
+  const ids = plan(snap({ sessions: [{ kind: 'build', costUsd: 1, startedAt: ago(1) }, { kind: 'build', costUsd: 2, startedAt: ago(1) }, build('(missing id #0)', 4, 1)] }));
+  assert.equal(ids.reserve.sessions.length, 3);
+  assert.equal(ids.spend.windowUsd, 7);
+  assert.ok(!codes(ids).includes('duplicate-session'));
+});
+
+test('admission: money is compared with an epsilon (0.1 + 0.2 fits under 0.3)', () => {
+  const p = plan(snap({ config: { capUsd: 0.3 }, queue: [{ id: 'a', kind: 'review', priority: 2, estimateUsd: 0.1 }, { id: 'b', kind: 'review', priority: 1, estimateUsd: 0.2 }] }));
+  assert.deepEqual(p.admit.map((a) => a.id), ['a', 'b']);
+});
+
+test('pause: the rule is stated, the summary lists the first three and a count, and stall risk has a reason', () => {
+  const p = plan(snap({
+    window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'rejected' },
+    sessions: ['a', 'b', 'c', 'd', 'e'].map((id, i) => build(id, 5 + i, 1, { priority: i })),
+  }));
+  assert.match(p.pause.rule, /until status is allowed again/);
+  assert.match(p.pause.rule, /orchestrator is never paused/);
+  assert.match(p.summary, /pause a, b, c \+2 more/);
+  assert.match(p.pause.reason!, /rejected/);
+  const tight = plan(snap({ config: { capUsd: 20 }, sessions: [build('a', 10, 1)] }));
+  assert.equal(tight.pause.stallRisk, true);
+  assert.deepEqual(tight.pause.recommend, []);
+  assert.match(tight.pause.reason!, /informational/);
+  assert.equal(plan(snap()).pause.reason, null);
+});
+
+test('fill: under a brake the message names the brake, even when the cap is unknown', () => {
+  const p = plan(snap({ config: {}, window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'allowed', isUsingOverage: true } }));
+  assert.match(p.fill.message, /overage/);
+  assert.doesNotMatch(p.fill.message, /admitted/);
+  assert.equal(p.fill.expectedUnusedUsd, null);
+});
+
+test('output: ISO times are rounded to whole seconds', () => {
+  const p = plan(snap({ now: NOW + 499 }));
+  assert.equal(p.now, iso(NOW));
+  assert.equal(plan(snap({ now: NOW + 500 })).now, iso(NOW + 1000));
+});
+
+test('robust: a recent reading above the cost is reported; done accepts "true"/"false" strings with an issue', () => {
+  const p = plan(snap({ sessions: [build('a', 10, 1, { recent: { costUsd: 20, at: ago(0.5) } })] }));
+  assert.ok(codes(p).includes('recent-above-cost'));
+  assert.ok(near(p.reserve.sessions[0].burnUsdPerHour, 10.2, 0.05)); // the lifetime burn
+  const d = plan(snap({ sessions: [build('a', 10, 1, { done: 'true' }), build('b', 10, 1, { done: 'false' }), build('c', 10, 1, { done: 1 })] }));
+  assert.deepEqual(d.reserve.sessions.map((s) => s.id), ['b', 'c']);
+  assert.equal(codes(d).filter((c) => c === 'bad-done').length, 3);
+});
+
+test('cap: running work over a known cap is reported with the shortfall', () => {
+  const p = plan(snap({ config: { capUsd: 30 }, sessions: [build('a', 10, 1)] })); // 10 + ~40 > 30
+  const issue = p.issues.find((i) => i.code === 'running-over-cap');
+  assert.ok(issue);
+  assert.match(issue.detail, /\$\d+\.\d\d/);
+  assert.ok(!codes(plan(snap({ config: { capUsd: 300 }, sessions: [build('a', 10, 1)] }))).includes('running-over-cap'));
+});
+
+test('CLI: a usage error is JSON on stderr with exit 2', () => {
+  try {
+    cli(['nope']);
+    assert.fail('exit 0');
+  } catch (e) {
+    const err = e as { status: number; stderr: string };
+    assert.equal(err.status, 2);
+    assert.match(JSON.parse(err.stderr).error, /usage/);
+  }
+});
+
+test('robust: an invalid now brakes even when the window would be usable at the fallback time', () => {
+  const p = plan({ now: 'garbage', window: { type: 'seven_day', resetsAt: 3600, status: 'allowed' }, config: {}, queue: [{ id: 'q', kind: 'review' }] });
+  assert.ok(codes(p).includes('bad-now'));
+  assert.ok(!codes(p).includes('window-ahead')); // the fallback clock (0) lies inside this window
+  assert.equal(p.brake, 'unknown-status');
+  assert.deepEqual(p.admit, []);
 });
