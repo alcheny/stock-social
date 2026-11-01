@@ -159,9 +159,10 @@ dbTest('one caller at a time: while the lock is held a second call skips; a purg
   assert.equal((await first).ran, true);
   const route = readFileSync(new URL('../app/api/sync/route.ts', import.meta.url), 'utf8');
   const pos = (s: string) => route.indexOf(s);
-  assert.ok(pos('purgeDiscovery()') < pos('purgePrivacy()') && pos('purgePrivacy()') < pos('writeDisplayLog()') && pos('writeDisplayLog()') < pos('await syncTick('));
-  assert.match(route, /try \{ privacy = await purgePrivacy\(\); \} catch \(e\) \{ console\.error\('privacy purge failed', logSafe\(e\)\); \}/);
-  assert.match(route, /try \{ displayLog = await writeDisplayLog\(\); \} catch \(e\) \{ console\.error\('display log failed', logSafe\(e\)\); \}/);
+  // After the traders are synced, never before (business lead re-sit 2), each boxed by the time left and in its own try/catch.
+  assert.ok(pos('await syncTick(') < pos('purgePrivacy(') && pos('purgePrivacy(') < pos('writeDisplayLog(') && pos('writeDisplayLog(') < pos('return NextResponse.json({ ok'));
+  assert.match(route, /try \{ if \(left\(\) > 0\) privacy = await purgePrivacy\(\{ boxMs: Math\.min\(PRIVACY_STAGE_MS, left\(\)\) \}\); \} catch \(e\) \{ console\.error\('privacy purge failed', logSafe\(e\)\); \}/);
+  assert.match(route, /try \{ if \(left\(\) > 0\) displayLog = await writeDisplayLog\(\{ boxMs: Math\.min\(PRIVACY_STAGE_MS, left\(\)\) \}\); \} catch \(e\) \{ console\.error\('display log failed', logSafe\(e\)\); \}/);
 });
 
 dbTest('a time box of zero stops before any batch and says so', async () => {

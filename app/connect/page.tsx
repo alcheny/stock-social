@@ -32,10 +32,32 @@ export default async function Connect({ searchParams }: { searchParams?: Promise
     if (!a.seen) await recordFunnel(attempt, 'notice_seen');
   }
   const options = [...providersFromEnv().map((p) => ({ key: p.key, label: SIGNIN.provider(p.label) })), { key: 'email', label: TRUST_NOTICE.emailOption }];
+  // Launch gate (D7; UX lead re-sit 1–3): while this viewer may not connect, the page says so right under the heading
+  // and keeps only the way out (profile and settings, or sign-in for existing accounts); the trust notice describes a
+  // connection that cannot start, so it is left out.
+  if (!allowed) {
+    return (
+      <main className="page auth">
+        <h1>{TRUST_NOTICE.title}</h1>
+        {refused
+          ? <><p id="connect-closed" role="alert" tabIndex={-1}>{LAUNCH.connectClosed}</p><FocusHeading id="connect-closed" /></>
+          : <p role="status">{me ? LAUNCH.connectClosed : LAUNCH.closed}</p>}
+        {me ? (
+          <>
+            <p className="small"><Link className="tap" href={`/u/${me.handle}`}>{TRUST_NOTICE.profileLink}</Link></p>
+            <p className="small"><Link className="tap" href="/settings">{TRUST_NOTICE.settingsLink}</Link></p>
+          </>
+        ) : (
+          <ul className="options">
+            {options.map((o) => <li key={o.key}><Link className="button wide secondary" href={`/login?method=${o.key}`}>{o.label}</Link></li>)}
+          </ul>
+        )}
+      </main>
+    );
+  }
   return (
     <main className="page auth">
       <h1>{TRUST_NOTICE.title}</h1>
-      {refused && <><p id="connect-closed" role="alert" tabIndex={-1}>{LAUNCH.connectClosed}</p><FocusHeading id="connect-closed" /></>}
       <ul className="notice">
         {TRUST_NOTICE.lines.map((l) => <li key={l}>{l}</li>)}
       </ul>
@@ -44,16 +66,16 @@ export default async function Connect({ searchParams }: { searchParams?: Promise
       <p className="small"><Link className="tap" href="/how">{TRUST_NOTICE.howLink}</Link></p>
       {me ? (
         <>
-          {allowed ? <PortalButton label={TRUST_NOTICE.primary} /> : !refused && <p role="status">{LAUNCH.connectClosed}</p>}
+          <PortalButton label={TRUST_NOTICE.primary} />
           {/* After sign-in the trader lands here (committee item 7); the profile stays one tap away. */}
           <p className="small"><Link className="tap" href={`/u/${me.handle}`}>{TRUST_NOTICE.profileLink}</Link></p>
           <p className="small"><Link className="tap" href="/settings">{TRUST_NOTICE.settingsLink}</Link></p>
         </>
-      ) : attempt !== null && allowed ? (
+      ) : attempt !== null ? (
         <PortalButton label={TRUST_NOTICE.primary} />
       ) : (
         <>
-          <p role="status">{allowed ? TRUST_NOTICE.signInFirst : LAUNCH.closed}</p>
+          <p role="status">{TRUST_NOTICE.signInFirst}</p>
           <ul className="options">
             {options.map((o) => <li key={o.key}><Link className="button wide secondary" href={`/login?method=${o.key}`}>{o.label}</Link></li>)}
           </ul>

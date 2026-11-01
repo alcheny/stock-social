@@ -51,7 +51,7 @@ export default async function Login({ searchParams }: { searchParams?: Promise<S
   };
   return (
     <main className="page auth">
-      <h1>{SIGNIN.title}</h1>
+      <h1>{open ? SIGNIN.title : LAUNCH.signInTitle}</h1>
       <p className="muted">{SIGNIN.sub}</p>
       {error === 'closed'
         ? <><p id="launch-closed" role="alert" tabIndex={-1}>{LAUNCH.closedAfter}</p><FocusHeading id="launch-closed" /></>

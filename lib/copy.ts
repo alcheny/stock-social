@@ -313,6 +313,8 @@ export const LAUNCH = {
   closed: "Sign-up isn't open yet. Existing accounts can still sign in.",
   closedAfter: "Sign-up isn't open yet. That sign-in isn't linked to an account.",
   connectClosed: "Connecting a brokerage isn't open yet.",
+  // UX lead re-sit 4: while sign-up is closed /login is only for existing accounts.
+  signInTitle: 'Sign in',
 } as const;
 
 export const LEGAL_PLACEHOLDER = {

@@ -46,11 +46,13 @@ dbTest('one row per public record per day; a second tick that day writes nothing
     const row = await displayedOn(u, today);
     assert.ok(row);
     assert.equal(row.day, today);
+    assert.equal(row.gap, false);
     assert.equal(row.demo, true, 'demo records are logged and marked demo');
     assert.equal(row.headline, '0% win rate · -4.0% avg return / trade');
     assert.equal(row.tradeCount, 1);
     assert.equal(await displayedOn(u, '2000-01-01'), null);
-    assert.equal((await displayedOn(u, '2999-01-01'))?.day, today);
+    const later = await displayedOn(u, '2999-01-01');
+    assert.deepEqual([later?.asked, later?.day, later?.gap], ['2999-01-01', today, true], 'a day with no row says so');
     assert.equal(await displayedOn(empty, today), null);
     // An older day's row is never touched by a later day's write.
     const tomorrow = new Date(now.getTime() + DAY);
@@ -86,5 +88,22 @@ dbTest('a deleted (being deleted) account is not logged', async () => {
     assert.equal((await writeDisplayLog({ ids: [u] })).written, 0);
   } finally {
     await sql`delete from users where id = ${u}`;
+  }
+});
+
+dbTest('records with nothing to show never starve later ones: with room for one snapshot per call, the record after many empty ones is written on the first call', async () => {
+  const { sql } = await import('./db.ts');
+  const { writeDisplayLog } = await import('./display-log.ts');
+  const empties = [await person('dls'), await person('dls'), await person('dls'), await person('dls')];
+  const real = await person('dlr');
+  try {
+    await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+      values (${real}, ${`dlr-${real}`}, 'acct', 'DLX', now() - interval '3 days', now() - interval '1 day', 0.04, 2, true)`;
+    let t = 0;
+    const r = await writeDisplayLog({ ids: [...empties, real], batch: 1, boxMs: 2, clock: () => t++ });
+    assert.equal(r.written, 1);
+    assert.equal((await sql`select count(*)::int as n from display_log where user_id = ${real}`)[0].n, 1);
+  } finally {
+    for (const id of [...empties, real]) await sql`delete from users where id = ${id}`;
   }
 });

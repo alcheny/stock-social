@@ -12,6 +12,7 @@ test('closed-state copy: plain, no date, no promise, no waitlist', () => {
     closed: "Sign-up isn't open yet. Existing accounts can still sign in.",
     closedAfter: "Sign-up isn't open yet. That sign-in isn't linked to an account.",
     connectClosed: "Connecting a brokerage isn't open yet.",
+    signInTitle: 'Sign in',
   });
   for (const t of Object.values(LAUNCH)) assert.doesNotMatch(t, /\d|soon|waitlist|wait list|launch|notify|guarantee/i, t);
   assert.ok(allCopy().includes(LAUNCH.closed), 'walked by the copy compliance checks');

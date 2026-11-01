@@ -11,6 +11,9 @@ import { purgePrivacy, type PrivacyPurgeReport } from '@/lib/privacy-purge.ts';
 import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
 import { gateReport } from '@/lib/launch-gate.ts';
 
+const PRIVACY_STAGE_MS = 10_000;
+const PRIVACY_STAGE_MARGIN_MS = 30_000;
+
 // Cron: POST /api/sync with `Authorization: Bearer $CRON_SECRET`, every 5 minutes and never at :30 (request #7 as amended;
 // rounds run :30 to :30, lib/sync.ts).
 // F-1 PR-3 fix round 4 (business lead 3): the function's limit, above the 30 s vendor bound with room for a sync claimed
@@ -36,18 +39,24 @@ export async function POST(req: NextRequest) {
   // throws, the traders below are claimed exactly as before.
   let purged: PurgeReport | null = null;
   try { purged = await purgeDiscovery(); } catch (e) { console.error('discovery purge failed', logSafe(e)); }
-  // Privacy work (committee D13, D14, D3): the privacy purges and today's display-log rows, each in its own try/catch
-  // and time box; whatever they return or throw, the traders below are synced exactly as before. Counts only.
-  let privacy: PrivacyPurgeReport | null = null;
-  try { privacy = await purgePrivacy(); } catch (e) { console.error('privacy purge failed', logSafe(e)); }
-  let displayLog: DisplayLogReport | null = null;
-  try { displayLog = await writeDisplayLog(); } catch (e) { console.error('display log failed', logSafe(e)); }
-  const launch = gateReport();
-  console.log('privacy tick', JSON.stringify({ privacy, displayLog, launch })); // counts and the gate state only
   // Only traders with a connected (consented) connection and no import in progress, each claimed by one caller per
   // round (lib/sync.ts#syncTick), so overlapping cron calls split the traders instead of syncing each one twice.
   // ponytail: one caller is sequential, ~5k traders/hour; more concurrent calls add throughput, then a queue (DESIGN §2.7)
   let end: TickReport | null = null;
   const { ok, skipped, failed } = await syncTick({ deadline, routeEnd: syncRouteEnd(startedAt), report: (r) => { end = r; } });
-  return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions, purged, privacy, displayLog, launch });
+  // Privacy work (committee D13, D14, D3; business lead re-sit 2): the privacy purges and today's display-log rows run
+  // after the traders are synced, never taking their time: each is boxed to the smaller of its own 10 s and the time
+  // left before the route's end less a 30 s margin, and skipped when none is left (both resume on the next tick). Each
+  // in its own try/catch. The log line carries counts, milliseconds and the gate state only.
+  const left = () => syncRouteEnd(startedAt) - PRIVACY_STAGE_MARGIN_MS - Date.now();
+  let privacy: PrivacyPurgeReport | null = null;
+  const t0 = Date.now();
+  try { if (left() > 0) privacy = await purgePrivacy({ boxMs: Math.min(PRIVACY_STAGE_MS, left()) }); } catch (e) { console.error('privacy purge failed', logSafe(e)); }
+  let displayLog: DisplayLogReport | null = null;
+  const t1 = Date.now();
+  try { if (left() > 0) displayLog = await writeDisplayLog({ boxMs: Math.min(PRIVACY_STAGE_MS, left()) }); } catch (e) { console.error('display log failed', logSafe(e)); }
+  const launch = gateReport();
+  const ms = { privacy: t1 - t0, displayLog: Date.now() - t1 };
+  console.log('privacy tick', JSON.stringify({ privacy, displayLog, launch, ms })); // counts, milliseconds and the gate state only
+  return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions, purged, privacy, displayLog, launch, ms });
 }

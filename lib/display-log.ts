@@ -66,6 +66,8 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
     const users = await sql`select u.id from users u where u.deleted_at is null and u.id > ${after}
       ${opts.ids ? sql`and u.id in ${sql(opts.ids.length ? opts.ids : [0])}` : sql``}
       and not exists (select 1 from display_log l where l.user_id = u.id and l.day = ${day}::date)
+      -- An empty record writes no row; filtering it here keeps it from using the box every tick (business lead re-sit 1).
+      and (exists (select 1 from closed_trades c where c.user_id = u.id) or exists (select 1 from open_positions p where p.user_id = u.id))
       order by u.id limit ${batch}`;
     for (const u of users) {
       if (clock() >= end) return { written, done: false };
@@ -81,11 +83,13 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
   }
 }
 
-export type DisplayedRow = { day: string; demo: boolean; headline: string; rangeText: string | null; tradeCount: number; openSummary: string; evidence: string };
+export type DisplayedRow = { asked: string; day: string; gap: boolean; demo: boolean; headline: string; rangeText: string | null; tradeCount: number; openSummary: string; evidence: string };
 
-/** What this record displayed on `day`: the latest snapshot on or before it, or null when none exists. */
+/** What this record displayed on `day`: the latest snapshot on or before it, or null when none exists. `day` is the
+ *  snapshot's own date; `gap` is true when it is older than the date asked for, so a missing day is never presented as
+ *  that day's display. */
 export async function displayedOn(userId: number, day: string): Promise<DisplayedRow | null> {
   const [r] = await sql`select to_char(day, 'YYYY-MM-DD') as day, demo, headline, range_text, trade_count, open_summary, evidence
     from display_log where user_id = ${userId} and day <= ${day}::date order by day desc limit 1`;
-  return r ? { day: r.day, demo: r.demo, headline: r.headline, rangeText: r.range_text, tradeCount: r.trade_count, openSummary: r.open_summary, evidence: r.evidence } : null;
+  return r ? { asked: day, day: r.day, gap: r.day !== day, demo: r.demo, headline: r.headline, rangeText: r.range_text, tradeCount: r.trade_count, openSummary: r.open_summary, evidence: r.evidence } : null;
 }
