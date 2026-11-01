@@ -101,7 +101,7 @@ test('feed floor: the latest effective filed time among the filings behind the t
 
 // --- DB: the rebuild and the filer's users row (AC 29) ---
 const hasDb = !!process.env.DATABASE_URL;
-const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
+const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL', timeout: 120_000 }, fn);
 const mine: number[] = [];
 before(async () => { if (hasDb) await (await import('./privacy-test-schema.ts')).applySchemaForTests(); });
 after(async () => {

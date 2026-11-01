@@ -53,29 +53,20 @@ export async function importPublicFilings(o: Opts): Promise<ImportReport> {
       const list = await client.listFilings({ day });
       for (; offset < list.length; offset++) {
         if (report.filings >= (o.max ?? MAX_FILINGS_PER_TICK) || Date.now() >= deadline) break walk;
-        try { await one(list[offset]); } catch (e) {
-          if (e instanceof FilingsStopped) throw e;
-          report.failed++; // ponytail: a filing that fails to store is passed over; a re-read from an earlier cursor retries it
-          console.error('public import: filing failed', logSafe(e));
-        }
+        // ponytail: a filing that fails to store is passed over; a re-read from an earlier cursor retries it
+        try { await one(list[offset]); } catch (e) { if (e instanceof FilingsStopped) throw e; report.failed++; console.error('public import: filing failed', logSafe(e)); }
         report.filings++;
       }
       if (day === today) break;
       day = nextDay(day); offset = 0;
     }
-  } catch (e) {
-    if (!(e instanceof FilingsStopped)) throw e;
-    report.stopped = true;
-  }
+  } catch (e) { if (!(e instanceof FilingsStopped)) throw e; report.stopped = true; }
   report.filers = touched.size;
-  if (o.dryRun) {
-    for (const rows of dry.values()) {
-      const m = matchPublic(rows);
-      if (m.trades.length) report.priced++;
-      if (m.trades.length >= 5) report.five++;
-      for (const [k, n] of Object.entries(m.excluded)) report.excluded[k] = (report.excluded[k] ?? 0) + n;
-    }
-  } else {
+  for (const m of [...dry.values()].map(matchPublic)) {
+    report.priced += +(m.trades.length > 0); report.five += +(m.trades.length >= 5);
+    for (const [k, n] of Object.entries(m.excluded)) report.excluded[k] = (report.excluded[k] ?? 0) + n;
+  }
+  if (!o.dryRun) {
     const ok = !report.stopped && !report.failed;
     await sql`insert into public_import_state (source, cursor, last_success_at) values (${state}, ${sql.json({ day, offset })}, ${ok ? sql`now()` : null})
       on conflict (source) do update set cursor = excluded.cursor, last_success_at = coalesce(excluded.last_success_at, public_import_state.last_success_at)`;
@@ -85,7 +76,6 @@ export async function importPublicFilings(o: Opts): Promise<ImportReport> {
 }
 export const FILER_ACTIONS = ['hide', 'unhide', 'remove'] as const;
 export const FILER_REASONS = ['request', 'review', 'error', 'amendment'] as const;
-
 // Operator actions (C13, C14), logged with a reason code only. Remove: removed_at first (never re-imported), profile deleted as
 // an account deletion (handle reserved), raw rows and counts cleared.
 export async function filerAction(filerId: number, action: (typeof FILER_ACTIONS)[number], reason: string): Promise<boolean> {

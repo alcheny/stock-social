@@ -7,11 +7,10 @@ import type { Server } from 'node:http';
 import { fakeState, filingXml, setScenario, startPublicFilingsFake } from '../e2e/fakes/public-filings.ts';
 import { filingsClient, FilingsStopped, MAX_DOC_BYTES, MIN_GAP_MS, parseFiling } from './public-filings.ts';
 
-const PORT = 4113;
 const env = { NODE_ENV: 'test', PUBLIC_FILINGS_CONTACT: 'ops@example.test' };
 let fake: { server: Server; base: string };
-before(async () => { fake = await startPublicFilingsFake(PORT); });
-after(() => { fake.server.close(); });
+before(async () => { fake = await startPublicFilingsFake(0); }, { timeout: 30_000 });
+after(() => { fake?.server.closeAllConnections(); fake?.server.close(); });
 
 const fixture = (f: string) => readFileSync(new URL(`../e2e/fixtures/public-filings/${f}`, import.meta.url), 'utf8');
 

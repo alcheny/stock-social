@@ -60,7 +60,6 @@ export function startPublicFilingsFake(port: number): Promise<{ server: Server; 
   let filings: FakeFiling[] = [];
   let fail = { status: 0, times: 0 };
   const requests: { at: number; path: string; ua: string }[] = [];
-  const base = `http://127.0.0.1:${port}`;
   const server = createServer(async (req, res) => {
     const path = (req.url ?? '/').split('?')[0];
     let body = '';
@@ -88,7 +87,11 @@ export function startPublicFilingsFake(port: number): Promise<{ server: Server; 
     res.writeHead(200, { 'content-type': 'application/xml' });
     res.end(filingXml(f));
   });
-  return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve({ server, base })));
+  // Port 0 picks a free port; a taken port rejects instead of leaving the caller's hook waiting forever.
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => resolve({ server, base: `http://127.0.0.1:${(server.address() as { port: number }).port}` }));
+  });
 }
 
 export async function setScenario(base: string, s: { name: string } | { filings: FakeFiling[]; fail?: { status: number; times: number } }) {

@@ -7,8 +7,7 @@ import type { Server } from 'node:http';
 import { setScenario, startPublicFilingsFake, type FakeFiling, type FakeOwner } from '../e2e/fakes/public-filings.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
-const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
-const PORT = 4114;
+const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL', timeout: 120_000 }, fn);
 const env = { NODE_ENV: 'test', PUBLIC_FILINGS_CONTACT: 'ops@example.test' };
 const tag = Math.random().toString(36).slice(2, 8);
 const keys: string[] = [];
@@ -16,11 +15,12 @@ const states: string[] = [];
 let fake: { server: Server; base: string };
 
 before(async () => {
-  fake = await startPublicFilingsFake(PORT);
+  fake = await startPublicFilingsFake(0);
   if (hasDb) await (await import('./privacy-test-schema.ts')).applySchemaForTests();
 });
 after(async () => {
-  fake.server.close();
+  fake?.server.closeAllConnections();
+  fake?.server.close();
   if (!hasDb) return;
   const { sql } = await import('./db.ts');
   const ids = (await sql`select id from public_filers where filer_key in ${sql(keys.length ? keys : [''])}`).map((r) => r.id as number);
