@@ -3,7 +3,10 @@ import { useEffect, useState } from 'react';
 import { markSharePromptSeen, recordSharePromptAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
 import { counted } from '@/lib/format.ts';
+import { PUBLIC_SHORT } from '@/lib/copy.ts';
+import { PUBLIC_FIELDS } from '@/lib/privacy-fields.ts';
 
+// range: the card's own "likely between" text (F-4 rework: the range around the average the card prints).
 // previewAlt: the card in words, from the card's own model (lib/record-card.ts#cardAlt; F-4 committee round 1, demand
 // 9). The old alt said "N verified trades" whatever the record's state.
 type Props = { handle: string; displayName: string; trades: number; range: string | null; isNew: boolean; previewAlt: string };
@@ -35,14 +38,12 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
         <img className="preview" src={`/u/${handle}/opengraph-image`} width={1200} height={630} loading="eager" onError={() => setImgFailed(true)}
           alt={previewAlt} />
       )}
-      <p style={{ margin: 0 }}>
-        Public: your win rate, average return and each closed trade as a percentage, losses included. Never sizes, prices or balances. Your broker login stays private.
-      </p>
+      <p style={{ margin: 0 }}>{PUBLIC_SHORT.sharePrompt(PUBLIC_FIELDS.map((f) => f.words))}</p>
       {isNew && (
         <p className="muted note" style={{ margin: 0 }}>
           {trades === 0
             ? 'You have no closed trades yet. Your card will show an empty record until you close a position.'
-            : `A short record means wide uncertainty. You have ${counted(trades, 'closed trade')} so far, and the card is labelled New record.${range ? ` Right now the range is ${range}.` : ''}`}
+            : `A short record means wide uncertainty. You have ${counted(trades, 'closed trade')} so far, and the card is labelled New record.${range ? ` Right now your average per trade is ${range}.` : ''}`}
         </p>
       )}
       <div className="actions">

@@ -21,12 +21,65 @@
 //   `startDate` like the vendor's endpoint
 //   POST /_fail {status: number, times: number}    the next `times` API calls answer `status`
 //   GET  /_state                                   users, their connections and accounts, for assertions
+//     (bulk users below are not listed: there can be 100,000 of them)
+//   POST /_bulk {prefix, from, to, accounts?, activities?, slowEvery?, slowOffset?, slowMs?, failEvery?, failOffset?, failStatus?}
+//     (sharded-sync load test, lib/sync-shard.load.test.ts) vendor users `${prefix}${i}` for every integer i in
+//     [from, to], held as one rule, not as rows: nothing is stored per user and each request generates what it answers.
+//     User i has `accounts[i % accounts.length]` accounts (default [1]) with ids `${prefix}${i}-a${j}`, all under one
+//     authorization `${prefix}${i}-auth`, the paper flag off and the initial sync done; each account has `activities`
+//     (default 2) BUY/SELL pairs' rows, ids `${account}-${k}`, dated within the last two days of the bulk's creation (a
+//     first sync or backfill reads them all in one page); no positions. The registerUser step is not needed (secrets are
+//     ignored, as everywhere in this fake). Users with `i % slowEvery === slowOffset` hold every API answer `slowMs`
+//     first (default 0); users with `i % failEvery === failOffset` answer every API call with `failStatus` (default
+//     400) at once (failing wins over slow). Posting the same prefix again replaces the rule (keeping its activity dates); `{prefix, clear: true}`
+//     removes it.
+//   POST /_latency {ms, jitterMs?}                 every vendor API request (not the portal, not /_ controls) waits ms
+//     plus a uniform random 0..jitterMs first; {ms: 0} turns it off. Adds to `delayMs` and the bulk's `slowMs`
+//   GET  /_stats                                   {requests}: vendor API requests answered since the fake started
 import { createServer, type Server } from 'node:http';
 
+// Corporate actions (F3c): share-moving rows (SPLIT, STOCK_DIVIDEND, REI, ADJUSTMENT...) with an optional description,
+// served like the vendor's; the activities endpoint honours the `type` filter as the vendor documents it.
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
-export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | FakeActivity[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
+export type FakeCorporateRow = Omit<FakeActivity, 'type'> & { type: 'SPLIT' | 'STOCK_DIVIDEND' | 'REI' | 'ADJUSTMENT' | 'TRANSFER'; description?: string };
+export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | (FakeActivity | FakeCorporateRow)[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] // price and cost_basis per unit, as the SDK documents
+  // OPTIONS: option rows (BUY/SELL with option_type, and the three option events) and raw positions of any instrument
+  // kind (option, future, future_option...), both in the vendor's own shapes (AccountUniversalActivity, AccountPosition).
+  optionActivities?: FakeOptionRow[]; instruments?: unknown[] };
+export type FakeOptionRow = { id: string; type: 'BUY' | 'SELL' | 'OPTIONEXPIRATION' | 'OPTIONASSIGNMENT' | 'OPTIONEXERCISE'; option_type?: string; option_symbol?: unknown;
+  symbol?: null; units?: number; price?: number; fee?: number; amount?: number; currency?: { code: string }; trade_date: string };
 type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean; portalFrameHeaders?: boolean };
-type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: FakeActivity[]; syncDone: boolean }> };
+type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: (FakeActivity | FakeCorporateRow)[]; syncDone: boolean }> };
+export type BulkSpec = { prefix: string; from: number; to: number; accounts?: number[]; activities?: number; slowEvery?: number; slowOffset?: number; slowMs?: number;
+  failEvery?: number; failOffset?: number; failStatus?: number };
+type Bulk = BulkSpec & { at: number };
+
+// A bulk user's accounts (with their rows, generated on demand) and its behavior, or null when no rule covers the id.
+function bulkUser(bulks: Map<string, Bulk>, userId: string) {
+  for (const b of bulks.values()) {
+    if (!userId.startsWith(b.prefix)) continue;
+    const rest = userId.slice(b.prefix.length);
+    if (!/^\d{1,9}$/.test(rest)) continue;
+    const i = Number(rest);
+    if (i < b.from || i > b.to) continue;
+    const pattern = b.accounts?.length ? b.accounts : [1];
+    const n = pattern[i % pattern.length];
+    const auth = `${b.prefix}${i}-auth`;
+    const pairs = b.activities ?? 2;
+    const rows = (account: string): FakeActivity[] => Array.from({ length: pairs * 2 }, (_, k) => ({
+      id: `${account}-${k}`, symbol: ['AAA', 'BBB', 'CCC'][Math.floor(k / 2) % 3], type: k % 2 ? 'SELL' : 'BUY', units: 10,
+      price: k % 2 ? 100 + ((i + k) % 7) - 3 : 100, fee: 0, trade_date: new Date(b.at - 48 * 3_600_000 + k * 60_000).toISOString(),
+    }));
+    const accounts = new Map(Array.from({ length: n }, (_, j) => {
+      const id = `${b.prefix}${i}-a${j}`;
+      return [id, { id, authorization: auth, institution: 'Fake Brokerage', paper: false, syncDone: true, get rows() { return rows(id); } }] as const;
+    }));
+    const failStatus = b.failEvery && i % b.failEvery === (b.failOffset ?? 0) ? b.failStatus ?? 400 : 0;
+    const slowMs = !failStatus && b.slowEvery && i % b.slowEvery === (b.slowOffset ?? 0) ? b.slowMs ?? 0 : 0;
+    return { accounts, slowMs, failStatus };
+  }
+  return null;
+}
 
 // Deterministic BUY/SELL pairs so `n` activities give n/2 closed trades per account.
 export function generateActivities(accountId: string, n: number): FakeActivity[] {
@@ -76,9 +129,13 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
   let next: Scenario = { accounts: [{ id: 'acct-default', activities: 4, syncDone: true }] };
   let authSeq = 0;
   let fail: { status: number; times: number } = { status: 500, times: 0 };
-  const base = `http://127.0.0.1:${port}`;
-  const refusingBase = `http://localhost:${port}`; // portalFrameHeaders: the portal on another origin
+  // Port 0 asks the OS for a free port; both bases are set from the bound port once listening.
+  let base = `http://127.0.0.1:${port}`;
+  let refusingBase = `http://localhost:${port}`; // portalFrameHeaders: the portal on another origin
   const probes: { method: string; cookie: boolean }[] = []; // the app's HEAD probes, for assertions (GET /_probes)
+  const bulks = new Map<string, Bulk>(); // POST /_bulk rules, by prefix
+  let latency = { ms: 0, jitterMs: 0 }; // POST /_latency
+  let requests = 0; // GET /_stats
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', base);
     const p = url.pathname;
@@ -98,6 +155,15 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       return res.end(`<!doctype html><title>post</title><script>parent.postMessage(JSON.parse(${JSON.stringify(url.searchParams.get('m') ?? 'null')}), '*');</script>`);
     }
     if (p === '/_probes') return json(probes);
+    if (p === '/_bulk' && req.method === 'POST') {
+      const b = await body();
+      if (typeof b.prefix !== 'string' || !b.prefix) return json({ detail: 'prefix required' }, 400);
+      if (b.clear) { bulks.delete(b.prefix); return json({ ok: true }); }
+      bulks.set(b.prefix, { ...b, at: bulks.get(b.prefix)?.at ?? Date.now() });
+      return json({ ok: true, users: b.to - b.from + 1 });
+    }
+    if (p === '/_latency' && req.method === 'POST') { const b = await body(); latency = { ms: Number(b.ms) || 0, jitterMs: Number(b.jitterMs) || 0 }; return json({ ok: true }); }
+    if (p === '/_stats') return json({ requests });
     if (p === '/_state') {
       const out: Record<string, { connections: Record<string, string[]> }> = {};
       for (const [id, u] of users) {
@@ -148,6 +214,8 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
 });
 </script>`);
     }
+    requests++;
+    if (latency.ms || latency.jitterMs) await new Promise((r) => setTimeout(r, latency.ms + Math.random() * latency.jitterMs));
     if (fail.times > 0) { fail.times--; return json({ detail: 'forced failure' }, fail.status); }
     if (next.delayMs && p.includes('/activities')) await new Promise((r) => setTimeout(r, next.delayMs));
     // The vendor API surface the app uses.
@@ -166,7 +234,13 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
       if (!users.delete(userId)) return json({ detail: 'unknown user' }, 404);
       return json({ status: 'deleted', userId });
     }
-    const user = users.get(userId);
+    let user = users.get(userId);
+    if (!user) {
+      const bu = bulks.size ? bulkUser(bulks, userId) : null;
+      if (bu?.slowMs) await new Promise((r) => setTimeout(r, bu.slowMs));
+      if (bu?.failStatus) return json({ detail: 'forced failure' }, bu.failStatus);
+      if (bu) user = { secret: '', accounts: bu.accounts as unknown as User['accounts'] };
+    }
     if (!user) return json({ detail: 'unknown user' }, 401);
     if (p === '/accounts') {
       return json([...user.accounts.values()].map((a) => ({
@@ -181,15 +255,17 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
       const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 1000);
       // `startDate` (YYYY-MM-DD, inclusive), as the vendor documents it: the hourly sync's backfill window.
       const from = url.searchParams.get('startDate');
-      const rows = from ? a.rows.filter((r) => r.trade_date.slice(0, 10) >= from) : a.rows;
-      const data = rows.slice(offset, offset + limit).map((r) => ({ ...r, symbol: { symbol: r.symbol } }));
+      const types = url.searchParams.get('type')?.split(',');
+      const all: (FakeActivity | FakeCorporateRow | FakeOptionRow)[] = [...a.rows, ...(a.optionActivities ?? [])]; // OPTIONS
+      const rows = all.filter((r) => (!from || r.trade_date.slice(0, 10) >= from) && (!types || types.includes(r.type)));
+      const data = rows.slice(offset, offset + limit).map((r) => (typeof r.symbol === 'string' ? { ...r, symbol: { symbol: r.symbol } } : r));
       return json({ data, pagination: { offset, limit, total: rows.length } });
     }
     const pos = p.match(/^\/accounts\/([^/]+)\/positions\/all$/);
     if (pos) {
       const a = user.accounts.get(decodeURIComponent(pos[1]));
       if (!a) return json({ detail: 'unknown account' }, 404);
-      return json({ results: (a.positions ?? []).map((x) => ({ instrument: { kind: 'stock', id: x.symbol, symbol: x.symbol, raw_symbol: x.symbol }, units: String(x.units), price: String(x.price), cost_basis: String(x.cost_basis) })), data_freshness: { as_of: new Date().toISOString() } });
+      return json({ results: [...(a.positions ?? []).map((x) => ({ instrument: { kind: 'stock', id: x.symbol, symbol: x.symbol, raw_symbol: x.symbol }, units: String(x.units), price: String(x.price), cost_basis: String(x.cost_basis) })), ...(a.instruments ?? [])], data_freshness: { as_of: new Date().toISOString() } });
     }
     const del = p.match(/^\/connection\/([^/]+)$/);
     if (del && req.method === 'DELETE') {
@@ -204,6 +280,22 @@ if (framed) document.querySelector('form').addEventListener('submit', async (e) 
   // `localhost` (portalFrameHeaders) may resolve to ::1 first on some machines: listen there too when the host has IPv6.
   const v6 = createServer((req, res) => server.emit('request', req, res));
   v6.on('error', () => {});
-  server.on('close', () => v6.close());
-  return new Promise((resolve) => server.listen(port, '127.0.0.1', () => { v6.listen(port, '::1'); resolve({ server, base }); }));
+  // OPTIONS fix round 4 (N8): closing the fake closes the IPv6 listener and its connections too, so the next spec's fake
+  // binds ::1 cleanly.
+  server.on('close', () => { v6.close(); v6.closeAllConnections(); });
+  const closeAll = server.closeAllConnections.bind(server);
+  server.closeAllConnections = () => { closeAll(); v6.closeAllConnections(); };
+  // A listen error (EADDRINUSE: another process holds the port) rejects instead of being an uncaught exception after
+  // the caller's hook ended, which cancelled every test in the file with no visible cause.
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', reject);
+      const bound = (server.address() as { port: number }).port;
+      base = `http://127.0.0.1:${bound}`;
+      refusingBase = `http://localhost:${bound}`;
+      v6.listen(bound, '::1');
+      resolve({ server, base });
+    });
+  });
 }

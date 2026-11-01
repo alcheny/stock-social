@@ -1,6 +1,6 @@
 # F-4 · Share card: simple first, the eye-catching elements
 
-Status: rework
+Status: built
 
 ## Why
 The share card (the image a profile link unfurls into, also used by the one-click Share button) is
@@ -101,6 +101,35 @@ elements that catch the eye and travel, and leave detail for the profile.
   years when strong. Why: the owner's choice; the card and its trust line always use the same unit.
 - 2026-11-01: The owner confirmed F-4 is decided: #25 merges as built, and the pipeline rebuilds the card to the
   decisions of 2026-10-31 and 2026-11-01 (Status: rework). Why: the owner's choice.
+- 2026-11-01: The trust line's sign is the sign of the interval the card prints, alone ("clear pattern" and
+  "consistent" only when the whole range is on one side of 0, losses as gains). Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's table says
+  "interval entirely above/below 0", and with a separate pace check the card could print a range wholly above 0
+  beside "no clear pattern yet" (docs/features/logs/F-4/committee-2026-11-01.md, Q-S; one dissent).
+- 2026-11-01: Open positions on the card (F-6): the count, how many are up and down, and the lowest and highest
+  unrealized percent ("Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%"; "3 open, unrealized · …" on
+  the link preview), no symbols, no average and no combined figure; the headline label reads "average per closed
+  trade" when there are open positions. Why: decided by the committee under the owner's instruction of 2026-11-01; an average across positions is a number no account has, the lowest
+  printed first means a held loser is never hidden, and a shared picture naming held stocks would read as a pick.
+- 2026-11-01: The text under the link preview keeps "Evidence: tier", and the chart caption keeps the owner's words
+  even with open positions shown. Why: decided by the committee under the owner's instruction of 2026-11-01; TR-9 makes the label a Must; owner copy changes only with the owner.
+- 2026-11-01: The card's range, tier and record length: the range is `lib/bets.ts#arithmeticRange` (cluster-robust,
+  t with K − 1 df, the bets `confidence()` counts); the tier uses `confidence()`'s thresholds with "too wide" read on
+  that range; days are rounded exactly as the profile's evidence line. Why: decided by the committee under the owner's instruction of 2026-11-01; so the headline, its range, its trust
+  line and the profile's day count can never disagree.
+- 2026-11-01: The link preview keeps every element at 10 CSS px or more by moving the chart caption to its own row
+  and the headline label beside the number; its chart is about 27% normally, 24% with an open-positions row or the
+  failed-import note, 21% with both; square and story keep 30%. Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's "about 24%, every element kept".
+- 2026-11-01: The profile shows the share card's evidence (the same range, tier and "Past results" verdict), and the
+  preview text ends with the disclaimer; the @handle always shows in full on every card size, only the display name
+  gives way; the New record pill is the trust badge's size. Why: decided by the committee under the owner's instruction of 2026-11-01; the user tests found a shared link landing on a
+  profile with a different range and tier, a figure without the disclaimer in text-only previews, and a long name
+  hiding the handle (the card's one unique identity). Ranking keeps its own interval.
+- 2026-11-01: On the link preview, a long average or range ("+250.0%", "likely between -24.1% and +104.1%") widens the
+  text column by 100 px and narrows the chart to match (about 22%, 20% with open positions), an average of 8 or more
+  characters is drawn smaller, and the caption and open-positions row never give way; the preview says "3 open,
+  unrealized · …"; the text under the preview uses F-6's open-positions wording. Why: decided by the committee under
+  the owner's instruction of 2026-11-01; the orchestrator's review showed a wrapped range clipping the open-positions
+  row (a held loser must never be hidden), and the user test asked for "unrealized" in words on every size.
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
@@ -145,9 +174,18 @@ Each one testable; the pipeline writes a test for every line.
 - Idea board 2026-11-01 (idea 10): with open positions the span runs to today (TR-9); proposed new card elements:
   "Last trade ‹month year›" when idle over 30 days, "Disconnected ‹date›", handle and short profile URL; preview
   text carries "Imported read-only from the broker", a short disclaimer and a /how link.
+- 2026-11-01 (business lead, user test): the profile chart still compounds ("Return if every trade were the same size")
+  while the card draws the running sum; whether the profile chart moves to the running sum is for the owner (F-6 or a
+  profile follow-up). The numbers never contradict: the card prints no end value.
+- 2026-11-01 (code review): the trade page, the month recap and the compare page still print `confidence()`'s
+  log-based range and tier; the profile and card now print `cardEvidence`. Moving `lib/trades.ts#confidence` onto
+  `arithmeticRange` (its owners' hand-off) makes every surface one answer.
 
 ## Rework notes
 - 2026-10-22: Owner wants the card to lead with chart, trade count and period; detail later.
 
 ## Build log
 - 2026-10-26: Built to these decisions (record card for the unfurl and the Share button picture, 5-bet floor, ±10-point threshold, trust-line table); details, test results and open items in `docs/features/logs/F-4/build-engineer.md`.
+- 2026-11-01: Rebuilt to the decisions of 2026-10-31 and 2026-11-01 with F-6's share-card part; committee record
+  `docs/features/logs/F-4/committee-2026-11-01.md`, build, QA and test results `docs/features/logs/F-4/build-2026-11-01.md`.
+- 2026-11-01: Merged to main in #35 (6dde868) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.

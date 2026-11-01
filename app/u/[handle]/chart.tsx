@@ -1,9 +1,11 @@
 'use client';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { RANGES, nearestIndex, pct, rangeTrades, stepIndex, type RangeKey } from '@/lib/trades.ts';
+import { tone, toneClass } from '@/lib/open-split.ts';
 import { chartSeries, pathD, unpackChart, type PackedChart } from '@/lib/chart-series.ts';
 import { counted } from '@/lib/format.ts';
 import { tradeHref, unpackPoints, type PackedPoint } from '@/lib/paging.ts';
+import { OPTIONS } from '@/lib/copy.ts'; // OPTIONS
 
 const W = 640, H = 240, T = 16, B = 16;
 
@@ -31,7 +33,7 @@ function fetchChart(src: string): Promise<PackedChart> {
   return p;
 }
 
-export function PerformanceChart({ points, chart, src, now, linkBase = '', current }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number }) {
+export function PerformanceChart({ points, chart, src, now, linkBase = '', current, shareOnly = false }: { points?: PackedPoint[]; chart?: PackedChart; src?: string; now: Date; linkBase?: string; current?: number; /* OPTIONS (D5) */ shareOnly?: boolean }) {
   // F-1 PR-3 fix round 7 (business lead re-sit, demand 2): the profile passes the whole record (`points`) and draws it
   // at full resolution; the feed pane passes `chart`, each range's series already drawn at screen resolution on the
   // server (lib/chart-series.ts, at most FEED_CHART_POINTS points). Both draw and scrub the same way.
@@ -128,11 +130,12 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
   const pick = (key: RangeKey) => { load(); setRange(key); setActive(null); setSel(null); setOpen(false); };
   const chosen = sel === null ? null : (pts[sel]?.trade ?? null);
 
+  // A11Y-FIXES #23: the line takes the printed sign's colour; a flat range draws in the neutral muted colour.
   return (
-    <figure ref={fig} className={`chart ${last >= 0 ? 'gain' : 'loss'}`} data-chart={lazy ? 'stand-in' : 'full'}>
-      <figcaption>Return if every trade were the same size</figcaption>
+    <figure ref={fig} className={`chart ${tone(last) === 'down' ? 'loss' : 'gain'}`} style={tone(last) === 'flat' ? ({ '--c': 'var(--muted)' } as React.CSSProperties) : undefined} data-chart={lazy ? 'stand-in' : 'full'}>
+      <figcaption>Return if every trade were the same size{shareOnly && OPTIONS.chartShareOnly}</figcaption>
       <div className="chart-head" aria-live="polite">
-        <b className={`chart-value ${shown >= 0 ? 'up' : 'down'}`}>{pct(shown, 1)}</b>
+        <b className={`chart-value ${toneClass(shown) ?? ''}`}>{pct(shown, 1)}</b>
         <span className="muted"> · {sub}</span>
       </div>
       {series.n === 0 ? (
@@ -191,7 +194,7 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
           <>
             <div className="line">
               <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}</span></span>
-              <b className={chosen.returnPct > 0 ? 'up' : 'down'}>{pct(chosen.returnPct)}</b>
+              <b className={toneClass(chosen.returnPct)}>{pct(chosen.returnPct)}</b>
             </div>
             {open && (
               <>

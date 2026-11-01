@@ -23,8 +23,9 @@ export function splitExclusions(rows: readonly ExclusionRow[], asOf: number, now
 }
 
 // The list for a viewer: the impersonal ranking minus the shaping exclusions, mixed (caps and exploration) as PR-1 mixes it.
-export function shapeList<T extends MixCard>(ranked: readonly T[], shaping: ReadonlySet<MixCard['trader']>, day: string): Mixed<T>[] {
-  return mixFeed(shaping.size ? ranked.filter((c) => !shaping.has(c.trader)) : ranked, { day });
+// F-2 PR-5 (review fix 1): `extra`, the exploration-only closes (already without the hidden traders), as everyone's mix has.
+export function shapeList<T extends MixCard>(ranked: readonly T[], shaping: ReadonlySet<MixCard['trader']>, day: string, extra: readonly T[] = []): Mixed<T>[] {
+  return mixFeed(shaping.size ? ranked.filter((c) => !shaping.has(c.trader)) : ranked, { day, extra });
 }
 
 export const displayFilter = <T extends { trader: MixCard['trader'] }>(slice: readonly T[], hidden: ReadonlySet<MixCard['trader']>): T[] =>

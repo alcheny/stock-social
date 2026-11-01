@@ -7,11 +7,15 @@
 // UTC day, which may be later than midnight. Wherever a past display is shown, it says "as of <asOf> (UTC)", never "all
 // day"; a later change the same day appears in the next day's row (code review 9, orchestrator review 3).
 import { sql } from './db.ts';
-import { confidence, evidenceLine, pct, rangeText, stats } from './trades.ts';
+import { evidenceLine, pct, stats } from './trades.ts';
+import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { winRateText } from './copy.ts';
 import { counted } from './format.ts';
 import { positionRows } from './positions.ts';
 import { publicRecordDetail } from './connections.ts';
+// OPTIONS (docs/features/logs/options/plan.md L9, AC 21): the options line or the gated count line, exactly as the one
+// reader returned it; this file reads no option table.
+import { loadOptionDisplayText } from './options-load.ts';
 
 export const DISPLAY_LOG_BOX_MS = 20_000;
 export const DISPLAY_LOG_BATCH = 200;
@@ -22,11 +26,13 @@ export type Snapshot = { headline: string; rangeText: string | null; tradeCount:
 
 export function snapshotText(closes: Close[], positions: Position[], today: Date): Snapshot {
   const s = stats(closes);
-  const c = confidence(closes, today);
+  // F-4 rework: the profile displays the share card's evidence (lib/record-card.ts#cardEvidence: the range around the
+  // average it prints, its tier and verdict), so the log records that same text.
+  const c = cardEvidence(closes, today);
   const rows = positionRows(positions);
   return {
     headline: closes.length ? `${winRateText(s.winRate)} · ${pct(s.avgReturn)} avg return / trade` : 'No closed trades yet',
-    rangeText: closes.length ? rangeText(c) : null,
+    rangeText: closes.length ? evidenceRangeText(c) : null,
     tradeCount: closes.length,
     openSummary: rows.length
       ? `${counted(rows.length, 'open position')}: ${rows.map((r) => `${r.symbol}${r.account ? ` (account ${r.account})` : ''} ${pct(r.pct)}`).join(', ')}`
@@ -38,7 +44,7 @@ export function snapshotText(closes: Close[], positions: Position[], today: Date
 const utcDay = (d: Date) => d.toISOString().slice(0, 10);
 
 /** One record's row for `day`, or null when nothing public shows (deleted, importing, or an empty record). */
-async function snapshotFor(userId: number, now: Date): Promise<(Snapshot & { demo: boolean }) | null> {
+async function snapshotFor(userId: number, now: Date): Promise<(Snapshot & { demo: boolean; optionsLine: string | null }) | null> {
   const { public: { state } } = await publicRecordDetail(userId);
   if (state === 'importing') return null; // TR-3: nothing partial is presented as a record, so nothing is logged as one
   const trades = await sql`select symbol, opened_at, closed_at, return_pct, holding_days from closed_trades where user_id = ${userId}`;
@@ -47,6 +53,7 @@ async function snapshotFor(userId: number, now: Date): Promise<(Snapshot & { dem
   const [d] = await sql`select exists(select 1 from activities where user_id = ${userId} and source = 'demo') as demo`;
   return {
     demo: d.demo as boolean,
+    optionsLine: await loadOptionDisplayText(userId), // OPTIONS
     ...snapshotText(
       trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })),
       positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number })),
@@ -65,6 +72,9 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
   const end = clock() + Math.min(opts.boxMs ?? DISPLAY_LOG_BOX_MS, DISPLAY_LOG_BOX_MS);
   const batch = opts.batch ?? DISPLAY_LOG_BATCH;
   let after = 0, written = 0;
+  // ponytail: one snapshot per trader, one after another (~5 queries and a whole-record read each) inside a 20 s box per
+  // tick, so past (ticks per day × box ÷ time per trader) records get no row that day — snapshot a batch in one
+  // set-based query, or run it as its own job that reports its backlog.
   for (;;) {
     const users = await sql`select u.id from users u where u.deleted_at is null and u.id > ${after}
       ${opts.ids ? sql`and u.id in ${sql(opts.ids.length ? opts.ids : [0])}` : sql``}
@@ -77,8 +87,8 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
       after = u.id as number;
       const snap = await snapshotFor(after, now);
       if (!snap) continue;
-      const r = await sql`insert into display_log (user_id, day, demo, headline, range_text, trade_count, open_summary, evidence)
-        values (${after}, ${day}::date, ${snap.demo}, ${snap.headline}, ${snap.rangeText}, ${snap.tradeCount}, ${snap.openSummary}, ${snap.evidence})
+      const r = await sql`insert into display_log (user_id, day, demo, headline, range_text, trade_count, open_summary, evidence, options_line)
+        values (${after}, ${day}::date, ${snap.demo}, ${snap.headline}, ${snap.rangeText}, ${snap.tradeCount}, ${snap.openSummary}, ${snap.evidence}, ${snap.optionsLine})
         on conflict (user_id, day) do nothing`;
       written += r.count;
     }

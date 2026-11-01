@@ -14,10 +14,13 @@ export const PUBLIC_FIELDS: Field[] = [
 ];
 
 export const PRIVATE_FIELDS: Field[] = [
-  { words: 'quantities', columns: ['activities.units'] },
-  { words: 'prices', columns: ['activities.price'] },
-  { words: 'fees', columns: ['activities.fee'] },
-  { words: 'account numbers', columns: ['activities.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'broker_accounts.account_id'] },
+  // OPTIONS: the raw option columns join the existing words (no new words: the scope line is owner copy).
+  { words: 'quantities', columns: ['activities.units', /* OPTIONS */ 'option_activities.contract_units'] },
+  { words: 'prices', columns: ['activities.price', /* OPTIONS */ 'option_activities.share_price', 'option_activities.strike_milli', 'option_activities.cash_amount',
+    'option_activities.occ_ticker', 'option_activities.contract_key' /* both carry the strike */] },
+  { words: 'fees', columns: ['activities.fee', /* OPTIONS */ 'option_activities.fee'] },
+  { words: 'account numbers', columns: ['activities.account_id', 'corporate_actions.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'broker_accounts.account_id',
+    /* OPTIONS */ 'option_activities.account_id', 'option_trades.account_id', 'open_option_positions.account_id'] },
 ];
 
 export const PUBLIC_USE = 'Your public record is also used to describe your trading style and to order traders for readers.';
@@ -28,8 +31,24 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.id': 'key', 'closed_trades.user_id': 'key', 'closed_trades.sell_id': 'key (vendor activity id, never shown)',
   'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
+  'closed_trades.filing_url': 'link to the public filing behind a public-record trade (F-7)', 'closed_trades.feed_after': 'feed floor, internal (F-7)',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
+  // OPTIONS (docs/features/logs/options/plan.md D1, D5): keys and flags of the option tables.
+  'option_trades.id': 'key', 'option_trades.user_id': 'key', 'option_trades.close_id': 'key (vendor activity id, never shown)',
+  'option_trades.verified': 'shown as the Verified badge',
+  'open_option_positions.user_id': 'key', 'open_option_positions.position_key': 'key (contract key, never shown)',
+  'open_option_positions.fetched_at': 'freshness, internal',
+  'closed_trades.sell_imported_at': 'when the closing sell was imported, internal (feed paging)',
 };
+
+// OPTIONS (D5): option columns the current scope line does not name. They are imported and counted but shown only once
+// the owner's line names them (lib/options-gate.ts#optionsPublic) and the trader consented under it. A column moves
+// from here to PUBLIC_FIELDS when the owner amends the line; lib/options-gate.test.ts puts each in exactly one map.
+export const GATED_COLUMNS: string[] = [
+  'option_trades.underlying', 'option_trades.option_right', 'option_trades.option_expiry', 'option_trades.return_pct',
+  'option_trades.opened_at', 'option_trades.closed_at', 'option_trades.holding_days',
+  'open_option_positions.underlying', 'open_option_positions.option_right', 'open_option_positions.option_expiry', 'open_option_positions.unrealized_pct',
+];
 
 const list = (xs: string[]) => (xs.length > 2 ? `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}` : xs.join(' and '));
 const listNoComma = (xs: string[]) => `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;

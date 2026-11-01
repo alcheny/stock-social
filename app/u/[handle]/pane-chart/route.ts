@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db.ts';
 import { paneChart } from '@/lib/chart-series.ts';
+import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 
 // F-1 PR-3 fix round 8 (tester re-run 4, Medium): the feed pane's full chart, fetched on the pane's first swipe-open
 // (app/u/[handle]/chart.tsx), so the feed page carries only a stand-in line per trader. Public like the profile it
@@ -11,7 +12,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const { handle } = await params;
   // Reviewer (tester Low): a handle outside the signup pattern (a NUL byte made Postgres throw, a 500) is a 404 before any query.
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
-  const [user] = await sql`select id from users where handle = ${handle} and deleted_at is null`;
+  const [user] = await sql`select id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
   if (!user) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const rows = await sql`
     select id, symbol, return_pct, holding_days, closed_at, thesis, thesis_status
@@ -21,5 +22,5 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
     closedAt: r.closed_at as Date, thesis: r.thesis_status === 'published' ? (r.thesis as string) : null,
   })), new Date());
   // Short and shared: every visitor of the same record gets the same chart; a new close shows within a minute.
-  return NextResponse.json(chart, { headers: { 'cache-control': 'public, max-age=60' } });
+  return NextResponse.json(chart, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
 }

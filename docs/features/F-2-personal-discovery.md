@@ -1,6 +1,6 @@
 # F-2 · Personalized discovery of traders and records
 
-Status: ready
+Status: built
 
 ## Why
 A viewer who has looked at or followed certain traders and records should see more of what they like:
@@ -75,25 +75,33 @@ advice. The owner has been told this and the scope below respects it.
   committee's conditions as acceptance criteria, its findings standing in for counsel's opinion (POLICY, owner
   decision 2026-11-01). Real viewers still wait for the Privacy Policy (H4). PR-1 to PR-4 and PR-3b are merged.
   Why: the owner's decision.
+- 2026-11-01: Criterion 5's nightly deletion of events older than 90 days is superseded by the indefinite-storage decision; ordering reads only the last 90 days, fading; account deletion removes events the same day. Why: decided by the committee under the owner's instruction of 2026-11-01; it is what the owner's later decision requires (Q1).
+- 2026-11-01: The switches live on /me/personalize (linked from Settings, Following and the feed's order line); On and Off are equal buttons named by their switch; "Clear my activity" is one tap. Why: decided by the committee under the owner's instruction of 2026-11-01; one screen with one job, and the decision says Clear deletes at once (Q2, Q5).
+- 2026-11-01: Activity Off keeps stored events unused; with "Personalize my feed" Off nothing is logged either (server-side check). Why: decided by the committee under the owner's instruction of 2026-11-01; minimum collection (POLICY P3) (Q3, Q4).
+- 2026-11-01: The opening swipe +2 is an activity event and counts only with activity On; implicit weights proposed for the owner: dwell_long +1, profile_open +1, share +1, skip −0.5, impression 0; follow bonus +2. Why: decided by the committee under the owner's instruction of 2026-11-01; passive reading needs the opt-in, and no implicit weight outweighs an explicit choice (Q6, Q8).
+- 2026-11-01: A "Not interested" that ran its 90 days stays stored and unread, listed under "No longer applied" on /me/following with Remove; the purge deletes only exclusions the viewer ended, ended unfollow rows and orphans (a like or hidden trade whose close is still gone 30 days after it was found gone). Why: decided by the committee under the owner's instruction of 2026-11-01; the owner's storage rule, with every stored row visible and removable, and a rebuild that brings a close back never loses a viewer's choice (Q13).
+- 2026-11-01: The watchlist is never an ordering input; the "symbols on your watchlist" reason in criteria 2 and 7 is superseded; reason lines are "Similar holding period to @x" (x followed or liked), "Trades symbols you read" and "New to you" (activity On). Why: decided by the committee under the owner's instruction of 2026-11-01; POLICY F1a and the owner's watchlist rule.
+- 2026-11-01: "N trades hidden by you. Show them" and the order line share one quiet paragraph above the first card; the Hidden trades list ships in the same PR as behavior-based ordering. Why: decided by the committee under the owner's instruction of 2026-11-01; the first card stays in view at 360 px, and criterion 15 is met (Q9).
+- 2026-11-01: /how documents how a signed-in feed is ordered, from the same constants. Why: decided by the committee under the owner's instruction of 2026-11-01; POLICY F1 asks for a documented method (Q12).
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
 - [ ] A signed-in viewer can follow and unfollow a trader from the profile and the pane; follows are
       private to the viewer (no public follower counts, POLICY F6) and feed the ranking.
 - [ ] A signed-in viewer sees a "More like what you read" section built from their own event log
-      (impressions, dwell, swipes, opens, shares, follows, watchlist, hides).
+      (impressions, dwell, swipes, opens, shares, follows, ~~watchlist~~ (superseded 2026-11-01), hides).
 - [ ] Every event is written with viewer id, surface, target (trader, trade or symbol), type and
       timestamp only; a test asserts no event row contains personal data or brokerage data.
 - [ ] "Not interested" on a suggestion removes that trader from the viewer's suggestions for 90 days
       and lowers similar records; unfollow applies the unfollow weight (−1, `lib/discovery/weights.ts`) to that
       trader's score for the viewer and never removes the trader's cards or section rows (restated 2026-10-24 per the
       business lead's O4 ruling, committee-pr1b §5; built in PR-4, the scoring use waits for PR-5).
-- [ ] Raw events older than 90 days are deleted by a nightly job; deleting an account deletes its
-      events and affinities the same day (tested end to end).
+- [ ] ~~Raw events older than 90 days are deleted by a nightly job;~~ (superseded 2026-11-01: stored until removed,
+      read for 90 days) deleting an account deletes its events and affinities the same day (tested end to end).
 - [ ] Diversity: in any 10 consecutive feed cards no trader or symbol appears more than twice; at
       least 2 of 10 are exploration picks (tested on generated feeds).
 - [ ] Each suggestion shows why it was suggested in plain words ("similar holding period to @x",
-      "trades symbols on your watchlist").
+      ~~"trades symbols on your watchlist"~~ (superseded 2026-11-01: the watchlist is never an input).
 - [ ] Losses and negative records are suggested with the same rules as gains; the ranking inside the
       section uses the confidence lower bound, never raw averages (TR-9).
 - [ ] No suggestion copy contains buy, sell, hold, pick, signal, advice or price targets (scanner rule).
@@ -145,3 +153,6 @@ Each one testable; the pipeline writes a test for every line.
   ordering without age assurance, an age-assurance step, or the attorney review's answer.
 
 ## Rework notes
+
+## Build log
+- 2026-11-01: Merged to main in #30 (e12a834) by the orchestrator session; Status set to built (the pipeline sets it in its own PRs; interactive builds did not), so the feature pipeline does not pick it up as ready again. Waiting for the owner to try it.

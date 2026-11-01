@@ -4,7 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
 import { currentUser, devGuard, rememberMethod, signIn } from '@/lib/session.ts';
 import { completeAttempt, createAttempt, createUserForAttempt } from '@/lib/auth/attempts.ts';
+import { afterSigninTools } from '@/lib/auth/landing.ts';
 import { saveThesisFor } from '@/lib/thesis-save.ts';
+import { tradeIdParam } from '@/lib/params.ts';
 import { isDemoUser } from '@/lib/demo.ts';
 import { normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
 import { TRADES_PROMPT_ACTIONS, type TradesPromptAction } from '@/lib/new-trades.ts';
@@ -14,6 +16,7 @@ import { checkReflection } from '@/lib/reflections.ts';
 import { checkRule } from '@/lib/rules.ts';
 import { signUpOpen } from '@/lib/launch-gate.ts';
 import { LAUNCH } from '@/lib/copy.ts';
+import { isFilerHandle } from '@/lib/public-gate.ts';
 
 // DEV-ONLY sign-in (/login/dev): no password, guarded like the old stub. It still goes through a signup_attempts row
 // (method 'dev') so the attestation precedes the users row on this path too.
@@ -22,6 +25,7 @@ export async function login(form: FormData) {
   const handle = normalizeHandle(form.get('handle')) ?? '';
   const name = String(form.get('name') ?? '').trim() || handle;
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) throw new Error('Handle: 3–20 lowercase letters, numbers or _');
+  if (isFilerHandle(handle)) redirect('/login/dev?error=handle'); // F-7: a public filer is never signed into
 
   // Recorded only on insert: an existing handle signs in and keeps its referral.
   const refHandle = normalizeHandle(form.get('ref'));
@@ -33,20 +37,22 @@ export async function login(form: FormData) {
   const referredBy = resolveReferrer({ refHandle, referrer, newHandle: handle });
   const attempt = await createAttempt({ method: 'dev', attested: form.get('adult') === 'on', referredBy, surface: referredBy ? normalizeVia(form.get('via')) : null, source: refHandle ? 'profile' : 'direct' });
 
-  const [existing] = await sql`select id from users where handle = ${handle}`;
+  const [existing] = await sql`select id from users where handle = ${handle} and deleted_at is null`; // never a profile marked for deletion
   // Launch gate (orchestrator review 1): the dev form signs existing handles in, but creates a new account only while
   // sign-up is open (the e2e sandbox counts as open).
   if (!existing && !signUpOpen()) throw new Error(LAUNCH.closed);
   const id = existing ? (await completeAttempt(attempt, existing.id), existing.id as number) : (await createUserForAttempt(attempt, { handle, name })).id;
   await signIn(id);
   await rememberMethod('dev');
-  redirect(`/u/${handle}`);
+  redirect((await afterSigninTools()) ? '/tools' : `/u/${handle}`); // F-3: "Sign in to subscribe" comes back to Record tools
 }
 
 export async function saveThesis(form: FormData) {
   const user = await currentUser();
   if (!user) redirect('/login');
-  await saveThesisFor(user.id, String(form.get('tradeId')), String(form.get('thesis') ?? ''));
+  const tradeId = tradeIdParam(form.get('tradeId')); // F19: a non-numeric id is a no-op, not a bigint error and a 500
+  if (!tradeId) return;
+  await saveThesisFor(user.id, tradeId, String(form.get('thesis') ?? ''));
   revalidatePath(`/u/${user.handle}`);
 }
 
@@ -57,7 +63,9 @@ export async function markSharePromptSeen() {
   await sql`update users set share_prompt_seen_at = now() where id = ${user.id} and share_prompt_seen_at is null`;
 }
 
-// Story-image adoption: first click on a Save link. Session user only, idempotent.
+// Fix #27 (cycle 2): the first completed share of the record from the profile's "Share my record" button (share sheet
+// or link copied). The column keeps its old name (share_image_saved_at, from the removed Save image link). Session user
+// only, idempotent.
 export async function markShareImageSaved() {
   const user = await currentUser();
   if (!user) return;

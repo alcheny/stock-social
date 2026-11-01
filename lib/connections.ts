@@ -5,13 +5,20 @@ import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
 import * as vendor from './broker.ts';
 import type { BrokerUser, VendorAccount } from './broker.ts';
-import { AccountClaimedError, claimIn } from './claims.ts';
+import { AccountClaimedError, accountIdentity, claimIn, identityOwners } from './claims.ts';
 import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
-import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
+import { insertActivities, USER_LOCK } from './sync.ts';
+import { insertCorporateActions } from './corporate-actions.ts';
 import { replaceAccountPositions, replacePositions } from './positions.ts';
+// OPTIONS (docs/features/logs/options/plan.md D1, D5, D7): option rows, the record rebuild and the consent line's hash.
+import { insertOptionActivities, rebuildRecord, replaceOptionPositions } from './options-sync.ts';
+import { CURRENT_CONSENT_HASH } from './consent-versions.ts';
+import type { OptionRow } from './options.ts';
 import { ownsAttempt } from './auth/links.ts';
 import { unsignToken } from './auth/sessions.ts';
+import { capReached, hit } from './rate-limit.ts';
+import { portalOrigin } from './portal.ts';
 
 // Brokerage-first: the signed attempt id, bound to the browser at S1 (startSignIn) until the user row exists.
 export const CONNECT_COOKIE = 'connect_attempt';
@@ -36,13 +43,29 @@ export async function boundAttempt(cookie: string | undefined | null, secret: st
   return null;
 }
 // A request that presents an attempt id its cookie does not match: refused, and counted on that attempt (an id and a
-// reason; nothing personal). An unknown or malformed id writes nothing.
+// reason; nothing personal). An unknown or malformed id writes nothing. Security hardening (2026-11-01), F03: counted at
+// most UNBOUND_MAX times per attempt (one per refusing surface: S2, start, done), so a loop over ?attempt=N cannot write
+// rows without end; the conditional insert runs under a per-id lock, so parallel refusals cannot slip past either.
+export const UNBOUND_MAX = 3;
 export async function refuseUnbound(raw: unknown): Promise<void> {
   if (typeof raw !== 'string' || !/^[1-9]\d{0,17}$/.test(raw)) return;
   const id = Number(raw);
-  const [a] = await sql`select id from signup_attempts where id = ${id}`;
-  if (a) await recordFunnel(id, 'failed', { reason: 'unbound' });
+  const e = funnelEvent('failed', { reason: 'unbound' });
+  await sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtextextended(${`unbound:${id}`}, 0))`; // any bigint id
+    await tx`insert into funnel_events (attempt_id, name, meta) select id, ${e.name}, ${tx.json(e.meta)} from signup_attempts a where a.id = ${id}
+      and (select count(*) from funnel_events where attempt_id = ${id} and name = 'failed' and meta->>'reason' = 'unbound') < ${UNBOUND_MAX}`;
+  });
 }
+
+// Security hardening (2026-11-01), F26: GET /connect/start mints a portal (and may register a vendor user), so a
+// cross-site navigation (a link or form on another site) never reaches it. A missing header (older browsers) passes.
+export const crossSiteNavigation = (h: Headers) => h.get('sec-fetch-site') === 'cross-site';
+
+// F21: every GET of /connect/done asks the vendor for the account list: 20 per attempt (signed out) or user in 10 minutes.
+export const LINK_CHECK_LIMIT = [20, 600] as const;
+export const linkCheckAllowed = (who: { userId: number | null; attemptId: number }) =>
+  hit(who.userId !== null ? `link-check:u${who.userId}` : `link-check:a${who.attemptId}`, ...LINK_CHECK_LIMIT);
 
 export const STATES = ['pending', 'importing', 'connected', 'declined', 'expired', 'failed'] as const;
 export type State = (typeof STATES)[number];
@@ -77,7 +100,8 @@ export function clockState(c: ClockRow, now: Date): 'expired' | 'failed' | null 
 // Import cursor: account index and page offset of the current pass. A pass re-reads every account; a second pass runs
 // when the vendor's initial sync was still filling during the first one, so the record ends complete (TR-3).
 // `pos` (fix round 6): after the rebuild, the accounts whose positions are read so far, while some are still unread.
-export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; pos?: number; checkedAt?: number; retries?: number; retryAt?: number };
+// `m` (corporate actions, F3c): the next account whose share-moving rows the import reads, after the trade pages.
+export type Cursor = { i: number; offset: number; pass: number; rebuilt?: boolean; pos?: number; checkedAt?: number; retries?: number; retryAt?: number; m?: number };
 export const startCursor = (): Cursor => ({ i: 0, offset: 0, pass: 1 });
 // A vendor 429, 5xx or transport error defers the next step: 30 s doubling per consecutive failure, capped at one hour.
 // Progress is not recorded while waiting, so the 24 h stale clock still ends an import the vendor never resumes.
@@ -90,15 +114,21 @@ export function advanceCursor(c: Cursor, pageDone: boolean, limit: number): Curs
   return pageDone ? { i: c.i + 1, offset: 0, pass: c.pass } : { i: c.i, offset: c.offset + limit, pass: c.pass };
 }
 
-export type SnapAccount = { id: string; authorizationId: string; institution: string; isPaper: boolean; initialSyncCompleted: boolean };
+// `identity`: the account's keyed identity hash (lib/claims.ts#accountIdentity), never the raw institution identifier;
+// absent on snapshots taken before it existed.
+export type SnapAccount = { id: string; authorizationId: string; institution: string; isPaper: boolean; initialSyncCompleted: boolean; identity?: string | null };
 export type Connection = {
   id: number; attempt_id: number; user_id: number | null; vendor_authorization_id: string | null; institution: string | null; state: State;
   pending_at: Date; importing_at: Date | null; connected_at: Date | null; consent_at: Date | null; last_progress_at: Date | null;
   import_cursor: Cursor; imported_count: number; accounts: SnapAccount[]; cleanup_done_at: Date | null; failure_reason: string | null;
   disconnected_at: Date | null;
 };
-export type Deps = Pick<typeof vendor, 'registerUser' | 'connectUrl' | 'listAccounts' | 'fetchActivitiesPage' | 'fetchPositions' | 'deleteConnection' | 'deleteUser'> & { pageLimit?: number };
-export const realDeps: Deps = vendor;
+export type Deps = Pick<typeof vendor, 'registerUser' | 'connectUrl' | 'listAccounts' | 'fetchActivitiesPage' | 'fetchPositions' | 'deleteConnection' | 'deleteUser'> & {
+  pageLimit?: number;
+  // F20: the global vendor-user cap. Only the real vendor carries it; a test's fake vendor registers nobody and is uncapped.
+  registerAllowed?: () => Promise<boolean>; registered?: () => Promise<unknown>;
+} & { fetchShareMoves?: typeof vendor.fetchShareMoves }; // corporate actions (F3c): optional, so test deps without it import trades only
+export const realDeps: Deps = { ...vendor, registered: countVendorRegistration };
 
 const norm = (c: Record<string, unknown>): Connection => ({ ...(c as Connection), id: Number(c.id), attempt_id: Number(c.attempt_id) });
 export async function getConnection(id: number, db: TransactionSql | typeof sql = sql): Promise<Connection | null> {
@@ -115,7 +145,8 @@ export async function latestConnection(userId: number): Promise<Connection | nul
 // do. A pre-F-1 claim (confirmed, no connection) counts as connected. The state never derives from "has a vendor id".
 // Fix round 3: the state is over ALL consented connections, never the newest one (TR-3): a trader can hold several,
 // and a newer finished one must not present a still-running import as a whole record.
-export type PublicState = 'importing' | 'connected' | 'failed' | 'none';
+// F-7: 'public' / 'public_demo', built from public filings (set in recordStates only); trust rules branch on it, never on verified.
+export type PublicState = 'importing' | 'connected' | 'failed' | 'none' | 'public' | 'public_demo';
 export type AggregateRow = Pick<Connection, 'id' | 'state' | 'consent_at' | 'imported_count' | 'accounts'>;
 export type RecordStatus = { state: PublicState; imported: number; importing: number[] };
 // Pure. importing while any consented connection imports; else failed while a consented import failed and no later
@@ -148,7 +179,10 @@ export async function recordStates(userIds: number[]): Promise<Map<number, Recor
   if (!ids.length) return out;
   const rows = await sql`select user_id, id, state, consent_at, imported_count, accounts from connections where user_id = any(${ids}) and consent_at is not null order by id`;
   const legacy = new Set((await sql`select distinct user_id from broker_accounts where user_id = any(${ids}) and confirmed_at is not null and connection_id is null`).map((r) => Number(r.user_id)));
+  const filers = new Map((await sql`select u.id, pf.demo from users u join public_filers pf on pf.id = u.public_filer_id where u.id = any(${ids})`).map((r) => [Number(r.id), r.demo as boolean]));
   for (const id of ids) {
+    const demo = filers.get(id);
+    if (demo !== undefined) { out.set(id, { state: demo ? 'public_demo' : 'public', imported: 0, importing: [] }); continue; } // F-7
     const mine = rows.filter((r) => Number(r.user_id) === id).map((r) => ({ ...(r as unknown as AggregateRow), id: Number(r.id) }));
     out.set(id, aggregateRecord(mine, legacy.has(id)));
   }
@@ -160,6 +194,7 @@ export async function publicRecord(userId: number): Promise<{ state: PublicState
 // The profile's read: the public state and simulated count, plus the summed import count for the banner.
 export async function publicRecordDetail(userId: number): Promise<{ public: { state: PublicState; paper: number }; imported: number }> {
   const status = await recordStatus(userId);
+  if (status.state === 'public' || status.state === 'public_demo') return { public: { state: status.state, paper: 0 }, imported: 0 }; // F-7
   const [r] = await sql`select
     exists (select 1 from connections where user_id = ${userId} and consent_at is not null) as consented,
     ${legacyClaim(userId)} as legacy,
@@ -203,8 +238,11 @@ async function brokerUserFor(c: { user_id: number | null; attempt_id: number }, 
 // fallback, the persistent link, S7a's "Continue in a new page", in-app browsers). Either way the URL is minted here,
 // server side, for this user or bound attempt only; nothing a browser sends is ever used as a portal URL.
 export type PortalMode = 'embedded' | 'redirect';
+// Security hardening (2026-11-01), F13: the redirect flow refuses what the embedded flow refuses (not an https vendor
+// URL; plain http only on loopback while the test fake is configured), before the open is counted.
+export const portalAccepted = (url: string) => portalOrigin(url, { allowLoopback: !!process.env.SNAPTRADE_BASE_URL }) !== null;
 export async function startConnection(who: { userId: number | null; attemptId: number }, returnTo: string, deps: Deps = realDeps, mode: PortalMode = 'redirect'): Promise<string> {
-  return (await mintPortal(who, returnTo, mode, deps)).url;
+  return (await mintPortal(who, returnTo, mode, deps, portalAccepted)).url;
 }
 
 // Fix round 2 (engineer, Medium and Low): every mint runs under a transaction-scoped advisory lock, the per-user lock for
@@ -222,6 +260,13 @@ export const ATTEMPT_LOCK = 2; // USER_LOCK (lib/sync.ts) is 1
 export const MINT_MAX = 10;
 export const MINT_WINDOW_MIN = 10;
 export class RateLimitedError extends Error { constructor() { super('too many portal opens'); } }
+export const VENDOR_REGISTER_LIMIT = [300, 3_600] as const;
+// Counted after the mint's transaction commits, only for a registration that happened, so no shared row is locked while
+// the vendor registers. Past the cap it only alerts the operator: refusing would lock every new trader out at once; the
+// per-client attempt limit (lib/auth/send-limits.ts#attemptAllowed) bounds any one client.
+export async function countVendorRegistration(): Promise<void> {
+  if (!(await hit('vendor_register', ...VENDOR_REGISTER_LIMIT))) capReached('vendor_register', VENDOR_REGISTER_LIMIT[1]);
+}
 // PR-3 (carried Info 3): the vendor answered with a URL the caller refuses (not an https vendor URL): the route answers 502.
 export class PortalRefusedError extends Error { constructor() { super('the vendor returned no usable portal URL'); } }
 // PR-3 (carried Low 2 and Info 3): only what needs the lock runs under it: the limit's count, the vendor user's
@@ -236,16 +281,20 @@ export async function mintPortal(
   accept: (url: string) => boolean = () => true,
 ): Promise<{ url: string; mode: PortalMode }> {
   const provisional: PortalMode = typeof decide === 'string' ? decide : 'embedded';
-  const { bu, eventId } = await sql.begin(async (tx) => {
+  // F20: a registration gate a caller may inject (tests); asked only when no vendor user is stored yet. The real deps
+  // only count registrations (countVendorRegistration).
+  if (deps.registerAllowed && !(await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId })) && !(await deps.registerAllowed())) throw new RateLimitedError();
+  const { bu, registered, eventId } = await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(${who.userId !== null ? USER_LOCK : ATTEMPT_LOCK}, ${who.userId ?? who.attemptId})`;
     const [{ n }] = await tx`select count(*)::int as n from funnel_events where attempt_id = ${who.attemptId} and name = 'portal_opened'
       and at > now() - ${MINT_WINDOW_MIN} * interval '1 minute'`;
     if ((n as number) >= MINT_MAX) throw new RateLimitedError();
-    const bu = await ensureBrokerUser(who, deps, tx);
+    const { bu, registered } = await ensureBrokerUser(who, deps, tx);
     const e = funnelEvent('portal_opened', { mode: provisional });
     const [row] = await tx`insert into funnel_events (attempt_id, name, meta) values (${who.attemptId}, ${e.name}, ${tx.json(e.meta)}) returning id`;
-    return { bu, eventId: String(row.id) };
-  }) as { bu: BrokerUser; eventId: string };
+    return { bu, registered, eventId: String(row.id) };
+  }) as { bu: BrokerUser; registered: boolean; eventId: string };
+  if (registered) await deps.registered?.(); // counted after the commit (F20)
   const unreserve = () => sql`delete from funnel_events where id = ${eventId}`;
   let url: string;
   try {
@@ -267,18 +316,18 @@ export async function mintPortal(
 // The stored vendor user, or a new one. Called under the mint lock, so parallel first mints register once. The store is
 // still conditional: if a writer outside the lock stored one first, the one just registered is deleted at the vendor
 // (never left orphaned there, P6) and the stored one is used.
-async function ensureBrokerUser(who: { userId: number | null; attemptId: number }, deps: Deps, tx: TransactionSql): Promise<BrokerUser> {
+async function ensureBrokerUser(who: { userId: number | null; attemptId: number }, deps: Deps, tx: TransactionSql): Promise<{ bu: BrokerUser; registered: boolean }> {
   const stored = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId }, tx);
-  if (stored) return stored;
+  if (stored) return { bu: stored, registered: false };
   const bu = await deps.registerUser(who.userId ?? `attempt-${who.attemptId}`);
   const kept = who.userId !== null
     ? await tx`update users set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.userId} and snaptrade_user_id is null returning id`
     : await tx`update signup_attempts set snaptrade_user_id = ${bu.snaptradeUserId}, snaptrade_secret_enc = ${bu.secretEnc} where id = ${who.attemptId} and snaptrade_user_id is null returning id`;
-  if (kept.length) return bu;
+  if (kept.length) return { bu, registered: true };
   await ignoreGone(deps.deleteUser(bu));
   const winner = await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId }, tx);
   if (!winner) throw new Error('vendor user vanished while minting');
-  return winner;
+  return { bu: winner, registered: true }; // one was registered (and deleted again): it counts
 }
 
 export type LinkOutcome =
@@ -297,7 +346,7 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
   const knownIds = new Set(known.map((k) => k.a as string));
   const fresh = all.filter((a) => !knownIds.has(a.authorizationId));
   if (!fresh.length) return abandoned(who.attemptId);
-  const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted }));
+  const snapshot: SnapAccount[] = fresh.map((a: VendorAccount) => ({ id: a.id, authorizationId: a.authorizationId, institution: a.institution, isPaper: a.isPaper, initialSyncCompleted: a.initialSyncCompleted, identity: accountIdentity(a) }));
   const [row] = await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, institution, state, pending_at, portal_mode, accounts)
     values (${who.attemptId}, ${who.userId}, ${fresh[0].authorizationId}, ${fresh[0].institution}, 'pending', ${now}, ${mode}, ${sql.json(snapshot as never)}) returning id`;
   const id = Number(row.id);
@@ -309,9 +358,16 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
     return { kind: 'none', id };
   }
   const owners = await sql`select account_id, user_id, confirmed_at from broker_accounts where account_id in ${sql(real.map((a) => a.id))}`;
+  // The same brokerage account under a new vendor id (a fresh connection) is owned by whoever claimed its stable identity
+  // (lib/claims.ts): another profile's, the link is refused. A brokerage-first attempt signs in only through vendor ids
+  // one profile confirmed, as before, and any identity it carries must be that profile's too. Signing in through the
+  // identity alone (an owner linking the same account again while signed out) is refused for now: it would let anyone
+  // who can sign in to the brokerage account (a joint holder) into the profile, an auth decision for the owner (QA M1).
+  const idOwners = await identityOwners(sql, [...new Set(real.flatMap((a) => (a.identity && !a.isPaper ? [a.identity] : [])))]);
   if (who.userId === null) {
     const confirmedBy = new Set(owners.filter((o) => o.confirmed_at).map((o) => o.user_id as number));
-    if (owners.length && confirmedBy.size === 1 && owners.every((o) => o.confirmed_at) && owners.length === real.length) {
+    if (owners.length && confirmedBy.size === 1 && owners.every((o) => o.confirmed_at) && owners.length === real.length
+      && idOwners.every((o) => confirmedBy.has(o.user_id))) {
       const userId = [...confirmedBy][0];
       const [u] = await sql`select handle from users where id = ${userId} and deleted_at is null`;
       if (u) {
@@ -321,10 +377,10 @@ export async function completeLink(who: { userId: number | null; attemptId: numb
         return { kind: 'signin', id, userId, handle: u.handle as string };
       }
     }
-    if (owners.length) return refuse(id, who.attemptId, deps, now);
+    if (owners.length || idOwners.length) return refuse(id, who.attemptId, deps, now);
   } else {
-    if (owners.some((o) => o.user_id !== who.userId)) return refuse(id, who.attemptId, deps, now);
-    const r = await sql.begin((tx) => claimIn(tx, who.userId!, snapshot.map((a) => ({ id: a.id, isPaper: a.isPaper })), { connectionId: id, confirmed: false, now }));
+    if (owners.some((o) => o.user_id !== who.userId) || idOwners.some((o) => o.user_id !== who.userId)) return refuse(id, who.attemptId, deps, now);
+    const r = await sql.begin((tx) => claimIn(tx, who.userId!, snapshot.map((a) => ({ id: a.id, isPaper: a.isPaper, identity: a.identity ?? null })), { connectionId: id, confirmed: false, now }));
     if (!r.ok) return refuse(id, who.attemptId, deps, now);
   }
   await recordFunnel(who.attemptId, 'link_succeeded', { accounts: snapshot.length, paper: snapshot.length - real.length });
@@ -374,9 +430,9 @@ export async function consent(id: number, now = new Date(), deps: Deps = realDep
   try {
     await sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${user.id})`;
-      const r = await claimIn(tx, user.id, c.accounts.map((a) => ({ id: a.id, isPaper: a.isPaper })), { connectionId: id, confirmed: true, now });
+      const r = await claimIn(tx, user.id, c.accounts.map((a) => ({ id: a.id, isPaper: a.isPaper, identity: a.identity ?? null })), { connectionId: id, confirmed: true, now });
       if (!r.ok) throw new AccountClaimedError();
-      const ok = await setState(id, 'pending', 'importing', now, { consent_at: now, user_id: user.id, last_progress_at: now, import_cursor: tx.json(startCursor() as never) }, tx);
+      const ok = await setState(id, 'pending', 'importing', now, { consent_at: now, /* OPTIONS (D5) */ consent_scope_hash: CURRENT_CONSENT_HASH, user_id: user.id, last_progress_at: now, import_cursor: tx.json(startCursor() as never) }, tx);
       if (!ok) throw new NotPendingError();
       if (createdHere) {
         // The vendor user registered on the attempt moves to the user it now belongs to, in this transaction: a failure
@@ -463,7 +519,7 @@ export async function cleanupAttempts(deps: Deps = realDeps, now?: Date, opts: {
       ${ids ? sql`and a.id in ${sql(ids.length ? ids : [0])}` : sql``}
       and not exists (select 1 from connections c where c.attempt_id = a.id and (c.state in ('pending', 'importing', 'connected') or c.cleanup_done_at is null))
       and not exists (select 1 from users x where x.snaptrade_user_id = a.snaptrade_user_id)
-    order by id`;
+    order by id`; // ponytail: no limit and lowest id first, so a vendor delete that keeps failing is retried ahead of every newer attempt each tick — add a last-tried time, order by it and limit the read
   let n = 0;
   for (const [i, r] of rows.entries()) {
     if (clock() >= until) {
@@ -516,23 +572,38 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
       };
       if (cur.i < real.length) {
         const limit = deps.pageLimit ?? vendor.PAGE_LIMIT;
-        const page = await deps.fetchActivitiesPage(bu, real[cur.i].id, cur.offset, limit);
+        const options: (OptionRow & { raw: unknown })[] = []; // OPTIONS
+        const page = await deps.fetchActivitiesPage(bu, real[cur.i].id, cur.offset, limit, (rows) => { options.push(...rows); });
         await insertActivities(c.user_id!, 'snaptrade', page.activities, tx);
+        await insertOptionActivities(c.user_id!, 'snaptrade', options, tx); // OPTIONS
         return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
+      }
+      // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.
+      // ponytail: an account with more than one page (1,000) of share-moving rows makes several bounded requests in this
+      // step, more than the step's reserve assumes — fix: keep an offset in the cursor and read one page per step.
+      if (!cur.rebuilt && deps.fetchShareMoves && (cur.m ?? 0) < real.length) {
+        const k = cur.m ?? 0;
+        const moves = await deps.fetchShareMoves(bu, real[k].id);
+        await insertActivities(c.user_id!, 'snaptrade', moves.activities, tx);
+        await insertCorporateActions(tx, c.user_id!, 'snaptrade', moves.actions);
+        return save({ ...cur, m: k + 1 }, true, c.imported_count + moves.activities.length);
       }
       if (!cur.rebuilt || cur.pos !== undefined) {
         const first = !cur.rebuilt;
-        if (first) await rebuildTrades(c.user_id!, tx);
+        if (first) await rebuildRecord(c.user_id!, tx); // OPTIONS: rebuildTrades, then the option steps
         const positions = [];
         const read: string[] = [];
+        const splits = new Map<string, import('./broker.ts').PositionSplit>(); // OPTIONS
         let k = first ? 0 : cur.pos!;
         for (; k < real.length; k++) {
           if (read.length && clock() + vendor.VENDOR_TIMEOUT_MS > readUntil) break;
-          for (const p of await deps.fetchPositions(bu, real[k].id)) positions.push({ accountId: real[k].id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
-          read.push(real[k].id);
+          const id = real[k].id;
+          for (const p of await deps.fetchPositions(bu, id, (s) => { splits.set(id, s); })) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
+          read.push(id);
         }
         if (first) await replacePositions(tx, c.user_id!, positions);
         else await replaceAccountPositions(tx, c.user_id!, read, positions);
+        await replaceOptionPositions(tx, c.user_id!, first ? null : read, splits); // OPTIONS (D7)
         const { pos: _pos, ...rest } = cur;
         return save({ ...rest, rebuilt: true, ...(k < real.length ? { pos: k } : {}) }, true);
       }
@@ -542,7 +613,7 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
       if (!done) return save({ ...cur, checkedAt: now.getTime() }, false);
       // Complete at link time, or re-read once after the vendor finished: the record is whole (TR-3).
       if (cur.pass >= 2 || real.every((a) => a.initialSyncCompleted)) {
-        await setState(id, 'importing', 'connected', now, { last_progress_at: now }, tx);
+        await setState(id, 'importing', 'connected', now, { last_progress_at: now, /* OPTIONS: whole history read */ options_backfilled_at: now }, tx);
         const [{ n }] = await tx`select count(*)::int as n from closed_trades where user_id = ${c.user_id}`;
         await recordFunnel(c.attempt_id, 'import_finished', { trades: n as number, seconds: Math.round((now.getTime() - (c.consent_at ?? now).getTime()) / 1000) });
         return { state: 'connected', imported: c.imported_count, progressed: true };
@@ -614,6 +685,8 @@ export async function tick(deps: Deps = realDeps, now = new Date(), deadline = I
   const errors: number[] = [];
   let advanced = 0, cleaned = 0;
   const left = () => Date.now() < deadline;
+  // ponytail: both loops restart from the lowest id each tick, so rows that keep failing go first and newer imports and
+  // cleanups past the deadline wait — order by a last-attempted time with a backoff.
   for (const r of await sql`select id from connections where state = 'importing' order by id`) {
     if (!left()) break;
     try { await drive(Number(r.id), deps, now, MAX_STEPS_PER_TICK, deadline); advanced++; } catch (e) { errors.push(Number(r.id)); console.error('import step failed', r.id, errStatus(e)); }
