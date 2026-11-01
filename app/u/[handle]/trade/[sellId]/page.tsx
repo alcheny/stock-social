@@ -55,7 +55,8 @@ export default async function TradePage({ params }: Params) {
   if (!t) notFound();
   const me = await currentUser();
   // F-26: the author's held note (the author loader runs only for the trader; never in generateMetadata or the image).
-  const own = !t.thesis && t.note && !isPublicRecord(t.state) ? (me && me.handle === t.handle ? await loadOwnNote(me.id, t.note.tradeId, t.handle) : null) : null;
+  // Only the trader, signed in, on a trade with no published note and not a public filer's (filers post none).
+  const own = me && me.handle === t.handle && !t.thesis && !isPublicRecord(t.state) ? await loadOwnNote(me.id, t.note.tradeId, t.handle) : null;
   // F-15 second half: the stored sell id's one spelling (lib/share.ts#tradePath), the same as the canonical link.
   // ponytail: this framework hands generateMetadata and the page the segment in different decoded forms, so a sell id
   // holding '%' (or a double-encoded address) can load in one and not the other (a 200 page with the site title and no

@@ -75,7 +75,9 @@ a note was held.
   noun "Thesis" plus "for review" keeps the two uses apart.
 - 2026-11-01: Where it lives:
   - `app/ui.tsx#thesisLine`: F-10 owns the card; this feature changes only the note slot.
-  - `TradeCard` gets an `ownHeld?: string | null` prop (the held line or nothing) rather than reading a status.
+  - `TradeCard` gets an `ownHeld?: OwnHeld | null` prop (`OwnHeld = { rule }`, set only on the author's own held card;
+    `HeldNote` words it) rather than reading a status. (Build note 2026-11-01: was "the held line or nothing" as a string;
+    the rule is passed so the card and the trade page share one markup.)
   - The feed's existing `page.viewer.id === t.user_id` check sets that prop. The feed's no-session rule stands
     (`lib/feed.signed-out.test.ts`).
   - Both `lib/feed.ts#loadFeedPage` statements that select `thesis` (the candidate statement and the page-row

@@ -109,8 +109,12 @@ test('the author sees "held for review" and the matched rule as text, muted (nev
   const s = read('../app/u/[handle]/page.tsx');
   const line = s.split('\n').find((l) => l.includes("t.thesis_status === 'held'"))!;
   assert.match(line, /isMe &&/);
-  assert.match(line, /className="muted thesis-held"/);
-  assert.match(line, /\{heldLine\(t\.thesis_hold_rule\)\}/);
+  // F-26: the line is HeldNote (one markup for the card, the trade page and the profile), rendered here to check it.
+  assert.match(line, /<HeldNote rule=\{t\.thesis_hold_rule\} \/>/);
+  const { HeldNote } = await import('./user-note.ts');
+  const html = renderToStaticMarkup(createElement(HeldNote, { rule: 'promotion' }));
+  assert.match(html, /^<p class="muted thesis-held" data-own-held="">Thesis held for review\. [^<]*Held because it has a promotion\.[^<]*<\/p>$/);
+  assert.doesNotMatch(html, /\bdown\b|--down/);
   const { heldLine } = await import('./report-copy.ts');
   assert.match(heldLine('promotion'), /^Thesis held for review\. .*Held because it has a promotion\./);
   assert.doesNotMatch(line, /\bdown\b|--down/);

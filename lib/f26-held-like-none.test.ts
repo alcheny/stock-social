@@ -152,7 +152,7 @@ test('F-26 AC (metadata and image): the trade page\'s generateMetadata and its o
   // Only the page body reads the session, and the author loader runs only for the author.
   const body = page.slice(page.indexOf('export default async function'));
   assert.match(body, /const me = await currentUser\(\)/);
-  assert.match(body, /me && me\.handle === t\.handle \? await loadOwnNote\(me\.id, /);
+  assert.match(body, /me && me\.handle === t\.handle && !t\.thesis && !isPublicRecord\(t\.state\) \? await loadOwnNote\(me\.id, /);
 });
 
 test('F-26: share and record images and the public JSON routes never import the held line', () => {
