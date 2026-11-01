@@ -336,6 +336,10 @@ test.describe('F-3 with the fake processor', () => {
     await expect(page.getByText('Test mode, no real charge')).toBeVisible();
     const [consent] = await sql`select plan, disclosure_hash, livemode from billing_consents where user_id = ${id}`;
     expect(consent).toMatchObject({ plan: 'monthly', livemode: false });
+    // Past the 14-day refund window: the first charge was 20 days ago (the fake's own record of the subscription).
+    const sub = [...fake!.fake.subs.values()].at(-1)!;
+    for (const k of ['start_date', 'current_period_start'] as const) sub[k] -= 20 * 86_400;
+    sub.items.data[0].current_period_start = sub.current_period_start;
     await page.getByRole('button', { name: 'Cancel subscription' }).click();
     await expect(page).toHaveURL(/127\.0\.0\.1:4103\/portal\//);
     await page.getByRole('button', { name: 'Cancel subscription' }).click();
@@ -345,6 +349,19 @@ test.describe('F-3 with the fake processor', () => {
     await page.getByRole('button', { name: 'Resume subscription' }).click();
     await page.getByRole('link', { name: 'Return' }).click();
     await expect(page.getByText(/^Renews on /)).toBeVisible({ timeout: 15_000 });
+    // Within 14 days of the first charge, canceling ends it now with a full refund (the refund decision).
+    await page.context().clearCookies();
+    await signIn(page, handle());
+    await page.goto('/tools');
+    await page.getByLabel('I agree my subscription renews automatically at $99.99 per year plus tax until I cancel.').check();
+    await page.getByRole('button', { name: 'Subscribe: $99.99/year' }).click();
+    await page.getByRole('button', { name: 'Pay (test card)' }).click();
+    await expect(page.getByText('Plan: Yearly, $99.99 per year plus tax')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: 'Cancel subscription' }).click();
+    await page.getByRole('button', { name: 'Cancel subscription' }).click();
+    await page.getByRole('link', { name: 'Return' }).click();
+    await expect(page.getByText('Your subscription ended with a refund.')).toBeVisible({ timeout: 15_000 });
+    expect(fake!.fake.refunds.at(-1)!.amount).toBe(9999);
     // No billing email from the app, and the processor saw no handle, user id or email.
     const sent = fake!.fake.calls.filter((c) => c.method === 'POST').map((c) => decodeURIComponent(c.body)).join('\n');
     expect(sent).not.toMatch(new RegExp(`${tag}|email|user_id`));
