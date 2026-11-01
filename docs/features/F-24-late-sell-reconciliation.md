@@ -101,7 +101,9 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
       published twice; two genuine identical fills with different ids are both kept when the vendor's full read lists
       both (tests both ways, including two genuine fills listed far apart, kept after the account's next daily read
       without an extra request, and an original listed only on an earlier page than its re-issue, which stays held;
-      committee note 2026-11-01).
+      committee note 2026-11-01). Owner residual (orchestrator review C7, 2026-11-01): on a busy account, where a full
+      vendor page or more has been stored since the twins' date, such a far-apart genuine fill stays held and counted
+      (reason `busy`) until `lib/broker.ts` can read a bounded window.
 - [ ] A found close carries no "late", "corrected" or "new" label (copy test); its thesis, if any, stays attached.
 
 ## Out of scope
@@ -117,6 +119,10 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
   the correctness of the confirm read does not.
 - Owner (F-24 committee, 2026-11-01): is it acceptable that a true re-issue whose original the vendor still lists in one
   read is published twice, until the corrections question (cycle-3 Q3) is decided?
+- Owner (orchestrator review C7, 2026-11-01): a busy account's far-apart genuine identical fill stays held and counted
+  (reason `busy`), because its widened read would span several vendor pages and decide nothing. Lifting this needs a
+  `lib/broker.ts` change: an end date on `fetchActivities` (a two-day window around the twins fits one page) or per-page
+  id lists. Approve that change?
 
 ## Rework notes
 

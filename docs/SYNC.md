@@ -152,6 +152,9 @@ finds those rows:
   - `bound`: more pages than `ceil(expected / (limit − 50)) + 2`, where expected is every stored row the read can return
     at the start (share rows, unusable trade rows and option rows);
   - `confirm`: 2 failed syncs in a row that were to make the widened confirm read (`sync_read_marks.confirm_failures`);
+  - `busy`: the widened confirm read's window holds a full vendor page (1,000 rows) or more, so it would be several
+    responses and decide nothing. The account's confirm rows are suspected at once and no widened read is made
+    (ponytail: an end date or per-page ids from `lib/broker.ts`, owner);
   - `failures`: 2 failed page steps in a row (`RECONCILE_MAX_FAILURES`). A failure counts (`pageFailureCounts`) for any
     error thrown inside the page step, code errors such as a `TypeError` included, except vendor or database outages
     (429, 5xx, a vendor timeout, transport and database-wide codes) and a cut at the route's end (`RouteDeadlineError`).
@@ -180,7 +183,9 @@ finds those rows:
     full vendor page (1,000 rows) or more is several responses (it pages internally with no overlap), so it decides
     nothing. ponytail: per-page id lists from `lib/broker.ts` (owner) would let each internal page decide. The row is
     kept and published. Final;
-  - `confirm`: a complete pass listed enough of the group's rows to clear it by the same count, but never on one page. The account's next daily
+  - `confirm`: a complete pass listed enough of the group's rows to clear it by the same count, but never on one page.
+    On a busy account (a full vendor page or more stored since the twins' date) there is no widened read: the rows are
+    suspected (reason `busy`). The account's next daily
     activities read (inside F-14's budget) is widened to a day before the row's trade date: one call, a superset of the
     week read. It makes the row genuine when it lists both, otherwise suspected (the one week read that can suspect).
     Two failed syncs in a row that were to make it give it up (rows suspected, reason `confirm`, the week read). Held;

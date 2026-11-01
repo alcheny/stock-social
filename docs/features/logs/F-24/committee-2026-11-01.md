@@ -184,3 +184,14 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
   closes don't change add nothing; the AC5 add-only test pins it. Owner item: a cause column, if matcher-driven and
   vendor-driven rewrites should be exposed separately.
 
+## Orchestrator fourth review of #84 (811b398: BLOCK on C7) — taken
+- **C7, medium:** the L1 rule (a read of a full vendor page or more decides nothing) left a busy account's far-apart
+  genuine twin cycling confirm → suspected every pass, with a wasted multi-page widened read each time. The committee
+  log's "the next pass re-examines them" was not true for such accounts. Fix: `plannedConfirm` estimates the window
+  with the budget charge's own row count (`confirmRowsSql`). At a full page or more, the rows are suspected at once,
+  counted and logged with reason `busy`, and no widened read is made. Recorded as an owner residual in AC6 and Open
+  questions. Owner item: a `lib/broker.ts` change (an end date on `fetchActivities`, or per-page id lists).
+- **C6, low:** the one-response threshold counted rows kept after filtering, not vendor rows. A two-page call with
+  dropped rows could pass as one. Fix: `fetchActivities` calls the option sink once per internal vendor page, so the
+  sync counts those calls and requires one page.
+

@@ -158,6 +158,11 @@ reviewer; 3 planning rounds, all signed):
   - L3: a static test pins "no savepoint around these inserts" (the `xmin` rule depends on it).
   - Nit: the retention text names the failure counters.
 
+- **Fourth review (BLOCK on 811b398, C7):**
+  - C7: a busy account's confirm rows (a full vendor page or more since the twins' date) are suspected at once, reason
+    `busy`, with no wasted widened read. Recorded as an owner residual.
+  - C6: one response means one vendor page by the sink's per-page call count, not by the filtered row count.
+
 ## Owner items
 - Confirm that held rows (pending, confirm or suspected) are kept out of the record and counted for the owner only, so a held
   genuine fill can be absent until its pass decides it (D5's trade-off). See the owner queries in `docs/SYNC.md`.
@@ -167,6 +172,8 @@ reviewer; 3 planning rounds, all signed):
 - `users.closes_rewritten` also counts closes that main's deploy-time matcher rebuild (#89, once per `MATCHER_VERSION`)
   rewrites (D4: every rebuild). Unchanged records add nothing. A cause column would separate matcher-driven from
   vendor-driven rewrites if you want them exposed apart.
+- Busy accounts: a far-apart genuine identical fill stays held (reason `busy`) until `lib/broker.ts` gets an end date
+  on `fetchActivities` or per-page id lists (AC6 owner residual, Open questions).
 - For an old confirm date, the widened read is in effect a whole-history read in one sync: the burst the pass's pacing
   avoids while MR-1 (the vendor's answer on history pages) is open.
 - CLAUDE.md "Sync paths" (protected) could mention the weekly full-history pass.
