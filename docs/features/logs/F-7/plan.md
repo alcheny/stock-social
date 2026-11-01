@@ -76,3 +76,58 @@ The final list is written into the feature file's Acceptance criteria.
 4. Optional: a constraint change so filer rows hold null attestation fields instead of the sentinel.
 5. Later sources (legislators' reports need a price vendor plus the owner's written acceptance of the commercial-use
    risk; holdings reports).
+
+## Round 4 changes (from the sign-off round, 2026-11-01)
+
+All four members answered REVISE (`plan-signoff-*.md`). These changes meet every demand; they override §1-§4 and
+`plan-round2-engineer.md` §4 where they differ. Legal demands won where they overlapped.
+
+1. **Top block, exact copy (UX 1, BL 3).** Three rows at 360 px; row 2 may wrap:
+   1. Badges ("Public filing", plus "Demo" on fixtures) and "Company insider" (muted).
+   2. "Built from public filings. This person has not joined Stock Social, has not connected a broker, has not
+      reviewed this record and does not endorse it." (C15 plus finding 12.)
+   3. "Record since ‹date› · last checked ‹date› · Request a correction or removal →", linking to `/public-records`.
+
+   Then one caveat line: "Filings can be late, amended or missing." After 7 days it adds "This record may be out of
+   date." AC 15 asserts this order, the link target and no horizontal scroll at 360 px.
+2. **No page without a priced record (BL 2, UX 3).** The importer creates a filer's `users` row only once the filer
+   has at least one priced closed round trip. Other filers stay in `public_filers` with no page and are counted in
+   the run. AC 18's sentence about "No closed trades that can be priced…" is replaced: such a filer's handle 404s
+   and is counted.
+3. **No Like or Follow on public feed cards (UX 2, legal 4).** AC 28 also covers the feed card. On a public card
+   there is no Like button, no card-menu Follow, and a double tap does nothing.
+4. **Feed floor (legal 1).** §1 row 6 is confirmed with conditions:
+   - `feed_after` also filters similar trades and suggest;
+   - it is computed from the filed time of the closing sell's effective filing after amendments, on every rebuild;
+   - crossing it is never shown, announced or logged.
+
+   AC 21 gains the similar and suggest cases and the amendment case.
+5. **Adults (legal, row 8).** Confirmed. The role comes from the filing's reporting-relationship fields. Filers who
+   are only large holders, or only "other", are skipped and counted. AC 6 gains both cases.
+6. **Loopback by default (legal 2).** When `PUBLIC_TRADERS` is unset (on by default outside production), the
+   importer reaches loopback only. The official base URL needs an explicit `PUBLIC_TRADERS=1` and
+   `PUBLIC_FILINGS_CONTACT`. AC 8 gains the case.
+7. **Removal leaves suppression fields only (legal 3, C5).** `remove` deletes the `users`, raw and derived rows. It
+   leaves `public_filers` with the filer id, source and `removed_at`, and clears `excluded`, `open_symbols` and
+   `checked_at`. AC 23 asserts it.
+8. **Dry run (BL 1, legal 5).** `scripts/public-filer.ts --dry-run` fetches and matches in memory and writes
+   nothing. It needs an explicit `PUBLIC_TRADERS=1` and the contact, and uses the same worker and rate. It prints
+   counts only: filers seen, filers with a priced close, filers with 5+, exclusions by reason, and skipped roles.
+   New **AC 33:** against the fake, zero rows are written and no fixture name is in the output.
+9. **Schema (engineer 2-4).**
+   - Drop `public_filers.user_id`.
+   - Add `users.public_filer_id int unique references public_filers on delete restrict`, plus the C1 check.
+   - Replace the §4.1 "import time" comment with the C1 placeholder comment.
+   - The placeholder attempt has `method 'dev'`, never `'brokerage'`. The importer finds or creates it, because the
+     unfinished-attempt purge removes it once no filer points at it. A test runs the purge with zero filers, then
+     an import.
+   - `public_filer_log`: `action in ('hide','unhide','rebuild','remove')`, a `reason` code check, no `note_id`.
+10. **AC 3 (engineer 5).** Drop "Theses and likes survive by `sell_id`" for filers, since filers have neither.
+11. **Size (engineer 1).** The estimate is now ~820 product lines before cuts, because the stale line is required
+    (C10) and is no longer a cut. Cuts, in order:
+    1. the `/how` section to 15 lines (−15);
+    2. the operator actions and `--dry-run` share one script and parser (−15);
+    3. drop `unhide` (−10).
+
+    Target ≤ 790. `productLines` runs before each push. If the diff is still over 800, the builder stops and
+    flags it instead of cutting required items.
