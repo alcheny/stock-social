@@ -125,11 +125,11 @@ export default async function MyRecord() {
         <h2>Wins versus losses</h2>
         <div className="rec-grid">
           <div className="rec-card">
-            <dl className="rec-dl"><div><dt>Average win</dt><dd className={r.winLoss.avgWin === null ? 'muted' : 'up'}>{r.winLoss.avgWin === null ? FEW : pct(r.winLoss.avgWin)}</dd></div></dl>
+            <dl className="rec-dl"><div><dt>Average win</dt><dd className={r.winLoss.avgWin === null ? 'muted' : sign(r.winLoss.avgWin)}>{r.winLoss.avgWin === null ? FEW : pct(r.winLoss.avgWin)}</dd></div></dl>
             <p className="muted small">from {r.winLoss.wins} win{r.winLoss.wins === 1 ? '' : 's'}</p>
           </div>
           <div className="rec-card">
-            <dl className="rec-dl"><div><dt>Average loss</dt><dd className={r.winLoss.avgLoss === null ? 'muted' : 'down'}>{r.winLoss.avgLoss === null ? FEW : pct(r.winLoss.avgLoss)}</dd></div></dl>
+            <dl className="rec-dl"><div><dt>Average loss</dt><dd className={r.winLoss.avgLoss === null ? 'muted' : sign(r.winLoss.avgLoss)}>{r.winLoss.avgLoss === null ? FEW : pct(r.winLoss.avgLoss)}</dd></div></dl>
             <p className="muted small">from {r.winLoss.losses} loss{r.winLoss.losses === 1 ? '' : 'es'}</p>
           </div>
         </div>
@@ -281,7 +281,7 @@ export default async function MyRecord() {
       </div>
 
       <p className="muted small">
-        Percentages only. Computed from your verified closed trades each time you open this page.
+        Percentages only. Computed from your closed trades{demo ? ' (including demo data)' : ''} each time you open this page.
         {me.excluded_positions > 0 && <> Trades with no recorded entry are excluded: {me.excluded_positions}.</>}
       </p>
     </main>

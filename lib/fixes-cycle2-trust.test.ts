@@ -33,7 +33,8 @@ test('fix #4: every closed_trades / open_positions read on the stock pages, inde
     }
   }
   assert.ok(reads >= 7, `found ${reads} reads`);
-  for (const f of PENDING_VISIBLE) assert.ok(statSync(`${root}${f}`).isFile(), `${f} moved: update PENDING_VISIBLE`);
+  // A pending file that adopts the predicate must leave the list (so the list never hides a regression).
+  for (const f of PENDING_VISIBLE) assert.doesNotMatch(readFileSync(`${root}${f}`, 'utf8'), /visibleUser/, `${f} uses the predicate: remove it from PENDING_VISIBLE`);
 });
 
 test('fix #5: no surface says only percentages are public; the share prompt names every public field', () => {
@@ -72,6 +73,13 @@ test('fix #19: a flat figure is uncolored on /me/likes and /me/record', async ()
   assert.doesNotMatch(src('app/me/likes/page.tsx'), /> 0 \? 'up' : 'down'/);
   assert.match(src('app/me/likes/page.tsx'), /className=\{toneClass\(r\.returnPct\)\}/);
   assert.match(src('app/me/record/page.tsx'), /const sign = toneClass;/);
+  assert.doesNotMatch(src('app/me/record/page.tsx'), /: 'up'\}|: 'down'\}/); // average win/loss too
+});
+
+test('fix #1 spillover on /me/record: a record with demo data is not called verified', () => {
+  const s = src('app/me/record/page.tsx');
+  assert.doesNotMatch(s, /your verified closed trades/);
+  assert.match(s, /\{demo \? ' \(including demo data\)' : ''\}/);
 });
 
 test('fix #21: every page exports its own title, and no two static titles repeat', () => {
