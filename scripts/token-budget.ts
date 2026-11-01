@@ -21,21 +21,22 @@ export type Kind = (typeof KINDS)[number];
 export type Range = { low: number; point: number; high: number };
 export type Issue = { level: 'warn' | 'error'; code: string; detail: string };
 export type Prior = { low: number | null; point: number | null; high: number | null; typicalHours: number | null; tailHours: number; floorUsd: number };
-export type Brake = 'none' | 'rejected' | 'overage' | 'unknown-status';
+export type Brake = 'none' | 'rejected' | 'overage' | 'unknown-status' | 'bad-window';
+export type AdmitAt = 'low' | 'point';
 
-// Expected total cost of a whole session (USD), calibrated on 2026-11-01's runs (table in the spec).
+// Expected total cost and duration of a whole session, calibrated on 2026-11-01's runs (table in the spec).
 // ponytail: priors come from one day's runs — refit them from finished sessions' costs as more runs complete.
 export const DEFAULT_PRIORS: Readonly<Record<string, Prior>> = {
-  build: { low: 20, point: 40, high: 55, typicalHours: 5, tailHours: 1, floorUsd: 4 },
-  'build:small': { low: 5, point: 9, high: 12, typicalHours: 2, tailHours: 0.5, floorUsd: 2 },
-  council: { low: 30, point: 40, high: 60, typicalHours: 4, tailHours: 1, floorUsd: 4 },
-  review: { low: 1, point: 3, high: 4, typicalHours: 0.5, tailHours: 0.25, floorUsd: 1 },
+  build: { low: 20, point: 45, high: 70, typicalHours: 1.5, tailHours: 0.25, floorUsd: 4 },
+  'build:small': { low: 5, point: 9, high: 15, typicalHours: 0.5, tailHours: 0.1, floorUsd: 2 },
+  council: { low: 30, point: 45, high: 65, typicalHours: 1.25, tailHours: 0.25, floorUsd: 4 },
+  review: { low: 1, point: 3, high: 5, typicalHours: 0.25, tailHours: 0.05, floorUsd: 1 },
   // The orchestrator runs until reset: no prior, and no tail (its remaining hours are the hours to reset).
   orchestrator: { low: null, point: null, high: null, typicalHours: null, tailHours: 0, floorUsd: 2 },
 };
 
 // No rate, pacing or concurrency knob, by design (the spec's "never limits rate").
-export const DEFAULT_CONFIG = { warnFraction: 0.75, safety: 1.5 } as const;
+export const DEFAULT_CONFIG: { readonly warnFraction: number; readonly safety: number; readonly admitAt: AdmitAt } = { warnFraction: 0.75, safety: 1.5, admitAt: 'low' };
 
 // Input bounds: anything outside is invalid (reported) so every figure in the plan stays finite.
 const MAX_USD = 1e12;
@@ -47,20 +48,21 @@ const EPS = 1e-9;                    // money comparisons: 0.1 + 0.2 fits under 
 
 const RECENT_MIN_AGE_MS = 5 * MIN;   // a `recent` reading younger than this is too noisy to give a burn
 const MIN_ACTIVE_HOURS = 0.25;       // lifetime burn is averaged over at least 15 minutes
-const YOUNG_HOURS = 0.5;             // before this age (and below its low prior) a session's burn is not projected
+const LIFETIME_MIN_AGE_H = 10 / 60;  // a lifetime-average burn is projected only from this age …
+const RECENT_MIN_SESSION_AGE_H = 5 / 60; // … a recent-reading burn from this age (or once spent ≥ the low prior)
 const SLOPE_LOOKBACK_MS = 2 * H;     // history readings used for the window-spend slope
 const SLOPE_MIN_GAP_MS = 15 * MIN;
 const BURN_MISMATCH = 2;             // history slope vs the sessions' burns: report a gap above this factor
 const BRACKET_WIDE = 1.25;           // calibrated cap high / low above this is reported
-const PAUSE_RULE = 'pause in this order until status is allowed again; the orchestrator is never paused';
 
 // --- Plan shape ------------------------------------------------------------------------------------------------
 
 export type SessionReserve = {
-  id: string; kind: Kind; phase: string | null; priority: number; spentUsd: number; priorUsd: Range | null;
-  burnUsdPerHour: number; remainingHours: number; remaining: Range; basis: 'prior' | 'burn' | 'floor';
+  id: string; kind: Kind; phase: string | null; priority: number; paused: boolean; spentUsd: number; priorUsd: Range | null;
+  burnUsdPerHour: number; remainingHours: number; remaining: Range; inWindow: Range; carriesOverUsd: number; basis: 'prior' | 'burn' | 'floor';
 };
-export type Item = { id: string; kind: Kind; priority: number; estimate: Range };
+export type Item = { id: string; kind: Kind; phase: string | null; priority: number; estimate: Range; inWindow: Range };
+export type ReasonCode = 'brake' | 'over-cap' | 'behind' | 'already-running';
 export type ReadingRef = { at: string | null; spendUsd: number; status: string; resetsAt: string | null };
 export type Cap = {
   low: number | null; point: number | null; high: number | null; source: 'config' | 'calibrated' | 'unknown'; known: boolean;
@@ -68,24 +70,26 @@ export type Cap = {
   calibratedFrom?: ReadingRef & { warning?: ReadingRef; rejected?: ReadingRef; allowedLow?: ReadingRef };
   lowerBoundUsd: number;
 };
+export type FillSuggestion = { kind: Kind; phase: string | null; inWindowUsd: number; count: number };
 export type Plan = {
   version: 1; now: string; summary: string; brake: Brake; warning: boolean;
-  window: { type: string; startAt: string | null; resetsAt: string | null; assumed: boolean; rolledOver: boolean; status: string | null; isUsingOverage: boolean; hoursToReset: number | null };
+  window: { type: string; startAt: string | null; resetsAt: string | null; assumed: boolean; rolledOver: boolean; status: string | null; statusAssumed: 'allowed' | null; isUsingOverage: boolean; hoursToReset: number | null };
   cap: Cap;
   spend: { windowUsd: number };
-  reserve: { totalUsd: number; lowUsd: number; highUsd: number; safety: number; sessions: SessionReserve[] };
-  capacity: { headroomUsd: number | null; admittedLowUsd: number; admittedPointUsd: number; admittedHighUsd: number };
+  reserve: { totalUsd: number; lowUsd: number; highUsd: number; carriesOverUsd: number; safety: number; sessions: SessionReserve[] };
+  capacity: { headroomUsd: number | null; admitAt: AdmitAt; admittedLowUsd: number; admittedPointUsd: number; admittedHighUsd: number };
+  resume: string[];
   admit: Item[];
-  queued: (Item & { reason: string; nextAdmitAt: string | null })[];
+  queued: (Item & { reason: string; reasonCode: ReasonCode; nextAdmitAt: string | null })[];
   projection: {
-    burnUsdPerHour: number; burnSource: 'history' | 'sessions'; timeToCapHours: number | null; capHitAt: string | null;
+    burnUsdPerHour: number; burnSource: 'sessions'; historyBurnUsdPerHour: number | null; timeToCapHours: number | null; capHitAt: string | null;
     capHitBeforeReset: boolean | null; runningProjectedSpendUsd: number; runningFits: boolean | null; runningFitsWithSafety: boolean | null;
-    overshoot: { worstCaseSpendUsd: number; vsCapLowUsd: number | null; risk: 'none' | 'possible' | 'likely' | 'unknown' };
+    overshoot: { worstCaseSpendUsd: number; vsCapLowUsd: number | null; risk: 'none' | 'possible' | 'likely' | 'unknown'; note: string | null };
   };
-  fill: { expectedUnusedUsd: number | null; recommendAdmitUsd: number; suggestedKinds: string[]; message: string };
-  pause: { stallRisk: boolean; reason: string | null; rule: string; recommend: string[] };
+  fill: { expectedUnusedUsd: number | null; recommendAdmitUsd: number | null; suggestions: FillSuggestion[]; suggestedKinds: string[]; message: string };
+  pause: { stallRisk: boolean; reason: string | null; rule: string; needed: boolean; recommend: string[] };
   issues: Issue[];
-  historyEntry: { at: string; totalCostUsd: number; status: string | null; resetsAt: string | null };
+  historyEntry: { at: string; totalCostUsd: number; status: string | null; resetsAt: string | null; type: string; windowKnown: boolean };
 };
 
 // --- Small pure helpers ----------------------------------------------------------------------------------------
@@ -96,13 +100,16 @@ const isHours = (v: unknown): v is number => typeof v === 'number' && Number.isF
 const own = <T>(table: Readonly<Record<string, T>>, key: string): T | undefined => (Object.hasOwn(table, key) ? table[key] : undefined);
 const cents = (x: number) => Math.round(x * 100) / 100;
 const centsRange = (r: Range): Range => ({ low: cents(r.low), point: cents(r.point), high: cents(r.high) });
+const scale = (r: Range, f: number): Range => ({ low: r.low * f, point: r.point * f, high: r.high * f });
 const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 const maxOf = (xs: number[], start: number) => xs.reduce((m, x) => (x > m ? x : m), start);
 const usd = (x: number) => `$${cents(x).toFixed(2)}`;
+const seconds = (ms: number) => Math.round(ms / 1000) * 1000;
+const NUMERIC = /^\s*-?\d+(\.\d+)?(e[+-]?\d+)?\s*$/i;
 
 // ISO time rounded to whole seconds, or null outside the Date range.
 export function iso(ms: number): string | null {
-  return Number.isFinite(ms) && Math.abs(ms) <= MAX_TIME_MS ? new Date(Math.round(ms / 1000) * 1000).toISOString() : null;
+  return Number.isFinite(ms) && Math.abs(ms) <= MAX_TIME_MS ? new Date(seconds(ms)).toISOString() : null;
 }
 
 // ISO string, unix seconds or unix milliseconds (also as digit strings) → ms, or null (also outside the Date range).
@@ -114,9 +121,18 @@ export function parseTime(v: unknown): number | null {
   return ms !== null && Math.abs(ms) <= MAX_TIME_MS ? ms : null;
 }
 
+// Money: a number in [0, 1e12]; a numeric string is accepted (the caller reports it); anything else is bad.
+type MoneyRead = { kind: 'missing' } | { kind: 'ok' | 'string'; value: number } | { kind: 'bad' };
+function readMoney(v: unknown): MoneyRead {
+  if (v === undefined || v === null) return { kind: 'missing' };
+  if (isMoney(v)) return { kind: 'ok', value: v };
+  if (typeof v === 'string' && NUMERIC.test(v) && isMoney(Number(v))) return { kind: 'string', value: Number(v) };
+  return { kind: 'bad' };
+}
+
 // The `resetsAt` of the window that contains `atMs`, on the grid of fixed-length windows through `anchorResetsMs`.
-// ponytail: windows are assumed fixed-length and back to back — a provider that shifts its reset times would need the
-// entry's own `resetsAt` (the orchestrator appends `historyEntry`, which carries it).
+// ponytail: an entry without its own `resetsAt` is placed on this window's grid, assuming back-to-back fixed-length
+// windows — the orchestrator appending each plan's `historyEntry` (which carries `resetsAt` and `type`) avoids it.
 function windowOf(atMs: number, anchorResetsMs: number, durMs: number): number {
   return anchorResetsMs + durMs * (Math.floor((atMs - anchorResetsMs) / durMs) + 1);
 }
@@ -143,12 +159,12 @@ export function priorFor(kind: string, phase: string | null | undefined, priors:
   return (phase ? own(priors, `${kind}:${phase}`) : undefined) ?? own(priors, kind) ?? own(priors, 'build') ?? DEFAULT_PRIORS.build;
 }
 
+const recentUsable = (s: RunningSession, nowMs: number) => !!s.recent && nowMs - s.recent.atMs >= RECENT_MIN_AGE_MS && s.recent.costUsd <= s.costUsd;
+
 function burnRate(s: RunningSession, nowMs: number): number {
-  if (s.recent && nowMs - s.recent.atMs >= RECENT_MIN_AGE_MS && s.recent.costUsd <= s.costUsd) {
-    return (s.costUsd - s.recent.costUsd) / ((nowMs - s.recent.atMs) / H);
-  }
+  if (recentUsable(s, nowMs)) return (s.costUsd - s.recent!.costUsd) / ((nowMs - s.recent!.atMs) / H);
   // ponytail: without a recent reading the burn is the lifetime average, which lags a session that just sped up or
-  // went idle — the orchestrator passing `recent` for every session fixes it.
+  // went idle (and understates the orchestrator while it drives many sessions) — pass `recent` for every session.
   const activeHours = Math.max(MIN_ACTIVE_HOURS, (s.lastActiveAtMs - s.startedAtMs) / H);
   return s.costUsd / activeHours;
 }
@@ -160,13 +176,12 @@ export function remainingCost(s: RunningSession, nowMs: number, resetsAtMs: numb
   const p = priorFor(s.kind, s.phase, priors);
   const burn = burnRate(s, nowMs);
   const ageHours = (nowMs - s.startedAtMs) / H;
-  // ponytail: remaining hours do not stop at reset, so work that runs past the reset is reserved in this window —
-  // splitting each session's remaining cost at `resetsAt` would free that part (conservative as it is).
   const hours = p.typicalHours === null ? Math.max(0, (resetsAtMs - nowMs) / H)
     : Math.max(p.typicalHours - ageHours, p.tailHours);
-  // ponytail: a session younger than 30 minutes (and below its low prior) is reserved at its prior, not its burn,
-  // because a few minutes' average extrapolates startup bursts — a per-kind early-burn profile would replace this.
-  const burnCounts = p.low === null || ageHours >= YOUNG_HOURS || s.costUsd >= p.low;
+  // ponytail: in its first minutes (10 for a lifetime average, 5 with a recent reading) a session below its low prior
+  // is reserved at its prior, because a few minutes' average extrapolates startup bursts — a per-kind early-burn
+  // profile would replace this.
+  const burnCounts = p.low === null || s.costUsd >= p.low || ageHours >= (recentUsable(s, nowMs) ? RECENT_MIN_SESSION_AGE_H : LIFETIME_MIN_AGE_H);
   const byBurn = burnCounts ? burn * hours : 0;
   const one = (prior: number | null) => Math.max(prior === null ? 0 : prior - s.costUsd, byBurn, p.floorUsd);
   const pointPrior = p.point === null ? -Infinity : p.point - s.costUsd;
@@ -175,29 +190,39 @@ export function remainingCost(s: RunningSession, nowMs: number, resetsAtMs: numb
   return { priorUsd, burnUsdPerHour: burn, remainingHours: hours, remaining: { low: one(p.low), point: one(p.point), high: one(p.high) * safety }, basis };
 }
 
+// The part of a cost spread evenly over `hours` that falls before the reset (no clipping without a known reset).
+// ponytail: the remaining cost is assumed to be spent evenly over the remaining hours — a per-kind cost profile over
+// a session's life (fix rounds come late) would split it more accurately at the reset.
+function inWindowPart(r: Range, hours: number | null, hoursToReset: number | null): Range {
+  return hoursToReset === null || hours === null || hours <= 0 || hours <= hoursToReset ? r : scale(r, Math.max(0, hoursToReset) / hours);
+}
+
 export type Reading = { atMs: number; totalCostUsd: number; status: string | null; resetsAtMs: number };
 type CapOptions = { capUsd?: number | null; warnFraction: number; currentResetsAtMs: number };
 
 const ref = (r: Reading): ReadingRef => ({ at: iso(r.atMs), spendUsd: cents(r.totalCostUsd), status: r.status ?? '', resetsAt: iso(r.resetsAtMs) });
+const describe = (r: Reading) => `${r.status === 'rejected' ? 'a rejected' : 'the first allowed_warning'} reading at ${usd(r.totalCostUsd)} (${iso(r.atMs)})`;
 
-// The cap as low/point/high: from config, else calibrated from the most recent warning (and a rejected reading of the
-// same or a newer window), raised by this window's allowed readings when the calibration is from an older window.
+// The cap as low/point/high: from config, else calibrated from the most recent window with a warning or rejected
+// reading (a rejection in a newer window than the warning calibrates alone), checked against this window's readings.
 // ponytail: the provider reports no percentage used, so the cap is inferred from the spend at which status first
 // turned allowed_warning (and spend the orchestrator cannot see, like a person's own sessions, makes it low) — a
 // percent-used or remaining-tokens figure from the provider would replace this estimate.
 export function estimateCap(readings: Reading[], o: CapOptions, onIssue: (code: string, detail: string) => void = () => {}): Cap {
   const sorted = [...readings].sort((a, b) => a.atMs - b.atMs);
   const wf = o.warnFraction;
-  let lowerBoundUsd = sorted.reduce((m, r) => (r.status === 'allowed' && r.resetsAtMs === o.currentResetsAtMs ? Math.max(m, r.totalCostUsd / wf) : m), 0);
+  const cur = o.currentResetsAtMs;
+  let lowerBoundUsd = sorted.reduce((m, r) => (r.status === 'allowed' && r.resetsAtMs === cur ? Math.max(m, r.totalCostUsd / wf) : m), 0);
   if (o.capUsd != null) return { low: o.capUsd, point: o.capUsd, high: o.capUsd, source: 'config', known: true, lowerBoundUsd };
+  const unknown: Cap = { low: null, point: null, high: null, source: 'unknown', known: false, lowerBoundUsd };
 
   const latestWindow = (status: string) => sorted.reduce((m, r) => (r.status === status && r.resetsAtMs > m ? r.resetsAtMs : m), -Infinity);
   const firstIn = (status: string, win: number) => sorted.find((r) => r.status === status && r.resetsAtMs === win);
   const allowedBefore = (x: Reading) => sorted.filter((r) => r.status === 'allowed' && r.resetsAtMs === x.resetsAtMs && r.atMs < x.atMs).pop();
   const wWin = latestWindow('allowed_warning'), rWin = latestWindow('rejected');
-  const warning = firstIn('allowed_warning', wWin);
-  const rejected = warning && rWin < wWin ? undefined : firstIn('rejected', rWin); // an older window's rejection is stale
-  if (!warning && !rejected) return { low: null, point: null, high: null, source: 'unknown', known: false, lowerBoundUsd };
+  const warning = rWin > wWin ? undefined : firstIn('allowed_warning', wWin);   // a newer rejection calibrates alone
+  const rejected = wWin > rWin ? undefined : firstIn('rejected', rWin);         // an older window's rejection is stale
+  if (!warning && !rejected) return unknown;
 
   let low = Infinity, high = Infinity;
   let allowedLow: Reading | undefined;
@@ -217,14 +242,26 @@ export function estimateCap(readings: Reading[], o: CapOptions, onIssue: (code: 
     low = Math.min(low, R);
   }
   const top = rejected && (!warning || rejected.totalCostUsd <= warning.totalCostUsd / wf) ? rejected : warning!;
-  const sourceWindow = Math.max(warning?.resetsAtMs ?? -Infinity, rejected?.resetsAtMs ?? -Infinity);
-  if (sourceWindow < o.currentResetsAtMs && lowerBoundUsd > low) {
-    onIssue('cap-raised', `the cap was calibrated in an older window (low ${usd(low)}, high ${usd(high)}); this window's allowed readings prove it is above ${usd(lowerBoundUsd)}, so it is raised`);
-    low = Math.max(low, lowerBoundUsd);
-    high = Math.max(high, lowerBoundUsd);
+  const sourceWindow = (warning ?? rejected)!.resetsAtMs;
+
+  // A calibration from an older window must agree with this window's allowed readings.
+  if (sourceWindow < cur && lowerBoundUsd > high + EPS) {
+    onIssue('cap-stale', `the cap calibrated in an older window (high ${usd(high)}) is disproved by this window's allowed readings (above ${usd(lowerBoundUsd)}); treated as unknown until a new warning`);
+    return unknown;
   }
-  if (rejected && lowerBoundUsd > high) {
-    onIssue('lower-bound-clamped', `allowed readings suggest the cap is above ${usd(lowerBoundUsd)}, but a rejected reading at ${usd(high)} caps it; lowerBoundUsd clamped`);
+  if (sourceWindow < cur && lowerBoundUsd > low + EPS) {
+    onIssue('cap-raised', `this window's allowed readings prove the cap is above ${usd(lowerBoundUsd)}; the low end of the older calibration (${usd(low)}) is raised`);
+    low = lowerBoundUsd;
+  }
+  // Any reading of this window that was not rejected proves the cap is at least the spend it saw.
+  const seen = sorted.reduce((m, r) => (r.resetsAtMs === cur && (r.status === 'allowed' || r.status === 'allowed_warning') ? Math.max(m, r.totalCostUsd) : m), 0);
+  if (seen > high + EPS) {
+    onIssue('warn-fraction-suspect', `${usd(seen)} was spent this window without a rejection, above the calibrated high end ${usd(high)}; the cap is raised to it (is warnFraction right?)`);
+    high = seen;
+  }
+  low = Math.max(low, seen);
+  if (rejected && lowerBoundUsd > high + EPS) {
+    onIssue('lower-bound-clamped', `allowed readings suggest the cap is above ${usd(lowerBoundUsd)}, but ${describe(top)} caps it at ${usd(high)}; lowerBoundUsd clamped`);
     lowerBoundUsd = high;
   }
   if (low > 0 && high / low > BRACKET_WIDE) onIssue('cap-bracket-wide', `the calibrated cap is only known to lie between ${usd(low)} and ${usd(high)}; more frequent history readings narrow it`);
@@ -241,14 +278,33 @@ const warn = (c: Ctx, code: string, detail: string) => c.issues.push({ level: 'w
 const error = (c: Ctx, code: string, detail: string) => c.issues.push({ level: 'error', code, detail });
 const show = (v: unknown) => (typeof v === 'number' && !Number.isFinite(v) ? String(v) : JSON.stringify(v) ?? 'missing');
 
-type Config = { capUsd: number | null; warnFraction: number; safety: number; priors: Record<string, Prior> };
-type Session = RunningSession & { id: string; kind: Kind; phase: string | null; priority: number; done: boolean };
-type QueueItem = Item & { phase: string | null };
+type Config = { capUsd: number | null; warnFraction: number; safety: number; admitAt: AdmitAt; priors: Record<string, Prior> };
+type Session = RunningSession & { id: string; kind: Kind; phase: string | null; priority: number; done: boolean; paused: boolean };
+type QueueItem = { id: string; kind: Kind; phase: string | null; priority: number; estimate: Range };
 
-function normKind(c: Ctx, v: unknown, where: string): Kind {
-  if ((KINDS as readonly unknown[]).includes(v)) return v as Kind;
-  warn(c, 'unknown-kind', `${where}: kind ${show(v)} treated as build`);
-  return 'build';
+// A money field: reported when it was a string (accepted) or invalid (error, counted as 0 / ignored).
+function money(c: Ctx, v: unknown, where: string, code: string): number | undefined {
+  const m = readMoney(v);
+  if (m.kind === 'missing') return undefined;
+  if (m.kind === 'bad') { error(c, code, `${where} ${show(v)} is not an amount in [0, ${MAX_USD}]`); return undefined; }
+  if (m.kind === 'string') warn(c, 'string-number', `${where} ${show(v)} is a string; read as ${m.value}`);
+  return m.value;
+}
+
+// `kind` may carry its phase ("build:small"); an unknown kind is treated as build.
+function normKindPhase(c: Ctx, rawKind: unknown, rawPhase: unknown, where: string): { kind: Kind; phase: string | null } {
+  let phase = typeof rawPhase === 'string' && rawPhase ? rawPhase : null;
+  let k = rawKind;
+  if (typeof k === 'string' && k.includes(':')) {
+    const [head, ...rest] = k.split(':');
+    const tail = rest.join(':');
+    if (phase !== null && tail && phase !== tail) warn(c, 'kind-phase-conflict', `${where}: kind ${show(rawKind)} and phase ${show(rawPhase)} differ; phase used`);
+    phase = phase ?? (tail || null);
+    k = head;
+  }
+  if ((KINDS as readonly unknown[]).includes(k)) return { kind: k as Kind, phase };
+  warn(c, 'unknown-kind', `${where}: kind ${show(rawKind)} treated as build`);
+  return { kind: 'build', phase };
 }
 
 function normPriority(c: Ctx, v: unknown, where: string): number {
@@ -256,6 +312,15 @@ function normPriority(c: Ctx, v: unknown, where: string): number {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   warn(c, 'bad-priority', `${where}: priority ${show(v)} treated as 0`);
   return 0;
+}
+
+// A boolean flag; "true"/"false" strings are accepted with an issue, anything else gives `otherwise` (and an issue).
+function normFlag(c: Ctx, v: unknown, where: string, code: string, otherwise: boolean, level: 'warn' | 'error' = 'warn'): boolean {
+  if (v === true || v === false) return v;
+  if (v === undefined || v === null) return false;
+  if (v === 'true' || v === 'false') { warn(c, code, `${where} ${show(v)} is a string; read as ${v}`); return v === 'true'; }
+  c.issues.push({ level, code, detail: `${where} ${show(v)} is not a boolean; read as ${otherwise}` });
+  return otherwise;
 }
 
 const PRIOR_FIELDS = ['low', 'point', 'high', 'typicalHours', 'tailHours', 'floorUsd'] as const;
@@ -284,12 +349,15 @@ function normPriors(c: Ctx, over: unknown): Record<string, Prior> {
 }
 
 function normConfig(c: Ctx, raw: unknown): Config {
-  const cfg: Config = { capUsd: null, warnFraction: DEFAULT_CONFIG.warnFraction, safety: DEFAULT_CONFIG.safety, priors: { ...DEFAULT_PRIORS } };
+  const cfg: Config = { capUsd: null, warnFraction: DEFAULT_CONFIG.warnFraction, safety: DEFAULT_CONFIG.safety, admitAt: DEFAULT_CONFIG.admitAt, priors: { ...DEFAULT_PRIORS } };
   if (raw === undefined || raw === null) return cfg;
   if (!isObj(raw)) { warn(c, 'bad-config', 'config is not an object; defaults used'); return cfg; }
   if (raw.capUsd !== undefined && raw.capUsd !== null) {
-    if (isMoney(raw.capUsd) && raw.capUsd > 0) cfg.capUsd = raw.capUsd;
-    else warn(c, 'bad-config', `config.capUsd ${show(raw.capUsd)} is not a positive number up to ${MAX_USD}; cap estimated instead`);
+    const m = readMoney(raw.capUsd);
+    if (m.kind !== 'bad' && m.kind !== 'missing' && m.value > 0) {
+      cfg.capUsd = m.value;
+      if (m.kind === 'string') warn(c, 'string-number', `config.capUsd ${show(raw.capUsd)} is a string; read as ${m.value}`);
+    } else error(c, 'bad-config', `config.capUsd ${show(raw.capUsd)} is not a positive amount up to ${MAX_USD}; cap estimated instead`);
   }
   if (raw.warnFraction !== undefined) {
     const w = raw.warnFraction;
@@ -301,8 +369,12 @@ function normConfig(c: Ctx, raw: unknown): Config {
     if (typeof s === 'number' && s >= SAFETY_RANGE[0] && s <= SAFETY_RANGE[1]) cfg.safety = s;
     else warn(c, 'bad-config', `config.safety ${show(s)} is not in [${SAFETY_RANGE.join(', ')}]; ${DEFAULT_CONFIG.safety} used`);
   }
+  if (raw.admitAt !== undefined) {
+    if (raw.admitAt === 'low' || raw.admitAt === 'point') cfg.admitAt = raw.admitAt;
+    else warn(c, 'bad-config', `config.admitAt ${show(raw.admitAt)} is not "low" or "point"; "low" used`);
+  }
   cfg.priors = normPriors(c, raw.priors);
-  for (const k of Object.keys(raw)) if (!['capUsd', 'warnFraction', 'safety', 'priors'].includes(k)) warn(c, 'unknown-config', `config.${k} is not used`);
+  for (const k of Object.keys(raw)) if (!['capUsd', 'warnFraction', 'safety', 'admitAt', 'priors'].includes(k)) warn(c, 'unknown-config', `config.${k} is not used`);
   return cfg;
 }
 
@@ -314,22 +386,15 @@ function pastTime(c: Ctx, v: unknown, where: string, missingCode: string): numbe
   return ms;
 }
 
-function normDone(c: Ctx, v: unknown, where: string): boolean {
-  if (v === true || v === false || v === undefined || v === null) return v === true;
-  if (v === 'true' || v === 'false') { warn(c, 'bad-done', `${where}: done ${show(v)} is a string; read as ${v}`); return v === 'true'; }
-  warn(c, 'bad-done', `${where}: done ${show(v)} is not a boolean; read as false (running)`);
-  return false;
-}
-
 function normSession(c: Ctx, raw: unknown, i: number): (Session & { generatedId: boolean }) | null {
   if (!isObj(raw)) { warn(c, 'bad-session', `sessions[${i}] is not an object; ignored`); return null; }
   const generatedId = !(typeof raw.id === 'string' && raw.id);
   const id = generatedId ? `(missing id #${i})` : (raw.id as string);
   if (generatedId) warn(c, 'no-id', `sessions[${i}] has no id; called ${id}`);
   const where = `session ${id}`;
-  let costUsd = 0;
-  if (isMoney(raw.costUsd)) costUsd = raw.costUsd;
-  else warn(c, 'bad-cost', `${where}: costUsd ${show(raw.costUsd)} is not a cost up to ${MAX_USD}; counted as 0`);
+  const cost = money(c, raw.costUsd, `${where}: costUsd`, 'bad-cost');
+  if (cost === undefined && (raw.costUsd === undefined || raw.costUsd === null)) warn(c, 'bad-cost', `${where}: costUsd missing; counted as 0`);
+  const costUsd = cost ?? 0;
   const startedAtMs = pastTime(c, raw.startedAt, `${where}: startedAt`, 'no-start');
   let lastActiveAtMs = pastTime(c, raw.lastActiveAt, `${where}: lastActiveAt`, 'no-last-active');
   if (lastActiveAtMs < startedAtMs) {
@@ -339,14 +404,16 @@ function normSession(c: Ctx, raw: unknown, i: number): (Session & { generatedId:
   let recent: Session['recent'] = null;
   if (raw.recent !== undefined && raw.recent !== null) {
     const at = isObj(raw.recent) ? parseTime(raw.recent.at) : null;
-    if (isObj(raw.recent) && isMoney(raw.recent.costUsd) && at !== null && at <= c.nowMs && at >= startedAtMs) {
-      if (raw.recent.costUsd <= costUsd) recent = { costUsd: raw.recent.costUsd, atMs: at };
-      else warn(c, 'recent-above-cost', `${where}: recent reading ${usd(raw.recent.costUsd)} is above the cost ${usd(costUsd)}; lifetime burn used`);
+    const rc = isObj(raw.recent) ? readMoney(raw.recent.costUsd) : { kind: 'bad' as const };
+    if ((rc.kind === 'ok' || rc.kind === 'string') && at !== null && at <= c.nowMs && at >= startedAtMs) {
+      if (rc.value <= costUsd) recent = { costUsd: rc.value, atMs: at };
+      else warn(c, 'recent-above-cost', `${where}: recent reading ${usd(rc.value)} is above the cost ${usd(costUsd)}; lifetime burn used`);
     } else warn(c, 'bad-recent', `${where}: recent reading unusable; lifetime burn used`);
   }
+  const { kind, phase } = normKindPhase(c, raw.kind, raw.phase, where);
   return {
-    id, generatedId, kind: normKind(c, raw.kind, where), phase: typeof raw.phase === 'string' && raw.phase ? raw.phase : null,
-    priority: normPriority(c, raw.priority, where), costUsd, startedAtMs, lastActiveAtMs, done: normDone(c, raw.done, where), recent,
+    id, generatedId, kind, phase, priority: normPriority(c, raw.priority, where), costUsd, startedAtMs, lastActiveAtMs,
+    done: normFlag(c, raw.done, `${where}: done`, 'bad-done', false), paused: normFlag(c, raw.paused, `${where}: paused`, 'bad-paused', false), recent,
   };
 }
 
@@ -372,13 +439,7 @@ function normSessions(c: Ctx, raw: unknown): Session[] {
 }
 
 function normEstimate(c: Ctx, raw: Record<string, unknown>, kind: Kind, phase: string | null, priors: Record<string, Prior>, where: string): Range {
-  const field = (name: string) => {
-    const v = raw[name];
-    if (v === undefined || v === null) return undefined;
-    if (isMoney(v)) return v;
-    warn(c, 'bad-estimate', `${where}: ${name} ${show(v)} is not a cost up to ${MAX_USD}; ignored`);
-    return undefined;
-  };
+  const field = (name: string) => money(c, raw[name], `${where}: ${name}`, 'bad-estimate');
   const L = field('estimateLowUsd'), P = field('estimateUsd'), Hi = field('estimateHighUsd');
   if (L === undefined && P === undefined && Hi === undefined) {
     const p = priorFor(kind, phase, priors);
@@ -404,8 +465,7 @@ function normQueue(c: Ctx, raw: unknown, priors: Record<string, Prior>): QueueIt
     if (seen.has(r.id)) { warn(c, 'duplicate-queue', `queue item ${r.id} listed more than once; the first kept`); return; }
     seen.add(r.id);
     const where = `queue item ${r.id}`;
-    const kind = normKind(c, r.kind, where);
-    const phase = typeof r.phase === 'string' && r.phase ? r.phase : null;
+    const { kind, phase } = normKindPhase(c, r.kind, r.phase, where);
     out.push({ id: r.id, kind, phase, priority: normPriority(c, r.priority, where), estimate: normEstimate(c, r, kind, phase, priors, where) });
   });
   return out;
@@ -414,8 +474,8 @@ function normQueue(c: Ctx, raw: unknown, priors: Record<string, Prior>): QueueIt
 type Window = {
   type: string; durMs: number; resetsAtMs: number; spendFromMs: number;
   assumed: boolean;      // no usable resetsAt: an internal now + duration stands in, and is never printed
+  bad: boolean;          // no usable resetsAt, or one more than a window ahead: brake 'bad-window'
   rolledOver: boolean; status: string | null; isUsingOverage: boolean;
-  usable: boolean;       // a valid status for the window the plan is in
 };
 
 // The current window: rolls forward when now ≥ resetsAt (the provider clears status and overage at reset); a reset
@@ -432,197 +492,237 @@ function normWindow(c: Ctx, raw: unknown): Window {
   if (w.type !== undefined && w.rateLimitType !== undefined && w.type !== w.rateLimitType) warn(c, 'window-type-conflict', `window.type ${show(w.type)} and rateLimitType ${show(w.rateLimitType)} differ; type used`);
   const durMs = WINDOW_HOURS[type] * H;
   const status = (STATUSES as readonly unknown[]).includes(w.status) ? (w.status as string) : null;
-  const isUsingOverage = w.isUsingOverage === true;
-  const resetsAtMs = parseTime(w.resetsAt);
+  // Fail safe: an unreadable overage flag counts as overage (a brake).
+  const isUsingOverage = normFlag(c, w.isUsingOverage, 'window.isUsingOverage', 'bad-overage', true, 'error');
+  const parsed = parseTime(w.resetsAt);
+  const base = { type, durMs, rolledOver: false, status, isUsingOverage };
 
-  if (resetsAtMs === null) {
+  if (parsed === null) {
     if (isW) error(c, 'no-resets-at', 'window.resetsAt missing or invalid; nothing is admitted until it is known');
-    return { type, durMs, resetsAtMs: c.nowMs + durMs, spendFromMs: -Infinity, assumed: true, rolledOver: false, status, isUsingOverage, usable: false };
+    return { ...base, resetsAtMs: c.nowMs + durMs, spendFromMs: -Infinity, assumed: true, bad: true };
   }
+  const resetsAtMs = seconds(parsed);
   if (resetsAtMs - durMs > c.nowMs) {
     error(c, 'window-ahead', `window.resetsAt ${iso(resetsAtMs)} is more than one ${type} window after now; every session counted in full and nothing admitted`);
-    return { type, durMs, resetsAtMs, spendFromMs: -Infinity, assumed: false, rolledOver: false, status, isUsingOverage, usable: false };
+    return { ...base, resetsAtMs, spendFromMs: -Infinity, assumed: false, bad: true };
   }
   if (c.nowMs >= resetsAtMs) {
-    if (status !== null || isUsingOverage || w.status !== undefined) warn(c, 'stale-status', 'the window rolled over; the snapshot status and overage are from the old window and ignored');
+    if (status !== null || w.isUsingOverage === true || w.status !== undefined) warn(c, 'stale-status', 'the window rolled over; the snapshot status and overage are from the old window and ignored');
     const next = windowOf(c.nowMs, resetsAtMs, durMs);
-    return { type, durMs, resetsAtMs: next, spendFromMs: next - durMs, assumed: false, rolledOver: true, status: 'allowed', isUsingOverage: false, usable: true };
+    return { ...base, resetsAtMs: next, spendFromMs: next - durMs, assumed: false, bad: false, rolledOver: true, status: 'allowed', isUsingOverage: false };
   }
   if (status === null) warn(c, 'bad-status', `window.status ${show(w.status)} is not allowed / allowed_warning / rejected; treated as a brake`);
-  return { type, durMs, resetsAtMs, spendFromMs: resetsAtMs - durMs, assumed: false, rolledOver: false, status, isUsingOverage, usable: status !== null };
+  return { ...base, resetsAtMs, spendFromMs: resetsAtMs - durMs, assumed: false, bad: false };
 }
 
+// History readings of this window type with a usable window. An entry's own resetsAt is used as is when it is
+// consistent with its `at`; without one, its window is inferred on this window's grid.
 function normHistory(c: Ctx, raw: unknown, win: Window): Reading[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) { warn(c, 'bad-history', 'history is not an array; none used'); return []; }
   const out: Reading[] = [];
-  let bad = 0;
-  raw.forEach((r) => {
-    const at = isObj(r) ? parseTime(r.at) : null;
-    if (!isObj(r) || at === null || !isMoney(r.totalCostUsd) || at > c.nowMs) { bad++; return; }
-    const ownReset = parseTime(r.resetsAt);
+  let bad = 0, badMoney = 0, strings = 0, noWindow = 0, otherType = 0;
+  for (const r of raw) {
+    if (!isObj(r)) { bad++; continue; }
+    if (r.windowKnown === false || (Object.hasOwn(r, 'resetsAt') && r.resetsAt === null)) { noWindow++; continue; }
+    if (r.type !== undefined && r.type !== win.type) { otherType++; continue; }
+    const at = parseTime(r.at);
+    const m = readMoney(r.totalCostUsd);
+    if (at === null || at > c.nowMs || (m.kind !== 'ok' && m.kind !== 'string')) { m.kind === 'bad' ? badMoney++ : bad++; continue; }
+    if (m.kind === 'string') strings++;
+    const ownParsed = parseTime(r.resetsAt);
+    let resetsAtMs: number;
+    if (ownParsed !== null) {
+      const ownReset = seconds(ownParsed);
+      if (ownReset - win.durMs <= at && at < ownReset) resetsAtMs = ownReset;
+      else { otherType++; continue; } // a resetsAt that does not fit a window of this type around `at`
+    } else resetsAtMs = windowOf(at, win.resetsAtMs, win.durMs);
     const status = (STATUSES as readonly unknown[]).includes(r.status) ? (r.status as string) : null;
-    out.push({ atMs: at, totalCostUsd: r.totalCostUsd, status, resetsAtMs: windowOf(at, ownReset ?? win.resetsAtMs, win.durMs) });
-  });
-  if (bad) warn(c, 'bad-history', `${bad} history reading(s) without a valid at (not after now) and totalCostUsd ignored`);
+    out.push({ atMs: at, totalCostUsd: m.value, status, resetsAtMs });
+  }
+  if (bad || badMoney) c.issues.push({ level: badMoney ? 'error' : 'warn', code: 'bad-history', detail: `${bad + badMoney} history reading(s) without a valid at (not after now) and totalCostUsd ignored` });
+  if (strings) warn(c, 'string-number', `${strings} history totalCostUsd value(s) given as strings; read as numbers`);
+  if (noWindow) warn(c, 'history-no-window', `${noWindow} history reading(s) written without a usable window ignored`);
+  if (otherType) warn(c, 'history-other-type', `${otherType} history reading(s) of another window type than ${win.type} (or with a resetsAt that does not fit one) ignored`);
   return out;
 }
 
 // --- Composing the plan ----------------------------------------------------------------------------------------
 
 function chooseBrake(win: Window, nowOk: boolean): Brake {
-  if (!nowOk || !win.usable) return 'unknown-status';
+  if (!nowOk) return 'unknown-status';
+  if (win.bad) return 'bad-window';
   if (win.status === 'rejected') return 'rejected';
   if (win.isUsingOverage) return 'overage';
+  if (win.status === null) return 'unknown-status';
   return 'none';
 }
 
-function reserveFor(running: Session[], win: Window, cfg: Config, nowMs: number): SessionReserve[] {
+function reserveFor(running: Session[], win: Window, cfg: Config, nowMs: number, hoursToReset: number | null): SessionReserve[] {
   return running.map((s) => {
     const r = remainingCost(s, nowMs, win.resetsAtMs, cfg.priors, cfg.safety);
-    return { id: s.id, kind: s.kind, phase: s.phase, priority: s.priority, spentUsd: s.costUsd, priorUsd: r.priorUsd,
-      burnUsdPerHour: r.burnUsdPerHour, remainingHours: r.remainingHours, remaining: r.remaining, basis: r.basis };
+    const inWindow = inWindowPart(r.remaining, r.remainingHours, hoursToReset);
+    return { id: s.id, kind: s.kind, phase: s.phase, priority: s.priority, paused: s.paused, spentUsd: s.costUsd, priorUsd: r.priorUsd,
+      burnUsdPerHour: r.burnUsdPerHour, remainingHours: r.remainingHours, remaining: r.remaining, inWindow,
+      carriesOverUsd: r.remaining.point - inWindow.point, basis: r.basis };
   });
 }
 
 const byPriority = <T extends { id: string; priority: number }>(a: T, b: T) => b.priority - a.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-// The one rule: in priority order, admit while spend + running point + Σ admitted low ≤ cap high; stop at the first
-// misfit. Cap unknown → admit everything. Under a brake → nothing.
-function admission(queue: QueueItem[], runningIds: Set<string>, brake: Brake, cap: Cap, headroom: number | null, win: Window, c: Ctx) {
+// The one rule: in priority order, admit while spend + running in-window point + Σ admitted in-window low (or point,
+// with config.admitAt) ≤ cap high; stop at the first misfit. Cap unknown → admit everything. Under a brake → nothing.
+function admission(queue: Item[], runningIds: Set<string>, brake: Brake, cap: Cap, headroom: number | null, admitAt: AdmitAt, win: Window, c: Ctx) {
   const admit: Item[] = [];
   const queued: Plan['queued'] = [];
-  const resetsAt = win.assumed ? null : iso(win.resetsAtMs);
+  // Under a status or window that cannot be read, re-plan every tick; under rejected/overage, the reset is the latest.
+  const waitUntil = brake === 'unknown-status' || brake === 'bad-window' || win.assumed ? null : iso(win.resetsAtMs);
   let left = headroom ?? Infinity;
   let stopper: string | null = null;
-  for (const q of [...queue].sort(byPriority)) {
-    const item: Item = { id: q.id, kind: q.kind, priority: q.priority, estimate: q.estimate };
-    if (runningIds.has(q.id)) {
-      warn(c, 'queue-running', `queue item ${q.id} is already running; not admitted again`);
-      queued.push({ ...item, reason: 'already running', nextAdmitAt: null });
+  for (const item of [...queue].sort(byPriority)) {
+    const need = item.inWindow[admitAt];
+    if (runningIds.has(item.id)) {
+      warn(c, 'queue-running', `queue item ${item.id} is already running; not admitted again`);
+      queued.push({ ...item, reason: 'already running', reasonCode: 'already-running', nextAdmitAt: null });
     } else if (brake !== 'none') {
-      queued.push({ ...item, reason: `brake ${brake}: nothing is admitted until a valid allowed status or the reset`, nextAdmitAt: resetsAt });
+      queued.push({ ...item, reason: `brake ${brake}: nothing is admitted until it clears`, reasonCode: 'brake', nextAdmitAt: waitUntil });
     } else if (stopper !== null) {
-      queued.push({ ...item, reason: `behind ${stopper} (strict priority order)`, nextAdmitAt: resetsAt });
-    } else if (!cap.known || q.estimate.low <= left + EPS) {
+      queued.push({ ...item, reason: `behind ${stopper} (strict priority order)`, reasonCode: 'behind', nextAdmitAt: waitUntil });
+    } else if (!cap.known || need <= left + EPS) {
       admit.push(item);
-      left -= q.estimate.low;
+      left -= need;
     } else {
-      stopper = q.id;
+      stopper = item.id;
       // ponytail: under the point projection a finish frees nothing (its remaining becomes spend), so a misfit waits
       // for the reset — the orchestrator re-plans each tick, and a session that ends under its estimate frees the
       // difference then; per-session finish distributions would let this predict an earlier time.
-      queued.push({ ...item, reason: `clearly over 100% of the cap: even its low estimate ${usd(q.estimate.low)} exceeds the ${usd(Math.max(0, left))} left under the cap's high end`, nextAdmitAt: resetsAt });
+      const reason = left < 0
+        ? `clearly over 100% of the cap: running work already exceeds the cap's high end by ${usd(-left)}, so nothing fits before the reset`
+        : `clearly over 100% of the cap: even its ${admitAt === 'low' ? 'low estimate' : 'point estimate'} ${usd(need)} exceeds the ${usd(left)} left under the cap's high end`;
+      queued.push({ ...item, reason, reasonCode: 'over-cap', nextAdmitAt: waitUntil });
     }
   }
   return { admit, queued };
 }
 
-type Burn = { burn: number; source: 'history' | 'sessions'; sessionsBurn: number };
-
-// Burn rate: the window-spend slope since the earliest reading of the last 2 hours (≥ 15 minutes old), else the
-// sessions' own burns.
-// ponytail: a two-point linear slope over 2 hours misses bursts and the fleet winding down — a fit over more readings,
-// or per-session projections, would track it better.
-function burnRateOf(history: Reading[], spend: number, win: Window, reserves: SessionReserve[], nowMs: number, c: Ctx): Burn {
-  const sessionsBurn = sum(reserves.map((s) => s.burnUsdPerHour));
+// The window-spend slope since the earliest reading of the last 2 hours (≥ 15 minutes old), for information only.
+function historySlope(history: Reading[], spend: number, win: Window, nowMs: number): number | null {
   const r = history
     .filter((h) => h.resetsAtMs === win.resetsAtMs && h.atMs >= nowMs - SLOPE_LOOKBACK_MS && h.atMs <= nowMs - SLOPE_MIN_GAP_MS)
     .sort((a, b) => a.atMs - b.atMs)[0];
   const slope = r ? (spend - r.totalCostUsd) / ((nowMs - r.atMs) / H) : -1;
-  if (slope < 0) return { burn: sessionsBurn, source: 'sessions', sessionsBurn };
-  const [hi, lo] = slope > sessionsBurn ? [slope, sessionsBurn] : [sessionsBurn, slope];
-  if (hi > 0 && hi > BURN_MISMATCH * lo) {
-    warn(c, 'burn-mismatch', slope > sessionsBurn
-      ? `history burn ${usd(slope)}/h is over ${BURN_MISMATCH}x the running sessions' ${usd(sessionsBurn)}/h: spend outside the listed sessions, or sessions that just finished; reserves may be understated`
-      : `the running sessions' burn ${usd(sessionsBurn)}/h is over ${BURN_MISMATCH}x the history burn ${usd(slope)}/h: lifetime averages overstate the current burn, or history readings are missing`);
-  }
-  return { burn: slope, source: 'history', sessionsBurn };
+  return slope >= 0 ? slope : null;
 }
 
-function projectionOf(cap: Cap, spend: number, reserves: SessionReserve[], admit: Item[], burn: Burn, hoursToReset: number, nowMs: number): Plan['projection'] {
-  const running = (k: keyof Range) => sum(reserves.map((s) => s.remaining[k]));
-  const admitted = (k: keyof Range) => sum(admit.map((a) => a.estimate[k]));
-  const worst = spend + running('high') + admitted('high');
+function projectionOf(cap: Cap, spend: number, reserves: SessionReserve[], admit: Item[], burn: number, historyBurn: number | null,
+  hoursToReset: number | null, nowMs: number, cfg: Config): Plan['projection'] {
+  const running = (k: keyof Range) => sum(reserves.map((s) => s.inWindow[k]));
+  const admitted = (k: keyof Range) => sum(admit.map((a) => a.inWindow[k]));
+  const worst = spend + running('high') + admitted('high') * cfg.safety;
   const pointCase = spend + running('point') + admitted('point');
-  const raw = cap.known && burn.burn > 0 ? Math.max(0, cap.high! - spend) / burn.burn : null;
+  const raw = cap.known && burn > 0 ? Math.max(0, cap.high! - spend) / burn : null;
   const ttc = raw !== null && Number.isFinite(raw) ? raw : null;
-  const risk = !cap.known ? 'unknown' : worst <= cap.low! ? 'none' : pointCase <= cap.high! ? 'possible' : 'likely';
+  const risk = !cap.known ? 'unknown' : worst <= cap.low! + EPS ? 'none' : pointCase <= cap.high! + EPS ? 'possible' : 'likely';
+  const note = risk === 'likely' && cfg.admitAt === 'low' && admit.length
+    ? `admitted at low estimates (config.admitAt "low"): at point estimates running and admitted work comes to ${usd(pointCase)}, ${usd(pointCase - cap.high!)} over the cap's high end; set config.admitAt to "point" to admit at point`
+    : null;
   return {
-    burnUsdPerHour: burn.burn, burnSource: burn.source, timeToCapHours: ttc, capHitAt: ttc === null ? null : iso(nowMs + ttc * H),
-    capHitBeforeReset: cap.known ? ttc !== null && ttc < hoursToReset : null,
+    burnUsdPerHour: burn, burnSource: 'sessions', historyBurnUsdPerHour: historyBurn,
+    timeToCapHours: ttc, capHitAt: ttc === null ? null : iso(nowMs + ttc * H),
+    capHitBeforeReset: cap.known ? ttc !== null && hoursToReset !== null && ttc < hoursToReset : null,
     runningProjectedSpendUsd: spend + running('point'),
-    runningFits: cap.known ? spend + running('point') <= cap.high! : null,
-    runningFitsWithSafety: cap.known ? spend + running('high') <= cap.low! : null,
-    overshoot: { worstCaseSpendUsd: worst, vsCapLowUsd: cap.known ? worst - cap.low! : null, risk },
+    runningFits: cap.known ? spend + running('point') <= cap.high! + EPS : null,
+    runningFitsWithSafety: cap.known ? spend + running('high') <= cap.low! + EPS : null,
+    overshoot: { worstCaseSpendUsd: worst, vsCapLowUsd: cap.known ? worst - cap.low! : null, risk, note },
   };
 }
 
-// Fill: what the window would leave unused at reset if everything goes to plan, and which kinds of work still fit.
-// ponytail: work that will not finish before the reset still counts fully against this window — splitting each
-// session's and item's remaining cost at `resetsAt` would show more room near the reset.
-function fillOf(cap: Cap, spend: number, reserves: SessionReserve[], admit: Item[], brake: Brake, hoursToReset: number, priors: Record<string, Prior>): Plan['fill'] {
-  const none = { suggestedKinds: [] as string[], recommendAdmitUsd: 0 };
-  const unused = cap.known ? cap.point! - spend - sum(reserves.map((s) => s.remaining.point)) - sum(admit.map((a) => a.estimate.point)) : null;
-  if (brake !== 'none') return { ...none, expectedUnusedUsd: unused, message: `brake ${brake}: no new work until it clears` };
-  if (unused === null) return { ...none, expectedUnusedUsd: null, message: 'cap unknown: everything queued is admitted while status is allowed; nothing to estimate yet' };
-  if (unused <= 0) return { ...none, expectedUnusedUsd: unused, message: 'no spare budget: running and admitted work is expected to use the whole cap' };
-  const kinds = Object.entries(priors)
-    .filter(([key, p]) => !key.startsWith('orchestrator') && p.point !== null && p.typicalHours !== null && p.typicalHours <= hoursToReset && p.point <= unused)
-    .sort(([ka, a], [kb, b]) => b.point! - a.point! || (ka < kb ? -1 : 1))
-    .map(([key]) => key);
-  const short = (priorFor('build', null, priors).typicalHours ?? 0) > hoursToReset;
-  const head = `~${usd(unused)} of budget will be unused at reset (in ${cents(hoursToReset)}h); queue more work`;
-  const tail = !kinds.length ? ': none fits (every kind is too long or too costly for what is left)'
-    : `${short ? ', only short items finish before reset' : ''}: ${kinds.join(', ')}`;
-  return { suggestedKinds: kinds, recommendAdmitUsd: unused, expectedUnusedUsd: unused, message: head + tail };
+// Fill: what the window would leave unused at reset if everything goes to plan, and how many items of each kind
+// that buys, counting only the part of each item that runs before the reset.
+function fillOf(cap: Cap, spend: number, reserves: SessionReserve[], admit: Item[], brake: Brake, hoursToReset: number | null, priors: Record<string, Prior>): Plan['fill'] {
+  const none = { suggestions: [] as FillSuggestion[], suggestedKinds: [] as string[] };
+  const unused = cap.known ? cap.point! - spend - sum(reserves.map((s) => s.inWindow.point)) - sum(admit.map((a) => a.inWindow.point)) : null;
+  if (brake !== 'none') return { ...none, expectedUnusedUsd: unused, recommendAdmitUsd: 0, message: `brake ${brake}: no new work until it clears` };
+  if (unused === null) return { ...none, expectedUnusedUsd: null, recommendAdmitUsd: null, message: 'cap unknown: everything queued is admitted while status is allowed; nothing to estimate yet' };
+  if (unused <= EPS) return { ...none, expectedUnusedUsd: unused, recommendAdmitUsd: 0, message: 'no spare budget: running and admitted work is expected to use the whole cap' };
+  const suggestions = Object.entries(priors)
+    .filter(([key, p]) => !key.startsWith('orchestrator') && p.point !== null)
+    .map(([key, p]) => {
+      const [kind, ...rest] = key.split(':');
+      const inWindowUsd = inWindowPart({ low: p.point!, point: p.point!, high: p.point! }, p.typicalHours, hoursToReset).point;
+      return { key, long: hoursToReset !== null && (p.typicalHours ?? 0) > hoursToReset, s: { kind: kind as Kind, phase: rest.join(':') || null, inWindowUsd, count: inWindowUsd > 0 ? Math.floor(unused / inWindowUsd + EPS) : 0 } };
+    })
+    .filter((x) => x.s.count >= 1)
+    .sort((a, b) => b.s.inWindowUsd - a.s.inWindowUsd || (a.key < b.key ? -1 : 1));
+  const head = `~${usd(unused)} of budget will be unused at reset${hoursToReset === null ? '' : ` (in ${cents(hoursToReset)}h)`}; queue more work`;
+  const long = suggestions.some((x) => x.long) ? '; items longer than the time to reset carry over, so only their part before the reset counts (short items finish)' : '';
+  const list = suggestions.map((x) => `${x.key} ×${x.s.count} (${usd(x.s.inWindowUsd)} each)`).join(', ');
+  return {
+    suggestions: suggestions.map((x) => ({ ...x.s, inWindowUsd: cents(x.s.inWindowUsd) })), suggestedKinds: suggestions.map((x) => x.key),
+    expectedUnusedUsd: unused, recommendAdmitUsd: unused,
+    message: suggestions.length ? `${head}${long}: ${list}` : `${head}: none fits (every kind costs more than what is left)`,
+  };
 }
 
-// Pause order under rejected/overage: lowest priority, then least progress (spent / point prior); never the orchestrator.
-function pauseOf(brake: Brake, running: Session[], cfg: Config, runningFits: boolean | null): Plan['pause'] {
+const progress = (s: Session, cfg: Config) => { const p = priorFor(s.kind, s.phase, cfg.priors).point; return p ? s.costUsd / p : 0; };
+
+// Pause order under rejected/overage: lowest priority, then least progress (spent / point prior); never the
+// orchestrator, never an already-paused session. With no brake, paused sessions are resumed first: highest priority,
+// then most progress, so nearly done work finishes.
+function pauseOf(brake: Brake, running: Session[], cfg: Config, runningFits: boolean | null): { pause: Plan['pause']; resume: string[] } {
   const stall = brake === 'rejected' || brake === 'overage';
-  const progress = (s: Session) => { const p = priorFor(s.kind, s.phase, cfg.priors).point; return p ? s.costUsd / p : 0; };
-  const recommend = !stall ? [] : running.filter((s) => s.kind !== 'orchestrator')
-    .sort((a, b) => a.priority - b.priority || progress(a) - progress(b) || (a.id < b.id ? -1 : 1)).map((s) => s.id);
+  const recommend = !stall ? [] : running.filter((s) => s.kind !== 'orchestrator' && !s.paused)
+    .sort((a, b) => a.priority - b.priority || progress(a, cfg) - progress(b, cfg) || (a.id < b.id ? -1 : 1)).map((s) => s.id);
+  const resume = brake !== 'none' ? [] : running.filter((s) => s.paused)
+    .sort((a, b) => b.priority - a.priority || progress(b, cfg) - progress(a, cfg) || (a.id < b.id ? -1 : 1)).map((s) => s.id);
+  const until = brake === 'rejected' ? 'status allowed or allowed_warning' : 'isUsingOverage false';
+  const rule = stall ? `pause the listed sessions in order, one per tick, until the brake is none (${until}); the orchestrator is never paused`
+    : 'nothing to pause; the orchestrator is never paused';
   const reason = stall ? `status ${brake === 'rejected' ? 'rejected' : 'using overage'}: running sessions may stall`
     : runningFits === false ? 'running work is projected over the cap at point estimates (informational: nothing to pause until status is rejected or overage)'
       : null;
-  return { stallRisk: stall || runningFits === false, reason, rule: PAUSE_RULE, recommend };
+  return { pause: { stallRisk: stall || runningFits === false, reason, rule, needed: recommend.length > 0, recommend }, resume };
 }
+
+const firstThree = (ids: string[]) => `${ids.slice(0, 3).join(', ')}${ids.length > 3 ? ` +${ids.length - 3} more` : ''}`;
 
 function summaryOf(p: Omit<Plan, 'summary'>): string {
   const capRange = p.cap.low === p.cap.high ? usd(p.cap.high!) : `${usd(p.cap.low!)}-${usd(p.cap.high!)}`;
   const capText = p.cap.known ? `cap ${capRange} (${p.cap.source})` : 'cap unknown';
   const money = `spend ${usd(p.spend.windowUsd)}, reserve ${usd(p.reserve.totalUsd)}, ${capText}`;
   if (p.brake !== 'none') {
-    const until = p.window.resetsAt && !p.window.assumed ? `until ${p.window.resetsAt}` : 'until a usable window is read';
-    const r = p.pause.recommend;
-    const pause = r.length ? `; pause ${r.slice(0, 3).join(', ')}${r.length > 3 ? ` +${r.length - 3} more` : ''} first` : '';
-    return `Brake ${p.brake}: admitting nothing, ${p.queued.length} queued ${until}; ${money}${pause}`;
+    const until = p.brake === 'rejected' || p.brake === 'overage' ? `until it clears or ${p.window.resetsAt ?? 'the reset'}` : 're-plan when it clears';
+    const pause = p.pause.recommend.length ? `; pause ${firstThree(p.pause.recommend)} first` : '';
+    return `Brake ${p.brake}: admitting nothing, ${p.queued.length} queued, ${until}; ${money}${pause}`;
   }
-  const parts = [`Admit ${p.admit.length} of ${p.admit.length + p.queued.length} queued`, money, `overshoot ${p.projection.overshoot.risk}`];
-  if (p.projection.capHitBeforeReset && p.projection.capHitAt) parts.push(`cap hit ~${p.projection.capHitAt.slice(11, 16)}Z at current burn`);
+  const parts = [`Admit ${p.admit.length} of ${p.admit.length + p.queued.length} queued`];
+  if (p.resume.length) parts.push(`resume ${firstThree(p.resume)} first`);
+  parts.push(money, `overshoot ${p.projection.overshoot.risk}`);
+  const hit = p.projection.capHitAt;
+  if (p.projection.capHitBeforeReset && hit) parts.push(`cap hit ~${hit.slice(0, 10) === p.now.slice(0, 10) ? '' : `${hit.slice(0, 10)} `}${hit.slice(11, 16)}Z at current burn`);
   if (p.warning) parts.push('status allowed_warning (calibration only)');
-  if (p.fill.recommendAdmitUsd > 0) parts.push(`~${usd(p.fill.recommendAdmitUsd)} unused at reset: queue more work`);
+  if ((p.fill.recommendAdmitUsd ?? 0) > 0 && !p.projection.capHitBeforeReset) parts.push(`~${usd(p.fill.recommendAdmitUsd!)} unused at reset: queue more work`);
   return parts.join('; ');
 }
 
 function rounded(p: Omit<Plan, 'summary'>): Omit<Plan, 'summary'> {
   const pr = p.projection;
   const c = (x: number | null) => (x === null ? null : cents(x));
+  const item = <T extends Item>(a: T): T => ({ ...a, estimate: centsRange(a.estimate), inWindow: centsRange(a.inWindow) });
   return {
     ...p,
     window: { ...p.window, hoursToReset: c(p.window.hoursToReset) },
     cap: { ...p.cap, low: c(p.cap.low), point: c(p.cap.point), high: c(p.cap.high), lowerBoundUsd: cents(p.cap.lowerBoundUsd) },
     spend: { windowUsd: cents(p.spend.windowUsd) },
-    reserve: { ...p.reserve, totalUsd: cents(p.reserve.totalUsd), lowUsd: cents(p.reserve.lowUsd), highUsd: cents(p.reserve.highUsd),
-      sessions: p.reserve.sessions.map((s) => ({ ...s, spentUsd: cents(s.spentUsd), burnUsdPerHour: cents(s.burnUsdPerHour), remainingHours: cents(s.remainingHours), remaining: centsRange(s.remaining) })) },
-    capacity: { headroomUsd: c(p.capacity.headroomUsd), admittedLowUsd: cents(p.capacity.admittedLowUsd), admittedPointUsd: cents(p.capacity.admittedPointUsd), admittedHighUsd: cents(p.capacity.admittedHighUsd) },
-    admit: p.admit.map((a) => ({ ...a, estimate: centsRange(a.estimate) })),
-    queued: p.queued.map((q) => ({ ...q, estimate: centsRange(q.estimate) })),
-    projection: { ...pr, burnUsdPerHour: cents(pr.burnUsdPerHour), timeToCapHours: c(pr.timeToCapHours), runningProjectedSpendUsd: cents(pr.runningProjectedSpendUsd),
+    reserve: { ...p.reserve, totalUsd: cents(p.reserve.totalUsd), lowUsd: cents(p.reserve.lowUsd), highUsd: cents(p.reserve.highUsd), carriesOverUsd: cents(p.reserve.carriesOverUsd),
+      sessions: p.reserve.sessions.map((s) => ({ ...s, spentUsd: cents(s.spentUsd), burnUsdPerHour: cents(s.burnUsdPerHour), remainingHours: cents(s.remainingHours),
+        remaining: centsRange(s.remaining), inWindow: centsRange(s.inWindow), carriesOverUsd: cents(s.carriesOverUsd) })) },
+    capacity: { ...p.capacity, headroomUsd: c(p.capacity.headroomUsd), admittedLowUsd: cents(p.capacity.admittedLowUsd), admittedPointUsd: cents(p.capacity.admittedPointUsd), admittedHighUsd: cents(p.capacity.admittedHighUsd) },
+    admit: p.admit.map(item),
+    queued: p.queued.map(item),
+    projection: { ...pr, burnUsdPerHour: cents(pr.burnUsdPerHour), historyBurnUsdPerHour: c(pr.historyBurnUsdPerHour), timeToCapHours: c(pr.timeToCapHours), runningProjectedSpendUsd: cents(pr.runningProjectedSpendUsd),
       overshoot: { ...pr.overshoot, worstCaseSpendUsd: cents(pr.overshoot.worstCaseSpendUsd), vsCapLowUsd: c(pr.overshoot.vsCapLowUsd) } },
-    fill: { ...p.fill, expectedUnusedUsd: c(p.fill.expectedUnusedUsd), recommendAdmitUsd: cents(p.fill.recommendAdmitUsd) },
+    fill: { ...p.fill, expectedUnusedUsd: c(p.fill.expectedUnusedUsd), recommendAdmitUsd: c(p.fill.recommendAdmitUsd) },
   };
 }
 
@@ -646,9 +746,12 @@ export function plan(snapshot: unknown): Plan {
   const cfg = normConfig(c, snap.config);
   const win = normWindow(c, snap.window);
   const sessions = normSessions(c, snap.sessions);
-  const queue = normQueue(c, snap.queue, cfg.priors);
   const history = normHistory(c, snap.history, win);
   const nowMs = c.nowMs;
+  const hoursToReset = win.assumed ? null : (win.resetsAtMs - nowMs) / H;
+  const queue: Item[] = normQueue(c, snap.queue, cfg.priors).map((q) => ({
+    ...q, inWindow: inWindowPart(q.estimate, priorFor(q.kind, q.phase, cfg.priors).typicalHours, hoursToReset),
+  }));
 
   // ponytail: spend the orchestrator cannot see (a person's own sessions on the same account) is missing, so the
   // window's history readings are a floor on it — a provider-reported window total would replace both.
@@ -658,38 +761,48 @@ export function plan(snapshot: unknown): Plan {
   const spend = Math.max(fromSessions, fromHistory);
 
   // The snapshot's own status is a reading only for a usable window it was read in (not stale, not invented).
-  const statusReading = win.usable && !win.rolledOver ? win.status : null;
+  const statusReading = !win.bad && !win.rolledOver ? win.status : null;
   const readings = statusReading ? [...history, { atMs: nowMs, totalCostUsd: spend, status: statusReading, resetsAtMs: win.resetsAtMs }] : history;
   const cap = estimateCap(readings, { capUsd: cfg.capUsd, warnFraction: cfg.warnFraction, currentResetsAtMs: win.resetsAtMs }, (code, detail) => warn(c, code, detail));
 
   const running = sessions.filter((s) => !s.done);
-  const reserves = reserveFor(running, win, cfg, nowMs);
-  const reserve = (k: keyof Range) => sum(reserves.map((s) => s.remaining[k]));
+  const reserves = reserveFor(running, win, cfg, nowMs, hoursToReset);
+  const reserve = (k: keyof Range) => sum(reserves.map((s) => s.inWindow[k]));
   const headroom = cap.known ? cap.high! - spend - reserve('point') : null;
   if (cap.known && headroom! < -EPS) {
     warn(c, 'running-over-cap', `running work is projected to ${usd(spend + reserve('point'))} at point estimates, ${usd(-headroom!)} over the cap's high end ${usd(cap.high!)}`
       + (cap.source === 'calibrated' ? '; spend the orchestrator cannot see makes a calibrated cap come out low (the safe side)' : ''));
   }
   const brake = chooseBrake(win, parsedNow !== null);
-  const { admit, queued } = admission(queue, new Set(running.map((s) => s.id)), brake, cap, headroom, win, c);
+  const { admit, queued } = admission(queue, new Set(running.map((s) => s.id)), brake, cap, headroom, cfg.admitAt, win, c);
 
-  const hoursToReset = (win.resetsAtMs - nowMs) / H;
-  const projection = projectionOf(cap, spend, reserves, admit, burnRateOf(history, spend, win, reserves, nowMs, c), hoursToReset, nowMs);
-  const windowKnown = !win.assumed && win.usable;
+  // The projected burn is the running (not paused) sessions' own; the history slope is reported beside it.
+  const burn = sum(reserves.filter((s) => !s.paused).map((s) => s.burnUsdPerHour));
+  const historyBurn = historySlope(history, spend, win, nowMs);
+  if (historyBurn !== null) {
+    const [hi, lo] = historyBurn > burn ? [historyBurn, burn] : [burn, historyBurn];
+    if (hi > 0 && hi > BURN_MISMATCH * lo) {
+      warn(c, 'burn-mismatch', `history burn ${usd(historyBurn)}/h and the running sessions' ${usd(burn)}/h differ by over ${BURN_MISMATCH}x (information only: the projection uses the sessions' burn; `
+        + (historyBurn > burn ? 'sessions that just finished, or spend outside the listed sessions)' : 'lifetime averages overstate the current burn, or history readings are missing)'));
+    }
+  }
+  const projection = projectionOf(cap, spend, reserves, admit, burn, historyBurn, hoursToReset, nowMs, cfg);
+  const { pause, resume } = pauseOf(brake, running, cfg, projection.runningFits);
+  const sumAdmit = (k: keyof Range) => sum(admit.map((a) => a.inWindow[k]));
   const body: Omit<Plan, 'summary'> = {
-    version: 1, now: iso(nowMs)!, brake, warning: win.status === 'allowed_warning' && !win.rolledOver,
+    version: 1, now: iso(nowMs)!, brake, warning: win.status === 'allowed_warning' && !win.bad && !win.rolledOver,
     window: { type: win.type, startAt: win.assumed ? null : iso(win.resetsAtMs - win.durMs), resetsAt: win.assumed ? null : iso(win.resetsAtMs), assumed: win.assumed,
-      rolledOver: win.rolledOver, status: win.status, isUsingOverage: win.isUsingOverage, hoursToReset: win.assumed ? null : hoursToReset },
+      rolledOver: win.rolledOver, status: win.rolledOver ? null : win.status, statusAssumed: win.rolledOver ? 'allowed' : null, isUsingOverage: win.isUsingOverage, hoursToReset },
     cap,
     spend: { windowUsd: spend },
-    reserve: { totalUsd: reserve('point'), lowUsd: reserve('low'), highUsd: reserve('high'), safety: cfg.safety, sessions: reserves },
-    capacity: { headroomUsd: headroom, admittedLowUsd: sum(admit.map((a) => a.estimate.low)), admittedPointUsd: sum(admit.map((a) => a.estimate.point)), admittedHighUsd: sum(admit.map((a) => a.estimate.high)) },
-    admit, queued, projection,
+    reserve: { totalUsd: reserve('point'), lowUsd: reserve('low'), highUsd: reserve('high'), carriesOverUsd: sum(reserves.map((s) => s.carriesOverUsd)), safety: cfg.safety, sessions: reserves },
+    capacity: { headroomUsd: headroom, admitAt: cfg.admitAt, admittedLowUsd: sumAdmit('low'), admittedPointUsd: sumAdmit('point'), admittedHighUsd: sumAdmit('high') },
+    resume, admit, queued, projection,
     fill: fillOf(cap, spend, reserves, admit, brake, hoursToReset, cfg.priors),
-    pause: pauseOf(brake, running, cfg, projection.runningFits),
+    pause,
     issues: c.issues,
-    // A plan without a usable window writes no status or window, so it can never win a later calibration.
-    historyEntry: { at: iso(nowMs)!, totalCostUsd: cents(spend), status: windowKnown ? statusReading : null, resetsAt: windowKnown ? iso(win.resetsAtMs) : null },
+    // A plan without a usable window writes no status or window, so it can never count or calibrate later.
+    historyEntry: { at: iso(nowMs)!, totalCostUsd: cents(spend), status: win.bad ? null : statusReading, resetsAt: win.bad ? null : iso(win.resetsAtMs), type: win.type, windowKnown: !win.bad },
   };
   const out = finiteOnly(rounded(body), 'plan', c.issues);
   // Keep `summary` second in the printed JSON, after `version` and `now`.
