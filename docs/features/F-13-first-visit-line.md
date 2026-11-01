@@ -26,11 +26,14 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
 - 2026-11-01: If F-7 public profiles enter the feed, the line becomes false for them. It then goes back to the idea
   board for new wording, which the council may not change. Why: the decisions keeper's F-7 interface condition.
 
-- 2026-11-01 (build, after F-10 #54 merged): the line sits at the top of page 1's first card, not above it as its own
-  snap stop. Why: F-10 requires card 1's return, record strip and disclaimer on the first 360×640 screen (its e2e),
-  and a block above card 1 pushed them below the fold; inside the card both hold, and the design system council already
-  places the Notice in the card (§2.5). The swipe hint shares the footer link's line. On short screens (≤ 480 px tall),
-  while the line shows, card 1's symbol and return are smaller and its one-line thesis excerpt waits until dismissal.
+- 2026-11-01 (build, after F-10 #54 and its follow-ups #60 merged): the line sits inside page 1's first card, in its
+  thesis slot, and stands in for the thesis excerpt until it is dismissed (the thesis stays on the trade page and in the
+  pane). Why: F-10 requires card 1's return, record strip and disclaimer on the first 360×640 screen with 15% headroom
+  (its e2e); a block above card 1, or an extra block in it, broke that budget. The Demo badge sits inline with the line and
+  "Demo records are marked Demo." is screen-reader text (the business lead's committee F1 fallback). The swipe hint follows
+  the design system council's slot rule: it waits while the line shows and appears on card 1 after dismissal (or on a later
+  visit), on the footer link's line. On short screens (≤ 480 px tall), while the line shows, card 1's symbol and return are
+  smaller. Decided in the build (F-10 budget conflict); the owner may revisit the trade-off.
 
 ## Acceptance criteria
 - [ ] Signed out, the first visit shows exactly "Verified trades, straight from the broker. Losses included." linking to
@@ -56,7 +59,6 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
   is a decided line, so it ships verbatim until the owner or a council amendment changes it. The build uses that
   council's labels for the parts D27 does not fix: "Demo records are marked Demo." beside the Demo badge, the link "How
   records are calculated →" and the dismiss name "Dismiss this note".
-- The design system council's slot rule (the hint only after the line is dismissed, or on card 2). Built here: the line
-  is a separate block above card 1, so the hint shows on card 1 from the first visit (SW-1 text).
+- Resolved 2026-11-01: the design system council's slot rule is built (the hint waits until the line is dismissed).
 
 ## Rework notes

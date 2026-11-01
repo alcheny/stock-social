@@ -113,10 +113,15 @@ test('F-13: the dismiss control is a labelled button reached by keyboard; Enter 
   await again.ctx.close();
 });
 
-test('F-13 (SW-1): the first card shows the hint once; it is in view after one scroll to the card (F2); gone after → and on reload; never on the second card; no new cookie', async ({ browser }) => {
+test('F-13 (SW-1): the hint waits while the line shows (design system council slot rule), then the first card shows it once; in view on the card (F2); gone after → and on reload; never on the second card; no new cookie', async ({ browser }) => {
   const { ctx, page, errors } = await fresh(browser);
   await page.goto('/');
   const before = (await ctx.cookies()).map((c) => c.name).sort();
+  await expect(line(page)).toBeVisible();
+  await expect(hint(page)).toBeHidden(); // one slot: the line first
+  await page.getByRole('button', { name: 'Dismiss this note' }).click();
+  await expect(line(page)).toHaveCount(0);
+  await expect(hint(page)).toBeVisible();
   await expect(firstRow(page).locator('.swipe-hint')).toHaveText(HINT);
   await expect(page.locator('.feed > .row[data-trade]').nth(1).locator('.swipe-hint')).toHaveCount(0);
   await expect(hint(page)).toHaveCount(1);
@@ -139,7 +144,9 @@ test('F-13 (SW-1): the first card shows the hint once; it is in view after one s
 
 test('F-13 (SW-1): a touch swipe ends the hint for the device', async ({ browser }) => {
   const { ctx, page, errors } = await fresh(browser, { hasTouch: true, isMobile: true });
+  await ctx.addInitScript(() => { try { localStorage.setItem('ss.firstVisitLine', 'dismissed'); } catch {} }); // a returning visitor
   await page.goto('/');
+  await expect(line(page)).toBeHidden();
   await expect(hint(page)).toBeVisible();
   await swipe(page, -300);
   await expect.poll(() => firstRow(page).evaluate((el) => el.scrollLeft)).toBeGreaterThan(100);
@@ -156,16 +163,17 @@ test('F-13: with storage blocked both render, both can be dismissed for the page
   await page.goto('/');
   expect(await page.evaluate(() => { try { void localStorage.length; return false; } catch { return true; } })).toBe(true);
   await expect(line(page)).toBeVisible();
-  await expect(hint(page)).toBeVisible();
+  await expect(hint(page)).toBeHidden(); // the slot rule: the hint follows the line
   await page.getByRole('button', { name: 'Dismiss this note' }).focus();
   await page.keyboard.press('Enter');
   await expect(line(page)).toHaveCount(0);
+  await expect(hint(page)).toBeVisible();
   await page.locator('[data-first-card-link]').focus();
   await page.keyboard.press('ArrowRight');
   await expect(hint(page)).toBeHidden();
   await page.reload();
   await expect(line(page)).toBeVisible();
-  await expect(hint(page)).toBeVisible();
+  await expect(hint(page)).toBeHidden();
   expect(errors).toEqual([]);
   await ctx.close();
 });

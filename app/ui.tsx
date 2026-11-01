@@ -46,6 +46,8 @@ const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'nume
 const CLOSED_DAY_YEAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.getUTCFullYear() ? CLOSED_DAY : CLOSED_DAY_YEAR).format(d);
 
+const thesisLine = (t: TradeRow) => <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>;
+
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
 // F-10: `strip`, the trader's record strip (lib/record-strip.ts#recordStrip, 'feed'): it takes the place of the
 // "held · closed" line, so the hero reads symbol, return, record. DS-22 (design system council, PR #48): the trust badge
@@ -62,7 +64,6 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
   const ret = pct(t.return_pct);
   return (
     <article className="card">
-      {notice /* F-13: the first-visit line, page 1's first card only (app/feed-rows.tsx) */}
       <header>
         <Link href={`/u/${t.handle}`} className="who" data-first-card-link={hint || undefined}>
           <WhoName name={t.display_name} handle={t.handle} />
@@ -76,7 +77,8 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         <div className={tc ? `ret ${tc}` : 'ret'} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>
         {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now)}</div>}
       </div>
-      <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
+      {/* F-13: on page 1's first card the first-visit line takes the thesis slot until it is dismissed (F-10's one-screen budget). */}
+      {notice ? <div className="fv-slot">{notice}{thesisLine(t)}</div> : thesisLine(t)}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         {hint && <SwipeHint text={FIRST_VISIT.hint} />}

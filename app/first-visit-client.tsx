@@ -23,7 +23,7 @@ function useSeen(name: FlagName): boolean {
   return seen;
 }
 
-// The line's block: in flow (never an overlay), its own snap stop above the first card. Dismiss moves focus to the
+// The line's block: in flow (never an overlay), at the top of page 1's first card (app/feed-rows.tsx). Dismiss moves focus to the
 // first card's profile link (WCAG 2.4.3), so focus never falls to <body>.
 export function FirstVisitBox({ dismissLabel, children }: { dismissLabel: string; children: React.ReactNode }) {
   const dismissed = useSeen('line');
@@ -37,8 +37,9 @@ export function FirstVisitBox({ dismissLabel, children }: { dismissLabel: string
   };
   return (
     <div className="first-visit" data-first-visit>
-      <div className="fv-text">{children}</div>
+      {/* Floated right before the text, so the text wraps under it and the block stays short in card 1. */}
       <button type="button" className="quiet-x" aria-label={dismissLabel} onClick={dismiss}>×</button>
+      <div className="fv-text">{children}</div>
     </div>
   );
 }

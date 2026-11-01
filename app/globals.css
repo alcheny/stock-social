@@ -513,15 +513,18 @@ html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint 
 /* In flow at the top of page 1's first card (after F-10, so the card's return, record strip and disclaimer stay on the
    first screen); never fixed, sticky or over the card's content. No transition or animation, so reduced motion needs no
    override. */
-.feed .card .first-visit { position: static; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 4px 8px; padding: 0 0 6px; margin-bottom: -6px; border-bottom: 1px solid var(--line); }
+.feed .card .first-visit { position: static; display: flow-root; padding: 0; }
 .first-visit p { margin: 0; }
+.first-visit .fv-text { font-size: 0.8125rem; line-height: 16px; } /* the block sets the line boxes (its strut) */
 .first-visit .fv-text p { display: inline; }
-.first-visit .fv-line { font-size: 0.875rem; line-height: 20px; color: var(--text); }
+.first-visit .fv-line { font-size: 0.8125rem; line-height: 16px; color: var(--text); }
 .first-visit .fv-line a { display: inline; padding: 11px 0; } /* a 44 px tall hit area; inline padding keeps the line box */
-.first-visit .fv-demo { margin-left: 6px; font-size: 0.8125rem; line-height: 20px; color: var(--muted); }
+.first-visit .fv-demo { margin-left: 6px; font-size: 0.8125rem; line-height: 16px; color: var(--muted); }
 /* Whole-pixel line boxes (the block's height stays a whole number; a fractional one once left feed rows at -0.4 px). */
-.first-visit .fv-demo .badge { line-height: 16px; vertical-align: 1px; }
-.first-visit .quiet-x { min-width: 44px; min-height: 44px; margin: -4px -10px 0 0; /* tester Low 6: its focus ring clears the nav */ background: transparent; color: var(--muted); border: 0; padding: 0; font-weight: 400; font-size: 1.25rem; line-height: 1; }
+.first-visit .fv-demo .badge { line-height: 14px; vertical-align: 1px; }
+.first-visit .quiet-x { float: right; position: relative; width: 24px; height: 24px; margin: -3px -4px 0 6px; background: transparent; color: var(--muted); border: 0; padding: 0; font-weight: 400; font-size: 1.25rem; line-height: 1; }
+/* 24 px in the layout (the text wraps closer), a 44 × 44 px hit area around it (WCAG 2.5.8, POLICY A1). */
+.first-visit .quiet-x::before { content: ''; position: absolute; inset: -10px; }
 .swipe-hint { position: static; margin: 0 0 6px; color: var(--muted); }
 /* "Trades by stock" (D27) fits the nav at 320–390 px without horizontal overflow, ≤ 56 px tall (WCAG 1.4.10). */
 @media (max-width: 420px) { nav.top { gap: 8px; padding: 12px; } }
@@ -537,16 +540,17 @@ html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint 
 /* The hint shares the footer link's line, so it adds no height and F-10's in-card disclaimer stays on the card's one
    screen with the first-visit line above (e2e/record-strip.spec.ts AC8 at 320×640 and 780×360). */
 .feed .card .swipe-hint { display: inline; margin: 0 12px 0 0; }
-/* Short screens (landscape): while the line is in card 1, the symbol and return are smaller and the one-line thesis excerpt
-   waits until the line is dismissed, so the return, the record strip and the card's disclaimer stay on its one screen.
-   ponytail: card 1's thesis excerpt is hidden on a short screen until the line is dismissed — a two-column card layout in landscape would show both. */
+/* While the line is in card 1, card 1's thesis excerpt waits until the line is dismissed (it stays on the trade page and
+   in the pane), so the return, the record strip and the card's disclaimer keep F-10's 15% headroom on the first screen
+   (e2e/record-strip.spec.ts AC8 at 320×640). Short screens (landscape) also get a smaller symbol and return.
+   ponytail: card 1's thesis excerpt is hidden until the line is dismissed — a line shorter than the D27 sentence, or a card with more room, would show both. */
+html:not([data-ss-seen~="line"]) .feed .card .fv-slot:has(> .first-visit) > .thesis { display: none; }
+/* The design system council's slot rule (§2.5): the line first, the hint after it is dismissed (or on a later visit). */
+html:not([data-ss-seen~="line"]) .feed .card:has(.first-visit) .swipe-hint { display: none; }
 @media (max-height: 480px) {
-  .feed .card:has(> .first-visit) .ret { font-size: 36px; }
-  .feed .card:has(> .first-visit) .symbol { font-size: 16px; }
-  .feed .card .first-visit { border-bottom: 0; }
-  .feed .card:has(> .first-visit) .thesis { display: none; }
-  .feed .row > .card:has(> .first-visit) { gap: 4px; }
-  .feed .card .first-visit .fv-line, .feed .card .first-visit .fv-demo { font-size: 0.8125rem; line-height: 18px; }
+  html:not([data-ss-seen~="line"]) .feed .card:has(.first-visit) .hero .ret { font-size: 36px; }
+  html:not([data-ss-seen~="line"]) .feed .card:has(.first-visit) .symbol { font-size: 16px; }
+  html:not([data-ss-seen~="line"]) .feed .row > .card:has(.first-visit) { gap: 4px; }
 }
 /* end F-13 */
 

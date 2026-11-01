@@ -33,10 +33,8 @@ async function trader(handle: string, name: string, n: number, opts: { verified?
   return { id, remove: async () => { await sql`delete from users where id = ${id}`; await sql`delete from signup_attempts where id = ${attempt}`; } };
 }
 const firstRow = (page: Page) => page.locator('.feed > .row[data-trade]').first();
-const hydrated = async (page: Page) => {
-  await expect(page.locator('.feed .pane .chart-hit').first()).toBeAttached();
-  await expect(firstRow(page).locator(':scope > .pane')).toHaveAttribute('inert', ''); // the hook has run
-};
+// #16 and #17 (sign-in line, inert panes and focus moves) are built and tested by fix cycle 2 (#60: lib/feed-focus.ts and
+// its tests); this file keeps #15, #18, #19 and the no-JS check.
 // The focused element's box, and the fixed nav's bottom edge.
 const focusBox = (page: Page) => page.evaluate(() => {
   const a = document.activeElement as HTMLElement | null, r = a?.getBoundingClientRect();
@@ -45,102 +43,6 @@ const focusBox = (page: Page) => page.evaluate(() => {
   const inPane = !!a?.closest('.feed > .row > .pane');
   return { tag: a?.tagName ?? '', top: r?.top ?? 0, bottom: r?.bottom ?? 0, left: r?.left ?? 0, right: r?.right ?? 0, nav, vh: innerHeight, vw: innerWidth, inPane,
     rowOnCard: row ? row.scrollLeft <= row.clientWidth / 2 : null, inMain: !!a?.closest('main') };
-});
-
-test('#17: keyboard only, Tab never lands in an off-screen pane; → focuses the pane\'s Back button; Back and ← return focus to the card; the fixed nav never covers focus in the pane (#15)', async ({ page }) => {
-  test.setTimeout(120_000);
-  const release = await feedLock('shared');
-  try {
-    await page.setViewportSize({ width: 360, height: 640 });
-    // F-13's first-visit line sits at the top of card 1 on signed-out page 1 (its own tests are e2e/f13-first-visit.spec.ts);
-    // dismissed on this device here, so the Tab walk starts at the card's own controls.
-    await page.addInitScript(() => { try { localStorage.setItem('ss.firstVisitLine', 'dismissed'); } catch {} });
-    await page.goto('/');
-    await hydrated(page);
-    const row = firstRow(page), card = row.locator(':scope > .card'), pane = row.locator(':scope > .pane');
-    await expect(card).not.toHaveAttribute('inert', '');
-    await card.locator('.who').focus();
-    for (let i = 0; i < 15; i++) {
-      await page.keyboard.press('Tab');
-      const f = await focusBox(page);
-      expect(f.inPane && f.rowOnCard, `Tab ${i + 1} landed in a pane whose row rests on its card`).toBe(false);
-      if (f.inMain) expect(f.right, `Tab ${i + 1}: focus off screen`).toBeGreaterThan(0);
-    }
-    // Back to the first card; → opens its pane with focus on Back.
-    await page.locator('main.feed').evaluate((f) => f.scrollTo({ top: 0 }));
-    await card.locator('.who').focus();
-    await page.keyboard.press('ArrowRight');
-    const back = pane.locator('[data-back]');
-    await expect(back).toBeFocused();
-    await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(300);
-    await expect(card).toHaveAttribute('inert', '');
-    await expect(pane).not.toHaveAttribute('inert', '');
-    const b = (await back.boundingBox())!;
-    expect(b.x).toBeGreaterThanOrEqual(0);
-    expect(b.x + b.width).toBeLessThanOrEqual(360);
-    // #15: Tab through the pane; every focused element in it sits below the fixed nav and above the bottom edge.
-    let checked = 0;
-    for (let i = 0; i < 30; i++) {
-      await page.keyboard.press('Tab');
-      const f = await focusBox(page);
-      if (!f.inPane) break;
-      checked++;
-      expect(f.top, `pane Tab ${i + 1}: ${f.tag} under the nav`).toBeGreaterThanOrEqual(f.nav - 0.5);
-      expect(f.bottom, `pane Tab ${i + 1}: ${f.tag} below the screen`).toBeLessThanOrEqual(f.vh + 0.5);
-    }
-    expect(checked).toBeGreaterThan(2);
-    // Back (Enter on it): focus returns to the card's link, the card is in view and the pane is inert again.
-    await back.focus();
-    await page.keyboard.press('Enter');
-    await expect(card.locator('.who')).toBeFocused();
-    await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
-    await expect(pane).toHaveAttribute('inert', '');
-    await expect(card).not.toHaveAttribute('inert', '');
-    await expect(card).toBeInViewport({ ratio: 0.9 });
-    // ← does the same from the pane.
-    await page.keyboard.press('ArrowRight');
-    await expect(back).toBeFocused();
-    await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(300);
-    await page.keyboard.press('ArrowLeft');
-    await expect(card.locator('.who')).toBeFocused();
-    await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
-    await expect(pane).toHaveAttribute('inert', '');
-    // Tester High 1: a pane left scrolled down opens at its top again, so the focused Back is on screen.
-    await page.keyboard.press('ArrowRight');
-    await expect(back).toBeFocused();
-    await pane.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-    await page.keyboard.press('ArrowLeft');
-    await expect(card.locator('.who')).toBeFocused();
-    await page.keyboard.press('ArrowRight');
-    await expect(back).toBeFocused();
-    await expect(back).toBeInViewport();
-  } finally {
-    await release();
-  }
-});
-
-test('#17: rows appended from the next page start with their pane inert', async ({ page }) => {
-  test.setTimeout(150_000);
-  const release = await feedLock('exclusive'); // it fills page 1 with its own traders for a moment
-  const made = await Promise.all(Array.from({ length: 8 }, (_, k) => trader(`a11yp_${rand()}${k}`, `Paged ${k}`, 5, { prefix: `P${String.fromCharCode(65 + k)}` })));
-  try {
-    await page.setViewportSize({ width: 375, height: 800 });
-    await page.goto('/');
-    await hydrated(page);
-    const rows = page.locator('.feed > .row[data-trade]');
-    await expect(rows).toHaveCount(30);
-    await rows.nth(24).evaluate((el) => el.scrollIntoView());
-    await expect.poll(() => rows.count(), { timeout: 20_000 }).toBeGreaterThan(30);
-    const state = await rows.evaluateAll((rs) => rs.slice(30).map((r) => ({
-      pane: (r.querySelector(':scope > .pane') as HTMLElement | null)?.inert ?? null, card: (r.querySelector(':scope > .card') as HTMLElement | null)?.inert ?? null })));
-    expect(state.length).toBeGreaterThan(0);
-    for (const [i, s] of state.entries()) expect(s, `appended row ${31 + i}`).toEqual({ pane: true, card: false });
-    // Sheets and dialogs are never made inert.
-    expect(await page.locator('dialog[inert], .pane-sheet[inert], .pane-sheet [inert]').count()).toBe(0);
-  } finally {
-    for (const t of made) await t.remove();
-    await release();
-  }
 });
 
 test('#17: without JavaScript nothing in the feed is inert', async ({ browser }) => {
@@ -196,39 +98,6 @@ async function touchPage(browser: Browser) {
   const ctx = await browser.newContext({ viewport: { width: 360, height: 640 }, hasTouch: true, isMobile: true });
   return { ctx, page: await ctx.newPage() };
 }
-
-test('#16: signed out, the sign-in line closes on Esc, on focus moving outside it, and on a row change; it never covers focus', async ({ browser }) => {
-  test.setTimeout(120_000);
-  const release = await feedLock('shared');
-  const { ctx, page } = await touchPage(browser);
-  try {
-    await page.goto('/');
-    await hydrated(page);
-    const line = page.locator('.signin-line');
-    const ask = async () => { await doubleTap(page, firstRow(page).locator('.card .hero .ret')); await expect(line).toContainText('Sign in to like trades.'); };
-    await ask();
-    await page.keyboard.press('Escape');
-    await expect(line).toHaveText('');
-    await ask();
-    await page.keyboard.press('Tab');
-    await expect(line).toHaveText('');
-    expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
-    await page.locator('main.feed').evaluate((f) => f.scrollTo({ top: 0 }));
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.waitForTimeout(300);
-    await ask();
-    await page.locator('main.feed').evaluate((f) => f.scrollBy({ top: f.clientHeight }));
-    await expect(line).toHaveText('');
-    // Inside the line, focus is fine: Tab onto its own link keeps it open.
-    await page.locator('main.feed').evaluate((f) => f.scrollTo({ top: 0 }));
-    await page.waitForTimeout(300);
-    await ask();
-    await line.getByRole('link').focus();
-    await expect(line).toContainText('Sign in to like trades.');
-  } finally {
-    await ctx.close(); await release();
-  }
-});
 
 test('#18: the card\'s Like button is named by its visible text, with aria-pressed and the note as its description', async ({ page }) => {
   test.setTimeout(90_000);

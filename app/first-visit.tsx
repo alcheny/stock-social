@@ -16,7 +16,9 @@ export function FirstVisit({ page }: { page: FeedPage }) {
   return (
     <FirstVisitBox dismissLabel={FIRST_VISIT.dismiss}>
       <p className="fv-line"><span>{FIRST_VISIT.line}</span> <Link href="/how">{FIRST_VISIT.how}<span aria-hidden="true"> →</span></Link></p>
-      {demo && <p className="fv-demo"><Badge verified={false} /> {FIRST_VISIT.demo}</p>}
+      {/* Committee F1 fallback (business lead): the Demo badge inline with the line; its sentence is read, not drawn, so
+          the line fits F-10's first-screen budget in card 1. */}
+      {demo && <p className="fv-demo"><Badge verified={false} /><span className="sr-only"> {FIRST_VISIT.demo}</span></p>}
     </FirstVisitBox>
   );
 }
