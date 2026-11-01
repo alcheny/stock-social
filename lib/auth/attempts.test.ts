@@ -144,11 +144,11 @@ dbTest('changeHandle: the old handle is held ~365 days for others, the same trad
     const [r] = await sql`select user_id, extract(epoch from until - now()) / 86400 as days from handle_reservations where handle = ${a}`;
     assert.equal(Number(r.user_id), u.id);
     assert.ok(Number(r.days) > 364.9 && Number(r.days) <= 365, String(r.days));
-    // Others: the old handle is unavailable, with the rule named.
+    // Others: the old handle is unavailable, with the rule named (fix round 1: an active reservation is 'reserved').
     assert.equal(await handleAvailable(a), false);
-    assert.equal(await checkHandle(a, other.id), 'taken');
-    await assert.rejects(changeHandle(other.id, a), verdict('taken'));
-    await assert.rejects(createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: a }), verdict('taken'));
+    assert.equal(await checkHandle(a, other.id), 'reserved');
+    await assert.rejects(changeHandle(other.id, a), verdict('reserved'));
+    await assert.rejects(createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: a }), verdict('reserved'));
     await assert.rejects(changeHandle(other.id, b), verdict('taken'));
     await assert.rejects(changeHandle(other.id, 'Bad Handle!'), verdict('format'));
     await assert.rejects(changeHandle(other.id, 'admin'), verdict('reserved'));
@@ -164,7 +164,7 @@ dbTest('changeHandle: the old handle is held ~365 days for others, the same trad
     await sql`delete from users where id = ${u.id}`;
     const [bare] = await sql`select user_id, until > now() as active from handle_reservations where handle = ${b}`;
     assert.deepEqual({ user_id: bare.user_id, active: bare.active }, { user_id: null, active: true });
-    assert.equal(await checkHandle(b, other.id), 'taken');
+    assert.equal(await checkHandle(b, other.id), 'reserved');
   } finally {
     await sql`delete from users where id in ${sql(ids)}`;
     await sql`delete from handle_reservations where handle in ${sql([a, b])}`;

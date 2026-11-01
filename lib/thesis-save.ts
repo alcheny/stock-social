@@ -16,7 +16,8 @@ export const THESIS_MAX = 280;
  * thesis_edited_at and keeps the written date as it is (a thesis written before the column existed keeps none: a date
  * is never invented). Any change clears thesis_reviewed_at, so an owner release (scripts/review-theses.ts) covers only
  * the text it was given. Saving the same text again changes nothing. Clearing removes the text and all of its dates.
- * Reports (thesis_reports) are never removed here: they count only after a release (lib/reports.ts). A thesis held by
+ * Reports (thesis_reports) are never removed here, and thesis_reports_from is never touched: reports count only from the
+ * last release (lib/reports.ts), so an edit after a release can't bring the reports made before it back. A thesis held by
  * reports stays held through an edit until the owner reviews it, so editing one character never escapes a report hold.
  */
 export async function saveThesisFor(userId: number, tradeId: string, input: string) {

@@ -26,6 +26,12 @@ test('the review page 404s unless the flag is on, and reads no session or viewer
   assert.ok(page.indexOf('notFound()') < page.indexOf('listHeld()'), 'the flag is checked before anything is read');
   assert.doesNotMatch(page, /lib\/session|lib\/viewer|currentUser|viewerId|cookies|actions\.ts/);
   assert.doesNotMatch(page, /<form|action=/, 'read-only');
+  // Fix round 1: the vendor's activity id is never rendered (only as a React key); the trade is named by symbol and date.
+  const uses = page.split('\n').filter((l) => !l.trim().startsWith('//') && /sellId|sell_id/.test(l));
+  assert.equal(uses.length, 1);
+  assert.match(uses[0], /^\s*<li key=\{`\$\{r\.userId\}-\$\{r\.sellId\}`\}>$/);
+  assert.match(page, /r\.symbol/);
+  assert.match(page, /r\.closedAt/);
   const lib = readFileSync(new URL('./thesis-review.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(lib, /import[^\n]*(session|viewer)/);
 });

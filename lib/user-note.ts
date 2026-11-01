@@ -34,6 +34,6 @@ export function UserNote({ text, handle, writtenAt, editedAt, report }: UserNote
   const dates = noteDateLine(writtenAt, editedAt);
   return h('figure', { className: 'user-note', 'data-user-note': '' },
     h('blockquote', { className: 'user-note-text' }, '“', h('bdi', null, text), '”'),
-    h('figcaption', { className: 'user-note-by muted' }, `Note by @${handle}`, dates ? ` · ${dates}` : null),
-    report ?? null);
+    // Fix round 1: the Report control sits inside the caption, so the caption stays the figure's last child.
+    h('figcaption', { className: 'user-note-by muted' }, `Note by @${handle}`, dates ? ` · ${dates}` : null, report ?? null));
 }

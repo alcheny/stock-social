@@ -2,6 +2,7 @@ export type KeptThesis = {
   sell_id: string; thesis: string; thesis_status: string | null;
   // fix-user-text B (F-9): carried with the thesis, unchanged, by sell_id (lib/sync.ts#rebuildTrades).
   thesis_written_at?: Date | null; thesis_edited_at?: Date | null; thesis_hold_rule?: string | null; thesis_reviewed_at?: Date | null;
+  thesis_reports_from?: Date | null; // fix round 1: reports count only after it (lib/reports.ts)
 };
 
 /**

@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
 import { currentUser, devGuard, rememberMethod, signIn } from '@/lib/session.ts';
-import { completeAttempt, createAttempt, createUserForAttempt } from '@/lib/auth/attempts.ts';
+import { completeAttempt, createAttempt, createUserForAttempt, DisplayNameError, HandleTakenError } from '@/lib/auth/attempts.ts';
 import { afterSigninTools } from '@/lib/auth/landing.ts';
 import { saveThesisFor } from '@/lib/thesis-save.ts';
 import { isDemoUser } from '@/lib/demo.ts';
@@ -23,7 +23,8 @@ import { logSafe } from '@/lib/privacy-log.ts';
 export async function login(form: FormData) {
   devGuard();
   const handle = normalizeHandle(form.get('handle')) ?? '';
-  const name = String(form.get('name') ?? '').trim() || handle;
+  // Fix round 1: only a typed name is checked; a blank one falls back to the handle (createUserForAttempt).
+  const name = String(form.get('name') ?? '').trim();
   if (!/^[a-z0-9_]{3,20}$/.test(handle)) throw new Error('Handle: 3–20 lowercase letters, numbers or _');
 
   // Recorded only on insert: an existing handle signs in and keeps its referral.
@@ -40,7 +41,19 @@ export async function login(form: FormData) {
   // Launch gate (orchestrator review 1): the dev form signs existing handles in, but creates a new account only while
   // sign-up is open (the e2e sandbox counts as open).
   if (!existing && !signUpOpen()) throw new Error(LAUNCH.closed);
-  const id = existing ? (await completeAttempt(attempt, existing.id), existing.id as number) : (await createUserForAttempt(attempt, { handle, name })).id;
+  let id: number;
+  if (existing) { await completeAttempt(attempt, existing.id); id = existing.id as number; } else {
+    // A refused name or handle goes back to the form with its reason (a code, never the text typed), not a 500.
+    let made: { id: number } | { error: string };
+    try { made = await createUserForAttempt(attempt, { handle, name }); } catch (e) {
+      if (e instanceof DisplayNameError) made = { error: `name-${e.code}` };
+      else if (e instanceof HandleTakenError) made = { error: `handle-${e.verdict}` };
+      else throw e;
+    }
+    // ponytail: the redirect drops ref/via — carry them through if referred sign-ups start hitting refused names.
+    if ('error' in made) redirect(`/login/dev?error=${made.error}`);
+    id = made.id;
+  }
   await signIn(id);
   await rememberMethod('dev');
   redirect((await afterSigninTools()) ? '/tools' : `/u/${handle}`); // F-3: "Sign in to subscribe" comes back to Record tools

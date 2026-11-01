@@ -1,6 +1,7 @@
 // fix-user-text B (F-9, POLICY U1): the release path for held theses and the start-up re-check.
 // - releaseThesis: the owner publishes a held thesis (thesis_reviewed_at set, rule cleared) or keeps it held (reviewed,
-//   rule kept). Run by scripts/review-theses.ts. It only changes a thesis's state, never its text, and never deletes.
+//   rule kept). Either way thesis_reports_from is set: only reports made after it count (lib/reports.ts), and no edit
+//   clears it, so an edit after a release never brings the old reports back. Run by scripts/review-theses.ts. It only changes a thesis's state, never its text, and never deletes.
 // - remoderateAll: after a rules change, every published thesis is matched again; a match flips it to held. Only
 //   published → held; a thesis the owner released is skipped (an edit clears the release, lib/thesis-save.ts).
 //   Returns counts only, and nothing here logs a thesis or an id.
@@ -18,29 +19,29 @@ export async function releaseThesis(userId: number, sellId: string, decision: De
   const publish = decision === 'publish';
   return sql.begin(async (tx) => {
     const set = publish
-      ? tx`thesis_status = 'published', thesis_hold_rule = null, thesis_reviewed_at = now()`
-      : tx`thesis_reviewed_at = now()`;
+      ? tx`thesis_status = 'published', thesis_hold_rule = null, thesis_reviewed_at = now(), thesis_reports_from = now()`
+      : tx`thesis_reviewed_at = now(), thesis_reports_from = now()`;
     const a = await tx`update closed_trades set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis is not null and thesis_status = 'held' returning 1`;
     const b = await tx`update kept_theses set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis_status = 'held' returning 1`;
     return a.length + b.length > 0;
   });
 }
 
-export type HeldRow = { userId: number; handle: string; sellId: string; symbol: string | null; rule: string | null; thesis: string; reviewed: boolean; kept: boolean; reports: number };
+export type HeldRow = { userId: number; handle: string; sellId: string; symbol: string | null; closedAt: Date | null; rule: string | null; thesis: string; reviewed: boolean; kept: boolean; reports: number };
 
 /** Held theses, oldest trade first, with the matched rule and how many readers reported each (no reporter ids). */
 export async function listHeld(limit = 200): Promise<HeldRow[]> {
   const rows = await sql`
-    select h.user_id, u.handle, h.sell_id, h.symbol, h.thesis_hold_rule, h.thesis, h.thesis_reviewed_at is not null as reviewed, h.kept,
+    select h.user_id, u.handle, h.sell_id, h.symbol, h.closed_at, h.thesis_hold_rule, h.thesis, h.thesis_reviewed_at is not null as reviewed, h.kept,
       (select count(*)::int from thesis_reports r where r.trader_id = h.user_id and r.sell_id = h.sell_id) as reports
     from (
-      select user_id, sell_id, symbol, thesis_hold_rule, thesis, thesis_reviewed_at, false as kept from closed_trades where thesis_status = 'held' and thesis is not null
+      select user_id, sell_id, symbol, closed_at, thesis_hold_rule, thesis, thesis_reviewed_at, false as kept from closed_trades where thesis_status = 'held' and thesis is not null
       union all
-      select k.user_id, k.sell_id, null, k.thesis_hold_rule, k.thesis, k.thesis_reviewed_at, true from kept_theses k
+      select k.user_id, k.sell_id, null, null, k.thesis_hold_rule, k.thesis, k.thesis_reviewed_at, true from kept_theses k
       where k.thesis_status = 'held' and not exists (select 1 from closed_trades c where c.user_id = k.user_id and c.sell_id = k.sell_id)
     ) h join users u on u.id = h.user_id and u.deleted_at is null
     order by h.user_id, h.sell_id limit ${limit}`;
-  return rows.map((r) => ({ userId: r.user_id, handle: r.handle, sellId: r.sell_id, symbol: r.symbol, rule: r.thesis_hold_rule, thesis: r.thesis, reviewed: r.reviewed, kept: r.kept, reports: r.reports }));
+  return rows.map((r) => ({ userId: r.user_id, handle: r.handle, sellId: r.sell_id, symbol: r.symbol, closedAt: r.closed_at ?? null, rule: r.thesis_hold_rule, thesis: r.thesis, reviewed: r.reviewed, kept: r.kept, reports: r.reports }));
 }
 
 /** Re-match every published, unreleased thesis; flip matches to held. Counts only. `only` limits it to some traders (tests). */

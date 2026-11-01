@@ -5,8 +5,18 @@ import { hskel, HSKEL_SQL } from './handles.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
-before(async () => { if (hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
+before(async () => { if (hasDb) await (await import('./privacy-test-schema.ts')).applySchemaForTests(); });
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
+
+// The schema's display-name cleanup statement, limited to the ids in $1.
+function usersCleanup(): string {
+  const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
+  const start = schema.indexOf('update users set display_name = coalesce(nullif(btrim(regexp_replace(display_name,');
+  assert.ok(start > 0, 'the cleanup statement is in the schema');
+  const stmt = schema.slice(start, schema.indexOf(';', start));
+  assert.match(stmt, /\n {2}where display_name ~ '\[[^']+\]'$/);
+  return `${stmt} and id = any($1::int[])`;
+}
 
 const rand = () => Math.random().toString(36).replace(/[^a-z]/g, '').slice(0, 5).padEnd(5, 'q');
 
@@ -39,10 +49,11 @@ dbTest('checkHandle: taken, look-alike of another handle or an active reservatio
     assert.equal(await checkHandle(`${tag}_ca1m`, u.id), 'ok', 'own handle skeleton');
     await sql`insert into handle_reservations (handle, until) values (${resv[0]}, now() + interval '1 day')`;
     await sql`insert into handle_reservations (handle, until, user_id) values (${resv[1]}, now() + interval '1 day', ${u.id})`;
-    assert.equal(await checkHandle(resv[0]), 'taken');
+    // Fix round 1: an active reservation held by someone else (or by no one) is 'reserved', never 'taken'.
+    assert.equal(await checkHandle(resv[0]), 'reserved');
     assert.equal(await checkHandle(`${tag}_g0ne`), 'lookalike');
-    assert.equal(await checkHandle(resv[0], u.id), 'taken', 'a bare reservation binds everyone');
-    assert.equal(await checkHandle(resv[1]), 'taken');
+    assert.equal(await checkHandle(resv[0], u.id), 'reserved', 'a bare reservation binds everyone');
+    assert.equal(await checkHandle(resv[1]), 'reserved');
     assert.equal(await checkHandle(resv[1], u.id), 'ok', 'own reservation: reclaim');
     await sql`update handle_reservations set until = now() - interval '1 second' where handle = ${resv[0]}`;
     assert.equal(await checkHandle(resv[0]), 'ok', 'an expired reservation frees the handle');
@@ -90,10 +101,59 @@ dbTest('schema cleanup strips direction and zero-width characters from stored di
     ids.push(v.id);
     await sql`update users set display_name = ${'Ma‮ya \u{1F468}‍\u{1F469}'} where id = ${u.id}`;
     await sql`update users set display_name = ${'​‎'} where id = ${v.id}`;
-    await sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple();
+    // Fix round 1: only the schema's display-name cleanup statement runs, scoped to this test's own users (the shared
+    // database's other rows are never touched by a test).
+    await sql.unsafe(usersCleanup(), [ids]);
     const rows = await sql`select display_name from users where id in ${sql(ids)} order by id`;
     assert.deepEqual(rows.map((r) => r.display_name), ['Maya \u{1F468}‍\u{1F469}', `${tag}_b`]);
+    // The extended class: Hangul filler, braille blank and tags go; the variation selector stays.
+    await sql`update users set display_name = ${'Ma\u3164ya\u2800 \u2764\uFE0F\u{E0041}'} where id = ${u.id}`;
+    await sql.unsafe(usersCleanup(), [ids]);
+    assert.equal((await sql`select display_name from users where id = ${u.id}`)[0].display_name, 'Maya \u2764\uFE0F');
   } finally {
     await sql`delete from users where id in ${sql(ids)}`;
+  }
+});
+
+// Fix round 1 (item 5): look-alike claims take turns under the skeleton's advisory lock, so two can't both succeed.
+dbTest('two parallel look-alike renames: exactly one succeeds, the other is refused as a look-alike', async () => {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt, changeHandle, HandleTakenError } = await import('./auth/attempts.ts');
+  const tag = `pr${rand()}`;
+  const ids: number[] = [];
+  try {
+    for (const n of ['a', 'b']) ids.push((await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_${n}` })).id);
+    for (let round = 0; round < 3; round++) {
+      const want = [`${tag}_calm${round}`, `${tag}_ca1m${round}`];
+      const out = await Promise.allSettled([changeHandle(ids[0], want[0]), changeHandle(ids[1], want[1])]);
+      assert.equal(out.filter((o) => o.status === 'fulfilled').length, 1, `round ${round}`);
+      const lost = out.find((o) => o.status === 'rejected') as PromiseRejectedResult;
+      assert.ok(lost.reason instanceof HandleTakenError);
+      assert.equal(lost.reason.verdict, 'lookalike');
+    }
+    // Two parallel sign-ups with look-alike chosen handles: one account, one refusal.
+    const out = await Promise.allSettled([`${tag}_zed1`, `${tag}_zedl`].map(async (h) => createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: h })));
+    for (const o of out) if (o.status === 'fulfilled') ids.push(o.value.id);
+    assert.equal(out.filter((o) => o.status === 'fulfilled').length, 1);
+  } finally {
+    await sql`delete from handle_reservations where handle like ${tag + '%'}`;
+    if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
+  }
+});
+
+dbTest('dev sign-in: a blank name falls back to the handle unchecked; a typed name that fails carries its reason code', async () => {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt, DisplayNameError } = await import('./auth/attempts.ts');
+  const tag = `dn${rand()}`;
+  const ids: number[] = [];
+  try {
+    const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_ok`, name: '' });
+    ids.push(u.id);
+    assert.equal((await sql`select display_name from users where id = ${u.id}`)[0].display_name, `${tag}_ok`);
+    await assert.rejects(createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_no`, name: 'Support Team' }),
+      (e: unknown) => e instanceof DisplayNameError && e.code === 'role');
+    assert.equal((await sql`select 1 from users where handle = ${`${tag}_no`}`).length, 0);
+  } finally {
+    if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
   }
 });

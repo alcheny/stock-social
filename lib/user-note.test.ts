@@ -39,7 +39,12 @@ test('right-to-left text cannot reorder the attribution: it stays inside <bdi>',
 
 test('the report slot renders only when given', () => {
   assert.doesNotMatch(render({ text: 'x', handle: 'h' }), /<form|<button/);
-  assert.match(render({ text: 'x', handle: 'h', report: createElement('button', null, 'Report') }), /<\/figcaption><button>Report<\/button><\/figure>/);
+  // The caption is the figure's last child (fix round 1): the control sits at its end, never after it.
+  assert.match(render({ text: 'x', handle: 'h', report: createElement('button', null, 'Report') }), /Note by @h<button>Report<\/button><\/figcaption><\/figure>$/);
+  for (const html of [render({ text: 'x', handle: 'h' }), render({ text: 'x', handle: 'h', report: createElement('button', null, 'Report') })]) {
+    const inner = html.replace(/^<figure[^>]*>|<\/figure>$/g, '');
+    assert.match(inner, /^<blockquote[\s\S]*<\/blockquote><figcaption[\s\S]*<\/figcaption>$/, 'blockquote then the caption, nothing after it');
+  }
 });
 
 test('never larger than the verified figure: the note is body size or smaller, set only in the UserNote CSS block', () => {

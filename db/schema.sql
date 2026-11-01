@@ -539,12 +539,14 @@ select schema_add_column('handle_reservations', 'user_id', 'bigint references us
 select schema_add_index('users_handle_skel', $d$create index users_handle_skel on users ((replace(replace(replace(lower(handle), 'rn', 'm'), '0', 'o'), '1', 'l')))$d$);
 -- Stored-text cleanup (decision 1): direction controls, zero-width/invisible format characters (never U+200D) and
 -- control characters (never \n or tab) leave stored theses and display names. Guarded, so a clean table is untouched.
-update closed_trades set thesis = regexp_replace(thesis, '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')
-  where thesis ~ '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]';
-update kept_theses set thesis = regexp_replace(thesis, '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')
-  where thesis ~ '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]';
-update users set display_name = coalesce(nullif(btrim(regexp_replace(display_name, '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')), ''), handle)
-  where display_name ~ '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]';
+-- Fix round 1: the class is lib/text-safety.ts#STRIP_CLASS_SQL (every default-ignorable character except the joiner and
+-- the variation selectors, plus the braille blank); lib/text-safety.test.ts proves the two agree.
+update closed_trades set thesis = regexp_replace(thesis, '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')
+  where thesis ~ '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]';
+update kept_theses set thesis = regexp_replace(thesis, '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')
+  where thesis ~ '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]';
+update users set display_name = coalesce(nullif(btrim(regexp_replace(display_name, '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')), ''), handle)
+  where display_name ~ '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFEFF\uFFA0\uFFF0-\uFFF8\U0001BCA0-\U0001BCA3\U0001D173-\U0001D17A\U000E0000-\U000E00FF\U000E01F0-\U000E0FFF\x01-\x08\x0B-\x1F\x7F-\x9F]';
 
 -- fix-user-text B: F-9 thesis safety (docs/features/F-9-thesis-safety.md). Additive and idempotent.
 -- When a thesis was first written and last edited (no defaults: a thesis written before these columns shows no date,
@@ -559,6 +561,10 @@ select schema_add_column('kept_theses', 'thesis_written_at', 'timestamptz');
 select schema_add_column('kept_theses', 'thesis_edited_at', 'timestamptz');
 select schema_add_column('kept_theses', 'thesis_hold_rule', 'text check (char_length(thesis_hold_rule) <= 60)');
 select schema_add_column('kept_theses', 'thesis_reviewed_at', 'timestamptz');
+-- Fix round 1: reports count only from this time (set by an owner release, never cleared by an edit or a clear), so a
+-- released note that is edited is not held again by the reports made before the release (lib/reports.ts).
+select schema_add_column('closed_trades', 'thesis_reports_from', 'timestamptz');
+select schema_add_column('kept_theses', 'thesis_reports_from', 'timestamptz');
 -- One report per signed-in reader per thesis, keyed by the trader and the closing sell's id (no foreign key to
 -- closed_trades on purpose: rebuildTrades deletes and rewrites those rows, and a report must survive it). Both user
 -- links cascade, so deleting a profile removes the reports it made and the reports on its notes (lib/reports.ts).

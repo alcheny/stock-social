@@ -31,6 +31,7 @@ export const NOT_A_FIELD: Record<string, string> = {
   // fix-user-text B (F-9): shown with the note it dates ("Written ‹date›"); the hold rule only to the note's author.
   'closed_trades.thesis_written_at': 'when the trader wrote the note', 'closed_trades.thesis_edited_at': 'when the trader last edited the note',
   'closed_trades.thesis_hold_rule': 'moderation state (rule that held the note)', 'closed_trades.thesis_reviewed_at': 'moderation state (owner release time)',
+  'closed_trades.thesis_reports_from': 'moderation state (reports count from this release time)',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
 };
 

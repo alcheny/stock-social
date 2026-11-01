@@ -37,10 +37,11 @@ export async function insertActivities(userId: number, source: 'snaptrade' | 'de
 }
 
 // fix-user-text B (F-9): the thesis columns besides its text and status, copied as they are (never re-dated).
-// A closed trade now binds 15 parameters, so INSERT_CHUNK rows stay far under the 65,534 limit.
+// A closed trade now binds 16 parameters, so INSERT_CHUNK rows stay far under the 65,534 limit.
 const thesisMeta = (k: KeptThesis | undefined) => ({
   thesis_written_at: k?.thesis_written_at ?? null, thesis_edited_at: k?.thesis_edited_at ?? null,
   thesis_hold_rule: k?.thesis_hold_rule ?? null, thesis_reviewed_at: k?.thesis_reviewed_at ?? null,
+  thesis_reports_from: k?.thesis_reports_from ?? null,
 });
 
 // Recompute a user's closed trades from raw activities. Theses survive via sell_id. Runs in the caller's transaction
@@ -63,8 +64,13 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // returns. Kept rows come first, so a thesis on a current closed_trades row always wins its sell_id; saveThesis
     // removes the kept row when the trader edits or clears that thesis, so a cleared thesis never comes back.
     // fix-user-text B (F-9): the written and edited dates, the hold rule and the release time travel with the thesis.
-    const aside = await tx`select sell_id, thesis, thesis_status, thesis_written_at, thesis_edited_at, thesis_hold_rule, thesis_reviewed_at from kept_theses where user_id = ${userId}`;
-    const live = await tx`select sell_id, thesis, thesis_status, thesis_written_at, thesis_edited_at, thesis_hold_rule, thesis_reviewed_at from closed_trades where user_id = ${userId} and thesis is not null`;
+    const aside = await tx`select sell_id, thesis, thesis_status, thesis_written_at, thesis_edited_at, thesis_hold_rule, thesis_reviewed_at, thesis_reports_from from kept_theses where user_id = ${userId}`;
+    // Fix round 1: every closed_trades row of this trader is locked before the theses are read, so a report hold, a
+    // release or a thesis save running at the same time either finishes first (and is read here) or waits for this
+    // rebuild (and then finds the rebuilt row). Without it a hold committed between this read and the delete below was
+    // written back as published. One row comes back, whatever the count (memory stays one page).
+    await tx`with l as (select 1 from closed_trades where user_id = ${userId} for update) select count(*) from l`;
+    const live = await tx`select sell_id, thesis, thesis_status, thesis_written_at, thesis_edited_at, thesis_hold_rule, thesis_reviewed_at, thesis_reports_from from closed_trades where user_id = ${userId} and thesis is not null`;
     const kept = [...aside, ...live] as unknown as KeptThesis[];
     const attachedIds = new Set<string>();
     await tx`delete from closed_trades where user_id = ${userId}`;
@@ -117,7 +123,8 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status, ...thesisMeta(k as unknown as KeptThesis) })))}
         on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status,
           thesis_written_at = excluded.thesis_written_at, thesis_edited_at = excluded.thesis_edited_at,
-          thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at`;
+          thesis_hold_rule = excluded.thesis_hold_rule, thesis_reviewed_at = excluded.thesis_reviewed_at,
+          thesis_reports_from = excluded.thesis_reports_from`;
     }
     const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)})
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)`;

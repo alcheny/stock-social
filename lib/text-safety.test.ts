@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { cutCodePoints, leet, neutralizeFigures, sanitizeUserText, skeleton, squash } from './text-safety.ts';
 
 // Every character decision 1 says is removed from stored text.
@@ -91,4 +92,45 @@ test('squash: punctuation inside a word goes, single-character runs join, whole 
   assert.equal(squash('v.e.r-i_fied'), 'verified');
   assert.equal(squash('s t o c k s o c i a l'), 'stocksocial');
   assert.equal(squash('cover if i edit'), 'cover if i edit');
+});
+
+// Fix round 1: every default-ignorable character goes (the joiner and the variation selectors stay in stored text),
+// plus the braille blank; the skeleton removes all of them, drops combining marks and reads 。 as a dot.
+const EXTRA_INVISIBLE = [0x034f, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x2800, ...range(0x206a, 0x206f),
+  0x180b, 0x180c, 0x180d, 0x180f, 0xe0001, 0xe0020, 0xe0041, 0xe007f, 0xfff0, 0x1bca0, 0x1d173];
+
+test('sanitizeUserText and skeleton: Hangul fillers, the grapheme joiner, braille blank, tags and the rest are removed', () => {
+  for (const cp of EXTRA_INVISIBLE) {
+    const c = String.fromCodePoint(cp);
+    assert.equal(sanitizeUserText(`exam${c}ple${c}.com`), 'example.com', `U+${cp.toString(16)}`);
+    assert.equal(skeleton(`Exam${c}ple`), 'example', `U+${cp.toString(16)}`);
+  }
+  // Kept in stored text: the joiner, emoji presentation and CJK variation selectors. Gone in the skeleton.
+  for (const c of ['‍', '︎', '️', '\u{E0100}', '\u{E01EF}']) {
+    assert.equal(sanitizeUserText(`a${c}b`), `a${c}b`, JSON.stringify(c));
+    assert.equal(skeleton(`a${c}b`), 'ab', JSON.stringify(c));
+  }
+  assert.equal(sanitizeUserText('❤️ ok'), '❤️ ok');
+});
+
+test('skeleton: combining marks dropped, ideographic full stop reads as a dot', () => {
+  assert.equal(skeleton('vérified'), 'verified');
+  assert.equal(skeleton('vérified'), 'verified');
+  assert.equal(skeleton('example。com'), 'example.com');
+  assert.equal(skeleton('Ana María'), 'ana maria');
+});
+
+test('the Postgres cleanup class equals the stored-text strip set, code point by code point, and the schema uses it', async () => {
+  const { isStripped, STRIP_CLASS_SQL } = await import('./text-safety.ts');
+  const js = new RegExp(STRIP_CLASS_SQL.replace(/\\U([0-9A-F]{8})/g, (_, h: string) => `\\u{${h.replace(/^0+/, '')}}`), 'u');
+  const diff: string[] = [];
+  for (let cp = 1; cp <= 0x10ffff; cp++) {
+    if (cp >= 0xd800 && cp <= 0xdfff) continue;
+    const c = String.fromCodePoint(cp);
+    if (isStripped(c) !== js.test(c)) diff.push(cp.toString(16));
+  }
+  assert.deepEqual(diff.slice(0, 20), []);
+  const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
+  const uses = schema.split(STRIP_CLASS_SQL).length - 1;
+  assert.ok(uses >= 6, `schema.sql uses STRIP_CLASS_SQL verbatim (${uses})`);
 });

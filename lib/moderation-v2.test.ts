@@ -153,3 +153,58 @@ test('lib/moderation.ts imports PROMO rather than spelling its phrases', () => {
   assert.match(src, /import \{ PROMO \} from '\.\.\/scripts\/compliance\.ts'/);
   assert.match(src, /SERVER-ONLY/);
 });
+
+// ---- Fix round 1 ----
+
+// Ordinary talk about figures, someone else's numbers or a small own result: publishes.
+const NEGATIVE_R1: string[] = [
+  'Revenue grew 20% a year for five years.', 'Net margin 22% annualized from Q3.', 'Volatility was 30% annualized, too much for me.',
+  'Shares fell 3% each day this week.', 'Sector ETF XYZE up 3% this week.', 'The index made 15% this year so beta did the work.',
+  'I was up 12% then gave it back — sold at 3%.', 'My gains on this one were small, 3%.', 'Add me to the bears this time.',
+  'Analyst price targets are irrelevant to me.', 'sold @ the open', 'Trimmed 40 percent of the position into strength',
+  'The fund returned 25% last year, I only watched', 'Stop at 8 pct below entry', 'Exit plan: sell into the 50-day, no price target.',
+  'Sold.Then it ran', 'BRK.B and U.S. data, e.g. Inc. guidance at v2.0, approx.5, 3.5x, Q3/FY25', 'Bought at 9.5, sold at 12.1',
+  'my plan was to add on a retest', 'Trust the process, not the tips of the iceberg', 'Teams of analysts missed it',
+  'Margin up 3% to 41% this quarter for the company', 'I got 2 alerts and ignored both', 'Me too: sold half at the open',
+];
+
+// [text, expected label]
+const BYPASS_R1: [string, string][] = [
+  ['see example[.]org', 'link'], ['see example(.)net', 'link'], ['hxxps://example[.]org/x', 'link'], ['example . com', 'link'],
+  ['notes at example .io today', 'link'], ['example\n.com', 'link'], ['example。com', 'link'], ['mysite.de', 'link'],
+  ['mysite.me for more', 'link'], ['mysite.to', 'link'], ['mysite.fm', 'link'], ['mysite.page', 'link'],
+  ['D.M. me', 'contact details'], ['d m me', 'contact details'], ['D-M me for it', 'contact details'], ['dm. me', 'contact details'],
+  ['my dms are open', 'contact details'], ['ask @ alpha_desk', 'contact details'], ['ask (at)alpha_desk', 'contact details'],
+  ['call +44 20 7946 0958', 'contact details'], ['add me on the app', 'contact details'],
+  ['pa1d signals each morning', 'promotion'], ['paid-signals', 'promotion'], ['V I P signals', 'promotion'],
+  ['mirr0r my trades', 'copy trading'], ['my p1cks this week', 'picks or tips'], ['t.i.p.s inside', 'picks or tips'],
+  ['price-target 300', 'picks or tips'], ['my price target is high', 'picks or tips'],
+  ['vérified trader', 'platform claim'], ['verifled trader', 'platform claim'],
+  ['I made 40 percent', 'return claim'], ['I made 4O%', 'return claim'], ['my port +40%', 'return claim'],
+  ['portfolio up 40% since I started', 'return claim'], ['I compounded 40% per annum', 'return claim'],
+  ['We made 12%/yr', 'return claim'], ['I made 15% per annum', 'return claim'], ['I averaged 3% a month', 'return claim'],
+  ["I'm +40% this year", 'return claim'], ['this trade made me 50%', 'return claim'], ['I was up 3x on it', 'return claim'],
+  ['my account is up 12% this month', 'return claim'], ['Up 9% this week.', 'return claim'],
+];
+
+test('fix round 1: ordinary talk publishes (no rule)', () => {
+  for (const t of NEGATIVE_R1) {
+    assert.deepEqual(moderateDetail(t), { status: 'published', rule: null }, JSON.stringify(t));
+    assert.deepEqual(moderateDetail(sanitizeUserText(t)), { status: 'published', rule: null }, JSON.stringify(t));
+  }
+});
+
+test('fix round 1: link, contact, promotion and claim bypasses are held with the expected label', () => {
+  for (const [t, label] of BYPASS_R1) {
+    assert.deepEqual(moderateDetail(t), { status: 'held', rule: label }, JSON.stringify(t));
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(sanitizeUserText(t)));
+  }
+});
+
+test('fix round 1: invisible fillers inside a domain never hide it', () => {
+  for (const c of ['͏', 'ㅤ', '⠀', 'ﾠ', '\u{E0041}', '᠋', '⁪']) {
+    const t = `see example${c}.com`;
+    assert.equal(moderateDetail(t).status, 'held', JSON.stringify(t));
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(t));
+  }
+});

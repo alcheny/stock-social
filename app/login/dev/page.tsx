@@ -3,18 +3,21 @@ import { login } from '../../actions.ts';
 import { normalizeHandle, normalizeVia } from '@/lib/referral.ts';
 import { devAuthAllowed } from '@/lib/session.ts';
 import { memoryOutbox } from '@/lib/auth/email.ts';
+import { signInErrorText } from '@/lib/handles.ts';
 
 // DEV-ONLY sign-in (no password). Exists only when ALLOW_DEV_AUTH=1 (or outside production); e2e uses it.
-export default async function DevLogin({ searchParams }: { searchParams?: Promise<{ ref?: string; via?: string }> }) {
+export default async function DevLogin({ searchParams }: { searchParams?: Promise<{ ref?: string; via?: string; error?: string }> }) {
   if (!devAuthAllowed()) notFound();
   const sp = await searchParams;
   const ref = normalizeHandle(sp?.ref);
   const via = ref ? normalizeVia(sp?.via) : null;
+  const error = signInErrorText(sp?.error); // a refused name or handle (app/actions.ts#login), named by its rule
   const lastLink = !process.env.AUTH_EMAIL_SEND_URL ? memoryOutbox.last : null;
   return (
     <main className="page auth">
       <h1>Publish your trades</h1>
       <p className="muted">Dev sign-in (no password). Not available in production.</p>
+      {error && <p role="alert">{error}</p>}
       <form action={login}>
         {ref && <input type="hidden" name="ref" value={ref} />}
         {via && <input type="hidden" name="via" value={via} />}

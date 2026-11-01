@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkDisplayName, handleVerdict, hskel, RESERVED, stripTail, HANDLE_RESERVED_DAYS } from './handles.ts';
+import { checkDisplayName, handleVerdict, hskel, NAME_REASON, RESERVED, signInErrorText, stripTail, HANDLE_RESERVED_DAYS } from './handles.ts';
 
 const DEMO = ['momentum_maya', 'dividend_dan', 'yolo_yuki'];
 const ctx = (others: string[] = DEMO) => ({ others, demo: DEMO });
@@ -68,4 +68,104 @@ test('checkDisplayName: refuses check glyphs, verified/official, product or vend
   }
   assert.ok(checkDisplayName('x'.repeat(40)).ok);
   assert.ok(checkDisplayName('a\u{1F468}‍\u{1F469}‍\u{1F467}\u{1F680}').ok, 'a joined emoji sequence counts once');
+});
+
+// ---- Fix round 1 ----
+
+test('refused: the 1→i reading, plurals and "the" forms of staff words, spaced-out reserved words, the vendor name', () => {
+  for (const h of ['adm1n', 'ver1fied', 'offic1al', 'ver1fied_trader', 'my_offic1al_desk', 'admins', 'the_admin', 'theadmin',
+    'the_admins', 'a_d_m_i_n', 's_u_p_p_o_r_t', 'mods', 'the_mod', 'staff_2024', 'the_staff', 'teams', 'moderators',
+    'snap_trade', 'snaptrade_fan', 'snap_trade_desk', 'v3rified', 'st0ck_s0cial', '5nap7rade', 'support_team', 'helpdesk_1']) {
+    assert.equal(handleVerdict(h, ctx()), 'reserved', h);
+  }
+});
+
+test('not over-blocked: ordinary handles near the reserved words stay free', () => {
+  for (const h of ['trader_2024', 'maya_2024', 'admiral_x', 'supportive', 'theme', 'thermos', 'helps_out', 'the_press_box',
+    'officer_k', 'modest_gains', 'teamwork_trades', 'stafford', 'systematic_sam', 'administer', 'dan_the_man', 'press_on']) {
+    assert.equal(handleVerdict(h, ctx()), 'ok', h);
+  }
+});
+
+test('refused: demo look-alikes with underscores removed, doubled or with a doubled last letter, or 1 read as i', () => {
+  for (const h of ['momentum__maya', 'momentummaya', 'momentum_mayaa', 'momentum_mayaa_1', 'd1vidend_dan', 'dividenddan', 'yolo_yukii']) {
+    assert.equal(handleVerdict(h, ctx([])), 'lookalike', h);
+  }
+  for (const h of ['momentum_mia', 'dividend_dana', 'yolo_yuko', 'maya_momentum']) assert.equal(handleVerdict(h, ctx([])), 'ok', h);
+});
+
+test('an active reservation held by someone else is "reserved", not "taken"; its look-alike is "lookalike"', () => {
+  const c = { others: ['old_name', 'live_user'], reservations: ['old_name'], demo: DEMO };
+  assert.equal(handleVerdict('old_name', c), 'reserved');
+  assert.equal(handleVerdict('o1d_name', c), 'lookalike');
+  assert.equal(handleVerdict('live_user', c), 'taken');
+  assert.equal(handleVerdict('old_name', { ...c, provisional: true }), 'reserved');
+});
+
+test('a handle the rules accept is always an acceptable display name (the dev sign-in fallback never fails)', () => {
+  const corpus = ['v3rified', 'support_team', '5taff', 'adm1n', 'the_mods', 'helpteam', 'snap_trade', 'st0ck_s0cial', 'sec_urity',
+    'trustandsafety', 'customer_support', 'moderation_team', 'team_support', 'official_x', '0ff1c1al', 'calm_trader', 'trader_2024',
+    'v_e_r_i_f_i_e_d', 's7aff', 'mod_team', 'staffteam', 'thestaff', 'adm1ns', 'h3lpdesk', 'supp0rt', 'sn4ptrade'];
+  for (const h of corpus) {
+    if (handleVerdict(h, ctx([])) !== 'ok') continue;
+    const c = checkDisplayName(h);
+    assert.ok(c.ok, `${h} passes the handle rules but fails as a name: ${!c.ok && c.reason}`);
+  }
+});
+
+test('display names: only a staff or role word is refused, in any case or look-alike; names containing one are fine', () => {
+  for (const n of ['Admin', 'admin', 'ADMIN', 'Аdmin', 'Adm1n', 'Support', 'Support Team', 'support team', 'Moderator', 'The Moderators',
+    'Staff', 'Official Team', 'S T A F F', 'Help Desk', 'Security Team', 'Trust & Safety']) {
+    const c = checkDisplayName(n);
+    assert.equal(c.ok, false, n);
+  }
+  assert.deepEqual(checkDisplayName('Support Team'), { ok: false, reason: NAME_REASON.role, code: 'role' });
+  for (const n of ['Maya from Support Street', 'Sam the Admiral', 'Teamster Joe', 'Staffan', 'Moderately Bullish', 'Helpful Hank']) {
+    assert.ok(checkDisplayName(n).ok, n);
+  }
+});
+
+test('display names: keycaps and flags count toward the 2-emoji cap; check-like glyphs are refused', () => {
+  const key1 = '1\uFE0F\u20E3', key2 = '2\u20E3', flag = '\u{1F1FA}\u{1F1F8}';
+  assert.ok(checkDisplayName(`Sam ${key1}${flag}`).ok, 'two is fine');
+  assert.equal(checkDisplayName(`Sam ${key1}${key2}${flag}`).ok, false);
+  assert.equal(checkDisplayName(`Sam ${flag}${flag}${flag}`).ok, false);
+  assert.equal(checkDisplayName(`Sam \u{1F680}${key1}${flag}`).ok, false);
+  for (const g of ['ꓦ', '⩗', '⩘', '⍻', '\u{10102}', '✓', '✔', '☑', '✅', '\u{1F5F8}']) {
+    const c = checkDisplayName(`Sam ${g}`);
+    assert.equal(c.ok, false, g);
+    if (!c.ok) assert.equal(c.code, 'check');
+  }
+});
+
+test('display names: invisible fillers are removed before the words are checked', () => {
+  for (const n of ['Maya Veri\u3164fied', 'Maya Veri\u2800fied', 'Maya Veri\u034Ffied', 'Maya Veri\uFFA0fied', 'Maya Veri\u{E0041}fied', 'Maya Vérified']) {
+    const c = checkDisplayName(n);
+    assert.equal(c.ok, false, JSON.stringify(n));
+  }
+  assert.deepEqual(checkDisplayName('Ma\u3164ya\u2800'), { ok: true, name: 'Maya' });
+});
+
+test('signInErrorText: known codes only; never echoes the URL', () => {
+  assert.equal(signInErrorText('name-verified'), NAME_REASON.verified);
+  assert.equal(signInErrorText('name-role'), NAME_REASON.role);
+  assert.equal(signInErrorText('handle-reserved'), 'That handle is reserved.');
+  assert.equal(signInErrorText('handle-lookalike'), 'That handle looks too much like another one.');
+  for (const bad of [undefined, '', 'name-', 'name-toString', 'handle-ok', 'name-__proto__', 'Buy now at example.com', ['name-role']]) {
+    assert.equal(signInErrorText(bad), undefined, String(bad));
+  }
+});
+
+test('dev sign-in: only a typed name is checked, and a refused name or handle goes back to the form, never a 500', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../app/actions.ts', import.meta.url), 'utf8');
+  const login = src.slice(src.indexOf('export async function login'), src.indexOf('export async function saveThesis'));
+  assert.match(login, /const name = String\(form\.get\('name'\) \?\? ''\)\.trim\(\);/);
+  assert.doesNotMatch(login, /\|\| handle;/, 'the handle is never passed as a typed name');
+  assert.match(login, /instanceof DisplayNameError\) made = \{ error: `name-\$\{e\.code\}` \}/);
+  assert.match(login, /instanceof HandleTakenError\) made = \{ error: `handle-\$\{e\.verdict\}` \}/);
+  assert.match(login, /redirect\(`\/login\/dev\?error=\$\{made\.error\}`\)/);
+  const page = readFileSync(new URL('../app/login/dev/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /signInErrorText\(sp\?\.error\)/);
+  assert.match(page, /role="alert"/);
 });

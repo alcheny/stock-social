@@ -5,7 +5,7 @@ import { sql } from '../db.ts';
 import { recordFunnel } from '../funnel.ts';
 import { legacyVia, normalizeHandle, type ReferredSurface } from '../referral.ts';
 import { SignUpClosedError } from '../launch-gate.ts';
-import { checkDisplayName, checkHandle, HANDLE_RESERVED_DAYS, type HandleVerdict } from '../handles.ts';
+import { checkDisplayName, checkHandle, HANDLE_RESERVED_DAYS, lockHandleSkeleton, type HandleVerdict, type NameReasonCode } from '../handles.ts';
 import { sanitizeUserText } from '../text-safety.ts';
 
 export const METHODS = ['provider_a', 'provider_b', 'email', 'brokerage', 'dev'] as const;
@@ -18,8 +18,12 @@ export class HandleTakenError extends Error {
   verdict: Exclude<HandleVerdict, 'ok'>;
   constructor(verdict: Exclude<HandleVerdict, 'ok'> = 'taken') { super(`That handle is not available (${verdict})`); this.verdict = verdict; }
 }
-// A display name refused by lib/handles.ts#checkDisplayName; the message is the reason shown to the trader.
-export class DisplayNameError extends Error {}
+// A display name refused by lib/handles.ts#checkDisplayName; the message is the reason shown to the trader, the code
+// names it in a redirect (app/actions.ts#login).
+export class DisplayNameError extends Error {
+  code: NameReasonCode;
+  constructor(reason: string, code: NameReasonCode) { super(reason); this.code = code; }
+}
 
 export type NewAttempt = { method: Method; attested: boolean; referredBy?: number | null; surface?: ReferredSurface | null; landedAt?: Date | null; source?: string | null };
 
@@ -65,16 +69,24 @@ export async function createUserForAttempt(attemptId: number, i: { handle?: stri
   // The display name is cleaned and checked first (decision 11); a blank one falls back to the handle.
   let typed: string | null = null;
   const cleaned = sanitizeUserText(i.name ?? '', 400);
-  if (cleaned) { const c = checkDisplayName(cleaned); if (!c.ok) throw new DisplayNameError(c.reason); typed = c.name; }
+  if (cleaned) { const c = checkDisplayName(cleaned); if (!c.ok) throw new DisplayNameError(c.reason, c.code); typed = c.name; }
   for (let tries = 0; tries < 5; tries++) {
     const handle = i.handle ? normalizeHandle(i.handle) : provisionalHandle();
     if (!handle) throw new HandleTakenError('format');
-    const verdict = await checkHandle(handle, null, { provisional: !i.handle });
-    if (verdict !== 'ok') { if (i.handle) throw new HandleTakenError(verdict); continue; }
-    const name = typed ?? handle;
-    const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id, referred_by_user_id, referred_via, referred_surface)
-      select ${handle}, ${name}, adult_attested_at, id, ${a.referred_by_user_id}, ${legacyVia(surface)}, ${surface} from signup_attempts where id = ${attemptId}
-      on conflict (handle) do nothing returning id, handle`;
+    // Fix round 1: a chosen handle is checked and inserted under its skeleton's lock, so two look-alike sign-ups can't
+    // both pass the check (lib/handles.ts#lockHandleSkeleton). A blank name falls back to the handle unchecked: the
+    // handle rules already apply to it.
+    const res = await sql.begin(async (tx) => {
+      if (i.handle) await lockHandleSkeleton(tx, handle);
+      const verdict = await checkHandle(handle, null, { provisional: !i.handle, db: tx });
+      if (verdict !== 'ok') return { verdict };
+      const [u] = await tx`insert into users (handle, display_name, adult_attested_at, signup_attempt_id, referred_by_user_id, referred_via, referred_surface)
+        select ${handle}, ${typed ?? handle}, adult_attested_at, id, ${a.referred_by_user_id}, ${legacyVia(surface)}, ${surface} from signup_attempts where id = ${attemptId}
+        on conflict (handle) do nothing returning id, handle`;
+      return { u };
+    });
+    if ('verdict' in res) { if (i.handle) throw new HandleTakenError(res.verdict as Exclude<HandleVerdict, 'ok'>); continue; }
+    const u = res.u;
     if (!u) { if (i.handle) throw new HandleTakenError(); continue; }
     await completeAttempt(attemptId, u.id as number);
     return { id: u.id as number, handle: u.handle as string };
@@ -128,6 +140,8 @@ export async function changeHandle(userId: number, raw: unknown): Promise<string
       const [me] = await tx`select handle from users where id = ${userId} for update`;
       if (!me) throw new Error('unknown user');
       if (me.handle === handle) return handle;
+      // Fix round 1: look-alike renames take turns (two can't both pass the check before either commits).
+      await lockHandleSkeleton(tx, handle);
       const verdict = await checkHandle(handle, userId, { db: tx });
       if (verdict !== 'ok') throw new HandleTakenError(verdict);
       const [u] = await tx`update users
