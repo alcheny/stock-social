@@ -24,10 +24,13 @@ export function FeedKeys() {
       return row.querySelector(':scope > .card')?.contains(a) ? 'card' as const : 'other' as const;
     };
     // Focus follows the row: into the pane (made focusable first), or back onto the card with the pane inert again.
+    // Rows sent back to their card by ← or Back: the tail of an earlier smooth scroll toward the pane must not free the pane
+    // again (e2e/f10-followups.spec.ts); cleared once the row rests on its card.
+    const toCard = new WeakSet<Element>();
     const move = (row: Element, key: 'ArrowRight' | 'ArrowLeft' | 'back') => {
       const to = focusAfterKey(key, focusOf(row)), pane = paneOf(row);
-      if (key === 'ArrowRight') { if (pane) pane.inert = false; go(row, row.clientWidth); }
-      else go(row, 0);
+      if (key === 'ArrowRight') { toCard.delete(row); if (pane) pane.inert = false; go(row, row.clientWidth); }
+      else { toCard.add(row); go(row, 0); }
       if (to) whoIn(row, to)?.focus({ preventScroll: true }); // the row's own smooth scroll shows it
       if (key !== 'ArrowRight' && pane && !pane.contains(document.activeElement)) pane.inert = true;
     };
@@ -59,6 +62,7 @@ export function FeedKeys() {
     const onScroll = (e: Event) => {
       const r = e.target as Element;
       if (!(r instanceof HTMLElement) || !r.matches('.feed > .row')) return;
+      if (toCard.has(r)) { last.set(r, r.scrollLeft); if (restsOnCard(r.scrollLeft, r.clientWidth)) toCard.delete(r); return; }
       const toward = r.scrollLeft > (last.get(r) ?? 0);
       last.set(r, r.scrollLeft);
       const pane = toward ? paneOf(r) : null;
@@ -70,8 +74,14 @@ export function FeedKeys() {
     };
     addEventListener('keydown', onKey);
     addEventListener('click', onClick);
+    // A return to the card that a swipe interrupted ends here too, so the next swipe toward the pane frees it again.
+    const onScrollEnd = (e: Event) => { toCard.delete(e.target as Element); };
     document.addEventListener('scroll', onScroll, { capture: true, passive: true });
-    return () => { removeEventListener('keydown', onKey); removeEventListener('click', onClick); document.removeEventListener('scroll', onScroll, { capture: true }); };
+    document.addEventListener('scrollend', onScrollEnd, { capture: true, passive: true });
+    return () => {
+      removeEventListener('keydown', onKey); removeEventListener('click', onClick);
+      document.removeEventListener('scroll', onScroll, { capture: true }); document.removeEventListener('scrollend', onScrollEnd, { capture: true });
+    };
   }, []);
   return null;
 }
