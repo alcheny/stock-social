@@ -84,19 +84,74 @@ export async function hiddenTraders(viewer: number): Promise<number[]> {
   return (await sql`select trader_id from viewer_exclusions where viewer_id = ${viewer} and reason = 'not_interested' and until > now()`).map((r) => r.trader_id as number);
 }
 
-// /me/following: the viewer's own lists. `isHidden`: the no-JS "Not interested" message checks the row is there.
+// /me/following: the viewer's own lists, newest first, FOLLOW_PAGE at a time. `isHidden`: the no-JS "Not interested"
+// message checks the row is there. Keyset as lib/likes.ts#ownLikes: the cursor is `<µs since epoch>.<trader_id>`, built
+// and read back exactly (extract → bigint, epoch + µs interval; never a double), compared as a row value with the same
+// order as the `order by`, so a page boundary inside a same-µs tie skips and repeats nothing. Deleted traders are left
+// out inside the query, so a page is full whenever more rows exist. No cursor: a sentinel past every row.
 export type Listed = { handle: string; name: string; until?: Date };
-// ponytail: every follow and every hidden trader, unpaged (/me/following and the Record tools select grow with them) —
-// keyset-page both lists as ownLikes does.
+export type ListPage = { rows: Listed[]; next: string | null };
+export const FOLLOW_PAGE = 50;
+const CURSOR = /^([0-9]{1,17})\.([0-9]{1,10})$/;
+const INT_MAX = 2_147_483_647;
+function cursor(after: unknown): [string, number] {
+  const m = typeof after === 'string' ? CURSOR.exec(after) : null;
+  return m && Number(m[2]) <= INT_MAX ? [m[1], Number(m[2])] : ['9007199254740991', INT_MAX];
+}
+export const isListCursor = (v: unknown): v is string => typeof v === 'string' && !!CURSOR.exec(v) && Number(v.split('.')[1]) <= INT_MAX;
+function page(rows: Record<string, unknown>[]): ListPage {
+  const shown = rows.slice(0, FOLLOW_PAGE), last = shown.at(-1);
+  return {
+    rows: shown.map((r) => ({ handle: r.handle as string, name: r.display_name as string, ...(r.until ? { until: r.until as Date } : {}) })),
+    next: rows.length > FOLLOW_PAGE && last ? `${last.us}.${last.trader_id}` : null,
+  };
+}
+export async function ownFollowing(viewer: number, after?: unknown): Promise<ListPage> {
+  const [us, id] = cursor(after);
+  return page(await sql`select u.handle, u.display_name, f.trader_id, (extract(epoch from f.created_at) * 1000000)::bigint::text as us
+    from follows f join users u on u.id = f.trader_id and u.deleted_at is null
+    where f.viewer_id = ${viewer} and (f.created_at, f.trader_id) < (timestamptz 'epoch' + ${us}::bigint * interval '1 microsecond', ${id}::int)
+    order by f.created_at desc, f.trader_id desc limit ${FOLLOW_PAGE + 1}`);
+}
+export async function ownHidden(viewer: number, after?: unknown): Promise<ListPage> {
+  const [us, id] = cursor(after);
+  return page(await sql`select u.handle, u.display_name, x.until, x.trader_id, (extract(epoch from x.created_at) * 1000000)::bigint::text as us
+    from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
+    where x.viewer_id = ${viewer} and x.until > now() and (x.reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean)
+      and (x.created_at, x.trader_id) < (timestamptz 'epoch' + ${us}::bigint * interval '1 microsecond', ${id}::int)
+    order by x.created_at desc, x.trader_id desc limit ${FOLLOW_PAGE + 1}`);
+}
+// /me/following's query string for the cursors it is on (f: following, h: hidden, e: expired), invalid ones dropped,
+// so a link or an action's redirect keeps every list where it was.
+export type ListCursors = { f?: unknown; h?: unknown; e?: unknown };
+export function listsQuery(c: ListCursors | undefined, extra: Record<string, string> = {}): string {
+  const q = new URLSearchParams();
+  for (const k of ['f', 'h', 'e'] as const) if (isListCursor(c?.[k])) q.set(k, c[k] as string);
+  for (const [k, v] of Object.entries(extra)) q.set(k, v);
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+// QA Q1: a list whose cursor reads no rows (its last row was just shown again or removed, or the cursor is stale) is
+// past its end, not empty: the page goes back to that list's newest rows, keeping the other lists and `extra`. null
+// when nothing needs to move; the empty-state copy is shown only for a list's first page.
+export function pastEndQuery(at: ListCursors, pages: Record<'f' | 'h' | 'e', ListPage>, extra: Record<string, string> = {}): string | null {
+  const drop = (['f', 'h', 'e'] as const).filter((k) => isListCursor(at[k]) && pages[k].rows.length === 0);
+  return drop.length ? listsQuery({ ...at, ...Object.fromEntries(drop.map((k) => [k, undefined])) }, extra) : null;
+}
+// The first page of each (kept for callers that want both at once).
 export async function ownLists(viewer: number): Promise<{ following: Listed[]; hidden: Listed[] }> {
-  const [following, hidden] = await Promise.all([
-    sql`select u.handle, u.display_name from follows f join users u on u.id = f.trader_id and u.deleted_at is null
-      where f.viewer_id = ${viewer} order by f.created_at desc`,
-    sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
-      where x.viewer_id = ${viewer} and x.until > now() and (x.reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean) order by x.created_at desc`,
-  ]);
-  const listed = (r: Record<string, unknown>): Listed => ({ handle: r.handle as string, name: r.display_name as string, ...(r.until ? { until: r.until as Date } : {}) });
-  return { following: following.map(listed), hidden: hidden.map(listed) };
+  const [following, hidden] = await Promise.all([ownFollowing(viewer), ownHidden(viewer)]);
+  return { following: following.rows, hidden: hidden.rows };
+}
+
+// Record tools' "Or choose someone you follow": handles A to Z (byte order, committee K1: never by a number), at most
+// `limit`, leaving out `exclude` (the view's traders) so they don't use up the cap; `more` when others exist. No count.
+// ponytail: the cap bounds what is returned, not what is read: every follow of the owner is joined and sorted by handle
+// (about 36 ms at 20,000 follows) — an index on the handle order (a handle copied onto follows) would read only `limit` rows.
+export async function followHandles(viewer: number, limit: number, exclude: readonly string[] = []): Promise<{ handles: string[]; more: boolean }> {
+  const rows = await sql`select u.handle from follows f join users u on u.id = f.trader_id and u.deleted_at is null
+    where f.viewer_id = ${viewer} and u.handle <> all(${[...exclude]}::text[]) order by u.handle collate "C" limit ${limit + 1}`;
+  return { handles: rows.slice(0, limit).map((r) => r.handle as string), more: rows.length > limit };
 }
 
 // /me/following?back=x: "@x is back" only when this viewer ended a "Not interested" on x in the last minute (review:
@@ -119,13 +174,18 @@ export async function unfollowsFor(viewer: number): Promise<{ trader: number; at
 }
 
 // F-2 PR-5 (business lead demand 2: every stored preference row stays visible and removable): this viewer's "Not
-// interested" rows that ran their 90 days on their own. No longer applied, still stored; "Remove" deletes one.
-// ponytail: one unpaged list (every expired hide of the viewer) — page it like /me/likes if a viewer collects thousands.
-export async function expiredHides(viewer: number): Promise<Listed[]> {
-  const rows = await sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
-    where x.viewer_id = ${viewer} and x.reason = 'not_interested' and x.ended_at is null and x.until <= now() order by x.until desc`;
-  return rows.map((r) => ({ handle: r.handle as string, name: r.display_name as string, until: r.until as Date }));
+// interested" rows that ran their 90 days on their own. No longer applied, still stored; "Remove" deletes one. Newest
+// end first, FOLLOW_PAGE at a time (cursor on `until`, same keyset as ownFollowing).
+export async function expiredHidesPage(viewer: number, after?: unknown): Promise<ListPage> {
+  const [us, id] = cursor(after);
+  return page(await sql`select u.handle, u.display_name, x.until, x.trader_id, (extract(epoch from x.until) * 1000000)::bigint::text as us
+    from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
+    where x.viewer_id = ${viewer} and x.reason = 'not_interested' and x.ended_at is null and x.until <= now()
+      and (x.until, x.trader_id) < (timestamptz 'epoch' + ${us}::bigint * interval '1 microsecond', ${id}::int)
+    order by x.until desc, x.trader_id desc limit ${FOLLOW_PAGE + 1}`);
 }
+// The first page only, in the shape existing callers read (a list).
+export async function expiredHides(viewer: number): Promise<Listed[]> { return (await expiredHidesPage(viewer)).rows; }
 export async function removeExpiredHide(viewer: number, trader: number): Promise<void> {
   await sql`delete from viewer_exclusions where viewer_id = ${viewer} and trader_id = ${trader} and reason = 'not_interested' and ended_at is null and until <= now()`;
 }

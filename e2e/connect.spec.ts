@@ -979,6 +979,9 @@ test('PR-2b S3 keyboard only: Tab reaches the primary, Enter opens the dialog wi
   const seen = new Set<string>();
   for (let i = 0; i < 8; i++) {
     await page.keyboard.press('Tab');
+    // Tabbing into the cross-origin portal frame briefly reports <body> as the active element (~2% under load); wait for
+    // focus to land. Not looser: focus that escaped the dialog stays on <body>, so this poll times out and fails.
+    await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
     expect(await inside()).toBe(true);
     seen.add(await page.evaluate(() => document.activeElement?.tagName === 'A' ? 'link' : document.activeElement?.tagName === 'IFRAME' ? 'frame' : document.activeElement?.textContent ?? ''));
   }

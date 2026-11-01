@@ -414,7 +414,7 @@ dbTest('options (c): option positions are replaced per account read; totals neve
     const short = async () => (await sql`select open_options_short from users where id = ${u.id}`)[0].open_options_short;
     const sync = (listed: string[], splits: Map<string, ReturnType<typeof split>>) => sql.begin(async (tx) => {
       await moveUnlistedOptionPositions(tx, u.id, listed);
-      await replaceAccountOptionPositions(tx, u.id, listed, listed, splits);
+      await replaceAccountOptionPositions(tx, u.id, listed, listed, [], splits); // (F-14 merge: the one definition; replace, no upsert)
     });
     // First connection's import (a1), then a second connection's import (a2): a1's rows and count stay.
     await sql.begin((tx) => replaceImportedOptionPositions(tx, u.id, [a1], [a1], new Map([[a1, split('k1', 1)]])));
