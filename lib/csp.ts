@@ -5,16 +5,29 @@ export type CspInput = { nonce: string; dev: boolean; https: boolean; frameOrigi
 type Env = Record<string, string | undefined>;
 
 // The vendor's connection portal, the only page the app frames (the S3 dialog). The vendor returns the portal URL per
-// session (lib/broker.ts#connectUrl), always on its own portal host; VENDOR_PORTAL_ORIGIN overrides it (https only).
-// A minted URL on any other origin is never framed: /connect/portal answers mode 'redirect' for it.
-export const VENDOR_PORTAL_ORIGIN = 'https://app.snaptrade.com';
+// session (lib/broker.ts#connectUrl) on its own portal host; VENDOR_PORTAL_ORIGIN overrides the default (https only).
+// A minted URL that these sources do not cover is never framed: /connect/portal answers mode 'redirect' for it.
+// ponytail: the vendor's exact portal host is not confirmed, so the default also allows any https subdomain of the
+// vendor's domain — confirm the host against a live minted URL, then set VENDOR_PORTAL_ORIGIN (or narrow this default).
+export const VENDOR_PORTAL_ORIGINS = ['https://app.snaptrade.com', 'https://*.snaptrade.com'] as const;
 const originOf = (u: string | undefined) => { try { return u ? new URL(u) : null; } catch { return null; } };
 export function portalFrameOrigins(env: Env = process.env): string[] {
   const o = originOf(env.VENDOR_PORTAL_ORIGIN);
-  const out = [o && o.protocol === 'https:' ? o.origin : VENDOR_PORTAL_ORIGIN];
+  const out: string[] = o && o.protocol === 'https:' ? [o.origin] : [...VENDOR_PORTAL_ORIGINS];
   const fake = originOf(env.SNAPTRADE_BASE_URL); // the loopback test fake serves its portal on its own origin
   if (fake && fake.origin !== 'null') out.push(fake.origin);
   return out;
+}
+// Whether a frame-src source list covers an origin, as the browser decides it: an exact origin, or `https://*.domain`
+// for any subdomain of domain over https on the default port (never the bare domain).
+export function frameAllowed(origin: string, sources: string[]): boolean {
+  const u = originOf(origin);
+  if (!u) return false;
+  return sources.some((src) => {
+    const m = src.match(/^https:\/\/\*\.([a-z0-9.-]+)$/i);
+    if (!m) return src === u.origin;
+    return u.protocol === 'https:' && u.port === '' && u.hostname.toLowerCase().endsWith(`.${m[1].toLowerCase()}`);
+  });
 }
 
 // Scripts only from this origin with this request's nonce ('strict-dynamic': Next's own chunks load from those);

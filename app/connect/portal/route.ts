@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { boundAttempt, CONNECT_COOKIE, mintPortal, PortalRefusedError, RateLimitedError } from '@/lib/connections.ts';
 import { portalOrigin } from '@/lib/portal.ts';
-import { portalFrameOrigins } from '@/lib/csp.ts';
+import { frameAllowed, portalFrameOrigins } from '@/lib/csp.ts';
 import { probePortalMode, sharedProbeStore } from '@/lib/portal-probe.ts';
 import { currentUser, origin } from '@/lib/session.ts';
 import { connectAllowed } from '@/lib/privacy-gate-data.ts';
@@ -37,7 +37,7 @@ export async function POST() {
       const probed = await probePortalMode(u, o, app, { store: sharedProbeStore });
       // Security hardening (2026-11-01): the page's CSP frames the vendor portal origin only (lib/csp.ts); a portal on
       // another origin opens by redirect rather than as a blank frame.
-      return portalFrameOrigins().includes(o) ? probed : 'redirect';
+      return frameAllowed(o, portalFrameOrigins()) ? probed : 'redirect';
     }, undefined, (u) => portalOrigin(u, { allowLoopback }) !== null);
     const portal = portalOrigin(url, { allowLoopback })!;
     return NextResponse.json({ url, origin: portal, mode }, { headers: noStore });

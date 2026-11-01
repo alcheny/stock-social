@@ -3,19 +3,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { contentSecurityPolicy, hstsWanted, portalFrameOrigins, securityHeaders, VENDOR_PORTAL_ORIGIN } from './csp.ts';
+import { contentSecurityPolicy, frameAllowed, hstsWanted, portalFrameOrigins, securityHeaders, VENDOR_PORTAL_ORIGINS } from './csp.ts';
 
 const parse = (csp: string) => new Map(csp.split(';').map((d) => d.trim()).filter(Boolean).map((d) => { const [k, ...v] = d.split(/\s+/); return [k, v] as const; }));
 
 test('CSP: nonce-based strict-dynamic scripts, no inline script, framing refused, only the vendor portal framed', () => {
-  const p = parse(contentSecurityPolicy({ nonce: 'abc123', dev: false, https: true, frameOrigins: [VENDOR_PORTAL_ORIGIN] }));
+  const p = parse(contentSecurityPolicy({ nonce: 'abc123', dev: false, https: true, frameOrigins: [...VENDOR_PORTAL_ORIGINS] }));
   assert.deepEqual(p.get('default-src'), ["'self'"]);
   assert.deepEqual(p.get('script-src'), ["'self'", "'nonce-abc123'", "'strict-dynamic'"]);
   assert.deepEqual(p.get('style-src'), ["'self'", "'unsafe-inline'"]);
   assert.deepEqual(p.get('img-src'), ["'self'", 'data:', 'blob:']);
   assert.deepEqual(p.get('font-src'), ["'self'"]);
   assert.deepEqual(p.get('connect-src'), ["'self'"]);
-  assert.deepEqual(p.get('frame-src'), ['https://app.snaptrade.com']);
+  assert.deepEqual(p.get('frame-src'), ['https://app.snaptrade.com', 'https://*.snaptrade.com']);
   assert.deepEqual(p.get('frame-ancestors'), ["'none'"]);
   assert.deepEqual(p.get('base-uri'), ["'none'"]);
   assert.deepEqual(p.get('object-src'), ["'none'"]);
@@ -30,17 +30,17 @@ test('CSP: unsafe-eval only in development; upgrade-insecure-requests only on ht
   assert.ok(dev.get('script-src')!.includes("'unsafe-eval'"));
   assert.equal(dev.has('upgrade-insecure-requests'), false);
   assert.deepEqual(dev.get('frame-src'), ['http://127.0.0.1:4102']);
-  const prod = parse(contentSecurityPolicy({ nonce: 'n', dev: false, https: false, frameOrigins: [VENDOR_PORTAL_ORIGIN] }));
+  const prod = parse(contentSecurityPolicy({ nonce: 'n', dev: false, https: false, frameOrigins: [...VENDOR_PORTAL_ORIGINS] }));
   assert.equal(prod.get('script-src')!.includes("'unsafe-eval'"), false);
 });
 
 test('portalFrameOrigins: the vendor portal origin (VENDOR_PORTAL_ORIGIN overrides, https only), plus the loopback test fake when SNAPTRADE_BASE_URL is set', () => {
-  assert.deepEqual(portalFrameOrigins({}), ['https://app.snaptrade.com']);
+  assert.deepEqual(portalFrameOrigins({}), ['https://app.snaptrade.com', 'https://*.snaptrade.com']);
   assert.deepEqual(portalFrameOrigins({ VENDOR_PORTAL_ORIGIN: 'https://portal.vendor.example/some/path' }), ['https://portal.vendor.example']);
-  assert.deepEqual(portalFrameOrigins({ VENDOR_PORTAL_ORIGIN: 'http://portal.vendor.example' }), ['https://app.snaptrade.com']); // never plain http
-  assert.deepEqual(portalFrameOrigins({ VENDOR_PORTAL_ORIGIN: 'not a url' }), ['https://app.snaptrade.com']);
-  assert.deepEqual(portalFrameOrigins({ SNAPTRADE_BASE_URL: 'http://127.0.0.1:4102/api' }), ['https://app.snaptrade.com', 'http://127.0.0.1:4102']);
-  assert.deepEqual(portalFrameOrigins({ SNAPTRADE_BASE_URL: 'garbage' }), ['https://app.snaptrade.com']);
+  assert.deepEqual(portalFrameOrigins({ VENDOR_PORTAL_ORIGIN: 'http://portal.vendor.example' }), ['https://app.snaptrade.com', 'https://*.snaptrade.com']); // never plain http
+  assert.deepEqual(portalFrameOrigins({ VENDOR_PORTAL_ORIGIN: 'not a url' }), ['https://app.snaptrade.com', 'https://*.snaptrade.com']);
+  assert.deepEqual(portalFrameOrigins({ SNAPTRADE_BASE_URL: 'http://127.0.0.1:4102/api' }), ['https://app.snaptrade.com', 'https://*.snaptrade.com', 'http://127.0.0.1:4102']);
+  assert.deepEqual(portalFrameOrigins({ SNAPTRADE_BASE_URL: 'garbage' }), ['https://app.snaptrade.com', 'https://*.snaptrade.com']);
 });
 
 test('HSTS only on the production deployment (no includeSubDomains): Vercel production, or off Vercel a production server on an https site; never a preview', () => {
@@ -69,7 +69,7 @@ test('static headers: nosniff, referrer policy, permissions (share and clipboard
 
 test('the portal route forces the redirect flow for a portal origin the CSP would not let the page frame', () => {
   const route = readFileSync(new URL('../app/connect/portal/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /portalFrameOrigins\(\)\.includes\(o\)/);
+  assert.match(route, /frameAllowed\(o, portalFrameOrigins\(\)\) \? probed : .redirect./);
 });
 
 test('next.config.ts uses the static headers; proxy.ts sets the nonce CSP on request and response and skips static files', () => {
@@ -82,4 +82,21 @@ test('next.config.ts uses the static headers; proxy.ts sets the nonce CSP on req
   assert.match(proxy, /requestHeaders\.set\('Content-Security-Policy'/);
   assert.match(proxy, /response\.headers\.set\('Content-Security-Policy'/);
   assert.match(proxy, /_next\/static\|_next\/image\|favicon\.ico/);
+});
+
+test('frameAllowed: the default sources cover the vendor host and its https subdomains only, as the browser matches frame-src', () => {
+  const d = portalFrameOrigins({});
+  assert.equal(frameAllowed('https://app.snaptrade.com', d), true);
+  assert.equal(frameAllowed('https://connect.snaptrade.com', d), true); // another portal subdomain still frames
+  assert.equal(frameAllowed('https://a.b.snaptrade.com', d), true);
+  assert.equal(frameAllowed('https://snaptrade.com', d), false); // a wildcard never covers the bare domain
+  assert.equal(frameAllowed('http://connect.snaptrade.com', d), false); // https only
+  assert.equal(frameAllowed('https://connect.snaptrade.com:8443', d), false);
+  assert.equal(frameAllowed('https://evilsnaptrade.com', d), false);
+  assert.equal(frameAllowed('https://snaptrade.com.evil.example', d), false);
+  assert.equal(frameAllowed('not a url', d), false);
+  const over = portalFrameOrigins({ VENDOR_PORTAL_ORIGIN: 'https://portal.vendor.example' });
+  assert.equal(frameAllowed('https://portal.vendor.example', over), true);
+  assert.equal(frameAllowed('https://app.snaptrade.com', over), false); // the override replaces the default
+  assert.equal(frameAllowed('http://127.0.0.1:4102', portalFrameOrigins({ SNAPTRADE_BASE_URL: 'http://127.0.0.1:4102' })), true);
 });
