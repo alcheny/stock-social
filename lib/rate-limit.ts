@@ -1,3 +1,9 @@
+import { createHmac } from 'node:crypto';
+import { isIP } from 'node:net';
+import type { TransactionSql } from 'postgres';
+import { sql } from './db.ts';
+import { sessionSecret } from './auth/sessions.ts';
+
 // F-1 PR-2b fix round 2 (engineer, Low): a minimum interval per key, in this server process. The import poll uses it
 // (one step per trader per second): each step reaches the vendor, and the banner itself polls every 2 s, so only a
 // script or many open tabs ever meet it. ponytail: per process, not shared between instances; the per-user advisory
@@ -12,4 +18,56 @@ export function minInterval(ms: number, max = 10_000) {
     last.set(key, now);
     return true;
   };
+}
+
+// Security hardening (2026-11-01): the shared limit, in the database, so every instance counts the same window.
+// Fixed windows aligned to the epoch; one upsert per call, so parallel calls cannot slip past the limit.
+
+export const windowStart = (now: Date, windowSec: number) => new Date(Math.floor(now.getTime() / (windowSec * 1000)) * windowSec * 1000);
+
+// True while the call is within `limit` for this key's current window. The window length is part of the stored key,
+// so one key may carry a 15-minute and a daily limit side by side.
+// `db` lets a caller count inside its own transaction (no second pool connection while it holds a lock).
+export async function hit(key: string, limit: number, windowSec: number, now = new Date(), db: TransactionSql | typeof sql = sql): Promise<boolean> {
+  const [r] = await db`insert into rate_limits (key, window_start, n) values (${`${key}/${windowSec}`}, ${windowStart(now, windowSec)}, 1)
+    on conflict (key, window_start) do update set n = rate_limits.n + 1 returning n`;
+  if (db === sql && Math.random() < 0.01) await pruneRateLimits().catch(() => {}); // housekeeping only; never fails the caller
+  return (r.n as number) <= limit;
+}
+
+// Windows (a day at most) that started more than two days ago, in bounded batches, by the database clock.
+export async function pruneRateLimits(): Promise<void> {
+  await sql`delete from rate_limits where ctid in (select ctid from rate_limits where window_start < now() - interval '2 days' limit 500)`;
+}
+
+// A key never carries personal data (POLICY P3): the scope, then a keyed hash of scope and value (unlinkable across scopes).
+export const limitKey = (scope: string, value: string) => `${scope}:${createHmac('sha256', sessionSecret()).update(`${scope}\0${value}`).digest('hex').slice(0, 32)}`;
+
+// The address a per-address limit counts: lower-case, the +tag dropped, so tag variants share one limit. The link still
+// goes to the address as typed.
+export function canonicalEmail(email: string): string {
+  const e = email.toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 0) return e;
+  const local = e.slice(0, at), plus = local.indexOf('+');
+  return `${plus < 0 ? local : local.slice(0, plus)}${e.slice(at)}`;
+}
+
+// The client's address, only where a trusted proxy sets the header (Vercel, or TRUST_PROXY_HEADERS=1); elsewhere the
+// header is the client's own word, so null and per-address limits are skipped (no shared bucket one client could exhaust
+// for everyone). IPv6 counts per /64, the block one subscriber usually holds.
+export function clientIp(h: Headers, env: Record<string, string | undefined> = process.env): string | null {
+  if (env.VERCEL !== '1' && env.TRUST_PROXY_HEADERS !== '1') return null;
+  const raw = (h.get('x-real-ip') ?? h.get('x-forwarded-for')?.split(',')[0] ?? '').trim().replace(/^\[(.*)\]$/, '$1');
+  const v = isIP(raw);
+  if (v === 4) return raw;
+  if (v !== 6) return null;
+  return `${expand6(raw).slice(0, 4).join(':')}::/64`;
+}
+function expand6(ip: string): string[] {
+  const [head, tail] = ip.includes('::') ? ip.split('::') : [ip, null];
+  const a = head ? head.split(':') : [];
+  const b = tail ? tail.split(':') : [];
+  const groups = tail === null ? a : [...a, ...Array(8 - a.length - b.length).fill('0'), ...b];
+  return groups.map((g) => (g.includes('.') ? g : g.replace(/^0+(?=.)/, '').toLowerCase()));
 }

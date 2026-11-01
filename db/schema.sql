@@ -378,3 +378,15 @@ create table if not exists trade_exclusions (
 -- Fix round 1: when the hidden trade was liked, the like's time (Undo restores the like; a hidden trade is never liked).
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
+-- Security hardening (2026-11-01)
+-- Shared fixed-window rate limits (lib/rate-limit.ts#hit): one row per key and window, counted by an upsert, so every
+-- server instance sees the same count. Keys are scope + HMAC, never an address or an IP. Old windows are pruned by
+-- hit() itself, never here.
+create table if not exists rate_limits (
+  key text not null,
+  window_start timestamptz not null,
+  n int not null,
+  primary key (key, window_start)
+);
+-- The ticker page, its card, compare, browse and the sitemap read closed_trades by symbol.
+select schema_add_index('closed_trades_symbol', 'create index closed_trades_symbol on closed_trades (symbol, closed_at desc)');
