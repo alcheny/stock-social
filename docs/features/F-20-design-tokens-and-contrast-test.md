@@ -70,8 +70,10 @@ test that every later change must pass. Approved by the approval council
 - 2026-11-01: Flat is tested against gain and loss at ΔE00 9 in both schemes; passing pairs are real tests and the
   failing light pairs are `todo` until the owner rules. Why: decided by the committee under the owner's instruction of 2026-11-01; the cycle-3 decision names Flat; narrowing it would be a
   reinterpretation.
-- 2026-11-01: `.switch-pair .switch.current` (a selected cue) is drawn with a box-shadow ring, pixel-identical to today's
-  outline, with a forced-colours outline fallback, so outlines are focus only. Why: decided by the committee under the owner's instruction of 2026-11-01; DS-27; selected must not look focused.
+- 2026-11-01: `.switch-pair .switch.current` (a selected cue) keeps today's outline (2 px `--text`, offset 1 px) as a named
+  exception to "every outline is focus"; a box-shadow redraw differed from today by about 100 pixels at the corners, so
+  it would be a visible change. The owner decides (Open questions). Why: decided by the committee under the owner's
+  instruction of 2026-11-01; the committee's fallback when the pixel proof failed (value-neutral first).
 - 2026-11-01: `.pane .rows .line.hl` keeps its `--focus` outline as a named state exception; `.chart a:focus` keeps
   `outline: none` and the chart point's accent stroke and the skip link's accent border stay (marked `ponytail:`).
   Why: decided by the committee under the owner's instruction of 2026-11-01; #12 is pinned and changing non-outline cues is a visible change beyond the stated one.
@@ -111,6 +113,9 @@ test that every later change must pass. Approved by the approval council
 - One image palette and image trust band (K11): not approved.
 
 ## Open questions
+- Owner (F-20 build, OQ-3): the selected switch (`.switch-pair .switch.current`) is the one non-focus outline left
+  (2 px `--text`). Recommended: keep it as an outline (it is not blue, so it does not read as focus) and confirm the
+  exception; the alternative is a box-shadow ring, a small visible change at the corners.
 - Owner (F-20 build, OQ-1): the share image's gain and loss are ΔE00 6.3 apart under deuteranopia (floor 9). Recommended:
   take today's dark CSS ink for image up/down (#3cc4b4 / #ff8a5b: 9.12 / 8.46 on the card background, colour-blind
   minimum 20.1). Until then the check is a `todo` test and the image criterion is not met.

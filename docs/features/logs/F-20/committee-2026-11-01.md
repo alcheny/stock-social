@@ -26,7 +26,7 @@ Flat floor (OQ-2) and its `.nojs-done` padding change (OQ-10).
 |---|---|---|---|
 | OQ-1 | Share-image gain vs loss is ΔE00 6.3 under deutan (< 9) and image colours may not change | Image values stay byte-for-byte; the check runs at floor 9 as a `todo` test printing the measured value; AC6's colour-blind part is reported NOT MET; owner question with the recommendation (image up/down → #3cc4b4/#ff8a5b) | The image change is the owner's (O-2/DS-6); a lower floor is forbidden by the feature |
 | OQ-2 | Flat (= `--muted`) vs gain is ΔE00 < 9 in light | Flat-vs-up/down tested at 9 in both schemes; passing pairs are real tests, failing pairs `todo`; owner question | The cycle-3 decision names Flat at ΔE00 ≥ 9; narrowing it would be a reinterpretation the committee cannot make |
-| OQ-3 | `.switch-pair .switch.current` is a selected cue drawn as an outline | Box-shadow ring with a forced-colours outline fallback, proven pixel-identical against main; fallback: a named outline exception | Outlines are left to focus (DS-27) and selected must not look focused |
+| OQ-3 | `.switch-pair .switch.current` is a selected cue drawn as an outline | Tried a box-shadow ring; the pixel proof against main failed (100-109 pixels differ per switch pair at the corners), so the fallback holds: today's outline kept as a named exception, owner question | Value-neutral first; selected must not look focused, and `--text` is not the focus colour |
 | OQ-4 | `.pane .rows .line.hl` current-row cue | Kept (already `--focus`, 2 px at 2 px); the base rule takes `var(--focus)` too; allow-listed as a state | #12 is pinned; computed value unchanged |
 | OQ-5 | `.switch:focus-visible` 3 px | Width kept, colour `--focus` | Value-neutral apart from the stated colour |
 | OQ-6 | New tokens | `--flat` and `--demo` as aliases of `--muted`; `--warn` only with F-11's merged values | Value-neutral |
@@ -39,3 +39,11 @@ Flat floor (OQ-2) and its `.nojs-done` padding change (OQ-10).
 
 F-20 merges after F-11 (`claude/fix-truthful-labels`): F-11 adds `--warn` and opengraph `#0b0b0f` literals that the
 literal scanner would reject; after merging F-11 they move into TOKENS and the image palette.
+
+## Build round 1 (engineer)
+
+All gates green; AC5 (Flat vs gain, light: protan 2.8, deutan 7.0, tritan 31.4) and AC6 (image up vs down: deutan 6.3)
+are `todo` tests at floor 9, reported not met. One ruling added: the snapshot treats the element that holds keyboard
+focus at capture (the pane's handle link after →) as showing DS-27's stated change when its only difference is
+outline-color accent → focus; every other difference fails. Reason: that is the stated focus change, scoped to one
+element; the baseline is unchanged.
