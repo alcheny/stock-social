@@ -1,0 +1,442 @@
+[
+ {
+  "member": "business lead",
+  "spec_file": "team/business-lead.md",
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: highest input load (presets plus two steppers, four statistic modules) with demand tier at intuition; fails Ease of adoption >= 4 and the 60-second demo test",
+   "F-C": "object: needs a weekly crowd the product will not have at week 8; ships an empty shelf behind a floor and adds weekly-close infrastructure for zero gate movement",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "None of these moves a week-8 kill gate (phase fit 1, demand 2), so delete before adding: F-E ships the least code, dates its own end and signs the expected 'stop' in advance, which keeps Practice from eating focus. If it must be built, F-A is the one with a point of view and a one-sentence demo; F-D is F-A plus a deferred bet. F-B and F-C are good ideas to decline now.",
+  "demand": "Whichever wins: the flag refuses to turn on unless config holds start date, decision date and the signed 'stop' expectation, and no Practice entry renders for holdout accounts (unit + e2e).",
+  "gate_with_FE": true,
+  "group": "g1"
+ },
+ {
+  "member": "planner",
+  "spec_file": "team/planner.md",
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: four statistic modules, Cone room, Two rings and Name the weather exceed one PR's worth (~400 changed lines) and need splitting before planning",
+   "F-C": "object: weekly open/close, seed commitment, attested density and floor gating are several PRs and depend on unresolved owner question O4",
+   "F-D": "object: as one issue it is two engines plus Twin room; acceptable only if filed as F-A now and a separate, evidence-gated Range issue later",
+   "F-E": "approve"
+  },
+  "reason": "Practice is not Phase 1 and is not in the approved backlog, so the plan must be the smallest reversible step the council's approval allows. F-E fits one PR, has testable ACs and a dated end; F-A is next smallest. Everything else must be split into sequenced issues before it can be planned.",
+  "demand": "The winning design is filed as issues of <= 400 changed lines each, first issue = flag + Forecast run session-1 path + Report, with each AC mapped to one named test file.",
+  "gate_with_FE": true,
+  "group": "g1"
+ },
+ {
+  "member": "business analyst",
+  "spec_file": "team/business-analyst.md",
+  "ranking": [
+   "F-A",
+   "F-D",
+   "F-C",
+   "F-E",
+   "F-B"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: a first-time visitor cannot get a low/high range with a 10x outside penalty in one glance; stepper abandonment risk is named in its own stop rule",
+   "F-C": "object: the weekly shared puzzle is the only talk-worthy option, but it cannot open at current volume, so it gives no retention now",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "F-A is one slider, one question, readable in a glance, and its return reason (a run you visibly improve at, with an end) is honest retention; Copy route is the only sharing that respects the rules. F-D adds a second reason to return later. F-E tests a cut-down game, so a 'stop' would say little about F-A. Growth never overrides trust; all keep Practice off verified surfaces.",
+  "demand": "A first-time signed-in player locks room 1 within 10 seconds of opening Practice without reading the explainer, measured in moderated playtest (>= 8 of 10 players) at 360 x 560.",
+  "gate_with_FE": false,
+  "group": "g1"
+ },
+ {
+  "member": "judge",
+  "spec_file": "team/judge.md",
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: eligible on rules but not simplest or most reversible, and its value is unproven against F-A",
+   "F-C": "object: not eligible to ship now; its own AC keeps it 404 until a floor the product cannot reach, and O4 is an open owner question",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "Phase goals and standing direction outweigh novelty, and when finalists are close the simpler, more reversible one wins. F-E is flagged, dated and deletes its data after, so it is the most reversible; it builds F-A's session-1 engine anyway. Trade-off accepted versus F-A: less game depth and a test expected to say 'stop', in exchange for no lasting surface before the week-8 gates.",
+  "demand": "The decision-date analysis function runs on the live counters and writes its band and stop/continue result to docs/DECISIONS.md unchanged; a fixture test proves the same inputs give the same decision.",
+  "gate_with_FE": true,
+  "group": "g1"
+ },
+ {
+  "member": "approval council (consolidated)",
+  "spec_file": "team/approval-council.md",
+  "ranking": [
+   "F-A",
+   "F-D",
+   "F-E",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: common sense finds the range scoring and Two rings hard to explain in one sentence, and four rows scroll at 360 px (accessibility); approve only as F-D's later row",
+   "F-C": "object: common sense finds a shelf that stays closed at current scale out of proportion to its build cost; trust and safety flags Sybil pressure on the density floor",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "Majority approve F-A, F-D and F-E with conditions; legal and compliance finds no POLICY break in those (no money, F3 strip, no push, 18+ menu only, banned-word scan). Data-vis and UX favour F-A's single slider; engineering and reliability favour F-E's size; red team notes F-E's 'stop' is pre-decided. No candidate contradicts an owner decision, but O1-O3 stay with the owner.",
+  "demand": "Copy scan (shell 2 regex plus 'so close', 'just', 'price') and the disclaimer textContent check run in CI on every Practice route, and an e2e proves no Practice link on feed, profiles or share cards.",
+  "gate_with_FE": true,
+  "group": "g1"
+ },
+ {
+  "member": "engineer",
+  "spec_file": "team/engineer.md",
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: four statistic modules, stepper input and Two rings rows that scroll at 360 px will not fit one PR under 400 lines, and the plank walk adds timing e2e risk for no measured gain",
+   "F-C": "object: needs a weekly crowd the product will not have at week 8; a shelf that 404s until a floor is met is code shipped to measure nothing",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "Small, reversible, measured: F-E is the smallest slice that tests the bet, one engine, one door, a flag and a dated decision. F-A is the same engine with doors and lenses, buildable in two PRs. F-D is right as a destination but its second row and Twin room are speculative until F-A's return number exists. F-B's input load hurts on a mid-range phone; F-C is blocked on volume.",
+  "demand": "Card engine is one shared module: generator, seed service and log scoring with unit tests; first card renders under 100 ms after tap on a throttled mid-range profile (Playwright trace), and the first PR stays under 400 changed lines.",
+  "gate_with_FE": true,
+  "group": "g2"
+ },
+ {
+  "member": "tester",
+  "spec_file": "team/tester.md",
+  "ranking": [
+   "F-A",
+   "F-E",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: highest input load; Two rings' four rows scroll at 360 px, and the plank-walk timing AC (constant velocity, <= 1.5 s) is flaky to test in CI",
+   "F-C": "object: core ACs (density at 20 attested players, 4-week floor, Thursday close per time zone) can only be exercised with fixtures; no real edge case is reachable at current volume",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "F-A has the most complete, checkable ACs: worked fixtures (+22/-88/0, +76/-62/0), clamp properties, Exit-as-no-view, cue-fires-once. F-E inherits them but its F-E reveal drops the chart's text description. Edge cases I will run: Exit on room 1, all-50 run, all-loss luck, 200% text. F-D doubles the test surface; F-B and F-C are hard to test honestly.",
+  "demand": "Fixture suite covering Exit on room 1, an all-50 run (every line 0), and a run where every outcome goes against the forecast, each passing at 360 x 560 and 200% text with Lock reachable by Tab.",
+  "gate_with_FE": false,
+  "group": "g2"
+ },
+ {
+  "member": "reviewer",
+  "spec_file": "team/reviewer.md",
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "approve",
+   "F-C": "object: a shared weekly close plus crowd counts ('214 played', '69 percent of ranges') builds return pressure close to the streak/deadline patterns F6 bans and adds crowd data to the minimum stored (P3); approve only if the crowd view is cut",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "I judge compliance, not direction. F-E has the smallest surface: no sharing, flag-bound, dated deletion, Privacy page states the measurement (P3). F-A adds Copy route text, acceptable under T5 (no platform name) if digits stay out. F-D and F-B inherit the same rules with more copy to scan. All carry the F3 string once and stay off verified surfaces (F3b). F-C's crowd and deadline need the most scrutiny.",
+  "demand": "CI copy scan over every Practice route fails on the shell-2 banned words, relative times, 'so close'/'just', and any reveal or summary whose textContent lacks the exact F3 disclaimer once; Practice absent from feed, profile and share-card renders.",
+  "gate_with_FE": true,
+  "group": "g2"
+ },
+ {
+  "member": "doctor",
+  "spec_file": "team/doctor.md",
+  "ranking": [
+   "F-A",
+   "F-E",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "approve",
+   "F-C": "object: its build gate (4 consecutive weeks above a player floor) can never open at current volume, so the feature pipeline would hold a ready feature it cannot finish and keep retrying or idling",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "From the loop's side: F-A is deterministic and buildable by the pipeline without waiting on a human after O1. F-E needs owner-signed config fields and a 28-day wait, an explicit human step that will idle the line unless recorded as a blocked status. F-D's calendar and evidence gates are similar waits. F-B's timing e2e risks flaky CI and repeated fix rounds. F-C stalls indefinitely.",
+  "demand": "Every owner-only step (O1-O4, F-E signature) is a named config field the flag refuses without, and the feature file records `Status: blocked` with that reason, so the pipeline stops cleanly instead of retrying.",
+  "gate_with_FE": false,
+  "group": "g2"
+ },
+ {
+  "member": "UX lead",
+  "spec_file": "team/ux-lead.md",
+  "ranking": [
+   "F-A",
+   "F-D",
+   "F-E",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: two range steppers plus three presets is heavy for a first-time trader at 360 px, and Two rings' four rows push Lock below the fold, breaking shell 3",
+   "F-C": "object: a first-time player locks five answers and gets no feedback for days; the empty state below 20 players and the absent-results state have no designed screens",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "F-A is the clearest one-handed loop: one slider, one Lock, a reveal that separates expected from luck, and a text description of every chart. F-D keeps that shell and adds a second judgement later, coherent long term. F-E is usable but its reveal drops the chart's text equivalent and its full strip sits above Exit. F-B and F-C fail first-time users at 360 px.",
+  "demand": "Every chart and reveal has a text equivalent in the DOM ('the line rose 4 percent and ended above start'), exposed to screen readers, verified by an axe run and a Playwright accessibility snapshot at 360 x 560.",
+  "gate_with_FE": true,
+  "group": "g2"
+ },
+ {
+  "member": "designer",
+  "spec_file": "team/designer.md",
+  "ranking": [
+   "F-A",
+   "F-D",
+   "F-E",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "approve",
+   "F-C": "object: five presets in two rows plus two steppers per question is the heaviest card at 360 px, and the results page is a 404 until the player floor holds for four weeks, so most early players see an empty shelf",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "F-A is the best phone card: one slider with -1/+1 buttons, one question, Lock bottom-right, and a reveal that reads in one glance. Doors and bosses add choice without adding inputs. F-D is F-A on day one with the same shell, so it inherits that ergonomics. F-B's two steppers and Two rings rows push work and scrolling onto every room. F-C asks more per question and gives nothing back until Thursday.",
+  "demand": "Every Practice card state (question, reveal, boss second forecast, summary, Exit summary) has a 360 x 560 Playwright screenshot in light and dark with Lock and Next inside the viewport unscrolled and no text clipped at 320 px reflow.",
+  "gate_with_FE": true,
+  "group": "g3"
+ },
+ {
+  "member": "idea board",
+  "spec_file": "team/idea-board.md",
+  "ranking": [
+   "F-E",
+   "F-D",
+   "F-A",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: highest build cost (four statistic modules, Two rings, Cone room) for a mode no gate asks for; common sense says build it only on evidence, which F-D already provides",
+   "F-C": "object: depends on a crowd the product will not have at week 8, invites Sybil pressure on the density floor, and its weekly close is a soft deadline that sits uneasily with F6 and the no-countdown rule",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "Decisions keeper: no finalist conflicts with POLICY as written, but the business lead's binding dissent says none moves a week-8 gate, so cost and timing decide. Common sense: a careful owner spends least on an unproven side feature in a records product. F-E is cheapest and dated; F-D is the coherent build if it passes, with F-A as its day one. F-B and F-C cost most for least evidence.",
+  "demand": "Before any build, the owner's answers to O1-O4 are recorded with dates in the F-8 feature file, and the F-E start date, decision date and signed expected result are committed to config before the flag can enable.",
+  "gate_with_FE": true,
+  "group": "g3"
+ },
+ {
+  "member": "direction councils: creative direction chair",
+  "spec_file": "team/direction-councils.md",
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-D",
+   "F-C",
+   "F-B"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: the plank walk and 1.5 s path draw break motion rules 4 and 6 of creative-2026-11-01 (nothing over 400 ms, no line draw-on), and an animated walk to the range edge stages suspense around inside or outside",
+   "F-C": "approve",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "Voice rule one is 'state the fact, then stop'. F-E has the smallest copy surface and no sharing. F-A and F-D keep plain distances and expected lines, but 'Nothing left to prove here.' is praise, not fact. F-C's crowd line ('69 percent of ranges stopped short of it; yours held it') ranks the player against others. F-B adds the most motion, which the council's motion rules forbid on any surface.",
+  "demand": "Practice motion follows creative §6.6: paths appear as a static frame or a fade of at most 400 ms, no line draw-on or walk animation, 'Nothing left to prove here.' becomes a fact, tested by getAnimations() durations.",
+  "gate_with_FE": true,
+  "group": "g3"
+ },
+ {
+  "member": "direction councils: design direction chair",
+  "spec_file": "team/direction-councils.md",
+  "ranking": [
+   "F-A",
+   "F-D",
+   "F-E",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: Two rings' four input rows scroll at 360 px, breaking the shell's Lock-unscrolled rule on the cards that need it most (principle 7: content decides the size)",
+   "F-C": "approve",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "Principle 4 (one meaning per colour) and 7 (content decides size) weigh most. F-A's one-slider card is the most likely to pass 320 px and 400% zoom; F-D reuses its shell, so one Exit and Lock geometry across card types. F-E is fine but thin. The council's order of work also applies: the 14 record blockers (D-01..D-91) come before any Practice build, which argues for F-E timing.",
+  "demand": "Points, outcomes and higher or lower never use --up or --down tokens; Practice gets its own neutral tokens in app/globals.css, covered by the contrast-pair unit test in both schemes and the 320 x 256 reflow gate.",
+  "gate_with_FE": true,
+  "group": "g3"
+ },
+ {
+  "member": "game designer",
+  "spec_file": null,
+  "ranking": [
+   "F-D",
+   "F-A",
+   "F-B",
+   "F-C",
+   "F-E"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "approve",
+   "F-C": "approve",
+   "F-D": "approve",
+   "F-E": "object: one door and a fixed boss is a stripped run with no build variety, so a 28-day test of it measures the lite version, and being underpowered by design its likely 'stop' would read as evidence against the full game"
+  },
+  "reason": "F-A is a real roguelike: route choice through doors, boss twists, lenses whose value depends on what you read in rooms 1-6, and an honest end state. F-D adds a second judgement with its own end, which is how short-session games earn month two without currency. F-B is sound but stepper input at 14 s a room is optimistic on a phone. F-C is an appointment puzzle, not a run. F-E tests the wrong thing.",
+  "demand": "Before ship, a playtest of at least 20 first-time players at 360 px shows median room time <= 15 s, and each door option is chosen by 20-60% of runs; otherwise doors are rebalanced and retested.",
+  "gate_with_FE": false,
+  "group": "g3"
+ },
+ {
+  "member": "behavioural economist",
+  "spec_file": null,
+  "ranking": [
+   "F-D",
+   "F-B",
+   "F-A",
+   "F-E",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "approve",
+   "F-C": "object: the post-close crowd density anchors next week's ranges (herding), and the weekly reveal is an appointment mechanic; it also needs a crowd the product will not have",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "Overconfidence is strongest in interval judgements (stated 80% ranges hold far less often), so range training is the higher-value debias; F-D gets binary calibration first and ranges on evidence. Every finalist uses proper scoring, so honest forecasting maximises points. The live risk is outcome bias: a salient 'This run: +255' teaches luck. F-E's test is underpowered by design and its expected result is signed as 'stop', so it measures nothing that changes the decision.",
+  "demand": "In every reveal and summary the Expected and Best expected lines come before the This run and Luck lines in DOM order, at equal or larger font size; checked by a Playwright DOM-order and computed-style test.",
+  "gate_with_FE": false,
+  "group": "g4"
+ },
+ {
+  "member": "responsible design",
+  "spec_file": null,
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-B",
+   "F-D",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "approve",
+   "F-C": "object: a weekly open and close with a crowd reveal is an appointment-and-comparison loop; it has no streak, but it sets a schedule for coming back",
+   "F-D": "object: unlocking the Range row 14 days after the first run is a timed content drip that gives people a reason to come back; unlock it only by evidence or the finish cue",
+   "F-E": "approve"
+  },
+  "reason": "None of the finalists has a pattern POLICY F6 bans: no streaks, prizes, wagering, loot boxes, real-money ties or convertible points, and no push, so no veto. The remaining risk is binge play, because nothing stops back-to-back runs; the <5% guard is only measured. F-E is the smallest and is time-boxed. F-A's finish cue, which removes the luck line, is good design. F-C's weekly schedule and F-D's calendar unlock are return hooks I object to.",
+  "demand": "The run summary has no Play again or Next run control, and nothing starts a new run automatically; the only action is Done, which returns to the Practice menu. Checked by an e2e test of the summary's controls.",
+  "gate_with_FE": true,
+  "group": "g4"
+ },
+ {
+  "member": "accessibility specialist",
+  "spec_file": null,
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: Two rings and the Cone room add rows that push Lock below the fold at 360 px, and AC 11 only covers the base card; the stepper load is the heaviest for switch and screen-reader users",
+   "F-C": "approve",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "A single slider with -1/+1 buttons meets 2.5.7 (no dragging needed) and goes well past 2.5.8 targets. Absolute times and the lack of timers pass 2.2.1. But each question card shows the path only as a chart, and the text alternative appears only on the reveal, so a blind player forecasts blind (1.1.1). F-E and F-A are the smallest input surfaces to fix. F-B has the most controls and the most risk of reflow failures.",
+  "demand": "Each question card, before Lock, gives the shown path as text (start, end, high, low, recent trend, in percent) as the chart's accessible name or description; checked by an axe scan plus a pre-Lock text test.",
+  "gate_with_FE": true,
+  "group": "g4"
+ },
+ {
+  "member": "legal reviewer",
+  "spec_file": null,
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-D",
+   "F-B",
+   "F-C"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "approve",
+   "F-C": "object: a recurring shared prediction round with a public crowd reveal is the 'Call it' format COMPLIANCE section 4 requires reviewing before build, and showing crowd aggregates needs its own Privacy Policy entry",
+   "F-D": "approve",
+   "F-E": "approve"
+  },
+  "reason": "No prize and no consideration, so state gambling and sweepstakes law is not engaged; points are not convertible (F6). Generated charts are not securities, so F1 is not engaged, and the disclaimer string answers F3 and O1. The open risks are P3 and P6: Practice play is personal data, and F-E's holdout test processes it. F-E's dated deletion and privacy notice are the cleanest. F-C has the most surface: crowd aggregates, a Sybil floor and a contest format.",
+  "demand": "Before the flag is on, the Privacy Policy lists the Practice fields, their purpose and their retention, and profile deletion removes every Practice row and seed log; checked by an e2e test that finds zero rows afterwards.",
+  "gate_with_FE": true,
+  "group": "g4"
+ },
+ {
+  "member": "common sense",
+  "spec_file": null,
+  "ranking": [
+   "F-E",
+   "F-A",
+   "F-C",
+   "F-D",
+   "F-B"
+  ],
+  "approve": {
+   "F-A": "approve",
+   "F-B": "object: two steppers, presets and a score line like 'Width -24 Outside 0 Room 76' is homework, not a game; a normal person quits at the first card",
+   "F-C": "approve",
+   "F-D": "object: it builds a second game, plus a Twin room, before anyone has shown they like the first one",
+   "F-E": "approve"
+  },
+  "reason": "\"Will this line go up, and how sure are you?\" is something anyone gets in five seconds, so F-A or F-E. Words like 'Best expected', 'shortfall' and 'Luck moved this run by +343' will confuse most people. People open this app to see real traders' records; a side game on fake charts is a nice-to-have. So build the cheap version, give it a date, and find out whether anyone plays it twice.",
+  "demand": "Playtest at least 5 adults new to the product: after one run, at least 4 explain 'Expected' and 'Luck moved this run' in their own words; if fewer can, the copy is rewritten before launch.",
+  "gate_with_FE": true,
+  "group": "g4"
+ }
+]
