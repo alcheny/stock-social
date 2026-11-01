@@ -178,3 +178,8 @@ Both ran on fresh context against the committed diff; 19 new tests pass; no bloc
   Today: refused.
 - The one-line `lib/broker.ts` change that turns the identity check on (PR body). Before it lands, run
   `scripts/shared-accounts.ts` (counts) against production; past dodges then resolve to the older claim on their syncs.
+- **Test hygiene (orchestrator).** `lib/record-tools.test.ts` (feed-eligible users, 12 closes each) and
+  `lib/billing.test.ts` left every user they made: on a database shared with e2e they leaked into the feed (e2e "the
+  demo-only feed renders no section"). Both now delete exactly the users and sign-up attempts they made, in `after()`.
+  A count by handle prefix after a full `npm test` found no other leaking file on main (corporate actions and
+  f2-personal tests are not on main yet: PRs #40 and #30).
