@@ -122,6 +122,7 @@ for (const VIEW of [{ width: 360, height: 740 }, { width: 320, height: 740 }]) t
     '/u/[handle]': '/u/momentum_maya',
     '/u/[handle]/trade/[sellId]': `/u/momentum_maya/trade/${encodeURIComponent(maya.sell)}`,
     '/u/[handle]/month/[ym]': `/u/momentum_maya/month/${maya.ym}`,
+    '/u/[handle]/report': '/u/momentum_maya/report', // F-16: the profile report page (no percent figure)
     '/t/[symbol]': '/t/NVDA',
     '/t/compare': '/t/compare?a=NVDA&b=AMD',
   };

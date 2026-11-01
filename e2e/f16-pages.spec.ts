@@ -233,8 +233,8 @@ test('fix round 2 (T3): an open feed pane shows its headline stats uncovered on 
       const pane = row.locator(':scope > .pane');
       // The foot is the pane's last element, after "See full profile" and the pane's own last line.
       expect(await pane.evaluate((el) => el.lastElementChild?.classList.contains('trust-foot'))).toBe(true);
-      // First screen: nothing is drawn over a headline figure. At 360 px both figures are in view; at 320 px they stack
-      // and the pane's own layout puts the second one lower, so there the first is in view and the visible part of any
+      // First screen: nothing is drawn over a headline figure. At 360 px both figures start in view; at 320 px they stack
+      // and the pane's own layout puts the second one lower, so there the first starts in view and the visible part of any
       // other is uncovered.
       const stats = pane.locator('.stats .stat');
       expect(await stats.count()).toBeGreaterThan(0);
@@ -243,9 +243,11 @@ test('fix round 2 (T3): an open feed pane shows its headline stats uncovered on 
           const r = el.getBoundingClientRect();
           const bottom = Math.min(r.bottom, window.innerHeight);
           const hit = r.top < window.innerHeight ? document.elementFromPoint(r.left + r.width / 2, (r.top + bottom) / 2) : null;
-          return { inView: r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight, shows: r.top < window.innerHeight, free: !!hit && el.contains(hit) };
+          return { starts: r.height > 0 && r.top >= 0 && r.top < window.innerHeight, shows: r.top < window.innerHeight, free: !!hit && el.contains(hit) };
         });
-        if (width === 360 || i === 0) expect(s.inView, `stat ${i} in view at ${width}`).toBe(true);
+        // After main's #85 (D-09) the pane's own F3 line sits between the chart and the summary, so the stats start on
+        // the first screen but may run past its bottom edge (the pane's layout, not the foot): each starts in view.
+        if (width === 360 || i === 0) expect(s.starts, `stat ${i} starts on the first screen at ${width}`).toBe(true);
         if (s.shows) expect(s.free, `stat ${i} uncovered at ${width}`).toBe(true);
       }
       // At the end of the pane: the line with the F3 disclaimer right under it, both in view.
