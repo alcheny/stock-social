@@ -16,6 +16,7 @@ import { HeldNote, UserNote } from '@/lib/user-note.ts';
 import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
 import { SwipeHint } from './first-visit-client.tsx';
 import { RecordStrip } from './record-strip.tsx';
+import { WarnNotice } from './warn-notice.tsx'; // F-27
 import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
 import { retEms } from '@/lib/feed-focus.ts';
@@ -100,7 +101,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         {!strip && <RowBadge kind={trust.badge} />}
         {menu}
       </header>
-      {trust.incomplete && <p role="status" className="warn record-failed">{RECORD_BODY.failed}</p>}
+      {trust.incomplete && <WarnNotice role="status">{RECORD_BODY.failed}</WarnNotice>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={tc ? `ret ${tc}` : 'ret'} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>

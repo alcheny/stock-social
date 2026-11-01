@@ -7,6 +7,7 @@ import { confidence, edgeText, evidenceLine, isNewRecord, pct, stats } from '@/l
 import { DISCLAIMER } from '@/lib/share.ts';
 import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
+import { WarnNotice } from '../../warn-notice.tsx'; // F-27
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { CLOSES_PAGING, connectedLine, DEMO_PROFILE, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
@@ -275,7 +276,7 @@ export default async function Profile({ params, searchParams }: Params) {
           line survives the refresh that follows the end of the import. */}
       {!pub && <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />}
       {state === 'failed' && (
-        <p role={isMe ? 'alert' : 'status'} className="warn record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
+        <WarnNotice role={isMe ? 'alert' : 'status'}>{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</WarnNotice>
       )}
       {/* FIXES-LABELS: status. Two rows (design system StatusLine): row 1 (since · connected, partial or frozen), row 2
           (last close · updated, or the idle fact), then the accounts when there are two or more. A record the
