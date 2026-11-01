@@ -23,16 +23,17 @@ test('FIFO across two lots, fees on both legs', () => {
 });
 
 test('sell with no recorded entry is excluded, not guessed', () => {
-  // Fixes cycle 4 (C4-2): the buy after an oversell may be a short's cover, so a sell of the same size after it is a new
-  // short or a round trip: counted, never priced from the cover (it used to publish +10%).
-  const short = matchTrades([act('SELL', 5, 50, 2), act('BUY', 5, 40, 3), act('SELL', 5, 44, 4)]);
-  assert.equal(short.excluded, 2);
-  assert.equal(short.trades.length, 0);
-  // A later buy large enough that every reading draws it still prices the sell (the original expectation, +10%).
-  const { trades, excluded } = matchTrades([act('SELL', 5, 50, 2), act('BUY', 10, 40, 3), act('SELL', 5, 44, 4)]);
-  assert.equal(excluded, 1);
-  assert.equal(trades.length, 1);
-  assert.ok(Math.abs(trades[0].returnPct - 0.1) < 1e-12);
+  // Fixes cycle 4 (C4-2): the buy after an oversell may be a short's cover, so the later sell is a new short or a round
+  // trip, and its figure is +10% or unknown: counted, never priced from the cover (it used to publish +10%). Both sells
+  // are counted under `excluded`, one count per sell.
+  const { trades, excluded, excludedCorporate } = matchTrades([act('SELL', 5, 50, 2), act('BUY', 5, 40, 3), act('SELL', 5, 44, 4)]);
+  assert.equal(excluded, 2);
+  assert.equal(excludedCorporate, 0);
+  assert.equal(trades.length, 0);
+  // Another account's round trip is untouched by this account's gap (+10%).
+  const other = matchTrades([act('SELL', 5, 50, 2), act('BUY', 5, 40, 3, 0, { accountId: 'acc2' }), act('SELL', 5, 44, 4, 0, { accountId: 'acc2' })]);
+  assert.equal(other.excluded, 1);
+  assert.ok(Math.abs(other.trades[0].returnPct - 0.1) < 1e-12);
 });
 
 // Corporate actions (POLICY F3c, committee 2026-11-01): this test used to assert that the matched part was shown at
@@ -215,20 +216,10 @@ test('F3-1: unusable trade rows are not repricing actions: they open no late-pos
 });
 
 test('F3-5: at the same instant a buy is matched before a sell, whatever the vendor ids or the input order (date-only timestamps)', () => {
-  // Fixes cycle 4 (C4-1) amends F3-5: two rows that tie exactly can't say which came first (a round trip, or a short and
-  // its cover), so a sell that older lots don't cover is counted, whatever the ids or the input order. Before, this
-  // published -10%; with a buy-first clock order (distinct intraday stamps) it still does.
   for (const [sellId, buyId] of [['a', 'b'], ['b', 'a']]) {
     const buy: Activity = { ...act('BUY', 10, 100, 5), externalId: buyId };
     const sell: Activity = { ...act('SELL', 10, 90, 5), externalId: sellId };
     for (const input of [[sell, buy], [buy, sell]]) {
-      const m = matchTrades(input);
-      assert.equal(m.excluded, 1, `ids sell=${sellId} buy=${buyId}`);
-      assert.equal(m.trades.length, 0);
-      assert.equal(openLots(input).length, 1); // the buy's units stay in the ledger (the earlier-history reading holds them)
-    }
-    const timed = [{ ...buy, executedAt: new Date(buy.executedAt.getTime() + 14 * 3_600_000) }, { ...sell, executedAt: new Date(sell.executedAt.getTime() + 15 * 3_600_000) }];
-    for (const input of [timed, [timed[1], timed[0]]]) {
       const m = matchTrades(input);
       assert.equal(m.excluded, 0, `ids sell=${sellId} buy=${buyId}`);
       assert.equal(m.trades.length, 1);
@@ -246,15 +237,7 @@ test('F3-5: same-instant buy first never changes a sell that older lots cover (F
 });
 
 test('F3-1 + F3-5: an unpriceable sell at the same instant as a buy is placed after it, so it consumes that buy, not a later one', () => {
-  // Fixes cycle 4 (C4-1): at an exact tie the order is unknown, so the unpriceable sell draws only older lots; it finds
-  // none, and the later sell (which draws @10 if the unpriceable sell came first, @20 if it consumed the @10 buy) is
-  // counted. Before, it published +10%.
-  const tied = matchTrades([act('BUY', 100, 10, 1), act('BUY', 100, 20, 2), act('SELL', 100, 22, 3)], [unusable('SELL', 1, 100)]);
-  assert.deepEqual(tied.trades, []);
-  assert.equal(tied.excludedCorporate + tied.excluded, 2);
-  // Stamped after the buy (both with hours), it consumes that buy, not a later one (the original expectation).
-  const later = { ...unusable('SELL', 1, 100), executedAt: new Date(d(1).getTime() + 2 * 3_600_000) } as CorporateAction;
-  const m = matchTrades([act('BUY', 100, 10, 1, 0, { executedAt: new Date(d(1).getTime() + 3_600_000) }), act('BUY', 100, 20, 2), act('SELL', 100, 22, 3)], [later]);
+  const m = matchTrades([act('BUY', 100, 10, 1), act('BUY', 100, 20, 2), act('SELL', 100, 22, 3)], [unusable('SELL', 1, 100)]);
   assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(12)), [0.1]);
   assert.equal(m.excludedCorporate, 1);
 });

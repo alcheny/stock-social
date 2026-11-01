@@ -138,14 +138,8 @@ test('late posting: a sell within the window before a split row is excluded and 
   assert.deepEqual([m.excludedCorporate, m.trades.length], [1, 1]);
   near(m.trades[0].returnPct, 0.12);
   // Outside the window the earlier sell is shown.
-  // Fixes cycle 4 (C4-1): the buy and the sell carry hours here (d(1.5) is day 1 at 00:00Z, the buy's own stamp). Tied,
-  // or a buy stamped 00:00Z on the sell's day, the order is unknown and the sell is counted (asserted below).
-  const far = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 110, 1 + 0.5), t('SELL', 100, 56, 20)].map((x, i) => (i < 2 ? { ...x, executedAt: new Date(x.executedAt.getTime() + (i + 1) * 3_600_000) } : x)), [split(1 + 0.5 + LATE_POSTING_DAYS + 1, 2, 1)]);
+  const far = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 110, 1 + 0.5), t('SELL', 100, 56, 20)], [split(1 + 0.5 + LATE_POSTING_DAYS + 1, 2, 1)]);
   assert.equal(far.trades.length, 2);
-  const dateOnly = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 110, 1 + 0.5), t('SELL', 100, 56, 20)], [split(1 + 0.5 + LATE_POSTING_DAYS + 1, 2, 1)]);
-  // The tied sell is counted; the later sell draws the one buy in every reading (the gap splits with the shares): shown.
-  assert.deepEqual([dateOnly.excluded, dateOnly.trades.length], [1, 1]);
-  near(dateOnly.trades[0].returnPct, 0.12);
 });
 
 test('mix across accounts: a split in one account leaves the same symbol in another account unadjusted', () => {

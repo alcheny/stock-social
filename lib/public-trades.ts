@@ -57,7 +57,7 @@ export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Re
     const reason = r.side !== 'SELL' ? (r.code === 'G' ? 'gift' : 'other') : q.broken ? 'unreconciled' : !sale || !allPriced ? 'no_price' : null;
     if (reason) count(reason); else priced.set(r.external_id, { row: r, filed: latest });
   }
-  const got = matchTrades(acts, [], { orderKnown: true }).trades.filter((t) => t.verified && priced.has(t.sellId)), ids = new Set(got.map((t) => t.sellId));
+  const got = matchTrades(acts).trades.filter((t) => t.verified && priced.has(t.sellId)), ids = new Set(got.map((t) => t.sellId));
   for (const id of priced.keys()) if (!ids.has(id)) count('no_price'); // lib/trades.ts's own epsilon left it unpriced: counted, never lost
   const trades = got.map((t) => {
     const p = priced.get(t.sellId)!;

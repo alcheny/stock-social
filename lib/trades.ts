@@ -28,14 +28,10 @@ export type ClosedTrade = {
   verified: boolean;
 };
 
-type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean; tie?: TieGroup };
-// C4-1: tied buys that differ (one group per pair and instant); their FIFO order among themselves is unknown.
-type TieGroup = { sameAt: boolean; broken: boolean };
+type Lot = { units: number; price: number; feePerUnit: number; at: Date; verified: boolean; tainted?: boolean };
 
 const EPS = 1e-9;
 const DAY = 86_400_000;
-// C4-1: the UTC span of a trading date in any time zone (UTC+14 to UTC-12), around its UTC midnight.
-const DATE_BEFORE = 14 * 3_600_000, DATE_AFTER = 36 * 3_600_000;
 // Unit comparisons are relative to the size involved, so positions grown by splits compare like small ones.
 const tiny = (x: number, scale: number) => x <= EPS * Math.max(1, Math.abs(scale));
 
@@ -48,16 +44,14 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   is not shown either): the history is missing an inflow (a buy before the imported history, a transfer in, an
 //   unrecorded split), so its basis is unknown (POLICY F3c). Sells shown earlier were priced from recorded lots and stay
 //   (TR-1, orchestrator decision 2026-11-01). The oversell empties the ledger.
-// - The gap (fixes cycle 4, C4-2; committee docs/features/logs/fixes-cycle4/committee-2026-11-01.md): the k units an
-//   oversell lacked are earlier history (later buys are ordinary lots), a short sale (the first k units bought later
-//   cover it), or any mix. Every reading then holds the history reading's FIFO queue shifted by an offset in [0, G], for
-//   good: the pair keeps a gap G (oversells, unusable sells and unpriceable removals beyond the ledger add to it; splits
-//   with a known ratio scale it; renames move it; a ratio read from held units, or an unpriceable action, while G > 0
-//   makes the ledger unknown). While G > 0 a sell of c units is shown only when the oldest c + G units sit in lots alike
-//   in price, fee, date, trust and taint (so every offset draws the same figure); otherwise it is counted in `excluded`.
-//   Never cleared from the rows alone.
-//   ponytail: a gap never clears, so one transfer in or pre-history sale can count every later sell of that stock in that
-//   account — fix: clear it when a vendor position read with units matches the history reading (lib/broker.ts is
+// - The gap (fixes cycle 4, C4-2; committee docs/features/logs/fixes-cycle4/committee-2026-11-01.md): the units an
+//   oversell lacked are earlier history (later buys are ordinary lots), a short sale (the first units bought later cover
+//   it), or a mix, and the readings then draw different buys for every later sell, for good. So after an oversell
+//   (an activity sell, an F3-1 unusable sell with units, or an unpriceable removal beyond the ledger) every later sell of
+//   the pair is counted in `excluded`, whatever its outcome (no sale size or timing the trader picks can bring one back:
+//   the red-team rule of F-30). A rename moves the mark to the new symbol (F-28). Never cleared from the rows alone.
+//   ponytail: the mark never clears, so one transfer in or pre-history sale counts every later sell of that stock in that
+//   account — fix: clear it when a vendor position read with units shows which reading is true (lib/broker.ts is
 //   protected, and storing units is a privacy call: owner item).
 // - `excludedCorporate`: a sell drawing a unit an unpriceable corporate action touched (an oversell included), one
 //   dated within LATE_POSTING_DAYS before a repricing action on its pair, or one on the same day as such an action
@@ -67,13 +61,12 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 //   units and a date opens a lot with no basis (a sell drawing it is counted). With no usable units or date, the pair's
 //   ledger is unknown from that row on (from the start when undated): its lots and every later lot of the pair are
 //   tainted, and a sell is counted. They are not repricing actions (no late-posting window, no same-day rule).
-// - Same instant (F3-5, amended by fixes cycle 4, C4-1): symbol changes, then other corporate actions, then sells, then
-//   buys. Rows the stamps can't order are tied (exact ties, and date-only rows within their trading date: see `runOf`).
-//   A tied sell draws only older lots; when they cover it, FIFO gives the same result in every order (F3-5's case kept);
-//   when they don't, it oversells (counted, gap), so a date-only same-day round trip with nothing older held is counted:
-//   the rows can't tell it from a short and its cover. Tied sells are shown only when alike older lots cover them all;
-//   tied buys that differ are drawn only whole (else counted). Callers whose input order is the true order (public
-//   filings) pass `orderKnown`. A sell is never matched to a buy dated after it.
+// - Same instant (F3-5): symbol changes, then other corporate actions, then buys, then sells, then the vendor id. In a
+//   long-only ledger a sell is filled from shares held, so a same-instant buy before it is the only order that can be
+//   true when the sell needs it; when older lots cover the sell, FIFO draws them first and the order changes nothing. A
+//   sell is never matched to a buy dated after it. Fixes cycle 4 (C4-1): on a pair with evidence that a sell may not be a
+//   long close (an earlier oversell, or an unknown ledger), every sell is counted, so no same-instant short is shown
+//   there; without evidence the buy-first order stands (F-30's red-team rule; see the ponytail in `replay`).
 // - Shares an action names that the ledger lacks (C4-1, engineer): a rename's units arrive in the new symbol, a split's
 //   vendor count in the pair, as a lot with no basis at the front of FIFO (a sell drawing it is counted).
 // Corporate actions (lib/corporate-actions.ts) adjust the lots: a split or stock dividend multiplies units by p/q and
@@ -84,12 +77,8 @@ export type OpenLot = Readonly<Lot> & { accountId: string; symbol: string };
 // (lib/matcher-rebuild.ts). 2: fixes cycle 4 (C4-1 ties, C4-2 the gap).
 export const MATCHER_VERSION = 2;
 
-// `orderKnown` (reliability, round 2): the caller's input order is the true order of every row, as for public filings
-// (lib/public-trades.ts orders rows by filing position and prices only what its own queue can), so ties keep that order:
-// buys before sells at one instant (F3-5) and no tie groups. Broker rows never pass it.
-export type MatchOptions = { orderKnown?: boolean };
-export function matchTrades(activities: Activity[], actions: CorporateAction[] = [], opts: MatchOptions = {}): MatchResult {
-  return replay(activities, actions, opts).result;
+export function matchTrades(activities: Activity[], actions: CorporateAction[] = []): MatchResult {
+  return replay(activities, actions).result;
 }
 
 // The lots still open after the history (test and property-check helper; the matcher's own state).
@@ -107,117 +96,22 @@ type Event = { at: number; order: number; src: number; i: number; act?: Activity
 type TradeRow = Extract<CorporateAction, { reason: 'trade' }>;
 const isTradeRow = (ca: CorporateAction): ca is TradeRow => ca.kind === 'unpriceable' && ca.reason === 'trade';
 
-function replay(activities: Activity[], actions: CorporateAction[], opts: MatchOptions = {}): { result: MatchResult; books: Map<string, Book> } {
-  // Same-instant order (F3-5, C4-1): renames, other actions, sells, buys; then actions before activities, then input order.
-  const sideOrder = (side: 'BUY' | 'SELL') => (side === 'SELL' ? (opts.orderKnown ? 3 : 2) : opts.orderKnown ? 2 : 3);
-  // C4-1: a date-only stamp (exactly 00:00:00.000Z) names a trading date, which runs from 14 h before to 36 h after that
-  // UTC midnight in some time zone. Two rows of a pair whose order that can't settle are tied: the same exact stamp; two
-  // date-only stamps on the same date; a date-only stamp and an intraday one within its date's window (business lead,
-  // round 2). Ties chain into runs in time order. In a run with a date-only row, the date-only sells are ordered at the
-  // run's start (each draws only older lots) and the date-only buys at its end (their own dates still open the lots);
-  // intraday rows keep the clock (engineer, round 2). The run's sells are decided together and its buys are one tie group
-  // (tieKey below), so whatever depends on where a date-only row really sat is counted.
-  // ponytail: a date-only value not stamped 00:00:00Z (a broker-local midnight) is read as intraday — fix: per-broker
-  // date-only flags once the vendor names the brokerages (vendor question list, MRC2-10).
-  const sortAt = new Map<object, number>();
-  const runOf = new Map<object, string>();
-  // Review (blocking 1): a run whose span holds a corporate action of its pair (a split, a rename into or out of it, an
-  // account-wide action) can't float its date-only rows across that action, and their side of it is unknown: its rows
-  // keep their stamps, its buys open tainted lots and its sells are counted as the action's.
-  const crossed = new Set<object>();
-  const actionAt = new Map<string, number[]>();
-  for (const ca of actions) {
-    if (isTradeRow(ca)) continue;
-    const t = ca.executedAt.getTime();
-    const keys = [`${ca.accountId}|${ca.symbol}`, ...(ca.kind === 'symbol-change' ? [`${ca.accountId}|${ca.newSymbol}`] : []), ...(ca.kind === 'unpriceable' && ca.scope === 'account' ? [`${ca.accountId}|`] : [])];
-    for (const k of keys) { const l = actionAt.get(k); if (l) l.push(t); else actionAt.set(k, [t]); }
-  }
-  if (!opts.orderKnown) {
-    const byPair = new Map<string, { t: number; r: Activity | TradeRow }[]>();
-    const add = (r: Activity | TradeRow) => { const k = `${r.accountId}|${r.symbol}`, l = byPair.get(k), x = { t: r.executedAt.getTime(), r }; if (l) l.push(x); else byPair.set(k, [x]); };
-    for (const act of activities) add(act);
-    for (const ca of actions) if (isTradeRow(ca) && !ca.undated) add(ca);
-    const dateOnly = (t: number) => t % DAY === 0;
-    const tied = (x: number, y: number) => x === y || (dateOnly(x) && dateOnly(y) ? false
-      : dateOnly(x) ? y >= x - DATE_BEFORE && y < x + DATE_AFTER : dateOnly(y) ? x >= y - DATE_BEFORE && x < y + DATE_AFTER : false);
-    let runs = 0;
-    for (const rows of byPair.values()) {
-      rows.sort((p, q) => p.t - q.t);
-      let run: typeof rows = [];
-      const close = () => {
-        if (run.length > 1 && run.some((x) => dateOnly(x.t))) {
-          const lo = run[0].t, hi = run[run.length - 1].t, id = `run${runs++}`, r0 = run[0].r;
-          const inSpan = (k: string) => (actionAt.get(k) ?? []).some((t) => t >= lo && t <= hi);
-          const cross = inSpan(`${r0.accountId}|${r0.symbol}`) || inSpan(`${r0.accountId}|`);
-          for (const x of run) {
-            runOf.set(x.r, id);
-            if (cross) crossed.add(x.r);
-            else if (dateOnly(x.t)) sortAt.set(x.r, x.r.side === 'SELL' ? lo : hi);
-          }
-        }
-        run = [];
-      };
-      for (const x of rows) {
-        if (run.length && !run.some((m) => tied(m.t, x.t)) && x.t > run[run.length - 1].t) close();
-        run.push(x);
-      }
-      close();
-    }
-  }
-  const at = (r: Activity | TradeRow) => sortAt.get(r) ?? r.executedAt.getTime();
+function replay(activities: Activity[], actions: CorporateAction[]): { result: MatchResult; books: Map<string, Book> } {
+  // Same-instant order (F3-5): renames, other actions, buys, sells; then actions before activities; then the vendor id, a
+  // canonical order (as the rebuild's own sort), so the result never depends on the input order (fixes cycle 4, engineer
+  // round 1: two rows on one side at one instant were matched in input order); then input order.
+  // ponytail: a date-only same-day short with no evidence on its pair (no earlier oversell, no unknown ledger) is still
+  // read buy first and shown as a long (C4-1's residual, accepted by F-30: counting every same-day round trip would let a
+  // trader close losers the same day and keep winners overnight) — fix: F-30 (blocked on owner Q1(a)) and the vendor's
+  // per-brokerage date-only answer (MRC2-10).
+  const sideOrder = (side: 'BUY' | 'SELL') => (side === 'BUY' ? 2 : 3);
+  const idOf = (e: Event) => e.act?.externalId ?? e.ca?.externalId ?? '';
   const events: Event[] = [
-    ...actions.map((ca, i) => ({ at: isTradeRow(ca) && !ca.undated ? at(ca) : ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : isTradeRow(ca) ? sideOrder(ca.side) : 1, src: 0, i, ca })),
-    ...activities.map((act, i) => ({ at: at(act), order: sideOrder(act.side), src: 1, i, act })),
-  ].sort((a, b) => a.at - b.at || a.order - b.order || a.src - b.src || a.i - b.i);
-  // C4-1 (engineer, round 1): rows of one pair and one side at one (sort) instant tie, so their order is unknown. Tied
-  // sells are decided together (shown only when every order draws the same buy for each); tied buys that differ in
-  // price, fee, date or trust share a TieGroup: a sell that takes every unit left of the group, from a group whose lots
-  // share one date and that no sell has split before, gets the same figure in every order (split fills of one order:
-  // UX lead, round 2); any other draw from it is counted, and a split group stays broken.
-  const tieKey = (e: Event) => {
-    const r = e.act ?? (e.ca && isTradeRow(e.ca) && !e.ca.undated ? e.ca : null);
-    if (!r || opts.orderKnown) return null;
-    const side = e.act ? e.act.side : (r as TradeRow).side;
-    return `${runOf.get(r) ?? e.at}|${r.accountId}|${r.symbol}|${side}`;
-  };
-  const sellTies = new Map<string, { total: number; size: number; safe?: boolean; tainted?: boolean }>();
-  const buyTies = new Map<string, { first: Event; size: number; alike: boolean; group?: TieGroup }>();
-  for (const e of events) {
-    const k = tieKey(e);
-    if (!k) continue;
-    const side = e.act ? e.act.side : (e.ca as TradeRow).side;
-    if (side === 'SELL') {
-      const units = e.act ? e.act.units : (e.ca as TradeRow).units ?? 0;
-      const g = sellTies.get(k);
-      if (g) { g.total += units; g.size++; } else sellTies.set(k, { total: units, size: 1 });
-    } else {
-      const g = buyTies.get(k);
-      if (!g) { buyTies.set(k, { first: e, size: 1, alike: true, group: { sameAt: true, broken: false } }); continue; }
-      g.size++;
-      const x = g.first.act, y = e.act;
-      if ((g.first.act ?? g.first.ca)!.executedAt.getTime() !== (e.act ?? e.ca)!.executedAt.getTime()) g.group!.sameAt = false;
-      if (!x || !y || x.price !== y.price || x.fee / x.units !== y.fee / y.units || x.executedAt.getTime() !== y.executedAt.getTime() || x.verified !== y.verified) g.alike = false;
-    }
-  }
-  const tieOf = (e: Event): { tie: TieGroup } | object => {
-    const g = buyTies.get(tieKey(e) ?? '');
-    if (!g || g.size < 2 || g.alike) return {};
-    return { tie: g.group! };
-  };
+    ...actions.map((ca, i) => ({ at: ca.executedAt.getTime(), order: ca.kind === 'symbol-change' ? 0 : isTradeRow(ca) ? sideOrder(ca.side) : 1, src: 0, i, ca })),
+    ...activities.map((act, i) => ({ at: act.executedAt.getTime(), order: sideOrder(act.side), src: 1, i, act })),
+  ].sort((a, b) => a.at - b.at || a.order - b.order || a.src - b.src || (idOf(a) < idOf(b) ? -1 : idOf(a) > idOf(b) ? 1 : 0) || a.i - b.i);
   const books = new Map<string, Book>();
   const book = (key: string) => { let b = books.get(key); if (!b) books.set(key, (b = { lots: [] })); return b; };
-  // C4-2: units in the oldest lots alike in everything a figure reads (price, fee, date, trust), so every reading of the
-  // gap that draws within them gives the same figure.
-  const alikeUnits = (lots: Lot[]) => {
-    if (!lots.length || lots[0].tie) return 0;
-    const l0 = lots[0];
-    let u = 0;
-    for (const l of lots) {
-      if (l.tie || l.price !== l0.price || l.feePerUnit !== l0.feePerUnit || l.at.getTime() !== l0.at.getTime() || l.verified !== l0.verified || !!l.tainted !== !!l0.tainted) break;
-      u += l.units;
-    }
-    return u;
-  };
   const trades: ClosedTrade[] = [];
   let excluded = 0, excludedCorporate = 0;
 
@@ -299,7 +193,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         if (ca.side === 'SELL') excludedCorporate++;
         if (ca.units !== undefined && !ca.undated) {
           if (ca.side === 'SELL') addGap(b, removeOldest(b.lots, ca.units)); // C4-2: an unusable oversell leaves a gap too
-          else b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true, ...tieOf(e) });
+          else b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
         } else {
           taint(b.lots);
           unknownFrom.add(key);
@@ -308,23 +202,17 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       }
       if (!b.lots.length && moved?.at === e.at && ca.kind !== 'symbol-change') { taint(book(moved.to).lots); }
       if (ca.kind === 'split' || ca.kind === 'stock-dividend') {
-        // C4-2: a gap in shares must split with them; when the ratio can't be known, the pair's ledger is unknown from here.
-        const gapUnknown = () => { if (b.gap) { unknownFrom.add(key); taint(b.lots); } };
-        if (exchangedInto.get(key) === e.at) { taint(b.lots); gapUnknown(); continue; }
+        if (exchangedInto.get(key) === e.at) { taint(b.lots); continue; }
         if (!b.lots.length) {
-          if (b.gap) { if (ca.ratio) b.gap = (b.gap * ca.ratio.p) / ca.ratio.q; else gapUnknown(); }
           // C4-1 (engineer, round 1): a vendor share count says shares exist that the ledger lacks (earlier history). FIFO
           // would draw them before any later buy, so they are a lot with no basis (a total or a change: at least the shares
           // received). A ratio alone says nothing about a count, so nothing is added (as before).
           if (ca.units !== undefined && ca.units > 0) b.lots.push({ units: ca.units, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
           continue;
         }
-        // C4-2: a ratio read from the ledger's units is not knowable while a gap leaves the units held unknown.
-        if (b.gap && !ca.ratio) { taint(b.lots); gapUnknown(); continue; }
         const r = resolveRatio(held(b.lots), ca);
-        if (!r) { taint(b.lots); gapUnknown(); continue; }
+        if (!r) { taint(b.lots); continue; }
         scale(b.lots, r.ratio);
-        if (b.gap) b.gap = (b.gap * r.ratio.p) / r.ratio.q; // C4-2: the gap is in shares, so it splits with them
         if (r.leftover > 0) removeOldest(b.lots, r.leftover); // cash in lieu: not a trade, not counted
         if (openedInWindow(b.lots, e.at)) taint(b.lots);
       } else if (ca.kind === 'symbol-change') {
@@ -335,12 +223,8 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
           unknownFrom.add(unknownTo);
           taint(book(unknownTo).lots);
         }
-        // C4-2: a short renames with the shares, so the gap moves to the new symbol (scaled by the exchange ratio).
-        if (b.gap && ca.newSymbol !== ca.symbol) {
-          const gr = renameRatio(ca.outUnits, ca.inUnits), toKey = `${ca.accountId}|${ca.newSymbol}`;
-          if (gr) addGap(book(toKey), (b.gap * gr.p) / gr.q); else { unknownFrom.add(toKey); taint(book(toKey).lots); }
-          b.gap = 0;
-        }
+        // C4-2 (F-28: the pending count travels with a rename): a short renames with the shares, so the gap moves too.
+        if (b.gap && ca.newSymbol !== ca.symbol) { addGap(book(`${ca.accountId}|${ca.newSymbol}`), b.gap); b.gap = 0; }
         // C4-1 (engineer, round 1): shares the rename says moved but the ledger doesn't hold arrive in the new symbol with
         // no basis, so FIFO draws them (counted) before any later buy there.
         const shadow = () => { if (ca.newSymbol !== ca.symbol && ca.inUnits > 0) book(`${ca.accountId}|${ca.newSymbol}`).lots.unshift({ units: ca.inUnits, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true }); };
@@ -358,12 +242,9 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
         if (r.p !== r.q) exchangedInto.set(toKey, e.at);
       } else {
-        // C4-2: shares an unpriceable action moves in a pair with a gap may be on either side of the gap, so the pair's
-        // ledger is unknown from here.
-        const touch = (k: string, other: Book) => { taint(other.lots); if (other.gap) unknownFrom.add(k); };
         if (ca.scope === 'account') {
-          for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) touch(k, other);
-        } else touch(key, b);
+          for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) taint(other.lots);
+        } else taint(b.lots);
         const u = ca.units ?? 0;
         if (u > 0) b.lots.push({ units: u, price: 0, feePerUnit: 0, at: ca.executedAt, verified: false, tainted: true });
         else if (u < 0) addGap(b, removeOldest(b.lots, -u));
@@ -377,31 +258,18 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     const open = b.lots;
     if (a.side === 'BUY') {
       // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
-      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) || crossed.has(a) ? { tainted: true } : {}), ...tieOf(e) });
+      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) ? { tainted: true } : {}) });
       continue;
     }
 
-    // C4-1, C4-2: with a gap or tied sells, every reading must draw the same buy (see the header). Tied sells are decided
-    // once, before the first of them draws.
-    const tie = sellTies.get(tieKey(e) ?? '') ?? { total: a.units, size: 1 };
-    const gap = b.gap && !tiny(b.gap, a.units) ? b.gap : 0;
-    const fits = (need: number) => alikeUnits(open) + EPS * Math.max(1, need) >= need;
-    if (tie.size > 1 && tie.safe === undefined) {
-      tie.safe = fits(tie.total + gap);
-      // The group's count bucket is decided once too (property test): which tied sell draws a tainted unit depends on
-      // their order, so if any could, all of them count as the action's.
-      let u = 0;
-      tie.tainted = unknownFrom.has(key);
-      for (const l of open) { if (u >= tie.total) break; tie.tainted ||= !!l.tainted; u += l.units; }
-    }
-    const orderSafe = tie.size > 1 ? tie.safe! : !gap || fits(a.units + gap);
+    // C4-2: after an oversell the pair's later sells are counted (see the header), whatever their outcome.
+    const gapped = !!b.gap && !tiny(b.gap, a.units);
     let remaining = a.units;
     let cost = 0;
     let entryFees = 0;
     let openedAt: Date | null = null;
     let verified = a.verified;
-    let tainted = crossed.has(a);
-    const touched = new Set<TieGroup>();
+    let tainted = false;
     while (!tiny(remaining, a.units) && open.length) {
       const lot = open[0];
       const take = Math.min(lot.units, remaining);
@@ -410,28 +278,20 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       openedAt ??= lot.at;
       verified &&= lot.verified;
       tainted ||= !!lot.tainted;
-      if (lot.tie) touched.add(lot.tie);
       lot.units -= take;
       remaining -= take;
       if (tiny(lot.units, a.units)) open.shift();
     }
 
-    // C4-1: a draw from tied buys is order-proof only when it takes the whole group (see tieOf).
-    let ambiguous = false;
-    for (const g of touched) {
-      const left = open.some((l) => l.tie === g && !tiny(l.units, a.units));
-      if (g.broken || !g.sameAt || left) ambiguous = true;
-      if (left) g.broken = true;
-    }
     if (!tiny(remaining, a.units)) {
       // Oversold: this sell only. Drawing a unit a corporate action left unpriced makes it a corporate exclusion.
       // An oversell in a pair whose ledger an unusable trade row made unknown (F3-1) is that cause, not missing history.
-      if (tainted || unknownFrom.has(key) || tie.tainted) excludedCorporate++; else excluded++;
+      if (tainted || unknownFrom.has(key)) excludedCorporate++; else excluded++;
       addGap(b, remaining); // C4-2: a short or earlier history
       continue;
     }
-    if (tainted || tie.tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;
-    else if (!orderSafe || ambiguous) excluded++; // C4-1, C4-2: the readings draw different buys
+    if (tainted || latePosted(a) || sameDayAction(a)) excludedCorporate++;
+    else if (gapped) excluded++; // C4-2: a short or earlier history: no buy can be matched for certain
     else if (openedAt) {
       const exitFee = a.fee;
       const t: ClosedTrade = {

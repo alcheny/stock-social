@@ -10,32 +10,39 @@ const row = (side: Activity['side'], units: number, price: number, at: string, e
 });
 const returns = (rows: Activity[]) => matchTrades(rows).trades.map((t) => +t.returnPct.toFixed(6));
 
-test('C4-1 probe: a date-only same-day short (sell, then a cover on the same date) is counted, never a Verified long', () => {
+test('C4-1 with evidence: after an earlier oversell, a date-only same-day short publishes nothing (both input orders)', () => {
   for (const order of ['sell-first', 'buy-first']) {
     const sell = row('SELL', 100, 15, '2026-10-01T00:00:00Z'), buy = row('BUY', 100, 14, '2026-10-01T00:00:00Z');
-    const m = matchTrades(order === 'sell-first' ? [sell, buy] : [buy, sell]);
+    const m = matchTrades([row('SELL', 10, 12, '2026-09-01T14:00:00Z'), ...(order === 'sell-first' ? [sell, buy] : [buy, sell])]);
     assert.deepEqual(m.trades, [], order); // was +7.1% over 0 days, Verified
-    assert.equal(m.excluded, 1, order);
+    assert.equal(m.excluded, 2, order);
   }
 });
 
-test('C4-1 probe: a losing date-only short is counted too (wins and losses alike)', () => {
-  const m = matchTrades([row('SELL', 100, 12, '2026-10-01T00:00:00Z'), row('BUY', 100, 14, '2026-10-01T00:00:00Z')]);
-  assert.deepEqual(m.trades, []); // was -16.7%
-  assert.equal(m.excluded, 1);
+test('F-30 probe C: without evidence, a date-only same-day round trip stays published, losses included (no steering by close timing)', () => {
+  // A losing long bought and sold on one date-only day, nothing else on the pair: shown, never turned into a count.
+  assert.deepEqual(returns([row('BUY', 100, 15, '2026-10-01T00:00:00Z'), row('SELL', 100, 12, '2026-10-01T00:00:00Z')]), [-0.2]);
+  // The same rows in the other input order give the same figure (F3-5: buy first at one instant).
+  assert.deepEqual(returns([row('SELL', 100, 12, '2026-10-01T00:00:00Z'), row('BUY', 100, 15, '2026-10-01T00:00:00Z')]), [-0.2]);
 });
 
-test('C4-1 probe: the same rows with intraday stamps keep F3-5 and the clock order (short counted)', () => {
+test('C4-1 probe: the same rows with intraday stamps follow the clock (short counted)', () => {
   const m = matchTrades([row('SELL', 100, 15, '2026-10-01T14:00:00Z'), row('BUY', 100, 14, '2026-10-01T15:00:00Z')]);
   assert.deepEqual(m.trades, []);
   assert.equal(m.excluded, 1);
 });
 
-test('C4-1 probe: pre-history shares sold and rebought on one date publish no made-up day trade and no later figure', () => {
-  // 100 shares held from before the history; date-only SELL 100 @15 and BUY 100 @14; SELL 100 @18 later.
-  const m = matchTrades([row('SELL', 100, 15, '2026-10-01T00:00:00Z'), row('BUY', 100, 14, '2026-10-01T00:00:00Z'), row('SELL', 100, 18, '2026-10-09T00:00:00Z')]);
-  assert.deepEqual(m.trades, []); // was a made-up +7.1% day trade
-  assert.equal(m.excluded + m.excludedCorporate, 2);
+test('C4-1 with evidence: pre-history shares sold and rebought on one date after an earlier oversell publish no day trade', () => {
+  const m = matchTrades([row('SELL', 10, 12, '2026-09-01T14:00:00Z'), row('SELL', 100, 15, '2026-10-01T00:00:00Z'), row('BUY', 100, 14, '2026-10-01T00:00:00Z'), row('SELL', 100, 18, '2026-10-09T00:00:00Z')]);
+  assert.deepEqual(m.trades, []);
+  assert.equal(m.excluded, 3);
+});
+
+test('C4-1 with evidence: an unknown ledger (an unusable row with no units) counts a same-instant round trip', () => {
+  const bad = { externalId: 'u1', accountId: 'acc1', symbol: 'FAKE', executedAt: new Date('2026-09-01T00:00:00Z'), kind: 'unpriceable', reason: 'trade', side: 'BUY' } as const;
+  const m = matchTrades([row('BUY', 100, 14, '2026-10-01T00:00:00Z'), row('SELL', 100, 15, '2026-10-01T00:00:00Z')], [bad]);
+  assert.deepEqual(m.trades, []);
+  assert.equal(m.excludedCorporate, 1);
 });
 
 test('C4-2 probe: a short\'s cover never prices a later long trade', () => {
@@ -50,7 +57,7 @@ test('C4-2 probe: a short\'s cover never prices a later long trade', () => {
   assert.equal(m.excluded, 2);
 });
 
-test('C4-2: consuming the cover would publish a wrong figure under the earlier-history reading; the owed lot is counted', () => {
+test('C4-2: consuming the cover would publish a wrong figure under the earlier-history reading; the sell is counted', () => {
   // 100 shares from before the history; SELL 100 @15 (counted); BUY 100 @10; BUY 100 @20; SELL 100 @22.
   // Earlier history: the last sell draws the @10 lot (+120%). A short: the @10 buy covered, +10%. Neither is published.
   const m = matchTrades([row('SELL', 100, 15, '2026-10-01T14:00:00Z'), row('BUY', 100, 10, '2026-10-02T14:00:00Z'), row('BUY', 100, 20, '2026-10-03T14:00:00Z'), row('SELL', 100, 22, '2026-10-04T14:00:00Z')]);
@@ -58,27 +65,22 @@ test('C4-2: consuming the cover would publish a wrong figure under the earlier-h
   assert.equal(m.excluded, 2);
 });
 
-test('C4-2 (business lead, round 1): the gap a short leaves stays in FIFO order, so a later sell is counted when the readings differ', () => {
+test('C4-2 (business lead, round 1): tainting only the next k units still publishes +65%; every later sell is counted', () => {
   // Nothing older held. SELL 100 @15 (counted); BUY 100 @10; BUY 100 @20; BUY 100 @30; SELL 100 @22; SELL 100 @33.
   // Earlier history: the sells draw @10 and @20 (+120%, +65%). A short: @10 covered, they draw @20 and @30 (+10%, +10%).
   const m = matchTrades([
     row('SELL', 100, 15, '2026-10-01T14:00:00Z'), row('BUY', 100, 10, '2026-10-02T14:00:00Z'), row('BUY', 100, 20, '2026-10-03T14:00:00Z'),
     row('BUY', 100, 30, '2026-10-04T14:00:00Z'), row('SELL', 100, 22, '2026-10-05T14:00:00Z'), row('SELL', 100, 33, '2026-10-06T14:00:00Z'),
   ]);
-  assert.deepEqual(m.trades, []); // the draft rule published +65% for the last sell
+  assert.deepEqual(m.trades, []);
   assert.equal(m.excluded, 3);
 });
 
-test('C4-2: a sell publishes when every reading draws the same lot (one buy spans the gap and the sell)', () => {
-  const m = matchTrades([
-    row('SELL', 100, 15, '2026-10-01T14:00:00Z'), // counted; a gap of 100 units
-    row('BUY', 300, 10, '2026-10-02T14:00:00Z'),
-    row('SELL', 100, 12, '2026-10-03T14:00:00Z'), // units 0-100 (earlier history) or 100-200 (a short covered): both @10
-    row('SELL', 100, 13, '2026-10-04T14:00:00Z'), // 100-200 or 200-300: both @10
-    row('SELL', 100, 14, '2026-10-05T14:00:00Z'), // 200-300, or a second short: counted
-  ]);
-  assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(6)), [0.2, 0.3]);
-  assert.equal(m.excluded, 2);
+test('C4-2 (round 4): after a gap no sale size brings a sell back, wins and losses alike (no steering by sizing)', () => {
+  for (const [first, price] of [[100, 12], [190, 12], [100, 8], [200, 8]] as const) {
+    const m = matchTrades([row('SELL', 10, 15, '2026-10-01T14:00:00Z'), row('BUY', 300, 10, '2026-10-02T14:00:00Z'), row('SELL', first, price, '2026-10-03T14:00:00Z')]);
+    assert.deepEqual([m.trades.length, m.excluded], [0, 2], `${first} @${price}`);
+  }
 });
 
 test('C4-2: after a gap, small round trips stay counted (a short reading makes each sell a new short)', () => {
@@ -91,48 +93,22 @@ test('C4-2: after a gap, small round trips stay counted (a short reading makes e
   assert.equal(m.excluded, 3);
 });
 
+test('C4-2 (F-28 probe B): the gap follows a rename, so the later trip in the new symbol is not priced from the cover', () => {
+  const rename = { externalId: 'rn', accountId: 'acc1', symbol: 'FAKE', executedAt: new Date('2026-10-02T00:00:00Z'), kind: 'symbol-change', newSymbol: 'TEST', outUnits: 100, inUnits: 100 } as const;
+  const m = matchTrades([
+    row('SELL', 100, 15, '2026-10-01T14:00:00Z'), // gap in FAKE
+    row('BUY', 100, 14, '2026-10-03T14:00:00Z', { symbol: 'TEST' }), row('BUY', 100, 20, '2026-10-04T14:00:00Z', { symbol: 'TEST' }),
+    row('SELL', 100, 18, '2026-10-05T14:00:00Z', { symbol: 'TEST' }),
+  ], [rename]);
+  assert.deepEqual(m.trades, []);
+  assert.equal(m.excluded + m.excludedCorporate, 2);
+});
+
 test('C4-2: a plain buy-sell history is unchanged', () => {
   assert.deepEqual(returns([row('BUY', 100, 10, '2026-10-01T00:00:00Z'), row('SELL', 100, 11, '2026-10-02T00:00:00Z'), row('BUY', 50, 20, '2026-10-03T14:00:00Z'), row('SELL', 50, 18, '2026-10-04T14:00:00Z')]), [0.1, -0.1]);
 });
 
-// ---- Committee round 1 and 2 probes (docs/features/logs/fixes-cycle4/committee-2026-11-01.md) ----
-
-test('C4-1 (business lead, round 2): a date-only buy and an intraday sell 24.5 h later can be one local date: counted', () => {
-  for (const order of [0, 1]) {
-    const rows = [row('BUY', 100, 14, '2026-10-01T00:00:00Z'), row('SELL', 100, 15, '2026-10-02T00:30:00Z')];
-    const m = matchTrades(order ? rows.reverse() : rows);
-    assert.deepEqual(m.trades, []); // was +7.1%: a late-session short on 1 October and its cover
-    assert.equal(m.excluded, 1);
-  }
-  // Two date-only stamps on different dates keep their order (one broker, one time zone): a swing trade is shown.
-  assert.deepEqual(returns([row('BUY', 100, 10, '2026-10-01T00:00:00Z'), row('SELL', 100, 12, '2026-10-02T00:00:00Z')]), [0.2]);
-  // An intraday sell outside the date's window is ordered by the clock.
-  assert.deepEqual(returns([row('BUY', 100, 10, '2026-10-01T00:00:00Z'), row('SELL', 100, 12, '2026-10-02T13:00:00Z')]), [0.2]);
-});
-
-test('C4-1 (reliability, round 1): mixed precision on one day, and two rows tied at a broker-local midnight, are counted', () => {
-  // P3: an intraday sell and a date-only buy on the same date.
-  const p3 = matchTrades([row('SELL', 100, 15, '2026-10-01T15:00:00Z'), row('BUY', 100, 14, '2026-10-01T00:00:00Z')]);
-  assert.deepEqual([p3.trades.length, p3.excluded], [0, 1]);
-  // P4: both stamped 04:00Z (exact tie).
-  const p4 = matchTrades([row('BUY', 100, 14, '2026-10-01T04:00:00Z'), row('SELL', 100, 15, '2026-10-01T04:00:00Z')]);
-  assert.deepEqual([p4.trades.length, p4.excluded], [0, 1]);
-});
-
-test('C4-1 (reliability, round 1): an older lot plus a date-only round trip: what depends on the order is counted, the rest shown', () => {
-  // P2: BUY 50 @5 (Sep 1, intraday); Oct 1 date-only BUY 100 @10 and SELL 100 @12; SELL 50 @20; SELL 50 @8.
-  const m = matchTrades([
-    row('BUY', 50, 5, '2026-09-01T14:00:00Z'), row('BUY', 100, 10, '2026-10-01T00:00:00Z'), row('SELL', 100, 12, '2026-10-01T00:00:00Z'),
-    row('SELL', 50, 20, '2026-10-05T14:00:00Z'), row('SELL', 50, 8, '2026-10-06T14:00:00Z'),
-  ]);
-  // The Oct 1 sell is partly a short in one reading (counted). SELL @20 draws @10 units in every reading (+100%). The
-  // last sell has no lot in the round-trip reading: counted.
-  assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(6)), [1]);
-  assert.equal(m.excluded, 2);
-});
-
-test('C4-1 (reliability, round 1): after a cover, a later sell is counted when the readings differ (+25% not published)', () => {
-  // P1: SELL 100 @15 (nothing held), BUY 100 @14, BUY 100 @20, SELL 100 @18, SELL 100 @25.
+test('C4-1 (reliability, round 1): after a cover, a later sell is counted (+25% not published)', () => {
   const m = matchTrades([
     row('SELL', 100, 15, '2026-10-01T14:00:00Z'), row('BUY', 100, 14, '2026-10-02T14:00:00Z'), row('BUY', 100, 20, '2026-10-03T14:00:00Z'),
     row('SELL', 100, 18, '2026-10-04T14:00:00Z'), row('SELL', 100, 25, '2026-10-05T14:00:00Z'),
@@ -141,40 +117,19 @@ test('C4-1 (reliability, round 1): after a cover, a later sell is counted when t
   assert.equal(m.excluded, 3);
 });
 
-test('C4-1 (engineer, round 1): two buys tied at one instant: a sell taking part of them is counted, whatever the input order', () => {
-  // P1: two date-only buys on one date (100 @10, 100 @12), then SELL 100 @15: +50% or +25% by row order before.
-  const buys = [row('BUY', 100, 10, '2026-10-01T00:00:00Z'), row('BUY', 100, 12, '2026-10-01T00:00:00Z')];
-  for (const input of [[...buys, row('SELL', 100, 15, '2026-10-05T14:00:00Z')], [buys[1], buys[0], row('SELL', 100, 15, '2026-10-05T14:00:00Z')]]) {
-    const m = matchTrades(input);
-    assert.deepEqual([m.trades.length, m.excluded], [0, 1]);
-  }
-});
-
-test('C4-1 (engineer, round 1): two sells tied at one instant split differently priced lots: both counted', () => {
-  // P2: older lots 100 @10 and 100 @12; two date-only sells of 100 on one date.
+test('engineer, round 1: rows on one side at one instant are matched in vendor-id order, so the input order changes nothing', () => {
+  // P1: two date-only buys on one date (100 @10, 100 @12), then SELL 100 @15: +50% or +25% by input order on main.
+  const b1 = row('BUY', 100, 10, '2026-10-01T00:00:00Z', { externalId: 'id-a' }), b2 = row('BUY', 100, 12, '2026-10-01T00:00:00Z', { externalId: 'id-b' });
+  const s = row('SELL', 100, 15, '2026-10-05T14:00:00Z');
+  assert.deepEqual(returns([b1, b2, s]), returns([b2, b1, s]));
+  // P2: two sells of 100 on one date over lots @10 and @12.
   const lots = [row('BUY', 100, 10, '2026-09-01T14:00:00Z'), row('BUY', 100, 12, '2026-09-02T14:00:00Z')];
-  for (const flip of [false, true]) {
-    const sells = [row('SELL', 100, 13, '2026-10-01T00:00:00Z'), row('SELL', 100, 14, '2026-10-01T00:00:00Z')];
-    const m = matchTrades([...lots, ...(flip ? sells.reverse() : sells)]);
-    assert.deepEqual([m.trades.length, m.excluded], [0, 2]);
-  }
-  // Tied sells drawing one alike lot get the same figure in either order: shown.
-  const one = [row('BUY', 200, 10, '2026-09-01T14:00:00Z'), row('SELL', 100, 13, '2026-10-01T00:00:00Z'), row('SELL', 100, 14, '2026-10-01T00:00:00Z')];
-  assert.deepEqual(returns(one).sort(), [0.3, 0.4]);
+  const s1 = row('SELL', 100, 13, '2026-10-01T00:00:00Z', { externalId: 'id-c' }), s2 = row('SELL', 100, 14, '2026-10-01T00:00:00Z', { externalId: 'id-d' });
+  const out = (rows: Activity[]) => matchTrades(rows).trades.map((t) => [t.sellId, +t.returnPct.toFixed(6)]).sort();
+  assert.deepEqual(out([...lots, s1, s2]), out([...lots, s2, s1]));
 });
 
-test('C4-1 (UX lead, round 2): one order filled in two pieces at one second, sold whole later, is shown', () => {
-  // P5: 50 @10 and 50 @11 at the same second, then SELL 100 @12: every order gives the same cost and date.
-  const fills = [row('BUY', 50, 10, '2026-10-01T14:30:00Z'), row('BUY', 50, 11, '2026-10-01T14:30:00Z')];
-  for (const input of [[...fills, row('SELL', 100, 12, '2026-10-02T14:00:00Z')], [fills[1], fills[0], row('SELL', 100, 12, '2026-10-02T14:00:00Z')]]) {
-    assert.deepEqual(matchTrades(input).trades.map((t) => +t.returnPct.toFixed(6)), [+(1200 / 1050 - 1).toFixed(6)]);
-  }
-  // Selling half of them is counted, and so is the other half later (the group was split).
-  const half = matchTrades([...fills, row('SELL', 50, 12, '2026-10-02T14:00:00Z'), row('SELL', 50, 12, '2026-10-03T14:00:00Z')]);
-  assert.deepEqual([half.trades.length, half.excluded], [0, 2]);
-});
-
-test('C4-1 (engineer, round 1): shares a rename names that the ledger lacks are drawn first in the new symbol (counted), not skipped', () => {
+test('engineer, round 1: shares a rename names that the ledger lacks are drawn first in the new symbol (counted), not skipped', () => {
   const rename = { externalId: 'rn', accountId: 'acc1', symbol: 'FAKE', executedAt: new Date('2026-10-01T00:00:00Z'), kind: 'symbol-change', newSymbol: 'TEST', outUnits: 100, inUnits: 100 } as const;
   const rows = [row('BUY', 100, 10, '2026-10-02T14:00:00Z', { symbol: 'TEST' }), row('SELL', 100, 11, '2026-10-03T14:00:00Z', { symbol: 'TEST' }), row('SELL', 100, 12, '2026-10-04T14:00:00Z', { symbol: 'TEST' })];
   const m = matchTrades(rows, [rename]);
@@ -182,34 +137,7 @@ test('C4-1 (engineer, round 1): shares a rename names that the ledger lacks are 
   assert.deepEqual([m.trades.map((t) => +t.returnPct.toFixed(6)), m.excludedCorporate], [[0.2], 1]);
 });
 
-test('C4-1 (engineer, round 2): on a mixed-stamp day only the date-only row floats; the intraday sell opens no gap', () => {
-  // BUY 100 @10 at 10:00, SELL 100 @11 at 15:00, a date-only BUY 50 @9 the same day; later an ordinary round trip.
-  const m = matchTrades([
-    row('BUY', 100, 10, '2026-10-01T10:00:00Z'), row('SELL', 100, 11, '2026-10-01T15:00:00Z'), row('BUY', 50, 9, '2026-10-01T00:00:00Z'),
-    row('SELL', 50, 12, '2026-10-08T14:00:00Z'), row('BUY', 100, 20, '2026-10-09T14:00:00Z'), row('SELL', 100, 22, '2026-10-10T14:00:00Z'),
-  ]);
-  // The 15:00 sell may have drawn the date-only buy (counted, no gap). The Oct 8 sell draws the rest of the day's tied buys
-  // (counted). The later round trip is shown: +10%.
-  assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(6)), [0.1]);
-  assert.equal(m.excluded, 2);
-});
-
-test('C4-1 (reliability, round 2): public filings pass their known order, so same-day rows keep it (no tie rules)', () => {
-  // Probe B: an open-market buy and sale on one date-only day, in filing order.
-  assert.deepEqual(matchTrades([row('BUY', 100, 10, '2026-10-01T00:00:00Z'), row('SELL', 100, 12, '2026-10-01T00:00:00Z')], [], { orderKnown: true }).trades.map((t) => +t.returnPct.toFixed(6)), [0.2]);
-  // Probe A: an unpriced acquisition sold the same day, then an open-market round trip: +12.5% (as on main).
-  const a = matchTrades([
-    row('BUY', 500, 1, '2026-10-01T00:00:00Z', { verified: false }), row('SELL', 500, 30, '2026-10-01T00:00:00Z'),
-    row('BUY', 200, 40, '2026-10-05T00:00:00Z'), row('SELL', 200, 45, '2026-10-09T00:00:00Z'),
-  ], [], { orderKnown: true });
-  assert.deepEqual(a.trades.filter((t) => t.verified).map((t) => +t.returnPct.toFixed(6)), [0.125]);
-  // Broker rows (no option) are counted in both cases.
-  assert.deepEqual(matchTrades([row('BUY', 100, 10, '2026-10-01T00:00:00Z'), row('SELL', 100, 12, '2026-10-01T00:00:00Z')]).trades, []);
-});
-
-test('C4-1 (code review, blocking 1): a date-only row is never moved across a split of its pair; the run is counted', () => {
-  // BUY 100 @10 date-only on Mar 1; 2:1 split at Mar 2 00:00Z; SELL 50 @6 at Mar 2 06:00Z (in the buy's date window);
-  // SELL 50 @6 on Apr 20. Floated past the split, the buy was never scaled and the last sell showed -40% (truth +20%).
+test('code review: a date-only buy opened in the late-posting window before a split is counted, not priced', () => {
   const split = { externalId: 'sp', accountId: 'acc1', symbol: 'FAKE', executedAt: new Date('2026-03-02T00:00:00Z'), kind: 'split', ratio: { p: 2, q: 1 } } as const;
   const rows = [row('BUY', 100, 10, '2026-03-01T00:00:00Z'), row('SELL', 50, 6, '2026-03-02T06:00:00Z'), row('SELL', 50, 6, '2026-04-20T15:00:00Z')];
   for (const input of [rows, [...rows].reverse()]) {

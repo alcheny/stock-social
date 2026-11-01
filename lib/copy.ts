@@ -67,12 +67,10 @@ export const PROFILE = {
   youreIn: "You're in. Next: connect your brokerage.",
   changeHandle: 'Change handle',
   // Fix round 8 (tester re-run 4): counts pluralized ("1 earlier position", "2 imported trades"), never "(s)".
-  // Fixes cycle 4 (C4-1, C4-2; UX lead, committee round 2): the count also holds sells the matcher can't tie to one buy
-  // for certain (after a sell of more shares than the history holds, or trades stamped without exact times), so the line
-  // names every cause and counts sells (one per sell, users.excluded_positions) without saying which cause applied.
-  // ponytail: the line can't say which cause applied, so a trader whose broker stamps dates only sees no broker-specific
-  // notice — fix: a date-only counter per record (a users column set by the rebuild) and its own line.
-  excludedPositions: (n: number) => `${counted(n, 'sell')} excluded: the imported history can't match ${n === 1 ? 'it' : 'them'} to a buy for certain (an earlier holding, a short sale, or trades the broker stamped without exact times).`,
+  // Fixes cycle 4 (C4-2; F-28's true-cause wording; UX lead, committee): the count also holds sells after an oversell,
+  // whose entry was recorded, so it never says "no matching entry". It counts sells (one per sell,
+  // users.excluded_positions) and names both causes without saying which applied.
+  excludedPositions: (n: number) => `${counted(n, 'sell')} excluded: a short sale or earlier history means no buy in the imported history can be matched to ${n === 1 ? 'it' : 'them'} for certain.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
   // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
   // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
@@ -324,10 +322,9 @@ export const HOW = {
     'Short options and short sales: their risk has no fixed amount to measure a percent against.',
     'Exercised or assigned options, and share trades held over the day of an exercise or assignment in that stock. These are left out of the options average, so it does not include contracts that ended in the money.',
     'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
-    'Transfers in, and sells with no recorded entry, or no certain one, in the imported history (shown as excluded sells, never guessed).',
-    // Fixes cycle 4 (C4-1, C4-2; UX lead, committee round 2).
-    'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), later sells of that stock in that account are excluded and counted too, unless every possible reading gives the same figure.',
-    'Some brokers send trades without exact times, or with only the date. Trades of one stock stamped at the same moment, or on a date-only day, are read in the cautious order: a sell draws only shares bought before it, so a same-day buy and sell with nothing older held is excluded and counted. The rows can’t tell a day trade from a short sale.',
+    'Transfers in, and sells with no recorded entry in the imported history (shown as excluded sells, never guessed).',
+    // Fixes cycle 4 (C4-2; UX lead, committee).
+    'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), every later sell of that stock in that account is excluded and counted too, wins and losses alike: the history can\u2019t show which buys are left.',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
     // Fixes cycle 3, F3-1 (lib/trades.ts): unusable broker trade rows are counted, never dropped.
     'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.',

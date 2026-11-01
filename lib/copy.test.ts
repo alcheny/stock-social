@@ -295,8 +295,8 @@ test('PR-3 fix round 7 (business lead re-sit, demand 3): before the first close 
 test('fix round 8 (tester re-run 4): exclusion counts are pluralized, never "(s)"', async () => {
   const { PROFILE } = await import('./copy.ts');
   // Fixes cycle 4 (C4-1, C4-2): the line names every cause the count holds (was "earlier position … no matching entry").
-  assert.equal(PROFILE.excludedPositions(1), "1 sell excluded: the imported history can't match it to a buy for certain (an earlier holding, a short sale, or trades the broker stamped without exact times).");
-  assert.equal(PROFILE.excludedPositions(2), "2 sells excluded: the imported history can't match them to a buy for certain (an earlier holding, a short sale, or trades the broker stamped without exact times).");
+  assert.equal(PROFILE.excludedPositions(1), "1 sell excluded: a short sale or earlier history means no buy in the imported history can be matched to it for certain.");
+  assert.equal(PROFILE.excludedPositions(2), "2 sells excluded: a short sale or earlier history means no buy in the imported history can be matched to them for certain.");
   assert.equal(PROFILE.excludedFuture(1), '1 imported trade excluded: dated in the future by the broker.');
   assert.equal(PROFILE.excludedFuture(1_200), '1,200 imported trades excluded: dated in the future by the broker.');
   for (const n of [1, 2]) for (const t of [PROFILE.excludedPositions(n), PROFILE.excludedFuture(n)]) assert.ok(!t.includes('(s)'), t);
