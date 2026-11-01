@@ -26,6 +26,12 @@ A signed-out first visitor sees a stock and a percentage with no idea what the p
 - 2026-11-01: If F-7 public profiles enter the feed, the line becomes false for them. It then goes back to the idea
   board for new wording, which the council may not change. Why: the decisions keeper's F-7 interface condition.
 
+- 2026-11-01 (build, after F-10 #54 merged): the line sits at the top of page 1's first card, not above it as its own
+  snap stop. Why: F-10 requires card 1's return, record strip and disclaimer on the first 360×640 screen (its e2e),
+  and a block above card 1 pushed them below the fold; inside the card both hold, and the design system council already
+  places the Notice in the card (§2.5). The swipe hint shares the footer link's line. On short screens (≤ 480 px tall),
+  while the line shows, card 1's symbol and return are smaller and its one-line thesis excerpt waits until dismissal.
+
 ## Acceptance criteria
 - [ ] Signed out, the first visit shows exactly "Verified trades, straight from the broker. Losses included." linking to
       the "How records are calculated" page. It never shows signed in, and it stays dismissed after dismissal (e2e).

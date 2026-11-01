@@ -513,15 +513,16 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 /* F-13 (first-visit line, swipe hint, nav reflow) */
 /* Already dismissed or used on this device: hidden before the first paint (the pre-paint script in app/layout.tsx). */
 html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint { display: none; }
-/* The signed-out twin of .feed-notes: in flow, its own snap stop above the first card; never fixed, sticky or over the
-   card. No transition or animation, so reduced motion needs no override. */
-.feed .first-visit { position: static; scroll-snap-align: start; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 4px 8px; padding: 64px max(20px, calc((100% - 560px) / 2)) 12px; }
+/* In flow at the top of page 1's first card (after F-10, so the card's return, record strip and disclaimer stay on the
+   first screen); never fixed, sticky or over the card's content. No transition or animation, so reduced motion needs no
+   override. */
+.feed .card .first-visit { position: static; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 4px 8px; padding: 0 0 6px; margin-bottom: -6px; border-bottom: 1px solid var(--line); }
 .first-visit p { margin: 0; }
-.first-visit .fv-line { font-size: 0.9375rem; line-height: 22px; color: var(--text); }
-.first-visit .fv-line a { display: inline-block; }
-.first-visit .fv-demo { margin-top: 4px; font-size: 0.875rem; line-height: 22px; color: var(--muted); }
-/* Whole-pixel line boxes, so the block's height is a whole number and every feed row below it snaps to top 0 exactly
-   (a fractional height left rows at -0.4 px; e2e/app.spec.ts "the 30 → 31 join is seamless"). */
+.first-visit .fv-text p { display: inline; }
+.first-visit .fv-line { font-size: 0.875rem; line-height: 20px; color: var(--text); }
+.first-visit .fv-line a { display: inline; }
+.first-visit .fv-demo { margin-left: 6px; font-size: 0.8125rem; line-height: 20px; color: var(--muted); }
+/* Whole-pixel line boxes (the block's height stays a whole number; a fractional one once left feed rows at -0.4 px). */
 .first-visit .fv-demo .badge { line-height: 16px; vertical-align: 1px; }
 .first-visit .quiet-x { min-width: 44px; min-height: 44px; margin: -4px -10px 0 0; /* tester Low 6: its focus ring clears the nav */ background: transparent; color: var(--muted); border: 0; padding: 0; font-weight: 400; font-size: 1.25rem; line-height: 1; }
 .swipe-hint { position: static; margin: 0 0 6px; color: var(--muted); }
@@ -529,6 +530,20 @@ html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint 
 @media (max-width: 420px) { nav.top { gap: 8px; padding: 12px; } }
 @media (max-width: 420px) { nav.top a:not(.logo):not(.me) { white-space: normal; line-height: 1.1; text-align: center; } }
 @media (max-width: 340px) { nav.top { font-size: 0.8125rem; } }
+/* The hint shares the footer link's line, so it adds no height and F-10's in-card disclaimer stays on the card's one
+   screen with the first-visit line above (e2e/record-strip.spec.ts AC8 at 320×640 and 780×360). */
+.feed .card .swipe-hint { display: inline; margin: 0 12px 0 0; }
+/* Short screens (landscape): while the line is in card 1, the symbol and return are smaller and the one-line thesis excerpt
+   waits until the line is dismissed, so the return, the record strip and the card's disclaimer stay on its one screen.
+   ponytail: card 1's thesis excerpt is hidden on a short screen until the line is dismissed — a two-column card layout in landscape would show both. */
+@media (max-height: 480px) {
+  .feed .card:has(> .first-visit) .ret { font-size: 36px; }
+  .feed .card:has(> .first-visit) .symbol { font-size: 16px; }
+  .feed .card .first-visit { border-bottom: 0; }
+  .feed .card:has(> .first-visit) .thesis { display: none; }
+  .feed .row > .card:has(> .first-visit) { gap: 4px; }
+  .feed .card .first-visit .fv-line, .feed .card .first-visit .fv-demo { font-size: 0.8125rem; line-height: 18px; }
+}
 /* end F-13 */
 
 

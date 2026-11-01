@@ -46,13 +46,14 @@ const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'nume
 // "held · closed" line, so the hero reads symbol, return, record. DS-22 (design system council, PR #48): the trust badge
 // then leads the record line in .hero, not the header. `stripBadge`: the record-level badge (paneTrust, code review
 // 2026-11-01), since it labels the record's figures; without it, the card's own. Without a strip (other callers) the card is unchanged.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, hint }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: 'verified' | 'demo' | null; hint?: boolean }) {
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, hint, notice }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: 'verified' | 'demo' | null; hint?: boolean; notice?: React.ReactNode }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
   const trust = cardTrust(t, state);
   return (
     <article className="card">
+      {notice /* F-13: the first-visit line, page 1's first card only (app/feed-rows.tsx) */}
       <header>
         <Link href={`/u/${t.handle}`} className="who" data-first-card-link={hint || undefined}>
           <WhoName name={t.display_name} handle={t.handle} />

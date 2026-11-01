@@ -1,5 +1,5 @@
-// F-13 (D27): the signed-out first-visit line, page 1 only. Placed by app/page.tsx, which renders it only for a signed-out
-// viewer at offset 0 with cards. While any card on the page is demo, the Demo badge sits beside the line at the cards'
+// F-13 (D27): the signed-out first-visit line, page 1 only. Placed at the top of page 1's first card by app/feed-rows.tsx
+// (so F-10's first screen, return + strip + disclaimer, holds); it renders only for a signed-out viewer at offset 0. While any card on the page is demo, the Demo badge sits beside the line at the cards'
 // own weight (POLICY F3a, P2): it holds for a mixed feed, where the first card may be verified.
 import Link from 'next/link';
 import type { FeedPage } from '@/lib/feed.ts';

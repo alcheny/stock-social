@@ -52,8 +52,8 @@ test('#17: keyboard only, Tab never lands in an off-screen pane; → focuses the
   const release = await feedLock('shared');
   try {
     await page.setViewportSize({ width: 360, height: 640 });
-    // F-13's first-visit line sits above row 1 on signed-out page 1 (its own tests are e2e/f13-first-visit.spec.ts);
-    // dismissed on this device here, so "the card is in view" measures the card, not the line above it.
+    // F-13's first-visit line sits at the top of card 1 on signed-out page 1 (its own tests are e2e/f13-first-visit.spec.ts);
+    // dismissed on this device here, so the Tab walk starts at the card's own controls.
     await page.addInitScript(() => { try { localStorage.setItem('ss.firstVisitLine', 'dismissed'); } catch {} });
     await page.goto('/');
     await hydrated(page);
@@ -277,7 +277,7 @@ test('#19: a 20-character handle and a long name at 320 px never widen the page,
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
     const card = row.locator(':scope > .card');
     expect(await card.evaluate((c) => c.scrollWidth <= c.clientWidth + 1)).toBe(true);
-    const cb = (await card.locator('header .badge.demo').boundingBox())!;
+    const cb = (await card.locator('.badge.demo').first().boundingBox())!; // F-10 (#54): the badge leads the record line, not the header
     expect(cb.x).toBeGreaterThanOrEqual(0);
     expect(cb.x + cb.width).toBeLessThanOrEqual(320);
   } finally {
@@ -295,7 +295,11 @@ test('#19: on short viewports (780×360, 320×256) the first card is not clipped
       const card = firstRow(page).locator(':scope > .card');
       await expect(card).toBeVisible();
       expect(await card.evaluate((c) => getComputedStyle(c).overflowY), `${width}×${height}`).toBe('auto');
+      // Signed-out page 1's card 1 also holds F-13's first-visit line, so at 320×256 the return may sit below the card's
+      // first screen: it must be reachable by scrolling the card (never clipped), and fully inside the card's box then.
       await card.evaluate((c) => { c.scrollTop = 0; });
+      await card.locator('.ret').scrollIntoViewIfNeeded();
+      await expect(card.locator('.ret'), `${width}×${height}: the return is reachable`).toBeInViewport({ ratio: 0.95 }); // sub-pixel edge
       const ret = (await card.locator('.ret').boundingBox())!, box = (await card.boundingBox())!;
       expect(ret.y + ret.height, `${width}×${height}: the return fits the card`).toBeLessThanOrEqual(box.y + box.height + 0.5);
       const link = card.locator('footer a');
