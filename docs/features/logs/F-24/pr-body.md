@@ -13,8 +13,9 @@ Feature: `docs/features/F-24-late-sell-reconciliation.md` (now `Status: built`).
 - **Insert-only:** inserts stay `on conflict (source, external_id) do nothing`. No raw row is updated or deleted, and
   closes change only through `rebuildTrades`/`rebuildRecord`.
 - **Re-issues (D5):** a newly stored row whose account, symbol, side, time, units and price equal a row stored before
-  the transaction is held in a side table, `activity_reissues` (pending, confirm, genuine or suspected). Activities stay raw, and
-  the rebuild leaves out every held row.
+  the transaction is held in a side table, `activity_reissues` (pending, confirm, genuine or suspected). Activities stay
+  raw. The rebuild passes held rows to the matcher as holds (RT-2): a held row and every later sell of its pair are
+  counted (`users.excluded_held`), never priced from an uncertain ledger.
   - Genuine: one vendor response (one pass page, one week read or one import page) decides by count. Per twin group,
     at most k − p listed held rows are cleared, where k is the rows listed and p the unheld rows, oldest first. The
     record keeps as many fills as the vendor lists. A read of a full vendor page or more decides nothing. Final.
@@ -92,7 +93,8 @@ reviewer; 3 planning rounds, all signed):
      SCHEMA_MAP.
    - The `broker_accounts` pass columns (vendor activity ids of a running pass) are cleared when the pass ends or the
      account stops being read.
-   - `users.closes_rewritten` and `sync_read_marks.reconcile_failures` are counts.
+   - `users.closes_rewritten`, `users.excluded_held`, `sync_read_marks.reconcile_failures` and
+     `sync_read_marks.confirm_failures` are counts.
    - Logs carry the internal id and counts or a reason only, never an account id (POLICY P6). The shapes are pinned by
      tests and pass the privacy-logs scan.
 3. **Money?** No.
@@ -162,16 +164,16 @@ reviewer; 3 planning rounds, all signed):
   - C6: one response means one vendor page by the sink's per-page call count, not by the filtered row count.
 
 - **Council cycle 5, RT-2 (high, record trust):** held rows are no longer dropped from the rebuild. They go to the
-  matcher as holds: a held BUY opens no lot, and a held SELL and every later sell of its pair are counted in `excluded`
-  until the row is decided, never priced from the wrong lot. Genuine prices normally; suspected keeps the pair counted.
+  matcher as holds: a held BUY opens no lot, and a held SELL and every later sell of its pair are counted in
+  `excludedHeld` until the row is decided, never priced from the wrong lot. Genuine prices normally; suspected keeps the pair counted.
   `MATCHER_VERSION` is unchanged: there are no held rows before this ships. Held-counted sells have their own count
   (`users.excluded_held`), never `excluded_positions` ("no recorded entry"). Tests: two matcher probes plus an
   end-to-end run (held → counted → decided → exact figure), all failing on 811b398. The AC3 flake's cause (a
   millisecond race at exact 24 h round spacing) is fixed in the test.
 
 ## Owner items
-- Confirm that held rows (pending, confirm or suspected) are kept out of the record and counted for the owner only, so a held
-  genuine fill can be absent until its pass decides it (D5's trade-off). See the owner queries in `docs/SYNC.md`.
+- Confirm that held rows (pending, confirm or suspected) and their pair's later sells are kept out of the record and
+  counted for the owner only, so a held genuine fill can be absent until a read decides it (D5's trade-off). See the owner queries in `docs/SYNC.md`.
 - AC6 is built for share rows: a re-issued option close can show twice until you decide to hold option twins too.
 - The symbol-less row limit, the widened read's page overlap and per-page id lists for multi-page reads (L1: such a read
   decides nothing today) need a `lib/broker.ts` change.
