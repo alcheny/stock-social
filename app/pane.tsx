@@ -47,6 +47,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const trust = paneTrust(trades, state);
   const ev = paneEvidence(trades, now); // FIXES-LABELS (code review, TR-9 / TR-7)
   const pub = isPublicRecord(state); // F-7: no Follow; the not-joined line right under the chart (it stays above the fold)
+  const newBadge = state !== 'importing' && !pub && trades.length > 0 && ev.newRecord && <span className="badge new">New record</span>;
   const chartBlock = <>
     <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} />
     {open && <ChartNote o={open} />}
@@ -85,8 +86,9 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
             squeeze the name away, and the name ends in an ellipsis. */}
         <Link href={`/u/${handle}`} className="who" style={{ minWidth: `min(100%, ${handle.length + 4}ch)` }}><WhoName name={name} handle={handle} /></Link>
         {trust.badge && <Badge kind={trust.badge} />}
-        {state !== 'importing' && !pub && trades.length > 0 && ev.newRecord && <span className="badge new">New record</span>}{/* FIXES-LABELS (code review, TR-7); F-7 (C17): never on a public record */}
-        {viewer?.signedIn && <div className="pane-actions">{!pub && <FollowButton handle={handle} following={viewer.following} signedIn />}<NotInterested handle={handle} /></div>}
+        {/* FIXES-LABELS (code review, TR-7); F-7 (C17): never on a public record. Signed in it leads the actions row, so the
+            header keeps its two lines on a phone (a line of its own pushed the chart under the swipe-back's path). */}
+        {viewer?.signedIn ? <div className="pane-actions">{newBadge}{!pub && <FollowButton handle={handle} following={viewer.following} signedIn />}<NotInterested handle={handle} /></div> : newBadge}
       </header>
       {/* F-6 (business lead D1): with open positions the figures lead, as on the profile (the pane is where most viewers
           meet a record, SW-1); without them, today's order. */}

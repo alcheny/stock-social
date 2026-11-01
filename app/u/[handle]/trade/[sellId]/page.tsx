@@ -74,7 +74,7 @@ export default async function TradePage({ params }: Params) {
           <a className="filing-link" href={t.filings.sold} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.soldName(t.symbol)}>{PUBLIC.sold}</a></p></>}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-trade">
-          <h2 id="this-trade">This trade <RowBadge kind={paneTrust([{ verified: t.verified }], t.state).badge} /></h2>
+          <h2 id="this-trade">This trade {!isPublicRecord(t.state) /* F-7: the header carries the public badge once */ && <RowBadge kind={paneTrust([{ verified: t.verified }], t.state).badge} />}</h2>
           <h1 style={{ margin: 0 }}>{t.symbol}</h1>
           <p className={`big ${toneView(t.returnPct).cls}`}><span className="sr-only">{`${toneView(t.returnPct).word} `}</span>{pct(t.returnPct)}</p>
           <p className="muted small">{held(t.holdingDays)} · closed {closed}</p>

@@ -542,8 +542,11 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 }
 /* D-09: the F3 line, static small muted text (contrast ≥ 4.5:1 on --bg and --surface in both themes). */
 .disclaimer { margin: 0; }
-/* The feed card ends with the F3 line; room below it for the Undo and sign-in bars (16 + 62 + 16), so they never cover it. */
-.feed .row > .card { padding-bottom: 96px; }
+/* The feed card ends with the F3 line; room below it for the Undo and sign-in bars (16 + 62 + 16), so they never cover it.
+   On a tall screen always; on a phone-height screen (481-699 px) only while a bar is raised, so the card keeps F-10's 15%
+   headroom at rest (e2e/record-strip.spec.ts). Landscape (<= 480 px) keeps F-10's own tight padding. */
+@media (min-height: 700px) { .feed .row > .card { padding-bottom: 96px; } }
+@media (min-height: 481px) { body:has(.hide-bar > p, .signin-line:not(:empty)) .feed .row > .card { padding-bottom: 96px; } }
 /* D-05: the chart's first and last close, under the plot. */
 /* position: relative holds its sr-only sentence inside it (in the off-screen pane it would widen the page). */
 .chart-ends { position: relative; display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin: 4px 0 0; }
