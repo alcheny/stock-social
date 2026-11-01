@@ -4,6 +4,7 @@ Live billing stays off (`LIVE_BILLING` unset; a live key is refused without it).
 item below is done. Sources: the F-3 decision of 2026-11-01 and the legal committee's conditions 21, 23 and 24
 (`committee-2026-11-01.md`).
 
+- [ ] The Terms' refund section states the app's refund line exactly (the idea board's refund decision, F-3 feature file).
 - [ ] Terms are live with billing, automatic renewal and refund sections stating exactly the Subscribe screen's lines
       (price, interval, "plus applicable sales tax", no free trial, cancel path, cancellation at period end, the refund
       line). A later change applies only to purchases made after it.
@@ -19,7 +20,8 @@ item below is done. Sources: the F-3 decision of 2026-11-01 and the legal commit
   - [ ] failed payment, with the grace end (7 days);
   - [ ] yearly plans: a reminder 30 days before renewal with price, date and a cancel link;
   - [ ] cancellation confirmation, with the end date;
-  - [ ] price change, at least 30 days ahead, with a cancel link.
+  - [ ] price change, 25 to 30 days ahead (never more than 30 or fewer than 7), from the next renewal only, with old and
+        new price, effective date and a cancel link (the idea board's decision);
   None may carry a handle, symbol, return or record field (POLICY F3b).
 - [ ] Processor settings: automatic tax on; the hosted checkout shows the total with tax before payment; the portal
       cancels at period end, switches plans with proration shown, and offers at most one retention offer naming price

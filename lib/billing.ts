@@ -389,13 +389,21 @@ function sameRow(a: SubscriptionRow, b: ReturnType<typeof desiredRow>) {
     && t(a.current_period_start) === t(b.current_period_start) && t(a.current_period_end) === t(b.current_period_end) && t(a.grace_until) === t(b.grace_until);
 }
 
-// Condition 18: a yearly plan set to cancel within 14 days of its purchase or renewal is canceled now with a full refund.
-// Condition 14: a subscriber who has since connected a broker is canceled now with a pro-rata refund.
-export function refundShare(plan: Plan, start: Date | null, end: Date | null, now: Date, reason: 'cancel' | 'trader'): number {
+// The refund decision (F-3 feature file, 2026-11-01): a subscription set to cancel within 14 days of its first charge
+// (monthly or yearly), or of a yearly renewal, is canceled now with a full refund; canceling in that window is the
+// request. Condition 14: a subscriber who has since connected a broker is canceled now with a pro-rata refund.
+// `firstPeriod`: the current period is the subscription's first (no renewal yet).
+export function refundShare(plan: Plan, start: Date | null, end: Date | null, now: Date, reason: 'cancel' | 'trader', firstPeriod = false): number {
   if (!start || !end || end <= start || now >= end) return 0;
   if (reason === 'trader') return Math.max(0, Math.min(1, (end.getTime() - now.getTime()) / (end.getTime() - start.getTime())));
-  return plan === 'annual' && now.getTime() - start.getTime() <= ANNUAL_REFUND_DAYS * DAY ? 1 : 0;
+  const inWindow = now.getTime() - start.getTime() <= ANNUAL_REFUND_DAYS * DAY;
+  return inWindow && (plan === 'annual' || firstPeriod) ? 1 : 0;
 }
+// The current period is the first when it starts where the subscription started (the processor's `start_date`).
+const isFirstPeriod = (sub: VendorSub, d: { current_period_start: Date | null }) => {
+  const started = secs(sub.start_date);
+  return !!started && !!d.current_period_start && Math.abs(started.getTime() - d.current_period_start.getTime()) < 60_000;
+};
 
 async function applyRefundPolicy(userId: number, sub: VendorSub, d: ReturnType<typeof desiredRow>) {
   if (!['active', 'past_due', 'trialing'].includes(d.status)) return;
@@ -403,7 +411,7 @@ async function applyRefundPolicy(userId: number, sub: VendorSub, d: ReturnType<t
   if (await isTrader(userId)) return cancelWithRefund(userId, sub, refundShare(d.plan, d.current_period_start, d.current_period_end, now, 'trader'), 'trader');
   if (d.cancel_at_period_end) {
     const asked = secs(sub.canceled_at) ?? now; // D5: when the subscriber asked, not when the event is processed
-    const share = refundShare(d.plan, d.current_period_start, d.current_period_end, asked, 'cancel');
+    const share = refundShare(d.plan, d.current_period_start, d.current_period_end, asked, 'cancel', isFirstPeriod(sub, d));
     if (share > 0) return cancelWithRefund(userId, sub, share, 'refund');
   }
 }
@@ -565,7 +573,7 @@ export async function endBillingForDeletion(userId: number): Promise<void> {
       try { sub = (await vendor('GET', `/v1/subscriptions/${enc(s.vendor_subscription_id)}`)) as VendorSub; } catch (e) { if (!(e instanceof VendorError && e.status === 404)) throw e; }
       if (sub && !['canceled', 'incomplete_expired'].includes(sub.status)) {
         const d = desiredRow(sub, cfg().prices, null, billingDeps.now());
-        await cancelWithRefund(userId, sub, refundShare(d.plan, d.current_period_start, d.current_period_end, billingDeps.now(), 'cancel'), 'deletion');
+        await cancelWithRefund(userId, sub, refundShare(d.plan, d.current_period_start, d.current_period_end, billingDeps.now(), 'cancel', isFirstPeriod(sub, d)), 'deletion');
       }
     }
     try { await vendor('DELETE', `/v1/customers/${enc(cust.vendor_customer_id)}`); } catch (e) { if (!(e instanceof VendorError && e.status === 404)) throw e; }

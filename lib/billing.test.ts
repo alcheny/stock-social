@@ -103,7 +103,9 @@ test('pure rules: entitlement by status, grace and dispute; refund shares; statu
   const start = new Date(Date.UTC(2026, 10, 1)), end = new Date(Date.UTC(2027, 10, 1));
   assert.equal(refundShare('annual', start, end, new Date(start.getTime() + 14 * DAY), 'cancel'), 1);
   assert.equal(refundShare('annual', start, end, new Date(start.getTime() + 14 * DAY + 1), 'cancel'), 0);
-  assert.equal(refundShare('monthly', start, new Date(Date.UTC(2026, 11, 1)), new Date(start.getTime() + DAY), 'cancel'), 0);
+  assert.equal(refundShare('monthly', start, new Date(Date.UTC(2026, 11, 1)), new Date(start.getTime() + DAY), 'cancel'), 0, 'a monthly renewal: no partial refund');
+  assert.equal(refundShare('monthly', start, new Date(Date.UTC(2026, 11, 1)), new Date(start.getTime() + 14 * DAY), 'cancel', true), 1, 'within 14 days of the first charge');
+  assert.equal(refundShare('monthly', start, new Date(Date.UTC(2026, 11, 1)), new Date(start.getTime() + 15 * DAY), 'cancel', true), 0);
   assert.ok(Math.abs(refundShare('monthly', start, new Date(start.getTime() + 30 * DAY), new Date(start.getTime() + 10 * DAY), 'trader') - 2 / 3) < 1e-9);
   assert.equal(refundShare('annual', start, end, end, 'trader'), 0);
   assert.equal(mapStatus('incomplete'), 'incomplete');
@@ -246,9 +248,12 @@ dbTest('out-of-order delivery converges to the same state (each event fetches th
   const url = await b.startCheckout({ userId: u, plan: 'monthly', agreed: true, disclosure: 'd', origin: 'http://app.test' });
   await hold.handle('POST', `/checkout/${url.split('/checkout/')[1]}/pay`, '', {});
   const sub = [...hold.subs.values()].at(-1)!;
+  now += 31 * DAY; await hold.lifecycle(sub.id, 'renew'); // a renewed period, past any refund window
+  now += 15 * DAY;
   await hold.lifecycle(sub.id, 'payment_failed');
   sub.cancel_at_period_end = true; await hold.emit('customer.subscription.updated', sub as never);
-  for (const q of queued.reverse()) assert.equal((await b.handleWebhook(q.raw, q.sig)).status, 200);
+  // Delivered now, newest first; the processor signs each delivery when it sends it.
+  for (const q of queued.reverse()) assert.equal((await b.handleWebhook(q.raw, b.signPayload(q.raw, SECRET, Math.floor(now / 1000)))).status, 200);
   const r = (await row(u))!;
   assert.equal(r.status, 'past_due');
   assert.equal(r.cancel_at_period_end, true);
@@ -294,7 +299,7 @@ dbTest('traders: Record tools included with no customer row, checkout refused; a
   assert.equal(await ent(u), true, 'now a trader: included');
 });
 
-dbTest('a yearly plan canceled within 14 days of purchase is canceled now with a full refund; after 14 days it runs to period end', async () => {
+dbTest('canceled within 14 days of the first charge (monthly or yearly) or of a yearly renewal: canceled now with a full refund; otherwise it runs to period end', async () => {
   const u = await user();
   const sub = await subscribe(u, 'annual');
   now += 13 * DAY;
@@ -308,10 +313,21 @@ dbTest('a yearly plan canceled within 14 days of purchase is canceled now with a
   assert.equal((await row(v))!.status, 'active');
   assert.equal((await row(v))!.cancel_at_period_end, true);
   assert.equal(await ent(v), true);
+  // Monthly: within 14 days of the first charge, a full refund; after a renewal, no partial refund (refund decision).
   const m = await user();
   const monthly = await subscribe(m);
+  now += 5 * DAY;
   monthly.cancel_at_period_end = true; await fake.emit('customer.subscription.updated', monthly as never);
-  assert.equal((await row(m))!.status, 'active', 'monthly: no partial-month refund, runs to period end');
+  assert.equal((await row(m))!.status, 'canceled');
+  assert.equal(fake.refunds.at(-1)!.amount, 999);
+  const r = await user();
+  const renewed = await subscribe(r);
+  now += 31 * DAY; await fake.lifecycle(renewed.id, 'renew');
+  now += 2 * DAY;
+  const before = fake.refunds.length;
+  renewed.cancel_at_period_end = true; await fake.emit('customer.subscription.updated', renewed as never);
+  assert.equal((await row(r))!.status, 'active', 'monthly after a renewal: runs to period end');
+  assert.equal(fake.refunds.length, before);
 });
 
 dbTest('nightly reconciliation: drift is found, fixed and counted; missing rows are added; expired grace becomes unpaid; old events and consents are purged; logs hold counts only', async () => {

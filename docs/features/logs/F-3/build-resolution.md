@@ -32,3 +32,4 @@ no Blocker, 1 High, 1 Medium, 9 Low; tested a build without the fixes below), an
 | QA L8 | The browser's note limit counts emoji twice | The client cap is removed; the server's 2,000-character rule answers. |
 | QA L9 | The e2e fake clashes with a running fake | Run the spec without a standing fake (CI never has one). |
 | Found while fixing | The 20-view limit could be passed by concurrent creates | One create at a time per owner. Test. |
+| Merge with main | The idea board's refund decision (a full refund within 14 days of the first charge, monthly too) differs from the committee's first refund line | The screen, the Terms and the refunds follow the idea board's decision (one policy, the more protective): new refund line; a monthly plan canceled within 14 days of its first charge is refunded in full; after a renewal, no partial refund. Tests. Recorded in the feature file. |

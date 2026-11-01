@@ -40,7 +40,7 @@ test('copy: no advice, promise, ranking, completeness or third-party words; the 
     assert.doesNotMatch(s, MARK_RE, s);
     assert.doesNotMatch(s, MINORS_RE, s);
   }
-  assert.equal(BILLING.refund, 'Monthly plans: no refunds for partial months. Yearly plans: full refund if you cancel within 14 days of purchase or of a renewal. Refunds required by law are always given.');
+  assert.equal(BILLING.refund, 'Cancel within 14 days of your first charge, or of a yearly renewal, for a full refund. Otherwise there are no partial refunds, except for billing errors, a discontinued feature, or where the law requires one.'); // the idea board's refund decision (F-3 feature file, 2026-11-01)
   assert.equal(BILLING.noTrial, 'No free trial. You are charged today.');
   assert.equal(BILLING.agreeMonthly, 'I agree my subscription renews automatically at $9.99 per month plus tax until I cancel.');
   assert.equal(BILLING.agreeAnnual, 'I agree my subscription renews automatically at $99.99 per year plus tax until I cancel.');

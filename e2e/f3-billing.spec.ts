@@ -93,7 +93,7 @@ test('F-3 Subscribe screen: every disclosure visible above the buttons, no plan 
   await signIn(page, handle());
   await page.goto('/tools');
   const block = page.locator('#subscribe');
-  for (const line of ['Test mode, no real charge', 'No free trial. You are charged today.', 'To cancel: Account → Cancel subscription.', 'Monthly plans: no refunds for partial months.',
+  for (const line of ['Test mode, no real charge', 'No free trial. You are charged today.', 'To cancel: Account → Cancel subscription.', 'Cancel within 14 days of your first charge, or of a yearly renewal, for a full refund.',
     "You enter your card details on the payment processor's page. Stock Social never sees your card number.", 'Monthly: $9.99 per month plus applicable sales tax', 'Yearly: $99.99 per year plus applicable sales tax',
     'Monthly renews automatically every month at $9.99 plus tax. If you subscribe today, the next charge is on', 'Yearly renews automatically every year at $99.99 plus tax.']) await expect(block).toContainText(line);
   await expect(block.locator('details')).toHaveCount(0);

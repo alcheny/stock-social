@@ -17,7 +17,7 @@ import { API_VERSION, signPayload } from '../../lib/billing.ts';
 type Obj = Record<string, unknown>;
 export type FakeSub = {
   id: string; object: 'subscription'; customer: string; status: string; cancel_at_period_end: boolean;
-  current_period_start: number; current_period_end: number; latest_invoice: string; livemode: boolean; canceled_at: number | null;
+  current_period_start: number; current_period_end: number; start_date: number; latest_invoice: string; livemode: boolean; canceled_at: number | null;
   items: { data: { price: { id: string }; current_period_start: number; current_period_end: number }[] }; metadata: Obj;
 };
 export type FakeEvent = { id: string; type: string; livemode: boolean; created: number; data: { object: Obj } };
@@ -82,7 +82,7 @@ export function createBillingFake(o: BillingFakeOptions) {
   }
   function newSub(customer: string, priceId: string): FakeSub {
     const start = sec(), end = periodEnd(start, priceId);
-    const sub: FakeSub = { id: id('sub'), object: 'subscription', customer, status: 'active', cancel_at_period_end: false, canceled_at: null, current_period_start: start, current_period_end: end, latest_invoice: '', livemode: false, items: { data: [{ price: { id: priceId }, current_period_start: start, current_period_end: end }] }, metadata: {} };
+    const sub: FakeSub = { id: id('sub'), object: 'subscription', customer, status: 'active', cancel_at_period_end: false, canceled_at: null, start_date: start, current_period_start: start, current_period_end: end, latest_invoice: '', livemode: false, items: { data: [{ price: { id: priceId }, current_period_start: start, current_period_end: end }] }, metadata: {} };
     subs.set(sub.id, sub);
     return sub;
   }

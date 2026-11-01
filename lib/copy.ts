@@ -499,7 +499,7 @@ export const BILLING = {
   renewMonthly: (next: Date) => `Monthly renews automatically every month at $9.99 plus tax. If you subscribe today, the next charge is on ${billingDate(next)}.`,
   renewAnnual: (next: Date) => `Yearly renews automatically every year at $99.99 plus tax. If you subscribe today, the next charge is on ${billingDate(next)}.`,
   cancelHow: 'To cancel: Account → Cancel subscription. Canceling takes effect at the end of the paid period: you keep access until that date and are not charged again.',
-  refund: 'Monthly plans: no refunds for partial months. Yearly plans: full refund if you cancel within 14 days of purchase or of a renewal. Refunds required by law are always given.',
+  refund: 'Cancel within 14 days of your first charge, or of a yearly renewal, for a full refund. Otherwise there are no partial refunds, except for billing errors, a discontinued feature, or where the law requires one.',
   card: "You enter your card details on the payment processor's page. Stock Social never sees your card number.",
   agreeMonthly: 'I agree my subscription renews automatically at $9.99 per month plus tax until I cancel.',
   agreeAnnual: 'I agree my subscription renews automatically at $99.99 per year plus tax until I cancel.',
