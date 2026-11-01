@@ -39,7 +39,70 @@ Standing rules that apply unchanged (not owner choices for this feature; listed 
   fixtures use fictional filers; real names exist only in production data imported at runtime.
 
 ## Acceptance criteria
-Written by the committee in the build's plan debate (docs/features/logs/F-7/), each one testable.
+Written by the committee in the build's plan debate (`docs/features/logs/F-7/plan.md`, rounds 3-5, on
+`plan-round2-engineer.md` §4.3), each with its test (`lib/f7-*.test.ts`, `e2e/f7-*.spec.ts`).
+1. Insider FIFO math: an open-market purchase at 10 sold at 12 is +20.0%; two equal purchases at 10 and 14 sold at
+   13 are +8.33%; losses stay negative.
+2. Never guessed: a sale of granted shares, of shares held before the first report, or partly of unknown-cost shares
+   is excluded whole and counted (`no_price`); gifts and other dispositions are counted; derivative rows (`derivative`)
+   and indirectly held rows (`indirect`) are never matched; a holdings figure that doesn't reconcile excludes every
+   later sale in that security (`unreconciled`).
+3. Amendments replace the rows of the filing they amend (latest filed wins) and the rebuilt percent changes.
+4. Derived rows hold percent only: no quantity, price or amount; `closed_trades` gains only `filing_url`, `feed_after`.
+5. Identity is the filer id, never the name: two filers with one name get two profiles; re-import is idempotent.
+6. Adults by rule: only filers reporting a director or officer role get a profile; large holders only and "other"
+   only are skipped and counted.
+7. A filer is never an account: no sign-in path (dev login and every other) creates a session for one; nobody signs
+   up or renames into `pf_`; `rebuildTrades` refuses a filer; a filer is never a referrer.
+8. Switch: `PUBLIC_TRADERS=0` off; `1` on (production needs both contacts); unset on outside production and in the
+   sandbox, off in production; unset reaches loopback only; the importer doesn't run when off.
+9. Switch off, hidden or removed: every profile route 404s and no feed, similar or suggest query returns the filer.
+10. Sources: only company insiders' reports can be enabled; anything else listed is ignored.
+11. Fair access: no request without `PUBLIC_FILINGS_CONTACT`; every request carries the product and contact in its
+    User-Agent; one worker, ≥ 250 ms apart; backoff and stop on repeated refusals; logs hold no filer or issuer name.
+12. Parser: fixtures parse to the expected rows; truncated, oversized or unknown documents are skipped and counted.
+13. Never Verified: every trust function returns the public kind for a filer; "Public filing" in image and unfurl
+    text; the copy test bans "insider buying", "insider trading", "smart money", "signal", "copy", "follow their
+    trades", "trade like" and completeness claims.
+14. Labels on every surface (profile, feed card, pane, trade, month, share card): "Public filing" and, on fixtures,
+    "Demo"; never a Verified badge.
+15. Top block on profile, pane, trade and month pages, in order: badges and "Company insider"; "Built from public
+    filings. This person has not joined Stock Social, has not connected a broker, has not reviewed this record and
+    does not endorse it."; "Record since … · last checked … · Request a correction or removal →" to `/public-records`;
+    "Filings can be late, amended or missing." No horizontal scroll at 360 px; the pane chart stays above the fold.
+16. Each closed trade links its filing ("Filing ↗", 44 px target, named as opening another site); the trade page
+    links the sale's filing.
+17. No amounts: profile, trade and pane HTML, image alt and unfurl meta contain none of the fixture's share counts
+    or prices.
+18. Exclusions are shown by reason with counts; a filer with no priced round trip has no page (404) and is counted.
+19. Open positions: symbols only with the no-price sentence; no percent and no unrealized grid.
+20. Feed: an eligible filer (5+ closes) appears with the label and card line "Company insider · from a public
+    filing" and footer "See their record, wins and losses →"; same score and TR-9 bound as connected traders; losses
+    rank like gains; a lone purchase never appears.
+21. Feed floor: nothing from a filing reaches the feed, similar, suggest or sections until 30 days after the latest
+    filing behind the trade (opening purchases and sale, after amendments); an embargoed close leaves feed list, order
+    and weights unchanged; a filer whose 5th close is embargoed is not eligible; the profile shows closes at once.
+22. Off stock pages: no public close on `/t`, `/t/[symbol]`, `/t/compare`, the ticker image or the sitemap.
+23. Hide and remove: hide 404s every route and drops the filer from the feed, unhide restores both; remove deletes the
+    profile, raw and derived rows, keeps only the filer id, source and removal time, and re-import never recreates
+    it; each action is logged with a reason code and no requester details.
+24. Privacy maps cover the four new tables and the two new columns.
+25. Signed out and signed in see the same public record, free.
+26. Footer disclaimer on every F-7 page; `/how` has the "Public filing records" section; links ≥ 44 px; color never
+    alone.
+27. Size: the PR's product lines stay within the Gate's cap, or the build stops and flags.
+28. No Follow, Like, double-tap like, thesis form, share prompt or join CTA on public records; the follow and like
+    actions refuse a filer.
+29. A filer row has `public_filer_id`, the epoch placeholder attestation and no broker link (database check), and
+    the funnel, attestation and referral counts exclude it; the placeholder attempt survives the purge or is recreated.
+30. Public profiles are `noindex` and absent from the sitemap.
+31. A public record never shows the "New record" badge or fills the new-record slot.
+32. Stored raw rows have no address, signature, remarks, footnote or indirect-holding label.
+33. Dry run: against the fake, writes zero rows and prints counts only (no fixture name).
+34. Share card data, image alt and unfurl description carry "Public filing" and "has not joined Stock Social"; the
+    line is at least 24 px at 1200x630; no Verified and no amount.
+35. "Last checked" is the source's last successful import; the "may be out of date" line shows only when the source
+    has had no successful run for 7 days.
 
 ## Out of scope
 - Any path for a trader to self-report trades (still forbidden).
