@@ -1,6 +1,7 @@
 # F-5 · Position size: showing the risk behind each trade
 
-Status: draft
+Status: blocked
+Blocked: the data vendor's written permission for public position sizes, and counsel's sign-off (legal review of 2026-10-31).
 
 ## Why
 Percent returns alone hide the risk a trader took: a +50% trade on a $1 bet and a +50% trade with the whole
@@ -47,6 +48,8 @@ publishing anyone's dollar amounts.
   - a trader can turn size off without deleting the record (an exception to the record-freeze rules TR-1 and
     TR-5); share cards already posted elsewhere can't be recalled, and the opt-in says so.
   Why: the owner's answer to the legal review of 2026-10-31.
+- 2026-11-01: The owner confirmed F-5 is decided; it stays blocked until the data vendor's written permission
+  and counsel's sign-off. Why: the owner's choice; the vendor permission is a hard gate the owner accepted.
 
 ## Acceptance criteria
 To be written once the open questions are settled.

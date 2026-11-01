@@ -1,6 +1,6 @@
 # F-4 · Share card: simple first, the eye-catching elements
 
-Status: built
+Status: rework
 
 ## Why
 The share card (the image a profile link unfurls into, also used by the one-click Share button) is
@@ -99,6 +99,8 @@ elements that catch the eye and travel, and leave detail for the profile.
   profile counted to the last close (60), and an idle record shouldn't look longer.
 - 2026-11-01: The period keeps the trust line's unit per evidence tier: days while thin, months when moderate,
   years when strong. Why: the owner's choice; the card and its trust line always use the same unit.
+- 2026-11-01: The owner confirmed F-4 is decided: #25 merges as built, and the pipeline rebuilds the card to the
+  decisions of 2026-10-31 and 2026-11-01 (Status: rework). Why: the owner's choice.
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
