@@ -35,7 +35,7 @@ test('canonicalEmail: lower-case, +tag stripped from the local part (for the lim
   assert.equal(canonicalEmail('+x@example.com'), '@example.com');
 });
 
-test('clientIp: proxy headers only on Vercel or with TRUST_PROXY_HEADERS=1; IPv6 truncated to /64; junk is null', () => {
+test('clientIp: proxy headers only on Vercel or with TRUST_PROXY_HEADERS=1; IPv6 truncated to /56; junk is null', () => {
   const h = (o: Record<string, string>) => new Headers(o);
   assert.equal(clientIp(h({ 'x-real-ip': '203.0.113.7' }), {}), null); // headers are forgeable without a trusted proxy
   assert.equal(clientIp(h({ 'x-real-ip': '203.0.113.7' }), { VERCEL: '1' }), '203.0.113.7');
@@ -47,13 +47,17 @@ test('clientIp: proxy headers only on Vercel or with TRUST_PROXY_HEADERS=1; IPv6
   // On Vercel: x-real-ip, else the first forwarded entry (Vercel overwrites the header).
   assert.equal(clientIp(h({ 'x-forwarded-for': '198.51.100.2, 10.0.0.1' }), { VERCEL: '1' }), '198.51.100.2');
   assert.equal(clientIp(h({ 'x-real-ip': '198.51.100.9', 'x-forwarded-for': '1.1.1.1' }), { VERCEL: '1' }), '198.51.100.9');
-  // An IPv4-mapped IPv6 address is that IPv4 address (not a /64 that every IPv4 client would share).
+  // An IPv4-mapped IPv6 address is that IPv4 address (not a /56 that every IPv4 client would share).
   assert.equal(clientIp(h({ 'x-real-ip': '::ffff:203.0.113.7' }), { VERCEL: '1' }), '203.0.113.7');
   assert.equal(clientIp(h({ 'x-real-ip': '::FFFF:198.51.100.1' }), { VERCEL: '1' }), '198.51.100.1');
   assert.equal(clientIp(h({ 'x-forwarded-for': '1.1.1.1, ::ffff:10.1.2.3' }), { TRUST_PROXY_HEADERS: '1' }), '10.1.2.3');
-  assert.equal(clientIp(h({ 'x-real-ip': '2001:db8:1:2:3:4:5:6' }), { VERCEL: '1' }), '2001:db8:1:2::/64');
-  assert.equal(clientIp(h({ 'x-real-ip': '2001:db8::1' }), { VERCEL: '1' }), '2001:db8:0:0::/64');
-  assert.equal(clientIp(h({ 'x-real-ip': '[2001:db8:a::1]' }), { VERCEL: '1' }), '2001:db8:a:0::/64');
+  // Per /56 (a common size for one subscriber's delegation): the low 8 bits of the 4th group and everything after vary freely.
+  assert.equal(clientIp(h({ 'x-real-ip': '2001:db8:1:2:3:4:5:6' }), { VERCEL: '1' }), '2001:db8:1:0::/56');
+  assert.equal(clientIp(h({ 'x-real-ip': '2001:db8:1:ff:3:4:5:6' }), { VERCEL: '1' }), '2001:db8:1:0::/56');
+  assert.equal(clientIp(h({ 'x-real-ip': '2001:db8:1:abcd::9' }), { VERCEL: '1' }), '2001:db8:1:ab00::/56');
+  assert.equal(clientIp(h({ 'x-real-ip': '2001:db8:1:1ff::9' }), { VERCEL: '1' }), '2001:db8:1:100::/56');
+  assert.equal(clientIp(h({ 'x-real-ip': '2001:db8::1' }), { VERCEL: '1' }), '2001:db8:0:0::/56');
+  assert.equal(clientIp(h({ 'x-real-ip': '[2001:DB8:a::1]' }), { VERCEL: '1' }), '2001:db8:a:0::/56');
   assert.equal(clientIp(h({ 'x-real-ip': 'not-an-ip' }), { VERCEL: '1' }), null);
   assert.equal(clientIp(h({}), { VERCEL: '1' }), null);
   assert.equal(clientIp(h({ 'x-real-ip': '203.0.113.7' }), { TRUST_PROXY_HEADERS: 'true' }), null);

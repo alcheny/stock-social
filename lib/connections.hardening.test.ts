@@ -67,29 +67,35 @@ dbTest('mint: over the global vendor-user cap, no vendor user is registered, the
   assert.deepEqual(registered, [`attempt-${a}`]);
 });
 
-dbTest('mint: the real vendor deps carry the global vendor-user cap (read before, counted after a registration); fakes do not', async () => {
+dbTest('mint: the real vendor deps count new vendor users globally and only alert past the cap (the per-client attempt limit is the protection); fakes are not counted', async () => {
   const { sql } = await import('./db.ts');
   const { windowStart } = await import('./rate-limit.ts');
   const { createAttempt } = await import('./auth/attempts.ts');
   const c = await import('./connections.ts');
-  assert.equal(c.realDeps.registerAllowed, c.vendorRegisterAllowed);
+  assert.equal(c.realDeps.registerAllowed, undefined); // nothing refuses a registration globally
   assert.equal(c.realDeps.registered, c.countVendorRegistration);
   const key = `vendor_register/${c.VENDOR_REGISTER_LIMIT[1]}`;
   const at = windowStart(new Date(), c.VENDOR_REGISTER_LIMIT[1]);
   const [before] = await sql`select n from rate_limits where key = ${key} and window_start = ${at}`;
+  const warned: unknown[][] = [];
+  const orig = console.warn;
   try {
-    const { deps } = fakeDeps();
-    const capped = { ...deps, registerAllowed: c.vendorRegisterAllowed, registered: c.countVendorRegistration };
+    const { deps, registered } = fakeDeps();
+    const counted = { ...deps, registered: c.countVendorRegistration };
     await sql`insert into rate_limits (key, window_start, n) values (${key}, ${at}, 0) on conflict (key, window_start) do update set n = 0`;
     const a = await createAttempt({ method: 'brokerage', attested: true });
-    await c.startConnection({ userId: null, attemptId: a }, 'https://app.example/connect/done', capped);
-    await c.startConnection({ userId: null, attemptId: a }, 'https://app.example/connect/done', capped); // stored: not counted again
+    await c.startConnection({ userId: null, attemptId: a }, 'https://app.example/connect/done', counted);
+    await c.startConnection({ userId: null, attemptId: a }, 'https://app.example/connect/done', counted); // stored: not counted again
     assert.equal((await sql`select n from rate_limits where key = ${key} and window_start = ${at}`)[0].n, 1);
     await sql`update rate_limits set n = ${c.VENDOR_REGISTER_LIMIT[0]} where key = ${key} and window_start = ${at}`;
+    console.warn = (...x: unknown[]) => { warned.push(x); };
     const b = await createAttempt({ method: 'brokerage', attested: true });
-    await assert.rejects(c.startConnection({ userId: null, attemptId: b }, 'https://app.example/connect/done', capped), c.RateLimitedError);
-    await c.startConnection({ userId: null, attemptId: b }, 'https://app.example/connect/done', deps); // a fake vendor is never capped
+    assert.equal(await c.startConnection({ userId: null, attemptId: b }, 'https://app.example/connect/done', counted), 'https://vendor.example/portal');
+    console.warn = orig;
+    assert.ok(registered.includes(`attempt-${b}`));
+    assert.ok(warned.some((x) => String(x[1]).includes('vendor_register')));
   } finally {
+    console.warn = orig;
     if (before) await sql`update rate_limits set n = ${before.n} where key = ${key} and window_start = ${at}`;
     else await sql`delete from rate_limits where key = ${key} and window_start = ${at}`;
   }

@@ -1,5 +1,5 @@
 import type { NextConfig } from 'next';
-import { securityHeaders } from './lib/csp.ts';
+import { hstsWanted, securityHeaders } from './lib/csp.ts';
 
 // F-1 PR-2b fix round 2 (engineer, Low): no page of the app may be framed by another site (clickjacking on /connect,
 // consent and settings). Both headers, for browsers that only know one of them. The vendor's portal the app frames is
@@ -7,7 +7,7 @@ import { securityHeaders } from './lib/csp.ts';
 // pages' full Content-Security-Policy, with its per-request nonce, is set in proxy.ts.
 const config: NextConfig = {
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders(process.env.NODE_ENV === 'production') }];
+    return [{ source: '/:path*', headers: securityHeaders(hstsWanted()) }];
   },
 };
 export default config;

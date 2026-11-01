@@ -36,6 +36,8 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
   // Security hardening (2026-11-01): pseudonymous (keyed hashes, never the address or IP itself), so counted as personal.
   rate_limits: { personal: true, retention: 'short', holds: 'rate-limit counters per window, keyed by a scope and a keyed hash of an email address, client IP or id; pruned by lib/rate-limit.ts after 2 days' },
+  portal_probes: { personal: false, retention: 'none', holds: 'per vendor portal origin, whether it can be framed and until when' },
+  rate_marks: { personal: true, retention: 'short', holds: 'the last import-poll time per user id; pruned by lib/rate-limit.ts after a day' },
 };
 
 // Every `create table [if not exists] <name>` in a schema text.

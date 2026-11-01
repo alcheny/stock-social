@@ -12,7 +12,7 @@ import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
 import { replaceAccountPositions, replacePositions } from './positions.ts';
 import { ownsAttempt } from './auth/links.ts';
 import { unsignToken } from './auth/sessions.ts';
-import { capReached, hit, windowStart } from './rate-limit.ts';
+import { capReached, hit } from './rate-limit.ts';
 import { portalOrigin } from './portal.ts';
 
 // Brokerage-first: the signed attempt id, bound to the browser at S1 (startSignIn) until the user row exists.
@@ -120,7 +120,7 @@ export type Deps = Pick<typeof vendor, 'registerUser' | 'connectUrl' | 'listAcco
   // F20: the global vendor-user cap. Only the real vendor carries it; a test's fake vendor registers nobody and is uncapped.
   registerAllowed?: () => Promise<boolean>; registered?: () => Promise<unknown>;
 };
-export const realDeps: Deps = { ...vendor, registerAllowed: vendorRegisterAllowed, registered: countVendorRegistration };
+export const realDeps: Deps = { ...vendor, registered: countVendorRegistration };
 
 const norm = (c: Record<string, unknown>): Connection => ({ ...(c as Connection), id: Number(c.id), attempt_id: Number(c.attempt_id) });
 export async function getConnection(id: number, db: TransactionSql | typeof sql = sql): Promise<Connection | null> {
@@ -248,16 +248,12 @@ export const MINT_MAX = 10;
 export const MINT_WINDOW_MIN = 10;
 export class RateLimitedError extends Error { constructor() { super('too many portal opens'); } }
 export const VENDOR_REGISTER_LIMIT = [300, 3_600] as const;
-// The cap is read before the mint's transaction and counted after it commits, only for a registration that happened,
-// so no shared row is locked while the vendor registers (registrations for different traders run side by side).
-// Parallel first mints may slip a few past the cap, which is fine for a cost guard.
-export async function vendorRegisterAllowed(): Promise<boolean> {
-  const [r] = await sql`select n from rate_limits where key = ${`vendor_register/${VENDOR_REGISTER_LIMIT[1]}`} and window_start = ${windowStart(new Date(), VENDOR_REGISTER_LIMIT[1])}`;
-  if (!r || (r.n as number) < VENDOR_REGISTER_LIMIT[0]) return true;
-  capReached('vendor_register', VENDOR_REGISTER_LIMIT[1]);
-  return false;
+// Counted after the mint's transaction commits, only for a registration that happened, so no shared row is locked while
+// the vendor registers. Past the cap it only alerts the operator: refusing would lock every new trader out at once; the
+// per-client attempt limit (lib/auth/send-limits.ts#attemptAllowed) bounds any one client.
+export async function countVendorRegistration(): Promise<void> {
+  if (!(await hit('vendor_register', ...VENDOR_REGISTER_LIMIT))) capReached('vendor_register', VENDOR_REGISTER_LIMIT[1]);
 }
-export function countVendorRegistration() { return hit('vendor_register', ...VENDOR_REGISTER_LIMIT); }
 // PR-3 (carried Info 3): the vendor answered with a URL the caller refuses (not an https vendor URL): the route answers 502.
 export class PortalRefusedError extends Error { constructor() { super('the vendor returned no usable portal URL'); } }
 // PR-3 (carried Low 2 and Info 3): only what needs the lock runs under it: the limit's count, the vendor user's
@@ -272,8 +268,8 @@ export async function mintPortal(
   accept: (url: string) => boolean = () => true,
 ): Promise<{ url: string; mode: PortalMode }> {
   const provisional: PortalMode = typeof decide === 'string' ? decide : 'embedded';
-  // F20: new vendor users are created before anyone is verified: a global hourly cap (realDeps.registerAllowed), asked
-  // only when none is stored yet.
+  // F20: a registration gate a caller may inject (tests); asked only when no vendor user is stored yet. The real deps
+  // only count registrations (countVendorRegistration).
   if (deps.registerAllowed && !(await brokerUserFor({ user_id: who.userId, attempt_id: who.attemptId })) && !(await deps.registerAllowed())) throw new RateLimitedError();
   const { bu, registered, eventId } = await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(${who.userId !== null ? USER_LOCK : ATTEMPT_LOCK}, ${who.userId ?? who.attemptId})`;
