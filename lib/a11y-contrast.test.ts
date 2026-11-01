@@ -134,6 +134,41 @@ test('F-20 AC12: no contrast test compares a ratio or ΔE00 with a literal below
   }
 });
 
+// QA M2: every inline floor the older contrast tests keep, by file, exactly as written. A floor that is lowered (9 → 3,
+// 4.5 → 3), or a new comparison that is not on FLOORS, fails here; a deliberate new inline floor is added to this list.
+const INLINE_FLOORS: Record<string, string[]> = {
+  'a11y-contrast.test.ts': ['r >= 4.5', 'r >= 4.5', 'contrast(t[bar], t[base]) >= 3', 'r >= 3'],
+  'fixes-cycle2-a11y.test.ts': ['r >= 4.5', 'r >= 4.5', 'min >= 9', 'r >= 3'],
+  'badge-contrast.test.ts': ['r >= 4.5'],
+};
+test('F-20 AC12 (QA M2): every ratio or ΔE00 comparison is on FLOORS or is a listed inline floor at its cycle-2 value', () => {
+  for (const [f, want] of Object.entries(INLINE_FLOORS)) {
+    const src = readFileSync(new URL(`./${f}`, import.meta.url), 'utf8').replace(/^\s*\/\/[^\n]*$/gm, '');
+    const got: string[] = [];
+    // The first argument of each assert.ok(…), up to its top-level comma.
+    for (const m of src.matchAll(/assert\.ok\(/g)) {
+      let depth = 0, i = m.index + m[0].length, arg = '';
+      for (; i < src.length; i++) {
+        const ch = src[i];
+        if ('([{'.includes(ch)) depth++;
+        else if (')]}'.includes(ch)) { if (depth === 0) break; depth--; }
+        else if (ch === ',' && depth === 0) break;
+        arg += ch;
+      }
+      const cmp = arg.replace(/\s+/g, ' ').trim();
+      if (!/>=/.test(cmp)) continue;
+      if (/\.length\b|indexOf\(|\brings\b|Number\(m\[1\]\)/.test(cmp)) continue; // counts and positions, not floors
+      if (/>= (?:FLOORS\.[a-z]+|FLOORS\[[^\]]+\]|floor)$/.test(cmp)) continue;
+      if (cmp === 'FLOORS[k as keyof typeof FLOORS] >= v') continue; // the FLOORS ≥ CYCLE2 check itself
+      got.push(cmp);
+    }
+    assert.deepEqual(got, want, `${f}: inline floors changed`);
+  }
+  // The FLOORS-based comparisons are really there (a check rewritten to a literal would leave the list above).
+  const own = readFileSync(new URL('./a11y-contrast.test.ts', import.meta.url), 'utf8');
+  assert.ok((own.match(/>= FLOORS\.cvd/g) ?? []).length >= 3, 'the ΔE00 checks compare with FLOORS.cvd');
+});
+
 test('F-20 AC1: one TOKENS block opens app/globals.css, and the first :root rules (the regex tests read them) hold every hex token', () => {
   assert.equal(rawCss.split(TOKENS_START).length, 2, 'one TOKENS opening marker');
   assert.equal(rawCss.split(TOKENS_END).length, 2, 'one TOKENS closing marker');
@@ -150,6 +185,15 @@ test('F-20 AC1: one TOKENS block opens app/globals.css, and the first :root rule
   assert.deepEqual(hexes(firstLight), [...new Set(all((r) => r.media.length > 0))].sort(), 'light: the first light :root holds every hex token');
   for (const k of ['bg', 'surface', 'text', 'muted', 'line', 'up', 'down', 'accent', 'on-accent', 'control', 'focus']) {
     assert.ok(hexes(firstDark).includes(k) && hexes(firstLight).includes(k), `--${k} in both first :root rules`);
+  }
+});
+
+test('F-20 AC7 (QA L1): the TOKENS block holds only :root rules (plain and in the light query), so no rule hides a literal there', () => {
+  const inside = parse(block(rawCss, TOKENS_START, TOKENS_END).replace(/\/\*[\s\S]*?\*\//g, ''));
+  assert.ok(inside.length >= 2, 'the dark and light :root rules');
+  for (const r of inside) {
+    assert.deepEqual(r.sels, [':root'], `only :root inside TOKENS: ${r.sels.join(', ')}`);
+    for (const m of r.media) assert.match(m, /^@media \(prefers-color-scheme: light\)$/, `only the light query inside TOKENS: ${m}`);
   }
 });
 
@@ -187,6 +231,8 @@ for (const [name, on] of Object.entries(scheme) as [keyof typeof TOKENS_WANT, (r
     { what: 'the selected chip text (--bg on --accent)', fg: 'bg', on: ['accent'], floor: 'text' },
     { what: 'the pressed range tab (--bg on gain)', fg: 'bg', on: ['up'], floor: 'text' },
     { what: 'the pressed range tab (--bg on loss)', fg: 'bg', on: ['down'], floor: 'text' },
+    { what: 'the Watch button text (--accent)', fg: 'accent', on: GROUNDS, floor: 'text' },
+    { what: 'the pressed Watch button text (--accent on its 15% tint)', fg: 'accent', on: { mix: 'accent', pct: 0.15 }, floor: 'text' },
     { what: 'the selected chip fill (--accent)', fg: 'accent', on: GROUNDS, floor: 'ui' },
     { what: 'control borders (--control)', fg: 'control', on: GROUNDS, floor: 'ui' },
     { what: 'the gain chart line', fg: 'up', on: GROUNDS, floor: 'ui' },
@@ -222,7 +268,7 @@ for (const [name, on] of Object.entries(scheme) as [keyof typeof TOKENS_WANT, (r
     for (const [k, d] of Object.entries(v)) assert.ok(d >= FLOORS.cvd, `${name} up vs down ${k}: ${d.toFixed(1)}`);
   });
   for (const other of ['up', 'down'] as const) {
-    // Light Flat vs gain measures protan 2.8 (deutan 7.0, tritan 31.4): a known failure, open for the owner (plan OQ-2).
+    // Light Flat vs gain measures protan 2.8 (deutan 7.0, tritan 19.5): a known failure, open for the owner (plan OQ-2).
     // ponytail: light --flat (= --muted) vs --up fails the ΔE00 floor under protan; next step the owner's call on OQ-2
     // (a new --flat value through the fixes list, or a ruling on the floor's scope). The floor is not lowered.
     const todo = name === 'light' && other === 'up' ? 'OQ-2: light Flat vs gain fails the ΔE00 9 floor (owner)' : undefined;
@@ -242,15 +288,16 @@ test('F-20 AC3: lib/badge-contrast.test.ts is kept, with its test', () => {
 });
 
 // ---- AC6: the share-image colour table (lib/palette.ts) ----
-// Today's image colours, written out here: the table must equal them (no image colour changes; O-2 and OQ-1 are the
-// owner's). next/og cannot read CSS variables, so the images read this table instead of the tokens.
+// The image colours, written out here: the table must equal them. Main's values, except gain and loss, which take the
+// page's dark ink (committee decision 2026-11-01, OQ-1, flagged to the owner; main had #22c55e / #f43f5e, deutan 6.3). The
+// card's Demo hue (O-2) is the owner's. next/og cannot read CSS variables, so the images read this table, not the tokens.
 const IMAGE_TODAY = {
-  card: { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#22c55e', down: '#f43f5e', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78' },
-  strip: { text: '#f4f4f6', muted: '#8b8b98', up: '#22c55e', down: '#f43f5e', warn: '#f59e0b', ok: '#22c55e' },
+  card: { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78' },
+  strip: { text: '#f4f4f6', muted: '#8b8b98', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', ok: '#22c55e' },
   stripBg: '#0b0b0f',
   themeColor: '#0b0b0f',
 };
-test('F-20 AC6: the image colour table equals today\'s image colours, and the images read it', async () => {
+test('F-20 AC6: the image colour table equals the decided image colours, and the images read it', async () => {
   const { IMAGE_PALETTE, THEME_COLOR } = await import('./palette.ts');
   assert.deepEqual(IMAGE_PALETTE, { card: IMAGE_TODAY.card, strip: IMAGE_TODAY.strip, stripBg: IMAGE_TODAY.stripBg });
   assert.equal(THEME_COLOR, IMAGE_TODAY.themeColor);
@@ -280,6 +327,17 @@ test('F-20 AC6: no image file or image helper keeps an inline hex colour', () =>
   }
 });
 
+test('F-20 AC6 (OQ-1): the images draw gain and loss in the page\'s dark --up / --down, so they pass the page tokens\' floors', async () => {
+  const { IMAGE_PALETTE } = await import('./palette.ts');
+  const t = tokensFor(scheme.dark);
+  for (const part of ['card', 'strip'] as const) {
+    assert.equal(IMAGE_PALETTE[part].up, t.up, `${part}.up is the dark --up`);
+    assert.equal(IMAGE_PALETTE[part].down, t.down, `${part}.down is the dark --down`);
+  }
+  assert.equal(IMAGE_PALETTE.card.bg, t.bg, 'the card is drawn on the dark --bg');
+  assert.equal(IMAGE_PALETTE.stripBg, t.bg, 'the strip is drawn on the dark --bg');
+});
+
 for (const [part, bgKey] of [['card', 'card.bg'], ['strip', 'stripBg']] as const) {
   test(`F-20 AC6/AC11: share-image ${part} colours are at their floors on the image background`, async () => {
     const { IMAGE_PALETTE } = await import('./palette.ts');
@@ -293,11 +351,8 @@ for (const [part, bgKey] of [['card', 'card.bg'], ['strip', 'stripBg']] as const
       assert.ok(r >= floor, `${part}.${k} ${hex} on ${bg}: ${r.toFixed(2)}:1 (floor ${floor})`);
     }
   });
-  // Measured on main: protan 29.5, deutan 6.3, tritan 73.0 (the old dark gain/loss pair; #26 retuned only the CSS).
-  // ponytail: the share images' gain vs loss fails the ΔE00 9 floor under deutan (6.3) and no image colour may change in
-  // F-20 (O-2, OQ-1); next step the owner's ruling on OQ-1 (recommended: the CSS dark ink #3cc4b4/#ff8a5b, min 20.1).
-  test(`F-20 AC6/AC11: share-image ${part} gain vs loss is at least ΔE00 ${FLOORS.cvd} under protan, deutan and tritan`,
-    { todo: 'OQ-1: image gain/loss deutan 6.3 < 9; image colours are the owner\'s' }, async () => {
+  // Main's pair (#22c55e / #f43f5e) measured deutan 6.3; the page's dark ink measures protan 20.1, deutan 30.1, tritan 62.4.
+  test(`F-20 AC6/AC11: share-image ${part} gain vs loss is at least ΔE00 ${FLOORS.cvd} under protan, deutan and tritan`, async () => {
       const { IMAGE_PALETTE } = await import('./palette.ts');
       const v = cvd(IMAGE_PALETTE[part].up, IMAGE_PALETTE[part].down);
       const got = Object.entries(v).map(([k, d]) => `${k} ${d.toFixed(1)}`).join(', ');

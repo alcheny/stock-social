@@ -24,7 +24,7 @@ Flat floor (OQ-2) and its `.nojs-done` padding change (OQ-10).
 
 | # | Question | Decision | Reason |
 |---|---|---|---|
-| OQ-1 | Share-image gain vs loss is ΔE00 6.3 under deutan (< 9) and image colours may not change | Image values stay byte-for-byte; the check runs at floor 9 as a `todo` test printing the measured value; AC6's colour-blind part is reported NOT MET; owner question with the recommendation (image up/down → #3cc4b4/#ff8a5b) | The image change is the owner's (O-2/DS-6); a lower floor is forbidden by the feature |
+| OQ-1 | Share-image gain vs loss is ΔE00 6.3 under deutan (< 9) and image colours may not change | Round 1: values kept, a `todo` test at floor 9. Round 2 (orchestrator's message, from the design council, PR #74): the two F-20 rules conflict; the committee took the recommended option: only image gain/loss move to the page's dark DS-4 ink (#3cc4b4 / #ff8a5b), Demo hue (O-2) untouched; the todo became a real test; flagged to the owner as an "Owner decision" | Neither lowering the floor nor exempting images is allowed; the change matches the share card to the page it opens |
 | OQ-2 | Flat (= `--muted`) vs gain is ΔE00 < 9 in light | Flat-vs-up/down tested at 9 in both schemes; passing pairs are real tests, failing pairs `todo`; owner question | The cycle-3 decision names Flat at ΔE00 ≥ 9; narrowing it would be a reinterpretation the committee cannot make |
 | OQ-3 | `.switch-pair .switch.current` is a selected cue drawn as an outline | Tried a box-shadow ring; the pixel proof against main failed (100-109 pixels differ per switch pair at the corners), so the fallback holds: today's outline kept as a named exception, owner question | Value-neutral first; selected must not look focused, and `--text` is not the focus colour |
 | OQ-4 | `.pane .rows .line.hl` current-row cue | Kept (already `--focus`, 2 px at 2 px); the base rule takes `var(--focus)` too; allow-listed as a state | #12 is pinned; computed value unchanged |
@@ -42,8 +42,23 @@ literal scanner would reject; after merging F-11 they move into TOKENS and the i
 
 ## Build round 1 (engineer)
 
-All gates green; AC5 (Flat vs gain, light: protan 2.8, deutan 7.0, tritan 31.4) and AC6 (image up vs down: deutan 6.3)
+All gates green; AC5 (Flat vs gain, light: protan 2.8, deutan 7.0, tritan 19.5) and AC6 (image up vs down: deutan 6.3)
 are `todo` tests at floor 9, reported not met. One ruling added: the snapshot treats the element that holds keyboard
 focus at capture (the pane's handle link after →) as showing DS-27's stated change when its only difference is
 outline-color accent → focus; every other difference fails. Reason: that is the stated focus change, scoped to one
 element; the baseline is unchanged.
+
+## Round 2 (QA, code review, user tests; orchestrator's OQ-1 message)
+
+- Tester (`qa-2026-11-01.md`): pass, 0 High. Fixed: M1 (`ponytail:` on the chart point's accent stroke and the skip
+  link's accent border), M2 (an inventory test of every inline floor in the older contrast tests; the three QA
+  mutations now fail), L1 (TOKENS may hold only `:root` rules), L3 (tritan 19.5, not 31.4), L4 (`--accent` as text, plain
+  and on its 15% tint, at the text floor). L2 (a named colour through a constant, hex in markup strings) stays a
+  documented scanner limit.
+- Code review: nothing blocking. Fixed: a third-party font name in a scanner fixture made generic. Kept as known limits:
+  the snapshot groups by signature (a swap inside one group passes), the scanner misses named colours in ternaries and
+  under non-colour keys, and `todo` tests do not alert when they start passing.
+- User tests (business lead, UX lead; 360 px, light and dark, first-time trader and signed-out viewer): both PASS, no
+  blocking demand. Recorded: the switch keeps its 3 px ring; `.line.hl` and the focused-selected switch go into OQ-3;
+  the loose checkbox ring goes to the fixes list.
+- OQ-1 decided as in the table above.

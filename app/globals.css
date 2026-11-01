@@ -166,6 +166,8 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .chart-hit a { pointer-events: none; }
 .chart .hit { fill: transparent; stroke: none; cursor: pointer; }
 .chart a:focus { outline: none; }
+/* ponytail: a focused chart point shows focus as an --accent stroke, not the --focus ring (F-20 kept it: a visible change
+   beyond DS-27's outlines) — next step a DS-27 follow-up that draws the point's focus in --focus. */
 .chart a:focus .hit, .chart a:hover .hit { stroke: var(--accent); stroke-width: 2; }
 .chart .tip { display: none; }
 .chart a:focus .tip, .chart a:hover .tip { display: block; }
@@ -301,6 +303,7 @@ label.check { display: flex; gap: 8px; align-items: center; }
 .closes-more a.button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; box-sizing: border-box; }
 .rows.closes li:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* The skip link (POLICY F3/A1): first Tab stop on every page, shown only while focused, above the fixed nav. */
+/* ponytail: the skip link's border is --accent, not --focus (F-20 kept it: not an outline) — next step a DS-27 follow-up. */
 .skip-link { position: absolute; left: 8px; top: -100px; z-index: 30; padding: 10px 14px; min-height: 44px; box-sizing: border-box;
   background: var(--surface); color: var(--text); border: 2px solid var(--accent); border-radius: 8px; }
 .skip-link:focus { top: 8px; }

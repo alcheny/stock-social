@@ -181,7 +181,7 @@ test('F-20 AC9: no source file loads an externally hosted font or asset', () => 
   const all = sources();
   assert.deepEqual(all.flatMap((f) => externalAssets(f.rel, f.src)), []);
   assert.equal(externalAssets('x.css', '@import url("https://fonts.example/x.css");').length, 2);
-  assert.equal(externalAssets('x.tsx', "import { Inter } from 'next/font/google';").length, 1);
+  assert.equal(externalAssets('x.tsx', "import { Sans } from 'next/font/google';").length, 1);
   assert.equal(externalAssets('x.tsx', '<link rel="stylesheet" href="https://cdn.example/x.css" />').length, 1);
   assert.equal(externalAssets('x.tsx', '<img src="https://cdn.example/x.png" />').length, 1);
   assert.deepEqual(externalAssets('x.tsx', '<a href="https://example.com">x</a>'), []);
