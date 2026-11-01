@@ -31,6 +31,22 @@ publishing anyone's dollar amounts.
   funds report returns); margin can push a share above 100% and is shown as is (e.g. "130% of connected
   accounts"); trades the vendor can't value are marked "not sized" and counted, never estimated. Why: the
   owner's choice of the standard method.
+- 2026-11-01: Showing position size is a separate opt-in, off by default, with plain wording and an example of
+  how one dollar figure posted elsewhere reveals the account's value. Existing traders keep percent-only until
+  they turn it on; past trades are sized only after they opt in. A trader who hasn't opted in keeps today's
+  equal-weight headline and chart. Why: the owner's choice; today's consent promises no amounts, and all three
+  legal passes flagged a silent change as deceptive.
+- 2026-11-01: Safeguards from the legal review, all required (the owner accepted each one):
+  - nothing is built until the data vendor gives written permission for public position sizes (and for the
+    open-position percentages already shown);
+  - sizes are labelled "estimated" and sit outside "Verified"; an append-only log records what each record
+    showed and when;
+  - opt-in warnings for company insiders and registered representatives; the Terms ban adviser advertising,
+    paid promotion and trading against one's displayed record; size is hidden for thinly traded, OTC or halted
+    securities;
+  - a trader can turn size off without deleting the record (an exception to the record-freeze rules TR-1 and
+    TR-5); share cards already posted elsewhere can't be recalled, and the opt-in says so.
+  Why: the owner's answer to the legal review of 2026-10-31.
 
 ## Acceptance criteria
 To be written once the open questions are settled.
@@ -40,20 +56,9 @@ To be written once the open questions are settled.
 - Ranking or sorting traders by position size.
 
 ## Open questions
-- Consent: a new line in the connect consent and a one-time re-consent of existing traders, or a separate
-  opt-in.
-- Legal review (2026-10-31, three independent passes: law by law, data lifecycle, misuse and enforcement; the
-  full review is the owner's private document). Limits all three found, for the owner to confirm:
-  - bands rather than exact percentages: decided otherwise (exact %, 2026-10-31);
-  - size on closed trades only (decided 2026-10-31); never in alerts, feed ranking, discovery or a paid tier;
-  - the data vendor's written permission (re-packaging and market-data clauses) before any build;
-  - a separate opt-in from every trader, no backfill without it (current consent promises no amounts);
-  - labelled an estimate of connected accounts at entry, outside "Verified"; unsizable trades excluded and
-    counted;
-  - store each trade's share, never balances; an append-only display log of what was shown;
-  - insider and registered-representative warnings; Terms ban adviser advertising and paid promotion; size
-    hidden for thinly traded, OTC or halted securities;
-  - owner rule changes: POLICY P3, DESIGN CH-1, and a size-only withdrawal exception to TR-1/TR-5.
+- Owner rule changes these decisions need: POLICY P3 (a public share-of-account field) and DESIGN CH-1 (charts
+  "never ... position size"); the owner amends both before the build.
+- Counsel's sign-off before real users (the full legal review is the owner's private document of 2026-10-31).
 - Found during the review, outside F-5: open-position percentages are computed from the vendor's prices, which
   its market-data clause may not allow publicly; and records can't show what they displayed on a past date.
 - The share card's chart (F-4 question A) waits on this feature's answers.
