@@ -1,10 +1,52 @@
-# Plan: F-16 trust and safety slice + F-17 handle and name integrity (one PR)
+# Plan v2: F-16 trust and safety slice + F-17 handle and name integrity (one PR)
 
-UX lead, 2026-11-01. Branch `claude/f16-f17-trust-safety` (from origin/main, F-9 = PR #65 `ff25ad5`, fix #4 = PR #59
+UX lead, 2026-11-01, **v2** (round 2: demands answered in §R2; every §12 question voted as recommended). Branch `claude/f16-f17-trust-safety` (from origin/main, F-9 = PR #65 `ff25ad5`, fix #4 = PR #59
 `3f216ba`). Sources: `docs/features/F-16-trust-and-safety-slice.md` and `docs/features/F-17-handle-and-name-integrity.md`,
 including the cycle-3 re-approvals and K18; `docs/POLICY.md`; `docs/COMPLIANCE.md` §1; `docs/IMPLEMENTATION.md` "The
 cycle"; Next 16.4.3 docs in `node_modules/next/dist/docs/` (not-found, proxy). Every decision in both feature files is
 planned below. Where I disagree or the build hits a stop, it is said in §0, not planned around.
+
+## R2. Round 2 changes (v2)
+
+Both reviewers voted the recommended option on every §12 question; those answers are now decisions of this plan.
+Where §2–§12 still read otherwise, this section wins.
+
+**Business lead**
+
+| Demand | Answer | Where |
+|---|---|---|
+| B1 no `app/pane.tsx` edit | Accepted. `<TrustFoot inPane />` (line + F3 disclaimer) is mounted after `ProfilePane` at `app/feed-rows.tsx:35` and `app/lazy-pane.tsx:23`. e2e at 360 px finds both in an open pane; the diff has no `app/pane.tsx`. | §2.3, §4, §13 C |
+| B2 own-view line for hidden theses | Accepted. `heldLine(HIDDEN_RULE)` = "This thesis is not shown to others right now. Only you can see it." Unit test: no `/report\|review/i`. db + e2e: the trader sees it. | §5.3, `lib/f16-static.test.ts`, `e2e/f16-pages` |
+| B3 no `delete from` in `changeHandle` | Accepted. Taking back a hold sets `until = now()`; the purge removes it later. Source test + db test. | §6.1 step 10 |
+| B4 hidden/retired 404s are `private, no-store` | Accepted. These 404s are dynamic (they read cookies and headers), and Next sends `private, no-cache, no-store` for dynamic responses. If the spike shows otherwise, `proxy.ts` sets the header on `/u/*` 404s. e2e: the trader's response, then a signed-out one, which lacks the private line; both are `no-store`. | §13 Step 0 |
+| B5 ponytail wording | Accepted. The `attempts.ts:154` ponytail is replaced with "old links show the neutral retired page by design (F-17); nothing to add". | §6.1 |
+| B6 signed-out menu | Accepted. This overrides §2.1/§2.2. The quiet menu shows signed out too and leads to the signed-out state: "Sign in to report this profile." plus the takedown link when it is reachable. Signed-out e2e added. | §2.1, §2.2 |
+| B7 shorter line | Accepted. `TRUST_LINE.text` = `${PRODUCT_NAME} never messages anyone about a trading record. Anyone who contacts you elsewhere using this profile isn't acting for ${PRODUCT_NAME}.` e2e at 360 px: the line and the F3 disclaimer are in view together. | §5.4 |
+| B8 Send report at 360×740 | Accepted. The e2e scrolls at most once; the button is ≥ 44 px and in the viewport. | §8 F-16 #15 |
+| B9 axe AC unchecked | Accepted. The PR leaves that box unchecked until the owner answers. | §0.1 |
+
+**Engineer**
+
+| Demand | Answer | Where |
+|---|---|---|
+| E1 not-found metadata | Accepted (verified at `resolve-metadata.js:93-120`). `generateMetadata` lives in `app/u/[handle]/not-found.tsx`. No React `<title>`. Step 0 spike. | §11, §13 |
+| E2 immutable `ImageResponse` | Accepted. `Cache-Control: public, max-age=300` on the three `u/[handle]` og images and `t/[symbol]/opengraph-image.tsx`, like `story/route.tsx:17`. A production-build e2e asserts the header. ponytail reworded: "bounded ≤ 300 s images, 60 s JSON". The owner accepts this reading (adds to Q13). | §9.1, §13 A |
+| E3 | = B1 | |
+| E4 `open_positions` reads | Accepted. The predicate goes on `page.tsx:87`, `record-card-data.ts:22`, `pane/route.ts:21`, `trade-share-load.ts:46`, `display-log.ts:51`, `feed.ts:460`. `lib/positions.ts:15,26` are allowlisted (sync write). The `thesis_reports` rule matches `\bthesis_reports\b` and allows `lib/privacy-retention.ts`. The scanner self-test includes `feed.ts:149,170`. | §5.2, §5.5 |
+| E5 feed snapshot | Accepted. `visibleUserAsOf` treats a hide like a deletion as of `asOf`; `:399`/`:406` keep the current-time predicate (a gap, never a shift). | §5.1 |
+| E6 unhide after clear | Accepted. Unhide follows the latest audit row and updates whatever row exists (or none). A db test runs hide → clear → unhide → a new note publishes. | §5.3 |
+| E7 brand words | Accepted. Substring rules stay for brand words; word boundaries apply only to verified/official. | §6.3 |
+| E8 `visibleId` | Accepted. Added; the scanner accepts it. | §5.1, §5.2 |
+| E9 indexes | Accepted. Both dropped. | §3 |
+| E10 lock order | Accepted. Look up the target, then take `pg_advisory_xact_lock`. | §5.5 step 3 |
+| E11 own-account paths | Accepted. `record-tools.ts:247` export, `handles.ts:124`, `connections.ts:372`, `billing.ts:175` stay deletion-only. A db test checks that a hidden trader can sign in, use settings and download data. | §4 |
+| E12 follows | Accepted. Only `lib/follows.ts:18` changes; private lists are untouched. This overrides the likes/follows rows in §4/§5.2: `lib/likes.ts` reads that are viewer-private join the allowlist with reason "viewer's own list". | §4, §5.2 |
+| E13 `handleStatus` | Accepted. | §5.1, §3 |
+| E14 rename tests | Accepted. `now` is injected through `opts`; `handles.db.test.ts:189-211` changes only for cap 1; `attempts.test.ts:93→101→105` gets two backdates. The count never drops. | §0.7 |
+| E15 test files | Accepted. Static checks merge into `lib/f16-static.test.ts` (one named test per AC). The byte-equality image check is replaced by a db test of the counts the stock image reads. | §8 |
+| E16 `getByLabel('New handle')` | Kept. The label becomes visible with the same text. | §2.6 |
+
+No disagreements this round.
 
 ## 0. Stops and disagreements (read first)
 
@@ -74,7 +116,7 @@ slots or the TOKENS block of `app/globals.css`.
 
 | State | What renders | Status / head |
 |---|---|---|
-| Visible, signed out | Profile as today, then the F-16 block at the end of `<main>`: the anti-impersonation line (if shown, §5.4). No report menu. The site footer with the F3 disclaimer follows directly. | 200 as today |
+| Visible, signed out | Profile as today, then the F-16 block at the end of `<main>`: the anti-impersonation line (if shown, §5.4) and (v2 B6) the same quiet menu, leading to the report page's signed-out state. The site footer with the F3 disclaimer follows directly. | 200 as today |
 | Visible, signed in, another trader (broker, demo or F-7 filer) | The same, plus a quiet "…" menu (`MoreMenu`, label "More for @handle", reused from `app/not-interested.tsx:27`) in the F-16 block with one item: the link "Report this profile" → `/u/<handle>/report`. Never in the header, never next to Follow (`page.tsx:236`) or the share prompt/card (`:256`, `:283`). | 200 |
 | Own profile | No report menu. The line shows. The rename panel gets the 30-day hint (§2.6). | 200 |
 | Demo profile | Like any other trader: the Demo badge as today, the report menu signed in, the line. | 200 |
@@ -104,8 +146,7 @@ and the report page. The segment boundary `app/u/[handle]/not-found.tsx` is thei
 
 ### 2.3 Pane (feed sheet, Similar rows)
 
-Visible: one additive slot at the end of `ProfilePane`'s `<section>` (`app/pane.tsx:62-63`, after the `muted` foot line):
-`<TrustFoot inPane />`. It renders the anti-impersonation line and directly under it the F3 disclaimer
+Visible (v2, B1/E3): **no edit to `app/pane.tsx`**. `<TrustFoot inPane />` is mounted directly after the `ProfilePane` element at its two call sites: `app/feed-rows.tsx:35` (`<>{ProfilePane(...)}<TrustFoot inPane /></>`) and `app/lazy-pane.tsx:23`. It renders the anti-impersonation line and directly under it the F3 disclaimer
 (`DISCLAIMER`, `lib/share.ts:16`), because the pane has no disclaimer of its own and the line must never stand without
 it. No report control in the pane: reporting is on the profile ("See full profile →" is already there). Hidden traders
 never reach a pane: the pane route returns 404 and the feed drops their cards.
@@ -139,6 +180,7 @@ never reach a pane: the pane route returns 404 and the feed drops their cards.
 -- ---- F-16 (docs/features/F-16-trust-and-safety-slice.md) and F-17 (F-17-handle-and-name-integrity.md) ----
 -- Hidden by the owner's audited script (lib/trust-hide.ts). Never set by a report. The visible-user predicate
 -- (lib/visible-users.ts) skips it on every public read. Cleared by unhide. Nothing is deleted.
+-- Not public_filers.hidden_at (F-7's filer switch): this is the owner's trust-and-safety hide of any account.
 select schema_add_column('users', 'hidden_at', 'timestamptz');
 -- F-17: when this account last changed its handle (a counted rename), for the one-change-per-30-days rule.
 select schema_add_column('users', 'handle_renamed_at', 'timestamptz');
@@ -150,8 +192,7 @@ select schema_add_column('thesis_reports', 'target', $d$text not null default 't
 select schema_add_column('thesis_reports', 'category', 'text');          -- null on thesis reports
 select schema_add_column('thesis_reports', 'resolved_at', 'timestamptz'); -- set by the owner's digest script
 select schema_add_column('thesis_reports', 'resolution', 'text');         -- 'founded' | 'unfounded'
-select schema_add_index('thesis_reports_open_profile', $d$create index thesis_reports_open_profile on thesis_reports (trader_id, created_at) where target = 'profile' and resolved_at is null$d$);
-select schema_add_index('thesis_reports_reporter', 'create index thesis_reports_reporter on thesis_reports (reporter_id, created_at)');
+-- v2 (E9): no new index; thesis_reports_note (trader_id, sell_id, created_at) and the unique key cover the queries.
 -- Every hide and unhide, written in the same transaction as the change. No thesis text, no reporter.
 create table if not exists trust_audit (
   id bigint generated always as identity primary key,
@@ -223,7 +264,7 @@ is the source of truth for re-saves (§5.3).
 | `lib/auth/attempts.ts#changeHandle` | `RENAME_HOLD_CAP = 1`, 30-day rule, rename-back, D22 check (§6) | F-17 (was #42, F-7 merged) |
 | `app/auth/actions.ts#setHandle` | maps the `soon` verdict (keeps its D22 pre-check) | F-17 |
 | `app/u/[handle]/page.tsx` | `load()`: `handleStatus` → `notFound()` for hidden/retired; closed_trades read + `visibleOwner`; `generateMetadata` titles for hidden/retired; the F-16 block at the end of `<main>`; rename form a11y + hint | shared with F-11, F-22, F-26: no edit near the status line or note slots |
-| `app/pane.tsx` | one line `<TrustFoot inPane />` (§2.3) | **F-11**: coordination note |
+| `app/feed-rows.tsx:35`, `app/lazy-pane.tsx:23` | mount `<TrustFoot inPane />` after `ProfilePane` (v2 B1; `app/pane.tsx` untouched) | additive |
 | `app/login/dev/page.tsx` | error beside its field, `aria-invalid` | F-17 |
 | `proxy.ts` | one line: `requestHeaders.set('x-ss-path', request.nextUrl.pathname)` | security hardening (merged): coordination note |
 | `app/u/[handle]/pane/route.ts`, `pane-chart/route.ts`, `record-card-data.ts`, `lib/recap-load.ts`, `lib/trade-share-load.ts` | user lookup `deleted_at is null` → `visibleUser('u')`; closed_trades reads + `visibleOwner` | F-4/F-12 files, predicate-only |
@@ -247,9 +288,12 @@ calls `visibleUser('u')`, so it picks up the hide).
 
 ```ts
 export const visibleUser = (a: string) => sql`(${sql(a)}.deleted_at is null and ${sql(a)}.hidden_at is null)`;
-// The feed's snapshot form (lib/feed.ts:148): a deletion counts from its time; a hide counts at once.
+// The feed's snapshot form (lib/feed.ts:147-148, v2 E5): a hide counts from its time like a deletion; the card read
+// (:399) and the people read (:406) keep visibleUser, so a hidden card is a gap and pages never shift.
 export const visibleUserAsOf = (a: string, asOf: Date | null) => asOf
-  ? sql`((${sql(a)}.deleted_at is null or ${sql(a)}.deleted_at > ${asOf}) and ${sql(a)}.hidden_at is null)` : visibleUser(a);
+  ? sql`((${sql(a)}.deleted_at is null or ${sql(a)}.deleted_at > ${asOf}) and (${sql(a)}.hidden_at is null or ${sql(a)}.hidden_at > ${asOf}))` : visibleUser(a);
+// v2 (E8): uncorrelated form for single-trader reads: `where user_id = ${id} and ${visibleId(id)}`.
+export const visibleId = (id: number) => sql`exists (select 1 from users v where v.id = ${id} and ${visibleUser('v')})`;
 export const visibleUserIds = () => sql`select v.id from users v where ${visibleUser('v')}`;
 // For reads that don't join users (profile-scoped reads, aggregates): `where user_id = ${id} and ${visibleOwner('closed_trades')}`.
 export const visibleOwner = (alias: string, col = 'user_id') => sql`exists (select 1 from users v where v.id = ${sql(alias)}.${sql(col)} and ${visibleUser('v')})`;
@@ -257,7 +301,7 @@ export const isVisibleUser = (u: { deleted_at: Date | null; hidden_at?: Date | n
 // The /u/<handle> route's one lookup: what to render for a handle.
 export async function handleStatus(handle: string): Promise<'visible' | 'hidden' | 'retired' | 'none'>
 ```
-`handleStatus` returns:
+`handleStatus` (v2 E13: runs `routeHandle` first; a `pf_` filer handle → `none`) returns:
 - `visible` / `hidden`: a live users row with that handle (deleted_at null).
 - `retired`: no live row, but an active `handle_reservations` row (`until > now()`) or a row with `deleted_at` set.
 - `none`: anything else.
@@ -271,7 +315,7 @@ F-7's `filerVisibleSql` stays a separate, additional condition (unchanged). A hi
 collects every **top-level tagged template** whose tag is `sql`, `tx`, `db` or `conn` (optionally `sql<…>`), with its
 nested `${…}` templates included. The current `/sql`([^`]*)`/` in `fixes-cycle2-trust.test.ts` stops at the first
 nested backtick, so it is not enough. A statement **reads** when it matches `/\b(from|join) (closed_trades|open_positions)\b/`.
-Each reading statement must match `/\$\{visible(User(AsOf)?\(|UserIds\(\)|Owner\()/`, unless the file is in the
+Each reading statement must match `/\$\{visible(User(AsOf)?\(|UserIds\(\)|Owner\(|Id\()/`, unless the file is in the
 allowlist. Each allowlist entry is `{ file, count, reason, proof? }`:
 - The test fails when a file has more unpredicated reads than `count`, or fewer (so the list shrinks when code
   improves).
@@ -349,8 +393,11 @@ node --env-file=.env scripts/hide.ts history <user_id>
   2. The audit row.
 
   A thesis that is not published is refused: "No published thesis with that user id and sell id."
-- **Thesis unhide.** Sets `thesis_status='published', thesis_hold_rule=null, thesis_reviewed_at=now(),
+- **Thesis unhide** (v2 E6: allowed when the latest audit row is a `hide`; it updates whatever row exists, and with
+  none, the audit row alone ends the hide). Sets `thesis_status='published', thesis_hold_rule=null, thesis_reviewed_at=now(),
   thesis_reports_from=now()`, only where `thesis_hold_rule='hidden'`, plus the audit row.
+- **Own-view line** (v2 B2): `heldLine(HIDDEN_RULE)` = "This thesis is not shown to others right now. Only you can see
+  it."
 - **Holds survive the trader's own edits.** `lib/thesis-save.ts` keeps a note held with rule `hidden` when
   `prev.thesis_hold_rule === HIDDEN_RULE` **or** `thesisHiddenByOwner(tx, userId, sellId)` (the latest `trust_audit`
   row for that thesis is a `hide`). This closes the clear-and-rewrite escape that `kept` still has (`thesis-save.ts:52-53`).
@@ -370,7 +417,7 @@ node --env-file=.env scripts/hide.ts history <user_id>
 export const PRODUCT_NAME = 'Stock Social';
 export const TRUST_LINE = {
   approved: false, // the owner flips this after approving the wording (F-16 Open questions)
-  text: `${PRODUCT_NAME} never sends messages about anyone's trading record. Anyone who contacts you elsewhere using this profile's name or record is not acting for ${PRODUCT_NAME}.`,
+  text: `${PRODUCT_NAME} never messages anyone about a trading record. Anyone who contacts you elsewhere using this profile isn't acting for ${PRODUCT_NAME}.`, // v2 B7
 } as const;
 ```
 - **Literally true** while F3b bars record-based messages. The only email the product sends is the sign-in link
@@ -390,8 +437,8 @@ export const TRUST_LINE = {
 `'reported' | 'signed-out' | 'invalid' | 'not-found' | 'own' | 'already' | 'rate'`. Order of checks:
 1. No reporter → `signed-out`.
 2. `normalizeHandle` fails or the category is not in `REPORT_CATEGORIES` → `invalid`.
-3. `sql.begin`: `pg_advisory_xact_lock(hashtext('report-target:' || trader_id))`, then look up the target with
-   `visibleUser('u')` → `not-found`.
+3. `sql.begin`: look up the target with `visibleUser('u')` → `not-found`, then take
+   `pg_advisory_xact_lock(hashtext('report-target:' || trader_id))` (v2 E10).
 4. Target is the reporter → `own`.
 5. A row exists for (reporter, trader, `''`) → `already`. One per reporter and target, ever. This satisfies both
    "report one profile once" and "one open report" (Q6).
@@ -537,9 +584,10 @@ In the existing single transaction, in this order:
 7. **30-day rule:** otherwise, if `handle_renamed_at > now - 30 days` → `HandleTakenError('soon')`.
 8. Lock the skeleton, `checkHandle`, update.
 9. Hold the old handle (`until = now + 365 d`, `user_id = me`).
-10. Release the taken-back hold.
+10. Release the taken-back hold with `update handle_reservations set until = now()` (v2 B3: the existing
+    `delete from` at `lib/auth/attempts.ts:180` goes; a source test checks `changeHandle` has no `delete from`).
 11. `RENAME_HOLD_CAP = 1`: every other active hold of this account gets `until = now()`. The purge removes it later, so
-    nothing is deleted here beyond today's taken-back row.
+    nothing is deleted here.
 12. Set `handle_renamed_at = now()`, **except** when the old handle is the account's untouched provisional handle
     (`/^trader_[a-z0-9]{8}$/` and `handle_renamed_at is null`). Choosing the first real handle never starts the
     clock (Q8).
@@ -556,7 +604,7 @@ shows the `retired` page, never data. Holds end at their own release date; nothi
 ### 6.3 Display names (`lib/handles.ts:177`)
 
 `NAME_WORDS` becomes boundary-aware: `/(^|[^\p{L}\p{N}])(verified|official|ver+[il1]?f[il1y]+e?d|of+[il1]c+[il1]?a[l1])(?=$|[^\p{L}\p{N}])/u`,
-and the same for the brand words. It runs over the same forms: skeleton, leet, squash, punctuation-free.
+the brand words stay substring rules (v2 E7: "StockSocialFan" refused). It runs over the same forms: skeleton, leet, squash, punctuation-free.
 - "Unofficial Notes" is accepted (the letters sit inside a longer word).
 - "Un-official", "Official Desk", "v.e.r.i.f.i.e.d" and "Maya Verifled" stay refused.
 
@@ -722,9 +770,12 @@ outside text-safety.
 - **The not-found mechanism must be verified on 16.4.3.** Segment `not-found.tsx` takes no props
   (`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/not-found.md:131-133`), so it reads the
   path from the `x-ss-path` header (`headers()`) and calls `handleStatus`.
-  - Title, primary: the page's `generateMetadata` returns the hidden or retired title (and `robots` noindex) instead of
-    calling `notFound()`; the page body calls `notFound()`.
-  - Title, fallback if Next drops page metadata on a segment 404: a React 19 `<title>` rendered in `not-found.tsx`.
+  - Title (v2 E1): under `notFound()`, Next 16.4.3 builds metadata from the layouts and the deepest not-found module
+    only (`node_modules/next/dist/lib/metadata/resolve-metadata.js:93-120`). The page's `generateMetadata` is ignored.
+  - So `app/u/[handle]/not-found.tsx` exports `generateMetadata`, returning the hidden, retired or generic title from
+    `handleStatus` (params if passed, else `x-ss-path`).
+  - No React `<title>`: it would duplicate. `none` keeps "Page not found · Stock Social".
+  - Proved first by the Step 0 spike (§13).
   - The e2e asserts exactly one `<title>` with the right text and status 404 for both kinds, on `/u/<h>`,
     `/u/<h>/trade/<id>` and `/u/<h>/report`.
 
@@ -775,3 +826,38 @@ outside text-safety.
     - choose the K18 age-assurance method;
     - pre-authorize axe-core (MPL-2.0) or accept the substitute;
     - confirm Q1.
+
+## 13. Build split (v2, engineer's)
+
+- **Step 0 (lead, first):**
+  - the schema block (§3);
+  - the `lib/visible-users.ts` helpers (`visibleUser`, `visibleUserAsOf`, `visibleUserIds`, `visibleOwner`, `visibleId`,
+    `handleStatus`);
+  - `HIDDEN_RULE` and the `REPORT_CATEGORIES` codes in `lib/report-copy.ts`;
+  - `proxy.ts` `x-ss-path`;
+  - the not-found spike: `app/u/[handle]/not-found.tsx` with `generateMetadata`, and one e2e that `/u/h`,
+    `/u/h/trade/x` and `/u/h/report` answer 404 with one title and one h1, plus the B4 `no-store` check.
+- **A, the predicate sweep:**
+  - `lib/feed.ts`, `similar`, `likes` (non-private reads), `follows:18`, `record-tools:206`, `display-log`,
+    `discovery/*`, `home-preview`, `recap-load`, `trade-share-load`;
+  - `app/u/[handle]` `record-card-data`, `pane/route`, `pane-chart/route`, and the three og images under
+    `u/[handle]` (with the E2 header);
+  - `app/t/compare`, `[symbol]/opengraph-image`, `open-positions`;
+  - tests: `fixes-cycle2-trust.test`, `f16-visible-reads.test`, `f16-visible.db.test`, `e2e/f16-hide.spec`.
+- **B, reports, hide and digest:**
+  - `lib/reports.ts`, the rest of `report-copy`, `thesis-save`, `thesis-review`, `trust-hide`, `trust-digest`,
+    `privacy-retention`;
+  - `scripts/hide.ts`, `scripts/trust-digest.ts`, `app/report-actions.ts`, the runbook;
+  - tests: `f16-reports*`, `f16-hide*`, `f16-digest`.
+  - Seam: `reportProfileAction(prev, formData) → { state, message }`.
+- **C, UI:**
+  - `app/u/[handle]/not-found.tsx` (from the spike), `report/page.tsx`, `report/report-form.tsx`, `app/trust-foot.tsx`,
+    `app/takedown/page.tsx`, `lib/takedown.ts`;
+  - the F-16 blocks in `lib/copy.ts` and `globals.css`, `.env.example`;
+  - the mounts in `feed-rows.tsx` and `lazy-pane.tsx`;
+  - all of `app/u/[handle]/page.tsx`, including the rename form;
+  - tests: `f16-static`, `e2e/f16-pages`, `e2e/f16-report-form`.
+- **D, F-17:**
+  - `lib/auth/attempts.ts`, `app/auth/actions.ts`, `lib/handles.ts`, `app/login/dev/page.tsx`;
+  - tests: `handles.db.test`, `attempts.test`, `f17-*`, `e2e/f17-handles.spec`.
+  - D exports `HANDLE_REASON.soon`, `RENAME_RULE` and `nextRenameAt` from `lib/handles.ts` for C.
