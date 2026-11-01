@@ -159,7 +159,7 @@ jobs:
         id: prep
         run: |
           tar -xzf "$RUNNER_TEMP/prep/workspace.tgz" -C "$GITHUB_WORKSPACE"
-          node -e 'const p = require("./.autopilot/prep.json"); console.log(`branch=${p.branch}\nbase_sha=${p.base}\nbase=${p.baseRef}`)' >> "$GITHUB_OUTPUT"
+          node -e 'const p = require("./.autopilot/prep.json"); console.log("branch=" + p.branch + "\nbase_sha=" + p.base + "\nbase=" + p.baseRef)' >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
