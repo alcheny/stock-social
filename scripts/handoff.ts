@@ -228,7 +228,9 @@ function target(): Target {
   if (env('BRANCH')) return { branch: env('BRANCH'), baseRef: env('BASE_REF', 'main'), base: env('BASE_SHA') };
   // An autopilot build: the branch follows from the issue and the variant (a line builds on the line's head).
   const v = JSON.parse(env('VARIANT', '{"key":"","title":"Single","brief":""}')) as Variant;
-  return v.base ? { branch: branchFor(Number(env('NUMBER')), ''), baseRef: v.base, base: '' } : { branch: branchFor(Number(env('NUMBER')), v.key), baseRef: 'main', base: env('BASE_SHA') };
+  // A line's round: BASE_SHA is the line commit the trusted prepare job recorded (after its loop sync), never anything the
+  // agents chose, so a branch reset to an older line commit (older guardrails) fails the ancestry check.
+  return { branch: branchFor(Number(env('NUMBER')), v.base ? '' : v.key), baseRef: v.base ?? 'main', base: env('BASE_SHA') };
 }
 
 function verify() {
@@ -238,18 +240,15 @@ function verify() {
   // Full history of every ref the check compares against, straight from GitHub (a new branch doesn't exist yet).
   for (const r of [...new Set(['main', t.baseRef, t.branch])]) run('.', ['fetch', '--no-tags', '--no-write-fetch-head', url, `+refs/heads/${r}:refs/remotes/origin/${r}`]);
   if (!ok('.', 'rev-parse', '-q', '--verify', 'refs/remotes/origin/main')) throw new Error('could not fetch main');
-  // A line's build starts from the line commit it was built on: the line may have moved during a long run, so that is
-  // the bundle's merge-base with the line on GitHub (a line commit, so trusted), else the line's head.
-  if (!t.base && !/^line\/[a-c]$/.test(t.baseRef)) throw new Error('no trusted base commit for this build');
-  if (!t.base) t.base = lineBase('.', join(env('ARTIFACT_DIR'), 'branch.bundle'), `refs/remotes/origin/${t.baseRef}`);
+  if (!t.base) throw new Error('no trusted base commit for this build');
   const r = verifyIn({ cwd: '.', artifactDir: env('ARTIFACT_DIR'), target: t });
   if (r.findings.length) {
     const list = r.findings.slice(0, 50).map((f) => `- ${defang(f)}`).join('\n');
     console.error(`handoff: refused, nothing is pushed:\n${list}`);
     // Say so where the owner and the next attempt will see it: the PR being fixed, or the autopilot issue being built.
-    const thread = env('PR_NUMBER') ? ['pr', env('PR_NUMBER')] : !env('BRANCH') && env('NUMBER') ? ['issue', env('NUMBER')] : null;
-    if (thread) {
-      try { execFileSync('gh', [thread[0], 'comment', thread[1], '--body', `Publish refused the agents' hand-off for \`${t.branch}\`; nothing was pushed (docs/AUTOPILOT.md → Security):\n\n${list}`]); }
+    const where = thread();
+    if (where) {
+      try { execFileSync('gh', [where[0], 'comment', where[1], '--body', `Publish refused the agents' hand-off for \`${t.branch}\`; nothing was pushed (docs/AUTOPILOT.md → Security):\n\n${list}`]); }
       catch { /* the log above still has it */ }
     }
     // A refused feature build has no PR or issue: features.ts refused records it on the feature (REFUSAL_FILE).
@@ -260,28 +259,21 @@ function verify() {
   console.log(`handoff: ${t.branch} at ${r.tip.slice(0, 12)} verified (base ${t.base.slice(0, 12)}, into ${t.baseRef})`);
 }
 
-// The line commit a line build started from: the bundle's merge-base with the line now, when the bundle applies here.
-export function lineBase(cwd: string, bundle: string, lineRef: string): string {
-  const head = git(cwd, 'rev-parse', `${lineRef}^{commit}`);
-  if (!existsSync(bundle) || run(cwd, ['fetch', '--no-tags', '--no-write-fetch-head', bundle, '+HEAD:refs/agent/probe']).status !== 0) return head;
-  const mb = run(cwd, ['merge-base', 'refs/agent/probe', lineRef]).stdout.trim();
-  run(cwd, ['update-ref', '-d', 'refs/agent/probe']);
-  return /^[0-9a-f]{40}$/.test(mb) ? mb : head;
-}
-
 // ---------- which artifact is this leg's (Publish, before the download) ----------
 // Every leg's root agent holds the run's Actions runtime token, so it could upload `agent-<other key>` first, or delete
 // and replace another leg's. Publish binds the hand-off to its own leg: the leg's job must have succeeded, and the
 // artifact downloaded is the one whose ID upload-artifact printed in that leg's own job log (no other leg can write
 // there), never "whatever is named agent-<key>".
 export type JobInfo = { id: number; name: string; conclusion: string | null };
-// Pure: the artifact ID the upload step reported for `name`, from the end of the job's log (the agents ran before it, so
-// a line they printed comes earlier and loses).
-export function uploadedArtifactId(log: string, name: string): number | null {
+// The leg names its artifact `<prefix><32 random hex>`, drawn after its agents finished, so no other leg can upload that
+// name first and knock this leg out (artifact names can't be overwritten).
+// Pure: the artifact ID the upload step reported for a name `prefix` + 32 hex, from the end of the job's log (the agents
+// ran before it, so a line they printed comes earlier and loses).
+export function uploadedArtifactId(log: string, prefix: string): number | null {
   let id: number | null = null;
   for (const line of log.split('\n')) {
     const m = /Artifact (\S+) has been successfully uploaded! .*Artifact ID is (\d+)/.exec(line);
-    if (m) id = m[1] === name ? Number(m[2]) : null; // the last report wins, and it must be for this name
+    if (m) id = m[1].startsWith(prefix) && /^[0-9a-f]{32}$/.test(m[1].slice(prefix.length)) ? Number(m[2]) : null; // the last report wins
   }
   return id;
 }
@@ -293,17 +285,35 @@ export function legJob(jobs: JobInfo[], name: string): { job: JobInfo | null; fi
   return { job: mine[0], finding: null };
 }
 
+// Where the owner and the next attempt will see a problem: the PR being fixed, or the autopilot issue being built. A
+// feature build has neither (its NUMBER is the feature id), so it gets the run's warning annotation only.
+function thread(): [string, string] | null {
+  if (env('PR_NUMBER')) return ['pr', env('PR_NUMBER')];
+  if (env('MODE') === 'fix' && /^\d+$/.test(env('NUMBER'))) return ['pr', env('NUMBER')];
+  if (env('MODE') === 'build' && !env('BRANCH') && /^\d+$/.test(env('NUMBER'))) return ['issue', env('NUMBER')];
+  return null;
+}
+function notice(text: string) {
+  console.log(`::warning title=Nothing published::${text.replace(/[\r\n%]/g, ' ')}`);
+  const t = thread();
+  if (t) { try { execFileSync('gh', [t[0], 'comment', t[1], '--body', text]); } catch { /* the annotation above still has it */ } }
+}
+
 function artifact() {
   const repo = env('GITHUB_REPOSITORY');
   const gh = (...a: string[]) => execFileSync('gh', ['api', ...a], { encoding: 'utf8', maxBuffer: 256 << 20 });
-  const jobs = gh('--paginate', `repos/${repo}/actions/runs/${env('GITHUB_RUN_ID')}/attempts/${env('GITHUB_RUN_ATTEMPT', '1')}/jobs?per_page=100`,
+  // filter=latest: the latest attempt's jobs, including one reused from an earlier attempt on a re-run.
+  const jobs = gh('--paginate', `repos/${repo}/actions/runs/${env('GITHUB_RUN_ID')}/jobs?filter=latest&per_page=100`,
     '--jq', '.jobs[] | {id, name, conclusion}').split('\n').filter(Boolean).map((l) => JSON.parse(l) as JobInfo);
   const { job, finding } = legJob(jobs, env('JOB_NAME'));
-  if (!job) { console.log(`handoff: nothing to publish: ${finding}`); return; }
-  const id = uploadedArtifactId(gh(`repos/${repo}/actions/jobs/${job.id}/logs`), env('ARTIFACT_NAME'));
-  if (!id) { console.error(`handoff: the job "${job.name}" logged no upload of ${env('ARTIFACT_NAME')}; nothing is published`); process.exit(1); }
+  if (!job) return notice(`Nothing was published for \`${env('JOB_NAME')}\`: ${finding}. See the run's log.`);
+  const id = uploadedArtifactId(gh(`repos/${repo}/actions/jobs/${job.id}/logs`), env('ARTIFACT_PREFIX'));
+  if (!id) {
+    notice(`Nothing was published for \`${job.name}\`: its job logged no upload of its hand-off (${env('ARTIFACT_PREFIX')}…).`);
+    process.exit(1);
+  }
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `id=${id}\n`);
-  console.log(`handoff: ${env('ARTIFACT_NAME')} is artifact ${id}, uploaded by job ${job.id}`);
+  console.log(`handoff: the hand-off of ${job.name} is artifact ${id}, uploaded by job ${job.id}`);
 }
 
 // Prepare job: record what the branch starts from (a commit GitHub has: main, the line, or the PR head before any local

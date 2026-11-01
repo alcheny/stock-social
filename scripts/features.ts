@@ -318,10 +318,12 @@ function publishBlocked(f: Feature, reason: string, committeePath?: string, who 
 // Publish refused a build's hand-off (scripts/handoff.ts): record it on the feature like a committee stop, so the planner
 // doesn't rebuild it at full budget every round; the owner clears it. REFUSAL_FILE holds the (defanged) findings.
 function refused() {
+  // Only a real refusal blocks the feature: a verify that crashed (GitHub unreachable, a git error) wrote no file.
+  if (!env('REFUSAL_FILE') || !existsSync(env('REFUSAL_FILE'))) return console.log('features: verify wrote no refusal; nothing recorded');
   const file = env('FILE');
   sh('git', ['fetch', authUrl(), '+refs/heads/main:refs/remotes/origin/main']);
   const f = parseFeature(file, sh('git', ['show', `origin/main:${file}`])); // the worktree may hold nothing: verify refused it
-  const findings = existsSync(env('REFUSAL_FILE')) ? readFileSync(env('REFUSAL_FILE'), 'utf8').trim() : '';
+  const findings = readFileSync(env('REFUSAL_FILE'), 'utf8').trim();
   publishBlocked(f, `Publish refused the agents' hand-off, nothing was pushed (docs/AUTOPILOT.md → Security): ${findings.split('\n').slice(0, 5).join('; ') || 'see the run log'}`, undefined, 'Publish check');
 }
 

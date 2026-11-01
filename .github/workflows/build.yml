@@ -87,6 +87,8 @@ jobs:
       matrix:
         variant: ${{ fromJSON(needs.pick.outputs.variants) }}
     name: prepare ${{ matrix.variant.key || needs.pick.outputs.mode }}
+    outputs:
+      line_base: ${{ steps.prep.outputs.base_sha }} # read only for a line's round, which is a single leg
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -221,10 +223,15 @@ jobs:
           MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
         run: node "$LOOP_DIR/scripts/team.ts"
       - name: Hand off to Publish
+        id: handoff
         if: steps.team.outcome == 'success'
         env:
           BASE_SHA: ${{ steps.prep.outputs.base_sha }}
+          KEY: ${{ matrix.variant.key || 'single' }}
         run: |
+          # A random artifact name, drawn now, after the agents: another leg can't take it first and knock this one
+          # out. Publish reads it, and the artifact's ID, from this job's log.
+          echo "name=agent-$KEY-$(openssl rand -hex 16)" >> "$GITHUB_OUTPUT"
           # Commit what is left, then bundle only the commits since the base. No commits: no bundle, Publish reports it.
           mkdir -p "$RUNNER_TEMP/handoff"
           if [ -n "$(git status --porcelain)" ] || git rev-parse -q --verify MERGE_HEAD >/dev/null; then git add -A && git commit -q --no-verify -m "Work left uncommitted at the end of the run"; fi
@@ -234,7 +241,7 @@ jobs:
         if: steps.team.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: agent-${{ matrix.variant.key || 'single' }}
+          name: ${{ steps.handoff.outputs.name }}
           path: ${{ runner.temp }}/handoff/
           if-no-files-found: error
           retention-days: 1
@@ -276,7 +283,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           JOB_NAME: variant ${{ matrix.variant.key || needs.pick.outputs.mode }}
-          ARTIFACT_NAME: agent-${{ matrix.variant.key || 'single' }}
+          ARTIFACT_PREFIX: agent-${{ matrix.variant.key || 'single' }}-
         run: node "$GITHUB_WORKSPACE/loop/scripts/handoff.ts" artifact
       - name: Download the agents' hand-off
         id: download
@@ -294,7 +301,8 @@ jobs:
           ARTIFACT_DIR: ${{ runner.temp }}/handoff
           GIT_CONFIG_GLOBAL: /dev/null # never the runner image's git config (lfs filters, credential helpers)
           GIT_CONFIG_NOSYSTEM: '1'
-          BASE_SHA: ${{ needs.pick.outputs.mode == 'build' && needs.pick.outputs.base || '' }}
+          # A build's base: main at pick; a line's round: the line commit prepare (no agents) recorded after its sync.
+          BASE_SHA: ${{ needs.pick.outputs.mode == 'build' && (matrix.variant.base && needs.prepare.outputs.line_base || needs.pick.outputs.base) || '' }}
           PR_NUMBER: ${{ needs.pick.outputs.mode == 'fix' && needs.pick.outputs.number || '' }}
         run: |
           git init -q "$GITHUB_WORKSPACE/work" && cd "$GITHUB_WORKSPACE/work"

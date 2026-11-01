@@ -152,7 +152,9 @@ test('the agents\' job holds no write token: `permissions: contents: read` only,
       assert.doesNotMatch(job, /GH_TOKEN|GITHUB_TOKEN|github\.token|secrets\.(?!CLAUDE_CODE_OAUTH_TOKEN\b)\w+/, `${f}: no GitHub token or other secret anywhere in the agents' job`);
       assert.doesNotMatch(job, PUBLISH, `${f}: the agents' job never publishes`);
       assert.doesNotMatch(job, /git push|\bgh (pr|issue|api|workflow|release)\b/, `${f}: the agents' job never pushes or calls GitHub`);
-      assert.match(job, /actions\/upload-artifact@[0-9a-f]{40}[^\n]*\n(?:.*\n){0,2}\s*name: agent-/, `${f}: the agents' job hands its work over as an agent-<key> artifact`);
+      assert.match(job, /actions\/upload-artifact@[0-9a-f]{40}[^\n]*\n(?:.*\n){0,2}\s*name: \$\{\{ steps\.handoff\.outputs\.name \}\}/, `${f}: the agents' job hands its work over under the name its hand-off step drew`);
+      // A random name drawn after the agents ran: another leg can't upload it first and knock this leg out.
+      assert.match(job, /echo "name=agent-\$KEY-\$\(openssl rand -hex 16\)" >> "\$GITHUB_OUTPUT"/, `${f}: the hand-off's artifact name ends in 32 random hex`);
       assert.match(job, /\n    name: \S+ \$\{\{/, `${f}: each agents' leg has its own job name, which Publish looks its artifact up by`);
       assert.match(job, /node "\$LOOP_DIR\/scripts\/team\.ts"/, `${f}: the agents run main's team.ts, not the branch's copy`);
     }
@@ -195,6 +197,7 @@ test('Publish verifies the downloaded hand-off before any step pushes', () => {
       assert.doesNotMatch(steps[download], /\n\s+name: agent-/, `${f}: never download a hand-off by name alone`);
       const agentName = /\n    name: (.+)/.exec(jobsOf(f).find((j) => AGENT.test(j)) ?? '')?.[1]?.split(' #')[0].trim();
       assert.ok(agentName && steps[lookup].includes(`JOB_NAME: ${agentName}`), `${f}: the lookup names the agents' leg job exactly (${agentName})`);
+      assert.match(steps[lookup], /ARTIFACT_PREFIX: agent-.+-\n/, `${f}: the lookup takes only this leg's agent-<key>-<random> uploads`);
       const verify = steps.findIndex((st) => /loop\/scripts\/handoff\.ts" verify/.test(st));
       const publish = steps.findIndex((st) => PUBLISH.test(st));
       assert.ok(download >= 0 && verify > download && publish > verify, `${f}: download (${download}) → verify (${verify}) → publish (${publish})`);

@@ -56,8 +56,12 @@ Security rules for the loop itself (rule R in the policy; tested by `scripts/wor
     Which artifact is the leg's own: every leg's root agent holds the run's runtime token, so a name like
     `agent-b` proves nothing. Publish (`handoff.ts artifact`) first checks that the leg's own agents' job (found by
     its job name) succeeded. It then reads the artifact ID that upload-artifact printed in that job's log, which no
-    other leg can write, and downloads by that ID. A line build is checked against the line commit it was built
-    on (the bundle's merge-base with the line), so a line that moved during a long run doesn't discard the round.
+    other leg can write, and downloads by that ID. Each leg names its artifact `agent-<key>-<32 random hex>`, drawn
+    after its agents finished, so another leg can't take the name first and knock it out. A leg with nothing to
+    publish gets a warning annotation, plus a comment on its PR or issue when it has one. A line's round must build
+    on the line commit the prepare job recorded (no agents, after its loop sync), so a branch reset to an older line
+    commit with older guardrails is refused. A line that moved on during the run is still fine. A verify that crashes
+    (GitHub unreachable) writes no refusal, so it never blocks a feature.
 
     It also cleans the agents' text before the bot posts it. Every HTML comment is defanged, so an agent can't forge
     the loop's markers (`approved:`, attempts, costs, limits). GitHub's closing keywords (`Closes #12`) and the
