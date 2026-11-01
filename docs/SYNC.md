@@ -193,6 +193,10 @@ finds those rows:
 - **Close-change count:** every rebuild compares the trader's closes (share and option) before and after, by id and a
   hash of the shown fields (theses left out). Closes that were shown and are now changed or removed are added to
   `users.closes_rewritten` and logged. Added closes are not counted. The count is shown nowhere yet.
+  The deploy-time matcher rebuild (`lib/matcher-rebuild.ts`, once per `MATCHER_VERSION`) goes through `rebuildRecord`
+  too, so closes a matcher change rewrites are counted the same way (D4: every rebuild that changes or removes a shown
+  close). A record whose closes it leaves unchanged adds nothing. Separating the two causes would need a cause column:
+  an owner item.
 - **Nothing visible:** a found close renders like any close on the profile, the trade page, the feed card and the share
   card, with no "late", "corrected" or "new" wording or styling. Its thesis stays attached by `sell_id`. No file under
   `app/` reads any of this state (`lib/sync-reconcile.copy.test.ts`).

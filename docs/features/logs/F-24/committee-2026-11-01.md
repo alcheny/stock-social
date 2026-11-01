@@ -178,4 +178,9 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
 - **Nit:** the `sync_read_marks` retention text names the new failure counters.
 - **Owner flag:** for an old confirm date, the widened read is in effect a whole-history read in one sync, the burst the
   pass's pacing avoids while MR-1 is open.
+- **Main's #89 (matcher version 2, a deploy-time rebuild of every record through `rebuildRecord`):** decided, under the
+  owner's instruction, that those rebuilds are counted in `users.closes_rewritten` like any other. D4 says every rebuild
+  that changes or removes a shown close, and a matcher change rewriting shown closes is exactly that. Records whose
+  closes don't change add nothing; the AC5 add-only test pins it. Owner item: a cause column, if matcher-driven and
+  vendor-driven rewrites should be exposed separately.
 
