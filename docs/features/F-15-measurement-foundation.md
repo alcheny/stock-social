@@ -1,6 +1,6 @@
 # F-15 · Measurement foundation, first slice: view counts and link sources
 
-Status: ready
+Status: built
 Start conditions: fix #28 (`via=nav` in `lib/referral.ts`) merges first. The beacon mounts from its own component and
 does not edit `app/layout.tsx` until F-13 merges. The `share_action` half starts after F-13 merges (F-4 has merged).
 
@@ -123,46 +123,46 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
 - 2026-11-01: The `share_action` half (E5) is not in this PR; G2 prints "after the share_action slice". Why: decided by
   the committee under the owner's instruction of 2026-11-01; the feature file's start condition: it edits files F-13
   owns.
-
 - 2026-11-01: A browser that reports automation sends no beacon at all; the route still drops a beacon flagged as
   automated. Why: decided by the committee under the owner's instruction of 2026-11-01; every automated test run and
   scripted browser would otherwise add a request to every page (the full e2e suite's request-counting tests caught it),
   and such a browser is never a person's view.
 
 ## Acceptance criteria
-- [ ] A db test inserts rollup rows for a profile, calls `deleteProfile` and finds no row naming that user or handle.
+- [x] A db test inserts rollup rows for a profile, calls `deleteProfile` and finds no row naming that user or handle.
       A second test renames A to B, creates a new user A and finds none of the old counts under either (veto
       condition: LG).
-- [ ] A test fails if any rollup, beacon or `share_action` table stores an IP, user agent, viewer id, session id,
+- [x] A test fails if any rollup, beacon or `share_action` table stores an IP, user agent, viewer id, session id,
       cookie value or fingerprint (veto condition: DK, LG, CS).
-- [ ] A test fails on any stored `via` value outside the closed registry, and unknown values are dropped (unit test)
+- [x] A test fails on any stored `via` value outside the closed registry, and unknown values are dropped (unit test)
       (veto condition: LG).
-- [ ] No full referrer URL is stored; the referrer is stored only as a class (unit test) (veto condition: DK).
-- [ ] New tables have `SCHEMA_MAP` entries (`lib/privacy-retention.ts`). The cookie test (`COOKIE_TABLE`) and the log
+- [x] No full referrer URL is stored; the referrer is stored only as a class (unit test) (veto condition: DK).
+- [x] New tables have `SCHEMA_MAP` entries (`lib/privacy-retention.ts`). The cookie test (`COOKIE_TABLE`) and the log
       scanner pass with no new exception. The PR answers COMPLIANCE §1 Q2 (fields, location, visibility, deletion)
       (veto condition: DK).
-- [ ] `db/schema.sql` changes are additive only; the four `users` share columns remain (CI schema rule) (veto
+- [x] `db/schema.sql` changes are additive only; the four `users` share columns remain (CI schema rule) (veto
       condition: DK, LG, CS).
-- [ ] A test asserts no `app/` page and no `lib/feed.ts` code reads the rollup (veto condition: DK).
-- [ ] A unit test asserts no printed readout cell for path × via × day is below 5, and small cells roll into "other".
-- [ ] The readout prints the four DESIGN §3.5 thresholds verbatim beside its figures. It states that strict G4 can't
+- [x] A test asserts no `app/` page and no `lib/feed.ts` code reads the rollup (veto condition: DK).
+- [x] A unit test asserts no printed readout cell for path × via × day is below 5, and small cells roll into "other".
+- [x] The readout prints the four DESIGN §3.5 thresholds verbatim beside its figures. It states that strict G4 can't
       be read in this slice and that signed-out D7 return is not measured. Any signed-in day-7 count is labelled
       "signed-in viewers only". G2 reads "after the share_action slice" until it lands. G3 is labelled "views, not
       people" (unit test on the readout text) (veto condition: DK, LG, CS).
-- [ ] The readout script writes outside the repo and its output contains no handle or return (test).
-- [ ] The bot-filter validation (200 scripted, 50 human) is run before week 1 and its result (≥ 95% dropped, ≥ 95%
+- [x] The readout script writes outside the repo and its output contains no handle or return (test).
+- [x] The bot-filter validation (200 scripted, 50 human) is run before week 1 and its result (≥ 95% dropped, ≥ 95%
       counted) and false-count rate are in the PR.
-- [ ] A test fires 50 concurrent beacons for one key and gets one row with count 50.
-- [ ] With the beacon route returning 500, or the DB write failing, the page still returns 200 and stays usable, with
+- [x] A test fires 50 concurrent beacons for one key and gets one row with count 50.
+- [x] With the beacon route returning 500, or the DB write failing, the page still returns 200 and stays usable, with
       no error shown to the viewer (e2e).
-- [ ] The beacon adds no focusable element, no visible UI and no layout shift, and never delays first paint (e2e).
-- [ ] Rollup rows older than the stated retention bound are purged by an existing cron path (test).
-- [ ] Share and copy-link append the right `?via=` class and stay one tap. "Link copied" is announced in a polite live
+- [x] The beacon adds no focusable element, no visible UI and no layout shift, and never delays first paint (e2e).
+- [x] Rollup rows older than the stated retention bound are purged by an existing cron path (test).
+- [x] Share and copy-link append the right `?via=` class and stay one tap. "Link copied" is announced in a polite live
       region after the change (e2e).
-- [ ] Nav, invite and path codes are accepted by the registry (unit test).
+- [x] Nav, invite and path codes are accepted by the registry (unit test).
 - [ ] `share_action` rows: one row per share action, deleted with the profile, no thesis text or account id (db test).
-- [ ] The beacon component does not touch `app/layout.tsx` before F-13 merges (checked at review).
-- [ ] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
+      (Not in the first build: waits for F-13, per the start condition; G2 reads "after the share_action slice".)
+- [x] The beacon component does not touch `app/layout.tsx` before F-13 merges (checked at review).
+- [x] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
 
 ## Out of scope
