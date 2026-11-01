@@ -121,6 +121,7 @@ export const HIDDEN_PAGE = 30;
 // rows (past HIDDEN_COUNT_MAX the line says "1,000+"; nothing here counts anyone else's).
 // ponytail: past HIDDEN_COUNT_MAX the line says "1,000+" — an exact count would need a stored per-viewer counter.
 export const HIDDEN_COUNT_MAX = 1_000;
+// ponytail: hiddenTradeCount, ownHiddenTrades, likesAt and rejectsAt still look a close up by `trade_key = … and user_id = …`, which a planner misled by stale statistics could serve by walking closed_trades (user_id, closed_at desc) — give them ownLikesQuery's trade_key-only lookup behind an `offset 0` fence, with an EXPLAIN rows-read test like lib/likes.test.ts's heavy test
 export async function hiddenTradeCount(viewer: number): Promise<number> {
   return (await sql`select 1 from trade_exclusions x
     where x.viewer_id = ${viewer} and exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
