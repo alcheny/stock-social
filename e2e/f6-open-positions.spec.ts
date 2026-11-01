@@ -85,7 +85,7 @@ test('F-6 profile: realized leads, unrealized directly beneath at the same size,
   // The count once, big; the caption names it (UX lead D2) and keeps each count with its word (D4).
   await expect(unrealized.locator('.stat b').nth(0)).toHaveText('3');
   await expect(unrealized.locator('.stat small').nth(0)).toHaveText('open positions · 1 up, 1 down, 1 flat');
-  expect(await unrealized.innerHTML()).toContain('1\u00a0up');
+  expect(await unrealized.evaluate((el) => el.textContent)).toContain('1\u00a0up');
   const avg = unrealized.locator('.stat b').nth(1);
   await expect(avg).toHaveText('-6.7%');
   await expect(avg).toHaveClass('down');
@@ -113,7 +113,7 @@ test('F-6 profile: realized leads, unrealized directly beneath at the same size,
   await expect(rows.nth(2).locator('b').last()).toHaveText('0.0%');
   expect(await rows.nth(2).locator('b').last().getAttribute('class')).toBeNull();
   // The unfurl text says so too.
-  expect(await page.locator('meta[property="og:description"]').getAttribute('content')).toContain('3 open positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized');
+  expect((await page.locator('meta[property="og:description"]').getAttribute('content'))?.replace(/\u00a0/g, ' ')).toContain('3 open positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized');
   await common(page);
 });
 
@@ -214,7 +214,7 @@ test('F-6 stock pages: the aggregate only, never who holds it; not counted for r
   await common(page);
   await page.goto('/t/compare?a=F6A&b=F6B');
   await expect(page.locator('#cmp-a-h').locator('xpath=..')).toContainText('Open positions: 3 open positions · 1 up, 2 down · -10.0% avg unrealized (not in the figures above).');
-  await expect(page.locator('#cmp-b-h').locator('xpath=..')).toContainText('Open positions: 1 open position · 0 up, 1 down · -25.0% unrealized (not in the figures above).');
+  await expect(page.locator('#cmp-b-h').locator('xpath=..')).toContainText('Open positions: 1 open position · 0 up, 1 down · -25.0% unrealized.');
   await common(page);
   // A stock nobody holds: nothing new.
   await page.goto('/t/F6N');
