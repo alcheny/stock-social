@@ -5,6 +5,7 @@
 import { sql } from './db.ts';
 import { deleteUser } from './broker.ts';
 import { endBillingForDeletion } from './billing.ts';
+import { logSafe } from './privacy-log.ts';
 
 export type DeletableUser = { id: number; handle: string; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // F-3: endBilling cancels the processor subscription and deletes the processor customer first (committee condition 20).
@@ -66,4 +67,21 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
       where (user_id = ${u.id} or id = (select signup_attempt_id from users where id = ${u.id})) and snaptrade_user_id = ${u.snaptrade_user_id}`;
     await tx`delete from users where id = ${u.id}`;
   });
+}
+
+// CHORES-3 (C3-44, approval council cycle 3): whether /settings' delete screen shows F-3's subscriber-notes line
+// (BILLING.deleteNotes, the F-3 committee's words). The legal veto: the gate is the real data condition, not a proxy — a
+// public record (closed trades or open positions, both on the profile) or another user's note or saved view naming this
+// user. A connection alone is not a record. When the check fails it says true: over-disclosure is the safe side.
+export async function notesLineApplies(userId: number): Promise<boolean> {
+  try {
+    const [r] = await sql`select exists (select 1 from closed_trades where user_id = ${userId})
+      or exists (select 1 from open_positions where user_id = ${userId})
+      or exists (select 1 from record_notes where trader_id = ${userId})
+      or exists (select 1 from record_view_traders where trader_id = ${userId}) as applies`;
+    return r.applies === true;
+  } catch (e) {
+    console.error('delete notice check failed', logSafe(e));
+    return true;
+  }
 }
