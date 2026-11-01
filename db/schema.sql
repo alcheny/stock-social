@@ -196,10 +196,8 @@ create table if not exists signup_attempts (
   adult_attested_at timestamptz not null,
   snaptrade_user_id text,
   snaptrade_secret_enc text,
-  -- ponytail: no index, so deleting a user scans signup_attempts for this set-null — add a partial index (referred_by_user_id) where not null.
   referred_by_user_id int references users(id) on delete set null,
   referred_surface text,
-  -- ponytail: no index, so a user deletion and the own-profile read (max(id) where user_id = …) scan signup_attempts — add an index (user_id).
   user_id int references users(id) on delete set null,
   completed_at timestamptz
 );
