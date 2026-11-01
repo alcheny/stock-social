@@ -3,6 +3,7 @@ import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
 import { canWatch, WATCH_CAP } from '@/lib/ticker.ts';
 import { toggleWatch } from '../../actions.ts';
+import { logSafe } from '@/lib/privacy-log.ts';
 
 export type WatchState = { signedIn: boolean; watching: boolean };
 
@@ -21,7 +22,7 @@ export async function markSeen(symbol: string, state: WatchState) {
     if (!user) return;
     await sql`update ticker_watches set last_seen_at = now() where user_id = ${user.id} and symbol = ${symbol}`;
   } catch (e) {
-    console.error('markSeen failed', e);
+    console.error('markSeen failed', logSafe(e)); // privacy: never the error's message or query parameters
   }
 }
 

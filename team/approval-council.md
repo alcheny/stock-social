@@ -38,8 +38,10 @@ conditions), its mean score in the second vote is at least 3.5, and none of thes
 - common sense finds it confusing, dishonest or out of proportion.
 Conditions attached by the approving members become acceptance criteria.
 
-At most **three** new features are approved per cycle, the highest-scoring first, so the parallel build stays
-within what can be reviewed and merged safely. The rest wait for the next cycle.
+At most **six** new features are approved per cycle, the highest-scoring first, so the parallel build stays
+within what can be reviewed and merged safely; features that touch the same files count as one build slot. The
+rest wait for the next cycle. (Raised from three on 2026-11-01 after the owner asked to increase the rate of
+development.)
 
 ## What approval can and cannot do
 
