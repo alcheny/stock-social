@@ -106,3 +106,19 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
   on two profiles); (6) the digest counts a hidden thesis once; (7) dead code removed, the hidden trader's line names
   the real download page. The trade_key change is listed in the hand-off (orchestrator item). After the fixes:
   `npm test` 2042 tests, 0 failures; the f16, f17, follow, likes, thesis-safety, signin and app specs pass.
+
+## User test and committee verdicts (step 5, round 1)
+
+- **Tester** (production build, 360/320 px, dark): every F-16 and F-17 criterion PASS except F-17 AC2: a trailing
+  digit read as a demo handle's last letter passed (`yolo_yuk1`, `momentum_may4`). Also: the report page showed the
+  form after an earlier report; the pane's trust foot overlaid the headline stats on the first screen; "Send report"
+  fell below 740 px after the category error; the profile-report target lookup lacked the F-7 filer gate.
+- **Business lead: SIGN.** Compliance PASS on every rule (no third-party names, no advice, percent only, adults only,
+  neutral hidden states, private 404s, no deletion, reporter hidden, no email, draft gates). Usability PASS with
+  non-blocking demands: the 30-day message once, the hidden owner's links on their own row, sign-in returns to the
+  report page, "Send report" fully in view, two wording fixes, the menu on the "← Feed" baseline.
+- **UX lead:** compliance PASS (sandbox build). Usability: one BLOCKING demand, a visible, focused `role=status` line
+  after a successful rename saying the handle changed and old links stop working; non-blocking: a 44 px "Sign in",
+  keep or explain the cleared display name, the takedown link for a hidden owner and in the footer once reachable.
+- All findings go to fix round 2 (round 2 of step 5). Out of scope (follow-up): tap targets under 44 px on the
+  profile's chart points, ticker links and "What's this?" (existing profile code).
