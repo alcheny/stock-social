@@ -11,7 +11,7 @@ const MINORS_RE = new RegExp(`\\b(${MINORS.map((m) => m.replace(/ /g, '\\s')).jo
 const WORDS = /\b(every|all|full record|whole record|signals?|picks?|buy|sell|hold|advice)\b/i;
 
 test('F-13 copy is verbatim', () => {
-  assert.equal(FIRST_VISIT.line, 'Closed trades imported read-only from connected broker accounts. Losses included.');
+  assert.equal(FIRST_VISIT.line, 'Verified trades, straight from the broker. Losses included.');
   assert.equal(FIRST_VISIT.hint, 'Swipe ← for profile');
   assert.equal(FIRST_VISIT.how, `${FOOTER.how} →`);
   assert.equal(FIRST_VISIT.how, 'How records are calculated →');

@@ -317,11 +317,12 @@ export const CLOSES_PAGING = {
 export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated', skip: 'Skip to disclaimer and legal links' } as const;
 
 // F-13 (first-visit line, swipe hint, nav)
-// D27's mechanism with the design system council's wording (2026-11-01, §2.5 R5: D27's sentence called demo cards
-// verified and hid that Stock Social calculates the returns), SW-1 verbatim (lib/f13-copy.test.ts).
+// D27's line and SW-1's hint verbatim (lib/f13-copy.test.ts); a decided line changes only by the owner or a council
+// amendment. The design system council (PR #48, §2.5 R5) proposes new wording for the line: an owner item in the PR.
+// `demo`, `how` and `dismiss` follow that council's labels (not part of D27's decided text).
 // If F-7 public profiles enter the feed, `line` becomes false for them and goes back to the idea board (2026-11-01).
 export const FIRST_VISIT = {
-  line: 'Closed trades imported read-only from connected broker accounts. Losses included.',
+  line: 'Verified trades, straight from the broker. Losses included.',
   how: `${FOOTER.how} →`,
   dismiss: 'Dismiss this note',
   demo: 'Demo records are marked Demo.',
