@@ -33,7 +33,7 @@ export default function Spread({ spread, returns, symbol, demoOnly, mixed, share
         {[0, 11].map((i) => (
           <rect key={i} x={colX(i)} y={TOP} width={COL} height={BASE - TOP} fill={`url(#${hatch})`} stroke="var(--muted)" strokeWidth="1.5" opacity="0.35" />
         ))}
-        <line x1={X0} y1={BASE} x2={X0 + W} y2={BASE} stroke="var(--line)" strokeWidth="1" />
+        <line x1={X0} y1={BASE} x2={X0 + W} y2={BASE} stroke="var(--control)" strokeWidth="1" />{/* F-27: the baseline reads >= 3:1 */}
         {!dots && spread.bins.map((b, i) => {
           const h = b.count ? Math.max(2, (b.count / maxCount) * (BASE - TOP - 8)) : 0;
           const fill = i < 6 ? 'var(--down)' : 'var(--up)';

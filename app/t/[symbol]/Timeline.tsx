@@ -52,7 +52,7 @@ export default function Timeline({ timeline, symbol, demoOnly, mixed }: { timeli
                 <line x1="0" y1="0" x2="0" y2="5" stroke="var(--text)" strokeWidth="2" />
               </pattern>
             </defs>
-            <line x1={0} y1={BASE} x2={width - 4} y2={BASE} stroke="var(--line)" strokeWidth="1" />
+            <line x1={0} y1={BASE} x2={width - 4} y2={BASE} stroke="var(--control)" strokeWidth="1" />{/* F-27: the baseline reads >= 3:1 */}
             {buckets.map((b, i) => {
               const x = i * SLOT;
               const hu = h(b.up), hd = h(b.down);
