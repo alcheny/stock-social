@@ -1,8 +1,8 @@
 // OPTIONS (docs/features/logs/options/plan.md D5, D6): the option parts of the profile, the SW-1 pane and their
 // shared label, as pure components of the model lib/options-load.ts returns (no reads here). Closed gate: the one count
 // line. Open gate: the options line, the short and technical lines, the "Option trades" list and the open rows.
-// Percent only: no strike, premium, contract count or contract symbol is ever passed in.
-import Link from 'next/link';
+// Percent only: no strike, premium, contract count or contract symbol is ever passed in. Plain links (no router
+// import), so the surface tests can render them as static markup outside the app.
 import { expiryText, OPTIONS } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { closesOf, hasOptions, openOf, optionsLineText, shareLabel, type OpenOptionView, type OptionCounts, type OptionHeadline, type OptionTradeView } from '@/lib/options-view.ts';
@@ -21,7 +21,7 @@ export function ShareTradesLabel({ counts }: { counts: OptionCounts }) {
 export function OptionsLines({ m }: { m: OptionHeadline }) {
   if (!hasOptions(m.counts)) return null;
   if (m.gate === 'closed') {
-    return <p className="muted options-gated" data-options="gated"><Link href="/how#options">{OPTIONS.gated(closesOf(m.counts), openOf(m.counts))}</Link></p>;
+    return <p className="muted options-gated" data-options="gated"><a href="/how#options">{OPTIONS.gated(closesOf(m.counts), openOf(m.counts))}</a></p>;
   }
   const c = m.counts;
   return <div className="options-lines" data-options="open">
@@ -36,7 +36,7 @@ export function OptionTradeRow({ t }: { t: OptionTradeView }) {
   const exp = expiryText(t.expiry);
   return <li className="option-row" aria-label={`${t.underlying} ${chip(t.right).toLowerCase()}, ${exp}, ${pct(t.returnPct)}`}>
     <div className="line">
-      <span className="option-what"><b><Link href={`/t/${encodeURIComponent(t.underlying)}`} className="tap44">{t.underlying}</Link></b> <span className="chip">{chip(t.right)}</span></span>
+      <span className="option-what"><b><a href={`/t/${encodeURIComponent(t.underlying)}`} className="tap44">{t.underlying}</a></b> <span className="chip">{chip(t.right)}</span></span>
       <b className={sign(t.returnPct)}>{pct(t.returnPct)}</b>
     </div>
     <p className="muted small option-meta">closed {closedDay.format(t.closedAt)} · {exp}</p>
@@ -67,7 +67,7 @@ export function OpenOptionRows({ open }: { open: OpenOptionView[] }) {
     {open.map((p) => {
       const exp = expiryText(p.expiry);
       return <li key={p.key} aria-label={`${p.underlying} ${chip(p.right).toLowerCase()}, ${exp}, ${pct(p.pct)} unrealized`}>
-        <div className="line"><span className="option-what"><b><Link href={`/t/${encodeURIComponent(p.underlying)}`}>{p.underlying}</Link></b> <span className="chip">{chip(p.right)}</span> <span className="muted small">{exp}</span></span><b className={sign(p.pct)}>{pct(p.pct)}</b></div>
+        <div className="line"><span className="option-what"><b><a href={`/t/${encodeURIComponent(p.underlying)}`}>{p.underlying}</a></b> <span className="chip">{chip(p.right)}</span> <span className="muted small">{exp}</span></span><b className={sign(p.pct)}>{pct(p.pct)}</b></div>
       </li>;
     })}
   </ul>;
