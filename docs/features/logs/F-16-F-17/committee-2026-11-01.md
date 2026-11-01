@@ -91,3 +91,18 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
 - **Gates after the merge:** `npx tsc --noEmit` clean; `npm test` 2037 tests, 0 failures (26 skipped, 1 owner TODO);
   guard ok; compliance: only the `@img/sharp-wasm32` licence in `node_modules`, which origin/main shows too (no
   dependency change here).
+
+## Verify
+
+- **Full e2e on the merged branch** (production build, every spec): 298 passed, 6 skipped, 1 failed
+  (`e2e/follow.spec.ts:23`, `CONNECTION_ENDED`). Cause found after a second failure on its own: `e2e/f17-handles.spec.ts`
+  ended the shared `lib/db.ts` pool in `afterAll`, and the next spec in the same worker inherited it. Fixed with the
+  file's own pool; f17 + follow: 7 passed.
+- **Independent code review** (fresh context): 1 blocking, 7 non-blocking, all fixed in fix round 1 (`bc98717`):
+  (1) unhide re-moderates the current text (an edit made while hidden is never auto-published); (2) a hidden trader's
+  name and figures leave other viewers' likes, follows and Record tools lists ("Profile not available"); (3) a
+  right-side compound of verified/official is refused ("VERIFIEDTRADER"), -ly/-dom/-ness endings pass; (4) the runbook
+  exports holds and audit rows before a restore; (5) the reporter lock comes before the target lock (concurrent reports
+  on two profiles); (6) the digest counts a hidden thesis once; (7) dead code removed, the hidden trader's line names
+  the real download page. The trade_key change is listed in the hand-off (orchestrator item). After the fixes:
+  `npm test` 2042 tests, 0 failures; the f16, f17, follow, likes, thesis-safety, signin and app specs pass.
