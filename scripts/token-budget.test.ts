@@ -1608,13 +1608,13 @@ test('carry-over: an item that carries nothing past the reset is not bound by th
 test('cap: spend above a calibrated high disproves it; a rejection followed by allowed spend at or above it is cleared', () => {
   const now = Date.parse('2026-11-01T12:00:00Z'), reset = Date.parse('2026-11-05T15:00:00Z');
   const p = plan({ now: iso(now), window: { type: 'seven_day', status: 'allowed_warning', resetsAt: iso(reset) }, config: {},
-    sessions: [{ id: 'a', kind: 'build', costUsd: 410, startedAt: iso(now - 5 * H), lastActiveAt: iso(now), done: true }],
+    sessions: [{ id: 'a', kind: 'build', costUsd: 450, startedAt: iso(now - 5 * H), lastActiveAt: iso(now), done: true }], // over 10% above high (round 7 tolerance)
     history: [{ at: iso(now - 3 * H), totalCostUsd: 280, status: 'allowed', type: 'seven_day', resetsAt: iso(reset) },
       { at: iso(now - 2 * H), totalCostUsd: 300, status: 'allowed_warning', type: 'seven_day', resetsAt: iso(reset) }],
     queue: [{ id: 'q', kind: 'review' }] });
-  assert.equal(p.cap.source, 'unknown'); // high 300 / 0.75 = 400 < the $410 spent without a rejection
+  assert.equal(p.cap.source, 'unknown'); // high 300 / 0.75 = 400; the $450 spent without a rejection is over 10% above it
   assert.ok(codes(p).includes('cap-disproved'));
-  assert.equal(p.cap.lowerBoundUsd, 410);
+  assert.equal(p.cap.lowerBoundUsd, 450);
   assert.deepEqual(p.admit.map((a) => a.id), ['q']);
   const cleared = plan(snap({ config: {}, sessions: [build('a', 650, 5, { done: true })],
     history: [{ at: ago(3), totalCostUsd: 500, status: 'allowed' }, { at: ago(2), totalCostUsd: 600, status: 'rejected' }, { at: ago(1), totalCostUsd: 650, status: 'allowed' }] }));
@@ -1893,10 +1893,11 @@ test('cap: a calibration disproved in a later window held in history stays dropp
 test('cap: a disproved calibration reports a lower bound of at least the disproving spend', () => {
   const W = 168 * H, PREV = RESET - W;
   const r = (at: number, usd: number, status: string, reset: number) => ({ atMs: at, totalCostUsd: usd, status, resetsAtMs: reset });
-  const c = estimateCap([r(PREV - 10 * H, 600, 'allowed', PREV), r(PREV - 9 * H, 750, 'allowed_warning', PREV), r(PREV - 5 * H, 1100, 'allowed', PREV),
+  // 1150: over 10% above the high 1000 (up to 10% now raises high instead, round 7)
+  const c = estimateCap([r(PREV - 10 * H, 600, 'allowed', PREV), r(PREV - 9 * H, 750, 'allowed_warning', PREV), r(PREV - 5 * H, 1150, 'allowed', PREV),
     r(NOW - H, 200, 'allowed', RESET)], { warnFraction: 0.75, currentResetsAtMs: RESET });
   assert.equal(c.known, false);
-  assert.equal(c.lowerBoundUsd, 1100);
+  assert.equal(c.lowerBoundUsd, 1150);
 });
 
 test('cap: a rejection at the same instant as the disproving warning rescues the calibration', () => {
@@ -2071,4 +2072,160 @@ test('window: an implausible resetsAt is reported once, as resets-at-implausible
   const p = plan(snap({ window: { type: 'seven_day', resetsAt: 0, status: 'allowed' } }));
   assert.ok(codes(p).includes('resets-at-implausible'));
   assert.ok(!codes(p).includes('no-resets-at'));
+});
+
+// --- 16. Review round 7
+
+test('active age: an ended pause stays excluded while the session is idle afterwards', () => {
+  // worked 09:00-09:06, paused 2.4h (ended), worked 11:30-11:54, idle since; now 12:24: 0.5h active
+  const p = plan({ now: '2026-11-08T12:24:00Z', window: { type: 'seven_day', resetsAt: '2026-11-10T12:00:00Z', status: 'allowed' }, config: { capUsd: 70 },
+    sessions: [{ id: 's', kind: 'build', costUsd: 20, startedAt: '2026-11-08T09:00:00Z', lastActiveAt: '2026-11-08T11:54:00Z', pausedHours: 2.4 }], queue: [] });
+  const r = p.reserve.sessions[0];
+  assert.ok(near(r.burnUsdPerHour, 40), String(r.burnUsdPerHour));
+  assert.ok(near(r.remainingHours, 1.25), String(r.remainingHours));
+});
+
+test('active age: an in-window pause followed by idle time does not overstate spend or disprove the cap', () => {
+  const p = plan({ now: '2026-11-08T14:00:00Z', window: { type: 'five_hour', resetsAt: '2026-11-08T16:00:00Z', status: 'allowed' },
+    sessions: [{ id: 's', kind: 'build', costUsd: 60, startedAt: '2026-11-08T10:00:00Z', lastActiveAt: '2026-11-08T13:30:00Z', pausedHours: 0.5 },
+      { id: 'o', kind: 'review', costUsd: 33, startedAt: '2026-11-08T11:30:00Z', lastActiveAt: '2026-11-08T13:00:00Z', done: true }],
+    queue: [], history: [{ at: '2026-11-08T08:00:00Z', totalCostUsd: 60, status: 'allowed', resetsAt: '2026-11-08T11:00:00Z', type: 'five_hour' },
+      { at: '2026-11-08T09:00:00Z', totalCostUsd: 75, status: 'allowed_warning', resetsAt: '2026-11-08T11:00:00Z', type: 'five_hour' }] });
+  assert.equal(p.cap.known, true, codes(p).join());
+  assert.ok(!codes(p).includes('cap-stale'));
+  assert.ok(near(p.historyEntry.totalCostUsd, 73)); // 60 × 2h / 3h active + 33
+});
+
+test('active age: just resumed with no new event, a pause longer than the span lies after lastActiveAt; a shorter one is assumed inside it', () => {
+  const s = { costUsd: 30, startedAtMs: NOW - 3 * H, lastActiveAtMs: NOW - 2 * H, kind: 'build' };
+  assert.ok(near(remainingCost({ ...s, pausedHours: 2 }, NOW, RESET).burnUsdPerHour, 30)); // 1h of work
+  // 1h of work, 0.5h paused, resumed: assumed inside the span until the next event (the safe side: higher burn)
+  const short = { costUsd: 30, startedAtMs: NOW - 1.5 * H, lastActiveAtMs: NOW - 0.5 * H, kind: 'build', pausedHours: 0.5 };
+  assert.ok(near(remainingCost(short, NOW, RESET).burnUsdPerHour, 60));
+  assert.ok(near(remainingCost({ ...short, paused: true }, NOW, RESET).burnUsdPerHour, 30)); // still paused: the pause lies after
+});
+
+test('recent burn: a paused session ends its recent interval at lastActiveAt', () => {
+  // worked 1h, a reading 15 minutes before it paused: $10 in 0.25h = $40/h, as at the moment it paused
+  const base = { id: 'p', kind: 'build', costUsd: 30, startedAt: ago(1.5), lastActiveAt: ago(0.5), recent: { costUsd: 20, at: ago(0.75) } };
+  const p = plan(snap({ config: { capUsd: 500 }, sessions: [{ ...base, paused: true, pausedHours: 0.5 }] }));
+  const r = p.reserve.sessions[0];
+  assert.ok(near(r.burnUsdPerHour, 40), String(r.burnUsdPerHour));
+  const atPause = remainingCost({ kind: 'build', costUsd: 30, startedAtMs: NOW - 1.5 * H, lastActiveAtMs: NOW - 0.5 * H, recent: { costUsd: 20, atMs: NOW - 0.75 * H } }, NOW - 0.5 * H, RESET);
+  assert.ok(near(r.remaining.point, atPause.remaining.point), `${r.remaining.point} vs ${atPause.remaining.point}`);
+});
+
+test('recent burn: recent.pausedHours removes the pause from the interval; under 5 active minutes the reading is ignored', () => {
+  const now = Date.parse('2026-11-02T12:00:00Z');
+  const s = { id: 's', kind: 'build', costUsd: 58.67, startedAt: '2026-11-02T07:00:00Z', lastActiveAt: iso(now), pausedHours: 2.05 };
+  const p = (recent: unknown) => plan({ now: iso(now), window: { type: 'seven_day', resetsAt: '2026-11-05T00:00:00Z', status: 'allowed' }, sessions: [{ ...s, recent }] });
+  const lifetime = p(undefined).reserve.sessions[0].burnUsdPerHour;
+  // a pre-pause reading: 2 active minutes since it, too few, so the lifetime burn is used
+  assert.equal(p({ costUsd: 58, at: '2026-11-02T09:55:00Z', pausedHours: 0 }).reserve.sessions[0].burnUsdPerHour, lifetime);
+  // a reading 8 minutes ago after the resume: $2.67 in 8 minutes
+  assert.ok(near(p({ costUsd: 56, at: '2026-11-02T11:52:00Z', pausedHours: 2.05 }).reserve.sessions[0].burnUsdPerHour, 20.03, 0.02));
+  const bad = p({ costUsd: 56, at: '2026-11-02T11:52:00Z', pausedHours: 3 });
+  assert.ok(codes(bad).includes('bad-recent'));
+});
+
+test('history: jittered resetsAt values of an off-grid older window are one window', () => {
+  const T = (m: number) => new Date(Date.parse('2026-11-02T00:00:00Z') + m * 60000).toISOString();
+  const hist = (jitter: boolean) => {
+    const h = [];
+    for (let m = 11 * 60 + 5; m <= 15 * 60 + 55; m += 5) {
+      const spend = Math.min(502, (m - 660) * 1.75);
+      const status = spend >= 502 ? 'rejected' : spend >= 375 ? 'allowed_warning' : 'allowed';
+      const j = jitter ? ((m * 7919) % 41) - 20 : 0;
+      h.push({ at: T(m), totalCostUsd: spend, status, resetsAt: new Date(Date.parse(T(16 * 60)) + j * 1000).toISOString(), type: 'five_hour', windowKnown: true });
+    }
+    return h;
+  };
+  const cur = 22 * 60; // an off-grid current window 17:00-22:00
+  const p = (jitter: boolean) => plan({ now: T(cur - 290), window: { type: 'five_hour', status: 'allowed', resetsAt: Date.parse(T(cur)) / 1000 + 7 }, sessions: [], queue: [], history: hist(jitter) });
+  const [a, b] = [p(false), p(true)];
+  assert.deepEqual([b.cap.low, b.cap.high, !!b.cap.calibratedFrom?.rejected], [a.cap.low, a.cap.high, true]);
+});
+
+test('historyEntry: resetsAt repeats the earliest value history already holds for this window (within 60 s)', () => {
+  const held = { at: ago(1), totalCostUsd: 5, status: 'allowed', resetsAt: iso(RESET - 20_000), type: 'seven_day' };
+  const p = plan(snap({ window: { type: 'seven_day', resetsAt: (RESET + 15_000) / 1000, status: 'allowed' }, history: [held] }));
+  assert.equal(p.historyEntry.resetsAt, iso(RESET - 20_000));
+  assert.equal(plan(snap({ history: [] })).historyEntry.resetsAt, iso(RESET));
+});
+
+test('cap: later-window evidence up to 10% above high raises high (cap-raised-high); beyond it drops the cap', () => {
+  const W = 168 * H;
+  const r = (at: number, usd: number, status: string, reset: number) => ({ atMs: at, totalCostUsd: usd, status, resetsAtMs: reset });
+  const old = [r(RESET - 2 * W - 10 * H, 600, 'allowed', RESET - 2 * W), r(RESET - 2 * W - 9 * H, 750, 'allowed_warning', RESET - 2 * W)];
+  const run = (rs: ReturnType<typeof r>[]) => { const seen: string[] = []; return { c: estimateCap(rs, { warnFraction: 0.75, currentResetsAtMs: RESET }, (code) => seen.push(code)), seen }; };
+  const near10 = run([...old, r(RESET - W - 5 * H, 780, 'allowed', RESET - W)]); // 780 / 0.75 = 1040 ≤ 1100
+  assert.deepEqual([near10.c.known, near10.c.high, near10.c.low], [true, 1040, 1040]);
+  assert.ok(near10.seen.includes('cap-raised-high'), near10.seen.join());
+  const far = run([...old, r(RESET - W - 5 * H, 840, 'allowed', RESET - W)]); // 1120 > 1100
+  assert.deepEqual([far.c.known, far.seen.includes('cap-stale')], [false, true]);
+  // spend seen in the calibration's own window: 1050 ≤ 1100 raises, 1150 disproves
+  const src = (usd: number) => run([...old, r(RESET - 2 * W - 5 * H, usd, 'allowed', RESET - 2 * W)]);
+  assert.deepEqual([src(1050).c.known, src(1050).c.high, src(1050).seen.includes('cap-raised-high')], [true, 1050, true]);
+  assert.deepEqual([src(1150).c.known, src(1150).seen.includes('cap-disproved')], [false, true]);
+});
+
+test('cap: low is raised from allowed readings in every later window held, not only this one', () => {
+  const W = 168 * H;
+  const r = (at: number, usd: number, status: string, reset: number) => ({ atMs: at, totalCostUsd: usd, status, resetsAtMs: reset });
+  const seen: string[] = [];
+  const c = estimateCap([r(RESET - 2 * W - 10 * H, 600, 'allowed', RESET - 2 * W), r(RESET - 2 * W - 9 * H, 750, 'allowed_warning', RESET - 2 * W),
+    r(RESET - W - 5 * H, 690, 'allowed', RESET - W), r(NOW - H, 100, 'allowed', RESET)], { warnFraction: 0.75, currentResetsAtMs: RESET }, (code) => seen.push(code));
+  assert.deepEqual([c.low, c.high], [920, 1000]);
+  assert.ok(seen.includes('cap-raised'));
+});
+
+test('history slope: measured from the proven spend', () => {
+  const start = NOW - H;
+  const s = { id: 'b', kind: 'build', costUsd: 40, startedAt: iso(NOW - (35 / 6) * H), lastActiveAt: iso(NOW), pausedHours: 2.5 };
+  const p = plan(snap({ window: { type: 'five_hour', resetsAt: (start + 5 * H) / 1000, status: 'allowed' }, config: { capUsd: 300 }, sessions: [s],
+    history: [{ at: ago(0.5), totalCostUsd: 0, status: 'allowed', resetsAt: (start + 5 * H) / 1000, type: 'five_hour' }] }));
+  assert.ok(near(p.spend.windowUsd, 12));
+  assert.equal(p.projection.historyBurnUsdPerHour, 0); // proven $0 since the reading, not $12 / 0.5h
+});
+
+test('window spend: a session last active before the window start counts nothing, whatever its windowStartCostUsd', () => {
+  const ws = NOW - H;
+  assert.equal(windowSpend([{ costUsd: 60, startedAtMs: ws - 2 * H, lastActiveAtMs: ws - 0.5 * H, windowStartCostUsd: 5 }], ws, NOW), 0);
+});
+
+test('sessions: fully tied duplicate ids resolve the same whatever their order', () => {
+  const a = { id: 's', kind: 'build', costUsd: 10, startedAt: ago(1), lastActiveAt: ago(0.2), priority: 0 };
+  const b = { ...a, priority: 9, paused: true };
+  const c = { ...a, priority: 9, phase: 'small' };
+  const pick = (ss: unknown[]) => plan(snap({ sessions: ss })).reserve.sessions[0];
+  assert.deepEqual([pick([a, b]).paused, pick([b, a]).paused], [true, true]);
+  assert.deepEqual([pick([a, c]).priority, pick([c, a]).priority], [9, 9]);
+  assert.equal(pick([c, { ...c, phase: 'other' }]).phase, pick([{ ...c, phase: 'other' }, c]).phase);
+});
+
+test('cap: a same-instant rejection rescues a calibration disproved by more than 10%', () => {
+  const W = 168 * H, PREV = RESET - W, t = PREV - 10 * H;
+  const r = (at: number, usd: number, status: string) => ({ atMs: at, totalCostUsd: usd, status, resetsAtMs: PREV });
+  // high 600 / 0.75 = 800; 900 is over 10% above it, so only the rejection at the same instant keeps the cap
+  const c = estimateCap([r(PREV - 50 * H, 550, 'allowed'), r(PREV - 40 * H, 600, 'allowed_warning'), r(t, 900, 'allowed_warning'), r(t, 900, 'rejected')],
+    { warnFraction: 0.75, currentResetsAtMs: RESET });
+  assert.deepEqual([c.known, c.high], [true, 900]);
+});
+
+test('sessions: duplicate ids prefer the later activity, then paused, then the higher priority', () => {
+  const a = { id: 's', kind: 'build', costUsd: 10, startedAt: ago(1), lastActiveAt: ago(0.5), priority: 0 };
+  const pick = (ss: unknown[]) => plan(snap({ sessions: ss })).reserve.sessions[0];
+  const later = { ...a, lastActiveAt: ago(0.1) };
+  assert.deepEqual([pick([a, later]).remainingHours, pick([later, a]).remainingHours], [pick([later]).remainingHours, pick([later]).remainingHours]);
+  const paused = { ...a, paused: true }, important = { ...a, priority: 9 };
+  assert.deepEqual([pick([paused, important]).paused, pick([important, paused]).paused], [true, true]); // paused beats priority
+  const p1 = { ...a, priority: 1 }, p5 = { ...a, priority: 5 };
+  assert.deepEqual([pick([p1, p5]).priority, pick([p5, p1]).priority], [5, 5]);
+});
+
+test('historyEntry: the earliest of several held values for this window, ignoring other windows', () => {
+  const e = (resetsAtMs: number, at = ago(1)) => ({ at, totalCostUsd: 5, status: 'allowed', resetsAt: iso(resetsAtMs), type: 'seven_day' });
+  const p = plan(snap({ window: { type: 'seven_day', resetsAt: (RESET + 15_000) / 1000, status: 'allowed' },
+    history: [e(RESET - 20_000), e(RESET + 30_000), e(RESET - 7 * DAY, iso(RESET - 7.5 * DAY))] })); // the earliest is not the last listed
+  assert.equal(p.historyEntry.resetsAt, iso(RESET - 20_000));
 });

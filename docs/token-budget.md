@@ -76,7 +76,8 @@ as null with a `non-finite` error issue.
 - `priority`: a higher number is more important. Queue items and running sessions default to 0.
 - `done` and `paused` are booleans; the strings `"true"` / `"false"` are accepted with an issue, anything
   else counts as false with an issue. Duplicate session ids: a done reading wins, then the larger cost,
-  then the later `lastActiveAt`. Sessions without an id get a generated `(missing id #i)` and are never
+  then the later `lastActiveAt`, then a paused one, then the higher priority, then the smaller JSON text of
+  the read session (so input order never matters). Sessions without an id get a generated `(missing id #i)` and are never
   merged.
 - `recent` is an earlier reading of the same session: the latest reading that is at least 5 minutes old
   (keep one from that far back; a fresher one is ignored), with `recent.at` when it was taken and
@@ -106,17 +107,24 @@ from `at` on the current window's grid. Ignored, with one issue each that counts
 - entries whose own `resetsAt` names a newer window than the current one, or one overlapping it (an
   earlier reset less than one window length before the current one): `history-other-window`. A `resetsAt`
   within 60 seconds of the current window's grid (the current reset minus a whole number of windows) is
-  snapped to that grid value first, so the same window always compares equal. A plan written after a rollover records a
+  snapped to that grid value first, so the same window always compares equal. Values off that grid that lie within
+  60 seconds of each other (a provider whose `resetsAt` jitters) are one window too, named by the earliest of
+  them; the plan's `historyEntry.resetsAt` repeats the earliest value history already holds for the current
+  window (within 60 s), so every entry of a window carries one value. A plan written after a rollover records a
   `resetsAt` inferred on the old window's grid; if the provider's `five_hour` windows do not follow that
   grid, such entries are later ignored this way;
 - entries with an unparseable `resetsAt`, `at` or `totalCostUsd`: `bad-history`.
 
 `history-no-window` is reported only for such entries within the last window length; older ones are left
-over from an earlier blind start: prune `windowKnown: false` entries older than one window.
+over from an earlier blind start: prune `windowKnown: false` entries older than one window. When pruning by
+window, treat `resetsAt` values within 60 seconds of each other as the same window.
 
 **History upkeep.** Append every plan's `historyEntry`, every tick; keep at least the last 2 hours plus
-every reading of the current and the previous window (calibration and its carry-over; a calibration is
-checked against every later window still held, so keeping more windows only makes it safer). Skipping appends
+every reading of the current and the previous window (the previous window is the latest older `resetsAt` held,
+not the current `resetsAt` minus one window length, which differs when windows are off the grid) (calibration and its carry-over; a calibration is
+checked against every later window still held, so keeping more windows only makes it safer). A calibration
+carries over only as long as its window's entries are kept: drop them and the cap is unknown again until the next
+warning; keep more windows to keep it. Skipping appends
 makes calibration drift: the first warning reading is the one that sets the cap, so a missed tick moves it
 later and the cap higher. Keep one history and one `capUsd` per window type.
 
@@ -129,9 +137,9 @@ later and the cap higher. Keep one history and one `capUsd` per window type.
 | `sessions[].lastActiveAt` | the time of the session's latest event or cost update |
 | `sessions[].done` | true once the session's task finished or was abandoned (final result, failure or archive); an interrupted or paused session is never done |
 | `sessions[].paused` | true while the orchestrator holds the session paused |
-| `sessions[].pausedHours` | optional: the hours the session has spent paused so far, including a pause still running, kept by the orchestrator (see Age). Add time a session sat stalled under `rejected` too: otherwise it counts as active |
-| `sessions[].windowStartCostUsd` | optional: the session's `costUsd` at its first reading at or after the current window's start, recorded by the orchestrator for a session that spans the start; its in-window spend is then `costUsd` − this (clamped to 0..`costUsd`; above `costUsd`: `window-start-above-cost`). Ignored after a rollover |
-| `sessions[].recent` | the latest earlier reading of that session (`costUsd`, `at`) at least 5 minutes old, taken from active time only (not from inside a pause: the planner cannot tell) |
+| `sessions[].pausedHours` | optional: the hours the session has spent paused so far, including a pause still running, kept by the orchestrator, together with `paused` (see Age: while `paused` is true the running pause is taken to lie after `lastActiveAt`, once it is false every pause is taken to lie inside the active span). Add time a session sat stalled under `rejected` too: otherwise it counts as active |
+| `sessions[].windowStartCostUsd` | optional: the session's `costUsd` at its last reading at or before the current window's start (the safe side for admission: it can only count more spend in the window), recorded by the orchestrator for a session that spans the start; its in-window spend is then `costUsd` − this (clamped to 0..`costUsd`; above `costUsd`: `window-start-above-cost`). It belongs to one window of one type: drop it when the window changes (it is ignored after a rollover, and a session last active before the window start counts nothing whatever it says), and with mixed windows give each plan its own window's value |
+| `sessions[].recent` | the latest earlier reading of that session (`costUsd`, `at`, optional `pausedHours`: the session's `pausedHours` when the reading was taken) at least 5 minutes of work old. For a paused session the interval ends at `lastActiveAt`; with `recent.pausedHours` the pauses since the reading are taken out ((`now` − `at`) − (`pausedHours` − `recent.pausedHours`)); under 5 minutes of work the reading is ignored. After a resume, omit `recent` until a reading taken after the resume is 5 minutes old, or pass `recent.pausedHours` (above `pausedHours` it is ignored, `bad-recent`) |
 | `window` | the latest `rate_limit_info` as reported (`status`, `resetsAt`, `rateLimitType`, `isUsingOverage`), from any child session or the orchestrator's own session |
 | `history` | the `historyEntry` of every earlier plan of this window type |
 
@@ -146,7 +154,7 @@ the same `sessions` and `queue`, and combine them:
 | `queued[].nextAdmitAt` | the later of the plans'; null in any plan wins (re-plan every tick) |
 | `pause.recommend` | the union, in the order of the more urgent plan (rejected/overage first) |
 | `pause.next` | the first id of that union |
-| `resume` | only when every plan's brake is `none`: the first id, in `resume.ids` order, present in every plan's `resume.fitting`; else hold. `resume.all`: the ids in every plan's `resume.all` |
+| `resume` | only when every plan's brake is `none`: the first id, in `resume.ids` order, present in every plan's `resume.fitting`; else hold. `resume.all`: the ids in every plan's `resume.all`; if that intersection is empty, resume the combined next alone |
 | `fill` | the plan with the minimum `recommendAdmitUsd` (null means no limit; if all are null, null): its amount, suggestions and `blockedBy` |
 | `summary` | written by the caller from the combined fields |
 
@@ -160,11 +168,13 @@ prints `window.status` null and `statusAssumed: "allowed"`. Without a usable `re
 missing, or outside the Date range, or implausible: at or before 0, or more than 30 days before `now`,
 `resets-at-implausible`) the plan brakes (`bad-window`), prints `window.resetsAt`, `startAt`
 and `hoursToReset` as null with `window.assumed: true`, never invents a reset time and writes a
-`historyEntry` with `windowKnown: false` and null `status` and `resetsAt`. A `resetsAt` more than one
+`historyEntry` with `windowKnown: false` and null `status` and `resetsAt` (its `type` is the window type read, or the
+default `seven_day` when there is none). A `resetsAt` more than one
 window after `now` (the window would start after now) is an error (`window-ahead`) with the same brake and
 `historyEntry`; every session is then counted in full.
 
-**Spend in window.** Each session's cost is counted in full when it started inside the window. A session
+**Spend in window.** Each session's cost is counted in full when it started inside the window, and not at all
+when it was last active before the window start. A session
 that started before the window starts (the orchestrator, or one resumed across a reset) counts `costUsd −
 windowStartCostUsd` when the orchestrator passes that field; otherwise pro rata over its active hours (Age):
 its cost times (`lastActiveAt` − window start) / active hours, at most all of it. Where its paused hours fell
@@ -190,9 +200,14 @@ A key `kind:phase` overrides `kind` for sessions in that phase; `config.priors` 
 the same keys, as a number (low = point = high) or `{ "low", "point", "high" }` (also `typicalHours`,
 `tailHours`, `floorUsd`).
 
-**Age** is active age throughout: max(0, min(`lastActiveAt` − `startedAt`, `now` − `startedAt` −
-`pausedHours`)). A pause still running lies after `lastActiveAt` and one that has ended lies inside the span, so
-the paused hours so far are never subtracted twice (while paused, or just resumed before a new event).
+**Age** is active age throughout. With span = `lastActiveAt` − `startedAt`:
+- while `paused`: max(0, min(span, `now` − `startedAt` − `pausedHours`)): the running pause lies after
+  `lastActiveAt`;
+- not paused: span − `pausedHours`: an ended pause lies inside the span, so idle time after the last event
+  (a long tool call, a CI wait) does not hide it. When `pausedHours` is longer than the span, the session was
+  just resumed with no event since and the pause lies after `lastActiveAt`: the paused formula is used. A short
+  pause just resumed is taken to lie inside the span until the next event (a higher burn: the safe side).
+
 `pausedHours` above `now` − `startedAt` is clamped (`paused-hours-above-span`). Idle and paused time does not
 move a session through its typical hours, its overrun or its first minutes, and its lifetime burn is averaged
 over the same active hours.
@@ -244,11 +259,14 @@ is used for all three), else the prior range for its kind and phase.
    high / low above 1.25 is reported (`cap-bracket-wide`). Source `calibrated`; it carries over to later
    windows, but this window's evidence checks it: when `lowerBoundUsd` (below) is above a carried-over
    high, the old cap is disproved and dropped (`cap-stale`: the cap is unknown again); the same check covers
-   every later window held in history, not just this one (an allowed reading at A in any of them above high ×
-   warnFraction drops it; those windows hold no warning or rejection, so their highest non-rejected spend is
-   such an A); when this window's bound lies between low and high, low is raised to it (`cap-raised`). Any reading that was not rejected, at spend
-   S, proves the cap of its window is at least S. This is checked in the calibration's own window and in
-   the current one: low is raised to S, and when S is above the calibrated high the calibration is
+   every later window held in history, this one included (each later window's bound is the largest A /
+   warnFraction over its allowed readings at A; those windows hold no warning or rejection, so their highest
+   non-rejected spend is such an A). A bound up to 10% above high (bound ≤ 1.1 × high) raises high to it
+   instead (`cap-raised-high`; readings are estimates and warnFraction is inferred); beyond 10% the cap is
+   dropped. The largest bound over all later windows also raises low (`cap-raised`). Any reading that was not
+   rejected, at spend S, proves the cap of its window is at least S. This is checked in the calibration's own
+   window (in later windows the bound above covers it): low is raised to S; S up to 10% above the calibrated
+   high raises high to S (`cap-raised-high`); beyond that the calibration is
    disproved (`cap-disproved`; the cap is unknown, with `lowerBoundUsd` = max(this window's, S), and admission follows
    the unknown-cap rule while status is allowed or allowed_warning), unless a rejected reading later in
    the same window (later in the sorted order, so one at the same instant counts), at R ≥ S, caps it instead (high = R, low = max(S, the allowed reading before it /
@@ -332,7 +350,7 @@ not rolled-over window.
 - `bad-window`: no usable `resetsAt`, or one more than a window ahead. Cold start: with no window or reset
   time at all, no child session running (the orchestrator and done sessions do not count) and no history
   entry holding a reading (entries with `windowKnown: false`, a null `status` or `resetsAt: null` do not
-  count), the top queued item alone is admitted (issue `bootstrap`) so that a rate-limit reading can be
+  count; a paused child counts as running), the top queued item alone is admitted (issue `bootstrap`) so that a rate-limit reading can be
   obtained; the queued reasons and the fill message then say "bootstrap: one item admitted to obtain a
   reading". Any session's `rate_limit_info`, the orchestrator's own included, is a valid window source.
   Always start every `admit[]` id, even under a brake: a brake admits nothing except this bootstrap item.
@@ -435,8 +453,10 @@ while the cap is unknown. `issues[]` are `{ level, code, detail }`; `level` is `
 - A session's projected rate jumps from its prior's average to its observed burn when it turns 10 minutes
   old (5 with a recent reading).
 - Cost is a proxy for tokens: cache reads are cheap in dollars but may weigh differently against the cap.
-- Spend the orchestrator cannot see (a person's own sessions on the same account) is missing from spend,
-  so a cap calibrated from a warning comes out lower than the real one: that errs on the safe side.
+- Spend the orchestrator cannot see (a person's own sessions on the same account) is missing from spend.
+  A one-off amount makes a cap calibrated from a warning come out low, the safe side; steady background
+  spend keeps growing the provider's total after calibration, so the rejection comes earlier than the plan
+  expects. When background use is known, set `config.capUsd` to the cap less that use.
 - Until the first warning (or a `capUsd`), the cap is unknown and everything is admitted while status is
   `allowed` (or `allowed_warning`, once a calibration has been disproved): the warning at `warnFraction` is the signal that turns reserves on. If the fleet's committed
   work already exceeds the cap by then, `projection.runningFits` says so and the brakes take over at
