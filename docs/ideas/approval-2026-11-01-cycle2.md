@@ -35,6 +35,15 @@ merged by the next approval council lapses to that council.
 
 Numbering: F-15 to F-20 by rank. Fix numbers below refer to this cycle's fixes list (not cycle 1's).
 
+**Chair's notes on placing conditions in the feature files.** Every condition an approving member attached is an
+acceptance criterion; duplicates were merged and the strictest kept. Where ballots disagreed: (1) F-19's "What's this?"
+line: 13 members put its placement after F-18, two in the first slice, so the constant and its test land in the
+first slice and it goes onto the stats row after F-18. (2) Conditions that only applied to K18 (an under-18 report
+category that hides at once, DK and LG) are left out of F-16 because K18 did not pass. (3) F-15 has no single
+prerequisite, so its lapse rule reads "if not started by the next council". (4) Common sense's round-0 timing for F-20
+(after F-10..F-13's `app/globals.css` edits) is placed as merge timing. (5) F-19's first slice may start now, so only
+its sweep can lapse.
+
 ## Process
 
 - **Round 0 (consistency check).** The chair drafted 22 briefs (K1-K22) from the cycle-1 waiting list and the new
@@ -300,7 +309,7 @@ The chair's briefs as written before round 0, followed by the round 0 outcome th
 
 #### Approval council cycle 2 (2026-11-01): candidate briefs (chair's draft, before round 0)
 
-Base: origin/main 31004e7. Repo: /home/user/stock-social. Process: team/approval-council.md. Binding: docs/POLICY.md.
+Base: origin/main 31004e7. Process: team/approval-council.md. Binding: docs/POLICY.md.
 Cycle 1 record: docs/ideas/approval-2026-11-01.md (C-ids below refer to it). Sources this cycle:
 - MRC2-n: docs/direction/market-2026-11-01-cycle2.md §8 (and §3 for measurement).
 - BC-n: docs/direction/business-2026-11-01.md §7 (and §2 checklist B1-B16).
