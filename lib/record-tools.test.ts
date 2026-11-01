@@ -184,8 +184,19 @@ dbTest('the figures on a card are the profile\'s: the same functions over the sa
   const rt = await import('./record-tools.ts');
   const { sql } = await import('./db.ts');
   const { confidence, evidenceLine, pct, rangeText, stats } = await import('./trades.ts');
-  const demos = await sql`select u.id, u.handle, u.display_name from users u where exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo') and u.deleted_at is null order by u.handle limit 3`;
-  if (!demos.length) return; // the seeded demo traders (npm run db:seed); CI seeds them
+  // Own fixture (CI review): three traders with unverified (demo) closes, gains and losses, so no other test file's rows
+  // can change what is compared. 12 closes each over different stocks: enough bets for a range.
+  const demos: { id: number; handle: string; display_name: string }[] = [];
+  for (let k = 0; k < 3; k++) {
+    const t = await user(`Fixture ${k}`);
+    demos.push({ id: t.id, handle: t.handle, display_name: `Fixture ${k}` });
+    for (let j = 0; j < 12; j++) {
+      const opened = new Date(Date.UTC(2026, 0, 1 + j * 7)), closed = new Date(opened.getTime() + (2 + j) * 86_400_000);
+      const r = ((j * 37 + k * 11) % 21 - 9) / 100; // -9% to +11%, losses included
+      await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
+        values (${t.id}, ${`${t.handle}-s${j}`}, ${`${t.handle}-a`}, ${`S${j}`}, ${opened}, ${closed}, ${r}, ${2 + j}, false)`;
+    }
+  }
   const cards = await rt.compareCards(demos.map((d) => ({ id: d.id as number, handle: d.handle as string, name: d.display_name as string })));
   for (const [i, d] of demos.entries()) {
     const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at from closed_trades where user_id = ${d.id}`;
