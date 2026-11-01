@@ -1,6 +1,6 @@
 # F-23 · Public payloads carry no more precision than the screens show
 
-Status: building
+Status: built
 Start conditions: fix F3-2 merges. Shares one build slot (the pane and payload slot) with F-21.
 
 ## Why
@@ -92,25 +92,25 @@ second-vote mean 3.67, final vote 15/15, all with conditions).
   independent code review and the user test.
 
 ## Acceptance criteria
-- [ ] For a fixture with an odd return and a 14:31:07 close, `/pane`, `/pane-chart` and the feed HTML contain no return
+- [x] For a fixture with an odd return and a 14:31:07 close, `/pane`, `/pane-chart` and the feed HTML contain no return
       finer than the printed precision and no time finer than a UTC day (response test).
-- [ ] `unrealized_pct` and `openAsOf` are covered by the same test.
-- [ ] The pane headline equals the profile headline for the same record, including a value on the rounding edge
+- [x] `unrealized_pct` and `openAsOf` are covered by the same test.
+- [x] The pane headline equals the profile headline for the same record, including a value on the rounding edge
       (parity test).
-- [ ] Two closes on the same day keep their order in the chart and the scrub opens the right trade (e2e or unit).
-- [ ] A snapshot shows no displayed figure, tone or Flat label changes on profile, pane and feed.
-- [ ] Ranking and confidence-interval tests pass unchanged (computed on stored values).
-- [ ] The public cache key changes with the payload format, so a pre-change cached body is not served.
+- [x] Two closes on the same day keep their order in the chart and the scrub opens the right trade (e2e or unit).
+- [x] A snapshot shows no displayed figure, tone or Flat label changes on profile, pane and feed.
+- [x] Ranking and confidence-interval tests pass unchanged (computed on stored values).
+- [x] The public cache key changes with the payload format, so a pre-change cached body is not served.
 
-- [ ] One test scans every signed-out response on the profile, pane, pane-chart, feed, trade and month pages (HTML, RSC
+- [x] One test scans every signed-out response on the profile, pane, pane-chart, feed, trade and month pages (HTML, RSC
       flight including `?_rsc=`, JSON routes, OG alt, accessible names, `data-*` and `aria-*` values). It fails on any
       return finer than the printed precision or any time finer than a UTC day, checking the named return, date and
       stat fields plus any 13-digit epoch, so ids raise no false alarm.
-- [ ] `packPoints` output for a fixture with an odd return and a 14:31:07 close carries the rounded return and a UTC
+- [x] `packPoints` output for a fixture with an odd return and a 14:31:07 close carries the rounded return and a UTC
       day. The scrub still opens the right one of two same-day closes.
-- [ ] The average, interval bounds and headline sent to the client are rounded. Ranking and interval tests pass
+- [x] The average, interval bounds and headline sent to the client are rounded. Ranking and interval tests pass
       unchanged.
-- [ ] The PR's fee-recovery probe states the smallest position size still at risk.
+- [x] The PR's fee-recovery probe states the smallest position size still at risk.
 
 ## Out of scope
 - Private surfaces (Record tools, the trader's own views).
@@ -122,3 +122,8 @@ second-vote mean 3.67, final vote 15/15, all with conditions).
 ## Rework notes
 
 ## Build log
+- 2026-11-01: Built on `claude/f23-payload-precision` after F3-2 (#85), F-26 (#87), F-11 (#85) and F-20 (#77) merged.
+  Committee record: `docs/features/logs/F-23/committee-2026-11-01.md` (plan `plan.md`, inventory `inventory.md`, probe
+  `probe.md`). Tests: `lib/f23-public-wire.test.ts`, `lib/chart-series.f23.test.ts`, `lib/pane-model.test.ts`,
+  `e2e/f23-display.spec.ts`, `e2e/f23-payload-scan.spec.ts`. QA clean after one Medium (dense profile size) was fixed;
+  independent review findings fixed; business lead and UX lead user tests: compliance pass, usability demands fixed.
