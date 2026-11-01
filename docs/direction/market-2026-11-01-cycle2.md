@@ -2,7 +2,7 @@
 
 **What this is.** Cycle 2 of the market research council (`team/direction-councils.md`), run under the owner's standing
 instruction to shift resources to market research, business and design while development load is low. It builds on cycle 1
-(open PR #39, `docs/direction/market-2026-11-01.md` on its branch) and does not repeat it. It also takes in the creative and
+(merged in #39: `docs/direction/market-2026-11-01.md` on main) and does not repeat it. It also takes in the creative and
 design direction councils' proposal tables. Market research only: not legal or investment advice, no recommendation of any
 security or trade, no interviews or user data. POLICY binds throughout: competitors and platforms are described
 generically, and paper authors are not named.
@@ -40,7 +40,7 @@ known limits (§10).
 **Member:** chair (does not vote). **Pass:** 4 (synthesis), revised in pass 5 after the red team. **Date:** 2026-11-01.
 **Inputs:** the cycle-2 brief (Part F of this record); nine pass-1 files; nine pass-2 cross-examinations; three independent pass-3
 fact-checks (research, legal, market/code/arithmetic), which override any member claim they correct; cycle 1's record
-(open PR #39, `docs/direction/market-2026-11-01.md` on its branch); the creative and design direction councils' proposal
+(merged in #39: `docs/direction/market-2026-11-01.md` on main); the creative and design direction councils' proposal
 tables; the repo at `0d42f65`.
 
 This is market research. It is not legal or investment advice and it recommends no security or trade. No interviews,
@@ -1087,7 +1087,7 @@ into a separate scratch folder and grepping its type file without running it. `n
 - [S2] SnapTrade public pricing page (integrated vendor), https://snaptrade.com/pricing, dateModified 2026-09-23. Opened: yes, 2026-11-01 (rendered and raw HTML).
 - [S3] snaptrade-typescript-sdk 13.1.11 package tarball (npm registry, the version locked in package-lock.json), `dist/index.d.ts`. Opened: yes (grep only, not executed).
 - [S4] Repository files at HEAD 0d42f65: lib/broker.ts, lib/trades.ts, lib/referral.ts, lib/funnel.ts, lib/ticker.ts, app/actions.ts, app/nav-login.tsx, app/login/page.tsx, app/auth/actions.ts, app/sitemap.ts, app/u/[handle]/share-card.tsx, share-prompt.tsx, trade/[sellId]/trade-share.tsx, month/[ym]/page.tsx, db/schema.sql, vercel.json. Opened: yes.
-- [S5] NIST/SEMATECH e-Handbook §7.2.4.2 (formula reference as cited by PT). Not reopened; formulas reproduced independently.
+- [S5] a national standards institute's engineering statistics e-handbook §7.2.4.2 (formula reference as cited by PT). Not reopened; formulas reproduced independently.
 
 #### Open questions
 
@@ -1308,7 +1308,7 @@ That measurement needs a session link without an id. The HYPOTHESIS is that a pe
 #### Sources (new this pass)
 - [S15] US Federal Trade Commission press release on testimony to a congressional committee about fraud, 2026-03-25. https://www.ftc.gov/news-events/news/press-releases/2026/03/ftc-testifies-joint-economic-committee-agencys-efforts-combat-fraud (opened: yes)
 - [S16] National nonpartisan research organization, news influencers fact sheet, survey 2025-08-18 to 24. https://www.pewresearch.org/journalism/fact-sheet/news-influencers-fact-sheet/ (opened: yes)
-- Cycle 1 rows FC-R3, FC-R31, FC-R33, FC-R34 (c1/market.md D1), not re-opened.
+- Cycle 1 rows FC-R3, FC-R31, FC-R33, FC-R34 (docs/direction/market-2026-11-01.md D1), not re-opened.
 
 ## D3. Measurement and experimentation (ME)
 
@@ -2061,7 +2061,7 @@ That makes F-6/TR-4 a necessity created by the product's own audience, and it al
 answers c1's open counter-hypothesis (§2.1, §12 "Unflattering records") with a sourced mechanism.
 
 **C2. FACT (Medium; secondary for the figure). Closed trades flatter.** In the founding dataset of retail brokerage
-accounts, stocks with gains were about 68% more likely to be sold than stocks with losses ([S3], citing [S2]; [S2] itself
+accounts, stocks with gains were about 68% more likely to be sold than stocks with losses (corrected to about 1.5×, see FC-R12) ([S3], citing [S2]; [S2] itself
 could not be opened, HTTP 403). *ESTIMATE:* a closed-trade win rate overstates a whole-book win rate. That gap grows for
 traders with an audience (C1). Under F-6, the combined figure sits below the realized one for the typical trader.
 
@@ -2204,7 +2204,7 @@ link:** C27 card, C29 story, C13 band. It is not more traders. c1's ~1.5-50× mi
   https://ideas.repec.org/a/anr/reveco/v2y2010p671-698.html. Opened: yes (abstract).
 - **[S11]** "Adaptive Skepticism in the Face of Uncertainty: An Experimental Study on Verifiable Information Disclosure".
   University working paper (CBESS 25-02), 2025. https://ideas.repec.org/p/uea/wcbess/25-02.html. Opened: yes (abstract).
-- **Cycle 1 (not re-opened):** c1 UT-S4, UT-S5, UT-S12, UT-S15 and UT-P2 [V3], as cited in c1/market.md lines 3243-3420
+- **Cycle 1 (not re-opened):** c1 UT-S4, UT-S5, UT-S12, UT-S15 and UT-P2 [V3], as cited in docs/direction/market-2026-11-01.md lines 3243-3420
   and 2039-2140.
 
 #### Open questions
@@ -2325,7 +2325,7 @@ So ship D22 and D24 first, and run T10 *before* D23's three versions are judged.
 - [S12] Academic paper on first impressions of web pages in 50 ms, Behaviour and Information Technology 25, 2006 (opened: no; citation from search results only; Low)
 - [S13] Adviser marketing rule, 17 CFR 275.206(4)-1, (a)(6) and (d)(2). https://www.law.cornell.edu/cfr/text/17/275.206(4)-1 (opened: yes)
 - [S14] National nonpartisan research organization, short read on trust in information from news organizations and social media, survey 2025-09-08 to 09-14, n=5,195. https://www.pewresearch.org/short-reads/2025/10/29/how-americans-trust-in-information-from-news-organizations-and-social-media-sites-has-changed-over-time/ (opened: yes)
-- Cycle 1 record (c1/market.md Part A, F6, D1 R1-R34) for figures it already verified; not re-opened.
+- Cycle 1 record (docs/direction/market-2026-11-01.md Part A, F6, D1 R1-R34) for figures it already verified; not re-opened.
 
 #### Open questions
 
@@ -2609,7 +2609,7 @@ Expected volumes (ESTIMATE, L):
   https://arxiv.org/abs/2603.28546. Opened: yes.
 - [S7] An academic framework for telling bots from humans by behavior, arXiv 2412.02266, 2024-12-03. https://arxiv.org/abs/2412.02266.
   Opened: yes (abstract).
-- [S8] Cycle 1 chair's synthesis, internal, c1/market.md Part A §9 and §11. Opened: yes.
+- [S8] Cycle 1 chair's synthesis, internal, docs/direction/market-2026-11-01.md Part A §9 and §11. Opened: yes.
 - Repo files cited at file:line: HEAD 0d42f65, read-only.
 
 ## E4. Pricing, willingness to pay (PW)
@@ -2777,7 +2777,7 @@ choice, not a conversion lever with evidence behind it.
 - [S11] FINRA Investor Education Foundation, "Investors in the United States" (2024 Investor Survey), published 2025-12, https://www.finrafoundation.org/sites/finrafoundation/files/2025-11/NFCS_Investor_Survey_Report_White_Paper.pdf — opened: yes (pp. 1-2, 24-27, methods).
 - [S12] Federal Reserve Bulletin, Changes in U.S. Family Finances 2019-2022 (SCF), https://www.federalreserve.gov/publications/files/scf23.pdf — opened: yes.
 - [S13] Peer-reviewed electronic-markets journal, 2017, field experiments on money-back offers and returns, https://doi.org/10.1007/s12525-017-0259-0 — opened: no (search abstract).
-- Cycle 1 facts reused (not reopened): subscription-app industry reports (retention by plan and price band, plan mix), cited in c1/market.md §5 and F7.
+- Cycle 1 facts reused (not reopened): subscription-app industry reports (retention by plan and price band, plan mix), cited in docs/direction/market-2026-11-01.md §5 and F7.
 
 #### Open questions
 - Owner: may the notify-me control show a second price arm, and which ($4.99/$49.99 is the only one measurable at gate scale)?
@@ -2959,13 +2959,13 @@ At 1% conversion, condition 1 means ≥3,000 eligible signed-in viewers per arm.
 
 - [S1] docs/features/F-3-viewer-subscriptions.md, repository, 2026-11-01. Opened: yes.
 - [S2] docs/POLICY.md (F3, F3b, P3, P6, H), repository. Opened: yes.
-- [S3] Cycle 1 market research council record, scratchpad c1/market.md §5, §9, §11, §13. Opened: yes.
+- [S3] Cycle 1 market research council record, docs/direction/market-2026-11-01.md §5, §9, §11, §13. Opened: yes.
 - [S4] "Accurately measuring willingness to pay for consumer goods: a meta-analysis of the hypothetical bias", J. Academy of Marketing Science 48(3), 2020, doi.org/10.1007/s11747-019-00666-6. Abstract opened via ideas.repec.org/a/spr/joamsc/v48y2020i3d10.1007_s11747-019-00666-6.html (yes). Full text: no (403).
 - [S5] "A meta-analysis of hypothetical bias in stated preference valuation", Environmental & Resource Economics 30(3), 2005, doi.org/10.1007/s10640-004-3332-z. Abstract opened via econpapers.repec.org/RePEc:kap:enreec:v:30:y:2005:i:3:p:313-325 (yes).
 - [S6] "Always valid inference: bringing sequential analysis to A/B testing", arxiv.org/abs/1512.04922. Opened: yes (abstract).
 - [S7] "Test & Roll: profit-maximizing A/B tests", arxiv.org/abs/1811.00457 (Marketing Science, doi 10.1287/mksc.2019.1194). Opened: yes (full text, eq. 10).
 - [S8] "Design and evaluation of personalized free trials", arxiv.org/abs/2006.13420 (Management Science 2023). Opened: yes (abstract).
-- [S9] NIST/SEMATECH e-Handbook §7.2.4.2, sample sizes for proportion tests, itl.nist.gov/div898/handbook/prc/section2/prc242.htm. Opened: yes.
+- [S9] a national standards institute's engineering statistics e-handbook §7.2.4.2, sample sizes for proportion tests, itl.nist.gov/div898/handbook/prc/section2/prc242.htm. Opened: yes.
 - [S10] 15 U.S.C. §8403 (ROSCA), law.cornell.edu/uscode/text/15/8403. Opened: yes.
 - [S11] 16 CFR §233.1, former price comparisons, law.cornell.edu/cfr/text/16/233.1. Opened: yes.
 - [S12] 16 CFR §238.0, bait advertising, law.cornell.edu/cfr/text/16/238.0. Opened: yes.
@@ -3789,7 +3789,7 @@ Total about $0 cash and ~125 founder hours, most of it outreach that has to happ
 - [S12] Secondary news and law-firm summaries: retail share of volume, the broker feed's full rollout (Oct 2026), copy-trading in the US, the data-rights proposal at White House review (Aug 2026), the Florida stay (Nov 2025). Opened: no (search results only). Low.
 - [S13] Florida Statutes §501.1736 (2025). https://www.flsenate.gov/Laws/Statutes/2025/501.1736. Opened: yes.
 - [S14] California DOJ and privacy agency enforcement announcements, 2026. https://oag.ca.gov/news/press-releases and https://cppa.ca.gov/announcements/2026/20260108.html. Opened: no (search summaries). Medium.
-- Repo: `lib/broker.ts` (lines 96, 135-145, 160), `lib/trades.ts` (lines 36-86), docs/POLICY.md (F3c, U2, U3, P6), docs/features/F-1, F-5, F-6; cycle 1 record c1/market.md (§6, §8, §9, §11, F11).
+- Repo: `lib/broker.ts` (lines 96, 135-145, 160), `lib/trades.ts` (lines 36-86), docs/POLICY.md (F3c, U2, U3, P6), docs/features/F-1, F-5, F-6; cycle 1 record docs/direction/market-2026-11-01.md (§6, §8, §9, §11, F11).
 
 #### Open questions
 
@@ -3827,7 +3827,7 @@ on trades, or rewards for trading activity. Pre-launch: no real users yet; auth 
 referrers per week; viewer D7 return ≥15%. Miss two or more → stop and re-interview ICP-S1.
 
 #### Cycle 1 already found (do NOT repeat; build on it, challenge it where you have new evidence)
-Cycle 1's full record is at the council scratch folder: c1/market.md (460 KB; read Part A lines 39-670 = chair's synthesis;
+Cycle 1's full record is at docs/direction/market-2026-11-01.md (460 KB; read Part A lines 39-670 = chair's synthesis;
 then grep for what your role needs). Key cycle-1 conclusions:
 - Break-even conversion at scale = (trader_share × $1 + $0.004) ÷ $8.80; ranges 0.07-1.18% depending on viewers per trader.
 - Conversion and trader share are unmeasured; council prior 0.1-0.5% paying as a stock.
