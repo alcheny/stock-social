@@ -105,7 +105,7 @@ test('capReached: one warning per scope per window per process, with no personal
     capReached('test-cap-other', 3600, t0);
     capReached('test-cap', 3600, new Date(t0.getTime() + 3_600_000)); // next window
   } finally { console.warn = orig; }
-  assert.deepEqual(warned, [['rate limit: test-cap cap reached'], ['rate limit: test-cap-other cap reached'], ['rate limit: test-cap cap reached']]);
+  assert.deepEqual(warned, [['rate limit cap reached', '{"scope":"test-cap"}'], ['rate limit cap reached', '{"scope":"test-cap-other"}'], ['rate limit cap reached', '{"scope":"test-cap"}']]);
 });
 
 test('the global caps (mail-all, vendor_register) report through capReached', () => {

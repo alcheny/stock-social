@@ -1696,3 +1696,26 @@ test('security hardening (F26, F27): a cross-site navigation to /connect/start l
   expect(h['cross-origin-opener-policy']).toBe('same-origin-allow-popups');
   expect(h['permissions-policy']).toContain('camera=()');
 });
+
+test('privacy work (committee D9): at 360×640 the consent screen shows the owner\'s public/private scope line and "Import my record" sits above the fold; the deadline is under the buttons', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await brokerageAttempt(page);
+  await scenario([{ id: `e2e-pv-${uniq()}`, activities: 1 }]);
+  await page.getByRole('link', { name: 'Connect brokerage (read-only)' }).click();
+  const framed = await portalFrame(page).waitFor({ timeout: 5_000 }).then(() => true, () => false);
+  test.skip(!framed, 'the server has no vendor fake configured (see the header of this spec)');
+  await page.frameLocator('dialog.portal iframe').getByRole('button', { name: 'Connect' }).click();
+  await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
+  await expect(page.locator('main li', { hasText: /^Public: percent returns, symbols, dates, holding periods, institution names, account count, and your current open positions with unrealized percent\. Private: quantities, prices, fees and account numbers\. Your public record is also used to describe your trading style and to order traders for readers\.$/ })).toHaveCount(1);
+  await expect(page.locator('main')).toContainText('Your record stays public if you disconnect; deleting your profile removes it.');
+  const importBtn = page.getByRole('button', { name: 'Import my record' });
+  const box = (await importBtn.boundingBox())!;
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(640);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  const order = await page.locator('main > *').evaluateAll((els) => els.map((e) => e.textContent ?? ''));
+  expect(order.findIndex((t) => t.startsWith('Decide within 24 hours'))).toBeGreaterThan(order.findIndex((t) => t.includes("Don't import")));
+  await page.screenshot({ path: test.info().outputPath('consent-360x640.png') });
+  await page.getByRole('button', { name: "Don't import" }).click();
+  await expect(page).toHaveURL(/\/connect\/result\?c=\d+$/);
+});

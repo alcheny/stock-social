@@ -76,7 +76,7 @@ export function capReached(scope: string, windowSec: number, now = new Date()): 
   const w = windowStart(now, windowSec).getTime();
   if (capWarned.get(scope) === w) return;
   capWarned.set(scope, w);
-  console.warn(`rate limit: ${scope} cap reached`);
+  console.warn('rate limit cap reached', JSON.stringify({ scope })); // a fixed scope name, never a key
 }
 
 function expand6(ip: string): string[] {

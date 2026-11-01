@@ -7,6 +7,8 @@
 import { claimLink } from './links.ts';
 import { signInWithIdentity } from './attempts.ts';
 import { landingFor } from './landing.ts';
+import { SignUpClosedError, signUpOpen } from '../launch-gate.ts';
+import { logSafe } from '../privacy-log.ts';
 
 export type SessionGlue = { signIn: (userId: number) => Promise<void>; rememberMethod: (method: string) => Promise<void> };
 
@@ -14,12 +16,15 @@ export async function finishEmailLink(token: string, session: SessionGlue): Prom
   try {
     const claim = await claimLink(token);
     if (claim.status !== 'ok') return `/login?error=${claim.status === 'used' ? 'used' : 'expired'}`;
-    const user = await signInWithIdentity(claim.attemptId, { provider: 'email', subject: claim.email, email: claim.email });
+    // Launch gate (D4, D5): an address with no account is refused only here, after the link is used, so the link page
+    // never tells who has an account.
+    const user = await signInWithIdentity(claim.attemptId, { provider: 'email', subject: claim.email, email: claim.email }, { allowNew: signUpOpen(claim.email) });
     await session.signIn(user.id);
     await session.rememberMethod('email');
     return await landingFor(user); // an empty profile goes straight to S2 (committee item 7)
   } catch (e) {
-    console.error('email sign-in failed', { code: String((e as { code?: unknown })?.code ?? (e as Error)?.name ?? 'unknown') });
+    if (e instanceof SignUpClosedError) return '/login?error=closed';
+    console.error('email sign-in failed', logSafe(e));
     return '/login?error=expired';
   }
 }

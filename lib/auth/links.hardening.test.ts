@@ -159,3 +159,29 @@ dbTest('F17/F28: finishing a link whose identity belongs to a profile marked for
     await sql`delete from users where id = ${u.id}`;
   }
 });
+
+dbTest('launch gate (merged with privacy work): with sign-up closed, a link for an address with no account lands on the closed state and signs nobody in', async () => {
+  const { sql } = await import('../db.ts');
+  const { createAttempt } = await import('./attempts.ts');
+  const { issueLink } = await import('./links.ts');
+  const { memoryOutbox, memorySender } = await import('./email.ts');
+  const { finishEmailLink } = await import('./email-finish.ts');
+  const { gateState } = await import('../launch-gate.ts');
+  const keys = ['LAUNCH_OPEN', 'SNAPTRADE_BASE_URL', 'SNAPTRADE_CLIENT_ID', 'LAUNCH_ALLOWLIST_EMAILS'] as const;
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try {
+    delete process.env.LAUNCH_OPEN; delete process.env.SNAPTRADE_BASE_URL; delete process.env.LAUNCH_ALLOWLIST_EMAILS;
+    process.env.SNAPTRADE_CLIENT_ID = 'real-vendor'; // a real vendor configured: not the sandbox
+    assert.equal(gateState(), 'closed');
+    const email = `closed${uniq()}@example.com`;
+    const a = await createAttempt({ method: 'email', attested: true });
+    await issueLink(a, email, memorySender, 'https://app.example');
+    const token = new URL(memoryOutbox.last!.url).searchParams.get('t')!;
+    const signedIn: number[] = [];
+    assert.equal(await finishEmailLink(token, { signIn: async (id) => { signedIn.push(id); }, rememberMethod: async () => {} }), '/login?error=closed');
+    assert.equal(signedIn.length, 0);
+    assert.equal((await sql`select count(*)::int as n from identities where email = ${email}`)[0].n, 0);
+  } finally {
+    for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
+});

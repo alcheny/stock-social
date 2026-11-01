@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { sql } from '../db.ts';
 import { recordFunnel } from '../funnel.ts';
 import { legacyVia, normalizeHandle, type ReferredSurface } from '../referral.ts';
+import { SignUpClosedError } from '../launch-gate.ts';
 
 export const METHODS = ['provider_a', 'provider_b', 'email', 'brokerage', 'dev'] as const;
 export type Method = (typeof METHODS)[number];
@@ -79,7 +80,9 @@ export class DeletionPendingError extends Error { constructor() { super('this pr
 
 // Signs an attempt in with a verified identity: the known subject wins, then a verified email already on file,
 // else a new user with a provisional handle. Returns the user. Profiles marked for deletion are never matched.
-export async function signInWithIdentity(attemptId: number, id: Identity): Promise<{ id: number; handle: string }> {
+// Privacy work (launch gate, D4): `allowNew: false` refuses only the new-user branch (SignUpClosedError, nothing written);
+// known subjects and verified-email matches sign in as before. Callers pass lib/launch-gate.ts#signUpOpen.
+export async function signInWithIdentity(attemptId: number, id: Identity, opts: { allowNew?: boolean } = {}): Promise<{ id: number; handle: string }> {
   const [known] = await sql`select u.id, u.handle, u.deleted_at from identities i join users u on u.id = i.user_id where i.provider = ${id.provider} and i.subject = ${id.subject}`;
   if (known?.deleted_at) throw new DeletionPendingError();
   if (known) { await completeAttempt(attemptId, known.id); return { id: known.id, handle: known.handle }; }
@@ -91,6 +94,7 @@ export async function signInWithIdentity(attemptId: number, id: Identity): Promi
       return { id: byMail.id, handle: byMail.handle };
     }
   }
+  if (opts.allowNew === false) throw new SignUpClosedError();
   const u = await createUserForAttempt(attemptId);
   // F28: a concurrent first sign-in with the same identity may have stored it first. Then that user wins: the row just
   // created goes and the attempt completes onto the winner, in one transaction (no unique-key error, no orphan user).
