@@ -869,12 +869,21 @@ h1 { overflow-wrap: anywhere; }
    also when a larger text size wraps them at 360 px or wider. */
 .card .f25-card-links { display: flex; flex-wrap: wrap; align-items: center; column-gap: 16px; row-gap: 36px; font-size: 0.875rem; }
 .card .f25-card-link { position: relative; display: inline-flex; align-items: center; min-height: 44px; margin-block: -14px; white-space: nowrap; }
-@media (max-width: 359.98px) { .card .f25-card-links { flex-direction: column; align-items: flex-start; } }
+/* Below 360 px the links stack; the outer edges of the two boxes reach 22 px into the blocks above and below (the open
+   line or note, the disclaimer: text, no control), so the stacked pair keeps the 320 px card inside F-10's 15% budget
+   (e2e/record-strip.spec.ts AC8) with 8 px between the boxes. */
+@media (max-width: 359.98px) {
+  .card .f25-card-links { flex-direction: column; align-items: flex-start; }
+  .card .f25-card-links > :first-child { margin-top: -22px; }
+  .card .f25-card-links > :last-child { margin-bottom: -22px; }
+  .card .swipe-hint + .f25-card-links > :first-child { margin-top: -14px; } /* page 1's first card: clear of the hint */
+}
 /* Page 1's first card: the swipe hint keeps its own line above the links (both links leave no room beside it), 14 px
    clear of their hit boxes. */
 html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block; margin: 0 0 14px; } /* never over its dismissed display: none */
-/* ponytail: a footer link's 44 px hit box reaches 14 px over the card's disclaimer below it (non-interactive text), so a
-   tap on the disclaimer's top edge follows the link — fix: a taller footer row once the card has room (F-10 budget). */
+/* ponytail: a footer link's 44 px hit box reaches 14 px (22 px below 360 px) over the card's text above and the disclaimer
+   below it (no control there), so a tap on their edges follows the link — fix: a taller footer row once the card has room
+   (F-10's one-screen budget). */
 /* Shape C (the profile row's figure link): at least 44 × 44 px, a short "0.0%" padded to the width; the negative block
    margin sits inside the row's 12 px padding, so the row keeps its height. */
 .rows .line .f25-fig { position: relative; display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; margin-block: -12px; }

@@ -333,7 +333,7 @@ test('feed footer at a 115% root font size (360 and 780 px): the two hit boxes n
   }
 });
 
-test('page 1 card 1 with the first-visit line dismissed and a 280-character note: the swipe hint shares the footer line; the card fits with 15% to spare', async ({ browser }) => {
+test('page 1 card 1 with the first-visit line dismissed and a 280-character note: the swipe hint sits above the footer links, clear of their hit boxes; the card fits with 15% to spare', async ({ browser }) => {
   test.setTimeout(120_000);
   // A trader of this test's own whose closes all carry a 280-character note and whose strong record ranks it first.
   const N = await makeTrader(sql, { handle: handleOf('f25n'), verified: true, mark: MARK,
@@ -358,10 +358,10 @@ test('page 1 card 1 with the first-visit line dismissed and a 280-character note
       const fit = await fitOf(card);
       expect.soft(fit.need, `${at}: card content with 15% headroom`).toBeLessThanOrEqual(fit.room);
       expect.soft(fit.scrolls, `${at}: the card does not scroll`).toBe(false);
-      // The hint sits on the footer line, before the links, and its box touches neither link's hit box.
+      // F-25 decision (QA round 1): the hint keeps its own line above the links (both links leave no room beside it), and
+      // its box touches neither link's hit box.
       const [h, t, r] = [await boxOf(hint), await boxOf(trade), await boxOf(rec)];
-      expect.soft(Math.abs((h.y + h.h / 2) - (t.y + t.h / 2)) <= 4, `${at}: the hint shares the trade link's line (hint ${JSON.stringify(h)}, link ${JSON.stringify(t)})`).toBe(true);
-      expect.soft(h.x + h.w <= t.x, `${at}: the hint comes before "This trade"`).toBe(true);
+      expect.soft(h.y + h.h <= t.y, `${at}: the hint sits above "This trade" (hint ${JSON.stringify(h)}, link ${JSON.stringify(t)})`).toBe(true);
       expect.soft(overlaps(h, t) || overlaps(h, r), `${at}: the hint overlaps no link hit box`).toBe(false);
       expect.soft(overlaps(t, r), `${at}: the links' hit boxes do not overlap`).toBe(false);
       for (const sel of ['footer a[href*="/trade/"]', 'footer a:not([href*="/trade/"])', '[data-disclaimer]']) {

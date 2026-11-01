@@ -122,7 +122,9 @@ test('F-25 CSS: footer links at 0.875rem, 44 px hit boxes, one line from 360 px 
   assert.match(block, /\.card \.f25-card-links \{[^}]*column-gap: 16px;[^}]*row-gap: 36px;/); // 28 px pulled-in box + 8 px apart
   assert.match(block, /\.card \.f25-card-link \{[^}]*margin-block: -14px;/);
   assert.match(block, /\.card \.f25-card-link \{[^}]*min-height: 44px;/);
-  assert.match(block, /@media \(max-width: 359\.98px\) \{ \.card \.f25-card-links \{ flex-direction: column;/);
+  assert.match(block, /@media \(max-width: 359\.98px\) \{\s*\.card \.f25-card-links \{ flex-direction: column;/);
+  // Stacked: the outer edges reach 22 px out, the 36 px gap keeps the boxes 8 px apart (36 - 14 - 14).
+  assert.match(block, /> :first-child \{ margin-top: -22px; \}[\s\S]*> :last-child \{ margin-bottom: -22px; \}/);
   assert.match(block, /\.f25-row \{ position: relative; \}/); // sr-only spans stay inside the row (no page widening)
   assert.match(block, /\.rows \.line \.f25-fig \{[^}]*min-width: 44px; min-height: 44px;/);
 });
