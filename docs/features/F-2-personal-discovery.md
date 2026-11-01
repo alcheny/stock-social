@@ -52,6 +52,18 @@ advice. The owner has been told this and the scope below respects it.
 - 2026-10-23: the engineer and business lead disagree on the reject gesture (SW-1 reserves left/right
   on the feed). Recorded below as an owner question; until answered, the engineer builds reject so that
   it cannot collide with the profile-opening swipe.
+- 2026-11-01 (O3): Likes and rejects shape a viewer's ordering for 90 days, fading over that window, in
+  `signalsFor` and `viewerProfile`; they are stored until the viewer removes them or deletes the account, with a
+  purge of orphans. A rejected trade stays hidden for good and "Not interested" lasts 90 days, as PR-4 built.
+  The Privacy Policy says exactly this, with a test that the text matches the code. Why: the owner adopted the
+  legal committee's recommendation, separating how long a choice is used from how long it is stored.
+- 2026-11-01: Implicit activity logging (impressions, dwell, skips) is opt-in and off by default: a "Personalize
+  with my activity" switch with On and Off equally prominent; Off means nothing is logged or used, and "Clear my
+  activity" deletes it at once. The owner's rule: on by default only if that needs no legal work beyond
+  changing the Privacy Policy. It does (a notice at collection, counsel's CIPA analysis of first-party logging,
+  the age-assurance questions of SB 976 and the NY SAFE rules for activity-personalized feeds, Connecticut's
+  profiling assessment), so it is off by default until counsel clears those points; then it may switch to on
+  with notice. Why: the owner's conditional choice.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
@@ -86,12 +98,7 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Open questions
 - Resolved 2026-10-24 (O1): see Decisions. Build in PR-4.
-- Owner (O3): hide duration. Business lead backs 90 days (testable, accidental swipes not permanent,
-  protects reach); engineer built 90 days as one constant. Suggested split: a rejected trade stays
-  hidden permanently, a trader hidden via "Not interested" returns after 90 days.
-  PR-4 (2026-10-24) builds the committee recommendation while the owner is silent: a rejected trade stays hidden
-  for good (a `trade_exclusions` row, deleted with the account), "Not interested" stays 90 days, and the
-  trader-level −4 of a trade reject counts for 90 days (`TRADE_REJECT_TRADER_DAYS`). Still the owner's to confirm.
+- Resolved 2026-11-01 (O3): see Decisions.
 - Resolved 2026-10-24 (O2): see Decisions ("Similar trades" section). Build as PR-3b.
 - Stage 2 and 3 model details (embedding size, model family, training cadence) are engineering
   decisions at the time; the acceptance criteria for them are the eval pipeline and the guardrails.
