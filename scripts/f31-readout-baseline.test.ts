@@ -1,6 +1,7 @@
 // F-31 baseline (docs/features/F-31-readout-limits-and-partial-rows.md, last acceptance criterion): a fictional readout
 // input and the text main's buildReadout printed for it before F-31 (commit 1eab2ef). scripts/f31-readout.test.ts checks
 // that, with the internal-handles env unset and this same data, the output differs only by F-31's new block and rows.
+// A .test.ts file so the share_action isolation check (lib/f15-isolation.test.ts) treats it as test data; it holds no test.
 import type { ReadoutInput, RollupRow, SharerRow } from './f15-readout.ts';
 
 export const BASE_NOW = new Date('2026-11-01T12:00:00Z');

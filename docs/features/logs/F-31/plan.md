@@ -1,7 +1,7 @@
 # F-31: plan (UX lead draft, 2026-11-01)
 
 Reads with `docs/features/F-31-readout-limits-and-partial-rows.md` (the WHAT, every decision stands),
-`docs/features/F-15-measurement-foundation.md` (the readout it extends) and `scripts/f31-readout-baseline.ts` (the
+`docs/features/F-15-measurement-foundation.md` (the readout it extends) and `scripts/f31-readout-baseline.test.ts` (the
 pre-F-31 text for the last acceptance criterion). One PR. The interface is the owner's plain-text/markdown readout
 (`scripts/f15-readout.ts`), so "screens" below means printed blocks, rows and cells.
 

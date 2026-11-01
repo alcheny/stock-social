@@ -74,6 +74,42 @@ function bump(key: string, minute: number, max: number): RateState {
   return b.n <= max ? 'ok' : b.n === max + 1 ? 'first-over' : 'over';
 }
 
+// F-31 (docs/features/F-31-readout-limits-and-partial-rows.md, plan §4): whether a beacon's address could be checked by
+// the rate cap above, stored only as a per-UTC-day presence mark in view_cap_days (no address, agent, user or count).
+// The owner's readout reads a week as "live" only with a trusted mark and no untrusted one. Same rule as the cap itself
+// (clientIp), so the mark can't disagree with it.
+// ponytail: a mark says only that some beacon that day had (or lacked) a trusted address, not how many — fix: a per-day
+// count if the owner needs the untrusted share.
+// ponytail: an untrusted mark whose write failed and was never retried (the instance ended inside the 5-minute backoff)
+// leaves that day reading trusted only, so its week can read live — fix: write the mark in the view upsert's statement.
+export function addressTrusted(h: Headers, env: Record<string, string | undefined> = process.env): boolean {
+  return clientIp(h, env) !== null;
+}
+export async function insertCapDay(day: string, trusted: boolean): Promise<void> {
+  await sql`insert into view_cap_days (day, trusted) values (${day}::date, ${trusted}) on conflict do nothing`;
+}
+export const CAP_RETRY_MS = 300_000; // a failing database is tried at most once per 5 minutes per kind
+type CapMemo = { p: Promise<void> | null; failedAt: number | null };
+const capMemo = { day: '', entries: new Map<boolean, CapMemo>() };
+// At most one write per kind per UTC day per instance: concurrent beacons share the in-flight attempt (memoized before
+// any await), a success is kept for the day, and a failure is retried no sooner than CAP_RETRY_MS later (rethrown to
+// the caller, which logs it by class and code).
+export function markCapDay(trusted: boolean, now = new Date(), write: (day: string, trusted: boolean) => Promise<void> = insertCapDay): Promise<void> {
+  const day = now.toISOString().slice(0, 10);
+  if (capMemo.day !== day) { capMemo.day = day; capMemo.entries.clear(); }
+  let e = capMemo.entries.get(trusted);
+  if (!e) capMemo.entries.set(trusted, (e = { p: null, failedAt: null }));
+  if (e.p) return e.p;
+  if (e.failedAt !== null && now.getTime() - e.failedAt < CAP_RETRY_MS) return Promise.resolve();
+  const entry = e;
+  const p: Promise<void> = Promise.resolve().then(() => write(day, trusted)).catch((err: unknown) => {
+    if (entry.p === p) { entry.p = null; entry.failedAt = now.getTime(); }
+    throw err;
+  });
+  entry.p = p;
+  return p;
+}
+
 // The beacon's body: { path, ref, via, auto }. Anything else is dropped; null = not a beacon (nothing counted).
 export type Beacon = { path: string; ref: RefClass; via: string; auto: boolean };
 export function parseBeacon(text: string): Beacon | null {

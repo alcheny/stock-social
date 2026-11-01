@@ -1,6 +1,7 @@
 // F-15 owner readout (docs/features/F-15-measurement-foundation.md; plan docs/features/logs/F-15/plan.md §5 Q7 and
 // "Readout rules"). Descriptive counts only, for the owner, run by hand once a week:
 //   node --env-file=.env scripts/f15-readout.ts --out <dir outside the repo>
+// F-31: READOUT_INTERNAL_HANDLES (env on this machine only, comma- or space-separated) adds the internal-accounts rows.
 // The output is never committed: --out must resolve outside the repository (resolveOut). It names no handle, no user id
 // and no return, prints the DESIGN §3.5 metric and threshold verbatim beside every gate figure, and never redefines a gate
 // (MRC2-3 stays with the owner). Every printed count from 1 to 4 reads "<5" (POLICY P3: a count of 1 on an invite link
@@ -11,7 +12,8 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PendingQuery, Row, Sql } from 'postgres';
-import { INVITE_VIAS, VIA_NONE, isViewVia } from '../lib/referral.ts';
+import { INVITE_VIAS, SHARE_VIAS, VIA_NONE, isViewVia, normalizeHandle } from '../lib/referral.ts';
+import { logSafe } from '../lib/privacy-log.ts';
 import { DROP_REASONS, SURFACES } from '../lib/views.ts';
 
 export const WEEKS = 8;
@@ -39,9 +41,103 @@ export const DEMO_INVITE_LINE = 'Invite links point at Demo profiles (F-15 decis
 // g1: strict = non-demo, non-deleted users with a connection in state 'connected'; partial = such users whose
 // connections exist but none is 'connected'. Only the fields named here are read; anything else on a row is ignored.
 export type Day = string | Date;
-export type RollupRow = { day: Day; surface: string; ref_class: string; via: string; self_view: boolean; n: number; demo?: boolean };
+// F-31: filer marks a public-filing target, internal a trader target on the env list (both ignored by the base keys);
+// top: per week, the largest single profile's strict G3 views (loadTop); cap: the address-cap day marks (loadCapMarks);
+// internal: the env list's state and how many entries were ignored (never a handle).
+export type RollupRow = { day: Day; surface: string; ref_class: string; via: string; self_view: boolean; n: number; demo?: boolean; filer?: boolean; internal?: boolean };
 export type DropRow = { day: Day; surface: string; reason: string; n: number };
-export type ReadoutInput = { rollup: RollupRow[]; drops: DropRow[]; g1: { strict: number; partial: number }; g2: G2Input };
+export type InternalState = 'unset' | 'none-valid' | 'set';
+export type ReadoutInput = {
+  rollup: RollupRow[]; drops: DropRow[]; g1: { strict: number; partial: number }; g2: G2Input;
+  top?: { week: Day; n: number }[]; cap?: { day: Day; trusted: boolean }[]; internal?: { state: InternalState; ignored: number };
+};
+
+// ---- F-31: the limits block, the strict family and the new rows (docs/features/F-31-readout-limits-and-partial-rows.md;
+// plan docs/features/logs/F-31/plan.md §2-§3) ----
+export const LIMITS_HEADING = '## Limits of these counts';
+export const LIMIT_LINES = [
+  "- These are first-party counts from the app's own view beacon. They can be inflated, and they are not verified figures.",
+  '- Signed-out views by a trader of their own record, by the owner or by the team can\'t be told apart from anyone else\'s views; only self-views made while signed in are removed (row "self-views removed (signed in)").',
+  '- A scripted client can forge a view and its via tag; a forged view that passes the bot filter is counted and leaves no trace in the drops table.',
+  '- A tagged link opened with no referrer is outside the strict G3 row, which counts external referrers only; the row "partial: tagged link or external referrer" counts both.',
+  '- "Views, not people" applies to every row that counts views: one person can add many views.',
+  '- Whether filer views count toward G3, and how any gate is read, is the owner\'s call (MRC2-3); the "of which" rows only show trader and filer views apart.',
+];
+export const factsHeading = (mondayMs: number) => `This week's facts (${weekHeader(mondayMs)}, the latest week printed):`;
+export type CapState = 'live' | 'untrusted' | 'none';
+export function capFactLine(state: CapState): string {
+  if (state === 'live') return '- address cap: live (every beacon that week was checked against a trusted client address; the cap is per server instance).';
+  if (state === 'untrusted') return '- address cap: not live (some beacons that week had no trusted client address, so the per-address rate cap was skipped for them).';
+  return '- address cap: not live (not shown live: no address check was recorded that week).';
+}
+export const CAP_NOT_LIVE = 'not readable as a gate: address cap not live';
+export const CAP_FLAG_LINE = `- While the address cap is not shown live, strict G3 is not readable as a gate; it still prints, and the row "address cap" under it reads "${CAP_NOT_LIVE}" for each such week.`;
+export const G1_INTERNAL_ROW = 'partial: strict G1 without internal accounts';
+export const G3_INTERNAL_ROW = "partial: strict G3 without internal accounts' profiles";
+export function internalFactLine(state: InternalState, ignored: number): string {
+  if (state === 'unset') return '- internal accounts: not removed (READOUT_INTERNAL_HANDLES is unset).';
+  if (state === 'none-valid') return '- internal accounts: not removed (READOUT_INTERNAL_HANDLES lists no valid handle).';
+  const n = Math.max(0, Math.floor(ignored));
+  const extra = n === 0 ? '' : n === 1 ? ' 1 listed entry was not a valid handle and was ignored.' : ` ${n} listed entries were not a valid handle and were ignored.`;
+  return `- internal accounts: removed only in the rows "${G1_INTERNAL_ROW}" and "${G3_INTERNAL_ROW}"; every other row still counts them.${extra}`;
+}
+export const INTERNAL_RUNS_LINE = "- Changing the internal list between runs can reveal one profile's counts; compare runs only with the same list.";
+// Rows printed on every run, in G3 order (address cap, the pair, concentration, tagged-or-external, self-views); the
+// internal rows print only when the env list is set.
+export const F31_ROW_LABELS = ['address cap', 'of which: broker-trader profiles', 'of which: public-filing profiles',
+  "largest single profile's share of strict G3", 'partial: tagged link or external referrer', 'self-views removed (signed in)'] as const;
+export const F31_INTERNAL_ROW_LABELS = [G1_INTERNAL_ROW, G3_INTERNAL_ROW] as const;
+export const SPLIT_LINE = 'The "of which" rows split the strict row by profile: a broker-trader profile or a public-filing profile. They print only in a week whose strict figure is exact, and read "(s)" when either part, or anything that could be worked out from them and the rows below, would be 1 to 4; they have no total and no difference row.';
+export const TOP_LINE = 'The largest single profile\'s share is one profile\'s strict G3 views over the week\'s strict G3, rounded down to a whole percent; it names no profile, reads "(s)" unless that profile has 5 or more views and nothing from 1 to 4 can be worked out from it, and reads "—" when the strict figure is 0.';
+export const SELF_LINE = '"self-views removed (signed in)" counts traders\' views of their own profile, trade and month pages made while signed in; they are in no other row. Signed-out self-views can\'t be told apart and stay in the counts.';
+export const INTERNAL_LINE = 'Internal accounts come from an env list read only on the machine that runs this readout; no handle is printed. The G1 row reads "(s)" when strict G1, or what is left without internal accounts, is 1 to 4; the G3 row reads "(s)" when 1 to 4 views of internal profiles, or 1 to 4 of what is left, would be worked out by subtraction. The G1 row may reveal how many listed accounts have a connected broker.';
+
+const okCount = (x: number) => x === 0 || x >= SMALL;
+// One week's strict family, from the strict cell's three atoms: a = other trader targets, b = internal trader targets,
+// c = filer targets (a + b + c = the strict cell, which the caller has checked is exact). Every printed value is an exact
+// sum of atoms or "(s)", never a bound (S − bound would give the hidden part away), and nothing derivable from the
+// printed values and S is 1 to 4 (plan §3.1; scripts/f31-readout.test.ts enumerates every split). top = the largest
+// single profile's views M; its share prints only when M >= 5 and every class quantity the owner can know minus M is 0
+// or 5+ (a profile has one class, so M sits inside one of them).
+// ponytail: only the single largest profile's share is shown; a few profiles together carrying the gate are not — fix:
+// a top-3 share row under the same rule, with its own exhaustive test.
+export function strictFamily(atoms: { a: number; b: number; c: number }, top: number | null, internalSet: boolean):
+  { trader: string; filer: string; withoutInternal: string | null; top: string } {
+  const { a, b, c } = atoms, S = a + b + c;
+  const pair = okCount(a + b) && okCount(c);
+  const inner = internalSet && okCount(a + c) && okCount(b) && (!pair || okCount(a));
+  const known = [S];
+  if (pair) known.push(a + b, c);
+  if (inner) known.push(a + c, b);
+  if (pair && inner) known.push(a, b + c);
+  let share: string;
+  if (S === 0) share = '—';
+  else if (top === null || !Number.isFinite(top) || top < SMALL || top > S || top > Math.max(a, b, c)
+    || known.some((k) => k >= top && !okCount(k - top))) share = '(s)';
+  else share = `${Math.floor((100 * top) / S)}%`;
+  return { trader: pair ? fmt(a + b) : '(s)', filer: pair ? fmt(c) : '(s)', withoutInternal: internalSet ? (inner ? fmt(a + c) : '(s)') : null, top: share };
+}
+
+// The G1 internal row: strict G1 (g) without the listed internal accounts among it (k). k may be 1 to 4: it counts the
+// owner's own listed accounts (business lead B1); g and g − k (third parties) must be 0 or 5+.
+export function g1Internal(g: number, k: number): string {
+  return k >= 0 && k <= g && okCount(g) && okCount(g - k) ? fmt(g - k) : '(s)';
+}
+
+// READOUT_INTERNAL_HANDLES → valid, deduplicated handles (lib/referral.ts#normalizeHandle, one leading @ stripped). A
+// public filer (pf_) is never an internal account. Entries are never echoed; only how many were ignored.
+export function parseInternalHandles(raw: string | undefined): { state: InternalState; handles: string[]; ignored: number } {
+  if (typeof raw !== 'string' || raw.trim() === '') return { state: 'unset', handles: [], ignored: 0 };
+  const handles: string[] = [];
+  let ignored = 0;
+  for (const part of raw.split(/[\s,]+/)) {
+    if (!part) continue;
+    const h = normalizeHandle(part.replace(/^@/, ''));
+    if (!h || h.startsWith('pf_')) { ignored++; continue; }
+    if (!handles.includes(h)) handles.push(h);
+  }
+  return { state: handles.length ? 'set' : 'none-valid', handles, ignored };
+}
 
 // ---- weeks (ISO, Monday start, UTC) ----
 const DAY_MS = 86_400_000;
@@ -143,6 +239,17 @@ type ViewKey = { surface: string; via: string; ext: boolean; demo: boolean };
 const keyOf = (k: ViewKey) => `${k.surface}|${k.via}|${k.ext ? 'ext' : 'oth'}|${k.demo ? 'demo' : 'trader'}`;
 const parseKey = (key: string): ViewKey => { const [surface, via, e, t] = key.split('|'); return { surface, via, ext: e === 'ext', demo: t === 'demo' }; };
 const isInvite = (via: string) => (INVITE_VIAS as readonly string[]).includes(via);
+// F-31: a tagged link is a share or invite code (nav and profile are in-app codes, plan D7); record surfaces carry a
+// viewed trader, so a self-view exists only there.
+const TAGGED_VIAS: readonly string[] = [...SHARE_VIAS, ...INVITE_VIAS];
+const RECORD_SURFACES: readonly string[] = ['profile', 'trade', 'month'];
+// The G1 internal cell: "(s)" when the trader list doesn't match strict G1 (the same blind case as G2).
+const g1InternalCell = (input: ReadoutInput): string => {
+  const traders = Array.isArray(input.g2?.traders) ? input.g2.traders : [];
+  const g = count(input.g1?.strict);
+  if (traders.length !== g) return '(s)';
+  return g1Internal(g, traders.filter((t) => t?.internal === true).length);
+};
 
 export function buildReadout(input: ReadoutInput, now: Date): string {
   const { mondays } = weekWindow(now);
@@ -151,15 +258,44 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
 
   // Views. Only registry values reach the counts: an unknown surface is skipped, an unknown via is counted as none.
   const views = new Base(W);
+  // F-31: internal state (env list), the strict cell's atoms per week [a, b, c] and the signed-in self-views.
+  const internalState: InternalState = input.internal?.state === 'set' || input.internal?.state === 'none-valid' ? input.internal.state : 'unset';
+  const internalSet = internalState === 'set';
+  const atoms = weeksIdx.map(() => [0, 0, 0]);
+  const selfs = new Base(W);
+  selfs.add('self', 0, 0);
   for (const r of input.rollup ?? []) {
+    if ((SURFACES as readonly string[]).includes(r.surface) && r.self_view === true && r.demo !== true && RECORD_SURFACES.includes(r.surface)) {
+      const w = weekIndex(mondays, r.day);
+      if (w >= 0) selfs.add('self', w, count(r.n));
+    }
     if (!(SURFACES as readonly string[]).includes(r.surface) || r.self_view === true) continue;
     const w = weekIndex(mondays, r.day);
     if (w < 0) continue;
     const via = isViewVia(r.via) ? r.via : VIA_NONE, demo = r.demo === true;
     if (demo && !isInvite(via)) continue; // a Demo profile view without an invite code is counted nowhere
     views.add(keyOf({ surface: r.surface, via, ext: r.ref_class === 'external', demo }), w, count(r.n));
+    // The same rows the strict cell sums (profile surface, external referrer, trader target), split by target class.
+    if (r.surface === 'profile' && r.ref_class === 'external' && !demo) atoms[w][r.filer === true ? 2 : internalSet && r.internal === true ? 1 : 0] += count(r.n);
   }
   views.seal();
+  selfs.seal();
+  // F-31: the largest single profile per week, and the address-cap marks per week.
+  const topOf: (number | null)[] = weeksIdx.map(() => null);
+  for (const t of input.top ?? []) {
+    const w = weekIndex(mondays, t?.week);
+    if (w >= 0 && typeof t.n === 'number' && Number.isFinite(t.n)) topOf[w] = Math.max(topOf[w] ?? 0, Math.floor(t.n));
+  }
+  const trustedSeen = weeksIdx.map(() => false), untrustedSeen = weeksIdx.map(() => false);
+  for (const m of input.cap ?? []) {
+    const w = weekIndex(mondays, m?.day);
+    if (w < 0) continue;
+    if (m.trusted === true) trustedSeen[w] = true;
+    else untrustedSeen[w] = true;
+  }
+  const live = weeksIdx.map((w) => trustedSeen[w] && !untrustedSeen[w]);
+  const lastW = W - 1;
+  const capState: CapState = live[lastW] ? 'live' : untrustedSeen[lastW] ? 'untrusted' : 'none';
   // select: trader targets only (every row but the two invite rows); selectAny: Demo targets too.
   const selectAny = (p: (k: ViewKey) => boolean) => views.keys().filter((k) => p(parseKey(k)));
   const select = (p: (k: ViewKey) => boolean) => selectAny((k) => !k.demo && p(k));
@@ -175,6 +311,12 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
   out.push('Strict DESIGN §3.5 numbers come first; anything else is labelled partial (gate definitions: MRC2-3, owner).');
   out.push('Self-views are excluded everywhere; Demo profiles are excluded except in the two invite rows (see the G3 notes). "<5" = a count from 1 to 4; "(s)" = hidden so a small count can\'t be worked out; "≥ n" = a sum with hidden parts (n counts only the visible parts).');
   out.push('');
+  // F-31: the limits block, above the first G-row, on every run.
+  out.push(LIMITS_HEADING, '', ...LIMIT_LINES, '', factsHeading(mondays[lastW]), capFactLine(capState));
+  if (live.some((l) => !l)) out.push(CAP_FLAG_LINE);
+  out.push(internalFactLine(internalState, count(input.internal?.ignored)));
+  if (internalSet) out.push(INTERNAL_RUNS_LINE);
+  out.push('');
 
   // G1: two disjoint single counts, no total.
   const g1 = [count(input.g1?.strict), count(input.g1?.partial)];
@@ -184,6 +326,7 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
   out.push(table(['Metric (DESIGN §3.5)', 'Continue if', 'Now'], [
     [GATES[0].metric, GATES[0].threshold, small(g1[0])],
     ['partial: traders whose connections are all frozen or failed (none connected)', '', small(g1[1])],
+    ...(internalSet ? [[G1_INTERNAL_ROW, '', g1InternalCell(input)]] : []),
   ]));
   out.push('');
 
@@ -202,14 +345,35 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
     ['partial: trade surface, external referrer', '', select((k) => k.surface === 'trade' && k.ext)],
     ['partial: month surface, external referrer', '', select((k) => k.surface === 'month' && k.ext)],
   ];
+  // F-31 rows (plan §1, §3): under the strict row, its address cap, its family and the tagged-or-external row; the
+  // self-views row last. No Continue-if cell and no total on any of them.
+  const g3Rows = g3.map(([label, th, keys]) => [label, th, ...weeksIdx.map((w) => views.print(at(keys, w)))]);
+  const strictKeys = g3[0][2];
+  const family = weeksIdx.map((w) => {
+    if (!views.exact(at(strictKeys, w))) return { trader: '(s)', filer: '(s)', withoutInternal: internalSet ? '(s)' : null, top: '(s)' };
+    const [a, b, c] = atoms[w];
+    return strictFamily({ a, b, c }, topOf[w], internalSet);
+  });
+  const [capRow, traderRow, filerRow, topRow, taggedRow, selfRow] = F31_ROW_LABELS;
+  const tagged = select((k) => k.surface === 'profile' && (k.ext || TAGGED_VIAS.includes(k.via)));
+  const f31Rows: string[][] = [
+    [capRow, '', ...weeksIdx.map((w) => (live[w] ? 'live' : CAP_NOT_LIVE))],
+    [traderRow, '', ...family.map((f) => f.trader)],
+    [filerRow, '', ...family.map((f) => f.filer)],
+    [topRow, '', ...family.map((f) => f.top)],
+    ...(internalSet ? [[G3_INTERNAL_ROW, '', ...family.map((f) => f.withoutInternal ?? '(s)')]] : []),
+    [taggedRow, '', ...weeksIdx.map((w) => views.print(at(tagged, w)))],
+  ];
   out.push('## G3');
   out.push('');
   out.push(table(['Metric (DESIGN §3.5)', 'Continue if', ...weekHead],
-    g3.map(([label, th, keys]) => [label, th, ...weeksIdx.map((w) => views.print(at(keys, w)))])));
+    [g3Rows[0], ...f31Rows, ...g3Rows.slice(1), [selfRow, '', ...weeksIdx.map((w) => selfs.print([{ key: 'self', w }]))]]));
   out.push('');
   out.push(`All G3 rows count ${G3_LABEL}. The partial rows overlap and are not a split of the strict row.`);
   out.push(G3_OWNER_LINE);
   out.push(DEMO_INVITE_LINE);
+  out.push(SPLIT_LINE, TOP_LINE, SELF_LINE);
+  if (internalSet) out.push(INTERNAL_LINE);
   out.push('');
 
   out.push('## G4');
@@ -288,7 +452,7 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
 // when all of the row's cells are hidden. So no
 // count from 1 to 4, of a cell, a row or G1 − row, can be worked out from the rows or against G1
 // (scripts/f15-readout.test.ts enumerates every consistent split).
-export type SharerRow = { card: boolean; story: boolean; record: boolean; sheet: boolean; copy: boolean; down: boolean };
+export type SharerRow = { card: boolean; story: boolean; record: boolean; sheet: boolean; copy: boolean; down: boolean; internal?: boolean };
 export type G2Input = { traders: SharerRow[]; firstDay: Day | null; retentionDays: number };
 export const G2_CELLS = ['story', 'card', 'other', 'non', 'sheetOnly', 'copyOnly', 'both', 'down', 'upOnly'] as const;
 type G2Cell = (typeof G2_CELLS)[number];
@@ -386,13 +550,15 @@ function g2Section(input: ReadoutInput, lastDay: string): string[] {
 // G2 input from the database: one row per strict-G1 trader (non-demo, non-deleted, a connection in state 'connected'),
 // only which classes of share_action rows exist from the floor (g2FloorOffset) to the window's last day. No id, handle
 // or return is selected. onlyUsers narrows the traders (db tests on a shared database read only their own rows).
-export async function loadG2(sql: Sql, to: string, retentionDays: number, onlyUsers?: number[]): Promise<G2Input> {
+// F-31: internal = the trader's handle is on the env list (bound as one parameter, compared, never selected).
+export async function loadG2(sql: Sql, to: string, retentionDays: number, onlyUsers?: number[], internal: string[] = []): Promise<G2Input> {
   const floor = g2FloorOffset(retentionDays);
   const traders = await sql<SharerRow[]>`
     select coalesce(bool_or(s.surface = 'card'), false) as card, coalesce(bool_or(s.surface = 'story'), false) as story,
            coalesce(bool_or(s.surface in ('trade', 'month')), false) as record,
            coalesce(bool_or(s.outcome = 'sheet'), false) as sheet, coalesce(bool_or(s.outcome = 'copy'), false) as copy,
-           coalesce(bool_or(s.record_sign = 'down'), false) as down
+           coalesce(bool_or(s.record_sign = 'down'), false) as down,
+           coalesce(bool_or(u.public_filer_id is null and u.handle = any(${internal}::text[])), false) as internal
     from users u
     left join share_action s on s.user_id = u.id and s.day <= ${to}::date and s.day >= ${to}::date - ${floor}::int
     where u.deleted_at is null
@@ -400,7 +566,7 @@ export async function loadG2(sql: Sql, to: string, retentionDays: number, onlyUs
       and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
       ${onlyUsers ? sql`and u.id = any(${onlyUsers}::int[])` : sql``}
     group by u.id`;
-  return { traders: traders.map((t) => ({ card: t.card, story: t.story, record: t.record, sheet: t.sheet, copy: t.copy, down: t.down })), firstDay: null, retentionDays };
+  return { traders: traders.map((t) => ({ card: t.card, story: t.story, record: t.record, sheet: t.sheet, copy: t.copy, down: t.down, internal: t.internal === true })), firstDay: null, retentionDays };
 }
 
 // Demo target (cycle 4 F4-11, C4-4): a user with a demo activity (lib/demo.ts) or a fictional fixture filer
@@ -411,16 +577,43 @@ const demoUser = (sql: Sql, id: PendingQuery<Row[]>) => sql`(exists (select 1 fr
 // Rollup input from the database: user_id is summed away; no handle, name, id or return is selected. Deleted targets are
 // dropped; demo says the target is a Demo profile (buildReadout counts those in the invite rows only). onlyUsers narrows
 // the rows to those users' (db tests on a shared database read only their own rows).
-export async function loadRollup(sql: Sql, from: string, to: string, onlyUsers?: number[]): Promise<RollupRow[]> {
+// F-31: filer = a public-filing target; internal = a trader target whose handle is on the env list (bound as one
+// parameter and compared, never selected). Both are booleans; the base keys ignore them.
+export async function loadRollup(sql: Sql, from: string, to: string, onlyUsers?: number[], internal: string[] = []): Promise<RollupRow[]> {
   const rows = await sql<RollupRow[]>`
     select to_char(r.day, 'YYYY-MM-DD') as day, r.surface, r.ref_class, r.via, r.self_view,
-           (r.user_id is not null and ${demoUser(sql, sql`r.user_id`)}) as demo, sum(r.n)::int as n
+           (r.user_id is not null and ${demoUser(sql, sql`r.user_id`)}) as demo, sum(r.n)::int as n,
+           (r.user_id is not null and u.public_filer_id is not null) as filer,
+           (r.user_id is not null and u.public_filer_id is null and u.handle = any(${internal}::text[])) as internal
     from view_rollup r left join users u on u.id = r.user_id
     where r.day between ${from}::date and ${to}::date
       and (r.user_id is null or u.deleted_at is null)
       ${onlyUsers ? sql`and r.user_id = any(${onlyUsers}::int[])` : sql``}
-    group by 1, 2, 3, 4, 5, 6`;
+    group by 1, 2, 3, 4, 5, 6, 8, 9`;
   return [...rows];
+}
+
+// F-31: per ISO week (Monday), the largest single profile's strict G3 views: the strict cell's own filters (profile
+// surface, external referrer, no self-view, no Demo target, no deleted user). user_id is grouped by, never selected.
+export async function loadTop(sql: Sql, from: string, to: string, onlyUsers?: number[]): Promise<{ week: string; n: number }[]> {
+  const rows = await sql<{ week: string; n: number }[]>`
+    select to_char(p.wk, 'YYYY-MM-DD') as week, max(p.n)::int as n
+    from (select date_trunc('week', r.day::timestamp)::date as wk, sum(r.n) as n
+          from view_rollup r join users u on u.id = r.user_id
+          where r.day between ${from}::date and ${to}::date
+            and r.surface = 'profile' and r.ref_class = 'external' and not r.self_view
+            and u.deleted_at is null and not ${demoUser(sql, sql`r.user_id`)}
+            ${onlyUsers ? sql`and r.user_id = any(${onlyUsers}::int[])` : sql``}
+          group by 1, r.user_id) p
+    group by 1`;
+  return rows.map((r) => ({ week: r.week, n: r.n }));
+}
+
+// F-31: the address-cap day marks in the window (lib/views.ts#markCapDay): a day and a flag, nothing else.
+export async function loadCapMarks(sql: Sql, from: string, to: string): Promise<{ day: string; trusted: boolean }[]> {
+  const rows = await sql<{ day: string; trusted: boolean }[]>`
+    select to_char(day, 'YYYY-MM-DD') as day, trusted from view_cap_days where day between ${from}::date and ${to}::date`;
+  return rows.map((r) => ({ day: r.day, trusted: r.trusted }));
 }
 
 // ---- output guard ----
@@ -461,16 +654,20 @@ async function main() {
   const { sql } = await import('../lib/db.ts');
   const now = new Date();
   const { from, to } = weekWindow(now);
+  // F-31: the internal handles go only to the loaders as one bound parameter; never printed, logged or passed on.
+  const internal = parseInternalHandles(process.env.READOUT_INTERNAL_HANDLES);
   try {
-    const rollup = await loadRollup(sql, from, to);
+    const rollup = await loadRollup(sql, from, to, undefined, internal.handles);
     const drops = await sql<DropRow[]>`
       select to_char(day, 'YYYY-MM-DD') as day, surface, reason, sum(n)::int as n from view_drops
       where day between ${from}::date and ${to}::date group by day, surface, reason`;
     const { SHARE_RETENTION_DAYS } = await import('../lib/share-actions.ts');
-    const g2 = await loadG2(sql, to, SHARE_RETENTION_DAYS);
+    const g2 = await loadG2(sql, to, SHARE_RETENTION_DAYS, undefined, internal.handles);
+    const top = await loadTop(sql, from, to);
+    const cap = await loadCapMarks(sql, from, to);
     const [g1] = await sql<{ strict: number; partial: number }[]>`
       select count(*) filter (where t.connected)::int as strict, count(*) filter (where not t.connected)::int as partial
-      from (select u.id, bool_or(c.state = 'connected') as connected
+      from (select bool_or(c.state = 'connected') as connected
             from users u join connections c on c.user_id = u.id
             where u.deleted_at is null
               and not ${demoUser(sql, sql`u.id`)}
@@ -478,11 +675,16 @@ async function main() {
     // G1 strict is the G2 trader count itself, so the two can't disagree.
     const text = buildReadout({
       rollup, drops: [...drops], g1: { strict: g2.traders.length, partial: g1?.partial ?? 0 }, g2,
+      top, cap, internal: { state: internal.state, ignored: internal.ignored },
     }, now);
     mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `f15-readout-${now.toISOString().slice(0, 10)}.md`);
     writeFileSync(file, text, { mode: 0o600 });
     console.log(`wrote ${file}`);
+  } catch (e) {
+    // F-31: a database error is reported by class and code only, so a driver message can't echo a bound handle.
+    console.error('readout failed', logSafe(e));
+    process.exitCode = 1;
   } finally {
     await sql.end();
   }

@@ -5,7 +5,7 @@
 // and a database error is logged by class and code only (lib/privacy-log.ts), never surfaced.
 import { sameOrigin } from './discovery/origin.ts';
 import { logSafe } from './privacy-log.ts';
-import { BEACON_BYTES, DROP_OTHER, type RateState, botReason, parseBeacon, rateLimited, recordDrop, recordView, surfaceOf, viewedUserId } from './views.ts';
+import { BEACON_BYTES, DROP_OTHER, type RateState, addressTrusted, botReason, parseBeacon, rateLimited, recordDrop, recordView, surfaceOf, viewedUserId } from './views.ts';
 
 export type BeaconDeps = {
   viewer: () => Promise<{ id: number } | null>;
@@ -13,6 +13,9 @@ export type BeaconDeps = {
   recordDrop: typeof recordDrop;
   viewedUserId: typeof viewedUserId;
   limited?: (h: Headers) => RateState;
+  // F-31: the address-cap day mark (lib/views.ts#markCapDay) and the trust check it is given; omitted, nothing is marked.
+  markCap?: (trusted: boolean) => Promise<void>;
+  trusted?: (h: Headers) => boolean;
 };
 const RECORD = new Set(['profile', 'trade', 'month']);
 const noStore = { 'cache-control': 'no-store' };
@@ -34,6 +37,8 @@ export async function handleBeacon(req: Request, deps: BeaconDeps): Promise<Resp
     // The rate cap comes first, so a flood (bot or not) costs one write per client per minute, not one per request.
     const limit = (deps.limited ?? rateLimited)(h);
     if (limit === 'over') return answer(204);
+    // F-31: a failed mark never loses the view; the log line names the error's class and code only (no address).
+    if (deps.markCap) try { await deps.markCap((deps.trusted ?? addressTrusted)(h)); } catch (e) { console.error('view cap mark failed', logSafe(e)); }
     const reason = limit === 'first-over' ? 'rate' : botReason(h, beacon.auto);
     if (reason) { await deps.recordDrop(target?.surface ?? DROP_OTHER, reason); return answer(204); }
     if (!target) return answer(204);
