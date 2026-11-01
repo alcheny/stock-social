@@ -119,9 +119,11 @@ test('F-25 CSS: footer links at 0.875rem, 44 px hit boxes, one line from 360 px 
   const css = read('app/globals.css');
   const block = css.slice(css.indexOf('/* ---- F-25 one link rule'), css.indexOf('/* end F-25 */'));
   assert.match(block, /\.card \.f25-card-links \{[^}]*font-size: 0\.875rem;/);
-  assert.match(block, /\.card \.f25-card-links \{[^}]*column-gap: 16px;[^}]*row-gap: 8px;/);
+  assert.match(block, /\.card \.f25-card-links \{[^}]*column-gap: 16px;[^}]*row-gap: 36px;/); // 28 px pulled-in box + 8 px apart
+  assert.match(block, /\.card \.f25-card-link \{[^}]*margin-block: -14px;/);
   assert.match(block, /\.card \.f25-card-link \{[^}]*min-height: 44px;/);
-  assert.match(block, /@media \(max-width: 359\.98px\) \{\s*\.card \.f25-card-links \{ flex-direction: column;/);
+  assert.match(block, /@media \(max-width: 359\.98px\) \{ \.card \.f25-card-links \{ flex-direction: column;/);
+  assert.match(block, /\.f25-row \{ position: relative; \}/); // sr-only spans stay inside the row (no page widening)
   assert.match(block, /\.rows \.line \.f25-fig \{[^}]*min-width: 44px; min-height: 44px;/);
 });
 

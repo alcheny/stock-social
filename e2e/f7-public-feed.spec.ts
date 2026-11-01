@@ -49,8 +49,8 @@ test('AC 14, 20, Round 5 items 3, 5: the card carries both badges, the card line
     await expect(card.locator('.badge.demo')).toHaveText('Demo');
     await expect(card.locator('.badge.verified')).toHaveCount(0);
     await expect(card.locator('[data-public-card]')).toHaveText('Company insider · from a public filing');
-    await expect(card.locator('footer a')).toHaveText('See their record, wins and losses →');
-    await expect(card.locator('footer a')).toHaveAttribute('href', `/u/${F}`);
+    await expect(card.locator(`footer a[href="/u/${F}"]`)).toHaveText(`Record, wins and losses: @${F} →`); // F-25: the visually hidden handle sits between the words and the arrow
+    await expect(card.locator(`footer a[href="/u/${F}"]`)).toHaveAttribute('href', `/u/${F}`);
     await expect(card.locator('[data-like], .like-mark')).toHaveCount(0);
     // AC 21: the close inside the floor is on no card.
     await expect(page.locator(`.row[data-handle="${F}"] .symbol`, { hasText: 'ZQFL' })).toHaveCount(0);

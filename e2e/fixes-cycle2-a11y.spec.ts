@@ -279,19 +279,19 @@ for (const height of [740, 640]) {
     const nav = await navBottom(page);
     const clip = await rect(row);
     await expect(card.locator('[data-disclaimer]')).toHaveText('Not investment advice. Past performance does not guarantee future results.');
-    for (const sel of ['.hero .ret', '.badge.demo', 'footer a', '[data-disclaimer]']) {
+    for (const sel of ['.hero .ret', '.badge.demo', `footer a[href="/u/${trader.handle}"]`, '[data-disclaimer]']) {
       const b = await rect(card.locator(sel).first());
       expect(b.top, `${sel} below the nav`).toBeGreaterThanOrEqual(nav);
       expect(b.bottom, `${sel} above the bar`).toBeLessThanOrEqual(bar.top - 8);
       expect(b.bottom, `${sel} inside the row`).toBeLessThanOrEqual(clip.bottom);
     }
-    await expect(card.locator('footer a')).toHaveText(/See their record/);
+    await expect(card.locator(`footer a[href="/u/${trader.handle}"]`)).toHaveText(/Record, wins and losses/);
     // AC14.4: nothing clips, with 15% to spare.
     expect(await card.evaluate((c) => c.scrollHeight <= c.clientHeight + 1)).toBe(true);
     const fit = await intrinsic(card);
     expect(fit.need, `card content ${fit.need.toFixed(0)} of ${fit.room} px`).toBeLessThanOrEqual(0.85 * fit.room);
     test.info().annotations.push({ type: `fit 360×${height}`, description: JSON.stringify({ need: Math.round(fit.need), room: fit.room, barTop: bar.top,
-      disclaimerBottom: (await rect(card.locator('[data-disclaimer]'))).bottom, linkBottom: (await rect(card.locator('footer a'))).bottom }) });
+      disclaimerBottom: (await rect(card.locator('[data-disclaimer]'))).bottom, linkBottom: (await rect(card.locator(`footer a[href="/u/${trader.handle}"]`))).bottom }) });
     await tabThrough(page, card, '.signin-line');
     // The row's snap point is unchanged: it still rests at the top.
     await atRest(row);
@@ -327,7 +327,7 @@ test('AC14.1 (360×480, 360×420, 320×420, signed out): on a short viewport the
     // Focus moving into the card closes the sign-in line (#55 / F-10 #15), so focus is never under it; the focused-link
     // case under a bar that stays is the hide bar's, below.
     await card.evaluate((c) => { c.scrollTop = 0; });
-    const link = card.locator('footer a');
+    const link = card.locator(`footer a[href="/u/${trader.handle}"]`);
     await link.focus();
     await expect(page.locator('.signin-line')).toBeEmpty();
     await ctx.close();
@@ -356,9 +356,9 @@ test('AC14.1 (360×420, signed in): under the hide bar, a focused record link in
   const card = next.locator('.card');
   await expect(card).toHaveCSS('overflow-y', 'auto');
   await expect(card).toHaveCSS('scroll-padding-bottom', '94px');
-  for (const sel of ['footer a', '[data-disclaimer]']) {
+  for (const sel of [`footer a[href="/u/${trader.handle}"]`, '[data-disclaimer]']) {
     await card.evaluate((c) => { c.scrollTop = 0; });
-    if (sel === 'footer a') await card.locator(sel).focus();
+    if (sel.startsWith('footer a')) await card.locator(sel).focus();
     else await card.evaluate((c) => { c.scrollTop = c.scrollHeight; });
     await expect(barP).toBeVisible();
     const bar = await barOf(page, '.hide-bar > p');

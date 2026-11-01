@@ -76,7 +76,7 @@ test('#15: signed out, the sign-in line closes on Escape and when focus moves to
     // Open again; focus moves to the card's bottom link (the area the fixed line covers): the line closes.
     await doubleTap(page, card.locator('.hero .ret'));
     await expect(line).toContainText('Sign in to like trades.');
-    const link = card.getByRole('link', { name: /See their record/ });
+    const link = card.getByRole('link', { name: /Record, wins and losses/ });
     await link.focus();
     await expect(link).toBeFocused();
     await expect(line).toHaveText('');

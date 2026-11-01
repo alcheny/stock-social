@@ -864,20 +864,23 @@ h1 { overflow-wrap: anywhere; }
 
 /* ---- F-25 one link rule for trade rows (docs/features/F-25-one-link-rule-for-trade-rows.md) ---- */
 /* Feed card footer: "This trade →" then "Record, wins and losses →" at 0.875rem, one line at 360 px and wider, stacked
-   below. Each link's hit box is 44 px tall; the negative block margin keeps the footer's line height (F-10's one-screen
-   budget), and the gap keeps the two boxes 8 px or more apart side by side and stacked. */
-.card .f25-card-links { display: flex; flex-wrap: wrap; align-items: center; column-gap: 16px; row-gap: 8px; font-size: 0.875rem; }
-.card .f25-card-link { display: inline-flex; align-items: center; min-height: 44px; margin-block: -14px; white-space: nowrap; }
-@media (max-width: 359.98px) {
-  .card .f25-card-links { flex-direction: column; align-items: flex-start; }
-  .card .f25-card-link { margin-block: 0; }
-  .card .f25-card-links > :first-child { margin-top: -14px; }
-  .card .f25-card-links > :last-child { margin-bottom: -14px; }
-}
+   below. Each link's hit box is 44 px tall; the -14 px block margin keeps each row of links 16 px in the layout (F-10's
+   one-screen budget), and the 36 px row gap (28 px of pulled-in box + 8 px) keeps wrapped or stacked boxes 8 px apart,
+   also when a larger text size wraps them at 360 px or wider. */
+.card .f25-card-links { display: flex; flex-wrap: wrap; align-items: center; column-gap: 16px; row-gap: 36px; font-size: 0.875rem; }
+.card .f25-card-link { position: relative; display: inline-flex; align-items: center; min-height: 44px; margin-block: -14px; white-space: nowrap; }
+@media (max-width: 359.98px) { .card .f25-card-links { flex-direction: column; align-items: flex-start; } }
+/* Page 1's first card: the swipe hint keeps its own line above the links (both links leave no room beside it), 14 px
+   clear of their hit boxes. */
+html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block; margin: 0 0 14px; } /* never over its dismissed display: none */
+/* ponytail: a footer link's 44 px hit box reaches 14 px over the card's disclaimer below it (non-interactive text), so a
+   tap on the disclaimer's top edge follows the link — fix: a taller footer row once the card has room (F-10 budget). */
 /* Shape C (the profile row's figure link): at least 44 × 44 px, a short "0.0%" padded to the width; the negative block
    margin sits inside the row's 12 px padding, so the row keeps its height. */
-.rows .line .f25-fig { display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; margin-block: -12px; }
-/* Shape R (the whole row is the link): the pane's last trades are 44 px rows inside the same 12 px padding. */
+.rows .line .f25-fig { position: relative; display: inline-flex; align-items: center; justify-content: flex-end; min-width: 44px; min-height: 44px; margin-block: -12px; }
+/* Shape R (the whole row is the link). position: relative holds its sr-only spans inside it (in the off-screen pane they
+   would widen the page). The pane's last trades are 44 px rows inside the same 12 px padding. */
+.f25-row { position: relative; }
 .pane .rows a.line { color: inherit; text-decoration: none; align-items: center; min-height: 44px; margin-block: -12px; }
 /* The focus ring (F-20's :focus-visible rule) draws around the whole row: a block-level link, inside the pane's padding. */
 /* The highlighted pane row already draws the focus colour (.pane .rows .line.hl); focus thickens it so focus stays visible. */

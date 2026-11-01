@@ -84,3 +84,24 @@ at the end, built, so the brief governs.
     than 8 traders), each equal to origin/main measured with the same fixture: 17 and 13 statements.
 12. `lib/similar.ts#SimilarRow` keeps `sellId` server-side, because `lib/similar.test.ts` asserts it; it is never
     rendered, and the row's link uses `tradeKey`.
+
+## QA round 1 (tester) and the e2e build
+The tester found no blockers.
+
+Should-fix items, all fixed:
+- The swipe hint lost its shared line.
+- Wrapped footer boxes overlapped at 360 px with a larger text size.
+- The hit boxes covered the hint.
+- e2e gaps.
+
+The e2e engineer found one app bug: the pane rows' sr-only spans widened the page, because `.f25-row` had no
+`position: relative`. It is fixed for every Shape R row and both footer links.
+
+Decisions:
+13. Footer profile-link names are unique per destination, not per card: one trader's two cards share the handle's name.
+14. The hint keeps its own line above the links, 14 px clear, and the links' row gap is 36 px. This keeps 8 px between
+    hit boxes whenever they wrap.
+15. Chromium's space before a hidden span is accepted, because the words are unchanged.
+
+Known limit, with a ponytail note in app/globals.css: a footer link's hit box reaches 14 px over the card disclaimer's
+top edge, which is non-interactive text.
