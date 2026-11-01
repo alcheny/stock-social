@@ -144,6 +144,8 @@ test('F4-15: the image draws the head from unfurlHeadRows (no pill group beside 
   assert.match(src, /unfurlHeadRows\(m, colW\)/);
   assert.doesNotMatch(src, /\{newRecord\}\{shareOnly\}\{badge\}/);
   assert.match(src, /columnPills\(headRows\.column\)/);
+  // User test: the moved pills right-align in the chart column, clear of the text column's "average per trade".
+  assert.match(src, /gap: 12, justifyContent: 'flex-end'/);
 });
 
 // ---- F4-16 (C4-17) ----
@@ -217,8 +219,24 @@ test('F4-8: homePreview(demo, pub): four texts; only pub names public filings, b
 
 test('F4-8: the home card reads p=1 only; the page names both states in the card URL', () => {
   const route = readFileSync(new URL('app/home-card/route.tsx', ROOT), 'utf8');
-  assert.match(route, /homePreview\(q\.get\('d'\) !== '0', q\.get\('p'\) === '1'\)/);
+  assert.match(route, /const pub = q\.get\('p'\) === '1';/);
+  assert.match(route, /homePreview\(q\.get\('d'\) !== '0', pub\)/);
   const page = readFileSync(new URL('app/page.tsx', ROOT), 'utf8');
   assert.match(page, /\/home-card\?d=\$\{demo \? 1 : 0\}&p=\$\{pub\.shown \? 1 : 0\}/);
-  assert.match(page, /const demo = \(await demoShown\(\)\) \|\| pub\.demo;/);
+  assert.match(page, /const demo = demoRecords \|\| pub\.demo;/);
+});
+
+test('F4-8: the home card with both sentences still fits its 630 px card (measured in the drawn font, 15% headroom)', async () => {
+  const { homePreview } = await import('./home-preview.ts');
+  const words = homePreview(true, true).cardText.split(' ');
+  const src = readFileSync(new URL('app/home-card/route.tsx', ROOT), 'utf8');
+  assert.match(src, /export const homeCardPx = \(pub: boolean\) => \(pub \? 52 : 60\);/);
+  assert.match(src, /fontSize: homeCardPx\(pub\)/);
+  const width = 1200 - 2 * 80, px = 52, lineH = px * 1.25;
+  let lines = 1, cur = 0;
+  for (const w of words) {
+    const ww = textWidth(w, px) * HEAD_HEADROOM, sp = textWidth(' ', px);
+    if (cur && cur + sp + ww > width) { lines++; cur = ww; } else cur += (cur ? sp : 0) + ww;
+  }
+  assert.ok(lines * lineH <= 630 - 2 * 80, `${lines} lines`);
 });

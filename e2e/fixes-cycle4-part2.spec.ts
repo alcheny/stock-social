@@ -16,6 +16,9 @@ const NOTE_USER = `fc4n${tag}`, FILER = `pf_fc4${tag}`;
 const DAY = 86_400_000;
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 let release: (() => Promise<void>) | null = null;
+// User test: the note is written and edited after its trade closed (10 days ago), as the caption says.
+const WRITTEN = new Date(Date.now() - 9 * DAY), EDITED = new Date(Date.now() - 7 * DAY);
+const noteDay = (d: Date) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(d);
 
 test.beforeAll(async () => {
   release = await feedLock('shared');
@@ -23,7 +26,7 @@ test.beforeAll(async () => {
     insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${NOTE_USER}, ${NOTE_USER}, now(), a.id from a returning id, signup_attempt_id`;
   await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified, thesis, thesis_status, thesis_written_at, thesis_edited_at)
     values (${u.id}, ${`${NOTE_USER}-0`}, 'a', 'FCQ', ${new Date(Date.now() - 12 * DAY)}, ${new Date(Date.now() - 10 * DAY)}, 0.04, 2, true,
-      'Bought the base retest, sold at the old high.', 'published', '2026-10-05T15:00:00Z', '2026-10-07T01:00:00Z')`;
+      'Bought the base retest, sold at the old high.', 'published', ${WRITTEN}, ${EDITED})`;
   // The chart draws from two closes; this older one has no note.
   await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
     values (${u.id}, ${`${NOTE_USER}-1`}, 'a', 'FCR', ${new Date(Date.now() - 22 * DAY)}, ${new Date(Date.now() - 20 * DAY)}, -0.02, 2, true)`;
@@ -89,5 +92,5 @@ test('F4-16: the chart sheet shows the note\'s written and edited dates', async 
   // The newest close (the noted one) is the last point: the first ArrowLeft lands on it.
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('Enter');
-  await expect(sheet.locator('figcaption')).toHaveText(`Note by @${NOTE_USER} · Written Oct 5, 2026, after the trade closed · edited Oct 7, 2026`);
+  await expect(sheet.locator('figcaption')).toHaveText(`Note by @${NOTE_USER} · Written ${noteDay(WRITTEN)}, after the trade closed · edited ${noteDay(EDITED)}`);
 });

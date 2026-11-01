@@ -67,7 +67,8 @@ test('the home card is keyed by the demo state: the metadata names it, the image
   assert.match(page, /const p = homePreview\(demo, pub\.shown\);/); // the same state the page's text uses
   const card = read('app/home-card/route.tsx');
   assert.doesNotMatch(card, /demoShown|from '@\/lib\/db/);
-  assert.match(card, /homePreview\(q\.get\('d'\) !== '0', q\.get\('p'\) === '1'\)/); // FIXES-CYCLE4-PART2 (F4-8)
+  assert.match(card, /const pub = q\.get\('p'\) === '1';/); // FIXES-CYCLE4-PART2 (F4-8)
+  assert.match(card, /homePreview\(q\.get\('d'\) !== '0', pub\)/);
   assert.match(card, /const q = new URL\(req\.url\)\.searchParams;/);
   assert.notEqual(homePreview(true).cardText, homePreview(false).cardText);
 });

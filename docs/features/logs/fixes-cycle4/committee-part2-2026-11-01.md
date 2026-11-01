@@ -105,3 +105,50 @@ owner's instruction of 2026-11-01".
 written and edited epoch ms (null otherwise). `PackedTrade` and `PackedPoint` may end with two more fields, a note's
 written and edited UTC day numbers (`lib/paging.ts#noteDays`), present only for a published note with a recorded date.
 Rounding in F-23 must keep them integers.
+
+## Round 3: tester QA, fixes
+
+Tester: not clean (1 High, 1 Medium, 3 Low). All taken.
+
+- **High: the month image's options line added a row** that pushed frozen or failed options traders under the 28 px
+  disclaimer floor. Fix: the qualifier joins the month's count line ("8 closed trades · Excluding options"; the label
+  above names the month, so "this month" drops to keep one line), adding no row. A probe over every record state × demo
+  × 1 or 8 closes now gives the same layout as main. Main itself already falls under 28 px for a frozen options trader
+  with 8+ closes, from the record strip's own options line (OPTIONS merge), with or without this qualifier: left as is
+  with a `ponytail:` in `lib/month-card.ts`. *Why: decided by the committee under the owner's instruction of
+  2026-11-01; a qualifier must never cost the disclaimer (POLICY F3), and the pre-existing case is not this fix's.*
+- **Medium: the row under the head pushed the unfurl's text column past 630 px** (clipping "Record since"). Fix: moved
+  pills go to the top of the chart column, and the model's chart gives up one pill row (51 px) per row
+  (`lib/record-card.ts`), so the card's height never changes. Stages: every pill on the head row; else "Excluding
+  options" to the column; else it and New record; else every pill (the badge too, when it fits the column). Only the
+  Demo image label (wider than the chart column) beside a very long handle falls back to the row under the head
+  (`ponytail:` in `lib/card-head.ts`; no seeded Demo handle is that long). The F-4 snapshot
+  (`lib/snapshots/f4-record-card.json`) was regenerated for this deliberate change: 24 of 432 entries changed, all
+  demo unfurls. Evidence: `screenshots-part2/f4-15-unfurl-demo-options.png` (the demo options trader, nothing clipped)
+  and `screenshots-part2/f4-15-unfurl-fallback-20w-demo.png` (the fallback). *Why: decided by the committee under the
+  owner's instruction of 2026-11-01; the head fix must not clip anything else.*
+- Low: the header comment now names the test file that re-reads the font; the month-bounds DB test also puts a close at
+  00:00 UTC on the next month's 1st (not counted); the home card with both sentences was checked by eye
+  (`/home-card?d=1&p=1`, in the user test).
+
+## Round 4: user test (business lead and UX lead at 360 px) and independent code review
+
+User test: compliance PASS, usability FAIL on one point; code review: no blocking finding, five non-blocking.
+
+- **Taken (user test):** the moved pills right-align in the chart column (on the demo options trader the
+  "Excluding options" pill touched the end of "average per trade", which overruns the text column). The e2e note is now
+  written and edited after its trade closed, as its caption says. The month image's two shapes (qualifier on the count
+  line, or on the record strip's own line in a month with no figures) stay: both say it, neither adds a row.
+- **Taken (code review):** the home card with both sentences is drawn at 52 px (60 px otherwise; it was 6 lines in
+  470 px, measured), with a test that measures the wrap in the drawn font with 15% headroom; `publicShown` and
+  `demoShown` run side by side; the remembered answer is only the process environment's.
+- **Kept (code review 5):** the second import line from a module a file already imports. *Why: decided by the
+  committee under the owner's instruction of 2026-11-01; the build rules ask shared-file edits to be additive and marked
+  for this fix set, so parallel branches (F-23, F-25, F-27) merge without touching each other's import lines.*
+- **Owner item (code review 4):** on a database error the home preview names public filings (as `demoShown` names
+  Demo), not remembered. *Why: decided by the committee under the owner's instruction of 2026-11-01; naming the source
+  when unsure is the cautious side of POLICY's trust rules.*
+
+## Verdict
+Business lead and UX lead: compliance PASS; usability PASS after the right-alignment (re-checked on the rebuilt image,
+`screenshots-part2/f4-15-unfurl-demo-options.png`). Engineer: tests for every acceptance criterion, all green.

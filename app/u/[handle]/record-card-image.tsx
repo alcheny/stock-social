@@ -146,7 +146,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   const headRows = m.kind === 'unfurl' ? unfurlHeadRows(m, colW) : null;
   const pillOf = (p: HeadPill) => (p === 'newRecord' ? newRecord : p === 'options' ? shareOnly : badge); // FIXES-CYCLE4-PART2 (F4-15)
   const columnPills = (rs: HeadPill[][]) => rs.length > 0 && (
-    <div style={{ ...col, gap: L.gap, flexShrink: 0 }}>{rs.map((r) => <div key={r.join()} style={{ ...row, gap: 12 }}>{r.map((p) => <span key={p} style={{ display: 'flex' }}>{pillOf(p)}</span>)}</div>)}</div>
+    <div style={{ ...col, gap: L.gap, flexShrink: 0 }}>{rs.map((r) => <div key={r.join()} style={{ ...row, gap: 12, justifyContent: 'flex-end' /* user test: clear of the text column's label */ }}>{r.map((p) => <span key={p} style={{ display: 'flex' }}>{pillOf(p)}</span>)}</div>)}</div>
   );
   let main;
   if (m.body !== null) {

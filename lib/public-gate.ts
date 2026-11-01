@@ -53,7 +53,8 @@ let shownMemo: { at: number; v: PublicShown } | null = null;
 // `only` (tests on the shared database): look at these users alone, and neither read nor write the remembered answer.
 export async function publicShown(now = Date.now(), env: Env = process.env, only?: number[]): Promise<PublicShown> {
   if (!publicTradersOn(env)) return { shown: false, demo: false };
-  if (!only && shownMemo && now - shownMemo.at < PUBLIC_SHOWN_TTL_MS) return shownMemo.v;
+  const remember = !only && env === process.env; // code review: only the process's own answer is remembered
+  if (remember && shownMemo && now - shownMemo.at < PUBLIC_SHOWN_TTL_MS) return shownMemo.v;
   const scope = only ? sql`and u.id = any(${only})` : sql``;
   try {
     const [r] = await sql`select
@@ -62,7 +63,7 @@ export async function publicShown(now = Date.now(), env: Env = process.env, only
         exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null join public_filers pf on pf.id = u.public_filer_id and pf.demo
           where ${filerVisibleSql('u', env)} and ${feedReadySql('t')} ${scope}) as demo`;
     const v = { shown: r.shown === true, demo: r.demo === true };
-    if (!only) shownMemo = { at: now, v };
+    if (remember) shownMemo = { at: now, v };
     return v;
   } catch (e) {
     console.error('public filing check failed', logSafe(e));
