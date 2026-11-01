@@ -2,7 +2,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Snaptrade, SnaptradeAuth } from 'snaptrade-typescript-sdk';
 import type { Activity } from './trades.ts';
-import { fromVendorRows, type VendorRow } from './corporate-actions.ts';
+import { fromVendorRows, unusableTrade, vendorNumber, type VendorRow } from './corporate-actions.ts';
 
 // SNAPTRADE_BASE_URL points the SDK at the in-repo fake in tests (e2e/fakes/vendor.ts); unset, the SDK uses the vendor.
 const client = () =>
@@ -93,9 +93,9 @@ export async function listAccounts(u: BrokerUser): Promise<VendorAccount[]> {
 
 export const PAGE_LIMIT = 1000;
 // One vendor page of an account's full history (TR-3): the chunked import reads one page per step and resumes by offset.
-export async function fetchActivitiesPage(u: BrokerUser, accountId: string, offset: number, limit = PAGE_LIMIT): Promise<{ activities: Fetched[]; done: boolean }> {
+export async function fetchActivitiesPage(u: BrokerUser, accountId: string, offset: number, limit = PAGE_LIMIT): Promise<{ activities: Fetched[]; unusable?: Unusable[]; done: boolean }> {
   const { data } = await bounded((o) => client().accountInformation.getAccountActivities({ ...auth(u), accountId, type: 'BUY,SELL', offset, limit }, o));
-  return { activities: toActivities(accountId, data.data ?? []), done: (data.data?.length ?? 0) < limit };
+  return { ...toActivities(accountId, data.data ?? []), done: (data.data?.length ?? 0) < limit };
 }
 
 // Open positions (TR-4) as symbol + unrealized percent only; never units, prices or amounts.
@@ -133,38 +133,48 @@ export async function deleteUser(u: BrokerUser): Promise<void> {
   await bounded((o) => client().authentication.deleteSnapTradeUser({ userId: u.snaptradeUserId }, o));
 }
 
-function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): Fetched[] {
+// Fixes cycle 3, F3-1: a BUY/SELL row with an id and a symbol is never dropped. A row with no usable price, units or date
+// is returned in `unusable` (lib/corporate-actions.ts#unusableTrade), stored with the corporate actions and counted by
+// the matcher, never priced.
+export type Unusable = ReturnType<typeof unusableTrade> & {};
+export function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): { activities: Fetched[]; unusable: Unusable[] } {
   const out: Fetched[] = [];
+  const unusable: Unusable[] = [];
   for (const a of rows) {
     const symbol = a.symbol?.symbol;
     // ponytail: equities/ETFs/crypto only; options need contract-level matching (Phase 2)
-    if (!a.id || !symbol || a.option_symbol || !a.trade_date || !a.price || !a.units) continue;
+    if (!a.id || !symbol || a.option_symbol) continue;
     if (a.type !== 'BUY' && a.type !== 'SELL') continue;
+    const bad = unusableTrade(accountId, { ...a, id: a.id, symbol, type: a.type });
+    if (bad) { unusable.push(bad); continue; }
     out.push({
-      externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(a.units), price: a.price, fee: Math.abs(a.fee ?? 0),
-      executedAt: new Date(a.trade_date), verified: true, raw: a,
+      externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(vendorNumber(a.units)), price: vendorNumber(a.price), fee: Math.abs(a.fee ?? 0),
+      executedAt: new Date(a.trade_date!), verified: true, raw: a,
     });
   }
-  return out;
+  return { activities: out, unusable };
 }
 
 // `accountIds` limits the fetch to accounts already cleared by the TR-6 claim.
-export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: string[]): Promise<Fetched[]> {
+export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: string[]): Promise<{ activities: Fetched[]; unusable: Unusable[] }> {
   const st = client();
   const auth = { userId: u.snaptradeUserId, userSecret: decrypt(u.secretEnc) };
   const accounts = accountIds ? accountIds.map((id) => ({ id })) : (await bounded((o) => st.accountInformation.listUserAccounts(auth, o))).data;
   const out: Fetched[] = [];
+  const unusable: Unusable[] = [];
 
   for (const account of accounts) {
     for (let offset = 0; ; offset += 1000) {
       const { data } = await bounded((o) => st.accountInformation.getAccountActivities({
         ...auth, accountId: account.id, startDate: since, type: 'BUY,SELL', offset, limit: 1000,
       }, o));
-      out.push(...toActivities(account.id, data.data ?? []));
+      const got = toActivities(account.id, data.data ?? []);
+      out.push(...got.activities);
+      unusable.push(...got.unusable);
       if ((data.data?.length ?? 0) < 1000) break;
     }
   }
-  return out;
+  return { activities: out, unusable };
 }
 
 // ---- Corporate actions (POLICY F3c, PR #40; docs/features/logs/corporate-actions/) ----

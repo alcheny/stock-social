@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rangeReturn, rangeTrades, curveDomain, equityCurve, matchTrades, maxDrawdown, nearestIndex, pct, rangeText, stats, stepIndex, type Activity } from './trades.ts';
+import { rangeReturn, rangeTrades, curveDomain, equityCurve, matchTrades, maxDrawdown, nearestIndex, openLots, pct, rangeText, stats, stepIndex, type Activity } from './trades.ts';
+import type { CorporateAction } from './corporate-actions.ts';
 
 const d = (day: number) => new Date(Date.UTC(2026, 0, day));
 let n = 0;
@@ -146,4 +147,90 @@ test('pct: a loss short of -100% never rounds to a total loss', () => {
   assert.equal(pct(-0.5), '-50.0%');
   assert.equal(pct(0.25, 0), '+25%');
   for (const x of [-0.99951, -0.9999, -0.999999, -0.99999999999]) assert.notEqual(pct(x), '-100.0%');
+});
+
+// ---- Fixes cycle 3 (docs/direction/cycle3-2026-11-01.md F3-1, F3-5; committee log docs/features/logs/fixes-cycle3/) ----
+// A vendor BUY/SELL row the importer can't price (no usable price, units or date) reaches the matcher as an
+// `unpriceable` action with reason 'trade' (lib/broker.ts#toActivities, lib/corporate-actions.ts#unusableTrade).
+const unusable = (side: 'BUY' | 'SELL', day: number | null, units?: number): CorporateAction => ({
+  externalId: `u${n++}`, accountId: 'acc', symbol: 'AAPL', executedAt: day === null ? new Date(0) : d(day), kind: 'unpriceable', reason: 'trade', side,
+  ...(units !== undefined ? { units } : {}), ...(day === null ? { undated: true } : {}),
+});
+
+test('F3-1: a later round trip after an unpriceable sell is priced from its own buy, never from the earlier lot', () => {
+  // The record's probe: buy 100 @50, sell @0 (unpriceable), buy 100 @10, sell 100 @12 published -76% instead of +20%.
+  const m = matchTrades([act('BUY', 100, 50, 1), act('BUY', 100, 10, 3), act('SELL', 100, 12, 4)], [unusable('SELL', 2, 100)]);
+  assert.equal(m.trades.length, 1);
+  assert.ok(Math.abs(m.trades[0].returnPct - 0.2) < 1e-12, String(m.trades[0].returnPct));
+  assert.equal(m.excludedCorporate, 1); // the unpriceable sell itself is counted
+  assert.equal(m.excluded, 0);
+});
+
+test('F3-1: an unpriceable sell consumes only its own units, oldest first; the rest of the ledger still prices', () => {
+  const m = matchTrades([act('BUY', 100, 50, 1), act('BUY', 100, 10, 2), act('SELL', 100, 11, 4)], [unusable('SELL', 3, 100)]);
+  assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(12)), [0.1]);
+  assert.equal(m.excludedCorporate, 1);
+});
+
+test('F3-1: an unpriceable buy opens a lot with no basis: a sell drawing it is counted, never priced; later round trips price', () => {
+  const m = matchTrades([act('SELL', 100, 12, 2), act('BUY', 10, 10, 3), act('SELL', 10, 11, 4)], [unusable('BUY', 1, 100)]);
+  assert.equal(m.excludedCorporate, 1);
+  assert.equal(m.excluded, 0);
+  assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(12)), [0.1]);
+});
+
+test('F3-1: a row with no usable units leaves the pair\'s ledger unknown from then on: nothing after it is priced, everything is counted', () => {
+  // Without the forward taint, the buy @10 would sit behind the unknown sell and be drawn by the round trip after it (+230%).
+  const m = matchTrades([
+    act('BUY', 100, 50, 1), act('BUY', 100, 10, 3), act('SELL', 100, 12, 4), act('BUY', 100, 30, 5), act('SELL', 100, 33, 6),
+    act('BUY', 1, 10, 1, 0, { symbol: 'MSFT' }), act('SELL', 1, 11, 6, 0, { symbol: 'MSFT' }), // another pair is untouched
+  ], [unusable('SELL', 2)]);
+  assert.equal(m.trades.length, 1);
+  assert.equal(m.trades[0].symbol, 'MSFT');
+  assert.equal(m.excludedCorporate, 3); // the unknown sell and the two sells after it
+  assert.equal(m.excluded, 0);
+});
+
+test('F3-1: an undated row taints the whole pair (it can\'t be placed); an undated buy is not counted, an undated sell is', () => {
+  const rows = [act('BUY', 10, 10, 1), act('SELL', 10, 11, 2), act('BUY', 10, 10, 3), act('SELL', 10, 11, 4)];
+  const sell = matchTrades(rows, [unusable('SELL', null, 10)]);
+  assert.equal(sell.trades.length, 0);
+  assert.equal(sell.excludedCorporate, 3);
+  const buy = matchTrades(rows, [unusable('BUY', null)]);
+  assert.equal(buy.trades.length, 0);
+  assert.equal(buy.excludedCorporate, 2);
+});
+
+test('F3-1: unusable trade rows are not repricing actions: they open no late-posting window and no same-day rule', () => {
+  const m = matchTrades([act('BUY', 200, 10, 1), act('SELL', 100, 11, 10), act('BUY', 5, 10, 12), act('SELL', 5, 11, 13)], [unusable('SELL', 12, 100)]);
+  // The sell on day 10 (two days before the unpriceable one) and the round trip on its day are priced.
+  assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(12)), [0.1, 0.1]);
+  assert.equal(m.excludedCorporate, 1);
+});
+
+test('F3-5: at the same instant a buy is matched before a sell, whatever the vendor ids or the input order (date-only timestamps)', () => {
+  for (const [sellId, buyId] of [['a', 'b'], ['b', 'a']]) {
+    const buy: Activity = { ...act('BUY', 10, 100, 5), externalId: buyId };
+    const sell: Activity = { ...act('SELL', 10, 90, 5), externalId: sellId };
+    for (const input of [[sell, buy], [buy, sell]]) {
+      const m = matchTrades(input);
+      assert.equal(m.excluded, 0, `ids sell=${sellId} buy=${buyId}`);
+      assert.equal(m.trades.length, 1);
+      assert.ok(Math.abs(m.trades[0].returnPct + 0.1) < 1e-12);
+      assert.equal(openLots(input).length, 0); // no phantom lot left behind
+    }
+  }
+});
+
+test('F3-5: same-instant buy first never changes a sell that older lots cover (FIFO draws them first)', () => {
+  const rows = [act('BUY', 10, 100, 1), act('SELL', 10, 110, 5), act('BUY', 10, 200, 5), act('SELL', 10, 220, 9)];
+  for (const input of [rows, [rows[0], rows[2], rows[1], rows[3]]]) {
+    assert.deepEqual(matchTrades(input).trades.map((t) => +t.returnPct.toFixed(12)), [0.1, 0.1]);
+  }
+});
+
+test('F3-1 + F3-5: an unpriceable sell at the same instant as a buy is placed after it, so it consumes that buy, not a later one', () => {
+  const m = matchTrades([act('BUY', 100, 10, 1), act('BUY', 100, 20, 2), act('SELL', 100, 22, 3)], [unusable('SELL', 1, 100)]);
+  assert.deepEqual(m.trades.map((t) => +t.returnPct.toFixed(12)), [0.1]);
+  assert.equal(m.excludedCorporate, 1);
 });

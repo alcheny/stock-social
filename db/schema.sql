@@ -735,3 +735,20 @@ begin
 end $t$;
 -- The weight fingerprint counts, per listed trader, the closes imported after asOf (lib/feed.ts candidateQuery `ol`).
 select schema_add_index('closed_trades_imported', 'create index closed_trades_imported on closed_trades (user_id, sell_imported_at) where sell_imported_at is not null');
+
+-- Fixes cycle 3 (docs/direction/cycle3-2026-11-01.md F3-3): a freeze (TR-5) needs confirmed absence. Set by the sync on
+-- the first successful account list that lists none of the connection's accounts, cleared when one is listed again;
+-- `disconnected_at` is stamped only by a later list, at least lib/sync.ts#FREEZE_CONFIRM_HOURS after, that still lists none.
+select schema_add_column('connections', 'missing_since', 'timestamptz');
+-- F3-4: open positions are replaced per account read. The last positions of an account the latest read did not list are
+-- kept here with their read time, private and rendered nowhere, until the owner decides OD-9 (owner question Q2); an
+-- account listed again gets fresh rows in open_positions and its rows here are removed. Deleted with the profile.
+create table if not exists unlisted_positions (
+  user_id int not null references users on delete cascade,
+  account_id text not null,
+  symbol text not null,
+  unrealized_pct double precision not null,
+  fetched_at timestamptz not null,
+  unlisted_at timestamptz not null default now(),
+  primary key (user_id, account_id, symbol)
+);

@@ -10,7 +10,7 @@ import { funnelEvent, recordFunnel } from './funnel.ts';
 import { completeAttempt, createUserForAttempt } from './auth/attempts.ts';
 import { insertActivities, rebuildTrades, USER_LOCK } from './sync.ts';
 import { insertCorporateActions } from './corporate-actions.ts';
-import { replaceAccountPositions, replacePositions } from './positions.ts';
+import { replaceAccountPositions } from './positions.ts';
 import { ownsAttempt } from './auth/links.ts';
 import { unsignToken } from './auth/sessions.ts';
 import { capReached, hit } from './rate-limit.ts';
@@ -565,6 +565,7 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         const limit = deps.pageLimit ?? vendor.PAGE_LIMIT;
         const page = await deps.fetchActivitiesPage(bu, real[cur.i].id, cur.offset, limit);
         await insertActivities(c.user_id!, 'snaptrade', page.activities, tx);
+        await insertCorporateActions(tx, c.user_id!, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
         return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
       }
       // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.
@@ -588,8 +589,8 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
           for (const p of await deps.fetchPositions(bu, real[k].id)) positions.push({ accountId: real[k].id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
           read.push(real[k].id);
         }
-        if (first) await replacePositions(tx, c.user_id!, positions);
-        else await replaceAccountPositions(tx, c.user_id!, read, positions);
+        // F3-4: per account read, so an import never deletes an earlier connection's positions.
+        await replaceAccountPositions(tx, c.user_id!, read, positions);
         const { pos: _pos, ...rest } = cur;
         return save({ ...rest, rebuilt: true, ...(k < real.length ? { pos: k } : {}) }, true);
       }

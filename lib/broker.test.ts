@@ -3,7 +3,7 @@
 // and delete connection / delete user reach the vendor. No real vendor is contacted.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { unrealizedPct } from './broker.ts';
+import { toActivities, unrealizedPct } from './broker.ts';
 import { startVendorFake } from '../e2e/fakes/vendor.ts';
 
 test('unrealizedPct: per-unit cost against per-unit price (the SDK documents both as per share); nothing without them', () => {
@@ -112,4 +112,31 @@ test('fix round 3: every vendor request is bounded: a request that hangs is abor
     hung.closeAllConnections();
     hung.close();
   }
+});
+
+// Fixes cycle 3, F3-1 (docs/direction/cycle3-2026-11-01.md): a BUY/SELL row with an id and a symbol is never dropped.
+test('F3-1: toActivities keeps every share trade row: usable rows are activities, rows with no usable price, units or date are returned to be counted', () => {
+  const base = { symbol: { symbol: 'AAA' }, type: 'SELL', trade_date: '2024-01-05', price: 12, units: 10, fee: -1 };
+  const { activities, unusable } = toActivities('acc', [
+    { ...base, id: 'ok' },
+    { ...base, id: 'str', price: '12.5' as never, units: '-3' as never }, // numeric strings still read
+    { ...base, id: 'p0', price: 0 },
+    { ...base, id: 'pnull', price: null as never },
+    { ...base, id: 'pneg', price: -4 }, // reached the insert before and failed the whole sync on price > 0
+    { ...base, id: 'u0', units: 0 },
+    { ...base, id: 'nodate', trade_date: null },
+    { ...base, id: 'baddate', trade_date: 'not a date', type: 'BUY', price: undefined },
+    { ...base, id: 'opt', price: 0, option_symbol: { id: 'x' } }, // options: not this path
+    { ...base, id: 'div', price: 0, type: 'DIVIDEND' },
+    { ...base, id: undefined, price: 0 },
+    { ...base, id: 'nosym', symbol: null, price: 0 },
+  ]);
+  assert.deepEqual(activities.map((a) => [a.externalId, a.side, a.units, a.price, a.fee]), [['ok', 'SELL', 10, 12, 1], ['str', 'SELL', 3, 12.5, 1]]);
+  assert.deepEqual(unusable.map((a) => a.externalId), ['p0', 'pnull', 'pneg', 'u0', 'nodate', 'baddate']);
+  for (const a of unusable) { assert.equal(a.kind, 'unpriceable'); assert.ok(a.kind === 'unpriceable' && a.reason === 'trade'); assert.ok(a.raw); }
+  const by = new Map(unusable.map((a) => [a.externalId, a as unknown as { side: string; units?: number; undated?: boolean; executedAt: Date }]));
+  assert.deepEqual([by.get('p0')!.side, by.get('p0')!.units, by.get('p0')!.undated], ['SELL', 10, undefined]);
+  assert.equal(by.get('u0')!.units, undefined);
+  assert.deepEqual([by.get('nodate')!.undated, by.get('nodate')!.executedAt.getTime(), by.get('nodate')!.units], [true, 0, 10]);
+  assert.deepEqual([by.get('baddate')!.side, by.get('baddate')!.undated], ['BUY', true]);
 });

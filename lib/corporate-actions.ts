@@ -27,7 +27,11 @@ export type CorporateAction =
   | (Base & { kind: 'symbol-change'; newSymbol: string; outUnits: number; inUnits: number })
   // Anything that cannot be priced exactly. `units` > 0: shares received with no known basis (a spin-off's new shares);
   // < 0: shares removed. scope 'account' taints every open lot in the account (a spin-off whose parent is not named).
-  | (Base & { kind: 'unpriceable'; reason: 'spin-off' | 'unknown'; units?: number; scope?: 'pair' | 'account' });
+  | (Base & { kind: 'unpriceable'; reason: 'spin-off' | 'unknown'; units?: number; scope?: 'pair' | 'account' })
+  // Fixes cycle 3, F3-1: a vendor BUY/SELL row the importer can't price (lib/broker.ts#toActivities via unusableTrade):
+  // `units` when the row's share count is usable, `undated` when its date is missing or unparseable (then `executedAt` is
+  // the epoch: it can't be placed, so it applies before every row of its pair). Never a repricing action.
+  | (Base & { kind: 'unpriceable'; reason: 'trade'; side: 'BUY' | 'SELL'; units?: number; undated?: boolean; scope?: 'pair' });
 
 export const RATIO_TOLERANCE = 1e-6;
 // A sell this soon before a repricing action may have traded at post-action prices against unadjusted lots (brokers
@@ -202,6 +206,29 @@ export function fromVendorRows(accountId: string, rows: VendorRow[]): { activiti
   return { activities, actions };
 }
 
+// ---- Unusable trade rows (fixes cycle 3, F3-1: count, never drop) ----
+// A share BUY/SELL row from the vendor's trade read that has an id and a symbol but no usable price (missing, 0,
+// negative or not a number), units (missing, 0 or not a number) or date (missing or unparseable). It can't be an activity
+// (`activities` requires all three), so it is stored here as an unpriceable action with reason 'trade' and the matcher
+// counts it (lib/trades.ts). Null when the row is usable, which lib/broker.ts#toActivities then imports as an activity.
+// ponytail: whether the vendor ever sends a real close at a price of 0, and how often such rows occur, is unverified (vendor
+// question list) — fix: price a 0 close as -100% only once the vendor documents it.
+// A number, or a numeric string; null, '' and anything else are NaN (Number(null) and Number('') would read as 0).
+export const vendorNumber = (x: unknown): number => (typeof x === 'number' ? x : typeof x === 'string' && x.trim() !== '' ? Number(x) : NaN);
+export type TradeVendorRow = { id: string; symbol: string; type: 'BUY' | 'SELL'; trade_date?: string | null; price?: unknown; units?: unknown };
+export function unusableTrade(accountId: string, row: TradeVendorRow): (CorporateAction & { raw: unknown }) | null {
+  const price = vendorNumber(row.price);
+  const units = Math.abs(vendorNumber(row.units));
+  const at = row.trade_date ? new Date(row.trade_date) : null;
+  const dated = !!at && !Number.isNaN(at.getTime());
+  const hasUnits = Number.isFinite(units) && units > 0;
+  if (dated && hasUnits && Number.isFinite(price) && price > 0) return null;
+  return {
+    externalId: row.id, accountId, symbol: row.symbol, executedAt: dated ? at! : new Date(0), kind: 'unpriceable', reason: 'trade', side: row.type,
+    ...(hasUnits ? { units } : {}), ...(dated ? {} : { undated: true }), raw: row,
+  };
+}
+
 // ---- Rebuild support: renames link (account, symbol) pairs into one chain matched together ----
 
 export const pairKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`;
@@ -277,11 +304,18 @@ export async function insertCorporateActions(db: Db, userId: number, source: 'sn
 }
 
 // The user's actions as the matcher reads them: simulated accounts' rows left out and rows dated in the future
-// quarantined like activities (`notFuture` is the caller's fragment, lib/sync.ts).
+// quarantined like activities (`notFuture` is the caller's fragment, lib/sync.ts). A row whose vendor id was stored as an
+// activity first (or at the same time) is left out: the stored-first rule of lib/sync.ts#storedFirst (F3-1). So is one in
+// an account marked as another profile's (lib/shared-accounts.ts#notShared), whose activities the rebuild leaves out too.
+// Other kinds of action in a marked account are still loaded: they touch only that account's pairs, whose activities are
+// left out, so nothing is published or counted from them.
 export async function loadCorporateActions(db: Db, userId: number, notFuture: PendingQuery<PgRow[]>): Promise<CorporateAction[]> {
   const rows = await db<Row[]>`select external_id, account_id, symbol, kind, detail, executed_at from corporate_actions a
     where a.user_id = ${userId} and ${notFuture}
     and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+    and not (a.kind = 'unpriceable' and a.detail->>'reason' = 'trade'
+      and (exists (select 1 from activities x where x.source = a.source and x.external_id = a.external_id and x.created_at <= a.created_at)
+        or exists (select 1 from shared_account_marks m where m.user_id = ${userId} and m.account_id = a.account_id)))
     order by a.executed_at, a.external_id`;
   return rows.map((r) => ({ ...r.detail, externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, executedAt: r.executed_at, kind: r.kind }) as CorporateAction);
 }

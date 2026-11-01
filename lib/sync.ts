@@ -6,10 +6,12 @@ import { notShared } from './shared-accounts.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
 import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pairKey } from './corporate-actions.ts';
-import { replacePositions } from './positions.ts';
+import { replaceListedPositions } from './positions.ts';
 import { logSafe } from './privacy-log.ts';
 
-const BACKFILL_MS = 7 * 86_400_000; // brokers post late corrections; re-read the last week
+// Re-read the last week before the newest stored activity, for rows the vendor posts late. Inserts are `on conflict do
+// nothing`, so this adds new vendor ids only: a stored row the vendor changes later is never updated (C3-9, owner Q3).
+const BACKFILL_MS = 7 * 86_400_000;
 // Per-user advisory lock (F-1: a sync is one transaction; a second one for the same user waits or is skipped).
 export const USER_LOCK = 1;
 type Db = TransactionSql | typeof sql;
@@ -24,9 +26,16 @@ export const REBUILD_PAGE = 1000;
 // dated in the future cannot be a closed trade. An activity dated more than FUTURE_GRACE_HOURS after the database clock
 // (a day: time zones and a vendor posting the next session's date) is quarantined: its raw row is kept (activities are
 // immutable), the rebuild never matches or publishes it, and it is counted in `users.excluded_future` (shown on the
-// profile with its reason). It is re-checked on every rebuild, so a date the vendor corrects comes back on the next sync.
+// profile with its reason). It is re-checked on every rebuild against the clock, so the row is published once its stored
+// date is no longer in the future (a corrected date under the same vendor id is never stored: see BACKFILL_MS).
 export const FUTURE_GRACE_HOURS = 24;
 const notFuture = (db: Db) => db`executed_at <= now() + ${FUTURE_GRACE_HOURS}::float8 * interval '1 hour'`;
+// Fixes cycle 3, F3-1: one vendor id stored both as an activity and as an unusable trade row (corporate_actions, reason
+// 'trade'), e.g. first read with no price and re-read with one, counts once: the version stored first wins, so a sell is
+// never priced and counted, and a published trade never disappears because a later read lost its price. The mirror rule
+// is in lib/corporate-actions.ts#loadCorporateActions (ties go to the activity).
+const storedFirst = (db: Db) => db`not exists (select 1 from corporate_actions c where c.source = a.source and c.external_id = a.external_id
+  and c.kind = 'unpriceable' and c.detail->>'reason' = 'trade' and c.created_at < a.created_at)`;
 
 export async function insertActivities(userId: number, source: 'snaptrade' | 'demo', acts: (Activity & { raw: unknown })[], db: Db = sql) {
   for (let i = 0; i < acts.length; i += INSERT_CHUNK) {
@@ -69,8 +78,10 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     const chainOf = chainsOf(actions);
     const actionsOf = actionIndex(actions);
     let excludedCorporate = 0;
+    const flushed = new Set<string>(); // pairs replayed with their actions
     const flush = async (rows: Activity[], keys?: Set<string>) => {
       if (!rows.length) return;
+      for (const k of keys ?? [pairKey(rows[0].accountId, rows[0].symbol)]) flushed.add(k);
       const m = matchTrades(rows, actions.length ? actionsOf(keys ?? new Set([pairKey(rows[0].accountId, rows[0].symbol)])) : []);
       excluded += m.excluded;
       excludedCorporate += m.excludedCorporate;
@@ -98,6 +109,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
+        and ${storedFirst(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
       for (const r of page) {
@@ -124,6 +136,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notFuture(tx)}
+        and ${storedFirst(tx)}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
       maxHeld = Math.max(maxHeld, rows.length);
       await flush(rows.map((r) => ({
@@ -131,12 +144,14 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
         price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
       })), new Set(keys));
     }
+    // F3-1: an unusable sell in a pair with no stored activity is never replayed above; it is still counted.
+    for (const ca of actions) if (ca.kind === 'unpriceable' && ca.reason === 'trade' && ca.side === 'SELL' && !flushed.has(pairKey(ca.accountId, ca.symbol))) excludedCorporate++;
     const setAside = live.filter((k) => !attachedIds.has(k.sell_id as string));
     if (setAside.length) {
       await tx`insert into kept_theses ${tx(setAside.map((k) => ({ user_id: userId, sell_id: k.sell_id, thesis: k.thesis, thesis_status: k.thesis_status })))}
         on conflict (user_id, sell_id) do update set thesis = excluded.thesis, thesis_status = excluded.thesis_status`;
     }
-    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)})
+    const [{ future }] = await tx`select count(*)::int as future from activities a where a.user_id = ${userId} and not (${notFuture(tx)}) and ${storedFirst(tx)}
       and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
       and ${notShared(tx, userId)}`;
     await tx`update users set excluded_positions = ${excluded}, excluded_future = ${future}, last_synced_at = now() where id = ${userId}`;
@@ -146,9 +161,12 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
   return tx ? run(tx) : sql.begin(run);
 }
 
+type TradeRead = Awaited<ReturnType<typeof fetchActivities>>;
+// A test fake may return a bare list of activities (no unusable rows).
+const tradeRead = (r: TradeRead | TradeRead['activities']): TradeRead => (Array.isArray(r) ? { activities: r, unusable: [] } : r);
 export type Broker = {
   listAccounts: typeof listAccounts; // with the authorization, paper and sync flags
-  fetchActivities: typeof fetchActivities;
+  fetchActivities: (...a: Parameters<typeof fetchActivities>) => Promise<TradeRead | TradeRead['activities']>;
   // PR-3 (heavy-use): a sync with no stored history reads it page by page (one page held at a time) when available.
   fetchActivitiesPage?: typeof fetchActivitiesPage;
   fetchPositions?: typeof fetchPositions;
@@ -157,12 +175,16 @@ export type Broker = {
 };
 export const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves };
 
+// F3-3: how long a connection's accounts must stay unlisted, over at least two successful lists, before it freezes.
+export const FREEZE_CONFIRM_HOURS = 24;
+
 export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
 // `connected`, and never while an import runs (the tick's steps own that row). A pending link, a failed import and a
-// profile being deleted are never synced.
+// profile being deleted are never synced. A frozen connection (`disconnected_at`, TR-5) is never read (F3-3): a trader
+// whose every connected connection is frozen is not synced.
 export const syncable = () => sql`u.snaptrade_user_id is not null and u.deleted_at is null
-    and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
+    and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected' and c.disconnected_at is null)
     and not exists (select 1 from connections c where c.user_id = u.id and c.state = 'importing')`;
 export async function usersToSync(): Promise<SyncableUser[]> {
   return sql<SyncableUser[]>`select id, snaptrade_user_id, snaptrade_secret_enc from users u where ${syncable()} order by last_synced_at nulls first`;
@@ -211,7 +233,7 @@ export const claimable = () => sql`(u.sync_lease_until is null or u.sync_lease_u
         and (u.sync_claimed_at is null or u.sync_claimed_at < clock.round_start or u.sync_lease_until is not null)`;
 // A trader's real accounts under its connected connections' snapshots (what a sync reads; paper accounts are not read).
 export const accountsOf = () => sql`(select count(*) from connections c, jsonb_array_elements(c.accounts) a
-        where c.user_id = u.id and c.state = 'connected' and coalesce((a->>'isPaper')::boolean, false) = false)`;
+        where c.user_id = u.id and c.state = 'connected' and c.disconnected_at is null and coalesce((a->>'isPaper')::boolean, false) = false)`;
 export async function claimNextUser(scope: ClaimScope = {}): Promise<ClaimedUser | null> {
   const { shiftMs = 0, ids, except, maxAccounts } = scope;
   if (ids && !ids.length) return null;
@@ -350,14 +372,25 @@ export async function syncUser(
     const [{ got }] = await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${user.id}) as got`;
     if (!got) return 'skipped';
     const consented = new Set((await tx`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
-      where c.user_id = ${user.id} and c.state = 'connected'`).map((r) => r.auth as string));
+      where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`).map((r) => r.auth as string));
     const accounts = (await broker.listAccounts(bu)).filter((a) => consented.has(a.authorizationId));
     // Claim first so no conflicting data is ever read for the wrong user. Zero-activity accounts are claimed too.
     if (accounts.length && !(await claimIn(tx, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
     const real = accounts.filter((a) => !a.isPaper).map((a) => a.id);
-    // TR-5: a connection whose accounts the vendor no longer lists is disconnected; its record stays, frozen.
-    await tx`update connections c set disconnected_at = ${now} where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null
-      and not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${tx(accounts.length ? accounts.map((a) => a.id) : [''])})`;
+    // TR-5 (F3-3): a connection whose accounts the vendor no longer lists is disconnected; its record stays, frozen. One
+    // list is not enough (an empty or short answer can be a vendor fault): absence is confirmed only by a second successful
+    // list at least FREEZE_CONFIRM_HOURS after the first that missed them all (`missing_since`), and a list that shows one
+    // again clears it. A vendor error throws before this point and stamps nothing.
+    // Owner question Q1 (cycle 3) is open: nothing clears `disconnected_at`, so a frozen connection stays frozen and unread.
+    // ponytail: the stamp shares the sync's transaction, so a later failure in the same sync (another account's read)
+    // rolls it back and a freeze waits for a sync that completes — fix: stamp in its own transaction after the list.
+    const listed = tx(accounts.length ? accounts.map((a) => a.id) : ['']);
+    const none = tx`not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${listed})`;
+    const live = tx`c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`;
+    await tx`update connections c set disconnected_at = ${now} where ${live} and ${none}
+      and c.missing_since <= ${now}::timestamptz - ${FREEZE_CONFIRM_HOURS}::float8 * interval '1 hour'`;
+    await tx`update connections c set missing_since = ${now} where ${live} and ${none} and c.missing_since is null`;
+    await tx`update connections c set missing_since = null where ${live} and not ${none} and c.missing_since is not null`;
     // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
     if (!accounts.length) return 0;
     // Fix round 6: a quarantined future date never sets the re-read window (it would skip the real last week).
@@ -370,6 +403,7 @@ export async function syncUser(
         for (let offset = 0; ; offset += limit) {
           const page = await broker.fetchActivitiesPage(bu, id, offset, limit);
           await insertActivities(user.id, 'snaptrade', page.activities, tx);
+          await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
           read += page.activities.length;
           if (page.done) break;
         }
@@ -377,9 +411,10 @@ export async function syncUser(
     } else {
       // The hourly case: the last week before the newest stored activity (bounded by a week of trading, not the history).
       const since = last ? new Date(last.getTime() - BACKFILL_MS) : new Date('2000-01-01');
-      const acts = real.length ? await broker.fetchActivities(bu, since, real) : [];
-      await insertActivities(user.id, 'snaptrade', acts, tx);
-      read = acts.length;
+      const got = real.length ? tradeRead(await broker.fetchActivities(bu, since, real)) : { activities: [], unusable: [] };
+      await insertActivities(user.id, 'snaptrade', got.activities, tx);
+      await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
+      read = got.activities.length;
     }
     // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
     // rebuild applies them.
@@ -397,7 +432,7 @@ export async function syncUser(
     if (broker.fetchPositions) {
       const positions = [];
       for (const id of real) for (const p of await broker.fetchPositions(bu, id)) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
-      await replacePositions(tx, user.id, positions);
+      await replaceListedPositions(tx, user.id, real, positions);
     }
     return read;
   });
