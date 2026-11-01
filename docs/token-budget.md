@@ -27,7 +27,7 @@ the cap is estimated.
     "capUsd": 1200,                // optional: a known cap; otherwise it is calibrated (below)
     "warnFraction": 0.75,          // the share of the cap at which status turns "allowed_warning"
     "safety": 1.5,                 // widens running sessions' high remaining-cost figure (reported, not used to admit)
-    "priors": { "build": { "low": 20, "point": 40, "high": 55 }, "council:fixing": 15 }   // overrides, see Priors
+    "priors": { "build": { "low": 20, "point": 40, "high": 55 }, "council:fixing": 60 }   // overrides, see Priors
   },
   "sessions": [
     { "id": "f3-build", "kind": "build", "phase": "fixing", "priority": 5, "costUsd": 38.17,
@@ -56,7 +56,9 @@ and `isUsingOverage` are stale and ignored (reported), since the provider clears
 
 **Spend in window.** Each session's cost is counted in full when it started inside the window. A session
 that started before the window starts (the orchestrator) is counted pro rata: its cost times the share of
-its active span (`startedAt` to `lastActiveAt`) that falls inside the window.
+its active span (`startedAt` to `lastActiveAt`) that falls inside the window. A `history` reading of this
+window above that sum (sessions dropped from the snapshot) is a floor on spend. Without a usable
+`window.resetsAt` every session counts in full and the plan brakes (`unknown-status`) until one is read.
 
 **Priors** (expected total cost of a whole session, USD, as low / point / high), calibrated on
 2026-11-01's runs:
@@ -76,7 +78,7 @@ the same keys, as a number (low = point = high) or `{ "low", "point", "high" }`.
 the largest of
 1. prior − spent (what the session would cost if it ends at its prior);
 2. burn × remaining hours, where burn is its recent rate (`recent` reading at least 5 minutes old) or
-   else its lifetime average (cost over active hours, at least 15 minutes), and remaining hours =
+   else its lifetime average (cost over active hours, counting at least 15 minutes), and remaining hours =
    max(typical − elapsed, tail). The orchestrator's remaining hours are the hours until reset;
 3. the floor.
 
@@ -93,7 +95,7 @@ is used for all three), else the prior range for its kind.
 2. Otherwise calibrated: in the most recent window in which status turned `allowed_warning` (history or
    the snapshot itself), the first warning reading at spend W gives high = point = W / warnFraction; the
    last `allowed` reading before it in that window, at spend A, gives low = A / warnFraction (with no such
-   reading, low = W: the cap is at least the spend already seen). Source `calibrated`; it carries over to
+   reading, low = W: the cap is at least the spend already seen; low never exceeds high). Source `calibrated`; it carries over to
    later windows. A `rejected` reading at spend R lowers both to at most R.
 3. Otherwise unknown (source `unknown`, values null). `lowerBoundUsd` reports, for information only, the
    largest A / warnFraction over `allowed` readings at spend A in this window (the cap is above it).
@@ -131,20 +133,32 @@ default config. It only keeps running sessions' reserves and queues work that wo
   starting with the lowest priority, then the least progress (spent / prior), never the orchestrator.
 - status missing or unrecognised: treated as a brake until a valid status is read.
 
-**Next admission time.** A queued item gets `nextAdmitAt`: the projected finish time of the running
-session after which it would fit under the same rule, if that is before reset; otherwise `resetsAt`. Under a brake, `resetsAt`.
+**Next admission time.** A queued item gets `nextAdmitAt`. Under the point projection a finishing
+session frees nothing (its remaining point estimate turns into spend), so an item that does not fit waits
+for `resetsAt`; the orchestrator re-plans on each tick, and a session that ends under its estimate frees
+the difference then. Under a brake, `resetsAt`. An item whose id is already running is listed in `queued`
+with reason `already running` and `nextAdmitAt: null`.
 
 **Projection.** Burn rate is the window-spend slope over history readings in the last 2 hours of this
 window (at least 15 minutes apart), else the sum of the running sessions' burns. Time to cap =
-(cap high − spend) / burn, compared with the hours to reset. `runningFits` says whether spend + Σ
-running point fits under cap high; `runningFitsWithSafety` uses the running high figures and cap low.
+(cap high − spend) / burn, compared with the hours to reset (null when the burn is 0). `runningFits` says
+whether spend + Σ running point fits under cap high; `runningFitsWithSafety` uses the running high figures
+and cap low. `pause.stallRisk` is true under `rejected`/overage, or when `runningFits` is false. While the
+cap is unknown the cap-dependent figures are null and `overshoot.risk` is `unknown`.
 
 ## Plan (output)
 
 `summary` is one line for a human. `admit` lists ids to start now; `queued` the rest, each with a
-`reason` and `nextAdmitAt`. `brake`, `cap`, `spend`, `reserve` (per session, with the basis of each
-estimate), `capacity`, `projection`, `pause` and `issues` explain the decision. `historyEntry` is what to
-append to the next snapshot's `history`.
+`reason` and `nextAdmitAt`. `brake`, `warning`, `cap`, `spend`, `reserve` (per session, with the basis of
+each estimate), `capacity`, `projection`, `fill`, `pause` and `issues` explain the decision. `historyEntry`
+is what to append to the next snapshot's `history` (its `status` is null after a rollover: the stale status
+is not a reading). Money is rounded to cents in the output only.
+
+Every estimate is a range `{ low, point, high }`: `cap` (with `source`, `known`, `calibratedFrom`,
+`lowerBoundUsd`), `reserve.sessions[].remaining` (`basis` names the term that set the point figure),
+`admit[].estimate` and `queued[].estimate`. `reserve.totalUsd` is the reserve (Σ point); `lowUsd` and
+`highUsd` sum the other ends. `capacity.headroomUsd` = cap high − spend − reserve (null while the cap is
+unknown); `admittedLowUsd` / `admittedPointUsd` / `admittedHighUsd` sum the admitted estimates.
 
 ## Limits
 
