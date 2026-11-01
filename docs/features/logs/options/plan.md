@@ -1,4 +1,4 @@
-# Options support: implementation plan v2 (UX lead, 2026-11-01)
+# Options support: implementation plan v3 (UX lead, 2026-11-01)
 
 Input: `brief.md`, the round 1 reviews (`plan-round1-reviews.md`) and the orchestrator's synthesis. The owner's
 standing instruction applies: each open question is decided by the committee's recommended option. Decisions are
@@ -8,11 +8,11 @@ lead, L = legal, E = engineer, plus the demand number.
 ## Summary
 One PR. Option activities are imported, matched per contract and counted now. Long options get a percent return on
 the cost of the contracts plus fees. Short options are counted and never shown with a percent. Everything that would
-publish contract terms or option returns sits behind one **consent gate**:
+publish contract terms or option returns sits behind a **per-trader consent gate**:
 - the option trade list, the options line, open option rows and the call/put chip;
-- the gate opens only when the owner's consent scope line names options.
+- they show only once the owner's consent scope line names options AND that trader consented under such a line.
 
-Until then the profile shows one plain count line. Options live in their own derived tables, so `closed_trades` and
+Until then the profile, SW-1 pane and record card show one plain count line, and their headline reads "Share trades". Options live in their own derived tables, so `closed_trades` and
 every existing reader (headline, CH-1, TR-9, ranking, feed, `/t/[symbol]`) stay share-trades only with no edits. The
 existing leak of option symbols into `open_positions` is fixed in the same PR (E1).
 
@@ -62,46 +62,62 @@ matcher returns per-cause counts (BL10); the counters store two groups.
   of `units × price` but not of `units × price × multiplier`, E7).
 - **Missing `option_type`:** taken from the contract's netted ledger (positions net within an account).
 - **Order:** at equal instants, opens come before closes, then by id (E7).
-- **Shares tied to an exercise or assignment (L2):** share BUY and SELL rows in the same account and underlying on the
-  same UTC day as an exercise or assignment are never shown.
-  - Delivered BUY rows are dropped before the share matcher. A sell that draws on them oversells and is counted
-    under `excluded_positions` by the existing rule.
-  - Removal SELL rows are matched (so the lots are consumed correctly), but their close is not written, and it is
-    counted under `excluded_options_other`.
-  - This is the only edit inside `rebuildTrades`: one optional `taint` parameter, used in two lines of `flush` and the
-    page loop, marked `// OPTIONS`. It is coordinated with PR #40: whichever lands second rebases.
+- **Shares tied to an exercise or assignment (L2, round 3 E):** no edit to `rebuildTrades` or `lib/trades.ts`.
+  `rebuildRecord` runs in one transaction:
+  (a) `rebuildTrades`, unchanged;
+  (b) the taint set: distinct (account_id, underlying, UTC day D) from non-paper, non-future exercise and assignment
+  rows;
+  (c) every share close in the same account and symbol with `opened_at::date <= D <= closed_at::date` (UTC) has its
+  thesis copied into `kept_theses` (same `on conflict` as `rebuildTrades`), is deleted, and adds 1 to
+  `excluded_options_other`;
+  (d) `rebuildOptionTrades`.
+  This is part of the rebuild that derives `closed_trades`, not a patch of stored rows: every rebuild re-applies it.
+  Delivered BUYs are kept, so the rule is conservative (K8).
 - **Exercise bias (BL1):** in-the-money longs that are exercised are left out, while worthless ones show −100%. /how
   says so plainly. The per-cause counts measure it. Allowlisted underlyings settle in shares, so there is no
   cash-settled exercise to price (ponytail K6).
 
-**D5 The consent gate (L1, orchestrator).**
+**D5 The consent gate (L1, orchestrator; per trader, round 3 L3).**
 - `lib/options-gate.ts` exports `OPTION_PUBLIC_COLUMNS` (`option_trades.underlying|option_right|option_expiry|
   return_pct|opened_at|closed_at|holding_days`, `open_option_positions.underlying|option_right|option_expiry|
   unrealized_pct`).
-- `optionsPublic(fields = PUBLIC_FIELDS)` is true only when every one of those columns is listed in a `PUBLIC_FIELDS`
-  entry. `lib/privacy-fields.test.ts` holds `PUBLIC_FIELDS` equal to `CONSENT_SCOPE_LINE` (owner copy). So the gate
-  opens when the owner adds the options wording and its field entry. There is no code change, env var or flag.
-- Until then the columns sit in a new `GATED_COLUMNS` map in `lib/privacy-fields.ts`, with the reason "public only
-  once the consent line names options". A test requires each column to be in exactly one of `PUBLIC_FIELDS`,
-  `PRIVATE_FIELDS`, `NOT_A_FIELD` or `GATED_COLUMNS`.
-- `loadOptionRecord(userId, gate = optionsPublic())` is the profile's separate loader. Closed gate: it selects counts
-  only (no returns, terms or symbols) and returns `{ gated: true, closes, open }`. Open gate: the full model. The
-  render is a pure component of that model. Tests force either state through the parameter; an inventory test fails
-  if any file outside tests passes the argument.
-- **While gated, the profile shows only** (muted, under the existing excluded lines, linking to /how): "N option
-  trades and M open option positions imported, not shown yet: the public record's consent does not cover options
-  yet." Zero parts are dropped.
+- **Global:** `optionsPublic(fields = PUBLIC_FIELDS)` is true only when every one of those columns is in a
+  `PUBLIC_FIELDS` entry. `lib/privacy-fields.test.ts` holds `PUBLIC_FIELDS` equal to `CONSENT_SCOPE_LINE` (owner
+  copy). No env var or flag. Until then the columns sit in `GATED_COLUMNS` in `lib/privacy-fields.ts`; a test puts
+  each column in exactly one of `PUBLIC_FIELDS`, `PRIVATE_FIELDS`, `NOT_A_FIELD` or `GATED_COLUMNS`.
+- **Per trader:**
+  - Additive column `connections.consent_scope_hash` (sha256 of `CONSENT_SCOPE_LINE`), written beside `consent_at`
+    where consent is recorded (`lib/connections.ts`).
+  - `lib/consent-versions.ts` is an append-only list of every scope line shown, each entry `{ line, publicColumns }`.
+    Tests: the last entry is the current line with the columns of `PUBLIC_FIELDS`; each hash is sha256 of its line;
+    entries are never removed or edited (pinned hashes).
+  - `consentCoversOptions(hash)` is true when the hash's entry lists every `OPTION_PUBLIC_COLUMN`. Unknown or null
+    hashes (all consents before this PR) are false.
+  - `traderOptionsPublic(userId)` = `optionsPublic()` AND every consented connection of the trader covers options.
+    Exception: a demo trader (every source row `demo`) skips the per-trader check.
+  - Older consents stay gated until the trader consents again; re-consent is required (committee finding). The owner
+    only words the prompt.
+- **One reader:** `lib/options-load.ts` is the only reader of option tables for display. It exports
+  `loadOptionRecord(userId, gate = traderOptionsPublic(userId))` for the profile and `optionHeadline(userIds, gate?)`
+  for the pane and card. Closed gate: counts only (no returns, terms or symbols). Open gate: the full model. Renders
+  are pure components of that model. Tests force either state through the parameter; an inventory test fails if any
+  file outside tests passes the argument.
+- **While gated, the profile, pane and card show only** (muted, linking to /how): "N option trades and M open options
+  imported, not shown: this record's public consent doesn't cover options yet." Zero parts are dropped.
   - The short-options line and the technical-exclusions line are **gated too**. While gated, every option result
     (gain, loss, short or counted) is withheld alike and counted in that one line. So nothing is hidden selectively,
     and no detail beyond today's words is published.
+- **"Share trades" label (round 3 BL1 and L5, one rule):** the headline on the profile, SW-1 pane and record card
+  reads "Share trades" whenever the trader has any option closes or option exclusions, in both gate states. It reads
+  only counts and publishes no option figure. CH-1's label adds "· share trades only" under the same rule. The pane
+  and card carry the count line, or the options line once open. It is built now, so opening the gate needs no code.
 - **The open-position fix and the futures count are not gated.** Neither publishes option terms.
 - **Proposed owner wording** (the owner decides): add "for options, call or put, expiry date and percent return on
   the premium paid" after "symbols". Strikes are added to the Private list as "strikes".
 
 **D6 Profile when the gate is open (scope: profile only, E6).** Every element is within the 360 px frame, uses
 existing color tokens only, and keeps 44 px tap targets.
-- **Headline:** labeled "Share trades" only when the options line is visible (BL3). CH-1's label adds "· share trades
-  only" in the same case. Headline, CH-1, max drawdown, TR-9 and trader ranking stay share-only. A −100% close would
+- **Headline:** "Share trades" label per D5. Headline, CH-1, max drawdown, TR-9 and trader ranking stay share-only. A −100% close would
   pin an equal-weight compounded curve at −100%, and `confidence()` would take its log as ≈ −20.7.
 - **Options line**, directly under the headline at the same type size, in at most 2 lines at 360 px (BL4):
   "Options: 14 trades · 36% wins · −22.0% avg (−41.0% to −3.0%)". Down color when negative, sign always shown. The
@@ -122,7 +138,8 @@ existing color tokens only, and keeps 44 px tap targets.
   futures and similar contracts are out of scope." when `open_unsupported` > 0.
 - **Verified and Demo (L7):** Verified when every source row is `snaptrade`; Demo badge on demo rows; the disclaimer
   already sits on the profile.
-- **Display log (L9):** `lib/display-log.ts` adds what the options line showed (or the gated count) to its snapshot.
+- **Display log (L9, round 3 L4):** `lib/display-log.ts` stores only what `lib/options-load.ts` returned (the options
+  line or the gated count).
 
 **D7 Open positions and the leak fix (E1).**
 - `fetchPositions` keeps only equity-like instrument kinds in `open_positions`.
@@ -137,22 +154,23 @@ existing color tokens only, and keeps 44 px tap targets.
   reads `open_positions` only), feed, sections, recap and similar.
 
 **D8 /how, COMPLIANCE, demo.**
-- /how `math` adds:
+- /how gains an options paragraph: "Option trades are imported and counted. They are shown once the consent wording
+  covers them." Under it:
   - "An option trade's return is on what the contracts cost, fees included: a contract that expires worthless shows
     about −100%, and fees can take it slightly lower."
   - "Option trades are summarized on their own line, with a range once there are 5 independent bets. The headline
     stats, chart, range and the order of traders use share trades only (L5)."
 - /how `excluded` replaces "Options, short sales…" with three bullets:
   - "Short sales and short options: their risk has no fixed amount to measure a percent against."
-  - "Exercised or assigned options, and share trades on the same day in that stock. These are left out of the options
-    average, so it does not include contracts that ended in the money."
+  - "Exercised or assigned options, and share trades held over the day of one in that stock. These are left out of
+    the options average, so it does not include contracts that ended in the money."
   - "Contracts adjusted after a corporate action, options on futures or other non-stock underlyings, and contracts
     past expiry with no closing record."
-- While gated, /how adds: "Option trades are imported and counted; they are shown once the consent wording covers
-  them."
 - COMPLIANCE §2, CFTC row (L10, E11): "Re-reviewed 2026-11-01: listed equity and ETF options are imported read-only.
-  Long options are shown as percent once the consent line covers them; short options, exercises and assignments are
-  counted. Options on futures and other underlyings stay out of scope and are counted."
+  Long options are shown as percent only under the per-trader consent gate; short options, exercises and
+  assignments are counted. Strike, premium, contract counts and OCC symbols are private. Labels never name a
+  direction, an outcome or urgency. Open option positions are profile-only, never pushed or aggregated per
+  security. Options on futures and other underlyings stay out of scope and are counted."
 - COMPLIANCE §3: an inventory line for the three tables. §12: a "/how changed" note.
 - `lib/broker.ts`: the ponytail is replaced by the precise limits K1–K9.
 - Demo: one demo trader gets 3 long option trades (one expiry), 1 short close and 1 long open option, all marked
@@ -188,8 +206,11 @@ Matching (`lib/options.ts`, pure):
 Storage, sync and vendor:
 9. D: `option_activities` stores 0-price and malformed rows. A re-insert is a no-op. Paper accounts and future-dated
    rows are excluded from the option rebuild (E4).
-10. D: `rebuildRecord` (wraps `rebuildTrades`, then runs `rebuildOptionTrades`) writes `option_trades` and both
-    counters, and is idempotent. The exercise-day share taint is counted as in D4.
+10. D: `rebuildRecord` writes `option_trades` and both counters, and is idempotent. Taint cases (round 3 E): a
+    delivered lot sold later is removed and counted; a removal sell on D is removed and counted; no taint leaves the
+    closes untouched; a thesis on a removed close survives in `kept_theses` and re-attaches when the taint goes.
+    Property: no remaining close spans a taint day of its account and symbol, and remaining + removed = what
+    `rebuildTrades` wrote. `git diff origin/main -- lib/trades.ts` is empty and the `rebuildTrades` body is unchanged.
 11. D: an options-only trader's hourly sync uses the 7-day window, measured from the newest row across both raw
     tables (E5).
 12. T: `lib/broker.ts` adds the three event types through one exported list, `OPTION_EVENT_TYPES`. Option BUY/SELL
@@ -205,16 +226,24 @@ Gate:
     argument, and no env var is read.
 16. T: the closed-gate loader returns counts only (its SQL selects no option return, term or underlying). Its render
     shows only the count line. The open-gate render shows every D6 element.
-17. E (real app, gated): signed out, the demo trader's profile shows the count line. The page has no "Call option",
-    no "exp ", no option return, no strike (seeded odd value 123.45) and no OCC string, in the HTML, description, alt
-    text or JSON. The headline equals the shares-only fixture.
+17. E (real app, gated): signed out, the demo trader's profile shows the count line and the "Share trades" label. The
+    page has no "Call option", no "exp ", no option return, no strike (seeded odd value 123.45) and no OCC string, in
+    the HTML, description, alt text, JSON responses or display-log output. The headline numbers equal the
+    shares-only fixture.
+22. D (round 3 L3): with the gate open globally, a trader with an old or null consent hash gets the count line only;
+    a re-consented trader gets everything; a demo trader gets everything. The consent write stores the current hash.
+23. T (round 3 L4): an inventory test finds no file in `app/` or `lib/` other than `lib/options-load.ts` reading
+    `option_trades`, `open_option_positions`, `option_activities` or any `option_` table. Allowlisted with reasons:
+    `lib/options-sync.ts` (writes), `lib/delete.ts` and `lib/privacy-purge.ts` (deletion), `lib/display-log.ts` (stores
+    the loader's output only).
+24. T (round 3 BL1, L5): profile, SW-1 pane and record card render the "Share trades" label and the count line when
+    option closes or exclusions > 0, gated and open (the options line when open). With zero, each is unchanged.
 
 Surfaces when open (render tests on the pure component at 360 px through Playwright component pages, or a test-only
 route that is not built into production; the engineer picks one):
 18. Worst case (BL9): a 5-character underlying, "Put option" and −100.0% fit on one line with no truncation, 44 px
     targets and existing tokens only. The options line takes ≤ 2 lines.
-19. "Share trades" headline label and CH-1 suffix appear only with the options line. The short line stands on its own
-    line. One expiry format, from `expiryText()`.
+19. The short line stands on its own line. One expiry format, from `expiryText()`.
 20. The open block shows a long option with its chip, the short count and the futures count. No countdown words
     appear anywhere (scanner list extended: "expiring", "days left").
 21. Display log rows include the options line or the gated count (L9). All new copy passes the F2 scanner and
@@ -225,16 +254,16 @@ without `option_type`; expiry, assignment and exercise events with and without `
 option, future and future_option kinds; every D4 case. The fake honours the `type` filter.
 
 ## States
-- No options: nothing changes; existing e2e snapshots hold. Gated: the count line only. Signed out: public.
+- No options: nothing changes; existing e2e snapshots hold. Gated (globally or per trader): label and count line. Signed out: public.
 - Open, options-only trader: "No closed share trades yet" in the headline slot, then the options line; CH-1 replaced
   by "The chart shows share trades. None yet." All losses: down color with the sign. Everything counted: the
   excluded and short lines only. Demo: Demo badge. Frozen: rows stay. Importing: the banner counts share closes (K4).
 
 ## Known limits (each a `ponytail:` comment where it lives)
-- K1: option trades are not on feed cards or the SW-1 pane. When added, cap the ranking size term at 100% for options
-  (long losses stop at −100%, so uncapped gains would tilt the feed toward winners).
-- K2: share cards don't show the options line yet. Since a card could then show the share headline only, adding it
-  is the first follow-up after the gate opens.
+- K1: option trades are not on feed cards, and the SW-1 pane's last-5 list is shares only (the pane has the label and
+  line). When feed cards come, cap the ranking size term at 100% for options (long losses stop at −100%, so uncapped
+  gains would tilt the feed toward winners).
+- K2: no per-trade share card for options (follows K3). The record card has the label and the line.
 - K3: no option trade page, theses or likes on option trades.
 - K4: similar, compare, recap, `/me/record` and the import banner count ignore options.
 - K5: a corporate action on the underlying during a hold is caught only when the OCC root changes. Taint once PR #40's
@@ -242,20 +271,22 @@ option, future and future_option kinds; every D4 case. The fake honours the `typ
 - K6: cash-settled exercise is not priced; index underlyings are out of the allowlist.
 - K7: per-cause counts are returned but not stored. Measure the share counted once real data flows; above ~10%,
   revisit.
-- K8: the exercise-day taint is per (account, underlying, day), which can catch an unrelated same-day share trade.
-  It is conservative and counted.
-- K9: `connections.consent_at` stores a time, not the wording version (owner item).
+- K8: the exercise-day taint removes every share close in that account and symbol whose hold spans the day, so it
+  can remove an unrelated trade, and it keeps delivered buys. It is conservative and counted. Fix: the exact rule
+  inside the matcher once PR #40 has merged.
+- K9: consents before this PR have no wording version; those traders stay gated until they consent again.
 
 ## Files
 - **New:** `lib/options.ts`, `lib/options-gate.ts`, `lib/options-sync.ts` (insert, `rebuildOptionTrades`,
-  `rebuildRecord`, positions, purge), `lib/options-load.ts`, `app/u/[handle]/options-block.tsx`, tests for each,
+  `rebuildRecord`, positions, purge), `lib/options-load.ts`, `lib/consent-versions.ts`, `app/u/[handle]/options-block.tsx`, tests for each,
   `e2e/options.spec.ts`.
 - **Additive `// OPTIONS` blocks:** `db/schema.sql`; `lib/sync.ts` (callers use `rebuildRecord`, backfill window,
-  inserts, the `taint` parameter); `lib/connections.ts`; `lib/broker.ts` (event types, optional sink, position
+  inserts); `lib/connections.ts` (consent hash); `app/pane.tsx`, `lib/pane.ts`, `app/u/[handle]/record-card-data.ts`
+  and `record-card-image.tsx` (label and line); `lib/broker.ts` (event types, optional sink, position
   kinds); `lib/privacy-fields.ts`; `lib/copy.ts`; `app/u/[handle]/page.tsx` (one JSX block, headline label) and
   `chart.tsx` (label); `lib/display-log.ts`, `lib/privacy-retention.ts`, `lib/privacy-purge.ts`;
   `scripts/db-setup.ts`, `scripts/seed.ts`; `e2e/fakes/vendor.ts`; `docs/COMPLIANCE.md`.
-- **Not touched:** `lib/trades.ts` (AC 8), the feed, `/t/**`, share cards. The `LOAD=1` sync load run goes in the
+- **Not touched:** `lib/trades.ts` and the `rebuildTrades` body (AC 8, 10), the feed, `/t/**`, the per-trade card. The `LOAD=1` sync load run goes in the
   build log. Size: about 1,600 lines, ~40% tests.
 
 ## COMPLIANCE §1
@@ -268,18 +299,18 @@ option, future and future_option kinds; every D4 case. The fake honours the `typ
 
 ## Owner items
 - Amend `CONSENT_SCOPE_LINE` and add the field entry; this opens the gate. Suggested words are in D5.
-- Decide whether consents given before the amendment cover options, since `consent_at` has no wording version.
-  Recommended: re-consent, and store a wording version from now on.
+- Word the re-consent prompt (re-consent itself is required: committee finding, D5).
+- Protect `CONSENT_SCOPE_LINE`, its pinned test, `PUBLIC_FIELDS` and `lib/consent-versions.ts` in CODEOWNERS.
 - The vendor's written permission to show option-derived figures publicly, including quotes for open options.
 - POLICY F3's /how list: "options" becomes "short, exercised and assigned options".
 - CLAUDE.md known limits; Privacy Policy and Terms drafts (new raw option fields).
 - Accept the residual risk that a strike can be roughly inferred from percent, dates and contract terms once public.
 
-## Round 2 answers
+## Round 2 and 3 answers
 | Demand | Answer |
 |---|---|
 | BL1 exercise bias | Adopted in part. /how discloses it and the per-cause counts measure it. Cash-settled pricing is moot under the equity/ETF allowlist (K6). |
-| BL2 short line, BL3 headline label | Adopted (D6). The short line is gated while consent is pending; the label shows only with the options line. |
+| BL2 short line, BL3 headline label | Adopted (D6). The short line is gated while consent is pending; the label rule is replaced in round 3 (D5). |
 | BL4 ≤ 2 lines, BL5 one expiry format, BL9 worst-case layout | Adopted ("premium paid" moves to /how; `expiryText()`; AC 18). |
 | BL6 one PR, BL7 drop the /t line, BL8 open options here, BL10 per-cause counts | Adopted (K1–K9; `/t` untouched; D7; returned by the matcher, K7). |
 | L1 consent | Adopted as the gate (D5). The owner amends the line. |
@@ -287,5 +318,11 @@ option, future and future_option kinds; every D4 case. The fake honours the `typ
 | L3–L10 | Adopted (allowlist and source D1/D4; short line D6; headline coverage D6 and /how; profile only with absolute dates; Verified, Demo and disclaimer; privacy maps and deletion AC 14; display log AC 21; COMPLIANCE notes D8). |
 | E1 leak and endpoint | Adopted (D7). My v1 multiplier formula was wrong for this endpoint. |
 | E3 separate table, E6 profile-only scope, E10 privacy maps | Adopted (D1; K1–K4; AC 15). v1's `closed_trades` columns are dropped. |
-| E5 minimal shared edits | Adopted, plus the one `taint` parameter L2 needs (coordinated with PR #40). |
+| E5 minimal shared edits | Adopted; round 3 removed the last edit inside `rebuildTrades`. |
 | E2, E4, E7, E8, E9, E11, E12 | In the ACs as written. |
+| R3 BL1 card label | Adopted, merged with R3 L5 into one rule (D5, AC 24). The gated line now says "yet" once. |
+| R3 E taint without editing `rebuildTrades` | Adopted (D4 a–d, AC 10, K8). The `taint` parameter is removed. |
+| R3 L3 per-trader gate | Adopted (D5: consent hash, `lib/consent-versions.ts`, demo exemption; AC 22). |
+| R3 L4 single reader | Adopted (AC 23; display log stores only loader output; AC 17 covers JSON and display-log output). |
+| R3 L5 headline surfaces | Adopted: profile, SW-1 pane and record card, both gate states, built now (AC 24). |
+| R3 non-blocking | Adopted: the COMPLIANCE §2 note restored, /how math under the gated sentence, the CODEOWNERS owner item. |
