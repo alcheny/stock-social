@@ -22,6 +22,7 @@ import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: statu
 import { UserNote } from '../../../../user-note.tsx';
 import { HeldNote } from '@/lib/user-note.ts';
 import { loadOwnNote } from '@/lib/own-note.ts';
+import { generateMetadata as notFoundMetadata } from '../../not-found.tsx';
 
 const FL_THESIS = 'Why they made this trade'; // QA round 1 (finding 4): the thesis box's heading
 
@@ -42,7 +43,10 @@ const held = (d: number) => (d < 1 ? 'Held under a day' : `Held ${Math.round(d)}
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { sellId } = await params;
   const t = await load(params);
-  if (!t) notFound(); // F-16/F-17: the 404 head comes from ../../not-found.tsx (hidden / retired / generic)
+  // F-16/F-17: a missing trade gets the 404 head of ../../not-found.tsx (hidden / retired / generic) without calling
+  // notFound() here, so the page body decides the answer (F-25's legacy sell-id redirect runs there, before its
+  // notFound()); the orchestrator's merge note of 2026-11-01.
+  if (!t) return notFoundMetadata({ params });
   // F-12: the strip's words. Fix round 6: "verified" only for a whole record from the broker; "demo" for demo data.
   // Reviewer fix (TR-3): no record stats while an import runs; the incomplete line first on a failed one. The image's
   // alt text is the strip in words, declared here because a file-level alt is static (F-4 pattern).

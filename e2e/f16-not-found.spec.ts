@@ -56,3 +56,10 @@ test('a hidden profile and a retired handle answer their own neutral 404 on the 
     await sql.end({ timeout: 1 });
   }
 });
+
+// Orchestrator merge note (F-25, 2026-11-01): the trade page's generateMetadata returns the not-found head without
+// calling notFound() (so F-25's body can redirect legacy sell-id URLs first). A missing trade on a visible profile is
+// still a 404 titled "Page not found · Stock Social", with one h1 and no record card in its preview.
+test('a missing trade on a visible profile is the generic 404, its title from the not-found head', async ({ page }) => {
+  await expectNotFound(page, '/u/momentum_maya/trade/no-such-trade-f16', GENERIC, 'Page not found');
+});
