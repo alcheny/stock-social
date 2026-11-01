@@ -65,7 +65,7 @@ reviewer; 3 planning rounds, all signed):
 - `npm run build`: ok.
 - Full `npx playwright test` (one worker) on a fresh seeded database:
   - before the review fixes: 291 passed, 6 skipped, 0 failed;
-  - on the final tree: E2E_RESULT.
+  - on the final tree: 291 passed, 6 skipped, 0 failed.
 - Heavy use, per the tester: about 20–40 ms more per sync for a trader with 5,000 activities, within run-to-run noise
   next to the rebuild.
 
