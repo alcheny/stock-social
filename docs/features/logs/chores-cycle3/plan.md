@@ -194,3 +194,43 @@ Nothing here needs the owner or counsel; the only external sign-off is the busin
 8. C3-39 /account style: **recommend `button secondary` with "(not open yet)" in the text** (orchestrator's lean); the
    designer ballot preferred muted plain text, also acceptable if the business lead prefers it.
 9. Locked /tools link copy: **recommend "Back to the feed" → `/`**.
+
+## Round 2 (2026-11-01): business lead and engineer demands, folded in (these override §1-§5 where they differ)
+
+1. **K20 demo sentence (BL 1).** `CHORES_3.demo = 'Demo records are marked Demo.'` (design-system council
+   `design-system-2026-11-01.md:441`). While any non-deleted user has a `source='demo'` activity, it is appended to
+   `meta[name=description]`, `og:description`, `twitter:description` and the `/home-card` image text. Pure
+   `homePreview(demo: boolean)` in new `lib/home-preview.ts` builds all strings (unit-tested both ways); `demoShown()`
+   there runs the one `exists` query. Image cache `public, max-age=3600`.
+2. **K20 no repeat (BL 2).** `og:title`/`twitter:title` = `homeTitle` (first sentence). `og:description`/
+   `twitter:description` = `Losses included.` (+ demo sentence). `meta[name=description]` = the whole line (+ demo).
+   Test: og:description does not start with og:title.
+3. **K20 metadata (Eng 2, 13).** `siteOrigin` moves verbatim to new `lib/site-origin.ts`; `lib/billing.ts` re-exports
+   it (one rule; `app/page.tsx` never imports billing, so the billing-importers pin in `lib/record-tools.test.ts:253`
+   holds). `generateMetadata` returns `{ metadataBase: new URL(siteOrigin()), ...preview, ...(after ? { robots: { index:
+   false } } : {}) }`: `?after` pages carry the preview plus noindex. The page sets no `title`.
+4. **C3-44 gate (BL 3, Eng 1).** The real data condition, no proxy: `closed_trades` or `open_positions` for the user
+   (a public record: the profile shows both, TR-3), or `record_notes.trader_id`, or `record_view_traders.trader_id`.
+   A connection alone does not count. Lives in `lib/delete.ts` as `notesLineApplies(userId)` next to the existing
+   reader (`:41-42`), so the note-readers pin (`lib/record-tools.test.ts:265`) holds. Fail-open to true.
+5. **C3-39 one rule (BL 4, Eng 11, 12).** `checkoutFor(userId)` in `app/tools/parts.tsx` (already a billing importer)
+   returns `{ billing, closed }` exactly as `app/tools/page.tsx:55-56` computes today; both pages call it. Account
+   gate = `!billing` (closed or unavailable). Visible text matches /tools' own line: closed → `See Record tools (not
+   open yet)`; unavailable (CI's state) → `See Record tools (not available right now)`. Locked /tools' link is
+   `<p className="rt-links"><Link href="/">Back to the feed</Link></p>` (44 px from `globals.css:455`; no CSS change).
+6. **C3-34 status code (BL 5).** Degraded answers **503**, ok 200; body and `no-store` unchanged.
+7. **C3-34 401 line (BL 6, Eng 8, 9).** Through logSafe: `console.warn('cron unauthorized', logSafe(denied),
+   JSON.stringify({ route, suppressed }))`, `denied` a `CronUnauthorized` (fixed message, `status = 401`, built from
+   nothing in the request). Output exactly `cron unauthorized CronUnauthorized status 401 {"route":"sync","suppressed":0}`
+   for the first line. The limit is per route per warm instance (cold starts reset it; fleet rate scales with
+   instances; the map is bounded by the two-route union). The no-secret test runs through the real route handler.
+8. **C3-34 tests and set (Eng 5, 7).** Pure `healthStatus({ dbOk, last, stalest }, now)` carries criterion 4's cases;
+   one DB test checks only the real query's shape. The query is injectable (`healthDeps`). Stalest uses `syncable()`
+   from `lib/sync.ts` (import only). Ponytail notes: `max()` across shards hides one dead shard (coverage reports
+   `missingShards`); a wedged holder renews until `maxDuration`.
+9. **K22 (Eng 3, 4).** Criterion 5: every `$\d+\.\d\d` in the scanned files/blocks equals a `PLANS` price label.
+   Criterion 2: `portal` may call only currentUser, portalUrl, siteOrigin, redirect, logSafe. `app/tools/focus.tsx` is
+   in the scan.
+10. **QA (BL 7).** The QA log records a 360 px unfurl preview of `/` (card image plus text); the PR's Compliance
+    section answers §1 Q10 again for the demo sentence. Axe is not a repo dependency: §5 AC5 becomes manual checks
+    (names, focus, Tab order, contrast of `.button.secondary`).
