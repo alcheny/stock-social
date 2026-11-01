@@ -267,6 +267,9 @@ export type FeedPage = {
   // F-2 PR-4: signed in, the page's cards this viewer liked (card ids), set by the page and the paging action
   // (lib/likes.ts); never read here, so loadFeedPage reads no like (lib/feed.signed-out.test.ts).
   liked?: Set<string>;
+  // F-6: each page trader's open positions (unrealized percents, one per position), for a connected or failed record
+  // only (never a record with no consented connection, TR-3 importing never reaches the page). Percent only.
+  open?: Map<number, number[]>;
 };
 export type SectionRow = { userId: number; handle: string; name: string; reason: Reason };
 
@@ -321,7 +324,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const likely = (chooseRows(cands) ?? []).map((t) => t.trader);
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
   // F-2 PR-4: signed in, the page's closes this viewer rejected (for good, O3) leave the page as a gap, in place.
-  const [rows, states, panes, following, people, rejected] = await Promise.all([
+  const [rows, states, panes, following, people, rejected, opens] = await Promise.all([
     page.items.length ? sql`
       select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
@@ -333,6 +336,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     opts.viewer ? followingAmong(opts.viewer, traders) : null,
     withSection ? sql`select id, handle, display_name from users where id = any(${candIds}) and deleted_at is null` : [],
     opts.viewer ? rejectedAmong(opts.viewer, page.items.map((s) => s.key)) : null,
+    // F-6: the same trader set as the record states (it holds every section trader the page can pick).
+    openPositions(withSection ? [...new Set([...traders, ...candIds])] : traders),
   ]);
   const bySell = new Map(rows.map((r) => [r.sell_id as string, r]));
   const cards: FeedItem[] = page.items.flatMap((s) => {
@@ -355,5 +360,22 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     cards, offset: c.offset, asOf: new Date(c.asOf), next: page.next && encodeCursor(page.next),
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
     viewer: following && { id: opts.viewer!, following }, section,
+    open: openOf(opens, onPage, states),
   };
+}
+
+// F-6: open positions (unrealized percent only) per trader, kept for page traders whose record is connected or failed.
+async function openPositions(userIds: number[]): Promise<{ user_id: number; unrealized_pct: number }[]> {
+  if (!userIds.length) return [];
+  return (await sql`select user_id, unrealized_pct from open_positions where user_id = any(${userIds})`) as unknown as { user_id: number; unrealized_pct: number }[];
+}
+function openOf(rows: { user_id: number; unrealized_pct: number }[], onPage: Set<number>, states: Map<number, RecordStatus>): Map<number, number[]> {
+  const out = new Map<number, number[]>();
+  for (const r of rows) {
+    const state = states.get(r.user_id)?.state;
+    if (!onPage.has(r.user_id) || (state !== 'connected' && state !== 'failed')) continue;
+    const a = out.get(r.user_id);
+    if (a) a.push(r.unrealized_pct); else out.set(r.user_id, [r.unrealized_pct]);
+  }
+  return out;
 }
