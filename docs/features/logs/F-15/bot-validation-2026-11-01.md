@@ -1,5 +1,8 @@
 # F-15 bot-filter validation, 2026-11-01 (scripted, local)
 
+Re-run after the code-review fixes (rate cap before the drop write) on the merged branch; same result except the
+burst row's drop count, as designed.
+
 Run: `npm run build`, `ALLOW_DEV_AUTH=1 TRUST_PROXY_HEADERS=1 npm run start`, then
 `node --env-file=.env scripts/f15-bot-validation.ts` (one machine, local Postgres 16, production build). Groups ran in
 the script's order (human first) with a 61 s pause past the rate window between groups. One throwaway trader; its rows
@@ -13,7 +16,7 @@ were deleted at the end.
 | preview (script-running, flag hidden, declared preview agent) | 50 | 0 | 50 | declared_bot 50 |
 | post (20 declared-bot, 15 no fetch metadata, 15 cross-site) | 50 | 0 | 50 | declared_bot 20, no_fetch_metadata 15, cross-site refused (403) 15 |
 | forged posts copying a browser's agent and headers (not in the 200) | 20 | 20 | 0 | — |
-| burst, 70 posts from one address (not in the 200) | 70 | 60 | 10 | rate 10 |
+| burst, 70 posts from one address (not in the 200) | 70 | 60 | 10 | rate 1 (one drop row write per client and minute; the other 9 answered, not written) |
 
 - Scripted (200): dropped 200/200 = 100.0% (bar ≥ 95%). Script-running visits and direct posts alone (150): 150/150 =
   100.0%. Without the rate rule: 200/200 = 100.0% (no scripted group hit the cap).
