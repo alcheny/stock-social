@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -592,8 +592,9 @@ test('2026-11-01 data, cap unknown: everything queued is admitted while allowed;
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = (args: string[], input?: string) => execFileSync(process.execPath, [join(here, 'token-budget.ts'), ...args], { encoding: 'utf8', input, stdio: ['pipe', 'pipe', 'pipe'] });
 
-test('CLI: plan <file> and plan - print the plan as JSON and exit 0', () => {
+test('CLI: plan <file> and plan - print the plan as JSON and exit 0', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'token-budget-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const file = join(dir, 'snapshot.json');
   writeFileSync(file, JSON.stringify(nov1({ capUsd: 1500 })));
   const out = cli(['plan', file]);
@@ -602,8 +603,9 @@ test('CLI: plan <file> and plan - print the plan as JSON and exit 0', () => {
   assert.equal(JSON.parse(cli(['plan', '-'], JSON.stringify(nov1()))).cap.source, 'unknown');
 });
 
-test('CLI: exit 2 with a JSON error on an unreadable file, bad JSON or an invalid now', () => {
+test('CLI: exit 2 with a JSON error on an unreadable file, bad JSON or an invalid now', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'token-budget-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const bad = join(dir, 'bad.json');
   writeFileSync(bad, '{ not json');
   const noNow = join(dir, 'no-now.json');
@@ -2582,4 +2584,39 @@ test('window spend: a held resetsAt later than the reported one does not move th
   const p = plan({ now: iso(R5 - 3 * H), window: { type: 'five_hour', resetsAt: iso(R5), status: 'allowed' }, config: { capUsd: 500 },
     sessions: [{ id: 's', kind: 'build', costUsd: 50, startedAt: iso(R5 - 5 * H + 5 * M), lastActiveAt: iso(R5 - 3 * H) }], queue: [], history: [held] });
   assert.equal(p.spend.windowUsd, 50); // started after 10:00 (15:00 − 5h): in full, not pro rata from 10:10
+});
+
+// --- 19. Final review
+
+test('sessions: missing, null or empty is an error-level issue (no brake), so a plan with no reserve is visible', () => {
+  const queue = Array.from({ length: 59 }, (_, i) => ({ id: `q${i}`, kind: 'build' }));
+  for (const sessions of [undefined, null, []]) {
+    const s = snap({ config: { capUsd: 1500 }, queue });
+    if (sessions === undefined) delete s.sessions; else s.sessions = sessions;
+    const p = plan(s);
+    const issue = p.issues.find((i) => i.code === 'no-sessions');
+    assert.ok(issue, JSON.stringify(sessions));
+    assert.equal(issue.level, 'error');
+    assert.equal(p.brake, 'none');
+  }
+  assert.ok(!codes(plan(snap({ sessions: [build('a', 1, 0.5)] }))).includes('no-sessions'));
+});
+
+test('sessions: a warning when the orchestrator does not list itself', () => {
+  assert.ok(codes(plan(snap({ sessions: [build('a', 1, 0.5)] }))).includes('no-orchestrator'));
+  const orch = { id: 'orch', kind: 'orchestrator', costUsd: 1, startedAt: ago(1), lastActiveAt: iso(NOW) };
+  assert.ok(!codes(plan(snap({ sessions: [build('a', 1, 0.5), orch] }))).includes('no-orchestrator'));
+  assert.equal(plan(snap({ sessions: [build('a', 1, 0.5)] })).issues.find((i) => i.code === 'no-orchestrator')!.level, 'warn');
+});
+
+test('queue: missing or null is a warning; an empty array is fine', () => {
+  const missing = snap(); delete missing.queue;
+  assert.ok(codes(plan(missing)).includes('no-queue'));
+  assert.ok(codes(plan(snap({ queue: null }))).includes('no-queue'));
+  assert.ok(!codes(plan(snap({ queue: [] }))).includes('no-queue'));
+});
+
+test('CLI: an internal error prints the message without a stack or paths', () => {
+  const src = readFileSync(join(here, 'token-budget.ts'), 'utf8');
+  assert.match(src, /code: 'internal', detail: \(e as Error\)\.message/);
 });

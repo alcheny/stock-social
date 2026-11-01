@@ -616,8 +616,13 @@ const newer = (a: Session, b: Session) =>
   a.done !== b.done ? a.done : a.costUsd !== b.costUsd ? a.costUsd > b.costUsd : a.lastActiveAtMs !== b.lastActiveAtMs ? a.lastActiveAtMs > b.lastActiveAtMs
     : a.paused !== b.paused ? a.paused : a.priority !== b.priority ? a.priority > b.priority : JSON.stringify(a) < JSON.stringify(b);
 
+// Missing, null or empty sessions is an error (no brake): every reserve would be $0 and the orchestrator always lists
+// itself, so the snapshot is almost certainly incomplete.
 function normSessions(c: Ctx, raw: unknown): Session[] {
-  if (raw === undefined || raw === null) return [];
+  if (raw === undefined || raw === null || (Array.isArray(raw) && raw.length === 0)) {
+    error(c, 'no-sessions', `sessions is ${raw === undefined ? 'missing' : raw === null ? 'null' : 'empty'}: no running work is reserved (the orchestrator lists itself, so a snapshot without sessions is incomplete)`);
+    return [];
+  }
   if (!Array.isArray(raw)) { warn(c, 'bad-sessions', 'sessions is not an array; none used'); return []; }
   const byId = new Map<string, Session>();
   const unnamed: Session[] = []; // generated ids are never merged with anything
@@ -651,7 +656,7 @@ function normEstimate(c: Ctx, raw: Record<string, unknown>, kind: Kind, phase: s
 }
 
 function normQueue(c: Ctx, raw: unknown, priors: Record<string, Prior>): QueueItem[] {
-  if (raw === undefined || raw === null) return [];
+  if (raw === undefined || raw === null) { warn(c, 'no-queue', `queue is ${raw === undefined ? 'missing' : 'null'}; nothing to admit (pass [] for an empty queue)`); return []; }
   if (!Array.isArray(raw)) { warn(c, 'bad-queue', 'queue is not an array; none used'); return []; }
   const seen = new Set<string>();
   const out: QueueItem[] = [];
@@ -1110,6 +1115,9 @@ export function plan(snapshot: unknown): Plan {
   const cfg = normConfig(c, snap.config);
   const win = normWindow(c, snap.window);
   const sessions = normSessions(c, snap.sessions);
+  if (sessions.length && !sessions.some((s) => s.kind === 'orchestrator')) {
+    warn(c, 'no-orchestrator', 'no session of kind orchestrator is listed; the orchestrator lists itself so its own spend and reserve count');
+  }
   const { readings: history, currentResetsAtMs } = normHistory(c, snap.history, win);
   const nowMs = c.nowMs;
   const hoursToReset = win.assumed ? null : (win.resetsAtMs - nowMs) / H;
@@ -1251,7 +1259,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     p = plan(snapshot);
   } catch (e) {
-    fail(`internal error while planning: ${(e as Error).message}`, [{ level: 'error', code: 'internal', detail: String((e as Error).stack ?? e) }]);
+    fail(`internal error while planning: ${(e as Error).message}`, [{ level: 'error', code: 'internal', detail: (e as Error).message }]);
   }
   const bad = p.issues.find((i) => i.code === 'bad-now');
   if (bad) fail(bad.detail, p.issues);

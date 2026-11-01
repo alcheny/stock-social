@@ -36,6 +36,7 @@ optimistic until the input is fixed, because the plan has already replaced the b
 | `bad-estimate` | the kind's prior range for that item (ignoring the bad field) |
 | `bad-recent` | the session's lifetime burn |
 | `bad-config` (`capUsd`) | no configured cap: calibrated or unknown instead |
+| `no-sessions` | `sessions` missing, null or empty: no running work is reserved, so admission sees the whole cap as free; the orchestrator always lists itself, so fix the snapshot |
 | `bad-history` (a bad amount) | the reading ignored |
 | `non-finite` | null for that output figure |
 
@@ -47,7 +48,8 @@ used, so the cap is estimated.
 
 **Bounds.** Money (costs, estimates, `capUsd`, history totals) is a number in [0, 1e12]; a numeric string
 is accepted with a warning (`string-number`); anything else is an error-level issue and counts as 0 (or
-is ignored). Times must lie inside the JavaScript Date range; prior hours are at most 1e4; `safety` is in
+is ignored). `capUsd` must be positive: 0 is rejected (`bad-config`, an error) and the cap is estimated
+instead. A missing `costUsd` is a warning (`bad-cost`, counted as 0); an invalid one is an error. Times must lie inside the JavaScript Date range; prior hours are at most 1e4; `safety` is in
 [1, 100] and `warnFraction` in [0.01, 0.99]. A non-finite figure that still slipped through is printed
 as null with a `non-finite` error issue.
 
@@ -94,7 +96,9 @@ as null with a `non-finite` error issue.
   `costUsd` is reported (`recent-above-cost`) and the lifetime burn used. Pass `recent` for every session,
   the orchestrator included: its lifetime average (about $30/day) understates it while it drives many
   sessions.
-- The orchestrator lists itself in `sessions` as kind `orchestrator`, with its own session's cost.
+- The orchestrator lists itself in `sessions` as kind `orchestrator`, with its own session's cost (a warning,
+  `no-orchestrator`, when no such session is listed). A missing or null `queue` is a warning (`no-queue`); pass
+  `[]` when nothing is queued.
 - `window.rateLimitType` is accepted as `window.type`, so the provider's rate-limit object passes straight
   through; with neither, `seven_day` is assumed and reported (`no-window-type`). `status` is matched
   case-insensitively (`ALLOWED` is read as `allowed` with a `status-case` warning). `isUsingOverage` is a
@@ -340,7 +344,11 @@ end `config.admitCapEnd` names (default `"high"`; `"point"` or `"low"` admit les
 
 Money is compared with a 1e-9 tolerance (0.1 + 0.2 fits under 0.3), here and in every fit test below.
 Items are taken in priority order (then id); the first item that does not fit stops admission, so a large
-important item is not starved by smaller ones. Work is queued only when it would clearly exceed 100% even
+important item is not starved by smaller ones. This can leave headroom idle: with a cap of $200 and $15 of
+headroom, a $20 build at the front of the queue blocks a $5 small build behind it (`fill.blockedBy` names the
+build). It resolves near the reset (the build's in-window part shrinks until it fits, provided the next window has room
+for its carry-over) or when the orchestrator
+reprioritises or splits the item. Work is queued only when it would clearly exceed 100% even
 under these optimistic figures. While the cap is unknown, every queued item is admitted while status is
 `allowed` or `allowed_warning`. `safety` is not in the admission check. `config.admitAt: "point"` charges new items at their
 point estimate instead; at the default `"low"`, a deep queue can be admitted that is likely over the cap at
