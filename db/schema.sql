@@ -433,3 +433,69 @@ begin
 end $t$;
 -- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
 select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
+
+-- F-7 public-record traders (docs/features/logs/F-7/plan.md, committee-2026-11-01.md). Raw filings in, derived out, as
+-- for broker data: `public_transactions` is immutable source data; a filer's `closed_trades` rows are rebuilt from it by
+-- lib/public-trades.ts#rebuildPublicTrades (verified = false, filing_url set). Only company insiders' transaction
+-- reports are a source (the check below is the per-source gate; widening it is the owner's).
+-- ponytail: legislators' periodic transaction reports and quarterly holdings reports are not sources — they need a
+-- market-data vendor for prices or trade dates (owner, POLICY H) and, for legislators, the owner's ruling on the
+-- statutory commercial-use limit.
+create table if not exists public_filers (
+  id int generated always as identity primary key,
+  source text not null check (source in ('insider_reports')),
+  filer_key text not null,                          -- the filing system's unique filer id; identity never by name
+  demo boolean not null default false,              -- fictional fixture filer: shows the Demo badge (POLICY P2)
+  excluded jsonb not null default '{}',             -- sales excluded, counted by reason (never estimated)
+  open_symbols text[] not null default '{}',        -- open-market lots not yet sold; symbols only, no percent
+  hidden_at timestamptz,                            -- hidden pending review (reversible)
+  removed_at timestamptz,                           -- removed on request: profile, raw and derived rows deleted; never re-imported
+  created_at timestamptz not null default now(),
+  unique (source, filer_key)
+);
+-- The users row a published filer is shown through. On marked rows `adult_attested_at` holds the epoch and
+-- `signup_attempt_id` points at the source's placeholder attempt (method 'dev', never completed): PLACEHOLDERS, NOT AN
+-- ATTESTATION. Every attestation, funnel, account and referral reader excludes rows with public_filer_id set.
+-- ponytail: the attestation columns are NOT NULL, so filers carry a sentinel — an owner-approved constraint change
+-- to nulls for marked rows would remove it.
+select schema_add_column('users', 'public_filer_id', 'int unique references public_filers on delete restrict');
+do $c$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'users_public_filer_no_broker') then
+    alter table users add constraint users_public_filer_no_broker check (public_filer_id is null or snaptrade_user_id is null);
+  end if;
+end $c$;
+create table if not exists public_transactions (    -- raw, private, never rendered; only what the matcher and the link need
+  id bigint generated always as identity primary key,
+  filer_id int not null references public_filers on delete cascade,
+  external_id text not null,                        -- '<filing id>:<row>'
+  filing_id text not null,
+  amends text,                                      -- the filing id this one replaces, if an amendment
+  filing_url text not null check (filing_url ~ '^https?://'),
+  symbol text not null,
+  code text not null,                               -- the report's transaction code
+  side text check (side in ('BUY', 'SELL')),        -- null for codes that are neither an open-market buy nor sale
+  units double precision not null check (units > 0),
+  price double precision check (price >= 0),
+  held_after double precision,
+  indirect boolean not null default false,          -- indirectly held: excluded and counted; its label is never stored
+  derivative boolean not null default false,
+  executed_at timestamptz not null,
+  filed_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  unique (filer_id, external_id)
+);
+create table if not exists public_import_state (
+  source text primary key,
+  cursor jsonb not null default '{}',
+  last_success_at timestamptz                      -- "last checked" on every profile of this source
+);
+create table if not exists public_filer_log (       -- corrections log: no requester details, no free text
+  id bigint generated always as identity primary key,
+  filer_id int references public_filers on delete set null,
+  action text not null check (action in ('hide', 'unhide', 'rebuild', 'remove')),
+  reason text not null check (reason in ('request', 'review', 'error', 'amendment')),
+  at timestamptz not null default now()
+);
+select schema_add_column('closed_trades', 'filing_url', 'text');        -- closing sale's filing; null for broker/demo rows
+select schema_add_column('closed_trades', 'feed_after', 'timestamptz'); -- latest filing behind the trade + 30 days; null for broker/demo
