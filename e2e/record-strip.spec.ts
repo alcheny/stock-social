@@ -78,7 +78,7 @@ test('F-10 AC1/AC2/AC3/AC6: one strip per card in place of "held · closed"; Too
   await expect(page.locator('.range').first()).toContainText(cardRange);
 });
 
-test('F-10 AC8: reflow at 320, 360×640 and 780×360: no horizontal scroll, the strip on at most two lines, the card link works', async ({ page }) => {
+test('F-10 AC8: reflow at 320, 360×640 and 780×360: no horizontal scroll, the strip on two lines (three at 320 with the badge), the card link works', async ({ page }) => {
   for (const [w, h] of [[320, 640], [360, 640], [780, 360]]) {
     await page.setViewportSize({ width: w, height: h });
     await page.goto('/');
@@ -87,7 +87,9 @@ test('F-10 AC8: reflow at 320, 360×640 and 780×360: no horizontal scroll, the 
     await strip.scrollIntoViewIfNeeded();
     const box = (await strip.boundingBox())!;
     const lh = await strip.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.45);
-    expect(box.height, `${w}x${h}`).toBeLessThanOrEqual(lh * 2 * 1.15);
+    // Two lines from 360 px up; at 320 px the badge leading the line (DS-22) takes it to three, the design system
+    // council's own budget for the 320 px box (§4.3).
+    expect(box.height, `${w}x${h}`).toBeLessThanOrEqual(lh * (w <= 320 ? 3 : 2) * 1.15);
     // Nothing clipped: the strip fits its card.
     const card = (await cardOf(page, 'f10_strip').boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(card.x - 1);

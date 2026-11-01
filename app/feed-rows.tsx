@@ -36,11 +36,14 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   // F-10: one record strip per card trader, from the figures loadFeedPage computed (page.strips): formatting only here.
   // Demo = not every row verified (the pane's trust rule, paneTrust).
   const strips = new Map<number, Strip | undefined>();
+  const badges = new Map<number, 'verified' | 'demo' | null>();
   const stripOf = (t: { user_id: number; handle: string }) => {
     if (strips.has(t.user_id)) return strips.get(t.user_id);
     const f = page.strips?.get(t.user_id);
     const state = page.records.get(t.user_id)?.state ?? 'connected';
-    const demo = paneTrust(page.byUser.get(t.user_id) ?? [], state).badge === 'demo';
+    const badge = paneTrust(page.byUser.get(t.user_id) ?? [], state).badge;
+    badges.set(t.user_id, badge);
+    const demo = badge === 'demo';
     const s = f && recordStrip({ ...f, state, demo, verified: !demo, handle: t.handle }, 'feed');
     strips.set(t.user_id, s);
     return s;
@@ -53,7 +56,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       id: String(t.id),
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
-          <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} strip={stripOf(t)}
+          <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
           {paneOf(t)}
         </div>

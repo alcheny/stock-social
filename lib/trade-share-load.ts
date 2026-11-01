@@ -13,7 +13,7 @@ export async function loadTradeShare(handle: string, sellId: string) {
     from closed_trades ct join users u on u.id = ct.user_id and u.deleted_at is null
     where u.handle = ${handle} and ct.sell_id = ${sellId}`;
   if (!t) return null;
-  const all = await sql`select symbol, opened_at, closed_at, return_pct, holding_days, verified from closed_trades where user_id = ${t.user_id}`;
+  const all = await sql`select symbol, opened_at, closed_at, return_pct, holding_days, verified from closed_trades where user_id = ${t.user_id} order by closed_at desc, id desc`; // F-12: the profile's order, so sums match it to the bit
   const payload = tradeSharePayload({
     symbol: t.symbol, returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at,
     thesis: t.thesis, thesisStatus: t.thesis ? 'published' : null, demo: await isDemoUser(t.user_id),
