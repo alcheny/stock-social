@@ -72,7 +72,9 @@ export const PROFILE = {
   // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
   // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
   // excluded_corporate to the session user row (lib/session.ts, protected) and a line there.
-  excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a stock split or other corporate action the importer can't price exactly.`,
+  // Fixes cycle 3 (F3-15, F3-1): neutral cause words; the count also holds broker trade rows with no usable price, share
+  // count or date (lib/trades.ts).
+  excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a share move, corporate action or broker row the importer can't price.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -319,6 +321,8 @@ export const HOW = {
     'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
+    // Fixes cycle 3, F3-1 (lib/trades.ts): unusable broker trade rows are counted, never dropped.
+    'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.',
     'A sell of more shares than the imported history holds (for example after a stock split the broker did not report) is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
@@ -642,7 +646,10 @@ export const PERSONALIZE = {
 // /how (Q12: the documented method, POLICY F1): how a signed-in viewer's feed is ordered.
 export const HOW_PERSONAL = {
   title: 'How your feed is ordered',
-  text: `Signed out, everyone gets the same order. Signed in, your own follows, likes and hides move traders up or down in your feed; with "Personalize with my activity" on, so do the records you look at, open or skip. Each choice counts for ${F2_DAYS} days, fading over that time. Nothing about a return's size or sign is used, so losses count the same as gains. With "Personalize my feed" off you get the order everyone gets, minus what you hid. No security is ever suggested.`,
+  // Fixes cycle 3, F3-7 (POLICY F1): the base order first. 48 and 10 are lib/feed.ts#RECENCY_HOURS and
+  // lib/confidence.ts#RANK_MIN_BETS, written out so this client-safe file never imports the feed's database code; the test
+  // in lib/fixes-cycle3.test.ts ties them.
+  text: `Sign is never used, so a loss ranks like a gain of the same size. The base order uses how large each return is and how recent the close is (a close counts about a third as much after each 48 hours). Records with at least 10 independent bets whose likely range sits clearly above or below zero come first, a clear loss as much as a clear gain. Signed out, everyone gets the same order. Signed in, your own follows, likes and hides move traders up or down in your feed; with "Personalize with my activity" on, so do the records you look at, open or skip. Each choice counts for ${F2_DAYS} days, fading over that time. With "Personalize my feed" off you get the order everyone gets, minus what you hid. No security is ever suggested.`,
 };
 // H4 (business lead demand 6): the facts the Privacy Policy must state about F-2's preference data, from the same
 // constants as the code. lib/discovery/f2-privacy.test.ts checks the policy page once it has text.

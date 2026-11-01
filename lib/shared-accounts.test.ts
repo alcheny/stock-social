@@ -11,7 +11,8 @@ test('schema: marks are an additive table that only the owner\'s script fills', 
   assert.match(schema, /create table if not exists shared_account_marks/);
   assert.doesNotMatch(schema.replace(/--.*$/gm, ''), /insert into shared_account_marks/, 'the schema apply never marks');
   const sync = readFileSync(new URL('./sync.ts', import.meta.url), 'utf8');
-  assert.equal(sync.match(/notShared\(tx, userId\)/g)?.length, 2, 'the rebuild leaves marked accounts out of its read and its future count');
+  // Fixes cycle 3 (council cycle 3: "rename-chain read lacks notShared"): the chain read is the third.
+  assert.equal(sync.match(/notShared\(tx, userId\)/g)?.length, 3, 'the rebuild leaves marked accounts out of its read, its rename-chain read and its future count');
 });
 
 const hasDb = !!process.env.DATABASE_URL;

@@ -292,7 +292,7 @@ test('F-20 AC3: lib/badge-contrast.test.ts is kept, with its test', () => {
 // page's dark ink (committee decision 2026-11-01, OQ-1, flagged to the owner; main had #22c55e / #f43f5e, deutan 6.3). The
 // card's Demo hue (O-2) is the owner's. next/og cannot read CSS variables, so the images read this table, not the tokens.
 const IMAGE_TODAY = {
-  card: { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78' },
+  card: { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78', ok: '#22c55e' },
   strip: { text: '#f4f4f6', muted: '#8b8b98', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', ok: '#22c55e' },
   stripBg: '#0b0b0f',
   home: { bg: '#0b0b0f', text: '#f2f2f5' },
@@ -308,6 +308,10 @@ test('F-20 AC6: the image colour table equals the decided image colours, and the
   assert.equal(strip.IMAGE.bg, IMAGE_PALETTE.stripBg);
   const card = readFileSync(new URL('../app/u/[handle]/record-card-image.tsx', import.meta.url), 'utf8');
   assert.match(card, /const C = IMAGE_PALETTE\.card;/);
+  // The status badge ("Verified from broker", "connected") keeps main's green, as the strip's `ok` does: only gain and
+  // loss changed (OQ-1).
+  assert.match(card, /const TONE = \{ ok: C\.ok,/);
+  assert.equal(IMAGE_PALETTE.card.ok, IMAGE_PALETTE.strip.ok);
   assert.match(readFileSync(new URL('../app/layout.tsx', import.meta.url), 'utf8'), /themeColor: THEME_COLOR/);
 });
 
@@ -376,6 +380,9 @@ for (const [part, bgKey] of [['card', 'card.bg'], ['strip', 'stripBg']] as const
 const STATE_OUTLINES: Record<string, (m: string[], decl: [string, string]) => boolean> = {
   '.pane .rows .line.hl': (m, [k, v]) => m.length === 0 && (k === 'outline' ? v === '2px solid var(--focus)' : k === 'outline-offset' ? v === '2px' : k === 'outline-color' && v === 'var(--focus)'),
   '.switch-pair .switch.current': (m, [k, v]) => m.length === 0 && (k === 'outline' ? v === '2px solid var(--text)' : k === 'outline-offset' && v === '1px'),
+  // F-9 (#65)'s Report control on a short-screen feed card: the note clips its overflow there, so the --focus ring is drawn
+  // inside (−2 px). Only that offset, only inside the short-screen query.
+  '.feed .card .user-note .link-button:focus-visible': (m, [k, v]) => m.length === 1 && /max-height:\s*480px/.test(m[0]) && k === 'outline-offset' && v === '-2px',
 };
 test('F-20 AC8: every outline is none or var(--focus), every outline-offset is 2 px, and only focus selectors draw one', () => {
   const all = parseRaw(rawCss.replace(/\/\*[\s\S]*?\*\//g, ''));

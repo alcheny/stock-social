@@ -38,7 +38,10 @@ async function setup() {
 
 test('AC8: lib/trades.ts has no diff against main in this PR (skipped where main is not fetched)', (t) => {
   let diff: string;
-  try { diff = execFileSync('git', ['diff', 'origin/main', '--', 'lib/trades.ts'], { cwd: new URL('..', import.meta.url), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { t.skip('no origin/main'); return; }
+  // Fixes cycle 3 (merged after this PR): the check was "this PR's diff against main". Once the options PR merged (b339d88),
+  // a later fix to the share matcher (lib/trades.ts, F3-1/F3-5) is a diff against main too, so the check is pinned to the
+  // options PR's own merge: it changed nothing in lib/trades.ts. Skipped where that commit is not fetched, as before.
+  try { diff = execFileSync('git', ['diff', 'b339d88^1', 'b339d88', '--', 'lib/trades.ts'], { cwd: new URL('..', import.meta.url), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { t.skip('options merge commit not fetched'); return; }
   assert.equal(diff, '');
   // The option code never calls the share matcher, and rebuildRecord reaches rebuildTrades only by calling it.
   for (const f of ['options.ts', 'options-sync.ts', 'options-load.ts', 'options-view.ts']) assert.doesNotMatch(readFileSync(new URL(`./${f}`, import.meta.url), 'utf8'), /matchTrades/, f);

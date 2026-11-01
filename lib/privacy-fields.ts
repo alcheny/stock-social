@@ -19,8 +19,9 @@ export const PRIVATE_FIELDS: Field[] = [
   { words: 'prices', columns: ['activities.price', /* OPTIONS */ 'option_activities.share_price', 'option_activities.strike_milli', 'option_activities.cash_amount',
     'option_activities.occ_ticker', 'option_activities.contract_key' /* both carry the strike */] },
   { words: 'fees', columns: ['activities.fee', /* OPTIONS */ 'option_activities.fee'] },
-  { words: 'account numbers', columns: ['activities.account_id', 'corporate_actions.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'broker_accounts.account_id',
-    /* OPTIONS */ 'option_activities.account_id', 'option_trades.account_id', 'open_option_positions.account_id'] },
+  { words: 'account numbers', columns: ['activities.account_id', 'corporate_actions.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'unlisted_positions.account_id', 'broker_accounts.account_id',
+    /* OPTIONS */ 'option_activities.account_id', 'option_trades.account_id', 'open_option_positions.account_id', 'unlisted_option_positions.account_id',
+    /* F-14 */ 'users.open_options_by_account' /* keyed by account id */] },
 ];
 
 export const PUBLIC_USE = 'Your public record is also used to describe your trading style and to order traders for readers.';
@@ -31,6 +32,11 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.id': 'key', 'closed_trades.user_id': 'key', 'closed_trades.sell_id': 'key (vendor activity id, never shown)',
   'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
+  // fix-user-text B (F-9): shown with the note it dates ("Written ‹date›"); the hold rule only to the note's author.
+  'closed_trades.thesis_written_at': 'when the trader wrote the note', 'closed_trades.thesis_edited_at': 'when the trader last edited the note',
+  'closed_trades.thesis_hold_rule': 'moderation state (rule that held the note)', 'closed_trades.thesis_reviewed_at': 'moderation state (owner release time)',
+  'closed_trades.thesis_reports_from': 'moderation state (reports count from this release time)',
+  'closed_trades.thesis_checked_version': 'moderation state (rules version the note was last checked at)',
   'closed_trades.filing_url': 'link to the public filing behind a public-record trade (F-7)', 'closed_trades.feed_after': 'feed floor, internal (F-7)',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
   // OPTIONS (docs/features/logs/options/plan.md D1, D5): keys and flags of the option tables.

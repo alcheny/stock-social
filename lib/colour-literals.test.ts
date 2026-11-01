@@ -128,9 +128,12 @@ test('F-20 AC7: the scanner flags colour literals in TS, TSX and CSS', () => {
     "const e = { border: '1px solid #abc' };",
     "const f = `color-mix(in srgb, #000 10%, transparent)`;",
     "const g = { stroke: 'CanvasText' };",
+    // Review B3: after `} />` (a JSX attribute expression closing an element) the lexer once read a regex and skipped the rest.
+    'const h = <svg><path d={d} /><path fill="#123456" /></svg>;',
+    'const i = <svg><path d={d} /><path stroke="tomato" /></svg>;',
   ].join('\n');
   const h = hits('x.tsx', ts);
-  for (const n of [1, 2, 3, 4, 5, 6, 7]) assert.ok(h.some((s) => s.startsWith(`x.tsx:${n} `)), `line ${n} flagged: ${h.join(' | ')}`);
+  for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9]) assert.ok(h.some((s) => s.startsWith(`x.tsx:${n} `)), `line ${n} flagged: ${h.join(' | ')}`);
   const css = ['.a { color: #fff; }', '.b { background: rgb(0 0 0); }', '.c { border: 1px solid red; }', '.d { color: Canvas; }',
     '.e { background: color-mix(in srgb, white 10%, transparent); }', '.f { fill: hsl(0 0% 0%); }', '.g { box-shadow: 0 0 0 1px #000a; }'].join('\n');
   const c = hits('x.css', css);

@@ -10,6 +10,7 @@ import { CardMenu } from './card-menu.tsx';
 import { SECTION_AT } from '@/lib/discovery/section.ts';
 import { recordStrip, type Strip } from '@/lib/record-strip.ts';
 import { paneTrust, type TrustBadge } from '@/lib/pane.ts';
+import { ReportNote } from './report-note.tsx';
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -52,12 +53,15 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   const out = page.cards.map((t, i) => {
     // The card's own fields only (the close's vendor id stays on the server).
     const row: TradeRow = { id: String(t.id), symbol: t.symbol, return_pct: t.return_pct, holding_days: t.holding_days, closed_at: t.closed_at, verified: t.verified,
-      thesis: t.thesis, thesis_status: t.thesis_status, handle: t.handle, display_name: t.display_name, user_id: t.user_id };
+      thesis: t.thesis, thesis_status: t.thesis_status, handle: t.handle, display_name: t.display_name, user_id: t.user_id,
+      thesis_written_at: t.thesis_written_at ?? null, thesis_edited_at: t.thesis_edited_at ?? null };
     return {
       id: String(t.id),
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
+            // F-9: Report only for a signed-in reader who is not the trader, and never on a public filer's card (F-7: no notes there).
+            report={page.viewer && page.viewer.id !== t.user_id && !isPublicRecord(page.records.get(t.user_id)?.state ?? 'none') ? <ReportNote tradeId={String(t.id)} symbol={t.symbol} /> : undefined}
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} likeable={!isPublicRecord(page.records.get(t.user_id)?.state ?? 'none')} /> : undefined}
             hint={page.offset === 0 && i === 0} /* F-13 (SW-1): the swipe hint on page 1's first card only; appended pages never */
             notice={page.offset === 0 && i === 0 ? <FirstVisit page={page} /> : undefined} /* F-13 (D27): in card 1's thesis slot, so F-10's first screen holds */ />

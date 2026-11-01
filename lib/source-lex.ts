@@ -41,7 +41,8 @@ export function lex(src: string): { literals: Piece[]; code: string } {
       if (r.open) { stack.push(depth); tags.push(tagged); depth++; }
       i = r.end; last = 'a'; continue;
     }
-    if (c === '/' && /[(,=:[!&|?{};+\-*%~^]|^$/.test(last)) {
+    // `} />` closes a JSX element after an attribute expression; it is not a regex literal (F-20 review B3).
+    if (c === '/' && !(n === '>' && last === '}') && /[(,=:[!&|?{};+\-*%~^]|^$/.test(last)) {
       // regex literal
       let j = i + 1, cls = false;
       while (j < src.length && src[j] !== '\n') {

@@ -103,7 +103,7 @@ test('#18: a long name or a 20-character handle wraps in the card header: .who m
   assert.match(block, /\.card header \.who \{ min-width: 0; overflow-wrap: anywhere; \}/);
   assert.match(block, /\.card header > :not\(\.who\) \{ flex: none; \}/);
   const html = card({ handle: 'f10f_twenty_chars_x', display_name: 'A Very Long Display Name That Goes On And On' }, new Date(Date.UTC(2026, 10, 1)));
-  assert.match(html, /<header><a href="\/u\/f10f_twenty_chars_x" class="who"><strong>A Very Long Display Name That Goes On And On<\/strong> <span class="muted">@f10f_twenty_chars_x<\/span><\/a>/);
+  assert.match(html, /<header><a href="\/u\/f10f_twenty_chars_x" class="who"><strong><bdi>A Very Long Display Name That Goes On And On<\/bdi><\/strong> <span class="muted">@f10f_twenty_chars_x<\/span><\/a>/);
 });
 
 test('#16: a resting row\'s pane is inert unless it holds focus; a row on its pane never is', () => {

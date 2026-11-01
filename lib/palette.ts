@@ -8,7 +8,7 @@
 // status tone keeps #22c55e — next step DS-6 (per-scheme images, one grey, `ok` on the ink).
 export const IMAGE_PALETTE = {
   // The record card (link unfurl, square and story pictures): app/u/[handle]/record-card-image.tsx.
-  card: { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78' },
+  card: { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78', ok: '#22c55e' },
   // The record strip's image tones (F-12): lib/record-strip.ts IMAGE_COLOURS, drawn on stripBg.
   strip: { text: '#f4f4f6', muted: '#8b8b98', up: '#3cc4b4', down: '#ff8a5b', warn: '#f59e0b', ok: '#22c55e' },
   stripBg: '#0b0b0f',

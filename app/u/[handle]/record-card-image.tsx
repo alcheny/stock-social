@@ -12,7 +12,7 @@ import { IMAGE_PALETTE } from '@/lib/palette.ts';
 import { CARD_LAYOUT, disclaimerLines, noOrphan, UNFURL_COLUMN_GAP, unfurlHeadlineSize, unfurlWide, type CardModel } from '@/lib/record-card.ts';
 
 const C = IMAGE_PALETTE.card; // F-20: the share-image colour table (lib/palette.ts), today's values
-const TONE = { ok: C.up, muted: C.muted, warn: C.warn, demo: C.demo };
+const TONE = { ok: C.ok, muted: C.muted, warn: C.warn, demo: C.demo };
 const one = { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' } as const;
 const col = { display: 'flex', flexDirection: 'column' } as const;
 const row = { display: 'flex', alignItems: 'center' } as const;
