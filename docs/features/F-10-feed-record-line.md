@@ -37,8 +37,6 @@ council (`docs/ideas/approval-2026-11-01.md`, C3: second-vote mean 4.13, final v
 - [ ] The feed's query count does not grow with the number of cards on a page (load test like `lib/feed.load.test.ts`).
 - [ ] Feed ranking is unchanged: the ordering tests for F-2 and RANK_MIN_BETS still pass.
 - [ ] F-6's "Also open: …" line still renders beside the record line when the trader has open positions (e2e).
-- [ ] The smaller-ticker variant is three versions, each its own PR, chosen by /choose or the Judge on open-pane rate
-      (CLAUDE.md three-versions rule). The record line ships in all three.
 - [ ] Reflow e2e at 320 px, 360×640 and 780×360 landscape shows no clipped card text, no horizontal page scroll,
       and a working swipe and card link.
 - [ ] The strip is real text in the card's reading order (not aria-hidden). Nothing is conveyed by colour alone.
@@ -46,6 +44,10 @@ council (`docs/ideas/approval-2026-11-01.md`, C3: second-vote mean 4.13, final v
 - [ ] A demo record's line never contains "verified" (string test). On F-7 public-trader cards the source label
       replaces any Verified wording.
 - [ ] `RecordStrip` and its helper are exported for F-12 and documented in the feature log.
+
+Notes (process, not tests):
+- The smaller-ticker variant is built as three versions, each its own PR, chosen by /choose or the Judge on open-pane
+  rate (CLAUDE.md three-versions rule). The record line ships in all three.
 
 ## Out of scope
 - Trade and month pages and images (F-12), and the profile headline order (D23, waiting).

@@ -11,7 +11,17 @@ const config: NextConfig = {
         { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
         { key: 'X-Frame-Options', value: 'DENY' },
       ],
-    }];
+    },
+    // F-3 (committee K6): Record tools, the account page and the data export are private: never indexed, cached by a
+    // shared cache or sent as a referrer.
+    ...['/tools', '/account', '/account/:path*'].map((source) => ({
+      source,
+      headers: [
+        { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+        { key: 'Cache-Control', value: 'private, no-store' },
+      ],
+    }))];
   },
 };
 export default config;

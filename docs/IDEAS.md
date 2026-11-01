@@ -38,25 +38,42 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
 | 10 | Share card: running-sum chart, no win rate in preview text, length to last close (F-4) | owner | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#idea-10-share-card-chart-preview-text-and-record-length-o) | — |
 | 11 | Autonomous build: AI committees decide open questions, merge without human review | owner | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#idea-11-autonomous-build-without-human-review-before-merge-o) | — |
 | 12 | Open choices in the private Terms and Privacy Policy drafts (12a-12g) | owner (delegated) | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-12-terms-and-privacy-policy-draft-choices-d) | — |
-| 13 | Go-to-market for the first 100 connected traders and 1,000 viewers, incl. gate counters | owner (delegated) | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-13-go-to-market-for-the-first-100-traders-and-1000-viewers-d) | candidate |
-| 14 | Projection assumptions (break-even share, data cost) and the cheapest early test | owner (delegated) | testing | [2026-11-01](ideas/2026-11-01-board-review.md#idea-14-projection-assumptions-d) | candidate |
+| 13 | Go-to-market for the first 100 connected traders and 1,000 viewers, incl. gate counters | owner (delegated) | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-13-go-to-market-for-the-first-100-traders-and-1000-viewers-d) | C17 counters waiting, first next cycle; C9 handles waiting ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| 14 | Projection assumptions (break-even share, data cost) and the cheapest early test | owner (delegated) | testing | [2026-11-01](ideas/2026-11-01-board-review.md#idea-14-projection-assumptions-d) | C18 notify-me waiting, not before LIVE_BILLING ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
 | 15 | Does the business lead's demand debate apply to owner-decided features (IMPLEMENTATION) | found in repo | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#idea-15-scope-of-the-demand-debate-on-decided-features-d) | — |
 | 16 | Later per-trade depth on the record card vs per-trade cards only (F-4) | found in repo | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-16-per-trade-depth-on-the-record-card-d) | — |
 | 17 | Timing of the product-name trademark clearance search (POLICY T5a) | found in repo | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#idea-17-timing-of-the-trademark-clearance-search-d) | — |
 | 18 | Creator payout trigger conditions (F-3) | found in repo | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#idea-18-creator-payout-trigger-conditions-d) | — |
 | 19 | Repository license and whether or when to publish the repo (POLICY C4, H) | found in repo (owner-reserved, POLICY H) | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#idea-19-repository-license-and-publishing-flag) | — |
-| D20 | Disclaimer in plain view on the feed and under the profile headline | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d20-disclaimer-out-of-plain-view) | candidate |
-| D21 | Neutral "Sign in" with two paths (follow and save / publish my record) | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d21-sign-in-framed-only-as-publishing) | candidate |
-| D22 | One record line on every feed card; smaller ticker tested | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d22-feed-card-without-record-context) | candidate |
-| D23 | Profile headline leads with average and range, win rate second (three versions) | idea board | testing | [2026-11-01](ideas/2026-11-01-board-review.md#d23-profile-leads-with-win-rate) | candidate |
-| D24 | Plain labels for every stat; trades vs bets reconciled; units named | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d24-jargon-and-counts-that-disagree) | candidate |
-| D25 | Remove developer text and the "every stock" claim from public pages | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d25-developer-text-and-a-completeness-slip) | candidate |
-| D26 | Production switch: no sign-in or connect until Terms and Privacy Policy are live | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d26-consent-to-placeholder-terms) | candidate |
-| D27 | One-line explanation for signed-out first visits; "Trades by stock" nav label | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d27-no-first-visit-explanation) | candidate |
+| D20 | Disclaimer in plain view on the feed and under the profile headline | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d20-disclaimer-out-of-plain-view) | C1 passed, over the cap; remainder folded into fix #3 ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D21 | Neutral "Sign in" with two paths (follow and save / publish my record) | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d21-sign-in-framed-only-as-publishing) | C2 waiting: F-1 rework after security hardening ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D22 | One record line on every feed card; smaller ticker tested | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d22-feed-card-without-record-context) | **approved: F-10** ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D23 | Profile headline leads with average and range, win rate second (three versions) | idea board | testing | [2026-11-01](ideas/2026-11-01-board-review.md#d23-profile-leads-with-win-rate) | C4 waiting until there is traffic ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D24 | Plain labels for every stat; trades vs bets reconciled; units named | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d24-jargon-and-counts-that-disagree) | C5 waiting: helpers after this cycle ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D25 | Remove developer text and the "every stock" claim from public pages | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d25-developer-text-and-a-completeness-slip) | fixes list #8, #12 ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D26 | Production switch: no sign-in or connect until Terms and Privacy Policy are live | idea board | adopted | [2026-11-01](ideas/2026-11-01-board-review.md#d26-consent-to-placeholder-terms) | excluded: built in #31 ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| D27 | One-line explanation for signed-out first visits; "Trades by stock" nav label | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d27-no-first-visit-explanation) | **approved: F-13** ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
 | D28 | DESIGN §1.2 signal-seller persona and §3.4 "skill" and "badges" lines | idea board | flagged for owner | [2026-11-01](ideas/2026-11-01-board-review.md#d28-design-persona-and-skill-and-badge-lines) | — |
-| D29 | "Last close · updated" and "Account 1 of 2" on the profile; idle marker | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d29-stale-or-opaque-records) | candidate |
+| D29 | "Last close · updated" and "Account 1 of 2" on the profile; idle marker | idea board | adopted with conditions | [2026-11-01](ideas/2026-11-01-board-review.md#d29-stale-or-opaque-records) | **approved: F-11** ([approval 2026-11-01](ideas/approval-2026-11-01.md)) |
+| 30 | Thesis safety v2: normalised moderation, report action, owner-run release path (C8) | design council P-1, creative council CR-34..36 | **approved: F-9** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
+| 31 | Record status line remainder of D29 plus TR-5 "Account removed" (C7) | design council P-4, creative CR-7 | **approved: F-11** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
+| 32 | Record strip on trade and month pages and images, per idea 16 (C15) | design council P-4, creative CR-9/12/13 | **approved: F-12** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
+| 33 | Sync cadence within the vendor's guidance (C19) | market council #2 | **approved: F-14** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
+| 34 | Handle and name integrity, trimmed (C9) | design council P-2, creative CR-33 | waiting (passed, over the cap; first next cycle) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 35 | Privacy-safe gate counters (C17) | market council #3, idea 13 | waiting (first next cycle, week-0 prerequisite) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 36 | One trust language (C10) | design council P-3, creative CR-5/8/14/15 | waiting (after #35 and the design system's wording) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 37 | Owner sees the public record (C12) | design council P-8, creative CR-32 | waiting (after F-3) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 38 | Feed reading mode, non-visual remainder (C11) | design council P-6, creative CR-26 | waiting (after #30) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 39 | Design-system foundation and CI gate (C14) | design council P-10, creative CR-16..24 | waiting (a quiet cycle) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 40 | Wayfinding remainder: month index, search (C13) | design council P-9 | waiting (no demand yet) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 41 | Home link preview (C21) | creative council CR-1/31, market #12 | waiting (fix-sized; the orchestrator may build it) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 42 | Simulated-account exclusion and coverage copy (C20) | market council #14 | rejected as a feature: already built (`is_paper` filter); copy goes with fix #8 | [approval 2026-11-01](ideas/approval-2026-11-01.md) | rejected |
+| 43 | Whole-record preview at connect (C16) | market council #11 | flagged for owner: contradicts F-1 2026-10-22 (no import before consent); recommend a Demo-record preview | [approval 2026-11-01](ideas/approval-2026-11-01.md) | owner |
+| 44 | Trial arm, free limited Record tools, delete connection on disconnect, other price arms (MR-6/7/8/13) | market council | flagged for owner: contradict F-3 2026-11-01 / TR-5; not recommended now | [approval 2026-11-01](ideas/approval-2026-11-01.md) | owner |
 
 ## Decisions
+
+- 2026-11-01: The approval council approved six features: F-9 thesis safety, F-10 feed record line and the shared RecordStrip, F-11 record status line, F-12 trade and month record strip, F-13 first-visit line and swipe hint, F-14 sync cadence. C1 and C9 passed but were over the cap of six; C1's remainder rides with fix #3. Why: approval council under the owner's delegation of 2026-11-01 ([record](ideas/approval-2026-11-01.md)).
 
 - 2026-11-01: Terms draft, disputes: individual arbitration with a 30-day opt-out by plain email, shown in the
   plain-language summary; assent by an unchecked box beside a visible link; small claims open to both sides; the
@@ -143,6 +160,8 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
   instruction of 2026-11-01.
 
 ## Flags for the owner
+
+- Approval council 2026-11-01: C16 whole-record preview needs an F-1 change (recommend a Demo-record preview); MR-6/7/8/13 contradict F-3 and TR-5 (not recommended); treat the privacy-safe gate counters (C17) and handle integrity (C9) as the first items of the next cycle; CLAUDE.md and DESIGN §2.7 "hourly sync" wording after F-14; DECISIONS #11 logged twice; D22's "Too early to tell" vs F-4's under-5-bets line; F-13's line needs new wording if F-7 public profiles enter the feed. Record: [approval 2026-11-01](ideas/approval-2026-11-01.md#flags-for-the-owner-the-councils-recommendation-not-approved).
 
 - Idea board 2026-11-01 (idea 5): before LIVE_BILLING and the first real user, one limited attorney review, staged:
   publisher's exclusion for Record tools and F1a ordering, checkout, auto-renewal, refund and arbitration terms;

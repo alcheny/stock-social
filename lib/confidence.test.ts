@@ -224,46 +224,56 @@ const DOWN = { low: -0.022, mid: -0.013, high: -0.004 };
 const CROSS = { low: -0.001, mid: 0.013, high: 0.027 };
 
 test('F-4 AC4: every cell of the trust-line table, both signs', () => {
-  // Too early: any sign, N = closed trades.
-  assert.equal(trustLine(conf('too-early', null, null, 3, 3, 20)), 'Based on 3 trades. The range is still too wide to say much.');
-  assert.equal(trustLine(conf('too-early', null, null, 1, 1, 2)), 'Based on 1 trade. The range is still too wide to say much.');
+  // The owner's table of 2026-10-31 (it replaced the 2026-10-22 one): the same words for gains and losses.
+  // Under 5 bets: any sign, N = closed trades.
+  assert.equal(trustLine(conf('too-early', null, null, 3, 3, 20)), 'Based on 3 trades. Too few trades to say much yet.');
+  assert.equal(trustLine(conf('too-early', null, null, 1, 1, 2)), 'Based on 1 trade. Too few trades to say much yet.');
+  assert.equal(trustLine(conf('too-early', null, null, 4, 4731, 90)), 'Based on 4,731 trades. Too few trades to say much yet.');
+  // Too early (range wider than ±10 points): any sign, N = closed trades.
   assert.equal(trustLine(conf('too-early', null, { low: -0.2, mid: 0, high: 0.2 }, 12, 4731, 90)), 'Based on 4,731 trades. The range is still too wide to say much.');
-  // Thin: N separate bets over D days.
-  assert.equal(trustLine(conf('thin', 'positive', UP, 30, 30, 61)), 'Based on 30 separate bets over 61 days. Still early.');
-  assert.equal(trustLine(conf('thin', 'unclear', CROSS, 30, 30, 61)), 'Based on 30 separate bets over 61 days. Still early, and results could go either way.');
-  assert.equal(trustLine(conf('thin', 'negative', DOWN, 30, 30, 61)), 'Based on 30 separate bets over 61 days. Still early, and results could go either way.');
-  // Moderate: N bets over M months (whole 30-day months).
-  assert.equal(trustLine(conf('moderate', 'positive', UP, 45, 50, 200)), 'Based on 45 bets over 6 months. A fair sample.');
+  assert.equal(trustLine(conf('too-early', null, { low: 0.05, mid: 0.2, high: 0.35 }, 12, 12, 90)), 'Based on 12 trades. The range is still too wide to say much.');
+  // Thin: any sign, N separate bets over D days.
+  for (const iv of [UP, CROSS, DOWN]) assert.equal(trustLine(conf('thin', 'unclear', iv, 30, 30, 61)), 'Based on 30 separate bets over 61 days. Still early, and results could go either way.');
+  // Moderate: N bets over M months (whole calendar months).
+  assert.equal(trustLine(conf('moderate', 'positive', UP, 45, 50, 200)), 'Based on 45 bets over 6 months. A fair sample, with a clear pattern of gains.');
+  assert.equal(trustLine(conf('moderate', 'negative', DOWN, 45, 50, 200)), 'Based on 45 bets over 6 months. A fair sample, with a clear pattern of losses.');
   assert.equal(trustLine(conf('moderate', 'unclear', CROSS, 45, 50, 200)), 'Based on 45 bets over 6 months. A fair sample, with no clear pattern yet.');
-  assert.equal(trustLine(conf('moderate', 'negative', DOWN, 45, 50, 200)), 'Based on 45 bets over 6 months. A fair sample, with no clear pattern yet.');
   // Strong: N bets over Y years (whole years).
-  assert.equal(trustLine(conf('strong', 'positive', UP, 140, 150, 800)), 'Based on 140 bets over 2 years. A long, consistent record.');
-  assert.equal(trustLine(conf('strong', 'unclear', CROSS, 140, 150, 800)), 'Based on 140 bets over 2 years. A long record, with no clear pattern.');
+  assert.equal(trustLine(conf('strong', 'positive', UP, 140, 150, 800)), 'Based on 140 bets over 2 years. A long record, with consistent gains.');
   assert.equal(trustLine(conf('strong', 'negative', DOWN, 140, 150, 800)), 'Based on 140 bets over 2 years. A long record, with consistent losses.');
-  assert.equal(trustLine(conf('strong', 'positive', UP, 1200, 1300, 365)), 'Based on 1,200 bets over 1 year. A long, consistent record.');
+  assert.equal(trustLine(conf('strong', 'unclear', CROSS, 140, 150, 800)), 'Based on 140 bets over 2 years. A long record, with no clear pattern.');
+  assert.equal(trustLine(conf('strong', 'positive', UP, 1200, 1300, 365)), 'Based on 1,200 bets over 1 year. A long record, with consistent gains.');
   // A thin span under a day reads "1 day"; an empty record has no trust line (the card says "No closed trades yet").
-  assert.equal(trustLine(conf('thin', 'positive', UP, 6, 6, 0.2)), 'Based on 6 separate bets over 1 day. Still early.');
+  assert.equal(trustLine(conf('thin', 'positive', UP, 6, 6, 0.2)), 'Based on 6 separate bets over 1 day. Still early, and results could go either way.');
   assert.equal(trustLine(conf('too-early', null, null, 0, 0, 0)), null);
 });
 
 test('F-4 AC4: "consistent" only in the strong tier with the range entirely on one side of zero, losses as gains', () => {
-  // A verdict and a range that disagree are not consistent: the card never says it beside a range that crosses 0.
+  // The sign is the printed interval's alone (committee 2026-11-01, Q-S): a range that crosses 0 is never a pattern,
+  // whatever the pace verdict says; a one-sided range is, in either direction.
   assert.equal(trustSign(conf('strong', 'positive', CROSS, 140, 150, 800)), 'unclear');
   assert.equal(trustSign(conf('strong', 'negative', { low: -0.03, mid: -0.01, high: 0.002 }, 140, 150, 800)), 'unclear');
+  assert.equal(trustSign(conf('strong', 'unclear', UP, 140, 150, 800)), 'positive');
+  assert.equal(trustSign(conf('strong', 'unclear', DOWN, 140, 150, 800)), 'negative');
   assert.match(trustLine(conf('strong', 'positive', CROSS, 140, 150, 800))!, /no clear pattern\.$/);
   for (const tier of ['too-early', 'thin', 'moderate', 'strong'] as const)
     for (const edge of ['positive', 'negative', 'unclear', null] as const)
       for (const iv of [UP, DOWN, CROSS, null]) {
         const line = trustLine(conf(tier, edge, iv, 140, 150, 800)) ?? '';
-        const agrees = (edge === 'positive' && !!iv && iv.low > 0) || (edge === 'negative' && !!iv && iv.high < 0);
-        assert.equal(/consistent/.test(line), tier === 'strong' && agrees, `${tier} ${edge} ${JSON.stringify(iv)}: ${line}`);
+        const oneSided = !!iv && (iv.low > 0 || iv.high < 0);
+        assert.equal(/consistent/.test(line), tier === 'strong' && oneSided, `${tier} ${edge} ${JSON.stringify(iv)}: ${line}`);
+        assert.equal(/clear pattern of/.test(line), tier === 'moderate' && oneSided, `${tier} ${edge} ${JSON.stringify(iv)}: ${line}`);
+        // Symmetry: swapping "gains" and "losses" maps each line onto its mirror's.
+        const mirror = iv && { low: -iv.high, mid: -iv.mid, high: -iv.low };
+        const m = trustLine(conf(tier, edge, mirror, 140, 150, 800)) ?? '';
+        assert.equal(m, line.replace(/gains|losses/, (w) => (w === 'gains' ? 'losses' : 'gains')), `${tier} mirror`);
       }
   // Real records, mirrored: equal gains and losses both reach "consistent".
   const gain = confidence(spaced(120, (i) => 0.05 + (i % 2 ? 0.001 : -0.001)), today);
   const loss = confidence(spaced(120, (i) => 1 / (1.05 + (i % 2 ? 0.001 : -0.001)) - 1), today);
   assert.equal(gain.tier, 'strong');
   assert.equal(loss.tier, 'strong');
-  assert.equal(trustLine(gain), 'Based on 120 bets over 3 years. A long, consistent record.');
+  assert.equal(trustLine(gain), 'Based on 120 bets over 3 years. A long record, with consistent gains.');
   assert.equal(trustLine(loss), 'Based on 120 bets over 3 years. A long record, with consistent losses.');
 });
 
