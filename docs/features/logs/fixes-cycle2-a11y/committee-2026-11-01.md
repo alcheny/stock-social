@@ -69,3 +69,20 @@ h1 / `.who` / badge reflow; this branch builds only the remainder and carries F-
   its new position and record the result below).
 - Engineer: SIGN (decisions 1-10 cover demands 1-9; the cascade holds before and after F-13 merges; the unit test
   locates our block by its markers, not by end of file).
+
+## Build (engineer), deviations recorded
+
+11. 2026-11-01: under 420 px the nav also takes `body > nav.top { padding-block: 10px }`: the 18vw cap alone left it
+    at 55.7 px (two-line links are 32 px), over 54.4; shipped 51.7 px at 360-420 and 48.6 at 320 with F-13's label.
+    Why: decided by the committee under the owner's instruction of 2026-11-01; decision 7's limit needs it.
+12. 2026-11-01: the F-13 twin also carries F-13's `max-height: 480px` card-scroll block and its three nav-wrap lines,
+    byte-identical. Why: decided by the committee under the owner's instruction of 2026-11-01; decisions 3, 5 and 7
+    assume them and they are not on main.
+13. 2026-11-01: under 480 px tall the scrolling card also pads its own bottom (86 px) while a bar shows. Why: decided
+    by the committee under the owner's instruction of 2026-11-01; without it a focused link scrolls under the bar
+    (tested at 360×420).
+14. 2026-11-01: AC12.2 is tested on the profile's "Similar trades" sheet, the only place a `.line.hl` row renders.
+    Why: decided by the committee under the owner's instruction of 2026-11-01; feed panes mark no row.
+
+Merge check (business lead's round 2 condition): `git merge-tree --write-tree <this tree> origin/claude/f13-a11y-fixes`
+exits 0 with no conflict, with the block after `.rt-card:focus`.

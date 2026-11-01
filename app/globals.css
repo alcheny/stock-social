@@ -4,8 +4,8 @@
   --text: #f4f4f6;
   --muted: #8b8b98;
   --line: #262631;
-  --up: #22c55e;
-  --down: #f43f5e;
+  --up: #3cc4b4;
+  --down: #ff8a5b;
   --accent: #a78bfa;
   --on-accent: #0b0b0f; /* text on the accent: 7.2:1 on the dark lilac (white was 2.72:1) */
   color-scheme: dark;
@@ -13,7 +13,7 @@
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #fafafa; --surface: #fff; --text: #111118; --muted: #6b6b78; --line: #e5e5ea;
-    --up: #15803d; --down: #be123c; --accent: #6d28d9; --on-accent: #fff; /* 7.1:1 */
+    --up: #0b6b70; --down: #b2441b; --accent: #6d28d9; --on-accent: #fff; /* 7.1:1 */
     color-scheme: light;
   }
 }
@@ -488,6 +488,64 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .rt button, .rt .button, .rt summary { min-height: 44px; }
 .rt-back a, .rt-card h2 a, .rt-rename summary, .rt-note-fold summary, .rt-confirm summary { display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; }
 .rt-card:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12 #13 #14 #18 #26, 2026-11-01) */
+/* Twin of F-13's A11Y-FIXES block (branch claude/f13-a11y-fixes; committee decisions 6, 7, 10): every line from here to
+   "end of the F-13 twin" is a byte-identical copy of that block, so the branches merge in either order. Whoever merges
+   second keeps one copy (dedupe on merge). #12 (Verified text, :target bar), #13 (--control on every control border),
+   #18 (h1, name row and Demo badge reflow; the short-viewport card scroll that #14's 480 px rule below builds on; the
+   nav wrap under 420 px, from F-13's own block, without which a 20-character handle shrinks to 28 px at 320). */
+:root { --control: #6f7682; --focus: #86a8ff; --verified: var(--text); }
+@media (prefers-color-scheme: light) { :root { --control: #7c818b; --focus: #2152d9; } }
+.badge.verified { color: var(--verified); }
+.rows li:target { background: none; box-shadow: inset 3px 0 0 var(--focus); margin-left: -12px; padding-left: 12px; }
+input, textarea, select,
+.pane .back,
+.share-prompt .actions .secondary, .trade-share .secondary, .badge-embed .secondary, .new-trades .secondary,
+.rec-chips button, .auth .button.secondary, .auth button.secondary, .handle-edit summary.secondary,
+.follow.secondary, .more-menu .secondary, .people .secondary, .pane-actions .button.secondary, .more-menu summary,
+.switch-pair .switch, .personalize form > button.secondary,
+.rt .button.choice, .rt button.choice, .rt .button.secondary, .rt button.secondary,
+.rt-form input, .rt-form select, .rt-note textarea { border-color: var(--control); }
+h1 { overflow-wrap: anywhere; }
+.card header .who { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.card header .badge { flex-shrink: 0; }
+@media (max-height: 480px) {
+  .feed .row > * { padding-top: 56px; padding-bottom: 8px; }
+  .feed .row > .card { gap: 8px; overflow-y: auto; scroll-padding-top: 56px; }
+}
+@media (max-width: 420px) { nav.top { gap: 8px; padding: 12px; } }
+@media (max-width: 420px) { nav.top a:not(.logo):not(.me) { white-space: normal; line-height: 1.1; text-align: center; } }
+@media (max-width: 340px) { nav.top { font-size: 0.8125rem; } }
+/* end of the F-13 twin */
+/* #12 (WCAG 1.4.11): the pane's current-row cue is drawn in --focus (6.15/6.42 light, 8.47/7.76 dark on bg/surface;
+   --line was 1.20/1.31). Width 2 px, offset 2 px and weight 600 stay, so colour is not the only cue. */
+.pane .rows .line.hl { outline-color: var(--focus); }
+/* #14 (WCAG 2.4.11): while a fixed bottom bar shows (sign-in line, hide bar, no-JS confirmation; 62 px tall + 16 px
+   offset = 78 px), each feed row's pages keep that room plus 16 px clear, and the scrollers pad their bottom edge, so
+   focus never sits under the bar. Nothing goes on .feed (padding there moves every snap point). The content moves up
+   while a bar shows, with no transition (decision 4).
+   `.signin-line:not(:empty)` relies on React emitting no whitespace inside the <p> in app/feed-gestures.tsx: a stray
+   text node would make it never :empty and reserve the room for good. */
+/* ponytail: 94 px fits a bar up to 78 px tall (one line 62 px at 360, two lines 64 px at 320); a bar of three or more
+   lines (large text settings) outgrows it — fix: render the bars in the flow (F-10's row #15) instead of a fixed room. */
+body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed .row > * { padding-bottom: 94px; }
+html:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) { scroll-padding-bottom: 94px; }
+body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pane { scroll-padding-bottom: 94px; }
+/* Under 480 px tall the card scrolls inside itself (F-13's rule above): 86 px = the bar's 78 + F-13's 8, and the card's
+   own scroller pads the same, so a focused link scrolls to 8 px above the bar, not under it. */
+@media (max-height: 480px) {
+  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed .row > * { padding-bottom: 86px; }
+  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card { scroll-padding-bottom: 86px; }
+}
+/* #13 (Q4): the three bars' own edge in --control, so each reads as separate from the content under it. */
+.signin-line:not(:empty), .hide-bar p, .nojs-done { border-color: var(--control); }
+/* #18 (WCAG 1.4.10): under 420 px the signed-in handle link is capped at 18vw, so with F-13's "Trades by stock" the nav
+   wraps to two lines, not three (71.5 px at 360 with the 34vw cap). Two-line links are 32 px tall, so F-13's 12 px
+   padding still gave 55.7 px; 10 px top and bottom make it 51.7 px at 360-420 and 48.6 at 320 (signed in with a
+   20-character handle, and signed out), under 54.4 px (85% of the card's 64 px content top). `body > nav.top` outranks
+   F-13's later `nav.top { padding: 12px }` whichever order the blocks end up in. */
+@media (max-width: 420px) { nav.top .me { max-width: 18vw; } body > nav.top { padding-block: 10px; } }
+/* end FIXES-CYCLE2-A11Y */
 
 /* Privacy work (2026-11-01): the consent page (S4) with the longer public-scope line keeps its primary above the fold
    at 360×640 and 375×667 (committee D9): tighter list and heading spacing; the deadline sits under the buttons. */
