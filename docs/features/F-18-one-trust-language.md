@@ -1,6 +1,7 @@
 # F-18 · One trust language: one Verified, one Demo, no completeness words
 
-Status: ready
+Status: blocked
+Blocked: waits for F-20, F-10, F-11, F-12, F-13 and fixes #1, #2, #8, #9, #10 (approval council cycle 2 fixes list)
 Start conditions: F-20 (design tokens and contrast test) lands first in the shared `app/globals.css` slot. F-10, F-11,
 F-12 and F-13 merge, and fixes #1, #2, #8, #9 and #10 merge.
 
@@ -15,8 +16,9 @@ on four features and five fixes, so its slot may sit idle all cycle. The busines
 the idea board rules on D25 and D27.
 
 ## Decisions
-- 2026-11-01: One `TRUST_LOOK` table (new `lib/trust-look.ts`) is the only source of the Verified and Demo label, icon
-  and colour. The label strings live in `lib/copy.ts`. `Badge` gets `linked` and `plain` forms. Why: approved by the
+- 2026-11-01: One `TRUST_LOOK` table (new `lib/trust-look.ts`) is the only source of the Verified and Demo label and
+  icon, and it names their colours by token (`--verified`, `--demo`); the colour values live in F-20's tokens and
+  image colour table. The label strings live in `lib/copy.ts`. `Badge` gets `linked` and `plain` forms. Why: approved by the
   approval council (cycle 2); DS-7; PD, UX.
 - 2026-11-01: "Verified" is one bare word that links to `/how#verified`. That definition says "imported read-only from
   the trader's broker" and nothing more: no identity, audit, completeness or endorsement. `/how` gets the anchors the
@@ -65,7 +67,9 @@ the idea board rules on D25 and D27.
 ## Acceptance criteria
 - [ ] A test fails on any Verified or Demo label, icon or colour defined outside `TRUST_LOOK` / `lib/copy.ts` in `app/`
       or `lib/` (grep test).
-- [ ] Every Verified label on page, pane and share card uses one string and links to `/how#verified`; `/how#verified`
+- [ ] Every Verified label on page, pane and share card uses one string; on pages and the pane it links to
+      `/how#verified` (a share image can't link: the page around the card links, and the card prints no other
+      wording); `/how#verified`
       reads "imported read-only from the trader's broker" and nothing more (e2e) (veto condition: LG).
 - [ ] A keyboard-only e2e reaches the Verified and Demo meaning without hover. No badge is colour or glyph only
       (component test).

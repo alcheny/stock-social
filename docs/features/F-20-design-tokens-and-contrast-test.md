@@ -1,6 +1,7 @@
 # F-20 · Design tokens and the contrast test
 
-Status: ready
+Status: blocked
+Blocked: waits for fixes #12, #13, #26 and the F-13 contrast-test branch (`lib/a11y-contrast.test.ts`)
 Start conditions: fixes #12, #13 and #26 merge, and the F-13 contrast-test branch (`lib/a11y-contrast.test.ts` on
 `claude/f13-a11y-fixes`) merges. F-20 lands before F-18 in their shared `app/globals.css` slot.
 
@@ -14,7 +15,9 @@ test that every later change must pass. Approved by the approval council
 ## Decisions
 - 2026-11-01: A value-neutral token layer in `app/globals.css`: every token at its value after the fixes, meaning
   colours on today's base (up and down ink, `--control`, `--warn`, `--demo`, `--verified`, `--flat`). No visible value
-  changes beyond the fixes list. Why: approved by the approval council (cycle 2); DS-1, DS-4 (veto condition: CS).
+  changes beyond the fixes list and one stated focus change: the outlines that today use another colour or offset
+  (`app/globals.css:276` checkbox offset −4 px, `:397` and `:407` sheet outlines in `var(--text)`) move to
+  `var(--focus)` with a 2 px offset. Why: approved by the approval council (cycle 2); DS-1, DS-4 (veto condition: CS).
 - 2026-11-01: Base, accent and on-accent values stay unchanged. They change only through the V-1 three-version test.
   Why: approved by the approval council (cycle 2); settled conflict 9 (veto condition: DK, CS).
 - 2026-11-01: The contrast test extends `lib/a11y-contrast.test.ts` from the F-13 branch and keeps

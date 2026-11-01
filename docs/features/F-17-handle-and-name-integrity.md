@@ -1,7 +1,9 @@
 # F-17 · Handle and name integrity: reserved handles, rename hold, display-name rules
 
-Status: ready
-Start conditions: security hardening (#42, which edits `lib/auth/attempts.ts` and `app/auth/actions.ts`) merges first.
+Status: blocked
+Blocked: waits for F-9 (thesis safety, the text normaliser in `lib/moderation.ts`)
+Start conditions: F-9 merges first (its normaliser in `lib/moderation.ts` is reused). Security hardening (#42, which
+edits `lib/auth/attempts.ts` and `app/auth/actions.ts`) has merged (ea7cd52).
 
 ## Why
 There is no reserved-handle list. A rename frees the old handle at once (`lib/auth/attempts.ts`), so a forwarded link
@@ -43,9 +45,10 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
   handle. Why: approved by the approval council (cycle 2) (veto condition: DK).
 - 2026-11-01: Nothing is deleted by this feature. Why: approved by the approval council (cycle 2); POLICY H (veto
   condition: DK).
-- 2026-11-01: Sequencing: starts after #42 merges. If #42 has not merged by the next approval council, this approval
-  lapses to that council. Why: approved by the approval council (cycle 2); every member's condition (veto condition:
-  DK, CS).
+- 2026-11-01: Sequencing: starts after #42 (merged as ea7cd52) and F-9 merge, because the display-name check reuses
+  F-9's normaliser. If F-9 has not merged by the next approval council, this approval lapses to that council. Why:
+  approved by the approval council (cycle 2); every member's condition (veto condition: DK, CS); the F-9 dependency
+  was made explicit after the orchestrator's review.
 
 ## Acceptance criteria
 - [ ] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and

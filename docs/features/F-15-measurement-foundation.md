@@ -1,6 +1,7 @@
 # F-15 · Measurement foundation, first slice: view counts and link sources
 
-Status: ready
+Status: blocked
+Blocked: waits for fix #28 (`via=nav` in `lib/referral.ts`, approval council cycle 2 fixes list)
 Start conditions: fix #28 (`via=nav` in `lib/referral.ts`) merges first. The beacon mounts from its own component and
 does not edit `app/layout.tsx` until F-13 merges. The `share_action` half starts after F-13 merges (F-4 has merged).
 

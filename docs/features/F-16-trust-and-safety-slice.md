@@ -1,6 +1,7 @@
 # F-16 · Trust and safety slice: profile report, owner digest, audited hide, takedown page
 
-Status: ready
+Status: blocked
+Blocked: waits for F-9 (thesis safety, `lib/reports.ts`) and fix #4 (shared visible-user predicate)
 Start conditions: F-9 (thesis safety, which adds `lib/reports.ts`) and fix #4 (one shared visible-user predicate)
 merge first.
 

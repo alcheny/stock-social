@@ -1,8 +1,9 @@
 # F-19 · Number format, tone and ranges: one sign, one Flat, ranges that hold their average
 
 Status: ready
-Start conditions: the first slice (`lib/` only) may start now. The call-site sweep and the placement of the
-What's-this line wait for F-10, F-11 and F-12 and for F-18 to merge.
+Start conditions: this build is the first slice (`lib/` only) and may start now. The call-site sweep, the
+every-surface range test and the placement of the What's-this line are a later rework of this feature (`Status:
+rework`), opened after F-10, F-11, F-12, F-18 and fix #7 merge (see Out of scope).
 
 ## Why
 Signs use a hyphen, decimals vary, and 0.0% is painted red and announced as "Gain". A printed range can exclude its
@@ -14,11 +15,13 @@ and the market council's "What's this?" line (MRC2-5). Approved by the approval 
 ## Decisions
 - 2026-11-01: First slice, `lib/` only: `lib/format.ts` becomes the single home of `pct()`, `winPct()` and `tone()`
   (with Flat). The old homes (`lib/trades.ts`, `lib/open-split.ts`, and `toneClass` in `app/open-rows.tsx`)
-  re-export them. There is one implementation. Why: approved by the approval council (cycle 2). The red team showed
+  re-export or delegate to them. There is one implementation. Why: approved by the approval council (cycle 2). The red team showed
   new helpers beside the old ones would add the drift this feature removes.
 - 2026-11-01: A property test asserts lo ≤ avg ≤ hi on every surface's printing function: profile, pane, feed card,
-  trade, month, stock and images, not `cardEvidence` alone. Why: approved by the approval council (cycle 2). The red
-  team showed a test on `cardEvidence` alone holds by construction once fix #7 lands.
+  trade, month, stock and images, not `cardEvidence` alone. It runs in the sweep rework, after fix #7 moves the
+  remaining surfaces onto the arithmetic range; before that it would fail on today's stock, compare and recap
+  surfaces. Why: approved by the approval council (cycle 2). The red team showed a test on `cardEvidence` alone holds
+  by construction once fix #7 lands; the orchestrator's review placed it after fix #7.
 - 2026-11-01: The What's-this line reads "the range is for the average, not one trade", and it matches the
   computation. Its text and test land with the first slice. It is placed on the stats row with the sweep, after F-18
   merges, because F-18 rewrites the same stats-row lines. Why: approved by the approval council (cycle 2); MRC2-5;
@@ -46,14 +49,14 @@ and the market council's "What's this?" line (MRC2-5). Approved by the approval 
   (cycle 2); EN, PF, RT.
 
 ## Acceptance criteria
-- [ ] `pct`, `winPct` and `tone` are defined only in `lib/format.ts`. The old names in `lib/trades.ts`,
-      `lib/open-split.ts` and `app/open-rows.tsx` are the same function objects, and a grep test fails on a second
-      implementation.
+- [ ] `pct`, `winPct` and `tone` are defined only in `lib/format.ts`. The old names in `lib/trades.ts` and
+      `lib/open-split.ts` re-export them, and `toneClass` in `app/open-rows.tsx` delegates to `lib/format.ts#tone`
+      (asserted by equal outputs over a fixture set). A grep test fails on a second implementation.
 - [ ] `tone(0)` and a printed "0.0%" give Flat, never the loss colour, and never announce "Gain" (unit test).
-- [ ] The lo ≤ avg ≤ hi property test runs over the printing function of every surface (profile, pane, feed card,
-      trade, month, stock page and each share image).
+- [ ] (Sweep rework, after fix #7.) The lo ≤ avg ≤ hi property test runs over the printing function of every surface
+      (profile, pane, feed card, trade, month, stock page and each share image).
 - [ ] The What's-this text "the range is for the average, not one trade" exists as one constant, and a test ties it to
-      the arithmetic range computation. After F-18 merges, it shows on the stats-row What's-this (e2e).
+      the arithmetic range computation. (Sweep rework, after F-18.) It shows on the stats-row What's-this (e2e).
 - [ ] Share images and the display log print the ASCII hyphen, unless a render test of `pct(-0.125)` in each share
       image shows U+2212 is drawn (pixel diff against an empty-box render). Any switch adds a dated display-log note
       and rewrites no row (test) (veto condition: LG, DK).
@@ -68,6 +71,9 @@ and the market council's "What's this?" line (MRC2-5). Approved by the approval 
       the PR's hand-off note lists it.
 
 ## Out of scope
+- The call-site sweep (signs, decimals, Flat on every surface, chart line tone, glossary), the every-surface range test
+  and the What's-this placement: a rework of this feature, opened (`Status: rework`) by the orchestrator after F-10,
+  F-11, F-12, F-18 and fix #7 merge. Criteria marked "(Sweep rework …)" belong to it.
 - `confidence()`, ranking, `RANK_MIN_BETS`, D23 order and D24 wording.
 - O-15 ("Past results" clause), O-16, O-17 (owner).
 - Moving the remaining surfaces onto the arithmetic range: fix #7.
