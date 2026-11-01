@@ -144,9 +144,10 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
     headroom**), and 8 whole calls (≥ 15% margin). Peak database connections were 78.
   - Latency-model test (real 200–500 ms latency, one shard): 2.58 traders/s against a predicted 2.60.
 - `npm run build`: ok.
-- e2e against `npm run start` and the vendor fake: `e2e/sync-shards.spec.ts` (new: auth before parameters for POST and GET, 400s,
-  shard vs shard-0 answers), `e2e/connect.spec.ts`, `e2e/app.spec.ts`, `e2e/privacy-gate.spec.ts`: **94 passed**; after
-  the GET and F-3 merge, sync-shards + connect + privacy-gate: **42 passed**.
+- e2e against `npm run start` and the vendor fake: `e2e/sync-shards.spec.ts` (new: auth before parameters for POST and
+  GET, 400s, sharded vs housekeeping vs unsharded answers), `e2e/connect.spec.ts`, `e2e/app.spec.ts`,
+  `e2e/privacy-gate.spec.ts`: **95 passed** on the final code.
+  - The e2e run regenerates F-2 screenshots; they are restored to main's and are not part of this PR.
   - Locally the pinned Playwright needed the pre-installed Chromium via a throwaway local config, not committed.
   - A new `e2e/cron-lock.ts` serializes cron calls across spec files: `connect.spec.ts` and `privacy-gate.spec.ts` take
     it shared around their calls.
