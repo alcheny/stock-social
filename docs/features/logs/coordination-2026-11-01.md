@@ -27,3 +27,12 @@ earlier than its turn may merge earlier when it does not conflict with an unmerg
 Known overlaps to handle at merge: lib/sync.ts (sync structure, privacy log hygiene); lib/feed.ts and app/page.tsx
 (F-2, F-6); app/u/[handle]/page.tsx (F-4 record length, F-6); lib/copy.ts, app/globals.css, db/schema.sql (most
 sessions); lib/trades.ts (splits; F-6 only if needed).
+
+## Closing finished work (owner, 2026-11-01)
+
+To save tokens, the orchestrator archives a session as soon as its work is complete: its PR merged, or its record
+delivered and checked with nothing left for it. A session never schedules its own recurring check-ins; once its PR
+is open and green and it has reported, it stops and waits for review findings or the merge.
+
+New features approved by the approval council (`team/approval-council.md`, at most three per cycle) join this map
+with their owned files and merge position before their build session starts.
