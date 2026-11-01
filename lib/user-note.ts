@@ -11,7 +11,9 @@
 import { createElement as h, type ReactNode } from 'react';
 
 export type NoteDate = Date | string | null | undefined;
-export type UserNoteProps = { text: string; handle: string; writtenAt?: NoteDate; editedAt?: NoteDate; report?: ReactNode };
+// Fix round 2 (C): `byline={false}` where the surface already names the trader (the feed card's header): the caption
+// starts at the date line, and there is no caption at all without a date or a Report control.
+export type UserNoteProps = { text: string; handle: string; writtenAt?: NoteDate; editedAt?: NoteDate; report?: ReactNode; byline?: boolean };
 
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 const day = (d: NoteDate): string | null => {
@@ -30,10 +32,12 @@ export function noteDateLine(writtenAt: NoteDate, editedAt: NoteDate): string | 
   return null;
 }
 
-export function UserNote({ text, handle, writtenAt, editedAt, report }: UserNoteProps) {
+export function UserNote({ text, handle, writtenAt, editedAt, report, byline = true }: UserNoteProps) {
   const dates = noteDateLine(writtenAt, editedAt);
-  return h('figure', { className: 'user-note', 'data-user-note': '' },
-    h('blockquote', { className: 'user-note-text' }, '“', h('bdi', null, text), '”'),
-    // Fix round 1: the Report control sits inside the caption, so the caption stays the figure's last child.
-    h('figcaption', { className: 'user-note-by muted' }, `Note by @${handle}`, dates ? ` · ${dates}` : null, report ?? null));
+  const quote = h('blockquote', { className: 'user-note-text' }, '“', h('bdi', null, text), '”');
+  // Fix round 1: the Report control sits inside the caption, so the caption stays the figure's last child.
+  const caption = byline
+    ? h('figcaption', { className: 'user-note-by muted' }, `Note by @${handle}`, dates ? ` · ${dates}` : null, report ?? null)
+    : dates || report ? h('figcaption', { className: 'user-note-by muted' }, dates, report ?? null) : null;
+  return h('figure', { className: 'user-note', 'data-user-note': '' }, quote, caption);
 }

@@ -58,9 +58,9 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
         <div className="muted">held {days(t.holding_days)} · closed {CLOSED_DAY.format(t.closed_at)}</div>
       </div>
-      {/* F-9: UserNote */}
+      {/* F-9: UserNote; fix round 2: no byline, the card's header already names the trader */}
       {t.thesis_status === 'published' && t.thesis
-        ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={report ? t.id : undefined} symbol={t.symbol} />
+        ? <UserNote text={t.thesis} handle={t.handle} writtenAt={t.thesis_written_at} editedAt={t.thesis_edited_at} reportId={report ? t.id : undefined} symbol={t.symbol} byline={false} />
         : <p className="thesis"><span className="muted">No thesis posted.</span></p>}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">

@@ -192,7 +192,8 @@ export function PerformanceChart({ points, chart, src, now, linkBase = '', curre
         {chosen && (
           <>
             <div className="line">
-              <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}</span></span>
+              {/* Fix round 2 (H): " · " after the date, so it never runs into the figure ("10/30/2026-1.7%"). */}
+              <span><b>{chosen.symbol}</b> <span className="muted">{chosen.closedAt.toLocaleDateString('en-US')}{' · '}</span></span>
               <b className={chosen.returnPct > 0 ? 'up' : 'down'}>{pct(chosen.returnPct)}</b>
             </div>
             {open && (

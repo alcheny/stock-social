@@ -150,7 +150,10 @@ test('signInErrorText: known codes only; never echoes the URL', () => {
   assert.equal(signInErrorText('name-verified'), NAME_REASON.verified);
   assert.equal(signInErrorText('name-role'), NAME_REASON.role);
   assert.equal(signInErrorText('handle-reserved'), 'That handle is reserved.');
-  assert.equal(signInErrorText('handle-lookalike'), 'That handle looks too much like another one.');
+  // Fix round 2 (D): taken and look-alike say what to do next.
+  assert.equal(signInErrorText('handle-lookalike'), 'That handle looks too much like another one. Try another.');
+  assert.equal(signInErrorText('handle-taken'), 'That handle is taken. Try another.');
+  assert.equal(signInErrorText('handle-format'), 'Handle: 3–20 lowercase letters, numbers or _.');
   for (const bad of [undefined, '', 'name-', 'name-toString', 'handle-ok', 'name-__proto__', 'Buy now at example.com', ['name-role']]) {
     assert.equal(signInErrorText(bad), undefined, String(bad));
   }
@@ -168,4 +171,79 @@ test('dev sign-in: only a typed name is checked, and a refused name or handle go
   const page = readFileSync(new URL('../app/login/dev/page.tsx', import.meta.url), 'utf8');
   assert.match(page, /signInErrorText\(sp\?\.error\)/);
   assert.match(page, /role="alert"/);
+});
+
+// ---- Fix round 2 ----
+
+test('fix round 2 (D): the profile names the handle rejection; taken and look-alike say "Try another."', async () => {
+  const { profileHandleError, HANDLE_RULE } = await import('./handles.ts');
+  assert.equal(HANDLE_RULE, '3–20 lowercase letters, numbers or _');
+  assert.equal(profileHandleError('taken'), 'That handle is taken. Try another.');
+  assert.equal(profileHandleError('lookalike'), 'That handle looks too much like another one. Try another.');
+  assert.equal(profileHandleError('reserved'), 'That handle is reserved.');
+  assert.equal(profileHandleError('format'), '3–20 lowercase letters, numbers or _.');
+  for (const bad of [undefined, '', 'ok', 'toString', '__proto__', 'Buy now', ['taken']]) assert.equal(profileHandleError(bad), undefined, String(bad));
+  const { readFileSync } = await import('node:fs');
+  const page = readFileSync(new URL('../app/u/[handle]/page.tsx', import.meta.url), 'utf8');
+  // The panel opens with an error (the alert inside a collapsed <details> was invisible); the field takes focus.
+  assert.match(page, /<details className="handle-edit" open=\{!!handleError\}>/);
+  assert.match(page, /<input id="new-handle"[^>]*title=\{HANDLE_RULE\}[^>]*autoFocus=\{!!handleError\}[^>]*aria-describedby=\{handleError \? 'handle-hint handle-err' : 'handle-hint'\}/);
+  assert.match(page, /<p id="handle-hint" className="muted small">\{HANDLE_RULE\}<\/p>/);
+  assert.match(page, /\{handleError && <p id="handle-err" role="alert" className="down small">\{handleError\}<\/p>\}/);
+});
+
+test('fix round 2 (F): dev sign-in refusals go back to the form, decided before the attempt row is written', async () => {
+  const { devLoginRedirect, devLoginHandleValue, signInErrorField } = await import('./handles.ts');
+  const { LAUNCH, SIGNIN } = await import('./copy.ts');
+  assert.equal(signInErrorText('closed'), LAUNCH.closed);
+  assert.equal(signInErrorText('attest'), SIGNIN.attestError);
+  assert.equal(signInErrorField('attest'), 'adult');
+  assert.equal(signInErrorField('closed'), 'handle');
+  assert.equal(signInErrorField('handle-format'), 'handle');
+  assert.equal(signInErrorField('name-verified'), 'name');
+  assert.equal(signInErrorField('name-nope'), undefined);
+  assert.equal(signInErrorField('Buy now'), undefined);
+  // The typed handle comes back cut to the handle alphabet; nothing else rides in the URL.
+  assert.equal(devLoginRedirect('handle-format', 'Bad Handle!<b>'), '/login/dev?error=handle-format&handle=badhandleb');
+  assert.equal(devLoginRedirect('attest', ''), '/login/dev?error=attest');
+  assert.equal(devLoginRedirect('closed', 'x'.repeat(40)), `/login/dev?error=closed&handle=${'x'.repeat(20)}`);
+  assert.equal(devLoginHandleValue('<script>Maya'), 'scriptmaya');
+  assert.equal(devLoginHandleValue(['a']), '');
+
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../app/actions.ts', import.meta.url), 'utf8');
+  const login = src.slice(src.indexOf('export async function login'), src.indexOf('export async function saveThesis'));
+  const attempt = login.indexOf('createAttempt(');
+  for (const step of ["back('handle-format')", "back('attest')", "back('closed')", 'back(`name-${c.code}`)', 'back(`handle-${verdict}`)']) {
+    assert.ok(login.indexOf(step) > 0 && login.indexOf(step) < attempt, `${step} before createAttempt`);
+  }
+  assert.doesNotMatch(login, /throw new Error\('Handle: /, 'a bad-format handle is no longer a 500');
+  assert.doesNotMatch(login, /devLoginRedirect\([^)]*name/, 'the name is never echoed');
+  const page = readFileSync(new URL('../app/login/dev/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /<p id="dev-err" role="alert" className="down small">\{error\}<\/p>/);
+  assert.match(page, /<input id="handle"[^>]*title=\{HANDLE_RULE\}[^>]*defaultValue=\{devLoginHandleValue\(sp\?\.handle\)\}[^>]*aria-describedby=\{desc\('handle', 'handle-hint'\)\}/);
+  assert.match(page, /<p id="handle-hint" className="muted small">\{HANDLE_RULE\}<\/p>/);
+  assert.match(page, /<input id="name"[^>]*aria-describedby=\{desc\('name'\)\}/);
+  assert.doesNotMatch(page, /sp\?\.name/, 'the name is never read back from the URL');
+});
+
+test('fix round 2 (G): misspelt verified/official names, l-for-i reserved handles, doubled and digit look-alikes of demo handles', () => {
+  for (const n of ['Maya Verifled', 'Maya Offical', 'Maya Verfied', 'Maya Oficial', 'Maya 0ffical', 'Maya V3rifled']) {
+    const c = checkDisplayName(n);
+    assert.ok(!c.ok && c.code === 'verified', n);
+  }
+  for (const h of ['admln', 'verlfied', 'offlcial', 'the_admln']) assert.equal(handleVerdict(h, ctx()), 'reserved', h);
+  const demo = { others: [], demo: [...DEMO, 'swing_sam'] };
+  for (const h of ['momentumm_maya', 'mommentum_maya', 'momentum_mayya', 'swing_5am', 'm0mentum_maya', 'd1v1dend_dan']) assert.equal(handleVerdict(h, demo), 'lookalike', h);
+});
+
+test('fix round 2 (G): no over-blocking — ordinary handles and names stay free', () => {
+  const demo = { others: [], demo: [...DEMO, 'swing_sam'] };
+  for (const h of ['trader_2024', 'maya_2024', 'reporter', 'admiral_x', 'supportive', 'stafford', 'theme', 'dillon', 'allie', 'swing_trader',
+    'sam_swings', 'momentum_max', 'dan_2', 'officer_k', 'billie_l', 'lillian', 'allison_99', 'swing_5', 'yolo_yukio']) {
+    assert.equal(handleVerdict(h, demo), 'ok', h);
+  }
+  for (const n of ['dillon', 'allie', 'Lillian', 'Officer K', 'Dave Rified', 'Vera Field', 'Office Hours', 'Offcourse Trading', 'Maya']) {
+    assert.ok(checkDisplayName(n).ok, n);
+  }
 });

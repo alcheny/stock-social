@@ -86,3 +86,44 @@ test('F-9: a published note shows its author and date; Report is keyboard reacha
     await sql.end({ timeout: 1 });
   }
 });
+
+// Fix round 2 (B): only the author sees a held note's line, which names the reason in plain words (muted, never the loss
+// colour); a reader-report hold says readers reported it, with no count. Signed out and as a reader neither line shows.
+test('fix round 2: the author sees why a note is held; a reported note names no count; nobody else sees either', async ({ page }) => {
+  test.setTimeout(90_000);
+  // Its own pool: the test above ends the shared one (lib/db.ts) when it finishes.
+  const sql = (await import('postgres')).default(process.env.DATABASE_URL!, { onnotice: () => {} });
+  const tag = rand();
+  const trader = `f9h${tag}`;
+  const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+    insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${trader}, ${trader}, now(), a.id from a returning id`;
+  try {
+    const [byRule] = await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified, thesis, thesis_status, thesis_hold_rule)
+      values (${u.id}, ${`f9h-a-${tag}`}, 'a', 'HELDA', now() - interval '3 days', now() - interval '1 day', 0.02, 2, true, ${`see example.com ${tag}`}, 'held', 'link') returning id`;
+    const [byReports] = await sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified, thesis, thesis_status, thesis_hold_rule)
+      values (${u.id}, ${`f9h-b-${tag}`}, 'a', 'HELDB', now() - interval '4 days', now() - interval '2 days', -0.03, 2, true, ${`reported note ${tag}`}, 'held', 'reports') returning id`;
+    await page.goto(`/u/${trader}`);
+    await expect(page.locator('p.thesis-held')).toHaveCount(0);
+    await expect(page.getByText(`see example.com ${tag}`)).toHaveCount(0);
+
+    await signIn(page, trader);
+    const a = page.locator(`#trade-${byRule.id} p.thesis-held`);
+    await expect(a).toHaveText('Thesis held for review. Only you can see it. Held because it has a link or web address. Edit it to publish, or it stays held until reviewed.');
+    const b = page.locator(`#trade-${byReports.id} p.thesis-held`);
+    await expect(b).toHaveText('Thesis held for review. Only you can see it. Readers reported it; it stays held until reviewed.');
+    for (const l of [a, b]) {
+      await expect(l).toHaveClass(/\bmuted\b/);
+      await expect(l).not.toHaveClass(/\bdown\b/);
+    }
+    // Muted, never the loss colour: the line's colour is the muted token, not the loss figure's.
+    const colours = await page.evaluate((ids) => {
+      const line = document.querySelector(`#trade-${ids[0]} p.thesis-held`)!;
+      const loss = document.querySelector(`#trade-${ids[1]} b.down`)!;
+      return [getComputedStyle(line).color, getComputedStyle(loss).color];
+    }, [byRule.id, byReports.id]);
+    expect(colours[0]).not.toBe(colours[1]);
+  } finally {
+    await sql`delete from users where handle = ${trader}`;
+    await sql.end({ timeout: 1 });
+  }
+});

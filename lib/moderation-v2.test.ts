@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { HOLD_V2, LONG_WORDS, moderate, moderateDetail } from './moderation.ts';
+import { figures, HOLD_V2, LONG_WORDS, moderate, moderateDetail, RULE_EXPLAIN } from './moderation.ts';
 import { sanitizeUserText } from './text-safety.ts';
 
 const ZW = '​';
@@ -207,4 +207,75 @@ test('fix round 1: invisible fillers inside a domain never hide it', () => {
     assert.equal(moderateDetail(t).status, 'held', JSON.stringify(t));
     assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(t));
   }
+});
+
+// ---- Fix round 2 (tester round 2 + business lead; committee accepted the revision of decision 2) ----
+
+// A decimal point is not a sentence break; a singular "my pick" is talk; "verified" and copy trading hold only as
+// claims or offers; macro and fundamental figures with a time total publish.
+const NEGATIVE_R2: string[] = [
+  'Inflation ran 3.2% annualized last quarter.', 'Unemployment ticked to 4.3% this month.', 'Revenue grew 20.5% a year for five years.',
+  'Dividend yield 4.2% a year.', 'CPI rose 0.3% this month.', 'Index up 1.5% this week.',
+  'Mid-cap index up 11% this year; my pick was flat.', 'My pick was wrong.', 'Our pick of entry was poor.', 'My tip: size small.',
+  'Bought on an unverified rumor', 'Verified the guidance raise on the call', 'Copy trading names were hot so I sold',
+  'Copy trading platforms looked crowded, so I passed.', 'my plan is simple', 'my stop is 52', 'my stop is 52.40', 'my risk is 1R',
+  'my target is the 50-day', 'my exit is fy25 guidance', 'my price alerts fired twice', 'my alerts are set at 50',
+  'Shares fell 40% in 2 weeks.', '40% in 2 weeks for the sector.', 'Up 25% since March for the index.', 'Up 12% on earnings, sold half.',
+  'Revenue doubled this year.', 'I doubled down on the dip.', 'I doubled my position at 50.', 'find me at the open, I trade the first hour',
+  'Streaming subscribers grew 5% this quarter.', 'Sold one hundred shares at the open.', 'Analysts call it the pick of the litter',
+];
+
+// [text, expected label]
+const BYPASS_R2: [string, string][] = [
+  // picks, tips and price targets
+  ['my top 3 picks', 'picks or tips'], ['my favorite picks this week', 'picks or tips'], ['my picks', 'picks or tips'],
+  ['target price 300', 'picks or tips'], ['PT 300', 'picks or tips'], ["today's pick", 'picks or tips'], ['today’s pick: XYZ', 'picks or tips'],
+  ['Pick of the week is in', 'picks or tips'],
+  // subject-dropped and figure-free return claims
+  ['Made 60% this year with this system.', 'return claim'], ['Returns this year: 75%.', 'return claim'],
+  ['Up 85% since spring on my swing setup.', 'return claim'], ['Doubled my money twice this year.', 'return claim'],
+  ['Tripled the account in 6 months.', 'return claim'], ['I am up two hundred percent.', 'return claim'], ['made 40% this year', 'return claim'],
+  ['40% in 2 weeks on my setup.', 'return claim'], ['40% in 2 weeks, all on my system.', 'return claim'], ['40% this qtr', 'return claim'],
+  ['40% annual', 'return claim'], ['40% a yr', 'return claim'], ["We're up fifty percent.", 'return claim'],
+  ['Up 30% since March on my account.', 'return claim'], ['Made 30% since 2025.', 'return claim'],
+  // verified: a claim about the self, the account, the record, the trades or the platform
+  ["I'm verified", 'platform claim'], ['verified trader', 'platform claim'], ['my record is verified', 'platform claim'],
+  ['verified returns', 'platform claim'], ['stock social verified', 'platform claim'], ['I am a verified trader', 'platform claim'],
+  ['All my trades are verified.', 'platform claim'], ['verified', 'platform claim'],
+  // copy trading: the solicitation and the offer
+  ['replicate my trades', 'copy trading'], ['tail my trades', 'copy trading'], ['mirror my moves', 'copy trading'], ['trade with me', 'copy trading'],
+  ['auto-copy is open for members', 'copy trading'], ['copy trading spots open', 'copy trading'],
+  // contact and promotion
+  ['msg me', 'contact details'], ['find me at example_trader on the bird app', 'contact details'], ['my chat app is alpha_desk', 'contact details'],
+  ['my handle there is trader2024', 'contact details'], ['subscribers get the entries first', 'promotion'], ['my alerts go out at 9', 'promotion'],
+];
+
+test('fix round 2: decimals, singular picks, ordinary "verified" and copy-trading talk publish (no rule)', () => {
+  for (const t of NEGATIVE_R2) {
+    assert.deepEqual(moderateDetail(t), { status: 'published', rule: null }, JSON.stringify(t));
+    assert.deepEqual(moderateDetail(sanitizeUserText(t)), { status: 'published', rule: null }, JSON.stringify(t));
+  }
+});
+
+test('fix round 2: picks, dropped-subject returns, self-verification, copy offers, handles and alert services are held', () => {
+  for (const [t, label] of BYPASS_R2) {
+    assert.deepEqual(moderateDetail(t), { status: 'held', rule: label }, JSON.stringify(t));
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(sanitizeUserText(t)));
+  }
+});
+
+test('fix round 2: number words read as figures', () => {
+  assert.equal(figures('up two hundred percent'), 'up 200%');
+  assert.equal(figures('fifty-five pct'), '55%');
+  assert.equal(figures('one hundred and twenty percent'), '120%');
+  assert.equal(figures('one hundred shares'), 'one hundred shares');
+});
+
+test('fix round 2: every label has a plain explanation', () => {
+  for (const r of [...HOLD_V2, ...LONG_WORDS]) assert.ok(RULE_EXPLAIN[r.label], r.label);
+  assert.deepEqual(RULE_EXPLAIN, {
+    link: 'a link or web address', 'contact details': 'contact details or an @mention', promotion: 'a promotion',
+    'picks or tips': 'a stock pick or price target', 'platform claim': 'a claim about this site or being verified',
+    'return claim': 'a return claim beyond this trade', 'copy trading': 'an offer to copy trades',
+  });
 });

@@ -4,6 +4,7 @@ import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { normalizeHandle } from './referral.ts';
 import { leet, sanitizeUserText, skeleton, squash } from './text-safety.ts';
+import { LAUNCH, SIGNIN } from './copy.ts';
 
 // A deleted or renamed handle stays unavailable to others for a year (lib/delete.ts re-exports this).
 export const HANDLE_RESERVED_DAYS = 365;
@@ -44,9 +45,9 @@ export const stripTail = (h: string): string => h.replace(/[0-9_]+$/, '');
 const flatReadings = (h: string): string[] => [...new Set([hskel(h), hskel(h.replaceAll('1', 'i'))])].map((k) => k.replaceAll('_', ''));
 const RESERVED_FLAT = new Set(RESERVED.map((r) => r.replaceAll('_', '')));
 const STAFF = new Set(STAFF_WORDS);
-const staffForm = (f: string): boolean => {
+const staffForm = (f: string, staff: ReadonlySet<string> = STAFF): boolean => {
   const bare = f.replace(/^the(?=.)/, '');
-  return [f, bare].some((v) => STAFF.has(v) || (v.endsWith('s') && STAFF.has(v.slice(0, -1))));
+  return [f, bare].some((v) => staff.has(v) || (v.endsWith('s') && staff.has(v.slice(0, -1))));
 };
 // Serializes look-alike handle claims (changeHandle, createUserForAttempt): two transactions after the same skeleton
 // take turns, so they can't both pass the check before either commits.
@@ -70,19 +71,33 @@ export type HandleContext = {
 // display-name rules use too, so a handle the rules accept is always an acceptable display name (the dev sign-in
 // falls back to it).
 const allReadings = (h: string): string[] => [...new Set([h, ...leet(h)].flatMap(flatReadings))];
+// Fix round 2 (G): l and i read alike in the reserved comparisons ("admln", "verlfied", "offlcial"): both the handle's
+// readings and the reserved words are compared with every l turned into i.
+const il = (f: string) => f.replaceAll('l', 'i');
+const RESERVED_FLAT_IL = new Set([...RESERVED.map((r) => il(r.replaceAll('_', '')))]);
+const SUBSTRINGS_IL = RESERVED_SUBSTRINGS.map(il);
+const STAFF_IL = new Set(STAFF_WORDS.map(il));
 
 function isReserved(h: string, provisional: boolean): boolean {
   if (RESERVED.includes(h)) return true;
-  if (allReadings(h).some((f) => RESERVED_SUBSTRINGS.some((w) => f.includes(w)))) return true;
+  if (allReadings(h).some((f) => RESERVED_SUBSTRINGS.some((w) => f.includes(w)) || SUBSTRINGS_IL.some((w) => il(f).includes(w)))) return true;
   if (provisional) return false;
   const forms = [...allReadings(h), ...allReadings(stripTail(h))].filter((f) => f.length > 0);
-  return forms.some((f) => RESERVED_FLAT.has(f) || staffForm(f) || roleOnly(f));
+  return forms.some((f) => RESERVED_FLAT.has(f) || staffForm(f) || roleOnly(f) || RESERVED_FLAT_IL.has(il(f)) || staffForm(il(f), STAFF_IL));
 }
 
 // A demo handle's look-alike: same flat reading, or the same with a doubled last letter.
+// Fix round 2 (G): also with any doubled letter collapsed ("momentumm_maya", "mommentum_maya") and with a digit read as
+// a letter ("swing_5am" next to "swing_sam", "d1v1dend_dan"), both sides compared the same way.
+const collapse = (f: string) => f.replace(/(.)\1+/g, '$1');
+const demoForms = (h: string): string[] => {
+  const t = stripTail(h);
+  return [...new Set([t, ...leet(t)].flatMap(flatReadings).flatMap((f) => [f, collapse(f)]))].filter((f) => f.length > 0);
+};
 function demoLookalike(h: string, demo: readonly string[]): boolean {
   const mine = flatReadings(stripTail(h)).flatMap((f) => (/(.)\1$/.test(f) ? [f, f.slice(0, -1)] : [f])).filter((f) => f.length > 0);
-  return demo.some((d) => d !== h && flatReadings(stripTail(d)).some((f) => mine.includes(f)));
+  const wide = new Set([...mine, ...demoForms(h)]);
+  return demo.some((d) => d !== h && (flatReadings(stripTail(d)).some((f) => mine.includes(f)) || demoForms(d).some((f) => wide.has(f))));
 }
 
 // Pure verdict for an already-fetched context.
@@ -139,8 +154,9 @@ export const NAME_REASON = {
   role: 'Display names can’t be only a staff or team word.',
 } as const;
 export type NameReasonCode = keyof typeof NAME_REASON;
+// Fix round 2 (G): common misspellings too ("Verifled", "Verfied", "Offical", "Oficial"), on the skeleton and leet forms.
 const NAME_WORDS: [RegExp, NameReasonCode][] = [
-  [/verified|official/, 'verified'],
+  [/verified|official|ver+[il1]?f[il1y]+e?d|of+[il1]c+[il1]?a[l1]/, 'verified'],
   [/stock\s?social|snaptrade/, 'brand'],
 ];
 // Fix round 1: a name that is only a staff or role word ("Admin", "Support Team", "The Moderators"), compared on its
@@ -192,16 +208,45 @@ export async function recheckDisplayNames(opts: { userIds?: number[]; db?: typeo
 
 // Fix round 1 (dev sign-in): the reason shown for an `error` code on /login/dev (app/actions.ts#login redirects with
 // `name-<code>` or `handle-<verdict>`). Unknown codes show nothing, so the URL can't put words on the page.
+// Fix round 2 (D): taken and look-alike say what to do next ("Try another."); reserved and format are unchanged.
+export const HANDLE_RULE = '3–20 lowercase letters, numbers or _';
 const HANDLE_REASON: Record<Exclude<HandleVerdict, 'ok'>, string> = {
-  taken: 'That handle is taken.',
+  taken: 'That handle is taken. Try another.',
   reserved: 'That handle is reserved.',
-  lookalike: 'That handle looks too much like another one.',
-  format: 'Handle: 3–20 lowercase letters, numbers or _.',
+  lookalike: 'That handle looks too much like another one. Try another.',
+  format: `Handle: ${HANDLE_RULE}.`,
 };
+// The profile's handle-change rejection (app/u/[handle]/page.tsx, ?handle=<verdict>): the same words, format without
+// the "Handle:" prefix (the field is already labelled). Unknown values show nothing.
+const PROFILE_HANDLE_REASON: Record<string, string> = { ...HANDLE_REASON, format: `${HANDLE_RULE}.` };
+export const profileHandleError = (k: unknown): string | undefined =>
+  typeof k === 'string' && Object.hasOwn(PROFILE_HANDLE_REASON, k) ? PROFILE_HANDLE_REASON[k] : undefined;
+// Fix round 2 (F): the dev form also names a closed sign-up and a missing 18+ box (whole codes, no dash).
+const WHOLE_CODES: Record<string, string> = { closed: LAUNCH.closed, attest: SIGNIN.attestError };
 export function signInErrorText(code: unknown): string | undefined {
   if (typeof code !== 'string') return undefined;
+  if (Object.hasOwn(WHOLE_CODES, code)) return WHOLE_CODES[code];
   const [kind, key] = [code.slice(0, code.indexOf('-')), code.slice(code.indexOf('-') + 1)];
   if (kind === 'name' && Object.hasOwn(NAME_REASON, key)) return NAME_REASON[key as NameReasonCode];
   if (kind === 'handle' && Object.hasOwn(HANDLE_REASON, key)) return HANDLE_REASON[key as Exclude<HandleVerdict, 'ok'>];
   return undefined;
 }
+
+/** Fix round 2 (F): the field a dev sign-in error code is about, for aria-describedby; undefined for unknown codes. */
+export function signInErrorField(code: unknown): 'handle' | 'name' | 'adult' | undefined {
+  if (signInErrorText(code) === undefined) return undefined;
+  if (code === 'attest') return 'adult';
+  return String(code).startsWith('name-') ? 'name' : 'handle';
+}
+
+/**
+ * Fix round 2 (F): where a refused dev sign-in goes back to. The typed handle comes back as the field's value, cut to
+ * the handle alphabet (lower case, a–z 0–9 _, at most 20), so the URL never carries other text. The display name is
+ * never echoed (it is free text; the trader types it again).
+ */
+export function devLoginRedirect(code: string, typedHandle: unknown): string {
+  const h = String(typedHandle ?? '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
+  return `/login/dev?error=${encodeURIComponent(code)}${h ? `&handle=${h}` : ''}`;
+}
+/** The handle value the dev form shows again (the same cut as devLoginRedirect). */
+export const devLoginHandleValue = (v: unknown): string => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20) : '');

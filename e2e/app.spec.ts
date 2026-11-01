@@ -269,6 +269,9 @@ test('thesis moderation holds risky claims and publishes clean ones', async ({ p
   await first.getByRole('textbox').fill('Guaranteed 100x, DM me');
   await first.getByRole('button', { name: 'Save' }).click();
   await expect(first.getByText('Thesis held for review.')).toBeVisible();
+  // Fix round 2 (B): the author's line names the reason in plain words, muted.
+  await expect(first.locator('p.thesis-held')).toHaveText('Thesis held for review. Only you can see it. Held because it has contact details or an @mention. Edit it to publish, or it stays held until reviewed.');
+  await expect(first.locator('p.thesis-held')).toHaveClass(/\bmuted\b/);
 
   await first.getByRole('textbox').fill('Rotation into staples ahead of CPI.');
   await first.getByRole('button', { name: 'Save' }).click();

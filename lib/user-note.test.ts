@@ -90,12 +90,53 @@ test('every thesis surface renders through UserNote and nowhere else prints thes
   assert.match(read('../app/feed-rows.tsx'), /report=\{!!page\.viewer && page\.viewer\.id !== t\.user_id\}/);
 });
 
-test('the author sees "held for review" and the matched rule as text, muted (never the loss colour)', () => {
+// Fix round 2 (B): the rule is named by its plain explanation (lib/report-copy.ts#heldLine) instead of the raw label.
+test('the author sees "held for review" and the matched rule as text, muted (never the loss colour)', async () => {
   const s = read('../app/u/[handle]/page.tsx');
   const line = s.split('\n').find((l) => l.includes("t.thesis_status === 'held'"))!;
   assert.match(line, /isMe &&/);
   assert.match(line, /className="muted thesis-held"/);
-  assert.match(line, /Thesis held for review\./);
-  assert.match(line, /Matched rule: \$\{t\.thesis_hold_rule\}/);
+  assert.match(line, /\{heldLine\(t\.thesis_hold_rule\)\}/);
+  const { heldLine } = await import('./report-copy.ts');
+  assert.match(heldLine('promotion'), /^Thesis held for review\. .*Held because it has a promotion\./);
   assert.doesNotMatch(line, /\bdown\b|--down/);
+});
+
+// Fix round 2 (C): the feed card already names the trader, so its note has no byline.
+test('byline={false}: the caption starts at the date line; no caption without a date or a Report control', () => {
+  const w = new Date('2026-10-05T15:00:00Z');
+  assert.equal(render({ text: 'x', handle: 'h', writtenAt: w, byline: false }),
+    '<figure class="user-note" data-user-note=""><blockquote class="user-note-text">“<bdi>x</bdi>”</blockquote><figcaption class="user-note-by muted">Written Oct 5, 2026, after the trade closed</figcaption></figure>');
+  assert.equal(render({ text: 'x', handle: 'h', byline: false }), '<figure class="user-note" data-user-note=""><blockquote class="user-note-text">“<bdi>x</bdi>”</blockquote></figure>');
+  assert.equal(render({ text: 'x', handle: 'h', byline: false, report: createElement('button', null, 'Report') }),
+    '<figure class="user-note" data-user-note=""><blockquote class="user-note-text">“<bdi>x</bdi>”</blockquote><figcaption class="user-note-by muted"><button>Report</button></figcaption></figure>');
+  assert.doesNotMatch(render({ text: 'x', handle: 'h', writtenAt: w, byline: false }), /Note by/);
+  // The default keeps the byline (profile, trade page, /t, pane).
+  assert.match(render({ text: 'x', handle: 'h', writtenAt: w }), /Note by @h · Written Oct 5, 2026/);
+  assert.match(render({ text: 'x', handle: 'h', byline: true }), /Note by @h<\/figcaption>/);
+});
+
+test('byline: only the feed card drops it; profile, trade page, /t and the pane keep "Note by @handle"', () => {
+  assert.match(read('../app/ui.tsx'), /<UserNote text=\{t\.thesis\}[^>]*byline=\{false\}/);
+  for (const f of ['../app/u/[handle]/page.tsx', '../app/u/[handle]/trade/[sellId]/page.tsx', '../app/t/[symbol]/Theses.tsx', '../app/u/[handle]/chart.tsx']) {
+    assert.doesNotMatch(read(f), /byline=\{false\}/, f);
+  }
+});
+
+// Fix round 2 (E): the Report control's focus ring clears the caption; on /t/[symbol] the note is outside the row link.
+test('the Report control sits 4px below the caption; the /t row link holds no note', () => {
+  const css = read('../app/globals.css');
+  const block = css.slice(css.indexOf('/* fix-user-text: UserNote'));
+  assert.match(block, /\.user-note \.report-note \{[^}]*margin: 4px 0 0;/);
+  const t = read('../app/t/[symbol]/Theses.tsx');
+  const link = t.slice(t.indexOf('<Link href={`/u/${r.handle}#trade-${r.id}`}'), t.indexOf('</Link>'));
+  assert.ok(link.length > 0);
+  assert.doesNotMatch(link, /UserNote/, 'the note is not inside the row link');
+  assert.ok(t.indexOf('<UserNote text={r.thesis}') > t.indexOf('</Link>'), 'the note follows the row link');
+});
+
+// Fix round 2 (H): the chart sheet header separates the date from the figure.
+test('chart sheet header: " · " between the close date and the figure', () => {
+  const c = read('../app/u/[handle]/chart.tsx');
+  assert.match(c, /\{chosen\.closedAt\.toLocaleDateString\('en-US'\)\}\{' · '\}<\/span><\/span>\s*<b className=\{chosen\.returnPct > 0 \? 'up' : 'down'\}>/);
 });

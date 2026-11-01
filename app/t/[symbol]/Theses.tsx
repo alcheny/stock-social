@@ -25,10 +25,11 @@ export default function Theses({ list, symbol, badgeFor = (v) => (v ? 'verified'
               <Link href={`/u/${r.handle}#trade-${r.id}`} className="trow">
                 <span className="who">@{r.handle} <RowBadge kind={badgeFor(r.verified, r.handle)} /></span>
                 <b className={r.returnPct > 0 ? 'up' : 'down'}>{pct(r.returnPct)}</b>
-                {/* F-9: UserNote (no Report here: the row is one link) */}
-                <UserNote text={r.thesis} handle={r.handle} writtenAt={r.writtenAt} editedAt={r.editedAt} />
                 <span className="muted">held {held(r.holdingDays)} · {date(r.closedAt)}</span>
               </Link>
+              {/* F-9: UserNote (no Report here yet). Fix round 2 (E): a sibling under the row link, not inside it, so the
+                  link's name stays short (handle, badge, figure, held time, date). */}
+              <UserNote text={r.thesis} handle={r.handle} writtenAt={r.writtenAt} editedAt={r.editedAt} />
             </li>
           ))}
         </ul>
