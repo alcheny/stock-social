@@ -133,3 +133,31 @@ dbTest('fewer than 200 capped closes in a year: the full pass answers', async ()
     await f.remove();
   }
 });
+
+dbTest('every close inside 14 days but fewer than 200 capped: the 14-day statement answers as the full pass (no second pass)', async () => {
+  const f = await fixture({ fresh: { n: 15, closes: 6, days: (t, i) => (t + i) % 10 }, four: { n: 2, closes: 4, days: (_t, i) => i } });
+  try {
+    const { candidateRows } = await import('./feed.ts');
+    const asOf = new Date(Date.now() - 30_000), opts = { asOf, day: asOf.toISOString().slice(0, 10), ids: f.ids };
+    const full = await candidateRows(opts, 'full');
+    const got = await candidateRows(opts);
+    assert.equal(got.window, 336, 'the 14-day window held every close');
+    // The same rows; the fingerprints name the window ('c'), with the same counts and newest id as the full pass's ('f').
+    const key = (r: Record<string, unknown>) => ({ ...r, pm: String(r.pm).replace(/^[cf]/, '') });
+    assert.deepEqual(got.rows.map(key), full.rows.map(key));
+    assert.ok(got.rows.every((r) => String(r.pm).startsWith('c')));
+    assert.equal(got.rows.filter((r) => !r.x).length, 90);
+  } finally {
+    await f.remove();
+  }
+});
+
+dbTest('a step whose window adds no close is skipped: closes only within 14 days and older than a year go straight to the full pass', async () => {
+  const f = await fixture({ fresh: { n: 10, closes: 6, days: (t, i) => (t + i) % 10 }, ancient: { n: 10, closes: 6, days: (t, i) => 500 + t + i } });
+  try {
+    const asOf = new Date(Date.now() - 30_000);
+    await same({ asOf, day: asOf.toISOString().slice(0, 10), ids: f.ids }, null);
+  } finally {
+    await f.remove();
+  }
+});

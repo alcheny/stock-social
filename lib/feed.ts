@@ -1,3 +1,4 @@
+import type { PendingQuery, Row, TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { recordStates, type RecordStatus } from './connections.ts';
 import { groupByUser } from './pane.ts';
@@ -117,53 +118,83 @@ async function candidatesAt(opts: CandOpts): Promise<Candidate[]> { return (awai
 // Test hook: the candidate rows (exploration picks and weight fingerprints included) and the window that answered them
 // (hours; null = the full pass), or the full pass itself with `force = 'full'`.
 export async function candidateRows(opts: CandOpts, force?: 'full'): Promise<{ rows: Candidate[]; window: number | null }> {
-  if (force === 'full') return { rows: await candidateQuery(opts, null), window: null };
+  if (force === 'full') return { rows: await candidateQuery(sql, opts, null), window: null };
   // The recent window first. Exact when it fills the 200 and its 200th score S is above anything an older close can
   // score: a close older than the window scores at most SIZE_MAX · e^(−RECENT_HOURS/RECENCY_HOURS) (≈ 0.65), so with
   // S above that, every close scoring ≥ S is in the window and the per-trader ranks of those closes are the same.
+  const proven = (rows: Candidate[], win: number) => {
+    const top = rows.filter((t) => !t.x);
+    return top.length === FEED_CANDIDATES && Number(top[top.length - 1].score) > SIZE_MAX * Math.exp(-win / RECENCY_HOURS);
+  };
+  // A wider window can only answer differently when it holds more closes, so before each step one index probe reads the
+  // newest close at or before the last window's start (any import state, so "none" is exact): none means that window
+  // already held every close and its answer is the full pass's (the 14-day statement's picks included: c, elig and r are
+  // the full pass's; only the fingerprint prefix differs); a step whose window adds no close is skipped.
+  const RR = 'isolation level repeatable read read only';
+  const clock = (opts.asOf ?? new Date()).getTime();
+  const first = await sql.begin(RR, async (tx) => {
+    const recent = await candidateQuery(tx, opts, RECENT_HOURS);
+    if (proven(recent, RECENT_HOURS)) return { rows: recent, old: null };
+    const old = await olderThan(tx, opts, RECENT_HOURS);
+    return { rows: old ? null : recent, old };
+  });
+  if (first.rows) return { rows: first.rows, window: RECENT_HOURS };
+  let old = first.old;
   // Known limit removed (known-limits sweep 2): on a quiet site (the 200th close must be about 2.6 days old or newer for
   // the 14-day proof) every new list ranked every close in closed_trades. Wider windows are tried first, with the same
   // proof (MAX_DECAY = 600 is above 365 d / 48 h = 182.5, so an older close scores at most SIZE_MAX · e^(−W/48): 6.6e−11
-  // at 60 days, ~1e−77 at 365): the 200 and their order are the full pass's. Their exploration picks are the full pass's
-  // too (WIDE_WINDOWS, candidateQuery). Quiet-site fixture (200,500 closes, none in 14 days, lib/feed.window.load.test.ts):
-  // candidates 768–1,616 ms (full pass) → 225–300 ms (60-day step); page 1 p95 2,005 ms → median 261 ms.
-  for (const win of [RECENT_HOURS, ...WIDE_WINDOWS]) {
-    const rows = await candidateQuery(opts, win);
-    const top = rows.filter((t) => !t.x);
-    if (top.length === FEED_CANDIDATES && Number(top[top.length - 1].score) > SIZE_MAX * Math.exp(-win / RECENCY_HOURS)) return { rows, window: win };
+  // at 60 days, ~1e−77 at 365): the 200 and their order are the full pass's. A step reads the 200 alone; only a step
+  // that proves them reads its picks (pickQuery, the full pass's rule), in the same snapshot (one repeatable-read
+  // transaction), so a failed step costs its window's closes and one probe. Quiet-site fixture (200,500 closes, none in
+  // 14 days, lib/feed.window.load.test.ts): candidates 768–1,616 ms (full pass) → 160–300 ms (60-day step).
+  for (const win of WIDE_WINDOWS) {
+    if (!old) break;
+    if (old.getTime() <= clock - win * 3_600_000) continue; // this window adds no close: it fails as the last one did
+    const step: { rows: Candidate[] | null; old: Date | null } = await sql.begin(RR, async (tx) => {
+      const top = await candidateQuery(tx, { ids: opts.ids, asOf: opts.asOf }, win);
+      if (!proven(top, win)) return { rows: null, old: await olderThan(tx, opts, win) };
+      return { rows: opts.day ? [...top, ...await pickQuery(tx, opts, top.map((t) => t.user_id))] : top, old: null };
+    });
+    if (step.rows) return { rows: step.rows, window: win };
+    old = step.old;
   }
-  // ponytail: when not even 365 days prove the 200 (fewer than 200 capped closes of eligible traders in a year), this
-  // still ranks every close in closed_trades per (day, asOf) and per server; each failed step also cost its window's
-  // closes — keep a per-trader best-close summary refreshed on sync if a large table ever lands here.
-  return { rows: await candidateQuery(opts, null), window: null };
+  // ponytail: when not even 365 days prove the 200 (fewer than 200 capped closes of eligible traders in a year, with
+  // closes older than the last window tried), this still ranks every close in closed_trades per (day, asOf) and per
+  // server, after the failed steps' window reads — keep a per-trader best-close summary refreshed on sync if a large table
+  // ever lands here.
+  return { rows: await candidateQuery(sql, opts, null), window: null };
 }
-// The windows tried after RECENT_HOURS (hours). On these, the picks (x rows) are not the window's: the 14-day path's
-// picks come from traders with a close in the window (e2e "Exploration slots"), the full pass's from every eligible
-// trader. A wider step stands in for the full pass, so its picks follow the full pass's rule exactly: users in the
-// day-seeded order md5(day || id), each probed for eligibility at asOf (at most 5 closes read by closed_trades_user,
-// the same deletion and import predicates as `elig`), the first EXPLORE_EXTRA outside the 200 taken, then each pick's
-// best close by the same order as `r` (rk = 1) and its full-pass weight fingerprint ('f' || max id || ':0', pn = pk =
-// its closes at asOf). Cost: an md5 sort of the users plus one probe per user walked, never a scan of closed_trades.
-// ponytail: the picks walk users in md5 order, so a site with many signed-up users without a record probes each one it
-// passes (all of them when fewer than EXPLORE_EXTRA traders are eligible) — keep an eligible-trader list refreshed on sync.
+// The newest close at or before a window's start (the `ids` hook applied), any import state: one backward probe of
+// closed_trades_recent.
+async function olderThan(q: Q, { ids, asOf }: CandOpts, win: number): Promise<Date | null> {
+  const clock = asOf ? sql`${asOf}::timestamptz` : sql`now()`;
+  const [r] = await q`select max(closed_at) as m from closed_trades where closed_at <= ${clock} - ${win} * interval '1 hour'
+    ${ids ? sql`and user_id in ${sql(ids.length ? ids : [0])}` : sql``}`;
+  return (r?.m as Date | null) ?? null;
+}
+// The windows tried after RECENT_HOURS (hours).
 const WIDE_WINDOWS = [60 * 24, 365 * 24];
 
-async function candidateQuery({ ids, asOf, day }: CandOpts, win: number | null): Promise<Candidate[]> {
+type Q = TransactionSql<{}> | typeof sql; // the pool or one transaction
+type Frag = PendingQuery<Row[]>;
+const scoreAt = (clock: Frag) =>
+  sql`ln(1 + abs(t.return_pct) * 100) * exp(-greatest(0::float8, least(date_part('epoch', ${clock} - t.closed_at) / 3600 / ${RECENCY_HOURS}::float8, ${MAX_DECAY}::float8)))`;
+const aliveAt = (asOf?: Date) => asOf ? sql`(u.deleted_at is null or u.deleted_at > ${asOf})` : sql`u.deleted_at is null`;
+const importingAt = (asOf?: Date) => asOf
+  ? sql`k.consent_at <= ${asOf} and (k.state = 'importing' or (k.state = 'connected' and k.connected_at > ${asOf}) or (k.state = 'failed' and k.failed_at > ${asOf}))`
+  : sql`k.state = 'importing'`;
+
+async function candidateQuery(q: Q, { ids, asOf, day }: CandOpts, win: number | null): Promise<Candidate[]> {
   const clock = asOf ? sql`${asOf}::timestamptz` : sql`now()`;
   // date_part is double precision (extract() is numeric since PostgreSQL 14: the same value, several times slower per
   // row; F-2 PR-1 load check).
-  const score = sql`ln(1 + abs(t.return_pct) * 100) * exp(-greatest(0::float8, least(date_part('epoch', ${clock} - t.closed_at) / 3600 / ${RECENCY_HOURS}::float8, ${MAX_DECAY}::float8)))`;
+  const score = scoreAt(clock);
   const order = sql`score desc, least(closed_at, ${clock}) desc, sell_id desc`;
   const lo = sql`${clock} - ${win ?? RECENT_HOURS} * interval '1 hour'`;
   const recentOnly = win !== null;
-  const wide = win !== null && win !== RECENT_HOURS; // the picks by the full pass's rule (WIDE_WINDOWS)
+  // The fingerprint names c's window ('c' 14 days, 'w<hours>' a wider step, 'f' the full pass): keys of different windows never meet.
   const prefix = win === null ? 'f' : win === RECENT_HOURS ? 'c' : `w${win}`;
-  const alive = (u: ReturnType<typeof sql>) => asOf ? sql`(${u}.deleted_at is null or ${u}.deleted_at > ${asOf})` : sql`${u}.deleted_at is null`;
-  const importing = asOf
-    ? sql`k.consent_at <= ${asOf} and (k.state = 'importing' or (k.state = 'connected' and k.connected_at > ${asOf}) or (k.state = 'failed' and k.failed_at > ${asOf}))`
-    : sql`k.state = 'importing'`;
-  const counted = (a: ReturnType<typeof sql>) => asOf ? sql`and ${a}.closed_at <= ${asOf} and ${importedBy(sql`${a}.sell_imported_at`, asOf)}` : sql``;
-  return (await sql`
+  return (await q`
     with c as materialized (
       select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, ${score} as score
       from closed_trades t
@@ -174,36 +205,17 @@ async function candidateQuery({ ids, asOf, day }: CandOpts, win: number | null):
       -- ≥ 5 closes at asOf (c's own count first, fix round 3), not deleted (by asOf), no import running (at asOf). F-1 fix
       -- round 3 (TR-3): a record with an import still running is not in the feed until it is whole.
       select d.user_id, d.n from (select user_id, count(*) as n from c group by user_id) d join users u on u.id = d.user_id
-      where ${alive(sql`u`)}
+      where ${aliveAt(asOf)}
         and (d.n >= 5 or (select count(*) from (select 1 from closed_trades x where x.user_id = d.user_id
-             ${counted(sql`x`)} limit 5) five) = 5)
-        and not exists (select 1 from connections k where k.user_id = d.user_id and k.consent_at is not null and ${importing})
+             ${asOf ? sql`and x.closed_at <= ${asOf} and ${importedBy(sql`x.sell_imported_at`, asOf)}` : sql``} limit 5) five) = 5)
+        and not exists (select 1 from connections k where k.user_id = d.user_id and k.consent_at is not null and ${importingAt(asOf)})
     ), r as (
       select c.*, row_number() over (partition by c.user_id order by c.score desc, least(c.closed_at, ${clock}) desc, c.sell_id desc) as rk
       from c join elig using (user_id)
     ), top as (
       select * from r where rk <= ${FEED_PER_TRADER} order by ${order} limit ${FEED_CANDIDATES}
-    )${day && wide ? sql`, pick as materialized (
-      -- The full pass's picks without its scan (WIDE_WINDOWS): offset 0 keeps the probes after the md5 sort, so the walk
-      -- stops at the EXPLORE_EXTRA-th eligible trader.
-      select s.id as user_id from (select u.id from users u where ${alive(sql`u`)} ${ids ? sql`and u.id in ${sql(ids.length ? ids : [0])}` : sql``}
-        order by md5(${day} || u.id::text) offset 0) s
-      where s.id not in (select user_id from top)
-        and (select count(*) from (select 1 from closed_trades x where x.user_id = s.id ${counted(sql`x`)} limit 5) five) = 5
-        and not exists (select 1 from connections k where k.user_id = s.id and k.consent_at is not null and ${importing})
-      limit ${EXPLORE_EXTRA}
-    ), xa as materialized (
-      -- Each pick's best close (rk = 1 in r's order) and, from the same read of its record, its closes at asOf and the
-      -- newest id (the full pass's fingerprint, pr).
-      select b.* from pick p cross join lateral (
-        select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, ${score} as score,
-               count(*) over () as n, max(t.id) over () as m
-        from closed_trades t where t.user_id = p.user_id ${counted(sql`t`)}
-        order by score desc, least(t.closed_at, ${clock}) desc, t.sell_id desc limit 1) b
-    ), xb as (
-      select id, sell_id, symbol, return_pct, holding_days, closed_at, verified, thesis, thesis_status, user_id, score, 1::bigint as rk from xa
-    )` : sql``}, src as (
-      select top.*, false as x from top${day ? wide ? sql` union all (select xb.*, true from xb)` : sql` union all (select r.*, true from r where rk = 1 and user_id not in (select user_id from top)
+    ), src as (
+      select top.*, false as x from top${day ? sql` union all (select r.*, true from r where rk = 1 and user_id not in (select user_id from top)
         order by md5(${day} || user_id::text) limit ${EXPLORE_EXTRA})` : sql``}
     )${asOf ? sql`, pr as materialized (
       -- The weight fingerprint (fix round 2; PR-1b fix round 1, tester Medium 1: from c alone, for every listed trader;
@@ -211,20 +223,53 @@ async function candidateQuery({ ids, asOf, day }: CandOpts, win: number | null):
       -- row of a trader and a new close adds one, so the newest id in c changes with either (a listed trader always has a
       -- close in c); pn and pk change when a close enters or leaves c; ol counts the trader's closes older than c's window
       -- whose sells were imported after asOf (sell_imported_at), so a close imported after asOf and dated before the window changes the key once it
-      -- counts. Same rows and the same closes counted at asOf: the same weight. The prefix names c's window, so keys of
-      -- different windows never meet; a wide step's picks carry the full pass's own key (see WIDE_WINDOWS).
+      -- counts. Same rows and the same closes counted at asOf: the same weight.
       select c.user_id, count(*)::int as pn, ${prefix} || max(c.id)::text || ':' || coalesce(max(ol.n), 0)::text as pm, max(e.n)::int as pk
       from c join elig e using (user_id) left join (${recentOnly ? sql`select y.user_id, count(*) as n from closed_trades y
         where y.user_id in (select user_id from src) and y.sell_imported_at > ${asOf} and y.closed_at <= ${lo} group by y.user_id`
         : sql`select 0 as user_id, 0 as n where false`}) ol using (user_id)
-      where c.user_id in (select user_id from ${wide ? sql`top` : sql`src`}) group by c.user_id${day && wide ? sql`
-      union all
-      select user_id, n::int, ${'f'} || m::text || ':' || 0::text, n::int from xa` : sql``}
+      where c.user_id in (select user_id from src) group by c.user_id
     )` : sql``}
     select top.id, top.sell_id, top.symbol, top.return_pct, top.holding_days, top.closed_at, top.verified, top.thesis, top.thesis_status,
            top.user_id, top.score, top.x, u.handle, u.display_name ${asOf ? sql`, pr.pn, pr.pm, pr.pk` : sql``}
     from src top join users u on u.id = top.user_id ${asOf ? sql`left join pr on pr.user_id = top.user_id` : sql``}
     order by top.x, top.score desc, least(top.closed_at, ${clock}) desc, top.sell_id desc`) as unknown as Candidate[];
+}
+
+// A wider step's exploration picks (x rows). Not the window's: the 14-day path's picks come from traders with a close in
+// its window (e2e "Exploration slots"), the full pass's from every eligible trader, and a wider step stands in for the
+// full pass, so its picks follow the full pass's rule exactly: users in the day-seeded order md5(day || id), each probed
+// for eligibility at asOf (at most 5 closes read by closed_trades_user; the deletion and import predicates of `elig`),
+// the first EXPLORE_EXTRA outside the 200 taken, then each pick's best close in r's order (rk = 1) and, from the same
+// read of its record, the full pass's weight fingerprint ('f' || max id || ':0', pn = pk = its closes at asOf). Rows
+// come in the full pass's order for x rows. Cost: an md5 sort of the users plus one probe per user walked, and one read
+// of each pick's record; never a scan of closed_trades.
+// ponytail: the picks walk users in md5 order, so a site with many signed-up users without a record probes each one it
+// passes (all of them when fewer than EXPLORE_EXTRA traders are eligible: ~60,000 probes, ~300 ms on the shared test
+// database) — keep an eligible-trader list refreshed on sync.
+async function pickQuery(q: Q, { ids, asOf, day }: CandOpts, top: number[]): Promise<Candidate[]> {
+  const clock = asOf ? sql`${asOf}::timestamptz` : sql`now()`;
+  const counted = (a: Frag) => asOf ? sql`and ${a}.closed_at <= ${asOf} and ${importedBy(sql`${a}.sell_imported_at`, asOf)}` : sql``;
+  return (await q`
+    with pick as materialized (
+      -- offset 0 keeps the probes after the md5 sort, so the walk stops at the EXPLORE_EXTRA-th eligible trader.
+      select s.id as user_id from (select u.id from users u where ${aliveAt(asOf)} ${ids ? sql`and u.id in ${sql(ids.length ? ids : [0])}` : sql``}
+        order by md5(${day!} || u.id::text) offset 0) s
+      where s.id <> all(${top}::int[])
+        and (select count(*) from (select 1 from closed_trades x where x.user_id = s.id ${counted(sql`x`)} limit 5) five) = 5
+        and not exists (select 1 from connections k where k.user_id = s.id and k.consent_at is not null and ${importingAt(asOf)})
+      limit ${EXPLORE_EXTRA}
+    ), xa as (
+      select b.* from pick p cross join lateral (
+        select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, ${scoreAt(clock)} as score,
+               count(*) over () as n, max(t.id) over () as m
+        from closed_trades t where t.user_id = p.user_id ${counted(sql`t`)}
+        order by score desc, least(t.closed_at, ${clock}) desc, t.sell_id desc limit 1) b
+    )
+    select xa.id, xa.sell_id, xa.symbol, xa.return_pct, xa.holding_days, xa.closed_at, xa.verified, xa.thesis, xa.thesis_status,
+           xa.user_id, xa.score, true as x, u.handle, u.display_name ${asOf ? sql`, xa.n::int as pn, ${'f'} || xa.m::text || ':' || 0::text as pm, xa.n::int as pk` : sql``}
+    from xa join users u on u.id = xa.user_id
+    order by xa.score desc, least(xa.closed_at, ${clock}) desc, xa.sell_id desc`) as unknown as Candidate[];
 }
 
 // ---- F-2 PR-1: feed mix and paging ----
