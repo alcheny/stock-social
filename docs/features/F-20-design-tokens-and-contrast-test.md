@@ -61,6 +61,26 @@ test that every later change must pass. Approved by the approval council
   than the cycle-2 values. Why: approved by the approval council (cycle 3); red team, DK (`team/approval-council.md`
   "What approval can and cannot do").
 
+- 2026-11-01: Start conditions confirmed by the build session: #55 (92d03f4) carries `lib/a11y-contrast.test.ts` and
+  fix #13's contrast and control borders; #71 (06edbdf) carries fix #12 (the `.hl` cue on `--focus`) and fix #26.
+  Why: decided by the committee under the owner's instruction of 2026-11-01; committee log `logs/F-20/committee-2026-11-01.md`.
+- 2026-11-01: Share-image colours stay byte-for-byte; the image gain-versus-loss colour-blind check (deutan 6.3) runs at
+  ΔE00 9 as a `todo` test and this criterion is reported not met until the owner rules (Open questions). Why: decided by the committee under the owner's instruction of 2026-11-01; image colour
+  changes are the owner's (O-2, DS-6) and a lower floor is forbidden.
+- 2026-11-01: Flat is tested against gain and loss at ΔE00 9 in both schemes; passing pairs are real tests and the
+  failing light pairs are `todo` until the owner rules. Why: decided by the committee under the owner's instruction of 2026-11-01; the cycle-3 decision names Flat; narrowing it would be a
+  reinterpretation.
+- 2026-11-01: `.switch-pair .switch.current` (a selected cue) is drawn with a box-shadow ring, pixel-identical to today's
+  outline, with a forced-colours outline fallback, so outlines are focus only. Why: decided by the committee under the owner's instruction of 2026-11-01; DS-27; selected must not look focused.
+- 2026-11-01: `.pane .rows .line.hl` keeps its `--focus` outline as a named state exception; `.chart a:focus` keeps
+  `outline: none` and the chart point's accent stroke and the skip link's accent border stay (marked `ponytail:`).
+  Why: decided by the committee under the owner's instruction of 2026-11-01; #12 is pinned and changing non-outline cues is a visible change beyond the stated one.
+- 2026-11-01: New tokens `--flat` and `--demo` alias `--muted`; `--warn` enters the token layer with F-11's values once
+  F-11 merges; F-20 merges after F-11. Why: decided by the committee under the owner's instruction of 2026-11-01; value-neutral; F-11's literals would fail the literal test.
+- 2026-11-01: The no-JS bar's padding is not changed by F-20; the #71 comment is corrected (72 px, 6 px clear) and an
+  e2e asserts the room still covers every bar; the padding change goes to the fixes list. Why: decided by the committee under the owner's instruction of 2026-11-01; a size change is outside
+  the fixes plus the one stated focus change.
+
 ## Acceptance criteria
 - [ ] A node test pins every token's resolved value per scheme to the post-fix values; computed styles of sampled
       routes in both schemes are equal before and after the token layer.
@@ -91,6 +111,12 @@ test that every later change must pass. Approved by the approval council
 - One image palette and image trust band (K11): not approved.
 
 ## Open questions
+- Owner (F-20 build, OQ-1): the share image's gain and loss are ΔE00 6.3 apart under deuteranopia (floor 9). Recommended:
+  take today's dark CSS ink for image up/down (#3cc4b4 / #ff8a5b: 9.12 / 8.46 on the card background, colour-blind
+  minimum 20.1). Until then the check is a `todo` test and the image criterion is not met.
+- Owner (F-20 build, OQ-2): light Flat (`--muted`) vs gain is ΔE00 2.8 under protanopia (floor 9; the spec names Flat).
+  Context: Flat always prints the word "Flat" and no sign. Recommended: a Flat tone at ≥ 9 from both inks, via the fixes
+  list; until then the failing pairs are `todo` tests.
 - Owner (approval council cycle 3, flag 7): should the contrast floors live in a protected file (for example
   `scripts/invariants.test.ts`), so the change that breaks them cannot lower them? The council may not change a
   guardrail itself.
