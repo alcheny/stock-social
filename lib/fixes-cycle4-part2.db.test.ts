@@ -130,26 +130,40 @@ test('F4-8: the switch off reads no table (no query issued)', async () => {
   assert.deepEqual(await publicShown(Date.now(), { PUBLIC_TRADERS: '0' }), { shown: false, demo: false });
 });
 
-dbTest('F4-16: the pane rows carry a published note\'s written and edited times; a held note carries none', async () => {
+dbTest('F4-16: the pane rows carry a published note\'s written and edited UTC days (never a time of day); a held note carries none', async () => {
   const { tag, ids } = await fx.people(1, 'fc4p');
   made.push(...ids);
   const closes = await fx.trades(ids[0], tag, 2);
   const { sql } = await import('./db.ts');
-  const W = new Date('2026-10-05T15:00:00Z'), E = new Date('2026-10-07T01:00:00Z');
+  const W = new Date('2026-10-05T14:31:07.123Z'), E = new Date('2026-10-07T01:00:00Z');
   await sql`update closed_trades set thesis = 'A note', thesis_status = 'published', thesis_written_at = ${W}, thesis_edited_at = ${E} where id = ${closes[0].id}`;
   await sql`update closed_trades set thesis = 'A note', thesis_status = 'held', thesis_hold_rule = 'link', thesis_written_at = ${W}, thesis_edited_at = ${E} where id = ${closes[1].id}`;
   const { records } = await import('./feed.ts');
   const rows = await records([ids[0]]);
   const pub = rows.find((r) => r.id === closes[0].id)!, held = rows.find((r) => r.id === closes[1].id)!;
-  assert.equal(pub.writtenAt?.toISOString(), W.toISOString());
-  assert.equal(pub.editedAt?.toISOString(), E.toISOString());
+  const day = (d: Date) => Math.floor(d.getTime() / 86_400_000);
+  assert.equal(pub.writtenDay, day(W));
+  assert.equal(pub.editedDay, day(E));
   assert.equal(held.thesis, null);
-  assert.equal(held.writtenAt, undefined);
-  assert.equal(held.editedAt, undefined);
-  // Through the wire (the lazy pane's JSON) the dates still pack: strings and numbers are read as times.
-  const { packPoints, unpackPoints } = await import('./paging.ts');
-  const wire = JSON.parse(JSON.stringify(rows)) as Record<string, unknown>[];
-  const p = unpackPoints(packPoints(wire.map((r) => ({ id: r.id as string, symbol: r.symbol as string, returnPct: r.returnPct as number, holdingDays: r.holdingDays as number,
-    closedAt: new Date(r.closedAt as string), thesis: r.thesis as string | null, writtenAt: r.writtenAt as string | undefined, editedAt: r.editedAt as string | undefined }))));
-  assert.equal(p.find((x) => x.id === closes[0].id)!.writtenDay, Math.floor(W.getTime() / 86_400_000));
+  assert.equal(held.writtenDay, undefined);
+  assert.equal(held.editedDay, undefined);
+  // Orchestrator review: what the public /pane JSON carries (app/u/[handle]/pane/route.ts maps these rows) holds day
+  // numbers only: no millisecond time, no time of day.
+  const wire = JSON.stringify(rows.map((r) => ({ id: r.id, ...(r.writtenDay != null || r.editedDay != null ? { writtenDay: r.writtenDay, editedDay: r.editedDay } : {}) })));
+  assert.doesNotMatch(wire, /\d{13}/);
+  assert.doesNotMatch(wire, /writtenAt|editedAt/);
+  // Through the wire the days still pack, and the sheet's caption equals the profile row's (built from the stored times).
+  const { packPoints, unpackPoints, fromNoteDay } = await import('./paging.ts');
+  const { noteDateLine } = await import('./user-note.ts');
+  const back = JSON.parse(JSON.stringify(rows)) as Record<string, unknown>[];
+  const p = unpackPoints(packPoints(back.map((r) => ({ id: r.id as string, symbol: r.symbol as string, returnPct: r.returnPct as number, holdingDays: r.holdingDays as number,
+    closedAt: new Date(r.closedAt as string), thesis: r.thesis as string | null, writtenDay: r.writtenDay as number | undefined, editedDay: r.editedDay as number | undefined }))));
+  const pt = p.find((x) => x.id === closes[0].id)!;
+  assert.equal(noteDateLine(fromNoteDay(pt.writtenDay), fromNoteDay(pt.editedDay)), noteDateLine(W, E));
+  assert.equal(p.find((x) => x.id === closes[1].id)!.writtenDay, undefined);
+  // The route maps the day fields under their own keys, never as epoch ms.
+  const { readFileSync } = await import('node:fs');
+  const route = readFileSync(new URL('../app/u/[handle]/pane/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /writtenDay: r\.writtenDay \?\? null, editedDay: r\.editedDay \?\? null/);
+  assert.doesNotMatch(route, /writtenAt|editedAt/);
 });

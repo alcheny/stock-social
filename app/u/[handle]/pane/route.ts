@@ -24,7 +24,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const state = states.get(user.id as number)?.state ?? 'connected';
   if (state === 'importing') return no();
   const trades = rows.map((r) => ({ id: r.id, symbol: r.symbol, returnPct: r.returnPct, holdingDays: r.holdingDays, closedAt: r.closedAt.getTime(), thesis: r.thesis, verified: r.verified, openedAt: r.openedAt.getTime() /* FIXES-LABELS (code review) */,
-    ...(r.writtenAt || r.editedAt ? { writtenAt: r.writtenAt?.getTime() ?? null, editedAt: r.editedAt?.getTime() ?? null } : {}) /* FIXES-CYCLE4-PART2 (F4-16): a published note's dates */ }));
+    ...(r.writtenDay != null || r.editedDay != null ? { writtenDay: r.writtenDay ?? null, editedDay: r.editedDay ?? null } : {}) /* FIXES-CYCLE4-PART2 (F4-16): a published note's UTC day numbers, never a time of day (orchestrator review) */ }));
   const shown = state === 'connected' || state === 'failed' ? positions : [];
   const open = shown.map((p) => p.unrealized_pct as number);
   const openAsOf = shown.length ? Math.min(...shown.map((p) => (p.fetched_at as Date).getTime())) : null;

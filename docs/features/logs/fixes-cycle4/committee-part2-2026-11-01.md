@@ -152,3 +152,25 @@ User test: compliance PASS, usability FAIL on one point; code review: no blockin
 ## Verdict
 Business lead and UX lead: compliance PASS; usability PASS after the right-alignment (re-checked on the rebuilt image,
 `screenshots-part2/f4-15-unfurl-demo-options.png`). Engineer: tests for every acceptance criterion, all green.
+
+## Round 5: orchestrator's independent review (BLOCK on one medium), fixes
+
+1. **Medium, taken: the public `/u/‹handle›/pane` JSON carried a note's written and edited times to the millisecond**
+   (time of day: when a trader was active). Fix: `lib/feed.ts#records1` reads UTC day numbers in SQL
+   (`floor(epoch / 86400)`), `PaneRow` carries `writtenDay` / `editedDay`, the pane route sends them under those keys,
+   the lazy pane passes them through, and `packPoints` takes day numbers directly. No time of day leaves the database on
+   any path (the pane-chart route and the profile already sent day numbers). A DB test asserts the pane payload has no
+   13-digit value and the sheet caption equals the profile row's. *Why: decided by the committee under the owner's
+   instruction of 2026-11-01; F-23 decided UTC-day precision for public payloads, and the caption prints days only.*
+2. **Low, taken: an image snapshot** of a fictional demo options unfurl (`lib/fixes-cycle4-part2.image.test.ts`): drawn
+   through next/og from a fixed model, byte-identical on a second draw, hash pinned in
+   `lib/snapshots/f4-15-unfurl-demo-options.sha256`, plus the structural check behind it (badge beside the full handle,
+   "Excluding options" in the chart column, the chart one pill row shorter). Image:
+   `screenshots-part2/f4-15-unfurl-snapshot.png`.
+3. **Low, routed to the owner and legal committee: the share-trades foot** ("Recaps list the month's closed share trades
+   from connected accounts, and none can be hidden.") lists the shown closes; share closes removed by the exercise-day
+   rule and sells with no recorded entry are counted on the profile, not listed. *Why: decided by the committee under the
+   owner's instruction of 2026-11-01; the foot keeps the scope `FL.monthFoot` already uses for every record (the same
+   exclusions apply there), so qualifying it is a wording change for every month and belongs with the legal committee's
+   options words; listed as an owner item.*
+4. **Low, taken:** the PR body's changed-tests list names the K20 e2e's `p=[01]` (a unit test pins `p=0` for no filers).

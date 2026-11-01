@@ -41,12 +41,16 @@ export function tradeHref(linkBase: string, id: string, index: number, current?:
 export type PackedPoint = [string, string, number, number, number, string | null, (number | null)?, (number | null)?];
 export type ChartPoint = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null; index: number;
   writtenDay?: number | null; editedDay?: number | null }; // FIXES-CYCLE4-PART2 (F4-16): UTC day numbers
+// FIXES-CYCLE4-PART2 (F4-16): only a published note's dates, as times (profile, pane-chart route) or as UTC day numbers
+// already (the pane's rows, lib/feed.ts#records1).
 type PackInput = { id: string; symbol: string; returnPct: number; closedAt: Date; holdingDays: number; thesis: string | null;
-  writtenAt?: Date | string | number | null; editedAt?: Date | string | number | null }; // FIXES-CYCLE4-PART2 (F4-16): only a published note's dates
+  writtenAt?: Date | string | null; editedAt?: Date | string | null; writtenDay?: number | null; editedDay?: number | null };
 export function packPoints(trades: PackInput[]): PackedPoint[] {
   return [...trades].sort(byListOrder).map((t) => {
     const p: PackedPoint = [t.id, t.symbol, Math.round(t.returnPct * 1e8) / 1e8, t.closedAt.getTime(), Math.round(t.holdingDays * 100) / 100, t.thesis];
-    return t.thesis === null ? p : withNoteDays(p, 6, noteDays(t.writtenAt, t.editedAt)); // FIXES-CYCLE4-PART2 (F4-16)
+    if (t.thesis === null) return p;
+    const days = t.writtenDay != null || t.editedDay != null ? [t.writtenDay ?? null, t.editedDay ?? null] as [number | null, number | null] : noteDays(t.writtenAt, t.editedAt);
+    return withNoteDays(p, 6, days); // FIXES-CYCLE4-PART2 (F4-16)
   });
 }
 export function unpackPoints(p: PackedPoint[]): ChartPoint[] {
@@ -56,8 +60,9 @@ export function unpackPoints(p: PackedPoint[]): ChartPoint[] {
 
 // FIXES-CYCLE4-PART2 (F4-16): note dates as UTC day numbers (days since 1970-01-01): the caption prints days only.
 const DAY_MS = 86_400_000;
-// Engineer review: a Date, or its JSON form (an ISO string or epoch ms) after a fetch; anything unreadable is no date.
-type NoteTime = Date | string | number | null | undefined;
+// Engineer review: a Date or its ISO string; anything unreadable is no date. (Day numbers travel as writtenDay/editedDay,
+// never as a time: orchestrator review.)
+type NoteTime = Date | string | null | undefined;
 export const toNoteDay = (d: NoteTime): number | null => {
   if (d === null || d === undefined || d === '') return null;
   const t = (d instanceof Date ? d : new Date(d)).getTime();

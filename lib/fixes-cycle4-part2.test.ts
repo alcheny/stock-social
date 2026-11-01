@@ -195,8 +195,9 @@ test('F4-16: the sheet passes the dates to UserNote; the eager pane rows and the
   assert.match(route, /case when thesis_status = 'published' then thesis_written_at end/);
   assert.match(route, /case when thesis_status = 'published' then thesis_edited_at end/);
   const feed = readFileSync(new URL('lib/feed.ts', ROOT), 'utf8');
-  assert.match(feed, /case when thesis_status = 'published' then date_part\('epoch', thesis_written_at\)/);
-  assert.match(feed, /case when thesis_status = 'published' then date_part\('epoch', thesis_edited_at\)/);
+  // Day numbers in SQL: the time of day never leaves the database (orchestrator review).
+  assert.match(feed, /case when thesis_status = 'published' then floor\(date_part\('epoch', thesis_written_at\) \/ 86400\)::int end/);
+  assert.match(feed, /case when thesis_status = 'published' then floor\(date_part\('epoch', thesis_edited_at\) \/ 86400\)::int end/);
 });
 
 // ---- F4-8 (C4-12) ----
