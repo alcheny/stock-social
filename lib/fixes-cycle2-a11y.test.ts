@@ -1,13 +1,16 @@
-// FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12, #13, #14, #18, #26; docs/features/logs/fixes-cycle2-a11y/):
-// the colour and rule floor, computed from app/globals.css as the browser resolves it. The cascade walk follows
-// F-13's lib/a11y-contrast.test.ts: size media queries are skipped, the last matching rule wins, `var()` aliases resolve
-// after the cascade; light = every :root rule (including `prefers-color-scheme: light`), dark = the rest.
+// FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12, #13, #14, #26 and the range-button target size;
+// docs/features/logs/fixes-cycle2-a11y/): the colour and rule floor this fix set owns, computed from app/globals.css as
+// the browser resolves it. The cascade walk follows lib/a11y-contrast.test.ts (#55): size media queries are skipped, the
+// last matching rule wins, `var()` aliases resolve after the cascade; light = every :root rule (including
+// `prefers-color-scheme: light`), dark = the rest. What #55 owns and lib/a11y-contrast.test.ts already asserts (--control
+// ≥ 3:1, its control-border list, the badge text, the :target row; #18's nav and reflow) is not repeated here.
 // - #26 (WCAG 1.4.1, POLICY A1): gain/loss tokens are the design system's DS-4 values, readable as text (≥ 4.5:1) on bg
 //   and surface, and apart under colour-vision deficiency (min ΔE00 ≥ 9 over protan, deutan and tritan), measured with a
 //   TypeScript port of docs/direction/design-system-2026-11-01-scripts/a11ylib.py checked against the spec's numbers.
 // - #12 (WCAG 1.4.11): --focus ≥ 3:1 on bg and surface; the pane's current-row outline ends on --focus.
-// - #13 (WCAG 1.4.11): --control ≥ 3:1; every control border selector ends on --control; the three bars too.
-// - #14, #18: the block's bar-room and nav rules exist where the committee put them.
+// - #13 (WCAG 1.4.11): no later rule (including #55's block, which now sits after ours) draws a control border back in
+//   --line; the three fixed bars draw their edge in --control.
+// - #14 (WCAG 2.4.11): the bar-room rules; target size: the chart's range buttons are ≥ 44 × 44 px.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -157,7 +160,6 @@ const WANT = {
 // [up on bg, up on surface, down on bg, down on surface], to 2 decimals (plan AC26.2; tokens.py).
 const TEXT = { light: ['6.00', '6.27', '5.39', '5.62'], dark: ['9.12', '8.36', '8.46', '7.75'] } as const;
 const FOCUS = { light: ['6.15', '6.42'], dark: ['8.47', '7.76'] } as const;
-const CONTROL = { light: ['3.75', '3.91'], dark: ['4.29', '3.93'] } as const;
 
 for (const [name, on] of Object.entries(SCHEMES) as [keyof typeof SCHEMES, (r: Rule) => boolean][]) {
   const t = tokensFor(on);
@@ -174,18 +176,9 @@ for (const [name, on] of Object.entries(SCHEMES) as [keyof typeof SCHEMES, (r: R
     assert.equal(last('.chart', ['--c'], on)?.value, 'var(--up)');
     assert.equal(last('.chart.loss', ['--c'], on)?.value, 'var(--down)');
   });
-  test(`AC26.2 the Verified badge text is ≥ 4.5:1 on its own tint over bg and surface (${name})`, () => {
-    const fg = tokenOf(last('.badge.verified', ['color'], on)?.value);
-    assert.ok(fg && t[fg], '.badge.verified sets its color from a token');
-    const fill = last('.badge.verified', ['background', 'background-color'], on)?.value ?? '';
-    const m = fill.match(/color-mix\(in srgb,\s*var\(--([a-z-]+)\)\s*([\d.]+)%,\s*transparent\)/);
-    assert.ok(m, `the Verified tint is a color-mix of a token: "${fill}"`);
-    for (const base of ['bg', 'surface']) {
-      const tint = mix(t[m![1]], t[base], Number(m![2]) / 100);
-      const r = contrast(t[fg!], tint);
-      assert.ok(r >= 4.5, `${name} Verified --${fg} on ${tint} (over ${base}) is ${r.toFixed(2)}:1`);
-    }
-    // If the badge text ever goes back to --up, it still has to clear the floor on its tint (light 4.60/4.77).
+  test(`AC26.2 the new --up stays ≥ 4.5:1 on its own 18% tint over bg and surface (the Verified tint; light 4.60/4.77) (${name})`, () => {
+    // The badge's text colour itself is #55's (lib/a11y-contrast.test.ts); this guards the retuned --up should the badge
+    // text ever go back to it.
     for (const base of ['bg', 'surface']) {
       const r = contrast(t.up, mix(t.up, t[base], 0.18));
       assert.ok(r >= 4.5, `${name} --up on its 18% tint over ${base} is ${r.toFixed(2)}:1`);
@@ -202,12 +195,6 @@ for (const [name, on] of Object.entries(SCHEMES) as [keyof typeof SCHEMES, (r: R
     for (const r of got) assert.ok(r >= 3, `${name} --focus ${r.toFixed(2)}:1`);
     assert.deepEqual(got.map((r) => r.toFixed(2)), [...FOCUS[name]]);
   });
-  test(`#13 --control is ≥ 3:1 on bg and surface (${name})`, () => {
-    assert.ok(t.control, '--control is defined');
-    const got = [contrast(t.control, t.bg), contrast(t.control, t.surface)];
-    for (const r of got) assert.ok(r >= 3, `${name} --control ${r.toFixed(2)}:1`);
-    assert.deepEqual(got.map((r) => r.toFixed(2)), [...CONTROL[name]]);
-  });
   test(`AC12.1 the pane's current row is outlined in --focus, 2 px at a 2 px offset, weight 600 (${name})`, () => {
     const sel = '.pane .rows .line.hl';
     const o = last(sel, ['outline', 'outline-color'], on);
@@ -219,23 +206,11 @@ for (const [name, on] of Object.entries(SCHEMES) as [keyof typeof SCHEMES, (r: R
   });
 }
 
-// ---- #13 control boundaries (unconditional; the F-13 twin list) ----
-const CONTROLS = ['input', 'textarea', 'select', '.pane .back', '.share-prompt .actions .secondary', '.trade-share .secondary',
-  '.badge-embed .secondary', '.new-trades .secondary', '.rec-chips button', '.auth .button.secondary', '.auth button.secondary',
-  '.handle-edit summary.secondary', '.follow.secondary', '.more-menu .secondary', '.people .secondary',
-  '.pane-actions .button.secondary', '.more-menu summary', '.switch-pair .switch', '.personalize form > button.secondary',
-  '.rt .button.choice', '.rt button.choice', '.rt .button.secondary', '.rt button.secondary', '.rt-form input', '.rt-form select',
-  '.rt-note textarea'];
+// ---- #13 ----
+// The control-border list and --control's floor are #55's (lib/a11y-contrast.test.ts).
 for (const [name, on] of Object.entries(SCHEMES)) {
-  test(`#13 every control border selector ends its cascade on --control (${name})`, () => {
-    for (const sel of CONTROLS) {
-      const v = last(sel, ['border', 'border-color'], on);
-      assert.ok(v, `${sel} has a border rule`);
-      assert.match(v!.value, /var\(--control\)/, `${sel} ends on "${v!.prop}: ${v!.value}"`);
-    }
-  });
-  // `last()` reads exact selector strings in source order, not specificity: guard that no rule after our block draws a
-  // control's border back in --line on any selector (a more specific one would win in the browser).
+  // `last()` reads exact selector strings in source order, not specificity: guard that no rule after our block (#55's
+  // A11Y-FIXES block included) draws a control's border back in --line on any selector (a more specific one would win).
   test(`#13 no rule after the block draws a control border in --line (${name})`, () => {
     const after = parse(raw.slice(raw.indexOf(END)).replace(/\/\*[\s\S]*?\*\//g, ''));
     const control = /(input|textarea|select|button|summary|\.secondary|\.switch|\.back|\.choice)[^\s>+~]*$/;
@@ -251,18 +226,17 @@ for (const [name, on] of Object.entries(SCHEMES)) {
   });
 }
 
-// ---- block placement and the #14 / #18 rules ----
-const START = '/* FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12 #13 #14 #18 #26, 2026-11-01) */';
+// ---- block placement, #14 and target size ----
+const START = '/* FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12 #13 #14 #26 and range-button target size, 2026-11-01) */';
 const END = '/* end FIXES-CYCLE2-A11Y */';
 const ANCHOR = '.rt-card:focus { outline: 2px solid var(--accent); outline-offset: 2px; }';
-test('the FIXES-CYCLE2-A11Y block exists once, right after .rt-card:focus (not at the end of the file), and names its F-13 twin', () => {
+test('the FIXES-CYCLE2-A11Y block exists once, right after .rt-card:focus, before #55\'s A11Y-FIXES block it builds on', () => {
   assert.equal(raw.split(START).length, 2, 'one opening marker');
   assert.equal(raw.split(END).length, 2, 'one closing marker');
-  const s = raw.indexOf(START), e = raw.indexOf(END);
+  const s = raw.indexOf(START), e = raw.indexOf(END), f13 = raw.indexOf('/* A11Y-FIXES (approval council fixes');
   assert.ok(s < e, 'opening before closing');
   assert.ok(raw.indexOf(`${ANCHOR}\n${START}`) >= 0, 'the block starts on the line after .rt-card:focus');
-  assert.ok(raw.slice(e + END.length).trim().length > 0, 'the block is not at the end of the file (F-13 appends there)');
-  assert.match(raw.slice(s, e), /F-13/, 'the block names F-13 as its twin');
+  assert.ok(f13 > e, '#55\'s A11Y-FIXES block follows ours, so the "no later --line border" guard covers it');
 });
 
 const block = parse(raw.slice(raw.indexOf(START), raw.indexOf(END)).replace(/\/\*[\s\S]*?\*\//g, ''));
@@ -281,19 +255,7 @@ test('#14 while a bar shows, the feed rows reserve its room (94 px, also at ≤ 
   for (const r of block) for (const s of r.sels) assert.doesNotMatch(s, /\.feed$/, `no rule on .feed itself: ${s}`);
   // The :empty test relies on the sign-in line rendering no whitespace while closed (app/feed-gestures.tsx).
   const src = readFileSync(new URL('../app/feed-gestures.tsx', import.meta.url), 'utf8');
-  assert.match(src, /<p className="signin-line" role="status">\n\s*\{askSignIn && /, 'the <p> holds only the conditional');
-});
-
-test('#18 under 420 px the handle link is capped at 18vw and the nav pads 10 px top and bottom', () => {
-  const narrow = block.filter((r) => r.media.length === 1 && /max-width:\s*420px/.test(r.media[0]));
-  const val = (sel: string, prop: string) => narrow.filter((r) => r.sels.includes(sel)).flatMap((r) => decls(r.body)).filter(([k]) => k === prop).map(([, v]) => v).at(-1);
-  assert.equal(val('nav.top .me', 'max-width'), '18vw');
-  assert.equal(val('body > nav.top', 'padding-block'), '10px');
-  // The twin reflow lines (F-13): long names wrap and the badge never shrinks.
-  const plain = (sel: string, prop: string) => last(sel, [prop], () => true)?.value;
-  assert.equal(plain('h1', 'overflow-wrap'), 'anywhere');
-  assert.equal(plain('.card header .who', 'min-width'), '0');
-  assert.equal(plain('.card header .badge', 'flex-shrink'), '0');
+  assert.match(src, /<p className="signin-line"[^>]*>\n\s*\{askSignIn && /, 'the <p> holds only the conditional');
 });
 
 test('Target size: the chart range buttons are at least 44 × 44 px (POLICY A1)', () => {

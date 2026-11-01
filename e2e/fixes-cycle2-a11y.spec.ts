@@ -1,9 +1,10 @@
-// FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12, #13, #14, #18, #26; docs/features/logs/fixes-cycle2-a11y/):
-// the browser side of lib/fixes-cycle2-a11y.test.ts, against the real app (needs `npm run db:seed` only for the shared
-// feed to exist). Every assertion is scoped to this file's own users: one demo trader (unverified closes, so a Demo
-// badge, with a 40-character unbroken display name and a 20-character handle) and signed-in viewers with 20-character
-// handles, all removed afterwards; seeded traders are never touched. The trader's closes are feed-eligible, so the
-// file holds the feed lock shared (e2e/feed-lock.ts). Fit assertions keep ≥ 15% headroom.
+// FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12, #13, #14, #26 and the range-button target size;
+// docs/features/logs/fixes-cycle2-a11y/): the browser side of lib/fixes-cycle2-a11y.test.ts, against the real app
+// (needs `npm run db:seed` only for the shared feed to exist). #18's nav and reflow are #55's (e2e/f13-first-visit.spec.ts,
+// e2e/a11y-feed.spec.ts) and are not repeated here. Every assertion is scoped to this file's own users: one demo trader
+// (unverified closes, so a Demo badge, with a 40-character unbroken display name and a 20-character handle) and
+// signed-in viewers with 20-character handles, all removed afterwards; seeded traders are never touched. The trader's
+// closes are feed-eligible, so the file holds the feed lock shared (e2e/feed-lock.ts). Fit assertions keep ≥ 15% headroom.
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 import postgres from 'postgres';
 import { feedLock } from './feed-lock.ts';
@@ -107,9 +108,11 @@ const intrinsic = (card: Locator) => card.evaluate((c) => {
   }
   return { need, room: c.clientHeight };
 });
-// Tab through every focusable element of `scope`, starting on its first; each must sit below the nav and ≥ 8 px above
-// the bar while focused.
+// Tab through every focusable element of `scope`, starting on its first; each must sit below the nav and, while the bar
+// still shows, ≥ 8 px above it. (The signed-out sign-in line closes once focus moves outside it, #55 / F-10 #15; the
+// hide bar stays while the pointer holds it.) Returns how many focused elements were checked against a showing bar.
 async function tabThrough(page: Page, scope: Locator, barSel: string) {
+  let checked = 0;
   const n = (await focusables(scope)).length;
   expect(n).toBeGreaterThan(0);
   await scope.locator('a[href], button, summary').first().focus();
@@ -117,11 +120,13 @@ async function tabThrough(page: Page, scope: Locator, barSel: string) {
     const inside = await scope.evaluate((s) => s.contains(document.activeElement));
     if (!inside) break;
     const f = await page.evaluate(() => { const b = document.activeElement!.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, what: document.activeElement!.textContent!.trim().slice(0, 30) }; });
-    const bar = await barOf(page, barSel), nav = await navBottom(page);
-    expect(f.bottom, `"${f.what}" ends 8 px above the bar`).toBeLessThanOrEqual(bar.top - 8);
+    const shows = await page.locator(barSel).evaluate((b) => b.getBoundingClientRect().height > 0).catch(() => false);
+    const nav = await navBottom(page);
+    if (shows) { expect(f.bottom, `"${f.what}" ends 8 px above the bar`).toBeLessThanOrEqual((await barOf(page, barSel)).top - 8); checked++; }
     expect(f.top, `"${f.what}" starts below the nav`).toBeGreaterThanOrEqual(nav);
     await page.keyboard.press('Tab');
   }
+  return checked;
 }
 // Colour helpers: computed colours as [r, g, b, a] in 0-255, painted backdrops, WCAG contrast.
 type RGBA = [number, number, number, number];
@@ -150,8 +155,7 @@ const backdrop = (el: Locator) => el.evaluate((e) => {
   return out;
 });
 
-test('AC26.4 + AC18.3: gain and loss figures use the new tokens in both schemes; a 40-character unbroken name never widens the profile, and the Demo badge stays inside the viewport and its card (360, 320)', async ({ browser }) => {
-  test.setTimeout(120_000);
+test('AC26.4: gain and loss figures on the profile and the feed card use the new tokens in both schemes', async ({ browser }) => {
   for (const colorScheme of SCHEMES) {
     const ctx = await browser.newContext({ viewport: { width: 360, height: 740 }, colorScheme });
     const page = await ctx.newPage();
@@ -170,37 +174,6 @@ test('AC26.4 + AC18.3: gain and loss figures use the new tokens in both schemes;
     expect(await rows.count()).toBeGreaterThan(0);
     await ctx.close();
   }
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
-  for (const width of [360, 320]) {
-    await page.setViewportSize({ width, height: 740 });
-    await page.goto(`/u/${trader.handle}`);
-    const h1 = page.locator('main.page h1');
-    await expect(h1).toHaveText(NAME40);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth), `profile at ${width}`).toBeLessThanOrEqual(width);
-    expect((await rect(h1)).right).toBeLessThanOrEqual(width - 16);
-    const badge = await rect(page.locator('main.page .badge.demo').first());
-    expect(badge.left).toBeGreaterThanOrEqual(0);
-    expect(badge.right).toBeLessThanOrEqual(width);
-    // The feed card: the name wraps inside the card, and the Demo badge (F-10: it leads the record line under the
-    // figure) keeps its size inside the card's content box.
-    await page.goto('/');
-    const row = (await ownRows(page)).first();
-    await atRest(row);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth), `feed at ${width}`).toBeLessThanOrEqual(width);
-    const card = row.locator('.card');
-    const box = await card.evaluate((c) => { const b = c.getBoundingClientRect(), s = getComputedStyle(c); return { left: b.left + parseFloat(s.paddingLeft), right: b.right - parseFloat(s.paddingRight) }; });
-    const cb = row.locator('.card .badge.demo').first();
-    await expect(cb).toHaveText('Demo');
-    const b = await rect(cb);
-    expect(b.left).toBeGreaterThanOrEqual(box.left);
-    expect(b.right).toBeLessThanOrEqual(Math.min(box.right, width));
-    expect(await cb.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
-    const who = row.locator('.card header .who');
-    expect((await rect(who)).right).toBeLessThanOrEqual(Math.min(box.right, width));
-    expect(await who.evaluate((e) => e.scrollWidth <= e.clientWidth + 1), 'the name wraps, never overflows its link').toBe(true);
-  }
-  await ctx.close();
 });
 
 // The current-row cue exists where a pane is opened for one trade: a profile's "Similar trades" sheet (app/lazy-pane.tsx;
@@ -326,7 +299,7 @@ for (const height of [740, 640]) {
   });
 }
 
-test('AC14.1 (360×480, 360×420, 320×420, signed out): on a short viewport the card scrolls inside itself; a focused record link and the disclaimer stop ≥ 8 px above the sign-in line; no part is squeezed away', async ({ browser }) => {
+test('AC14.1 (360×480, 360×420, 320×420, signed out): on a short viewport the card scrolls inside itself; the badge and the disclaimer stop ≥ 8 px above the sign-in line; no part is squeezed away', async ({ browser }) => {
   for (const [width, height] of [[360, 480], [360, 420], [320, 420]]) {
     const ctx = await touchContext(browser, width, height);
     const page = await ctx.newPage();
@@ -336,7 +309,7 @@ test('AC14.1 (360×480, 360×420, 320×420, signed out): on a short viewport the
     const card = row.locator('.card');
     await expect.poll(async () => { await doubleTap(page, card.locator('.hero .ret')); return page.locator('.signin-line').innerText(); }).toContain('Sign in to like trades.');
     await expect(card).toHaveCSS('overflow-y', 'auto');
-    // The bar's 78 px plus F-10's 12 px short-viewport padding.
+    // The bar's room holds on a short viewport too (it outranks F-10's 12 px card padding).
     await expect(card).toHaveCSS('padding-bottom', '94px');
     await expect(card).toHaveCSS('scroll-padding-bottom', '94px');
     const at = `${width}×${height}`;
@@ -344,16 +317,54 @@ test('AC14.1 (360×480, 360×420, 320×420, signed out): on a short viewport the
     expect((await rect(card.locator('.thesis'))).height, `${at}: thesis`).toBeGreaterThanOrEqual(16);
     const bar = await barOf(page, '.signin-line');
     expect((await rect(card.locator('.badge.demo').first())).bottom, `${at}: badge`).toBeLessThanOrEqual(bar.top - 8);
-    const link = card.locator('footer a');
-    await link.focus();
-    expect((await rect(link)).bottom, `${at}: record link`).toBeLessThanOrEqual(bar.top - 8);
+    // Scrolled to its end (no focus move, so the line stays): the disclaimer clears the bar.
     await card.evaluate((c) => { c.scrollTop = c.scrollHeight; });
     expect((await rect(card.locator('[data-disclaimer]'))).bottom, `${at}: disclaimer at the end`).toBeLessThanOrEqual(bar.top - 8);
+    const discBottom = (await rect(card.locator('[data-disclaimer]'))).bottom;
     // At 320×420 the record line wraps to three lines and the card really overflows: it scrolls, nothing is cut.
     if (width === 320) expect(await card.evaluate((c) => c.scrollHeight > c.clientHeight), `${at}: the card overflows and scrolls`).toBe(true);
-    test.info().annotations.push({ type: `short ${at}`, description: JSON.stringify({ barTop: bar.top, disclaimerBottom: (await rect(card.locator('[data-disclaimer]'))).bottom, thesis: (await rect(card.locator('.thesis'))).height, scroll: await card.evaluate((c) => [c.scrollHeight, c.clientHeight]) }) });
+    test.info().annotations.push({ type: `short ${at}`, description: JSON.stringify({ barTop: bar.top, disclaimerBottom: discBottom, thesis: (await rect(card.locator('.thesis'))).height, scroll: await card.evaluate((c) => [c.scrollHeight, c.clientHeight]) }) });
+    // Focus moving into the card closes the sign-in line (#55 / F-10 #15), so focus is never under it; the focused-link
+    // case under a bar that stays is the hide bar's, below.
+    await card.evaluate((c) => { c.scrollTop = 0; });
+    const link = card.locator('footer a');
+    await link.focus();
+    await expect(page.locator('.signin-line')).toBeEmpty();
     await ctx.close();
   }
+});
+
+test('AC14.1 (360×420, signed in): under the hide bar, a focused record link in the short, scrolling card stops ≥ 8 px above the bar (the card\'s own 94 px scroll padding)', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const ctx = await browser.newContext({ viewport: { width: 360, height: 420 }, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  await signIn(page, handle20('cy2k'));
+  await page.goto('/');
+  const rows = await ownRows(page, 2);
+  const [first, second] = [rows.nth(0), rows.nth(1)];
+  const secondId = await second.getAttribute('data-trade');
+  await atRest(first);
+  await first.locator('.card .more-menu summary').focus();
+  await page.keyboard.press('Enter');
+  await first.getByRole('button', { name: 'Hide this trade' }).focus();
+  await page.keyboard.press('Enter');
+  const barP = page.locator('.hide-bar > p');
+  await expect(barP).toContainText('Trade hidden.');
+  await page.locator('.hide-bar').hover();
+  const next = page.locator(`.feed > .row[data-trade="${secondId}"]`);
+  await atRest(next);
+  const card = next.locator('.card');
+  await expect(card).toHaveCSS('overflow-y', 'auto');
+  await expect(card).toHaveCSS('scroll-padding-bottom', '94px');
+  for (const sel of ['footer a', '[data-disclaimer]']) {
+    await card.evaluate((c) => { c.scrollTop = 0; });
+    if (sel === 'footer a') await card.locator(sel).focus();
+    else await card.evaluate((c) => { c.scrollTop = c.scrollHeight; });
+    await expect(barP).toBeVisible();
+    const bar = await barOf(page, '.hide-bar > p');
+    expect((await rect(card.locator(sel))).bottom, `${sel} clears the hide bar`).toBeLessThanOrEqual(bar.top - 8);
+  }
+  await ctx.close();
 });
 
 test('AC14.2 (360×740, signed in): with the hide bar up, the next card\'s controls and the pane opened with → stay ≥ 8 px above it; Escape puts the padding back to 28 px', async ({ browser }) => {
@@ -383,7 +394,7 @@ test('AC14.2 (360×740, signed in): with the hide bar up, the next card\'s contr
   for (const f of await focusables(card)) expect(f.bottom, `"${f.what}"`).toBeLessThanOrEqual(bar.top - 8);
   const fit = await intrinsic(card);
   expect(fit.need).toBeLessThanOrEqual(0.85 * fit.room);
-  await tabThrough(page, card, '.hide-bar > p');
+  expect(await tabThrough(page, card, '.hide-bar > p'), 'the hide bar stayed up while Tab moved through the card').toBeGreaterThan(1);
   // The pane, opened with →: its scroller pads 94 px, so Tab never lands under the bar.
   await atRest(next);
   await page.locator('.hide-bar').hover();
@@ -392,7 +403,7 @@ test('AC14.2 (360×740, signed in): with the hide bar up, the next card\'s contr
   await expect(pane).toHaveCSS('scroll-padding-bottom', '94px');
   await expect(pane).toHaveCSS('padding-bottom', '94px');
   await expect(barP).toBeVisible();
-  await tabThrough(page, pane, '.hide-bar > p');
+  expect(await tabThrough(page, pane, '.hide-bar > p'), 'the hide bar stayed up while Tab moved through the pane').toBeGreaterThan(1);
   await expect(barP).toBeVisible();
   // Escape (from the bar) closes it and the room goes away.
   await page.locator('.hide-bar').getByRole('button', { name: 'Undo' }).focus();
@@ -424,45 +435,6 @@ test('AC14.3 (no JavaScript, ?done=trade-hidden): the confirmation line shows an
   for (const f of await focusables(card)) expect(f.bottom, `"${f.what}"`).toBeLessThanOrEqual(bar.top - 8);
   await ctx.close();
 });
-
-test('AC18.1 + AC18.2 (signed in, 20-character handle; 320, 360, 390): no sideways scroll, the nav links fit with 15% to spare, the nav stays ≤ 54.4 px and above the card, and the handle shows ≥ 48 px', async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 360, height: 740 } });
-  const page = await ctx.newPage();
-  const me = handle20('cy2v');
-  expect(me).toMatch(/^[a-z0-9_]{20}$/);
-  await signIn(page, me);
-  for (const width of [320, 360, 390]) {
-    await page.setViewportSize({ width, height: 740 });
-    await page.goto('/');
-    const row = (await ownRows(page)).first();
-    await atRest(row);
-    const m = await page.evaluate(() => {
-      const nav = document.querySelector('nav.top') as HTMLElement, cs = getComputedStyle(nav);
-      const box = nav.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-      const links = [...nav.querySelectorAll<HTMLElement>(':scope > a')];
-      // Each link's min-content contribution as CSS computes it: the handle link clips (overflow hidden), so its
-      // automatic minimum is 0; its own floor is asserted separately below.
-      const mins = links.map((a) => {
-        if (getComputedStyle(a).overflowX === 'hidden') return 0;
-        const c = a.cloneNode(true) as HTMLElement;
-        c.style.cssText = 'position:absolute;visibility:hidden;width:min-content;max-width:none';
-        nav.appendChild(c); const w = c.getBoundingClientRect().width; c.remove(); return w;
-      });
-      const used = mins.reduce((a, b) => a + b, 0) + parseFloat(cs.columnGap) * (links.length - 1);
-      return { sw: document.documentElement.scrollWidth, inner: innerWidth, share: used / box, height: nav.getBoundingClientRect().height,
-        bottoms: links.map((a) => a.getBoundingClientRect().bottom), me: nav.querySelector('.me')!.getBoundingClientRect().width };
-    });
-    expect(m.sw, `${width}: no sideways scroll`).toBeLessThanOrEqual(m.inner);
-    expect(m.share, `${width}: links take ${(m.share * 100).toFixed(0)}% of the nav`).toBeLessThanOrEqual(0.85);
-    expect(m.height, `${width}: nav ${m.height.toFixed(1)} px`).toBeLessThanOrEqual(54.4); // 85% of the card's 64 px content top (and of 72 px scroll padding, 61)
-    const cardTop = await row.locator('.card').evaluate((c) => c.getBoundingClientRect().top + parseFloat(getComputedStyle(c).paddingTop));
-    for (const b of m.bottoms) expect(b).toBeLessThanOrEqual(cardTop);
-    expect(m.me, `${width}: handle link ${m.me.toFixed(1)} px`).toBeGreaterThanOrEqual(48);
-    test.info().annotations.push({ type: `nav ${width}`, description: JSON.stringify({ height: m.height, share: m.share, me: m.me }) });
-  }
-  await ctx.close();
-});
-
 
 test('Target size: the profile chart\'s range buttons are ≥ 44 × 44 px at 320 and 360 and stay on one row inside the viewport', async ({ browser }) => {
   for (const width of [320, 360]) {
