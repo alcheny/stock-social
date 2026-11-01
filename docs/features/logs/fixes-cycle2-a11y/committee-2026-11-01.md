@@ -90,3 +90,18 @@ exits 0 with no conflict, with the block after `.rt-card:focus`.
     scrolling card pads 90 px, and the card's parts keep their size while a bar shows (the bar's room squeezed F-10's
     clamped thesis to 0 px at 320×420). F-10's card disclaimer joins the parts that are never clipped. Supersedes the
     86 px of decisions 3 and 13. Why: decided by the committee under the owner's instruction of 2026-11-01; measured.
+
+## QA round 1 (user tests and independent code review)
+
+- Business lead user test: PASS (compliance A1, F3, F4, P2; both journeys at 360 px, light and dark).
+- UX lead user test: one demand — nav links are 16-21 px tall, under the 44 px target rule (pre-existing). Routed to
+  #55 (F-13), which owns the nav rule from here on (orchestrator, 2026-11-01); see decision 17.
+- Independent code review: 1 blocking (fixtures leaked `signup_attempts` rows), 6 non-blocking; all fixed or answered.
+
+16. 2026-11-01: the room under 480 px tall is 94 px like everywhere else (no short override), and the scrolling card
+    pads 94 px. Supersedes the 90 px of decision 15. Why: decided by the committee under the owner's instruction of
+    2026-11-01 (code review finding 3): 90 px left 10 px clear for the two-line bar at 320 px, 2 px over the tested
+    8 px floor; 94 px leaves ≥ 14 px for both bar heights.
+17. 2026-11-01: the 18vw handle cap and nav padding move to #55, which adopts them; the 44 px nav-link target demand
+    goes with them to #55's owner via the orchestrator. Why: decided by the committee under the owner's instruction
+    of 2026-11-01; the orchestrator asked that the nav rule exist once, in #55.

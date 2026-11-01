@@ -35,9 +35,17 @@ test.beforeAll(async () => {
   const ids = await sql`insert into closed_trades ${sql(rows)} returning id`;
   trader = { id: u.id, handle: h, trades: ids.map((x) => String(x.id)) };
 });
+// Deletes this file's own users and then their signup attempts (signup_attempts.user_id is only `on delete set null`,
+// so the attempt rows would otherwise outlive the users).
+async function removeUsers(ids: number[]) {
+  if (!ids.length) return;
+  const attempts = (await sql`select signup_attempt_id as a from users where id = any(${ids}) and signup_attempt_id is not null`).map((r) => r.a as number);
+  await sql`delete from users where id = any(${ids})`;
+  if (attempts.length) await sql`delete from signup_attempts where id = any(${attempts})`;
+}
 test.afterAll(async () => {
-  if (trader.id) await sql`delete from users where id = ${trader.id}`;
-  for (const v of viewers) await sql`delete from users where handle = ${v}`;
+  const own = viewers.length ? (await sql`select id from users where handle = any(${viewers})`).map((r) => r.id as number) : [];
+  await removeUsers([...(trader.id ? [trader.id] : []), ...own]);
   await release();
   await sql.end({ timeout: 1 });
 });
@@ -197,15 +205,15 @@ test('AC26.4 + AC18.3: gain and loss figures use the new tokens in both schemes;
 async function similarTraders() {
   const ids: number[] = [];
   const at = Date.now() - 2 * 86_400_000;
-  for (let t = 0; t < 3; t++) {
+  try { for (let t = 0; t < 3; t++) {
     const h = handle20(`cy2s${t}`);
     const [u] = await sql`with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
       insert into users (handle, display_name, adult_attested_at, signup_attempt_id, created_at) select ${h}, ${`Similar fixture ${t}`}, now(), a.id, now() - interval '60 days' from a returning id`;
     ids.push(u.id as number);
     await sql`insert into closed_trades ${sql(Array.from({ length: 6 }, (_, i) => ({ user_id: u.id, sell_id: `${h}-${i}`, account_id: 'demo-acct', symbol: `Z${'ABC'[t]}${i}`,
       opened_at: new Date(at - (t * 6 + i) * 60_000 - 3 * 86_400_000), closed_at: new Date(at - (t * 6 + i) * 60_000), return_pct: i % 2 ? 0.05 : -0.04, holding_days: 3, verified: false })))}`;
-  }
-  return { remove: () => sql`delete from users where id = any(${ids})` };
+  } } catch (e) { await removeUsers(ids); throw e; }
+  return { remove: () => removeUsers(ids) };
 }
 test('AC12.2: the pane\'s current row is outlined in --focus (≥ 3:1 on the painted backdrop), offset ≥ 2 px, weight ≥ 600, both schemes', async ({ browser }) => {
   test.setTimeout(120_000);
@@ -284,7 +292,6 @@ for (const height of [740, 640]) {
     await atRest(row);
     const card = row.locator('.card');
     await expect(card).toHaveCSS('padding-bottom', '28px'); // no bar, no change
-    await page.waitForTimeout(300); // hydration
     await expect.poll(async () => { await doubleTap(page, card.locator('.hero .ret')); return page.locator('.signin-line').innerText(); }).toContain('Sign in to like trades.');
     await expect(card).toHaveCSS('padding-bottom', '94px');
     const bar = await barOf(page, '.signin-line');
@@ -322,12 +329,11 @@ test('AC14.1 (360×480, 360×420, 320×420, signed out): on a short viewport the
     const row = (await ownRows(page)).first();
     await atRest(row);
     const card = row.locator('.card');
-    await page.waitForTimeout(300);
     await expect.poll(async () => { await doubleTap(page, card.locator('.hero .ret')); return page.locator('.signin-line').innerText(); }).toContain('Sign in to like trades.');
     await expect(card).toHaveCSS('overflow-y', 'auto');
     // The bar's 78 px plus F-10's 12 px short-viewport padding.
-    await expect(card).toHaveCSS('padding-bottom', '90px');
-    await expect(card).toHaveCSS('scroll-padding-bottom', '90px');
+    await expect(card).toHaveCSS('padding-bottom', '94px');
+    await expect(card).toHaveCSS('scroll-padding-bottom', '94px');
     const at = `${width}×${height}`;
     // Nothing collapses to make room: the thesis keeps at least its one line.
     expect((await rect(card.locator('.thesis'))).height, `${at}: thesis`).toBeGreaterThanOrEqual(16);
