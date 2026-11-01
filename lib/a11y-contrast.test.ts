@@ -224,7 +224,7 @@ for (const [name, on] of Object.entries(scheme) as [keyof typeof TOKENS_WANT, (r
     { what: 'gain text', fg: 'up', on: GROUNDS, floor: 'text' },
     { what: 'loss text', fg: 'down', on: GROUNDS, floor: 'text' },
     { what: 'Flat text', fg: 'flat', on: GROUNDS, floor: 'text' },
-    { what: 'the failed-import warning text (--warn, F-11)', fg: 'warn', on: GROUNDS, floor: 'text' },
+    { what: 'the warn notice border and icon (--warn, F-27; held to the text floor)', fg: 'warn', on: GROUNDS, floor: 'text' },
     { what: 'the Verified badge text on its 18% --up tint', fg: 'verified', on: { mix: 'up', pct: 0.18 }, floor: 'text' },
     { what: 'the Demo badge text (on --surface)', fg: 'demo', on: ['surface'], floor: 'text' },
     { what: 'the Public filing badge text (on --surface)', fg: 'text', on: ['surface'], floor: 'text' },

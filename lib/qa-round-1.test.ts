@@ -31,8 +31,10 @@ test('finding 8: the tone and the screen-reader word come from the printed value
 test('finding 7: a failed import is a warning (icon and words), not a loss colour; the record-failed hook stays', () => {
   for (const f of ['app/ui.tsx', 'app/pane.tsx', 'app/u/[handle]/page.tsx', 'app/record-strip.tsx']) {
     const s = src(f);
-    assert.match(s, /className="warn record-failed"/, f);
+    // F-27: the failed line is the one warn notice (icon, box and words; app/warn-notice.tsx keeps .record-failed).
+    assert.match(s, /<WarnNotice role=/, f);
     assert.doesNotMatch(s, /"down record-failed"/, f);
+    assert.doesNotMatch(s, /"warn record-failed"/, f);
   }
   const css = src('app/globals.css');
   // F-20: --warn's values live in the TOKENS block (dark :root first, then the light query), same values.
@@ -41,8 +43,12 @@ test('finding 7: a failed import is a warning (icon and words), not a loss colou
   assert.ok(lightAt > 0, 'TOKENS has its light query');
   assert.match(tokens.slice(0, lightAt), /--warn: #fbbf24;/);
   assert.match(tokens.slice(lightAt), /--warn: #92400e;/);
-  assert.match(css, /\.warn \{ color: var\(--warn\); \}/);
-  assert.match(css, /\.record-failed::before \{ content: "\\26A0\\FE0E  "; content: "\\26A0\\FE0E  " \/ ""; \}/);
+  // F-27: the hue-only .warn rule and the glyph are replaced by the notice's icon and box, both drawn in --warn.
+  assert.match(css, /\.warn-notice \{[^}]*border: 1px solid var\(--warn\);/);
+  const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.doesNotMatch(rules, /(^|[\s}])\.warn \{/);
+  assert.doesNotMatch(rules, /\.record-failed::before/);
+  assert.match(src('app/warn-notice.tsx'), /className="warn-notice record-failed"[\s\S]*<svg data-warn-icon aria-hidden="true"/);
 });
 
 test('finding 1: the root description names no trust state; finding 12: Demo footers say Demo, never connected accounts', () => {
