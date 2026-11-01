@@ -29,3 +29,6 @@ up to 5 rounds until both sign. Plan: [plan.md](plan.md) (covers F-10 and F-12; 
 - Orchestrator adopted all round-2 demands and notes into the plan ("Round 3 amendments").
 - Open question decided by the committee's recommended option: remove the trade page's duplicate footer record link;
   keep it on the month page (UX lead recommendation; business lead and engineer agree).
+- Engineer: SIGN (round 3). Build note adopted: the image range line uses the profile's `(… to …) · 95% range` when it fits
+  at ≥ 30 px, else drops the "· " (worst cases `(-100.0% to +123.4%)`, `+1234.5%` tested). Business lead: SIGN (round 2).
+- Plan signed by both. Build starts: tests first.
