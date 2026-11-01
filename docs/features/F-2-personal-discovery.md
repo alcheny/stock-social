@@ -64,6 +64,9 @@ advice. The owner has been told this and the scope below respects it.
   the age-assurance questions of SB 976 and the NY SAFE rules for activity-personalized feeds, Connecticut's
   profiling assessment), so it is off by default until counsel clears those points; then it may switch to on
   with notice. Why: the owner's conditional choice.
+- 2026-11-01: Viewers also get "Personalize my feed: Off": with it off, ordering ignores follows, likes and
+  activity and falls back to the order everyone gets, minus the viewer's own hides. Why: the owner adopted the
+  legal committee's recommendation; it is cheap and strengthens the legal position.
 
 ## Acceptance criteria
 Each one testable; the pipeline writes a test for every line.
