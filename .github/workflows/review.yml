@@ -41,6 +41,7 @@ jobs:
         with:
           ref: ${{ steps.pr.outputs.head }}
           fetch-depth: 0
+      # ponytail: this agent runs in the same job as a GitHub token — split it like build.yml/features.yml: agents in a contents: read job, a verified hand-off, the token only in a separate job.
       - id: claude
         uses: anthropics/claude-code-action@8041f1d17e0e7d2f2cfe35002962e9f26237c0bb # v1.0.263
         env:

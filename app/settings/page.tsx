@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { FOLLOW, SETTINGS } from '@/lib/copy.ts';
+import { BILLING, FOLLOW, RECORD_TOOLS, SETTINGS } from '@/lib/copy.ts';
 import { deleteProfile, signOut } from '../auth/actions.ts';
+import { hasSubscribed } from '@/lib/billing.ts';
 
 export const metadata: Metadata = { title: `${SETTINGS.title} · Stock Social`, robots: { index: false, follow: false } };
 
@@ -20,6 +21,10 @@ export default async function Settings({ searchParams }: { searchParams?: Promis
       <form action={signOut}><button className="secondary">{SETTINGS.signOut}</button></form>
       {/* F-2 PR-2: follows and "Not interested", with "Show again". */}
       <p><Link href="/me/following">{FOLLOW.settingsLink}</Link></p>
+      {/* F-3: Record tools and the account page (no price here: traders read this page too). */}
+      <h2>{RECORD_TOOLS.title}</h2>
+      <p><Link href="/tools">{RECORD_TOOLS.title}</Link></p>
+      <p><Link href="/account">{RECORD_TOOLS.account}</Link></p>
       <h2>{SETTINGS.deleteTitle}</h2>
       {confirm ? (
         <>
@@ -30,6 +35,9 @@ export default async function Settings({ searchParams }: { searchParams?: Promis
       ) : (
         <>
           <p>{SETTINGS.deleteExplain}</p>
+          {/* F-3 (committee K12, K20): what deleting does to billing and to other subscribers' notes. */}
+          {await hasSubscribed(me.id) && <p className="muted">{BILLING.deleteBilling}</p>}
+          <p className="muted">{BILLING.deleteNotes}</p>
           <p><Link className="button wide" href="/settings?confirm=1" data-testid="delete-first">{SETTINGS.deleteAction}</Link></p>
           <p><Link className="button wide secondary" href={`/u/${me.handle}`}>{SETTINGS.keep}</Link></p>
         </>
