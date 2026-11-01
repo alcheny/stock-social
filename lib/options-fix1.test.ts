@@ -142,7 +142,7 @@ test('F (review 5, QA 3): BUY/SELL rows with option_type set, or an OCC symbol, 
   const { toOptionRows } = await import('./broker.ts');
   const { matchOptions } = await import('./options.ts');
   const src = readFileSync(new URL('./broker.ts', import.meta.url), 'utf8');
-  assert.match(src, /if \(a\.option_type \|\| isOccSymbol\(symbol\)\) continue;/);
+  assert.match(src, /if \(hasOptionType\(a\.option_type\) \|\| isOccSymbol\(symbol\)\) continue;/); // round 7: one definition
   const rows = [
     { id: 'a', type: 'BUY', option_type: 'BUY_TO_OPEN', symbol: { symbol: 'XYZ   261219C00123450' }, units: 1, price: 2, trade_date: '2026-10-01T15:00:00Z' },
     { id: 'b', type: 'SELL', option_type: 'SELL_TO_CLOSE', symbol: { symbol: 'XYZ   261219C00123450' }, units: 1, price: 3, trade_date: '2026-10-02T15:00:00Z' },
