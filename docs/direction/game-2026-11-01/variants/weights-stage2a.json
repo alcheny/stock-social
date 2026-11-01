@@ -1,0 +1,773 @@
+{
+ "criteria_weights": {
+  "engagement": 0.23,
+  "skill": 0.22,
+  "policy_safety": 0.22,
+  "ergonomics": 0.12,
+  "product_fit": 0.13,
+  "build_cost": 0.08
+ },
+ "options": {
+  "format": {
+   "roguelike_run": {
+    "engagement": 9,
+    "ergonomics": 7,
+    "skill": 7,
+    "policy_safety": 7,
+    "build_cost": 6,
+    "product_fit": 7
+   },
+   "prediction_round": {
+    "engagement": 7,
+    "ergonomics": 9,
+    "skill": 7,
+    "policy_safety": 7,
+    "build_cost": 8,
+    "product_fit": 7
+   },
+   "daily_puzzle": {
+    "engagement": 8,
+    "ergonomics": 9,
+    "skill": 6,
+    "policy_safety": 9,
+    "build_cost": 8,
+    "product_fit": 8
+   },
+   "duel": {
+    "engagement": 8,
+    "ergonomics": 7,
+    "skill": 6,
+    "policy_safety": 6,
+    "build_cost": 4,
+    "product_fit": 6
+   },
+   "league_season": {
+    "engagement": 7,
+    "ergonomics": 6,
+    "skill": 7,
+    "policy_safety": 6,
+    "build_cost": 5,
+    "product_fit": 6
+   },
+   "calibration_drill": {
+    "engagement": 6,
+    "ergonomics": 8,
+    "skill": 10,
+    "policy_safety": 10,
+    "build_cost": 9,
+    "product_fit": 9
+   },
+   "portfolio_sim": {
+    "engagement": 6,
+    "ergonomics": 4,
+    "skill": 6,
+    "policy_safety": 5,
+    "build_cost": 5,
+    "product_fit": 4
+   },
+   "scenario_story": {
+    "engagement": 7,
+    "ergonomics": 7,
+    "skill": 6,
+    "policy_safety": 9,
+    "build_cost": 5,
+    "product_fit": 8
+   },
+   "draft_deck": {
+    "engagement": 8,
+    "ergonomics": 6,
+    "skill": 7,
+    "policy_safety": 7,
+    "build_cost": 5,
+    "product_fit": 6
+   },
+   "survival": {
+    "engagement": 7,
+    "ergonomics": 7,
+    "skill": 5,
+    "policy_safety": 6,
+    "build_cost": 7,
+    "product_fit": 5
+   },
+   "sandbox": {
+    "engagement": 4,
+    "ergonomics": 4,
+    "skill": 4,
+    "policy_safety": 7,
+    "build_cost": 6,
+    "product_fit": 4
+   },
+   "quiz": {
+    "engagement": 5,
+    "ergonomics": 9,
+    "skill": 6,
+    "policy_safety": 9,
+    "build_cost": 9,
+    "product_fit": 8
+   },
+   "spectator": {
+    "engagement": 4,
+    "ergonomics": 7,
+    "skill": 2,
+    "policy_safety": 6,
+    "build_cost": 5,
+    "product_fit": 5
+   }
+  },
+  "data": {
+   "hist_replay_masked": {
+    "engagement": 8,
+    "ergonomics": 8,
+    "skill": 9,
+    "policy_safety": 10,
+    "build_cost": 8,
+    "product_fit": 9
+   },
+   "hist_replay_named": {
+    "engagement": 6,
+    "ergonomics": 8,
+    "skill": 5,
+    "policy_safety": 7,
+    "build_cost": 8,
+    "product_fit": 6
+   },
+   "synthetic_paths": {
+    "engagement": 6,
+    "ergonomics": 8,
+    "skill": 7,
+    "policy_safety": 10,
+    "build_cost": 9,
+    "product_fit": 6
+   },
+   "delayed_live": {
+    "engagement": 6,
+    "ergonomics": 5,
+    "skill": 5,
+    "policy_safety": 3,
+    "build_cost": 3,
+    "product_fit": 4
+   },
+   "live_eod_next_day": {
+    "engagement": 7,
+    "ergonomics": 4,
+    "skill": 3,
+    "policy_safety": 1,
+    "build_cost": 3,
+    "product_fit": 3
+   },
+   "verified_records_anon": {
+    "engagement": 7,
+    "ergonomics": 8,
+    "skill": 7,
+    "policy_safety": 3,
+    "build_cost": 7,
+    "product_fit": 4
+   },
+   "mixed": {
+    "engagement": 7,
+    "ergonomics": 7,
+    "skill": 7,
+    "policy_safety": 6,
+    "build_cost": 5,
+    "product_fit": 6
+   }
+  },
+  "input": {
+   "tap_up_down": {
+    "engagement": 6,
+    "ergonomics": 10,
+    "skill": 4,
+    "policy_safety": 8,
+    "build_cost": 10,
+    "product_fit": 7
+   },
+   "swipe_lr": {
+    "engagement": 7,
+    "ergonomics": 10,
+    "skill": 4,
+    "policy_safety": 8,
+    "build_cost": 10,
+    "product_fit": 7
+   },
+   "slider_prob": {
+    "engagement": 7,
+    "ergonomics": 9,
+    "skill": 9,
+    "policy_safety": 9,
+    "build_cost": 9,
+    "product_fit": 8
+   },
+   "drag_range": {
+    "engagement": 7,
+    "ergonomics": 8,
+    "skill": 9,
+    "policy_safety": 9,
+    "build_cost": 8,
+    "product_fit": 8
+   },
+   "hold_to_ride": {
+    "engagement": 8,
+    "ergonomics": 8,
+    "skill": 5,
+    "policy_safety": 6,
+    "build_cost": 8,
+    "product_fit": 6
+   },
+   "multi_choice": {
+    "engagement": 6,
+    "ergonomics": 9,
+    "skill": 6,
+    "policy_safety": 9,
+    "build_cost": 10,
+    "product_fit": 8
+   },
+   "allocation_sliders": {
+    "engagement": 5,
+    "ergonomics": 4,
+    "skill": 7,
+    "policy_safety": 6,
+    "build_cost": 7,
+    "product_fit": 5
+   }
+  },
+  "scoring": {
+   "brier": {
+    "engagement": 6,
+    "ergonomics": 8,
+    "skill": 10,
+    "policy_safety": 10,
+    "build_cost": 10,
+    "product_fit": 9
+   },
+   "log": {
+    "engagement": 5,
+    "ergonomics": 7,
+    "skill": 10,
+    "policy_safety": 10,
+    "build_cost": 10,
+    "product_fit": 8
+   },
+   "interval_coverage": {
+    "engagement": 7,
+    "ergonomics": 7,
+    "skill": 9,
+    "policy_safety": 10,
+    "build_cost": 9,
+    "product_fit": 9
+   },
+   "pnl_paper": {
+    "engagement": 7,
+    "ergonomics": 8,
+    "skill": 4,
+    "policy_safety": 5,
+    "build_cost": 9,
+    "product_fit": 4
+   },
+   "rank_vs_field": {
+    "engagement": 8,
+    "ergonomics": 8,
+    "skill": 5,
+    "policy_safety": 6,
+    "build_cost": 6,
+    "product_fit": 6
+   },
+   "risk_adjusted": {
+    "engagement": 6,
+    "ergonomics": 6,
+    "skill": 8,
+    "policy_safety": 8,
+    "build_cost": 8,
+    "product_fit": 7
+   },
+   "streak_mult": {
+    "engagement": 8,
+    "ergonomics": 8,
+    "skill": 2,
+    "policy_safety": 2,
+    "build_cost": 9,
+    "product_fit": 3
+   },
+   "hit_rate": {
+    "engagement": 6,
+    "ergonomics": 9,
+    "skill": 4,
+    "policy_safety": 8,
+    "build_cost": 10,
+    "product_fit": 6
+   },
+   "brier_plus_paper": {
+    "engagement": 7,
+    "ergonomics": 7,
+    "skill": 8,
+    "policy_safety": 8,
+    "build_cost": 9,
+    "product_fit": 7
+   }
+  },
+  "progression": {
+   "none": {
+    "engagement": 3,
+    "ergonomics": 8,
+    "skill": 6,
+    "policy_safety": 10,
+    "build_cost": 10,
+    "product_fit": 7
+   },
+   "ladder_unlocks": {
+    "engagement": 8,
+    "ergonomics": 7,
+    "skill": 6,
+    "policy_safety": 8,
+    "build_cost": 6,
+    "product_fit": 7
+   },
+   "seasonal_rating": {
+    "engagement": 7,
+    "ergonomics": 7,
+    "skill": 7,
+    "policy_safety": 7,
+    "build_cost": 6,
+    "product_fit": 6
+   },
+   "skill_rating": {
+    "engagement": 7,
+    "ergonomics": 8,
+    "skill": 8,
+    "policy_safety": 6,
+    "build_cost": 6,
+    "product_fit": 6
+   },
+   "cosmetic": {
+    "engagement": 6,
+    "ergonomics": 8,
+    "skill": 5,
+    "policy_safety": 8,
+    "build_cost": 7,
+    "product_fit": 7
+   },
+   "knowledge_codex": {
+    "engagement": 7,
+    "ergonomics": 8,
+    "skill": 7,
+    "policy_safety": 9,
+    "build_cost": 6,
+    "product_fit": 9
+   },
+   "ascension_modifiers": {
+    "engagement": 9,
+    "ergonomics": 7,
+    "skill": 8,
+    "policy_safety": 8,
+    "build_cost": 5,
+    "product_fit": 7
+   },
+   "daily_only": {
+    "engagement": 5,
+    "ergonomics": 9,
+    "skill": 6,
+    "policy_safety": 10,
+    "build_cost": 9,
+    "product_fit": 8
+   }
+  },
+  "social": {
+   "none": {
+    "engagement": 3,
+    "ergonomics": 8,
+    "skill": 7,
+    "policy_safety": 10,
+    "build_cost": 10,
+    "product_fit": 6
+   },
+   "share_card": {
+    "engagement": 6,
+    "ergonomics": 9,
+    "skill": 7,
+    "policy_safety": 8,
+    "build_cost": 8,
+    "product_fit": 9
+   },
+   "async_challenge_link": {
+    "engagement": 8,
+    "ergonomics": 8,
+    "skill": 7,
+    "policy_safety": 8,
+    "build_cost": 7,
+    "product_fit": 8
+   },
+   "friends_league": {
+    "engagement": 7,
+    "ergonomics": 7,
+    "skill": 6,
+    "policy_safety": 7,
+    "build_cost": 5,
+    "product_fit": 7
+   },
+   "global_leaderboard": {
+    "engagement": 7,
+    "ergonomics": 7,
+    "skill": 6,
+    "policy_safety": 5,
+    "build_cost": 6,
+    "product_fit": 5
+   },
+   "ghost_race": {
+    "engagement": 8,
+    "ergonomics": 7,
+    "skill": 7,
+    "policy_safety": 8,
+    "build_cost": 6,
+    "product_fit": 7
+   },
+   "spectate": {
+    "engagement": 5,
+    "ergonomics": 6,
+    "skill": 3,
+    "policy_safety": 4,
+    "build_cost": 3,
+    "product_fit": 5
+   }
+  },
+  "cadence": {
+   "unlimited": {
+    "engagement": 7,
+    "ergonomics": 6,
+    "skill": 7,
+    "policy_safety": 6,
+    "build_cost": 10,
+    "product_fit": 6
+   },
+   "daily_one": {
+    "engagement": 6,
+    "ergonomics": 9,
+    "skill": 5,
+    "policy_safety": 9,
+    "build_cost": 9,
+    "product_fit": 8
+   },
+   "daily_three": {
+    "engagement": 7,
+    "ergonomics": 9,
+    "skill": 7,
+    "policy_safety": 9,
+    "build_cost": 9,
+    "product_fit": 8
+   },
+   "weekly": {
+    "engagement": 4,
+    "ergonomics": 7,
+    "skill": 5,
+    "policy_safety": 9,
+    "build_cost": 8,
+    "product_fit": 6
+   },
+   "energy_limited": {
+    "engagement": 5,
+    "ergonomics": 6,
+    "skill": 6,
+    "policy_safety": 2,
+    "build_cost": 7,
+    "product_fit": 3
+   }
+  }
+ },
+ "session_s": [
+  [
+   45,
+   5
+  ],
+  [
+   90,
+   8
+  ],
+  [
+   150,
+   10
+  ],
+  [
+   210,
+   10
+  ],
+  [
+   300,
+   7
+  ],
+  [
+   420,
+   5
+  ],
+  [
+   600,
+   3
+  ],
+  [
+   900,
+   1
+  ]
+ ],
+ "flags": [
+  {
+   "pattern": "\\bloot\\b|mystery\\s*(box|crate|pack)|loot\\s*box|gacha",
+   "criterion": "policy_safety",
+   "delta": -6,
+   "why": "F6: loot-box-like variable reward"
+  },
+  {
+   "pattern": "random\\s*(reward|drop|prize|bonus)|\\bspin\\b|wheel\\s*of|slot\\s*machine|jackpot",
+   "criterion": "policy_safety",
+   "delta": -5,
+   "why": "F6: variable-ratio reward / gambling pattern"
+  },
+  {
+   "pattern": "\\bprizes?\\b|\\bcash\\b|\\bredeem|convertible|withdraw|gift\\s*card|payout",
+   "criterion": "policy_safety",
+   "delta": -6,
+   "why": "F6: prizes or anything convertible to money"
+  },
+  {
+   "pattern": "\\bwager|\\bbet(s|ting)?\\b|stake\\s*(points|coins)|\\bante\\b",
+   "criterion": "policy_safety",
+   "delta": -5,
+   "why": "F6: wagering"
+  },
+  {
+   "pattern": "don'?t\\s*break|keep\\s*(your|the)\\s*streak|streak\\s*(loss|lost|freeze|saver|pressure)|lose\\s*your\\s*streak",
+   "criterion": "policy_safety",
+   "delta": -5,
+   "why": "Streak pressure / loss aversion compulsion"
+  },
+  {
+   "pattern": "\\bstreaks?\\b",
+   "criterion": "policy_safety",
+   "delta": -2,
+   "why": "F6: streaks need care even outside trading"
+  },
+  {
+   "pattern": "real\\s*trades?|your\\s*broker(age)?\\s*account|linked\\s*account|real[-\\s]money|actual\\s*positions?",
+   "criterion": "policy_safety",
+   "delta": -6,
+   "why": "F5/F6: game tied to real trading or real-money outcomes"
+  },
+  {
+   "pattern": "\\bcopy\\b|mirror\\s*(their|trades)|follow\\s*their\\s*trades",
+   "criterion": "policy_safety",
+   "delta": -6,
+   "why": "F2/F5: copy trading"
+  },
+  {
+   "pattern": "crowd\\s*(consensus|sentiment|forecast|prediction|says)|consensus\\s*(on|for)|% of players (think|predict)|tips?\\b",
+   "criterion": "policy_safety",
+   "delta": -5,
+   "why": "F1/F3b: live crowd predictions become signals on securities"
+  },
+  {
+   "pattern": "buy\\s*now|sell\\s*signal|buy\\s*signal|\\bsignals?\\b|top\\s*picks?|price\\s*target|\\bhold\\s*or\\s*sell",
+   "criterion": "policy_safety",
+   "delta": -6,
+   "why": "F1: advice or signals"
+  },
+  {
+   "pattern": "tomorrow'?s\\s*(close|price)|live\\s*(price|market|ticker)|real[-\\s]?time\\s*(price|quote)",
+   "criterion": "policy_safety",
+   "delta": -3,
+   "why": "Live named-security forecasts drift toward signals; also realtime infra"
+  },
+  {
+   "pattern": "real[-\\s]?time|websocket|live\\s*(feed|data|quotes)",
+   "criterion": "build_cost",
+   "delta": -3,
+   "why": "Realtime infra or a new data vendor"
+  },
+  {
+   "pattern": "\\benergy\\b|lives\\s*refill|wait\\s*(timer|\\d+\\s*(min|hour))|pay\\s*to\\s*(continue|skip|play)|continue\\s*for",
+   "criterion": "policy_safety",
+   "delta": -5,
+   "why": "Energy / wait timers / pay-to-continue compulsion"
+  },
+  {
+   "pattern": "loss[-\\s]?chas|double\\s*or\\s*nothing|win\\s*it\\s*back|recover\\s*your\\s*loss",
+   "criterion": "policy_safety",
+   "delta": -5,
+   "why": "Loss-chasing mechanic"
+  },
+  {
+   "pattern": "confetti|celebrat|fireworks",
+   "criterion": "policy_safety",
+   "delta": -2,
+   "why": "F6: celebration; never on real trades"
+  },
+  {
+   "pattern": "verified\\s*(record|badge|trader)|on\\s*your\\s*profile|profile\\s*(score|rating)|trader\\s*skill",
+   "criterion": "product_fit",
+   "delta": -4,
+   "why": "Mixes game results with verified records (TR, F3a/F3b)"
+  },
+  {
+   "pattern": "\\bedge\\b|beat\\s*the\\s*market|get\\s*rich|guarantee|risk[-\\s]free|can'?t\\s*lose|proven",
+   "criterion": "policy_safety",
+   "delta": -5,
+   "why": "F2/F3b: promissory or skill/edge language"
+  },
+  {
+   "pattern": "teen|gen\\s*z|gen\\s*alpha|kids?\\b|students?\\b|school",
+   "criterion": "policy_safety",
+   "delta": -6,
+   "why": "P4: minors or cohorts including them"
+  },
+  {
+   "pattern": "leaderboard\\s*prize|top\\s*\\d+\\s*(win|get)|sponsor|pay\\s*for\\s*(visibility|boost)",
+   "criterion": "policy_safety",
+   "delta": -5,
+   "why": "F5/F6: paid visibility or leaderboard prizes"
+  },
+  {
+   "pattern": "push\\s*notif|alert\\s*when|notify\\s*(you|when)",
+   "criterion": "policy_safety",
+   "delta": -3,
+   "why": "F3b: pushed messages driven by price moves or records"
+  },
+  {
+   "pattern": "\\bbrier\\b",
+   "criterion": "skill",
+   "delta": 3,
+   "why": "Proper scoring rule"
+  },
+  {
+   "pattern": "calibrat",
+   "criterion": "skill",
+   "delta": 3,
+   "why": "Rewards calibrated judgement"
+  },
+  {
+   "pattern": "interval|range\\s*(guess|band)|confidence\\s*(band|range)",
+   "criterion": "skill",
+   "delta": 2,
+   "why": "Interval coverage punishes overconfidence"
+  },
+  {
+   "pattern": "overconfiden|log\\s*loss|proper\\s*scor",
+   "criterion": "skill",
+   "delta": 2,
+   "why": "Punishes overconfidence"
+  },
+  {
+   "pattern": "\\bseeded\\b|same\\s*(chart|seed|puzzle)\\s*for\\s*everyone|shared\\s*seed",
+   "criterion": "engagement",
+   "delta": 2,
+   "why": "Fair shared puzzle drives comparison and talk without compulsion"
+  },
+  {
+   "pattern": "\\bseeded\\b|same\\s*(chart|seed)\\s*for\\s*everyone",
+   "criterion": "build_cost",
+   "delta": 1,
+   "why": "Deterministic content, no live data"
+  },
+  {
+   "pattern": "\\breveal",
+   "criterion": "engagement",
+   "delta": 2,
+   "why": "Masked-then-revealed payoff moment"
+  },
+  {
+   "pattern": "masked|ticker\\s*hidden|hidden\\s*(ticker|name|dates)",
+   "criterion": "policy_safety",
+   "delta": 2,
+   "why": "Masked history avoids naming securities to act on"
+  },
+  {
+   "pattern": "synthetic|generated\\s*path",
+   "criterion": "policy_safety",
+   "delta": 1,
+   "why": "No real security named"
+  },
+  {
+   "pattern": "no\\s*(prizes|rewards)|cosmetic\\s*only|nothing\\s*to\\s*win",
+   "criterion": "policy_safety",
+   "delta": 2,
+   "why": "Explicitly non-monetary"
+  },
+  {
+   "pattern": "one[-\\s]thumb|single\\s*tap|3[-\\s]?min",
+   "criterion": "ergonomics",
+   "delta": 2,
+   "why": "Fits phone session target"
+  },
+  {
+   "pattern": "reduced[-\\s]motion|keyboard|screen\\s*reader|accessible",
+   "criterion": "ergonomics",
+   "delta": 1,
+   "why": "A1 accessibility awareness"
+  },
+  {
+   "pattern": "hold\\s*to|long[-\\s]press|rapid\\s*tap|reflex|twitch",
+   "criterion": "ergonomics",
+   "delta": -1,
+   "why": "A1: timing-based input needs a keyboard/non-timed alternative"
+  },
+  {
+   "pattern": "reflex|twitch|speed\\s*run|fastest",
+   "criterion": "skill",
+   "delta": -2,
+   "why": "Rewards reaction speed, not judgement"
+  }
+ ],
+ "veto": [
+  {
+   "combo": {
+    "data": "live_eod_next_day",
+    "social": "global_leaderboard"
+   },
+   "why": "F1/F3b: public live predictions on named securities aggregate into a crowd signal"
+  },
+  {
+   "combo": {
+    "data": "live_eod_next_day",
+    "social": "spectate"
+   },
+   "why": "F1/F3b: broadcasting live picks on named securities"
+  },
+  {
+   "combo": {
+    "data": "delayed_live",
+    "social": "spectate"
+   },
+   "why": "F3b: broadcast predictions timed by price moves"
+  },
+  {
+   "combo": {
+    "data": "live_eod_next_day",
+    "scoring": "streak_mult"
+   },
+   "why": "F6: streak pressure on daily named-security bets reads as wagering"
+  },
+  {
+   "combo": {
+    "data": "verified_records_anon",
+    "progression": "skill_rating"
+   },
+   "why": "F3a/F3b/P3: game turns verified records into a skill score, mixing game with records"
+  },
+  {
+   "combo": {
+    "data": "verified_records_anon",
+    "social": "spectate"
+   },
+   "why": "P3/F3b: rebroadcasting traders' records"
+  },
+  {
+   "combo": {
+    "cadence": "energy_limited",
+    "scoring": "streak_mult"
+   },
+   "why": "Compulsion stack: wait timers plus streak pressure"
+  },
+  {
+   "combo": {
+    "format": "portfolio_sim",
+    "data": "live_eod_next_day"
+   },
+   "why": "F5/F6: live paper trading on named securities mimics real trading"
+  }
+ ],
+ "rationale": "Engagement and skill carry the most weight (0.23/0.22) because the game must be worth replaying and should reward calibrated judgement, not luck. Policy_safety is weighted equal to skill (0.22) and text flags can deduct up to 6 points per hit, so a design built on prizes, loot boxes, streak pressure, real trades or crowd signals on named securities drops below safe designs even when it is very engaging. Vetoes cover combinations that POLICY bans outright (F1/F3b crowd signals, F5/F6 trading-like or wagering mechanics, P3 mixing the game with verified records). Proper scoring rules (Brier, log, interval coverage) and masked historical or synthetic data score highest on skill and safety: no live vendor, no named security to act on, and a reveal at the end. Streak multipliers, pnl_paper and energy cadence score low because they reward luck or compulsion, or look like trading. Product_fit (0.13) favours share cards, async challenge links and codex-style progression, which complement the profile and swipe feed while staying separate from verified records. Ergonomics (0.12) peaks at 150-210 s sessions with tap/slider input. Build_cost (0.08) mainly penalises live data, realtime spectating and leagues."
+}
