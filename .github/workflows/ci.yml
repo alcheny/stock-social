@@ -10,9 +10,11 @@ permissions:
   contents: read
 
 jobs:
-  check: # the Gate looks for this exact job name
+  # Fast checks in one job, the e2e suite split across shards in parallel (each with its own database, server
+  # and vendor fake), and `check` on top: the Gate, the doctor and the feature pipeline read exactly that name.
+  static:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:17
@@ -21,7 +23,7 @@ jobs:
           POSTGRES_PASSWORD: stock_social
           POSTGRES_DB: stock_social
         ports: ["5432:5432"]
-        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+        options: --health-cmd "pg_isready -U stock_social" --health-interval 5s --health-retries 10
     env:
       DATABASE_URL: postgres://stock_social:stock_social@localhost:5432/stock_social
       APP_SECRET_KEY: ci-only
@@ -65,16 +67,93 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || 'origin/main' }} # via env, not interpolated into the shell
         run: node scripts/autopilot.ts guard "$BASE_SHA"
-      - name: Build exactly as a Vercel preview does (schema + seed + next build)
-        run: npm run vercel-build
-        env:
-          VERCEL_ENV: preview
       - name: Missing DATABASE_URL fails with a clear message
         run: |
           if env -u DATABASE_URL node scripts/db-setup.ts 2> err.txt; then echo "expected failure"; exit 1; fi
           grep -q "DATABASE_URL is not set" err.txt
+
+  # Every e2e test runs exactly once: scripts/e2e-shard.ts cuts the listed suite into one contiguous slice per matrix
+  # leg, of about equal measured time (Playwright's own --shard balances by test count, which left one slow shard),
+  # and each shard checks that its --test-list matched exactly its slice, test by test. --workers=1 runs one test at a
+  # time per shard, so the single vendor-fake port and the feed lock (e2e/feed-lock.ts) never see two workers. Each
+  # shard builds exactly as a Vercel preview does (schema + seed + next build) against its own fresh database.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false # every shard reports, so a fix round sees all failures at once
+      matrix:
+        shard: [1, 2, 3, 4]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: stock_social
+          POSTGRES_PASSWORD: stock_social
+          POSTGRES_DB: stock_social
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U stock_social" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://stock_social:stock_social@localhost:5432/stock_social
+      APP_SECRET_KEY: ci-only
+      CRON_SECRET: ci-only
+      SNAPTRADE_BASE_URL: http://127.0.0.1:4102 # the vendor fake, as in static
+      SNAPTRADE_CLIENT_ID: e2e
+      SNAPTRADE_CONSUMER_KEY: e2e
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Pick this shard's tests (each test in exactly one shard)
+        env: # from the matrix itself, so adding or removing a leg can never leave a slice unrun
+          LEG_INDEX: ${{ strategy.job-index }}
+          LEG_TOTAL: ${{ strategy.job-total }}
+        run: |
+          shard=$((LEG_INDEX + 1))
+          npx playwright test --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/e2e-shard.ts pick "$RUNNER_TEMP/e2e-list.json" "$shard" "$LEG_TOTAL" > "$RUNNER_TEMP/e2e-shard.txt"
+          npx playwright test --list --reporter=json --test-list "$RUNNER_TEMP/e2e-shard.txt" > "$RUNNER_TEMP/e2e-got.json"
+          node scripts/e2e-shard.ts verify "$RUNNER_TEMP/e2e-list.json" "$RUNNER_TEMP/e2e-got.json" "$shard" "$LEG_TOTAL"
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('./node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Cache Next.js build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('app/**', 'lib/**', 'public/**', 'next.config.ts', 'tsconfig.json') }}
+          restore-keys: nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+      - name: Build exactly as a Vercel preview does (schema + seed + next build)
+        run: npm run vercel-build
+        env:
+          VERCEL_ENV: preview
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --reporter=list
+      - run: npx playwright test --reporter=list --workers=1 --test-list "$RUNNER_TEMP/e2e-shard.txt"
+
+  check: # the Gate, the doctor and the feature pipeline look for this exact job name
+    needs: [static, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Every check passed
+        env:
+          STATIC: ${{ needs.static.result }}
+          E2E: ${{ needs.e2e.result }}
+        run: |
+          echo "static: $STATIC, e2e: $E2E"
+          [ "$STATIC" = success ] && [ "$E2E" = success ]
 
   # Cheap checks first: when the loop started this run, start the (expensive) AI Review only if CI passed;
   # otherwise go straight to the Gate, which sends the PR back for a fix. Separate job: PR code never
