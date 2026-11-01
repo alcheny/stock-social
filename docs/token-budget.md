@@ -26,9 +26,7 @@ the cap is estimated.
   "config": {
     "capUsd": 1200,                // optional: a known cap; otherwise it is calibrated (below)
     "warnFraction": 0.75,          // the share of the cap at which status turns "allowed_warning"
-    "safety": 1.5,                 // multiplier on every remaining-cost estimate
-    "unknownCapAdmitUsd": 150,     // while the cap is unknown: most new reserve (estimate x safety) admitted per window
-    "admittedThisWindowUsd": 0,    // reserve already admitted this window under the unknown-cap ceiling
+    "safety": 1.5,                 // multiplier on running sessions' remaining-cost estimates
     "priors": { "build": 50, "council:fixing": 15 }   // overrides, see Priors
   },
   "sessions": [
@@ -83,28 +81,33 @@ the same keys.
 So a session above its prior keeps a margin of its own burn over the tail (at least the floor), never 0
 while it is not done. Done sessions count in spend and reserve nothing.
 
-**Reserve** = Σ remaining × safety over every running session. It is always kept: admission only spends
-what is left after it.
+**Reserve** = Σ remaining × safety over every running session. It is always kept: admission only uses
+what is left after it, so running work can finish before 100% of the cap.
 
 **Cap.**
 1. `config.capUsd` when given (source `config`).
 2. Otherwise calibrated: in the most recent window in which status turned `allowed_warning` (history or
    the snapshot itself), the first warning reading's spend W gives cap ≈ W / warnFraction (source
    `calibrated`; it carries over to later windows). A `rejected` reading at spend R caps it at R.
-3. Otherwise unknown (source `lower-bound`): each `allowed` reading at spend A proves the cap is above
-   A / warnFraction, so the plan uses the largest such bound in the current window as the cap. On top
-   of that, while the cap is unknown, new admissions in a window may reserve at most
-   `unknownCapAdmitUsd` (default $150) minus `admittedThisWindowUsd` (the orchestrator keeps that
-   running total itself; it is in `capacity.unknownCapCeilingLeftUsd`), and only while status is
-   `allowed`.
+3. Otherwise unknown (source `unknown`, `usd: null`). `lowerBoundUsd` reports, for information only, the
+   largest A / warnFraction over `allowed` readings at spend A in this window (the cap is above it).
 
-**Admission.** headroom = cap − spend − reserve. Queue items are taken in priority order (then id) and
-admitted while estimate × safety fits in what is left; the first item that does not fit stops admission,
-so a large important item is not starved by smaller ones. An item's estimate is its `estimateUsd` or the
-prior for its kind. The total admitted reserve never exceeds headroom.
+**Admission: the one rule.** Queued work is admitted while
+
+    window spend + reserve (running) + Σ estimates of the newly admitted items ≤ 100% of the cap
+
+Items are taken in priority order (then id); the first item that does not fit stops admission, so a large
+important item is not starved by smaller ones. An item's estimate is its `estimateUsd` or the prior for its
+kind, with no safety multiplier: the safety factor protects running sessions, it is not a lower ceiling.
+While the cap is unknown, every queued item is admitted while status is `allowed`.
+
+The governor never limits rate: it has no per-hour limits, pacing or concurrency caps, in code or in its
+default config. It only keeps running sessions' reserves and queues work that would not fit under 100%.
+
+**Warning.** `allowed_warning` is a calibration signal, never a brake: its first appearance sets the cap
+(above) and admission carries on under the rule. The plan reports `warning: true`.
 
 **Brakes** (nothing is admitted):
-- `allowed_warning`: the window is past `warnFraction`; queue waits for reset.
 - `rejected` or `isUsingOverage`: running sessions may stall; the plan recommends pausing sessions
   starting with the lowest priority, then the least progress (spent / prior), never the orchestrator.
 - status missing or unrecognised: treated as a brake until a valid status is read.
@@ -130,5 +133,7 @@ append to the next snapshot's `history`.
 - Cost is a proxy for tokens: cache reads are cheap in dollars but may weigh differently against the cap.
 - Spend the orchestrator cannot see (a person's own sessions on the same account) is missing from spend,
   so a cap calibrated from a warning comes out lower than the real one: that errs on the safe side.
-- The unknown-cap lower bound is weak early in a window; pass `capUsd` or wait for the first warning to
-  calibrate.
+- Until the first warning (or a `capUsd`), the cap is unknown and everything is admitted while status is
+  `allowed`: the warning at `warnFraction` is the signal that turns reserves on. If the fleet's committed
+  work already exceeds the cap by then, `projection.runningFits` says so and the brakes take over at
+  `rejected`.
