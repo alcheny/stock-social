@@ -6,8 +6,10 @@ import { tradeSharePayload } from './trade-share.ts';
 // The only query behind the trade page and card. A held thesis is nulled in SQL, so it never reaches rendering code.
 export async function loadTradeShare(handle: string, sellId: string) {
   const [t] = await sql`
-    select ct.user_id, ct.symbol, ct.return_pct, ct.holding_days, ct.closed_at,
+    select ct.id, ct.user_id, ct.symbol, ct.return_pct, ct.holding_days, ct.closed_at,
       case when ct.thesis_status = 'published' then ct.thesis end as thesis,
+      case when ct.thesis_status = 'published' then ct.thesis_written_at end as thesis_written_at,
+      case when ct.thesis_status = 'published' then ct.thesis_edited_at end as thesis_edited_at,
       u.display_name
     from closed_trades ct join users u on u.id = ct.user_id and u.deleted_at is null
     where u.handle = ${handle} and ct.sell_id = ${sellId}`;
@@ -21,7 +23,9 @@ export async function loadTradeShare(handle: string, sellId: string) {
   // Fix round 6 (TR-3): the record state and source travel with the payload, so the card and the link preview apply
   // the profile's rule (a failed import is never presented as a whole verified record).
   const verified = all.length > 0 && all.every((r) => r.verified);
-  return { ...payload, handle, displayName: t.display_name as string, state: (await publicRecord(Number(t.user_id))).state, verified };
+  // F-9: the note's dates and the trade's id (the Report control) ride beside the payload, never inside the share data.
+  const note = { tradeId: String(t.id), writtenAt: (t.thesis_written_at ?? null) as Date | null, editedAt: (t.thesis_edited_at ?? null) as Date | null };
+  return { ...payload, handle, displayName: t.display_name as string, state: (await publicRecord(Number(t.user_id))).state, verified, note };
 }
 
 // Route params may be percent-encoded; malformed input is a 404, not a 500.

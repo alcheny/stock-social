@@ -7,6 +7,7 @@ import { wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from './trade-share.tsx';
+import { UserNote } from '../../../../user-note.tsx';
 
 type Params = { params: Promise<{ handle: string; sellId: string }> };
 
@@ -50,7 +51,8 @@ export default async function TradePage({ params }: Params) {
           <h1 style={{ margin: 0 }}>{t.symbol}</h1>
           <p className="big"><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</p>
           <p className="muted small">{held(t.holdingDays)} · closed {closed}</p>
-          {t.thesis && <blockquote>“{t.thesis}”</blockquote>}
+          {/* F-9: UserNote. t.thesis is published-only (nulled in SQL, lib/trade-share-load.ts); Report for a signed-in non-author. */}
+          {t.thesis && <UserNote text={t.thesis} handle={t.handle} writtenAt={t.note.writtenAt} editedAt={t.note.editedAt} reportId={me && me.handle !== t.handle ? t.note.tradeId : undefined} symbol={t.symbol} />}
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {whole.stats && t.newRecord && <span className="badge new">New record</span>}</h2>

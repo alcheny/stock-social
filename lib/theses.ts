@@ -1,4 +1,8 @@
-export type KeptThesis = { sell_id: string; thesis: string; thesis_status: string | null };
+export type KeptThesis = {
+  sell_id: string; thesis: string; thesis_status: string | null;
+  // fix-user-text B (F-9): carried with the thesis, unchanged, by sell_id (lib/sync.ts#rebuildTrades).
+  thesis_written_at?: Date | null; thesis_edited_at?: Date | null; thesis_hold_rule?: string | null; thesis_reviewed_at?: Date | null;
+};
 
 /**
  * Re-attach theses saved before a rebuild to the rebuilt trades, keyed by the closing sell's id.
