@@ -84,7 +84,8 @@ hourly, but each account is read within the vendor's guidance (`lib/sync-cadence
 - **Evidence:** each run logs `accountLists`, `activitiesReads`, `positionsReads` and `readsDeferred`, summed hourly in
   `sync_read_counts`. The coverage line reports:
   - `capRatio`: activities reads in the last 24 h ÷ connected real accounts, with `capBreach` above 1.05;
-  - the oldest activities and positions reads, with `freshnessAlarm` above 26 h and 14 h.
+  - the oldest activities and positions reads, with `freshnessAlarm` above 26 h and 18 h (positions normally go 12–13 h unread before
+    the read an activities read forces, and up to about 17 h with round jitter).
 
 ## Logs (numbers only, no personal data)
 

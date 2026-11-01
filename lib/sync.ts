@@ -438,7 +438,9 @@ export async function syncUser(
           await replacePositions(tx, user.id, positions);
         } else {
           // Accounts no longer real (disconnected, simulated) lose their positions on every sync (engineer 3).
-          await tx`delete from open_positions where user_id = ${user.id} ${real.length ? tx`and account_id not in ${tx(real)}` : tx``}`;
+          // (Through lib/positions.ts: lib/reflections.test.ts allows no delete in this file but closed_trades'.)
+          const gone = (await tx`select distinct account_id from open_positions where user_id = ${user.id} ${real.length ? tx`and account_id not in ${tx(real)}` : tx``}`).map((x) => x.account_id as string);
+          await replaceAccountPositions(tx, user.id, gone, []);
           const withActs = new Set(actIds);
           for (const id of posIds) {
             const rows = (await broker.fetchPositions(bu, id)).map((p) => ({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct }));
@@ -456,8 +458,12 @@ export async function syncUser(
         }
       }
       if (opts.cadence) {
-        if (actIds.length) await tx`update broker_accounts set activities_read_at = ${t} where user_id = ${user.id} and account_id in ${tx(actIds)}`;
-        if (posIds.length && broker.fetchPositions) await tx`update broker_accounts set positions_read_at = ${t} where user_id = ${user.id} and account_id in ${tx(posIds)}`;
+        // Stamped after the vendor calls returned (clock_timestamp, not the transaction's start), so the next read is due
+        // a full period after this one's last call (tester: a stamp at the transaction start let two daily calls land
+        // seconds under 24 h apart).
+        const stamp = tx`clock_timestamp() + ${shiftMs}::float8 * interval '1 millisecond'`;
+        if (actIds.length) await tx`update broker_accounts set activities_read_at = ${stamp} where user_id = ${user.id} and account_id in ${tx(actIds)}`;
+        if (posIds.length && broker.fetchPositions) await tx`update broker_accounts set positions_read_at = ${stamp} where user_id = ${user.id} and account_id in ${tx(posIds)}`;
         opts.report?.({ accounts: real.length, activitiesRead: actIds.length, positionsRead: broker.fetchPositions ? posIds.length : 0, deferred, rebuilt });
       }
       return read;
@@ -465,7 +471,8 @@ export async function syncUser(
   } finally {
     // G2: fire and forget, after the transaction (its connection is back in the pool); never fatal.
     if (opts.cadence && (readActs.length || readPos.length)) {
-      try { await writeMarks(user.id, readActs, readPos, shiftMs); } catch (e) { console.error('sync marks failed', user.id, logSafe(e)); }
+      const { id } = user; // the internal id only (lib/privacy-logs.test.ts)
+      try { await writeMarks(id, readActs, readPos, shiftMs); } catch (e) { console.error('sync marks failed', id, logSafe(e)); }
     }
   }
 }

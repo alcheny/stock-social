@@ -171,7 +171,8 @@ function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, coun
     // F-14 (G9): the reads of each kind, counted as they are made (numbers only).
     listAccounts: (u) => { if (reads) reads.accountLists++; return timed(1, () => b.listAccounts(u)); },
     fetchActivities: (u, since, accountIds) => { if (reads) reads.activitiesReads += accountIds?.length ?? 1; return timed(Math.max(1, accountIds?.length ?? 1), () => b.fetchActivities(u, since, accountIds)); },
-    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (u: Parameters<NonNullable<Broker['fetchActivitiesPage']>>[0], id: string, offset: number, limit?: number) => timed(1, () => b.fetchActivitiesPage!(u, id, offset, limit)) } : {}),
+    // A first sync's paged read counts once per account (its first page), like the hourly read (F-14 tester fix).
+    ...(b.fetchActivitiesPage ? { fetchActivitiesPage: (u: Parameters<NonNullable<Broker['fetchActivitiesPage']>>[0], id: string, offset: number, limit?: number) => { if (reads && offset === 0) reads.activitiesReads++; return timed(1, () => b.fetchActivitiesPage!(u, id, offset, limit)); } } : {}),
     ...(b.fetchPositions ? { fetchPositions: (u: Parameters<NonNullable<Broker['fetchPositions']>>[0], id: string) => { if (reads) reads.positionsReads++; return timed(1, () => b.fetchPositions!(u, id)); } } : {}),
     // Corporate actions (#40): each real account's share moves; every broker function the sync uses must pass through.
     ...(b.fetchShareMoves ? { fetchShareMoves: (u: Parameters<NonNullable<Broker['fetchShareMoves']>>[0], id: string) => timed(1, () => b.fetchShareMoves!(u, id)) } : {}),
@@ -408,12 +409,13 @@ export type Coverage = {
   db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
   // F-14 (G9): the cadence's evidence. Activities reads in the last 24 h over connected real accounts (≤ 1 by the cap;
   // `capBreach` above 1.05), and the oldest activities and positions reads of connected real accounts (alarms above
-  // 26 h and 14 h: reads drift to about every 25 h, positions to at most 12 h plus a round).
+  // 26 h and 18 h: reads drift to about every 25 h; positions normally go 12–13 h unread before the read an activities
+  // read forces, up to about 17 h with round jitter and late marks, tester's trace).
   activitiesReads24h: number; realAccounts: number; capRatio: number; capBreach: boolean;
   oldestActivitiesReadHours: number; oldestPositionsReadHours: number; freshnessAlarm: boolean;
 };
 export const ACTIVITIES_STALE_ALARM_H = 26;
-export const POSITIONS_STALE_ALARM_H = 14;
+export const POSITIONS_STALE_ALARM_H = 18;
 export const CAP_BREACH_RATIO = 1.05;
 // ponytail: the coverage counts scan every syncable trader on each shard-0 call (100k rows: tens of ms) — past a few
 // million, sum the shards' `last_run` counters instead.
@@ -433,10 +435,10 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
       (select count(*)::int from s where s.sync_failure_kind = 'refused') as refused,
       (select count(*)::int from s where s.sync_failure_kind = 'quarantined') as quarantined,
       (select coalesce(extract(epoch from clock.t - min(s.sync_failing_since)) / 3600, 0)::float8 from s, clock where s.sync_failure_kind = 'refused' group by clock.t) as "oldestRefusalHours",
-      (select coalesce(sum(n.activities), 0)::int from sync_read_counts n, clock where n.hour > clock.t - interval '24 hours') as "activitiesReads24h",
+      (select coalesce(sum(n.activities), 0)::int from sync_read_counts n, clock where n.hour > clock.t - interval '24 hours' and n.hour <= clock.t) as "activitiesReads24h",
       (select count(*)::int from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null) as "realAccounts",
-      (select coalesce(extract(epoch from clock.t - min(coalesce(ba.activities_read_at, '-infinity'))) / 3600, 0)::float8 from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null, clock group by clock.t) as "oldestActivitiesReadHours",
-      (select coalesce(extract(epoch from clock.t - min(coalesce(ba.positions_read_at, '-infinity'))) / 3600, 0)::float8 from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null, clock group by clock.t) as "oldestPositionsReadHours"`;
+      (select case when bool_or(ba.activities_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.activities_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null, clock group by clock.t) as "oldestActivitiesReadHours",
+      (select case when bool_or(ba.positions_read_at is null) then 'Infinity'::float8 else coalesce(extract(epoch from clock.t - min(ba.positions_read_at)) / 3600, 0)::float8 end from s join broker_accounts ba on ba.user_id = s.id and not ba.is_paper and ba.removed_at is null, clock group by clock.t) as "oldestPositionsReadHours"`;
   const settings = Object.fromEntries((await sql`select name, setting from pg_settings
     where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections')`).map((x) => [x.name as string, Number(x.setting)]));
   const db = { statementTimeoutMs: settings.statement_timeout ?? 0, idleInTxMs: settings.idle_in_transaction_session_timeout ?? 0, maxConnections: settings.max_connections ?? 0 };
@@ -449,7 +451,8 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
     activitiesReads24h: c.activitiesReads24h, realAccounts: c.realAccounts,
     capRatio: c.realAccounts ? Math.round((c.activitiesReads24h / c.realAccounts) * 100) / 100 : 0,
     capBreach: c.realAccounts > 0 && c.activitiesReads24h / c.realAccounts > CAP_BREACH_RATIO,
-    // A never-read account counts as infinitely old (`-infinity`): reported as a large number, not hidden.
+    // A never-read account counts as infinitely old: reported as a large number, not hidden. F-14 tester fix: computed
+    // without infinite timestamp arithmetic (`now() - '-infinity'` is an error before PostgreSQL 17).
     oldestActivitiesReadHours: Number.isFinite(c.oldestActivitiesReadHours ?? 0) ? Math.round((c.oldestActivitiesReadHours ?? 0) * 10) / 10 : 1e6,
     oldestPositionsReadHours: Number.isFinite(c.oldestPositionsReadHours ?? 0) ? Math.round((c.oldestPositionsReadHours ?? 0) * 10) / 10 : 1e6,
     freshnessAlarm: false,

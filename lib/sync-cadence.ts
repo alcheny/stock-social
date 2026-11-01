@@ -26,7 +26,11 @@ const free = (col: Frag, every: number, t: Frag, consent: Frag) =>
 // - `positions_own`: the last positions read 6 h old and at most 2 in the trailing 24 h (round 2);
 // - `positions_24h`: positions reads in the trailing 24 h (a read an activities read forces needs fewer than 4);
 // - `consent_new`: a consent (a consented import or a reconnect: the latest connected_at of a connected connection
-//   whose snapshot lists the account, engineer 1) since the account was last read, or never read: read at once (G5).
+//   whose snapshot lists the account, engineer 1) since the account was last read, or never read: read at once (G5),
+//   once: a vendor read attempted since that consent (its sync rolled back) ends the exemption, so the 6 h floor
+//   applies to the retries (G2) instead of a read every round.
+// F-14 tester fix: without the attempt clause a sync that kept rolling back after a never-read account's or a
+// reconnected account's first read re-read activities (and share moves and positions) every round.
 // Future timestamps count as free (G1); the window ignores reads in the future.
 export function dueSql(accountId: Frag, userId: Frag, t: Frag) {
   // Aliases are prefixed (cad_*) so an outer query's own aliases (c, a, u) can be used in the arguments.
@@ -40,7 +44,8 @@ export function dueSql(accountId: Frag, userId: Frag, t: Frag) {
         and ${free(sql`cad_m.activities_attempted_at`, ATTEMPT_FLOOR_MS, t, consent)} as activities_due,
       ${free(lastPos, POSITIONS_EVERY_MS, t, consent)} and ${last24} <= ${POSITIONS_PER_DAY - 2} as positions_own,
       ${last24} as positions_24h,
-      (cad_ba.account_id is null or cad_ba.activities_read_at is null or cad_ba.activities_read_at < ${consent}) as consent_new
+      (cad_ba.account_id is null or cad_ba.activities_read_at is null or cad_ba.activities_read_at < ${consent})
+        and (cad_m.activities_attempted_at is null or cad_m.activities_attempted_at < ${consent} or cad_m.activities_attempted_at > ${t} + ${ms(FUTURE_SLACK_MS)}) as consent_new
     from (select 1) cad_one
       left join broker_accounts cad_ba on cad_ba.account_id = ${accountId} and cad_ba.user_id = ${userId}
       left join sync_read_marks cad_m on cad_m.user_id = ${userId} and cad_m.account_id = ${accountId})`;
@@ -62,7 +67,9 @@ export function decide(f: DueFlags): { activities: boolean; positions: boolean; 
 }
 
 // The marks write (G2): after the sync's transaction ends, whatever its outcome, the successful vendor reads it made.
-// Fire and forget: a failure is counted by the caller, never fatal.
+// Fire and forget: a failure is counted by the caller, never fatal. F-14 tester fix: reads stored in the future (a clock
+// or column bug) are dropped when a read is added; kept, they were the 4 latest forever, so every real read was dropped
+// at once and the positions window stayed empty (positions read every round until the clock caught up).
 export async function writeMarks(userId: number, activities: string[], positions: string[], shiftMs = 0) {
   const t = sql`now() + ${shiftMs}::float8 * interval '1 millisecond'`;
   const ids = [...new Set([...activities, ...positions])];
@@ -73,7 +80,7 @@ export async function writeMarks(userId: number, activities: string[], positions
       values (${userId}, ${id}, ${a ? t : null}, ${p ? sql`array[${t}]` : sql`'{}'::timestamptz[]`})
       on conflict (user_id, account_id) do update set
         activities_attempted_at = ${a ? t : sql`sync_read_marks.activities_attempted_at`},
-        positions_reads = ${p ? sql`(select coalesce(array_agg(r order by r), '{}') from (select r from unnest(sync_read_marks.positions_reads || ${t}) r order by r desc limit ${POSITIONS_PER_DAY}) last)` : sql`sync_read_marks.positions_reads`}`;
+        positions_reads = ${p ? sql`(select coalesce(array_agg(r order by r), '{}') from (select r from unnest(sync_read_marks.positions_reads || ${t}) r where r <= ${t} + ${ms(FUTURE_SLACK_MS)} order by r desc limit ${POSITIONS_PER_DAY}) last)` : sql`sync_read_marks.positions_reads`}`;
   }
 }
 
