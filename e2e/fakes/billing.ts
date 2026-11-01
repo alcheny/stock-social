@@ -11,6 +11,8 @@
 //         refund_full, refund_partial, dispute, dispute_won, trial_will_end, resume), GET /_state, POST /_fail
 //         {status, times}, POST /_clock {now}.
 // Fictional data only (POLICY P2): no names, emails or card numbers are ever created or stored.
+// ponytail: the fake answers only the REST subset lib/billing.ts calls, in the pinned version's shape — a new call or
+// shape needs a route here first.
 import { createServer, type Server } from 'node:http';
 import { API_VERSION, signPayload } from '../../lib/billing.ts';
 

@@ -16,6 +16,8 @@ import { startBillingFake, type BillingFake } from './fakes/billing.ts';
 
 test.use({ viewport: { width: 360, height: 740 } });
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
+// ponytail: CI's e2e job has no billing env, so the fake-processor tests skip there (lib/billing.test.ts covers the same
+// behaviour against the same fake) — add the STRIPE_* test values from the header to ci.yml's e2e env (owner-only file).
 const billingOn = !!process.env.STRIPE_API_BASE;
 const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
 const tag = `f3${Date.now().toString(36).slice(-5)}`;

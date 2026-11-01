@@ -94,6 +94,17 @@ All gates were run locally on the merged branch (latest main, after the orchestr
   - independent code review: 2 blocking, both fixed with tests.
   - Every finding's resolution is in `docs/features/logs/F-3/build-resolution.md`.
 
+## Known limits (each marked `ponytail:` where it lives)
+- `lib/billing.ts` webhook claim: an apply running past its 2-minute lease can be claimed again by a retry (both converge) — a heartbeat on `claimed_at`.
+- `lib/billing.ts` disputes: a dispute ends every live subscription of the customer, not only the disputed charge's — map charge → invoice → subscription.
+- `lib/billing.ts` deletion: with billing off the processor customer is left for manual cleanup; a persistent processor error retries hourly with no cap — an attempt counter and a counted alert.
+- `lib/record-tools.ts` notes: an owner's notes are listed whole (unbounded) — page past about 100.
+- `lib/record-tools.ts` cards: each card reads the trader's whole record, as the profile does (up to 4 per view) — a cached per-trader summary.
+- `db/schema.sql`: `incomplete` is outside the one-live index (the app refuses a second checkout) — a new index including it.
+- `e2e/f3-billing.spec.ts`: the fake-processor tests skip in CI — the STRIPE_* test env in `ci.yml` (owner-only).
+- `e2e/fakes/billing.ts`: the fake covers only the REST subset the app calls.
+- Reduced in this PR: the nightly reconciliation pages the processor's list (100 per call) instead of fetching every live subscription one by one.
+
 ## Compliance
 1. **Performance:** yes. Record tools re-presents the profile's figures from the same functions (unit test), with the
    disclaimer on every surface and on the export file. Losses read like gains, and nothing ranks, sorts or highlights

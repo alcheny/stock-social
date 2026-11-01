@@ -293,6 +293,8 @@ export async function handleWebhook(raw: string, signature: string | null): Prom
   // stored once by event id; a delivery claims it (2-minute lease) before applying, so concurrent duplicates are no-ops.
   await sql`insert into billing_events (vendor_event_id, type, vendor_object_id, vendor_customer_id, livemode)
     values (${ev.id}, ${ev.type}, ${idOf(obj)}, ${customer}, ${!!ev.livemode}) on conflict (vendor_event_id) do nothing`;
+  // ponytail: an apply that runs past the 2-minute lease can be claimed again by a retry (both apply idempotently and
+  // converge) — a heartbeat on claimed_at while applying would close it.
   const [claim] = await sql`update billing_events set claimed_at = now() where vendor_event_id = ${ev.id} and processed_at is null
     and (claimed_at is null or claimed_at < now() - interval '2 minutes') returning vendor_event_id`;
   if (!claim) return { status: 200, outcome: 'duplicate' };
@@ -484,6 +486,8 @@ async function applyDispute(dispute: Obj, open: boolean) {
   const customer = idOf(charge.customer);
   if (!customer) throw new ApplyError('dispute_without_customer');
   if (open) {
+    // ponytail: a dispute ends every live subscription of the customer, not only the one the disputed charge paid for
+    // (deliberate: a dispute is a fraud signal) — map charge → invoice → subscription, as applyRefund does, to narrow it.
     // D2: access ends here and the processor stops renewing (no charge to someone without access).
     const rows = await sql`update subscriptions set disputed_at = coalesce(disputed_at, now()), status = case when status = 'canceled' then status else 'unpaid' end, updated_at = now()
       where vendor_customer_id = ${customer} and status <> 'canceled' returning user_id, vendor_subscription_id`;
@@ -526,23 +530,29 @@ export async function reconcile(): Promise<ReconcileReport> {
   // Subscribers who have since connected a broker: the sync below cancels them (applyRefundPolicy); counted after.
   const traders = await sql`select s.vendor_subscription_id from subscriptions s where s.status in ('trialing', 'active', 'past_due')
     and (exists (select 1 from connections c where c.user_id = s.user_id and c.consent_at is not null) or exists (select 1 from activities a where a.user_id = s.user_id and a.source = 'snaptrade'))`;
+  // One paged list of every subscription the processor holds that is not canceled (100 per call), compared with the
+  // app's live rows; only a row missing from that list (canceled meanwhile) is fetched on its own.
   const rows = await sql`select vendor_subscription_id from subscriptions where status <> 'canceled' order by id`;
-  const known = new Set<string>(rows.map((x) => x.vendor_subscription_id as string));
-  for (const row of rows) {
-    r.checked++;
-    try { if ((await syncSubscription(row.vendor_subscription_id as string)) === 'changed') r.mismatches++; } catch { r.failed++; }
-  }
+  const local = new Set<string>(rows.map((x) => x.vendor_subscription_id as string));
+  const listed = new Set<string>();
   let after: string | undefined;
   for (;;) {
     const page = await vendor('GET', '/v1/subscriptions', { limit: 100, starting_after: after }); // D8: excludes canceled
     const data = (page.data ?? []) as VendorSub[];
     for (const sub of data) {
-      if (known.has(sub.id) || ['canceled', 'incomplete_expired'].includes(sub.status)) continue;
-      known.add(sub.id);
-      try { await upsertFromVendor(sub); r.missing++; } catch { r.failed++; }
+      listed.add(sub.id);
+      if (['canceled', 'incomplete_expired'].includes(sub.status)) continue;
+      const mine = local.has(sub.id);
+      if (mine) r.checked++;
+      try { const res = await upsertFromVendor(sub); if (mine && res === 'changed') r.mismatches++; if (!mine) r.missing++; } catch { r.failed++; }
     }
     if (!page.has_more || !data.length) break;
     after = data[data.length - 1].id;
+  }
+  for (const id of local) {
+    if (listed.has(id)) continue;
+    r.checked++;
+    try { if ((await syncSubscription(id)) === 'changed') r.mismatches++; } catch { r.failed++; }
   }
   // D3: grace over → no access and the processor stops retrying (a later success would charge someone without access).
   // E2: also any row the processor itself moved to unpaid (no grace window recorded).
@@ -581,6 +591,8 @@ export async function endBillingForDeletion(userId: number): Promise<void> {
   const [cust] = await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`;
   // Code review (should-fix 3): billing never blocks deletion. With billing switched off there is no processor to call:
   // the local rows go, and a counted alert asks for a manual cleanup at the processor (no ids logged).
+  // ponytail: with billing switched off the processor customer is left for manual cleanup, and a persistent processor
+  // error retries hourly with no cap (the account stays marked) — an attempt counter with a counted alert after N tries.
   if (cust && !billingAvailable()) console.error('billing: account deleted while billing is not configured; processor cleanup needed (1)');
   if (cust && billingAvailable()) {
     const live = await sql`select vendor_subscription_id, plan from subscriptions where user_id = ${userId} and status <> 'canceled'`;

@@ -137,6 +137,8 @@ export async function followOptions(owner: number): Promise<{ handle: string }[]
 // ---- notes ----------------------------------------------------------------------------------------------------------
 
 export type Note = { traderId: number; handle: string; body: string; updatedAt: Date };
+// ponytail: an owner's notes are listed whole (a note outlives its trader's place in a view, so the count is unbounded)
+// — page the list past about 100 notes.
 export async function listNotes(owner: number): Promise<Note[]> {
   const rows = await sql`select n.trader_id, u.handle, n.body, n.updated_at from record_notes n join users u on u.id = n.trader_id and u.deleted_at is null
     where n.owner_id = ${owner} order by u.handle`;
@@ -195,6 +197,8 @@ export async function compareCards(traders: ViewTrader[], now = new Date()): Pro
   return Promise.all(traders.map((t) => card(t, now)));
 }
 
+// ponytail: each card reads the trader's whole closed_trades, exactly as the profile does (up to 4 profile reads per
+// view) — share a cached per-trader summary once the profile has one.
 async function card(t: ViewTrader, now: Date): Promise<Card> {
   const [u] = await sql`select excluded_positions, excluded_future from users where id = ${t.id}`;
   const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id}`;

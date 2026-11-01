@@ -411,6 +411,8 @@ create table if not exists subscriptions (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- ponytail: 'incomplete' (a first payment being confirmed) is outside the one-live index; lib/billing.ts#startCheckout
+-- refuses a second checkout while one exists — add it to the index (a new index name) to enforce it in the database.
 select schema_add_index('subscriptions_one_live', $$create unique index subscriptions_one_live on subscriptions (user_id) where status in ('trialing', 'active', 'past_due')$$);
 select schema_add_index('subscriptions_user', 'create index subscriptions_user on subscriptions (user_id)');
 -- The webhook inbox: one row per processor event id (duplicates are no-ops). No payload (committee condition 20); the
