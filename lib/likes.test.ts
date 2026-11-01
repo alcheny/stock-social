@@ -208,48 +208,85 @@ dbTest('heavy: a viewer with 10,000 likes lists them 50 a page, newest first, ev
     assert.equal(seen.size, 10_000);
     assert.equal(pages, 200);
 
-    // 1. Deterministic: the plans of a shallow (2nd), a middle (100th) and the deepest (200th) page. Every node that
-    // touches trade_likes is an index read of at most a page plus the look-ahead row (LIMIT 51), with nothing filtered
-    // away, and nothing sorts more than that. On the last page an OFFSET would read ~10,000 index rows, a cursor checked
-    // as a filter rather than an index bound would remove ~9,950, and a seq scan or a sort of all likes shows either way.
-    // Past the keyset the plan joins one close and one user per chosen like, so the rest of its work is per page too.
-    // Statistics first, as a live table has them (autovacuum): with none, or ones sampled before these 10,000 rows
-    // (another test file's analyze), the planner may estimate a handful of likes and pick a bitmap scan plus a top-N sort
-    // of every like below the cursor, so which plan ran would depend on when autovacuum last woke, not on the query.
-    await sql`analyze trade_likes`;
-    const bound = LIKES_PAGE + 1;
-    let deepBlocks = 0;
-    for (const page of [2, 100, 200]) {
-      const [r] = await sql`explain (analyze, buffers, format json) ${ownLikesQuery(viewer, cursors[page - 1])}`;
-      const nodes = planNodes((r['QUERY PLAN'] as { Plan: PlanNode }[])[0].Plan);
-      const likes = nodes.filter((n) => n['Relation Name'] === 'trade_likes' || n['Index Name']?.startsWith('trade_likes'));
-      assert.ok(likes.some((n) => /Index/.test(n['Node Type'])), `page ${page}: trade_likes is read through an index`);
-      for (const n of likes) {
-        assert.notEqual(n['Node Type'], 'Seq Scan', `page ${page}`);
-        assert.ok(rowsRead(n) <= bound, `page ${page}: ${n['Node Type']} on trade_likes read ${rowsRead(n)} rows (at most ${bound})`);
-        if (page === 200) deepBlocks += (n['Shared Hit Blocks'] ?? 0) + (n['Shared Read Blocks'] ?? 0);
-      }
-      for (const s of nodes.filter((n) => /Sort$/.test(n['Node Type']))) {
-        for (const c of s.Plans ?? []) assert.ok(c['Actual Rows'] * c['Actual Loops'] <= bound, `page ${page}: a sort over ${c['Actual Rows']} rows`);
-      }
-    }
+    // Statistics first, as a live table has them (autovacuum). Without them, or with ones sampled before these 10,000 rows
+    // existed (another test file's analyze), the planner picks plans that read every like or close in sight: a bitmap
+    // or primary-key scan plus a top-N sort of all the viewer's likes below the cursor, or a BitmapAnd over all 10,000 of
+    // the trader's closes per like (both seen in auto_explain logs under parallel load). Which ran would then depend on
+    // when autovacuum last woke, not on the query.
+    await sql`analyze trade_likes, closed_trades, users`;
 
-    // 2. Timing, tolerant of machine load: pages 2 to 21 against pages 181 to 200, run alternately so a busy moment slows
-    // both; the deep median may not be much above the shallow one. Plus generous ceilings on the whole walk.
-    const shallow: number[] = [], deep: number[] = [];
-    for (let i = 0; i < 20; i++) {
-      for (const [cursor, out] of [[cursors[1 + i], shallow], [cursors[180 + i], deep]] as const) {
-        const t0 = performance.now();
-        await ownLikes(viewer, cursor);
-        out.push(performance.now() - t0);
+    // The page statements exactly as ownLikes sends them, prepared on one reserved connection. ownLikes goes through the
+    // pool, which hands consecutive queries to its connections in turn; each connection keeps its own plan cache, and
+    // with an even number of them, calls that alternate shallow and deep pages land on disjoint connections.
+    const conn = await sql.reserve();
+    try {
+      const first = (await ownLikesQuery(viewer).describe()).string, next = (await ownLikesQuery(viewer, cursors[1]).describe()).string;
+      // The parameters exec() below binds, in this order: viewer, then the cursor's microseconds and key, then the limit.
+      assert.match(first, /viewer_id = \$1\b[\s\S]*limit \$2\)/);
+      assert.match(next, /viewer_id = \$1\b[\s\S]*\$2::bigint[\s\S]*\$3\)[\s\S]*limit \$4\)/);
+      await conn.unsafe(`prepare likes_first as ${first}`);
+      await conn.unsafe(`prepare likes_next as ${next}`);
+      const bound = LIKES_PAGE + 1;
+      const exec = (page: number) => {
+        const m = page === 1 ? null : /^([0-9]+)\.([0-9a-f]{64})$/.exec(cursors[page - 1]!)!;
+        return m ? `execute likes_next(${viewer}, ${m[1]}, '${m[2]}', ${bound})` : `execute likes_first(${viewer}, ${bound})`;
+      };
+
+      // 1. Deterministic: the plan of every page, both as a custom plan (planned for that cursor) and as the generic plan
+      // a prepared statement switches to after five runs. Every node that touches trade_likes is an index read of at most
+      // a page plus the look-ahead row (LIMIT 51), counting rows a filter or recheck threw away; every node on
+      // closed_trades reads at most one close per chosen like; nothing sorts more than a page. On the last page an OFFSET
+      // would read ~10,000 index rows, a cursor checked as a filter rather than an index bound would remove ~9,950, a sort
+      // of all likes or a scan of the trader's closes in closed_at order (which reaches older likes' closes later) would
+      // read thousands; none of these depend on machine load.
+      let deepBlocks = 0;
+      for (const mode of ['force_custom_plan', 'force_generic_plan']) {
+        await conn.unsafe(`set plan_cache_mode = ${mode}`);
+        for (let page = 1; page <= pages; page++) {
+          const [r] = await conn.unsafe(`explain (analyze, buffers, format json) ${exec(page)}`);
+          const nodes = planNodes((r['QUERY PLAN'] as { Plan: PlanNode }[])[0].Plan);
+          const on = (t: string) => nodes.filter((n) => n['Relation Name'] === t || n['Index Name']?.startsWith(`${t}_`));
+          const at = `page ${page} (${mode})`;
+          assert.ok(on('trade_likes').some((n) => /Index/.test(n['Node Type'])), `${at}: trade_likes is read through an index`);
+          for (const n of on('trade_likes')) {
+            assert.notEqual(n['Node Type'], 'Seq Scan', at);
+            assert.ok(rowsRead(n) <= bound, `${at}: ${n['Node Type']} on trade_likes read ${rowsRead(n)} rows (at most ${bound})`);
+            if (page === pages && mode === 'force_custom_plan') deepBlocks += (n['Shared Hit Blocks'] ?? 0) + (n['Shared Read Blocks'] ?? 0);
+          }
+          for (const n of on('closed_trades')) assert.ok(rowsRead(n) <= bound, `${at}: ${n['Node Type']} on closed_trades read ${rowsRead(n)} rows (at most ${bound})`);
+          for (const s of nodes.filter((n) => /Sort$/.test(n['Node Type']))) {
+            for (const c of s.Plans ?? []) assert.ok(c['Actual Rows'] * c['Actual Loops'] <= bound, `${at}: a sort over ${c['Actual Rows']} rows`);
+          }
+        }
       }
+
+      // 2. Timing, as the app runs it (plan_cache_mode auto) and tolerant of machine load: each of pages 2 to 21 and 181
+      // to 200 run five times in turn on the one connection, keeping each page's fastest run (the closest to its unloaded
+      // cost); the deep pages' median may not be much above the shallow ones'. A loaded machine slows some runs, rarely
+      // all five of a page.
+      await conn.unsafe('set plan_cache_mode = auto');
+      const fastest = async (page: number) => {
+        let best = Infinity;
+        for (let k = 0; k < 5; k++) { const t0 = performance.now(); await conn.unsafe(exec(page)); best = Math.min(best, performance.now() - t0); }
+        return best;
+      };
+      const shallow: number[] = [], deep: number[] = [];
+      for (let i = 0; i < 20; i++) { shallow.push(await fastest(2 + i)); deep.push(await fastest(181 + i)); }
+      const [walkMedian, slowest, shallowMedian, deepMedian, worst] = [median(ms), Math.max(...ms), median(shallow), median(deep), Math.max(...shallow, ...deep)];
+      console.log(`# 10,000 likes: ${pages} pages, median page ${walkMedian.toFixed(1)} ms, slowest page ${slowest.toFixed(1)} ms; fastest of 5: `
+        + `pages 2-21 median ${shallowMedian.toFixed(2)} ms, pages 181-200 median ${deepMedian.toFixed(2)} ms; the deepest page read ${deepBlocks} trade_likes blocks`);
+      assert.ok(deepMedian <= 2 * shallowMedian + 5, `deep pages ${deepMedian} ms vs shallow ${shallowMedian} ms`);
+      // Ceilings: a page's fastest run (about 1 ms unloaded), and the walk's slowest page through ownLikes before any
+      // statistics existed (183 ms seen under parallel load).
+      assert.ok(worst < 100, `a page's fastest run took ${worst} ms`);
+      assert.ok(slowest < 1_000, `slowest page ${slowest} ms`);
+    } finally {
+      // Only this test's two statements: the driver keeps its own prepared statements on the connection.
+      await conn.unsafe('deallocate likes_first').catch(() => {});
+      await conn.unsafe('deallocate likes_next').catch(() => {});
+      await conn.unsafe('reset plan_cache_mode').catch(() => {});
+      conn.release();
     }
-    const [walkMedian, slowest, shallowMedian, deepMedian] = [median(ms), Math.max(...ms), median(shallow), median(deep)];
-    console.log(`# 10,000 likes: ${pages} pages, median page ${walkMedian.toFixed(1)} ms, slowest page ${slowest.toFixed(1)} ms; `
-      + `pages 2-21 median ${shallowMedian.toFixed(1)} ms, pages 181-200 median ${deepMedian.toFixed(1)} ms; the deepest page read ${deepBlocks} trade_likes blocks`);
-    assert.ok(deepMedian <= 2 * shallowMedian + 5, `deep pages ${deepMedian} ms vs shallow ${shallowMedian} ms`);
-    assert.ok(walkMedian < 100, `median page ${walkMedian} ms`);
-    assert.ok(slowest < 1_000, `slowest page ${slowest} ms`);
   } finally {
     await sql`delete from users where id in ${sql([viewer, trader])}`;
   }

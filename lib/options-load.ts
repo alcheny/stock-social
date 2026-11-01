@@ -15,25 +15,41 @@ export * from './options-view.ts';
 // frozen connection holding the same account under an old hash still blocks) — a re-consent prompt on /me that rewrites
 // consent_scope_hash on every connection holding the account (the owner words it).
 export async function traderOptionsPublic(userId: number): Promise<boolean> {
-  if (!optionsPublic()) return false;
-  const [d] = await sql`select
-      exists (select 1 from option_activities where user_id = ${userId} and source = 'demo') or exists (select 1 from activities where user_id = ${userId} and source = 'demo') as demo,
-      exists (select 1 from option_activities where user_id = ${userId} and source <> 'demo') or exists (select 1 from activities where user_id = ${userId} and source <> 'demo') as broker`;
-  if (d.demo && !d.broker) return true;
-  const rows = await sql`with accts as (
-      select distinct account_id from option_activities where user_id = ${userId} and account_id is not null
-      union select distinct account_id from open_option_positions where user_id = ${userId})
-    select a.account_id, coalesce(json_agg(json_build_object('hash', c.consent_scope_hash, 'backfilled', c.options_backfilled_at is not null)) filter (where c.id is not null), '[]') as conns
-    from accts a left join connections c on c.user_id = ${userId} and c.consent_at is not null
-      and exists (select 1 from jsonb_array_elements(c.accounts) x where x->>'id' = a.account_id)
-    group by a.account_id`;
+  return (await tradersOptionsPublic([userId])).get(userId) ?? false;
+}
+
+type GateRow = { demo: boolean; broker: boolean; accounts: { hash: string | null; backfilled: boolean }[][] };
+/** The pure per-trader rule over what the batch read returns (round 4 legal: the rule is per trader, not the query). */
+function gateRule(r: GateRow | undefined): boolean {
+  if (!r) return false;
+  if (r.demo && !r.broker) return true;
   // Fix round 1: no option account at all (rows only in tables the trader no longer holds) is gated too (QA 12), and a
   // connection still owed its option backfill keeps the trader gated (review 4: its older option rows are not in yet).
-  if (!rows.length) return false;
-  return rows.every((r) => {
-    const conns = r.conns as { hash: string | null; backfilled: boolean }[];
-    return conns.length > 0 && conns.every((c) => consentCoversOptions(c.hash) && c.backfilled);
-  });
+  if (!r.accounts.length) return false;
+  return r.accounts.every((conns) => conns.length > 0 && conns.every((c) => consentCoversOptions(c.hash) && c.backfilled));
+}
+
+/** F4-19 (cycle 4, C4-22): D5 per trader for many traders in one statement: the demo and broker flags and, per option
+ *  account, the hashes of the consented connections holding it. Closed globally: no query at all. */
+export async function tradersOptionsPublic(userIds: number[]): Promise<Map<number, boolean>> {
+  const ids = [...new Set(userIds)];
+  if (!optionsPublic() || !ids.length) return new Map(ids.map((id) => [id, false]));
+  const rows = await sql`with ids as (select id as user_id from users where id in ${sql(ids)}),
+    accts as (
+      select distinct user_id, account_id from option_activities where user_id in ${sql(ids)} and account_id is not null
+      union select distinct user_id, account_id from open_option_positions where user_id in ${sql(ids)}),
+    per_acct as (
+      select a.user_id, a.account_id, coalesce(json_agg(json_build_object('hash', c.consent_scope_hash, 'backfilled', c.options_backfilled_at is not null)) filter (where c.id is not null), '[]') as conns
+      from accts a left join connections c on c.user_id = a.user_id and c.consent_at is not null
+        and exists (select 1 from jsonb_array_elements(c.accounts) x where x->>'id' = a.account_id)
+      group by a.user_id, a.account_id)
+    select i.user_id,
+      exists (select 1 from option_activities where user_id = i.user_id and source = 'demo') or exists (select 1 from activities where user_id = i.user_id and source = 'demo') as demo,
+      exists (select 1 from option_activities where user_id = i.user_id and source <> 'demo') or exists (select 1 from activities where user_id = i.user_id and source <> 'demo') as broker,
+      coalesce((select json_agg(p.conns) from per_acct p where p.user_id = i.user_id), '[]') as accounts
+    from ids i`;
+  const byId = new Map(rows.map((r) => [r.user_id as number, r as unknown as GateRow]));
+  return new Map(ids.map((id) => [id, gateRule(byId.get(id))]));
 }
 
 // AC 16: the closed-gate read. Counts only — the test reads this function's text and finds no return, term or symbol.
@@ -86,16 +102,19 @@ export async function loadOptionRecord(userId: number, gate: boolean | Promise<b
 // ponytail: K4 similar, compare, recap, /me/record and the import banner count ignore options — read this loader there
 // (counts while gated) when those surfaces should mention them.
 /** The pane's and the record card's headline model, per trader. The default gate is worked out per trader, never once
- *  per batch (round 4 legal); `gate` is for tests only. */
+ *  per batch (round 4 legal): one read for the batch, the rule per trader (F4-19); `gate` is for tests only. */
 export async function optionHeadline(userIds: number[], gate?: (userId: number) => boolean | Promise<boolean>): Promise<Map<number, OptionHeadline>> {
   const ids = [...new Set(userIds)];
   const counts = await loadCounts(ids);
   const out = new Map<number, OptionHeadline>();
   const open: number[] = [];
+  // Nothing to gate without option rows; otherwise each trader's own state. F4-19: the default gate reads every holder
+  // in one statement (tradersOptionsPublic); a test's gate is still asked per trader.
+  const holders = ids.filter((id) => hasOptions(counts.get(id) ?? ZERO));
+  const batch = gate ? null : await tradersOptionsPublic(holders);
   for (const id of ids) {
     const c = counts.get(id) ?? ZERO;
-    // Nothing to gate without option rows; otherwise each trader's own state.
-    if (hasOptions(c) && (await (gate ?? traderOptionsPublic)(id))) open.push(id);
+    if (hasOptions(c) && (batch ? batch.get(id) === true : await gate!(id))) open.push(id);
     else out.set(id, { gate: 'closed', counts: c });
   }
   if (open.length) {

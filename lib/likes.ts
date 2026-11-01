@@ -71,7 +71,11 @@ export async function rejectedAmong(viewer: number, sellIds: readonly string[]):
 
 // /me/likes: the viewer's likes, newest first, LIKES_PAGE at a time (keyset on created_at in microseconds, then key). The
 // page's likes are chosen first on the viewer's index, then joined (a plan that stays fast before statistics exist).
-// ponytail: before planner statistics exist the first page (no cursor) sorts all of the viewer's likes and the lateral join reads the trader's closes per like (about 13 ms vs 1 ms for 10,000 likes; fast in time, not in rows read) — autovacuum's analyze fixes it; a closed_trades (user_id, trade_key) index-only path or an analyze after bulk imports would remove the dependence
+// Each chosen like's close is found by its trade_key alone, then checked against the trader (`offset 0` keeps the
+// trader condition out of the scan): with closed_trades (user_id, closed_at desc) on offer, a planner misled by stale
+// statistics could walk the trader's closes newest first until it met the like's, so an older like, deeper in the
+// list, cost more (up to all 10,000 of a trader's closes per like), or AND every like's lookup with all of them.
+// ponytail: before planner statistics exist the first page (no cursor) and shallow pages may sort all of the viewer's likes below the cursor instead of reading 51 in index order (about 13 ms vs 1 ms for 10,000 likes; fast in time, not in rows read) — autovacuum's analyze fixes it; an analyze after bulk imports, or a plan the planner cannot choose (no hints in Postgres), would remove the dependence
 // A like whose close is gone after a rebuild, or whose trader was deleted or hidden by the owner (F-16 visibleUser), is
 // skipped (its page is one row shorter).
 export type Liked = { key: string; handle: string; name: string; symbol: string; sellId: string; returnPct: number; closedAt: Date };
@@ -83,7 +87,8 @@ export function ownLikesQuery(viewer: number, after?: unknown) {
       where viewer_id = ${viewer} ${m ? sql`and (created_at, trade_key) < (timestamptz 'epoch' + ${m[1]}::bigint * interval '1 microsecond', ${m[2]})` : sql``}
       order by created_at desc, trade_key desc limit ${LIKES_PAGE + 1})
     select l.trade_key, l.us, u.handle, u.display_name, t.symbol, t.sell_id, t.return_pct, t.closed_at
-    from l left join lateral (select symbol, sell_id, return_pct, closed_at from closed_trades where trade_key = l.trade_key and user_id = l.trader_id limit 1) t on true
+    from l left join lateral (select symbol, sell_id, return_pct, closed_at from (select symbol, sell_id, return_pct, closed_at, user_id from closed_trades
+        where trade_key = l.trade_key offset 0) c where c.user_id = l.trader_id limit 1) t on true
       left join users u on u.id = l.trader_id and ${visibleUser('u')}
     order by l.created_at desc, l.trade_key desc`;
 }
@@ -119,6 +124,7 @@ export const HIDDEN_PAGE = 30;
 // rows (past HIDDEN_COUNT_MAX the line says "1,000+"; nothing here counts anyone else's).
 // ponytail: past HIDDEN_COUNT_MAX the line says "1,000+" — an exact count would need a stored per-viewer counter.
 export const HIDDEN_COUNT_MAX = 1_000;
+// ponytail: hiddenTradeCount, ownHiddenTrades, likesAt and rejectsAt still look a close up by `trade_key = … and user_id = …`, which a planner misled by stale statistics could serve by walking closed_trades (user_id, closed_at desc) — give them ownLikesQuery's trade_key-only lookup behind an `offset 0` fence, with an EXPLAIN rows-read test like lib/likes.test.ts's heavy test
 export async function hiddenTradeCount(viewer: number): Promise<number> {
   return (await sql`select 1 from trade_exclusions x
     where x.viewer_id = ${viewer} and exists (select 1 from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}

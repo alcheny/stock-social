@@ -23,10 +23,17 @@ test('FIFO across two lots, fees on both legs', () => {
 });
 
 test('sell with no recorded entry is excluded, not guessed', () => {
-  const { trades, excluded } = matchTrades([act('SELL', 5, 50, 2), act('BUY', 5, 40, 3), act('SELL', 5, 44, 4)]);
-  assert.equal(excluded, 1);
-  assert.equal(trades.length, 1);
-  assert.ok(Math.abs(trades[0].returnPct - 0.1) < 1e-12);
+  // Fixes cycle 4 (C4-2): the buy after an oversell may be a short's cover, so the later sell is a new short or a round
+  // trip, and its figure is +10% or unknown: counted, never priced from the cover (it used to publish +10%). Both sells
+  // are counted under `excluded`, one count per sell.
+  const { trades, excluded, excludedCorporate } = matchTrades([act('SELL', 5, 50, 2), act('BUY', 5, 40, 3), act('SELL', 5, 44, 4)]);
+  assert.equal(excluded, 2);
+  assert.equal(excludedCorporate, 0);
+  assert.equal(trades.length, 0);
+  // Another account's round trip is untouched by this account's gap (+10%).
+  const other = matchTrades([act('SELL', 5, 50, 2), act('BUY', 5, 40, 3, 0, { accountId: 'acc2' }), act('SELL', 5, 44, 4, 0, { accountId: 'acc2' })]);
+  assert.equal(other.excluded, 1);
+  assert.ok(Math.abs(other.trades[0].returnPct - 0.1) < 1e-12);
 });
 
 // Corporate actions (POLICY F3c, committee 2026-11-01): this test used to assert that the matched part was shown at

@@ -52,6 +52,9 @@ async function run(o: Opts, env: Env, base: string, state: string, report: Impor
       await rebuildPublicTrades(pf.id, tx, f.ownerName);
     });
   }
+  // F4-9 (C4-13): "last checked" means the walk reached today's index and exhausted it; a tick that stops on the
+  // filing cap or the time box days behind keeps the previous stamp (the profile's "may be out of date" keys on it).
+  let caughtUp = false;
   try {
     walk: while (day <= today && Date.now() < deadline) {
       const list = await client.listFilings({ day });
@@ -61,7 +64,7 @@ async function run(o: Opts, env: Env, base: string, state: string, report: Impor
         try { await one(e); } catch (x) { if (x instanceof FilingsStopped) throw x; report.failed++; console.error('public import: filing failed', logSafe(x)); }
         report.filings++; seen.add(e.id);
       }
-      if (day === today) break;
+      if (day === today) { caughtUp = true; break; } // today's index read to its end
       day = nextDay(day); seen = new Set();
     }
   } catch (e) { if (!(e instanceof FilingsStopped)) throw e; report.stopped = true; }
@@ -71,7 +74,7 @@ async function run(o: Opts, env: Env, base: string, state: string, report: Impor
     for (const [k, n] of Object.entries(m.excluded)) report.excluded[k] = (report.excluded[k] ?? 0) + n;
   }
   if (!o.dryRun) {
-    const ok = !report.stopped && !report.failed;
+    const ok = caughtUp && !report.stopped && !report.failed;
     await sql`insert into public_import_state (source, cursor, last_success_at) values (${state}, ${sql.json({ day, seen: [...seen] })}, ${ok ? sql`now()` : null})
       on conflict (source) do update set cursor = excluded.cursor, last_success_at = coalesce(excluded.last_success_at, public_import_state.last_success_at)`;
   }

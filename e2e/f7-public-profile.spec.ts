@@ -158,8 +158,13 @@ test('AC 14, 16, 17: the trade page links both filings, carries the line and the
   await expect(page.locator('.badge.demo')).toHaveCount(1);
   await expect(page.locator('[data-public-line]')).toContainText(NOT_JOINED);
   await expect(page.locator('[data-public-line] a')).toHaveAttribute('href', '/public-records');
-  await expect(page.getByRole('link', { name: 'Public filing for the ZQXA sale, opens another site' })).toHaveAttribute('href', filingUrl(P, 0));
-  await expect(page.getByRole('link', { name: 'Public filing for the ZQXA purchase, opens another site' })).toHaveAttribute('href', buyFilingUrl(P, 0));
+  // F4-10 (cycle 4): each name starts with its visible words; the sale's names its close date.
+  await expect(page.getByRole('link', { name: /^Sold: filing for the ZQXA sale closed .+, opens another site$/ })).toHaveAttribute('href', filingUrl(P, 0));
+  await expect(page.getByRole('link', { name: 'Bought: filing for the ZQXA purchase, opens another site' })).toHaveAttribute('href', buyFilingUrl(P, 0));
+  for (const l of await page.locator('.filing-links a').all()) {
+    const name = (await l.getAttribute('aria-label'))!;
+    expect(name.startsWith((await l.innerText()).replace(/\s*↗\s*$/, ''))).toBe(true);
+  }
   await tall(page, '.filing-links a, [data-public-line] a');
   await expect(page.locator('.join-cta, .badge.new')).toHaveCount(0);
   const desc = (await page.locator('meta[name="description"]').getAttribute('content'))!;
