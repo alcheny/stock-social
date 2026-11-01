@@ -8,6 +8,7 @@ import { imageLabel, isPublicRecord, PUBLIC, RECORD_BODY, RECORD_STRIP, SHARE_CA
 import { OPTIONS } from './copy.ts'; // OPTIONS
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
+import { IMAGE_PALETTE } from './palette.ts';
 
 export { RECORD_STRIP };
 
@@ -139,11 +140,11 @@ export function recordStrip(i: StripInput, surface: StripSurface): Strip {
 // ---- images: the anti-crop band (F-12, committee 2026-11-01) ----
 // A 1200×630 image cropped to 1:1 keeps x 285–915; cropped to 1.91:1 it keeps y 1–629. Everything but the brand box is
 // drawn inside the band, so a crop never cuts the strip, "losses included" or the disclaimer.
-export const IMAGE = { width: 1200, height: 630, bg: '#0b0b0f' } as const;
+export const IMAGE = { width: 1200, height: 630, bg: IMAGE_PALETTE.stripBg } as const;
 export const STRIP_BAND = { x: 309, width: 582, top: 24, bottom: 606, recordPx: 35, rangeMinPx: 30, minPx: 26, glyph: 0.6, lineHeight: 1.2 } as const;
 export const SQUARE_CROP = { x0: 285, x1: 915 } as const;
 export const BRAND_BOX = { x: 24, y: 24, width: 240, height: 40, text: 'Stock Social', size: 26 } as const;
-export const IMAGE_COLOURS = { text: '#f4f4f6', muted: '#8b8b98', up: '#22c55e', down: '#f43f5e', warn: '#f59e0b', ok: '#22c55e' } as const;
+export const IMAGE_COLOURS = IMAGE_PALETTE.strip; // F-20: the share-image colour table (lib/palette.ts)
 export type ImageTone = keyof typeof IMAGE_COLOURS;
 export type ImageLine = { role: string; text: string; size: number; tone: ImageTone; weight: 400 | 700 | 800; optional?: boolean; y?: number };
 

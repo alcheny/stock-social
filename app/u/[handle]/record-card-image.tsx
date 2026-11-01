@@ -8,9 +8,10 @@
 // trust state is an outlined badge (Demo in its own tone, as strong as Verified); "New record" is a badge at the count's
 // size; the evidence label shares the trust line's row; the 0% label sits in a gutter left of the line.
 import { OPTIONS } from '@/lib/copy.ts';
+import { IMAGE_PALETTE } from '@/lib/palette.ts';
 import { CARD_LAYOUT, disclaimerLines, noOrphan, UNFURL_COLUMN_GAP, unfurlHeadlineSize, unfurlWide, type CardModel } from '@/lib/record-card.ts';
 
-const C = { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#22c55e', down: '#f43f5e', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78' };
+const C = IMAGE_PALETTE.card; // F-20: the share-image colour table (lib/palette.ts), today's values
 const TONE = { ok: C.up, muted: C.muted, warn: C.warn, demo: C.demo };
 const one = { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' } as const;
 const col = { display: 'flex', flexDirection: 'column' } as const;
