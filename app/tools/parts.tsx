@@ -1,8 +1,9 @@
 // F-3 · shared pieces of Record tools and the account page (docs/features/logs/F-3/plan.md §2, §4). Server components.
 import Link from 'next/link';
-import { BILLING, FOOTER, RECORD_TOOLS, billingDate } from '@/lib/copy.ts';
+import { BILLING, CHORES_3, FOOTER, RECORD_TOOLS, billingDate } from '@/lib/copy.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
-import { nextCharge, type Plan } from '@/lib/billing.ts';
+import { billingAvailable, checkoutOpen, nextCharge, type BillingConfig, type Plan } from '@/lib/billing.ts';
+import { gateState } from '@/lib/launch-gate.ts';
 import { subscribe } from './actions.ts';
 import { FocusMessage } from './focus.tsx';
 
@@ -66,3 +67,15 @@ export function PastDueBanner({ until }: { until: Date }) {
 }
 
 export const fmt = billingDate;
+
+// CHORES-3 (C3-39): the one rule for whether checkout is open to this viewer, shared by /tools and /account so the two
+// pages never disagree. The launch gate: while sign-up is closed only an allowlisted account sees the Subscribe screen
+// (lib/launch-gate.ts). `billing` null = checkout not open to them; `closed` = configured but the gate keeps them out
+// (else: not configured, "not available right now"). A plain server function, not a server action.
+export async function checkoutFor(userId: number | undefined): Promise<{ billing: BillingConfig | null; closed: boolean }> {
+  const billing = (userId ? await checkoutOpen(userId) : gateState() !== 'closed') ? billingAvailable() : null;
+  return { billing, closed: !!billingAvailable() && !billing };
+}
+
+// CHORES-3 (C3-39): locked /tools' way back into the app while checkout is not open (44 px from .rt-links).
+export const BackToFeed = () => <p className="rt-links"><Link href="/">{CHORES_3.backToFeed}</Link></p>;

@@ -31,8 +31,7 @@ test('the importer routes by the same definition: an empty option_type is an equ
 
 test('import routing through the public functions: each row lands on exactly one side (shares or the option sink), as hasOptionType says', async () => {
   const { startVendorFake } = await import('../e2e/fakes/vendor.ts');
-  const port = 5800 + Math.floor(Math.random() * 300);
-  const fake = await startVendorFake(port);
+  const fake = await startVendorFake(0); // a free port
   const env = { base: process.env.SNAPTRADE_BASE_URL, id: process.env.SNAPTRADE_CLIENT_ID, key: process.env.SNAPTRADE_CONSUMER_KEY };
   process.env.SNAPTRADE_BASE_URL = fake.base; process.env.SNAPTRADE_CLIENT_ID = 'test'; process.env.SNAPTRADE_CONSUMER_KEY = 'test';
   process.env.APP_SECRET_KEY ??= 'test-secret';

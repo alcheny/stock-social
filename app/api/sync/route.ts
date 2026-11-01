@@ -10,6 +10,7 @@ import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
 import { purgeDiscovery, type PurgeReport } from '@/lib/discovery/purge.ts';
 import { reconcileIfDue } from '@/lib/billing.ts';
 import { logSafe } from '@/lib/privacy-log.ts';
+import { logUnauthorized } from '@/lib/cron-auth.ts';
 import { purgePrivacy, type PrivacyPurgeReport } from '@/lib/privacy-purge.ts';
 import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
 import { gateReport } from '@/lib/launch-gate.ts';
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
   const got = Buffer.from(req.headers.get('authorization') ?? '');
   const want = Buffer.from(`Bearer ${process.env.CRON_SECRET}`);
   if (!process.env.CRON_SECRET || got.length !== want.length || !timingSafeEqual(got, want)) {
+    logUnauthorized('sync'); // CHORES-3 (C3-34): one rate-limited line, no bearer value, header or IP
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
