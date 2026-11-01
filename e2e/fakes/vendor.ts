@@ -20,6 +20,7 @@
 //   An account with `seed` and a numeric `activities` gets seededActivities (PR-3 heavy-use tests); activities honour
 //   `startDate` like the vendor's endpoint
 //   POST /_fail {status: number, times: number}    the next `times` API calls answer `status`
+//   POST /_remove {accountId} | {all: true}        drops one account from the listing, or every account (FIXES-LABELS: status)
 //   GET  /_state                                   users, their connections and accounts, for assertions
 import { createServer, type Server } from 'node:http';
 
@@ -93,6 +94,17 @@ export function startVendorFake(port: number): Promise<{ server: Server; base: s
       return json({ ok: true });
     }
     if (p === '/_fail' && req.method === 'POST') { fail = await body(); return json({ ok: true }); }
+    // FIXES-LABELS: status (F-11, TR-5): POST /_remove {accountId, userId?} drops that account from the listing (an account
+    // removed at the broker); {all: true, userId?} empties the listing (a disconnect). Without userId, every user's.
+    if (p === '/_remove' && req.method === 'POST') {
+      const b = await body();
+      let n = 0;
+      for (const [id, u] of users) {
+        if (b.userId && b.userId !== id) continue;
+        for (const k of [...u.accounts.keys()]) if (b.all || k === b.accountId) { u.accounts.delete(k); n++; }
+      }
+      return json({ ok: true, removed: n });
+    }
     if (p === '/_post') {
       res.writeHead(200, { 'content-type': 'text/html' });
       return res.end(`<!doctype html><title>post</title><script>parent.postMessage(JSON.parse(${JSON.stringify(url.searchParams.get('m') ?? 'null')}), '*');</script>`);

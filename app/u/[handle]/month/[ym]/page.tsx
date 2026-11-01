@@ -8,6 +8,8 @@ import { loadRecap } from '@/lib/recap-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
 import { counted } from '@/lib/format.ts';
+import { recordSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
+import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -73,6 +75,8 @@ export default async function RecapPage({ params }: Params) {
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>
+          {/* FIXES-LABELS: status (F-11): the record's status line, live (this page renders per request). */}
+          <StatusText segments={recordSegments(r.status, new Date()) ?? []} kind="record" />
           {/* Fix round 6 and the reviewer fix (TR-3): the profile's record-state rule, as on the trade page. */}
           {whole.tone === 'warn' && <p role="status" className="down record-failed">{whole.line}</p>}
           {whole.stats ? <>

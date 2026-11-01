@@ -2,6 +2,7 @@ import { sql } from './db.ts';
 import { isDemoUser } from './demo.ts';
 import { publicRecord } from './connections.ts';
 import { tradeSharePayload } from './trade-share.ts';
+import { statusFor } from './record-status-load.ts'; // FIXES-LABELS: status
 
 // The only query behind the trade page and card. A held thesis is nulled in SQL, so it never reaches rendering code.
 export async function loadTradeShare(handle: string, sellId: string) {
@@ -21,7 +22,9 @@ export async function loadTradeShare(handle: string, sellId: string) {
   // Fix round 6 (TR-3): the record state and source travel with the payload, so the card and the link preview apply
   // the profile's rule (a failed import is never presented as a whole verified record).
   const verified = all.length > 0 && all.every((r) => r.verified);
-  return { ...payload, handle, displayName: t.display_name as string, state: (await publicRecord(Number(t.user_id))).state, verified };
+  const state = (await publicRecord(Number(t.user_id))).state;
+  // FIXES-LABELS: status (F-11): the status-line facts beside the state (the page renders live, the image static).
+  return { ...payload, handle, displayName: t.display_name as string, state, verified, status: await statusFor(Number(t.user_id), state) };
 }
 
 // Route params may be percent-encoded; malformed input is a 404, not a 500.

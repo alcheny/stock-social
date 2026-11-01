@@ -39,6 +39,11 @@ import { SimilarSection } from './similar-section.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
+// FIXES-LABELS: status (F-11 / D-12 / fix #4): the record status line.
+import { statusFor } from '@/lib/record-status-load.ts';
+import { segments, statusParts } from '@/lib/record-status.ts';
+import { STATUS_LINE } from '@/lib/copy.ts';
+import { StatusList, StatusText } from '../../status-line.tsx';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
@@ -157,6 +162,9 @@ export default async function Profile({ params, searchParams }: Params) {
   // Committee fix (item 5): no share invitation on a record that is importing or failed; "Try again" is the only primary.
   const shareable = state === 'connected' || state === 'none';
   const connected = allVerified ? connectedLine(brokers, accounts) : 'Demo data';
+  // FIXES-LABELS: status. Live mode: this page is rendered per request; "updated" is the last successful sync.
+  const statusF = await statusFor(user.id, state);
+  const status = statusF ? statusParts(statusF, new Date(), 'live') : null;
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
@@ -183,7 +191,16 @@ export default async function Profile({ params, searchParams }: Params) {
       {state === 'failed' && (
         <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
       )}
-      {complete && first && (
+      {/* FIXES-LABELS: status. Two rows (design system StatusLine): row 1 (since · connected, partial or frozen), row 2
+          (last close · updated, or the idle fact), then the accounts when there are two or more. A record the
+          status line does not cover (importing, failed, no connection) keeps today's line. */}
+      {status?.show ? (
+        <div className="record-status-block">
+          <StatusText segments={segments(status.line1)} kind="line1" />
+          <StatusText segments={segments(status.line2)} kind="line2" />
+          <StatusList items={status.accounts.map((p) => segments([p]))} label={STATUS_LINE.accountsLabel} />
+        </div>
+      ) : complete && first && (
         <p className="muted small" style={{ marginTop: 0 }}>
           Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.
         </p>
@@ -267,6 +284,7 @@ export default async function Profile({ params, searchParams }: Params) {
       )}
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
 
+      {/* FIXES-LABELS: status. ponytail: open-position rows number accounts per symbol, not "Account i of n" — map rows through accountLabels with an f6 spec update */}
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
       {positions.length > 0 && <>
         <h2>{RECORD_BODY.positionsTitle}</h2>

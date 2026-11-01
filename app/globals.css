@@ -454,3 +454,11 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
+/* FIXES-LABELS: status (F-11): the record status line. Words only, muted small print (>= 4.5:1 on both themes); the
+   relative time sits with its absolute date inside one <time>, which may wrap but never widens the page. */
+.record-status-block { margin: 0 0 12px; }
+.record-status-block .record-status { margin: 0 0 2px; }
+.record-status { overflow-wrap: anywhere; }
+.card .record-status, .pane .record-status { margin: 0; }
+.record-accounts { list-style: none; padding: 0; margin: 4px 0 0; }
+.record-accounts li { margin: 0 0 2px; overflow-wrap: anywhere; }
