@@ -23,6 +23,11 @@ export type MonthCardInput = {
 // Largest size (≤ 96) at which the text fits the card's width at an average glyph width of 0.6 em.
 export const fitSize = (text: string, max = 96, width = INNER_W) => Math.min(max, Math.floor(width / (Math.max(text.length, 1) * MONTH_CARD.glyph)));
 
+// No route draws monthCard any more (the month image draws monthBand below). It stays because lib/month-card.test.ts pins
+// the month card's layout contract through it (record line in the strip's words, no win rate, the disclaimer in full),
+// and that test may not be deleted.
+// ponytail: monthCard is test-only code — move those assertions onto monthBand and drop monthCard once the test rules
+// allow retiring a test file.
 export function monthCard(r: MonthCardInput) {
   const { recap: m, record: w } = r;
   const trust = imageTrust('month', { state: r.state, demo: r.demo, verified: r.verified, empty: false });
