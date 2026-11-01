@@ -6,6 +6,7 @@ import { FEED, FEED_COUNTS, LIKES, FEED_EMPTY } from '@/lib/copy.ts';
 // CHORES-3 (K20): the home link preview.
 import { siteOrigin } from '@/lib/site-origin.ts';
 import { demoShown, homePreview } from '@/lib/home-preview.ts';
+import { publicShown } from '@/lib/public-gate.ts'; // FIXES-CYCLE4-PART2 (F4-8)
 import { FeedKeys } from './feed-keys.tsx';
 import { FeedEnd, FeedRows } from './feed-rows.tsx';
 import { FeedPager } from './feed-pager.tsx';
@@ -25,10 +26,12 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 // CHORES-3 (K20): every feed page carries the home link preview (lib/home-preview.ts); the page sets no title.
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const after = (await searchParams).after;
-  const demo = await demoShown();
-  const p = homePreview(demo);
+  // FIXES-CYCLE4-PART2 (F4-8): the public-filing state; a shown demo fixture filer counts as a demo record too.
+  const [pub, demoRecords] = await Promise.all([publicShown(), demoShown()]); // code review: side by side on a cold memo
+  const demo = demoRecords || pub.demo;
+  const p = homePreview(demo, pub.shown);
   // The card's URL carries the demo state, so its public cache always matches this page (app/home-card/route.tsx).
-  const image = { url: `/home-card?d=${demo ? 1 : 0}`, width: 1200, height: 630, type: 'image/png', alt: p.cardText };
+  const image = { url: `/home-card?d=${demo ? 1 : 0}&p=${pub.shown ? 1 : 0}` /* FIXES-CYCLE4-PART2 (F4-8) */, width: 1200, height: 630, type: 'image/png', alt: p.cardText };
   const preview: Metadata = {
     metadataBase: new URL(siteOrigin()),
     description: p.metaDescription,

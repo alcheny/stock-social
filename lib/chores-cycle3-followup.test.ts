@@ -62,11 +62,14 @@ test('the delete-screen notes line shows when its check fails (a query that real
 
 test('the home card is keyed by the demo state: the metadata names it, the image route draws it and reads no data', () => {
   const page = read('app/page.tsx');
-  assert.match(page, /url: `\/home-card\?d=\$\{demo \? 1 : 0\}`/);
-  assert.match(page, /const p = homePreview\(demo\);/); // the same state the page's text uses
+  // FIXES-CYCLE4-PART2 (F4-8): the URL also names the public-filing state, from the same values the page's text uses.
+  assert.match(page, /url: `\/home-card\?d=\$\{demo \? 1 : 0\}&p=\$\{pub\.shown \? 1 : 0\}`/);
+  assert.match(page, /const p = homePreview\(demo, pub\.shown\);/); // the same state the page's text uses
   const card = read('app/home-card/route.tsx');
   assert.doesNotMatch(card, /demoShown|from '@\/lib\/db/);
-  assert.match(card, /homePreview\(new URL\(req\.url\)\.searchParams\.get\('d'\) !== '0'\)/);
+  assert.match(card, /const pub = q\.get\('p'\) === '1';/); // FIXES-CYCLE4-PART2 (F4-8)
+  assert.match(card, /homePreview\(q\.get\('d'\) !== '0', pub\)/);
+  assert.match(card, /const q = new URL\(req\.url\)\.searchParams;/);
   assert.notEqual(homePreview(true).cardText, homePreview(false).cardText);
 });
 

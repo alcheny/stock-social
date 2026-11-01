@@ -73,7 +73,7 @@ dialog.portal .portal-alt a.button { justify-content: center; }
 dialog.portal .portal-alt a.button.wide { display: flex; flex: 1 1 100%; }
 dialog.portal .portal-blank { margin: 0; }
 html.portal-open { overflow: hidden; }
-.record-failed { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+/* F-27: the failed line's layout lives in .warn-notice (block "F-27"); .record-failed is the e2e hook. */
 .record-failed .button { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; }
 /* Open positions (TR-4): the symbol link is the row's tap target, 44px tall (POLICY A1). */
 .rows.positions li { padding: 0; }
@@ -556,12 +556,7 @@ body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pa
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
 /* ---- FIXES-LABELS (docs/features/logs/fixes-labels/plan.md §4) ---- */
-/* QA round 1 (finding 7, cycle-2 #25): a failed import is a warning, not a loss. --warn reads >= 4.5:1 on --bg and
-   --surface in both schemes (dark #fbbf24: 11.8:1 / 10.8:1; light #92400e: 6.8:1 / 7.1:1); a warning sign before the
-   words, so the state is never carried by colour alone (the words already say it; the sign has empty alt text). */
-/* F-20: --warn's values (dark #fbbf24, light #92400e) live in the TOKENS block at the top of this file. */
-.warn { color: var(--warn); }
-.record-failed::before { content: "\26A0\FE0E  "; content: "\26A0\FE0E  " / ""; }
+/* QA round 1 (finding 7): a failed import is a warning, not a loss: the warn notice, block "F-27" at the end of this file. */
 /* QA round 1 (finding 5, cycle-2 #18): an unbroken 40-character display name wraps instead of widening the card, the
    pane or the profile. */
 .card { min-width: 0; }
@@ -903,3 +898,15 @@ html:not([data-ss-seen~="hint"]) .feed .card footer .swipe-hint { display: block
 /* The highlighted pane row already draws the focus colour (.pane .rows .line.hl); focus thickens it so focus stays visible. */
 .pane .rows a.line.hl:focus-visible { outline: 4px solid var(--focus); }
 /* end F-25 */
+
+/* ---- F-27 (docs/features/F-27-colour-follow-ups.md): the warn notice ---- */
+/* A failed import is never told apart from a loss by colour (DS-17): an icon, a box and the unchanged words. --warn is
+   used only in these rules (lib/f27-colour-follow-ups.test.ts). The words stay --text (>= 4.5:1 on --surface); the border
+   and the icon are --warn (>= 3:1 on --surface). The icon ignores pointer events, so a double tap on it still likes the
+   card (F-2). About 18 px taller than the bare line on the feed card (F-10 headroom checked in e2e). */
+.warn-notice { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 8px; margin: 8px 0; padding: 8px 12px; border: 1px solid var(--warn);
+  border-radius: 6px; background: var(--surface); color: var(--text); }
+.warn-notice [data-warn-icon] { flex: none; width: 1em; height: 1em; margin-top: 0.225em; /* (1.45 line-height - 1) / 2: centred on the first line */ stroke: var(--warn); fill: var(--warn); pointer-events: none; }
+.warn-notice [data-warn-icon] circle { stroke: none; }
+.warn-notice > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* ---- end F-27 ---- */

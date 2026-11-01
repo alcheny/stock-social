@@ -299,6 +299,9 @@ async function pickQuery(q: Q, { ids, asOf, day }: CandOpts, top: number[]): Pro
 export type FeedItem = FeedCandidate & { explore: boolean };
 export type PaneRow = { userId: number; id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; verified: boolean; thesis: string | null;
   openedAt: Date; // F-10: the entry time, so the strip's bets (K) are the profile's (lib/record-strip.db.test.ts)
+  // FIXES-CYCLE4-PART2 (F4-16): a published note's written and edited UTC day numbers (lib/paging.ts#noteDays), for the
+  // chart sheet. Day precision only (orchestrator review, F-23): the time of day never leaves the database.
+  writtenDay?: number | null; editedDay?: number | null;
   tradeKey?: string }; // F-25: set on the trader's 5 latest rows only (the pane's "Last 5 trades" links), never the vendor id
 
 // Every page trader's full current record, for the pane's chart and stats.
@@ -316,12 +319,21 @@ export async function records(userIds: number[]): Promise<PaneRow[]> {
 // to what the pane lists: the pane's stats, every chart range (compounded over every close), its worst trade and the
 // card strip read the whole record — keep a downsampled series and those figures per trader, written by
 // lib/sync.ts#rebuildTrades (schema), and read those.
+// FIXES-CYCLE4-PART2 (F4-16): fields per close in records1's JSON text, and a note's two UTC day numbers (set only when
+// recorded).
+const PANE_ROW_FIELDS = 10;
+const noteDayFields = (w: unknown, e: unknown): Pick<PaneRow, 'writtenDay' | 'editedDay'> =>
+  typeof w === 'number' || typeof e === 'number' ? { writtenDay: typeof w === 'number' ? w : null, editedDay: typeof e === 'number' ? e : null } : {};
 async function records1(userIds: number[]): Promise<PaneRow[]> {
   if (!userIds.length) return [];
   const rows = await sql`
     select user_id, '[' || string_agg(concat_ws(',', id, to_json(symbol)::text, return_pct, holding_days, verified::int,
       date_part('epoch', closed_at) * 1000, coalesce(to_json(case when thesis_status = 'published' then thesis end)::text, 'null'),
-      date_part('epoch', opened_at) * 1000), ',' order by closed_at desc, id desc) || ']' as j,
+      date_part('epoch', opened_at) * 1000,
+      -- FIXES-CYCLE4-PART2 (F4-16): a published note's written and edited UTC day numbers (null otherwise), the 9th and
+      -- 10th fields; days only, so no time of day is ever read out
+      coalesce((case when thesis_status = 'published' then floor(date_part('epoch', thesis_written_at) / 86400)::int end)::text, 'null'),
+      coalesce((case when thesis_status = 'published' then floor(date_part('epoch', thesis_edited_at) / 86400)::int end)::text, 'null')), ',' order by closed_at desc, id desc) || ']' as j,
       -- F-25: the trade_keys of the trader's 5 latest closes, in the list order (closed_at desc, id desc), for the pane's
       -- "Last 5 trades" links, as "id:key" pairs; a column of this statement, so the feed issues no new one (closed_trades_user index).
       (select string_agg(k.id || ':' || k.trade_key, ',' order by k.closed_at desc, k.id desc) from (select c5.trade_key, c5.closed_at, c5.id
@@ -337,11 +349,12 @@ async function records1(userIds: number[]): Promise<PaneRow[]> {
     const a = JSON.parse(r.j as string) as (string | number | null)[];
     // F-25: "id:key" pairs (hex keys hold no ':' or ','), attached by row id, not by position.
     const keys = new Map(((r.keys as string | null) ?? '').split(',').filter(Boolean).map((p) => p.split(':') as [string, string]));
-    for (let k = 0; k < a.length; k += 8) out.push({
+    for (let k = 0; k < a.length; k += PANE_ROW_FIELDS) out.push({
       ...(keys.has(String(a[k])) ? { tradeKey: keys.get(String(a[k]))! } : {}),
       userId: r.user_id as number, id: String(a[k]), symbol: a[k + 1] as string, returnPct: a[k + 2] as number, holdingDays: a[k + 3] as number,
       verified: a[k + 4] === 1, closedAt: new Date(a[k + 5] as number), thesis: a[k + 6] as string | null,
       openedAt: new Date(a[k + 7] as number), // F-10
+      ...noteDayFields(a[k + 8], a[k + 9]), // FIXES-CYCLE4-PART2 (F4-16)
     });
   }
   return out;
