@@ -89,3 +89,15 @@ F-21 (slot partner) is draft and not built: this cycle owns the pane, pane-chart
 ## Round 4: user test re-check (360 px, UTC and Pacific/Auckland, HEAD 65ddada)
 - UX lead: compliance PASS, usability PASS. All four demands were verified on the demo records: same-instant order matches the list, a right-edge release opens the top row, a one-day chart has one end date, and the failed line has `role="status"` and does not wrap. The note dates (#95) show in the chart sheet. For later, not F-23: pane rows print "11/1/2026" where profile rows print "Nov 1".
 - Business lead: compliance PASS, usability PASS. Demands 1–3 are met. The probe's residual risk stays with the owner and the AI legal committee.
+
+## Round 5: independent review of #97 (orchestrator), narrow BLOCK, all items done
+- MEDIUM, probe accuracy: the compounding chart is a second channel. Each point is printed at one absolute decimal, so
+  r_k = (1 + C_k)/(1 + C_{k−1}) − 1 comes back to about 2ε/(1 + C), and the size threshold is about F·(1 + C)/(6ε): ~$6,700
+  at 1 + C = 10, ~$67,000 at 100 (F = $2). The screen prints these values too, so F-23's contract holds. `probe.md` is
+  corrected. Two options are listed for the owner, each changing the CH-1 display: cumulative values at ~3 significant
+  figures above ±100%, or a simple-sum line.
+- MEDIUM, sitemap: `/sitemap.xml` published each ticker's newest close to the millisecond (`lib/ticker.ts`
+  `lastModified`). It now publishes that close's UTC day (midnight), tested in `lib/sitemap.test.ts`, and the scan spec
+  checks `/sitemap.xml`.
+- LOW: the scan spec now covers `/t/<symbol>`, `/t/compare`, `/t` and the feed's paging action.
+- Info: a 4,700-close profile with 25% notes is about 407 KB, not a regression; listed under Known limits.

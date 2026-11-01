@@ -308,6 +308,19 @@ test('F-23 AC 8 (+ AC 1/2): every signed-out response on the profile, pane, pane
     const both = await api.get(q, { headers: { RSC: '1' } });
     surfaces.push({ name: `${q} RSC:1`, kind: (both.headers()['content-type'] ?? '').includes('html') ? 'html' : 'flight', body: await both.text(), fixture });
   }
+  // Review of #97: the stock pages and the sitemap (a ticker's lastmod once named a close to the millisecond). The
+  // symbol pages list other traders' closes too, so only the detectors that cannot collide run on them (fixture: false).
+  for (const url of [`/t/FZA`, `/t/compare?a=FZA&b=FZB`, '/t', '/sitemap.xml']) {
+    const res = await api.get(url);
+    expect(res.status(), url).toBeLessThan(400);
+    const body = await res.text();
+    surfaces.push({ name: `${url} ${url.endsWith('.xml') ? 'XML' : 'HTML'}`, kind: 'html', body, fixture: false });
+    if (url.endsWith('.xml')) for (const m of body.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)) expect(m[1], `sitemap lastmod ${m[1]}`).toMatch(/T00:00:00(\.000)?Z$|^\d{4}-\d\d-\d\d$/);
+    else {
+      const rsc = await api.get(url, { headers: { RSC: '1' } });
+      surfaces.push({ name: `${url} RSC:1`, kind: (rsc.headers()['content-type'] ?? '').includes('html') ? 'html' : 'flight', body: await rsc.text(), fixture: false });
+    }
+  }
   // The feed card is on page 1 (the profile check below needs the flight to name it, too).
   expect((surfaces.find((s) => s.name === '/ HTML')!.body).includes(`data-handle="${H}"`), 'the fixture is on feed page 1').toBe(true);
   // JSON routes: only ?v=2 is served; the bare URLs are a 404 with no figures.
@@ -388,6 +401,17 @@ test('F-23 AC 8 (+ AC 1/2): every signed-out response on the profile, pane, pane
   await expect(card).toBeAttached();
   await card.scrollIntoViewIfNeeded();
   await grab(page, `.row[data-handle="${H}"]`, 'feed card', true);
+  // Review of #97 (Low): the feed's paging action (a POST whose RSC response appends the next page), when there is one.
+  scope = { name: 'feed paging', fixture: false };
+  let posted = 0;
+  page.on('request', (r) => { if (r.method() === 'POST' && r.url().startsWith(baseURL!)) posted++; });
+  const more = page.locator('.feed-more a.button');
+  if (await more.count()) {
+    const before = await page.locator('.feed > .row').count();
+    await more.first().click();
+    await expect.poll(() => page.locator('.feed > .row').count(), { timeout: 15_000 }).toBeGreaterThan(before);
+    expect(posted, 'the paging action ran').toBeGreaterThan(0);
+  } else test.info().annotations.push({ type: 'f23-scan-paging', description: 'feed has one page: no paging action to scan' });
   await Promise.all(bodies);
   await ctx.close();
   await api.dispose();
