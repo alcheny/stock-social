@@ -6,6 +6,9 @@ import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
 import { UserNote } from './user-note.tsx';
+import { RecordStrip } from './record-strip.tsx';
+import { DISCLAIMER } from '@/lib/share.ts';
+import type { Strip } from '@/lib/record-strip.ts';
 
 export function Badge({ verified }: { verified: boolean }) {
   return verified
@@ -37,8 +40,12 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
+// F-10: `strip`, the trader's record strip (lib/record-strip.ts#recordStrip, 'feed'): it takes the place of the
+// "held · closed" line, so the hero reads symbol, return, record. DS-22 (design system council, PR #48): the trust badge
+// then leads the record line in .hero, not the header. `stripBadge`: the record-level badge (paneTrust, code review
+// 2026-11-01), since it labels the record's figures; without it, the card's own. Without a strip (other callers) the card is unchanged.
 // F-9: `report`, a signed-in reader who is not the trader: the note gets the Report control.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, report }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; report?: boolean }) {
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, report }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: 'verified' | 'demo' | null; report?: boolean }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const up = t.return_pct > 0;
@@ -49,14 +56,14 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         <Link href={`/u/${t.handle}`} className="who">
           <WhoName name={t.display_name} handle={t.handle} />
         </Link>
-        <RowBadge kind={trust.badge} />
+        {!strip && <RowBadge kind={trust.badge} />}
         {menu}
       </header>
       {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
         <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
-        <div className="muted">held {days(t.holding_days)} · closed {CLOSED_DAY.format(t.closed_at)}</div>
+        {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {CLOSED_DAY.format(t.closed_at)}</div>}
       </div>
       {/* F-9: UserNote; fix round 2: no byline, the card's header already names the trader */}
       {t.thesis_status === 'published' && t.thesis
@@ -64,7 +71,10 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         : <p className="thesis"><span className="muted">No thesis posted.</span></p>}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
-        <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
+        <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
+        {/* F-10 (user test 2026-11-01, F-10 AC10): with the record line, the disclaimer is in view on every card, so the
+            first screen at 360 px carries it (the site footer sits below the fold). */}
+        {strip && <p className="card-disclaimer" data-disclaimer>{DISCLAIMER}</p>}
       </footer>
     </article>
   );

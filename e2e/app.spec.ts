@@ -400,7 +400,7 @@ test('trade permalink: signed out, record beside the trade, via=trade CTA, 404s,
   await page.goto(`/u/${handle}/trade/${sell}`);
   await expect(page.getByRole('heading', { name: 'TSLA' })).toBeVisible();
   await expect(page.getByText('-8.0%').first()).toBeVisible();
-  await expect(page.getByRole('heading', { name: /Their whole record/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /'s record/ })).toBeVisible();
   await expect(page.getByText('1 closed trade ·')).toBeVisible();
   await expect(page.getByText('held text')).toHaveCount(0); // held thesis never renders
   await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeVisible(); // one button
@@ -454,10 +454,10 @@ test('monthly recap: signed out, whole record beside the month, every trade list
   const ym = new Date(Date.now() - 864e5).toISOString().slice(0, 7);
 
   await page.goto(`/u/${handle}/month/${ym}`);
-  await expect(page.getByRole('heading', { name: /Their whole record/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /'s record/ })).toBeVisible();
   await expect(page.getByText('1 closed trade ·')).toBeVisible();
   await expect(page.locator('ol li')).toHaveCount(1);
-  await expect(page.getByText('Too few trades for a win rate')).toBeVisible();
+  await expect(page.locator('[data-strip-scope="month"]')).toContainText('Too early to tell');
 
   const card = await request.get(`/u/${handle}/month/${ym}/opengraph-image`); // one-trade month
   expect(card.status()).toBe(200);

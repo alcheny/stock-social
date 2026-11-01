@@ -524,3 +524,26 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .user-note .link-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .user-note .report-status { font-size: 13px; color: var(--muted); }
 .thesis-held { margin: 4px 0 0; font-size: 13px; }
+/* F-10 / F-12: the record strip (app/record-strip.tsx). Figures in the muted colour; the average and "Too early to tell"
+   bold in the text colour (the same weight, committee 2026-11-01), the average toned by its printed sign. */
+.record-strip { margin: 0; font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
+.record-strip b { color: var(--text); }
+.record-strip b.up { color: var(--up); }
+.record-strip b.down { color: var(--down); }
+.record-strip-block .record-strip { font-size: 1rem; margin: 4px 0; }
+.record-strip-block .strip-label { margin: 0; }
+.card-disclaimer { margin: 4px 0 0; font-size: 0.875rem; }
+/* F-10 (user test 2026-11-01; design system council #48 DS-22): on a feed card the thesis keeps two lines, so the record
+   line and the card's disclaimer stay on its one screen; the whole thesis is on the trade page and in the pane. */
+.feed .card .thesis { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+/* F-10 (AC8, 780×360 landscape): on a short screen the card tightens so the record line and its disclaimer stay on it. */
+@media (max-height: 480px) {
+  .feed .row > .card { padding-top: 56px; padding-bottom: 12px; gap: 6px; }
+  .feed .card .symbol { font-size: 20px; }
+  .feed .card .ret { font-size: 56px; }
+  .feed .card .thesis { font-size: 16px; -webkit-line-clamp: 1; line-clamp: 1; }
+}
+/* F-12 (business lead user test): the month's result is the hero of "This month". */
+.month-figures .record-strip { font-size: 1.75rem; line-height: 1.25; margin: 4px 0; }
+/* The range's label, "losses included" and the open count never start a line on their own separator. */
+.record-strip [data-part="rangeLabel"], .record-strip [data-part="losses"], .record-strip [data-part="open"] { white-space: nowrap; }
