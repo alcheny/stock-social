@@ -149,6 +149,8 @@ function metered(b: Broker, bucket: TokenBucket, prepaid: { left: number }, coun
     fetchActivities: async (u, since, accountIds) => { await pay(Math.max(1, accountIds?.length ?? 1)); return b.fetchActivities(u, since, accountIds); },
     ...(b.fetchActivitiesPage ? { fetchActivitiesPage: async (u: Parameters<NonNullable<Broker['fetchActivitiesPage']>>[0], id: string, offset: number, limit?: number) => { await pay(1); return b.fetchActivitiesPage!(u, id, offset, limit); } } : {}),
     ...(b.fetchPositions ? { fetchPositions: async (u: Parameters<NonNullable<Broker['fetchPositions']>>[0], id: string) => { await pay(1); return b.fetchPositions!(u, id); } } : {}),
+    // Corporate actions (#40): each real account's share moves; every broker function the sync uses must pass through.
+    ...(b.fetchShareMoves ? { fetchShareMoves: async (u: Parameters<NonNullable<Broker['fetchShareMoves']>>[0], id: string) => { await pay(1); return b.fetchShareMoves!(u, id); } } : {}),
   };
 }
 

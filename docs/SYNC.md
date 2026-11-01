@@ -26,12 +26,12 @@ the sharded schedule is switched on. Code: `app/api/sync/route.ts`, `lib/sync-sh
 - **Bounded concurrency.** `SYNC_CONCURRENCY` workers per run, never more than `DATABASE_POOL_MAX − 2`. A sync holds
   its database connection for its whole transaction, vendor calls included.
 - **Deadline.** A run stops dispatching 90 s before the route's 300 s limit. It dispatches a trader only if
-  `(1 + 2n)` vendor bounds, plus the expected wait for rate tokens, fit before the limit (n = accounts). A trader that
+  `1 + 3n` vendor bounds (`syncRequests`: the account list, then each account's activities, positions and share moves), plus the expected wait for rate tokens, fit before the limit (n = accounts). A trader that
   does not fit is left for the next call, which starts with a full budget. A run's first trader is always dispatched
   (`SYNC_FIT_CAP` keeps any trader's worst case under one call), so the unsharded call's housekeeping can never defer
   a trader with many accounts forever.
 - **Vendor budget.** Each run has a token bucket of `SYNC_VENDOR_RPS` requests per second. Because only one run per shard
-  is possible, this is the shard's whole budget. A trader's `1 + 2n` requests are taken before it is claimed, outside
+  is possible, this is the shard's whole budget. A trader's `1 + 3n` requests are taken before it is claimed, outside
   its transaction. Any extra request (another page on a first sync) takes a token as it goes. The aggregate vendor
   ceiling is `N × SYNC_VENDOR_RPS`.
 - **Failures.** What a failure does depends on its cause:
@@ -119,10 +119,10 @@ example:
 
 ```sql
 alter role stock_social set statement_timeout = '60s';
-alter role stock_social set idle_in_transaction_session_timeout = '5min';
+alter role stock_social set idle_in_transaction_session_timeout = '6min';
 ```
 
-The idle timeout must sit above the largest sync cost (`(1 + 2 × SYNC_FIT_CAP) × 30 s`) and below the per-user lease
+The idle timeout must sit above the largest sync cost (`(1 + 3 × SYNC_FIT_CAP) × 30 s` = 300 s) and below the per-user lease
 (10 min). The coverage line checks both timeouts and `max_connections ≥ N × (C + 2) + 20`, and reports
 `dbConfigOk`.
 

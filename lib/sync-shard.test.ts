@@ -489,3 +489,27 @@ dbTest('transient streak: TRANSIENT_LIMIT transient failures in a row quarantine
     await h.cleanup(of);
   }
 });
+
+// #40 coordination: the runner's metered broker must hand syncUser every read it makes, share moves included, and
+// count each against the run's request budget (1 + SYNC_REQUESTS_PER_ACCOUNT × n).
+dbTest('metered broker: a sharded run with the real syncUser reads accounts, activities, positions and share moves, and counts every request', async () => {
+  const h = await harness();
+  const of = freshOf();
+  try {
+    const [t] = await h.inShard(1, of, 0);
+    const calls: string[] = [];
+    const broker = {
+      listAccounts: async () => { calls.push('accounts'); return [{ id: t.acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }]; },
+      fetchActivities: async () => { calls.push('activities'); return []; },
+      fetchPositions: async () => { calls.push('positions'); return []; },
+      fetchShareMoves: async () => { calls.push('shareMoves'); return { activities: [], actions: [] }; },
+    };
+    const r = await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(5), jitterMs: 0, config: cfg(1), log: h.quiet,
+      broker: broker as unknown as import('./sync.ts').Broker });
+    assert.equal(r.done, 1, JSON.stringify(r));
+    assert.deepEqual(calls, ['accounts', 'activities', 'shareMoves', 'positions']); // syncUser's order
+    assert.equal(r.requests, h.S.syncRequests(1));
+  } finally {
+    await h.cleanup(of);
+  }
+});
