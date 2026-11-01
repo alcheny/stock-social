@@ -38,6 +38,7 @@ jobs:
       mode: ${{ steps.next.outputs.mode }}
       number: ${{ steps.next.outputs.number }}
       variants: ${{ steps.next.outputs.variants }}
+      attempt: ${{ steps.next.outputs.attempt }}
       base: ${{ steps.base.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,7 +152,10 @@ jobs:
           VARIANT: ${{ toJSON(matrix.variant) }}
           SPEC_ROUNDS: ${{ vars.SPEC_ROUNDS || '2' }}
           QA_ROUNDS: ${{ vars.QA_ROUNDS || '40' }}
-          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '100' }}
+          TEAM_BUDGET_USD: ${{ vars.TEAM_BUDGET_USD || '100' }} # attempt 1; later attempts get more (team.ts budgetScale, up to 4×)
+          ATTEMPT: ${{ needs.pick.outputs.attempt || '1' }}
+          ESCALATE_AFTER: ${{ vars.ESCALATE_AFTER || '3' }}
+          MODEL_ESCALATE: ${{ vars.MODEL_ESCALATE }}
           MODEL_ENGINEER: ${{ vars.MODEL_ENGINEER }}
         run: node "$LOOP_DIR/scripts/team.ts"
       - name: Publish
@@ -163,7 +167,16 @@ jobs:
           NUMBER: ${{ needs.pick.outputs.number }}
           BRANCH: ${{ steps.prep.outputs.branch }}
           VARIANT: ${{ toJSON(matrix.variant) }}
-        run: node "$LOOP_DIR/scripts/autopilot.ts" publish
+          GIT_CONFIG_GLOBAL: /dev/null # agents ran on this runner: ignore any global or system git config they left
+          GIT_CONFIG_NOSYSTEM: '1'
+        run: |
+          # An agent could have planted a hook or config (core.hooksPath, url.*.insteadOf, include, credential, fsmonitor)
+          # that runs or redirects during the commit and push below: keep only the keys checkout and prepare set.
+          git config --local --unset-all core.hooksPath || true
+          git config --local --name-only --list | sort -u | { grep -viE '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates)|user\.(name|email)|remote\.origin\.(url|fetch)|branch\..+\.(remote|merge))$' || true; } | while read -r k; do git config --local --unset-all "$k"; done
+          git config --local remote.origin.url "https://github.com/$GITHUB_REPOSITORY"
+          rm -rf .git/hooks .git/config.worktree
+          node "$LOOP_DIR/scripts/autopilot.ts" publish
       - name: Retry a line's fix right away if this run crashed # attempts are counted, so this is bounded
         if: failure() && inputs.line != '' && needs.pick.outputs.mode == 'fix'
         env:

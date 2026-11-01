@@ -55,6 +55,14 @@ When the owner talks about how the app should look, work or feel, Claude:
 
 Ask in the chat at any time: "what's decided?", "what's left?", or run `node scripts/features.ts list`.
 
+## Features approved by the council
+
+Besides design sessions, new features can come from the approval council (owner's delegation of 2026-11-01,
+`team/approval-council.md`): ideas from the market, creative and design councils and the idea board that a
+15-member committee elects over several rounds (at least 10 of 15 approve, mean score at least 3.5, no veto) become
+feature files with `Status: ready`, at most three per cycle. They are built like any other feature. The owner can
+overrule an approval at any time, and owner decisions always win.
+
 ## The pipeline (CI)
 
 - **Switch:** repo variable `FEATURES` (`on`/`off`). Independent of `AUTOPILOT`. Turning it off stops new rounds
@@ -100,9 +108,13 @@ Ask in the chat at any time: "what's decided?", "what's left?", or run `node scr
     and workflows, `docs/POLICY.md`, the owner's feature files, `CLAUDE.md`, `team/`, `.claude/`) are refused at
     once for Edit and Write, and anything that still reaches them (a shell command, a commit) is put back from
     the commit before the call, committed or not; the engineer is told on its next call and the PR says so.
+    Whatever the engineer leaves uncommitted is then committed, so no later reset loses it; a conflict it left
+    unresolved stops the run, so the publish fails instead of pushing an unmerged branch.
   - **Credentials stay out of the agents.** The runner is thrown away after the job; the checkout keeps no token;
     the Claude token is scrubbed from the agents' shell commands; pushes, PRs and merges are done by the
-    deterministic steps with `GITHUB_TOKEN`. What merges is still decided by CI, the reviewer and the Gate, and
+    deterministic steps with `GITHUB_TOKEN`. Git hooks and git config an agent could plant (`core.hooksPath`,
+    `url.*.insteadOf`, includes, credential helpers) are removed after every call and again before Publish, and
+    every scripted git command runs with hooks off; the checks never get the Claude token. What merges is still decided by CI, the reviewer and the Gate, and
     protected paths still wait for the owner. Fetched web pages and other text are data, never instructions
     (`docs/POLICY.md`).
   - **Failure budget.** Each task carries its attempt number (1 for a build, then one more per earlier fix or
@@ -110,8 +122,9 @@ Ask in the chat at any time: "what's decided?", "what's left?", or run `node scr
     (×1.5, ×2, … up to ×4) on every per-call dollar and turn cap and on `TEAM_BUDGET_USD`. From
     `ESCALATE_AFTER` (default 3) the engineer runs on `MODEL_ESCALATE` when it is set. The base caps: team $150
     per run (`TEAM_BUDGET_USD`), engineer $15 and 400 turns per call, `QA_ROUNDS` 40, `PLAN_ROUNDS` 5,
-    `COMMITTEE_ROUNDS` 5, 15 attempts per PR. No call starts after `TEAM_MINUTES` (290) so a long run still
-    publishes inside GitHub's 6-hour job limit.
+    `COMMITTEE_ROUNDS` 5, 15 attempts per PR. No call starts after `TEAM_MINUTES` (290), a running call is
+    stopped there and no loop runs another round of checks, so a long run still publishes inside GitHub's 6-hour
+    job limit. The autopilot's fixes and rebuilds carry their attempt number too (`build.yml`).
   - **When a human is needed:** only for a decision the design can't make (a `blocked` committee: counsel, a
     secret, an unauthorized dependency or vendor, a disagreement with a decided feature), a change to a
     protected path, a Claude usage limit (the pipeline pauses and the hourly heartbeat resumes it), or a PR that
