@@ -49,7 +49,8 @@ committee under the owner's instruction of 2026-11-01"):
 - `npm run build`: ok.
 - `npx playwright test e2e/f6-open-positions.spec.ts`: 7 passed (profile, all losing, open with no closes, unchanged
   no-positions path incl. a demo trader, feed card and pane order, stock pages and /how, the Similar pane route; 360 px,
-  no horizontal scroll, footer disclaimer on every page). Full suite: see the run noted below.
+  no horizontal scroll, footer disclaimer on every page). Full suite `npx playwright test` on the merged branch: 130
+  passed, 3 skipped, 0 failed.
 - Load (tester, `LOAD=1 node --expose-gc --test lib/feed.load.test.ts`): every timing within the existing budgets (500
   traders / 244,000 closes: p95 page 1 198 ms, all pages 171 ms; section pages signed out 136 ms, signed in 155 ms). No
   budget raised.
