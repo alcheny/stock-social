@@ -75,10 +75,10 @@ dbTest('follow, unfollow and "not interested": unfollow and "not interested" exc
     const [y] = await p.sql`select until <= now() as ended from viewer_exclusions where viewer_id = ${p.viewer} and trader_id = ${a}`;
     assert.equal(y.ended, true);
     await F.exclude(p.viewer, b, 'not_interested');
-    const lists = await F.ownLists(p.viewer);
+    const lists = await F.ownListsFirstPage(p.viewer);
     assert.deepEqual(lists.hidden.map((t) => t.handle), [p.handle(2)]);
     await F.endExclusion(p.viewer, b); // Undo / "Show again"
-    assert.equal((await F.ownLists(p.viewer)).hidden.length, 0);
+    assert.equal((await F.ownListsFirstPage(p.viewer)).hidden.length, 0);
     assert.equal((await p.sql`select 1 from viewer_exclusions where viewer_id = ${p.viewer}`).length, 2); // ended, not deleted
     await F.unfollow(p.viewer, p.traders[0]);
     await F.unfollow(p.viewer, p.traders[0]); // not following: no new exclusion row, nothing changes
@@ -151,7 +151,7 @@ dbTest('fix round 1: an unfollow keeps its 90-day row but neither the feed nor "
     assert.deepEqual({ ...x }, { reason: 'unfollow', running: true }); // kept for PR-3's section
     assert.ok((await all(p.viewer)).includes(a), 'an unfollowed trader stays in the feed');
     assert.deepEqual(await all(p.viewer), await all());
-    assert.deepEqual((await F.ownLists(p.viewer)).hidden, []); // never listed under "Not interested"
+    assert.deepEqual((await F.ownListsFirstPage(p.viewer)).hidden, []); // never listed under "Not interested"
     assert.equal(await F.isHidden(p.viewer, a), false);
     assert.deepEqual(await F.follow(p.viewer, b), { first: false }); // shown once per viewer, not per empty list
     // "Not interested" on a followed trader, then unfollow: still hidden, still "not_interested".
@@ -166,7 +166,7 @@ dbTest('fix round 1: an unfollow keeps its 90-day row but neither the feed nor "
     await F.exclude(p.viewer, a, 'not_interested');
     const [z] = await p.sql`select reason, now() - created_at < interval '1 minute' as fresh from viewer_exclusions where viewer_id = ${p.viewer} and trader_id = ${a}`;
     assert.deepEqual({ ...z }, { reason: 'not_interested', fresh: true });
-    assert.deepEqual((await F.ownLists(p.viewer)).hidden.map((t) => t.handle).sort(), [p.handle(1), p.handle(2)].sort());
+    assert.deepEqual((await F.ownListsFirstPage(p.viewer)).hidden.map((t) => t.handle).sort(), [p.handle(1), p.handle(2)].sort());
   } finally {
     await p.remove();
   }
@@ -298,7 +298,7 @@ dbTest('lists: following, running hides and expired hides each page 50 at a time
       assert.deepEqual(r.seen, expected(s).map((t) => c.handles.get(t)), fn.name);
     }
     assert.equal(F.FOLLOW_PAGE, 50);
-    assert.deepEqual((await F.ownLists(c.viewer)).following.length, 50); // the first pages, as before for small lists
+    assert.deepEqual((await F.ownListsFirstPage(c.viewer)).following.length, 50); // the first pages, as before for small lists
   } finally { await c.remove(); }
 });
 

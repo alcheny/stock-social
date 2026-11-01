@@ -80,6 +80,11 @@ export function nextSpan(span: number, ms: number, timedOut: boolean): number {
 }
 const hex8 = (p: number) => p.toString(16).padStart(8, '0');
 // [lo, hi) in text order: the first window starts at '' and the last ends at 'g' (above every lowercase hex string).
+// Assumption: the database collation orders [0-9a-f] like bytes ('0' < … < '9' < 'a' < … < 'f' < 'g', and a shorter
+// prefix before its extensions), so a window of text order is a window of hash order and the laps cover every key once.
+// Byte-order ("C") and the usual glibc/ICU collations do for lowercase hex; a collation that does not would skip or repeat
+// keys. Pinned by lib/privacy-purge.test.ts "… hex keys sort in hash order under the database collation" (run on the
+// target database); `collate "C"` on the window predicates would remove the assumption but needs a C-collated index.
 const windowOf = (pos: number, span: number): Window => ({ lo: pos === 0 ? '' : hex8(pos), hi: pos + span >= CURSOR_SPACE ? 'g' : hex8(pos + span) });
 
 export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport> {
