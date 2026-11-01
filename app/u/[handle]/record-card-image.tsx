@@ -28,9 +28,10 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   const headColor = m.headlineTone === 'up' ? C.up : m.headlineTone === 'down' ? C.down : C.text;
   const who = (
     <div style={{ ...row, alignItems: 'baseline', gap: 16, flex: 1, minWidth: 0, overflow: 'hidden' }}>
-      {/* When the row is short (badges, a long name), the handle gives way first, then the name. */}
+      {/* User test 2026-11-01: the @handle is the card's one unique identity (anyone can pick any display name), so it
+          always shows in full; when the row is short only the display name gives way. */}
       <span style={{ ...t(f.name), ...one, flexShrink: 1, minWidth: 0 }}>{m.name}</span>
-      {!handleOnly && <span style={{ ...t(f.handle, C.muted), ...one, flexShrink: 1000, minWidth: 0 }}>@{m.handle}</span>}
+      {!handleOnly && <span style={{ ...t(f.handle, C.muted), whiteSpace: 'nowrap', flexShrink: 0 }}>@{m.handle}</span>}
     </div>
   );
   const badge = pill(m.label, f.label, TONE[m.tone]);
@@ -43,11 +44,11 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   const o = m.open;
   const spread = o && (o.low === o.high
     ? [<span key="a" style={{ marginLeft: '0.28em' }}>at</span>, <span key="l" style={{ color: toneColor(o.lowTone), marginLeft: '0.28em' }}>{o.low}</span>]
-    : [<span key="a" style={{ marginLeft: '0.28em' }}>lowest</span>, <span key="l" style={{ color: toneColor(o.lowTone), marginLeft: '0.28em' }}>{o.low},</span>,
-      <span key="b" style={{ marginLeft: '0.28em' }}>highest</span>, <span key="h" style={{ color: toneColor(o.highTone), marginLeft: '0.28em' }}>{o.high}</span>]);
+    : [<span key="a" style={{ marginLeft: '0.28em' }}>lowest</span>, <span key="l" style={{ color: toneColor(o.lowTone), marginLeft: '0.28em' }}>{o.low}</span>,
+      <span key="c">,</span>, <span key="b" style={{ marginLeft: '0.28em' }}>highest</span>, <span key="h" style={{ color: toneColor(o.highTone), marginLeft: '0.28em' }}>{o.high}</span>]);
   const openRow = (size: number, short: boolean) => o && (
     <div style={{ ...row, flexWrap: 'wrap', ...t(size), lineHeight: 1 }}>
-      <span>{short ? `${o.shortTitle} · ${o.split} ·` : `${o.split} ·`}</span>{spread}
+      <span>{[short ? o.shortTitle : '', o.split].filter(Boolean).join(' · ')}{short || o.split ? ' ·' : ''}</span>{spread}
     </div>
   );
   const openBlock = o && (
@@ -90,27 +91,34 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
     </div>
   );
   const average = [
-    <span key="h" style={big(f.headline, headColor, { letterSpacing: -2 })}>{m.headline}</span>,
-    <div key="w" style={col}>
+    // The number never shrinks under its label (QA 2026-11-01: "+0.3%average"); the label column wraps instead.
+    <span key="h" style={big(f.headline, headColor, { flexShrink: 0 })}>{m.headline}</span>,
+    <div key="w" style={{ ...col, flexShrink: 1, minWidth: 0 }}>
       <span style={t(f.body, C.muted)}>{m.headlineLabel}</span>
-      {m.range && <span style={{ ...t(f.body), whiteSpace: 'nowrap' }}>{m.range}</span>}
+      {m.range && <span style={t(f.body)}>{m.range}</span>}
     </div>,
   ];
   // The unfurl's left column: the label beside the number on two lines ("average per" / "closed trade"), the range
   // under them; every row one line high (lineHeight 1) so the column fits beside the chart with every element kept.
-  // Only the long label ("average per closed trade") takes two lines; "average per trade" stays on one.
-  const [labelA, labelB] = m.open ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
+  // Only the long label ("average per closed trade") takes two lines; "average per trade" stays on one. A number of 7
+  // or more characters ("+100.0%") leaves too little room beside it, so its label goes under it on one line.
   const one1 = (size: number, color: string = C.text) => ({ fontSize: size, lineHeight: 1, color, whiteSpace: 'nowrap' }) as const;
+  const longHead = (m.headline ?? '').length >= 7;
+  // Breathing room around the range and before the count (user test), except in the one state with two extra rows
+  // (failed-import note and open positions), where the 630 px card has none to spare and the open row must not be cut.
+  const tight = !!(m.note && o);
+  const [labelA, labelB] = m.open && !longHead ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
   const unfurlAverage = (
     <div style={col}>
-      <div style={{ ...row, gap: 16 }}>
-        <span style={big(f.headline, headColor, { letterSpacing: -2 })}>{m.headline}</span>
-        <div style={col}>
+      <div style={{ display: 'flex', flexDirection: longHead ? 'column' : 'row', alignItems: longHead ? 'flex-start' : 'center', gap: longHead ? 0 : 20 }}>
+        <span style={big(f.headline, headColor, { flexShrink: 0 })}>{m.headline}</span>
+        <div style={{ ...col, flexShrink: 0 }}>
           <span style={one1(f.body, C.muted)}>{labelA}</span>
           {labelB && <span style={one1(f.body, C.muted)}>{labelB}</span>}
         </div>
       </div>
-      {m.range && <span style={one1(f.body)}>{m.range}</span>}
+      {/* A very wide range ("-12.3% and +15.4%") wraps inside the column rather than running into the chart. */}
+      {m.range && <span style={{ fontSize: f.body, lineHeight: 1, color: C.text, marginTop: tight ? 0 : 4 }}>{m.range}</span>}
     </div>
   );
 
@@ -129,7 +137,7 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
         <div style={{ display: 'flex', gap: UNFURL_COLUMN_GAP }}>
           <div style={{ ...col, width: L.left, flexShrink: 0 }}>
             {unfurlAverage}
-            <div style={col}><span style={big(f.line)}>{m.countValue}</span><span style={one1(f.body)}>{m.countNote}</span></div>
+            <div style={{ ...col, marginTop: tight ? 0 : 10 }}><span style={big(f.line)}>{m.countValue}</span><span style={one1(f.body)}>{m.countNote}</span></div>
             <div style={col}><span style={big(f.line)}>{m.periodLength}</span><span style={one1(f.body)}>{m.periodSince}</span></div>
           </div>
           {plot}
@@ -163,15 +171,16 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: `${L.padTop}px ${L.padX}px ${L.padBottom}px`, background: C.bg, color: C.text, fontFamily: 'sans-serif' }}>
-      <div style={{ ...col, gap: L.gap }}>
+      <div style={{ ...col, gap: L.gap, flexShrink: 0 }}>
         {head}
         {m.note && <span style={t(f.body, TONE[m.tone])}>{m.note}</span>}
       </div>
-      {main}
-      <div style={col}>
+      {/* If an extreme record ever overflows, the middle gives way, never the trust line or the disclaimer (POLICY F3). */}
+      <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>{main}</div>
+      <div style={{ ...col, flexShrink: 0 }}>
         {m.trust && <span style={t(f.body)}>{noOrphan(`${m.evidence} · ${m.trust}`)}</span>}
         {m.link && <span style={t(f.body, C.muted)}>{m.link}</span>}
-        {disclaimerLines(disclaimer || m.disclaimer).map((line) => <span key={line} style={t(f.disclaimer, C.muted)}>{line}</span>)}
+        {disclaimerLines(disclaimer || m.disclaimer).map((line) => <span key={line} style={t(f.disclaimer)}>{line}</span>)}
       </div>
     </div>
   );

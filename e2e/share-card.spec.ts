@@ -51,6 +51,9 @@ const FIXTURES: Record<string, Fixture> = {
   open_only: { name: 'Open Only', trades: [], connection: 'connected', open: [0.121, 0.034, -0.08] },
   open_under5: { name: 'Open Under Five', trades: rows(3, 20, 0.02, 0.03, 1, 3, 2), connection: 'connected', open: [0.05, -0.02] },
   open_flat: { name: 'Open One Flat', trades: rows(48, 420, 0.012, 0.05, 1, 48), connection: 'connected', open: [0.0004] },
+  // QA 2026-11-01: wide headlines never run into their label.
+  twodig: { name: 'Two Digit Average', trades: rows(12, 120, 0.2, 0.05, 1, 12) },
+  bigpos: { name: 'Big Average', trades: rows(6, 60, 2.5, 0.1, 1, 6) },
   open_tight: { name: 'A Thirty Character Display Nam', trades: rows(8, 20, 0.01, 0.05, 1, 8, 2), connection: 'failed',
     open: [-1, 2.5, -0.991, 1.234, 0.5, -0.25, 0.75, -0.6, 1.01, -0.333, 0.12, 9.99] },
 };
@@ -129,6 +132,11 @@ test('F-4 rework: the link-preview text matches the card, with open positions, a
   };
   const win = await description(handle('winning'));
   expect(win).not.toMatch(/win rate/i);
+  // POLICY F3: a preview text quoting a figure carries the disclaimer (text-only previews show no image).
+  expect(win.endsWith('Not investment advice. Past performance does not guarantee future results.')).toBe(true);
+  // The profile this link lands on prints the card's range (user test 2026-11-01: one answer, not two).
+  const cardRange = win.match(/likely between ([+-]\d+\.\d%) and ([+-]\d+\.\d%)/)!;
+  await expect(page.locator('.range').first()).toHaveText(`(${cardRange[1]} to ${cardRange[2]}) · 95% range`);
   expect(win).toMatch(/[+-]\d+\.\d% average per trade, likely between [+-]\d+\.\d% and [+-]\d+\.\d% · Record since \w{3} \d{4} · \d+ \w+ · Evidence: \w+/);
   const mixed = await description(handle('open_mixed'));
   expect(mixed).toContain('average per closed trade');

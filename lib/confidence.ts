@@ -34,10 +34,13 @@ export const evidenceLabel = (c: Pick<Confidence, 'tier'>): string => `Evidence:
 // above 0" / "entirely below 0"; committee 2026-11-01, Q-S). Positive only when the whole range is above 0, negative
 // only when it is wholly below: the exact mirror, so losses read like gains.
 export type TrustSign = 'positive' | 'negative' | 'unclear';
+// Read on the printed one-decimal values (code review 2026-11-01): a range printed "+0.0% and +2.1%" is not "wholly
+// above 0", however small and positive its unrounded low end.
+const printed = (x: number) => Number((x * 100).toFixed(1));
 export function trustSign(c: Pick<Confidence, 'perTrade'>): TrustSign {
   if (!c.perTrade) return 'unclear';
-  if (c.perTrade.low > 0) return 'positive';
-  if (c.perTrade.high < 0) return 'negative';
+  if (printed(c.perTrade.low) > 0) return 'positive';
+  if (printed(c.perTrade.high) < 0) return 'negative';
   return 'unclear';
 }
 

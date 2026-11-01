@@ -32,7 +32,9 @@ export function betClusters(trades: BetInput[]): Bet[] {
 export type ArithmeticRange = { low: number; mid: number; high: number; k: number };
 // mid = Σr / n (headline().avgReturn, over every trade); se = √(K/(K−1) · Σ_bets (S_b − n_b·mid)²) / n, the
 // cluster-robust standard error (bets, not trades, are independent); low/high = mid ∓ t(K−1)·se. se ≥ 0, so
-// low ≤ mid ≤ high always. null below MIN_BETS bets or when any value is not finite.
+// low ≤ mid ≤ high always. A trade can't lose more than everything, so the low end stops at -100% (QA 2026-11-01:
+// a 6-bet record with four -99% trades printed "likely between -211.2% and …"). null below MIN_BETS bets or when any
+// value is not finite.
 export function arithmeticRange(trades: BetInput[]): ArithmeticRange | null {
   const bets = betClusters(trades);
   const k = bets.length, n = trades.length;
@@ -40,6 +42,6 @@ export function arithmeticRange(trades: BetInput[]): ArithmeticRange | null {
   const mid = bets.reduce((a, b) => a + b.sum, 0) / n;
   const se = Math.sqrt((k / (k - 1)) * bets.reduce((a, b) => a + (b.sum - b.n * mid) ** 2, 0)) / n;
   const half = tCrit95(k - 1) * se;
-  const r = { low: mid - half, mid, high: mid + half, k };
+  const r = { low: Math.max(-1, mid - half), mid, high: mid + half, k };
   return [r.low, r.mid, r.high].every(Number.isFinite) ? r : null;
 }

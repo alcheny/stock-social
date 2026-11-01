@@ -260,11 +260,9 @@ test('R3: hierarchy: the chart leads (square ≥ 360 px, story ≥ 560 px, ≥ 3
   for (const kind of KINDS) {
     const L = CARD_LAYOUT[kind];
     assert.ok(L.font.line >= 1.5 * L.font.body, `${kind}: count/period ${L.font.line} vs body ${L.font.body}`);
-    // Committee 2026-11-01 (plan v2, engineer demand 4): on the link preview the New record pill takes the trust badge's
-    // size beside it, which buys the row that keeps every element on the 630 px card; the square and story keep it at the
-    // count line's size.
-    if (kind === 'unfurl') assert.ok(L.font.newRecord >= L.font.label, `${kind}: New record at least the trust badge's size`);
-    else assert.ok(L.font.newRecord >= L.font.line, `${kind}: New record at least the count line's size`);
+    // Committee 2026-11-01 (plan v2, engineer demand 4; user test, business lead): the New record pill takes the trust
+    // badge's size at every size, as strong as the badge beside it and no louder (round 1 had it at the count line's).
+    assert.equal(L.font.newRecord, L.font.label, `${kind}: New record the trust badge's size`);
     assert.ok(L.font.headline > L.font.line && Object.values(L.font).every((s) => s <= L.font.headline), `${kind}: the average is the one big number`);
   }
   assert.ok(CARD_LAYOUT.square.chart.h >= 360);

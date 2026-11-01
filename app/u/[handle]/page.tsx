@@ -3,13 +3,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
-import { confidence, edgeText, evidenceLine, isNewRecord, pct, rangeText, stats } from '@/lib/trades.ts';
+import { confidence, edgeText, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
+import { DISCLAIMER } from '@/lib/share.ts';
 import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
-import { cardAlt, cardDescription } from '@/lib/record-card.ts';
+import { cardAlt, cardDescription, cardEvidence } from '@/lib/record-card.ts';
 import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
@@ -83,7 +84,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const base = profileDescription({ state, demo, verified, trades: s.trades, stats: statsText });
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
-    description: s.trades === 0 && cardText ? `${base} ${cardText}.` : base,
+    // POLICY F3: a preview text that quotes a figure also carries the disclaimer (text-only previews show no image).
+    description: cardText ? `${s.trades === 0 ? `${base} ${cardText}.` : `${base}.`} ${DISCLAIMER}` : base,
     openGraph,
   };
 }
@@ -132,8 +134,6 @@ export default async function Profile({ params, searchParams }: Params) {
       })
     : { connected: 0, handles: [] as string[], byVia: {} as Record<string, number> };
   const sharePromptShowing = isMe && state !== 'importing' && state !== 'failed' && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]);
-  // F-4 rework: the share prompt quotes the card's own range (around the average it prints) and alt, from its model.
-  const promptCard = sharePromptShowing ? await loadRecordCard(user.handle, 'unfurl') : null;
   const nt = isMe
     ? newTradesSince(trades.map((t) => ({ sellId: t.sell_id, symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at })), user.trades_prompt_seen_at)
     : { shown: [], more: 0 };
@@ -144,12 +144,19 @@ export default async function Profile({ params, searchParams }: Params) {
   const trust = paneTrust(trades.map((t) => ({ verified: t.verified as boolean })), state);
   const first = trades.length ? new Date(Math.min(...trades.map((t) => t.opened_at.getTime()))) : null;
   const isNew = isNewRecord(trades.map((t) => ({ openedAt: t.opened_at })), trades.length, new Date());
-  const range = rangeText(c);
+  // F-4 rework (committee user test 2026-11-01): the profile shows the same evidence as the card it was shared from (the
+  // 95% range around the average it prints, the tier, the "Past results" verdict; lib/record-card.ts#cardEvidence), so
+  // a viewer arriving from a link sees one answer, not two. Ranking keeps confidence()'s own interval (`c`).
+  const shown = cardEvidence(trades.map((t) => ({ symbol: t.symbol as string, openedAt: t.opened_at as Date, closedAt: t.closed_at as Date,
+    returnPct: Number(t.return_pct), holdingDays: Number(t.holding_days) })), new Date());
+  const range = shown.perTrade ? `(${pct(shown.perTrade.low)} to ${pct(shown.perTrade.high)})` : null;
   // Fix round 3 (TR-3): while any consented import runs, the trades so far are listed but nothing is presented as a
   // complete record: no Verified badge, no headline stats or chart, no "Record since · Connected" line.
   const complete = state !== 'importing';
   // Committee fix (item 5): no share invitation on a record that is importing or failed; "Try again" is the only primary.
   const shareable = state === 'connected' || state === 'none';
+  // F-4 rework: the share prompt quotes the card's own range (around the average it prints) and alt, from its model.
+  const promptCard = isMe && !claimed && shareable && sharePromptShowing ? await loadRecordCard(user.handle, 'unfurl') : null;
   const connected = allVerified ? connectedLine(brokers, accounts) : 'Demo data';
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
@@ -228,9 +235,9 @@ export default async function Profile({ params, searchParams }: Params) {
       </section>
       <div className="evidence">
         <p style={{ margin: 0 }}>
-          {c.edge
-            ? <>Past results: <b className={c.edge === 'positive' ? 'up' : c.edge === 'negative' ? 'down' : ''}>{edgeText(c.edge)}</b>{evidenceLine(c).slice(`Past results: ${edgeText(c.edge)}`.length)}</>
-            : evidenceLine(c)}
+          {shown.edge
+            ? <>Past results: <b className={shown.edge === 'positive' ? 'up' : shown.edge === 'negative' ? 'down' : ''}>{edgeText(shown.edge)}</b>{evidenceLine(shown).slice(`Past results: ${edgeText(shown.edge)}`.length)}</>
+            : evidenceLine(shown)}
         </p>
         <details>
           <summary>What&apos;s this?</summary>

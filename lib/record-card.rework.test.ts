@@ -7,8 +7,8 @@ import { readFileSync } from 'node:fs';
 import {
   CARD_LAYOUT, cardAlt, cardDescription, cardEvidence, cardLink, cardOpen, cardSeries, recordCard, type CardInput, type CardKind, type CardModel,
 } from './record-card.ts';
-import { confidence, evidenceLine, headline, pct, type ConfidenceInput } from './trades.ts';
-import { spanUnit, TRUST_BANNED } from './confidence.ts';
+import { confidence, evidenceLine, evidenceWeight, headline, pct, type ConfidenceInput } from './trades.ts';
+import { spanUnit, TRUST_BANNED, trustSign } from './confidence.ts';
 import { DISCLAIMER } from './share.ts';
 import type { RecordState } from './copy.ts';
 
@@ -120,17 +120,16 @@ test('F-4 2026-11-01 (preview text): matches the card (average with range, perio
   assert.equal(cardDescription(card(R.modUp)), `${pct(headline(R.modUp).avgReturn)} average per trade, ${card(R.modUp).range} · Record since Jan 2025 · 6 months · Evidence: moderate`);
   assert.equal(cardDescription(card([])), null);
   assert.equal(cardDescription(card([], { open: OPEN.mixed })), 'Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%');
-  // The page builds its description from this (app/u/[handle]/page.tsx), with no win rate.
-  const page = readFileSync(new URL('../app/u/[handle]/page.tsx', import.meta.url), 'utf8');
-  const meta = page.slice(page.indexOf('export async function generateMetadata'), page.indexOf('export default'));
-  assert.match(meta, /cardDescription\(card\)/);
-  assert.doesNotMatch(meta, /winRate/);
+  // The page's description is built from this (e2e/share-card.spec.ts checks the served text and its disclaimer).
 });
 
-test('F-4 2026-11-01 (ranking floor): records show a range from 5 bets but rank from 10 (the existing ranking tests stand)', () => {
-  const seven = record(7, 60, wobble(0.03));
-  assert.ok(card(seven).range);
-  assert.ok(readFileSync(new URL('./confidence.ts', import.meta.url), 'utf8').includes('export const RANK_MIN_BETS = 10;'));
+test('F-4 2026-11-01 (ranking floor): records show a range from 5 bets but rank from 10', () => {
+  for (const k of [5, 7, 9]) {
+    const r = record(k, 60, wobble(0.03));
+    assert.ok(card(r).range, `${k} bets: a range`);
+    assert.equal(evidenceWeight(confidence(r, now)), 0, `${k} bets: no ranking weight`);
+  }
+  assert.ok(evidenceWeight(confidence(record(10, 60, wobble(0.03)), now)) > 0);
 });
 
 test('F-4 2026-11-01 (font): the cards keep the renderer\'s built-in font; no font file is loaded', () => {
@@ -185,10 +184,10 @@ test('F-6 on the card: realized and unrealized apart, in words, percent only, at
     const m = card(R.winning, { kind, open: OPEN.mixed });
     assert.equal(m.headlineLabel, 'average per closed trade');
     assert.equal(m.open!.full, 'Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%');
-    assert.equal(m.open!.short, '3 still open · 2 up, 1 down · lowest -8.0%, highest +12.1%');
+    assert.equal(m.open!.short, '3 open, unrealized · 2 up, 1 down · lowest -8.0%, highest +12.1%'); // the preview says "unrealized" too
     assert.equal(m.open!.note, 'unrealized, not sold yet');
     const alt = cardAlt(m);
-    for (const s of [m.open!.split, m.open!.spread, 'Still open, unrealized at current value: 3 positions']) assert.ok(alt.includes(s), `${kind}: ${s}`);
+    for (const s of [m.open!.split, m.open!.spread, 'Still open, unrealized as of the last sync: 3 positions']) assert.ok(alt.includes(s), `${kind}: ${s}`);
     assert.doesNotMatch(m.open!.full + m.open!.short, /likely/); // never read as the average's range
   }
   // No open positions: exactly today's card.
@@ -204,8 +203,11 @@ test('F-6 on the card: all winning, all losing, mixed, flat, one position; losse
   const l = cardOpen(OPEN.losing)!;
   assert.equal(l.full, 'Still open: 3 positions · 0 up, 3 down · lowest -21.5%, highest -3.1%');
   assert.deepEqual([l.lowTone, l.highTone], ['down', 'down']);
-  assert.equal(cardOpen([0.0004])!.full, 'Still open: 1 position · 0 up, 0 down, 1 flat · at 0.0%');
+  // One position: no up/down count, just its percent (UX test 2026-11-01).
+  assert.equal(cardOpen([0.0004])!.full, 'Still open: 1 position · at 0.0%');
+  assert.equal(cardOpen([0.0004])!.short, '1 open, unrealized · at 0.0%');
   assert.equal(cardOpen([-0.08])!.spread, 'at -8.0%');
+  assert.equal(cardOpen([0.0004, -0.0003])!.full, 'Still open: 2 positions · 0 up, 0 down, 2 flat · at 0.0%');
   assert.equal(cardOpen([0.05, 0.0501])!.spread, 'at +5.0%'); // printed alike: one figure
   assert.equal(cardOpen([]), null);
   assert.equal(cardOpen([Number.NaN]), null);
@@ -222,7 +224,7 @@ test('F-6 on the card: an empty record with open positions still shows them; nev
     assert.equal(m.chart, null);
     assert.equal(m.disclaimer, DISCLAIMER);
     assert.ok(m.label);
-    assert.match(cardAlt(m), /Still open, unrealized at current value: 3 positions, 2 up, 1 down/);
+    assert.match(cardAlt(m), /Still open, unrealized as of the last sync: 3 positions, 2 up, 1 down/);
   }
   assert.equal(card(R.winning, { state: 'importing', open: OPEN.mixed }).open, null);
   assert.equal(card(R.winning, { state: 'none', open: OPEN.mixed }).open, null);
@@ -243,6 +245,36 @@ test('orchestrator review: the printed link survives an origin with no scheme', 
   assert.equal(cardLink({ NEXT_PUBLIC_SITE_URL: 'http://localhost:3000' }, 'h'), 'localhost:3000/u/h');
   assert.equal(cardLink({ NEXT_PUBLIC_SITE_URL: 'exa mple' }, 'h'), null);
   assert.doesNotThrow(() => recordCard({ ...base, kind: 'square', trades: R.winning, link: cardLink({ NEXT_PUBLIC_SITE_URL: 'exa mple' }, 'h') }));
+});
+
+test('QA 2026-11-01: the range never goes below -100%; the chart starts at the first entry, not on a vertical stroke', () => {
+  const crash = [tr('A', 0, 1, 5), tr('B', 2, 3, -0.99), tr('C', 4, 5, -0.99), tr('D', 6, 7, -0.99), tr('E', 8, 9, -0.99), tr('F', 10, 11, 3)];
+  const m = card(crash);
+  assert.equal(m.headline, '+67.3%');
+  assert.match(m.range!, /^likely between -100\.0% and \+/);
+  const pts = cardSeries(R.winning);
+  assert.equal(pts[0].at, Math.min(...R.winning.map((t) => t.openedAt.getTime())));
+  assert.ok(pts[1].at > pts[0].at);
+});
+
+test('user test 2026-11-01: the profile shows the card\'s evidence (range, tier, verdict), so a shared link lands on one answer', () => {
+  for (const r of [...Object.values(R), record(62, 200, (i) => (i % 3 ? 0.25 : -0.3))]) {
+    const e = cardEvidence(r, now);
+    const m = card(r);
+    // The profile prints `(${low} to ${high})` from e.perTrade and evidenceLine(e): the card's numbers and tier.
+    if (m.range) assert.equal(m.range, `likely between ${pct(e.perTrade!.low)} and ${pct(e.perTrade!.high)}`);
+    assert.equal(m.evidence, `Evidence: ${e.tier === 'too-early' ? 'too early' : e.tier}`);
+    const line = evidenceLine(e);
+    if (e.tier === 'too-early') assert.match(line, /^Too early to tell/);
+    else assert.match(line, new RegExp(`Evidence: ${e.tier} \\(`));
+    // The verdict follows the printed range: never "above zero" beside a range that reaches 0.
+    if (e.edge === 'positive') assert.ok(Number(pct(e.perTrade!.low).replace('%', '')) > 0);
+    if (e.edge === 'negative') assert.ok(Number(pct(e.perTrade!.high).replace('%', '')) < 0);
+  }
+  // A low end that prints +0.0% is not "wholly above 0".
+  assert.equal(trustSign({ perTrade: { low: 0.0004, mid: 0.01, high: 0.02 } }), 'unclear');
+  assert.equal(trustSign({ perTrade: { low: -0.02, mid: -0.01, high: -0.0004 } }), 'unclear');
+  assert.equal(trustSign({ perTrade: { low: 0.0006, mid: 0.01, high: 0.02 } }), 'positive');
 });
 
 // The seeded demo record, when a database with the seed is present: card and profile read the same length.

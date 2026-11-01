@@ -144,9 +144,9 @@ export const SHARE_CARD = {
   // F-6 on the card (committee 2026-11-01): realized and unrealized apart, in words, percent only, no symbols.
   perClosedTrade: 'average per closed trade',
   openFull: (n: number) => `Still open: ${n} ${n === 1 ? 'position' : 'positions'}`,
-  openShort: (n: number) => `${n} still open`,
+  openShort: (n: number) => `${n} open, unrealized`,
   openNote: 'unrealized, not sold yet',
-  openAlt: 'Still open, unrealized at current value:',
+  openAlt: 'Still open, unrealized as of the last sync:',
 } as const;
 // The profile's link-preview text (app/u/[handle]/page.tsx). Committee round 1, demand 10: "0% win rate" when there are
 // no wins (the old `pct(0, 0).slice(1)` dropped the digit and printed "% win rate").

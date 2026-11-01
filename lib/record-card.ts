@@ -10,8 +10,8 @@
 import { counted } from './format.ts';
 import { imageTrust, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
-import { confidence, headline, isNewRecord, pct, type ConfidenceInput, type Interval, type Tier } from './trades.ts';
-import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, type Span, type SpanUnit } from './confidence.ts';
+import { confidence, headline, isNewRecord, pct, type Confidence, type ConfidenceInput, type Tier } from './trades.ts';
+import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, trustSign, type Span, type SpanUnit } from './confidence.ts';
 import { arithmeticRange } from './bets.ts';
 import { downsampleIndices } from './downsample.ts';
 import { pathD } from './chart-series.ts';
@@ -32,9 +32,9 @@ export const CARD_LAYOUT = {
   unfurl: { width: 1200, height: 630, padX: 40, padTop: 8, padBottom: 6, gap: 6, lh: 1.0, left: 540, bleed: false, noteCut: 41, openCut: 41, chart: { w: 556, h: 372 },
     font: { brand: 35, label: 35, name: 46, handle: 35, headline: 98, body: 35, line: 53, newRecord: 35, disclaimer: 35, zero: 35 } },
   square: { width: 1080, height: 1080, padX: 56, padTop: 36, padBottom: 28, gap: 4, lh: 1.05, left: 0, bleed: false, noteCut: 0, openCut: 0, chart: { w: 968, h: 364 },
-    font: { brand: 32, label: 32, name: 52, handle: 32, headline: 112, body: 32, line: 48, newRecord: 48, disclaimer: 32, zero: 32 } },
+    font: { brand: 32, label: 32, name: 52, handle: 32, headline: 112, body: 32, line: 48, newRecord: 32, disclaimer: 32, zero: 32 } },
   story: { width: 1080, height: 1920, padX: 72, padTop: 250, padBottom: 340, gap: 4, lh: 1.05, left: 0, bleed: true, noteCut: 0, openCut: 0, chart: { w: 1080, h: 580 },
-    font: { brand: 34, label: 34, name: 60, handle: 36, headline: 128, body: 32, line: 52, newRecord: 52, disclaimer: 32, zero: 32 } },
+    font: { brand: 34, label: 34, name: 60, handle: 36, headline: 128, body: 32, line: 52, newRecord: 34, disclaimer: 32, zero: 32 } },
 } as const;
 export type CardLayout = (typeof CARD_LAYOUT)[CardKind];
 export const UNFURL_COLUMN_GAP = 24; // between the unfurl's text column and its chart
@@ -69,13 +69,15 @@ export type CardSeriesKind = 'sum' | 'account';
 type SeriesInput = Pick<ConfidenceInput, 'returnPct' | 'closedAt'> & Partial<Pick<ConfidenceInput, 'openedAt' | 'symbol'>>;
 const byClose = (a: SeriesInput, b: SeriesInput) =>
   a.closedAt.getTime() - b.closedAt.getTime() || (a.openedAt?.getTime() ?? 0) - (b.openedAt?.getTime() ?? 0) || ((a.symbol ?? '') < (b.symbol ?? '') ? -1 : (a.symbol ?? '') > (b.symbol ?? '') ? 1 : 0);
-// Starts at 0% at the first close; one step per close, in order (ties broken by entry, then symbol: deterministic).
+// Starts at 0% at the first entry (so the first step slopes, never a vertical stroke at the left edge; QA 2026-11-01);
+// one step per close, in order (ties broken by entry, then symbol: deterministic).
 export function cardSeries(trades: SeriesInput[], max = CARD_CHART_POINTS, kind: CardSeriesKind = 'sum'): CardPoint[] {
   if (kind === 'account') throw new Error('the account-weighted line is not available before F-5 (position size)');
   if (!trades.length) return [];
   const sorted = [...trades].sort(byClose);
   let sum = 0;
-  const pts = [{ at: sorted[0].closedAt.getTime(), value: 0 }, ...sorted.map((t) => ({ at: t.closedAt.getTime(), value: (sum += t.returnPct) }))];
+  const start = Math.min(...trades.map((t) => (t.openedAt ?? t.closedAt).getTime()));
+  const pts = [{ at: start, value: 0 }, ...sorted.map((t) => ({ at: t.closedAt.getTime(), value: (sum += t.returnPct) }))];
   if (pts.length <= max) return pts;
   return downsampleIndices(pts.map((p) => p.at), pts.map((p) => p.value), max).map((i) => pts[i]);
 }
@@ -91,7 +93,8 @@ export function cardChart(trades: SeriesInput[], box: { w: number; h: number }, 
   const vs = pts.map((p) => p.value);
   let lo = Math.min(0, ...vs), hi = Math.max(0, ...vs);
   if (hi - lo < 1e-9) { lo -= 0.005; hi += 0.005; } // a flat record: 0% in the middle
-  const pad = 6, right = 6;
+  // 14 px above and below the line: the 0% label and the line keep clear of the text around the plot (UX test).
+  const pad = 14, right = 6;
   const y = (v: number) => pad + ((hi - v) / (hi - lo)) * (h - 2 * pad);
   const t0 = pts[0].at, span = pts[pts.length - 1].at - t0;
   const xs = pts.map((p, i) => g.gutter + (span > 0 ? (p.at - t0) / span : i / (pts.length - 1)) * (w - g.gutter - right));
@@ -162,24 +165,30 @@ export function cardOpen(pcts: number[]): CardOpen | null {
   const up = tones.filter((t) => t === 'up').length, down = tones.filter((t) => t === 'down').length, flat = xs.length - up - down;
   const lo = Math.min(...xs), hi = Math.max(...xs);
   const low = pct(lo), high = pct(hi);
-  const split = `${up} up, ${down} down${flat ? `, ${flat} flat` : ''}`;
+  // One position needs no up/down count: "Still open: 1 position · at -8.0%" (UX test 2026-11-01).
+  const split = xs.length === 1 ? '' : `${up} up, ${down} down${flat ? `, ${flat} flat` : ''}`;
   const spread = low === high ? `at ${low}` : `lowest ${low}, highest ${high}`;
+  const join = (title: string) => [title, split, spread].filter(Boolean).join(' · ');
   return {
     count: xs.length, up, down, flat, low, high, lowTone: toneOf(lo), highTone: toneOf(hi),
     title: SHARE_CARD.openFull(xs.length), shortTitle: SHARE_CARD.openShort(xs.length), split, spread,
-    full: `${SHARE_CARD.openFull(xs.length)} · ${split} · ${spread}`, short: `${SHARE_CARD.openShort(xs.length)} · ${split} · ${spread}`, note: SHARE_CARD.openNote,
+    full: join(SHARE_CARD.openFull(xs.length)), short: join(SHARE_CARD.openShort(xs.length)), note: SHARE_CARD.openNote,
   };
 }
 
 // The card's statistics (F-4, 2026-10-31): the range is the arithmetic one around the headline (lib/bets.ts); the
 // tier is confidence()'s thresholds with the "too wide" check on that same range; the trust line's sign reads it.
-export type CardEvidence = { n: number; k: number; tier: Tier; perTrade: Interval | null; spanDays: number };
-export function cardEvidence(trades: ConfidenceInput[], now: Date): CardEvidence {
+// User test 2026-11-01: the profile shows this same evidence (range, tier, "Past results" verdict), so a viewer who
+// taps a shared card lands on the same answer. `edge` is the printed range's sign; ranking keeps confidence()'s own
+// pace interval (evidenceWeight, lib/trades.ts), which this does not touch.
+export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
   const c = confidence(trades, now);
   const r = arithmeticRange(trades);
   const perTrade = r && { low: r.low, mid: r.mid, high: r.high };
-  const tier = c.k < MIN_BETS || !perTrade || tooWide(perTrade) ? 'too-early' : tierFor(c.k, c.spanDays);
-  return { n: c.n, k: c.k, tier, perTrade, spanDays: c.spanDays };
+  const tier: Tier = c.k < MIN_BETS || !perTrade || tooWide(perTrade) ? 'too-early' : tierFor(c.k, c.spanDays);
+  const sign = trustSign({ perTrade });
+  const edge = tier === 'too-early' ? null : sign === 'unclear' ? 'unclear' : sign;
+  return { ...c, tier, perTrade, edge };
 }
 
 export type CardTone = 'ok' | 'muted' | 'warn' | 'demo';
@@ -273,7 +282,7 @@ export function cardAlt(m: CardModel): string {
     parts.push(`${m.count}.`, `${m.period}.`, `Chart: ${m.caption}.`, `${m.evidence}.`);
     if (m.trust) parts.push(m.trust);
   }
-  if (m.open) parts.push(`${SHARE_CARD.openAlt} ${counted(m.open.count, 'position')}, ${m.open.split}, ${m.open.spread}.`);
+  if (m.open) parts.push(`${SHARE_CARD.openAlt} ${[counted(m.open.count, 'position'), m.open.split, m.open.spread].filter(Boolean).join(', ')}.`);
   if (m.link) parts.push(`${m.link}.`);
   parts.push(m.disclaimer);
   return parts.join(' ');
