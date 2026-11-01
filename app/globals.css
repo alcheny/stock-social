@@ -494,3 +494,12 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
 .stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
 .stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }
+
+/* F-10 / F-12: the record strip (app/record-strip.tsx). Figures in the muted colour; the average and "Too early to tell"
+   bold in the text colour (the same weight, committee 2026-11-01), the average toned by its printed sign. */
+.record-strip { margin: 0; font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
+.record-strip b { color: var(--text); }
+.record-strip b.up { color: var(--up); }
+.record-strip b.down { color: var(--down); }
+.record-strip-block .record-strip { font-size: 1rem; margin: 4px 0; }
+.record-strip-block .strip-label { margin: 0; }
