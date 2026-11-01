@@ -66,7 +66,30 @@ Traders never pay and never see a price.
   - owner checklist before live billing: `live-billing-checklist.md`.
 
 ## Testing
-TESTING_RESULTS
+All gates were run locally on the merged branch (main at the sharded-CI merge):
+- `npx tsc --noEmit`: clean.
+- `npm test`: 737 tests, 725 pass, 0 fail, 12 skipped (all pre-existing skips). New: `lib/billing.test.ts` (24) and
+  `lib/record-tools.test.ts` (10). They cover:
+  - every lifecycle event (created, trial ending, renewed, payment failed, past due with grace, canceled at period end,
+    resumed, refunded partial and full, disputed and won);
+  - replay, out-of-order delivery, malformed signature, live events in test mode;
+  - traders, the 14-day yearly refund, reconciliation, deletion;
+  - failure injection between the refund and the cancel, duplicate subscriptions;
+  - no card or personal fields in the billing tables;
+  - heavy use: 32 workers with every event delivered twice. 3,000 events by default; `LOAD=1` runs 100,000 (215 s,
+    no duplicates, none lost).
+- `BASE_REF=main node scripts/compliance.ts auto`: no violation in the diff. The one hit is
+  `node_modules/@img/sharp-wasm32`, which this container's `npm ci` installs; no package file changed.
+- `node scripts/autopilot.ts guard origin/main`: ok.
+- `npm run build`: ok.
+- `npx playwright test` (the whole suite, server with the fake-processor env): 132 passed, 3 skipped (pre-existing).
+  `e2e/f3-billing.spec.ts`: 9 tests, all pass with the fake processor. Without billing env (as CI runs it): 6 pass,
+  3 skip and say why.
+- The cycle:
+  - committee user tests: compliance PASS from the business lead and the UX lead;
+  - QA by the tester: no blocker;
+  - independent code review: 2 blocking, both fixed with tests.
+  - Every finding's resolution is in `docs/features/logs/F-3/build-resolution.md`.
 
 ## Compliance
 1. **Performance:** yes. Record tools re-presents the profile's figures from the same functions (unit test), with the
