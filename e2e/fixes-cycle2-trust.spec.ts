@@ -38,11 +38,13 @@ test('fix #20: a profile 404 carries the 404 title, not a profile title', async 
   const { default: postgres } = await import('postgres');
   const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
   const handle = `nf${Math.random().toString(36).slice(2, 9)}`;
+  let attempt: number | null = null;
   try {
     const [u] = await sql`
       with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
       insert into users (handle, display_name, adult_attested_at, signup_attempt_id, deleted_at)
       select ${handle}, 'Leaving Trader', now(), a.id, now() from a returning signup_attempt_id`;
+    attempt = u.signup_attempt_id as number;
     for (const h of [`${handle}x`, handle]) { // never existed; marked for deletion
       const res = await page.goto(`/u/${h}`);
       expect(res?.status(), h).toBe(404);
@@ -54,10 +56,9 @@ test('fix #20: a profile 404 carries the 404 title, not a profile title', async 
       if (img) expect((await page.request.get(img)).status(), img).toBe(404);
       await expect(page.locator('body')).not.toContainText('Leaving Trader');
     }
-    await sql`delete from users where handle = ${handle}`;
-    await sql`delete from signup_attempts where id = ${u.signup_attempt_id}`;
   } finally {
     await sql`delete from users where handle = ${handle}`;
+    if (attempt !== null) await sql`delete from signup_attempts where id = ${attempt}`;
     await sql.end({ timeout: 1 });
   }
 });

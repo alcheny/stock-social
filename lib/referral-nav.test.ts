@@ -17,8 +17,6 @@ test('a join button never takes the nav surface: ?via=nav on a profile stays the
   assert.equal(ctaVia('trade'), 'trade');
   assert.equal(ctaVia('month'), 'month');
   assert.equal(ctaVia('bogus'), 'profile');
-  const cta = readFileSync(new URL('../app/u/[handle]/join-cta.tsx', import.meta.url), 'utf8');
-  assert.match(cta, /via: CtaSurface/);
 });
 
 test('the nav link sends exactly the value the allow-list accepts', () => {

@@ -73,6 +73,8 @@ async function load(handle: string) {
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  // ponytail: generateMetadata and the page each run load(), so a profile view reads (and runs applyClocks) twice — fix:
+  // share one per-request load (React cache) once applyClocks is safe to run once per request.
   const data = await load((await params).handle);
   // Cycle 2 review of fix #20: a missing profile's 404 takes the 404 page's title, not the site default.
   if (!data) notFound();
