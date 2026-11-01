@@ -520,7 +520,7 @@ html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint 
 .first-visit .fv-line { font-size: 0.9375rem; color: var(--text); }
 .first-visit .fv-line a { display: inline-block; }
 .first-visit .fv-demo { margin-top: 4px; font-size: 0.875rem; color: var(--muted); }
-.first-visit .quiet-x { min-width: 44px; min-height: 44px; margin: -10px -10px 0 0; background: transparent; color: var(--muted); border: 0; padding: 0; font-weight: 400; font-size: 1.25rem; line-height: 1; }
+.first-visit .quiet-x { min-width: 44px; min-height: 44px; margin: -4px -10px 0 0; /* tester Low 6: its focus ring clears the nav */ background: transparent; color: var(--muted); border: 0; padding: 0; font-weight: 400; font-size: 1.25rem; line-height: 1; }
 .swipe-hint { position: static; margin: 0 0 6px; color: var(--muted); }
 /* "Trades by stock" (D27) fits the nav at 320–390 px without horizontal overflow, ≤ 56 px tall (WCAG 1.4.10). */
 @media (max-width: 420px) { nav.top { gap: 8px; padding: 12px; } }

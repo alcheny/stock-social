@@ -28,7 +28,9 @@ export function useFeedInert() {
     const entry = (row: HTMLElement, side: Side) => {
       const half = halves(row).find((k) => sideOf(k) === side);
       if (!half) return null;
-      if (side === 'pane') return half.querySelector<HTMLElement>('[data-back]') ?? half.querySelector<HTMLElement>(FOCUSABLE);
+      // Tester High 1: the pane keeps its own vertical scroll; opened again it starts at the top, so Back (focused with
+      // preventScroll) is on screen, not at top < 0.
+      if (side === 'pane') { half.scrollTop = 0; return half.querySelector<HTMLElement>('[data-back]') ?? half.querySelector<HTMLElement>(FOCUSABLE); }
       const kept = memory.get(row);
       return kept?.isConnected && half.contains(kept) ? kept : half.querySelector<HTMLElement>('.who') ?? half.querySelector<HTMLElement>(FOCUSABLE);
     };

@@ -105,6 +105,15 @@ test('#17: keyboard only, Tab never lands in an off-screen pane; → focuses the
     await expect(card.locator('.who')).toBeFocused();
     await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
     await expect(pane).toHaveAttribute('inert', '');
+    // Tester High 1: a pane left scrolled down opens at its top again, so the focused Back is on screen.
+    await page.keyboard.press('ArrowRight');
+    await expect(back).toBeFocused();
+    await pane.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await page.keyboard.press('ArrowLeft');
+    await expect(card.locator('.who')).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(back).toBeFocused();
+    await expect(back).toBeInViewport();
   } finally {
     await release();
   }
