@@ -2,7 +2,7 @@
 // attempts, limited in the database (lib/rate-limit.ts#hit) so every instance shares the count. Per canonical address
 // (+tag variants count as one), per client address where a trusted proxy names it, and overall, so neither one inbox
 // nor many can be flooded through the app. Checks stop at the first refusal, so a refused send uses up nothing further.
-import { canonicalEmail, hit, limitKey } from '../rate-limit.ts';
+import { canonicalEmail, capReached, hit, limitKey } from '../rate-limit.ts';
 
 type Limit = readonly [limit: number, windowSec: number];
 export const SEND_LIMITS = { addressShort: [5, 900], addressDay: [20, 86_400], client: [10, 900], global: [500, 3_600], attempt: [3, 900] } as const satisfies Record<string, Limit>;
@@ -15,7 +15,7 @@ export async function sendAllowed(email: string, ip: string | null): Promise<boo
   return await within(mail, SEND_LIMITS.addressShort)
     && await within(mail, SEND_LIMITS.addressDay)
     && (ip === null || await within(limitKey('mail-ip', ip), SEND_LIMITS.client))
-    && await within('mail-all', SEND_LIMITS.global);
+    && (await within('mail-all', SEND_LIMITS.global) || (capReached('mail-all', SEND_LIMITS.global[1]), false));
 }
 
 // "Send again": at most three per attempt, and every send limit as well.

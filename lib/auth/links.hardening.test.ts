@@ -122,10 +122,40 @@ dbTest('F28: two first claims for one address at once end in one user and one id
   }
 });
 
-test('F28: the email link route turns an unexpected error into the expired state, logging a code only', () => {
-  const finish = src('app/auth/email/finish.ts');
-  assert.match(finish, /catch \(e\)/);
-  assert.match(finish, /\/login\?error=expired/);
-  assert.match(finish, /console\.error\('email sign-in failed', \{ code: /);
-  assert.doesNotMatch(finish, /console\.\w+\([^\n]*(\.message|\.detail|\.email|, e\))/); // never the error itself, its detail or an address
+dbTest('F17/F28: finishing a link whose identity belongs to a profile marked for deletion lands on the expired state, signs nobody in, and logs no address', async () => {
+  const { sql } = await import('../db.ts');
+  const { createAttempt, signInWithIdentity } = await import('./attempts.ts');
+  const { issueLink } = await import('./links.ts');
+  const { memoryOutbox, memorySender } = await import('./email.ts');
+  const { finishEmailLink } = await import('./email-finish.ts');
+  const email = `fin${uniq()}@example.com`;
+  const u = await signInWithIdentity(await createAttempt({ method: 'email', attested: true }), { provider: 'email', subject: email, email });
+  await sql`update users set deleted_at = now() where id = ${u.id}`;
+  const attempt = await createAttempt({ method: 'email', attested: true });
+  await issueLink(attempt, email, memorySender, 'https://app.example');
+  const token = new URL(memoryOutbox.last!.url).searchParams.get('t')!;
+  const signedIn: number[] = [];
+  const logged: unknown[] = [];
+  const orig = { error: console.error, warn: console.warn, log: console.log };
+  console.error = console.warn = console.log = (...a: unknown[]) => { logged.push(a); };
+  try {
+    const to = await finishEmailLink(token, { signIn: async (id) => { signedIn.push(id); }, rememberMethod: async () => {} });
+    Object.assign(console, orig);
+    assert.equal(to, '/login?error=expired');
+    assert.equal(signedIn.length, 0);
+    assert.ok(logged.length >= 1);
+    assert.doesNotMatch(JSON.stringify(logged), new RegExp(email.split('@')[0]));
+    // The happy path, for contrast: a fresh address signs in and lands on the trust notice.
+    const fresh = `fin${uniq()}@example.com`;
+    const a2 = await createAttempt({ method: 'email', attested: true });
+    await issueLink(a2, fresh, memorySender, 'https://app.example');
+    const t2 = new URL(memoryOutbox.last!.url).searchParams.get('t')!;
+    assert.equal(await finishEmailLink(t2, { signIn: async (id) => { signedIn.push(id); }, rememberMethod: async () => {} }), '/connect');
+    assert.equal(signedIn.length, 1);
+    assert.equal(await finishEmailLink(t2, { signIn: async () => {}, rememberMethod: async () => {} }), '/login?error=used');
+    await sql`delete from users where id = ${signedIn[0]}`;
+  } finally {
+    Object.assign(console, orig);
+    await sql`delete from users where id = ${u.id}`;
+  }
 });

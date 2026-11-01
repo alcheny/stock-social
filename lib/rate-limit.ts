@@ -53,17 +53,32 @@ export function canonicalEmail(email: string): string {
   return `${plus < 0 ? local : local.slice(0, plus)}${e.slice(at)}`;
 }
 
-// The client's address, only where a trusted proxy sets the header (Vercel, or TRUST_PROXY_HEADERS=1); elsewhere the
-// header is the client's own word, so null and per-address limits are skipped (no shared bucket one client could exhaust
-// for everyone). IPv6 counts per /64, the block one subscriber usually holds.
+// The client's address, only where a trusted proxy sets it; elsewhere the headers are the client's own word, so null and
+// per-address limits are skipped (no shared bucket one client could exhaust for everyone). On Vercel (which overwrites
+// both headers): x-real-ip, else the first X-Forwarded-For entry. With TRUST_PROXY_HEADERS=1 (a proxy that appends to
+// X-Forwarded-For): the rightmost entry, the one that proxy added; the entries left of it are whatever the client sent.
+// An IPv4-mapped IPv6 address counts as its IPv4 address; other IPv6 per /64, the block one subscriber usually holds.
 export function clientIp(h: Headers, env: Record<string, string | undefined> = process.env): string | null {
-  if (env.VERCEL !== '1' && env.TRUST_PROXY_HEADERS !== '1') return null;
-  const raw = (h.get('x-real-ip') ?? h.get('x-forwarded-for')?.split(',')[0] ?? '').trim().replace(/^\[(.*)\]$/, '$1');
+  const xff = (h.get('x-forwarded-for') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const picked = env.VERCEL === '1' ? (h.get('x-real-ip') ?? xff[0]) : env.TRUST_PROXY_HEADERS === '1' ? xff.at(-1) : undefined;
+  const raw = (picked ?? '').trim().replace(/^\[(.*)\]$/, '$1');
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(raw);
+  if (mapped) return isIP(mapped[1]) === 4 ? mapped[1] : null;
   const v = isIP(raw);
   if (v === 4) return raw;
   if (v !== 6) return null;
   return `${expand6(raw).slice(0, 4).join(':')}::/64`;
 }
+
+// A global cap reached: one line for the operator per scope per window, per process (no key, address or count).
+const capWarned = new Map<string, number>();
+export function capReached(scope: string, windowSec: number, now = new Date()): void {
+  const w = windowStart(now, windowSec).getTime();
+  if (capWarned.get(scope) === w) return;
+  capWarned.set(scope, w);
+  console.warn(`rate limit: ${scope} cap reached`);
+}
+
 function expand6(ip: string): string[] {
   const [head, tail] = ip.includes('::') ? ip.split('::') : [ip, null];
   const a = head ? head.split(':') : [];

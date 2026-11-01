@@ -390,3 +390,5 @@ create table if not exists rate_limits (
 );
 -- The ticker page, its card, compare, browse and the sitemap read closed_trades by symbol.
 select schema_add_index('closed_trades_symbol', 'create index closed_trades_symbol on closed_trades (symbol, closed_at desc)');
+-- Security hardening review (2026-11-01): the prune in lib/rate-limit.ts reads old windows by start time.
+select schema_add_index('rate_limits_window', 'create index rate_limits_window on rate_limits (window_start)');

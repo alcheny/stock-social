@@ -67,6 +67,34 @@ dbTest('mint: over the global vendor-user cap, no vendor user is registered, the
   assert.deepEqual(registered, [`attempt-${a}`]);
 });
 
+dbTest('mint: the real vendor deps carry the global vendor-user cap (read before, counted after a registration); fakes do not', async () => {
+  const { sql } = await import('./db.ts');
+  const { windowStart } = await import('./rate-limit.ts');
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const c = await import('./connections.ts');
+  assert.equal(c.realDeps.registerAllowed, c.vendorRegisterAllowed);
+  assert.equal(c.realDeps.registered, c.countVendorRegistration);
+  const key = `vendor_register/${c.VENDOR_REGISTER_LIMIT[1]}`;
+  const at = windowStart(new Date(), c.VENDOR_REGISTER_LIMIT[1]);
+  const [before] = await sql`select n from rate_limits where key = ${key} and window_start = ${at}`;
+  try {
+    const { deps } = fakeDeps();
+    const capped = { ...deps, registerAllowed: c.vendorRegisterAllowed, registered: c.countVendorRegistration };
+    await sql`insert into rate_limits (key, window_start, n) values (${key}, ${at}, 0) on conflict (key, window_start) do update set n = 0`;
+    const a = await createAttempt({ method: 'brokerage', attested: true });
+    await c.startConnection({ userId: null, attemptId: a }, 'https://app.example/connect/done', capped);
+    await c.startConnection({ userId: null, attemptId: a }, 'https://app.example/connect/done', capped); // stored: not counted again
+    assert.equal((await sql`select n from rate_limits where key = ${key} and window_start = ${at}`)[0].n, 1);
+    await sql`update rate_limits set n = ${c.VENDOR_REGISTER_LIMIT[0]} where key = ${key} and window_start = ${at}`;
+    const b = await createAttempt({ method: 'brokerage', attested: true });
+    await assert.rejects(c.startConnection({ userId: null, attemptId: b }, 'https://app.example/connect/done', capped), c.RateLimitedError);
+    await c.startConnection({ userId: null, attemptId: b }, 'https://app.example/connect/done', deps); // a fake vendor is never capped
+  } finally {
+    if (before) await sql`update rate_limits set n = ${before.n} where key = ${key} and window_start = ${at}`;
+    else await sql`delete from rate_limits where key = ${key} and window_start = ${at}`;
+  }
+});
+
 dbTest('redirect flow (startConnection): a portal URL that is not an https vendor URL is refused like the embedded flow, and the open is not counted', async () => {
   const { sql } = await import('./db.ts');
   const { createAttempt } = await import('./auth/attempts.ts');
@@ -98,4 +126,23 @@ test('the connect routes: /connect/start refuses cross-site navigations before m
   const done = readFileSync(new URL('../app/connect/done/route.ts', import.meta.url), 'utf8');
   assert.match(done, /linkCheckAllowed\(who\)/);
   assert.ok(done.indexOf('linkCheckAllowed(') < done.indexOf('completeLink('));
+});
+
+dbTest('mint: two different attempts register their vendor users at the same time (no shared lock is held during the vendor call)', async () => {
+  const { createAttempt } = await import('./auth/attempts.ts');
+  const { startConnection } = await import('./connections.ts');
+  let arrived = 0;
+  let release!: () => void;
+  const both = new Promise<void>((r) => { release = r; });
+  const base = fakeDeps().deps;
+  // Each registration waits until the other one is in the vendor call too; serialized, the first would time out.
+  const deps: Deps = { ...base, registerUser: async (ref) => {
+    if (++arrived === 2) release();
+    await Promise.race([both, new Promise((_, no) => setTimeout(() => no(new Error('registrations were serialized')), 5_000))]);
+    return { snaptradeUserId: `vendor-h-${ref}`, secretEnc: 'enc' };
+  } };
+  const [a, b] = [await createAttempt({ method: 'brokerage', attested: true }), await createAttempt({ method: 'brokerage', attested: true })];
+  const urls = await Promise.all([a, b].map((attemptId) => startConnection({ userId: null, attemptId }, 'https://app.example/connect/done', deps)));
+  assert.deepEqual(urls, ['https://vendor.example/portal', 'https://vendor.example/portal']);
+  assert.equal(arrived, 2);
 });
