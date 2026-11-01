@@ -10,6 +10,11 @@ import { rejectedAmong } from './likes.ts';
 // F-10: the feed card's record strip figures (lib/record-strip.ts), computed per page from the rows already read.
 import { feedStrips, type StripFigures } from './record-strip.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
+// F-2 PR-5: personal ordering (pure) and the loader type; the loader itself is passed in by the page (lib/discovery/personal-load.ts).
+import { personalList, personalPool, personalReason, relevanceOf, type PersonalReason, type TraderShape, type Uses } from './discovery/personal.ts';
+import type { Personal, PersonalLoader } from './discovery/personal-load.ts';
+import { personalSlots } from './discovery/personal-cache.ts';
+import { logSafe } from './privacy-log.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
 // score = ln(1 + |r|·100) · exp(-max(0, min(age_hours / RECENCY_HOURS, MAX_DECAY)))
@@ -247,7 +252,7 @@ async function weights(prints: Map<number, Print>, asOf: Date): Promise<Map<numb
 
 // `ranked`: the list before the mix (F-2 PR-2: a viewer's exclusions are taken out of it, then it is mixed again).
 // `pool`: F-2 PR-3, the section's traders, ordered by the TR-9 lower bound (lib/discovery/section.ts#sectionPool).
-export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }): Promise<{ list: FeedItem[]; ranked: FeedCandidate[]; pool: SectionTrader[] }> {
+export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }): Promise<{ list: FeedItem[]; ranked: FeedCandidate[]; pool: SectionTrader[]; extra: FeedCandidate[] }> {
   const all = await candidatesAt({ asOf: opts.asOf, ids: opts.ids, day: opts.day });
   const candidates = all.filter((t) => !t.x), extra = all.filter((t) => t.x);
   const prints = new Map<number, Print>();
@@ -261,7 +266,9 @@ export async function feedList(opts: { asOf: Date; day: string; ids?: number[] }
   const list: FeedItem[] = mixFeed(ranked, { day: opts.day, extra: extra.map((t) => ({ ...t, key: t.sell_id, trader: t.user_id })) })
     .map(({ card: { key: _k, trader: _t, pn: _n, pm: _m, pk: _p, x: _x, ...t }, explore }) => ({ ...t, explore }));
   const pool = sectionPool([...candidates, ...extra].map((t) => ({ trader: t.user_id, score: Number(t.score) })), weight);
-  return { list, ranked: ranked.map(({ key: _k, trader: _t, pn: _n, pm: _m, pk: _p, x: _x, ...t }) => t), pool };
+  return { list, ranked: ranked.map(({ key: _k, trader: _t, pn: _n, pm: _m, pk: _p, x: _x, ...t }) => t), pool,
+    // F-2 PR-5: the exploration-only closes, so a personal list mixes from the same pool as everyone's.
+    extra: extra.map(({ pn: _n, pm: _m, pk: _p, x: _x, ...t }) => t) };
 }
 
 export type FeedPage = {
@@ -277,6 +284,9 @@ export type FeedPage = {
   // F-2 PR-4: signed in, the page's cards this viewer liked (card ids), set by the page and the paging action
   // (lib/likes.ts); never read here, so loadFeedPage reads no like (lib/feed.signed-out.test.ts).
   liked?: Set<string>;
+  // F-2 PR-5: signed in with personalization On and at least one choice counted: the order line and the personal
+  // section heading show (app/feed-notes.tsx, app/suggest-section.tsx). Never anyone else's data.
+  personal?: { signals: number; uses: Uses };
   // F-6: each page trader's open positions (unrealized percents, one per position), for a connected or failed record
   // only (never a record with no consented connection, TR-3 importing never reaches the page). Percent only.
   open?: Map<number, number[]>;
@@ -285,7 +295,8 @@ export type FeedPage = {
   // F-10: each card trader's record strip figures (average per trade + the profile's evidence), from byUser.
   strips?: Map<number, StripFigures>;
 };
-export type SectionRow = { userId: number; handle: string; name: string; reason: Reason };
+// F-2 PR-5: `why`, the personal reason line when one is true (lib/discovery/personal.ts#personalReason).
+export type SectionRow = { userId: number; handle: string; name: string; reason: Reason; why?: PersonalReason };
 
 // F-2 PR-1 fix round 1: the list of each (day, asOf) is kept in memory for its cursor's lifetime, so a later page from
 // the same server slices exactly the list page 1 showed (a trader removed meanwhile leaves a gap, never a shift). Only
@@ -294,7 +305,7 @@ export type SectionRow = { userId: number; handle: string; name: string; reason:
 // F-2 PR-2: a slot is a mix card (key = the close's vendor id, trader = its user id); the ranked list before the mix is
 // kept too, for a viewer whose exclusions shape the list.
 type Slot = { key: string; trader: number; symbol: string; explore: boolean; score: number };
-type Kept = { asOf: number; mixed: Slot[]; ranked: Slot[]; pool: SectionTrader[] };
+type Kept = { asOf: number; mixed: Slot[]; ranked: Slot[]; pool: SectionTrader[]; extra?: Slot[] };
 const lists = new Map<string, Kept>();
 const LIST_CACHE_MAX = 256;
 // Tests: forget every kept list and weight (a cold server), or only the lists (fix round 2: a page whose list this
@@ -305,10 +316,10 @@ async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Kept> {
   const key = `${c.day}|${c.asOf}|${ids ? ids.join(',') : '*'}`;
   const kept = lists.get(key);
   if (kept) return kept;
-  const { list, ranked, pool } = await feedList({ asOf: new Date(c.asOf), day: c.day, ids });
+  const { list, ranked, pool, extra } = await feedList({ asOf: new Date(c.asOf), day: c.day, ids });
   const slot = (t: FeedCandidate, explore: boolean): Slot => ({ key: t.sell_id, trader: t.user_id, symbol: t.symbol, explore, score: Number(t.score) });
   for (const [k, v] of lists) if (v.asOf < now - CURSOR_MAX_AGE_MS || lists.size >= LIST_CACHE_MAX) lists.delete(k);
-  const out = { asOf: c.asOf, mixed: list.map((t) => slot(t, t.explore)), ranked: ranked.map((t) => slot(t, false)), pool };
+  const out = { asOf: c.asOf, mixed: list.map((t) => slot(t, t.explore)), ranked: ranked.map((t) => slot(t, false)), pool, extra: extra.map((t) => slot(t, true)) };
   lists.set(key, out);
   return out;
 }
@@ -316,13 +327,31 @@ async function listFor(c: Cursor, now: number, ids?: number[]): Promise<Kept> {
 // One page of the feed for a `?after=` value (or the paging action's cursor). Anything invalid is page 1.
 // F-2 PR-2: `viewer` (lib/viewer.ts, signed in only): that viewer's exclusions shape the list (made by asOf) or filter
 // the page in place (made since), lib/discovery/exclusions.ts; never on a profile (TR-1).
-export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: number[]; viewer?: number } = {}): Promise<FeedPage> {
+// F-2 PR-5: `personal` (signed in only, from lib/discovery/personal-load.ts#personalFor): the viewer's own profile at asOf
+// orders the list (lib/discovery/personal.ts); "Personalize my feed" Off gives the order everyone gets minus the viewer's
+// own hides; a loader that fails gives the impersonal page. Without it nothing personal is read here.
+export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: number[]; viewer?: number; personal?: PersonalLoader } = {}): Promise<FeedPage> {
   const now = opts.now ?? Date.now();
   const c = readCursor(after, now, FEED_LIST_MAX);
-  const [kept, mine, skips] = await Promise.all([listFor(c, now, opts.ids), opts.viewer ? exclusionsFor(opts.viewer, new Date(Math.min(c.asOf, now))) : [],
-    opts.viewer ? sectionSkips(opts.viewer) : []]);
+  const [kept, mine, skips0, personal] = await Promise.all([listFor(c, now, opts.ids), opts.viewer ? exclusionsFor(opts.viewer, new Date(Math.min(c.asOf, now))) : [],
+    opts.viewer ? sectionSkips(opts.viewer) : [],
+    // ponytail: the profile is read on every page, even when the kept personal list is reused (it still drives the section's
+    // reasons) — skipping it on a cache hit needs the section's rows kept with the list.
+    opts.viewer && opts.personal ? opts.personal(new Date(c.asOf)).catch((e: unknown): Personal | null => { console.error('personal ordering failed', logSafe(e)); return null; }) : null]);
   const { shaping, hidden } = splitExclusions(mine, c.asOf, now);
-  const slots = kept.ranked.some((s) => shaping.has(s.trader)) ? shapeList(kept.ranked, shaping, c.day).map(({ card, explore }) => ({ ...card, explore })) : kept.mixed;
+  // F-2 PR-5 (orchestrator review 4): the section leaves out followed traders in every mode (its Follow button reads
+  // "not following"); Off changes the order only.
+  const skips = skips0;
+  const profile = personal?.personalize && personal.profile.signals > 0 ? personal.profile : null;
+  const shapes = profile ? traderShapes(kept) : null;
+  const rel = profile ? relevanceOf(profile, shapes!) : null;
+  // Review fix 1: a shaped list mixes from the same exploration pool as everyone's (`extra`), minus the hidden traders.
+  const extra = (kept.extra ?? []).filter((s) => !shaping.has(s.trader));
+  const build = () => rel ? personalList(kept.ranked.filter((s) => !shaping.has(s.trader)), rel, c.day, extra).map(({ card, explore }) => ({ ...card, explore }))
+    : kept.ranked.some((s) => shaping.has(s.trader)) ? shapeList(kept.ranked, shaping, c.day, extra).map(({ card, explore }) => ({ ...card, explore })) : kept.mixed;
+  // Review fix 2: with a personal loader, the list page 1 built is kept per viewer and cursor, whatever the profile says
+  // on a later page (an unlike, "Clear my activity" or a switch turned Off never shifts the pages of a running session).
+  const slots = opts.viewer && opts.personal ? personalSlots(opts.viewer, `${c.day}|${c.asOf}|${opts.ids ? opts.ids.join(',') : '*'}|${[...shaping].sort().join(',')}`, now, CURSOR_MAX_AGE_MS, build) : build();
   const sliced = pageOf(slots, c);
   const page = { ...sliced, items: displayFilter(sliced.items, hidden) };
   // The page's cards as they are now (a thesis held since page 1 is not shown; a corrected return shows corrected). A
@@ -333,7 +362,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   // Nothing is read for it when the candidates cannot make 3 rows even before that check (it only removes candidates).
   // Fix round 1: the spares are chosen from every candidate under the bucket cap (tester Medium 1: a fixed slice of 8
   // sharing one holding period made no section), and the 10 cards around it are the displayed ones (tester Low 1).
-  const cands = capped(sectionCandidates(kept.pool, slots, c.offset, new Set(opts.viewer ? [opts.viewer, ...skips] : []), page.items), SECTION_SPARES);
+  const cands = capped(sectionCandidates(rel ? personalPool(kept.pool, rel) : kept.pool, slots, c.offset, new Set(opts.viewer ? [opts.viewer, ...skips] : []), page.items), SECTION_SPARES);
   const candIds = cands.map((t) => t.trader);
   const likely = (chooseRows(cands) ?? []).map((t) => t.trader);
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
@@ -366,7 +395,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   if (missing.length) panes.push(...await records(missing));
   const section = picked && picked.map((t): SectionRow => {
     const u = who.get(t.trader)!;
-    return { userId: t.trader, handle: u.handle as string, name: u.display_name as string, reason: reasonFor(t) };
+    const why = profile && personal?.personalize ? personalReason(t.trader, profile, shapes!, personal.handles) : null;
+    return { userId: t.trader, handle: u.handle as string, name: u.display_name as string, reason: reasonFor(t), ...(why ? { why } : {}) };
   });
   const onPage = new Set([...cards.map((t) => t.user_id), ...(picked ?? []).map((t) => t.trader)]);
   const byUser = groupByUser(panes.filter((r) => onPage.has(r.userId)));
@@ -374,9 +404,26 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     cards, offset: c.offset, asOf: new Date(c.asOf), next: page.next && encodeCursor(page.next),
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
     viewer: following && { id: opts.viewer!, following }, section,
+    ...(profile ? { personal: { signals: profile.signals, uses: profile.uses } } : {}),
     ...openOf(opens, onPage, states),
     strips: feedStrips(new Map([...byUser].filter(([id]) => cards.some((t) => t.user_id === id))), new Date(now)), // F-10
   };
+}
+
+// F-2 PR-5 (engineer demand 2): a viewer's personal list is kept per viewer and cursor in lib/discovery/personal-cache.ts.
+export { clearPersonalCache } from './discovery/personal-cache.ts';
+
+// F-2 PR-5: what personal ordering knows of each listed trader: the holding period read at asOf (the section's pool) and
+// the symbols of their closes in the list. Read from the kept list only: no query.
+// ponytail: a trader's symbols are only those of their closes in the kept list (≤ FEED_PER_TRADER), not their whole record —
+// a per-trader symbol summary refreshed on sync would widen the similarity.
+function traderShapes(kept: Kept): Map<number, TraderShape> {
+  const out = new Map<number, { hold?: number; symbols: Set<string> }>();
+  const get = (t: number) => { let s = out.get(t); if (!s) out.set(t, (s = { symbols: new Set() })); return s; };
+  for (const s of kept.mixed) get(s.trader).symbols.add(s.symbol);
+  for (const s of kept.ranked) get(s.trader).symbols.add(s.symbol);
+  for (const t of kept.pool) get(t.trader).hold = t.hold;
+  return out;
 }
 
 // F-6: open positions (unrealized percent only) per trader, kept for page traders whose record is connected or failed.

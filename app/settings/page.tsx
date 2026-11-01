@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
-import { BILLING, FOLLOW, RECORD_TOOLS, SETTINGS } from '@/lib/copy.ts';
+import { BILLING, FOLLOW, PERSONALIZE, RECORD_TOOLS, SETTINGS } from '@/lib/copy.ts';
 import { deleteProfile, signOut } from '../auth/actions.ts';
 import { hasSubscribed } from '@/lib/billing.ts';
 
@@ -21,6 +21,8 @@ export default async function Settings({ searchParams }: { searchParams?: Promis
       <form action={signOut}><button className="secondary">{SETTINGS.signOut}</button></form>
       {/* F-2 PR-2: follows and "Not interested", with "Show again". */}
       <p><Link href="/me/following">{FOLLOW.settingsLink}</Link></p>
+      {/* F-2 PR-5: the personalization switches. */}
+      <p><Link href="/me/personalize">{PERSONALIZE.link}</Link></p>
       {/* F-3: Record tools and the account page (no price here: traders read this page too). */}
       <h2>{RECORD_TOOLS.title}</h2>
       <p><Link href="/tools">{RECORD_TOOLS.title}</Link></p>
