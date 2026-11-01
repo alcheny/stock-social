@@ -1,9 +1,10 @@
 // Fixed product copy for F-1 (docs/features/logs/F-1/plan.md §2, the UX lead's strings verbatim).
 // Every string here is tested against the banned-claims list (lib/copy.test.ts). Change copy here only.
 // F-1 PR-3 fix round 4 (UX lead demand 2): every count goes through lib/format.ts (thousands grouped: "2,828").
-import { count, counted } from './format.ts';
+import { count, counted, toneWord } from './format.ts';
 import { CLOSES_PAGE } from './paging.ts';
 import { EXCLUSION_DAYS } from './discovery/weights.ts';
+import { tone, type Tone } from './open-split.ts'; // A11Y-FIXES #23 (group 3)
 
 export const SIGNIN = {
   title: 'Publish your trades',
@@ -347,6 +348,54 @@ export const CLOSES_PAGING = {
 } as const;
 
 export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records are calculated', skip: 'Skip to disclaimer and legal links' } as const;
+
+// F-13 (first-visit line, swipe hint, nav)
+// D27's line and SW-1's hint verbatim (lib/f13-copy.test.ts); a decided line changes only by the owner or a council
+// amendment. The design system council (PR #48, §2.5 R5) proposes new wording for the line: an owner item in the PR.
+// `demo`, `how` and `dismiss` follow that council's labels (not part of D27's decided text).
+// If F-7 public profiles enter the feed, `line` becomes false for them and goes back to the idea board (2026-11-01).
+export const FIRST_VISIT = {
+  line: 'Verified trades, straight from the broker. Losses included.',
+  how: FOOTER.how, // the arrow is drawn aria-hidden (app/first-visit.tsx)
+  dismiss: 'Dismiss this note',
+  demo: 'Demo records are marked Demo.',
+  hint: 'Swipe ← for profile',
+} as const;
+export const NAV = { stocks: 'Trades by stock' } as const;
+// Fix #9 (POLICY F3a): the Verified badge's title and the footer's Verified sentence share this one definition.
+export const VERIFIED_MEANING = 'Imported read-only from the trader’s broker. It doesn’t verify identity or imply endorsement.';
+export const verifiedMeansFooter = () => `“Verified” means ${VERIFIED_MEANING[0].toLowerCase()}${VERIFIED_MEANING.slice(1)}`;
+// end F-13
+
+
+
+// A11Y-FIXES: feed (group 2)
+// #18 (WCAG 2.5.3, 4.1.2): the card's Like button is named by its visible text ("Like" / "Liked", state in aria-pressed);
+// this note is its accessible description.
+// ponytail: LIKES.likeLabel is now unused but kept in place (shared block of the feed's copy) — delete it with the next LIKES edit.
+export const A11Y_FEED = {
+  likeNote: 'Only you can see likes.',
+} as const;
+// end A11Y-FIXES feed
+
+
+
+// A11Y-FIXES: copy, titles (group 3)
+// #5: the join and share copy now come from fix cycle 2 (#59, PUBLIC_SHORT and the share prompt).
+// #8 (POLICY F3a): the trade and month images' alts, the recap description and the back links now come from F-10/F-12
+// (lib/trade-share.ts, lib/recap.ts, RECORD_STRIP.link), which carry no completeness claim (lib/a11y-fixes.test.ts).
+// #10 (POLICY P2, F3a): a demo profile says it is demo data; "connected accounts" only on a broker record.
+export const DEMO_PROFILE = {
+  line: 'Demo data, not a real broker record.',
+  connectedOnly: 'Only trades from connected accounts are shown.',
+} as const;
+// #23 (POLICY A1; WCAG 1.4.1, 1.3.1): the word beside a percent, from the printed sign (lib/open-split.ts#tone), so
+// "0.0%" is never called a gain or a loss.
+// F-19 (#57): the words live in lib/format.ts (toneWord), one vocabulary; signWord reads them by the printed sign.
+export const SIGN_WORD: Record<Tone, string> = { up: toneWord('up'), down: toneWord('down'), flat: toneWord('flat') };
+export const signWord = (x: number): string => toneWord(tone(x));
+// #20, #21: route titles and the root 404 page now come from fix cycle 2 (#59); app/t/[symbol] calls notFound().
+// end A11Y-FIXES copy
 
 // Privacy work (2026-11-01): the launch gate's closed states (lib/launch-gate.ts, committee D6–D8). No date, no promise.
 export const LAUNCH = {

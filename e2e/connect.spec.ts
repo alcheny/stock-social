@@ -559,7 +559,7 @@ test('fix round 3: a second link consented while a 3-account import runs keeps t
     await expect(whole.locator('.badge.new'), path).toHaveCount(0);
     const description = await p2.locator('meta[name="description"]').getAttribute('content');
     expect(description!, path).toContain('so far · Import in progress');
-    expect(description!, path).not.toMatch(/whole record: .*win rate|avg return|verified/i);
+    expect(description!, path).not.toMatch(/record to date: .*win rate|avg return|verified/i); // A11Y-FIXES #8: the recap label (was "whole record:")
   }
   // The poll resumes the first import and the record ends whole.
   await sql`update connections set import_cursor = import_cursor - 'retryAt' where id = ${firstRow.id}`;

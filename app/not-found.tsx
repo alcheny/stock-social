@@ -3,8 +3,7 @@ import Link from 'next/link';
 
 // Fix #20 (approval council cycle 2): a real 404 (status and a distinct title) for unknown routes and notFound() calls,
 // instead of the framework's untitled default.
-// ponytail: an invalid ticker (/t/%3Cscript%3E) is still a 200 "Ticker not found" page — fix: notFound() in
-// app/t/[symbol]/page.tsx, in the follow-up after claude/fix-truthful-labels merges.
+// An invalid ticker (/t/%3Cscript%3E) lands here too: app/t/[symbol]/page.tsx calls notFound() (A11Y-FIXES #21).
 // Next.js adds <meta name="robots" content="noindex"> to this page itself.
 export const metadata: Metadata = { title: 'Page not found · Stock Social' };
 
