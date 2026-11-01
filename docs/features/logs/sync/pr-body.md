@@ -6,17 +6,24 @@ Removes the known limit "`/api/sync` loops users sequentially (~5k traders/hour)
 - **`POST /api/sync?shard=i&of=N`**: the Bearer `CRON_SECRET` auth is unchanged and is checked before the parameters
   (bad parameters → 400).
   - The call syncs only traders with `id % N = i`. No parameters means shard 0 of 1, today's behavior.
-  - Shard 0 alone runs the housekeeping and the privacy slots (in #31's order) and logs the coverage report.
+  - What a call does (orchestrator review):
+    - The unsharded call (no parameters or `of=1`) does everything, as before: the housekeeping, the privacy slots
+      (in #31's order), the sync and the coverage report.
+    - A sharded call (`of > 1`, shard 0 included) only syncs its shard.
+    - `?task=housekeeping&of=N` runs the housekeeping, the privacy slots and the coverage report on a sharded schedule,
+      as its own cron entry.
   - The answer keeps `ok`, `skipped`, `failed` (ids), `unclaimed`, `stoppedAtDeadline` and `connections`, and adds `run`
     (counters) and `coverage`.
 - **`lib/sync-shard.ts`** (new): the shard runner.
-  - Bounded concurrent workers (`SYNC_CONCURRENCY`, clamped to `DATABASE_POOL_MAX − 2`).
+  - Bounded concurrent workers (`SYNC_CONCURRENCY`, clamped to `DATABASE_POOL_MAX − 2`). The **defaults are today's
+    effective rate** (1 worker, 2 req/s), so merging raises no vendor load; the plan's 6 workers and 10 req/s are set
+    with the sharded cron, after the gate.
   - A per-run deadline and fit check. A run's first trader is always dispatched.
   - A fenced 60 s shard lease on the database clock, renewed every 15 s; a busy shard answers 200 `{busy: true}`.
   - A per-shard vendor token bucket (`SYNC_VENDOR_RPS`), taken before the claim, outside the transaction.
   - Per-trader backoff: 1 h doubling, capped at 24 h.
   - Transient failures are never held against the trader. A run breaker stops a run when its failures look fleet-wide.
-  - Poison-trader quarantine.
+  - Poison-trader quarantine: two unfinished claims, or 5 transient failures in a row.
   - Counters-only log lines (`sync run`, `sync coverage`, `sync round incomplete`).
 - **The durable cursor is the per-user round claim.** A run stopped at its deadline leaves the rest unclaimed at the head
   of the shard's stalest-first queue, so the next call resumes there. Nobody is synced twice in a round.
@@ -25,7 +32,8 @@ Removes the known limit "`/api/sync` loops users sequentially (~5k traders/hour)
 - **`GET /api/sync`** (business council, PR #45): the host's cron sends GET. It is the same handler as POST, with the
   same constant-time bearer check and the same parameters. The owner adds the cron schedule as a deploy setting; the
   exact `vercel.json` lines are below.
-- **F-3's `reconcileIfDue()`** runs once per tick on shard 0, inside the housekeeping, before the sync.
+- **F-3's `reconcileIfDue()`** runs once per tick, inside the housekeeping block, before the sync. A source-order test
+  (`lib/sync-route.test.ts`) checks it.
 - **`lib/sync-limits.ts`** (new), the pure parts: shard parameters, run config, the token bucket, the backoff schedule,
   failure classes, the breaker, and the database settings check.
 - **`lib/db.ts`**: `DATABASE_POOL_MAX` (default 10, clamped to 3–500).
@@ -52,8 +60,11 @@ DESIGN §2.7 still describes the sequential loop. It should point at docs/SYNC.m
 { "crons": [ { "path": "/api/sync", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" } ] }
 ```
 
-After the switch-on gate: 32 entries, `{ "path": "/api/sync?shard=i&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }`
-for i = 0…31 (docs/SYNC.md → Cron setup). The hosting plan must allow 5-minute crons and 32 entries.
+After the switch-on gate there are 33 entries on the same schedule (docs/SYNC.md → Cron setup):
+- `{ "path": "/api/sync?shard=i&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }` for i = 0…31;
+- `{ "path": "/api/sync?task=housekeeping&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }`.
+
+The hosting plan must allow 5-minute crons and 33 entries.
 
 ## Known limits (each marked `ponytail:` at its place)
 
@@ -73,6 +84,10 @@ for i = 0…31 (docs/SYNC.md → Cron setup). The hosting plan must allow 5-minu
 - `db/schema.sql` (`users_sync_order`): the shard filter runs after the index, so each page reads past other shards'
   rows (21–26 ms a page at 100k). Fix: an expression index for a fixed shard count.
 - `app/api/sync/route.ts`: the cron schedule is a deploy setting for the owner (above).
+- `app/api/sync/route.ts`: housekeeping's own vendor calls (import steps, deletions) are outside the shards' budgets.
+  Fix: let lib/connections.ts and lib/delete.ts take a budget.
+- `lib/sync-limits.ts` (defaults): production stays at the old sequential rate until the owner sets the plan's
+  values. Fix: the switch-on gate in docs/SYNC.md.
 
 ## Decisions taken by the committee
 
@@ -91,9 +106,10 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
   - Two unfinished claims quarantine a trader.
 - **Vendor refusals do not disconnect a record.** This is the owner's TR-5 call, since nothing clears `disconnected_at`
   today.
-- **Housekeeping** runs on shard 0, before and regardless of the lease. A busy shard answers 200 `{busy: true}`.
+- **Housekeeping** runs once per cron mark, never waiting on a lease: in the unsharded call, or in its own call when
+  sharded (orchestrator review). A busy shard answers 200 `{busy: true}`.
 - **Shard lease:** 60 s, fenced by its holder, renewed every 15 s.
-- **Coverage report on shard 0:** missing shards, traders not claimed last round, never-synced traders, the stalest age,
+- **Coverage report** (unsharded or housekeeping call): missing shards, traders not claimed last round, never-synced traders, the stalest age,
   backoff, refusals with the oldest refusal's age, quarantine, and `dbConfigOk`.
 - **Deferred to the owner, and part of the switch-on gate:**
   - a visible "Last updated ‹date›" line, which is a product change for the three-variant process;
@@ -103,12 +119,15 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
 ## Testing
 
 - `npx tsc --noEmit`: clean.
-- `npm test`: **851 tests, 837 pass, 0 fail**, 14 skipped (opt-in LOAD tests). New files:
-  - `lib/sync-limits.test.ts` (16 unit tests);
+- `npm test` (after merging main at e12a834): **920 tests, 901 pass, 0 fail**, 1 todo (owner), the rest skipped (opt-in
+  LOAD tests). New files:
+  - `lib/sync-limits.test.ts` (17 unit tests, including the call modes);
   - `lib/sync-shard.test.ts` (12 DB tests): shard assignment, deadline then resume, overlapping runs, the lease and
     fencing, backoff by class, breaker, quarantine and skipped, the rate bound, coverage, failure isolation with the real
-    `syncUser`, and the first-dispatch fit rule;
-  - `lib/db-pool.test.ts`.
+    `syncUser`, the first-dispatch fit rule, and the transient streak;
+  - `lib/db-pool.test.ts`;
+  - `lib/sync-route.test.ts`: the housekeeping order with the billing reconciliation; the secret checked before the
+    parameters; GET is POST.
 
   Two source-order assertions now look for `await runShard(` instead of `await syncTick(`, with the same order checked:
   `lib/sync.test.ts` (F-2 purge before the sync) and `lib/privacy-purge.test.ts` (privacy slots around the sync).
@@ -118,6 +137,9 @@ an independent code review followed. The log is `docs/features/logs/sync/committ
   - The mix: half 1-account and half 2-account, 989 slow traders that time out, and 99 failing traders.
   - Results: 98,912 healthy traders synced exactly once. The slow ones counted as transient and were synced next round;
     the failing ones were backed off. Shards were disjoint.
+  - The database server had 100 connections, so about 11 shards ran at once, and the 155k total is the measured
+    per-shard rate × 32, an **extrapolation**. The test drives `runShard` directly; with housekeeping in its own call,
+    every shard's window is the same.
   - Throughput: 20.6 traders/s per shard in scaled time. The worst shard used 7.08 of the round's 11 calls (**1.55×
     headroom**), and 8 whole calls (≥ 15% margin). Peak database connections were 78.
   - Latency-model test (real 200–500 ms latency, one shard): 2.58 traders/s against a predicted 2.60.
