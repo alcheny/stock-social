@@ -441,3 +441,16 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
    (15px, still above the 14px small-text floor) to keep real headroom above the fold. */
 .auth.consent .notice { gap: 4px; margin: 0 0 12px; font-size: 0.9375rem; line-height: 1.35; }
 .auth.consent form + form { margin-top: 8px; }
+/* ---- F-6 · Open positions in every number (docs/features/logs/F-6/plan.md §4) ---- */
+.stats > .row-label { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+.stats + .open-stats { margin-top: -8px; }
+.open-combined { margin: 0 0 12px; overflow-wrap: anywhere; }
+.open-combined b { font-variant-numeric: tabular-nums; }
+.chart-note { margin: -8px 0 16px; overflow-wrap: anywhere; }
+.open-also { margin: 8px 0 0; overflow-wrap: anywhere; }
+.open-also b { font-variant-numeric: tabular-nums; }
+.open-ticker p { overflow-wrap: anywhere; }
+/* F-6 (tester Medium 1, business lead D5): with open positions, both grids' big values share one size that fits a
+   360 px half-width tile on one line ("+6122.6%" included), so they stay equal (TR-4) and never split or widen the page. */
+.stats:has(+ .open-stats) .stat.big b, .open-stats .stat.big b { font-size: clamp(18px, 6vw, 36px); white-space: nowrap; }
+.stats[data-long] .stat.big b { font-size: clamp(14px, 4.8vw, 32px); }

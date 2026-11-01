@@ -431,3 +431,5 @@ begin
     create trigger display_log_append_only before update or delete on display_log for each row execute function display_log_append_only();
   end if;
 end $t$;
+-- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
+select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
