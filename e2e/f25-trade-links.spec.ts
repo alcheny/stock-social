@@ -311,6 +311,52 @@ const fitOf = (card: Locator) => card.evaluate((c) => {
   return { need: blocks * 1.15 + fixed, room: c.clientHeight, scrolls: c.scrollHeight > c.clientHeight + 1 };
 });
 
+test('feed footer (UX user test): a tap on the disclaimer\'s text never follows a link; stacked at 320 px the two links read as one group', async ({ page }) => {
+  for (const [width, height] of [[360, 640], [320, 640], [780, 360]] as const) {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.setViewportSize({ width, height });
+      await page.goto('/');
+      const row = page.locator(`.feed > .row[data-handle="${A.handle}"]`).first();
+      await row.evaluate((r) => { r.scrollIntoView({ block: 'start' }); r.scrollLeft = 0; });
+      const card = row.locator('article.card');
+      const at = `${width}×${height} ${colorScheme}`;
+      // Every point on the disclaimer's first and last text lines, and on the block above the footer, is not inside a link.
+      const hits = await card.evaluate((c) => {
+        const out: string[] = [];
+        const probe = (el: Element | null, what: string) => {
+          if (!el) return;
+          const r = el.getBoundingClientRect();
+          for (const fy of [0.15, 0.5, 0.85]) for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+            const y = r.top + Math.min(r.height * fy, 18 * fy * 2), x = r.left + r.width * fx;
+            const hit = document.elementFromPoint(x, y);
+            if (hit && hit.closest('a') && !el.contains(hit.closest('a'))) out.push(`${what} ${Math.round(x)},${Math.round(y)} -> ${hit.closest('a')!.getAttribute('href')}`);
+          }
+        };
+        probe(c.querySelector('[data-disclaimer]'), 'disclaimer top');
+        const d = c.querySelector('[data-disclaimer]');
+        if (d) { const r = d.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.bottom - 4); if (hit?.closest('a')) out.push('disclaimer bottom'); }
+        const before = c.querySelector(':scope > footer')?.previousElementSibling ?? null;
+        if (before) { const r = before.getBoundingClientRect(); const y = r.bottom - 3; for (const fx of [0.1, 0.5, 0.9]) { const hit = document.elementFromPoint(r.left + r.width * fx, y); const a = hit?.closest('a'); if (a && !before.contains(a)) out.push(`above ${a.getAttribute('href')}`); } }
+        return out;
+      });
+      expect(hits, `${at}: no link under the disclaimer or the block above`).toEqual([]);
+      // The links themselves are still where their text is.
+      for (const sel of ['footer a[href*="/trade/"]', `footer a[href="/u/${A.handle}"]`]) {
+        const ok = await card.locator(sel).evaluate((a) => { const r = a.getBoundingClientRect(); const h = document.elementFromPoint(r.left + 8, r.top + r.height / 2); return !!h && a.contains(h); });
+        expect(ok, `${at}: ${sel} takes a tap on its own text`).toBe(true);
+      }
+      if (width < 360) {
+        const text = (sel: string) => card.locator(sel).evaluate((a) => { const range = document.createRange(); range.selectNodeContents(a); const r = range.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+        const t = await text('footer a[href*="/trade/"]'), r = await text(`footer a[href="/u/${A.handle}"]`);
+        const d = await card.locator('[data-disclaimer]').evaluate((e) => e.getBoundingClientRect().top);
+        // The gap between the two link texts is no larger than the gap from the second to the disclaimer plus 12 px.
+        expect(r.top - t.bottom, `${at}: the two links read as one group`).toBeLessThanOrEqual(Math.max(d - r.bottom, 0) + 12);
+      }
+    }
+  }
+});
+
 test('feed footer at a 115% root font size (360 and 780 px): the two hit boxes never overlap and stay ≥ 8 px apart, wrapped or not', async ({ browser }) => {
   for (const [width, height] of [[360, 640], [780, 360]] as const) {
     const ctx = await browser.newContext({ viewport: { width, height } });
