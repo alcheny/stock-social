@@ -53,7 +53,7 @@ reviewer; 3 planning rounds, all signed):
 
 ## Testing
 - `npx tsc --noEmit`: clean.
-- `npm test`, run twice on the final tree (after both orchestrator reviews, with main at 63f48f4 merged): 2197 tests.
+- `npm test`, run twice on the final tree (after both orchestrator reviews, with main at 63f48f4 merged; #90 and #91 since, tests and docs only): 2197 tests.
   - First run: 0 failures.
   - Second run: the only miss was main's likes heavy check (`lib/likes.test.ts`, deep vs shallow page time). It also
     fails intermittently on a fresh database with main's own code here, and this PR does not touch likes.
@@ -127,7 +127,8 @@ reviewer; 3 planning rounds, all signed):
   pass now marks every still-pending row `suspected`. Neighbouring twins share a page through the 50-row overlap. Tests:
   (c) rewritten, (f) reworked, (m) the repro in both variants, each failing on the previous head.
 - **Nits:**
-  - Import pages are checked with the account's previous import page (test (n)).
+  - Import twins split across two pages (superseded in the second review: import pages now overlap and are checked
+    one at a time; test (n)).
   - A pass needs a page limit above the overlap (`passPageLimitOk`).
   - The compliance note above is precise.
 
