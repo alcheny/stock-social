@@ -136,6 +136,9 @@ finds those rows:
   vendor ids must also be on the previous page (share, unusable and option rows all count: the order across them is
   not kept, so the check is on the count). More or fewer means a row was inserted or removed before the cursor and a row
   may have been skipped: the pass is invalid. A vendor row with no id makes the count short (invalid, the safe side).
+  ponytail: a vendor row with an id but no symbol is in no list either, so inside the overlap it ends that account's
+  multi-page passes `shifted` every time (held rows stay held, counted) — fix: count raw vendor ids (a `lib/broker.ts`
+  change, owner item).
 - **Set completeness:** a pass that ended is complete when it had no overlap break and every `snaptrade` BUY or SELL row
   of the account stored before the pass started is among the ids it listed (unusable trade rows included), except the
   originals of the account's held rows, which are what is being tested. Rows that arrive during the pass cannot mask a
@@ -167,9 +170,11 @@ finds those rows:
   re-issue is never published twice:
   - `pending`: held until a read decides it. A week read that finds one and cannot decide it brings the account's next
     pass forward (never an account whose pass ran in that sync: an ended or given-up pass waits its period);
-  - `genuine`: one read listed both ids (a week read only inside its window, a day clear of its time-zone boundary). The
-    row is kept and published. Final;
-  - `suspected`: a complete pass did not list the original id. Held, counted for the owner.
+  - `genuine`: one read listed the row and every twin of it that is not itself held (so the vendor shows as many
+    fills as are kept; a week read only inside its window, a day clear of its time-zone boundary). The row is kept and
+    published. Final;
+  - `suspected`: what a complete pass leaves pending (a twin it did not list, or the held row itself no longer listed).
+    Held, counted for the owner. Held rows and their twins never make a pass short.
   The connect-time import (`importStep`) checks its pages the same way. Option rows are counted (`optionTwins`), not held:
   a re-issued option close can show twice until the owner decides (owner item).
 - **Close-change count:** every rebuild compares the trader's closes (share and option) before and after, by id and a

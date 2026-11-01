@@ -56,7 +56,8 @@ const weekday = (accountId: Frag) => sql`((hashtext(${accountId}) % 7) + 7) % 7`
 // Days count from the epoch in UTC, so the weekday and the day start agree whatever the session's time zone.
 const firstDue = (t: Frag) => {
   const from = sql`greatest(b.claimed_at + ${ms(RECONCILE_EVERY_MS)}, ${t})`;
-  const day = sql`floor(extract(epoch from ${from}) / 86400)::bigint`;
+  // The first day start at or after `from` (ceiling: a floor could land up to a day before the claim's period ended).
+  const day = sql`ceil(extract(epoch from ${from}) / 86400)::bigint`;
   return sql`to_timestamp(${day} * 86400) + mod(${weekday(sql`b.account_id`)} - mod(${day}, 7) + 7, 7) * interval '1 day'`;
 };
 
@@ -140,6 +141,9 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
     // cursor) and a row may have been skipped. Every vendor row counts here (share, unusable and option rows): the order
     // across the three lists is not kept, so the check is on the count, not the positions. A row with no id makes the
     // count short: invalid, the safe side.
+    // ponytail: a vendor row with an id but no symbol is dropped by lib/broker.ts#toActivities and is in no list, so in
+    // the overlap it makes every multi-page pass of that account end 'shifted' (its held rows stay held, counted by
+    // reconcile_invalid) — fix: count the page's raw vendor ids, which needs fetchActivitiesPage (lib/broker.ts, owner).
     const prevIds = new Set(p.reconcile_tail);
     const overlap = new Set(all.filter((id) => prevIds.has(id))).size;
     if (overlap !== RECONCILE_OVERLAP) valid = false;
