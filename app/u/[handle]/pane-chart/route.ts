@@ -15,11 +15,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const [user] = await sql`select id from users u where handle = ${handle} and deleted_at is null and ${filerVisibleSql('u')}`;
   if (!user) return NextResponse.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
   const rows = await sql`
-    select id, symbol, return_pct, holding_days, closed_at, case when thesis_status = 'published' then thesis end as thesis -- F-26: published only, in SQL
+    select id, symbol, return_pct, holding_days, closed_at, case when thesis_status = 'published' then thesis end as thesis, -- F-26: published only, in SQL
+      case when thesis_status = 'published' then thesis_written_at end as written_at, case when thesis_status = 'published' then thesis_edited_at end as edited_at -- FIXES-CYCLE4-PART2 (F4-16)
     from closed_trades where user_id = ${user.id}`;
   const chart = paneChart(rows.map((r) => ({
     id: String(r.id), symbol: r.symbol as string, returnPct: r.return_pct as number, holdingDays: r.holding_days as number,
     closedAt: r.closed_at as Date, thesis: (r.thesis ?? null) as string | null,
+    writtenAt: (r.written_at ?? null) as Date | null, editedAt: (r.edited_at ?? null) as Date | null, // FIXES-CYCLE4-PART2 (F4-16)
   })), new Date());
   // Short and shared: every visitor of the same record gets the same chart; a new close shows within a minute.
   return NextResponse.json(chart, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
