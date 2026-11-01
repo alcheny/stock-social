@@ -51,8 +51,9 @@ Session: `claude/known-limits`, started by the owner's orchestrating session und
 ### 3. Bounded work for a page with no kept list
 - Root cause: the "imported after asOf" filter reads every sell imported since asOf into an array. A stored import time
   per close removes that read: additive `closed_trades.sell_imported_at` (the closing sell activity's `created_at`).
-- Set by a `before insert` trigger on `closed_trades` (one unique-index probe per row; `plan_cache_mode =
-  force_custom_plan` so a plan cached while `activities` was small never becomes a scan), so `lib/sync.ts#rebuildTrades`
+- Set by a `before insert` trigger on `closed_trades` (one unique-index probe per row; round 1 proposed `plan_cache_mode =
+  force_custom_plan`, dropped after the reliability review: the probe uses only the unique index, so no plan can pick
+  another), so `lib/sync.ts#rebuildTrades`
   (owned by another session) needs no change; backfilled once when the column is added.
 - `lib/feed.ts`: the late filter becomes `sell_imported_at is null or sell_imported_at <= asOf` on the close itself, in
   one new helper. The work is then bounded by the closes the statement reads anyway; no read depends on how many sells

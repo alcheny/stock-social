@@ -669,15 +669,6 @@ create table if not exists shared_account_marks (
 -- "imported before any cursor": added once with a backfill of only the sells of the last 49 hours (cursors live at
 -- most 48 hours, lib/discovery/pager.ts#CURSOR_MAX_AGE_MS), inside the branch that adds the column, so later applies
 -- and the parallel test files never run it.
-do $si$
-begin
-  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'closed_trades' and column_name = 'sell_imported_at') then
-    alter table closed_trades add column sell_imported_at timestamptz;
-    update closed_trades t set sell_imported_at = a.created_at
-      from (select external_id, max(created_at) as created_at from activities where created_at > now() - interval '49 hours' and side = 'SELL' group by external_id) a
-      where a.external_id = t.sell_id;
-  end if;
-end $si$;
 -- One unique-index probe per row (activities' unique (source, external_id); no user index for the planner to prefer on
 -- a fresh import's unanalyzed rows). The same match as the feed's old late filter: any source, the sell side.
 create or replace function closed_trades_sell_imported_at() returns trigger language plpgsql as $f$
@@ -685,6 +676,19 @@ begin
   new.sell_imported_at := (select max(created_at) from activities where source in ('snaptrade', 'demo') and external_id = new.sell_id and side = 'SELL');
   return new;
 end $f$;
+do $si$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'closed_trades' and column_name = 'sell_imported_at') then
+    alter table closed_trades add column sell_imported_at timestamptz;
+    update closed_trades t set sell_imported_at = a.created_at
+      from (select external_id, max(created_at) as created_at from activities where created_at > now() - interval '49 hours' and side = 'SELL' group by external_id) a
+      where a.external_id = t.sell_id;
+    -- In the same block (orchestrator review): no close is inserted between the backfill and the trigger.
+    if not exists (select 1 from pg_trigger where tgname = 'closed_trades_sell_imported_at' and not tgisinternal) then
+      create trigger closed_trades_sell_imported_at before insert on closed_trades for each row execute function closed_trades_sell_imported_at();
+    end if;
+  end if;
+end $si$;
 do $t$
 begin
   if not exists (select 1 from pg_trigger where tgname = 'closed_trades_sell_imported_at' and not tgisinternal) then

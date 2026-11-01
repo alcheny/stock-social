@@ -16,7 +16,7 @@ const LIKES = 200_000, REJECTS = 20_000;
 before(async () => { if (LOAD && hasDb) await (await import('./db.ts')).sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8')).simple(); });
 after(async () => { if (LOAD && hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 
-test('200,000 due orphan likes with no statistics: every purge batch stays far inside the time box', { skip: !LOAD ? 'heavy-use suite: set LOAD=1' : !hasDb && 'no DATABASE_URL', timeout: 1_800_000 }, async () => {
+test('200,000 due orphan likes, statistics taken before they existed: every purge batch stays far inside the time box', { skip: !LOAD ? 'heavy-use suite: set LOAD=1' : !hasDb && 'no DATABASE_URL', timeout: 1_800_000 }, async () => {
   const { sql } = await import('./db.ts');
   const { purgePrivacy, PRIVACY_PURGE_BOX_MS, PRIVACY_PURGE_BATCH, ORPHAN_GRACE_DAYS } = await import('./privacy-purge.ts');
   const tag = `pp${Math.random().toString(36).slice(2, 8)}`;
@@ -34,6 +34,9 @@ test('200,000 due orphan likes with no statistics: every purge batch stays far i
       select (${viewers}::int[])[1 + i % ${viewers.length}], ${tag} || '-' || i, ${trader} from generate_series(1, ${LIKES}) i`;
     await sql`insert into trade_exclusions (viewer_id, trade_key, trader_id)
       select (${viewers}::int[])[1 + i % ${viewers.length}], ${tag} || '-x' || i, ${trader} from generate_series(1, ${REJECTS}) i`;
+    // The orchestrator's review case: the likes and rejects analyzed with their rows in, privacy_orphans analyzed while
+    // (nearly) empty of these rows, then the large mark lands with no analyze since.
+    await sql`analyze trade_likes, trade_exclusions, privacy_orphans`;
     await sql`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at)
       select 'like', viewer_id, trade_key, ${seen} from trade_likes where trader_id = ${trader}`;
     await sql`insert into privacy_orphans (kind, viewer_id, trade_key, first_seen_at)

@@ -54,8 +54,9 @@ export async function claimAccounts(userId: number, accountIds: string[]): Promi
 // null` on VendorAccount); every caller here already forwards it. Past dodges then resolve on their next syncs: the
 // older claim keeps the account and the later profile's syncs are refused (AccountClaimedError).
 const IDENTITY_LABEL = 'stock-social/broker-account-identity/v1';
-// Advisory lock class for an identity's claim check (USER_LOCK in lib/sync.ts is 1, ATTEMPT_LOCK in lib/connections.ts 2).
-export const IDENTITY_LOCK = 3;
+// Advisory lock class for an identity's claim check: unused elsewhere (USER_LOCK 1 in lib/sync.ts, ATTEMPT_LOCK 2 in
+// lib/connections.ts, PURGE_LOCK 3 in lib/discovery/purge.ts, PRIVACY_PURGE_LOCK 41 in lib/privacy-purge.ts).
+export const IDENTITY_LOCK = 4;
 let identityKey: Buffer | null = null;
 const keyForIdentity = () => {
   if (!identityKey) {

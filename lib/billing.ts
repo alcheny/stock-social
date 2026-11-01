@@ -132,6 +132,8 @@ async function ensureCustomer(userId: number): Promise<string> {
   const [have] = await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`;
   if (have) return have.vendor_customer_id as string;
   const ref = billingRef(userId);
+  // ponytail: a second request with the same idempotency key while the first is still in flight can be answered 409 by
+  // the processor and fail that checkout — retry once after a short wait, then read the stored customer.
   const c = await vendor('POST', '/v1/customers', { metadata: { ref } }, `customer-${ref}`);
   // Two checkouts at once (two tabs, a double submit) get the same customer (one idempotency key per user) and insert
   // the same row. With `on conflict (user_id)` only, the one that lost the race on the vendor_customer_id index raised
