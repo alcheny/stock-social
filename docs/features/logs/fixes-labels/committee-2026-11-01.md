@@ -29,3 +29,39 @@ What confused or stopped me (all non-blocking, by priority):
 
 Demo sentence: "Every label tells you exactly what you're looking at. Demo says Demo, old trades show their year,
 and a disconnected record says it's frozen."
+
+## User test: UX lead
+
+Method: Playwright on the production server (:3210) at 360×740 (spot checks at 320×740 and dark), signed out
+(feed, pane, `/u/momentum_maya`, its trade and `2026-10` month, `/t/NVDA`, `/t/compare?a=NVDA&b=AMD`, and the
+`qa2_frozen`, `qa2_idle`, `qa2_failed`, `qa2_two`, `qa2_removed1` fixtures), and signed in as momentum_maya.
+Screenshots read, plus DOM checks (scroll width, F3 line position, tap sizes, Tab order, `0.0%` colour).
+
+**Verdict: PASS.** No horizontal scroll at 360 or 320 in light or dark. The F3 line is in the first viewport on
+every signed-out route, it is muted and small (#6b6b78 light, #8b8b98 dark), and it never sits under the nav. The
+frozen card says "Disconnected Nov 1, 2026 · record frozen" without "Connected". A live profile reads "Last close
+Oct 29 · updated 2 hours ago (Nov 1)" in `<time>`. The failed note is amber with a warning sign, not red. `0.0%`
+is in the body colour. The month page has no verdict and reads "One of 3 months on record". Tab order goes skip
+link, nav, back link, record, Share, Feed.
+
+What confused or stopped me (all non-blocking):
+1. **Trade and month "whole record" box:** all four facts run on one line ("Record since … · Connected … · Last
+   close … · not updated since …"). The profile splits them into two lines, so do the same here.
+2. **Pane:** the F3 line sits right on top of "Since first closed trade…", so it reads as a caption to that
+   sentence. Add a top and bottom margin, or put it after the stat tiles.
+3. **Demo repetition:** "Not from a real broker" appears twice in the first screen of `/t/NVDA` (explainer and page
+   note), and twice per column on compare. The trade page shows the Demo badge twice within 50 px. Say it once per
+   section.
+4. **Baseline wording:** "average per trade, 95% range (-3.4% to +3.3%)" promises an average and then shows only a
+   range. Use "95% range of the average per trade (…)".
+5. **Years:** one line mixes forms ("Record since Oct 30, 2026 · … Last close Nov 1"). Use one form per line.
+   Profile rows still show `10/29/2026`.
+6. **Single account removed (`qa2_removed1`):** the record says "updated 3 hours ago" with nothing connected. Say
+   that no account is connected, or treat the record as frozen.
+7. "Account 2 of 2 · Account removed Oct 28, 2026" repeats "Account". The plan's form was "Account 2 of 2 removed …".
+8. **Owner's own profile:** the action buttons push the figures and the F3 line below the fold (F3 at y=879). It is
+   fine because nothing is shown above it, but check it once F-4 settles.
+9. **Tap targets under 44 px (already there before this fix):** nav links (21 px tall), "← @handle's record" and
+   "← Feed" on trade and month (20 px), and the chart dot links (12×12). Main's `tap44` is not applied to these.
+10. **Fixture data:** `qa2_idle` shows a close after its last sync, which reads as a contradiction. Real data can't
+    produce it, so fix the fixture.
