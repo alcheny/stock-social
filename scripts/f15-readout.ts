@@ -26,18 +26,17 @@ export const GATES = [
 export const G2_TEXT = 'after the share_action slice';
 export const G3_LABEL = 'views, not people';
 export const G3_OWNER_LINE = "Signed-out owner views can't be told from other views.";
+export const RECONCILE_LINE = 'Three weekly totals, read together: the G3 strict row counts profile views from external referrers only; the surface × via "all" row and the drops table "counted views" row are the same number, every counted surface and every referrer class (external, internal, none); all three exclude self-views and demo profiles, while the drop counts include demo profiles.';
 export const G4_TEXT = "strict G4 can't be read in this slice; signed-out D7 return is not measured";
 
 // ---- input ----
 // rollup: view_rollup summed over user_id, demo and deleted targets already excluded by the query. drops: view_drops.
-// counted: every rollup view per day (demo targets included, like view_drops), the drop-share denominator.
 // g1: strict = non-demo, non-deleted users with a connection in state 'connected'; partial = such users whose
 // connections exist but none is 'connected'. Only the fields named here are read; anything else on a row is ignored.
 export type Day = string | Date;
 export type RollupRow = { day: Day; surface: string; ref_class: string; via: string; self_view: boolean; n: number };
 export type DropRow = { day: Day; surface: string; reason: string; n: number };
-export type CountRow = { day: Day; n: number };
-export type ReadoutInput = { rollup: RollupRow[]; drops: DropRow[]; counted: CountRow[]; g1: { strict: number; partial: number } };
+export type ReadoutInput = { rollup: RollupRow[]; drops: DropRow[]; g1: { strict: number; partial: number } };
 
 // ---- weeks (ISO, Monday start, UTC) ----
 const DAY_MS = 86_400_000;
@@ -54,6 +53,12 @@ export function isoWeekLabel(mondayMs: number): string {
   const y = thu.getUTCFullYear();
   const w = 1 + Math.floor((thu.getTime() - Date.UTC(y, 0, 1)) / DAY_MS / 7);
   return `${y}-W${String(w).padStart(2, '0')}`;
+}
+// "2026-W44, Oct 26–Nov 1" (UTC; the end month is repeated only when it changes).
+export function weekHeader(mondayMs: number): string {
+  const md = (ms: number) => { const d = new Date(ms); return { m: d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }), d: d.getUTCDate() }; };
+  const a = md(mondayMs), b = md(mondayMs + 6 * DAY_MS);
+  return `${isoWeekLabel(mondayMs)}, ${a.m} ${a.d}–${a.m === b.m ? '' : `${b.m} `}${b.d}`;
 }
 // The WEEKS ISO weeks ending with the one holding `now` (that one is partial).
 export function weekWindow(now: Date): { from: string; to: string; mondays: number[] } {
@@ -87,13 +92,37 @@ export function suppress(grid: number[][], cols: boolean, start?: boolean[][]): 
   return hidden;
 }
 const fmt = (n: number) => n.toLocaleString('en-US');
-// A printed count: 0 → "0", 1..4 → "<5", a complementary-hidden cell → "(s)".
-const cell = (v: number, hidden: boolean) => (v > 0 && v < SMALL ? '<5' : hidden ? '(s)' : fmt(v));
-// A total over cells: exact only when none is hidden, else "≥ n" over the visible ones (and never a value 1..4).
-function total(values: number[], hidden: boolean[]): string {
-  const visible = values.reduce((s, v, i) => s + (hidden[i] ? 0 : v), 0);
-  if (hidden.some(Boolean)) return `≥ ${fmt(visible)}`;
-  return cell(visible, false);
+
+// ---- base cells: one source for every printed count ----
+// Every printed count (G3 rows, the surface × via table, its totals, the drops table, the counted-views row) is a sum
+// of base cells. A base cell is hidden when it is 1..4 or a complement (suppress, per base row over the weeks). A
+// printed sum is exact only when none of its base cells is hidden; otherwise it reads "<5" (one small cell alone),
+// "(s)" (only hidden cells) or "≥ n" with n the sum of its visible base cells. So no hidden value ever enters a printed
+// number, and no subtraction across rows, columns or tables can recover one (POLICY P3).
+type BaseRef = { key: string; w: number };
+class Base {
+  rows = new Map<string, number[]>();
+  hidden = new Map<string, boolean[]>();
+  weeks: number;
+  constructor(weeks: number) { this.weeks = weeks; }
+  add(key: string, w: number, n: number) {
+    if (!this.rows.has(key)) this.rows.set(key, Array.from({ length: this.weeks }, () => 0));
+    this.rows.get(key)![w] += n;
+  }
+  seal() { for (const [k, v] of this.rows) this.hidden.set(k, suppress([v], false)[0]); }
+  value(cells: BaseRef[]) { return cells.reduce((s, c) => s + this.rows.get(c.key)![c.w], 0); }
+  print(cells: BaseRef[]): string {
+    let visible = 0, hiddenN = 0, smallN = 0;
+    for (const { key, w } of cells) {
+      const v = this.rows.get(key)![w];
+      if (this.hidden.get(key)![w]) { hiddenN++; if (v < SMALL) smallN++; } else visible += v;
+    }
+    if (hiddenN === 0) return fmt(visible);
+    if (visible === 0) return hiddenN === 1 && smallN === 1 ? '<5' : '(s)';
+    return `≥ ${fmt(visible)}`;
+  }
+  exact(cells: BaseRef[]) { return cells.every(({ key, w }) => !this.hidden.get(key)![w]); }
+  keys() { return [...this.rows.keys()]; }
 }
 
 // ---- markdown ----
@@ -101,140 +130,133 @@ const table = (head: string[], rows: string[][]) =>
   [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
 const safeLabel = (s: string) => s.replace(/[^a-z0-9_]/gi, ''); // registry codes only; never free text
 
-type Pred = (r: RollupRow) => boolean;
+// A view base key: surface | via | ref group (external or other). Self-views are never counted anywhere.
+type ViewKey = { surface: string; via: string; ext: boolean };
+const keyOf = (k: ViewKey) => `${k.surface}|${k.via}|${k.ext ? 'ext' : 'oth'}`;
+const parseKey = (key: string): ViewKey => { const [surface, via, e] = key.split('|'); return { surface, via, ext: e === 'ext' }; };
 
 export function buildReadout(input: ReadoutInput, now: Date): string {
   const { mondays } = weekWindow(now);
-  const weekHead = mondays.map((m, i) => isoWeekLabel(m) + (i === mondays.length - 1 ? ' (partial)' : ''));
-  // Only registry values reach the counts: a row with an unknown surface is skipped, an unknown via is counted as none.
-  const rollup: RollupRow[] = [];
+  const W = mondays.length, weeksIdx = mondays.map((_, w) => w);
+  const weekHead = mondays.map((m, i) => weekHeader(m) + (i === W - 1 ? ' (partial)' : ''));
+
+  // Views. Only registry values reach the counts: an unknown surface is skipped, an unknown via is counted as none.
+  const views = new Base(W);
   for (const r of input.rollup ?? []) {
-    if (!(SURFACES as readonly string[]).includes(r.surface)) continue;
-    rollup.push({ day: r.day, surface: r.surface, ref_class: String(r.ref_class), via: isViewVia(r.via) ? r.via : VIA_NONE, self_view: r.self_view === true, n: count(r.n) });
+    if (!(SURFACES as readonly string[]).includes(r.surface) || r.self_view === true) continue;
+    const w = weekIndex(mondays, r.day);
+    if (w < 0) continue;
+    views.add(keyOf({ surface: r.surface, via: isViewVia(r.via) ? r.via : VIA_NONE, ext: r.ref_class === 'external' }), w, count(r.n));
   }
-  const weekly = (p: Pred): number[] => {
-    const out = mondays.map(() => 0);
-    for (const r of rollup) { const w = weekIndex(mondays, r.day); if (w >= 0 && p(r)) out[w] += r.n; }
-    return out;
-  };
-  const rowCells = (values: number[]) => { const h = suppress([values], false)[0]; return values.map((v, i) => cell(v, h[i])); };
+  views.seal();
+  const select = (p: (k: ViewKey) => boolean) => views.keys().filter((k) => p(parseKey(k)));
+  const at = (keys: string[], w: number): BaseRef[] => keys.map((key) => ({ key, w }));
+  const allWeeks = (keys: string[]): BaseRef[] => keys.flatMap((key) => weeksIdx.map((w) => ({ key, w })));
 
   const out: string[] = [];
   out.push('# F-15 owner readout');
   out.push('');
   out.push(`Generated ${now.toISOString().slice(0, 10)} (UTC days, ISO weeks). Owner-only; descriptive counts only; never commit this file.`);
   out.push('Strict DESIGN §3.5 numbers come first; anything else is labelled partial (gate definitions: MRC2-3, owner).');
-  out.push('Demo profiles are excluded. "<5" = a count from 1 to 4; "(s)" = hidden so a small count can\'t be worked out; "≥ n" = a total with hidden cells.');
+  out.push('Demo profiles and self-views are excluded. "<5" = a count from 1 to 4; "(s)" = hidden so a small count can\'t be worked out; "≥ n" = a sum with hidden parts (n counts only the visible parts).');
   out.push('');
 
-  // G1
+  // G1: two disjoint single counts, no total.
   const g1 = [count(input.g1?.strict), count(input.g1?.partial)];
+  const small = (v: number) => (v > 0 && v < SMALL ? '<5' : fmt(v));
   out.push('## G1');
   out.push('');
   out.push(table(['Metric (DESIGN §3.5)', 'Continue if', 'Now'], [
-    [GATES[0].metric, GATES[0].threshold, cell(g1[0], false)],
-    ['partial: traders whose connections are all frozen or failed (none connected)', '', cell(g1[1], false)],
+    [GATES[0].metric, GATES[0].threshold, small(g1[0])],
+    ['partial: traders whose connections are all frozen or failed (none connected)', '', small(g1[1])],
   ]));
   out.push('');
 
-  // G2
   out.push('## G2');
   out.push('');
   out.push(table(['Metric (DESIGN §3.5)', 'Continue if', 'Now'], [[GATES[1].metric, GATES[1].threshold, G2_TEXT]]));
   out.push('');
 
-  // G3
-  const notSelf: Pred = (r) => !r.self_view;
-  const isShareTM = (r: RollupRow) => (r.via === 'trade' || r.via === 'month') && r.surface !== 'login';
-  const isCta = (r: RollupRow) => r.via === 'nav' || r.via === 'profile' || ((r.via === 'trade' || r.via === 'month') && r.surface === 'login');
-  const g3: [string, string, Pred][] = [
-    [`${GATES[2].metric} (${G3_LABEL})`, GATES[2].threshold, (r) => r.surface === 'profile' && r.ref_class === 'external' && notSelf(r)],
-    ['partial: tagged links, card', '', (r) => notSelf(r) && r.via === 'card'],
-    ['partial: tagged links, story', '', (r) => notSelf(r) && r.via === 'story'],
-    ['partial: tagged links, trade/month share', '', (r) => notSelf(r) && isShareTM(r)],
-    ['partial: invite links (inv_*)', '', (r) => notSelf(r) && (INVITE_VIAS as readonly string[]).includes(r.via)],
-    ['partial: nav/profile CTA links', '', (r) => notSelf(r) && isCta(r)],
-    ['partial: trade surface, external referrer', '', (r) => notSelf(r) && r.surface === 'trade' && r.ref_class === 'external'],
-    ['partial: month surface, external referrer', '', (r) => notSelf(r) && r.surface === 'month' && r.ref_class === 'external'],
+  // G3: every row is a sum of the same base cells the surface × via table prints.
+  const tm = (v: string) => v === 'trade' || v === 'month';
+  const g3: [string, string, string[]][] = [
+    [`${GATES[2].metric} (${G3_LABEL})`, GATES[2].threshold, select((k) => k.surface === 'profile' && k.ext)],
+    ['partial: tagged links, card', '', select((k) => k.via === 'card')],
+    ['partial: tagged links, story', '', select((k) => k.via === 'story')],
+    ['partial: tagged links, trade/month share', '', select((k) => tm(k.via) && k.surface !== 'login')],
+    ['partial: invite links (inv_*)', '', select((k) => (INVITE_VIAS as readonly string[]).includes(k.via))],
+    ['partial: nav/profile CTA links', '', select((k) => k.via === 'nav' || k.via === 'profile' || (tm(k.via) && k.surface === 'login'))],
+    ['partial: trade surface, external referrer', '', select((k) => k.surface === 'trade' && k.ext)],
+    ['partial: month surface, external referrer', '', select((k) => k.surface === 'month' && k.ext)],
   ];
   out.push('## G3');
   out.push('');
-  out.push(table(['Metric (DESIGN §3.5)', 'Continue if', ...weekHead], g3.map(([label, th, p]) => [label, th, ...rowCells(weekly(p))])));
+  out.push(table(['Metric (DESIGN §3.5)', 'Continue if', ...weekHead],
+    g3.map(([label, th, keys]) => [label, th, ...weeksIdx.map((w) => views.print(at(keys, w)))])));
   out.push('');
-  out.push(`All G3 rows count ${G3_LABEL}, self-views excluded. The partial rows overlap and are not a split of the strict row.`);
+  out.push(`All G3 rows count ${G3_LABEL}. The partial rows overlap and are not a split of the strict row.`);
   out.push(G3_OWNER_LINE);
   out.push('');
 
-  // G4
   out.push('## G4');
   out.push('');
   out.push(table(['Metric (DESIGN §3.5)', 'Continue if', 'Now'], [[GATES[3].metric, GATES[3].threshold, G4_TEXT]]));
   out.push('');
 
-  // Drops by reason × week, and the drop share.
-  const reasons = DROP_REASONS as readonly string[];
-  const dropGrid = reasons.map(() => mondays.map(() => 0));
+  // Drops: base cells are reason × week (surface is never printed). Counted views = the sum of every view base cell.
+  const drops = new Base(W);
+  for (const r of DROP_REASONS) drops.add(r, 0, 0);
   for (const d of input.drops ?? []) {
-    const ri = reasons.indexOf(d.reason), w = weekIndex(mondays, d.day);
-    if (ri >= 0 && w >= 0) dropGrid[ri][w] += count(d.n);
+    const w = weekIndex(mondays, d.day);
+    if ((DROP_REASONS as readonly string[]).includes(d.reason) && w >= 0) drops.add(d.reason, w, count(d.n));
   }
-  const counted = mondays.map(() => 0);
-  for (const c of input.counted ?? []) { const w = weekIndex(mondays, c.day); if (w >= 0) counted[w] += count(c.n); }
-  const dropHidden = suppress(dropGrid, true);
-  const countedHidden = suppress([counted], false)[0];
-  const dropTotals = mondays.map((_, w) => ({ values: dropGrid.map((r) => r[w]), hidden: dropGrid.map((_, r) => dropHidden[r][w]) }));
+  drops.seal();
+  const allViews = views.keys();
   out.push('## Bot filter drops (all surfaces, demo profiles included)');
   out.push('');
   out.push(table(['Reason', ...weekHead, 'Total'], [
-    ...reasons.map((reason, r) => [reason, ...dropGrid[r].map((v, w) => cell(v, dropHidden[r][w])), total(dropGrid[r], dropHidden[r])]),
-    ['all drops', ...dropTotals.map((t) => total(t.values, t.hidden)), total(dropGrid.flat(), dropHidden.flat())],
-    ['counted views', ...counted.map((v, w) => cell(v, countedHidden[w])), total(counted, countedHidden)],
-    ['drop share', ...dropTotals.map((t, w) => {
-      const dropped = t.values.reduce((s, v) => s + v, 0);
-      if (t.hidden.some(Boolean) || countedHidden[w] || (counted[w] > 0 && counted[w] < SMALL) || (dropped > 0 && dropped < SMALL)) return 'n/a (small cells)';
-      return dropped + counted[w] === 0 ? '—' : `${((100 * dropped) / (dropped + counted[w])).toFixed(1)}% dropped`;
+    ...DROP_REASONS.map((r) => [r, ...weeksIdx.map((w) => drops.print([{ key: r, w }])), drops.print(weeksIdx.map((w) => ({ key: r, w })))]),
+    ['all drops', ...weeksIdx.map((w) => drops.print(at([...DROP_REASONS], w))), drops.print(allWeeks([...DROP_REASONS]))],
+    ['counted views', ...weeksIdx.map((w) => views.print(at(allViews, w))), views.print(allWeeks(allViews))],
+    ['drop share', ...weeksIdx.map((w) => {
+      const d = at([...DROP_REASONS], w), v = at(allViews, w);
+      if (!drops.exact(d) || !views.exact(v)) return 'n/a (small cells)';
+      const dropped = drops.value(d), counted = views.value(v);
+      return dropped + counted === 0 ? '—' : `${((100 * dropped) / (dropped + counted)).toFixed(1)}% dropped`;
     }), ''],
   ]));
   out.push('');
-  out.push('Drop share = dropped beacons / (dropped + counted views) in the week; it tells an instrument change from a traffic change.');
+  out.push('Drop share = dropped beacons / (dropped + counted views) in the week, from exact counts only; it tells an instrument change from a traffic change. Drops include demo profiles; counted views do not.');
   out.push('');
 
-  // Surface × via × week (self-views excluded). Rows with every week under 5 roll into "other"; a kept row's cell under 5
-  // moves into "other" for that week and prints "<5".
-  const keys = new Map<string, number[]>();
-  for (const r of rollup) {
-    if (r.self_view) continue;
-    const w = weekIndex(mondays, r.day);
-    if (w < 0) continue;
-    const k = `${r.surface}|${r.via}`;
-    if (!keys.has(k)) keys.set(k, mondays.map(() => 0));
-    keys.get(k)![w] += r.n;
+  // Surface × via × week. A row (summed over referrer groups) with every week under 5 rolls into "other".
+  const pairs = new Map<string, string[]>();
+  for (const key of allViews) {
+    const k = parseKey(key), p = `${k.surface}|${k.via}`;
+    if (!pairs.has(p)) pairs.set(p, []);
+    pairs.get(p)!.push(key);
   }
-  const order = (k: string) => { const [s, v] = k.split('|'); return [(SURFACES as readonly string[]).indexOf(s), v === VIA_NONE ? '' : v] as const; };
-  const sorted = [...keys.keys()].sort((a, b) => { const [sa, va] = order(a), [sb, vb] = order(b); return sa - sb || va.localeCompare(vb); });
-  const other = mondays.map(() => 0);
-  const kept: { label: string[]; values: number[]; rolled: boolean[] }[] = [];
-  for (const k of sorted) {
-    const values = keys.get(k)!;
-    if (values.every((v) => v < SMALL)) { values.forEach((v, w) => { other[w] += v; }); continue; }
-    const rolled = values.map((v) => v > 0 && v < SMALL);
-    values.forEach((v, w) => { if (rolled[w]) other[w] += v; });
-    const [s, v] = k.split('|');
-    kept.push({ label: [safeLabel(s), safeLabel(v)], values: values.map((x, w) => (rolled[w] ? 0 : x)), rolled });
+  const order = (p: string) => { const [s, v] = p.split('|'); return [(SURFACES as readonly string[]).indexOf(s), v === VIA_NONE ? '' : v] as const; };
+  const sorted = [...pairs.keys()].sort((a, b) => { const [sa, va] = order(a), [sb, vb] = order(b); return sa - sb || va.localeCompare(vb); });
+  const otherKeys: string[] = [];
+  const kept: [string, string[]][] = [];
+  for (const p of sorted) {
+    const keys = pairs.get(p)!;
+    if (weeksIdx.every((w) => views.value(at(keys, w)) < SMALL)) otherKeys.push(...keys);
+    else kept.push([p, keys]);
   }
-  const grid = [...kept.map((k) => k.values), other];
-  // A rolled cell is hidden too, so complementary suppression runs with it in place.
-  const rerun = suppress(grid, true, [...kept.map((k) => k.rolled), other.map(() => false)]);
-  const cellOf = (r: number, w: number) => (r < kept.length && kept[r].rolled[w] ? '<5' : cell(grid[r][w], rerun[r][w]));
-  out.push('## Views by surface × via × week (self-views excluded)');
+  const row = (keys: string[]) => [...weeksIdx.map((w) => views.print(at(keys, w))), views.print(allWeeks(keys))];
+  out.push('## Views by surface × via × week');
   out.push('');
   out.push(table(['Surface', 'Via', ...weekHead, 'Total'], [
-    ...kept.map((k, r) => [...k.label, ...mondays.map((_, w) => cellOf(r, w)), total(k.values, rerun[r])]),
-    ['other', 'other', ...mondays.map((_, w) => cellOf(kept.length, w)), total(other, rerun[kept.length])],
-    ['all', 'all', ...mondays.map((_, w) => total(grid.map((row) => row[w]), grid.map((_, r) => rerun[r][w]))), total(grid.flat(), rerun.flat())],
+    ...kept.map(([p, keys]) => [...p.split('|').map(safeLabel), ...row(keys)]),
+    ['other', 'other', ...row(otherKeys)],
+    ['all', 'all', ...row(allViews)],
   ]));
   out.push('');
-  out.push('"other" holds every surface × via cell under 5. Counts are views, not people.');
+  out.push('"other" holds every surface × via row with no week of 5 or more. Counts are views, not people.');
+  out.push('');
+  out.push(RECONCILE_LINE);
   out.push('');
   return out.join('\n');
 }
@@ -290,9 +312,6 @@ async function main() {
     const drops = await sql<DropRow[]>`
       select to_char(day, 'YYYY-MM-DD') as day, surface, reason, sum(n)::int as n from view_drops
       where day between ${from}::date and ${to}::date group by day, surface, reason`;
-    const counted = await sql<CountRow[]>`
-      select to_char(day, 'YYYY-MM-DD') as day, sum(n)::int as n from view_rollup
-      where day between ${from}::date and ${to}::date group by day`;
     const [g1] = await sql<{ strict: number; partial: number }[]>`
       select count(*) filter (where t.connected)::int as strict, count(*) filter (where not t.connected)::int as partial
       from (select u.id, bool_or(c.state = 'connected') as connected
@@ -300,7 +319,7 @@ async function main() {
             where u.deleted_at is null
               and not exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo')
             group by u.id) t`;
-    const text = buildReadout({ rollup: [...rollup], drops: [...drops], counted: [...counted], g1: g1 ?? { strict: 0, partial: 0 } }, now);
+    const text = buildReadout({ rollup: [...rollup], drops: [...drops], g1: g1 ?? { strict: 0, partial: 0 } }, now);
     mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `f15-readout-${now.toISOString().slice(0, 10)}.md`);
     writeFileSync(file, text, { mode: 0o600 });

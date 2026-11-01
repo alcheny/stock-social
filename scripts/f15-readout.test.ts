@@ -7,7 +7,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-  G2_TEXT, G3_LABEL, G3_OWNER_LINE, G4_TEXT, buildReadout, parseOutArg, resolveOut, suppress, weekWindow,
+  G2_TEXT, G3_LABEL, G3_OWNER_LINE, G4_TEXT, RECONCILE_LINE, buildReadout, parseOutArg, resolveOut, suppress, weekWindow,
   type ReadoutInput, type RollupRow,
 } from './f15-readout.ts';
 
@@ -35,7 +35,6 @@ function fixture(): ReadoutInput {
       { day: dayOf(1), surface: 'feed', reason: 'automation', n: 20 },
       { day: dayOf(2), surface: 'feed', reason: 'no_fetch_metadata', n: 4 },
     ],
-    counted: mondays.map((_, w) => ({ day: dayOf(w), n: 100 + w })),
     g1: { strict: 3, partial: 1 },
   };
 }
@@ -78,7 +77,7 @@ test('small surface × via rows roll into "other"; totals only when nothing in t
   assert.ok(rowOf(md, 'other | other'));
   assert.equal(rowOf(md, 'profile | inv_t'), undefined);
   assert.equal(rowOf(md, 'trade | trade'), undefined);
-  const clean = buildReadout({ rollup: mondays.map((_, w) => view(w, 9, { surface: 'feed', ref_class: 'internal' })), drops: [], counted: [], g1: { strict: 0, partial: 0 } }, NOW);
+  const clean = buildReadout({ rollup: mondays.map((_, w) => view(w, 9, { surface: 'feed', ref_class: 'internal' })), drops: [], g1: { strict: 0, partial: 0 } }, NOW);
   assert.match(rowOf(clean, 'feed | none')!, /\| 72 \|$/); // 8 × 9, nothing hidden: exact total
   assert.match(rowOf(clean, 'all | all')!, /\| 72 \|$/);
 });
@@ -163,4 +162,52 @@ test('a missing --out throws', () => {
   assert.throws(() => parseOutArg(['--out', '--other']), /--out/);
   assert.equal(parseOutArg(['--out', '/x']), '/x');
   assert.equal(parseOutArg(['--out=/y']), '/y');
+});
+
+const cellsOf = (line: string | undefined) => (line ?? '').slice(1, -1).split('|').map((c) => c.trim());
+const g3Row = (md: string, label: string) => cellsOf(md.split('\n').find((l) => l.startsWith(`| ${label}`))).slice(2);
+const tableRow = (md: string, label: string) => cellsOf(rowOf(md, label)).slice(2);
+const only = (rows: RollupRow[]): ReadoutInput => ({ rollup: rows, drops: [], g1: { strict: 0, partial: 0 } });
+
+test('cross-table: G3 invite minus the surface × via table cannot recover a hidden 3 (20 + 3)', () => {
+  const rows = [...mondays.map((_, w) => view(w, 20, { via: 'inv_t', ref_class: 'none' })), view(5, 3, { surface: 'feed', via: 'inv_t', ref_class: 'none' })];
+  const md = buildReadout(only(rows), NOW);
+  const invite = g3Row(md, 'partial: invite links (inv_*)');
+  assert.equal(tableRow(md, 'profile | inv_t')[5], '20');
+  assert.equal(rowOf(md, 'feed | inv_t'), undefined); // rolled into other
+  assert.equal(tableRow(md, 'other | other')[5], '<5');
+  assert.equal(invite[5], '≥ 20'); // never 23
+  assert.ok(!md.includes('| 23 |') && !md.includes('≥ 23'));
+  assert.equal(invite[4], '20');
+  assert.equal(tableRow(md, 'all | all')[5], '≥ 20');
+});
+
+test('cross-table: strict G3 vs the profile row, and counted views vs the drop share, hide a small cell', () => {
+  const rows = [...mondays.map((_, w) => view(w, 40)), view(2, 2, { ref_class: 'internal' })];
+  const input = only(rows);
+  input.drops = mondays.map((_, w) => ({ day: dayOf(w), surface: 'profile', reason: 'declared_bot', n: 10 }));
+  const md = buildReadout(input, NOW);
+  assert.equal(g3Row(md, 'Profile views from external referrers / week')[2], '40');
+  const profile = tableRow(md, 'profile | none');
+  assert.equal(profile[2], '≥ 40'); // never 42, which would give 42 - 40 = 2
+  const counted = cellsOf(rowOf(md, 'counted views')).slice(1);
+  assert.equal(counted[2], '≥ 40');
+  assert.equal(cellsOf(rowOf(md, 'drop share')).slice(1)[2], 'n/a (small cells)');
+  assert.match(cellsOf(rowOf(md, 'drop share')).slice(1)[0], /^20\.0% dropped$/); // 10 / (10 + 40), all exact
+  for (const c of tableCells(md)) assert.ok(c !== '42' && c !== '≥ 42' && c !== '322', c);
+});
+
+test('one line reconciles the three weekly totals', () => {
+  const md = buildReadout(fixture(), NOW);
+  assert.ok(md.includes(RECONCILE_LINE));
+  for (const part of ['external referrers only', 'every referrer class', 'exclude self-views and demo profiles', 'drop counts include demo profiles']) {
+    assert.ok(RECONCILE_LINE.includes(part), part);
+  }
+});
+
+test('week headers carry the ISO week and its UTC dates', () => {
+  const md = buildReadout(fixture(), NOW);
+  assert.ok(md.includes('| 2026-W44, Oct 26–Nov 1 (partial) |'));
+  assert.ok(md.includes('| 2026-W40, Sep 28–Oct 4 |'));
+  assert.ok(md.includes('| 2026-W37, Sep 7–13 |'));
 });
