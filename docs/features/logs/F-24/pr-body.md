@@ -50,8 +50,10 @@ reviewer; 3 planning rounds, all signed):
 
 ## Testing
 - `npx tsc --noEmit`: clean.
-- `npm test`, run twice on the final tree: 1996 tests, 0 failures each time. The only "not ok" is the existing owner
-  TODO, H4.
+- `npm test`, run twice on the final tree (after the orchestrator review fixes and main merged): 2001 tests.
+  - The only code-unrelated misses: the existing owner TODO, H4, and the likes timing check (`lib/likes.test.ts`,
+    "well under 100 ms"). That check measured 111–167 ms in this freshly restarted container and also misses on a fresh
+    database. This PR does not touch likes.
 - New tests:
   - `lib/sync-reconcile.db.test.ts`: AC1–AC4, including AC1 over the vendor fake through the real `lib/broker.ts`.
   - `.reissue.test.ts`: AC6 (a)–(l).
@@ -66,7 +68,7 @@ reviewer; 3 planning rounds, all signed):
 - `npm run build`: ok.
 - Full `npx playwright test` (one worker) on a fresh seeded database:
   - before the review fixes: 291 passed, 6 skipped, 0 failed;
-  - on the final tree: 291 passed, 6 skipped, 0 failed.
+  - on the final tree, after the orchestrator review fixes: 291 passed, 6 skipped, 0 failed.
 - Heavy use, per the tester: about 20–40 ms more per sync for a trader with 5,000 activities, within run-to-run noise
   next to the rebuild.
 
