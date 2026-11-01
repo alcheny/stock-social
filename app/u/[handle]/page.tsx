@@ -52,9 +52,26 @@ import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
 import { OPTIONS } from '@/lib/copy.ts';
+// F-16 (plan docs/features/logs/F-16-F-17/plan.md §2.1, §5.4; v2 B6, B7): the quiet report menu and the line.
+import { ProfileReportMenu, TrustFoot, TrustShown } from '../../trust-foot.tsx';
+import { impersonationLineShown } from '@/lib/takedown.ts';
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
+// seam: F-17's RENAME_RULE, nextRenameAt and HANDLE_REASON.soon belong to engineer D (lib/handles.ts, plan §6.1, §13 D).
+// Until D's lib/handles.ts lands they are these local stand-ins (same wording as plan §2.6); the lead replaces them with
+// the imports at merge.
+const RENAME_RULE = 'You can change your handle once every 30 days. Your old handle stays reserved for you for a year and its links stop working. Changing again releases it.';
+const nextRenameAt = (renamedAt: Date | null): Date | null => (renamedAt ? new Date(renamedAt.getTime() + 30 * 86_400_000) : null);
+const SOON = 'You can change your handle once every 30 days.';
+// F-17 (plan §2.6): a "soon" rejection says when the next change is allowed.
+const nextChange = (d: Date) => `Next change: ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}.`;
+function renameError(code: string | undefined, renamedAt: Date | null): string | undefined {
+  if (code !== 'soon') return profileHandleError(code);
+  const base = profileHandleError('soon') ?? SOON;
+  const next = nextRenameAt(renamedAt);
+  return next && !base.includes('Next change') ? `${base} ${nextChange(next)}` : base;
+}
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string; options?: string }> };
 
@@ -206,7 +223,11 @@ export default async function Profile({ params, searchParams }: Params) {
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
-  const handleError = isMe ? profileHandleError((await searchParams)?.handle) : undefined;
+  const renamedAt = isMe ? ((me as { handle_renamed_at?: Date | null }).handle_renamed_at ?? null) : null;
+  const handleError = isMe ? renameError((await searchParams)?.handle, renamedAt) : undefined;
+  const renameNext = nextRenameAt(renamedAt);
+  const renameSoon = renameNext && renameNext.getTime() > Date.now() ? nextChange(renameNext) : null;
+  const trustShown = impersonationLineShown(); // F-16: draft line in the sandbox until the owner approves it
   const listed = trades.slice(win.start, win.start + win.shown);
   const firstNew = win.next !== null ? trades[win.end] : null;
 
@@ -265,13 +286,16 @@ export default async function Profile({ params, searchParams }: Params) {
         // rule is a visible hint and the field's title, so a pattern failure explains itself.
         <details className="handle-edit" open={!!handleError}>
           <summary className="button secondary">{PROFILE.changeHandle}</summary>
-          <form action={setHandle} className="inline">
-            <label htmlFor="new-handle" className="sr-only">New handle</label>
-            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} defaultValue={user.handle} autoFocus={!!handleError} aria-describedby={handleError ? 'handle-hint handle-err' : 'handle-hint'} />
+          {/* F-17 (plan §2.6, E16): the label is visible with the same text; a rejection is the field's next sibling
+              (role=alert, aria-invalid, described by it, focus on the field), and the 30-day rule is a visible hint. */}
+          <form action={setHandle} className="inline handle-form">
+            <label htmlFor="new-handle">New handle</label>
+            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" title={HANDLE_RULE} defaultValue={user.handle} autoFocus={!!handleError} aria-describedby={handleError ? 'handle-hint handle-err' : 'handle-hint'} aria-invalid={handleError ? true : undefined} />
+            {handleError && <p id="handle-err" role="alert" className="down small">{handleError}</p>}
             <button>Save</button>
           </form>
           <p id="handle-hint" className="muted small">{HANDLE_RULE}</p>
-          {handleError && <p id="handle-err" role="alert" className="down small">{handleError}</p>}
+          <p className="muted small rename-rule" data-rename-rule>{RENAME_RULE}{renameSoon && ` ${renameSoon}`}</p>
         </details>
       )}
       {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
@@ -386,8 +410,15 @@ export default async function Profile({ params, searchParams }: Params) {
         </p>
       )}
       {opt.gate === 'open' && complete && <OptionTradesSection trades={opt.trades} start={Number((await searchParams)?.options) || 0} handle={user.handle} />}
-      {similar && <SimilarSection handle={user.handle} similar={similar} signedIn={!!me} />}
+      {similar && <TrustShown shown={trustShown}><SimilarSection handle={user.handle} similar={similar} signedIn={!!me} /></TrustShown>}
       <p><Link href="/" className="tap44">← Feed</Link></p>
+      {/* F-16 block (plan §2.1, §5.4; v2 B6): the quiet report menu (signed out too, never on your own profile, never
+          beside Follow or Share), then the anti-impersonation line last in <main>, so the footer's F3 disclaimer sits
+          directly after it. */}
+      <div className="f16-block">
+        {!isMe && <ProfileReportMenu handle={user.handle} />}
+        <TrustFoot shown={trustShown} />
+      </div>
     </main>
   );
 }

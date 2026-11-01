@@ -740,3 +740,34 @@ h1 { overflow-wrap: anywhere; }
 }
 /* 320 px: the open line and the disclaimer wrap to three lines each; tighter gaps keep the card's 15% headroom. */
 @media (max-width: 340px) { .feed .row > .card { gap: 12px; } }
+
+/* ---- F-16 · Trust and safety slice (docs/features/logs/F-16-F-17/plan.md §2.1–§2.4, §5.4). Existing tokens only. ----
+   The anti-impersonation line: body size (never smaller than the footer's disclaimer), the muted text token. In a
+   feed row the pane keeps its own vertical scroll and the line with its disclaimer sits under it in the same column
+   (a grid instead of the row's flex, so the foot never becomes a third swipe page; app/feed-keys.tsx still finds
+   `:scope > .pane`). In a sheet the sheet's own disclaimer follows directly, so the foot renders without its copy. */
+.trust-foot { font-size: inherit; color: var(--muted); }
+.f16-block { margin-top: 24px; }
+.profile-report { display: flex; justify-content: flex-end; }
+.profile-report .report-link { display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; white-space: nowrap; }
+.feed > .row:has(> .trust-foot) { display: grid; grid-template-columns: 100% 100%; grid-template-rows: minmax(0, 1fr) auto; }
+.feed > .row:has(> .trust-foot) > .card { grid-column: 1; grid-row: 1 / 3; }
+.feed > .row:has(> .trust-foot) > .pane { grid-column: 2; grid-row: 1; height: auto; min-height: 0; padding-bottom: 8px; }
+.feed > .row > .trust-foot { grid-column: 2; grid-row: 2; height: auto; padding-top: 8px; padding-bottom: 20px; border-top: 1px solid var(--line); background: var(--bg); }
+.trust-foot.in-pane p { margin: 0 0 4px; }
+.pane-sheet .trust-foot { padding: 0 max(16px, calc((100% - 560px) / 2)) 4px; }
+/* Report page: each radio row is a 44 px target; the alert sits between the legend and the first choice. */
+.report-form fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 4px; margin: 0 0 12px; }
+.report-form legend { font-weight: 700; padding: 0 4px; }
+.report-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.report-choice input { width: 22px; height: 22px; margin: 0; flex: none; }
+.report-choice label { flex: 1; min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.report-err, .report-alert { margin: 4px 0 8px; }
+.report-send { min-height: 44px; }
+.report-done:focus, .report-alert:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.takedown-draft { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--surface); }
+/* F-17 rename (plan §2.6): the visible label on its own line, the rejection under the field (next sibling in the DOM). */
+form.handle-form { flex-wrap: wrap; align-items: center; }
+form.handle-form label { flex-basis: 100%; }
+form.handle-form #handle-err { order: 1; flex-basis: 100%; margin: 0; }
+/* end F-16 */

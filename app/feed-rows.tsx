@@ -11,6 +11,8 @@ import { SECTION_AT } from '@/lib/discovery/section.ts';
 import { recordStrip, type Strip } from '@/lib/record-strip.ts';
 import { paneTrust, type TrustBadge } from '@/lib/pane.ts';
 import { ReportNote } from './report-note.tsx';
+import { TrustFoot } from './trust-foot.tsx'; // F-16 (plan v2 B1): the line and its disclaimer beside the pane
+import { impersonationLineShown } from '@/lib/takedown.ts';
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -27,6 +29,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   // page; for a long record a stand-in line, the full chart loading on the pane's first swipe-open (fix round 8). The
   // pane is built once per trader and the same element placed in each of that trader's rows.
   const panes = new Map<number, ReturnType<typeof ProfilePane>>();
+  const trustShown = impersonationLineShown(); // F-16: the draft line renders in the sandbox until the owner approves it
   const paneOf = (t: { user_id: number; handle: string; display_name: string }) => {
     let p = panes.get(t.user_id);
     const trades = page.byUser.get(t.user_id) ?? [];
@@ -65,7 +68,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} likeable={!isPublicRecord(page.records.get(t.user_id)?.state ?? 'none')} /> : undefined}
             hint={page.offset === 0 && i === 0} /* F-13 (SW-1): the swipe hint on page 1's first card only; appended pages never */
             notice={page.offset === 0 && i === 0 ? <FirstVisit page={page} /> : undefined} /* F-13 (D27): in card 1's thesis slot, so F-10's first screen holds */ />
-          {paneOf(t)}
+          {paneOf(t)}<TrustFoot inPane shown={trustShown} />{/* F-16 (B1): under the pane, its own grid cell */}
         </div>
       ),
     };
@@ -73,7 +76,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   // F-2 PR-3: the suggestions section after the 5th card (position 6), on every page that has one.
   if (page.section && out.length >= SECTION_AT) {
     const rows = new Map(page.section.map((r) => [r.userId, r]));
-    const pane = (id: number) => { const r = rows.get(id)!; return paneOf({ user_id: id, handle: r.handle, display_name: r.name }); };
+    const pane = (id: number) => { const r = rows.get(id)!; return <>{paneOf({ user_id: id, handle: r.handle, display_name: r.name })}<TrustFoot inPane shown={trustShown} disclaimer={false} /></>; }; // F-16: the sheet's note follows
     out.splice(SECTION_AT, 0, { id: `section-${page.offset}`, node: <SuggestSection key={`section-${page.offset}`} page={page} pane={pane} /> });
   }
   return out;
