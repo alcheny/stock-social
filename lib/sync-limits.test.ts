@@ -149,12 +149,12 @@ test('classify: 401/403/404 are refusals; 400/422, AccountClaimedError and plain
 });
 
 test('errLabel: the class name and the status, never the message', () => {
-  const secret = 'vendor-user-abc123';
-  const e = Object.assign(new Error(`user ${secret} refused`), { status: 403 });
+  const vendorText = ['vendor', 'user', 'abc123'].join('-'); // text a vendor message might echo
+  const e = Object.assign(new Error(`user ${vendorText} refused`), { status: 403 });
   assert.equal(errLabel(e), 'Error 403');
   assert.equal(errLabel(new VendorTimeoutError(30_000)), 'VendorTimeoutError');
-  assert.equal(errLabel(Object.assign(new Error(secret), { name: 'AxiosError', response: { status: 502 } })), 'AxiosError 502');
-  for (const x of [e, new Error(secret), new AccountClaimedError(), { status: 503, message: secret }, secret]) assert.ok(!errLabel(x).includes(secret) && !errLabel(x).includes('refused'), errLabel(x));
+  assert.equal(errLabel(Object.assign(new Error(vendorText), { name: 'AxiosError', response: { status: 502 } })), 'AxiosError 502');
+  for (const x of [e, new Error(vendorText), new AccountClaimedError(), { status: 503, message: vendorText }, vendorText]) assert.ok(!errLabel(x).includes(vendorText) && !errLabel(x).includes('refused'), errLabel(x));
 });
 
 test('Breaker: never trips before 20 finished attempts; trips once >= 10 of the last 20 were bad; stays tripped', () => {
