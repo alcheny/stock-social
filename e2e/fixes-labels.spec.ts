@@ -76,6 +76,11 @@ const meets = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && 
 
 // The F3 line is in the viewport, whole, and under none of the fixed overlays. `fold`: the share of the viewport's
 // height it must leave below it (15% headroom on a page; a feed card ends at its bar zone instead, checked apart).
+// The record's figures (the strip) centred in the viewport, as a reader scrolling to them sees them.
+async function recordInView(page: Page) {
+  await page.locator('section[aria-labelledby="whole-record"] [data-strip]').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+}
+
 async function inPlainView(page: Page, line: Locator, what: string, fold = 0.15) {
   await expect(line, what).toHaveText(DISCLAIMER);
   await expect(line, what).toBeVisible();
@@ -136,6 +141,9 @@ test('C1 (AC7): every route that shows a percent figure has the F3 line in plain
         // The first percent figure scrolled into view, then the F3 line is in view with it.
         await page.getByText(PCT).first().scrollIntoViewIfNeeded();
       }
+      // Merged with F-12 (main #54): the trade and month pages carry one F3 line, the record strip's, right after the
+      // record's figures; with the figures in view, the F3 line is in view with them.
+      if (route === '/u/[handle]/trade/[sellId]' || route === '/u/[handle]/month/[ym]') await recordInView(page);
       const line = route === '/' ? page.locator('.feed > .row').first().locator('article.card [data-disclaimer]') : page.locator('main [data-disclaimer]').first();
       await inPlainView(page, line, route, route === '/' ? 0 : 0.15);
     }
@@ -259,14 +267,15 @@ test('C1 (AC7): with the sign-in line and the Undo bar raised, the first card\'s
   } finally { await b.close(); }
 });
 
-test('AC8 + AC15: the trade and month boxes end with the F3 line, in view; the month shows numbers and a range, never a verdict', async ({ page }) => {
+test('AC8 + AC15: the trade and month pages carry one F3 line, right after the record figures, in view; the month shows numbers and a range, never a verdict', async ({ page }) => {
   await page.setViewportSize(VIEW);
   await page.goto(`/u/momentum_maya/trade/${encodeURIComponent(maya.sell)}`);
-  // Merged with F-12 (main #54): one F3 line per page, the record strip's, last in the record's box.
+  // Merged with F-12 (main #54): one F3 line per page, the record strip's, right after the record's figures.
   const trade = page.locator('section[aria-labelledby="this-trade"]');
   await expect(page.locator('main [data-disclaimer]')).toHaveCount(1);
   const tradeRecord = page.locator('section[aria-labelledby="whole-record"]');
-  await expect(tradeRecord.locator('> :last-child [data-disclaimer]')).toHaveCount(1);
+  await expect(tradeRecord.locator('[data-strip] + [data-disclaimer]')).toHaveCount(1);
+  await recordInView(page);
   await inPlainView(page, tradeRecord.locator('[data-disclaimer]'), 'the trade page\'s record');
   await expect(trade.locator('.badge.demo')).toHaveText('Demo');
 
@@ -274,7 +283,8 @@ test('AC8 + AC15: the trade and month boxes end with the F3 line, in view; the m
   const month = page.locator('section[aria-labelledby="this-month"]');
   await expect(page.locator('main [data-disclaimer]')).toHaveCount(1);
   const monthRecord = page.locator('section[aria-labelledby="whole-record"]');
-  await expect(monthRecord.locator('> :last-child [data-disclaimer]')).toHaveCount(1);
+  await expect(monthRecord.locator('[data-strip] + [data-disclaimer]')).toHaveCount(1);
+  await recordInView(page);
   await inPlainView(page, monthRecord.locator('[data-disclaimer]'), 'the month page\'s record');
   await expect(month).not.toContainText('Past results');
   await expect(month).not.toContainText('Evidence');
