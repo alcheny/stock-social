@@ -9,6 +9,7 @@ import { counted } from '@/lib/format.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { DISCLAIMER_SIZE, TRADE_IMAGE as S } from '@/lib/image-fit.ts';
 import { dateText } from '@/lib/date-text.ts';
+import { imageFrozenText } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -35,6 +36,8 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   // Fix round 6 (TR-3, POLICY F3): the profile card's rule from the trader's record state; no check-mark glyph.
   const trust = imageTrust('trade', { state: t.state, demo: t.demo, verified: t.verified, empty: false });
   const closed = dateText(new Date(t.closedAt), new Date(), { year: 'always' });
+  // ponytail: the frozen line is not in a fit model here (the thesis gives way, as for the other optional lines) — count it in lib/image-fit.ts's trade spec (plan §3 D-09)
+  const frozen = imageFrozenText(t.status, new Date()); // FIXES-LABELS: status
   const days = t.holdingDays < 1 ? 'under a day' : `${Math.round(t.holdingDays)} day${Math.round(t.holdingDays) === 1 ? '' : 's'}`;
   return new ImageResponse(
     (
@@ -61,6 +64,8 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
           )}
           {trust.note && <span style={{ fontSize: S.small, color: TONE[trust.tone] }}>{trust.note}</span>}
           {trust.stats && t.newRecord && <span style={{ fontSize: S.small, color: MUTED }}>New record · short record, wide uncertainty</span>}
+          {/* FIXES-LABELS: status (F-11): a frozen record says so; absolute date with the year, never relative. */}
+          {frozen && <span style={{ fontSize: S.small, color: MUTED }}>{frozen}</span>}
         </div>
         <span style={{ fontSize: DISCLAIMER_SIZE, lineHeight: 1.2, color: MUTED, flexShrink: 0 }}>{DISCLAIMER}</span>
       </div>

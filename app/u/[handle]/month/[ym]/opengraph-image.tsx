@@ -6,6 +6,7 @@ import { ImageResponse } from 'next/og';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { MONTH_CARD, monthCard, type CardLine } from '@/lib/month-card.ts';
+import { imageFrozenText } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -31,6 +32,8 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   }
 
   const c = monthCard(r);
+  // ponytail: the frozen line is drawn beside lib/month-card.ts's lines, outside monthCardFits — fold it into the card model's optional frozen line (plan §3 D-09)
+  const frozen = imageFrozenText(r.status, new Date()); // FIXES-LABELS: status
   return new ImageResponse(
     (
       <div style={shell}>
@@ -43,6 +46,8 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', borderTop: `2px solid ${MUTED}`, paddingTop: 16, flexShrink: 0 }}>
           {c.bottom.map((l) => <Line key={l.role} l={l} />)}
+          {/* FIXES-LABELS: status (F-11): a frozen record says so; absolute date with the year, never relative. */}
+          {frozen && <span style={{ ...one, fontSize: 26, color: MUTED }}>{frozen}</span>}
         </div>
         {/* FIXES-LABELS (D-09): the F3 line at its fitted size in a wrapping box, never clipped; lib/month-card.ts budgets its two rows. */}
         <span style={{ fontSize: c.disclaimer.size, lineHeight: MONTH_CARD.lineHeight, color: MUTED, flexShrink: 0 }}>{DISCLAIMER}</span>

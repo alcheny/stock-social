@@ -7,6 +7,7 @@ import { TradeCard, type TradeRow } from './ui.tsx';
 import { SuggestSection } from './suggest-section.tsx';
 import { CardMenu } from './card-menu.tsx';
 import { SECTION_AT } from '@/lib/discovery/section.ts';
+import { cardSegments, paneSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -31,7 +32,8 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     const trades = page.byUser.get(t.user_id) ?? [];
     // F-2 PR-2: no Follow or "…" on the viewer's own record.
     const viewer = page.viewer?.id === t.user_id ? undefined : { signedIn: !!page.viewer, following: !!page.viewer?.following.has(t.user_id) };
-    if (!p) panes.set(key, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id), disclaimer })));
+    if (!p) panes.set(key, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id), disclaimer,
+      status: paneSegments(page.status?.get(t.user_id), now) /* FIXES-LABELS: status */ })));
     return p;
   };
   const out = page.cards.map((t) => {
@@ -43,6 +45,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
           <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} now={now}
+            status={cardSegments(page.status?.get(t.user_id), now)} /* FIXES-LABELS: status */
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
           {paneOf(t)}
         </div>

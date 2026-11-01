@@ -13,6 +13,8 @@ import { RowBadge } from '../../../../ui.tsx';
 import { paneTrust } from '@/lib/pane.ts';
 import { FIXES_LABELS as FLD } from '@/lib/copy.ts';
 const FL_DEMO = FLD.demoNote; // FIXES-LABELS (DS-20): one Demo name
+import { recordSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
+import { StatusText } from '../../../../status-line.tsx'; // FIXES-LABELS: status
 
 type Params = { params: Promise<{ handle: string; sellId: string }> };
 
@@ -62,6 +64,8 @@ export default async function TradePage({ params }: Params) {
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {whole.stats && t.newRecord && <span className="badge new">New record</span>}</h2>
+          {/* FIXES-LABELS: status (F-11): the record's status line, live (this page renders per request). */}
+          <StatusText segments={recordSegments(t.status, new Date()) ?? []} kind="record" />
           {/* Fix round 6 and the reviewer fix (TR-3): the profile's record-state rule. A failed import is never presented
               as a whole record; while an import runs no whole-record stats show, only the importing line. */}
           {whole.tone === 'warn' && <p role="status" className="down record-failed">{whole.line}</p>}

@@ -564,6 +564,28 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, FIXES_LABELS, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, FIXES_LABELS, STATUS_LINE /* FIXES-LABELS: status */, openCopy()].forEach(walk);
   return out;
 }
+
+// FIXES-LABELS: status
+// F-11 / D-12 / fix #4 (docs/features/logs/fixes-labels/plan.md §2, docs/features/F-11): the record status line, in the
+// design system council's settled wording (PR #48, §2.3 R3 and the StatusLine rows). Facts only: idle means no sync,
+// never no closes; no verdict and no completeness words. Params are already formatted dates (lib/date-text.ts) and
+// labels; lib/record-status.ts is the only caller.
+export const STATUS_LINE = {
+  since: (d: string) => `Record since ${d}`, // ‹Mon D, YYYY›
+  lastClose: (d: string) => `Last close ${d}`,
+  updated: (when: string) => `updated ${when}`, // ‹relative› on live pages, ‹Mon D, YYYY› on cached renders
+  justNow: 'just now', // under a minute
+  idle: (d: string) => `not updated since ${d}`, // no successful sync for 30 days; a fact, per record
+  frozen: (d: string) => `Disconnected ${d} · record frozen`, // outranks every freshness date
+  instDisconnected: (inst: string, d: string) => `${inst} disconnected ${d}`, // one of several connections
+  removed: (d: string) => `Account removed ${d}`, // TR-5, on the account's row
+  accountLine: (label: string, inst: string) => `${label} · ${inst}`,
+  accountOf: (i: number, n: number) => `Account ${i} of ${n}`,
+  // The council's row 1 says "Demo"; "Demo data" is kept because an existing test asserts it on the profile
+  // (app.spec:152). One-token change once that expectation moves.
+  demoLink: 'Demo data',
+  accountsLabel: 'Accounts in this record',
+};

@@ -15,6 +15,8 @@ import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass
 // FIXES-LABELS (D-09): the F3 line right after the figures, in both orders.
 import { Disclaimer } from './disclaimer.tsx';
 import { FIXES_LABELS } from '@/lib/copy.ts';
+import type { Segment } from '@/lib/record-status.ts'; // FIXES-LABELS: status
+import { StatusText } from './status-line.tsx'; // FIXES-LABELS: status
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
@@ -31,7 +33,10 @@ const day = (d: Date) => DAY.format(d);
 // Fix round 8: on the feed it is `feedPaneChart` (a stand-in line for a long record) and the chart fetches the full one
 // from `paneChartSrc` on its first swipe-open.
 // F-2 PR-2: `viewer`, signed in: Follow and the "…" menu with "Not interested" (fix round 1: nothing signed out).
-export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf, disclaimer = true }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date; disclaimer?: boolean }) {
+// FIXES-LABELS: status: `status`, the pane's status segments (line 1 without "Record since", then line 2; static mode, as
+// the pane JSON is cached 60 s), before the recent trades.
+// ponytail: OD-9 open positions of a frozen record keep F-6's rule — owner decision pending
+export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf, disclaimer = true, status }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date; disclaimer?: boolean; status?: Segment[] }) {
   const p = paneSummary(trades);
   // F-6: the trader's open positions (connected or failed records only, lib/feed.ts); the combined figure from the whole
   // record, as on the profile. Nothing new renders without open positions.
@@ -78,6 +83,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
       {/* F-6 (business lead D1): with open positions the figures lead, as on the profile (the pane is where most viewers
           meet a record, SW-1); without them, today's order. */}
       {open ? <>{incomplete}{figures}{f3}{chartBlock}{summary}</> : <>{chartBlock}{f3}{summary}{incomplete}{figures}</>}
+      {status && <StatusText segments={status} kind="pane" />}{/* FIXES-LABELS: status */}
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
       <ul className="rows">
         {p.recent.map((t) => (

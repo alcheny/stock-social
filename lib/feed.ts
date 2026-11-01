@@ -1,5 +1,7 @@
 import { sql } from './db.ts';
 import { recordStates, type RecordStatus } from './connections.ts';
+import { statusRows, withStates } from './record-status-load.ts'; // FIXES-LABELS: status
+import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 import { groupByUser } from './pane.ts';
 import { confidence, evidenceWeight, rankTraders, type ConfidenceInput } from './trades.ts';
 import { discounted, mixFeed } from './discovery/explore.ts';
@@ -272,6 +274,8 @@ export type FeedPage = {
   open?: Map<number, number[]>;
   // F-6: the oldest read of each of those traders' positions ("as of").
   openAsOf?: Map<number, Date>;
+  // FIXES-LABELS: status (F-11): each page trader's status-line facts (lib/record-status.ts), with the page's states.
+  status?: Map<number, StatusFacts>;
 };
 export type SectionRow = { userId: number; handle: string; name: string; reason: Reason };
 
@@ -326,6 +330,9 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const likely = (chooseRows(cands) ?? []).map((t) => t.trader);
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
   // F-2 PR-4: signed in, the page's closes this viewer rejected (for good, O3) leave the page as a gap, in place.
+  // FIXES-LABELS: status (F-11): the status facts for the record-state id set, one query, side by side with the reads below.
+  const statusP = statusRows(withSection ? [...new Set([...traders, ...candIds])] : traders);
+  statusP.catch(() => {}); // awaited below; never an unhandled rejection meanwhile
   const [rows, states, panes, following, people, rejected, opens] = await Promise.all([
     page.items.length ? sql`
       select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name
@@ -358,11 +365,13 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   });
   const onPage = new Set([...cards.map((t) => t.user_id), ...(picked ?? []).map((t) => t.trader)]);
   const byUser = groupByUser(panes.filter((r) => onPage.has(r.userId)));
+  const status = withStates(new Map([...(await statusP)].filter(([id]) => onPage.has(id))), states); // FIXES-LABELS: status
   return {
     cards, offset: c.offset, asOf: new Date(c.asOf), next: page.next && encodeCursor(page.next),
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
     viewer: following && { id: opts.viewer!, following }, section,
     ...openOf(opens, onPage, states),
+    status, // FIXES-LABELS: status
   };
 }
 

@@ -9,6 +9,8 @@ import { toneClass } from './open-rows.tsx';
 import { dateText } from '@/lib/date-text.ts';
 import { Disclaimer } from './disclaimer.tsx';
 import { FIXES_LABELS } from '@/lib/copy.ts';
+import type { Segment } from '@/lib/record-status.ts'; // FIXES-LABELS: status
+import { StatusText } from './status-line.tsx'; // FIXES-LABELS: status
 
 export function Badge({ verified }: { verified: boolean }) {
   return verified
@@ -37,7 +39,9 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 // FIXES-LABELS (D-05): the close date is lib/date-text.ts#dateText (one cached formatter per variant, UTC).
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, now = new Date() }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; now?: Date }) {
+// FIXES-LABELS: status: `status`, the card's status segments (lib/record-status.ts `card`, static mode: only a frozen or
+// idle record has any), between the hero and the thesis.
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, now = new Date(), status }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; now?: Date; status?: Segment[] }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const up = t.return_pct > 0;
@@ -57,6 +61,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
         <div className="muted">held {days(t.holding_days)} · closed {dateText(t.closed_at, now) /* FIXES-LABELS (D-05): the year when it is not this year */}</div>
       </div>
+      {status && <StatusText segments={status} kind="card" />}{/* FIXES-LABELS: status */}
       <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">

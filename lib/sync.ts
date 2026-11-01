@@ -6,6 +6,7 @@ import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
 import { replacePositions } from './positions.ts';
 import { logSafe } from './privacy-log.ts';
+import { IDLE_DAYS } from './record-status.ts'; // FIXES-LABELS: status
 
 const BACKFILL_MS = 7 * 86_400_000; // brokers post late corrections; re-read the last week
 // Per-user advisory lock (F-1: a sync is one transaction; a second one for the same user waits or is skipped).
@@ -243,7 +244,7 @@ export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs 
 
 // `deadline` (epoch ms on `clock`, the instance's own clock: it measures this call's duration only) stops claiming
 // once reached; `report` receives what the end-of-call log line says; `clock`, `release` and the rest are test hooks.
-export type TickReport = { ok: number; skipped: number; failed: number; unclaimed: number | null; stoppedAtDeadline: boolean };
+export type TickReport = { ok: number; skipped: number; failed: number; unclaimed: number | null; stoppedAtDeadline: boolean; idle?: number | null };
 export async function syncTick<R>(opts: {
   sync?: (u: SyncableUser) => Promise<R>; ids?: number[]; clockShiftMs?: () => number;
   deadline?: number; routeEnd?: number; clock?: () => number; release?: (u: ClaimedUser) => Promise<void>; report?: (r: TickReport) => void;
@@ -286,7 +287,11 @@ export async function syncTick<R>(opts: {
   try { unclaimed = await unclaimedCount({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0 }); } catch (e) { console.error('sync unclaimed count failed', logSafe(e)); }
   // Traders left because they did not fit the time left are a stop at the deadline too.
   if (!stopped && fit < SYNC_FIT_CAP && (unclaimed ?? 0) > 0) stopped = true;
-  const report: TickReport = { ok, skipped, failed: failed.length, unclaimed, stoppedAtDeadline: stopped };
+  // FIXES-LABELS: status (F-11): idle records (no successful sync for IDLE_DAYS) counted internally, one number in this
+  // counts-only line. Over the whole fleet, so a tick scoped to `ids` (tests, tools) leaves the field out.
+  let idle: number | null = null;
+  if (!opts.ids) try { idle = await idleCount(); } catch (e) { console.error('sync idle count failed', logSafe(e)); }
+  const report: TickReport = { ok, skipped, failed: failed.length, unclaimed, stoppedAtDeadline: stopped, ...(opts.ids ? {} : { idle }) };
   console.log('sync tick', JSON.stringify(report)); // counts only
   opts.report?.(report);
   return { ok, skipped, failed };
@@ -318,6 +323,19 @@ export async function syncUser(
     // TR-5: a connection whose accounts the vendor no longer lists is disconnected; its record stays, frozen.
     await tx`update connections c set disconnected_at = ${now} where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null
       and not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${tx(accounts.length ? accounts.map((a) => a.id) : [''])})`;
+    // FIXES-LABELS: status (F-11, TR-5 "Account removed ‹date›"). Only after the vendor's list came back (a fetch error has
+    // already thrown) and is not empty (an empty list is the disconnect path above): a confirmed real account the list
+    // no longer has, whose connection still lists at least one account, is stamped once; never cleared, like
+    // disconnected_at. Its trades stay listed (TR-1).
+    // ponytail: an account removed while the vendor list is empty is recorded as a disconnect, not a removal — vendor per-account removal events
+    if (accounts.length) {
+      const listed = accounts.map((a) => a.id);
+      await tx`update broker_accounts b set removed_at = ${now}
+        where b.user_id = ${user.id} and b.removed_at is null and b.confirmed_at is not null and not b.is_paper and b.account_id not in ${tx(listed)}
+          and exists (select 1 from connections c, jsonb_array_elements(c.accounts) a
+            where c.user_id = ${user.id} and c.state = 'connected' and a->>'id' = b.account_id and coalesce((a->>'isPaper')::boolean, false) = false
+              and exists (select 1 from jsonb_array_elements(c.accounts) l where l->>'id' in ${tx(listed)}))`;
+    }
     // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
     if (!accounts.length) return 0;
     // Fix round 6: a quarantined future date never sets the re-read window (it would skip the real last week).
@@ -365,4 +383,16 @@ export async function syncAll<U extends { id: number }>(users: U[], sync: (u: U)
     }
   }
   return { ok, failed };
+}
+
+// FIXES-LABELS: status (F-11): the number of idle records, the predicate of lib/record-status.ts#idleSince in SQL: a
+// record with a live (not disconnected) consented connected connection whose last successful sync, or else its earliest
+// live consent, is IDLE_DAYS old or more. A frozen record (every connection disconnected) is not idle. A count only.
+export async function idleCount(ids?: number[]): Promise<number> {
+  if (ids && !ids.length) return 0;
+  const [{ n }] = await sql`select count(*)::int as n from users u,
+      lateral (select min(c.consent_at) as first from connections c where c.user_id = u.id and c.state = 'connected' and c.consent_at is not null and c.disconnected_at is null) l
+    where u.deleted_at is null and l.first is not null ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
+      and coalesce(u.last_synced_at, l.first) <= now() - make_interval(days => ${IDLE_DAYS})`;
+  return n as number;
 }

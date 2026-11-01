@@ -471,3 +471,11 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .chart .chart-head { min-height: 48px; }
 .chart-head .chart-value { line-height: 1; }
 .chart-head .muted { font-size: 13px; line-height: 1.15; }
+/* FIXES-LABELS: status (F-11): the record status line. Words only, muted small print (>= 4.5:1 on both themes); the
+   relative time sits with its absolute date inside one <time>, which may wrap but never widens the page. */
+.record-status-block { margin: 0 0 12px; }
+.record-status-block .record-status { margin: 0 0 2px; }
+.record-status { overflow-wrap: anywhere; }
+.card .record-status, .pane .record-status { margin: 0; }
+.record-accounts { list-style: none; padding: 0; margin: 4px 0 0; }
+.record-accounts li { margin: 0 0 2px; overflow-wrap: anywhere; }
