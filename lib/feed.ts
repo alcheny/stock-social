@@ -402,8 +402,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
         case when t.thesis_status = 'published' then t.thesis_written_at end as thesis_written_at, case when t.thesis_status = 'published' then t.thesis_edited_at end as thesis_edited_at,
         -- F-26: the hold (flag and rule) only on the signed-in viewer's own closes; one statement text for every viewer
         -- and every note state (0 matches no user when signed out).
-        (t.user_id = ${own} and t.thesis_status = 'held' and t.thesis is not null) as own_held,
-        case when t.user_id = ${own} and t.thesis_status = 'held' and t.thesis is not null then t.thesis_hold_rule end as own_hold_rule
+        (t.user_id = ${own} and t.thesis_status = 'held' and t.thesis <> '') as own_held,
+        case when t.user_id = ${own} and t.thesis_status = 'held' and t.thesis <> '' then t.thesis_hold_rule end as own_hold_rule
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null and ${filerVisibleSql('u')}
       where t.sell_id = any(${page.items.map((s) => s.key)})` : [],
     // Fix round 4 (TR-3): a failed import stays in the feed (never hidden) but its card and pane say it may be

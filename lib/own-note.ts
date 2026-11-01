@@ -15,6 +15,6 @@ export async function loadOwnNote(userId: number, tradeId: string, handle: strin
     select t.id::text as id, t.thesis_hold_rule as rule,
       (select count(*)::int from closed_trades x where x.user_id = t.user_id and (x.closed_at, x.id) > (t.closed_at, t.id)) as ahead
     from closed_trades t
-    where t.id = ${tradeId} and t.user_id = ${userId} and t.thesis_status = 'held' and t.thesis is not null`;
+    where t.id = ${tradeId} and t.user_id = ${userId} and t.thesis_status = 'held' and t.thesis <> ''`;
   return r ? { rule: (r.rule ?? null) as string | null, edit: tradeHref(`/u/${handle}`, r.id as string, r.ahead as number) } : null;
 }

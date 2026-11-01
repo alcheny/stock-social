@@ -171,7 +171,7 @@ test('F-26: the feed\'s two statements that select a note null it unless publish
   assert.equal(raw, null, 'no raw thesis/thesis_status select');
   assert.equal((f.match(/case when t\.thesis_status = 'published' then t\.thesis end as thesis, case when t\.thesis_status = 'published' then t\.thesis_status end as thesis_status/g) ?? []).length, 2);
   assert.match(f, /case when t\.thesis_status = 'published' then t\.thesis_written_at end as thesis_written_at/);
-  assert.match(f, /case when t\.user_id = \$\{own\} and t\.thesis_status = 'held' and t\.thesis is not null then t\.thesis_hold_rule end as own_hold_rule/);
+  assert.match(f, /case when t\.user_id = \$\{own\} and t\.thesis_status = 'held' and t\.thesis <> '' then t\.thesis_hold_rule end as own_hold_rule/);
   // The feed rows set the author's line from the existing viewer check only.
   const rows = code('app/feed-rows.tsx');
   assert.match(rows, /ownHeld=\{page\.viewer && page\.viewer\.id === t\.user_id && t\.own_held \? \{ rule: t\.own_hold_rule \?\? null \} : undefined\}/);
