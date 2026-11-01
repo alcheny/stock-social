@@ -14,6 +14,7 @@ import { winRateText } from './copy.ts';
 import { counted } from './format.ts';
 import { positionRows } from './positions.ts';
 import { recordStates } from './connections.ts';
+import { visibleUser, visibleUserIds } from './visible-users.ts';
 // OPTIONS (docs/features/logs/options/plan.md L9, AC 21): the options line or the gated count line, exactly as the one
 // reader returned it; this file reads no option table. Known-limits sweep 2: the reader's batch form (optionHeadline:
 // counts in one query, the gate still worked out per trader) with the same text function loadOptionDisplayText uses.
@@ -66,7 +67,7 @@ export function chunkByRows(users: Candidate[], cap = DISPLAY_LOG_ROW_CAP): numb
 
 /** Each record's row for `now`'s day, set-based: seven queries for the whole set (three of them recordStates, one the option counts; the option gate adds
  *  queries only for traders who hold option rows). A record
- *  with nothing public to show (deleted, importing, or an empty record) has no entry. */
+ *  with nothing public to show (deleted, hidden (F-16), importing, or an empty record) has no entry. */
 export async function snapshotsFor(userIds: number[], now: Date): Promise<Map<number, Logged>> {
   const out = new Map<number, Logged>();
   if (!userIds.length) return out;
@@ -78,8 +79,8 @@ export async function snapshotsFor(userIds: number[], now: Date): Promise<Map<nu
   // The profile's own order (app/u/[handle]/page.tsx: closed_at desc, id desc). stats() and confidence() sum floats
   // in input order, so an unordered read could print a different last digit for the same record (see the tests).
   const trades = await sql`select user_id, symbol, opened_at, closed_at, return_pct, holding_days from closed_trades
-    where user_id = any(${readable}) order by user_id, closed_at desc, id desc`;
-  const positions = shown.length ? await sql`select user_id, account_id, symbol, unrealized_pct from open_positions where user_id = any(${shown})` : [];
+    where user_id = any(${readable}) and user_id in (${visibleUserIds()}) order by user_id, closed_at desc, id desc`; // F-16: a hidden profile displays nothing
+  const positions = shown.length ? await sql`select user_id, account_id, symbol, unrealized_pct from open_positions where user_id = any(${shown}) and user_id in (${visibleUserIds()})` : [];
   const demo = new Set((await sql`select distinct user_id from activities where user_id = any(${readable}) and source = 'demo'`).map((r) => Number(r.user_id)));
   const closes = new Map<number, Close[]>(), open = new Map<number, Position[]>();
   for (const t of trades) {
@@ -133,7 +134,7 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
   // its backlog.
   for (;;) {
     const users = await sql`select u.id, (select count(*) from closed_trades c where c.user_id = u.id)::int as n
-      from users u where u.deleted_at is null and u.id > ${after}
+      from users u where ${visibleUser('u')} and u.id > ${after}
       ${opts.ids ? sql`and u.id in ${sql(opts.ids.length ? opts.ids : [0])}` : sql``}
       and not exists (select 1 from display_log l where l.user_id = u.id and l.day = ${day}::date)
       -- An empty record writes no row; filtering it here keeps it from using the box every tick (business lead re-sit 1).

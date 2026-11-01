@@ -3,6 +3,7 @@
 // record strip and the disclaimer, so a square or 1.91:1 crop never cuts them. The alt text is the strip in words,
 // declared by the trade page's generateMetadata (it depends on the record).
 import { ImageResponse } from 'next/og';
+import { isFilerHandle } from '@/lib/public-gate.ts';
 import { notFound } from 'next/navigation';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
@@ -13,6 +14,11 @@ import { RecordStripImage } from '@/app/record-strip.tsx';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
+// F-16 (plan v2 E2): a bounded cache, like story/route.tsx (F-7 filers: never cached), so a hide or a rename reaches a
+// shared copy within 300 s.
+// ponytail: a cached copy can outlive a hide or a rename by up to 300 s — fix: versioned image keys purged on hide, delete
+// and rename (plan §9.1).
+const cache = (handle: string) => ({ 'Cache-Control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=300' });
 
 export default async function Card({ params }: { params: Promise<{ handle: string; sellId: string }> }) {
   const { handle, sellId } = await params;
@@ -26,5 +32,5 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   const strip = recordStrip(tradeStripInput(t), 'image');
   // Cycle-2 fix #9: the hero shrinks until the band fits (lib/trade-share.ts#tradeBand), as the month image does.
   const { lines } = tradeBand(t, strip);
-  return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);
+  return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, { ...size, headers: cache(handle) });
 }

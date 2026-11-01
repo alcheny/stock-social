@@ -7,21 +7,23 @@ import { sql } from './db.ts';
 import type { Signal } from './discovery/weights.ts';
 import { followable, unfollowsFor } from './follows.ts';
 import { filerVisibleSql } from './public-gate.ts';
+import { visibleUser } from './visible-users.ts';
 
 export const tradeKey = (sellId: string) => createHash('sha256').update(sellId, 'utf8').digest('hex');
 export const LIKES_PAGE = 50;
 const ID = /^[0-9]{1,18}$/;
 
-// The close a feed card names, never the viewer's own: by its trade_key (64 hex, what cards send: it survives
-// rebuildTrades, which deletes and re-inserts closed_trades with new ids, so a page rendered before a rebuild still
-// acts on the right close) or by its closed_trades id (older pages, no-JS forms rendered before this change). Both are
-// checked by shape before any query; the same live-trader and not-your-own rules apply either way.
+// The close a feed card names, never the viewer's own and never a hidden trader's (F-16: like targets are public reads;
+// the viewer's own lists below keep showing what they stored, E12): by its trade_key (64 hex, what cards send: it
+// survives rebuildTrades, which deletes and re-inserts closed_trades with new ids, so a page rendered before a rebuild
+// still acts on the right close) or by its closed_trades id (older pages, no-JS forms rendered before this change). Both
+// are checked by shape before any query; the same visible-trader and not-your-own rules apply either way.
 const TRADE_KEY = /^[0-9a-f]{64}$/;
 async function close(viewer: number, ref: unknown): Promise<{ key: string; trader: number } | null> {
   if (typeof ref !== 'string' || !(TRADE_KEY.test(ref) || ID.test(ref))) return null;
   const [r] = TRADE_KEY.test(ref)
-    ? await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.trade_key = ${ref} limit 1`
-    : await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.id = ${ref}`;
+    ? await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} where t.trade_key = ${ref} limit 1`
+    : await sql`select t.trade_key, t.user_id from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')} where t.id = ${ref}`;
   return r && r.user_id !== viewer ? { key: r.trade_key as string, trader: r.user_id as number } : null;
 }
 
@@ -152,7 +154,7 @@ export async function showTradeAgain(viewer: number, key: unknown): Promise<bool
 // hidden by this viewer now, so a crafted link can only state something true.
 export async function backHandle(viewer: number, key: unknown): Promise<string | null> {
   if (typeof key !== 'string' || !KEY.test(key)) return null;
-  const [r] = await sql`select u.handle from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+  const [r] = await sql`select u.handle from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
     where t.trade_key = ${key} and t.user_id <> ${viewer}
       and not exists (select 1 from trade_exclusions x where x.viewer_id = ${viewer} and x.trade_key = ${key}) limit 1`;
   return r ? (r.handle as string) : null;

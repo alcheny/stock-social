@@ -2,10 +2,8 @@
 // deletion is in progress (deleted_at set; lib/delete.ts keeps the rows until the vendor step succeeds) is never counted
 // or charted. F-16 (docs/features/logs/F-16-F-17/plan.md §5.1): a profile the owner hid (users.hidden_at, set only by
 // the audited lib/trust-hide.ts) is skipped by the same rule, so the hide is this one place.
-// ponytail: only the reads that call these helpers skip a hidden profile; compare, the stock share image,
-// app/t/open-positions.ts and the feed, profile, pane, image and likes reads still filter on `deleted_at is null` or
-// not at all — fix: the F-16 predicate sweep (plan §5.2, §13 A) moves every public closed_trades / open_positions read
-// here, proved by lib/f16-visible-reads.test.ts, and empties PENDING_VISIBLE in lib/fixes-cycle2-trust.test.ts.
+// F-16: every public closed_trades / open_positions read calls one of these helpers; lib/f16-visible-reads.test.ts fails
+// on any that doesn't (owner-scoped reads and writes sit on its allowlist, each with a reason).
 import { sql } from './db.ts';
 import { routeHandle } from './params.ts';
 import { FILER_HANDLE_PREFIX } from './public-gate.ts';
