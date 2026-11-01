@@ -82,3 +82,12 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
   64-hex key and a row id with the same rules as `lib/likes.ts#close`, plus a test with a rebuild between render and
   report. Taken after engineer B's `lib/reports.ts` merges (the note slot in `app/user-note.tsx` is F-26's: only
   `lib/reports.ts` and the action change).
+- **Merged** (2026-11-01): B (`b008213`), main (#82 and F-15's share_action; `db/schema.sql` kept both blocks), the
+  trade_key item, D (`f76368f`), A (`57dd103`), C (`5a81b37`). Lead fixes at merge: `lib/likes.ts#close` keeps #82's
+  trade_key path with A's predicate; the read scanner accepts a typed tag (`sql<{ a; b }>`), with a self-test; its
+  allowlist gains `lib/share-actions.ts` (the trader's own share, 3) and `lib/trust-digest.ts` (owner script, 1) and
+  drops `lib/reports.ts` (now on the predicate); `e2e/f16-hide.spec.ts` hides through `scripts/hide.ts`;
+  `lib/user-note.test.ts:98` follows the feed card's trade_key (orchestrator item, same strength).
+- **Gates after the merge:** `npx tsc --noEmit` clean; `npm test` 2037 tests, 0 failures (26 skipped, 1 owner TODO);
+  guard ok; compliance: only the `@img/sharp-wasm32` licence in `node_modules`, which origin/main shows too (no
+  dependency change here).
