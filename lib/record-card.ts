@@ -202,8 +202,8 @@ export function cardOpen(pcts: number[]): CardOpen | null {
 export const evidenceRangeText = (e: Pick<Confidence, 'perTrade'>): string | null =>
   e.perTrade ? `(${pct(e.perTrade.low)} to ${pct(e.perTrade.high)})` : null;
 
-// ponytail: the trade page, the month recap and the compare page still print confidence()'s log-based range and tier —
-// move lib/trades.ts#confidence onto arithmeticRange (or have those pages call cardEvidence) so every surface agrees.
+// ponytail: the compare page still prints confidence()'s log-based range and tier (the trade and month pages call this
+// through lib/record-strip.ts#stripEvidence) — have it call cardEvidence too, or move confidence onto arithmeticRange.
 export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
   const c = confidence(trades, now);
   const r = arithmeticRange(trades);

@@ -1,7 +1,8 @@
 import { sql } from './db.ts';
 import { isDemoUser } from './demo.ts';
 import { publicRecord } from './connections.ts';
-import { tradeSharePayload } from './trade-share.ts';
+import { tradeSharePayload, type TradeView } from './trade-share.ts';
+import type { RecordState } from './copy.ts';
 import { routeHandle } from './params.ts';
 import { filerVisibleSql } from './public-gate.ts';
 import { openingFilings, type PubRow } from './public-trades.ts';
@@ -16,7 +17,7 @@ export async function loadTradeShare(handle: string, sellId: string) {
     from closed_trades ct join users u on u.id = ct.user_id and u.deleted_at is null and ${filerVisibleSql('u')}
     where u.handle = ${handle} and ct.sell_id = ${sellId}`;
   if (!t) return null;
-  const all = await sql`select symbol, opened_at, closed_at, return_pct, holding_days, verified from closed_trades where user_id = ${t.user_id}`;
+  const all = await sql`select symbol, opened_at, closed_at, return_pct, holding_days, verified from closed_trades where user_id = ${t.user_id} order by closed_at desc, id desc`; // F-12: the profile's order, so sums match it to the bit
   const payload = tradeSharePayload({
     symbol: t.symbol, returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at,
     thesis: t.thesis, thesisStatus: t.thesis ? 'published' : null, demo: await isDemoUser(t.user_id),
@@ -26,11 +27,18 @@ export async function loadTradeShare(handle: string, sellId: string) {
   // the profile's rule (a failed import is never presented as a whole verified record).
   const verified = all.length > 0 && all.every((r) => r.verified);
   const state = (await publicRecord(Number(t.user_id))).state;
-  // F-7: a public record's filing links: the sale's, and the opening purchase's (C17: and never a New record).
-  // ponytail: only the first matched purchase is linked (closed_trades keeps no lot list) — store the matched buys' filing ids at rebuild to link each.
+  // F-7: the sale's and opening purchase's filing links (C17: never a New record). ponytail: only the first matched purchase is linked (closed_trades keeps no lot list) — store the matched buys' filing ids at rebuild to link each.
   const bought = t.public_filer_id ? openingFilings(await sql<PubRow[]>`select * from public_transactions where filer_id = ${t.public_filer_id}`, t.symbol, t.opened_at) : [];
   const filings = t.filing_url ? { sold: t.filing_url as string, bought } : null;
-  return { ...payload, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings };
+  return { ...payload, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, open: await openPercents(Number(t.user_id), state) } satisfies TradeView;
+}
+
+// F-12 (F-6 on every surface): the trader's open positions as unrealized percents, for the strip's open count. Read only
+// for a connected or failed record, as on the profile; never while an import runs (TR-3) or with nothing consented.
+export async function openPercents(userId: number, state: RecordState): Promise<number[] | undefined> {
+  if (state !== 'connected' && state !== 'failed') return undefined;
+  const rows = await sql`select unrealized_pct from open_positions where user_id = ${userId}`;
+  return rows.map((r) => r.unrealized_pct as number);
 }
 
 // Route params may be percent-encoded; malformed input (or a NUL byte, which Postgres text cannot hold) is a 404, not a 500.

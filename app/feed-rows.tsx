@@ -7,6 +7,8 @@ import { TradeCard, type TradeRow } from './ui.tsx';
 import { SuggestSection } from './suggest-section.tsx';
 import { CardMenu } from './card-menu.tsx';
 import { SECTION_AT } from '@/lib/discovery/section.ts';
+import { recordStrip, type Strip } from '@/lib/record-strip.ts';
+import { paneTrust, type TrustBadge } from '@/lib/pane.ts';
 
 // F-2 PR-1: one page of feed rows, rendered the same way by the page (page 1 or `?after=`) and by the paging action
 // (appended pages), so an appended card is the same element as a server-rendered one (SW-1 identical).
@@ -31,6 +33,21 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
     if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id) })));
     return p;
   };
+  // F-10: one record strip per card trader, from the figures loadFeedPage computed (page.strips): formatting only here.
+  // Demo = not every row verified (the pane's trust rule, paneTrust).
+  const strips = new Map<number, Strip | undefined>();
+  const badges = new Map<number, TrustBadge | null>();
+  const stripOf = (t: { user_id: number; handle: string }) => {
+    if (strips.has(t.user_id)) return strips.get(t.user_id);
+    const f = page.strips?.get(t.user_id);
+    const state = page.records.get(t.user_id)?.state ?? 'connected';
+    const badge = paneTrust(page.byUser.get(t.user_id) ?? [], state).badge;
+    badges.set(t.user_id, badge);
+    const demo = badge === 'demo';
+    const s = f && recordStrip({ ...f, state, demo, verified: !demo, handle: t.handle }, 'feed');
+    strips.set(t.user_id, s);
+    return s;
+  };
   const out = page.cards.map((t) => {
     // The card's own fields only (the close's vendor id stays on the server).
     const row: TradeRow = { id: String(t.id), symbol: t.symbol, return_pct: t.return_pct, holding_days: t.holding_days, closed_at: t.closed_at, verified: t.verified,
@@ -39,7 +56,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       id: String(t.id),
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
-          <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)}
+          <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} likeable={!isPublicRecord(page.records.get(t.user_id)?.state ?? 'none')} /> : undefined} />
           {paneOf(t)}
         </div>

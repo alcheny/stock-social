@@ -139,8 +139,7 @@ export async function latestConnection(userId: number): Promise<Connection | nul
 // do. A pre-F-1 claim (confirmed, no connection) counts as connected. The state never derives from "has a vendor id".
 // Fix round 3: the state is over ALL consented connections, never the newest one (TR-3): a trader can hold several,
 // and a newer finished one must not present a still-running import as a whole record.
-// F-7: 'public' / 'public_demo' — a record built from public filings (a marked filer row, no connection). Set in
-// recordStates only; every trust rule (lib/pane.ts, lib/copy.ts) branches on it, never on the trades' verified flag.
+// F-7: 'public' / 'public_demo', built from public filings (set in recordStates only); trust rules branch on it, never on verified.
 export type PublicState = 'importing' | 'connected' | 'failed' | 'none' | 'public' | 'public_demo';
 export type AggregateRow = Pick<Connection, 'id' | 'state' | 'consent_at' | 'imported_count' | 'accounts'>;
 export type RecordStatus = { state: PublicState; imported: number; importing: number[] };

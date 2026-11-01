@@ -209,6 +209,14 @@ export const WHOLE_RECORD = {
   importing: 'Import in progress. Stats appear when the import finishes.',
   soFar: (closes: number) => `${counted(closes, 'closed trade')} so far`,
 } as const;
+// F-10 / F-12: the record strip's own words (lib/record-strip.ts builds the strip; SHARE_CARD and WHOLE_RECORD give the
+// rest). "Too early to tell" stays until the design system council settles the short-record wording. The link names the
+// trader's record, never "full" or "whole" (POLICY F3a).
+export const RECORD_STRIP = {
+  early: 'Too early to tell',
+  rangeLabel: '95% range',
+  link: (handle: string) => `@${handle}'s record`,
+} as const;
 export type WholeRecordView = { stats: boolean; line: string | null; tone: 'muted' | 'warn' | null };
 export function wholeRecordView(x: { state: RecordState; demo: boolean }): WholeRecordView {
   if (isPublicRecord(x.state)) return { stats: true, line: `${PUBLIC.badge}. ${PUBLIC.notJoined}`, tone: null }; // F-7: previews only
@@ -610,7 +618,7 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
   return out;
 }
 
@@ -724,8 +732,7 @@ export const isPublicRecord = (s: string): s is 'public' | 'public_demo' => s ==
 const publicLabel = (s: 'public' | 'public_demo') => (s === 'public_demo' ? `Demo · ${PUBLIC.badge}` : PUBLIC.badge);
 const sales = (n: number) => counted(n, 'sale');
 export const PUBLIC = {
-  badge: 'Public filing',
-  badgeTitle: 'Built from public filings, not from a broker connection. Not Verified: it does not verify identity or completeness.',
+  badge: 'Public filing', badgeTitle: 'Built from public filings, not from a broker connection. Not Verified: it does not verify identity or completeness.',
   kind: 'Company insider',
   notJoined: 'Built from public filings. This person has not joined Stock Social, has not connected a broker, has not reviewed this record and does not endorse it.',
   since: (first: string, checked: string) => `Record since ${first} · last checked ${checked}`,
@@ -736,11 +743,8 @@ export const PUBLIC = {
   imageAlt: (what: string, s: 'public' | 'public_demo'): string => `${what} on Stock Social: ${publicLabel(s)}. ${PUBLIC.notJoined}`,
   cardLine: 'Company insider · from a public filing', cardFooter: 'See their record, wins and losses →',
   filing: 'Filing ↗', filingName: (symbol: string, day: string) => `Public filing for the ${symbol} sale closed ${day}, opens another site`,
-  sold: 'Sold: filing ↗', bought: 'Bought: filing ↗',
-  boughtName: (symbol: string) => `Public filing for the ${symbol} purchase, opens another site`,
-  soldName: (symbol: string) => `Public filing for the ${symbol} sale, opens another site`,
-  openTitle: 'Open positions',
-  openNote: 'Only shares bought in open-market purchases shown in the filings and not yet sold. This is not the person’s full holdings, and current value isn’t available from the filings, so no percent is shown.',
+  sold: 'Sold: filing ↗', bought: 'Bought: filing ↗', boughtName: (symbol: string) => `Public filing for the ${symbol} purchase, opens another site`, soldName: (symbol: string) => `Public filing for the ${symbol} sale, opens another site`,
+  openTitle: 'Open positions', openNote: 'Only shares bought in open-market purchases shown in the filings and not yet sold. This is not the person’s full holdings, and current value isn’t available from the filings, so no percent is shown.',
   recap: 'Recaps list the month\u2019s closed trades built from public filings, and none can be hidden.',
   paneFoot: 'Closed trades built from public filings, losses included. Sales that can’t be priced from the filings are excluded and counted on the profile.',
   excluded: {
