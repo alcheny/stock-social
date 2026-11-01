@@ -68,3 +68,13 @@ Both start conditions hold, so the `Blocked:` lines lapse with this build.
     checks, confirm Q1, accept the ≤300 s image / ≤60 s JSON cache window.
 14. Share images send `public, max-age=300` (engineer E2): `ImageResponse` otherwise caches for a year.
 15. No edit to `app/pane.tsx`: the line mounts beside `ProfilePane` at its two call sites.
+
+## Build
+
+- **Step 0** (lead engineer, `658dab8`, then a merge of main): schema block (`users.hidden_at`, `users.handle_renamed_at`,
+  `thesis_reports` target/category/resolution columns, `trust_audit`), the hidden state in `lib/visible-users.ts`,
+  report categories and the neutral hidden line in `lib/report-copy.ts`, hide reasons, `PRODUCT_NAME`, and the
+  not-found spike: Next passes `params` to the segment's `generateMetadata`, and sends `private, no-store` on these
+  404s itself (no proxy fallback needed). `e2e/f16-not-found.spec.ts` passes on the production build.
+- **Fan-out** (four engineers, separate worktrees, disjoint files): A predicate sweep, B reports/hide/digest,
+  C UI surfaces, D F-17 handles. Merge order B, A, D, C.
