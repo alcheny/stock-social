@@ -6,6 +6,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { claimHours } from './sync-test-hours.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL', timeout: 60_000 }, fn);
@@ -26,9 +27,14 @@ dbTest('runShard forwards the option sinks: option rows are stored, the open opt
   const acc = `${tag}-acc`;
   // Its own range: lib/sync-cadence.db.test.ts lists the split (two files on one `of` could share a lease and cancel this run).
   const of = 1019 + Math.floor(Math.random() * 6);
-  // Its own past :00 marks, far behind every other test's (lib/sync-shard.test.ts walks back from 40 rounds).
-  const T0 = Math.floor(Date.now() / S.ROUND_MS) * S.ROUND_MS - (3000 + Math.floor(Math.random() * 3000)) * S.ROUND_MS;
-  const at = (minute: number) => () => T0 + minute * MIN - Date.now();
+  // Its own past :00 marks: the hours of its three runs (T0 to 52 h after), claimed in sync_read_counts, where every run
+  // adds its reads (lib/sync-test-hours.ts).
+  const hours = await claimHours('lib/options-shard.test.ts', [0, 52]);
+  const T0 = hours.T0;
+  const at = (minute: number) => {
+    assert.ok(hours.owns(T0 + minute * MIN), `minute ${minute} is outside this test's claimed hours`);
+    return () => T0 + minute * MIN - Date.now();
+  };
   await sql`update users set snaptrade_user_id = ${`${tag}-vendor`}, snaptrade_secret_enc = 'enc' where id = ${u.id}`;
   await sql`insert into connections (attempt_id, user_id, vendor_authorization_id, state, consent_at, importing_at, connected_at, accounts)
     select signup_attempt_id, id, 'a', 'connected', now(), now(), now(), ${sql.json([{ id: acc, authorizationId: 'a', institution: 'x', isPaper: false, initialSyncCompleted: true }])} from users where id = ${u.id}`;
@@ -88,5 +94,6 @@ dbTest('runShard forwards the option sinks: option rows are stored, the open opt
     await sql`delete from users where id = ${u.id}`;
     await sql`delete from broker_accounts where account_id = ${acc}`;
     await sql`delete from sync_shards where of = ${of}`;
+    await hours.release();
   }
 });
