@@ -12,6 +12,8 @@ export type Bet = { sum: number; n: number }; // the bet's summed simple returns
 
 // One bet = same-symbol trades whose holds overlap, the boundary instant included: exactly confidence()'s clusters
 // (lib/trades.ts), so K here equals confidence().k (tested on random records).
+// ponytail: confidence() in lib/trades.ts builds these clusters a second time, inline — have it call betClusters (the
+// property test in lib/bets.test.ts already pins K equal on 1,000 random records).
 export function betClusters(trades: BetInput[]): Bet[] {
   const bySymbol = new Map<string, BetInput[]>();
   for (const t of trades) { const g = bySymbol.get(t.symbol); if (g) g.push(t); else bySymbol.set(t.symbol, [t]); }

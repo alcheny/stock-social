@@ -6,6 +6,8 @@ import { publicRecord } from '@/lib/connections.ts';
 import { isDemoUser } from '@/lib/demo.ts';
 import { cardLink, recordCard, type CardKind, type CardModel } from '@/lib/record-card.ts';
 
+// ponytail: a profile view reads its rows twice (load() in page.tsx, then this for the metadata and the share prompt) —
+// let the page pass its rows in once the profile and the card share one loader.
 export async function loadRecordCard(handle: string, kind: CardKind): Promise<CardModel | null> {
   if (typeof handle !== 'string' || !handle) return null;
   const [user] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;

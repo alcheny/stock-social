@@ -43,6 +43,9 @@ export const UNFURL_COLUMN_GAP = 24; // between the unfurl's text column and its
 // no longer fits the 540 px text column in one line, and a second line would push the open-positions row off the
 // 630 px card. Such a card widens its text column by this much and its chart gives up the same width (one row of text
 // is worth more than a sliver of chart; the chart then holds about 22% of the preview, 20% with open positions).
+// ponytail: in these wide states the preview's chart falls to about 22% (20% with open positions), under the owner's
+// "about 24%", and an average of 8+ characters is drawn under the 28 CSS px headline floor — a font with narrower digits
+// (a bundled file, which the owner declined on 2026-11-01) would keep both.
 export const UNFURL_WIDE_SHIFT = 100;
 export const unfurlWide = (headline: string | null, range: string | null) => (headline ?? '').length >= 7 || (range ?? '').length > 31;
 // An average of 8 or more characters ("+1088.7%") is drawn smaller so it still sits beside its label on one row.
@@ -84,6 +87,7 @@ const byClose = (a: SeriesInput, b: SeriesInput) =>
 // Starts at 0% at the first entry (so the first step slopes, never a vertical stroke at the left edge; QA 2026-11-01);
 // one step per close, in order (ties broken by entry, then symbol: deterministic).
 export function cardSeries(trades: SeriesInput[], max = CARD_CHART_POINTS, kind: CardSeriesKind = 'sum'): CardPoint[] {
+  // ponytail: the account-weighted line waits for F-5 (position size, blocked) — draw it from F-5's opt-in data here.
   if (kind === 'account') throw new Error('the account-weighted line is not available before F-5 (position size)');
   if (!trades.length) return [];
   const sorted = [...trades].sort(byClose);
@@ -134,6 +138,8 @@ export function disclaimerLines(d: string): string[] {
 // publicly cacheable, so a forged Host must not end up printed on it.
 // Orchestrator review (2026-11-01): a configured origin without a scheme ("example.com") gets https://; one that is no
 // URL at all prints no link (the card handles a null link) instead of failing the image route.
+// ponytail: siteUrl's other callers (sign-in links, the sitemap) still fail on a scheme-less origin — normalize the
+// scheme in lib/ticker.ts#siteUrl itself and drop the fallback here.
 export function cardLink(env: Record<string, string | undefined>, handle: string): string | null {
   const o = siteUrl(env).trim();
   try {
@@ -196,6 +202,8 @@ export function cardOpen(pcts: number[]): CardOpen | null {
 export const evidenceRangeText = (e: Pick<Confidence, 'perTrade'>): string | null =>
   e.perTrade ? `(${pct(e.perTrade.low)} to ${pct(e.perTrade.high)})` : null;
 
+// ponytail: the trade page, the month recap and the compare page still print confidence()'s log-based range and tier —
+// move lib/trades.ts#confidence onto arithmeticRange (or have those pages call cardEvidence) so every surface agrees.
 export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
   const c = confidence(trades, now);
   const r = arithmeticRange(trades);
