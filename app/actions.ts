@@ -17,7 +17,7 @@ import { TRADES_PROMPT_ACTIONS, type TradesPromptAction } from '@/lib/new-trades
 import { SHARE_ACTIONS, type ShareAction } from '@/lib/share-prompt.ts';
 import { canWatch, normalizeSymbol } from '@/lib/ticker.ts';
 import { checkReflection } from '@/lib/reflections.ts';
-import { TRADE_KEY_RE } from '@/lib/trade-href.ts'; // F-25
+import { ownSellIdForKey } from '@/lib/reflection-target.ts'; // F-25
 import { checkRule } from '@/lib/rules.ts';
 import { signUpOpen } from '@/lib/launch-gate.ts';
 import { LAUNCH } from '@/lib/copy.ts';
@@ -172,10 +172,8 @@ export async function toggleWatch(symbol: string) {
 export async function setReflection(form: FormData) {
   const user = await currentUser();
   // F-25: the form posts the trade_key; the stored reflection stays keyed by the sell id, looked up here for my own trade.
-  const key = form.get('tradeKey');
-  const [own] = user && typeof key === 'string' && TRADE_KEY_RE.test(key) ? await sql`select sell_id from closed_trades where user_id = ${user.id} and trade_key = ${key} limit 1` : [];
-  const sellId = own ? (own.sell_id as string) : null;
-  const owned = !!own;
+  const sellId = await ownSellIdForKey(user?.id, form.get('tradeKey'));
+  const owned = sellId !== null;
   const c = checkReflection({ userId: user?.id ?? null, reason: form.get('reason'), sellId, owned });
   if (!user) redirect('/login');
   if (!c.ok) throw new Error('Not allowed');
