@@ -131,6 +131,7 @@ jobs:
     if: ${{ !cancelled() && needs.pick.outputs.count != '0' && needs.pick.outputs.count != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350 # GitHub's job limit is 360; a later attempt's larger budget needs the room
+    # ponytail: a root agent here still holds the run's Actions runtime token, which reaches every artifact and cache in the run (it can read other legs' prep artifacts and seed main-scoped caches that ci.yml restores on PRs) — one workflow run per leg, and ci.yml cache keys that agent jobs can't write.
     permissions:
       contents: read
     strategy:

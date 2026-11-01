@@ -88,6 +88,7 @@ jobs:
         variant: ${{ fromJSON(needs.pick.outputs.variants) }}
     name: prepare ${{ matrix.variant.key || needs.pick.outputs.mode }}
     outputs:
+      # ponytail: line_base works only because a line's round is a single leg (outputs of several matrix legs overwrite each other) — per-leg outputs (or one run per leg) if lines ever run variants.
       line_base: ${{ steps.prep.outputs.base_sha }} # read only for a line's round, which is a single leg
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,6 +147,7 @@ jobs:
     if: ${{ !cancelled() && (needs.pick.outputs.mode == 'build' || needs.pick.outputs.mode == 'fix') }}
     runs-on: ubuntu-latest
     timeout-minutes: 350 # GitHub's limit is 360; team.ts stops starting calls at TEAM_MINUTES so it still publishes
+    # ponytail: a root agent here still holds the run's Actions runtime token, which reaches every artifact and cache in the run (it can read other legs' prep artifacts and seed main-scoped caches that ci.yml restores on PRs) — one workflow run per leg, and ci.yml cache keys that agent jobs can't write.
     permissions:
       contents: read
     services:

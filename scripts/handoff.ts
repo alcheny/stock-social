@@ -65,6 +65,7 @@ export function handoffFindings(h: HandoffInput): string[] {
 // own state (approvals, attempts, costs, limits), so none may come from an agent.
 // GitHub's closing keywords (`Closes #12` would close any issue on merge) and the hand-off notes heading other builds'
 // briefs are cut at are neutralized too.
+// ponytail: PR titles, summaries and notes stay agent-written prose; only markers, closing keywords and the notes heading are neutralized — the reviewer and the Gate judge the code, never this text.
 export const defang = (s: string) => s.replace(/<!--/g, '&lt;!--').replace(/--!?>/g, '--&gt;')
   .replace(/\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(:?\s+)(?=[\w.-]*\/?[\w.-]*#\d)/gi, '$1 (ref)$2')
   .replace(/^(#+\s*)Hand-off notes/gim, '$1Hand-off notes (quoted)');
@@ -77,6 +78,7 @@ export function sanitizeResult(text: string): { result: Record<string, unknown>;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { result: {}, findings: ['result.json is not an object'] };
   const r: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    // ponytail: `limit` is the agents' own claim, so a hostile agent can pause new work for LIMIT_COOLDOWN_HOURS — derive it from the Claude CLI's exit in a step the agents can't edit.
     if (['done', 'limit'].includes(k)) { if (typeof v === 'boolean') r[k] = v; }
     else if (k === 'costUsd') { if (typeof v === 'number' && Number.isFinite(v) && v >= 0) r[k] = v; }
     else if (k === 'committeePath') { if (typeof v === 'string' && COMMITTEE_PATH.test(v)) r[k] = v; }
@@ -269,6 +271,7 @@ export type JobInfo = { id: number; name: string; conclusion: string | null };
 // name first and knock this leg out (artifact names can't be overwritten).
 // Pure: the artifact ID the upload step reported for a name `prefix` + 32 hex, from the end of the job's log (the agents
 // ran before it, so a line they printed comes earlier and loses).
+// ponytail: relies on upload-artifact's log wording; if it changes, every leg is refused (fails closed) — read the ID from the API once GitHub records which job produced an artifact.
 export function uploadedArtifactId(log: string, prefix: string): number | null {
   let id: number | null = null;
   for (const line of log.split('\n')) {
