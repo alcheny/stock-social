@@ -404,7 +404,7 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
         where x.heartbeat_at is null or x.heartbeat_at < now() - ${MISSING_SHARD_MS}::float8 * interval '1 millisecond') as "missingShards",
       (select count(*)::int from s, clock where (s.sync_claimed_at is null or s.sync_claimed_at < clock.round_start - ${ROUND_MS}::float8 * interval '1 millisecond')
         and (s.sync_retry_at is null or s.sync_retry_at <= clock.t)
-        and exists (select 1 from connections c where c.user_id = s.id and c.state = 'connected' and c.connected_at < clock.round_start - ${ROUND_MS}::float8 * interval '1 millisecond')) as "unclaimedPrevRound",
+        and exists (select 1 from connections c where c.user_id = s.id and c.state = 'connected' and c.disconnected_at is null and c.connected_at < clock.round_start - ${ROUND_MS}::float8 * interval '1 millisecond')) as "unclaimedPrevRound",
       (select count(*)::int from s where s.last_synced_at is null) as "neverSynced",
       (select coalesce(extract(epoch from clock.t - min(s.last_synced_at)) / 3600, 0)::float8 from s, clock group by clock.t) as "stalestHours",
       (select count(*)::int from s, clock where s.sync_retry_at > clock.t) as "inBackoff",

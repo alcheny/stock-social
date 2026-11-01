@@ -84,7 +84,7 @@ test('AC12/13 over HTTP: option rows reach the sink, share rows and signatures u
   // Without a sink nothing changes for the caller (the existing signature).
   assert.equal((await b.fetchActivitiesPage(u, 'opt-1', 0, 1000)).activities.length, 4);
   const viaWindow: OptionRow[] = [];
-  const acts = await b.fetchActivities(u, new Date('2024-01-01'), ['opt-1'], (rows) => viaWindow.push(...rows));
+  const acts = (await b.fetchActivities(u, new Date('2024-01-01'), ['opt-1'], (rows) => viaWindow.push(...rows))).activities; // F3-1: { activities, unusable }
   assert.equal(acts.length, 4);
   assert.equal(viaWindow.length, 4);
   // The fake honours the type filter as the vendor documents it.

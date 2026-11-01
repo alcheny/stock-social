@@ -6,7 +6,7 @@ import type { Activity } from './trades.ts';
 // OPTIONS (docs/features/logs/options/plan.md D2, D7): option rows and option positions are parsed here (the vendor's
 // field names stay in this file) and handed to an optional sink; the share path below is unchanged.
 import { hasOptionType, isOccSymbol, multiplierOf, strikeMilli, UNDERLYING_ALLOWLIST, validExpiry, type OptionRow } from './options.ts';
-import { fromVendorRows, type VendorRow } from './corporate-actions.ts';
+import { fromVendorRows, unusableTrade, vendorNumber, type VendorRow } from './corporate-actions.ts';
 
 // SNAPTRADE_BASE_URL points the SDK at the in-repo fake in tests (e2e/fakes/vendor.ts); unset, the SDK uses the vendor.
 const client = () =>
@@ -102,10 +102,10 @@ export const OPTION_EVENT_TYPES = ['OPTIONEXPIRATION', 'OPTIONASSIGNMENT', 'OPTI
 export const ACTIVITY_TYPES = ['BUY', 'SELL', ...OPTION_EVENT_TYPES].join(',');
 export type OptionSink = (rows: (OptionRow & { raw: unknown })[]) => void;
 // One vendor page of an account's full history (TR-3): the chunked import reads one page per step and resumes by offset.
-export async function fetchActivitiesPage(u: BrokerUser, accountId: string, offset: number, limit = PAGE_LIMIT, optionSink?: OptionSink): Promise<{ activities: Fetched[]; done: boolean }> {
+export async function fetchActivitiesPage(u: BrokerUser, accountId: string, offset: number, limit = PAGE_LIMIT, optionSink?: OptionSink): Promise<{ activities: Fetched[]; unusable?: Unusable[]; done: boolean }> {
   const { data } = await bounded((o) => client().accountInformation.getAccountActivities({ ...auth(u), accountId, type: ACTIVITY_TYPES, offset, limit }, o));
   optionSink?.(toOptionRows(accountId, data.data ?? [])); // OPTIONS
-  return { activities: toActivities(accountId, data.data ?? []), done: (data.data?.length ?? 0) < limit };
+  return { ...toActivities(accountId, data.data ?? []), done: (data.data?.length ?? 0) < limit };
 }
 
 // Open positions (TR-4) as symbol + unrealized percent only; never units, prices or amounts.
@@ -157,7 +157,9 @@ export async function deleteUser(u: BrokerUser): Promise<void> {
 // row even without option_symbol: it never reaches the share path (closed_trades), and without a contract it is counted.
 const isOptionRow = (a: { type?: string; option_symbol?: unknown; option_type?: string; symbol?: { symbol?: string } | null }) =>
   !!a.option_symbol || (OPTION_EVENT_TYPES as readonly string[]).includes(a.type ?? '') || hasOptionType(a.option_type) || isOccSymbol(a.symbol?.symbol);
-const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+// Fixes cycle 3 (merge with F3-1): option numbers read like share numbers (lib/corporate-actions.ts#vendorNumber): a
+// number or a plain decimal string; null, '', '0x10' and non-finite values are no number.
+const num = (x: unknown): number | null => { const v = vendorNumber(x); return Number.isFinite(v) ? v : null; };
 export function toOptionRows(accountId: string, rows: AccountUniversalActivity[]): (OptionRow & { raw: unknown })[] {
   const out: (OptionRow & { raw: unknown })[] = [];
   for (const a of rows) {
@@ -170,7 +172,7 @@ export function toOptionRows(accountId: string, rows: AccountUniversalActivity[]
       underlying: os?.underlying_symbol?.symbol ?? null, underlyingType: os?.underlying_symbol?.type?.code ?? null,
       right: os?.option_type ?? null, expiry: validExpiry(os?.expiration_date), strikeMilli: os ? strikeMilli(os.strike_price) : null,
       multiplier: os ? multiplierOf(os.is_mini_option) : null, occTicker: os?.ticker ?? null,
-      units: units === null ? null : Math.abs(units), price: num(a.price), fee: num(a.fee) === null ? null : Math.abs(a.fee!),
+      units: units === null ? null : Math.abs(units), price: num(a.price), fee: num(a.fee) === null ? null : Math.abs(num(a.fee)!),
       amount: num(a.amount), currency: a.currency?.code ?? null, executedAt: at && !Number.isNaN(at.getTime()) ? at : null, verified: true, raw: a,
     });
   }
@@ -196,8 +198,9 @@ export function splitPositionKinds(results: AccountPosition[]): { equityLike: Ac
     const kind = (p.instrument as { kind?: string } | undefined)?.kind;
     if (kind === 'option') {
       const o = p.instrument as OptionInstrument;
-      // Review 2: a null or empty price is no price (Number(null) is 0, which read as -100%).
-      const num = (x: string | null | undefined) => (x === null || x === undefined || String(x).trim() === '' ? NaN : Number(x));
+      // Review 2: a null or empty price is no price (Number(null) is 0, which read as -100%); vendorNumber (F3-1) also
+      // refuses '0x10' and other non-decimal strings.
+      const num = (x: string | null | undefined) => vendorNumber(x);
       const units = num(p.units), price = num(p.price), cost = num(p.cost_basis);
       const expiry = validExpiry(o.expiration_date), sm = strikeMilli(o.strike_price);
       const underlying = o.underlying?.symbol;
@@ -212,28 +215,38 @@ export function splitPositionKinds(results: AccountPosition[]): { equityLike: Ac
   return { equityLike, split };
 }
 
-function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; option_type?: string; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): Fetched[] {
+// Fixes cycle 3, F3-1: a share BUY/SELL row with an id and a symbol is never dropped. A row with no usable price, units
+// or date is returned in `unusable` (lib/corporate-actions.ts#unusableTrade), stored with the corporate actions and
+// counted by the matcher, never priced. Option rows are filtered out first (toOptionRows counts them), so a price-less
+// option row is counted once, as an option, never as an unusable share row.
+export type Unusable = ReturnType<typeof unusableTrade> & {};
+export function toActivities(accountId: string, rows: { id?: string; symbol?: { symbol?: string } | null; option_symbol?: unknown; option_type?: string; trade_date?: string | null; price?: number; units?: number; fee?: number; type?: string }[]): { activities: Fetched[]; unusable: Unusable[] } {
   const out: Fetched[] = [];
+  const unusable: Unusable[] = [];
   for (const a of rows) {
     const symbol = a.symbol?.symbol;
-    // Option rows go to toOptionRows (OPTIONS, K1–K9 above); this path is shares, ETFs and crypto.
-    if (!a.id || !symbol || a.option_symbol || !a.trade_date || !a.price || !a.units) continue;
+    // Option rows go to toOptionRows (OPTIONS, K1–K9 above); this path is shares, ETFs and crypto. The option filter runs
+    // before unusableTrade (merge with F3-1).
+    if (!a.id || !symbol || a.option_symbol) continue;
     if (a.type !== 'BUY' && a.type !== 'SELL') continue;
     if (hasOptionType(a.option_type) || isOccSymbol(symbol)) continue; // OPTIONS: an option row (toOptionRows counts it), one definition (round 7)
+    const bad = unusableTrade(accountId, { ...a, id: a.id, symbol, type: a.type });
+    if (bad) { unusable.push(bad); continue; }
     out.push({
-      externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(a.units), price: a.price, fee: Math.abs(a.fee ?? 0),
-      executedAt: new Date(a.trade_date), verified: true, raw: a,
+      externalId: a.id, accountId, symbol, side: a.type, units: Math.abs(vendorNumber(a.units)), price: vendorNumber(a.price), fee: Math.abs(a.fee === undefined || a.fee === null ? 0 : vendorNumber(a.fee)),
+      executedAt: new Date(a.trade_date!), verified: true, raw: a,
     });
   }
-  return out;
+  return { activities: out, unusable };
 }
 
 // `accountIds` limits the fetch to accounts already cleared by the TR-6 claim.
-export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: string[], optionSink?: OptionSink): Promise<Fetched[]> {
+export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: string[], optionSink?: OptionSink): Promise<{ activities: Fetched[]; unusable: Unusable[] }> {
   const st = client();
   const auth = { userId: u.snaptradeUserId, userSecret: decrypt(u.secretEnc) };
   const accounts = accountIds ? accountIds.map((id) => ({ id })) : (await bounded((o) => st.accountInformation.listUserAccounts(auth, o))).data;
   const out: Fetched[] = [];
+  const unusable: Unusable[] = [];
 
   for (const account of accounts) {
     for (let offset = 0; ; offset += 1000) {
@@ -241,11 +254,13 @@ export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: s
         ...auth, accountId: account.id, startDate: since, type: ACTIVITY_TYPES, offset, limit: 1000,
       }, o));
       optionSink?.(toOptionRows(account.id, data.data ?? [])); // OPTIONS
-      out.push(...toActivities(account.id, data.data ?? []));
+      const got = toActivities(account.id, data.data ?? []);
+      out.push(...got.activities);
+      unusable.push(...got.unusable);
       if ((data.data?.length ?? 0) < 1000) break;
     }
   }
-  return out;
+  return { activities: out, unusable };
 }
 
 // ---- Corporate actions (POLICY F3c, PR #40; docs/features/logs/corporate-actions/) ----
