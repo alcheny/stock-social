@@ -7,7 +7,10 @@ import { wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
-import { counted } from '@/lib/format.ts';
+import { count, counted } from '@/lib/format.ts';
+// FIXES-LABELS (D-24): numbers and a range only in "This month"; "1 of N months on record" under the h1.
+import { FIXES_LABELS as FL } from '@/lib/copy.ts';
+import { monthRangeText } from '@/lib/recap.ts';
 
 type Params = { params: Promise<{ handle: string; ym: string }> };
 
@@ -54,6 +57,7 @@ export default async function RecapPage({ params }: Params) {
         {r.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
       </p>
       <h1>{m.label} {m.monthSoFar && <span className="muted small">month so far</span>}</h1>
+      <p className="muted small" data-testid="month-of">{FL.monthOf(count(r.months))}</p>
       {m.monthSoFar && <p className="muted small">Not a complete month. Trades close through today.</p>}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-month">
@@ -69,7 +73,7 @@ export default async function RecapPage({ params }: Params) {
               <p className="muted small" style={{ marginTop: 0 }}>Too few trades for a win rate. The month&apos;s trades are listed below.</p>
             </>
           )}
-          <p className="small">{m.evidence}{m.range ? ` ${m.range}` : ''}</p>
+          {monthRangeText(m) && <p className="small" data-testid="month-range">{monthRangeText(m)}</p>}
         </section>
         <section className="trade-card" aria-labelledby="whole-record">
           <h2 id="whole-record">Their whole record {whole.stats && w.newRecord && <span className="badge new">New record</span>}</h2>

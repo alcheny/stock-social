@@ -1,4 +1,5 @@
 import { holdCaption, MIN_HOLD_BUCKET, type HoldBuckets } from '@/lib/ticker.ts';
+import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
 import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
@@ -10,8 +11,8 @@ export default function HoldTime({ holds, symbol, demoOnly, mixed }: { holds: Ho
     <section aria-label="Trades by hold time" data-testid="hold-time" data-symbol={symbol}>
       <h2>By hold time {demoOnly && <Badge verified={false} />}</h2>
       <p className="muted small" style={{ marginTop: 0 }}>Trades grouped by how long they were held. A group needs at least {MIN_HOLD_BUCKET} trades before a rate is shown.</p>
-      {demoOnly && <p role="note" className="muted small">Sample data, not from a real broker.</p>}
-      {mixed && <p role="note" className="muted small">Includes sample data marked Demo.</p>}
+      {demoOnly && <p role="note" className="muted small">{FL.demoNote}</p>}
+      {mixed && <p role="note" className="muted small">{FL.mixedNote}</p>}
       <p className="muted small" data-testid="hold-caption">{caption}</p>
       <table className="hold-table">
         <caption className="sr-only">{caption}</caption>

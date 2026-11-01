@@ -6,7 +6,7 @@
 // in the last bit, and bets are summed in a different order.
 import type postgres from 'postgres';
 import { sql as defaultSql } from './db.ts';
-import { confidenceFromClusters, type Cluster } from './trades.ts';
+import { confidenceFromClusters, confidenceFromSums, type Cluster, type Confidence } from './trades.ts';
 import {
   MIN_HOLD_BUCKET, MIN_REST, normalizeSymbol,
   type Concentration, type HoldBucket, type HoldBuckets, type MonthBucket, type RelatedSymbol, type Spread, type SpreadBin,
@@ -262,4 +262,38 @@ async function tickerIndexIn(db: Db, q: unknown, sort: TickerSort, cap: number):
     if (!rows.length) return { total, kind: 'none', matched: 0, rows: [] };
   }
   return { total, kind, ...(symbol ? { symbol } : {}), matched: rows[0]?.matched ?? 0, rows: rows.map(out) };
+}
+
+// ---- FIXES-LABELS ---- (round 3, engineer): the baseline's "other stocks recorded here" range, from the same
+// confidence() path as this stock's: trades in every symbol but this one, verified (or Demo) rows only, live users only.
+// One bet = one trader's overlapping holds in one stock (gaps and islands per (user_id, symbol), boundary inclusive, as
+// confidence() clusters). Returns ONE row of clustering sums, never one row per bet; m and R come from a CTE.
+export async function othersConfidence(symbol: string, verified: boolean, db: Db = defaultSql): Promise<{ n: number; winRate: number | null; conf: Confidence }> {
+  const [r] = (await db`
+    with s as (
+      select t.id, t.user_id, t.symbol, t.return_pct as rp, ln(greatest(1 + t.return_pct, 1e-9)) as x, greatest(t.holding_days, 1) as dd,
+             date_trunc('milliseconds', t.opened_at) as o, date_trunc('milliseconds', t.closed_at) as c
+      from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+      where t.symbol <> ${symbol} and t.verified = ${verified}),
+    w as (
+      select s.*, max(c) over (partition by user_id, symbol order by o, id rows between unbounded preceding and 1 preceding) as pa
+      from s),
+    f as (
+      select w.*, sum(case when pa is null or o > pa then 1 else 0 end) over (partition by user_id, symbol order by o, id rows unbounded preceding) as kb
+      from w),
+    b as (select sum(x) as x, sum(dd) as d, count(*)::int as n from f group by user_id, symbol, kb),
+    tot as (select coalesce(sum(n), 0)::int as n, count(*)::int as k, coalesce(sum(x), 0) as sx, coalesce(sum(d), 0) as sd from b),
+    mr as (select tot.*, sx / nullif(n, 0) as m, sx / nullif(sd, 0) as r from tot)
+    select mr.n, mr.k, mr.sx, mr.sd,
+           (select sum((b.x - b.n * mr.m) ^ 2) from b) as ss_m,
+           (select sum((b.x - mr.r * b.d) ^ 2) from b) as ss_r,
+           (select min(o) from s) as first_open, (select max(c) from s) as last_close,
+           (select count(*) filter (where rp > 0 and rp <> 'NaN') from s)::int as wins
+    from mr`) as unknown as { wins: number; n: number; k: number; sx: number; sd: number; ss_m: number | null; ss_r: number | null; first_open: Date | null; last_close: Date | null }[];
+  const spanDays = r.first_open && r.last_close ? (r.last_close.getTime() - r.first_open.getTime()) / DAY : 0;
+  return {
+    n: r.n,
+    winRate: r.n ? r.wins / r.n : null,
+    conf: confidenceFromSums({ n: r.n, k: r.k, spanDays, sumX: Number(r.sx), sumD: Number(r.sd), ssM: Number(r.ss_m ?? 0), ssR: Number(r.ss_r ?? 0) }),
+  };
 }

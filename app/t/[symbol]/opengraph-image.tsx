@@ -1,13 +1,15 @@
 // Ticker share card: unfurls a pasted /t/SYMBOL link. Percentages only; never throws on a bad symbol.
 import { ImageResponse } from 'next/og';
 import { DISCLAIMER } from '@/lib/share.ts';
-import { decodeSymbolParam, type TickerSummary } from '@/lib/ticker.ts';
+import { decodeSymbolParam, trustKind, type TickerSummary } from '@/lib/ticker.ts';
+// FIXES-LABELS (D-03): the subtitle, corner and alt name the Demo state and never call Demo trades verified.
+import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 import { tickerHeadline } from '@/lib/ticker-sql.ts';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
-export const alt = 'Verified trading records by stock on Stock Social';
+export const alt = FL.tickerAlt;
 
 const frame = { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 64, background: '#0b0b0f', color: '#f4f4f6', fontFamily: 'sans-serif' } as const;
 
@@ -36,8 +38,9 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
     if (!s.n) return neutral(symbol, 'No verified trades yet', 'Stock Social · verified trading records');
     const c = s.conf!;
     const range = rangeText(c);
-    const status = s.demoOnly ? 'Sample data' : s.mixed ? 'Includes sample data' : 'Verified from broker' /* no check mark: the image font has no glyph for it */;
-    const good = !s.demoOnly && !s.mixed;
+    const kind = trustKind(s);
+    const status = FL.imageStatus[kind] /* no check mark: the image font has no glyph for it */;
+    const good = kind === 'verified';
     return new ImageResponse(
       (
         <div style={frame}>
@@ -47,7 +50,7 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: 120, fontWeight: 800, lineHeight: 1 }}>{symbol}</span>
-            <span style={{ fontSize: 32, color: '#8b8b98' }}>verified closed trades</span>
+            <span style={{ fontSize: 32, color: '#8b8b98' }}>{FL.imageSub[kind]}</span>
           </div>
           <div style={{ display: 'flex', gap: 72 }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>

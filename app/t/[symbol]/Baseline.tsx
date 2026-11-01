@@ -1,45 +1,40 @@
 import type { BaselineResult, TickerSummary } from '@/lib/ticker.ts';
-import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
+import { baselineLines } from '@/lib/ticker.ts';
+import type { Confidence } from '@/lib/trades.ts';
+import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 import { Badge } from '../../ui.tsx';
 
 const wr = (x: number | null) => (x === null ? 'n/a' : `${Math.round(x * 100)}%`);
 
-// One pooled aggregate, no lists, no ranking. Verdict wording is symmetric and uses the neutral text colour.
-export default function Baseline({ result, summary, symbol }: { result: BaselineResult; summary: TickerSummary; symbol: string }) {
-  const { kind, baseline: b } = result;
+// FIXES-LABELS (D-07): facts only. This stock and the other stocks recorded here, as counts with the same 95% per-trade
+// range on both sides (or counts only on both), then one context line. No verdict, no difference, no rating of a stock.
+// `result.kind` (baselineVerdict) stays as the section's data-kind for the existing e2e; it no longer prints a line.
+export default function Baseline({ result, summary, symbol, others }: { result: BaselineResult; summary: TickerSummary; symbol: string; others: { n: number; winRate: number | null; conf: Confidence | null } }) {
+  const { kind } = result;
   const demo = kind === 'demo_only';
-  const c = summary.conf;
-  const range = c ? rangeText(c) : null;
-  const base = pct(b.perTrade ?? 0);
+  const l = baselineLines(symbol, summary, others);
   return (
-    <section aria-label="Compared with all other stocks here" data-testid="baseline" data-symbol={symbol} data-kind={kind}>
-      <h2>Compared with all other stocks here {demo && <Badge verified={false} />}</h2>
+    <section aria-label={FL.baselineHeading} data-testid="baseline" data-symbol={symbol} data-kind={kind}>
+      <h2>{FL.baselineHeading} {demo && <Badge verified={false} />}</h2>
       {kind === 'empty' ? <p className="muted">No other stocks to compare with yet.</p> : (
         <>
-          {summary.mixed && <p role="note" className="muted small">Includes sample data marked Demo.</p>}
+          {demo && <p role="note" className="muted small">{FL.demoNote}</p>}
+          {summary.mixed && <p role="note" className="muted small">{FL.mixedNote}</p>}
           <div className="baseline-grid">
             <div className="stat">
-              <small>This stock</small>
-              {c?.perTrade && !demo && <b>{pct(c.perTrade.mid)}</b>}
-              {c?.perTrade && !demo && <small>per-trade return (geometric mean)</small>}
+              <small>{FL.baselineThisTile}</small>
               <small>{wr(summary.winRate)} win rate</small>
               <small>{summary.n} trades</small>
             </div>
             <div className="stat">
-              <small>All other stocks</small>
-              <b>{base}</b>
-              <small>per-trade return (geometric mean)</small>
-              <small>{wr(b.winRate)} win rate</small>
-              <small>{b.n} trades</small>
+              <small>{FL.baselineOthersTile}</small>
+              <small>{wr(others.winRate)} win rate</small>
+              <small>{others.n} trades</small>
             </div>
           </div>
-          {kind === 'clearly_lower' && <p data-testid="baseline-verdict">This stock&apos;s per-trade return range {range} sits below the average for all other stocks ({base}).</p>}
-          {kind === 'clearly_higher' && <p data-testid="baseline-verdict">This stock&apos;s per-trade return range {range} sits above the average for all other stocks ({base}).</p>}
-          {kind === 'no_clear_difference' && <p data-testid="baseline-verdict">No clear difference: the average for all other stocks ({base}) falls inside this stock&apos;s range {range}.</p>}
-          {kind === 'too_few_trades' && <p>{c ? evidenceLine(c) : 'Too early to tell'}. Not enough independent bets for a comparison yet.</p>}
-          {demo && <p>Sample data. No comparison verdict is drawn from sample data.</p>}
-          <p className="muted small">Win rate is shown for context. No range exists for it, so no verdict is drawn from it.</p>
-          <p className="muted small">Baseline = {demo ? 'sample' : 'verified'} closed trades in all other stocks, pooled, as the geometric per-trade mean. {symbol} is excluded. Different traders, sizes and timing. This is context, not a prediction.</p>
+          <p data-testid="baseline-this">{l.this}</p>
+          <p data-testid="baseline-others">{l.others}</p>
+          <p className="muted small">{l.note}</p>
         </>
       )}
     </section>

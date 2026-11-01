@@ -246,6 +246,72 @@ export const PORTAL = {
   tooMany: 'Too many tries. Wait a few minutes, then try again.',
 } as const;
 
+// FIXES-LABELS
+// ---- FIXES-LABELS ---- (docs/features/logs/fixes-labels/plan.md §2): D-03, D-05, D-07, D-24 copy. Params are already
+// formatted strings (count()/counted()/dateText() output). The F3 line itself stays in lib/share.ts (DISCLAIMER), never
+// here: this block is walked by allCopy(), whose banned list includes "guarantee". The F-11 status strings live in their
+// own block at the end of this file.
+export type TrustKind = 'verified' | 'demo' | 'mixed';
+export const FIXES_LABELS = {
+  // D-03 / fix #2: one state name, "Demo". Demo trades are never called verified.
+  tickerTitle: {
+    verified: (s: string) => `${s} verified trades · Stock Social`,
+    demo: (s: string) => `${s} Demo trades · Stock Social`,
+    mixed: (s: string) => `${s} closed trades, includes Demo · Stock Social`,
+  },
+  tickerCount: {
+    verified: (n: string, s: string) => `${n} verified closed trades in ${s}`,
+    demo: (n: string, s: string) => `${n} Demo closed trades in ${s}, not from a real broker`,
+    mixed: (n: string, s: string) => `${n} closed trades in ${s}, some Demo`,
+  },
+  tickerExplainer: {
+    verified: 'Verified closed trades in this stock from connected accounts, newest first. Percentages only. Few trades means a wide range, and that is expected.',
+    demo: 'Demo closed trades in this stock, newest first. Not from a real broker. Percentages only. Few trades means a wide range, and that is expected.',
+    mixed: 'Closed trades in this stock, newest first: some from connected accounts, some Demo. Percentages only. Few trades means a wide range, and that is expected.',
+  },
+  demoNote: 'Demo trades, not from a real broker.',
+  mixedNote: 'Includes Demo trades, marked Demo. The figures include them.',
+  demoPage: 'This page shows Demo trades only, not from a real broker.',
+  imageSub: { verified: 'verified closed trades', demo: 'Demo trades', mixed: 'closed trades, includes Demo' },
+  imageStatus: { verified: 'Verified from broker', demo: 'Demo', mixed: 'Includes Demo' },
+  tickerAlt: 'Trading records by stock on Stock Social',
+  indexTitle: 'Trades by stock · Stock Social',
+  indexDescription: 'Closed trades by stock: trade counts and traders, percentages only, losses included. Demo trades are marked Demo.',
+  indexIntro: 'Stocks with closed trades from connected accounts or Demo data. Open a stock to see its trades, losses included. Percentages only.',
+  indexAria: 'Stocks with closed trades',
+  compareTitle: {
+    verified: (a: string, b: string) => `${a} vs ${b} verified trades · Stock Social`,
+    demo: (a: string, b: string) => `${a} vs ${b} Demo trades · Stock Social`,
+    mixed: (a: string, b: string) => `${a} vs ${b} closed trades, includes Demo · Stock Social`,
+  },
+  compareExplainer: {
+    verified: 'Verified closed trades in each stock, side by side. Percentages only. Few trades means a wide range, and that is expected.',
+    demo: 'Demo closed trades in each stock, side by side. Not from a real broker. Percentages only. Few trades means a wide range, and that is expected.',
+    mixed: 'Closed trades in each stock, side by side; some are Demo. Percentages only. Few trades means a wide range, and that is expected.',
+  },
+  // "Sample data" stays in the description because lib/compare.test.ts asserts it; "Demo" is the state name.
+  compareTail: { demo: ' Demo trades. Sample data, not from a real broker.', mixed: ' Includes Demo trades. Sample data, not from a real broker.' },
+  compareOverlap: {
+    verified: (n: number, a: string, b: string) => (n === 0 ? 'No trader has closed verified trades in both yet.' : `${n} trader${n === 1 ? '' : 's'} closed verified trades in both ${a} and ${b}.`),
+    demo: (n: number, a: string, b: string) => (n === 0 ? 'No trader has closed trades in both yet.' : `${n} trader${n === 1 ? '' : 's'} closed trades in both ${a} and ${b}.`),
+  },
+  // D-07: facts, the traders' records as subject, one measure on both sides (D-10), no verdict. `n` is counted() text
+  // ("1 closed trade", "12 closed trades"), so one trade reads in the singular.
+  baselineHeading: 'Closed trades recorded here: this stock and other stocks',
+  baselineThis: (sym: string, n: string, traders: string, range: string | null) => `${n} in ${sym} by ${traders}${range ? `: per-trade range ${range}` : ''}.`,
+  baselineOthers: (n: string, range: string | null) => `${n} in other stocks recorded here${range ? `: per-trade range ${range}` : ''}.`,
+  baselineNote: 'Side by side for context only. Different traders, sizes and timing. Not a rating of any stock.',
+  baselineThisTile: 'This stock',
+  baselineOthersTile: 'Other stocks recorded here',
+  // D-24: months show numbers and a range only.
+  monthRange: (range: string) => `95% range ${range}`,
+  monthNoRange: (k: string, min: string) => `No range yet: ${k} of the ${min} separate bets needed`,
+  monthOf: (n: string) => (n === '1' ? 'The only month on record' : `1 of ${n} months on record`),
+  // D-05: chart ends and the at-rest subline.
+  chartSub: (rangeLabel: string, d: string) => `${rangeLabel} · last close ${d}`,
+  chartEnds: (a: string, b: string) => `First close ${a}, last close ${b}`,
+} as const;
+
 // The profile's "Connected:" line names the institutions the vendor returned for consented real accounts; with none
 // (a pre-F-1 record) it says "the broker", never a placeholder. PR-3 (carried Low 1, POLICY F3a): never "your broker",
 // since visitors and link previews read this line, and "your" is only ever said to the owner.
@@ -498,6 +564,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, FIXES_LABELS, openCopy()].forEach(walk);
   return out;
 }

@@ -1,7 +1,7 @@
 import { sql } from './db.ts';
 import { isDemoUser } from './demo.ts';
 import { publicRecord } from './connections.ts';
-import { monthRecap, wholeRecord } from './recap.ts';
+import { monthRecap, monthsOnRecord, wholeRecord } from './recap.ts';
 
 // The only query behind the recap page and card. Reads closed_trades only, so recaps stay public after disconnect.
 export async function loadRecap(handle: string, ym: string) {
@@ -12,5 +12,5 @@ export async function loadRecap(handle: string, ym: string) {
   const now = new Date();
   const recap = monthRecap(all, ym, now);
   if (!recap) return null;
-  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state: (await publicRecord(Number(u.id))).state, recap, record: wholeRecord(all, now) };
+  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state: (await publicRecord(Number(u.id))).state, recap, record: wholeRecord(all, now), months: monthsOnRecord(all) /* FIXES-LABELS (D-24) */ };
 }

@@ -1,5 +1,9 @@
 // Pure monthly recap. Keeps each closed trade in the UTC month; no sizes or prices exist here and nothing varies by sign.
 import { confidence, evidenceLine, isNewRecord, rangeText, stats, type ConfidenceInput } from './trades.ts';
+// FIXES-LABELS (D-24): the month's range line.
+import { FIXES_LABELS } from './copy.ts';
+import { MIN_BETS } from './confidence.ts';
+import { count } from './format.ts';
 
 export type RecapTrade = ConfidenceInput & { sellId: string };
 
@@ -44,8 +48,20 @@ export function monthRecap(all: RecapTrade[], ym: string, now: Date) {
     trades,
     evidence: evidenceLine(c),
     range: rangeText(c),
+    bets: c.k, // FIXES-LABELS (D-24)
   };
 }
+
+// ---- FIXES-LABELS ---- (D-24): a month shows its numbers and a 95% range, never a verdict. Under MIN_BETS bets it says
+// how many separate bets there are of the number a range needs; with enough bets but no finite range, nothing.
+export function monthRangeText(m: { range: string | null; bets: number }): string | null {
+  if (m.range) return FIXES_LABELS.monthRange(m.range);
+  return m.bets < MIN_BETS ? FIXES_LABELS.monthNoRange(count(m.bets), count(MIN_BETS)) : null;
+}
+
+// Distinct UTC months (YYYY-MM) with a closed trade: "1 of N months on record".
+export const monthsOnRecord = (all: { closedAt: Date }[]): number =>
+  new Set(all.map((t) => `${t.closedAt.getUTCFullYear()}-${t.closedAt.getUTCMonth()}`)).size;
 
 export function wholeRecord(all: RecapTrade[], now: Date) {
   const s = stats(all.map(toStat));

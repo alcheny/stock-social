@@ -1,4 +1,5 @@
 import { MIN_REST, type Concentration as ConcentrationData } from '@/lib/ticker.ts';
+import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
 import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
@@ -14,8 +15,8 @@ export default function Concentration({ c, symbol, demoOnly, mixed }: { c: Conce
   return (
     <section aria-label="Concentration check" data-testid="concentration" data-symbol={symbol} data-kind={c.kind}>
       <h2>Concentration check {demo && <Badge verified={false} />}</h2>
-      {demo && <p role="note" className="muted small">Sample data, not from a real broker.</p>}
-      {mix && <p role="note" className="muted small">Includes sample data marked Demo.</p>}
+      {demo && <p role="note" className="muted small">{FL.demoNote}</p>}
+      {mix && <p role="note" className="muted small">{FL.mixedNote}</p>}
       {c.kind === 'single' && <p style={{ marginTop: 0 }}>One trader made all {c.n} trades here.</p>}
       {c.kind === 'tie' && <p style={{ marginTop: 0 }}>{c.tied === 2 ? 'The two busiest traders' : 'The busiest traders'} each made {c.each} of {c.n} trades ({y}% each).</p>}
       {c.kind === 'too-few' && <p style={{ marginTop: 0 }}>The most active trader made {c.top} of {c.n} trades ({y}%). Fewer than {MIN_REST} trades remain without them, so no comparison is shown.</p>}

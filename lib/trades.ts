@@ -261,6 +261,22 @@ export function confidence(trades: ConfidenceInput[], today: Date): Confidence {
 // both paths share every formula below. n = trades, spanDays = (last exit - first entry) in days.
 export function confidenceFromClusters(clusters: Cluster[], n: number, spanDays: number): Confidence {
   const k = clusters.length;
+  if (k < MIN_BETS) return confidenceFromSums({ n, k, spanDays, sumX: 0, sumD: 0, ssM: 0, ssR: 0 });
+  const sumX = clusters.reduce((a, c) => a + c.x, 0);
+  const sumD = clusters.reduce((a, c) => a + c.d, 0);
+  const m = sumX / n;
+  const R = sumX / sumD;
+  const ssM = clusters.reduce((a, c) => a + (c.x - c.n * m) ** 2, 0);
+  const ssR = clusters.reduce((a, c) => a + (c.x - R * c.d) ** 2, 0);
+  return confidenceFromSums({ n, k, spanDays, sumX, sumD, ssM, ssR });
+}
+
+// FIXES-LABELS (round 3, engineer): the one formula, on the clustering sums. k = bets, sumX/sumD = Σx/Σd over bets,
+// ssM = Σ(x − n·m)² with m = sumX / n, ssR = Σ(x − R·d)² with R = sumX / sumD. lib/ticker-sql.ts#othersConfidence
+// computes these in SQL as one row, so a pool of many bets never ships one row per bet.
+export type BetSums = { n: number; k: number; spanDays: number; sumX: number; sumD: number; ssM: number; ssR: number };
+export function confidenceFromSums(s: BetSums): Confidence {
+  const { n, k, spanDays, sumX, sumD, ssM, ssR } = s;
   const tradesPerMonth = (n / Math.max(spanDays, 30)) * 30; // display only
   // F-4: below MIN_BETS (5) independent bets there is no range; from there it is always computed (t with K − 1 df).
   const tier: Tier = k < MIN_BETS ? 'too-early' : k >= 100 && spanDays >= 365 ? 'strong' : k >= 30 && spanDays >= 90 ? 'moderate' : 'thin';
@@ -268,12 +284,10 @@ export function confidenceFromClusters(clusters: Cluster[], n: number, spanDays:
   if (tier === 'too-early') return { ...base, tier, edge: null, perTrade: null, pace30: null };
 
   const t = tCrit95(k - 1);
-  const sumX = clusters.reduce((a, c) => a + c.x, 0);
-  const sumD = clusters.reduce((a, c) => a + c.d, 0);
   const m = sumX / n;
-  const seM = Math.sqrt((k / (k - 1)) * clusters.reduce((a, c) => a + (c.x - c.n * m) ** 2, 0)) / n;
+  const seM = Math.sqrt((k / (k - 1)) * ssM) / n;
   const R = sumX / sumD;
-  const seR = Math.sqrt((k / (k - 1)) * clusters.reduce((a, c) => a + (c.x - R * c.d) ** 2, 0)) / sumD;
+  const seR = Math.sqrt((k / (k - 1)) * ssR) / sumD;
   const perTrade = { low: Math.expm1(m - t * seM), mid: Math.expm1(m), high: Math.expm1(m + t * seM) };
   const pace30 = { low: Math.expm1(30 * (R - t * seR)), mid: Math.expm1(30 * R), high: Math.expm1(30 * (R + t * seR)) };
   if (![...Object.values(perTrade), ...Object.values(pace30)].every(Number.isFinite)) {

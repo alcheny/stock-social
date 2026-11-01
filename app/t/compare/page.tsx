@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
-import { COMPARE_COPY, compareDescription, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
+import { COMPARE_COPY, compareDescription, compareKind, compareOverlapText, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
+// FIXES-LABELS (D-03): title, explainer, notes and overlap by the pair's state; Demo is never "verified".
+import { FIXES_LABELS as FL } from '@/lib/copy.ts';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
@@ -29,7 +31,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   const { parsed, compare } = await load(searchParams);
   if (parsed.kind !== 'ok' || !compare) return { title: COMPARE_COPY.title, robots: { index: false } };
   return {
-    title: `${parsed.a} vs ${parsed.b} verified trades · Stock Social`,
+    title: FL.compareTitle[compareKind(compare)](parsed.a, parsed.b),
     description: compareDescription(parsed.a, parsed.b, compare),
     robots: { index: false },
   };
@@ -70,8 +72,8 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
   return (
     <section aria-labelledby={id}>
       {head}
-      {s.demoOnly && <p role="note" className="muted">{COMPARE_COPY.demoOnly}</p>}
-      {s.mixed && <p role="note" className="muted">{COMPARE_COPY.mixed}</p>}
+      {s.demoOnly && <p role="note" className="muted">{FL.demoNote}</p>}
+      {s.mixed && <p role="note" className="muted">{FL.mixedNote}</p>}
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
         <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : s.avgReturn! < 0 ? 'down' : ''}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
@@ -113,12 +115,12 @@ export default async function Compare({ searchParams }: Props) {
     <main className="page">
       <p><Link href="/t">← All stocks</Link></p>
       <h1 style={{ marginBottom: 4 }}>{a} vs {b}</h1>
-      <p className="muted" style={{ marginTop: 0 }}>{COMPARE_COPY.explainer}</p>
+      <p className="muted" style={{ marginTop: 0 }}>{FL.compareExplainer[compareKind(compare)]}</p>
       <div className="compare-grid">
         <Column symbol={a} side={compare.a} id="cmp-a-h" shared={shared} open={open?.get(a)} />
         <Column symbol={b} side={compare.b} id="cmp-b-h" shared={shared} open={open?.get(b)} />
       </div>
-      {!compare.a.empty && !compare.b.empty && <p>{COMPARE_COPY.overlap(compare.sameTraders, a, b)}</p>}
+      {!compare.a.empty && !compare.b.empty && <p>{compareOverlapText(compareKind(compare), compare.sameTraders, a, b)}</p>}
       <p className="muted small">{COMPARE_COPY.footer}</p>
       <p><Link href={`/t/${encodeURIComponent(a)}`}>Back to {a}</Link> · <Link href={`/t/${encodeURIComponent(b)}`}>Back to {b}</Link> · <Link href="/t">All stocks</Link></p>
     </main>
