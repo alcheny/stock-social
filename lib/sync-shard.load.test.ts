@@ -151,12 +151,11 @@ function startWorkers(n: number, poolEach: number) {
 }
 
 // ---- The tests (main thread). ----
-const PORT = 5800 + Math.floor(Math.random() * 500);
 const tag = `ls${Math.random().toString(36).slice(2, 7).padEnd(5, '0')}`; // handles `${tag}${i}`: at most 12 characters
 const prefix = `${tag}v`; // vendor user ids and account ids start with it
 const ID_BASE = 1_900_000_000; // explicit trader ids live above this (see bulkTraders)
 let fake: ChildProcess | null = null;
-const base = `http://127.0.0.1:${PORT}`;
+let base = ''; // the fake's, on a free port (port 0), as its process reports it
 const made: [number, number][] = []; // id ranges created
 let attemptId: number | null = null;
 let secretEnc = '';
@@ -196,9 +195,10 @@ if (!IN_WORKER) {
     // The fake runs in its own process, so its event loop never competes with the shards'.
     const vendor = fileURLToPath(new URL('../e2e/fakes/vendor.ts', import.meta.url));
     fake = spawn(process.execPath, ['--input-type=module', '-e',
-      `const { startVendorFake } = await import(${JSON.stringify(vendor)}); await startVendorFake(${PORT}); console.log('ready');`], { stdio: ['ignore', 'pipe', 'inherit'] });
+      `const { startVendorFake } = await import(${JSON.stringify(vendor)}); const f = await startVendorFake(0); console.log('ready ' + f.base);`], { stdio: ['ignore', 'pipe', 'inherit'] });
     await new Promise<void>((resolve, reject) => {
-      fake!.stdout!.on('data', (d: Buffer) => { if (d.toString().includes('ready')) resolve(); });
+      let out = '';
+      fake!.stdout!.on('data', (d: Buffer) => { out += d.toString(); const m = /ready (\S+)\n/.exec(out); if (m) { base = m[1]; resolve(); } });
       fake!.on('exit', (c) => reject(new Error(`vendor fake exited ${c}`)));
     });
     process.env.SNAPTRADE_BASE_URL = base;
