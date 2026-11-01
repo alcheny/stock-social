@@ -1,6 +1,6 @@
 // F-7: filing rows → lots → closed trades via the unchanged FIFO matcher (lib/trades.ts). Only open-market buy → open-market
 // sale is priced; other acquisitions and pre-report holdings are unknown-cost lots, and a sale touching one is excluded and
-// counted, as are indirect, derivative and (after a held-after mismatch) unreconciled rows.
+// counted, as are indirect, derivative and unreconciled rows (from a held-after mismatch or a missing share count on).
 import type { TransactionSql } from 'postgres';
 import { matchTrades, type Activity } from './trades.ts';
 import { PLACEHOLDER_ATTESTED_AT, PUBLIC_FEED_DELAY_DAYS } from './public-gate.ts';
@@ -21,8 +21,7 @@ export function effectiveRows(rows: PubRow[]): PubRow[] {
   return rows.filter((r) => best.get(root(r.filing_id)) === r.filing_id);
 }
 export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Record<string, number>; openSymbols: string[] } {
-  const excluded: Record<string, number> = {};
-  const count = (k: string) => { excluded[k] = (excluded[k] ?? 0) + 1; };
+  const excluded: Record<string, number> = {}, count = (k: string) => { excluded[k] = (excluded[k] ?? 0) + 1; };
   const rowNo = (r: PubRow) => Number(r.external_id.split(':').pop()) || 0;
   const rows = effectiveRows(input).sort((a, b) => a.executed_at.getTime() - b.executed_at.getTime() || a.filed_at.getTime() - b.filed_at.getTime()
     || (a.filing_id < b.filing_id ? -1 : a.filing_id > b.filing_id ? 1 : rowNo(a) - rowNo(b)));
@@ -31,8 +30,7 @@ export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Re
   const queues = new Map<string, { lots: { units: number; priced: boolean; filed: number }[]; held: number; seen: boolean; broken: boolean }>();
   for (const r of rows) {
     if (r.derivative || r.indirect) { count(r.derivative ? 'derivative' : 'indirect'); continue; }
-    const q = queues.get(r.symbol) ?? { lots: [], held: 0, seen: false, broken: false }, filed = r.filed_at.getTime();
-    queues.set(r.symbol, q);
+    const q = queues.get(r.symbol) ?? { lots: [], held: 0, seen: false, broken: false }, filed = r.filed_at.getTime(); queues.set(r.symbol, q);
     const act = (side: 'BUY' | 'SELL', units: number, price: number, verified: boolean, at = r.executed_at, id = r.external_id) =>
       acts.push({ externalId: id, accountId: 'public', symbol: r.symbol, side, units, price, fee: 0, executedAt: at, verified });
     const lot = (units: number, isPriced: boolean, price: number, at?: Date) => {
@@ -41,8 +39,7 @@ export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Re
     };
     // Holdings from before the first report in this security: cost unknown.
     const before = r.held_after === null ? 0 : r.held_after - (r.acquired ? r.units : -r.units);
-    if (!q.seen && before > EPS) lot(before, false, 1, new Date(r.executed_at.getTime() - 1));
-    q.seen = true;
+    if (!q.seen && before > EPS) lot(before, false, 1, new Date(r.executed_at.getTime() - 1)); q.seen = true;
     if (r.acquired) { const ok = r.side === 'BUY' && (r.price ?? 0) > 0; lot(r.units, ok, ok ? r.price! : 1); }
     let allPriced = true, latest = filed;
     if (!r.acquired && q.held < r.units - EPS) lot(r.units - q.held, false, 1); // shares with no recorded entry
@@ -51,7 +48,7 @@ export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Re
       allPriced &&= l.priced; latest = Math.max(latest, l.filed); l.units -= take; left -= take; q.held -= take;
       if (l.units <= EPS) q.lots.shift();
     }
-    if (r.held_after !== null && Math.abs(q.held - r.held_after) > EPS * Math.max(1, r.held_after)) q.broken = true;
+    if (r.held_after === null || Math.abs(q.held - r.held_after) > EPS * Math.max(1, r.held_after)) q.broken = true; // no share count: unknown
     if (r.acquired) continue;
     const sale = r.side === 'SELL' && (r.price ?? 0) > 0;
     act('SELL', r.units, sale ? r.price! : 1, sale && allPriced && !q.broken);

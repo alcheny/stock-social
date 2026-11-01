@@ -316,17 +316,15 @@ select schema_add_column('users', 'excluded_future', 'int not null default 0');
 -- Rows from before F-1 were claimed by a completed sync: confirmed.
 update broker_accounts set confirmed_at = claimed_at where confirmed_at is null and connection_id is null;
 
--- F-7 public-record traders (docs/features/logs/F-7/plan.md). Raw filings in (immutable), derived out: a filer's
--- closed_trades are rebuilt by lib/public-trades.ts (verified = false). The source check is the per-source gate (owner's).
+-- F-7 public-record traders (docs/features/logs/F-7/plan.md). Raw filings in (immutable), derived out: a filer's closed_trades
+-- are rebuilt by lib/public-trades.ts (verified = false). The source check is the per-source gate (owner's).
 -- ponytail: legislators' and quarterly holdings reports are not sources — they need a market-data vendor (POLICY H) and,
 -- for legislators, the owner's ruling on the statutory commercial-use limit.
-create table if not exists public_filers (
-  id int generated always as identity primary key,
-  source text not null check (source in ('insider_reports')),
-  filer_key text not null,                          -- the filing system's filer id; identity never by name
+-- ponytail: open positions carry no percent — an owner-approved market-data vendor would give unrealized returns (TR-4).
+create table if not exists public_filers (          -- filer_key: the filing system's filer id (identity never by name)
+  id int generated always as identity primary key, source text not null check (source in ('insider_reports')), filer_key text not null,
   demo boolean not null default false,              -- fictional fixture filer: Demo badge (POLICY P2)
   excluded jsonb not null default '{}', open_symbols text[] not null default '{}', -- counts by reason; open lots, symbols only
-  -- ponytail: open positions carry no percent — an owner-approved market-data vendor would give unrealized returns (TR-4).
   hidden_at timestamptz, removed_at timestamptz,    -- hidden pending review; removed on request (never re-imported)
   created_at timestamptz not null default now(), unique (source, filer_key)
 );
@@ -334,22 +332,17 @@ create table if not exists public_filers (
 -- PLACEHOLDERS, NOT AN ATTESTATION; every attestation, funnel, account and referral reader excludes them.
 -- ponytail: the attestation columns are NOT NULL, so filers carry a sentinel — an owner-approved change to nulls removes it.
 select schema_add_column('users', 'public_filer_id', 'int unique references public_filers on delete restrict');
-do $c$ begin
-  if not exists (select 1 from pg_constraint where conname = 'users_public_filer_no_broker') then
-    alter table users add constraint users_public_filer_no_broker check (public_filer_id is null or snaptrade_user_id is null);
-  end if;
-end $c$;
+do $c$ begin if not exists (select 1 from pg_constraint where conname = 'users_public_filer_no_broker') then
+  alter table users add constraint users_public_filer_no_broker check (public_filer_id is null or snaptrade_user_id is null); end if; end $c$;
 create table if not exists public_transactions (    -- raw, private, never rendered; matcher fields and the link only
-  id bigint generated always as identity primary key,
-  filer_id int not null references public_filers on delete cascade,
+  id bigint generated always as identity primary key, filer_id int not null references public_filers on delete cascade,
   external_id text not null, filing_id text not null, amends text, -- '<filing id>:<row>'; amends: the filing it replaces
   filing_url text not null check (filing_url ~ '^https?://'), symbol text not null,
   code text not null, side text check (side in ('BUY', 'SELL')), -- report code; side null unless open-market buy/sale
   acquired boolean not null default true, units double precision not null check (units > 0),
-  price double precision check (price >= 0), held_after double precision,
+  price double precision check (price >= 0), held_after double precision, -- held_after null: not a share count (unknown)
   indirect boolean not null default false, derivative boolean not null default false, -- indirect: label never stored
-  executed_at timestamptz not null, filed_at timestamptz not null, created_at timestamptz not null default now(),
-  unique (filer_id, external_id)
+  executed_at timestamptz not null, filed_at timestamptz not null, created_at timestamptz not null default now(), unique (filer_id, external_id)
 );
 create table if not exists public_import_state (source text primary key, cursor jsonb not null default '{}', last_success_at timestamptz);
 create table if not exists public_filer_log (       -- corrections log: no requester details, no free text

@@ -8,27 +8,31 @@ import { matchPublic, rebuildPublicTrades, type PubRow } from './public-trades.t
 import { logSafe } from './privacy-log.ts';
 import { isLoopbackUrl, type Env } from './vendor-env.ts';
 
-export const MAX_FILINGS_PER_TICK = 50;
+export const MAX_FILINGS_PER_TICK = 50, PUBLIC_IMPORT_LOCK = 47; // lock (47, hashtext(state)): one run at a time across instances
 const SOURCE: PublicSource = 'insider_reports';
-const zero = { ran: false, dryRun: false, stopped: false, filings: 0, docsSkipped: 0, rowsSkipped: 0, roleSkipped: 0, removedSkipped: 0, failed: 0, filers: 0, priced: 0, five: 0 };
+const zero = { ran: false, busy: false, dryRun: false, stopped: false, filings: 0, docsSkipped: 0, rowsSkipped: 0, roleSkipped: 0, removedSkipped: 0, failed: 0, filers: 0, priced: 0, five: 0 };
 export type ImportReport = typeof zero & { excluded: Record<string, number> };
 type Opts = { boxMs: number; env?: Env; baseUrl?: string; dryRun?: boolean; from?: string; max?: number; state?: string; today?: string };
 const nextDay = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
 export async function importPublicFilings(o: Opts): Promise<ImportReport> {
   const env = o.env ?? process.env, base = o.baseUrl ?? env.PUBLIC_FILINGS_BASE_URL;
-  const report: ImportReport = { ...zero, dryRun: !!o.dryRun, excluded: {} };
-  if (!publicTradersOn(env) || !publicSources(env).includes(SOURCE) || !base) return report;
+  const report: ImportReport = { ...zero, dryRun: !!o.dryRun, excluded: {} }; if (!publicTradersOn(env) || !publicSources(env).includes(SOURCE) || !base) return report;
   if (o.dryRun && !(env.PUBLIC_TRADERS === '1' && env.PUBLIC_FILINGS_CONTACT?.trim())) throw new Error('the dry run needs PUBLIC_TRADERS=1 and PUBLIC_FILINGS_CONTACT');
+  const state = o.state ?? SOURCE, conn = await sql.reserve(); // the 4 req/s pace is per process: overlapping runs skip
+  try {
+    if (!(await conn`select pg_try_advisory_lock(${PUBLIC_IMPORT_LOCK}, hashtext(${state})) as got`)[0].got) return { ...report, busy: true };
+    try { return await run(o, env, base, state, report); } finally { await conn`select pg_advisory_unlock(${PUBLIC_IMPORT_LOCK}, hashtext(${state}))`; }
+  } finally { conn.release(); }
+}
+async function run(o: Opts, env: Env, base: string, state: string, report: ImportReport): Promise<ImportReport> {
   const deadline = Date.now() + o.boxMs, client = filingsClient(base, env, deadline), demo = isLoopbackUrl(base); // loopback: fixture filers, Demo (C11)
-  report.ran = true;
-  const state = o.state ?? SOURCE, today = o.today ?? new Date().toISOString().slice(0, 10);
+  report.ran = true; const today = o.today ?? new Date().toISOString().slice(0, 10);
   const [st] = await sql`select cursor from public_import_state where source = ${state}`;
   // ponytail: a source with no cursor starts today (no backfill) — the dry run's day or a seeded cursor reads history.
-  let day: string = o.from ?? st?.cursor?.day ?? today, offset: number = o.from ? 0 : st?.cursor?.offset ?? 0;
-  const touched = new Set<string>(), dry = new Map<string, PubRow[]>();
-  async function one(e: IndexEntry) {
-    const xml = await client.fetchFiling(e.id);
-    const { filing: f, skipped } = xml ? parseFiling(xml) : { filing: null, skipped: 0 };
+  // The cursor's day is re-listed whole; ids already read that day are skipped (an entry listed late is never lost).
+  let day: string = o.from ?? st?.cursor?.day ?? today, seen = new Set<string>(o.from ? [] : st?.cursor?.seen ?? []);
+  const touched = new Set<string>(), dry = new Map<string, PubRow[]>(); async function one(e: IndexEntry) {
+    const xml = await client.fetchFiling(e.id), { filing: f, skipped } = xml ? parseFiling(xml) : { filing: null, skipped: 0 };
     report.rowsSkipped += skipped;
     // ponytail: a filing with more than one reporting owner is skipped and counted — splitting joint rows needs a rule.
     if (!f || f.owners !== 1) return void report.docsSkipped++;
@@ -51,14 +55,14 @@ export async function importPublicFilings(o: Opts): Promise<ImportReport> {
   try {
     walk: while (day <= today && Date.now() < deadline) {
       const list = await client.listFilings({ day });
-      for (; offset < list.length; offset++) {
+      for (const e of list.filter((x) => !seen.has(x.id))) {
         if (report.filings >= (o.max ?? MAX_FILINGS_PER_TICK) || Date.now() >= deadline) break walk;
         // ponytail: a filing that fails to store is passed over; a re-read from an earlier cursor retries it
-        try { await one(list[offset]); } catch (e) { if (e instanceof FilingsStopped) throw e; report.failed++; console.error('public import: filing failed', logSafe(e)); }
-        report.filings++;
+        try { await one(e); } catch (x) { if (x instanceof FilingsStopped) throw x; report.failed++; console.error('public import: filing failed', logSafe(x)); }
+        report.filings++; seen.add(e.id);
       }
       if (day === today) break;
-      day = nextDay(day); offset = 0;
+      day = nextDay(day); seen = new Set();
     }
   } catch (e) { if (!(e instanceof FilingsStopped)) throw e; report.stopped = true; }
   report.filers = touched.size;
@@ -68,7 +72,7 @@ export async function importPublicFilings(o: Opts): Promise<ImportReport> {
   }
   if (!o.dryRun) {
     const ok = !report.stopped && !report.failed;
-    await sql`insert into public_import_state (source, cursor, last_success_at) values (${state}, ${sql.json({ day, offset })}, ${ok ? sql`now()` : null})
+    await sql`insert into public_import_state (source, cursor, last_success_at) values (${state}, ${sql.json({ day, seen: [...seen] })}, ${ok ? sql`now()` : null})
       on conflict (source) do update set cursor = excluded.cursor, last_success_at = coalesce(excluded.last_success_at, public_import_state.last_success_at)`;
   }
   console.log('public import', JSON.stringify(report)); // counts only

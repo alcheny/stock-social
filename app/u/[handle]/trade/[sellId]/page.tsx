@@ -40,6 +40,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title: `${t.symbol} ${pct(t.returnPct)} · @${t.handle} · Stock Social`,
     description: tradeDescription(t, strip),
     openGraph: { images: [{ url, width: 1200, height: 630, type: 'image/png', alt: tradeAlt(t, strip) }] },
+    ...(isPublicRecord(t.state) ? { robots: { index: false, follow: false } } : {}), // F-7 fix round 3: noindex
   };
 }
 

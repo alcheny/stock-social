@@ -726,17 +726,15 @@ export const BILLING = {
   deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
 } as const;
 export { billingDate };
-// ---- F-7 public-record traders (docs/features/logs/F-7/plan.md Round 4 item 1, Round 5 items 3-6; legal C9-C12, C15,
-// C18, C24). Never "Verified"; no advice, signals or completeness claims (lib/f7-trust.test.ts walks every string).
+// ---- F-7 public-record traders (docs/features/logs/F-7/plan.md Round 4 item 1, Round 5 items 3-6; legal C9-C12, C15, C18,
+// C24). Never "Verified"; no advice, signals or completeness claims (lib/f7-trust.test.ts walks every string).
 export const isPublicRecord = (s: string): s is 'public' | 'public_demo' => s === 'public' || s === 'public_demo';
 const publicLabel = (s: 'public' | 'public_demo') => (s === 'public_demo' ? `Demo · ${PUBLIC.badge}` : PUBLIC.badge);
-const sales = (n: number) => counted(n, 'sale');
+const sales = (n: number) => counted(n, 'sale'), BUILT = 'Built from public filings.';
 export const PUBLIC = {
-  badge: 'Public filing', badgeTitle: 'Built from public filings, not from a broker connection. Not Verified: it does not verify identity or completeness.',
-  kind: 'Company insider',
-  notJoined: 'Built from public filings. This person has not joined Stock Social, has not connected a broker, has not reviewed this record and does not endorse it.',
-  since: (first: string, checked: string) => `Record since ${first} · last checked ${checked}`,
-  notYet: 'not yet', correction: 'Request a correction or removal →',
+  badge: 'Public filing', badgeTitle: 'Built from public filings, not from a broker connection. Not Verified: it does not verify identity or completeness.', kind: 'Company insider',
+  notJoined: `${BUILT} This person has not joined Stock Social, has not connected a broker, has not reviewed this record and does not endorse it.`,
+  since: (first: string, checked: string) => `Record since ${first} · last checked ${checked}`, notYet: 'not yet', correction: 'Request a correction or removal →',
   caveat: 'Filings can be late, amended or missing.', stale: 'This record may be out of date.',
   imageLine: 'This person has not joined Stock Social.', // the share image's line (the alt and unfurl carry notJoined)
   // The trade and month images' alt (og and twitter): the label and the not-joined line, never Verified or an amount.
@@ -750,41 +748,26 @@ export const PUBLIC = {
   excluded: {
     no_price: (n: number) => `${sales(n)} excluded: no priced open-market purchase before them in the filings (for example shares received as pay).`,
     unreconciled: (n: number) => `${sales(n)} excluded: holdings didn't reconcile, possibly a stock split.`,
-    derivative: (n: number) => `${counted(n, 'derivative transaction')} excluded: options and other derivatives are not matched.`,
-    gift: (n: number) => `${counted(n, 'gift')} excluded: not an open-market sale.`,
-    other: (n: number) => `${counted(n, 'other disposal')} excluded: not an open-market sale (for example shares withheld for tax).`,
-    indirect: (n: number) => `${counted(n, 'transaction')} in indirectly held shares excluded.`,
+    derivative: (n: number) => `${counted(n, 'derivative transaction')} excluded: options and other derivatives are not matched.`, gift: (n: number) => `${counted(n, 'gift')} excluded: not an open-market sale.`,
+    other: (n: number) => `${counted(n, 'other disposal')} excluded: not an open-market sale (for example shares withheld for tax).`, indirect: (n: number) => `${counted(n, 'transaction')} in indirectly held shares excluded.`,
   } as Record<string, (n: number) => string>,
   excludedOther: (n: number) => `${counted(n, 'transaction')} excluded for another reason.`,
-  how: {
-    title: 'Public filing records',
-    lines: [
-      'Some profiles are built from company insiders’ transaction reports on the securities regulator’s public filing system. These people have not joined Stock Social.',
-      'Only open-market purchases and open-market sales are matched, first in, first out, per security. Returns come from the prices in the reports, before fees.',
-      'Shares received any other way (grants, exercises, gifts, earlier holdings) have no known cost, so a sale that uses them is excluded and counted, never estimated. Indirect holdings and derivatives are excluded too.',
-      'Filings can be late, amended or missing. An amendment replaces what it amends and the record is rebuilt.',
-      'Open positions show symbols only: the filings give no current price. "Public filing" is not Verified and does not verify identity or completeness.',
-    ],
-    link: 'Corrections and removal requests',
-  },
-  page: {
-    title: 'Public filing records',
+  how: { title: 'Public filing records', link: 'Corrections and removal requests', lines: [
+    'Some profiles are built from company insiders’ transaction reports on the securities regulator’s public filing system. These people have not joined Stock Social.',
+    'Only open-market purchases and open-market sales are matched, first in, first out, per security. Returns come from the prices in the reports, before fees.',
+    'Shares received any other way (grants, exercises, gifts, earlier holdings) have no known cost, so a sale that uses them is excluded and counted, never estimated. Indirect holdings and derivatives are excluded too.',
+    'Filings can be late, amended or missing. An amendment replaces what it amends and the record is rebuilt.', 'Open positions show symbols only: the filings give no current price. "Public filing" is not Verified and does not verify identity or completeness.'] },
+  page: { title: 'Public filing records', askTitle: 'Ask for a correction or removal', unset: 'Requests open before launch.',
     description: 'What Public filing records are: built from company insiders’ public transaction reports. The person has not joined Stock Social and has not reviewed the record.',
-    lines: [
+    ask: 'If this is your record, or something in it is wrong, write to the address below. We will review your request and reply.', lines: [
       'Profiles marked "Public filing" are built from company insiders’ transaction reports on the securities regulator’s public filing system, not from a broker connection.',
       'The person has not joined Stock Social, has not connected a broker, has not reviewed the record and does not endorse it.',
       'Only open-market purchases matched to later open-market sales are shown, as percentages. Sales that can’t be priced from the filings, indirect holdings and derivatives are excluded and counted on each profile.',
-      'Filings can be late, amended or missing, so a record can be out of date or partial.',
-    ],
-    askTitle: 'Ask for a correction or removal',
-    ask: 'If this is your record, or something in it is wrong, write to the address below. We will review your request and reply.',
-    unset: 'Requests open before launch.',
-  },
+      'Filings can be late, amended or missing, so a record can be out of date or partial.'] },
 };
 // The profile's exclusion lines, one per reason above 0, in a fixed order; a reason this release doesn't name is still counted.
 export function publicExclusions(excluded: Record<string, number>): string[] {
-  const known = Object.keys(PUBLIC.excluded);
-  const other = Object.entries(excluded).filter(([k, n]) => !known.includes(k) && n > 0).reduce((a, [, n]) => a + n, 0);
+  const known = Object.keys(PUBLIC.excluded), other = Object.entries(excluded).filter(([k, n]) => !known.includes(k) && n > 0).reduce((a, [, n]) => a + n, 0);
   return [...known.filter((k) => (excluded[k] ?? 0) > 0).map((k) => PUBLIC.excluded[k](excluded[k])), ...(other ? [PUBLIC.excludedOther(other)] : [])];
 }
 

@@ -12,10 +12,22 @@ test('AC 8: the switch table', () => {
   assert.equal(publicTradersOn({ PUBLIC_TRADERS: '1', NODE_ENV: 'production' }), false);
   assert.equal(publicTradersOn({ PUBLIC_TRADERS: '1', NODE_ENV: 'production', PUBLIC_FILINGS_CONTACT: both.PUBLIC_FILINGS_CONTACT }), false);
   assert.equal(publicTradersOn({ PUBLIC_TRADERS: '1', NODE_ENV: 'production', PUBLIC_RECORDS_CONTACT: both.PUBLIC_RECORDS_CONTACT }), false);
-  assert.equal(publicTradersOn({ PUBLIC_TRADERS: '1', NODE_ENV: 'production', ...both }), true);
+  assert.equal(publicTradersOn({ PUBLIC_TRADERS: '1', NODE_ENV: 'production', LAUNCH_OPEN: '1', ...both }), true);
   assert.equal(publicTradersOn({ NODE_ENV: 'development' }), true);
   assert.equal(publicTradersOn({ NODE_ENV: 'test' }), true);
   assert.equal(publicTradersOn({ NODE_ENV: 'production', ...both }), false);
+});
+
+test('fix round 3: in production real filers show only once the launch gate is open; the sandbox path is unchanged', () => {
+  const prod = { PUBLIC_TRADERS: '1', NODE_ENV: 'production', ...both, SNAPTRADE_CLIENT_ID: 'live', SNAPTRADE_BASE_URL: 'https://vendor.example.test' };
+  assert.equal(publicTradersOn(prod), false); // gate closed
+  assert.equal(publicTradersOn({ ...prod, LAUNCH_OPEN: '0' }), false);
+  assert.equal(publicTradersOn({ ...prod, LAUNCH_OPEN: '1' }), true);
+  assert.equal(importerBaseAllowed('https://filings.example.test', prod), false);
+  assert.equal(importerBaseAllowed('https://filings.example.test', { ...prod, LAUNCH_OPEN: '1' }), true);
+  // The e2e production build (nothing real can enter, loopback filings): fictional filers still show.
+  assert.equal(publicTradersOn({ NODE_ENV: 'production', ALLOW_DEV_AUTH: '1' }), true);
+  assert.equal(publicTradersOn({ NODE_ENV: 'production', ALLOW_DEV_AUTH: '1', SNAPTRADE_BASE_URL: 'https://vendor.example.test' }), false);
 });
 
 test('AC 8 / Round 4 item 6: unset reaches loopback only; another host needs an explicit on and the contact', () => {

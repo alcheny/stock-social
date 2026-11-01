@@ -4,7 +4,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
-import { setScenario, startPublicFilingsFake, type FakeFiling, type FakeOwner } from '../e2e/fakes/public-filings.ts';
+import { fakeState, setScenario, startPublicFilingsFake, type FakeFiling, type FakeOwner } from '../e2e/fakes/public-filings.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL', timeout: 120_000 }, fn);
@@ -122,7 +122,7 @@ dbTest('a refused source stops the tick: no last_success_at, the cursor stays; a
   assert.equal(r.stopped, true);
   const [st] = await sql`select cursor, last_success_at from public_import_state where source = ${state}`;
   assert.equal(st.last_success_at, null);
-  assert.deepEqual(st.cursor, { day: '2026-03-02', offset: 0 });
+  assert.deepEqual(st.cursor, { day: '2026-03-02', seen: [] });
   // Unreconciled holdings are excluded by reason; one filing per tick resumes where it stopped.
   const u = owner(`${tag} Unreconciled`);
   await setScenario(fake.base, { filings: [
@@ -131,7 +131,8 @@ dbTest('a refused source stops the tick: no last_success_at, the cursor stays; a
     { id: fid(), day: '2026-03-03', owner: u, symbol: 'QZXF', rows: [{ date: '2026-03-02', code: 'S', units: 10, price: 12, ad: 'D', after: 30 }] }] });
   const s2 = await stateAt('2026-03-02');
   assert.equal((await run(s2, { max: 1 })).filings, 1);
-  assert.deepEqual((await sql`select cursor from public_import_state where source = ${s2}`)[0].cursor, { day: '2026-03-02', offset: 1 });
+  const first = (await sql`select cursor from public_import_state where source = ${s2}`)[0].cursor;
+  assert.equal(first.day, '2026-03-02'); assert.equal(first.seen.length, 1);
   await run(s2);
   const [pf] = await sql`select excluded from public_filers where filer_key = ${u.key}`;
   assert.deepEqual(pf.excluded, { unreconciled: 1 });
@@ -225,7 +226,7 @@ dbTest('AC 33: the dry run fetches and matches in memory, writes nothing, needs 
   assert.equal(r.filers, 1); assert.equal(r.priced, 1); assert.equal(r.five, 1); assert.equal(r.roleSkipped, 2);
   assert.equal((await sql`select count(*)::int as n from public_filers where filer_key in ${sql([o.key, p.key])}`)[0].n, 0);
   const [st] = await sql`select cursor, last_success_at from public_import_state where source = ${state}`;
-  assert.deepEqual(st.cursor, { day: '2026-03-02', offset: 0 }); assert.equal(st.last_success_at, null);
+  assert.deepEqual(st.cursor, { day: '2026-03-02', offset: 0 }); assert.equal(st.last_success_at, null); // untouched: the seeded cursor
   const text = JSON.stringify(r);
   for (const never of [tag, 'Fictional', 'QZ']) assert.ok(!text.includes(never), never);
 });
@@ -236,4 +237,36 @@ test('AC 24: the privacy registry covers the four tables and the two closed_trad
   for (const t of ['public_filers', 'public_transactions', 'public_import_state', 'public_filer_log']) assert.ok(SCHEMA_MAP[t], t);
   assert.equal(SCHEMA_MAP.public_transactions.personal, true);
   assert.ok(NOT_A_FIELD['closed_trades.filing_url']); assert.ok(NOT_A_FIELD['closed_trades.feed_after']);
+});
+
+dbTest('fix round 3: a filing listed mid-day after the day was read is imported on the next tick; read filings are not fetched again', async () => {
+  const { sql } = await import('./db.ts');
+  const o = owner(`${tag} Late Listed`);
+  const [buy, sell] = trip(o, 'QZXM', 10, 13, '2026-03-02'), other = trip(owner(`${tag} Late Other`), 'QZXN', 1, 2, '2026-03-02')[0];
+  sell.day = '2026-03-02';
+  await setScenario(fake.base, { filings: [buy, other] });
+  const state = await stateAt('2026-03-02');
+  assert.equal((await run(state, { today: '2026-03-02' })).filings, 2);
+  await setScenario(fake.base, { filings: [buy, sell, other] }); // inserted mid-list
+  const r = await run(state, { today: '2026-03-02' });
+  assert.equal(r.filings, 1);
+  assert.deepEqual((await fakeState(fake.base)).requests.map((q) => q.path), ['/index/2026-03-02.json', `/filings/${sell.id}.xml`]);
+  assert.deepEqual((await sql`select round(return_pct * 100)::int as p from closed_trades where user_id = ${(await userOf(o.key))!.id}`).map((t) => t.p), [30]);
+});
+
+dbTest('fix round 3: an import run that finds the advisory lock held skips the tick and sends nothing', async () => {
+  const { sql } = await import('./db.ts');
+  const { PUBLIC_IMPORT_LOCK } = await import('./public-import.ts');
+  await setScenario(fake.base, { filings: trip(owner(`${tag} Locked`), 'QZXP', 10, 11) });
+  const state = await stateAt('2026-03-02');
+  const conn = await sql.reserve();
+  try {
+    await conn`select pg_advisory_lock(${PUBLIC_IMPORT_LOCK}, hashtext(${state}))`;
+    const r = await run(state);
+    assert.equal(r.ran, false); assert.equal(r.busy, true); assert.equal(r.filings, 0);
+    assert.equal((await fakeState(fake.base)).requests.length, 0);
+    await conn`select pg_advisory_unlock(${PUBLIC_IMPORT_LOCK}, hashtext(${state}))`;
+  } finally { conn.release(); }
+  const r = await run(state);
+  assert.equal(r.ran, true); assert.equal(r.busy, false); assert.equal(r.filings, 2);
 });

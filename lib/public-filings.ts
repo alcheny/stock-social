@@ -2,12 +2,10 @@
 // UA from env (nothing fetched without it), backoff then stop. parseFiling is pure, bounded, keeps matcher fields only (C4).
 import { importerBaseAllowed } from './public-gate.ts';
 import { isLoopbackUrl, type Env } from './vendor-env.ts';
-export const MIN_GAP_MS = 250, MAX_DOC_BYTES = 2 * 1024 * 1024; // MIN_GAP_MS: ≤ 4 requests a second
-const BACKOFF_MS = 1000, RETRIES = 2, TIMEOUT_MS = 10_000;
+export const MIN_GAP_MS = 250, MAX_DOC_BYTES = 2 * 1024 * 1024; const BACKOFF_MS = 1000, RETRIES = 2, TIMEOUT_MS = 10_000; // ≤ 4 req/s a process
 export class FilingsStopped extends Error { constructor() { super('filing system refused; tick stopped'); } }
 export type IndexEntry = { id: string; url: string; filedAt: string; amends?: string };
-let worker: Promise<unknown> = Promise.resolve(), lastAt = 0;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+let worker: Promise<unknown> = Promise.resolve(), lastAt = 0; const sleep = (ms: number) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 // The body, or '' once it passes MAX_DOC_BYTES (chunked or not: the reader is cancelled there).
 async function capped(res: Response): Promise<string> {
   const reader = res.body?.getReader(), parts: Uint8Array[] = [];
@@ -66,13 +64,10 @@ const num = (s: string | undefined) => (s !== undefined && /^\d+(\.\d+)?$/.test(
 const opt = (s: string | undefined) => (s === undefined || s === '' ? null : num(s));
 function row(b: string, derivative: boolean): ParsedRow | null {
   const date = val(b, 'transactionDate')?.slice(0, 10) ?? '';
-  const code = val(b, 'transactionCode') ?? '';
-  const units = num(val(b, 'transactionShares')), price = opt(val(b, 'transactionPricePerShare')), heldAfter = opt(val(b, 'sharesOwnedFollowingTransaction'));
-  const ad = val(b, 'transactionAcquiredDisposedCode');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)) || !/^[A-Z]$/.test(code) || !(units > 0) || Number.isNaN(price) || Number.isNaN(heldAfter) || (ad !== 'A' && ad !== 'D')) return null;
+  const code = val(b, 'transactionCode') ?? '', units = num(val(b, 'transactionShares')), price = opt(val(b, 'transactionPricePerShare')), heldAfter = opt(val(b, 'sharesOwnedFollowingTransaction'));
+  const ad = val(b, 'transactionAcquiredDisposedCode'); if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)) || !/^[A-Z]$/.test(code) || !(units > 0) || Number.isNaN(price) || Number.isNaN(heldAfter) || (ad !== 'A' && ad !== 'D')) return null;
   return { derivative, date, code, units, price, acquired: ad === 'A', heldAfter, indirect: val(b, 'directOrIndirectOwnership') === 'I' };
 }
-
 // null for a too-large, truncated or unknown document; bad rows are skipped and counted.
 export function parseFiling(xml: string): { filing: ParsedFiling | null; skipped: number } {
   try {

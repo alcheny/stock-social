@@ -21,29 +21,29 @@ function row(o: R): PubRow {
 const pct = (rows: PubRow[]) => matchPublic(rows).trades.map((t) => Math.round(t.returnPct * 10000) / 100);
 
 test('AC 1: open-market buy at 10, sale at 12 is +20%; two lots at 10 and 14 sold at 13 is +8.33%; losses stay negative', () => {
-  assert.deepEqual(pct([row({ code: 'P', units: 10, price: 10, day: 0 }), row({ code: 'S', units: 10, price: 12, day: 5 })]), [20]);
-  assert.deepEqual(pct([row({ code: 'P', units: 10, price: 10, day: 0 }), row({ code: 'P', units: 10, price: 14, day: 1 }), row({ code: 'S', units: 20, price: 13, day: 5 })]), [8.33]);
-  const losing = pct([row({ code: 'P', units: 5, price: 20, day: 0 }), row({ code: 'S', units: 5, price: 15, day: 2 }), row({ code: 'P', units: 5, price: 10, day: 3 }), row({ code: 'S', units: 5, price: 9, day: 4 })]);
+  assert.deepEqual(pct([row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0 }), row({ code: 'S', units: 10, held_after: 0, price: 12, day: 5 })]), [20]);
+  assert.deepEqual(pct([row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0 }), row({ code: 'P', units: 10, held_after: 20, price: 14, day: 1 }), row({ code: 'S', units: 20, held_after: 0, price: 13, day: 5 })]), [8.33]);
+  const losing = pct([row({ code: 'P', units: 5, held_after: 5, price: 20, day: 0 }), row({ code: 'S', units: 5, held_after: 0, price: 15, day: 2 }), row({ code: 'P', units: 5, held_after: 5, price: 10, day: 3 }), row({ code: 'S', units: 5, held_after: 0, price: 9, day: 4 })]);
   assert.deepEqual(losing, [-25, -10]);
-  const t = matchPublic([row({ code: 'P', units: 10, price: 10, day: 0 }), row({ code: 'S', units: 10, price: 12, day: 5 })]).trades[0];
+  const t = matchPublic([row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0 }), row({ code: 'S', units: 10, held_after: 0, price: 12, day: 5 })]).trades[0];
   assert.equal(t.holdingDays, 5);
   assert.match(t.sellId, /^pub:/);
 });
 
 test('AC 2: never guessed - grants, earlier holdings and partly unknown lots exclude the sale as no_price; gifts and other dispositions are counted', () => {
-  let m = matchPublic([row({ code: 'A', units: 10, day: 0 }), row({ code: 'S', units: 10, price: 12, day: 3 })]);
+  let m = matchPublic([row({ code: 'A', units: 10, held_after: 10, day: 0 }), row({ code: 'S', units: 10, held_after: 0, price: 12, day: 3 })]);
   assert.equal(m.trades.length, 0); assert.equal(m.excluded.no_price, 1);
   // The first report says 50 were held after a 10-share purchase: 40 are from before the reports, cost unknown.
   m = matchPublic([row({ code: 'P', units: 10, price: 10, day: 0, held_after: 50 }), row({ code: 'S', units: 10, price: 12, day: 3, held_after: 40 })]);
   assert.equal(m.trades.length, 0); assert.equal(m.excluded.no_price, 1);
   // A sale that partly consumes an unknown-cost lot is excluded whole.
-  m = matchPublic([row({ code: 'A', units: 5, day: 0 }), row({ code: 'P', units: 10, price: 10, day: 1 }), row({ code: 'S', units: 8, price: 12, day: 3 })]);
+  m = matchPublic([row({ code: 'A', units: 5, held_after: 5, day: 0 }), row({ code: 'P', units: 10, held_after: 15, price: 10, day: 1 }), row({ code: 'S', units: 8, held_after: 7, price: 12, day: 3 })]);
   assert.equal(m.trades.length, 0); assert.equal(m.excluded.no_price, 1);
   // A sale with no recorded entry at all is excluded, never estimated.
-  m = matchPublic([row({ code: 'S', units: 8, price: 12, day: 3 })]);
+  m = matchPublic([row({ code: 'S', units: 8, held_after: 0, price: 12, day: 3 })]);
   assert.equal(m.trades.length, 0); assert.equal(m.excluded.no_price, 1);
   // Gift and tax-withholding dispositions consume lots FIFO and are counted; the later sale of the rest is priced.
-  m = matchPublic([row({ code: 'P', units: 30, price: 10, day: 0 }), row({ code: 'G', units: 5, day: 1, acquired: false }), row({ code: 'F', units: 5, day: 2, acquired: false }), row({ code: 'S', units: 20, price: 11, day: 3 })]);
+  m = matchPublic([row({ code: 'P', units: 30, held_after: 30, price: 10, day: 0 }), row({ code: 'G', units: 5, held_after: 25, day: 1, acquired: false }), row({ code: 'F', units: 5, held_after: 20, day: 2, acquired: false }), row({ code: 'S', units: 20, held_after: 0, price: 11, day: 3 })]);
   assert.equal(m.excluded.gift, 1); assert.equal(m.excluded.other, 1);
   assert.equal(m.trades.length, 1); assert.ok(Math.abs(m.trades[0].returnPct - 0.1) < 1e-9);
 });
@@ -71,37 +71,50 @@ test('AC 2: a held-after mismatch excludes that sale and every later sale in the
   assert.equal(m.excluded.unreconciled, 2);
 });
 
+test('fix round 3: holdings not reported as a share count are unknown - the sales are excluded and counted, never guessed', () => {
+  // First seen with no share count (holdings reported as a value): what was held before is unknown.
+  let m = matchPublic([row({ code: 'P', units: 100, price: 10, day: 0, held_after: null }), row({ code: 'S', units: 100, price: 12, day: 3, held_after: 0 })]);
+  assert.equal(m.trades.length, 0); assert.deepEqual(m.excluded, { unreconciled: 1 });
+  // With the share count (5,100 after a 100 purchase) the 5,000 earlier shares have no known cost.
+  m = matchPublic([row({ code: 'P', units: 100, price: 10, day: 0, held_after: 5100 }), row({ code: 'S', units: 100, price: 12, day: 3, held_after: 5000 })]);
+  assert.equal(m.trades.length, 0); assert.deepEqual(m.excluded, { no_price: 1 });
+  // A later row with no share count: from there on reconciliation can't be checked, so that sale and later ones are excluded.
+  m = matchPublic([row({ code: 'P', units: 10, price: 10, day: 0, held_after: 10 }), row({ code: 'S', units: 4, price: 12, day: 1, held_after: 6 }),
+    row({ code: 'S', units: 3, price: 12, day: 2, held_after: null }), row({ code: 'S', units: 3, price: 12, day: 3, held_after: 0 })]);
+  assert.equal(m.trades.length, 1); assert.deepEqual(m.excluded, { unreconciled: 2 });
+});
+
 test('open positions: symbols with an open-market lot still held, no percent', () => {
-  const m = matchPublic([row({ code: 'P', units: 10, price: 10, day: 0 }), row({ code: 'S', units: 4, price: 12, day: 1 }), row({ code: 'A', units: 3, day: 0, symbol: 'QZXB' }), row({ code: 'P', units: 1, price: 3, day: 0, symbol: 'QZXC' })]);
+  const m = matchPublic([row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0 }), row({ code: 'S', units: 4, held_after: 6, price: 12, day: 1 }), row({ code: 'A', units: 3, held_after: 3, day: 0, symbol: 'QZXB' }), row({ code: 'P', units: 1, held_after: 1, price: 3, day: 0, symbol: 'QZXC' })]);
   assert.deepEqual(m.openSymbols, ['QZXA', 'QZXC']);
 });
 
 test('AC 3: an amendment replaces the amended filing\'s rows and the percent changes; a double amendment resolves by filed time', () => {
-  const buy = row({ code: 'P', units: 10, price: 10, day: 0, filing_id: 'b1' });
-  const sell = row({ code: 'S', units: 10, price: 12, day: 5 });
-  const fix = row({ code: 'P', units: 10, price: 8, day: 0, filing_id: 'b2', amends: 'b1', filed_at: new Date(Date.UTC(2026, 1, 1)) });
+  const buy = row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0, filing_id: 'b1' });
+  const sell = row({ code: 'S', units: 10, held_after: 0, price: 12, day: 5 });
+  const fix = row({ code: 'P', units: 10, held_after: 10, price: 8, day: 0, filing_id: 'b2', amends: 'b1', filed_at: new Date(Date.UTC(2026, 1, 1)) });
   assert.deepEqual(pct([buy, sell, fix]), [50]);
-  const later = row({ code: 'P', units: 10, price: 6, day: 0, filing_id: 'b3', amends: 'b1', filed_at: new Date(Date.UTC(2026, 1, 9)) });
+  const later = row({ code: 'P', units: 10, held_after: 10, price: 6, day: 0, filing_id: 'b3', amends: 'b1', filed_at: new Date(Date.UTC(2026, 1, 9)) });
   assert.deepEqual(pct([buy, sell, later, fix]), [100]);
   // An amendment of the amendment wins too.
-  const third = row({ code: 'P', units: 10, price: 12, day: 0, filing_id: 'b4', amends: 'b3', filed_at: new Date(Date.UTC(2026, 1, 20)) });
+  const third = row({ code: 'P', units: 10, held_after: 10, price: 12, day: 0, filing_id: 'b4', amends: 'b3', filed_at: new Date(Date.UTC(2026, 1, 20)) });
   assert.deepEqual(pct([buy, sell, later, fix, third]), [0]);
 });
 
 test('feed floor: the latest effective filed time among the filings behind the trade plus 30 days; an amended opening purchase moves it', () => {
   assert.equal(PUBLIC_FEED_DELAY_DAYS, 30);
-  const buy = row({ code: 'P', units: 10, price: 10, day: 0, filing_id: 'o1', filed_at: new Date('2026-01-02T00:00:00Z') });
-  const sell = row({ code: 'S', units: 10, price: 12, day: 5, filed_at: new Date('2026-01-08T00:00:00Z') });
+  const buy = row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0, filing_id: 'o1', filed_at: new Date('2026-01-02T00:00:00Z') });
+  const sell = row({ code: 'S', units: 10, held_after: 0, price: 12, day: 5, filed_at: new Date('2026-01-08T00:00:00Z') });
   assert.equal(matchPublic([buy, sell]).trades[0].feedAfter.toISOString(), '2026-02-07T00:00:00.000Z');
-  const amended = row({ code: 'P', units: 10, price: 10, day: 0, filing_id: 'o2', amends: 'o1', filed_at: new Date('2026-01-20T00:00:00Z') });
+  const amended = row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0, filing_id: 'o2', amends: 'o1', filed_at: new Date('2026-01-20T00:00:00Z') });
   const t = matchPublic([buy, sell, amended]).trades[0];
   assert.equal(t.feedAfter.toISOString(), '2026-02-19T00:00:00.000Z');
   assert.equal(t.filingUrl, sell.filing_url);
 });
 
 test('review: a priced sale the FIFO matcher drops on its own epsilon is still counted, never lost', () => {
-  const m = matchPublic([row({ code: 'P', units: 1000000.0005, price: 10, day: 0 }), row({ code: 'S', units: 1000000, price: 12, day: 1 }),
-    row({ code: 'P', units: 100, price: 10, day: 2 }), row({ code: 'S', units: 100.0005, price: 11, day: 3 })]);
+  const m = matchPublic([row({ code: 'P', units: 1000000.0005, held_after: 1000000.0005, price: 10, day: 0 }), row({ code: 'S', units: 1000000, held_after: 0.0005, price: 12, day: 1 }),
+    row({ code: 'P', units: 100, held_after: 100.0005, price: 10, day: 2 }), row({ code: 'S', units: 100.0005, held_after: 0, price: 11, day: 3 })]);
   assert.equal(m.trades.length + Object.values(m.excluded).reduce((a, b) => a + b, 0), 2);
 });
 
@@ -143,7 +156,7 @@ async function filer(rows: PubRow[]) {
 dbTest('AC 29: no users row until a priced close; then a marked row with the placeholder attestation, never verified rows', async () => {
   const { sql } = await import('./db.ts');
   const { rebuildPublicTrades } = await import('./public-trades.ts');
-  const id = await filer([row({ code: 'P', units: 10, price: 10, day: 0 })]);
+  const id = await filer([row({ code: 'P', units: 10, held_after: 10, price: 10, day: 0 })]);
   const long = 'Morgan Fictional-Placeholder Example Name The Third';
   assert.equal((await sql.begin((tx) => rebuildPublicTrades(id, tx, long))).userId, null);
   assert.equal((await sql`select count(*)::int as n from users where public_filer_id = ${id}`)[0].n, 0);
@@ -151,8 +164,8 @@ dbTest('AC 29: no users row until a priced close; then a marked row with the pla
   assert.deepEqual(pf0.open_symbols, ['QZXA']);
 
   const tag = Math.random().toString(36).slice(2, 8);
-  await sql`insert into public_transactions ${sql({ ...row({ code: 'S', units: 9, price: 12, day: 3 }), filer_id: id, filing_id: `${tag}s`, external_id: `${tag}s:0` })}`;
-  await sql`insert into public_transactions ${sql({ ...row({ code: 'G', units: 1, day: 1, acquired: false }), filer_id: id, filing_id: `${tag}g`, external_id: `${tag}g:0` })}`;
+  await sql`insert into public_transactions ${sql({ ...row({ code: 'S', units: 9, held_after: 0, price: 12, day: 3 }), filer_id: id, filing_id: `${tag}s`, external_id: `${tag}s:0` })}`;
+  await sql`insert into public_transactions ${sql({ ...row({ code: 'G', units: 1, held_after: 9, day: 1, acquired: false }), filer_id: id, filing_id: `${tag}g`, external_id: `${tag}g:0` })}`;
   const out = await sql.begin((tx) => rebuildPublicTrades(id, tx, long));
   assert.ok(out.userId);
   const [u] = await sql`select u.handle, u.display_name, u.adult_attested_at, u.snaptrade_user_id, u.public_filer_id, a.method, a.completed_at, a.user_id, a.adult_attested_at as attempt_at

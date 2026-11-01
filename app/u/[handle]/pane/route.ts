@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db.ts';
 import { records } from '@/lib/feed.ts';
 import { recordStates } from '@/lib/connections.ts';
-import { filerVisibleSql } from '@/lib/public-gate.ts';
+import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 
 // F-2 PR-3b fix round 1 (business lead D2): a Similar trades row's pane, fetched when its sheet first opens
 // (app/lazy-pane.tsx), so the profile no longer renders three other traders' records. Public like the profile (signed
@@ -24,5 +24,5 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
   const shown = state === 'connected' || state === 'failed' ? positions : [];
   const open = shown.map((p) => p.unrealized_pct as number);
   const openAsOf = shown.length ? Math.min(...shown.map((p) => (p.fetched_at as Date).getTime())) : null;
-  return NextResponse.json({ state, trades, open, openAsOf }, { headers: { 'cache-control': 'public, max-age=60' } });
+  return NextResponse.json({ state, trades, open, openAsOf }, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db.ts';
 import { paneChart } from '@/lib/chart-series.ts';
-import { filerVisibleSql } from '@/lib/public-gate.ts';
+import { filerVisibleSql, isFilerHandle } from '@/lib/public-gate.ts';
 
 // F-1 PR-3 fix round 8 (tester re-run 4, Medium): the feed pane's full chart, fetched on the pane's first swipe-open
 // (app/u/[handle]/chart.tsx), so the feed page carries only a stand-in line per trader. Public like the profile it
@@ -22,5 +22,5 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
     closedAt: r.closed_at as Date, thesis: r.thesis_status === 'published' ? (r.thesis as string) : null,
   })), new Date());
   // Short and shared: every visitor of the same record gets the same chart; a new close shows within a minute.
-  return NextResponse.json(chart, { headers: { 'cache-control': 'public, max-age=60' } });
+  return NextResponse.json(chart, { headers: { 'cache-control': isFilerHandle(handle) ? 'no-store' : 'public, max-age=60' } }); // F-7: never cached
 }

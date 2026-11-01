@@ -1,8 +1,8 @@
 // F-7 launch switch (plan.md §2 item 5, Round 4 item 6; legal C19), env read at call time. PUBLIC_TRADERS=0 off; =1 on (in
-// production only with PUBLIC_FILINGS_CONTACT and PUBLIC_RECORDS_CONTACT); unset: on outside production and in the e2e
+// production only with both contacts and the launch gate open: fix round 3); unset: on outside production and in the e2e
 // sandbox. The importer reaches a non-loopback base only with an explicit =1 and the contact (no real filer in dev/CI).
 import { sql } from './db.ts';
-import { isSandbox } from './launch-gate.ts';
+import { gateState, isSandbox } from './launch-gate.ts';
 import { isLoopbackUrl, type Env } from './vendor-env.ts';
 export const PUBLIC_SOURCES = ['insider_reports'] as const;
 export type PublicSource = (typeof PUBLIC_SOURCES)[number];
@@ -14,7 +14,7 @@ const set = (v: string | undefined) => !!v && v.trim().length > 0;
 
 export function publicTradersOn(env: Env = process.env): boolean {
   if (env.PUBLIC_TRADERS === '0') return false;
-  if (env.PUBLIC_TRADERS === '1') return env.NODE_ENV !== 'production' || (set(env.PUBLIC_FILINGS_CONTACT) && set(env.PUBLIC_RECORDS_CONTACT));
+  if (env.PUBLIC_TRADERS === '1') return env.NODE_ENV !== 'production' || (set(env.PUBLIC_FILINGS_CONTACT) && set(env.PUBLIC_RECORDS_CONTACT) && gateState(env) === 'open');
   return env.NODE_ENV !== 'production' || isSandbox(env);
 }
 export const importerBaseAllowed = (base: string, env: Env = process.env) =>

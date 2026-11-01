@@ -166,6 +166,7 @@ test('AC 14, 16, 17: the trade page links both filings, carries the line and the
   expect(desc).toContain('Public filing');
   expect(desc).toContain('has not joined Stock Social');
   await imageAlts(page, `/u/${P}/trade/${encodeURIComponent(`pub:${P}:0`)}/opengraph-image`);
+  expect(await page.locator('meta[name="robots"]').getAttribute('content')).toMatch(/noindex/); // fix round 3
   await common(page);
   const ym = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 7);
   await page.goto(`/u/${P}/month/${ym}`);
@@ -176,7 +177,36 @@ test('AC 14, 16, 17: the trade page links both filings, carries the line and the
   await expect(page.locator('.badge.public')).toHaveText('Public filing');
   await expect(page.locator('[data-public-line]')).toContainText(NOT_JOINED);
   await expect(page.locator('[data-public-line] a')).toHaveText('Request a correction or removal →');
+  expect(await page.locator('meta[name="robots"]').getAttribute('content')).toMatch(/noindex/); // fix round 3
   await common(page);
+});
+
+test('fix round 3: a hidden filer trade on /me/hidden carries Public filing (and Demo only for a fictional one)', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 360, height: 800 } });
+  const me = await ctx.newPage();
+  const h = `e7m${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    await me.goto('/login/dev');
+    await me.getByLabel('Handle').fill(h);
+    await me.getByLabel('I am 18 or older').check();
+    await me.getByRole('button', { name: 'Continue' }).click();
+    await expect(me).toHaveURL(new RegExp(`/u/${h}$`));
+    await sql`insert into trade_exclusions (viewer_id, trade_key, trader_id)
+      select v.id, t.trade_key, t.user_id from users v, closed_trades t join users u on u.id = t.user_id
+      where v.handle = ${h} and u.handle in ${sql([P, REAL])} and t.sell_id in ${sql([`pub:${P}:0`, `pub:${REAL}:0`])}`;
+    await me.goto('/me/hidden');
+    const rows = me.locator('.hidden-trades li');
+    await expect(rows).toHaveCount(2);
+    const demo = rows.filter({ hasText: 'Fictional Filer Prime' }), real = rows.filter({ hasText: 'Fictional Filer Plain' });
+    await expect(demo.locator('.badge.public')).toHaveText('Public filing');
+    await expect(demo.locator('.badge.demo')).toHaveCount(1);
+    await expect(real.locator('.badge.public')).toHaveText('Public filing');
+    await expect(real.locator('.badge.demo')).toHaveCount(0);
+    await expect(me.locator('.badge.verified')).toHaveCount(0);
+  } finally {
+    await ctx.close();
+    await sql`delete from users where handle = ${h}`;
+  }
 });
 
 test('AC 13 (C11): a filer not marked demo shows Public filing without Demo; the pane data says public', async ({ page, request }) => {
@@ -184,8 +214,11 @@ test('AC 13 (C11): a filer not marked demo shows Public filing without Demo; the
   await expect(page.locator('.badge.public')).toHaveCount(1);
   await expect(page.locator('.badge.demo')).toHaveCount(0);
   await common(page);
-  const pane = await (await request.get(`/u/${P}/pane`)).json();
+  const res = await request.get(`/u/${P}/pane`), pane = await res.json();
   expect(pane.state).toBe('public_demo');
+  // Fix round 3: a filer's record is never served from a shared cache (a hidden or removed filer is gone at once).
+  expect(res.headers()['cache-control']).toBe('no-store');
+  for (const path of [`/u/${P}/pane-chart`, `/u/${P}/story`]) expect((await request.get(path)).headers()['cache-control'], path).toBe('no-store');
   expect(JSON.stringify(pane)).not.toMatch(/4321|98\.76/);
 });
 

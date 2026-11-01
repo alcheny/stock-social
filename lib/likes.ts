@@ -111,7 +111,7 @@ export async function hiddenTradeCount(viewer: number): Promise<number> {
       where t.trade_key = x.trade_key and t.user_id = x.trader_id) limit ${HIDDEN_COUNT_MAX + 1}`).length;
 }
 
-export type HiddenTrade = { key: string; handle: string; name: string; symbol: string; sellId: string; closedAt: Date; verified: boolean };
+export type HiddenTrade = { key: string; handle: string; name: string; symbol: string; sellId: string; closedAt: Date; verified: boolean; filer: 'public' | 'public_demo' | null };
 // Newest first, HIDDEN_PAGE at a time (keyset on created_at in microseconds, then key), like /me/likes.
 export async function ownHiddenTrades(viewer: number, after?: unknown): Promise<{ rows: HiddenTrade[]; next: string | null }> {
   const m = typeof after === 'string' ? AFTER.exec(after) : null;
@@ -119,14 +119,15 @@ export async function ownHiddenTrades(viewer: number, after?: unknown): Promise<
       select trade_key, trader_id, created_at, (extract(epoch from created_at) * 1000000)::bigint::text as us from trade_exclusions
       where viewer_id = ${viewer} ${m ? sql`and (created_at, trade_key) < (timestamptz 'epoch' + ${m[1]}::bigint * interval '1 microsecond', ${m[2]})` : sql``}
       order by created_at desc, trade_key desc limit ${HIDDEN_PAGE + 1})
-    select x.trade_key, x.us, u.handle, u.display_name, t.symbol, t.sell_id, t.closed_at, t.verified
+    select x.trade_key, x.us, u.handle, u.display_name, t.symbol, t.sell_id, t.closed_at, t.verified, (select pf.demo from public_filers pf where pf.id = u.public_filer_id) as pf_demo
     from x left join lateral (select symbol, sell_id, closed_at, verified from closed_trades where trade_key = x.trade_key and user_id = x.trader_id limit 1) t on true
       left join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
     order by x.created_at desc, x.trade_key desc`;
   const page = rows.slice(0, HIDDEN_PAGE), last = page.at(-1);
   return {
     rows: page.filter((r) => r.sell_id !== null && r.handle !== null).map((r) => ({ key: r.trade_key as string, handle: r.handle as string,
-      name: r.display_name as string, symbol: r.symbol as string, sellId: r.sell_id as string, closedAt: r.closed_at as Date, verified: r.verified as boolean })),
+      name: r.display_name as string, symbol: r.symbol as string, sellId: r.sell_id as string, closedAt: r.closed_at as Date, verified: r.verified as boolean,
+      filer: r.pf_demo === null ? null : r.pf_demo ? 'public_demo' : 'public' })), // F-7: a filer's row is labelled Public filing
     next: rows.length > HIDDEN_PAGE && last ? `${last.us}.${last.trade_key}` : null,
   };
 }

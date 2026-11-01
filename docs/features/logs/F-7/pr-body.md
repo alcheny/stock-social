@@ -62,6 +62,15 @@ Fix round 1 (decisions 11-14):
 13. Labeled share-image alt text, a `/public-records` description, and "Closed trades this month".
 14. Older rounding and tap-size items left for a later fix.
 
+Fix round 3, orchestrator review (decisions 15-21):
+15. Holdings not given as a share count are unknown, so those sales are excluded and counted as unreconciled.
+16. Real filers show in production only once the launch gate is open. The sandbox's fictional filers are unchanged.
+17. Hiding a filer's trade from your own feed is allowed. `/me/hidden` labels it "Public filing", never just Demo.
+18. A filer's trade and month pages are noindex.
+19. An advisory lock allows one import run at a time; a run that finds it held skips the tick.
+20. The day cursor re-lists the whole day and skips filings already read, so an entry listed late is not lost.
+21. A filer's pane, chart and story picture are sent `no-store`.
+
 The label stays "Public filing" rather than the design system council's "Public source". The legal conditions name it
 verbatim; the reason is recorded in the committee record.
 
@@ -128,6 +137,7 @@ COMPLIANCE.md Section 1:
 - The removal policy. The legal default is to remove on request any filer who is not an elected official.
 - Terms and Privacy text covering these profiles.
 - The production switch and `PUBLIC_FILINGS_BASE_URL`.
+- Whether real filers may show while the launch gate is closed. Built closed: in production they need `LAUNCH_OPEN=1`.
 - The business lead's dry-run threshold: at least 100 filers with 5+ priced closes.
 - Optionally, nulls instead of the attestation placeholder.
 - Legislators' reports need a price vendor and the owner's written acceptance of the statutory commercial-use risk.

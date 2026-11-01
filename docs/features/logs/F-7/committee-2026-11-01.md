@@ -85,3 +85,23 @@ three roles (it had no subagent tool); each report says so.
     (POLICY F3a), from the business lead's and UX lead's demands.
 14. **Not changed in F-7:** the profile's average rounding at an exact half (+9.7% vs +9.8% elsewhere) predates F-7 and
     affects every record; the 20 px trade-row links and 35 px chart buttons predate F-7. Recorded for a later fix.
+
+## Fix round 3 (orchestrator review)
+15. **Holdings not given as a share count are unknown.** A row whose holdings after the transaction are missing (the
+    format allows a value instead of a share count) makes that security unreconciled from there on: its later sales
+    are excluded and counted as `unreconciled`, never priced. Why: with no count, earlier holdings of unknown cost can't
+    be ruled out ("never guessed"); a first-seen purchase with no count used to publish a return.
+16. **Real filers show in production only while the launch gate is open** (`gateState() === 'open'`, plus
+    `PUBLIC_TRADERS=1` and both contacts). The sandbox path (fictional loopback filers in the e2e build) is unchanged.
+    Why: the launch gate is the owner's; built closed, opening it is the owner's call.
+17. **Hiding a filer's trade from one's own feed stays allowed and is labelled correctly.** `/me/hidden` shows
+    "Public filing" (and Demo only for a fictional filer), never a bare Demo. Why: a viewer-only hide does not alter the
+    record anyone else sees (legal C16), but a real filer's trade must never be called Demo.
+18. **A filer's trade and month pages are noindex**, like the profile. Why: legal C22 covers every page of the record.
+19. **One import run at a time:** a session advisory lock (47, state) is tried before any request; a run that finds it
+    held skips the tick. Why: the 4 requests a second pace is per process; overlapping crons or instances must not
+    fetch concurrently.
+20. **The day cursor re-lists the whole day and skips filings already read that day** (ids in the cursor), instead of
+    an offset. Why: an entry listed late in the middle of a day's index was skipped for good.
+21. **A filer's pane, chart and story picture are sent `Cache-Control: no-store`.** Why: a hidden or removed filer must
+    not be served from a shared cache for minutes.
