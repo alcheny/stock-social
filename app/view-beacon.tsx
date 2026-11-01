@@ -7,7 +7,7 @@ import { VISIBLE_MS, refClass, surfaceOf } from '@/lib/views-shared.ts';
 // (lib/views-shared.ts#surfaceOf) has been visible for VISIBLE_MS in total (time in a background tab does not count), one
 // request goes to the app's own /api/views, fire-and-forget: it never blocks or changes the page and its errors are
 // swallowed. It sends the path, the referrer's class (computed here from its origin, so the full referrer never leaves
-// the device), the landing link's ?via= and whether the browser says it is automated. No cookie is set and nothing is
+// the device) and the landing link's ?via=; a browser that reports automation sends nothing. No cookie is set and nothing is
 // written to device storage. Soft navigations count as `internal` and carry no via (carrying it forward is MRC2-3, the
 // owner's). A search-param change is not a new view. Unmount cancels a pending send; nothing is sent on page hide.
 // ponytail: pages that close before 2 s, or render without scripts, are not counted (the readout says "views, not
@@ -24,6 +24,9 @@ export function ViewBeacon() {
       doc.landingPath ??= pathname;
       if (pathname !== doc.landingPath) doc.leftLanding = true;
       if (!surfaceOf(pathname)) return;
+      // A browser that reports automation is not a person: nothing is sent (the route also drops a beacon that says so),
+      // so automated test runs and scripted browsers never add a request to a page.
+      if (navigator.webdriver === true) return;
       let acc = 0, since: number | null = null, timer: ReturnType<typeof setTimeout> | undefined, sent = false;
       const fire = () => {
         if (sent) return;

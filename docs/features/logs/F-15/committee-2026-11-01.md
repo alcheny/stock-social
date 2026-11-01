@@ -34,6 +34,7 @@ by subagents with fresh context (no member graded its own work).
 13. Invite codes are counted on views only, not in sign-up attribution (`users.referred_surface`). Why: sign-up attribution needs a referrer, and outreach links point at Demo profiles, which attribution ignores; widening it is MRC2-3 (ponytail).
 14. Bot validation: 200 scripted (50 no-script fetches, 50 script-running visits that declare themselves, 50 with the automation flag hidden but a preview agent, 50 direct posts) and 50 human-like visits, plus forged and burst groups reported apart; the 95% bar must hold on the script-running subset alone. Why: a no-script fetch can't send a beacon, so it alone would pass by construction (business lead D1, engineer E1).
 15. The `share_action` half (E5) is not in this PR; G2 prints "after the share_action slice". Why: the feature file's start condition: it edits files F-13 owns.
+16. A browser that reports automation sends no beacon at all; the route still drops a flagged beacon. Why: automated runs would otherwise add a request to every page (caught by the full e2e suite); such a browser is never a person's view.
 
 ## Owner items (not decided here)
 - Privacy Policy text describing this flow (POLICY P6, H) before any real user.

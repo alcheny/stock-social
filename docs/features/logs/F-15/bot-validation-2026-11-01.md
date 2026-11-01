@@ -28,3 +28,9 @@ is exactly as visible to the filter as a script that does the same; the forged-p
 counted. The filter stops declared and default automated clients, not a determined one; the drop table in the readout
 watches for drift. Real preview services and real devices were not tested: that is the owner's check before week 1
 (owner item), logging drop reasons only.
+
+Change after the full e2e run (2026-11-01): the beacon now sends nothing at all when the browser reports automation
+(existing e2e tests count every POST a page makes, and every automated run would otherwise add one). The headless
+group's 25 automation-flag visits therefore send no beacon instead of being dropped as `automation` (the route still
+drops a beacon that says so); counted stays 0 of 50, so the result above is unchanged. Pinned by
+`e2e/f15-beacon.spec.ts` ("automation: a browser that reports automation sends no beacon at all").

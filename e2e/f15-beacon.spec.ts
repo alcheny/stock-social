@@ -9,6 +9,10 @@ import postgres from 'postgres';
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
 test.afterAll(async () => { await sql.end({ timeout: 1 }); });
 const HANDLE = 'momentum_maya';
+// The automation flag is hidden, as in a person's browser (a browser that reports it sends no beacon: tested last).
+test.beforeEach(async ({ page }, info) => {
+  if (!info.title.startsWith('automation')) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'webdriver', { configurable: true, get: () => false }));
+});
 
 test('no visible UI, no focusable element, no layout shift, the DOM unchanged by the beacon (360 px)', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
@@ -73,3 +77,10 @@ async function latestMonth(): Promise<string> {
   const [r] = await sql`select to_char(max(c.closed_at), 'YYYY-MM') ym from closed_trades c join users u on u.id = c.user_id where u.handle = ${HANDLE}`;
   return r.ym as string;
 }
+
+test('automation: a browser that reports automation sends no beacon at all', async ({ page }) => {
+  const seen = watch(page);
+  await page.goto(`/u/${HANDLE}`);
+  await page.waitForTimeout(3_000);
+  expect(seen.length).toBe(0);
+});

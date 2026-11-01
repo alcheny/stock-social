@@ -124,6 +124,11 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
   the committee under the owner's instruction of 2026-11-01; the feature file's start condition: it edits files F-13
   owns.
 
+- 2026-11-01: A browser that reports automation sends no beacon at all; the route still drops a beacon flagged as
+  automated. Why: decided by the committee under the owner's instruction of 2026-11-01; every automated test run and
+  scripted browser would otherwise add a request to every page (the full e2e suite's request-counting tests caught it),
+  and such a browser is never a person's view.
+
 ## Acceptance criteria
 - [ ] A db test inserts rollup rows for a profile, calls `deleteProfile` and finds no row naming that user or handle.
       A second test renames A to B, creates a new user A and finds none of the old counts under either (veto
