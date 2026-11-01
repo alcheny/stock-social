@@ -6,7 +6,8 @@ import { notShared } from './shared-accounts.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
 import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pairKey } from './corporate-actions.ts';
-import { replaceListedPositions } from './positions.ts';
+import { firstByKey, moveUnlistedPositions, replaceListedPositions, settleAccountPositions } from './positions.ts';
+import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
@@ -388,137 +389,264 @@ export async function syncTick<R>(opts: {
 // a pending link, a link still in the portal and a failed import's accounts are left exactly as they are (D1, D5).
 // Returns the activity count, 'skipped' when another sync holds the lock; throws AccountClaimedError (writing nothing)
 // if any account belongs to another profile. Simulated accounts are claimed, excluded and counted; never imported.
+// F-14 (opt-in, `cadence`): the shard runner's hourly sync reads each account within the vendor's guidance (lib/sync-cadence.ts):
+// activities with share moves at most once per 24 h, positions at most 4 times in any 24 h, the consented import and the
+// first sync after a consent never throttled. Timestamps on the database clock (`shiftMs` is the tests' hook), written in
+// this transaction (a failed sync never advances them); the successful vendor reads are also recorded after the
+// transaction ends, whatever its outcome (sync_read_marks: the 6 h floor and the positions window). Without `cadence`
+// (syncTick, tests) every account is read on every call, as before.
+export type CadenceReport = { accounts: number; activitiesRead: number; positionsRead: number; deferred: number; rebuilt: boolean };
+export type SyncOpts = { cadence?: boolean; shiftMs?: number; report?: (r: CadenceReport) => void };
 export async function syncUser(
   user: { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null },
   broker: Broker = defaultBroker,
   rebuild: (userId: number, tx: TransactionSql) => Promise<unknown> = (id, tx) => rebuildRecord(id, tx), // OPTIONS
   now = new Date(),
+  opts: SyncOpts = {},
 ): Promise<number | 'skipped'> {
   if (!user.snaptrade_user_id || !user.snaptrade_secret_enc) return 0;
   const bu = { snaptradeUserId: user.snaptrade_user_id, secretEnc: user.snaptrade_secret_enc };
+  const shiftMs = opts.shiftMs ?? 0;
+  // The vendor reads that returned (recorded only after each call returns), for the marks written after the transaction.
+  const readActs: string[] = [], readPos: string[] = [];
   const consentedAuths = async (tx: TransactionSql) => new Set((await tx`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
       where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`).map((r) => r.auth as string));
   const lock = async (tx: TransactionSql) => (await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${user.id}) as got`)[0].got as boolean;
-  // TR-5 (F3-3): a connection whose accounts the vendor no longer lists is disconnected; its record stays, frozen. One
-  // list is not enough (an empty or short answer can be a vendor fault): absence is confirmed only by a second successful
-  // list at least FREEZE_CONFIRM_HOURS after the first that missed them all (`missing_since`), and a list that shows one
-  // again clears it. A vendor error throws before the marks and stamps nothing.
-  // Orchestrator review B1: the marks are what the list showed, so they commit in their own short transaction as soon as
-  // the list succeeded and the claim check passed; a later failure in the sync (activities, positions, rebuild) never
-  // rolls back a clear, which would let a later empty list freeze a connection that was listed in between. The claim
-  // check runs in a savepoint that is always rolled back, so a conflict still writes nothing; the claims themselves are
-  // written with the sync below.
-  // Owner question Q1 (cycle 3) is open: nothing clears `disconnected_at`, so a frozen connection stays frozen and unread.
-  const listing = await sql.begin(async (tx) => {
-    if (!(await lock(tx))) return null;
-    const consented = await consentedAuths(tx);
-    const accounts = (await broker.listAccounts(bu)).filter((a) => consented.has(a.authorizationId));
-    if (accounts.length) {
-      const checked = Symbol('claim check only');
-      try {
-        await tx.savepoint(async (sp) => {
-          if (!(await claimIn(sp, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
-          throw checked;
-        });
-      } catch (e) { if (e !== checked) throw e; }
-    }
-    // ponytail: absence is decided by vendor account id, not authorization, so an account id the vendor re-issues under the
-    // same authorization leaves the old snapshot unlisted and freezes that connection after the window — fix: match on
-    // the account's institution identity hash (broker_accounts) as the TR-6 claim does.
-    const listed = tx(accounts.length ? accounts.map((a) => a.id) : ['']);
-    const none = tx`not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${listed})`;
-    const live = tx`c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`;
-    await tx`update connections c set disconnected_at = ${now} where ${live} and ${none}
-      and c.missing_since <= ${now}::timestamptz - ${FREEZE_CONFIRM_HOURS}::float8 * interval '1 hour'`;
-    await tx`update connections c set missing_since = ${now} where ${live} and ${none} and c.missing_since is null`;
-    await tx`update connections c set missing_since = null where ${live} and not ${none} and c.missing_since is not null`;
-    return accounts;
-  });
-  if (!listing) return 'skipped';
-  return sql.begin(async (tx) => {
-    // The lock again (another sync may have taken it between the two transactions: this one is then skipped), and the
-    // consented set again, so a connection frozen or removed in between is never read.
-    if (!(await lock(tx))) return 'skipped';
-    const consented = await consentedAuths(tx);
-    const accounts = listing.filter((a) => consented.has(a.authorizationId));
-    // Claim first so no conflicting data is ever read for the wrong user. Zero-activity accounts are claimed too.
-    if (accounts.length && !(await claimIn(tx, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
-    const real = accounts.filter((a) => !a.isPaper).map((a) => a.id);
-    // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
-    if (!accounts.length) return 0;
-    // Fix round 6: a quarantined future date never sets the re-read window (it would skip the real last week).
-    const [{ last: lastShare }] = await tx`select max(executed_at) as last from activities where user_id = ${user.id} and source = 'snaptrade' and ${notFuture(tx)}`;
-    // OPTIONS (AC 11): the newest row across both raw tables sets the window, so an options-only trader re-reads a week.
-    const lastOption = await lastOptionActivityAt(tx, user.id);
-    const last: Date | null = lastShare && lastOption ? (lastShare > lastOption ? lastShare : lastOption) : (lastShare ?? lastOption);
-    const options: (OptionRow & { raw: unknown })[] = [];
-    const sink = (rows: (OptionRow & { raw: unknown })[]) => { options.push(...rows); };
-    let read = 0;
-    if (!last && broker.fetchActivitiesPage) {
-      // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
-      const limit = broker.pageLimit ?? PAGE_LIMIT;
-      for (const id of real) {
-        for (let offset = 0; ; offset += limit) {
-          const page = await broker.fetchActivitiesPage(bu, id, offset, limit, sink);
-          await insertActivities(user.id, 'snaptrade', page.activities, tx);
-          await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
+  try {
+    // TR-5 (F3-3): a connection whose accounts the vendor no longer lists is disconnected; its record stays, frozen. One
+    // list is not enough (an empty or short answer can be a vendor fault): absence is confirmed only by a second successful
+    // list at least FREEZE_CONFIRM_HOURS after the first that missed them all (`missing_since`), and a list that shows one
+    // again clears it. A vendor error throws before the marks and stamps nothing.
+    // Orchestrator review B1: the marks are what the list showed, so they commit in their own short transaction as soon as
+    // the list succeeded and the claim check passed; a later failure in the sync (activities, positions, rebuild) never
+    // rolls back a clear, which would let a later empty list freeze a connection that was listed in between. The claim
+    // check runs in a savepoint that is always rolled back, so a conflict still writes nothing; the claims themselves are
+    // written with the sync below.
+    // Owner question Q1 (cycle 3) is open: nothing clears `disconnected_at`, so a frozen connection stays frozen and unread.
+    const listing = await sql.begin(async (tx) => {
+      if (!(await lock(tx))) return null;
+      const consented = await consentedAuths(tx);
+      const accounts = (await broker.listAccounts(bu)).filter((a) => consented.has(a.authorizationId));
+      if (accounts.length) {
+        const checked = Symbol('claim check only');
+        try {
+          await tx.savepoint(async (sp) => {
+            if (!(await claimIn(sp, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
+            throw checked;
+          });
+        } catch (e) { if (e !== checked) throw e; }
+      }
+      // ponytail: absence is decided by vendor account id, not authorization, so an account id the vendor re-issues under the
+      // same authorization leaves the old snapshot unlisted and freezes that connection after the window — fix: match on
+      // the account's institution identity hash (broker_accounts) as the TR-6 claim does.
+      const listed = tx(accounts.length ? accounts.map((a) => a.id) : ['']);
+      const none = tx`not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${listed})`;
+      const live = tx`c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`;
+      const frozen = await tx`update connections c set disconnected_at = ${now} where ${live} and ${none}
+        and c.missing_since <= ${now}::timestamptz - ${FREEZE_CONFIRM_HOURS}::float8 * interval '1 hour'`;
+      await tx`update connections c set missing_since = ${now} where ${live} and ${none} and c.missing_since is null`;
+      await tx`update connections c set missing_since = null where ${live} and not ${none} and c.missing_since is not null`;
+      return { accounts, frozen: frozen.count };
+    });
+    if (!listing) return 'skipped';
+    return await sql.begin(async (tx) => {
+      // The lock again (another sync may have taken it between the two transactions: this one is then skipped), and the
+      // consented set again, so a connection frozen or removed in between is never read.
+      if (!(await lock(tx))) return 'skipped';
+      const consented = await consentedAuths(tx);
+      const accounts = listing.accounts.filter((a) => consented.has(a.authorizationId));
+      // F-14 (G4, engineer 4): the claimed account set and paper flags before the claim, so a change still rebuilds.
+      const shape = async () => (await tx`select coalesce(string_agg(account_id || ':' || is_paper::text, ',' order by account_id), '') as s
+        from broker_accounts where user_id = ${user.id}`)[0].s as string;
+      const before = opts.cadence ? await shape() : '';
+      // Claim first so no conflicting data is ever read for the wrong user. Zero-activity accounts are claimed too.
+      if (accounts.length && !(await claimIn(tx, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
+      const real = accounts.filter((a) => !a.isPaper).map((a) => a.id);
+      // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
+      if (!accounts.length) return 0;
+      // F-14: which accounts are due (every real account without `cadence`).
+      // ponytail: the account list (listAccounts, above) is still read every round: it carries the claim and TR-5's
+      // disconnect check, and the vendor guidance the council cited does not cover it — whether it may be throttled is a
+      // vendor question (MR-1) for the owner.
+      // ponytail: the future-date quarantine is re-checked only when activities are read (about every 25 h), so a date
+      // the vendor corrects appears up to a day later — a nightly rebuild-only pass would close it.
+      let actIds = real, posIds = real, deferred = 0;
+      const t = tx`now() + ${shiftMs}::float8 * interval '1 millisecond'`;
+      if (opts.cadence && real.length) {
+        const flags = await tx`select acct_ids.acct as id, d.* from unnest(${real}::text[]) as acct_ids(acct),
+          lateral ${dueSql(sql`acct_ids.acct`, sql`${user.id}::int`, t)} d`;
+        const plan = new Map(flags.map((f) => [f.id as string, decide(f as unknown as DueFlags)]));
+        actIds = real.filter((id) => plan.get(id)?.activities);
+        posIds = real.filter((id) => plan.get(id)?.positions);
+        deferred = real.filter((id) => plan.get(id)?.deferred).length;
+      }
+      const changed = opts.cadence ? (await shape()) !== before || listing.frozen > 0 : true;
+      // Fix round 6: a quarantined future date never sets the re-read window (it would skip the real last week).
+      const [{ last: lastShare }] = await tx`select max(executed_at) as last from activities where user_id = ${user.id} and source = 'snaptrade' and ${notFuture(tx)}`;
+      // OPTIONS (AC 11): the newest row across both raw tables sets the window, so an options-only trader re-reads a week.
+      const lastOption = await lastOptionActivityAt(tx, user.id);
+      const last: Date | null = lastShare && lastOption ? (lastShare > lastOption ? lastShare : lastOption) : (lastShare ?? lastOption);
+      const options: (OptionRow & { raw: unknown })[] = [];
+      const sink = (rows: (OptionRow & { raw: unknown })[]) => { options.push(...rows); };
+      // OPTIONS × F-14: "the whole history was read" holds only when every real account was (a gated account waits).
+      const allRead = actIds.length === real.length;
+      // Accounts that read a backfill history page this sync in place of their week (their recent sells are not read).
+      let pagedIds: string[] = [];
+      let read = 0;
+      if (!last && broker.fetchActivitiesPage) {
+        // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
+        const limit = broker.pageLimit ?? PAGE_LIMIT;
+        for (const id of actIds) {
+          for (let offset = 0; ; offset += limit) {
+            const page = await broker.fetchActivitiesPage(bu, id, offset, limit, sink);
+            if (offset === 0) readActs.push(id); // F-14 (code review): marked once its first page returned
+            await insertActivities(user.id, 'snaptrade', page.activities, tx);
+            await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
+            await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
+            read += page.activities.length;
+            if (page.done) break;
+          }
+        }
+        if (allRead) await markBackfilled(tx, user.id); // OPTIONS: the whole history was read with the option types
+        // OPTIONS × F-14 (review nit): a gated account waits, but those read in full owe no backfill (cursor -1).
+        else if (actIds.length) await saveBackfill(tx, user.id, real, new Map(actIds.map((id) => [id, -1])));
+      } else {
+        // The hourly case: the last week before the newest stored activity (bounded by a week of trading, not the history).
+        const since = last ? new Date(last.getTime() - BACKFILL_MS) : new Date('2000-01-01');
+        // OPTIONS (fix round 1, review 4): an account still owed its one-time option backfill reads its next history page
+        // instead of the week (the same request count); the others read the week as before. F-14: only due accounts read.
+        // ponytail: under F-14 a backfill page is that account's daily activities read, so a history of k pages takes about
+        // k days to backfill its options — the vendor's written answer (MR-1) on history pages would let them go hourly.
+        const backfill = broker.fetchActivitiesPage ? await pendingBackfill(tx, user.id) : new Map<string, number>();
+        const paged = actIds.filter((id) => backfill.has(id));
+        pagedIds = paged;
+        const windowed = actIds.filter((id) => !backfill.has(id));
+        if (opts.cadence) {
+          // F-14 (code review): one call per account, each recorded as it returns, so a failure on a later account
+          // still marks the reads already made (G2's floor applies to them).
+          for (const id of windowed) {
+            const got = tradeRead(await broker.fetchActivities(bu, since, [id], sink));
+            readActs.push(id);
+            await insertActivities(user.id, 'snaptrade', got.activities, tx);
+            await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
+            await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
+            read += got.activities.length;
+          }
+        } else {
+          const got = windowed.length ? tradeRead(await broker.fetchActivities(bu, since, windowed, sink)) : { activities: [], unusable: [] };
+          await insertActivities(user.id, 'snaptrade', got.activities, tx);
+          await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
           await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
+          read = got.activities.length;
+        }
+        const progress = new Map<string, number>();
+        for (const id of paged) {
+          const limit = broker.pageLimit ?? PAGE_LIMIT, offset = backfill.get(id)!;
+          const page = await broker.fetchActivitiesPage!(bu, id, offset, limit, sink);
+          readActs.push(id);
+          await insertActivities(user.id, 'snaptrade', page.activities, tx);
+          await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: the option backfill page too
+          await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
           read += page.activities.length;
-          if (page.done) break;
+          progress.set(id, page.done ? -1 : offset + limit);
+        }
+        if (paged.length) await saveBackfill(tx, user.id, real, progress);
+        if (!last && allRead) await markBackfilled(tx, user.id); // the since-2000 read is the whole history
+      }
+      // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
+      // rebuild applies them. Counted: SYNC_REQUESTS_PER_ACCOUNT is 3 (activities, positions, share moves), so syncCost,
+      // SYNC_FIT_CAP and the sharded runner's request budget include this read (one page per account; more pages are the
+      // ponytail above). F-14 (S1): the same vendor endpoint as activities, so the same daily gate.
+      if (broker.fetchShareMoves) {
+        for (const id of actIds) {
+          const moves = await broker.fetchShareMoves(bu, id);
+          await insertActivities(user.id, 'snaptrade', moves.activities, tx);
+          await insertCorporateActions(tx, user.id, 'snaptrade', moves.actions);
+          read += moves.activities.length;
         }
       }
-      await markBackfilled(tx, user.id); // OPTIONS: the whole history was read with the option types
-    } else {
-      // The hourly case: the last week before the newest stored activity (bounded by a week of trading, not the history).
-      const since = last ? new Date(last.getTime() - BACKFILL_MS) : new Date('2000-01-01');
-      // OPTIONS (fix round 1, review 4): an account still owed its one-time option backfill reads its next history page
-      // instead of the week (the same request count); the others read the week as before.
-      const backfill = broker.fetchActivitiesPage ? await pendingBackfill(tx, user.id) : new Map<string, number>();
-      const paged = real.filter((id) => backfill.has(id));
-      const windowed = real.filter((id) => !backfill.has(id));
-      const got = windowed.length ? tradeRead(await broker.fetchActivities(bu, since, windowed, sink)) : { activities: [], unusable: [] };
-      await insertActivities(user.id, 'snaptrade', got.activities, tx);
-      await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
-      await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
-      read = got.activities.length;
-      const progress = new Map<string, number>();
-      for (const id of paged) {
-        const limit = broker.pageLimit ?? PAGE_LIMIT, offset = backfill.get(id)!;
-        const page = await broker.fetchActivitiesPage!(bu, id, offset, limit, sink);
-        await insertActivities(user.id, 'snaptrade', page.activities, tx);
-        await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: the option backfill page too
-        await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx);
-        read += page.activities.length;
-        progress.set(id, page.done ? -1 : offset + limit);
+      // F-14 (G4): rebuilt when activities were read or the account set changed, so last_synced_at means "activities
+      // last read" (the freshness line, the queue order, the coverage age). Always without `cadence`.
+      const rebuilt = actIds.length > 0 || changed;
+      const [{ prev }] = opts.cadence ? await tx`select last_synced_at as prev from users where id = ${user.id}` : [{ prev: null }];
+      if (rebuilt) await rebuild(user.id, tx);
+      if (broker.fetchPositions) {
+        const splits = new Map<string, PositionSplit>(); // OPTIONS (D7)
+        if (!opts.cadence) {
+          const positions = [];
+          for (const id of real) for (const p of await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
+          await replaceListedPositions(tx, user.id, real, positions); // F3-4: per account read
+          // OPTIONS (D7), per account read (F3-4): unlisted accounts' rows move aside, then every listed account is replaced
+          // (replaceAccountOptionPositions' user-wide path: the totals are this read's, never added to).
+          await moveUnlistedOptionPositions(tx, user.id, real);
+          await replaceAccountOptionPositions(tx, user.id, real, real, [], splits);
+        } else {
+          // Accounts no longer real (disconnected, simulated) leave the public positions on every sync (engineer 3); their
+          // rows move aside as F3-4 keeps them (lib/positions.ts#moveUnlistedPositions, rendered nowhere).
+          await moveUnlistedPositions(tx, user.id, real);
+          // F-14 × OPTIONS (review B2): a backfill page is not this account's recent activities, so its sells may be
+          // unread for days: its positions take the positions-only rule (never removed), not the combined one.
+          const withActs = new Set(actIds.filter((id) => !pagedIds.includes(id)));
+          for (const id of posIds) {
+            const rows = (await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })).map((p) => ({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct }));
+            readPos.push(id);
+            if (withActs.has(id)) {
+              // Read with this account's activities (and its rebuild): listed positions are updated and added; one the
+              // vendor no longer lists goes once its sell is imported (or after 3 days unlisted), lib/positions.ts.
+              await settleAccountPositions(tx, user.id, id, rows);
+            } else if (rows.length) {
+              // G3 (TR-4): a positions-only read adds and updates, never removes, so a position closed at a loss stays
+              // listed until the read that also publishes its closed trade.
+              // ponytail: a positions-only read that still lists a position after its close was imported refreshes its
+              // read time, so the row then waits for the 3-day rule (its trade and the open row show together; no loss
+              // is hidden) — fix: skip the refresh when a closing row was imported since the last listing.
+              await tx`insert into open_positions ${tx(firstByKey(rows, (p) => `${p.accountId}\u0000${p.symbol}`).map((p) => ({ user_id: user.id, account_id: p.accountId, symbol: p.symbol, unrealized_pct: p.unrealizedPct })))}
+                on conflict (user_id, account_id, symbol) do update set unrealized_pct = excluded.unrealized_pct, fetched_at = now()`;
+            }
+          }
+          // OPTIONS × F-14: option positions follow the share rule (review B1, TR-4). Accounts read with their recent
+          // activities are replaced; positions-only reads add and update, never remove; accounts no longer real are
+          // dropped; the others (not due) stay as last read, their counts with them (lib/options-sync.ts).
+          await moveUnlistedOptionPositions(tx, user.id, real);
+          await replaceAccountOptionPositions(tx, user.id, real, posIds.filter((id) => withActs.has(id)), posIds.filter((id) => !withActs.has(id)), splits, { settle: true });
+        }
       }
-      if (paged.length) await saveBackfill(tx, user.id, real, progress);
-      if (!last) await markBackfilled(tx, user.id); // the since-2000 read is the whole history
-    }
-    // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
-    // rebuild applies them.
-    // Counted: SYNC_REQUESTS_PER_ACCOUNT is 3 (activities, positions, share moves), so syncCost, SYNC_FIT_CAP and the
-    // sharded runner's request budget include this read (one page per account; more pages are the ponytail above).
-    if (broker.fetchShareMoves) {
-      for (const id of real) {
-        const moves = await broker.fetchShareMoves(bu, id);
-        await insertActivities(user.id, 'snaptrade', moves.activities, tx);
-        await insertCorporateActions(tx, user.id, 'snaptrade', moves.actions);
-        read += moves.activities.length;
+      if (opts.cadence) {
+        // Stamped after the vendor calls returned (clock_timestamp, not the transaction's start), so the next read is due
+        // a full period after this one's last call (tester: a stamp at the transaction start let two daily calls land
+        // seconds under 24 h apart).
+        const stamp = tx`clock_timestamp() + ${shiftMs}::float8 * interval '1 millisecond'`;
+        if (actIds.length) await tx`update broker_accounts set activities_read_at = ${stamp} where user_id = ${user.id} and account_id in ${tx(actIds)}`;
+        if (posIds.length && broker.fetchPositions) await tx`update broker_accounts set positions_read_at = ${stamp} where user_id = ${user.id} and account_id in ${tx(posIds)}`;
+        // F-14 (orchestrator review): `last_synced_at` (F-11's "Updated …") is the oldest real account's last activities
+        // read, never "now" after a rebuild that only an account-set change or a partial read triggered. While any real
+        // account has never been read, the previous value stands.
+        // OPTIONS × F-14 (review nit): while any real account is mid-backfill its recent week is unread, so the value
+        // stands too.
+        // (Review: a sync that read a backfill page, the last one included, did not read the week either.)
+        const midBackfill = pagedIds.length > 0 || (broker.fetchActivitiesPage ? [...(await pendingBackfill(tx, user.id)).keys()].some((id) => real.includes(id)) : false);
+        if (rebuilt && midBackfill) await tx`update users set last_synced_at = ${prev} where id = ${user.id}`;
+        else if (rebuilt) {
+          await tx`update users set last_synced_at = coalesce((select case when bool_or(activities_read_at is null) then null else min(activities_read_at) end
+              from broker_accounts where user_id = ${user.id} and account_id in ${tx(real.length ? real : [''])}), ${prev})
+            where id = ${user.id}`;
+        }
+        opts.report?.({ accounts: real.length, activitiesRead: actIds.length, positionsRead: broker.fetchPositions ? posIds.length : 0, deferred, rebuilt });
       }
+      return read;
+    });
+  } catch (e) {
+    // A cut at the route's end (RouteDeadlineError, lib/sync-shard.ts) is not a failed sync: its reads leave no marks, so
+    // the next call reads at once instead of waiting out the 6 h floor (orchestrator review).
+    if ((e as { name?: unknown } | null)?.name === 'RouteDeadlineError') { readActs.length = 0; readPos.length = 0; }
+    throw e;
+  } finally {
+    // G2: fire and forget, after the transaction (its connection is back in the pool); never fatal.
+    if (opts.cadence && (readActs.length || readPos.length)) {
+      const { id } = user; // the internal id only (lib/privacy-logs.test.ts)
+      try { await writeMarks(id, readActs, readPos, shiftMs); } catch (e) { console.error('sync marks failed', id, logSafe(e)); }
     }
-    await rebuild(user.id, tx);
-    if (broker.fetchPositions) {
-      const positions = [];
-      const splits = new Map<string, PositionSplit>(); // OPTIONS (D7)
-      for (const id of real) for (const p of await broker.fetchPositions(bu, id, (s) => { splits.set(id, s); })) positions.push({ accountId: id, symbol: p.symbol, unrealizedPct: p.unrealizedPct });
-      await replaceListedPositions(tx, user.id, real, positions); // F3-4: per account read
-      // OPTIONS (D7), per account read (F3-4): unlisted accounts' rows move aside, then every listed account is replaced
-      // (replaceAccountOptionPositions' user-wide path: the totals are this read's, never added to).
-      await moveUnlistedOptionPositions(tx, user.id, real);
-      await replaceAccountOptionPositions(tx, user.id, real, real, splits);
-    }
-    return read;
-  });
+  }
 }
 
 // Cron loop: one user's failure (incl. AccountClaimedError) never stops the rest. Logs the user id only.

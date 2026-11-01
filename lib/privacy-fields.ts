@@ -21,7 +21,7 @@ export const PRIVATE_FIELDS: Field[] = [
   { words: 'fees', columns: ['activities.fee', /* OPTIONS */ 'option_activities.fee'] },
   { words: 'account numbers', columns: ['activities.account_id', 'corporate_actions.account_id', 'closed_trades.account_id', 'open_positions.account_id', 'unlisted_positions.account_id', 'broker_accounts.account_id',
     /* OPTIONS */ 'option_activities.account_id', 'option_trades.account_id', 'open_option_positions.account_id', 'unlisted_option_positions.account_id',
-    /* F-14 */ 'users.open_options_by_account' /* keyed by account id */] },
+    /* F-14 */ 'sync_read_marks.account_id', 'users.open_options_by_account' /* keyed by account id */] },
 ];
 
 export const PUBLIC_USE = 'Your public record is also used to describe your trading style and to order traders for readers.';

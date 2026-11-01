@@ -24,7 +24,8 @@ dbTest('runShard forwards the option sinks: option rows are stored, the open opt
   const tag = `k${Math.random().toString(36).slice(2, 10)}`;
   const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}u` });
   const acc = `${tag}-acc`;
-  const of = 1001 + Math.floor(Math.random() * 24); // above lib/sync-shard.test.ts's 500–1000, within the table's 1–1024
+  // Its own range: lib/sync-cadence.db.test.ts lists the split (two files on one `of` could share a lease and cancel this run).
+  const of = 1019 + Math.floor(Math.random() * 6);
   // Its own past :00 marks, far behind every other test's (lib/sync-shard.test.ts walks back from 40 rounds).
   const T0 = Math.floor(Date.now() / S.ROUND_MS) * S.ROUND_MS - (3000 + Math.floor(Math.random() * 3000)) * S.ROUND_MS;
   const at = (minute: number) => () => T0 + minute * MIN - Date.now();
@@ -69,14 +70,16 @@ dbTest('runShard forwards the option sinks: option rows are stored, the open opt
     assert.equal(s.rows, 1, 'the first backfill page\'s option row is stored');
     assert.equal(s.stamped, null, 'not stamped: the history is not read to its end');
     assert.equal(s.open, 1, 'the open option position is stored');
-    const r2 = await run(65); // the next round
+    // F-14 (merge with the sync cadence): a backfill page is that account's daily activities read, so the next page is
+    // read in the first round a day later (25 h on), not the next hour; the assertions are unchanged.
+    const r2 = await run(5 + 25 * 60); // the next round with activities due
     assert.equal(r2.done, 1);
     s = await state();
     assert.equal(s.rows, 2);
     assert.ok(s.stamped, 'stamped once every row was read');
     assert.equal(s.trades, 1);
     assert.equal(s.open, 1, 'the open option position survives the second run');
-    const r3 = await run(125); // backfilled: the week read, with its sink
+    const r3 = await run(5 + 50 * 60); // backfilled: the week read (due again), with its sink
     assert.equal(r3.done, 1);
     assert.equal((await state()).open, 1);
     // Every metered method handed its sink on (a wrapper that drops a parameter fails here).

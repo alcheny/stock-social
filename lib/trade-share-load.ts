@@ -36,7 +36,7 @@ export async function loadTradeShare(handle: string, sellId: string) {
   const filings = t.filing_url ? { sold: t.filing_url as string, bought } : null;
   // F-9: the note's dates and the trade's id (the Report control) ride beside the payload, never inside the share data.
   const note = { tradeId: String(t.id), writtenAt: (t.thesis_written_at ?? null) as Date | null, editedAt: (t.thesis_edited_at ?? null) as Date | null };
-  return { ...payload, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, note, open: await openPercents(Number(t.user_id), state), excludingOptions } satisfies TradeView;
+  return { ...payload, sellId, newRecord: payload.newRecord && !filings, handle, displayName: t.display_name as string, state, verified, filings, note, open: await openPercents(Number(t.user_id), state), excludingOptions } satisfies TradeView;
 }
 
 // F-12 (F-6 on every surface): the trader's open positions as unrealized percents, for the strip's open count. Read only

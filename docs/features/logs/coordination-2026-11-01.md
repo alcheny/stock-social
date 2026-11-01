@@ -193,3 +193,7 @@ they unblock, their files and merge positions are as follows.
 - For F-11: if it adds a statement or surface that selects `thesis`, null it unless published (`case when thesis_status =
   'published'`), as F-26's tests require.
 - For F-25: the card footer and trade-page links are untouched here; the held line's link uses `lib/paging.ts#tradeHref`.
+- 2026-11-01 (F-26, after merging #80-#83): the exploration-extras statement #81 added to `lib/feed.ts` also nulls a
+  non-published note now (F-26's source test counts three statements). F-16/F-17 hand-off: Report in F-26's note slots
+  (profile, trade page) moves to `tradeKey(sell_id)` once `lib/reports.ts#reportThesis` accepts it (F-16/F-17); until
+  then the slots send the row id, as the ponytail in `app/feed-rows.tsx` records. F-26 adds no Report anywhere.

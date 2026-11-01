@@ -165,11 +165,11 @@ test('F-26: share and record images and the public JSON routes never import the 
   assert.match(code('lib/feed.ts'), /to_json\(case when thesis_status = 'published' then thesis end\)/);
 });
 
-test('F-26: the feed\'s two statements that select a note null it unless published; the hold rule only for the signed-in author', () => {
+test('F-26: the feed\'s three statements that select a note null it unless published; the hold rule only for the signed-in author', () => {
   const f = code('lib/feed.ts');
   const raw = f.match(/\bt\.thesis, t\.thesis_status\b/g); // top.* reads c, which is already nulled
   assert.equal(raw, null, 'no raw thesis/thesis_status select');
-  assert.equal((f.match(/case when t\.thesis_status = 'published' then t\.thesis end as thesis, case when t\.thesis_status = 'published' then t\.thesis_status end as thesis_status/g) ?? []).length, 2);
+  assert.equal((f.match(/case when t\.thesis_status = 'published' then t\.thesis end as thesis, case when t\.thesis_status = 'published' then t\.thesis_status end as thesis_status/g) ?? []).length, 3); // candidates, exploration extras (#81), page rows
   assert.match(f, /case when t\.thesis_status = 'published' then t\.thesis_written_at end as thesis_written_at/);
   assert.match(f, /case when t\.user_id = \$\{own\} and t\.thesis_status = 'held' and t\.thesis <> '' then t\.thesis_hold_rule end as own_hold_rule/);
   // The feed rows set the author's line from the existing viewer check only.

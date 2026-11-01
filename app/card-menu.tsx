@@ -10,7 +10,8 @@ import { MoreMenu } from './not-interested.tsx';
 // toggle is optimistic (a like is neither money nor a record) and a refusal puts it back. The double tap
 // (app/feed-gestures.tsx) clicks the same button. Without JavaScript both are form posts.
 // F-7 (legal C16): `likeable` false on a public-record card: no Like, so the double tap (which clicks it) does nothing.
-export function CardMenu({ id, symbol, handle, liked: first, likeable = true }: { id: string; symbol: string; handle: string; liked: boolean; likeable?: boolean }) {
+// The actions name the close by its trade_key (stable across rebuildTrades); `id` (the row id) stays the DOM key.
+export function CardMenu({ id, tradeKey, symbol, handle, liked: first, likeable = true }: { id: string; tradeKey: string; symbol: string; handle: string; liked: boolean; likeable?: boolean }) {
   const [liked, setLiked] = useState(first);
   const [said, setSaid] = useState('');
   return (
@@ -18,12 +19,12 @@ export function CardMenu({ id, symbol, handle, liked: first, likeable = true }: 
       {liked && <span className="like-mark" title={LIKES.mark}><span aria-hidden="true">♥</span><span className="sr-only">{LIKES.mark}</span></span>}
       <MoreMenu label={LIKES.more(symbol)}>
         <div className="menu-pop">
-          {likeable && <form action={likeForm.bind(null, id, first)} onSubmit={async (e) => {
+          {likeable && <form action={likeForm.bind(null, tradeKey, first)} onSubmit={async (e) => {
             e.preventDefault();
             const now = !liked;
             setLiked(now);
             setSaid(now ? LIKES.saidLiked : LIKES.saidUnliked);
-            const r = await (now ? likeTrade(id) : unlikeTrade(id)).catch(() => ({ ok: false }));
+            const r = await (now ? likeTrade(tradeKey) : unlikeTrade(tradeKey)).catch(() => ({ ok: false }));
             if (!r.ok) { setLiked(!now); setSaid(''); }
           }}>
             {/* A11Y-FIXES #18: the name is the visible text; the note is the description. */}
@@ -32,11 +33,11 @@ export function CardMenu({ id, symbol, handle, liked: first, likeable = true }: 
             </button>
             <span id={`like-note-${id}`} hidden>{A11Y_FEED.likeNote}</span>
           </form>}
-          <form action={rejectTradeForm.bind(null, id)} onSubmit={(e) => {
+          <form action={rejectTradeForm.bind(null, tradeKey)} onSubmit={(e) => {
             e.preventDefault();
             const d = e.currentTarget.closest('details');
             if (d) d.open = false;
-            dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, trade: id, row: e.currentTarget.closest('.row') } }));
+            dispatchEvent(new CustomEvent('ss:hide', { detail: { handle, trade: id, key: tradeKey, row: e.currentTarget.closest('.row') } }));
           }}>
             <button type="submit" className="secondary">{LIKES.hide}</button>
           </form>

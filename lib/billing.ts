@@ -9,7 +9,7 @@
 // - Traders (a consented broker connection) have Record tools included, never see a price and never become processor
 //   customers through it (condition 14).
 // - The app sends no email: every billing notice is the processor's (condition 21).
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { sql } from './db.ts';
 import { BILLING } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
@@ -71,7 +71,9 @@ function cfg(): BillingConfig {
 }
 
 // Tests swap these (the in-repo fake processor, e2e/fakes/billing.ts, provides a fetch).
-export const billingDeps: { fetch: typeof fetch; now: () => Date } = { fetch: (...a) => fetch(...a), now: () => new Date() };
+export const billingDeps: { fetch: typeof fetch; now: () => Date; sleep: (ms: number) => Promise<void> } = {
+  fetch: (...a) => fetch(...a), now: () => new Date(), sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)),
+};
 
 // ---- the processor's REST API ---------------------------------------------------------------------------------------
 
@@ -128,13 +130,25 @@ export async function isTrader(userId: number): Promise<boolean> {
   return !!r?.t;
 }
 
+export const CUSTOMER_RETRY_MS = 500;
 async function ensureCustomer(userId: number): Promise<string> {
-  const [have] = await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`;
-  if (have) return have.vendor_customer_id as string;
+  const stored = async () => (await sql`select vendor_customer_id from billing_customers where user_id = ${userId}`)[0]?.vendor_customer_id as string | undefined;
+  const have = await stored();
+  if (have) return have;
   const ref = billingRef(userId);
-  // ponytail: a second request with the same idempotency key while the first is still in flight can be answered 409 by
-  // the processor and fail that checkout — retry once after a short wait, then read the stored customer.
-  const c = await vendor('POST', '/v1/customers', { metadata: { ref } }, `customer-${ref}`);
+  const create = () => vendor('POST', '/v1/customers', { metadata: { ref } }, `customer-${ref}`);
+  const inFlight = (e: unknown) => e instanceof VendorError && e.status === 409;
+  let c: Obj;
+  try { c = await create(); } catch (e) {
+    // Known-limits sweep 2: the same idempotency key still in flight (two tabs, a double submit) is answered 409. One
+    // short wait, then the first request's stored customer, or one retry (a replay of that request), then the stored
+    // customer again; never a loop. A checkout that still fails can be tried again.
+    if (!inFlight(e)) throw e;
+    await billingDeps.sleep(CUSTOMER_RETRY_MS);
+    const won = await stored();
+    if (won) return won;
+    try { c = await create(); } catch (e2) { const late = inFlight(e2) ? await stored() : undefined; if (late) return late; throw e2; }
+  }
   // Two checkouts at once (two tabs, a double submit) get the same customer (one idempotency key per user) and insert
   // the same row. With `on conflict (user_id)` only, the one that lost the race on the vendor_customer_id index raised
   // 23505 instead of reading the winner's row (CI, PR #52). No target: every unique index is an arbiter, and both
@@ -372,19 +386,21 @@ export function desiredRow(sub: VendorSub, prices: Record<Plan, string>, prev: (
 }
 
 // Out-of-order events converge: whatever event arrives, the subscription is fetched fresh and the row set from it.
-export async function syncSubscription(id: string): Promise<'unchanged' | 'changed'> {
+export async function syncSubscription(id: string, seen: Seen = {}): Promise<'unchanged' | 'changed'> {
   const sub = (await vendor('GET', `/v1/subscriptions/${enc(id)}`)) as VendorSub;
-  return upsertFromVendor(sub);
+  return upsertFromVendor(sub, seen);
 }
 
-async function upsertFromVendor(sub: VendorSub): Promise<'unchanged' | 'changed'> {
+// `seen.trader`: set when this call canceled the subscription because its subscriber is now a trader (the count).
+type Seen = { trader?: boolean };
+async function upsertFromVendor(sub: VendorSub, seen: Seen = {}): Promise<'unchanged' | 'changed'> {
   const c = cfg();
   const customer = idOf(sub.customer);
   const [owner] = await sql`select user_id from billing_customers where vendor_customer_id = ${customer}`;
   if (!owner) throw new ApplyError('unknown_customer');
   const [prev] = await sql<(SubscriptionRow & { id: number })[]>`select * from subscriptions where vendor_subscription_id = ${sub.id}`;
   const d = desiredRow(sub, c.prices, prev ?? null, billingDeps.now());
-  if (prev && sameRow(prev, d)) { await applyRefundPolicy(owner.user_id as number, sub, d); return 'unchanged'; }
+  if (prev && sameRow(prev, d)) { if (await applyRefundPolicy(owner.user_id as number, sub, d)) seen.trader = true; return 'unchanged'; }
   try {
     await sql`insert into subscriptions (user_id, vendor_subscription_id, vendor_customer_id, plan, status, current_period_start, current_period_end, cancel_at_period_end, grace_until, disputed_at, ended_reason)
       values (${owner.user_id}, ${sub.id}, ${customer}, ${d.plan}, ${d.status}, ${d.current_period_start}, ${d.current_period_end}, ${d.cancel_at_period_end}, ${d.grace_until}, ${d.disputed_at}, ${d.ended_reason})
@@ -400,7 +416,7 @@ async function upsertFromVendor(sub: VendorSub): Promise<'unchanged' | 'changed'
     }
     throw e;
   }
-  await applyRefundPolicy(owner.user_id as number, sub, d);
+  if (await applyRefundPolicy(owner.user_id as number, sub, d)) seen.trader = true;
   return 'changed';
 }
 
@@ -426,15 +442,17 @@ const isFirstPeriod = (sub: VendorSub, d: { current_period_start: Date | null })
   return !!started && !!d.current_period_start && Math.abs(started.getTime() - d.current_period_start.getTime()) < 60_000;
 };
 
-async function applyRefundPolicy(userId: number, sub: VendorSub, d: ReturnType<typeof desiredRow>) {
-  if (!['active', 'past_due', 'trialing'].includes(d.status)) return;
+// True when it canceled the subscription because the subscriber is now a trader.
+async function applyRefundPolicy(userId: number, sub: VendorSub, d: ReturnType<typeof desiredRow>): Promise<boolean> {
+  if (!['active', 'past_due', 'trialing'].includes(d.status)) return false;
   const now = billingDeps.now();
-  if (await isTrader(userId)) return cancelWithRefund(userId, sub, refundShare(d.plan, d.current_period_start, d.current_period_end, now, 'trader'), 'trader');
+  if (await isTrader(userId)) { await cancelWithRefund(userId, sub, refundShare(d.plan, d.current_period_start, d.current_period_end, now, 'trader'), 'trader'); return true; }
   if (d.cancel_at_period_end) {
     const asked = secs(sub.canceled_at) ?? now; // D5: when the subscriber asked, not when the event is processed
     const share = refundShare(d.plan, d.current_period_start, d.current_period_end, asked, 'cancel', isFirstPeriod(sub, d));
-    if (share > 0) return cancelWithRefund(userId, sub, share, 'refund');
+    if (share > 0) await cancelWithRefund(userId, sub, share, 'refund');
   }
+  return false;
 }
 
 // Cancels now, then refunds `share` of the latest paid invoice (rounded down to the cent) unless that charge already
@@ -524,66 +542,187 @@ export async function canceledOnConnect(userId: number): Promise<boolean> {
 
 // ---- nightly reconciliation -----------------------------------------------------------------------------------------
 
-export type ReconcileReport = { checked: number; mismatches: number; missing: number; failed: number; graceExpired: number; tradersCanceled: number; eventsPurged: number; consentsPurged: number };
+// `done`: the pass completed in this call.
+// ponytail: counts are per call, so a pass cut over several ticks logs one partial line per tick and no pass total —
+// persist the counters on billing_runs 'reconcile' (fenced like the cursor) if a per-pass report is needed.
+export type ReconcileReport = { checked: number; mismatches: number; missing: number; failed: number; graceExpired: number; tradersCanceled: number; eventsPurged: number; consentsPurged: number; done: boolean };
+export type ReconcileOpts = { boxMs?: number; clock?: () => number; pageSize?: number; hold?: () => Promise<void> };
 
-// Compares every live row against the processor (fetched by id), adds processor subscriptions missing locally, expires
-// grace windows, cancels subscribers who became traders, purges old events and consents. Logs counts only.
-export async function reconcile(): Promise<ReconcileReport> {
-  const r: ReconcileReport = { checked: 0, mismatches: 0, missing: 0, failed: 0, graceExpired: 0, tradersCanceled: 0, eventsPurged: 0, consentsPurged: 0 };
-  // Subscribers who have since connected a broker: the sync below cancels them (applyRefundPolicy); counted after.
-  const traders = await sql`select s.vendor_subscription_id from subscriptions s where s.status in ('trialing', 'active', 'past_due')
-    and (exists (select 1 from connections c where c.user_id = s.user_id and c.consent_at is not null) or exists (select 1 from activities a where a.user_id = s.user_id and a.source = 'snaptrade'))`;
-  // One paged list of every subscription the processor holds that is not canceled (100 per call), compared with the
-  // app's live rows; only a row missing from that list (canceled meanwhile) is fetched on its own.
-  const rows = await sql`select vendor_subscription_id from subscriptions where status <> 'canceled' order by id`;
-  const local = new Set<string>(rows.map((x) => x.vendor_subscription_id as string));
-  const listed = new Set<string>();
-  let after: string | undefined;
-  // ponytail: pages through every processor subscription with no time box inside the sync tick; a function killed at its
-  // limit skips the day's reconciliation — box it and keep `starting_after` as a cursor that resumes on the next tick.
-  for (;;) {
-    const page = await vendor('GET', '/v1/subscriptions', { limit: 100, starting_after: after }); // D8: excludes canceled
-    const data = (page.data ?? []) as VendorSub[];
-    for (const sub of data) {
-      listed.add(sub.id);
-      if (['canceled', 'incomplete_expired'].includes(sub.status)) continue;
-      const mine = local.has(sub.id);
-      if (mine) r.checked++;
-      try { const res = await upsertFromVendor(sub); if (mine && res === 'changed') r.mismatches++; if (!mine) r.missing++; } catch { r.failed++; }
-    }
-    if (!page.has_more || !data.length) break;
-    after = data[data.length - 1].id;
-  }
-  for (const id of local) {
-    if (listed.has(id)) continue;
-    r.checked++;
-    try { if ((await syncSubscription(id)) === 'changed') r.mismatches++; } catch { r.failed++; }
-  }
-  // D3: grace over → no access and the processor stops retrying (a later success would charge someone without access).
-  // E2: also any row the processor itself moved to unpaid (no grace window recorded).
-  const expired = await sql`update subscriptions set status = 'unpaid', updated_at = now()
-    where status = 'unpaid' or (status = 'past_due' and grace_until <= now()) returning user_id, vendor_subscription_id`;
-  for (const x of expired) {
-    try { await cancelWithRefund(x.user_id as number, { id: x.vendor_subscription_id as string } as VendorSub, 0, 'grace'); r.graceExpired++; } catch { r.failed++; }
-  }
-  const ids = traders.map((x) => x.vendor_subscription_id as string);
-  if (ids.length) r.tradersCanceled = (await sql`select count(*)::int as n from subscriptions where vendor_subscription_id in ${sql(ids)} and status = 'canceled'`)[0].n;
-  r.eventsPurged = (await sql`delete from billing_events where received_at < now() - ${EVENT_RETENTION_DAYS} * interval '1 day'`).count;
-  r.consentsPurged = (await sql`delete from billing_consents where user_id is null and retain_until < now()`).count;
-  console.log('billing reconcile', JSON.stringify({ checked: r.checked, mismatches: r.mismatches, missing: r.missing, failed: r.failed, graceExpired: r.graceExpired, tradersCanceled: r.tradersCanceled, eventsPurged: r.eventsPurged, consentsPurged: r.consentsPurged }));
-  return r;
+// Known-limits sweep 2: the reconciliation is one pass resumed tick by tick, time-boxed like the other cron stages
+// (lib/privacy-purge.ts, lib/display-log.ts). billing_runs 'reconcile' holds the pass in progress: its start, phase,
+// cursor (the last processor subscription handled) and the failures at that cursor.
+// ponytail: the processor documents `starting_after` as "an existing object ID" (cursor pagination, reverse creation
+// order); whether a cursor whose subscription was canceled between ticks (so it has left the not-canceled list) still
+// resumes in place, or is refused, is not documented and not confirmed against the live processor (no test-mode key in
+// this environment; the e2e fake accepts any id). If it is refused, the page fails RECONCILE_MAX_FAILS times and the
+// pass moves to 'missing', so nothing is skipped, only slower — confirm in test mode, and on a refusal restart the list
+// from the start of the pass instead.
+// Every pass write is fenced by the holder's lease token, renewed per subscription, so a holder that overran its lease
+// can neither move the cursor nor complete the pass after another holder took it over.
+// - 'list': the processor's paged list of subscriptions that are not canceled, compared with the app's rows. The box
+//   is checked, and the cursor saved, per subscription. A page failing RECONCILE_MAX_FAILS times at one cursor moves
+//   the pass on to 'missing', which covers the rest one by one.
+// - 'missing': every live local row this pass has not listed or fetched (`listed_at` older than the pass start: the
+//   in-memory `listed` set, persisted across ticks) is fetched on its own.
+// - Completion sets the day mark (`last_at` = the pass start; the next pass is due 23 h later).
+// Grace expiry and the purges ('reconcile_daily') run once per due day: on the tick that completes the pass, or, with
+// no pass in progress or one stuck past its day, on its own. Each expiry first reads the subscription fresh, so a
+// subscription the processor holds live is never expired, and a rerun (the day given back) cancels nothing twice.
+export const RECONCILE_BOX_MS = 20_000;
+export const RECONCILE_LEASE_S = 120; // > the box plus one subscription's vendor calls
+export const RECONCILE_MAX_FAILS = 3;
+// Engineer D16: the hourly /api/sync tick runs the reconciliation once a day (no new cron). One caller at a time.
+export const RECONCILE_EVERY_HOURS = 23;
+type Run = { lease: string; started: Date; phase: 'list' | 'missing'; cursor: string | null };
+
+async function claimPass(due: boolean): Promise<Run | null> {
+  await sql`insert into billing_runs (job, last_at) values ('reconcile', now() - interval '1 day') on conflict (job) do nothing`;
+  const lease = randomUUID();
+  const [run] = await sql`update billing_runs set lease_id = ${lease}, lease_until = now() + ${RECONCILE_LEASE_S} * interval '1 second',
+      pass_started_at = coalesce(pass_started_at, now()), phase = coalesce(phase, 'list'),
+      cursor = case when pass_started_at is null then null else cursor end, fails = case when pass_started_at is null then 0 else fails end
+    where job = 'reconcile' and (lease_until is null or lease_until < now())
+      and (${!due}::boolean or pass_started_at is not null or last_at < now() - ${RECONCILE_EVERY_HOURS} * interval '1 hour')
+    returning pass_started_at, phase, cursor`;
+  return run ? { lease, started: run.pass_started_at as Date, phase: run.phase as Run['phase'], cursor: (run.cursor as string | null) ?? null } : null;
+}
+// The pass handled `id` (listed or fetched): the row is stamped, the cursor moved (list phase), the failures reset and
+// the lease renewed, all only while this holder has the lease. False: the lease is lost; stop.
+async function handled(run: Run, id: string): Promise<boolean> {
+  const [r] = await sql`with run as (
+      update billing_runs set cursor = case when phase = 'list' then ${id}::text else cursor end, fails = 0,
+        lease_until = now() + ${RECONCILE_LEASE_S} * interval '1 second'
+      where job = 'reconcile' and lease_id = ${run.lease} returning 1),
+    stamp as (update subscriptions set listed_at = now() where vendor_subscription_id = ${id} and exists (select 1 from run) returning 1)
+    select exists (select 1 from run) as ok`;
+  return !!r?.ok;
+}
+async function fenced(run: Run, set: 'missing' | 'complete' | 'release' | 'fail'): Promise<boolean> {
+  const lease = run.lease;
+  const q = set === 'missing'
+    ? sql`update billing_runs set phase = 'missing', fails = 0, lease_until = now() + ${RECONCILE_LEASE_S} * interval '1 second' where job = 'reconcile' and lease_id = ${lease} returning 1`
+    : set === 'complete'
+      ? sql`update billing_runs set last_at = pass_started_at, pass_started_at = null, phase = null, cursor = null, fails = 0, lease_id = null, lease_until = null where job = 'reconcile' and lease_id = ${lease} returning 1`
+      : set === 'fail'
+        ? sql`update billing_runs set fails = fails + 1, phase = case when fails + 1 >= ${RECONCILE_MAX_FAILS} then 'missing' else phase end, lease_id = null, lease_until = null where job = 'reconcile' and lease_id = ${lease} returning 1`
+        : sql`update billing_runs set lease_id = null, lease_until = null where job = 'reconcile' and lease_id = ${lease} returning 1`;
+  return (await q).length > 0;
 }
 
-// Engineer D16: the hourly /api/sync tick runs the reconciliation once a day (no new cron). One caller wins the day.
-export const RECONCILE_EVERY_HOURS = 23;
-export async function reconcileIfDue(): Promise<ReconcileReport | null> {
-  if (!billingAvailable()) return null;
-  const [won] = await sql`insert into billing_runs (job, last_at) values ('reconcile', now())
-    on conflict (job) do update set last_at = now() where billing_runs.last_at < now() - ${RECONCILE_EVERY_HOURS} * interval '1 hour'
+// One boxed step of the pass. True: the pass completed in this call.
+async function stepPass(run: Run, r: ReconcileReport, boxSpent: () => boolean, opts: ReconcileOpts): Promise<boolean> {
+  let moved = false; // every call handles at least one subscription, so a pass always moves forward
+  const spent = () => moved && boxSpent();
+  if (run.phase === 'list') {
+    let after = run.cursor ?? undefined;
+    for (;;) {
+      if (spent()) return false;
+      const page = await vendor('GET', '/v1/subscriptions', { limit: opts.pageSize ?? 100, starting_after: after }); // D8: excludes canceled
+      const data = (page.data ?? []) as VendorSub[];
+      for (const sub of data) {
+        if (spent()) return false;
+        if (!['canceled', 'incomplete_expired'].includes(sub.status)) {
+          const [local] = await sql`select 1 from subscriptions where vendor_subscription_id = ${sub.id} and status <> 'canceled'`;
+          if (local) r.checked++;
+          const seen: Seen = {};
+          try { const res = await upsertFromVendor(sub, seen); if (local && res === 'changed') r.mismatches++; if (!local) r.missing++; } catch { r.failed++; }
+          if (seen.trader) r.tradersCanceled++;
+        }
+        if (!(await handled(run, sub.id))) return false;
+        moved = true;
+        await opts.hold?.();
+      }
+      if (!page.has_more || !data.length) break;
+      after = data[data.length - 1].id;
+    }
+    if (!(await fenced(run, 'missing'))) return false;
+  }
+  for (;;) {
+    const rows = await sql`select vendor_subscription_id from subscriptions where status <> 'canceled'
+      and (listed_at is null or listed_at < ${run.started}) order by id limit 100`;
+    for (const x of rows) {
+      if (spent()) return false;
+      const id = x.vendor_subscription_id as string;
+      r.checked++;
+      const seen: Seen = {};
+      try { if ((await syncSubscription(id, seen)) === 'changed') r.mismatches++; } catch { r.failed++; }
+      if (seen.trader) r.tradersCanceled++;
+      if (!(await handled(run, id))) return false; // stamped on failure too: one bad row cannot pin the pass
+      moved = true;
+      await opts.hold?.();
+    }
+    if (rows.length < 100) break;
+  }
+  return fenced(run, 'complete');
+}
+
+// Grace expiry and the purges. False: the box ended first (the day is given back; the next tick goes on).
+async function dailySteps(r: ReconcileReport, spent: () => boolean): Promise<boolean> {
+  r.eventsPurged = (await sql`delete from billing_events where received_at < now() - ${EVENT_RETENTION_DAYS} * interval '1 day'`).count;
+  r.consentsPurged = (await sql`delete from billing_consents where user_id is null and retain_until < now()`).count;
+  // D3: grace over → no access and the processor stops retrying (a later success would charge someone without access).
+  // E2: also any row the processor itself moved to unpaid (no grace window recorded).
+  const due = await sql`select vendor_subscription_id from subscriptions where status = 'unpaid' or (status = 'past_due' and grace_until <= now()) order by id`;
+  for (const x of due) {
+    if (spent()) return false;
+    const id = x.vendor_subscription_id as string;
+    const seen: Seen = {};
+    // A fresh read first: a subscription the processor holds live (a lost payment event) becomes live here instead.
+    try { await syncSubscription(id, seen); } catch (e) { if (!(e instanceof VendorError && e.status === 404)) { r.failed++; continue; } }
+    if (seen.trader) r.tradersCanceled++;
+    const [still] = await sql`update subscriptions set status = 'unpaid', updated_at = now()
+      where vendor_subscription_id = ${id} and (status = 'unpaid' or (status = 'past_due' and grace_until <= now())) returning user_id`;
+    if (!still) continue;
+    try { await cancelWithRefund(still.user_id as number, { id } as VendorSub, 0, 'grace'); r.graceExpired++; } catch { r.failed++; }
+  }
+  return true;
+}
+async function runDaily(r: ReconcileReport, spent: () => boolean, force: boolean): Promise<boolean> {
+  const [won] = await sql`insert into billing_runs (job, last_at) values ('reconcile_daily', now())
+    on conflict (job) do update set last_at = now() where ${force}::boolean or billing_runs.last_at < now() - ${RECONCILE_EVERY_HOURS} * interval '1 hour'
     returning job`;
-  if (!won) return null;
-  // E4: a run that fails gives the day back, so the next tick tries again.
-  try { return await reconcile(); } catch (e) { await sql`update billing_runs set last_at = now() - interval '1 day' where job = 'reconcile'`; throw e; }
+  if (!won) return false;
+  const giveBack = () => sql`update billing_runs set last_at = now() - interval '1 day' where job = 'reconcile_daily'`;
+  try { if (!(await dailySteps(r, spent))) await giveBack(); } catch (e) { await giveBack(); throw e; }
+  return true;
+}
+
+async function runReconcile(due: boolean, opts: ReconcileOpts): Promise<ReconcileReport | null> {
+  const clock = opts.clock ?? Date.now;
+  const end = clock() + Math.min(opts.boxMs ?? RECONCILE_BOX_MS, RECONCILE_BOX_MS);
+  const spent = () => clock() >= end;
+  const r: ReconcileReport = { checked: 0, mismatches: 0, missing: 0, failed: 0, graceExpired: 0, tradersCanceled: 0, eventsPurged: 0, consentsPurged: 0, done: false };
+  let ran = false;
+  try {
+    // No pass in progress, or one stuck past its day: the day's grace expiry and purges do not wait for it.
+    const [st] = await sql`select pass_started_at is null or pass_started_at < now() - ${RECONCILE_EVERY_HOURS} * interval '1 hour' as free
+      from billing_runs where job = 'reconcile'`;
+    let daily = false;
+    if (due && (st?.free ?? true)) daily = ran = await runDaily(r, spent, false);
+    const run = await claimPass(due);
+    if (run) {
+      ran = true;
+      try { r.done = await stepPass(run, r, spent, opts); } catch (e) { await fenced(run, 'fail'); throw e; }
+      if (!r.done) await fenced(run, 'release');
+    }
+    if (r.done && !daily) await runDaily(r, spent, !due);
+  } finally {
+    if (ran) console.log('billing reconcile', JSON.stringify({ checked: r.checked, mismatches: r.mismatches, missing: r.missing, failed: r.failed, graceExpired: r.graceExpired, tradersCanceled: r.tradersCanceled, eventsPurged: r.eventsPurged, consentsPurged: r.consentsPurged }));
+  }
+  return ran ? r : null;
+}
+
+// Compares every live row against the processor, adds processor subscriptions missing locally, expires grace windows,
+// cancels subscribers who became traders, purges old events and consents. Logs counts only. Not gated by the day:
+// it steps the pass in progress (or starts one), and after a completed pass runs grace expiry and the purges.
+export async function reconcile(opts: ReconcileOpts = {}): Promise<ReconcileReport> {
+  return (await runReconcile(false, opts)) ?? { checked: 0, mismatches: 0, missing: 0, failed: 0, graceExpired: 0, tradersCanceled: 0, eventsPurged: 0, consentsPurged: 0, done: false };
+}
+// The hourly tick's call: null when nothing was due or another caller holds the pass. A throw keeps the cursor (and
+// counts a failure at it); the next tick resumes.
+export async function reconcileIfDue(opts: ReconcileOpts = {}): Promise<ReconcileReport | null> {
+  if (!billingAvailable()) return null;
+  return runReconcile(true, opts);
 }
 
 // ---- account deletion (condition 20) --------------------------------------------------------------------------------

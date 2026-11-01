@@ -17,7 +17,9 @@ import { UNDO_MS } from './follow-button.tsx';
 // row's "…". Fix round 1: when no row is left the section collapses (no empty full-height stop) and card 6 takes its
 // place; the bar also pauses once the reader touches or clicks it (any pointer), not only on hover or keyboard focus.
 // F-2 PR-4: `trade`, a feed card's trade rejected (its swipe or "Hide this trade"): only that card drops, for good.
-type Bar = { handle: string; text: string; undo: boolean; trade?: string };
+// `trade` is the row id (the style rule that drops the card); `key` its trade_key, which the actions send (stable
+// across rebuildTrades; the row id is the fallback for a row rendered without one).
+type Bar = { handle: string; text: string; undo: boolean; trade?: string; key?: string };
 const HANDLE = /^[a-z0-9_]{3,20}$/;
 
 // F-2 PR-3b: `scope`, the part of the page whose rows a hide collapses (the profile's Similar trades section).
@@ -60,14 +62,15 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
   };
   useEffect(() => {
     const onHide = async (e: Event) => {
-      const { handle, row, trade } = (e as CustomEvent<{ handle: string; row: Element | null; trade?: string }>).detail;
+      const { handle, row, trade, key: k } = (e as CustomEvent<{ handle: string; row: Element | null; trade?: string; key?: string }>).detail;
       if (!HANDLE.test(handle) || (trade !== undefined && !/^[0-9]+$/.test(trade))) return;
+      const key = typeof k === 'string' && /^[0-9a-f]{64}$/.test(k) ? k : trade;
       if (trade) {
         anchor.current = after.current = row?.nextElementSibling ?? null;
         source.current = row;
         setTrades((t) => [...t, trade]);
-        show({ handle, trade, text: LIKES.hidden, undo: true });
-        const r = await rejectTradeAction(trade).catch(() => ({ ok: false }));
+        show({ handle, trade, key, text: LIKES.hidden, undo: true });
+        const r = await rejectTradeAction(key).catch(() => ({ ok: false }));
         if (!r.ok) { setTrades((t) => t.filter((x) => x !== trade)); show({ handle, text: FOLLOW.failed, undo: false }); }
         return;
       }
@@ -95,10 +98,10 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
     refocus.current = null;
   }, [hidden, trades]);
   useEffect(() => { if (bar?.undo) { undoBtn.current?.focus({ preventScroll: true }); if (paused()) clearTimeout(timer.current); } }, [bar]);
-  const undo = async (handle: string, trade?: string) => {
+  const undo = async (handle: string, trade?: string, key = trade) => {
     show(null);
     if (trade) {
-      const r = await undoRejectTradeAction(trade).catch(() => ({ ok: false }));
+      const r = await undoRejectTradeAction(key).catch(() => ({ ok: false }));
       if (!r.ok) { show({ handle, text: FOLLOW.failed, undo: false }); return; }
       anchor.current = source.current;
       refocus.current = source.current?.querySelector<HTMLElement>('.card .more-menu summary') ?? null;
@@ -125,7 +128,7 @@ export function FeedHides({ scope = '.feed' }: { scope?: string }) {
         onPointerDown={() => { pressed.current = true; pause(); }}
         onFocus={() => { if (paused()) pause(); }} onBlur={() => setTimeout(resume)}
         onKeyDown={(e) => { if (e.key === 'Escape' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); close(); } }}>
-        {bar && <p>{bar.text}{bar.undo && <> <button type="button" ref={undoBtn} onClick={() => void undo(bar.handle, bar.trade)}>{FOLLOW.undo}</button></>}</p>}
+        {bar && <p>{bar.text}{bar.undo && <> <button type="button" ref={undoBtn} onClick={() => void undo(bar.handle, bar.trade, bar.key)}>{FOLLOW.undo}</button></>}</p>}
       </div>
     </>
   );

@@ -1,4 +1,6 @@
 'use server';
+import { writeShareAction } from '@/lib/share-actions.ts';
+import { recordTradesPrompt } from '@/lib/trades-prompt.ts';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
@@ -124,12 +126,21 @@ export async function markTradesPromptSeen() {
 export async function recordTradesPromptAction(action: TradesPromptAction) {
   const user = await currentUser();
   if (!user || !TRADES_PROMPT_ACTIONS.includes(action)) return;
-  // 'opened' replaces 'dismissed'; a later 'dismissed' never overwrites 'opened'.
-  await sql`
-    update users set trades_prompt_action = ${action}
-    where id = ${user.id} and (trades_prompt_action is null or (trades_prompt_action = 'dismissed' and ${action} = 'opened'))`;
-  await sql`update users set trades_prompt_seen_at = now() where id = ${user.id}`;
+  // One statement for the action and the seen time (lib/trades-prompt.ts): a reload between two updates showed the
+  // prompt again after Dismiss.
+  await recordTradesPrompt(user.id, action);
   revalidatePath(`/u/${user.handle}`);
+}
+
+// F-15 second half: one share row for the session user's own completed share (lib/share-actions.ts checks the
+// path is the user's own record). Fire-and-forget from the share controls: it never throws to the page.
+export async function recordShareAction(path: string, how: 'copied' | 'shared', picture: boolean) {
+  try {
+    const user = await currentUser();
+    if (user) await writeShareAction({ id: user.id, handle: user.handle }, path, how, picture);
+  } catch (e) {
+    console.error('share action failed', logSafe(e));
+  }
 }
 
 export async function recordTradeShared() {
