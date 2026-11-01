@@ -4,7 +4,7 @@
 // - #16: Tab never lands in an off-screen pane (the resting row's pane is inert); → moves focus into the pane, ← and Back
 //   bring it back to the card; without JavaScript no pane is inert.
 // - #18: at 320 px a "+12345.6%" or "≈-100.0%" hero figure, a 40-character name and a 20-character handle stay inside the
-//   card (no horizontal scroll, the figure keeps ≥ 10% of the hero spare in the e2e font).
+//   card (no horizontal scroll, the figure keeps ≥ 15% of the hero spare (repo headroom rule; about 17% measured) in the e2e font).
 // #23 (the year on card dates) is unit tested (lib/f10-followups.test.ts): every feed card now carries the record strip in
 // place of the dated "held · closed" line, and the pane's dates already print the year.
 // Fixture traders are its own (`f10f_*`), deleted before and after; they are feed-eligible, so the shared feed lock is
@@ -163,7 +163,7 @@ test('#18: at 320 px a long return, a 40-character name and a 20-character handl
         cardWidth: c.width, rowWidth: r.clientWidth, rowScroll: r.scrollWidth,
       };
     });
-    expect(m.text, `${shown}: figure width`).toBeLessThanOrEqual(m.hero * 0.9);
+    expect(m.text, `${shown}: figure width`).toBeLessThanOrEqual(m.hero * 0.85);
     expect(m.whoRight, `${handle}: name inside the card`).toBeLessThanOrEqual(m.contentRight + 1);
     expect(Math.abs(m.cardWidth - m.rowWidth), `${handle}: card as wide as its row`).toBeLessThanOrEqual(1);
     expect(m.rowScroll, `${handle}: card + pane, nothing wider`).toBeLessThanOrEqual(2 * m.rowWidth + 1);

@@ -13,8 +13,19 @@ import { focusAfterKey, paneInert, restsOnCard } from '@/lib/feed-focus.ts';
 // on load once app.spec.ts's fix round 8 test opens its pane with → instead of focusing the unopened chart by script
 export function FeedKeys() {
   useEffect(() => {
-    const go = (row: Element, left: number) =>
+    // Rows moving under a scroll this file started (→, ←, Back): a Tab during it leaves their pane alone, or a Tab before the
+    // halfway point of → would pull focus back to the card (orchestrator review of #60). Cleared on scrollend, or after
+    // SCROLL_MS where scrollend never fires.
+    // ponytail: the SCROLL_MS fallback guesses the smooth scroll's length on browsers without `scrollend` — detect scroll
+    // idle (no scroll event for ~100 ms) instead if a slow device outlasts it.
+    const SCROLL_MS = 1000;
+    const moving = new WeakSet<Element>();
+    const settled = (row: Element) => { moving.delete(row); toCard.delete(row); };
+    const go = (row: Element, left: number) => {
+      moving.add(row);
+      setTimeout(() => settled(row), SCROLL_MS);
       row.scrollTo({ left, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    };
     const paneOf = (row: Element) => row.querySelector<HTMLElement>(':scope > .pane');
     const whoIn = (row: Element, part: 'card' | 'pane') => row.querySelector<HTMLElement>(`:scope > .${part} .who`);
     const focusOf = (row: Element) => {
@@ -51,7 +62,7 @@ export function FeedKeys() {
     const onTab = () => {
       for (const row of document.querySelectorAll<HTMLElement>('.feed > .row')) {
         const pane = paneOf(row);
-        if (!pane) continue;
+        if (!pane || moving.has(row)) continue;
         let holdsFocus = pane.contains(document.activeElement);
         if (holdsFocus && restsOnCard(row.scrollLeft, row.clientWidth)) { whoIn(row, 'card')?.focus({ preventScroll: true }); holdsFocus = false; }
         pane.inert = paneInert({ scrollLeft: row.scrollLeft, clientWidth: row.clientWidth, holdsFocus });
@@ -75,7 +86,7 @@ export function FeedKeys() {
     addEventListener('keydown', onKey);
     addEventListener('click', onClick);
     // A return to the card that a swipe interrupted ends here too, so the next swipe toward the pane frees it again.
-    const onScrollEnd = (e: Event) => { toCard.delete(e.target as Element); };
+    const onScrollEnd = (e: Event) => settled(e.target as Element);
     document.addEventListener('scroll', onScroll, { capture: true, passive: true });
     document.addEventListener('scrollend', onScrollEnd, { capture: true, passive: true });
     return () => {

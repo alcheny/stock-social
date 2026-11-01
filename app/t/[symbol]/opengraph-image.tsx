@@ -37,6 +37,8 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
     const { lines } = layoutBand(stockImageLines({ symbol, n: s.n, traders: s.traders, demoOnly: s.demoOnly, mixed: s.mixed }));
     return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);
   } catch {
+    // ponytail: a database error still answers 200 with the neutral picture — answer 500 (no catch) as the trade and month
+    // images do, when the truthful-labels branch's rewrite of this read lands.
     return neutral('Stock Social', 'Verified trades by stock');
   }
 }
