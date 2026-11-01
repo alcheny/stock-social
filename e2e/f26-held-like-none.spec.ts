@@ -83,29 +83,69 @@ const strip = (s: string) => s
   .replace(/eyJkIjoi[A-Za-z0-9_-]+/g, 'CURSOR')
   // The render clock the chart props carry ("now"), never a note's date (those are compared).
   .replace(/(\\*"now\\*":\\*"\$D)[^"\\]+/g, '$1T');
-// React streams a Suspense boundary either inline or, when it resolves after the shell, as a hidden segment plus an $RC
-// script moved into place on the client: timing, not content. Each segment is put back where its boundary is.
-const resolveStreamed = (s: string) => {
-  const seg = new Map<string, string>();
-  s = s.replace(/<div hidden id="S:(\d+)">([\s\S]*?)<\/div><script[^>]*>((?:(?!<\/script>)[\s\S])*?)\$RC\("B:\1","S:\1"\)<\/script>/g, (_m, n: string, body: string) => { seg.set(n, body); return ''; });
-  s = s.replace(/<!--\$\?--><template id="B:(\d+)"><\/template>/g, (m, n: string) => (seg.has(n) ? `<!--$-->${seg.get(n)}` : m));
-  // A boundary that resolved empty may also arrive as a pending template whose fill is not a hidden segment: an empty
-  // pending boundary is an empty resolved one (any content it later gets still shows up as a difference).
-  s = s.replace(/<!--\$\?--><template id="B:\d+"><\/template><!--\/\$-->/g, '<!--$--><!--/$-->');
-  // React's streaming runtime ($RC, $RT, …: the code that moves late segments) is sent only when something streamed late.
-  return s.replace(/<script[^>]*>(?:(?!<\/script>)[\s\S])*?\$R[A-Z](?:(?!<\/script>)[\s\S])*?<\/script>/g, '');
-};
-// The flight data (RSC rows "id:payload") is streamed in the order rows resolve, split across inline push scripts at
-// arbitrary points: timing, not content. Its rows are joined, sorted and compared as one block; each row's content
-// (ids included) is still compared exactly.
+// Streaming order is timing, not content, so the page is rebuilt in one canonical order before comparing. A linear
+// tokenizer splits it on script element boundaries (nothing is removed by pattern; every element is classified whole):
+// - flight data (`self.__next_f.push([1,"…"])`, RSC rows "id:payload") is streamed in the order rows resolve and split
+//   at arbitrary points: the JSON strings are decoded, joined, split into rows, sorted and compared as one block, each
+//   row exactly (ids included); the bootstrap `push([0])` carries no content;
+// - React's streaming runtime ($RC, $RT, …, the code that moves late Suspense segments into place) is sent only when
+//   something streamed late: dropped, and each late segment (`<div hidden id="S:n">`, matched by balanced <div> depth)
+//   is put back where its boundary (`<!--$?--><template id="B:n">`) is; a boundary still pending and empty is an empty
+//   resolved one (any content it gets still shows up as a difference).
+type Part = { script: false; text: string } | { script: true; open: string; body: string };
+function tokenize(s: string): Part[] {
+  const out: Part[] = [];
+  let i = 0;
+  for (;;) {
+    const a = s.indexOf('<script', i);
+    if (a < 0) { out.push({ script: false, text: s.slice(i) }); return out; }
+    const o = s.indexOf('>', a), c = s.indexOf('</script>', o);
+    if (o < 0 || c < 0) throw new Error('unterminated <script> in the page');
+    out.push({ script: false, text: s.slice(i, a) }, { script: true, open: s.slice(a, o + 1), body: s.slice(o + 1, c) });
+    i = c + '</script>'.length;
+  }
+}
+const FLIGHT = /^self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)$/;
+const BOOT = '(self.__next_f=self.__next_f||[]).push([0])';
 // Hint rows (":HL…") have an empty id.
 const flightRows = (t: string) => t.split(/\n(?=[0-9a-f]*:)/).map((r) => r.replace(/\n+$/, '')).filter(Boolean).sort().join('\n');
-const flightApart = (s: string) => {
-  let flight = '';
-  const rest = s.replace(/<script[^>]*>self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)<\/script>/g, (_m, str: string) => { flight += JSON.parse(str) as string; return ''; });
-  // The flight bootstrap (`push([0])`) sits wherever the first flight chunk lands: it carries no content.
-  return `${rest.replace(/<script[^>]*>\(self\.__next_f=self\.__next_f\|\|\[\]\)\.push\(\[0\]\)<\/script>/g, '')}\n--flight--\n${flightRows(flight)}`;
-};
+// The element `<div hidden id="S:n">…</div>` at `at`, by <div> depth: [inner, end index].
+function divAt(s: string, at: number): [string, number] {
+  const open = s.indexOf('>', at) + 1;
+  let depth = 1, i = open;
+  while (depth > 0) {
+    const nextOpen = s.indexOf('<div', i), nextClose = s.indexOf('</div>', i);
+    if (nextClose < 0) throw new Error('unbalanced <div> in a streamed segment');
+    if (nextOpen >= 0 && nextOpen < nextClose) { depth++; i = nextOpen + 4; } else { depth--; i = nextClose + 6; }
+  }
+  return [s.slice(open, i - 6), i];
+}
+function canonical(html: string): string {
+  let flight = '', text = '';
+  for (const p of tokenize(html)) {
+    if (!p.script) { text += p.text; continue; }
+    const f = FLIGHT.exec(p.body);
+    if (f) flight += JSON.parse(f[1]) as string;
+    else if (p.body === BOOT || /\$R[A-Z]/.test(p.body)) continue;
+    else text += `${p.open}${p.body}</script>`;
+  }
+  // Late segments, in place of their boundaries.
+  const seg = new Map<string, string>();
+  let rest = '', i = 0;
+  for (;;) {
+    const m = /<div hidden id="S:(\d+)">/.exec(text.slice(i));
+    if (!m) { rest += text.slice(i); break; }
+    const at = i + m.index, [inner, end] = divAt(text, at);
+    seg.set(m[1], inner);
+    rest += text.slice(i, at);
+    i = end;
+  }
+  const filled = rest.split(/(<!--\$\?--><template id="B:\d+"><\/template>)/).map((t) => {
+    const b = /^<!--\$\?--><template id="B:(\d+)"><\/template>$/.exec(t);
+    return b ? `<!--$-->${seg.get(b[1]) ?? ''}` : t;
+  }).join('');
+  return `${filled}\n--flight--\n${flightRows(flight)}`;
+}
 // Next streams metadata: its <title> and <meta> tags land in the head or later in the body depending on when
 // generateMetadata resolves (timing, not content). They are compared as a sorted set, beside the rest of the page.
 const metaApart = (s: string) => {
@@ -122,14 +162,14 @@ function firstDiff(a: string, b: string): string {
   return `at ${i}: after «${a.slice(Math.max(0, i - 80), i + 80)}» before «${b.slice(Math.max(0, i - 80), i + 80)}»`;
 }
 
-type Grab = { body: string; cc: string | null; status: number };
+type Grab = { body: string; raw: string; cc: string | null; status: number };
 async function grab(api: APIRequestContext, path: string, init?: { method?: 'POST'; headers?: Record<string, string>; data?: string }): Promise<Grab> {
   const r = init?.method === 'POST' ? await api.post(path, { headers: init.headers, data: init.data }) : await api.get(path, { maxRedirects: 0 });
   const buf = await r.body();
   const ct = r.headers()['content-type'] ?? '';
-  const body = ct.startsWith('image/') ? `${ct}:${buf.toString('base64')}` : ct.startsWith('text/html') ? metaApart(flightApart(resolveStreamed(strip(buf.toString('utf8')))))
+  const body = ct.startsWith('image/') ? `${ct}:${buf.toString('base64')}` : ct.startsWith('text/html') ? metaApart(canonical(strip(buf.toString('utf8'))))
     : ct.startsWith('text/x-component') ? flightRows(strip(buf.toString('utf8'))) : strip(buf.toString('utf8'));
-  return { body, cc: r.headers()['cache-control'] ?? null, status: r.status() };
+  return { body, raw: ct.startsWith('image/') ? '' : buf.toString('utf8'), cc: r.headers()['cache-control'] ?? null, status: r.status() };
 }
 
 function surfaces(ym: string) {
@@ -154,6 +194,21 @@ async function recordPaging(page: Page): Promise<{ headers: Record<string, strin
   const keep = Object.fromEntries(Object.entries(h).filter(([k]) => /^(next-action|next-router-state-tree|content-type|accept)$/i.test(k)));
   return { headers: keep, data: r.postData() ?? '' };
 }
+
+test('F-26 identity, the comparison itself: canonical() reorders streaming only and keeps every piece of content', () => {
+  const page = (seg: string, script: string, rows: string[]) => `<main><!--$?--><template id="B:0"></template><!--/$--></main>`
+    + `<script nonce="N">${script}</script>${rows.map((r) => `<script>self.__next_f.push([1,${JSON.stringify(r)}])</script>`).join('')}`
+    + `<div hidden id="S:0">${seg}</div><script>$RC=function(a){};$RC("B:0","S:0")</script>`;
+  const base = canonical(page('<div><p>note</p></div>', 'x=1', ['0:a\n', '1:b\n']));
+  // Timing only: the same rows in another order and split, the segment inline instead of late, the runtime absent.
+  expect(canonical(`<main><!--$--><div><p>note</p></div><!--/$--></main><script nonce="N">x=1</script><script>self.__next_f.push([1,"1:b\\n0:"])</script><script>self.__next_f.push([1,"a\\n"])</script>`)).toBe(base);
+  // Content: a segment's text, a non-runtime script, a flight row, nested markup — each still differs.
+  expect(canonical(page('<div><p>MARK</p></div>', 'x=1', ['0:a\n', '1:b\n']))).not.toBe(base);
+  expect(canonical(page('<div><p>note</p></div>', 'x=2', ['0:a\n', '1:b\n']))).not.toBe(base);
+  expect(canonical(page('<div><p>note</p></div>', 'x=1', ['0:a\n', '1:MARK\n']))).not.toBe(base);
+  expect(canonical(page('<div><p>note</p><div>MARK</div></div>', 'x=1', ['0:a\n', '1:b\n']))).not.toBe(base);
+  // The marker checks in the identity test read the raw bodies, so nothing canonical() drops can hide the held text.
+});
 
 test('F-26 identity: for a viewer (signed out, and another signed-in user) every surface is byte-identical before and after the hold, and carries no marker', async ({ browser, playwright, baseURL }) => {
   test.setTimeout(240_000);
@@ -200,10 +255,10 @@ test('F-26 identity: for a viewer (signed out, and another signed-in user) every
         expect(a.status, `${who} ${s} status`).toBe(b.status);
         expect(a.cc, `${who} ${s} Cache-Control`).toBe(b.cc);
         expect(firstDiff(a.body, b.body), `${who} ${s} body identical`).toBe('');
-        expect(a.body, `${who} ${s}`).not.toContain(MARK);
-        expect(a.body, `${who} ${s}`).not.toContain(RULE_WORDS);
-        expect(a.body, `${who} ${s}`).not.toContain('Thesis held for review');
-        expect(a.body, `${who} ${s}`).not.toMatch(/"thesis_status":"held"|thesis-held|data-own-held/);
+        expect(a.raw, `${who} ${s}`).not.toContain(MARK);
+        expect(a.raw, `${who} ${s}`).not.toContain(RULE_WORDS);
+        expect(a.raw, `${who} ${s}`).not.toContain('Thesis held for review');
+        expect(a.raw, `${who} ${s}`).not.toMatch(/\\?"thesis_status\\?":\\?"held|thesis-held|data-own-held/);
       }
       const t = surfaces(ym).find((s) => s.includes('/trade/') && !s.endsWith('opengraph-image'))!;
       const tb = before.get(t)!.body;
