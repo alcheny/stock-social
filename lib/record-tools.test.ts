@@ -170,10 +170,12 @@ dbTest('a trader deletes their account: notes about them and their view entries 
   assert.equal((await sql`select count(*)::int as n from record_views where owner_id = ${t.id}`)[0].n, 0);
   assert.equal((await sql`select count(*)::int as n from record_notes where owner_id = ${t.id} or trader_id = ${t.id}`)[0].n, 0);
   for (const s of [a, b]) {
-    assert.equal(await rt.takeRemovedNotice(s.id), true);
-    assert.equal(await rt.takeRemovedNotice(s.id), false, 'shown once');
+    assert.equal(await rt.removedNotice(s.id), true);
+    assert.equal(await rt.removedNotice(s.id), true, 'reading never clears it');
+    await rt.dismissRemovedNotice(s.id);
+    assert.equal(await rt.removedNotice(s.id), false, 'gone once dismissed');
   }
-  assert.equal(await rt.takeRemovedNotice(keep.id), false);
+  assert.equal(await rt.removedNotice(keep.id), false);
   const [cols] = await sql`select string_agg(column_name, ',' order by column_name) as c from information_schema.columns where table_name = 'record_tool_notices'`;
   assert.equal(cols.c, 'owner_id,removed', 'no trader id kept');
 });
@@ -223,7 +225,7 @@ dbTest('export: exactly the disclaimer, views, notes and subscription; no figure
 test('static rules: no entitlement under app/t or keyed by a symbol; Record tools writes no discovery_events, sends nothing, offers no share; notes are read only by Record tools, deletion and export', () => {
   for (const f of sources('app/t')) assert.doesNotMatch(read(f), /lib\/billing|entitled\(|access\(/, f);
   const billingUsers = [...sources('app'), ...sources('lib')].filter((f) => /from ['"][^'"]*\/billing\.ts['"]/.test(read(f)));
-  assert.deepEqual(billingUsers.sort(), ['app/account/actions.ts', 'app/account/page.tsx', 'app/api/billing/reconcile/route.ts', 'app/api/billing/webhook/route.ts', 'app/api/sync/route.ts', 'app/connect/actions.ts', 'app/tools/actions.ts', 'app/tools/page.tsx', 'app/tools/parts.tsx', 'lib/delete.ts', 'lib/record-tools.ts']);
+  assert.deepEqual(billingUsers.sort(), ['app/account/actions.ts', 'app/account/page.tsx', 'app/api/billing/reconcile/route.ts', 'app/api/billing/webhook/route.ts', 'app/api/sync/route.ts', 'app/connect/actions.ts', 'app/settings/page.tsx', 'app/tools/actions.ts', 'app/tools/page.tsx', 'app/tools/parts.tsx', 'lib/delete.ts', 'lib/record-tools.ts']);
   assert.doesNotMatch(read('lib/billing.ts'), /symbol/);
   const tools = [...sources('app/tools'), ...sources('app/account'), 'lib/record-tools.ts', 'lib/billing.ts'];
   for (const f of tools) {

@@ -7,7 +7,7 @@
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { access, billingAvailable, CheckoutRefused, disclosureText, isPlan, siteOrigin, startCheckout } from '@/lib/billing.ts';
-import { addTrader, createView, deleteNote, deleteView, isViewId, moveTrader, removeTrader, renameView, saveNote } from '@/lib/record-tools.ts';
+import { addTrader, createView, deleteNote, deleteView, dismissRemovedNotice, isViewId, moveTrader, removeTrader, renameView, saveNote } from '@/lib/record-tools.ts';
 
 const str = (f: FormData, k: string) => { const v = f.get(k); return typeof v === 'string' ? v : ''; };
 const viewUrl = (id: string, q: string) => `/tools?view=${id}&${q}`;
@@ -56,6 +56,12 @@ export async function createViewAction(form: FormData) {
   const picked = form.getAll('handle').filter((h): h is string => typeof h === 'string').slice(0, 4).sort();
   for (const h of picked) await addTrader(u.id, r.id, h);
   redirect(viewUrl(r.id, 'm=created'));
+}
+
+export async function dismissNoticeAction() {
+  const u = await me();
+  await dismissRemovedNotice(u.id);
+  redirect('/tools');
 }
 
 export async function renameViewAction(form: FormData) {

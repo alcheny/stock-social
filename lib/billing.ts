@@ -458,6 +458,13 @@ export async function cancelIfTrader(userId: number): Promise<void> {
   for (const r of rows) await syncSubscription(r.vendor_subscription_id as string);
 }
 
+// Whether this account ever had a subscription (the delete screen's billing line shows only then: no billing words
+// for anyone who never paid, traders included).
+export async function hasSubscribed(userId: number): Promise<boolean> {
+  const [r] = await sql`select 1 from subscriptions where user_id = ${userId} limit 1`;
+  return !!r;
+}
+
 // The account page's line for a trader whose paid plan was canceled when they connected (condition 14).
 export async function canceledOnConnect(userId: number): Promise<boolean> {
   const [r] = await sql`select 1 from subscriptions where user_id = ${userId} and ended_reason = 'trader' limit 1`;

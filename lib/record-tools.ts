@@ -162,10 +162,14 @@ export async function deleteNote(owner: number, trader: unknown): Promise<boolea
   return (await sql`delete from record_notes where owner_id = ${owner} and trader_id = ${id}`).count === 1;
 }
 
-// K12: whether a trader named in this owner's views or notes deleted their account since the last visit. Read once.
-export async function takeRemovedNotice(owner: number): Promise<boolean> {
-  const [r] = await sql`delete from record_tool_notices where owner_id = ${owner} returning removed`;
+// K12: whether a trader named in this owner's views or notes deleted their account since the owner last dismissed the
+// line. Reading never clears it (a page render or a link prefetch must not use it up); "OK" does, by POST.
+export async function removedNotice(owner: number): Promise<boolean> {
+  const [r] = await sql`select removed from record_tool_notices where owner_id = ${owner}`;
   return !!r && (r.removed as number) > 0;
+}
+export async function dismissRemovedNotice(owner: number): Promise<void> {
+  await sql`delete from record_tool_notices where owner_id = ${owner}`;
 }
 
 // ---- the comparison (K2, K3) ----------------------------------------------------------------------------------------

@@ -3,12 +3,12 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { access, billingAvailable, isPlan, testMode, type Access } from '@/lib/billing.ts';
-import { compareCards, followOptions, getView, listNotes, listViews, MAX_TRADERS, MAX_VIEWS, NOTE_MAX, takeRemovedNotice, type Card, type View } from '@/lib/record-tools.ts';
+import { compareCards, followOptions, getView, listNotes, listViews, MAX_TRADERS, MAX_VIEWS, NOTE_MAX, removedNotice, type Card, type View } from '@/lib/record-tools.ts';
 import { BILLING, RECORD_TOOLS } from '@/lib/copy.ts';
 import { Badge } from '../ui.tsx';
 import { FocusMessage } from './focus.tsx';
 import { Disclaimer, fmt, PastDueBanner, SubscribeBlock } from './parts.tsx';
-import { addTraderAction, createViewAction, deleteNoteAction, deleteViewAction, moveAction, removeAction, renameViewAction, saveNoteAction } from './actions.ts';
+import { addTraderAction, createViewAction, dismissNoticeAction, deleteNoteAction, deleteViewAction, moveAction, removeAction, renameViewAction, saveNoteAction } from './actions.ts';
 
 // F-3 · Record tools (docs/features/logs/F-3/plan.md §3 to §7; committee conditions K1 to K13). Private and unshareable:
 // noindex, no referrer, no share UI, a generic title (never a view name), owner-only views (the same 404 for a missing
@@ -57,7 +57,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
   const view = me && sp.view !== undefined ? await getView(me.id, sp.view) : null;
   if (sp.view !== undefined && !view) notFound();
   const lapsed = a.kind === 'none' && (!!a.row || views.length > 0 || notes.length > 0);
-  const removed = me ? await takeRemovedNotice(me.id) : false;
+  const removed = me ? await removedNotice(me.id) : false;
   const msg = message(sp);
 
   // Locked: signed out, or signed in with nothing of their own here yet. Traders never reach it (K14).
@@ -80,7 +80,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
       {a.kind === 'subscriber' && a.row.cancel_at_period_end && a.row.current_period_end && <p className="rt-banner">{RECORD_TOOLS.endsOn(a.row.current_period_end)}</p>}
       {a.kind === 'trader' && <p className="muted">{RECORD_TOOLS.trader}</p>}
       {lapsed && <p className="rt-banner">{RECORD_TOOLS.lapsed}</p>}
-      {removed && <p role="status" className="rt-banner">{RECORD_TOOLS.removedNotice}</p>}
+      {removed && <form action={dismissNoticeAction} className="rt-banner"><p role="status" style={{ margin: 0 }}>{RECORD_TOOLS.removedNotice}</p><button className="button secondary">{RECORD_TOOLS.dismiss}</button></form>}
       <p id="rt-msg" tabIndex={-1} role={msg?.error ? 'alert' : 'status'} className={msg?.error ? 'down rt-msg' : 'rt-msg'}>{msg?.text ?? ''}</p>
       {msg && <FocusMessage />}
     </>

@@ -442,6 +442,7 @@ export const RECORD_TOOLS = {
   free: 'Trader records stay free to view without a subscription.',
   trader: 'Record tools is included with your connected record.',
   removedNotice: 'A trader in your views or notes deleted their account; they and your note were removed.',
+  dismiss: 'OK',
   removedAdvance: 'If a trader deletes their account, they leave your views and your note about them is deleted.',
   lapsed: 'Your subscription has ended. The comparison is off; your saved views and notes stay here to read, edit, download or delete.',
   endsOn: (d: Date) => `Your subscription ends on ${billingDate(d)}. Record tools stays on until then.`,
