@@ -142,7 +142,9 @@ test('criterion 15: "N trades hidden by you. Show them" on the feed, then the Hi
     // first card's symbol and return are in view too.
     const navBottom = async () => (await page.locator('nav.top').boundingBox())!.y + (await page.locator('nav.top').boundingBox())!.height;
     await expect(line).toBeInViewport({ ratio: 1 });
-    expect((await line.boundingBox())!.y).toBeGreaterThanOrEqual(await navBottom());
+    // Its text (the content box, under the padding that clears the nav) starts below the nav.
+    const textTop = await line.evaluate((e) => e.getBoundingClientRect().top + parseFloat(getComputedStyle(e).paddingTop));
+    expect(textTop).toBeGreaterThanOrEqual(await navBottom());
     const first = page.locator('.feed > .row[data-trade]').first();
     await expect(first.locator('.card header').first()).toBeInViewport({ ratio: 1 });
     await page.locator('.feed').evaluate((f) => f.scrollTo(0, 0));

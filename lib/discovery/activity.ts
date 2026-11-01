@@ -8,7 +8,8 @@
 // Stored events are kept until the viewer clears them or deletes the account (owner 2026-11-01: no timer); ordering
 // reads only the last READ_DAYS, fading (lib/discovery/personal.ts).
 import { sql } from '../db.ts';
-import { BATCH_INTERVAL_MS, EVENT_TYPES, SURFACES, type RawEvent } from './events.ts';
+import { BATCH_MAX_PER_WINDOW, BATCH_WINDOW_MS, EVENT_TYPES, SURFACES, type RawEvent } from './events.ts';
+import { forgetViewer } from './personal-cache.ts';
 
 export const READ_DAYS = 90;
 export const READ_MAX = 2_000; // the newest events read per viewer
@@ -22,32 +23,37 @@ export async function settingsFor(viewer: number): Promise<Settings> {
 }
 export async function setPersonalize(viewer: number, on: boolean): Promise<void> {
   await sql`update users set personalize_feed = ${on} where id = ${viewer}`;
+  forgetViewer(viewer); // the kept personal lists go at once (lib/discovery/personal-cache.ts)
 }
 // Turning activity Off stops logging and use at once; what was stored stays (stored until cleared, owner 2026-11-01) and
-// is unused while Off. Turning it On again keeps the first time it was turned on.
+// is unused while Off. Turning it On sets the time it was turned on (Off clears it).
 export async function setActivity(viewer: number, on: boolean): Promise<void> {
   await sql`update users set activity_log_on_at = ${on ? sql`coalesce(activity_log_on_at, now())` : null} where id = ${viewer}`;
+  forgetViewer(viewer);
 }
 export async function hasActivity(viewer: number): Promise<boolean> {
   return (await sql`select 1 from discovery_events where viewer_id = ${viewer} limit 1`).length > 0;
 }
 export async function clearActivity(viewer: number): Promise<number> {
-  return (await sql`delete from discovery_events where viewer_id = ${viewer}`).count;
+  const n = (await sql`delete from discovery_events where viewer_id = ${viewer}`).count;
+  forgetViewer(viewer); // nothing derived from the cleared events is used again
+  return n;
 }
 
-// Store a parsed batch for this viewer. In one transaction: the gate (activity On, personalize On, the account live, and no
-// batch from this viewer in the last BATCH_INTERVAL_MS: a row lock on the viewer, so it holds across server instances,
-// business lead demand 5), then one multi-row insert of the targets that exist (a trade by its card id → its stable key
+// Store a parsed batch for this viewer. In one transaction: the gate (activity On, personalize On, the account live, and at
+// most BATCH_MAX_PER_WINDOW batches from this viewer per BATCH_WINDOW_MS: a row lock on the viewer, so it holds across
+// server instances, business lead demand 5; tester finding 1: a window, so the page-leave batch right after a periodic
+// one is not refused), then one multi-row insert of the targets that exist (a trade by its card id → its stable key
 // and trader; a trader by handle), never the viewer themselves, at most DAY_MAX a UTC day. 'rate': the gate refused.
 export const DAY_MAX = 2_000;
 export async function recordEvents(viewer: number, events: readonly RawEvent[]): Promise<number | 'rate' | 'off'> {
   return sql.begin(async (tx) => {
     const [g] = await tx`select activity_log_on_at is not null and personalize_feed and deleted_at is null as on,
-      activity_batch_at is not null and activity_batch_at > now() - ${BATCH_INTERVAL_MS} * interval '1 millisecond' as busy
+      activity_batch_at is not null and activity_batch_at > now() - ${BATCH_WINDOW_MS} * interval '1 millisecond' as open, activity_batch_n as n
       from users where id = ${viewer} for update`;
     if (!g?.on) return 'off' as const;
-    if (g.busy) return 'rate' as const;
-    await tx`update users set activity_batch_at = now() where id = ${viewer}`;
+    if (g.open && g.n >= BATCH_MAX_PER_WINDOW) return 'rate' as const;
+    await tx`update users set ${g.open ? sql`activity_batch_n = activity_batch_n + 1` : sql`activity_batch_at = now(), activity_batch_n = 1`} where id = ${viewer}`;
     if (!events.length) return 0;
     const tradeIds = [...new Set(events.flatMap((e) => (e.target.kind === 'trade' ? [e.target.id] : [])))];
     const handles = [...new Set(events.flatMap((e) => (e.target.kind === 'trader' ? [e.target.handle] : [])))];

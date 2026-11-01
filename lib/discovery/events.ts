@@ -1,4 +1,4 @@
-// F-2 PR-5 (criteria 2, 3): the implicit activity log's rules. Pure (lib/discovery/events.test.ts); app/api/events/route.ts
+// F-2 PR-5 (criteria 2, 3): the implicit activity log's rules. Pure (lib/discovery/f2-personal.test.ts); app/api/events/route.ts
 // resolves and stores what passes. Only implicit reading events are logged: explicit choices (follow, like, hide, reject)
 // already live in their own tables and are never duplicated here. Logging runs only for a signed-in viewer who turned
 // "Personalize with my activity" On (off by default, owner 2026-11-01).
@@ -10,8 +10,9 @@
 export const SYMBOL_EVENTS = false;
 export const BATCH_MAX = 50;
 export const BATCH_BYTES = 8_192;
-// One batch per viewer per this many ms (per server process; lib/rate-limit.ts).
-export const BATCH_INTERVAL_MS = 2_000;
+// At most BATCH_MAX_PER_WINDOW batches per viewer per BATCH_WINDOW_MS, held by a row lock in Postgres (lib/discovery/activity.ts).
+export const BATCH_WINDOW_MS = 10_000;
+export const BATCH_MAX_PER_WINDOW = 3;
 
 export const EVENT_TYPES = { impression: 1, dwell_short: 2, dwell_long: 3, skip: 4, swipe_open: 5, profile_open: 6, share: 7, watch: 8, unwatch: 9 } as const;
 export const SURFACES = { feed: 1, pane: 2, profile: 3, section: 4, me: 5 } as const;

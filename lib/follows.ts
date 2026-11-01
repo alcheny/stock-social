@@ -114,7 +114,7 @@ export async function unfollowsFor(viewer: number): Promise<{ trader: number; at
 // interested" rows that ran their 90 days on their own. No longer applied, still stored; "Remove" deletes one.
 export async function expiredHides(viewer: number): Promise<Listed[]> {
   const rows = await sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
-    where x.viewer_id = ${viewer} and x.reason = 'not_interested' and x.ended_at is null and x.until <= now() order by x.until desc limit 200`;
+    where x.viewer_id = ${viewer} and x.reason = 'not_interested' and x.ended_at is null and x.until <= now() order by x.until desc`;
   return rows.map((r) => ({ handle: r.handle as string, name: r.display_name as string, until: r.until as Date }));
 }
 export async function removeExpiredHide(viewer: number, trader: number): Promise<void> {

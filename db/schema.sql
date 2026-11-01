@@ -379,7 +379,7 @@ create table if not exists trade_exclusions (
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
 
--- ---- F-2 PR-5 (docs/features/logs/F-2/plan-pr5.md): the viewer's activity log and personalization settings ----
+-- ---- F-2 PR-5 (docs/features/logs/F-2/plan-pr5-ux-lead.md): the viewer's activity log and personalization settings ----
 -- Two per-viewer switches. personalize_feed (default on): ordering may use the viewer's own follows, likes and hides;
 -- off, the viewer gets the order everyone gets minus their own hides. activity_log_on_at (default null = off, owner
 -- 2026-11-01): when set, the implicit logger runs and its events shape ordering; off, nothing is logged or used.
@@ -392,7 +392,7 @@ insert into discovery_event_types (code, name) values (1, 'impression'), (2, 'dw
   (5, 'swipe_open'), (6, 'profile_open'), (7, 'share'), (8, 'watch'), (9, 'unwatch') on conflict do nothing;
 insert into discovery_surfaces (code, name) values (1, 'feed'), (2, 'pane'), (3, 'profile'), (4, 'section'), (5, 'me') on conflict do nothing;
 -- One row per implicit event: viewer, surface, target (trader, trade or symbol), type and time only. No address, device,
--- IP, user agent, amount, price or broker field (criterion 3, lib/discovery/events.test.ts). A trade target keeps its
+-- IP, user agent, amount, price or broker field (criterion 3, lib/f2-personal.db.test.ts). A trade target keeps its
 -- trader too (the close's stable trade_key; no foreign key: a rebuild deletes closed_trades rows). Stored until the
 -- viewer clears it or deletes the account (owner 2026-11-01); only the last 90 days are read, fading.
 create table if not exists discovery_events (
@@ -439,3 +439,6 @@ select schema_add_column('trade_exclusions', 'orphan_at', 'timestamptz');
 select schema_add_index('viewer_exclusions_purgeable', $$create index viewer_exclusions_purgeable on viewer_exclusions (until) where reason = 'unfollow' or ended_at is not null$$);
 select schema_add_index('trade_likes_orphan', 'create index trade_likes_orphan on trade_likes (orphan_at) where orphan_at is not null');
 select schema_add_index('trade_exclusions_orphan', 'create index trade_exclusions_orphan on trade_exclusions (orphan_at) where orphan_at is not null');
+-- Tester finding 1: the events gate is a window (at most 3 batches per 10 s), so a page-leave batch right after the
+-- periodic one is kept.
+select schema_add_column('users', 'activity_batch_n', 'smallint not null default 0');

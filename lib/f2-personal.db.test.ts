@@ -83,7 +83,7 @@ dbTest('criterion 3: discovery_events has exactly (id, viewer_id, at, surface, t
   } finally { await f.remove(); }
 });
 
-dbTest('activity is Off by default; Off or personalize Off stores nothing; On stores; a second batch within 2 s is refused; the day cap holds; self and unknown targets are dropped; Clear deletes every event and the profile then reads none', async () => {
+dbTest('activity is Off by default; Off or personalize Off stores nothing; On stores; a fourth batch within 10 s is refused; the day cap holds; self and unknown targets are dropped; Clear deletes every event and the profile then reads none', async () => {
   const f = await fixture(3, { viewers: 2 });
   const a = await import('./discovery/activity.ts');
   const { loadPersonal } = await import('./discovery/personal-load.ts');
@@ -103,8 +103,12 @@ dbTest('activity is Off by default; Off or personalize Off stores nothing; On st
     assert.deepEqual(await a.settingsFor(v), { personalize: true, activity: true });
     assert.equal(await a.recordEvents(v, batch), 2);
     assert.equal(await count(), 2);
+    // Tester finding 1: a window of 3 batches per 10 s (the page-leave batch right after a periodic one is kept); the
+    // fourth in the window is refused and stores nothing.
+    assert.equal(await a.recordEvents(v, batch), 2);
+    assert.equal(await a.recordEvents(v, batch), 2);
     assert.equal(await a.recordEvents(v, batch), 'rate');
-    assert.equal(await count(), 2);
+    assert.equal(await count(), 6);
     await allowBatch(f.sql, v);
     // Self and unknown targets are dropped: the viewer's own handle and trade, an unknown handle and an unknown trade id.
     const own = f.viewers[1];
@@ -113,10 +117,10 @@ dbTest('activity is Off by default; Off or personalize Off stores nothing; On st
     const self = (await f.sql`select id::text as id from closed_trades where sell_id = ${`${f.tag}-self`}`)[0].id as string;
     assert.equal(await a.recordEvents(v, [ev('dwell_long', { kind: 'trader', handle: f.handle(v) }), ev('swipe_open', { kind: 'trade', id: self }),
       ev('dwell_long', { kind: 'trader', handle: 'zz_no_such_handle' }), ev('swipe_open', { kind: 'trade', id: '999999999999999' })]), 0);
-    assert.equal(await count(), 2);
+    assert.equal(await count(), 6);
     await allowBatch(f.sql, v);
     assert.equal(await a.recordEvents(v, [ev('dwell_long', { kind: 'trader', handle: f.handle(v) }), ev('share', { kind: 'trader', handle: f.handle(t2) })]), 1);
-    assert.equal(await count(), 3);
+    assert.equal(await count(), 7);
     assert.equal(own !== v, true);
     // The day cap: 1,999 stored today, a batch of 5 stores 1.
     await a.setActivity(own, true);
@@ -130,7 +134,7 @@ dbTest('activity is Off by default; Off or personalize Off stores nothing; On st
     // Clear: every event at once; the profile then reads none.
     const before = await loadPersonal(v, new Date());
     assert.ok(before.personalize && before.profile.seen.size > 0 && before.profile.signals > 0);
-    assert.equal(await a.clearActivity(v), 3);
+    assert.equal(await a.clearActivity(v), 7);
     assert.equal(await count(), 0);
     const afterClear = await loadPersonal(v, new Date());
     assert.ok(afterClear.personalize);
@@ -293,7 +297,7 @@ dbTest('a follow raises the trader: their first card comes earlier than in the s
   } finally { await f.remove(); }
 });
 
-dbTest('page stability: after like, unlike, unfollow and Clear, page 2 is the slice of page 1\'s list: no card repeats, none moves', async () => {
+dbTest('page stability: after like, unlike and unfollow, page 2 is the slice of page 1\'s list: no card repeats, none moves; Clear drops the kept list at once', async () => {
   const f = await fixture(40);
   const { loadFeedPage } = await import('./feed.ts');
   const { personalFor } = await import('./discovery/personal-load.ts');
@@ -315,7 +319,6 @@ dbTest('page stability: after like, unlike, unfollow and Clear, page 2 is the sl
     assert.ok(await like(v, (await f.trade(C)).id));
     assert.ok(await unlike(v, { id: ta.id }));
     await unfollow(v, B);
-    assert.equal(await a.clearActivity(v), 1);
     const p2 = await load(p1.next!);
     assert.deepEqual(p2.cards.map((c) => c.sell_id), ref2.cards.map((c) => c.sell_id));
     const s1 = new Set(p1.cards.map((c) => c.sell_id));
@@ -325,6 +328,43 @@ dbTest('page stability: after like, unlike, unfollow and Clear, page 2 is the sl
     assert.equal(p2.from, 31);
     const p3 = await load(p2.next!);
     assert.ok(p3.cards.every((c) => !both.includes(c.sell_id)));
+    // Orchestrator review 5: "Clear my activity" drops the kept list at once: the next page is built without anything
+    // cleared (here nothing else counts at asOf either, so it is everyone's page 2).
+    assert.equal(await a.clearActivity(v), 1);
+    const after = await load(p1.next!);
+    assert.equal(after.personal?.uses.activity ?? false, false, 'nothing cleared is used');
+    const { clearPersonalCache } = await import('./feed.ts');
+    clearPersonalCache();
+    const fresh = await load(p1.next!);
+    assert.deepEqual(after.cards.map((c) => c.sell_id), fresh.cards.map((c) => c.sell_id), 'built afresh from what is stored now');
+  } finally { await f.remove(); }
+});
+
+dbTest('orchestrator review 1: with choices made before asOf, "Personalize my feed" On changes the order and Off gives exactly everyone\'s order; turning it Off drops the kept list at once', async () => {
+  const f = await fixture(40, { viewers: 1 });
+  const { loadFeedPage } = await import('./feed.ts');
+  const { personalFor } = await import('./discovery/personal-load.ts');
+  const a = await import('./discovery/activity.ts');
+  const v = f.viewer;
+  try {
+    const now = Date.now();
+    const out = await pages((after) => loadFeedPage(after, { ids: f.traders, now }));
+    const seq = traderSeq(out);
+    const late = [...new Set(seq)].slice(-3);
+    // A follow, a like and an activity event, all made an hour before asOf.
+    await f.sql`insert into follows (viewer_id, trader_id, created_at) values (${v}, ${late[0]}, now() - interval '1 hour')`;
+    const t = await f.trade(late[1]);
+    await f.sql`insert into trade_likes (viewer_id, trade_key, trader_id, created_at) select ${v}, trade_key, user_id, now() - interval '1 hour' from closed_trades where id = ${t.id}`;
+    await a.setActivity(v, true);
+    await f.sql`insert into discovery_events (viewer_id, at, surface, type, target_kind, target_user_id) values (${v}, now() - interval '1 hour', 1, 3, 'trader', ${late[2]})`;
+    const on = await pages((after) => loadFeedPage(after, { ids: f.traders, now, viewer: v, personal: personalFor(v) }));
+    assert.ok(on[0].personal, 'On: the choices count');
+    assert.notDeepEqual(sells(on), sells(out), 'On changes the order');
+    for (const tr of late) assert.ok(traderSeq(on).indexOf(tr) < seq.indexOf(tr), `trader ${tr} moves up`);
+    await a.setPersonalize(v, false);
+    const off = await pages((after) => loadFeedPage(after, { ids: f.traders, now, viewer: v, personal: personalFor(v) }));
+    assert.deepEqual(sells(off), sells(out), 'Off: exactly the order everyone gets (no hides here)');
+    assert.ok(off.every((p) => p.personal === undefined));
   } finally { await f.remove(); }
 });
 

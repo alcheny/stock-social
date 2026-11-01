@@ -11,6 +11,7 @@ import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTIO
 // F-2 PR-5: personal ordering (pure) and the loader type; the loader itself is passed in by the page (lib/discovery/personal-load.ts).
 import { personalList, personalPool, personalReason, relevanceOf, type PersonalReason, type TraderShape, type Uses } from './discovery/personal.ts';
 import type { Personal, PersonalLoader } from './discovery/personal-load.ts';
+import { personalSlots } from './discovery/personal-cache.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
 // score = ln(1 + |r|·100) · exp(-max(0, min(age_hours / RECENCY_HOURS, MAX_DECAY)))
@@ -318,8 +319,9 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     opts.viewer ? sectionSkips(opts.viewer) : [],
     opts.viewer && opts.personal ? opts.personal(new Date(c.asOf)).catch((e: unknown): Personal | null => { console.error('personal ordering failed', e instanceof Error ? e.message : e); return null; }) : null]);
   const { shaping, hidden } = splitExclusions(mine, c.asOf, now);
-  // F-2 PR-5: Off, the section leaves out only the viewer's own hides (follows no longer shape anything).
-  const skips = personal && !personal.personalize ? personal.hidden : skips0;
+  // F-2 PR-5 (orchestrator review 4): the section leaves out followed traders in every mode (its Follow button reads
+  // "not following"); Off changes the order only.
+  const skips = skips0;
   const profile = personal?.personalize && personal.profile.signals > 0 ? personal.profile : null;
   const shapes = profile ? traderShapes(kept) : null;
   const rel = profile ? relevanceOf(profile, shapes!) : null;
@@ -329,7 +331,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     : kept.ranked.some((s) => shaping.has(s.trader)) ? shapeList(kept.ranked, shaping, c.day, extra).map(({ card, explore }) => ({ ...card, explore })) : kept.mixed;
   // Review fix 2: with a personal loader, the list page 1 built is kept per viewer and cursor, whatever the profile says
   // on a later page (an unlike, "Clear my activity" or a switch turned Off never shifts the pages of a running session).
-  const slots = opts.viewer && opts.personal ? personalSlots(`${opts.viewer}|${c.day}|${c.asOf}|${opts.ids ? opts.ids.join(',') : '*'}|${[...shaping].sort().join(',')}`, now, build) : build();
+  const slots = opts.viewer && opts.personal ? personalSlots(opts.viewer, `${c.day}|${c.asOf}|${opts.ids ? opts.ids.join(',') : '*'}|${[...shaping].sort().join(',')}`, now, CURSOR_MAX_AGE_MS, build) : build();
   const sliced = pageOf(slots, c);
   const page = { ...sliced, items: displayFilter(sliced.items, hidden) };
   // The page's cards as they are now (a thesis held since page 1 is not shown; a corrected return shows corrected). A
@@ -384,22 +386,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   };
 }
 
-// F-2 PR-5 (engineer demand 2): a viewer's personal list, kept for its cursor's lifetime in its own map keyed by the
-// viewer (never in the shared `lists`), so a later page of the same session slices exactly the list page 1 showed even
-// after an unlike, an unfollow or "Clear my activity" (which the asOf filter cannot undo). Another server, or a restart,
-// rebuilds it from the inputs at asOf.
-type PSlot = Slot;
-const personalLists = new Map<string, { at: number; slots: PSlot[] }>();
-const PERSONAL_CACHE_MAX = 2_000;
-function personalSlots(key: string, now: number, build: () => PSlot[]): PSlot[] {
-  const kept = personalLists.get(key);
-  if (kept) return kept.slots;
-  for (const [k, v] of personalLists) if (v.at < now - CURSOR_MAX_AGE_MS || personalLists.size >= PERSONAL_CACHE_MAX) personalLists.delete(k);
-  const slots = build();
-  personalLists.set(key, { at: now, slots });
-  return slots;
-}
-export function clearPersonalCache() { personalLists.clear(); }
+// F-2 PR-5 (engineer demand 2): a viewer's personal list is kept per viewer and cursor in lib/discovery/personal-cache.ts.
+export { clearPersonalCache } from './discovery/personal-cache.ts';
 
 // F-2 PR-5: what personal ordering knows of each listed trader: the holding period read at asOf (the section's pool) and
 // the symbols of their closes in the list. Read from the kept list only: no query.

@@ -52,3 +52,14 @@ demands 1–8), `plan-pr5-engineer.md` (REVISE with demands 1–8; all applied i
 - Engineer: REVISE → demands 1–8 applied in the build (IMPLICIT/FOLLOW_BONUS, asOf-pinned inputs and per-viewer cache,
   `extra` in the personal mix, server gate and cap, seen/liked reasons, holding-only "lowers similar", `ended_at`, deletion
   and guard cases).
+
+## After the user test, the tester and the orchestrator's review (2026-11-01)
+23. The feed's notes line is a snap stop of its own at the top, padded below the nav (user test demand 1); tests check it
+    is fully in view, also after scrolling back, and that its focused link is not under the nav.
+24. The events gate is a window: at most 3 batches per viewer per 10 s (tester finding 1: a page-leave batch right after a
+    periodic one was refused and lost). The average bound is stricter than the 2 s rule it replaces.
+25. "Clear my activity" and either switch drop the viewer's kept personal list at once (orchestrator review 5): nothing
+    cleared or switched off is used for another page; a running session's next page is rebuilt.
+26. The section keeps leaving out followed traders in every mode (orchestrator review 4).
+27. The orphan marks come from a bounded keyset walk (orchestrator review 3); the events route reads its body with a byte
+    counter (review 2); expired hides are all listed (no cap).

@@ -14,10 +14,11 @@ export async function POST(req: NextRequest) {
   if (!sameOrigin(req.headers)) return new NextResponse(null, { status: 403, headers: noStore });
   const me = await currentUser();
   if (!me) return new NextResponse(null, { status: 204, headers: noStore });
-  // Review fix 7: a declared size over the cap is refused before the body is read; the read body is measured in bytes.
+  // A declared size over the cap is refused before the body is read; otherwise the body is read with a byte counter and
+  // the read stops past BATCH_BYTES (a chunked body is never buffered whole).
   if (Number(req.headers.get('content-length') ?? 0) > BATCH_BYTES) return new NextResponse(null, { status: 413, headers: noStore });
-  const text = await req.text();
-  if (Buffer.byteLength(text) > BATCH_BYTES) return new NextResponse(null, { status: 413, headers: noStore });
+  const text = await readCapped(req, BATCH_BYTES);
+  if (text === null) return new NextResponse(null, { status: 413, headers: noStore });
   let body: unknown;
   try { body = JSON.parse(text); } catch { return new NextResponse(null, { status: 400, headers: noStore }); }
   const events = parseBatch(body);
@@ -25,4 +26,18 @@ export async function POST(req: NextRequest) {
   const r = await recordEvents(me.id, events);
   if (r === 'rate') return new NextResponse(null, { status: 429, headers: { ...noStore, 'retry-after': '2' } });
   return new NextResponse(null, { status: 204, headers: noStore });
+}
+
+async function readCapped(req: NextRequest, max: number): Promise<string | null> {
+  if (!req.body) return '';
+  const reader = req.body.getReader(), parts: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) { await reader.cancel(); return null; }
+    parts.push(value);
+  }
+  return Buffer.concat(parts).toString('utf8');
 }

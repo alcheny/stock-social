@@ -66,7 +66,7 @@ export function viewerProfile(i: Inputs, now: number): Profile {
   for (const c of i.likes) add(c, WEIGHTS.like, 'likes');
   for (const c of i.rejects) add(c, WEIGHTS.notInterested, 'hides');
   for (const c of i.hidden) add(c, WEIGHTS.notInterested, 'hides');
-  for (const c of i.unfollows) add(c, WEIGHTS.unfollow, 'follows');
+  for (const c of i.unfollows) add(c, WEIGHTS.unfollow); // counts, but names no kind in the order line ("choices")
   for (const e of i.events) {
     if (e.trader !== null && fade(e.at, now)) seen.add(e.trader);
     add(e, IMPLICIT[e.type] ?? 0, 'activity');

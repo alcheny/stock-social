@@ -450,7 +450,7 @@ export const PERSONALIZE = {
   feedTitle: 'Personalize my feed',
   feedExplain: `Uses your follows, likes, hidden traders and hidden trades to order your feed and its “More like what you read” section. Each choice counts for ${F2_DAYS} days, fading over that time. Off: you get the order everyone gets, minus what you hid.`,
   activityTitle: 'Personalize with my activity',
-  activityExplain: `Off unless you turn it on. When on, Stock Social records which records you see, how long you look, and which you skip, open or share, while you're signed in. Only the last ${F2_DAYS} days are used to order your feed. The record is kept until you clear it or delete your account.`,
+  activityExplain: `Off unless you turn it on. When on, Stock Social records which records you see, how long you look, and which you skip or open, while you're signed in. Only the last ${F2_DAYS} days are used to order your feed. The record is kept until you clear it or delete your account.`,
   activityPaused: 'Not recorded or used while Personalize my feed is off.',
   clear: 'Clear my activity',
   saved: {
