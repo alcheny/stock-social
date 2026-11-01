@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import type { Sql } from 'postgres';
 import { INVITE_VIAS, VIA_NONE, isViewVia } from '../lib/referral.ts';
 import { DROP_REASONS, SURFACES } from '../lib/views.ts';
 
@@ -26,7 +27,7 @@ export const GATES = [
 export const G3_LABEL = 'views, not people';
 export const G3_OWNER_LINE = "Signed-out owner views can't be told from other views.";
 export const RECONCILE_LINE = 'Three weekly totals, read together: the G3 strict row counts profile views from external referrers only; the surface × via "all" row and the drops table "counted views" row are the same number, every counted surface and every referrer class (external, internal, none); all three exclude self-views and demo profiles, while the drop counts include demo profiles.';
-export const DELETION_LINE = "Deleting a trader removes that trader's rows, so past sums can change between runs, and two runs around a deletion can reveal that trader's counts: compare runs only with that in mind.";
+export const DELETION_LINE = "Deleting a trader removes that trader's rows, so past sums can change between runs, and two runs around a deletion can reveal that trader's counts; a connect, a disconnect or a deletion between runs can also reveal one trader's share status (G1, G2): compare runs only with that in mind.";
 export const G4_TEXT = "strict G4 can't be read in this slice; signed-out D7 return is not measured";
 
 // ---- input ----
@@ -322,42 +323,72 @@ export function g2Hidden(cells: Record<G2Cell, number>): Set<G2Cell> {
   return hidden;
 }
 
+// The printed G2 values (strict row, then G2_ROWS) for given cells and G1. blind: G1 "<5" or a trader list that doesn't
+// match G1, so every value is "(s)". A row prints "(s)" when the rest of its partition (G1 − row) holds a hidden cell
+// and is under 5 (a bound or an exact row would give that small complement away), or when its visible part is 0.
+export function g2Print(cells: Record<G2Cell, number>, g1: number, blind = false): string[] {
+  const hidden = g2Hidden(cells);
+  const value = (ks: G2Cell[], group: number): string => {
+    if (blind || (g1 > 0 && g1 < SMALL)) return '(s)';
+    const vis = ks.filter((k) => !hidden.has(k));
+    const n = vis.reduce((s, k) => s + cells[k], 0);
+    const rest = G2_GROUPS[group].filter((k) => !ks.includes(k));
+    const restN = rest.reduce((s, k) => s + cells[k], 0);
+    if (rest.some((k) => hidden.has(k)) && restN < SMALL) return '(s)';
+    // A lower bound carries its percent so it reads against the threshold (business lead BL-1); a bound of 0 says nothing
+    // and reads as "none", so it prints "(s)" (UX lead UX-1).
+    if (vis.length < ks.length) return n === 0 ? '(s)' : `≥ ${fmt(n)} of ${fmt(g1)} (≥ ${Math.floor((100 * n) / g1)}%)`;
+    return g1 === 0 ? `0 of 0` : `${fmt(n)} of ${fmt(g1)} (${Math.round((100 * n) / g1)}%)`;
+  };
+  return [value(G2_STRICT_CELLS, 0), ...G2_ROWS.map(([, ks, group]) => value(ks, group))];
+}
+
+// The readout counts share rows from G2_FLOOR_OFFSET days before the window's last day. The window ends 1-7 days before
+// the run and the purge deletes rows older than the retention bound before today, so with the offset 7 days inside the
+// bound no counted row can have been purged: the same window gives the same G2 before and after any purge.
+export const g2FloorOffset = (retentionDays: number) => Math.max(0, retentionDays - 7);
+
 function g2Section(input: ReadoutInput, lastDay: string): string[] {
   const g2 = input.g2;
   const traders = Array.isArray(g2?.traders) ? g2.traders : [];
   const g1 = count(input.g1?.strict);
-  const cells = g2Cells(traders);
-  const hidden = g2Hidden(cells);
-  // G1 "<5", or a trader list that doesn't match G1: every G2 cell is "(s)".
-  const blind = (g1 > 0 && g1 < SMALL) || traders.length !== g1;
-  const value = (ks: G2Cell[], group: number): string => {
-    if (blind) return '(s)';
-    const vis = ks.filter((k) => !hidden.has(k));
-    if (vis.length === 0 && ks.some((k) => cells[k] > 0)) return '(s)';
-    const n = vis.reduce((s, k) => s + cells[k], 0);
-    const rest = G2_GROUPS[group].filter((k) => !ks.includes(k));
-    const restN = rest.reduce((s, k) => s + cells[k], 0);
-    // A lower bound carries its percent so it reads against the threshold (business lead BL-1); a bound of 0 says nothing
-    // and reads as "none", so it prints "(s)" (UX lead UX-1).
-    if (vis.length < ks.length || (rest.some((k) => hidden.has(k)) && restN < SMALL)) return n === 0 ? '(s)' : `≥ ${fmt(n)} of ${fmt(g1)} (≥ ${Math.floor((100 * n) / g1)}%)`;
-    return g1 === 0 ? `0 of 0` : `${fmt(n)} of ${fmt(g1)} (${Math.round((100 * n) / g1)}%)`;
-  };
+  const printed = g2Print(g2Cells(traders), g1, traders.length !== g1);
   const first = g2?.firstDay != null ? isoDay(g2.firstDay) : null;
   const days = count(g2?.retentionDays);
   return [
     '## G2',
     '',
     table(['Metric (DESIGN §3.5)', 'Continue if', 'Now'], [
-      [GATES[1].metric, GATES[1].threshold, value(G2_STRICT_CELLS, 0)],
-      ...G2_ROWS.map(([label, ks, group]) => [label, '', value(ks, group)]),
+      [GATES[1].metric, GATES[1].threshold, printed[0]],
+      ...G2_ROWS.map(([label], i) => [label, '', printed[i + 1]]),
     ]),
     '',
-    `Traders with a connected broker (strict G1), not share actions. The strict row counts a profile link or picture share (card or story) on or before ${lastDay}${days ? `, within the ${days}-day retention` : ''}. The partial rows overlap and are not a split of the strict row.`,
+    `Traders with a connected broker (strict G1), not share actions. The strict row counts a profile link or picture share (card or story) on or before ${lastDay}${days ? `, within the ${g2FloorOffset(days)} days before the window's end` : ''}. The partial rows overlap and are not a split of the strict row.`,
     g2PreSliceLine(first),
     G2_OUTCOME_LINE,
     G2_COHORT_LINE,
     '',
   ];
+}
+
+// G2 input from the database: one row per strict-G1 trader (non-demo, non-deleted, a connection in state 'connected'),
+// only which classes of share_action rows exist from the floor (g2FloorOffset) to the window's last day. No id, handle
+// or return is selected. onlyUsers narrows the traders (db tests on a shared database read only their own rows).
+export async function loadG2(sql: Sql, to: string, retentionDays: number, onlyUsers?: number[]): Promise<G2Input> {
+  const floor = g2FloorOffset(retentionDays);
+  const traders = await sql<SharerRow[]>`
+    select coalesce(bool_or(s.surface = 'card'), false) as card, coalesce(bool_or(s.surface = 'story'), false) as story,
+           coalesce(bool_or(s.surface in ('trade', 'month')), false) as record,
+           coalesce(bool_or(s.outcome = 'sheet'), false) as sheet, coalesce(bool_or(s.outcome = 'copy'), false) as copy,
+           coalesce(bool_or(s.record_sign = 'down'), false) as down
+    from users u
+    left join share_action s on s.user_id = u.id and s.day <= ${to}::date and s.day >= ${to}::date - ${floor}::int
+    where u.deleted_at is null
+      and not exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo')
+      and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
+      ${onlyUsers ? sql`and u.id = any(${onlyUsers}::int[])` : sql``}
+    group by u.id`;
+  return { traders: traders.map((t) => ({ card: t.card, story: t.story, record: t.record, sheet: t.sheet, copy: t.copy, down: t.down })), firstDay: null, retentionDays };
 }
 
 // ---- output guard ----
@@ -412,20 +443,7 @@ async function main() {
       select to_char(day, 'YYYY-MM-DD') as day, surface, reason, sum(n)::int as n from view_drops
       where day between ${from}::date and ${to}::date group by day, surface, reason`;
     const { SHARE_RETENTION_DAYS } = await import('../lib/share-actions.ts');
-    // G2: one row per strict-G1 trader (non-demo, non-deleted, a connection in state 'connected'), only which classes
-    // of share_action rows exist up to the window's last day and within retention. No id, handle or return is selected.
-    const traders = await sql<SharerRow[]>`
-      select coalesce(bool_or(s.surface = 'card'), false) as card, coalesce(bool_or(s.surface = 'story'), false) as story,
-             coalesce(bool_or(s.surface in ('trade', 'month')), false) as record,
-             coalesce(bool_or(s.outcome = 'sheet'), false) as sheet, coalesce(bool_or(s.outcome = 'copy'), false) as copy,
-             coalesce(bool_or(s.record_sign = 'down'), false) as down
-      from users u
-      left join share_action s on s.user_id = u.id and s.day <= ${to}::date
-        and s.day >= ${to}::date - ${SHARE_RETENTION_DAYS}::int -- anchored to the window, so a printed week's figure is stable across runs
-      where u.deleted_at is null
-        and not exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo')
-        and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
-      group by u.id`;
+    const g2 = await loadG2(sql, to, SHARE_RETENTION_DAYS);
     const [g1] = await sql<{ strict: number; partial: number }[]>`
       select count(*) filter (where t.connected)::int as strict, count(*) filter (where not t.connected)::int as partial
       from (select u.id, bool_or(c.state = 'connected') as connected
@@ -435,8 +453,7 @@ async function main() {
             group by u.id) t`;
     // G1 strict is the G2 trader count itself, so the two can't disagree.
     const text = buildReadout({
-      rollup: [...rollup], drops: [...drops], g1: { strict: traders.length, partial: g1?.partial ?? 0 },
-      g2: { traders: [...traders], firstDay: null, retentionDays: SHARE_RETENTION_DAYS }, // no first-share date is read
+      rollup: [...rollup], drops: [...drops], g1: { strict: g2.traders.length, partial: g1?.partial ?? 0 }, g2,
     }, now);
     mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `f15-readout-${now.toISOString().slice(0, 10)}.md`);

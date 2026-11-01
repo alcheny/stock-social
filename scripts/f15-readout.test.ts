@@ -7,7 +7,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-  G2_COHORT_LINE, G2_OUTCOME_LINE, G3_LABEL, G3_OWNER_LINE, G4_TEXT, DELETION_LINE, RECONCILE_LINE, buildReadout, parseOutArg, resolveOut, suppress, weekWindow,
+  G2_COHORT_LINE, G2_OUTCOME_LINE, G3_LABEL, G3_OWNER_LINE, G4_TEXT, DELETION_LINE, RECONCILE_LINE, buildReadout, g2Print, G2_CELLS, parseOutArg, resolveOut, suppress, weekWindow,
   type ReadoutInput, type RollupRow, type SharerRow,
 } from './f15-readout.ts';
 
@@ -327,7 +327,7 @@ test('G2: strict row, threshold verbatim, partial rows and fixed lines', () => {
   assert.ok(g2.includes(G2_OUTCOME_LINE));
   assert.equal(G2_OUTCOME_LINE, 'sheet = the share sheet resolved, not that anything was posted; copy = the link copied; both as the trader\'s own browser reports them');
   assert.match(g2, /Traders with a connected broker \(strict G1\), not share actions/);
-  assert.match(g2, /on or before 2026-10-25, within the 120-day retention/);
+  assert.match(g2, /on or before 2026-10-25, within the 113 days before the window's end/);
 });
 
 test('G2: when G1 prints "<5" every G2 cell is "(s)"', () => {
@@ -390,4 +390,53 @@ test('G2 lower bounds read against the threshold: "≥ n of G1 (≥ p%)", never 
     }
   }
   assert.ok(bounds > 0, 'the fixtures produce lower bounds');
+});
+
+// Every cell split for G1 = 5..9 (a picture share always goes through the sheet), grouped by the exact printed G2 text.
+// A reader sees only that text, so every quantity whose value is 1-4 in some split must differ between at least two
+// splits that print identically (orchestrator review B).
+test('G2: exhaustive for G1 = 5..9: identical printed G2 never pins a small cell, row or G1 − row', () => {
+  let groupsChecked = 0;
+  for (let G = 5; G <= 9; G++) {
+    const groups = new Map<string, number[][]>();
+    for (let a = 0; a <= G; a++) for (let b = 0; a + b <= G; b++) for (let o = 0; a + b + o <= G; o++) {
+      const non = G - a - b - o, S = G - non;
+      for (let so = 0; so <= S; so++) for (let co = 0; so + co <= S; co++) {
+        const both = S - so - co;
+        if (a > so + both) continue;
+        for (let d = 0; d <= S; d++) {
+          const v = [a, b, o, non, so, co, both, d, S - d];
+          const cells = Object.fromEntries(G2_CELLS.map((k, i) => [k, v[i]])) as Parameters<typeof g2Print>[0];
+          const key = g2Print(cells, G).join(' | ');
+          const rows = [a + b, a + b + o, so + both, co + both, a, d];
+          const q = [...v, ...rows, ...rows.map((r) => G - r)];
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(q);
+        }
+      }
+    }
+    for (const [key, qs] of groups) {
+      groupsChecked++;
+      for (let i = 0; i < qs[0].length; i++) {
+        const vals = new Set(qs.map((q) => q[i]));
+        if (vals.size === 1) { const [v] = vals; assert.ok(!(v > 0 && v < 5), `G1 ${G}: quantity ${i} = ${v} pinned by "${key}"`); }
+      }
+    }
+  }
+  assert.ok(groupsChecked > 50, `${groupsChecked} printed outputs`);
+});
+
+test('G2: the review case (G1 7: five trade/month-only sharers while down, one never down, one non-sharer) prints nothing derivable', () => {
+  const traders = [...many(5, { record: true, copy: true, down: true }), T({ record: true, copy: true }), T()];
+  const md = buildReadout(g2Input(traders), NOW);
+  const v = g2Values(md);
+  assert.ok(!v.some((x) => /^≥ 5 of 7|^6 of 7|^5 of 7/.test(x)), v.join(' / '));
+  assert.deepEqual(v, ['0 of 7 (0%)', '(s)', '0 of 7 (0%)', '(s)', '0 of 7 (0%)', '(s)']);
+  assertNothingDerivable(traders);
+});
+
+test('G2: buildReadout prints exactly g2Print of the trader cells', () => {
+  const traders = [...many(8, { card: true, sheet: true }), ...many(6, { story: true, sheet: true, copy: true, down: true }), ...many(2, { record: true, copy: true }), ...many(6, {})];
+  const cells = { story: 6, card: 8, other: 2, non: 6, sheetOnly: 8, copyOnly: 2, both: 6, down: 6, upOnly: 10 };
+  assert.deepEqual(g2Values(buildReadout(g2Input(traders), NOW)), g2Print(cells, 22));
 });
