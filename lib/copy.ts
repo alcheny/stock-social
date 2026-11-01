@@ -787,3 +787,9 @@ export function publicExclusions(excluded: Record<string, number>): string[] {
   const other = Object.entries(excluded).filter(([k, n]) => !known.includes(k) && n > 0).reduce((a, [, n]) => a + n, 0);
   return [...known.filter((k) => (excluded[k] ?? 0) > 0).map((k) => PUBLIC.excluded[k](excluded[k])), ...(other ? [PUBLIC.excludedOther(other)] : [])];
 }
+
+// ---- F-19 · What's-this line (first slice: the constant and its test, lib/range-note.f19.test.ts). The range printed
+// beside an average is the arithmetic range of the average per trade (lib/record-card.ts#cardEvidence), not the spread
+// of single trades.
+// ponytail: not shown on any screen yet — the F-19 sweep rework places it on the stats-row What's-this after F-18 merges.
+export const RANGE_NOTE = 'the range is for the average, not one trade';

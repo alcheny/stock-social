@@ -1,5 +1,7 @@
 # Parallel build of 2026-11-01: file ownership and merge order
 
+Dated record of 2026-11-01. The live snapshot is `docs/process/coordination.md`; the rules now live in `docs/process/collaboration.md` and `docs/process/lifecycle.md`.
+
 The owner's autonomous build runs thirteen sessions at once. Each owns the files below; everything else is shared and
 takes additive edits only (a block named for the session; schema appended and idempotent; tests in new files).
 The orchestrator merges one PR at a time in the order below, and every other session then merges `main` into its
