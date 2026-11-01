@@ -33,6 +33,17 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   trade_likes: { personal: true, retention: 'account', holds: 'private likes (preference data, kept indefinitely); a like whose trade is gone for 30 days is purged' },
   trade_exclusions: { personal: true, retention: 'account', holds: 'private rejected trades (preference data, kept indefinitely); one whose trade is gone for 30 days is purged' },
   privacy_orphans: { personal: true, retention: 'short', holds: 'when a like or reject first had no trade; removed when the trade returns or the row is purged' },
+  // F-3 (docs/features/logs/F-3/committee-2026-11-01.md, conditions 16 and 20). The processor is the record holder for
+  // charges, refunds and tax; the app keeps ids, plan, status and dates only.
+  billing_customers: { personal: true, retention: 'account', holds: 'the processor customer id of a subscriber; deleted with the account after the processor customer is deleted' },
+  subscriptions: { personal: true, retention: 'account', holds: 'processor subscription id, plan, status, period dates, grace and dispute times; deleted with the account after the subscription is canceled at the processor' },
+  billing_events: { personal: false, retention: 'short', holds: 'processor event id, type, object and customer ids, processing state; no payload; purged 35 days after receipt and at the customer\'s account deletion' },
+  billing_runs: { personal: false, retention: 'none', holds: 'when the daily billing reconciliation last started' },
+  billing_consents: { personal: true, retention: 'reserved', holds: 'renewal consent: plan, disclosure version and hash, time; no IP, email or name. At account deletion the user link is removed and the row is kept 3 years under the processor customer id (legal defense of renewal consent), then purged' },
+  record_views: { personal: true, retention: 'account', holds: 'a subscriber\'s private saved comparison: name only; deleted with the account' },
+  record_view_traders: { personal: true, retention: 'account', holds: 'the traders in a private saved view and their order; deleted with the view or either account' },
+  record_notes: { personal: true, retention: 'account', holds: 'a subscriber\'s private note about a trader; deleted with either account' },
+  record_tool_notices: { personal: true, retention: 'account', holds: 'a count of traders removed from a subscriber\'s views and notes since the last dismissal; no trader id' },
   display_log: { personal: true, retention: 'account', holds: 'append-only daily snapshot of what a public record displayed' },
   // Security hardening (2026-11-01): pseudonymous (keyed hashes, never the address or IP itself), so counted as personal.
   rate_limits: { personal: true, retention: 'short', holds: 'rate-limit counters per window, keyed by a scope and a keyed hash of an email address, client IP or id; pruned by lib/rate-limit.ts after 2 days' },

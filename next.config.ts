@@ -7,7 +7,17 @@ import { hstsWanted, securityHeaders } from './lib/csp.ts';
 // pages' full Content-Security-Policy, with its per-request nonce, is set in proxy.ts.
 const config: NextConfig = {
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders(hstsWanted()) }];
+    return [{ source: '/:path*', headers: securityHeaders(hstsWanted()) },
+    // F-3 (committee K6): Record tools, the account page and the data export are private: never indexed, cached by a
+    // shared cache or sent as a referrer. Listed after the site-wide headers, so their Referrer-Policy wins there.
+    ...['/tools', '/account', '/account/:path*'].map((source) => ({
+      source,
+      headers: [
+        { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+        { key: 'Cache-Control', value: 'private, no-store' },
+      ],
+    }))];
   },
 };
 export default config;

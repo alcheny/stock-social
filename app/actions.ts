@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { sql } from '@/lib/db.ts';
 import { currentUser, devGuard, rememberMethod, signIn } from '@/lib/session.ts';
 import { completeAttempt, createAttempt, createUserForAttempt } from '@/lib/auth/attempts.ts';
+import { afterSigninTools } from '@/lib/auth/landing.ts';
 import { saveThesisFor } from '@/lib/thesis-save.ts';
 import { tradeIdParam } from '@/lib/params.ts';
 import { isDemoUser } from '@/lib/demo.ts';
@@ -41,7 +42,7 @@ export async function login(form: FormData) {
   const id = existing ? (await completeAttempt(attempt, existing.id), existing.id as number) : (await createUserForAttempt(attempt, { handle, name })).id;
   await signIn(id);
   await rememberMethod('dev');
-  redirect(`/u/${handle}`);
+  redirect((await afterSigninTools()) ? '/tools' : `/u/${handle}`); // F-3: "Sign in to subscribe" comes back to Record tools
 }
 
 export async function saveThesis(form: FormData) {
