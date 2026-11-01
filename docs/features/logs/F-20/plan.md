@@ -116,7 +116,7 @@ Shared helpers move out of test files so tests can import without re-registering
 | AC | Test | File |
 |---|---|---|
 | 1 token values | `TOKENS_WANT.{light,dark}` = the 14 resolved values above (+`warn` once merged); every `:root` custom property with a literal sits inside TOKENS | `lib/a11y-contrast.test.ts` |
-| 1 computed styles | snapshot, §4.6 | `e2e/f20-tokens.spec.ts` (draft exists, untracked) |
+| 1 computed styles | snapshot, §4.6 | `e2e/f20-tokens.spec.ts` (committed in dd13f5d with its baseline) |
 | 2 base/accent/on-accent | separate test pinning bg, surface, text, muted, line, accent, on-accent per scheme | `lib/a11y-contrast.test.ts` |
 | 3 badge test kept | `lib/badge-contrast.test.ts` untouched; CI's test-count guard; a meta test asserts the file exists | `lib/a11y-contrast.test.ts` |
 | 4, 11 pairs | `PAIRS` table below, per scheme, each at its `FLOORS` key | `lib/a11y-contrast.test.ts` |
@@ -147,7 +147,7 @@ literal assigned to `color|background*|border*|outline*|fill|stroke|stopColor|th
 only with `var()` and `transparent` operands. Self-test fixtures (like `a11y-copy`'s): flags `'#22c55e'`,
 `rgb(0 0 0)`, `fill="red"`, a hex in a `style={{}}`; passes `#add`, `url(#abc)`, `currentColor`, a hex in a comment.
 
-**4.6 Computed-style snapshot** (`e2e/f20-tokens.spec.ts`, draft present on the branch, untracked). Feed, first row's
+**4.6 Computed-style snapshot** (`e2e/f20-tokens.spec.ts`, committed in dd13f5d; baseline captured on main 06edbdf). Feed, first row's
 pane, a fixture profile (Verified, a gain and a loss); signed out and signed in; light and dark; 360×740. Every
 element's computed colour tuple (color, background, 4 borders, outline colour/style/width/offset, box-shadow, fill,
 stroke, decoration, caret, accent) grouped by a 3-level signature. **Baseline**: `F20_BASELINE=write` run on main
@@ -236,3 +236,43 @@ OQ-2, OQ-7.
 10. **`.nojs-done` padding 8px 16px** is a size change outside "the one stated focus change". Recommend treat it as
     completing fix #14 (fixes list, #71 review) and list it in the hand-off. Alternative: only correct the comment's
     numbers (72 px, 6 px clear).
+
+## 10. Committee rulings (round 1, 2026-11-01): binding over §1-§9 where they differ
+
+Business lead: SIGN with demands. Engineer: SIGN with conditions. Rulings (committee log has the reasons):
+
+- R1 (OQ-1): image colours stay byte-for-byte. The image up-vs-down CVD check is written at `FLOORS.cvd` (9) as a
+  `{ todo: 'OQ-1 …' }` test that runs the real assertion and prints the measured value; a `ponytail:` comment marks it.
+  The recommended image change (#3cc4b4/#ff8a5b) is offered to the owner only; F-20 builds none of it.
+- R2 (OQ-2): no reinterpretation. Flat-vs-up and Flat-vs-down are tested at `FLOORS.cvd` in both schemes; passing
+  pairs are real tests, only failing pairs are `todo: 'OQ-2 …'`. The "Flat label, no sign" argument goes to the owner as
+  context.
+- R3 (OQ-10): no `.nojs-done` padding change. The FIXES-CYCLE2-A11Y comment is corrected to the measured numbers
+  (no-JS bar 72 px; the 94 px room leaves 6 px clear above it) and the e2e asserts the room still covers every bar
+  (bar height + 16 px ≤ 94). The padding question is filed for the fixes list. "six" → "five".
+- R4 (ANCHOR): `ANCHOR` becomes the new exact line `.rt-card:focus { outline: 2px solid var(--focus); outline-offset: 2px; }`;
+  every other assertion in `lib/fixes-cycle2-a11y.test.ts` stays as strict.
+- R5 (OQ-3, `.switch.current`): redrawn as `box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--text)` (no outline) plus
+  `@media (forced-colors: active) { … outline: 2px solid transparent; outline-offset: 1px }` (allow-listed by name).
+  Proof of no visible change: a pixel comparison of `.switch-pair` on `/me/personalize`, light and dark, against
+  screenshots taken on main (orchestrator holds them), and the snapshot gets ONE named allowed difference for that
+  signature's outline/box-shadow properties only. If the pixels differ, fall back to a named outline exception
+  (`--text`, allow-listed, `ponytail:`, owner question).
+- R6: `.pane .rows .line.hl`'s base rule (`:409`) takes `var(--focus)` (computed value unchanged: `:494` already wins);
+  the AC8 allow-list exempts it only for being a state, not focus.
+- R7: `IMAGE_PALETTE.strip` has no bg; `IMAGE_PALETTE.stripBg` (or `IMAGE.bg` read from the palette) is separate, so
+  `IMAGE_COLOURS = IMAGE_PALETTE.strip` keeps identity. Plus a source check: no hex in `record-strip.ts`,
+  `record-card-image.tsx`, any `opengraph-image.tsx`, `story/route.tsx`, `layout.tsx`.
+- R8: helper moves (`lib/colour-math.ts`, `lib/css-cascade.ts`, `lib/source-lex.ts`) are verbatim; no assertion or
+  pinned decimal changes; no looped `test(` folded; guard test counts before/after go in the hand-off. These files count
+  toward the product-line cap: said in the PR.
+- R9: scanner scope = every tracked non-test `.ts/.tsx/.css` outside `docs/`, `e2e/`, `scripts/`; named colours match
+  declaration values only; self-tests include `white-space: nowrap`, `'Trade #123'`, `` `${x}#add` `` and a regex literal.
+- R10: the first-`:root` regexes keep working (no `}` or `:root` in the TOKENS header comment; light query written
+  `@media (prefers-color-scheme: light) {`), with an assertion that the first `:root` body holds every hex token.
+- R11: F-20 merges after F-11 (merge precondition, stated in the PR); after merging F-11, its `--warn` and its
+  opengraph `#0b0b0f` literals move to TOKENS / `IMAGE_PALETTE`.
+- R12: the PR and hand-off state AC5 (Flat part) and AC6 (image CVD part) as NOT MET while OQ-1/OQ-2 are open; the
+  feature is not marked built with those boxes ticked. The orchestrator merges, never auto-merge.
+- R13: the Demo surface is already in the baseline (the feed and pane render the seeded demo traders' Demo badges); no
+  re-capture after the token layer, ever.
