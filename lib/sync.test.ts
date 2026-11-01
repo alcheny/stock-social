@@ -869,13 +869,14 @@ dbTest('fix round 6: an activity dated 2 days ahead is quarantined: never matche
   }
 });
 
-dbTest('fix round 6: the tick sizes the reserve by account count: a trader whose (1 + 2n) vendor bounds do not fit before the route ends is left unclaimed for the next call', async () => {
+dbTest('fix round 6: the tick sizes the reserve by account count: a trader whose (1 + 3n) vendor bounds do not fit before the route ends is left unclaimed for the next call', async () => {
   const h = await roundTicks(3);
   const { VENDOR_TIMEOUT_MS } = await import('./broker.ts');
   try {
     const { S } = h;
-    assert.equal(S.syncCost(2), 5 * VENDOR_TIMEOUT_MS);
-    assert.equal(S.SYNC_FIT_CAP, 4); // (1 + 2 × 4) × 30 s = 270 s fits a 300 s call
+    // #40 + sharded sync: three vendor reads per account (activities, positions, share moves).
+    assert.equal(S.syncCost(2), 7 * VENDOR_TIMEOUT_MS);
+    assert.equal(S.SYNC_FIT_CAP, 3); // (1 + 3 × 3) × 30 s = 300 s fits a 300 s call
     assert.equal(S.syncRouteEnd(0), S.SYNC_ROUTE_MAX_S * 1000);
     // Traders with 1, 2 and 6 real accounts (plus a paper account, never read, never counted).
     const sizes = [1, 2, 6];
@@ -890,21 +891,22 @@ dbTest('fix round 6: the tick sizes the reserve by account count: a trader whose
       ids: h.ids, clockShiftMs: () => h.T0 + minute * MIN - Date.now(), clock: () => wall, routeEnd: wall + leftMs,
       sync: async (u) => { await h.at(minute)(u); return 1; }, report: (r) => reports.push(r),
     });
-    // 100 s left: only the one-account trader fits (90 s); the others stay unclaimed and are counted.
-    assert.equal((await call(0, 100_000)).ok, 1);
+    // 130 s left: only the one-account trader fits (120 s: 1 + 3 vendor bounds since #40); the others stay unclaimed and
+    // are counted.
+    assert.equal((await call(0, 130_000)).ok, 1);
     assert.deepEqual(h.synced(), [[0], [], []]);
     assert.deepEqual([reports[0].unclaimed, reports[0].stoppedAtDeadline], [2, true]);
     // Under 30 s left nobody fits, not even a trader with no account read.
     assert.equal((await call(5, 29_000)).ok, 0);
-    // A whole call: the two-account trader (150 s) and the six-account one (capped at 270 s) are claimed in the same round.
+    // A whole call: the two-account trader (210 s) and the six-account one (capped at 300 s) are claimed in the same round.
     assert.equal((await call(10, S.SYNC_ROUTE_MAX_S * 1000)).ok, 2);
     assert.deepEqual(h.synced(), [[0], [10], [10]]);
     assert.deepEqual([reports.at(-1)!.unclaimed, reports.at(-1)!.stoppedAtDeadline], [0, false]);
-    // The clock moves between claims: with 160 s left a one- or two-account trader fits (90 s, 150 s); after a sync of
-    // 80 s, 80 s are left and no trader fits any more (a single account needs 90 s).
+    // The clock moves between claims: with 220 s left a one- or two-account trader fits (120 s, 210 s); after a sync of
+    // 110 s, 110 s are left and no trader fits any more (a single account needs 120 s).
     const timed = await S.syncTick({
-      ids: h.ids, clockShiftMs: () => h.T0 + 60 * MIN - Date.now(), clock: () => wall, routeEnd: wall + 160_000,
-      sync: async (u) => { await h.at(60)(u); wall += 80_000; return 1; }, report: (r) => reports.push(r),
+      ids: h.ids, clockShiftMs: () => h.T0 + 60 * MIN - Date.now(), clock: () => wall, routeEnd: wall + 220_000,
+      sync: async (u) => { await h.at(60)(u); wall += 110_000; return 1; }, report: (r) => reports.push(r),
     });
     assert.equal(timed.ok, 1);
     assert.equal(reports.at(-1)!.unclaimed, 2);
@@ -932,7 +934,8 @@ dbTest('F-2 PR-2 (plan demand D): two concurrent cron callers: exactly one runs 
     assert.ok([...by.values()].includes('a') && [...by.values()].includes('b'), JSON.stringify([...by.values()]));
     const route = readFileSync(new URL('../app/api/sync/route.ts', import.meta.url), 'utf8');
     const at = (s: string) => route.indexOf(s);
-    assert.ok(at('syncAll(pendingDeletes') < at('purgeDiscovery()') && at('purgeDiscovery()') < at('await syncTick('), 'after the deletion retries, before syncTick');
+    // Sharded sync (docs/SYNC.md): the route's traders are synced by runShard (the same claims), still after the purge.
+    assert.ok(at('syncAll(pendingDeletes') >= 0 && at('syncAll(pendingDeletes') < at('purgeDiscovery()') && at('purgeDiscovery()') < at('await runShard('), 'after the deletion retries, before the shard run');
     assert.match(route, /try \{ purged = await purgeDiscovery\(\); \} catch/);
   } finally {
     await h.cleanup();
