@@ -100,23 +100,24 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
     const next = Math.min(nextAfter(times.get(`${a.accountId}|${a.symbol}`), t), nextAfter(times.get(`${a.accountId}|`), t));
     return next - t <= LATE_POSTING_DAYS * DAY;
   };
-  // Trades per pair, sorted, for the in-window checks below (tester round 1): a buy dated within LATE_POSTING_DAYS
-  // before a split may already be in post-split shares, and any trade of the new symbol within that window before a
-  // rename may already hold the renamed shares. Lots touched that way are tainted, never scaled or moved on a guess.
-  const buysAt = new Map<string, number[]>(), tradesAt = new Map<string, number[]>();
+  // In-window checks (tester round 1, reviewer round 2): a lot opened within LATE_POSTING_DAYS before a split may
+  // already be in post-split shares (the lot's own date, so lots that arrived through a rename count too), and any
+  // trade of the new symbol within that window before a rename may already hold the renamed shares. Lots touched that
+  // way are tainted, never scaled or moved on a guess.
+  const tradesAt = new Map<string, number[]>();
   for (const a of activities) {
-    const k = `${a.accountId}|${a.symbol}`, at = a.executedAt.getTime();
-    for (const [m, keep] of [[tradesAt, true], [buysAt, a.side === 'BUY']] as const) {
-      if (!keep) continue;
-      const list = m.get(k);
-      if (list) list.push(at); else m.set(k, [at]);
-    }
+    const k = `${a.accountId}|${a.symbol}`, list = tradesAt.get(k);
+    if (list) list.push(a.executedAt.getTime()); else tradesAt.set(k, [a.executedAt.getTime()]);
   }
-  for (const m of [buysAt, tradesAt]) for (const list of m.values()) list.sort((x, y) => x - y);
+  for (const list of tradesAt.values()) list.sort((x, y) => x - y);
   const inWindowBefore = (list: number[] | undefined, at: number) => nextAfter(list, at - LATE_POSTING_DAYS * DAY - 1) < at;
+  const openedInWindow = (lots: Lot[], at: number) => lots.some((l) => l.at.getTime() >= at - LATE_POSTING_DAYS * DAY && l.at.getTime() < at);
   // Pairs a rename emptied, by instant: an action on the old pair at that same instant is ambiguous (before or after the
   // rename?), so it taints the lots where the rename put them, never skips them.
   const movedTo = new Map<string, { at: number; to: string }>();
+  // Pairs a rename with a share exchange filled, by instant: a split on that pair at the same instant may be the same
+  // event reported twice (tester round 2), so it taints instead of scaling again.
+  const exchangedInto = new Map<string, number>();
   const held = (lots: Lot[]) => lots.reduce((s, l) => s + l.units, 0);
   const taint = (lots: Lot[]) => { for (const l of lots) l.tainted = true; };
   // Removes `units` from the oldest lots (a cash-in-lieu fraction, shares removed by an unpriceable action).
@@ -138,12 +139,13 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
       const moved = movedTo.get(key);
       if (!b.lots.length && moved?.at === e.at && ca.kind !== 'symbol-change') { taint(book(moved.to).lots); }
       if (ca.kind === 'split' || ca.kind === 'stock-dividend') {
+        if (exchangedInto.get(key) === e.at) { taint(b.lots); continue; }
         if (!b.lots.length) continue; // nothing recorded to adjust; a later oversell is caught as missing history
         const r = resolveRatio(held(b.lots), ca);
         if (!r) { taint(b.lots); continue; }
         scale(b.lots, r.ratio);
         if (r.leftover > 0) removeOldest(b.lots, r.leftover); // cash in lieu: not a trade, not counted
-        if (inWindowBefore(buysAt.get(key), e.at)) taint(b.lots);
+        if (openedInWindow(b.lots, e.at)) taint(b.lots);
       } else if (ca.kind === 'symbol-change') {
         if (!b.lots.length) continue;
         const h = held(b.lots);
@@ -151,12 +153,13 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         if (!r) { taint(b.lots); continue; }
         scale(b.lots, r);
         const toKey = `${ca.accountId}|${ca.newSymbol}`;
-        if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && inWindowBefore(buysAt.get(key), e.at))) taint(b.lots);
+        if (inWindowBefore(tradesAt.get(toKey), e.at) || (r.p !== r.q && openedInWindow(b.lots, e.at))) taint(b.lots);
         const to = book(toKey);
         to.lots = [...to.lots, ...b.lots].sort((x, y) => x.at.getTime() - y.at.getTime());
         to.episode.push(...b.episode);
         books.set(key, { lots: [], episode: [] }); // a recycled ticker starts fresh lots
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
+        if (r.p !== r.q) exchangedInto.set(toKey, e.at);
       } else {
         if (ca.scope === 'account') {
           for (const [k, other] of books) if (k.startsWith(`${ca.accountId}|`)) taint(other.lots);

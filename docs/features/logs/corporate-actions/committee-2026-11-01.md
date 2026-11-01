@@ -67,6 +67,22 @@ exclude and count.
   indexes actions once (`actionIndex`). A stored rename to the same symbol is unpriceable instead of dropping lots. An
   action that empties the lots ends the episode.
 
+## Review and QA round 2
+- **Off-grid ratios** (tester, blocking). A 10% distribution booked as a split (11:10) resolved to the only grid fit,
+  1:10, and showed -90.5%. A 2.5% stock dividend resolved to 2%.
+  Fix: a resolution from units alone must have no rival ratio, with both sides up to 100, fitting either reading
+  exactly or with a leftover. Otherwise it is unpriceable unless the vendor states the ratio ("2 FOR 1", or "5%" for a
+  stock dividend: `parsePercent`).
+  Cost: most cash-in-lieu events and units-only stock dividends need the stated ratio. Exact splits on ordinary
+  holdings still resolve.
+- **Double-reported exchange** (tester). A split on the new symbol at the same instant as a rename with a share
+  exchange may be the same event reported twice. It now taints instead of scaling twice.
+- **Lots that arrived through a rename** (reviewer). They escaped the in-window check before a split and showed +46.7%.
+  The check now reads each lot's own date.
+- Rename exchanges are checked exactly (no leftover) against every ratio with both sides up to 100.
+- Accepted as is (reviewer, non-blocking): a split on the old symbol at its rename's instant ends up counted in
+  `excluded_positions` (an oversell) rather than `excluded_corporate`. It is counted, and nothing wrong is shown.
+
 ## Remaining exposure (stated plainly)
 Until `lib/broker.ts` passes corporate-action rows, two cases are still published with a wrong return:
 - an unrecorded split followed by a partial sale and no oversell (buy 100 @ 100, 2:1, sell 100 @ 55 shows -45%);

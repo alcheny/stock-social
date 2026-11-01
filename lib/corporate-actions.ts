@@ -49,6 +49,11 @@ export function candidateRatios(kind: 'split' | 'stock-dividend'): Ratio[] {
   return out;
 }
 const CANDIDATES = { split: candidateRatios('split'), 'stock-dividend': candidateRatios('stock-dividend') };
+// Every ratio with both sides up to 100: the neighbourhood an off-grid event (a 10% distribution booked as a split, a
+// 2.5% stock dividend) lives in. A units-only resolution must have no rival here either (tester round 2), so an event
+// whose true ratio is off the candidate grid never resolves to the nearest grid ratio.
+const DENSE: Ratio[] = [];
+for (let p = 1; p <= 100; p++) for (let q = 1; q <= 100; q++) if (p !== q && gcd(p, q) === 1) DENSE.push({ p, q });
 
 // "2 FOR 1" or "1-for-10" in a vendor description. Null when absent or not a ratio of positive integers. A bare "n:m"
 // is not read (tester round 1: "EFFECTIVE 10:30" is a time, not a 1:3 split).
@@ -88,6 +93,14 @@ export function resolveRatio(held: number, a: { kind: 'split' | 'stock-dividend'
       if (leftover !== null) fits.push({ ratio: r, leftover });
     }
   }
+  // With no stated ratio, a rival from the dense neighbourhood that fits either reading makes it ambiguous.
+  if (!a.ratio && fits.length) {
+    const v = fits[0].ratio.p / fits[0].ratio.q;
+    for (const after of readings) {
+      if (!(after >= 0)) continue;
+      for (const r of DENSE) if (Math.abs(r.p / r.q - v) > 1e-12 && fit(held, after, r) !== null) return null;
+    }
+  }
   // Every fit counts, exact or with a leftover: a ratio that fits exactly is not preferred over one that fits with cash
   // in lieu (tester round 1: 33 shares → 3 is 1:10 with 0.3 paid in cash, and also exactly 1:11). Two ratios: unpriceable.
   const values = new Set(fits.map((f) => f.ratio.p / f.ratio.q));
@@ -97,12 +110,22 @@ export function resolveRatio(held: number, a: { kind: 'split' | 'stock-dividend'
   return leftovers.size === 1 ? fits[0] : null;
 }
 
-// A rename's share exchange must be 1:1 or a clean ratio, with no leftover (cash paid with an exchange is unpriceable).
+// A rename's share exchange must be 1:1 or exactly p:q with both sides up to 100: shares are exchanged with no cash, so
+// there is no leftover to allow (cash paid with an exchange is unpriceable).
 export function renameRatio(outUnits: number, inUnits: number): Ratio | null {
   if (!(outUnits > 0 && inUnits > 0)) return null;
   if (Math.abs(inUnits - outUnits) <= RATIO_TOLERANCE * outUnits) return { p: 1, q: 1 };
-  const r = resolveRatio(outUnits, { kind: 'split', units: inUnits - outUnits });
-  return r && r.leftover === 0 ? r.ratio : null;
+  const exact = DENSE.filter((r) => fit(outUnits, inUnits, r) === 0);
+  return exact.length === 1 ? exact[0] : null;
+}
+
+// "5% STOCK DIVIDEND" in a vendor description: (100 + x):100, whole or half percents. Null otherwise.
+export function parsePercent(description: string | null | undefined): Ratio | null {
+  const m = description?.match(/\b(\d{1,3}(?:\.5)?)\s*%/);
+  const x = m ? Number(m[1]) : NaN;
+  if (!(x > 0 && x <= 100)) return null;
+  const p = 200 + 2 * x, q = 200, g = gcd(p, q);
+  return { p: p / g, q: q / g };
 }
 
 // ---- Vendor rows → actions (what lib/broker.ts would call; see the ponytail above) ----
@@ -137,7 +160,8 @@ export function fromVendorRows(accountId: string, rows: VendorRow[]): { activiti
       const ratio = parseRatio(row.description);
       actions.push({ ...base, kind: 'split', ...(ratio ? { ratio } : {}), ...(Number.isFinite(units) ? { units } : {}) });
     } else if (row.type === 'STOCK_DIVIDEND') {
-      actions.push(Number.isFinite(units) && units > 0 ? { ...base, kind: 'stock-dividend', units } : { ...base, kind: 'unpriceable', reason: 'unknown' });
+      const ratio = parsePercent(row.description);
+      actions.push(Number.isFinite(units) && units > 0 ? { ...base, kind: 'stock-dividend', units, ...(ratio ? { ratio } : {}) } : { ...base, kind: 'unpriceable', reason: 'unknown' });
     } else if (row.type === 'REI') {
       const price = Number(row.price ?? NaN);
       if (units > 0 && price > 0) {

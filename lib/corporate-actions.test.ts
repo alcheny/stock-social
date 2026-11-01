@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { matchTrades, openLots, type Activity } from './trades.ts';
-import { actionIndex, actionsFor, chainsOf, fromVendorRows, pairKey, parseRatio, renameRatio, resolveRatio, LATE_POSTING_DAYS, type CorporateAction, type Ratio } from './corporate-actions.ts';
+import { actionIndex, actionsFor, chainsOf, fromVendorRows, pairKey, parsePercent, parseRatio, renameRatio, resolveRatio, LATE_POSTING_DAYS, type CorporateAction, type Ratio } from './corporate-actions.ts';
 
 const d = (day: number) => new Date(Date.UTC(2026, 0, day));
 let n = 0;
@@ -53,12 +53,14 @@ test('split and sell on the same day: the action applies first', () => {
   near(m.trades[0].returnPct, 0.1);
 });
 
-test('reverse split with cash in lieu: 105 shares 1:10 become 10 (0.5 paid in cash); the fraction is removed, not a trade, not counted', () => {
-  const m = accounted([t('BUY', 105, 10, 1), t('SELL', 10, 110, 30)], [splitUnits(20, -95)]);
+test('reverse split with cash in lieu, ratio stated by the vendor: 105 shares 1:10 become 10 (0.5 paid in cash); the fraction is removed, not a trade, not counted; without the stated ratio it is unpriceable', () => {
+  const stated = { ratio: { p: 1, q: 10 } };
+  const m = accounted([t('BUY', 105, 10, 1), t('SELL', 10, 110, 30)], [splitUnits(20, -95, stated)]);
   assert.equal(m.trades.length, 1);
   near(m.trades[0].returnPct, 0.1);
   assert.deepEqual([m.excluded, m.excludedCorporate], [0, 0]);
-  assert.equal(openLots([t('BUY', 105, 10, 1)], [splitUnits(20, -95)]).reduce((s, l) => s + l.units, 0), 10);
+  assert.equal(openLots([t('BUY', 105, 10, 1)], [splitUnits(20, -95, stated)]).reduce((s, l) => s + l.units, 0), 10);
+  assert.equal(accounted([t('BUY', 105, 10, 1), t('SELL', 10, 110, 30)], [splitUnits(20, -95)]).excludedCorporate, 1); // 1:10 or 10:99
 });
 
 test('a reverse split whose shares fit no clean ratio (the broker rounded up) is unpriceable: the next sell is excluded and counted', () => {
@@ -79,7 +81,7 @@ test('a description ratio that disagrees with the units is unpriceable', () => {
 });
 
 test('stock dividend of 5%: 100 shares at 105 receive 5; selling all 105 at 110 reads +10% (basis spread over old and new)', () => {
-  const sd: CorporateAction = { ...base(20), kind: 'stock-dividend', units: 5 } as CorporateAction;
+  const sd: CorporateAction = { ...base(20), kind: 'stock-dividend', units: 5, ratio: parsePercent('5% STOCK DIVIDEND')! } as CorporateAction;
   const m = accounted([t('BUY', 100, 105, 1), t('SELL', 105, 110, 30)], [sd]);
   near(m.trades[0].returnPct, (105 * 110 - 100 * 105) / (100 * 105));
 });
@@ -91,8 +93,8 @@ test('symbol change: lots carry to the new symbol with their date; the close sho
 });
 
 test('symbol change chain A → B → C, with a 2-for-1 share exchange on the second step', () => {
-  const acts = [t('BUY', 100, 100, 1), t('SELL', 200, 60, 20, { symbol: 'CCC' })];
-  const m = accounted(acts, [rename(5, 'AAA', 'BBB', 100), rename(10, 'BBB', 'CCC', 100, 200)]);
+  const acts = [t('BUY', 100, 100, 1), t('SELL', 200, 60, 40, { symbol: 'CCC' })];
+  const m = accounted(acts, [rename(5, 'AAA', 'BBB', 100), rename(30, 'BBB', 'CCC', 100, 200)]);
   assert.equal(m.trades[0].symbol, 'CCC');
   near(m.trades[0].returnPct, 0.2);
 });
@@ -153,7 +155,7 @@ test('a pair with only actions, or actions on symbols with no lots, never crashe
 // Review fix round 1 (blocking): same-instant actions no longer depend on their ids' order.
 test('a rename and a split on the new symbol at the same instant price correctly whichever id sorts first', () => {
   const acts = [t('BUY', 100, 100, 1), t('SELL', 200, 55, 30, { symbol: 'NEW' })];
-  const r = rename(10, 'AAA', 'NEW', 100), sp = split(10, 2, 1, { symbol: 'NEW' });
+  const r = rename(20, 'AAA', 'NEW', 100), sp = split(20, 2, 1, { symbol: 'NEW' });
   for (const actions of [[r, sp], [sp, r]]) near(accounted(acts, actions).trades[0].returnPct, 0.1);
 });
 
@@ -215,6 +217,25 @@ test('a split with a ratio and no units does not scale a buy made inside the win
   assert.deepEqual([m.trades.length, m.excludedCorporate], [0, 1]);
 });
 
+test('a lot that arrived through a rename and was opened inside the window before a split is tainted too (reviewer round 2)', () => {
+  const acts = [t('BUY', 100, 100, 1), t('BUY', 100, 50, 29), t('SELL', 400, 55, 60, { symbol: 'NEW' })];
+  const m = accounted(acts, [rename(32, 'AAA', 'NEW', 200), split(32, 2, 1, { symbol: 'NEW' })]);
+  assert.equal(m.trades.length, 0);
+});
+
+// Tester round 2: an event whose true ratio is off the candidate grid never resolves to a grid ratio.
+test('off-grid ratios are unpriceable: a 10% distribution booked as a split, a 2.5% stock dividend', () => {
+  const { actions } = fromVendorRows('acc', [{ id: 'x', type: 'SPLIT', trade_date: '2026-02-01T00:00:00Z', units: 10, description: 'STOCK SPLIT', symbol: { symbol: 'AAA' } }]);
+  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 10, 95, 60)], actions);
+  assert.deepEqual([m.trades.length, m.excludedCorporate], [0, 1]);
+  assert.equal(resolveRatio(150, { kind: 'stock-dividend', units: 3 }), null);
+});
+
+test('a split on the new symbol at the instant of a share-exchange rename may be the same event twice: tainted, not applied again', () => {
+  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 200, 55, 60, { symbol: 'BBB' })], [rename(30, 'AAA', 'BBB', 100, 200), splitUnits(30, 200, { symbol: 'BBB' })]);
+  assert.deepEqual([m.trades.length, m.excludedCorporate], [0, 1]);
+});
+
 // ---- Ratio parsing and resolution ----
 
 test('parseRatio reads "2 FOR 1" and "1-for-10"; a bare "n:m" (a time) and anything else is null', () => {
@@ -228,7 +249,9 @@ test('parseRatio reads "2 FOR 1" and "1-for-10"; a bare "n:m" (a time) and anyth
 
 test('resolveRatio: exact fits, leftovers in [0, 1) only, a unique answer or none', () => {
   assert.deepEqual(resolveRatio(100, { kind: 'split', units: 100 }), { ratio: { p: 2, q: 1 }, leftover: 0 });
-  assert.deepEqual(resolveRatio(101, { kind: 'split', units: -51 }), { ratio: { p: 1, q: 2 }, leftover: 0.5 });
+  assert.deepEqual(resolveRatio(101, { kind: 'split', units: -51, ratio: { p: 1, q: 2 } }), { ratio: { p: 1, q: 2 }, leftover: 0.5 });
+  assert.deepEqual(resolveRatio(101, { kind: 'split', units: -51 }), { ratio: { p: 1, q: 2 }, leftover: 0.5 }); // no rival fits
+  assert.equal(resolveRatio(105, { kind: 'split', units: -95 }), null); // 1:10 with 0.5 in cash, or 10:99 with 0.06
   assert.equal(resolveRatio(101, { kind: 'split', units: 50 }), null); // 3:2 as a change or 1:2 as a total, each with 0.5 left
   assert.deepEqual(resolveRatio(10_000, { kind: 'split', units: -9_900 }), { ratio: { p: 1, q: 100 }, leftover: 0 });
   assert.equal(resolveRatio(0, { kind: 'split', units: 10 }), null);
@@ -237,7 +260,9 @@ test('resolveRatio: exact fits, leftovers in [0, 1) only, a unique answer or non
   assert.deepEqual(cashed?.ratio, { p: 1, q: 10 });
   near(cashed!.leftover, 0.3);
   assert.equal(resolveRatio(100, { kind: 'split', units: Number.NaN }), null);
-  assert.deepEqual(resolveRatio(100, { kind: 'stock-dividend', units: 2 }), { ratio: { p: 51, q: 50 }, leftover: 0 });
+  assert.equal(resolveRatio(100, { kind: 'stock-dividend', units: 2 }), null); // 2%, or 99:97 with cash in lieu
+  assert.deepEqual(resolveRatio(100, { kind: 'stock-dividend', units: 2, ratio: { p: 51, q: 50 } }), { ratio: { p: 51, q: 50 }, leftover: 0 });
+  assert.deepEqual([parsePercent('5% STOCK DIVIDEND'), parsePercent('2.5 % stock dividend'), parsePercent('no rate'), parsePercent('0%')], [{ p: 21, q: 20 }, { p: 41, q: 40 }, null, null]);
 });
 
 // ---- Vendor rows ----
