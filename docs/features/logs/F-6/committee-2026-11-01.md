@@ -65,3 +65,13 @@ review.md (B1, B2, N1–N8). Every blocking item is fixed; decisions taken:
     `combined()` drops non-finite closes (N5); one `toneClass` (N6); an index on open_positions(symbol) (N4); the
     duplicate "no closed trades" line removed (N1). Not changed: a long symbol in the open list widening the page
     predates F-6 (tester Low 2, follow-up); an axe check needs a new dependency (owner only, UX lead note).
+
+## Fix round 2 (committee re-sit and the orchestrator's independent review)
+Re-sit: UX lead round 2 PASS (compliance and usability); business lead round 2 PASS on condition D5, fixed (both grids'
+big values share one size and stay on one line at 360 px; e2e). Orchestrator review (no blockers), all six items done:
+23. **Stock pages and compare are dated** ("held by 2 traders, as of Oct 30"; "Open positions as of Oct 30: …") and no
+    longer say "now": a stalled import turns failed and its positions are never rewritten, so they must not read as current.
+24. **The feed card line is dated** ("… avg unrealized, as of Oct 30"); one `asOfDay` format for every "as of".
+25. **With open positions, the realized average is toned by its printed sign**, so "0.0%" is uncolored in both rows; a
+    record without open positions keeps today's coloring.
+26. OPEN strings are in the copy walk (`allCopy()`), as rendered; `symbolOpen` runs once per request (React `cache`).

@@ -427,6 +427,10 @@ export const SIMILAR = {
 type OpenCounts = { n: number; up: number; down: number; flat: number };
 // A count and its word never wrap apart (business lead D4: no orphaned "0" at 360 px).
 const upDown = (o: OpenCounts) => `${count(o.up)}\u00a0up, ${count(o.down)}\u00a0down${o.flat > 0 ? `, ${count(o.flat)}\u00a0flat` : ''}`;
+// One date format for every "as of" (orchestrator review nit 6): the oldest read, UTC; the year only when it is not the
+// current one.
+export const asOfDay = (d: Date, now: Date = new Date()) =>
+  d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC', ...(d.getUTCFullYear() === now.getUTCFullYear() ? {} : { year: 'numeric' }) });
 export const OPEN = {
   realizedLabel: 'Realized · closed trades',
   unrealizedLabel: 'Unrealized · open positions at current value',
@@ -440,27 +444,37 @@ export const OPEN = {
   combinedTail: (n: number) => ` avg / result (${counted(n, 'result')})`,
   // The evidence line's scope, first (business lead D2): in place of "Past results: ", or before "Too early to tell".
   evidencePrefix: 'Closed trades: ',
-  // The unrealized row's date: the oldest read, UTC; the year only when it is not the current one (business lead D3).
-  asOfLabel: (d: Date, now: Date) => ` · as of ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC', ...(d.getUTCFullYear() === now.getUTCFullYear() ? {} : { year: 'numeric' }) })}`,
+  // The unrealized row's date (business lead D3); `day` from asOfDay.
+  asOfLabel: (day: string) => ` · as of ${day}`,
   chartNote: 'Chart: closed trades only. Not plotted: ',
   asOf: (day: string) => `Unrealized, at current value, as of ${day}. Not in the closed-trade figures or the chart.`,
   feedLabel: 'Also open:',
   feedCounts: (o: OpenCounts) => ` ${counted(o.n, 'position')} · ${upDown(o)} · `,
-  feedTail: (n: number) => (n === 1 ? ' unrealized' : ' avg unrealized'),
+  feedTail: (n: number, day: string) => `${n === 1 ? ' unrealized' : ' avg unrealized'}, as of ${day}`,
   tickerTitle: (symbol: string) => `Open positions in ${symbol}`,
-  tickerTraders: (traders: number) => `, held by ${counted(traders, 'trader')}.`,
-  tickerNote: 'Not included in the figures above, which cover closed trades. This is what is open now, not a prediction or a rating of the stock.',
+  // Stock pages are dated too: a record that stopped refreshing never reads as current (orchestrator review 1).
+  tickerTraders: (traders: number, day: string) => `, held by ${counted(traders, 'trader')}, as of ${day}.`,
+  tickerNote: 'Not included in the figures above, which cover closed trades. These are open positions, not a prediction or a rating of the stock.',
   // No closed trades in the stock: there are no figures above to point to (review N2).
-  tickerNoteBare: 'This is what is open now, not a prediction or a rating of the stock.',
-  compare: (line: string) => `Open positions: ${line} (not in the figures above).`,
-  compareBare: (line: string) => `Open positions: ${line}.`,
+  tickerNoteBare: 'These are open positions, not a prediction or a rating of the stock.',
+  compare: (line: string, day: string) => `Open positions as of ${day}: ${line} (not in the figures above).`,
+  compareBare: (line: string, day: string) => `Open positions as of ${day}: ${line}.`,
   how: [
-    'Open positions are shown at current value from the broker, each account’s holding separately, averaged with equal weight.',
+    'Open positions are shown at current value from the broker, each account’s holding separately, averaged with equal weight, with the date they were last read.',
     'The combined figure counts each closed trade and each open position as one result.',
     'The chart and the range cover closed trades only.',
     'Stock pages show only a total of open positions in that stock, never who holds them; each trader’s open positions are on their profile.',
   ],
 };
+// Every OPEN string as shown, for the copy walk below (its walker calls functions with placeholder arguments, which the
+// count and date copy cannot take).
+function openCopy(): string[] {
+  const o = { n: 3, up: 1, down: 1, flat: 1, avg: -0.05 }, one = { n: 1, up: 0, down: 1, flat: 0, avg: -0.04 }, day = asOfDay(new Date(0));
+  return [OPEN.realizedLabel, OPEN.unrealizedLabel, OPEN.avgUnrealized, OPEN.line(o), OPEN.line(one), OPEN.positions(o), OPEN.positions(one),
+    OPEN.combinedLabel, OPEN.combinedTail(9), OPEN.evidencePrefix, OPEN.asOfLabel(day), OPEN.chartNote, OPEN.asOf(day), OPEN.feedLabel,
+    OPEN.feedCounts(o), OPEN.feedTail(3, day), OPEN.feedTail(1, day), OPEN.tickerTitle('ABC'), OPEN.tickerTraders(2, day), OPEN.tickerNote,
+    OPEN.tickerNoteBare, OPEN.compare('x', day), OPEN.compareBare('x', day), ...OPEN.how];
+}
 
 export function allCopy(): string[] {
   const out: string[] = [];
@@ -470,6 +484,6 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES].forEach(walk);
+  [SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, openCopy()].forEach(walk);
   return out;
 }

@@ -146,3 +146,45 @@ card links and the closed-trade symbol links; (d) the hyphen-minus "-" in `pct()
 **Verdict: compliance PASS once D1 is done; usability PASS once D1–D5 are done.** None of the demands changes the
 owner's decisions or the committee's layout. They are copy, DOM order and ARIA changes that each have the assertion
 named above.
+
+## Round 2
+
+Build: `claude/f6-open-positions` at 0633f1a. The `.next` build was rebuilt at 08:10 UTC while I was testing, so I
+restarted my server on the new build and re-ran every check. Method: `next start -p 3200`, Playwright at 360×800
+(touch for the feed). Fixtures were connected traders `f6ux_mixed`, `f6ux_losing`, `f6ux_openonly`, `f6ux_none`, and
+`f6ux_range` (8 closes on distinct symbols, so a 95% range shows, plus 1 open position). All were deleted afterwards
+(count 0) and the server is stopped. Screenshots: `docs/features/logs/F-6/screenshots/ux-r2-*.png`.
+
+Process note: another committee member's fixture script overwrote a script I had saved in our shared scratchpad. I
+ran it once, without knowing it had changed. It deleted and re-inserted that member's own `f6qa_*` fixtures, which
+leaves them in the state their own script creates. After that I moved my files to a private subfolder. I did not run
+`lib/feed.load.test.ts`.
+
+| Demand | Check at 360 px | Result |
+|---|---|---|
+| D1 /how claim | `/how` text: "not on stock pages" absent; "Stock pages show only a total of open positions in that stock, never who holds them; each trader's open positions are on their profile." present | **Met** |
+| D2 count once | Profile (`mixed`, `losing`, `range`, `openonly`) and pane: big value "4", caption "open positions · 2 up, 1 down, 1 flat" (n=1: "open position · 0 up, 1 down"); no caption starts with a digit | **Met** |
+| D3 screen reader parity | `getByRole('region', {name: 'Realized · closed trades'})` = 1 and the unrealized region = 1 on `mixed`, `losing` and `range`, and in the pane. The visible row labels are `aria-hidden`, so each label is read once. `openonly`: unrealized region only. `none`: 0 regions, 0 `[data-open]`, page as before. This uses `aria-label` with a hidden visible label instead of the `aria-labelledby` I asked for. The outcome is the same (one name per region, read once), so I accept it. | **Met** |
+| D4 evidence scope (replaced by decision 13) | "Too early" state: "Closed trades: Too early to tell: 6 trades in 3 overlapping positions (5 independent bets needed)". Range state: "Closed trades: unclear · Evidence: thin (8 bets, 23 days)". "The range covers…" is gone, there is no ") T" run-on, and `none` keeps today's line without the prefix | **Met** |
+| D5 /t order | `/t/UXQ`: `section.open-ticker` comes after the "Different traders, different sizes and timing…" paragraph; 0 `a[href^="/u/"]` in it. `/t/UXZ` (no closes): no "figures above" wording. Compare: one line per column; when both columns are empty, "UXZ: Open positions: …" | **Met** |
+
+Also re-checked:
+- The pane now leads with realized, then unrealized, then the combined line, then the chart (decision 12). Open
+  losses are visible without scrolling (`ux-r2-feed-pane.png`).
+- The unrealized label carries "· as of Oct 31".
+- Big values stay on one line at one shared size (`ux-r2-profile-range.png`, where the realized range wraps under
+  its value).
+- No horizontal scroll on any page.
+- The footer disclaimer is on every page.
+- An all-losing record still shows "−25.0%" in the down color at the same size as "+8.8%".
+
+Nit, not a demand: "Closed trades: Too early to tell: …" puts two colons in a row. If the copy is revisited,
+"Closed trades: too early to tell (6 trades in 3 overlapping positions; 5 independent bets needed)" reads more
+smoothly.
+
+Still open from round 1, unchanged and not blocking:
+- Follow-ups (a)–(d) above, which predate F-6.
+- No axe check (needs a new dependency, which only the owner can approve).
+
+**Round 2 verdict: compliance PASS, usability PASS.** I would put this in front of real users. Share-card images
+moved to F-4 (decision 21), so this verdict does not cover them.

@@ -66,7 +66,7 @@ export default async function Ticker({ params, searchParams }: Params) {
   // Session is read only here, never in generateMetadata, sitemap, robots or the OG image.
   const watchState = symbol ? await loadWatch(symbol) : { signedIn: false, watching: false };
   if (!symbol || !rows.length) {
-    const open = symbol ? (await symbolOpen([symbol])).get(symbol) : undefined;
+    const open = symbol ? (await symbolOpen(symbol)).get(symbol) : undefined;
     await markSeen(symbol ?? '', watchState);
     return (
       <main className="page">
@@ -120,7 +120,7 @@ export default async function Ticker({ params, searchParams }: Params) {
     const num = (v: unknown) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v));
     baseline = baselineVerdict(s, { n: agg?.n ?? 0, winRate: num(agg?.win_rate), perTrade: num(agg?.per_trade), demoOnly: s.demoOnly });
   } catch { baseline = null; }
-  const open = (await symbolOpen([symbol])).get(symbol);
+  const open = (await symbolOpen(symbol)).get(symbol);
   // Last, after all page queries, so page content is unaffected.
   await markSeen(symbol, watchState);
   return (

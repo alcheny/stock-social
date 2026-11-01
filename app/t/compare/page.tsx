@@ -7,7 +7,7 @@ import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
 import Spread from '../[symbol]/Spread.tsx';
 // F-6: open positions per stock, one aggregate line per column.
-import { OPEN } from '@/lib/copy.ts';
+import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { symbolOpen, type SymbolOpen } from '../open-positions.ts';
 
 type Props = { searchParams: Promise<{ a?: string | string[]; b?: string | string[] }> };
@@ -22,7 +22,7 @@ async function load(searchParams: Props['searchParams']) {
     select t.user_id, t.symbol, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
     from closed_trades t where t.symbol in (${parsed.a}, ${parsed.b})`) as unknown as (TradeRow & { symbol: string })[];
   const side = (s: string): TickerRow[] => rows.filter((r) => r.symbol === s).map(toTicker);
-  return { parsed, compare: compareTickers(side(parsed.a), side(parsed.b), new Date()), open: await symbolOpen([parsed.a, parsed.b]) };
+  return { parsed, compare: compareTickers(side(parsed.a), side(parsed.b), new Date()), open: await symbolOpen(parsed.a, parsed.b) };
 }
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
@@ -64,7 +64,7 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
   const head = (
     <h2 id={id}><Link href={`/t/${encodeURIComponent(symbol)}`}>{symbol}</Link> {!s.mixed && !side.empty && <Badge verified={!s.demoOnly} />}</h2>
   );
-  if (side.empty) return <section aria-labelledby={id}>{head}<p>{COMPARE_COPY.emptySide(symbol)}</p>{open && <p className="small" data-open>{OPEN.compareBare(OPEN.line(open.o, pct))}</p>}</section>;
+  if (side.empty) return <section aria-labelledby={id}>{head}<p>{COMPARE_COPY.emptySide(symbol)}</p>{open && <p className="small" data-open>{OPEN.compareBare(OPEN.line(open.o, pct), asOfDay(open.asOf))}</p>}</section>;
   const c = s.conf!;
   const range = rangeText(c);
   return (
@@ -79,7 +79,7 @@ function Column({ symbol, side, id, shared, open }: { symbol: string; side: Comp
         </div>
       </div>
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
-      {open && <p className="small" data-open>{OPEN.compare(OPEN.line(open.o, pct))}</p>}
+      {open && <p className="small" data-open>{OPEN.compare(OPEN.line(open.o, pct), asOfDay(open.asOf))}</p>}
       <div className="evidence">
         <p style={{ margin: 0 }}>{side.tier === 'too-early' && <b>{COMPARE_COPY.tooEarly}. </b>}{evidenceLine(c)}</p>
       </div>
@@ -99,7 +99,7 @@ export default async function Compare({ searchParams }: Props) {
     return (
       <Message text={COMPARE_COPY.bothEmpty(a, b)}>
         {/* F-6 (tester Low 1): open positions per stock even when neither has closed trades. */}
-        {[a, b].map((x) => { const o = open?.get(x); return o && <p key={x} className="small" data-open>{x}: {OPEN.compareBare(OPEN.line(o.o, pct))}</p>; })}
+        {[a, b].map((x) => { const o = open?.get(x); return o && <p key={x} className="small" data-open>{x}: {OPEN.compareBare(OPEN.line(o.o, pct), asOfDay(o.asOf))}</p>; })}
         <p><Link href={`/t/${encodeURIComponent(a)}`}>{a}</Link> · <Link href={`/t/${encodeURIComponent(b)}`}>{b}</Link></p>
       </Message>
     );

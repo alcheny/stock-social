@@ -1,7 +1,7 @@
 // F-6 · Open positions in every number (docs/features/logs/F-6/plan.md §4): the pieces the profile and the feed pane
 // share. Every node carries data-open and is rendered only when the trader has open positions, so a record without
 // them renders exactly today's HTML. Percent and counts only (POLICY P3); tone by the printed sign, words beside it.
-import { OPEN } from '@/lib/copy.ts';
+import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { count } from '@/lib/format.ts';
 import { tone, type OpenSummary } from '@/lib/open-split.ts';
 import { pct } from '@/lib/trades.ts';
@@ -17,7 +17,7 @@ export function RealizedLabel() {
 // The unrealized grid: same size as the realized headline directly above it (TR-4: "as prominent as the headline").
 // `asOf`: the oldest read of the positions, so a record that stopped refreshing never reads as current (D3).
 export function OpenGrid({ o, asOf }: { o: OpenSummary; asOf?: Date }) {
-  const label = OPEN.unrealizedLabel + (asOf ? OPEN.asOfLabel(asOf, new Date()) : '');
+  const label = OPEN.unrealizedLabel + (asOf ? OPEN.asOfLabel(asOfDay(asOf)) : '');
   return (
     <section className="stats open-stats" data-open aria-label={label}>
       <p className="row-label" aria-hidden="true">{label}</p>

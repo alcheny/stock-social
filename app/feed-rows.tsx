@@ -39,7 +39,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       id: String(t.id),
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-handle={t.handle}>
-          <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)}
+          <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)}
             menu={page.viewer && page.viewer.id !== t.user_id ? <CardMenu id={row.id} symbol={t.symbol} handle={t.handle} liked={!!page.liked?.has(row.id)} /> : undefined} />
           {paneOf(t)}
         </div>

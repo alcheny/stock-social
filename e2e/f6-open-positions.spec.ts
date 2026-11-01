@@ -8,8 +8,12 @@
 import { test, expect, type Page } from '@playwright/test';
 import postgres from 'postgres';
 import { feedLock } from './feed-lock.ts';
+import { asOfDay } from '../lib/copy.ts';
 
 const DAY = 86_400_000;
+// Every fixture position was read on Oct 30, 2026; the app prints that date one way everywhere (lib/copy.ts#asOfDay).
+const READ = new Date('2026-10-30T12:00:00Z');
+const ON = asOfDay(READ);
 const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
 // Own pool (as app.spec.ts and connect.spec.ts).
 const sql = postgres(process.env.DATABASE_URL!, { max: 2, onnotice: () => {} });
@@ -53,7 +57,7 @@ test.beforeAll(async () => {
     })))}`;
     if (f.connection) await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, last_progress_at)
       values (${u.signup_attempt_id}, ${u.id}, ${f.connection}, now(), now(), now())`;
-    if (f.open.length) await sql`insert into open_positions ${sql(f.open.map((p) => ({ user_id: u.id, account_id: p.account, symbol: p.symbol, unrealized_pct: p.pct, fetched_at: new Date('2026-10-30T12:00:00Z') })))}`;
+    if (f.open.length) await sql`insert into open_positions ${sql(f.open.map((p) => ({ user_id: u.id, account_id: p.account, symbol: p.symbol, unrealized_pct: p.pct, fetched_at: READ })))}`;
   }
 });
 
@@ -78,7 +82,7 @@ test('F-6 profile: realized leads, unrealized directly beneath at the same size,
   const realized = grids.nth(0), unrealized = grids.nth(1);
   await expect(realized.locator('.row-label')).toHaveText('Realized · closed trades');
   // Dated by the oldest read (business lead D3); the year only when it is not the current one.
-  await expect(unrealized.locator('.row-label')).toHaveText(/^Unrealized · open positions at current value · as of Oct 30(, 2026)?$/);
+  await expect(unrealized.locator('.row-label')).toHaveText(`Unrealized · open positions at current value · as of ${ON}`);
   // Each grid is one named region; its visible label is not read twice (UX lead D3).
   await expect(page.getByRole('region', { name: 'Realized · closed trades' })).toHaveCount(1);
   await expect(page.getByRole('region', { name: /^Unrealized · open positions at current value/ })).toHaveCount(1);
@@ -108,7 +112,7 @@ test('F-6 profile: realized leads, unrealized directly beneath at the same size,
   expect(await page.locator('figure.chart').evaluate((el) => el.nextElementSibling?.classList.contains('chart-note'))).toBe(true);
   await expect(page.locator('.chart-note')).toHaveText('Chart: closed trades only. Not plotted: 3 open positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized');
   // The open list: as of the oldest read, each account's holding separately, 0.0% uncolored.
-  await expect(page.getByText('Unrealized, at current value, as of Oct 30, 2026. Not in the closed-trade figures or the chart.')).toBeVisible();
+  await expect(page.getByText(`Unrealized, at current value, as of ${ON}. Not in the closed-trade figures or the chart.`)).toBeVisible();
   const rows = page.locator('ul.positions li');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText('F6A account 1-30.0%');
@@ -178,7 +182,7 @@ test('F-6 feed: the card says what else is open and the pane shows both grids an
     expect(found, 'f6_mixed not in feed list').toBe(true);
     const row = page.locator('.row[data-handle="f6_mixed"]').first();
     const also = row.locator('article.card p.open-also');
-    await expect(also).toHaveText('Also open: 3 positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized');
+    await expect(also).toHaveText(`Also open: 3 positions · 1 up, 1 down, 1 flat · -6.7% avg unrealized, as of ${ON}`);
     await expect(also.locator('b')).toHaveClass('down');
     // Body size, not small print.
     expect(await also.locator('b').evaluate((el) => getComputedStyle(el).fontSize)).toBe(await page.evaluate(() => getComputedStyle(document.body).fontSize));
@@ -206,17 +210,18 @@ test('F-6 stock pages: the aggregate only, never who holds it; not counted for r
   const sec = page.locator('section.open-ticker');
   await expect(sec.getByRole('heading', { level: 2 })).toHaveText('Open positions in F6A');
   // f6_mixed (2 positions) and f6_losing (1); f6_stray and f6_importing are not counted.
-  await expect(sec).toContainText('3 open positions · 1 up, 2 down · -10.0% avg unrealized, held by 2 traders. Not included in the figures above, which cover closed trades. This is what is open now, not a prediction or a rating of the stock.');
+  await expect(sec).toContainText(`3 open positions · 1 up, 2 down · -10.0% avg unrealized, held by 2 traders, as of ${ON}. Not included in the figures above, which cover closed trades. These are open positions, not a prediction or a rating of the stock.`);
+  await expect(sec).not.toContainText(' now');
   await expect(sec.locator('a')).toHaveCount(0);
   await expect(sec).not.toContainText('f6_');
   await common(page);
   // No closes in the stock: the aggregate still shows.
   await page.goto('/t/F6D');
-  await expect(page.locator('section.open-ticker')).toContainText('1 open position · 0 up, 1 down · -5.0% unrealized, held by 1 trader.');
+  await expect(page.locator('section.open-ticker')).toContainText(`1 open position · 0 up, 1 down · -5.0% unrealized, held by 1 trader, as of ${ON}. These are open positions, not a prediction or a rating of the stock.`);
   await common(page);
   await page.goto('/t/compare?a=F6A&b=F6B');
-  await expect(page.locator('#cmp-a-h').locator('xpath=..')).toContainText('Open positions: 3 open positions · 1 up, 2 down · -10.0% avg unrealized (not in the figures above).');
-  await expect(page.locator('#cmp-b-h').locator('xpath=..')).toContainText('Open positions: 1 open position · 0 up, 1 down · -25.0% unrealized.');
+  await expect(page.locator('#cmp-a-h').locator('xpath=..')).toContainText(`Open positions as of ${ON}: 3 open positions · 1 up, 2 down · -10.0% avg unrealized (not in the figures above).`);
+  await expect(page.locator('#cmp-b-h').locator('xpath=..')).toContainText(`Open positions as of ${ON}: 1 open position · 0 up, 1 down · -25.0% unrealized.`);
   await common(page);
   // A stock nobody holds: nothing new.
   await page.goto('/t/F6N');

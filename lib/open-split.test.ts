@@ -80,8 +80,8 @@ test('F-6: tone agrees with the sign pct() prints, over 1,000 seeded values incl
 
 test('F-6 (AC5, POLICY P3/F1): open copy is percent and counts only, with no advice words; the module holds no copy', () => {
   const o = { n: 3, up: 1, down: 1, flat: 1, avg: -0.05 };
-  const out = [OPEN.line(o, pct), OPEN.positions(o), OPEN.feedCounts(o), OPEN.feedTail(3), OPEN.combinedTail(9), OPEN.tickerTitle('ABC'),
-    OPEN.tickerTraders(2), OPEN.compare('x'), OPEN.asOf('Nov 1, 2026'), ...Object.values(OPEN).filter((v) => typeof v === 'string'), ...OPEN.how];
+  const out = [OPEN.line(o, pct), OPEN.positions(o), OPEN.feedCounts(o), OPEN.feedTail(3, 'Oct 30'), OPEN.combinedTail(9), OPEN.tickerTitle('ABC'),
+    OPEN.tickerTraders(2, 'Oct 30'), OPEN.compare('x', 'Oct 30'), OPEN.asOf('Nov 1, 2026'), ...Object.values(OPEN).filter((v) => typeof v === 'string'), ...OPEN.how];
   // lib/copy.test.ts's banned-claims list, plus advice words and amounts.
   const BANNED = [/\bendorse[sd]?\b/i, /\brecommend(ed|s|ation)?\b/i, /\bguarantee[sd]?\b/i, /\bsecure\b/i, /\bsafe\b/i, /\$|\bbuy\b|\bsell\b|\bhold\b|\bsignal|\byet\b|units|price/i];
   for (const s of out) for (const re of BANNED) assert.doesNotMatch(s, re, s);

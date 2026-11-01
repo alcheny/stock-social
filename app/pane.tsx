@@ -11,7 +11,7 @@ import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { OPEN } from '@/lib/copy.ts';
-import { ChartNote, CombinedLine, OpenGrid, RealizedLabel } from './open-rows.tsx';
+import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, toneClass } from './open-rows.tsx';
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
@@ -51,7 +51,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
     <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined}>
       {open && <RealizedLabel />}
       <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
-      <div className="stat big"><b className={p.avgReturn > 0 ? 'up' : 'down'}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>
+      <div className="stat big"><b className={open ? toneClass(p.avgReturn) : p.avgReturn > 0 ? 'up' : 'down'}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>
     </section>
     {open && <OpenGrid o={open} asOf={openAsOf} />}
     {both && <CombinedLine c={both} />}

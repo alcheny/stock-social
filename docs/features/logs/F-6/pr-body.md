@@ -41,13 +41,13 @@ committee under the owner's instruction of 2026-11-01"):
 ## Testing
 
 - `npx tsc --noEmit`: clean.
-- `npm test`: 706 tests, 694 pass, 0 fail (12 skipped as before). New: `lib/open-split.test.ts` (none, all winning,
+- `npm test`: 715 tests, 703 pass, 0 fail (12 skipped as before). New: `lib/open-split.test.ts` (none, all winning,
   all losing, mixed hand case, open with no closes, two accounts, flat, tone agrees with `pct()` over 1,000 values, copy
   word list), `lib/feed.open.test.ts` (connected and failed carried; none, importing, deleted not; feed order unchanged
   by open positions).
 - `BASE_REF=main node scripts/compliance.ts auto`: ok. `node scripts/autopilot.ts guard origin/main`: ok.
 - `npm run build`: ok.
-- `npx playwright test e2e/f6-open-positions.spec.ts`: 7 passed (profile, all losing, open with no closes, unchanged
+- `npx playwright test e2e/f6-open-positions.spec.ts`: 8 passed (with connect.spec.ts: 43 passed) (profile, all losing, open with no closes, unchanged
   no-positions path incl. a demo trader, feed card and pane order, stock pages and /how, the Similar pane route; 360 px,
   no horizontal scroll, footer disclaimer on every page). Full suite `npx playwright test` on the merged branch: 130
   passed, 3 skipped, 0 failed.

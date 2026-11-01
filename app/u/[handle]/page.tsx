@@ -37,7 +37,7 @@ import { median } from '@/lib/discovery/section.ts';
 import { SimilarSection } from './similar-section.tsx';
 // F-6: open positions in every number.
 import { combined, openSummary } from '@/lib/open-split.ts';
-import { OPEN } from '@/lib/copy.ts';
+import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, toneClass } from '../../open-rows.tsx';
 
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
@@ -227,7 +227,8 @@ export default async function Profile({ params, searchParams }: Params) {
       <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined}>
         {open && <RealizedLabel />}
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
-        <div className="stat big"><b className={s.avgReturn > 0 ? 'up' : 'down'}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
+        {/* F-6: with open positions, tone by the printed sign beside the unrealized row ("0.0%" uncolored in both). */}
+        <div className="stat big"><b className={open ? toneClass(s.avgReturn) : s.avgReturn > 0 ? 'up' : 'down'}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
           {/* PR-2b: "Too early to tell" is said once, in the evidence line below; here only an actual range. */}
           {range && <small className="range">{`${range} · 95% range`}</small>}
         </div>
@@ -268,7 +269,7 @@ export default async function Profile({ params, searchParams }: Params) {
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
       {positions.length > 0 && <>
         <h2>{RECORD_BODY.positionsTitle}</h2>
-        {open && openAsOf && <p className="muted small" data-open>{OPEN.asOf(openAsOf.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }))}</p>}
+        {open && openAsOf && <p className="muted small" data-open>{OPEN.asOf(asOfDay(openAsOf))}</p>}
         <ul className="rows positions">
           {positions.map((p) => (
             <li key={p.key}><div className="line"><b><Link href={`/t/${encodeURIComponent(p.symbol)}`}>{p.symbol}</Link>{p.account !== null && <span className="muted small"> account {p.account}</span>}</b><b className={open ? toneClass(p.pct) : p.pct > 0 ? 'up' : 'down'}>{pct(p.pct)}</b></div></li>
