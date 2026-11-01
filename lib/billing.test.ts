@@ -10,7 +10,7 @@ import { createBillingFake, type BillingFake } from '../e2e/fakes/billing.ts';
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL' }, fn);
 const DAY = 86_400_000;
-const SECRET = 'whsec_unit_test_only';
+const SECRET = 'whsec_fake_unit_test'; // a fake signing secret for the in-repo fake processor
 const PRICES = { monthly: 'price_unit_monthly', annual: 'price_unit_annual' };
 const ENV = { STRIPE_SECRET_KEY: 'sk_test_unit', STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_PRICE_MONTHLY: PRICES.monthly, STRIPE_PRICE_ANNUAL: PRICES.annual, STRIPE_API_BASE: 'http://fake.invalid' };
 const LIVE = ['sk', 'live', 'x'.repeat(24)].join('_'); // built at run time: never a key-shaped literal in the repo
