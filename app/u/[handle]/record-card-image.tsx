@@ -7,7 +7,7 @@
 // Committee round 1: the chart, the count and the period lead (count and period at 1.5× body, in the text color); the
 // trust state is an outlined badge (Demo in its own tone, as strong as Verified); "New record" is a badge at the count's
 // size; the evidence label shares the trust line's row; the 0% label sits in a gutter left of the line.
-import { CARD_LAYOUT, disclaimerLines, noOrphan, UNFURL_COLUMN_GAP, type CardModel } from '@/lib/record-card.ts';
+import { CARD_LAYOUT, disclaimerLines, noOrphan, UNFURL_COLUMN_GAP, unfurlHeadlineSize, unfurlWide, type CardModel } from '@/lib/record-card.ts';
 
 const C = { bg: '#0b0b0f', text: '#f4f4f6', muted: '#a1a1ad', up: '#22c55e', down: '#f43f5e', warn: '#f59e0b', demo: '#38bdf8', base: '#6b6b78' };
 const TONE = { ok: C.up, muted: C.muted, warn: C.warn, demo: C.demo };
@@ -114,22 +114,24 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
   // Only the long label ("average per closed trade") takes two lines; "average per trade" stays on one. A number of 7
   // or more characters ("+100.0%") leaves too little room beside it, so its label goes under it on one line.
   const one1 = (size: number, color: string = C.text) => ({ fontSize: size, lineHeight: 1, color, whiteSpace: 'nowrap' }) as const;
-  const longHead = (m.headline ?? '').length >= 7;
-  // Breathing room around the range and before the count (user test), except in the one state with two extra rows
-  // (failed-import note and open positions), where the 630 px card has none to spare and the open row must not be cut.
-  const tight = !!(m.note && o);
-  const [labelA, labelB] = m.open && !longHead ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
+  // Orchestrator review: a long average or range widens the text column (the model narrows the chart by the same
+  // width, lib/record-card.ts#unfurlWide), the label then takes two lines beside the number, and an average of 8 or more
+  // characters is drawn smaller (unfurlHeadlineSize): the column never gains a row, so nothing below it is pushed off.
+  const wide = unfurlWide(m.headline, m.range);
+  // Breathing room around the range and before the count (user test), except where the 630 px card has none to spare:
+  // two extra rows (failed-import note and open positions) or a wide card.
+  const tight = !!(m.note && o) || wide;
+  const [labelA, labelB] = m.open || wide ? (m.headlineLabel ?? '').split(/(?<=per) /) : [m.headlineLabel];
   const unfurlAverage = (
     <div style={col}>
-      <div style={{ display: 'flex', flexDirection: longHead ? 'column' : 'row', alignItems: longHead ? 'flex-start' : 'center', gap: longHead ? 0 : 20 }}>
-        <span style={big(f.headline, headColor, { flexShrink: 0 })}>{m.headline}</span>
+      <div style={{ ...row, gap: 20 }}>
+        <span style={big(unfurlHeadlineSize(m.headline), headColor, { flexShrink: 0 })}>{m.headline}</span>
         <div style={{ ...col, flexShrink: 0 }}>
           <span style={one1(f.body, C.muted)}>{labelA}</span>
           {labelB && <span style={one1(f.body, C.muted)}>{labelB}</span>}
         </div>
       </div>
-      {/* A very wide range ("-12.3% and +15.4%") wraps inside the column rather than running into the chart. */}
-      {m.range && <span style={{ fontSize: f.body, lineHeight: 1, color: C.text, marginTop: tight ? 0 : 4 }}>{m.range}</span>}
+      {m.range && <span style={{ ...one1(f.body), marginTop: tight ? 0 : 4 }}>{m.range}</span>}
     </div>
   );
 
@@ -143,18 +145,20 @@ export function RecordCardImage({ m, disclaimer }: { m: CardModel; disclaimer: s
       </div>
     );
   } else if (m.kind === 'unfurl') {
+    // Only the text-and-chart row may ever give way (it never should: see unfurlWide); the caption and the
+    // open-positions row never shrink, so a held loser is never clipped (orchestrator review).
     main = (
-      <div style={col}>
-        <div style={{ display: 'flex', gap: UNFURL_COLUMN_GAP }}>
-          <div style={{ ...col, width: L.left, flexShrink: 0 }}>
+      <div style={{ ...col, flexShrink: 1, minHeight: 0 }}>
+        <div style={{ display: 'flex', gap: UNFURL_COLUMN_GAP, flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ ...col, width: L.width - 2 * L.padX - UNFURL_COLUMN_GAP - (m.chart?.w ?? L.chart.w), flexShrink: 0 }}>
             {unfurlAverage}
             <div style={{ ...col, marginTop: tight ? 0 : 10 }}><span style={big(f.line)}>{m.countValue}</span><span style={one1(f.body)}>{m.countNote}</span></div>
             <div style={col}><span style={big(f.line)}>{m.periodLength}</span><span style={one1(f.body)}>{m.periodSince}</span></div>
           </div>
           {plot}
         </div>
-        <span style={{ ...t(f.body, C.muted), lineHeight: 1, whiteSpace: 'nowrap', marginTop: 4 }}>{m.caption}</span>
-        {o && <div style={{ display: 'flex', marginTop: L.gap }}>{openRow(f.body, true)}</div>}
+        <span style={{ ...t(f.body, C.muted), lineHeight: 1, whiteSpace: 'nowrap', marginTop: 4, flexShrink: 0 }}>{m.caption}</span>
+        {o && <div style={{ display: 'flex', marginTop: L.gap, flexShrink: 0 }}>{openRow(f.body, true)}</div>}
       </div>
     );
   } else {

@@ -10,7 +10,7 @@ import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
 import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
-import { cardAlt, cardDescription, cardEvidence } from '@/lib/record-card.ts';
+import { cardAlt, cardDescription, cardEvidence, evidenceRangeText } from '@/lib/record-card.ts';
 import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
@@ -161,7 +161,7 @@ export default async function Profile({ params, searchParams }: Params) {
   // a viewer arriving from a link sees one answer, not two. Ranking keeps confidence()'s own interval (`c`).
   const shown = cardEvidence(trades.map((t) => ({ symbol: t.symbol as string, openedAt: t.opened_at as Date, closedAt: t.closed_at as Date,
     returnPct: Number(t.return_pct), holdingDays: Number(t.holding_days) })), new Date());
-  const range = shown.perTrade ? `(${pct(shown.perTrade.low)} to ${pct(shown.perTrade.high)})` : null;
+  const range = evidenceRangeText(shown);
   // Fix round 3 (TR-3): while any consented import runs, the trades so far are listed but nothing is presented as a
   // complete record: no Verified badge, no headline stats or chart, no "Record since · Connected" line.
   const complete = state !== 'importing';

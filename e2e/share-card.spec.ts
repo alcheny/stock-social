@@ -4,13 +4,16 @@
 // (committee round 1, demand 8). With F4_SHOTS=1 the renders are saved to the F-4 log.
 import { test, expect } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { feedLock } from './feed-lock.ts';
 
 const DAY = 86_400_000;
 const SHOTS = process.env.F4_SHOTS === '1';
 const DIR = 'docs/features/logs/F-4/screenshots';
 const dim = (b: Buffer) => [b.readUInt32BE(16), b.readUInt32BE(20)];
 
-test.describe.configure({ mode: 'serial' });
+// Each test seeds and deletes its own records (withRecords), so the tests are independent; each may first wait for the
+// heavy-feed tests' exclusive feed lock, hence the longer timeout.
+test.describe.configure({ timeout: 120_000 });
 
 // Closed trades only, percent-only columns. Every close ends 40+ days ago (except where the state needs a young record)
 // so these records never lead the feed other specs read. Deterministic.
@@ -54,65 +57,78 @@ const FIXTURES: Record<string, Fixture> = {
   // QA 2026-11-01: wide headlines never run into their label.
   twodig: { name: 'Two Digit Average', trades: rows(12, 120, 0.2, 0.05, 1, 12) },
   bigpos: { name: 'Big Average', trades: rows(6, 60, 2.5, 0.1, 1, 6) },
+  // Orchestrator review 2026-11-01: a three-digit range end, a -100% low and a long average, each with open
+  // positions: the text column widens and nothing (above all the open-positions row) is clipped.
+  wide_open: { name: 'Wide Open', trades: rows(8, 60, 0.3, 0.45, 1, 8), connection: 'connected', open: [0.121, 0.034, -0.08] },
+  wide_failed: { name: 'Wide Failed', trades: rows(10, 60, 1.25, 0.05, 1, 10), connection: 'failed', open: [-1, 0.5, -0.2] },
+  huge_open: { name: 'Huge Open', trades: rows(10, 60, 1.25, 0.05, 1, 10), connection: 'connected', open: [-0.08, -0.215, 0.031] },
   open_tight: { name: 'A Thirty Character Display Nam', trades: rows(8, 20, 0.01, 0.05, 1, 8, 2), connection: 'failed',
     open: [-1, 2.5, -0.991, 1.234, 0.5, -0.25, 0.75, -0.6, 1.01, -0.333, 0.12, 9.99] },
 };
 const handle = (k: string) => `f4_card_${k}`;
-const HANDLES = Object.keys(FIXTURES).map(handle);
 
-test.beforeAll(async () => {
+// These records are feed-eligible (some with large, tight averages), so each test seeds only the records it reads,
+// under the feed lock held shared (like similar.spec.ts), and deletes them before releasing it: the heavy-feed tests
+// that take the lock exclusively wait a few seconds, never a whole spec.
+async function withRecords(keys: string[], fn: () => Promise<void>) {
+  const release = await feedLock('shared');
   const { sql } = await import('../lib/db.ts');
-  await sql`delete from users where handle in ${sql(HANDLES)}`;
-  for (const [k, f] of Object.entries(FIXTURES)) {
-    const [u] = await sql`
-      with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
-      insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle(k)}, ${f.name}, now(), a.id from a returning id, signup_attempt_id`;
-    const data = f.trades.map((t, i) => ({ user_id: u.id, sell_id: `${handle(k)}-${i}`, account_id: 'f4', symbol: t.symbol, opened_at: new Date(t.opened),
-      closed_at: new Date(t.closed), return_pct: t.r, holding_days: (t.closed - t.opened) / DAY, verified: !f.demo && f.verified !== false }));
-    for (let i = 0; i < data.length; i += 1000) await sql`insert into closed_trades ${sql(data.slice(i, i + 1000))}`;
-    if (f.demo) await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
-      values (${u.id}, 'demo', ${`${handle(k)}-demo`}, 'demo-acct', 'F0', 'BUY', 1, 10, now() - interval '61 days', '{}')`;
-    if (f.connection) await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, last_progress_at)
-      values (${u.signup_attempt_id}, ${u.id}, ${f.connection}, now(), now(), now())`;
-    if (f.open?.length) await sql`insert into open_positions ${sql(f.open.map((x, i) => ({ user_id: u.id, account_id: 'f4', symbol: `O${i}`, unrealized_pct: x })))}`;
-  }
-  if (SHOTS) mkdirSync(DIR, { recursive: true });
-});
-
-test.afterAll(async () => {
-  const { sql } = await import('../lib/db.ts');
-  await sql`delete from users where handle in ${sql(HANDLES)}`;
-});
-
-test('F-4 card: the unfurl (1200×630) and the Share button picture (1080×1080, story 1080×1920) for every record state', async ({ request }) => {
-  for (const k of Object.keys(FIXTURES)) {
-    for (const [path, w, h] of [['opengraph-image', 1200, 630], ['story?format=square', 1080, 1080], ['story?format=story', 1080, 1920]] as const) {
-      const res = await request.get(`/u/${handle(k)}/${path}`);
-      expect(res.status(), `${k} ${path}`).toBe(200);
-      expect(res.headers()['content-type']).toContain('image/png');
-      const body = await res.body();
-      expect(dim(body), `${k} ${path}`).toEqual([w, h]);
-      if (SHOTS) writeFileSync(`${DIR}/${k}-${path.startsWith('story') ? path.split('=')[1] : 'unfurl'}.png`, body);
+  const handles = keys.map(handle);
+  try {
+    await sql`delete from users where handle in ${sql(handles)}`;
+    for (const k of keys) {
+      const f = FIXTURES[k];
+      const [u] = await sql`
+        with a as (insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id)
+        insert into users (handle, display_name, adult_attested_at, signup_attempt_id) select ${handle(k)}, ${f.name}, now(), a.id from a returning id, signup_attempt_id`;
+      const data = f.trades.map((t, i) => ({ user_id: u.id, sell_id: `${handle(k)}-${i}`, account_id: 'f4', symbol: t.symbol, opened_at: new Date(t.opened),
+        closed_at: new Date(t.closed), return_pct: t.r, holding_days: (t.closed - t.opened) / DAY, verified: !f.demo && f.verified !== false }));
+      for (let i = 0; i < data.length; i += 1000) await sql`insert into closed_trades ${sql(data.slice(i, i + 1000))}`;
+      if (f.demo) await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw)
+        values (${u.id}, 'demo', ${`${handle(k)}-demo`}, 'demo-acct', 'F0', 'BUY', 1, 10, now() - interval '61 days', '{}')`;
+      if (f.connection) await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, last_progress_at)
+        values (${u.signup_attempt_id}, ${u.id}, ${f.connection}, now(), now(), now())`;
+      if (f.open?.length) await sql`insert into open_positions ${sql(f.open.map((x, i) => ({ user_id: u.id, account_id: 'f4', symbol: `O${i}`, unrealized_pct: x })))}`;
     }
+    await fn();
+  } finally {
+    try { await sql`delete from users where handle in ${sql(handles)}`; } finally { await release(); }
   }
+}
+
+test.beforeAll(() => { if (SHOTS) mkdirSync(DIR, { recursive: true }); });
+
+// One test per record state: the unfurl (1200×630) and the Share button picture (square 1080×1080, story 1080×1920),
+// then the unfurl and the square in a 343 px-wide preview (a 375 px phone with 16 px gutters).
+for (const k of Object.keys(FIXTURES)) {
+  test(`F-4 card (${k}): every size renders, and reads in a 343 px phone preview`, async ({ request, page, baseURL }) => {
+    await withRecords([k], async () => {
+      for (const [path, w, h] of [['opengraph-image', 1200, 630], ['story?format=square', 1080, 1080], ['story?format=story', 1080, 1920]] as const) {
+        const res = await request.get(`/u/${handle(k)}/${path}`);
+        expect(res.status(), `${k} ${path}`).toBe(200);
+        expect(res.headers()['content-type']).toContain('image/png');
+        const body = await res.body();
+        expect(dim(body), `${k} ${path}`).toEqual([w, h]);
+        if (SHOTS) writeFileSync(`${DIR}/${k}-${path.startsWith('story') ? path.split('=')[1] : 'unfurl'}.png`, body);
+      }
+      await page.setViewportSize({ width: 375, height: 700 });
+      for (const [path, name] of [['opengraph-image', 'unfurl'], ['story?format=square', 'square']] as const) {
+        await page.setContent(`<body style="margin:0;padding:16px;background:#fff"><img id="c" style="width:343px;display:block" src="${baseURL}/u/${handle(k)}/${path}"></body>`);
+        const img = page.locator('#c');
+        await expect.poll(() => img.evaluate((e: HTMLImageElement) => e.complete && e.naturalWidth)).toBeGreaterThan(0);
+        const box = (await img.boundingBox())!;
+        expect(Math.round(box.width)).toBe(343);
+        if (SHOTS) await img.screenshot({ path: `${DIR}/${k}-${name}-375.png` });
+      }
+    });
+  });
+}
+
+test('F-4 card: an unknown handle has no card', async ({ request }) => {
   expect((await request.get('/u/f4-no-such-handle/opengraph-image')).status()).toBe(404);
 });
 
-test('F-4 card: readable in a phone preview (343 px wide in a 375 px viewport)', async ({ page, baseURL }) => {
-  await page.setViewportSize({ width: 375, height: 700 });
-  for (const k of Object.keys(FIXTURES)) {
-    for (const [path, name] of [['opengraph-image', 'unfurl'], ['story?format=square', 'square']] as const) {
-      await page.setContent(`<body style="margin:0;padding:16px;background:#fff"><img id="c" style="width:343px;display:block" src="${baseURL}/u/${handle(k)}/${path}"></body>`);
-      const img = page.locator('#c');
-      await expect.poll(() => img.evaluate((e: HTMLImageElement) => e.complete && e.naturalWidth)).toBeGreaterThan(0);
-      const box = (await img.boundingBox())!;
-      expect(Math.round(box.width)).toBe(343);
-      if (SHOTS) await img.screenshot({ path: `${DIR}/${k}-${name}-375.png` });
-    }
-  }
-});
-
-test('F-4 card (round 1, demand 8): a forged Host header never reaches the printed link', async ({ request }) => {
+test('F-4 card (round 1, demand 8): a forged Host header never reaches the printed link', async ({ request }) => withRecords(['winning'], async () => {
   for (const format of ['square', 'story']) {
     const plain = await (await request.get(`/u/${handle('winning')}/story?format=${format}`)).body();
     const forged = await request.get(`/u/${handle('winning')}/story?format=${format}`, { headers: { Host: 'evil.example' } });
@@ -120,12 +136,12 @@ test('F-4 card (round 1, demand 8): a forged Host header never reaches the print
     // The same picture byte for byte: the host the request named is not printed on it.
     expect(Buffer.compare(await forged.body(), plain), format).toBe(0);
   }
-});
+}));
 
 // F-4 rework (2026-11-01) and F-6 on the card, against the running app: the text under the link preview drops the
 // win rate and matches the card; open positions appear in words; the demo record reads the same length on the profile
 // and the card (first trade to last close).
-test('F-4 rework: the link-preview text matches the card, with open positions, and never a win rate', async ({ page }) => {
+test('F-4 rework: the link-preview text matches the card, with open positions, and never a win rate', async ({ page }) => withRecords(['winning', 'open_mixed', 'open_only'], async () => {
   const description = async (h: string) => {
     await page.goto(`/u/${h}`);
     return (await page.locator('meta[name="description"]').getAttribute('content')) ?? '';
@@ -151,4 +167,4 @@ test('F-4 rework: the link-preview text matches the card, with open positions, a
   const profileDays = (await page.getByText(/Evidence: \w+ \(\d+ bets?, \d+ days?\)/).first().textContent())?.match(/, (\d+) days?\)/)?.[1];
   expect(cardDays).toBeTruthy();
   expect(cardDays).toBe(profileDays);
-});
+}));

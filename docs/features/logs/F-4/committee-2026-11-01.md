@@ -34,7 +34,7 @@ by the committee's recommended option after debate. Members: UX lead (drafted th
    the same range (hand-off below). That is a known, temporary difference, pinned by a test.
 2. **Q-U, open positions on the card.** The card shows the count, how many are up and down, and the lowest and the
    highest unrealized percent. The words are "Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%",
-   shortened on the link preview to "3 still open · …". There is no average and no combined figure. Why: an
+   shortened on the link preview to "3 open, unrealized · …" (user test: the preview says "unrealized" in words too). There is no average and no combined figure. Why: an
    unweighted average across positions is "a number no account has" (lib/positions.ts). With no combined figure, no
    "includes open positions" label is needed, and the lowest printed first means a held loser is never hidden.
    - No symbols: naming held stocks on a shared picture reads as a pick (POLICY F1).

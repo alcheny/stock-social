@@ -5,7 +5,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  CARD_LAYOUT, cardAlt, cardDescription, cardEvidence, cardLink, cardOpen, cardSeries, recordCard, type CardInput, type CardKind, type CardModel,
+  CARD_LAYOUT, cardAlt, cardDescription, cardEvidence, cardLink, cardOpen, cardSeries, recordCard, unfurlHeadlineSize, unfurlWide, type CardInput, type CardKind, type CardModel,
 } from './record-card.ts';
 import { confidence, evidenceLine, evidenceWeight, headline, pct, type ConfidenceInput } from './trades.ts';
 import { spanUnit, TRUST_BANNED, trustSign } from './confidence.ts';
@@ -300,4 +300,24 @@ test('code review 2026-11-01: "too wide" reads the unclamped range, so the -100%
   assert.ok(e.perTrade!.low >= -1);
   const unclampedHalf = e.perTrade!.high - headline(r).avgReturn; // the high end is never clamped
   assert.equal(e.tier === 'too-early', unclampedHalf > 0.10, `half ${unclampedHalf.toFixed(3)} tier ${e.tier}`);
+});
+
+test('orchestrator review 2026-11-01: a record under half a day reads "1 day" on the card and the profile alike', () => {
+  const short = Array.from({ length: 6 }, (_, i) => ({ symbol: `H${i}`, openedAt: new Date(t0 + i * 3_600_000), closedAt: new Date(t0 + i * 3_600_000 + 600_000), returnPct: 0.01 + i * 0.001, holdingDays: 0.01 }));
+  const m = card(short);
+  assert.match(m.trust!, / over 1 day\./);
+  assert.match(evidenceLine(cardEvidence(short, now)), /, 1 day\)$/);
+});
+
+test('orchestrator review 2026-11-01: a long range or average widens the preview\'s text column instead of adding a row', () => {
+  // Average about +40% with a range ending in three digits: the text column takes 100 px from the chart.
+  const wide = record(8, 60, (i) => (i % 2 ? -0.2 : 1.0));
+  const m = card(wide, { open: OPEN.mixed });
+  assert.ok(m.range!.length > 31, m.range!);
+  assert.equal(m.chart!.w, CARD_LAYOUT.unfurl.chart.w - 100);
+  assert.equal(card(R.winning).chart!.w, CARD_LAYOUT.unfurl.chart.w); // an ordinary card keeps its chart
+  assert.equal(card(wide, { kind: 'square' }).chart!.w, CARD_LAYOUT.square.chart.w); // the pictures have room
+  assert.equal(unfurlHeadlineSize('+1.6%'), CARD_LAYOUT.unfurl.font.headline);
+  assert.equal(unfurlHeadlineSize('+1088.7%'), Math.floor((CARD_LAYOUT.unfurl.font.headline * 7) / 8));
+  assert.ok(unfurlWide('+250.0%', null) && unfurlWide('+1.0%', 'likely between -24.1% and +104.1%') && !unfurlWide('+1.6%', 'likely between +0.8% and +2.4%'));
 });

@@ -106,7 +106,7 @@ elements that catch the eye and travel, and leave detail for the profile.
   "interval entirely above/below 0", and with a separate pace check the card could print a range wholly above 0
   beside "no clear pattern yet" (docs/features/logs/F-4/committee-2026-11-01.md, Q-S; one dissent).
 - 2026-11-01: Open positions on the card (F-6): the count, how many are up and down, and the lowest and highest
-  unrealized percent ("Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%"; "3 still open · …" on
+  unrealized percent ("Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%"; "3 open, unrealized · …" on
   the link preview), no symbols, no average and no combined figure; the headline label reads "average per closed
   trade" when there are open positions. Why: decided by the committee under the owner's instruction of 2026-11-01; an average across positions is a number no account has, the lowest
   printed first means a held loser is never hidden, and a shared picture naming held stocks would read as a pick.
@@ -124,6 +124,12 @@ elements that catch the eye and travel, and leave detail for the profile.
   gives way; the New record pill is the trust badge's size. Why: decided by the committee under the owner's instruction of 2026-11-01; the user tests found a shared link landing on a
   profile with a different range and tier, a figure without the disclaimer in text-only previews, and a long name
   hiding the handle (the card's one unique identity). Ranking keeps its own interval.
+- 2026-11-01: On the link preview, a long average or range ("+250.0%", "likely between -24.1% and +104.1%") widens the
+  text column by 100 px and narrows the chart to match (about 22%, 20% with open positions), an average of 8 or more
+  characters is drawn smaller, and the caption and open-positions row never give way; the preview says "3 open,
+  unrealized · …"; the text under the preview uses F-6's open-positions wording. Why: decided by the committee under
+  the owner's instruction of 2026-11-01; the orchestrator's review showed a wrapped range clipping the open-positions
+  row (a held loser must never be hidden), and the user test asked for "unrealized" in words on every size.
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and

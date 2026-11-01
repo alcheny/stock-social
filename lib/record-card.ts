@@ -39,6 +39,17 @@ export const CARD_LAYOUT = {
 } as const;
 export type CardLayout = (typeof CARD_LAYOUT)[CardKind];
 export const UNFURL_COLUMN_GAP = 24; // between the unfurl's text column and its chart
+// Orchestrator review (2026-11-01): a long range ("likely between -24.1% and +104.1%") or a long average ("+250.0%")
+// no longer fits the 540 px text column in one line, and a second line would push the open-positions row off the
+// 630 px card. Such a card widens its text column by this much and its chart gives up the same width (one row of text
+// is worth more than a sliver of chart; the chart then holds about 22% of the preview, 20% with open positions).
+export const UNFURL_WIDE_SHIFT = 100;
+export const unfurlWide = (headline: string | null, range: string | null) => (headline ?? '').length >= 7 || (range ?? '').length > 31;
+// An average of 8 or more characters ("+1088.7%") is drawn smaller so it still sits beside its label on one row.
+export const unfurlHeadlineSize = (headline: string | null) => {
+  const n = (headline ?? '').length;
+  return n >= 8 ? Math.floor((CARD_LAYOUT.unfurl.font.headline * 7) / n) : CARD_LAYOUT.unfurl.font.headline;
+};
 
 // CSS px of the smallest text and of the headline when the image is shown `px` wide.
 export function readableAt(kind: CardKind, px: number): { smallest: number; headline: number } {
@@ -181,6 +192,10 @@ export function cardOpen(pcts: number[]): CardOpen | null {
 // User test 2026-11-01: the profile shows this same evidence (range, tier, "Past results" verdict), so a viewer who
 // taps a shared card lands on the same answer. `edge` is the printed range's sign; ranking keeps confidence()'s own
 // pace interval (evidenceWeight, lib/trades.ts), which this does not touch.
+// The profile's "(low to high)" for that same range; the display log records exactly this text.
+export const evidenceRangeText = (e: Pick<Confidence, 'perTrade'>): string | null =>
+  e.perTrade ? `(${pct(e.perTrade.low)} to ${pct(e.perTrade.high)})` : null;
+
 export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
   const c = confidence(trades, now);
   const r = arithmeticRange(trades);
@@ -188,7 +203,9 @@ export function cardEvidence(trades: ConfidenceInput[], now: Date): Confidence {
   const tier: Tier = c.k < MIN_BETS || !r || tooWide({ low: r.mid - r.half, high: r.mid + r.half }) ? 'too-early' : tierFor(c.k, c.spanDays);
   const sign = trustSign({ perTrade });
   const edge = tier === 'too-early' ? null : sign === 'unclear' ? 'unclear' : sign;
-  return { ...c, tier, perTrade, edge };
+  // A record shorter than half a day reads "1 day" on the profile too (orchestrator review): the card's trust line never
+  // says "over 0 days", and the profile's evidence line (Math.round of this span) now says the same.
+  return { ...c, tier, perTrade, edge, spanDays: c.n ? Math.max(c.spanDays, 0.5) : c.spanDays };
 }
 
 export type CardTone = 'ok' | 'muted' | 'warn' | 'demo';
@@ -251,13 +268,15 @@ export function recordCard(i: CardInput): CardModel {
   const L = CARD_LAYOUT[i.kind];
   // The unfurl's chart gives up a row's height to the failed-import note and to the open-positions row (F-4
   // 2026-10-31: about 24% of the preview with every element kept); the square and story keep theirs (30%).
-  const box = { w: L.chart.w, h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut : 0) };
+  const range = c.perTrade ? SHARE_CARD.likely(pct(c.perTrade.low), pct(c.perTrade.high)) : null;
+  const wide = i.kind === 'unfurl' && unfurlWide(pct(avg), range);
+  const box = { w: L.chart.w - (wide ? UNFURL_WIDE_SHIFT : 0), h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut : 0) };
   return {
     ...card,
     headline: pct(avg),
     headlineTone: tone(avg),
     headlineLabel: card.open ? SHARE_CARD.perClosedTrade : SHARE_CARD.perTrade,
-    range: c.perTrade ? SHARE_CARD.likely(pct(c.perTrade.low), pct(c.perTrade.high)) : null,
+    range,
     count: `${countValue} · ${SHARE_CARD.lossesIncluded}`, countValue, countNote: SHARE_CARD.lossesIncluded,
     period: `${since(first)} · ${periodLength}`, periodSince: since(first), periodLength,
     evidence: evidenceLabel(c),
