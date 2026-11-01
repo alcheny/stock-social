@@ -534,7 +534,8 @@ export async function syncUser(
         // account has never been read, the previous value stands.
         // OPTIONS × F-14 (review nit): while any real account is mid-backfill its recent week is unread, so the value
         // stands too.
-        const midBackfill = broker.fetchActivitiesPage ? [...(await pendingBackfill(tx, user.id)).keys()].some((id) => real.includes(id)) : false;
+        // (Review: a sync that read a backfill page, the last one included, did not read the week either.)
+        const midBackfill = pagedIds.length > 0 || (broker.fetchActivitiesPage ? [...(await pendingBackfill(tx, user.id)).keys()].some((id) => real.includes(id)) : false);
         if (rebuilt && midBackfill) await tx`update users set last_synced_at = ${prev} where id = ${user.id}`;
         else if (rebuilt) {
           await tx`update users set last_synced_at = coalesce((select case when bool_or(activities_read_at is null) then null else min(activities_read_at) end

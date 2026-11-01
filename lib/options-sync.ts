@@ -5,6 +5,7 @@ import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { FUTURE_GRACE_HOURS, INSERT_CHUNK, rebuildTrades, USER_LOCK } from './sync.ts';
 import { chainsOf, loadCorporateActions, pairKey } from './corporate-actions.ts';
+import { SETTLE_STALE_MS } from './positions.ts';
 import { contractKey, matchOptions, parseOcc, zeroCounts, type Counts, type OptionRow } from './options.ts';
 import type { OptionPosition, PositionSplit } from './broker.ts';
 
@@ -331,17 +332,27 @@ export async function replaceAccountOptionPositions(tx: TransactionSql, userId: 
   if (prev === null && !real.every((id) => readNow.includes(id))) return;
   const held = (await tx`select distinct account_id from open_option_positions where user_id = ${userId}`).map((r) => r.account_id as string);
   const gone = [...new Set([...held, ...Object.keys(prev ?? {})])].filter((id) => !real.includes(id));
-  const replaced = [...new Set([...replace, ...gone])];
-  if (!replaced.length && !upsert.length) return;
+  if (!readNow.length && !gone.length) return;
   // Counts are open-position tallies (never shown as returns): every account read sets its own; gone accounts drop.
   const next: Record<string, SplitCount> = {};
   for (const [id, c] of Object.entries(prev ?? {})) if (!readNow.includes(id) && !gone.includes(id)) next[id] = c;
   const counts = splitCounts(splits);
   for (const id of readNow) next[id] = counts[id] ?? { short: 0, unsupported: 0, other: 0 };
   const sum = (k: keyof SplitCount) => Object.values(next).reduce((n, c) => n + c[k], 0);
-  // Rows (review B1, TR-4): replaced only for accounts read with their recent activities (a closed option's trade is
-  // imported in the same transaction) and for gone accounts; a positions-only read adds and updates, never removes.
-  if (replaced.length) await tx`delete from open_option_positions where user_id = ${userId} and account_id in ${tx(replaced)}`;
+  // Rows (TR-4, the share rule of lib/positions.ts#settleAccountPositions): gone accounts' rows go; on an account read
+  // with its recent activities, a row the vendor no longer lists goes once a closing row of its contract was imported
+  // since it was last listed (a close, an expiry, an assignment or an exercise: its trade, or its counted exclusion, is
+  // published in this transaction), or after SETTLE_STALE_MS unlisted; a positions-only read never removes (review B1).
+  if (gone.length) await tx`delete from open_option_positions where user_id = ${userId} and account_id in ${tx(gone)}`;
+  for (const id of replace) {
+    const listed = (splits.get(id)?.options ?? []).map((o) => o.positionKey);
+    await tx`delete from open_option_positions p where p.user_id = ${userId} and p.account_id = ${id}
+      ${listed.length ? tx`and p.position_key not in ${tx(listed)}` : tx``}
+      and (exists (select 1 from option_activities a where a.user_id = p.user_id and a.contract_key = p.account_id || '|' || p.position_key
+            and a.created_at >= p.fetched_at
+            and (a.open_close in ('SELL_TO_CLOSE', 'BUY_TO_CLOSE') or a.kind in ('OPTIONEXPIRATION', 'OPTIONASSIGNMENT', 'OPTIONEXERCISE')))
+        or p.fetched_at < now() - ${SETTLE_STALE_MS}::float8 * interval '1 millisecond')`;
+  }
   await tx`update users set open_options_short = ${sum('short')}, open_unsupported = ${sum('unsupported')}, open_options_other = ${sum('other')},
     open_options_by_account = ${tx.json(next as never)} where id = ${userId}`;
   const rows: (OptionPosition & { accountId: string })[] = [];
@@ -350,7 +361,7 @@ export async function replaceAccountOptionPositions(tx: TransactionSql, userId: 
     await tx`insert into open_option_positions ${tx(rows.map((p) => ({ user_id: userId, account_id: p.accountId, position_key: p.positionKey, underlying: p.underlying,
       option_right: p.right, option_expiry: p.expiry, unrealized_pct: p.unrealizedPct })))}
       on conflict (user_id, account_id, position_key) do update set unrealized_pct = excluded.unrealized_pct, underlying = excluded.underlying,
-        option_right = excluded.option_right, option_expiry = excluded.option_expiry`;
+        option_right = excluded.option_right, option_expiry = excluded.option_expiry, fetched_at = now()`;
   }
   await purgeOccPositions(tx, userId);
 }

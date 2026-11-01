@@ -23,6 +23,9 @@ dbTest('positions read per account: the open option totals stay the sum over acc
   // Reads with activities (replace); review B1's positions-only rule has its own test below.
   const write = (real: string[], read: string[], splits: [string, { options: ReturnType<typeof opt>[]; short: number; unsupported: number; optionOther?: number }][]) =>
     sql.begin((tx) => replaceAccountOptionPositions(tx, u.id, real, read, [], new Map(splits)));
+  // A closing option row of that contract, imported now (option_activities.contract_key = account | position key).
+  const closeOf = (account: string, key: string) => sql`insert into option_activities (user_id, source, external_id, account_id, contract_key, kind, open_close, raw)
+    values (${u.id}, 'snaptrade', ${`${tag}-${account}-${key}-close`}, ${account}, ${`${account}|${key}`}, 'SELL', 'SELL_TO_CLOSE', '{}'::jsonb)`;
   const state = async () => {
     const [r] = await sql`select open_options_short as short, open_unsupported as unsupported, open_options_other as other,
       (select coalesce(string_agg(account_id || '/' || position_key, ',' order by account_id, position_key), '') from open_option_positions where user_id = ${u.id}) as rows
@@ -36,10 +39,17 @@ dbTest('positions read per account: the open option totals stay the sum over acc
     // Ten rounds reading A alone, same holdings: nothing grows, B's row and counts stay.
     for (let i = 0; i < 10; i++) await write([A, B], [A], [[A, { options: [opt('a1')], short: 2, unsupported: 1, optionOther: 1 }]]);
     assert.deepEqual(await state(), { short: 5, unsupported: 1, other: 1, rows: `${A}/a1,${B}/b1` });
-    // A's holdings change (one short closed, a new long): only A's part moves.
+    // A's holdings change (one short closed, a new long): only A's part moves. a1 is no longer listed but its close is
+    // not imported yet, so it stays (TR-4, the share rule); it goes with the read that imports its close.
+    await write([A, B], [A], [[A, { options: [opt('a2')], short: 1, unsupported: 1 }]]);
+    assert.deepEqual(await state(), { short: 4, unsupported: 1, other: 0, rows: `${A}/a1,${A}/a2,${B}/b1` });
+    await closeOf(A, 'a1');
     await write([A, B], [A], [[A, { options: [opt('a2')], short: 1, unsupported: 1 }]]);
     assert.deepEqual(await state(), { short: 4, unsupported: 1, other: 0, rows: `${A}/a2,${B}/b1` });
-    // B read alone with no split (no option positions listed): its part is zero.
+    // B read alone with no split (no option positions listed): its part is zero; b1 goes once its close is imported.
+    await write([A, B], [B], []);
+    assert.deepEqual(await state(), { short: 1, unsupported: 1, other: 0, rows: `${A}/a2,${B}/b1` });
+    await closeOf(B, 'b1');
     await write([A, B], [B], []);
     assert.deepEqual(await state(), { short: 1, unsupported: 1, other: 0, rows: `${A}/a2` });
     // B is no longer real (disconnected): dropped even on a round that reads only A.

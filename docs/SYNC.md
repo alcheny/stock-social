@@ -87,8 +87,10 @@ hourly, but each account is read within the vendor's guidance (`lib/sync-cadence
     its daily activities read (same endpoint, same cap). A history of k pages takes about k days to backfill.
   - During a backfill, the account's recent week is unread. So its positions take the positions-only rule (never
     removed), and `last_synced_at` keeps its previous value until the backfill finishes.
-  - Open option positions follow the share rule. A positions-only read adds and updates them and never removes one;
-    the read that imports their close replaces them.
+  - Open option positions follow the share rule. A positions-only read adds and updates them and never removes one. A
+    read with activities removes an unlisted option only once a closing row of its contract (a close, an expiry, an
+    assignment or an exercise) has been imported since it was last listed, or after 3 days unlisted (a transfer out).
+  - "Updated …" also holds on the sync that reads the last backfill page; it moves with the first week read after it.
   - The open option counts are kept per account (`users.open_options_by_account`), so reading one account replaces
     only its part of the user's totals.
 - **A sync cut at the route's end** (the route-end guard) leaves no marks, so the next call reads at once.

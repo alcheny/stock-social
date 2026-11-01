@@ -1,6 +1,7 @@
 // F-14 × OPTIONS review (B1, B2; TR-4, no vanishing losses), through syncUser with `cadence` on a shifted database
 // clock and an in-memory broker in the vendor's shapes:
 // B1: a positions-only read never removes an open option position; it goes with the read that imports its close.
+// Re-check 1: an activities read keeps an unlisted option until its close is imported (or 3 days pass), like shares.
 // B2: a backfill history page is not the account's recent week, so its positions take the positions-only rule: a share
 //     position sold while the backfill runs stays listed (even unlisted past 3 days) until its sell is imported.
 import { after, before, test } from 'node:test';
@@ -114,10 +115,88 @@ dbTest('B2: during a multi-day option backfill a sold share position stays liste
       assert.deepEqual(s.synced, synced0, `day ${d}: "Updated" stays while the recent week is unread`);
     }
     assert.equal(weekReads, 0);
-    for (let d = 6; d <= PAGES + 1; d++) await day(d); // the backfill finishes; the next daily read is the week
+    // Days 6–9 read the remaining pages; day 9 reads the last one (the backfill is done) but not the week: "Updated"
+    // still stands (re-check minor).
+    for (let d = 6; d < PAGES; d++) {
+      await day(d);
+      assert.deepEqual((await state()).synced, synced0, `day ${d}: a backfill page, not the week`);
+    }
+    assert.equal(weekReads, 0);
+    await day(PAGES); // the next daily read is the week
     const s = await state();
     assert.ok(weekReads >= 1);
     assert.deepEqual([s.open, s.closed], [0, 1], 'the week read imports the sell: the position goes with its closed trade');
     assert.ok(s.synced && (!synced0 || s.synced > synced0), '"Updated" moves once the week is read');
+  } finally { await t.cleanup(); }
+});
+
+dbTest('re-check 1 (TR-4): an activities read keeps an unlisted option until its close is imported, then removes it with its trade', async () => {
+  const t = await trader(true);
+  const { syncUser } = await import('./sync.ts');
+  const { toOptionRows, splitPositionKinds } = await import('./broker.ts');
+  try {
+    const os = { id: 'o', ticker: 'XYZ   271217C00123450', option_type: 'CALL', strike_price: 123.45, expiration_date: '2027-12-17', underlying_symbol: { symbol: 'XYZ', type: { code: 'cs' } } };
+    const buy = { id: `${t.tag}-ob`, type: 'BUY', option_type: 'BUY_TO_OPEN', option_symbol: os, units: 1, price: 2, fee: 0, trade_date: iso(-240) };
+    const sell = { id: `${t.tag}-os`, type: 'SELL', option_type: 'SELL_TO_CLOSE', option_symbol: os, units: 1, price: 1, fee: 0, trade_date: iso(2) };
+    const position = { instrument: { kind: 'option', id: 'i', symbol: 'XYZ   271217C00123450', option_type: 'CALL', strike_price: '123.45', expiration_date: '2027-12-17', multiplier: '100',
+      underlying: { kind: 'stock', id: 'u', symbol: 'XYZ', raw_symbol: 'XYZ' } }, units: '1', price: '1.5', cost_basis: '2' };
+    let hour = 0;
+    const broker = {
+      listAccounts: async () => [t.acc],
+      // Sold at h2, but the vendor's activities show the sell only from h30 (late posting).
+      fetchActivities: async (_u: unknown, _s: Date, ids?: string[], sink?: (r: unknown[]) => void) => {
+        for (const id of ids ?? []) sink?.(toOptionRows(id, (hour >= 30 ? [buy, sell] : [buy]) as never));
+        return [];
+      },
+      fetchPositions: async (_u: unknown, _id: string, sink?: (s: unknown) => void) => {
+        sink?.(splitPositionKinds(hour >= 2 ? [] : [position as never]).split);
+        return [];
+      },
+    };
+    const state = async () => {
+      const [r] = await t.sql`select (select count(*)::int from open_option_positions where user_id = ${t.user.id}) as open,
+        (select count(*)::int from option_trades where user_id = ${t.user.id}) as trades`;
+      return [r.open, r.trades];
+    };
+    const reports: { activitiesRead: number }[] = [];
+    const round = async (h: number) => {
+      hour = h;
+      await syncUser(t.user, broker as never, undefined, undefined, { cadence: true, shiftMs: shiftAt(h), report: (r) => reports.push(r) });
+    };
+    await round(0);
+    assert.deepEqual(await state(), [1, 0]);
+    await round(25);
+    assert.equal(reports.at(-1)!.activitiesRead, 1, 'h25: an activities read');
+    assert.deepEqual(await state(), [1, 0], 'h25: unlisted, its close not imported yet: still open, never missing from both lists');
+    await round(31); // positions only
+    assert.deepEqual(await state(), [1, 0]);
+    await round(50);
+    assert.equal(reports.at(-1)!.activitiesRead, 1, 'h50: the next activities read');
+    assert.deepEqual(await state(), [0, 1], 'h50: the close is imported and the option goes in the same read');
+  } finally { await t.cleanup(); }
+});
+
+dbTest('re-check 1: an unlisted option whose close never arrives goes after 3 days unlisted (a transfer out)', async () => {
+  const t = await trader(true);
+  const { syncUser } = await import('./sync.ts');
+  const { splitPositionKinds } = await import('./broker.ts');
+  try {
+    const position = { instrument: { kind: 'option', id: 'i', symbol: 'XYZ   271217C00123450', option_type: 'CALL', strike_price: '123.45', expiration_date: '2027-12-17', multiplier: '100',
+      underlying: { kind: 'stock', id: 'u', symbol: 'XYZ', raw_symbol: 'XYZ' } }, units: '1', price: '1.5', cost_basis: '2' };
+    let listed = true;
+    const broker = {
+      listAccounts: async () => [t.acc],
+      fetchActivities: async () => [],
+      fetchPositions: async (_u: unknown, _id: string, sink?: (s: unknown) => void) => { sink?.(splitPositionKinds(listed ? [position as never] : []).split); return []; },
+    };
+    const open = async () => (await t.sql`select count(*)::int as n from open_option_positions where user_id = ${t.user.id}`)[0].n;
+    await syncUser(t.user, broker as never, undefined, undefined, { cadence: true, shiftMs: shiftAt(0) });
+    assert.equal(await open(), 1);
+    listed = false;
+    await syncUser(t.user, broker as never, undefined, undefined, { cadence: true, shiftMs: shiftAt(25) });
+    assert.equal(await open(), 1, 'unlisted a day, no close: kept');
+    await t.sql`update open_option_positions set fetched_at = now() - interval '4 days' where user_id = ${t.user.id}`;
+    await syncUser(t.user, broker as never, undefined, undefined, { cadence: true, shiftMs: shiftAt(50) });
+    assert.equal(await open(), 0, 'unlisted past 3 days: gone');
   } finally { await t.cleanup(); }
 });
