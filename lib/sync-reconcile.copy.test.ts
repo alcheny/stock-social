@@ -47,8 +47,14 @@ test('AC7 (static): the profile row, the trade page\'s trade section and the fee
   const row = page.slice(page.indexOf('<ul className="rows closes">'), page.indexOf('</ul>', page.indexOf('<ul className="rows closes">')));
   assert.ok(row.includes('saveThesis') && row.includes('trade-link'), 'found the closed-trades row');
   const trade = read('app/u/[handle]/trade/[sellId]/page.tsx');
-  const section = trade.slice(trade.indexOf('aria-labelledby="this-trade"'), trade.indexOf('</section>', trade.indexOf('aria-labelledby="this-trade"')));
-  assert.ok(section.includes('UserNote'), 'found the trade section');
+  // Since FIXES-LABELS (#85) the close's figures ("This trade") and its note ("trade-thesis") are two sections; both are
+  // the close's own and both are checked. The record section between them (its "New record" badge is about the record's
+  // age, TR-7) stays out, as before.
+  const sectionOf = (label: string) => trade.slice(trade.indexOf(`aria-labelledby="${label}"`), trade.indexOf('</section>', trade.indexOf(`aria-labelledby="${label}"`)));
+  const figures = sectionOf('this-trade'), note = sectionOf('trade-thesis');
+  assert.ok(figures.includes('id="this-trade"'), 'found the trade section');
+  assert.ok(note.includes('UserNote'), 'found the trade note section');
+  const section = figures + note;
   const ui = read('app/ui.tsx');
   const card = ui.slice(ui.indexOf('export function TradeCard'), ui.indexOf('</article>', ui.indexOf('export function TradeCard')));
   assert.ok(card.includes('className="card"'), 'found the feed card');
@@ -196,7 +202,10 @@ dbTest('AC7: a close found by a pass renders like any close (profile row, trade 
       const html = renderToStaticMarkup(await TradePage({ params: params({ handle, sellId: encodeURIComponent(lateSell.externalId) }) }));
       const start = html.indexOf('aria-labelledby="this-trade"');
       assert.ok(start >= 0, 'the trade page renders the found close');
-      return { html, section: html.slice(start, html.indexOf('</section>', start)) };
+      // The close's figures and its note section (two sections since #85); the record section between them stays out.
+      const noteAt = html.indexOf('aria-labelledby="trade-thesis"');
+      assert.ok(noteAt >= 0, 'the trade page renders the note section');
+      return { html, section: html.slice(start, html.indexOf('</section>', start)) + html.slice(noteAt, html.indexOf('</section>', noteAt)) };
     };
     const feedCard = async () => {
       clearFeedCache();

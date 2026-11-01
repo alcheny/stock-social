@@ -71,10 +71,13 @@ test('F-24 AC7: the found close\'s profile row reads like any close, keeps its t
 
 test('F-24 AC7: the found close\'s trade page reads like any close, keeps its thesis, and has no horizontal scroll', async ({ page }) => {
   await page.goto(`/u/${HANDLE}/trade/${encodeURIComponent(`${HANDLE}-ls`)}`);
+  // Since FIXES-LABELS (#85) the close's figures and its note are two sections; both are the close's own and checked.
   const section = page.locator('section[aria-labelledby="this-trade"]');
+  const note = page.locator('section[aria-labelledby="trade-thesis"]');
   await expect(section).toContainText('F24L');
   await expect(section).toContainText('-8.0%');
-  await expect(section).toContainText(THESIS);
+  await expect(note).toContainText(THESIS);
   expect(await section.innerText()).not.toMatch(FLAGGED);
+  expect(await note.innerText()).not.toMatch(FLAGGED);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
