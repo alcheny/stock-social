@@ -244,3 +244,46 @@ dbTest('O3/O4 signals as PR-5 will read them: like +3; a rejected trade −4 on 
     await sql`delete from users where id in ${sql([v, t1, t2, t3])}`;
   }
 });
+
+dbTest('a card action keyed by its trade_key survives a rebuild between render and click (the row id it was rendered with is gone); same rules: never your own, a deleted trader refuses', async () => {
+  const { sql } = await import('./db.ts');
+  const { like, unlike, rejectTrade, undoRejectTrade, tradeKey } = await import('./likes.ts');
+  const { rebuildTrades } = await import('./sync.ts');
+  const { tag, ids: [viewer, trader] } = await people(2);
+  try {
+    await sql`insert into activities (user_id, source, external_id, account_id, symbol, side, units, price, executed_at, raw) values
+      (${trader}, 'demo', ${`${tag}-b`}, 'acct', 'KR', 'BUY', 1, 10, now() - interval '3 days', '{}'),
+      (${trader}, 'demo', ${`${tag}-s`}, 'acct', 'KR', 'SELL', 1, 12, now() - interval '1 day', '{}')`;
+    await rebuildTrades(trader);
+    // Render: the card carries the row id (DOM) and tradeKey(sell_id) (app/feed-rows.tsx), as the page computed them.
+    const [rendered] = await sql`select id::text, sell_id from closed_trades where user_id = ${trader}`;
+    const key = tradeKey(rendered.sell_id as string);
+    await rebuildTrades(trader); // e.g. the hourly sync, between render and the click
+    const [now] = await sql`select id::text from closed_trades where user_id = ${trader}`;
+    assert.notEqual(now.id, rendered.id);
+    assert.equal(await like(viewer, rendered.id), false); // the old row id no longer names a close (the bug this fixes)
+    assert.equal(await like(viewer, key), true); // the key does
+    assert.equal((await sql`select 1 from trade_likes where viewer_id = ${viewer} and trade_key = ${key}`).length, 1);
+    assert.equal(await unlike(viewer, { id: key }), true);
+    assert.equal((await sql`select 1 from trade_likes where viewer_id = ${viewer}`).length, 0);
+    assert.equal(await rejectTrade(viewer, key), true);
+    assert.equal(await undoRejectTrade(viewer, key), true);
+    assert.equal((await sql`select 1 from trade_exclusions where viewer_id = ${viewer}`).length, 0);
+    assert.equal(await like(trader, key), false); // never your own, by key too
+    for (const bad of [key.toUpperCase(), key.slice(1), `${key}0`, 'g'.repeat(64)]) assert.equal(await like(viewer, bad), false);
+    await sql`update users set deleted_at = now() where id = ${trader}`;
+    assert.equal(await like(viewer, key), false); // a trader being deleted refuses, as by id
+  } finally {
+    await sql`delete from users where id in ${sql([viewer, trader])}`;
+  }
+});
+
+test('feed card actions send the trade_key, not the row id: the row and the menu carry it, the swipe and the hide bar pass it on', () => {
+  const read = (f: string) => readFileSync(join(root, f), 'utf8');
+  const rows = read('app/feed-rows.tsx'), menu = read('app/card-menu.tsx'), gestures = read('app/feed-gestures.tsx'), hides = read('app/feed-hides.tsx');
+  assert.match(rows, /data-key=\{tradeKey\(t\.sell_id\)\}/);
+  assert.match(rows, /<CardMenu id=\{row\.id\} tradeKey=\{tradeKey\(t\.sell_id\)\}/);
+  for (const call of ['likeForm.bind(null, tradeKey', 'likeTrade(tradeKey)', 'unlikeTrade(tradeKey)', 'rejectTradeForm.bind(null, tradeKey', 'key: tradeKey']) assert.ok(menu.includes(call), call);
+  assert.ok(gestures.includes('key: row.dataset.key'));
+  assert.ok(hides.includes('rejectTradeAction(key)') && hides.includes('undoRejectTradeAction(key)'));
+});
