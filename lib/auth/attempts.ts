@@ -75,15 +75,20 @@ export async function completeAttempt(attemptId: number, userId: number) {
 
 export type Identity = { provider: 'provider_a' | 'provider_b' | 'email'; subject: string; email: string | null };
 
+// Security hardening (2026-11-01), F17: the identity belongs to a profile marked for deletion (lib/delete.ts). It
+// cannot be signed into, and no second account can take the identity until the deletion finishes.
+export class DeletionPendingError extends Error { constructor() { super('this profile is being deleted'); } }
+
 // Signs an attempt in with a verified identity: the known subject wins, then a verified email already on file,
-// else a new user with a provisional handle. Returns the user.
+// else a new user with a provisional handle. Returns the user. Profiles marked for deletion are never matched.
 // Privacy work (launch gate, D4): `allowNew: false` refuses only the new-user branch (SignUpClosedError, nothing written);
 // known subjects and verified-email matches sign in as before. Callers pass lib/launch-gate.ts#signUpOpen.
 export async function signInWithIdentity(attemptId: number, id: Identity, opts: { allowNew?: boolean } = {}): Promise<{ id: number; handle: string }> {
-  const [known] = await sql`select u.id, u.handle from identities i join users u on u.id = i.user_id where i.provider = ${id.provider} and i.subject = ${id.subject}`;
+  const [known] = await sql`select u.id, u.handle, u.deleted_at from identities i join users u on u.id = i.user_id where i.provider = ${id.provider} and i.subject = ${id.subject}`;
+  if (known?.deleted_at) throw new DeletionPendingError();
   if (known) { await completeAttempt(attemptId, known.id); return { id: known.id, handle: known.handle }; }
   if (id.email) {
-    const [byMail] = await sql`select u.id, u.handle from identities i join users u on u.id = i.user_id where i.email = ${id.email} limit 1`;
+    const [byMail] = await sql`select u.id, u.handle from identities i join users u on u.id = i.user_id where i.email = ${id.email} and u.deleted_at is null limit 1`;
     if (byMail) {
       await sql`insert into identities (user_id, provider, subject, email) values (${byMail.id}, ${id.provider}, ${id.subject}, ${id.email}) on conflict do nothing`;
       await completeAttempt(attemptId, byMail.id);
@@ -92,8 +97,23 @@ export async function signInWithIdentity(attemptId: number, id: Identity, opts: 
   }
   if (opts.allowNew === false) throw new SignUpClosedError();
   const u = await createUserForAttempt(attemptId);
-  await sql`insert into identities (user_id, provider, subject, email) values (${u.id}, ${id.provider}, ${id.subject}, ${id.email})`;
-  return u;
+  // F28: a concurrent first sign-in with the same identity may have stored it first. Then that user wins: the row just
+  // created goes and the attempt completes onto the winner, in one transaction (no unique-key error, no orphan user).
+  const winner = await sql.begin(async (tx) => {
+    const [mine] = await tx`insert into identities (user_id, provider, subject, email) values (${u.id}, ${id.provider}, ${id.subject}, ${id.email})
+      on conflict (provider, subject) do nothing returning user_id`;
+    if (mine) return u;
+    const [owner] = await tx`select u.id, u.handle, u.deleted_at from identities i join users u on u.id = i.user_id where i.provider = ${id.provider} and i.subject = ${id.subject}`;
+    await tx`delete from users where id = ${u.id}`;
+    if (!owner || owner.deleted_at) {
+      await tx`update signup_attempts set completed_at = null where id = ${attemptId} and user_id is null`;
+      return null;
+    }
+    await tx`update signup_attempts set user_id = ${owner.id}, completed_at = coalesce(completed_at, now()) where id = ${attemptId}`;
+    return { id: owner.id as number, handle: owner.handle as string };
+  });
+  if (!winner) throw new DeletionPendingError();
+  return winner;
 }
 
 // Owner-only handle change (the provisional handle is editable on the profile). A display name that is still the

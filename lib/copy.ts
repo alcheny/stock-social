@@ -32,6 +32,14 @@ export const SIGNIN = {
   devLink: 'Dev sign-in',
 } as const;
 
+// Security hardening (2026-11-01), F14: the emailed link opened in a browser other than the one that asked for it.
+export const EMAIL_CONFIRM = {
+  title: 'Continue signing in',
+  forAddress: (masked: string) => `This link signs in the account for ${masked}.`,
+  button: 'Continue signing in',
+  notYou: 'Not your address, or you did not ask for a link? Close this page.',
+} as const;
+
 // S2 trust notice. Only the integrated vendor is named (POLICY T1); every statement is one the vendor publishes itself.
 export const TRUST_NOTICE = {
   title: 'Before you connect',
