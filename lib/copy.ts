@@ -722,6 +722,17 @@ export const BILLING = {
 } as const;
 export { billingDate };
 
+// Fixes cycle 2 (trust rows, approval council 2026-11-01), fix #5 (POLICY P6/P3). The join card makes no claim about
+// what is public (the connect step lists it exactly); it says what stays private. Never "only percentages": the handle,
+// name, symbols, dates, broker name, open positions and published reasons are public too.
+export const PUBLIC_SHORT = {
+  join: 'Read-only broker connection. Sizes, prices and balances stay private. 18+.',
+  // The owner's share prompt: built from lib/privacy-fields.ts PUBLIC_FIELDS (one list, no hand-kept copy), plus the
+  // profile's own fields and the trader's published reasons.
+  sharePrompt: (fieldWords: string[]) =>
+    `Public: your handle, display name, any reasons you publish, ${fieldWords.slice(0, -1).join(', ')}, and ${fieldWords.at(-1)}. Losses are included. Never sizes, prices or balances. Your broker login stays private.`,
+};
+
 // ---- F-19 · What's-this line (first slice: the constant and its test, lib/range-note.f19.test.ts). The range printed
 // beside an average is the arithmetic range of the average per trade (lib/record-card.ts#cardEvidence), not the spread
 // of single trades.
