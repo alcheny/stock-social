@@ -159,8 +159,15 @@ Each one testable; the pipeline writes a test for every line.
 - Per-trade cards (`/u/[handle]/trade`) keep their own design; this file is the record card.
 
 ## Open questions
-- Later depth: which per-trade elements, and whether they appear on the record card or only on
-  per-trade cards.
+- Later depth (per-trade cards): decided 2026-11-01 by the idea board in `docs/IDEAS.md` → Decisions, since
+  per-trade cards are out of this file's scope.
+- Idea board 2026-11-01 (idea 10): a running sum grows with trade count (400 trades at +0.5% outdraw 20 at +2.5%),
+  rewarding frequency. Proposed: a 5-second test with 10 people outside finance before the rebuild ships; if most
+  read the end point as account growth, choose the running average with its range, or the sum with no end value
+  and the axis label "trade returns added up, not account growth". CH-1 needs amending either way.
+- Idea board 2026-11-01 (idea 10): with open positions the span runs to today (TR-9); proposed new card elements:
+  "Last trade ‹month year›" when idle over 30 days, "Disconnected ‹date›", handle and short profile URL; preview
+  text carries "Imported read-only from the broker", a short disclaimer and a /how link.
 - 2026-11-01 (business lead, user test): the profile chart still compounds ("Return if every trade were the same size")
   while the card draws the running sum; whether the profile chart moves to the running sum is for the owner (F-6 or a
   profile follow-up). The numbers never contradict: the card prints no end value.

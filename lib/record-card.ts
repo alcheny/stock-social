@@ -13,6 +13,7 @@ import { DISCLAIMER } from './share.ts';
 import { confidence, headline, isNewRecord, pct, type Confidence, type ConfidenceInput, type Tier } from './trades.ts';
 import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, trustSign, type Span, type SpanUnit } from './confidence.ts';
 import { arithmeticRange } from './bets.ts';
+import { openSummary, tone, type Tone } from './open-split.ts';
 import { downsampleIndices } from './downsample.ts';
 import { pathD } from './chart-series.ts';
 import { siteUrl } from './ticker.ts';
@@ -145,24 +146,23 @@ export type CardInput = {
 };
 
 // F-6 on the card (committee 2026-11-01): the open positions in words, percent only, no symbols, no combined figure and
-// no average (a number no account has, lib/positions.ts). Up/down/flat follow the printed one-decimal value; the
-// lowest comes first so a held loser is never hidden; one position, or all printed alike, reads "at x%".
+// no average on the card (the profile carries F-6's average; the card names the lowest and highest instead). Counts
+// and tones are F-6's own (lib/open-split.ts), so the card and the profile count alike; the lowest comes first so a
+// held loser is never hidden; one position, or all printed alike, reads "at x%".
 export type CardOpen = {
   count: number; up: number; down: number; flat: number;
   low: string; high: string; lowTone: Tone; highTone: Tone;
-  title: string; shortTitle: string; // "Still open: 3 positions" / "3 still open"
+  title: string; shortTitle: string; // "Still open: 3 positions" / "3 open, unrealized"
   split: string; spread: string;
   full: string; // "Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%"
-  short: string; // the link preview's form: "3 still open · 2 up, 1 down · lowest -8.0%, highest +12.1%"
+  short: string; // the link preview's form: "3 open, unrealized · 2 up, 1 down · lowest -8.0%, highest +12.1%"
   note: string;
 };
-type Tone = 'up' | 'down' | 'flat';
-const toneOf = (x: number): Tone => { const v = Number((x * 100).toFixed(1)); return v > 0 ? 'up' : v < 0 ? 'down' : 'flat'; };
 export function cardOpen(pcts: number[]): CardOpen | null {
+  const sum = openSummary(pcts);
+  if (!sum) return null;
   const xs = pcts.filter(Number.isFinite);
-  if (!xs.length) return null;
-  const tones = xs.map(toneOf);
-  const up = tones.filter((t) => t === 'up').length, down = tones.filter((t) => t === 'down').length, flat = xs.length - up - down;
+  const { up, down, flat } = sum;
   const lo = Math.min(...xs), hi = Math.max(...xs);
   const low = pct(lo), high = pct(hi);
   // One position needs no up/down count: "Still open: 1 position · at -8.0%" (UX test 2026-11-01).
@@ -170,7 +170,7 @@ export function cardOpen(pcts: number[]): CardOpen | null {
   const spread = low === high ? `at ${low}` : `lowest ${low}, highest ${high}`;
   const join = (title: string) => [title, split, spread].filter(Boolean).join(' · ');
   return {
-    count: xs.length, up, down, flat, low, high, lowTone: toneOf(lo), highTone: toneOf(hi),
+    count: xs.length, up, down, flat, low, high, lowTone: tone(lo), highTone: tone(hi),
     title: SHARE_CARD.openFull(xs.length), shortTitle: SHARE_CARD.openShort(xs.length), split, spread,
     full: join(SHARE_CARD.openFull(xs.length)), short: join(SHARE_CARD.openShort(xs.length)), note: SHARE_CARD.openNote,
   };
@@ -226,11 +226,11 @@ export function recordCard(i: CardInput): CardModel {
   const t = imageTrust('profile', { state: i.state, demo: i.demo, verified: i.verified, empty: n === 0 });
   const fallback = n === 0 && i.state === 'none' ? SHARE_CARD.noBroker : SHARE_CARD.notVerified;
   const label = i.demo ? SHARE_CARD.demoImage : (t.label ?? fallback);
-  const tone: CardTone = i.demo ? 'demo' : t.label ? t.tone : 'muted';
+  const badgeTone: CardTone = i.demo ? 'demo' : t.label ? t.tone : 'muted';
   const body = !t.stats ? SHARE_CARD.importingBody : n === 0 ? SHARE_CARD.empty : null;
   const name = !i.name || i.name === i.handle ? `@${i.handle}` : i.name;
   const card: CardModel = {
-    kind: i.kind, name, handle: i.handle, label, tone, note: t.note, body,
+    kind: i.kind, name, handle: i.handle, label, tone: badgeTone, note: t.note, body,
     headline: null, headlineTone: null, headlineLabel: null, range: null, count: null, countValue: null, countNote: null,
     period: null, periodSince: null, periodLength: null, evidence: null,
     newRecord: false, trust: null, caption: null, link: i.kind === 'unfurl' ? null : i.link, disclaimer: DISCLAIMER, chart: null,
@@ -255,7 +255,7 @@ export function recordCard(i: CardInput): CardModel {
   return {
     ...card,
     headline: pct(avg),
-    headlineTone: toneOf(avg),
+    headlineTone: tone(avg),
     headlineLabel: card.open ? SHARE_CARD.perClosedTrade : SHARE_CARD.perTrade,
     range: c.perTrade ? SHARE_CARD.likely(pct(c.perTrade.low), pct(c.perTrade.high)) : null,
     count: `${countValue} · ${SHARE_CARD.lossesIncluded}`, countValue, countNote: SHARE_CARD.lossesIncluded,
@@ -290,10 +290,11 @@ export function cardAlt(m: CardModel): string {
 
 // F-4 (2026-11-01): the text under the link preview matches the card: the average per trade with its range, the
 // period and the evidence label (the closed-trade count comes first, from the profile's own wording), and no win rate
-// (on its own it can look good while the average is negative). F-6: the open positions in words when there are any.
-// null when the card shows no figures (empty or importing: the profile's own words stand alone).
-export function cardDescription(m: CardModel): string | null {
-  const open = m.open ? ` · ${m.open.full}` : '';
-  if (m.body !== null) return open ? open.slice(3) : null;
-  return `${m.headline} ${m.headlineLabel}${m.range ? `, ${m.range}` : ''} · ${m.period} · ${m.evidence}${open}`;
+// (on its own it can look good while the average is negative). F-6: the open positions follow in F-6's one wording
+// for text (`openLine`, lib/copy.ts OPEN.line: the profile and the feed say it the same way); the picture names the
+// lowest and highest instead. null when the card shows no closed-trade figures (empty or importing: the profile's own
+// words stand alone, F-6 / PR-2b).
+export function cardDescription(m: CardModel, openLine: string | null = null): string | null {
+  if (m.body !== null) return null;
+  return `${m.headline} ${m.headlineLabel}${m.range ? `, ${m.range}` : ''} · ${m.period} · ${m.evidence}${m.open && openLine ? ` · ${openLine}` : ''}`;
 }

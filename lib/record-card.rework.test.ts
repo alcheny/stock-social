@@ -119,7 +119,10 @@ test('F-4 2026-11-01 (preview text): matches the card (average with range, perio
   }
   assert.equal(cardDescription(card(R.modUp)), `${pct(headline(R.modUp).avgReturn)} average per trade, ${card(R.modUp).range} · Record since Jan 2025 · 6 months · Evidence: moderate`);
   assert.equal(cardDescription(card([])), null);
-  assert.equal(cardDescription(card([], { open: OPEN.mixed })), 'Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%');
+  // No closes: no figures in the text (the picture shows the open positions); with closes, F-6's line follows.
+  assert.equal(cardDescription(card([], { open: OPEN.mixed }), '3 open positions · …'), null);
+  assert.match(cardDescription(card(R.modUp, { open: OPEN.mixed }), 'F6 LINE')!, / · Evidence: moderate · F6 LINE$/);
+  assert.doesNotMatch(cardDescription(card(R.modUp), 'F6 LINE')!, /F6 LINE/); // only when the card has open positions
   // The page's description is built from this (e2e/share-card.spec.ts checks the served text and its disclaimer).
 });
 

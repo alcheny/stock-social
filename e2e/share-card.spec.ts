@@ -140,9 +140,11 @@ test('F-4 rework: the link-preview text matches the card, with open positions, a
   expect(win).toMatch(/[+-]\d+\.\d% average per trade, likely between [+-]\d+\.\d% and [+-]\d+\.\d% · Record since \w{3} \d{4} · \d+ \w+ · Evidence: \w+/);
   const mixed = await description(handle('open_mixed'));
   expect(mixed).toContain('average per closed trade');
-  expect(mixed).toContain('Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%');
+  // F-6's one wording for open positions in text, after the closed-trade figures, then the disclaimer.
+  expect(mixed).toMatch(/Evidence: \w+ · 3 open positions · 2\sup, 1\sdown · \+2\.5% avg unrealized\. Not investment advice\./); // \s: F-6's no-break spaces
   expect(mixed).not.toMatch(/\bO\d\b/); // no symbol
-  expect(await description(handle('open_only'))).toContain('Still open: 3 positions');
+  // No closes: the empty-record line alone (F-6 / PR-2b); the picture still shows the open positions.
+  expect(await description(handle('open_only'))).not.toMatch(/%/);
   // The demo record: the profile's evidence line and the card (its words under the preview) give the same days.
   const demo = await description('momentum_maya');
   const cardDays = demo.match(/ · (\d+) days · Evidence/)?.[1];

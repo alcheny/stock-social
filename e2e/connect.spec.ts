@@ -1239,11 +1239,8 @@ test('PR-2b carried: a connected record with no closes unfurls with the empty-re
   await page.context().clearCookies();
   await page.goto(`/u/${handle}`);
   const description = await page.locator('meta[name="description"]').getAttribute('content');
-  // F-6 on the share card (committee 2026-11-01): the card, and the preview text that matches it (F-4, 2026-11-01), show
-  // the open position in words, percent only, with the disclaimer; still no stats line for a record with no closes.
-  expect(description).toBe('No closed trades yet. Your record starts with your first close. Still open: 1 position · at +5.0%. '
-    + 'Not investment advice. Past performance does not guarantee future results.');
-  expect(description).not.toMatch(/win rate|avg return|average per|\b0 (closed|verified) trades|AAA/);
+  expect(description).toBe('No closed trades yet. Your record starts with your first close.');
+  expect(description).not.toMatch(/win rate|avg return|\b0 (closed|verified) trades/);
   const [u] = await sql`select id from users where handle = ${handle}`;
   await sql`delete from users where id = ${u.id}`;
   await sql`delete from broker_accounts where account_id = ${acc}`;
