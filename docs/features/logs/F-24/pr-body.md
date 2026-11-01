@@ -15,10 +15,13 @@ Feature: `docs/features/F-24-late-sell-reconciliation.md` (now `Status: built`).
 - **Re-issues (D5):** a newly stored row whose account, symbol, side, time, units and price equal a row stored before
   the transaction is held in a side table, `activity_reissues` (pending, genuine or suspected). Activities stay raw, and
   the rebuild leaves out every held row.
-  - Genuine: one vendor response (one pass page or one week read) listed the row and every unheld twin. That is final.
-  - Suspected: what a complete pass leaves pending.
-  - Rows that arrive together are never held.
-  - `importStep` checks each page together with the account's previous import page.
+  - Genuine: one vendor response (one pass page, one week read or one import page) listed the row and every unheld
+    twin. That is final.
+  - Confirm: a complete pass listed the row and its twins, but never on one page. The account's next daily read is
+    widened to the twins' trade date (one call, inside F-14's budget), and it decides.
+  - Suspected: what no single read could clear. Held and counted; a later pass can re-examine it.
+  - Rows that arrive together are never held. Import pages overlap by up to 50 rows, so neighbouring twins share a
+    page.
 - **Complete pass:**
   - Each later page overlaps the previous one by 50 rows, and exactly 50 shared vendor ids must come back.
   - Every listable row stored before the pass must be listed, except held rows and their twins.
@@ -50,13 +53,15 @@ reviewer; 3 planning rounds, all signed):
 
 ## Testing
 - `npx tsc --noEmit`: clean.
-- `npm test`, run twice on the final tree (after the orchestrator review fixes and main merged): 2001 tests.
-  - The only code-unrelated misses: the existing owner TODO, H4, and the likes timing check (`lib/likes.test.ts`,
-    "well under 100 ms"). That check measured 111–167 ms in this freshly restarted container and also misses on a fresh
-    database. This PR does not touch likes.
+- `npm test`, run twice on the final tree (after both orchestrator reviews, with main at 63f48f4 merged): 2197 tests.
+  - First run: 0 failures.
+  - Second run: the only miss was main's likes heavy check (`lib/likes.test.ts`, deep vs shallow page time). It also
+    fails intermittently on a fresh database with main's own code here, and this PR does not touch likes.
+  - The existing owner TODOs (H4, F-20 OQ-2) show as "not ok" in both runs.
 - New tests:
   - `lib/sync-reconcile.db.test.ts`: AC1–AC4, including AC1 over the vendor fake through the real `lib/broker.ts`.
-  - `.reissue.test.ts`: AC6 (a)–(l).
+  - `.reissue.test.ts`: AC6 (a)–(n).
+  - `.confirm.test.ts`: committee option C and the reviewer's R1/R2 (each failing on dc08182).
   - `.log.test.ts`: AC5 and the log shapes.
   - `.copy.test.ts`: AC7, rendering the real Profile, TradePage and TradeCard.
   - `.review.test.ts`: code-review regressions; each one fails on the pre-fix commit.
@@ -68,7 +73,8 @@ reviewer; 3 planning rounds, all signed):
 - `npm run build`: ok.
 - Full `npx playwright test` (one worker) on a fresh seeded database:
   - before the review fixes: 291 passed, 6 skipped, 0 failed;
-  - on the final tree, after the orchestrator review fixes: 291 passed, 6 skipped, 0 failed.
+  - after the first orchestrator review: 291 passed, 6 skipped, 0 failed;
+  - on the final tree (both reviews, main at 63f48f4 merged): 314 passed, 6 skipped, 0 failed.
 - Heavy use, per the tester: about 20–40 ms more per sync for a trader with 5,000 activities, within run-to-run noise
   next to the rebuild.
 
@@ -106,6 +112,14 @@ reviewer; 3 planning rounds, all signed):
   (`recordPage`). The fix needs `lib/broker.ts`.
 - A trader whose every connection is frozen keeps a running pass's ids (`dropUnread`).
 - The close snapshot is taken on every rebuild, not gated (`rebuildRecord`).
+- Only the cadence sync makes the widened confirm read: under `syncTick` a `confirm` row stays held until a cadence sync
+  (`confirmFrom`).
+- The widened read pages internally by 1,000 rows with no overlap, so a list shift inside that call can leave a genuine
+  row suspected until the next pass (`lib/sync.ts`; the fix needs `lib/broker.ts`).
+- The budget charge for a widened read applies even on a day the account isn't due, so it runs high, never low
+  (`dueRequestsSql`).
+- "Twins sorted by trade date are neighbours" is an unverified vendor assumption (`recordPage`). The confirm read is
+  correct either way.
 
 ## Orchestrator review fixes
 - **Blocking:** a pair is genuine only when ONE vendor response lists both rows. Before, a pass's union of pages could
@@ -117,12 +131,27 @@ reviewer; 3 planning rounds, all signed):
   - A pass needs a page limit above the overlap (`passPageLimitOk`).
   - The compliance note above is precise.
 
+- **Second review (BLOCK on dc08182):**
+  - F1: the import's previous-page union could join a re-issue across a backoff of an hour or more. Fix: import pages
+    overlap and are checked one at a time; `imported_count` counts new rows only. Test: R1, four variants.
+  - F2: the committee chose option C, recorded in the feature file and the committee log. A genuine identical fill
+    listed far from its twin is no longer held forever (R2), at no request beyond F-14's caps.
+  - F3: the first full read is checked page by page.
+  - Found while re-running the suites: "rows stored by this transaction" is now its transaction id (`xmin`), not
+    `created_at = now()`. Two concurrent import steps could start in the same microsecond, so one could count the
+    other's rows as its own, in the twin check and in the import count. The import concurrency test caught it.
+  - Since #85 split the trade page's figures and note into two sections, the AC7 checks cover both.
+
 ## Owner items
 - Confirm that held rows (pending or suspected) are kept out of the record and counted for the owner only, so a held
   genuine fill can be absent until its pass decides it (D5's trade-off). See the owner queries in `docs/SYNC.md`.
 - AC6 is built for share rows: a re-issued option close can show twice until you decide to hold option twins too.
 - The symbol-less row limit needs a `lib/broker.ts` change (raw vendor ids per page).
 - CLAUDE.md "Sync paths" (protected) could mention the weekly full-history pass.
+- A true re-issue whose original the vendor still lists in one read is published twice (D5's own "lists both" rule)
+  until the corrections question (cycle-3 Q3) is decided.
+- Vendor question: the activities list order, its stability across offsets, and what `startDate` filters on (feature
+  file Open questions).
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
