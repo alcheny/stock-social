@@ -127,6 +127,49 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
   automated. Why: decided by the committee under the owner's instruction of 2026-11-01; every automated test run and
   scripted browser would otherwise add a request to every page (the full e2e suite's request-counting tests caught it),
   and such a browser is never a person's view.
+- 2026-11-01: Second half: share_action rows: one row per completed share of a trader's own record, holding the trader
+  id, the UTC day (no time of day, no id column), the share class (card, story, trade, month), the outcome (sheet or
+  copy) and the record's headline sign at that moment (up, down, flat, none); at most 20 a trader a UTC day, counted
+  under an advisory lock. Why: decided by the committee under the owner's instruction of 2026-11-01; a day-only row
+  holds what a daily total holds (the aggregate bar) while meeting "one row per share action"; G2 needs only "at least
+  once", so the cap never moves a gate figure.
+- 2026-11-01: Second half: No format column: the picture format is the story class (story = profile picture; card =
+  profile link; trade and month are links). Why: decided by the committee under the owner's instruction of 2026-11-01; a
+  field that is a function of another adds data without information (POLICY P3, minimum).
+- 2026-11-01: Second half: Owner only: the server action writes a row only when the shared path is one of the three
+  record routes and its handle is the signed-in, non-deleted, non-demo user's own; a viewer's share of someone else's
+  record is never stored and the client sends nothing for it. Why: decided by the committee under the owner's
+  instruction of 2026-11-01; a viewer's share would tie a viewer to a trader (POLICY P3) and is F-2's opt-in log
+  territory; G2 counts traders only.
+- 2026-11-01: Second half: Record sign: computed on the server from the same rows the profile's headline reads (every
+  closed trade, one decimal), none while the profile shows no headline (no close, import running or failed). Why:
+  decided by the committee under the owner's instruction of 2026-11-01; E5's "record sign at that moment", never sent by
+  the client; a db test pins it to the profile's own stats and tone.
+- 2026-11-01: Second half: Old columns: the four users share columns stay and are written exactly as before (a month
+  share never sets trade_shared_at); the readout reads the new rows and not the old columns, and prints that shares
+  before the rows began are not counted. Why: decided by the committee under the owner's instruction of 2026-11-01; the
+  owner's additive rule; the old columns can't say "at least once" reliably (trade_shared_at is overwritten).
+- 2026-11-01: Second half: Retention: share_action rows are purged after 120 days by a `shares` step in the existing
+  privacy purge and deleted with the account (explicit delete in the mark transaction, then the cascade). Why: decided
+  by the committee under the owner's instruction of 2026-11-01; one number with the view rollup for the Privacy Policy;
+  covers the 8-week window plus re-reads.
+- 2026-11-01: Second half: G2 readout: the strict row is strict-G1 traders with at least one card or story share, beside
+  "≥ 60%"; partial rows (any surface, sheet, copy, picture, shared while down) count traders; all are built from
+  disjoint per-trader cells with the readout's suppression so no count under 5 is derivable across rows or against G1;
+  the 14-day cohort rate is not printed (MRC2-3); no date of the first share is printed. Why: decided by the committee
+  under the owner's instruction of 2026-11-01; the strict DESIGN number first (MRC2-3 stays the owner's); POLICY P3
+  small-count rule; a printed first-share date would say a trader shared that day.
+- 2026-11-01: Second half: lib/display-log.ts is not changed. Why: decided by the committee under the owner's
+  instruction of 2026-11-01; the approval record names it only as a file the share half would have collided with while
+  F-4 and F-13 were open (sequencing); the sign is read live, "at that moment"; raised for the owner.
+- 2026-11-01: Second half: The beacon moves into app/layout.tsx (last in the body after the page content) and
+  app/template.tsx is deleted. Why: decided by the committee under the owner's instruction of 2026-11-01; F-13 has
+  merged; a persistent layout keeps one beacon per pathname and removes the root template's remounts.
+- 2026-11-01: Second half: Canonical links: the layout sets metadataBase from the configured public origin (lib/site.ts,
+  which billing re-exports unchanged) and the profile, trade and month pages declare their untagged address; the trade
+  page's canonical and Share link come from one helper over the matched sell id; og:url is not set. Why: decided by the
+  committee under the owner's instruction of 2026-11-01; a shared ?via= copy is never indexed as its own page; og:url
+  would make some previews drop the source class.
 
 ## Acceptance criteria
 - [x] A db test inserts rollup rows for a profile, calls `deleteProfile` and finds no row naming that user or handle.
@@ -159,8 +202,7 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
 - [x] Share and copy-link append the right `?via=` class and stay one tap. "Link copied" is announced in a polite live
       region after the change (e2e).
 - [x] Nav, invite and path codes are accepted by the registry (unit test).
-- [ ] `share_action` rows: one row per share action, deleted with the profile, no thesis text or account id (db test).
-      (Not in the first build: waits for F-13, per the start condition; G2 reads "after the share_action slice".)
+- [x] `share_action` rows: one row per share action, deleted with the profile, no thesis text or account id (db test).
 - [x] The beacon component does not touch `app/layout.tsx` before F-13 merges (checked at review).
 - [x] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
@@ -173,6 +215,8 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
 - The Privacy Policy text: owner.
 
 ## Open questions
+- Owner: confirm that `lib/display-log.ts` needs no change for the share_action half (second-half decision).
+- Owner: confirm the 120-day bound and the cap of 20 shares a trader a day for share_action rows.
 - Owner: confirm the committee's reading of the rename criterion (counts stay with the renamed account's id; none
   under the new holder of the handle, none under handle text).
 - Owner: rule on MRC2-3 (gate definitions). Until then the readout reports strict DESIGN numbers and labels anything
