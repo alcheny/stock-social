@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { DISCLAIMER } from './share.ts';
 import { evidenceRangeText, cardEvidence } from './record-card.ts';
 import { headline } from './trades.ts';
-import { DISCLAIMER_LINES, layoutBand, lineWidth, recordStrip, SQUARE_CROP, STRIP_BAND, stripImageLines, type ImageLine } from './record-strip.ts';
+import { DISCLAIMER_LINES, layoutBand, lineWidth, recordStrip, SQUARE_CROP, STRIP_BAND, stripImageLines, stripTextAfterCount, type ImageLine } from './record-strip.ts';
 import { tradeAlt, tradeDescription, tradeHero, tradeSharePayload, tradeStripInput, type TradeView } from './trade-share.ts';
 import { monthAlt, monthDescription, monthRecap, monthStripInput, recordStripInput, wholeRecord, type RecapTrade, type RecapView } from './recap.ts';
 import { monthBand, monthCard } from './month-card.ts';
@@ -135,7 +135,9 @@ test('F-12 AC5 / #44: no win rate, verdict or completeness words in alt or metad
         assert.ok(!/%/.test(monthDescription(r, w).replace(/^\d+ closed trades? this month · /, '')));
       } else {
         assert.ok(tradeDescription(v, ts).endsWith(DISCLAIMER));
-        assert.ok(tradeDescription(v, ts).includes(ts.text));
+        // The figures after the count, and the count said once (wholeRecordPreview leads with it).
+        assert.ok(tradeDescription(v, ts).includes(stripTextAfterCount(ts)));
+        assert.equal(tradeDescription(v, ts).match(/\d+ (verified |demo |closed )?trades?\b/g)?.length ?? 0, 1, tradeDescription(v, ts));
       }
     }
   }

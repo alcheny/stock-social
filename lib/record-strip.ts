@@ -198,3 +198,10 @@ export function layoutBand(lines: ImageLine[]): { lines: ImageLine[]; fits: bool
   const placed = ls.map((l) => { const p = { ...l, y }; y += l.size * STRIP_BAND.lineHeight + gap; return p; });
   return { lines: placed, fits: h(ls, gap) <= room, tooWide: ls.filter((l) => lineWidth(l) > STRIP_BAND.width).map((l) => l.text) };
 }
+
+// The figures as one line without the count, for a sentence that already leads with it (wholeRecordPreview's
+// recordCountText): "+0.9% average per trade (…) · 95% range · losses included".
+export function stripTextAfterCount(s: Strip): string {
+  const rest = s.figures.filter((p) => p.role !== 'count');
+  return rest.map((p, k) => (k === 0 ? '' : p.sep) + p.text).join('');
+}

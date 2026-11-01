@@ -182,6 +182,9 @@ async function records1(userIds: number[]): Promise<PaneRow[]> {
     from closed_trades where user_id = any(${userIds}) group by user_id`;
   // F-10: opened_at is the 8th field, and the rows come in the profile's list order (closed_at desc, id desc), so the
   // strip's average and range are summed in the profile's order: the same floats, not just the same text.
+  // ponytail: every page trader's whole record now also ships opened_at (~15–30 ms more parse on a page of heavy records,
+  // docs/features/logs/F-10/load-2026-11-01.md) — fix: send only the strip figures (n, k, avg, range) per trader, cached by
+  // (rows, max id) like weightCache, once the pane no longer needs every row.
   const out: PaneRow[] = [];
   for (const r of rows) {
     const a = JSON.parse(r.j as string) as (string | number | null)[];

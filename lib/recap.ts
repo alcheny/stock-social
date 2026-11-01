@@ -1,6 +1,6 @@
 // Pure monthly recap. Keeps each closed trade in the UTC month; no sizes or prices exist here and nothing varies by sign.
 import { confidence, evidenceLine, isNewRecord, rangeText, stats, type ConfidenceInput } from './trades.ts';
-import { stripFigures, type Strip, type StripInput } from './record-strip.ts';
+import { stripFigures, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
 import { RECORD_STRIP, wholeRecordPreview, type RecordState } from './copy.ts';
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
@@ -83,7 +83,7 @@ export function monthAlt(r: RecapView, whole: Strip, month: Strip): string {
 // Link-preview description: the month's count, then the record under the profile's record-state rule, with the strip's
 // figures as its stats and the disclaimer whenever a figure is quoted (POLICY F3).
 export function monthDescription(r: RecapView, whole: Strip): string {
-  const rec = wholeRecordPreview({ state: r.state, demo: r.demo, verified: r.verified, trades: r.record.trades }, whole.text);
+  const rec = wholeRecordPreview({ state: r.state, demo: r.demo, verified: r.verified, trades: r.record.trades }, stripTextAfterCount(whole));
   const base = `${monthCountText(r.recap.count)} · ${RECORD_STRIP.link(r.handle)}: ${rec}`;
   return whole.importing ? base : `${base}. ${DISCLAIMER}`;
 }

@@ -1,6 +1,6 @@
 // Pure payload for the trade permalink page and card. No sizes or prices exist here, and nothing varies by sign.
 import { confidence, evidenceLine, isNewRecord, pct, rangeText, stats, type ConfidenceInput } from './trades.ts';
-import { fitPx, STRIP_BAND, stripFigures, type ImageLine, type Strip, type StripInput } from './record-strip.ts';
+import { fitPx, STRIP_BAND, stripFigures, type ImageLine, type Strip, type StripInput, stripTextAfterCount } from './record-strip.ts';
 import { wholeRecordPreview, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 
@@ -68,6 +68,6 @@ export const tradeAlt = (t: TradeView, strip: Strip) => `Closed trade ${t.symbol
 // Link-preview description: the profile's record-state rule (wholeRecordPreview), the strip's figures as its stats,
 // and the disclaimer whenever a figure is quoted (POLICY F3).
 export function tradeDescription(t: TradeView, strip: Strip): string {
-  const base = wholeRecordPreview({ state: t.state, demo: t.demo, verified: t.verified, trades: t.record.trades }, strip.text);
+  const base = wholeRecordPreview({ state: t.state, demo: t.demo, verified: t.verified, trades: t.record.trades }, stripTextAfterCount(strip));
   return strip.importing ? base : `${base}. ${DISCLAIMER}`;
 }
