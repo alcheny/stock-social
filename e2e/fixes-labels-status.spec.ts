@@ -84,7 +84,7 @@ async function narrow(page: Page) {
   await expect(page.locator('footer#site-footer')).toContainText(DISCLAIMER);
 }
 
-test('F-11 frozen record: the profile says "Disconnected ‹date› · record frozen" and never "Connected"; last close only; trades stay listed', async ({ page }) => {
+test('F-11 frozen record: the profile says "Disconnected (date) · record frozen" and never "Connected"; last close only; trades stay listed', async ({ page }) => {
   await page.goto('/u/fls_frozen');
   const block = page.locator('.record-status-block');
   const line1 = block.locator('[data-status="line1"]');
@@ -101,7 +101,7 @@ test('F-11 frozen record: the profile says "Disconnected ‹date› · record fr
   await narrow(page);
 });
 
-test('F-11 frozen record: the pane (JSON and the feed\'s server-rendered pane) and the feed card carry the frozen line in absolute dates; a live, fresh card shows no status line; an idle card says "Not updated since ‹date›"', async ({ browser, request }) => {
+test('F-11 frozen record: the pane (JSON and the feed\'s server-rendered pane) and the feed card carry the frozen line in absolute dates; a live, fresh card shows no status line; an idle card says "Not updated since (date)"', async ({ browser, request }) => {
   test.setTimeout(test.info().timeout + 60_000);
   const json = await (await request.get('/u/fls_frozen/pane')).json();
   const paneText = (json.status as { text: string }[]).map((s) => s.text).join('');
@@ -167,7 +167,7 @@ test('F-11 frozen record: the trade and month pages say so first in "Their whole
   }
 });
 
-test('F-11 two accounts, one removed: "Account 1 of 2 · ‹inst›" and "Account 2 of 2 removed ‹date›" (QA round 2 N8); line 2 "Last close ‹date› · updated ‹relative›" in <time datetime>', async ({ page }) => {
+test('F-11 two accounts, one removed: "Account 1 of 2 · (inst)" and "Account 2 of 2 removed (date)" (QA round 2 N8); line 2 "Last close (date) · updated (relative)" in <time datetime>', async ({ page }) => {
   await page.goto('/u/fls_two');
   const block = page.locator('.record-status-block');
   // QA round 1 (finding 6): the Connected count is the live (not removed) accounts.
@@ -191,7 +191,7 @@ test('F-11 two accounts, one removed: "Account 1 of 2 · ‹inst›" and "Accoun
   await narrow(page);
 });
 
-test('QA round 2 (N7, N8): every account removed: "No account connected since ‹date› · record frozen" on the profile, the pane and the trade page; never "Connected", "(0 accounts)" or "updated"; each date glued to its word', async ({ page, request }) => {
+test('QA round 2 (N7, N8): every account removed: "No account connected since (date) · record frozen" on the profile, the pane and the trade page; never "Connected", "(0 accounts)" or "updated"; each date glued to its word', async ({ page, request }) => {
   const gone = `No account connected since ${dateText(REMOVED, now(), { year: 'always' })} · record frozen`;
   await page.goto('/u/fls_gone');
   const block = page.locator('.record-status-block');
