@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { Sql } from 'postgres';
+import type { PendingQuery, Row, Sql } from 'postgres';
 import { INVITE_VIAS, VIA_NONE, isViewVia } from '../lib/referral.ts';
 import { DROP_REASONS, SURFACES } from '../lib/views.ts';
 
@@ -29,13 +29,17 @@ export const G3_OWNER_LINE = "Signed-out owner views can't be told from other vi
 export const RECONCILE_LINE = 'Three weekly totals, read together: the G3 strict row counts profile views from external referrers only; the surface × via "all" row and the drops table "counted views" row are the same number, every counted surface and every referrer class (external, internal, none); all three exclude self-views and demo profiles, while the drop counts include demo profiles.';
 export const DELETION_LINE = "Deleting a trader removes that trader's rows, so past sums can change between runs, and two runs around a deletion can reveal that trader's counts; a connect, a disconnect or a deletion between runs can also reveal one trader's share status (G1, G2): compare runs only with that in mind.";
 export const G4_TEXT = "strict G4 can't be read in this slice; signed-out D7 return is not measured";
+// Cycle 4 F4-12 (C4-20): F-15 decided invite codes are counted on views and outreach links point at Demo profiles, so
+// Demo-target invite views are counted in the invite rows only (same base cells, same suppression as every other row).
+export const DEMO_INVITE_LINE = 'Invite links point at Demo profiles (F-15 decision, 2026-11-01), so invite views of Demo profiles are counted in the invite links row and the "invite landings on Demo profiles" row, and nowhere else; the same small-cell rules apply to both rows.';
 
 // ---- input ----
-// rollup: view_rollup summed over user_id, demo and deleted targets already excluded by the query. drops: view_drops.
+// rollup: view_rollup summed over user_id, deleted targets excluded by the query; demo marks a Demo target (a demo
+// activity or a fictional fixture filer, loadRollup), counted only in the invite rows. drops: view_drops.
 // g1: strict = non-demo, non-deleted users with a connection in state 'connected'; partial = such users whose
 // connections exist but none is 'connected'. Only the fields named here are read; anything else on a row is ignored.
 export type Day = string | Date;
-export type RollupRow = { day: Day; surface: string; ref_class: string; via: string; self_view: boolean; n: number };
+export type RollupRow = { day: Day; surface: string; ref_class: string; via: string; self_view: boolean; n: number; demo?: boolean };
 export type DropRow = { day: Day; surface: string; reason: string; n: number };
 export type ReadoutInput = { rollup: RollupRow[]; drops: DropRow[]; g1: { strict: number; partial: number }; g2: G2Input };
 
@@ -133,10 +137,12 @@ const table = (head: string[], rows: string[][]) =>
   [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
 const safeLabel = (s: string) => s.replace(/[^a-z0-9_]/gi, ''); // registry codes only; never free text
 
-// A view base key: surface | via | ref group (external or other). Self-views are never counted anywhere.
-type ViewKey = { surface: string; via: string; ext: boolean };
-const keyOf = (k: ViewKey) => `${k.surface}|${k.via}|${k.ext ? 'ext' : 'oth'}`;
-const parseKey = (key: string): ViewKey => { const [surface, via, e] = key.split('|'); return { surface, via, ext: e === 'ext' }; };
+// A view base key: surface | via | ref group (external or other) | target (trader or Demo). Self-views are never
+// counted anywhere; Demo-target keys exist only for invite vias and feed only the invite rows (F4-12).
+type ViewKey = { surface: string; via: string; ext: boolean; demo: boolean };
+const keyOf = (k: ViewKey) => `${k.surface}|${k.via}|${k.ext ? 'ext' : 'oth'}|${k.demo ? 'demo' : 'trader'}`;
+const parseKey = (key: string): ViewKey => { const [surface, via, e, t] = key.split('|'); return { surface, via, ext: e === 'ext', demo: t === 'demo' }; };
+const isInvite = (via: string) => (INVITE_VIAS as readonly string[]).includes(via);
 
 export function buildReadout(input: ReadoutInput, now: Date): string {
   const { mondays } = weekWindow(now);
@@ -149,10 +155,14 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
     if (!(SURFACES as readonly string[]).includes(r.surface) || r.self_view === true) continue;
     const w = weekIndex(mondays, r.day);
     if (w < 0) continue;
-    views.add(keyOf({ surface: r.surface, via: isViewVia(r.via) ? r.via : VIA_NONE, ext: r.ref_class === 'external' }), w, count(r.n));
+    const via = isViewVia(r.via) ? r.via : VIA_NONE, demo = r.demo === true;
+    if (demo && !isInvite(via)) continue; // a Demo profile view without an invite code is counted nowhere
+    views.add(keyOf({ surface: r.surface, via, ext: r.ref_class === 'external', demo }), w, count(r.n));
   }
   views.seal();
-  const select = (p: (k: ViewKey) => boolean) => views.keys().filter((k) => p(parseKey(k)));
+  // select: trader targets only (every row but the two invite rows); selectAny: Demo targets too.
+  const selectAny = (p: (k: ViewKey) => boolean) => views.keys().filter((k) => p(parseKey(k)));
+  const select = (p: (k: ViewKey) => boolean) => selectAny((k) => !k.demo && p(k));
   const at = (keys: string[], w: number): BaseRef[] => keys.map((key) => ({ key, w }));
   const allWeeks = (keys: string[]): BaseRef[] => keys.flatMap((key) => weeksIdx.map((w) => ({ key, w })));
 
@@ -163,7 +173,7 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
   out.push(`Weeks: the ${WEEKS} complete ISO weeks before this one; the current week is not printed, so a printed week does not change between runs.`);
   out.push(DELETION_LINE);
   out.push('Strict DESIGN §3.5 numbers come first; anything else is labelled partial (gate definitions: MRC2-3, owner).');
-  out.push('Demo profiles and self-views are excluded. "<5" = a count from 1 to 4; "(s)" = hidden so a small count can\'t be worked out; "≥ n" = a sum with hidden parts (n counts only the visible parts).');
+  out.push('Self-views are excluded everywhere; Demo profiles are excluded except in the two invite rows (see the G3 notes). "<5" = a count from 1 to 4; "(s)" = hidden so a small count can\'t be worked out; "≥ n" = a sum with hidden parts (n counts only the visible parts).');
   out.push('');
 
   // G1: two disjoint single counts, no total.
@@ -186,7 +196,8 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
     ['partial: tagged links, card', '', select((k) => k.via === 'card')],
     ['partial: tagged links, story', '', select((k) => k.via === 'story')],
     ['partial: tagged links, trade/month share', '', select((k) => tm(k.via) && k.surface !== 'login')],
-    ['partial: invite links (inv_*)', '', select((k) => (INVITE_VIAS as readonly string[]).includes(k.via))],
+    ['partial: invite links (inv_*)', '', selectAny((k) => isInvite(k.via))],
+    ['partial: invite landings on Demo profiles', '', selectAny((k) => k.demo && isInvite(k.via))],
     ['partial: nav/profile CTA links', '', select((k) => k.via === 'nav' || k.via === 'profile' || (tm(k.via) && k.surface === 'login'))],
     ['partial: trade surface, external referrer', '', select((k) => k.surface === 'trade' && k.ext)],
     ['partial: month surface, external referrer', '', select((k) => k.surface === 'month' && k.ext)],
@@ -198,6 +209,7 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
   out.push('');
   out.push(`All G3 rows count ${G3_LABEL}. The partial rows overlap and are not a split of the strict row.`);
   out.push(G3_OWNER_LINE);
+  out.push(DEMO_INVITE_LINE);
   out.push('');
 
   out.push('## G4');
@@ -213,7 +225,7 @@ export function buildReadout(input: ReadoutInput, now: Date): string {
     if ((DROP_REASONS as readonly string[]).includes(d.reason) && w >= 0) drops.add(d.reason, w, count(d.n));
   }
   drops.seal();
-  const allViews = views.keys();
+  const allViews = select(() => true); // trader targets only: Demo-target invite views are in the invite rows alone
   out.push('## Bot filter drops (all surfaces, demo profiles included)');
   out.push('');
   out.push(table(['Reason', ...weekHead, 'Total'], [
@@ -384,11 +396,31 @@ export async function loadG2(sql: Sql, to: string, retentionDays: number, onlyUs
     from users u
     left join share_action s on s.user_id = u.id and s.day <= ${to}::date and s.day >= ${to}::date - ${floor}::int
     where u.deleted_at is null
-      and not exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo')
+      and not ${demoUser(sql, sql`u.id`)}
       and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
       ${onlyUsers ? sql`and u.id = any(${onlyUsers}::int[])` : sql``}
     group by u.id`;
   return { traders: traders.map((t) => ({ card: t.card, story: t.story, record: t.record, sheet: t.sheet, copy: t.copy, down: t.down })), firstDay: null, retentionDays };
+}
+
+// Demo target (cycle 4 F4-11, C4-4): a user with a demo activity (lib/demo.ts) or a fictional fixture filer
+// (public_filers.demo, lib/public-import.ts), whose closed trades are written without any activity row.
+const demoUser = (sql: Sql, id: PendingQuery<Row[]>) => sql`(exists (select 1 from activities a where a.user_id = ${id} and a.source = 'demo')
+  or exists (select 1 from users du join public_filers pf on pf.id = du.public_filer_id where du.id = ${id} and pf.demo))`;
+
+// Rollup input from the database: user_id is summed away; no handle, name, id or return is selected. Deleted targets are
+// dropped; demo says the target is a Demo profile (buildReadout counts those in the invite rows only). onlyUsers narrows
+// the rows to those users' (db tests on a shared database read only their own rows).
+export async function loadRollup(sql: Sql, from: string, to: string, onlyUsers?: number[]): Promise<RollupRow[]> {
+  const rows = await sql<RollupRow[]>`
+    select to_char(r.day, 'YYYY-MM-DD') as day, r.surface, r.ref_class, r.via, r.self_view,
+           (r.user_id is not null and ${demoUser(sql, sql`r.user_id`)}) as demo, sum(r.n)::int as n
+    from view_rollup r left join users u on u.id = r.user_id
+    where r.day between ${from}::date and ${to}::date
+      and (r.user_id is null or u.deleted_at is null)
+      ${onlyUsers ? sql`and r.user_id = any(${onlyUsers}::int[])` : sql``}
+    group by 1, 2, 3, 4, 5, 6`;
+  return [...rows];
 }
 
 // ---- output guard ----
@@ -430,15 +462,7 @@ async function main() {
   const now = new Date();
   const { from, to } = weekWindow(now);
   try {
-    // Demo target = any activity with source 'demo' (lib/demo.ts). user_id is summed away; no handle, name, id or return
-    // is selected.
-    const rollup = await sql<RollupRow[]>`
-      select to_char(r.day, 'YYYY-MM-DD') as day, r.surface, r.ref_class, r.via, r.self_view, sum(r.n)::int as n
-      from view_rollup r left join users u on u.id = r.user_id
-      where r.day between ${from}::date and ${to}::date
-        and (r.user_id is null or (u.deleted_at is null
-          and not exists (select 1 from activities a where a.user_id = r.user_id and a.source = 'demo')))
-      group by r.day, r.surface, r.ref_class, r.via, r.self_view`;
+    const rollup = await loadRollup(sql, from, to);
     const drops = await sql<DropRow[]>`
       select to_char(day, 'YYYY-MM-DD') as day, surface, reason, sum(n)::int as n from view_drops
       where day between ${from}::date and ${to}::date group by day, surface, reason`;
@@ -449,11 +473,11 @@ async function main() {
       from (select u.id, bool_or(c.state = 'connected') as connected
             from users u join connections c on c.user_id = u.id
             where u.deleted_at is null
-              and not exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo')
+              and not ${demoUser(sql, sql`u.id`)}
             group by u.id) t`;
     // G1 strict is the G2 trader count itself, so the two can't disagree.
     const text = buildReadout({
-      rollup: [...rollup], drops: [...drops], g1: { strict: g2.traders.length, partial: g1?.partial ?? 0 }, g2,
+      rollup, drops: [...drops], g1: { strict: g2.traders.length, partial: g1?.partial ?? 0 }, g2,
     }, now);
     mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `f15-readout-${now.toISOString().slice(0, 10)}.md`);
