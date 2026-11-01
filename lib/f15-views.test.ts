@@ -8,7 +8,7 @@ import { MARKS } from '../scripts/compliance.ts';
 import { REF_CLASSES, botReason, parseBeacon, rateLimited, refClass, surfaceOf, RATE_MAX, type ViewKey } from './views.ts';
 import { handleBeacon, type BeaconDeps } from './views-route.ts';
 
-const UA = 'Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
+const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
 const hdrs = (o: Record<string, string | null> = {}) => {
   const base: Record<string, string | null> = { 'user-agent': UA, 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'cors', origin: 'http://app.test', host: 'app.test', ...o };
   const h = new Headers();
@@ -51,7 +51,7 @@ test('F-15 botReason: declared or non-browser agents, no fetch metadata at all, 
   assert.equal(botReason(hdrs(), false), null);
   for (const ua of ['', 'curl/8.0', 'SomeLinkPreview/1.0', 'Mozilla/5.0 (compatible; Examplebot/2.1; +http://x.example)',
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/130.0', 'Mozilla/5.0 (compatible; ExampleExternalHit/1.1)',
-    'Mozilla/5.0 (compatible; Some-Crawler/1.0)', 'Mozilla/5.0 (compatible; ExampleSpider)', 'Mozilla/5.0 (compatible; Embedly-like fetcher)', 'node-fetch/1.0', 'python-requests/2.31']) {
+    'Mozilla/5.0 (compatible; Some-Crawler/1.0)', 'Mozilla/5.0 (compatible; ExampleSpider)', 'Mozilla/5.0 (compatible; ExampleEmbedFetcher)', 'node-fetch/1.0', 'python-requests/2.31']) {
     assert.equal(botReason(hdrs({ 'user-agent': ua }), false), 'declared_bot', ua);
   }
   assert.equal(botReason(hdrs({ 'sec-fetch-site': null, origin: null }), false), 'no_fetch_metadata');
@@ -71,15 +71,15 @@ test('F-15 rate cap: an engaged reader (30 a minute) is never capped; a burst pa
   process.env.TRUST_PROXY_HEADERS = '1';
   try {
     const reader = hdrs({ 'x-forwarded-for': '203.0.113.7' });
-    for (let i = 0; i < 30; i++) assert.equal(rateLimited(reader, t0 + i * 2000), false, `beacon ${i}`);
+    for (let i = 0; i < 30; i++) assert.equal(rateLimited(reader, t0 + i * 2000), 'ok', `beacon ${i}`);
     const burst = hdrs({ 'x-forwarded-for': '203.0.113.8' });
-    const out = Array.from({ length: RATE_MAX + 1 }, () => rateLimited(burst, t0 + 5_000));
-    assert.equal(out.filter(Boolean).length, 1);
-    assert.equal(out.at(-1), true);
-    assert.equal(rateLimited(burst, t0 + 65_000), false); // the next minute
+    const out = Array.from({ length: RATE_MAX + 5 }, () => rateLimited(burst, t0 + 5_000));
+    assert.equal(out.filter((x) => x === 'ok').length, RATE_MAX);
+    assert.deepEqual(out.slice(RATE_MAX), ['first-over', 'over', 'over', 'over', 'over']);
+    assert.equal(rateLimited(burst, t0 + 65_000), 'ok'); // the next minute
     delete process.env.TRUST_PROXY_HEADERS;
     const anon = hdrs();
-    for (let i = 0; i < 100; i++) assert.equal(rateLimited(anon, t0 + 10_000), false, `anon ${i}`);
+    for (let i = 0; i < 100; i++) assert.equal(rateLimited(anon, t0 + 10_000), 'ok', `anon ${i}`);
   } finally {
     if (env === undefined) delete process.env.TRUST_PROXY_HEADERS; else process.env.TRUST_PROXY_HEADERS = env;
   }
@@ -91,7 +91,7 @@ const deps = (o: Partial<BeaconDeps> = {}, calls: Calls = { views: [], drops: []
   recordView: async (k) => { calls.views.push(k); },
   recordDrop: async (s, r) => { calls.drops.push([s, r]); },
   viewedUserId: async (t) => (t.handle === 'maya' ? 7 : null),
-  limited: () => false,
+  limited: () => 'ok',
   ...o,
 }, calls];
 const post = (body: unknown, h = hdrs()) => new Request('http://app.test/api/views', { method: 'POST', headers: h, body: typeof body === 'string' ? body : JSON.stringify(body) });
@@ -126,11 +126,23 @@ test('F-15 route: filtered beacons are counted as drops by surface and reason, n
   await handleBeacon(post({ path: '/u/maya', ref: 'external' }, hdrs({ 'user-agent': 'ExamplePreview/1.0' })), d);
   await handleBeacon(post({ path: '/', ref: 'none', auto: true }), d);
   await handleBeacon(post({ path: '/me', ref: 'none' }, hdrs({ 'sec-fetch-site': null, origin: null })), d);
-  const [dl, cl] = deps({ limited: () => true });
+  const [dl, cl] = deps({ limited: () => 'first-over' });
   await handleBeacon(post({ path: '/how', ref: 'none' }), dl);
+  const [dq, cq] = deps({ limited: () => 'over' });
+  assert.equal((await handleBeacon(post({ path: '/how', ref: 'none' }, hdrs({ 'user-agent': 'ExamplePreview/1.0' })), dq)).status, 204);
+  assert.deepEqual(cq, { views: [], drops: [] }); // past the first capped beacon in a minute: answered, not written
   assert.deepEqual(c.drops, [['profile', 'declared_bot'], ['feed', 'automation'], ['other', 'no_fetch_metadata']]);
   assert.deepEqual(cl.drops, [['how', 'rate']]);
   assert.deepEqual([...c.views, ...cl.views], []);
+});
+
+test('F-15 route: a client that aborts mid-body still gets 204 (never a 500)', async () => {
+  const [d, c] = deps();
+  const body = new ReadableStream({ pull(ctrl) { ctrl.error(new Error('aborted')); } });
+  const req = new Request('http://app.test/api/views', { method: 'POST', headers: hdrs(), body, duplex: 'half' } as RequestInit);
+  const orig = console.error; console.error = () => {};
+  try { assert.equal((await handleBeacon(req, d)).status, 204); } finally { console.error = orig; }
+  assert.deepEqual(c, { views: [], drops: [] });
 });
 
 test('F-15 route: a failing write answers 204 and logs one safe line with no agent, address or key', async () => {

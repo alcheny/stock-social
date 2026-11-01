@@ -79,7 +79,7 @@ dbTest('F-15: only registry values are stored: 200 random beacons through the ro
     const body = JSON.stringify({ path: paths[rnd(paths.length)], ref: ['external', 'internal', 'none', 'bogus'][rnd(4)], via: junk[rnd(junk.length)], auto: rnd(5) === 0 });
     const req = new Request('http://app.test/api/views', { method: 'POST', body, headers: { origin: 'http://app.test', host: 'app.test', 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'cors', 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36' } });
     // Only this test's trader and a past day are written, so the shared table is read for this test's rows only.
-    await handleBeacon(req, { viewer, viewedUserId, limited: () => false,
+    await handleBeacon(req, { viewer, viewedUserId, limited: () => 'ok',
       recordView: (k) => (k.userId === u.id ? recordView({ ...k, day }) : Promise.resolve()),
       recordDrop: (s, r) => (s === 'profile' || s === 'month' ? recordDrop(s, r, day) : Promise.resolve()) });
   }

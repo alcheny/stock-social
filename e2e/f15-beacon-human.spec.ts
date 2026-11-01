@@ -84,3 +84,14 @@ test('leaving before 2 s sends nothing for the page left', async ({ page }) => {
   await expect.poll(() => seen.length, { timeout: 8_000 }).toBe(1);
   expect(seen[0].body.path).toBe('/login');
 });
+
+test('landing on an uncounted page from another site, then opening a profile, counts the profile as internal', async ({ page }) => {
+  const seen = watch(page);
+  await page.goto('/terms', { referer: 'https://elsewhere.example/post' });
+  await page.waitForTimeout(2_500);
+  expect(seen.length).toBe(0); // the terms page is not a counted surface
+  await page.evaluate((to) => (window as unknown as { next: { router: { push(u: string): void } } }).next.router.push(to), `/u/${HANDLE}`);
+  await expect(page).toHaveURL(new RegExp(`/u/${HANDLE}$`));
+  await expect.poll(() => seen.length, { timeout: 8_000 }).toBe(1);
+  expect(seen[0].body).toEqual({ path: `/u/${HANDLE}`, ref: 'internal', auto: false });
+});

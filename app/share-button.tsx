@@ -15,7 +15,9 @@ type Props = {
 // The product's only share control: one click. Opens the system share sheet (with the image when possible),
 // or copies the link where there is no share sheet. Generic label, no platform names (docs/POLICY.md T5).
 // F-15: the shared or copied link carries ?via=<source class>, set at click time from the path taken (the story class
-// only when the sheet takes the picture). The page's canonical link stays untagged.
+// only when the sheet takes the picture).
+// ponytail: no page declares a canonical link, so a search engine may index a ?via= copy of a record page — fix:
+// alternates.canonical on the profile, trade and month metadata (with metadataBase) after F-13 and F-11 merge.
 export function ShareButton({ url, title, label, image, className, onShared, via }: Props) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [link, setLink] = useState(url);

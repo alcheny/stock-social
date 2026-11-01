@@ -18,9 +18,12 @@ export function ViewBeacon() {
   const pathname = usePathname();
   useEffect(() => {
     try {
-      if (!pathname || !surfaceOf(pathname)) return;
+      if (!pathname) return;
+      // The landing is the document's first page, counted or not: a reader who lands on an uncounted page from another
+      // site and then opens a profile has navigated inside the app (internal), not arrived from outside.
       doc.landingPath ??= pathname;
       if (pathname !== doc.landingPath) doc.leftLanding = true;
+      if (!surfaceOf(pathname)) return;
       let acc = 0, since: number | null = null, timer: ReturnType<typeof setTimeout> | undefined, sent = false;
       const fire = () => {
         if (sent) return;

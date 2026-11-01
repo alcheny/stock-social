@@ -5,14 +5,14 @@
 // and a database error is logged by class and code only (lib/privacy-log.ts), never surfaced.
 import { sameOrigin } from './discovery/origin.ts';
 import { logSafe } from './privacy-log.ts';
-import { BEACON_BYTES, DROP_OTHER, botReason, parseBeacon, rateLimited, recordDrop, recordView, surfaceOf, viewedUserId } from './views.ts';
+import { BEACON_BYTES, DROP_OTHER, type RateState, botReason, parseBeacon, rateLimited, recordDrop, recordView, surfaceOf, viewedUserId } from './views.ts';
 
 export type BeaconDeps = {
   viewer: () => Promise<{ id: number } | null>;
   recordView: typeof recordView;
   recordDrop: typeof recordDrop;
   viewedUserId: typeof viewedUserId;
-  limited?: (h: Headers) => boolean;
+  limited?: (h: Headers) => RateState;
 };
 const RECORD = new Set(['profile', 'trade', 'month']);
 const noStore = { 'cache-control': 'no-store' };
@@ -25,13 +25,16 @@ export async function handleBeacon(req: Request, deps: BeaconDeps): Promise<Resp
   const bare = h.get('sec-fetch-site') === null && h.get('origin') === null;
   if (!bare && !sameOrigin(h)) return answer(403);
   if (Number(h.get('content-length') ?? 0) > BEACON_BYTES) return answer(413);
-  const text = await readCapped(req, BEACON_BYTES);
-  if (text === null) return answer(413);
-  const beacon = parseBeacon(text);
-  if (!beacon) return answer(204);
-  const target = surfaceOf(beacon.path);
   try {
-    const reason = botReason(h, beacon.auto) ?? ((deps.limited ?? rateLimited)(h) ? 'rate' : null);
+    const text = await readCapped(req, BEACON_BYTES); // a client that aborts mid-body throws here: still 204
+    if (text === null) return answer(413);
+    const beacon = parseBeacon(text);
+    if (!beacon) return answer(204);
+    const target = surfaceOf(beacon.path);
+    // The rate cap comes first, so a flood (bot or not) costs one write per client per minute, not one per request.
+    const limit = (deps.limited ?? rateLimited)(h);
+    if (limit === 'over') return answer(204);
+    const reason = limit === 'first-over' ? 'rate' : botReason(h, beacon.auto);
     if (reason) { await deps.recordDrop(target?.surface ?? DROP_OTHER, reason); return answer(204); }
     if (!target) return answer(204);
     const userId = RECORD.has(target.surface) ? await deps.viewedUserId(target) : null;

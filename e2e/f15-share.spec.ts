@@ -29,11 +29,3 @@ for (const kind of ['trade', 'month'] as const) {
     await expect(page).toHaveURL(new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\?via=card$`)); // the page itself is unchanged
   });
 }
-
-test('the page canonical link stays untagged', async ({ page }) => {
-  await page.goto(`/u/${HANDLE}?via=card`);
-  for (const sel of ['link[rel="canonical"]', 'meta[property="og:url"]']) {
-    const el = page.locator(sel);
-    if (await el.count()) expect((await el.first().getAttribute(sel.startsWith('link') ? 'href' : 'content')) ?? '').not.toContain('via=');
-  }
-});

@@ -18,7 +18,7 @@ import { DROP_OTHER, isRefClass, type DropReason, type RefClass, type Surface, t
 
 // Declared automated clients, by generic words only (no product or platform names, POLICY T1, T5). A browser's user
 // agent has the shape `Name/5.0 (platform...)`; anything else (a bare library or tool token) is not a browser.
-const DECLARED = /bot\b|bot\/|crawl|spider|slurp|preview|fetch|scrap|externalhit|embed|unfurl|monitor|headless|validator|archiv|scan|probe|http[-_ ]?client/i;
+const DECLARED = /bot\b|bot\/|crawl|spider|preview|fetch|scrap|externalhit|embed|unfurl|monitor|headless|validator|archiv|scan|probe|http[-_ ]?client/i;
 const BROWSER_SHAPE = /^[A-Za-z]+\/5\.0 \(/;
 
 // Why a same-origin beacon is not a human view, or null. Reads the user agent and fetch metadata in memory only.
@@ -44,20 +44,25 @@ export const RATE_MAX = 60; // a reader swiping profiles in the pane can send on
 const RATE_KEYS = 10_000;
 type Bucket = { minute: number; n: number };
 const rate = { salt: randomBytes(16), hour: -1, buckets: new Map<string, Bucket>() };
-export function rateLimited(h: Headers, now = Date.now()): boolean {
+// 'ok' under the cap; 'first-over' for the first beacon past it in a minute (written once as a 'rate' drop); 'over' for
+// the rest of that minute (answered, not written).
+// ponytail: only the first capped beacon per client and minute is counted as a drop, so the rate row undercounts a
+// flood — fix: count capped beacons in memory and write the total once a minute.
+export type RateState = 'ok' | 'first-over' | 'over';
+export function rateLimited(h: Headers, now = Date.now()): RateState {
   const hour = Math.floor(now / 3_600_000), minute = Math.floor(now / 60_000);
   if (hour !== rate.hour) { rate.hour = hour; rate.salt = randomBytes(16); rate.buckets.clear(); }
   const ip = clientIp(h);
-  if (ip === null) return false;
+  if (ip === null) return 'ok';
   const key = createHash('sha256').update(rate.salt).update(ip).update('\n').update(h.get('user-agent') ?? '').digest('base64url').slice(0, 22);
   const b = rate.buckets.get(key);
   if (!b || b.minute !== minute) {
     if (!b && rate.buckets.size >= RATE_KEYS) rate.buckets.delete(rate.buckets.keys().next().value!);
     rate.buckets.set(key, { minute, n: 1 });
-    return false;
+    return 'ok';
   }
   b.n += 1;
-  return b.n > RATE_MAX;
+  return b.n <= RATE_MAX ? 'ok' : b.n === RATE_MAX + 1 ? 'first-over' : 'over';
 }
 
 // The beacon's body: { path, ref, via, auto }. Anything else is dropped; null = not a beacon (nothing counted).
@@ -96,7 +101,8 @@ export async function viewedUserId(t: Target): Promise<number | null> {
         and exists (select 1 from closed_trades c where c.user_id = u.id and c.sell_id = ${t.detail})`
     : t.surface === 'month'
     ? await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visibleUser('u')}
-        and exists (select 1 from closed_trades c where c.user_id = u.id and to_char(c.closed_at at time zone 'UTC', 'YYYY-MM') = ${t.detail})`
+        and exists (select 1 from closed_trades c where c.user_id = u.id
+          and c.closed_at >= ${t.detail + '-01'}::timestamp at time zone 'UTC' and c.closed_at < (${t.detail + '-01'}::timestamp + interval '1 month') at time zone 'UTC')`
     : await sql<{ id: number }[]>`select u.id from users u where u.handle = ${t.handle} and ${visibleUser('u')}`;
   return u?.id ?? null;
 }
