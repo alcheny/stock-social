@@ -61,7 +61,9 @@ export async function markSharePromptSeen() {
   await sql`update users set share_prompt_seen_at = now() where id = ${user.id} and share_prompt_seen_at is null`;
 }
 
-// Story-image adoption: first click on a Save link. Session user only, idempotent.
+// Fix #27 (cycle 2): the first completed share of the record from the profile's "Share my record" button (share sheet
+// or link copied). The column keeps its old name (share_image_saved_at, from the removed Save image link). Session user
+// only, idempotent.
 export async function markShareImageSaved() {
   const user = await currentUser();
   if (!user) return;

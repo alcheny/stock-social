@@ -1,9 +1,13 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { resendLink } from '../../auth/actions.ts';
 import { SIGNIN } from '@/lib/copy.ts';
 import { ATTEMPT_COOKIE, ownsAttempt } from '@/lib/auth/links.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
+
+// Fix #21 (approval council cycle 2, WCAG 2.4.2): each route has its own title.
+export const metadata: Metadata = { title: 'Check your email · Stock Social', robots: { index: false } };
 
 type SP = { a?: string; again?: string; error?: string };
 
