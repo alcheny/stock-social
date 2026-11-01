@@ -531,11 +531,14 @@ h1 { overflow-wrap: anywhere; }
 body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed .row > * { padding-bottom: 94px; }
 html:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) { scroll-padding-bottom: 94px; }
 body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pane { scroll-padding-bottom: 94px; }
-/* Under 480 px tall the card scrolls inside itself (F-13's rule above): 86 px = the bar's 78 + F-13's 8, and the card's
-   own scroller pads the same, so a focused link scrolls to 8 px above the bar, not under it. */
+/* Under 480 px tall the card scrolls inside itself (F-13's rule above): 90 px = the bar's 78 + F-10's 12 (its
+   short-viewport card padding), and the card's own scroller pads the same, so a focused link scrolls to 12 px above the
+   bar, not under it. While the bar shows, the card's parts keep their size (flex-shrink 0), so the room the bar takes
+   makes the card scroll instead of squeezing F-10's clamped thesis to nothing (measured 0 px at 320×420). */
 @media (max-height: 480px) {
-  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed .row > * { padding-bottom: 86px; }
-  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card { scroll-padding-bottom: 86px; }
+  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed .row > * { padding-bottom: 90px; }
+  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card { scroll-padding-bottom: 90px; }
+  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card > * { flex-shrink: 0; }
 }
 /* #13 (Q4): the three bars' own edge in --control, so each reads as separate from the content under it. */
 .signin-line:not(:empty), .hide-bar p, .nojs-done { border-color: var(--control); }

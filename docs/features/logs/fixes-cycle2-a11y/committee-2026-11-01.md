@@ -86,3 +86,7 @@ h1 / `.who` / badge reflow; this branch builds only the remainder and carries F-
 
 Merge check (business lead's round 2 condition): `git merge-tree --write-tree <this tree> origin/claude/f13-a11y-fixes`
 exits 0 with no conflict, with the block after `.rt-card:focus`.
+15. 2026-11-01: after F-10 (#54) the room under 480 px tall is 90 px (bar 78 + F-10's 12 px card padding), the
+    scrolling card pads 90 px, and the card's parts keep their size while a bar shows (the bar's room squeezed F-10's
+    clamped thesis to 0 px at 320×420). F-10's card disclaimer joins the parts that are never clipped. Supersedes the
+    86 px of decisions 3 and 13. Why: decided by the committee under the owner's instruction of 2026-11-01; measured.

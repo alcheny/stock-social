@@ -169,20 +169,23 @@ test('AC26.4 + AC18.3: gain and loss figures use the new tokens in both schemes;
     const badge = await rect(page.locator('main.page .badge.demo').first());
     expect(badge.left).toBeGreaterThanOrEqual(0);
     expect(badge.right).toBeLessThanOrEqual(width);
-    // The feed card: the name wraps, the badge keeps its size inside the card's content box.
+    // The feed card: the name wraps inside the card, and the Demo badge (F-10: it leads the record line under the
+    // figure) keeps its size inside the card's content box.
     await page.goto('/');
     const row = (await ownRows(page)).first();
     await atRest(row);
     expect(await page.evaluate(() => document.documentElement.scrollWidth), `feed at ${width}`).toBeLessThanOrEqual(width);
     const card = row.locator('.card');
     const box = await card.evaluate((c) => { const b = c.getBoundingClientRect(), s = getComputedStyle(c); return { left: b.left + parseFloat(s.paddingLeft), right: b.right - parseFloat(s.paddingRight) }; });
-    const cb = row.locator('.card header .badge.demo');
+    const cb = row.locator('.card .badge.demo').first();
     await expect(cb).toHaveText('Demo');
     const b = await rect(cb);
     expect(b.left).toBeGreaterThanOrEqual(box.left);
     expect(b.right).toBeLessThanOrEqual(Math.min(box.right, width));
     expect(await cb.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
-    expect((await rect(row.locator('.card header .who'))).right).toBeLessThanOrEqual(b.left);
+    const who = row.locator('.card header .who');
+    expect((await rect(who)).right).toBeLessThanOrEqual(Math.min(box.right, width));
+    expect(await who.evaluate((e) => e.scrollWidth <= e.clientWidth + 1), 'the name wraps, never overflows its link').toBe(true);
   }
   await ctx.close();
 });
@@ -286,11 +289,13 @@ for (const height of [740, 640]) {
     await expect(card).toHaveCSS('padding-bottom', '94px');
     const bar = await barOf(page, '.signin-line');
     for (const f of await focusables(card)) expect(f.bottom, `"${f.what}"`).toBeLessThanOrEqual(bar.top - 8);
-    // Decision 5: never the signed return figure, the Demo badge or the record link.
+    // Decision 5: never the signed return figure, the Demo badge or the record link; with F-10, never the card's
+    // disclaimer either (POLICY F3).
     const nav = await navBottom(page);
     const clip = await rect(row);
-    for (const sel of ['.hero .ret', 'header .badge.demo', 'footer a']) {
-      const b = await rect(card.locator(sel));
+    await expect(card.locator('[data-disclaimer]')).toHaveText('Not investment advice. Past performance does not guarantee future results.');
+    for (const sel of ['.hero .ret', '.badge.demo', 'footer a', '[data-disclaimer]']) {
+      const b = await rect(card.locator(sel).first());
       expect(b.top, `${sel} below the nav`).toBeGreaterThanOrEqual(nav);
       expect(b.bottom, `${sel} above the bar`).toBeLessThanOrEqual(bar.top - 8);
       expect(b.bottom, `${sel} inside the row`).toBeLessThanOrEqual(clip.bottom);
@@ -300,6 +305,8 @@ for (const height of [740, 640]) {
     expect(await card.evaluate((c) => c.scrollHeight <= c.clientHeight + 1)).toBe(true);
     const fit = await intrinsic(card);
     expect(fit.need, `card content ${fit.need.toFixed(0)} of ${fit.room} px`).toBeLessThanOrEqual(0.85 * fit.room);
+    test.info().annotations.push({ type: `fit 360×${height}`, description: JSON.stringify({ need: Math.round(fit.need), room: fit.room, barTop: bar.top,
+      disclaimerBottom: (await rect(card.locator('[data-disclaimer]'))).bottom, linkBottom: (await rect(card.locator('footer a'))).bottom }) });
     await tabThrough(page, card, '.signin-line');
     // The row's snap point is unchanged: it still rests at the top.
     await atRest(row);
@@ -307,9 +314,9 @@ for (const height of [740, 640]) {
   });
 }
 
-test('AC14.1 (360×480 and 360×420, signed out): on a short viewport the card scrolls inside itself and a focused record link stops ≥ 8 px above the sign-in line', async ({ browser }) => {
-  for (const height of [480, 420]) {
-    const ctx = await touchContext(browser, 360, height);
+test('AC14.1 (360×480, 360×420, 320×420, signed out): on a short viewport the card scrolls inside itself; a focused record link and the disclaimer stop ≥ 8 px above the sign-in line; no part is squeezed away', async ({ browser }) => {
+  for (const [width, height] of [[360, 480], [360, 420], [320, 420]]) {
+    const ctx = await touchContext(browser, width, height);
     const page = await ctx.newPage();
     await page.goto('/');
     const row = (await ownRows(page)).first();
@@ -318,14 +325,22 @@ test('AC14.1 (360×480 and 360×420, signed out): on a short viewport the card s
     await page.waitForTimeout(300);
     await expect.poll(async () => { await doubleTap(page, card.locator('.hero .ret')); return page.locator('.signin-line').innerText(); }).toContain('Sign in to like trades.');
     await expect(card).toHaveCSS('overflow-y', 'auto');
-    await expect(card).toHaveCSS('padding-bottom', '86px');
-    await expect(card).toHaveCSS('scroll-padding-bottom', '86px');
+    // The bar's 78 px plus F-10's 12 px short-viewport padding.
+    await expect(card).toHaveCSS('padding-bottom', '90px');
+    await expect(card).toHaveCSS('scroll-padding-bottom', '90px');
+    const at = `${width}×${height}`;
+    // Nothing collapses to make room: the thesis keeps at least its one line.
+    expect((await rect(card.locator('.thesis'))).height, `${at}: thesis`).toBeGreaterThanOrEqual(16);
+    const bar = await barOf(page, '.signin-line');
+    expect((await rect(card.locator('.badge.demo').first())).bottom, `${at}: badge`).toBeLessThanOrEqual(bar.top - 8);
     const link = card.locator('footer a');
     await link.focus();
-    const bar = await barOf(page, '.signin-line');
-    expect((await rect(link)).bottom, `${height}: record link`).toBeLessThanOrEqual(bar.top - 8);
-    expect((await rect(card.locator('header .badge.demo'))).bottom).toBeLessThanOrEqual(bar.top - 8);
-    if (height === 420) expect(await card.evaluate((c) => c.scrollHeight > c.clientHeight), 'at 420 the card overflows and scrolls').toBe(true);
+    expect((await rect(link)).bottom, `${at}: record link`).toBeLessThanOrEqual(bar.top - 8);
+    await card.evaluate((c) => { c.scrollTop = c.scrollHeight; });
+    expect((await rect(card.locator('[data-disclaimer]'))).bottom, `${at}: disclaimer at the end`).toBeLessThanOrEqual(bar.top - 8);
+    // At 320×420 the record line wraps to three lines and the card really overflows: it scrolls, nothing is cut.
+    if (width === 320) expect(await card.evaluate((c) => c.scrollHeight > c.clientHeight), `${at}: the card overflows and scrolls`).toBe(true);
+    test.info().annotations.push({ type: `short ${at}`, description: JSON.stringify({ barTop: bar.top, disclaimerBottom: (await rect(card.locator('[data-disclaimer]'))).bottom, thesis: (await rect(card.locator('.thesis'))).height, scroll: await card.evaluate((c) => [c.scrollHeight, c.clientHeight]) }) });
     await ctx.close();
   }
 });

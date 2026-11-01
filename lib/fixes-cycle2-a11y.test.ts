@@ -259,16 +259,16 @@ test('the FIXES-CYCLE2-A11Y block exists once, right after .rt-card:focus (not a
 
 const block = parse(raw.slice(raw.indexOf(START), raw.indexOf(END)).replace(/\/\*[\s\S]*?\*\//g, ''));
 const BAR = ':has(.signin-line:not(:empty), .hide-bar > p, .nojs-done)';
-test('#14 while a bar shows, the feed rows reserve its room (94 px; 86 px at ≤ 480 px tall) and the scrollers (page, pane; the card when it scrolls) pad their bottom; nothing on .feed', () => {
+test('#14 while a bar shows, the feed rows reserve its room (94 px; 90 px at ≤ 480 px tall) and the scrollers (page, pane; the card when it scrolls) pad their bottom; nothing on .feed', () => {
   const find = (sel: string, prop: string, media: (m: string[]) => boolean) =>
     block.filter((r) => r.sels.includes(sel) && media(r.media)).flatMap((r) => decls(r.body)).filter(([k]) => k === prop).map(([, v]) => v);
   const none = (m: string[]) => m.length === 0;
   const short = (m: string[]) => m.length === 1 && /max-height:\s*480px/.test(m[0]);
   assert.deepEqual(find(`body${BAR} .feed .row > *`, 'padding-bottom', none), ['94px']);
-  assert.deepEqual(find(`body${BAR} .feed .row > *`, 'padding-bottom', short), ['86px']);
+  assert.deepEqual(find(`body${BAR} .feed .row > *`, 'padding-bottom', short), ['90px']);
   assert.deepEqual(find(`html${BAR}`, 'scroll-padding-bottom', none), ['94px']);
   assert.deepEqual(find(`body${BAR} .feed > .row > .pane`, 'scroll-padding-bottom', none), ['94px']);
-  assert.deepEqual(find(`body${BAR} .feed > .row > .card`, 'scroll-padding-bottom', short), ['86px']);
+  assert.deepEqual(find(`body${BAR} .feed > .row > .card`, 'scroll-padding-bottom', short), ['90px']);
   // Padding on the snap container itself would move every snap point (F-13 note).
   for (const r of block) for (const s of r.sels) assert.doesNotMatch(s, /\.feed$/, `no rule on .feed itself: ${s}`);
   // The :empty test relies on the sign-in line rendering no whitespace while closed (app/feed-gestures.tsx).
