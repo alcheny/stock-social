@@ -59,3 +59,11 @@ POLICY P3's reading for people who never connect; partial TR-4 (no unrealized pe
 the removal policy, Terms and Privacy covering these profiles, the production switch and the business lead's dry-run
 threshold (at least 100 filers with 5+ priced closes); optionally null attestation columns via a constraint change;
 legislators' and holdings sources (a price vendor plus written acceptance of the commercial-use risk).
+
+## Note: label versus the design system council's trust language (2026-11-01)
+The design system council (PR #48, not yet merged at build time) lists "Public source" as F-7's trust label. F-7 keeps
+**"Public filing"**. Why: the legal member's conditions (C11, C15, AC 13/14/34) name that label verbatim; it says what
+the evidence is (a filing a viewer can open from every trade), where "source" would also fit a broker connection; and
+the record is built from one kind of source only. The label lives in one copy constant (lib/copy.ts F-7 block), so a
+later design-system pass can rename it with the legal member's sign-off. Numbers and dates use the existing pct() and
+date helpers.
