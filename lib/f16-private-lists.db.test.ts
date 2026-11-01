@@ -58,3 +58,30 @@ dbTest("a hidden trader's name, symbol and return reach no liker's or follower's
     assert.equal((await likes.ownLikes(viewer)).rows[0]?.name, NAME);
   } finally { await removePeople([trader, viewer]); }
 });
+
+// Orchestrator review item 1: a Record tools comparison card for a hidden trader reads nothing of theirs (exclusion
+// counts, paper accounts, record state, institutions, account count) and claims no "Demo data": a neutral card.
+dbTest("a hidden trader's comparison card is neutral: no figures, exclusions, connected line or record state", async () => {
+  const { sql } = await import('./db.ts');
+  const { hideProfile, unhideProfile } = await import('./trust-hide.ts');
+  const tools = await import('./record-tools.ts');
+  const { HIDDEN_NOTICE } = await import('./copy.ts');
+  const { tag, ids: [trader] } = await people(1, 'f16c');
+  try {
+    await trades(trader, tag, 2);
+    await sql`update users set excluded_positions = 2, excluded_future = 1, excluded_corporate = 1 where id = ${trader}`;
+    const [{ handle }] = await sql`select handle from users where id = ${trader}`;
+    const [shown] = await tools.compareCards([{ id: trader, handle, name: 'x' }]);
+    assert.equal(shown.notice, null);
+    assert.equal(shown.excluded.length, 3);
+    assert.ok(await hideProfile(trader, 'abusive'));
+    const [c] = await tools.compareCards([{ id: trader, handle, name: HIDDEN_NOTICE.name }]);
+    assert.deepEqual(c, {
+      id: trader, handle, name: HIDDEN_NOTICE.name, notice: HIDDEN_NOTICE.line,
+      state: 'none', badge: null, isNew: false, since: null, connected: null, closed: 0, figures: null, excluded: [],
+    });
+    assert.ok(!JSON.stringify(c).includes('Demo data'));
+    assert.ok(await unhideProfile(trader, 'issue-resolved'));
+    assert.equal((await tools.compareCards([{ id: trader, handle, name: 'x' }]))[0].notice, null);
+  } finally { await removePeople([trader]); }
+});

@@ -191,7 +191,10 @@ export async function dismissRemovedNotice(owner: number): Promise<void> {
 export type Card = {
   id: number; handle: string; name: string;
   state: PublicState; badge: 'verified' | 'demo' | null; isNew: boolean;
-  since: string | null; connected: string;
+  since: string | null; connected: string | null;
+  // Orchestrator review item 1: a trader the owner hid gets a neutral card (no figures, exclusions, connected line or
+  // record state; nothing of theirs is read) with HIDDEN_NOTICE.line in place of "No closed trades".
+  notice: string | null;
   closed: number;
   figures: null | { winRate: string; avg: string; avgSign: 'up' | 'down' | ''; range: string | null; low: string | null; evidence: string; drawdown: string };
   excluded: string[]; // the profile's exclusion lines, each only when non-zero, in the profile's order
@@ -206,6 +209,11 @@ export async function compareCards(traders: ViewTrader[], now = new Date()): Pro
 // ponytail: each card reads the trader's whole closed_trades, exactly as the profile does (up to 4 profile reads per
 // view) — share a cached per-trader summary once the profile has one.
 async function card(t: ViewTrader, now: Date): Promise<Card> {
+  const [v] = await sql`select ${visibleUser('u')} as visible from users u where u.id = ${t.id}`;
+  if (!v?.visible) {
+    return { id: t.id, handle: t.handle, name: t.name, notice: HIDDEN_NOTICE.line, state: 'none', badge: null, isNew: false,
+      since: null, connected: null, closed: 0, figures: null, excluded: [] };
+  }
   const [u] = await sql`select excluded_positions, excluded_future, excluded_corporate from users where id = ${t.id}`;
   const trades = await sql`select symbol, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where user_id = ${t.id} and ${visibleId(t.id)}`;
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${t.id} and source = 'snaptrade'`;
@@ -219,7 +227,7 @@ async function card(t: ViewTrader, now: Date): Promise<Card> {
   const complete = state !== 'importing';
   const show = complete && trades.length > 0;
   return {
-    id: t.id, handle: t.handle, name: t.name, state,
+    id: t.id, handle: t.handle, name: t.name, notice: null, state,
     badge: show && (trust.badge === 'verified' || trust.badge === 'demo') ? trust.badge : null, // F-7: filers never reach a view
     isNew: show && isNewRecord(trades.map((x) => ({ openedAt: x.opened_at })), trades.length, now),
     since: complete && first ? first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null,

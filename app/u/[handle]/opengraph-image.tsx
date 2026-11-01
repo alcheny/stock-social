@@ -3,9 +3,8 @@
 // (story/route.tsx) draws the same card at its own size.
 import { ImageResponse } from 'next/og';
 import { isFilerHandle } from '@/lib/public-gate.ts';
-import { notFound } from 'next/navigation';
 import { CARD_LAYOUT } from '@/lib/record-card.ts';
-import { DISCLAIMER } from '@/lib/share.ts';
+import { DISCLAIMER, imageNotFound } from '@/lib/share.ts';
 import { loadRecordCard } from './record-card-data.ts';
 import { RecordCardImage } from './record-card-image.tsx';
 
@@ -21,6 +20,6 @@ const cache = (handle: string) => ({ 'Cache-Control': isFilerHandle(handle) ? 'n
 export default async function Card({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
   const m = await loadRecordCard(handle, 'unfurl');
-  if (!m) notFound();
+  if (!m) return imageNotFound();
   return new ImageResponse(<RecordCardImage m={m} disclaimer={DISCLAIMER} />, { ...size, headers: cache(handle) });
 }

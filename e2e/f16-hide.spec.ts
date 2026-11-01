@@ -93,7 +93,8 @@ test('a hidden profile is counted on no public surface, and its old handle is a 
       feed: false, index: false, symbolEmpty: true, compareEmpty: true, stockImage: true, sitemap: false,
       codes: { profileImage: 404, story: 404, tradeImage: 404, monthImage: 404, pane: 404, paneChart: 404, trade: 404, profile: 404 },
     });
-    for (const u of [urls.pane, urls.paneChart]) expect((await request.get(u)).headers()['cache-control'], u).toBe('no-store');
+    // Orchestrator review item 3: the images' and the story's 404s are never cached either, as the pane's.
+    for (const u of [urls.pane, urls.paneChart, urls.profileImage, urls.story, urls.tradeImage, urls.monthImage]) expect((await request.get(u)).headers()['cache-control'], u).toBe('no-store');
     // The rename chain: the old handle's URLs stay 404 (retired), the new handle's are 404 (hidden).
     for (const u of [`/u/${old}`, `/u/${old}/trade/${sell}`, `/u/${old}/opengraph-image`, `/u/${old}/story`, `/u/${old}/pane`]) expect(await status(request, u), u).toBe(404);
     // R still has W's trades, so its page still answers; only T's are gone from it.

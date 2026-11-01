@@ -13,6 +13,10 @@ export function shareMode(c: { canShareFiles: boolean; canShare: boolean; hasIma
 export const absoluteUrl = (origin: string, path: string) => new URL(path, origin).toString();
 
 // docs/POLICY.md F3: every image that shows performance carries this line, in plain view.
+// Orchestrator review item 3 (F-16): the 404 of an image route (the profile, trade and month cards, the story picture).
+// notFound() there answers a bare 404 with no Cache-Control; this one is never stored, as the pane's 404 is.
+export const imageNotFound = () => new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+
 export const DISCLAIMER = 'Not investment advice. Past performance does not guarantee future results.';
 
 // F-15 second half: a trade page's one spelling, from the stored sell id (its share link and its canonical link).

@@ -66,6 +66,7 @@ import { OPTIONS } from '@/lib/copy.ts';
 // F-16 (plan docs/features/logs/F-16-F-17/plan.md §2.1, §5.4; v2 B6, B7): the quiet report menu and the line.
 import { ProfileReportMenu, TrustFoot, TrustShown } from '../../trust-foot.tsx';
 import { impersonationLineShown } from '@/lib/takedown.ts';
+import { generateMetadata as notFoundMetadata } from './not-found.tsx';
 
 // The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9). Fix round 2 (D): the copy lives
 // in lib/handles.ts#profileHandleError (taken and look-alike end "Try another.").
@@ -117,7 +118,9 @@ const load = cache(async (handle: string) => {
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const data = await load((await params).handle);
   // Cycle 2 review of fix #20: a missing profile's 404 takes the 404 page's title, not the site default.
-  if (!data) notFound();
+  // Orchestrator review item 2: returning the not-found head here (never notFound() in generateMetadata) keeps one
+  // <title> on the 404; the page body still calls notFound().
+  if (!data) return notFoundMetadata({ params });
   const { user, s, c, state } = data;
   // Fix round 5 (TR-3): the same count wording as the trade and month previews ("closed" for a failed or partly
   // unverified record, "demo" for demo data, "verified" only for a whole record from the broker).

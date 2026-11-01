@@ -6,8 +6,7 @@
 // month page's generateMetadata (it depends on the record).
 import { ImageResponse } from 'next/og';
 import { isFilerHandle } from '@/lib/public-gate.ts';
-import { notFound } from 'next/navigation';
-import { DISCLAIMER } from '@/lib/share.ts';
+import { DISCLAIMER, imageNotFound } from '@/lib/share.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthStripInput, recordStripInput } from '@/lib/recap.ts';
 import { monthBand } from '@/lib/month-card.ts';
@@ -29,7 +28,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   // Cycle-2 fix #20: a missing recap (unknown handle, invalid month, a month without trades) is a 404, as the profile
   // card is, never a 200 picture saying "not found" that a link preview would show.
   const r = await loadRecap(handle, ym);
-  if (!r) notFound();
+  if (!r) return imageNotFound();
 
   // FIXES-LABELS: status (F-11): a frozen record says so; absolute date with the year, never relative. FIXES-LABELS
   // (D-24): r.months adds "One of N months on record" under the label.

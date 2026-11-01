@@ -4,8 +4,7 @@
 // declared by the trade page's generateMetadata (it depends on the record).
 import { ImageResponse } from 'next/og';
 import { isFilerHandle } from '@/lib/public-gate.ts';
-import { notFound } from 'next/navigation';
-import { DISCLAIMER } from '@/lib/share.ts';
+import { DISCLAIMER, imageNotFound } from '@/lib/share.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { tradeBand, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
@@ -29,7 +28,7 @@ export default async function Card({ params }: { params: Promise<{ handle: strin
   // Cycle-2 fix #20: a missing trade (unknown handle or sellId, a deleted trader) is a 404, as the profile card is, never a
   // 200 picture saying "not found" that a link preview would show.
   const t = id === null ? null : await loadTradeShare(handle, id);
-  if (!t) notFound();
+  if (!t) return imageNotFound();
 
   // Fix round 6 (TR-3, POLICY F3): the label follows the trader's record state (recordStrip); no check-mark glyph.
   const strip = recordStrip(tradeStripInput(t), 'image');

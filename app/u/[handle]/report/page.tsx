@@ -13,12 +13,14 @@ import { takedownReachable } from '@/lib/takedown.ts';
 import { hasReportedProfile } from '@/lib/reports.ts';
 import { FocusHeading } from '../../../connect/result/focus-heading.tsx';
 import { ReportForm } from './report-form.tsx';
+import { generateMetadata as notFoundMetadata } from '../not-found.tsx';
 
 // F-16 (plan docs/features/logs/F-16-F-17/plan.md §2.2; v2 B6, B8; K18): /u/<handle>/report, reached from the profile's
 // quiet "…" menu. Signed out: one line asking to sign in (and the takedown page when it is reachable); the trader's own
 // profile: a neutral line; anyone else: the form (./report-form.tsx). Own title, one h1, noindex, never cached.
 // A hidden, retired or unknown handle answers the segment's 404 (../not-found.tsx). Next 16.4.3 takes that 404's head
-// from not-found.tsx only when generateMetadata itself calls notFound() (Step 0 spike), so both functions check.
+// from not-found.tsx: generateMetadata returns that module's head (never notFound(), which can leave two <title>s;
+// orchestrator review item 2) and the page body calls notFound().
 // The target lookup: a visible user (lib/visible-users.ts) whose F-7 filer record, if any, is shown (lib/public-gate.ts).
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +35,7 @@ const target = cache(async (handle: string) => {
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const t = await target((await params).handle);
-  if (!t) notFound();
+  if (!t) return notFoundMetadata({ params });
   return { title: `${C.title(t.handle)} · ${PRODUCT_NAME}`, robots: { index: false, follow: false } };
 }
 
