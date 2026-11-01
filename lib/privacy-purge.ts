@@ -100,7 +100,7 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
         ['attempts', 'attempts', async () => full(await purgeUnfinishedAttempts(now, batch))],
         // Known-limits sweep 2 (similar): shared Similar-trades pools (lib/similar.ts) idle past a day.
         ['similarPools', 'similar', async () => full((await conn`delete from similar_pools where key in (
-          select key from similar_pools where coalesce(built_at, claimed_at) < ${now}::timestamptz - interval '1 day' limit ${batch})`).count)],
+          select key from similar_pools where coalesce(built_at, claimed_at, hour) < ${now}::timestamptz - interval '1 day' limit ${batch})`).count)],
       ];
       for (const [key, of, step] of plain) {
         if (opts.only && !opts.only.includes(of)) continue;

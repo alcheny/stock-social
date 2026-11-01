@@ -7,6 +7,7 @@
 // UTC day, which may be later than midnight. Wherever a past display is shown, it says "as of <asOf> (UTC)", never "all
 // day"; a later change the same day appears in the next day's row (code review 9, orchestrator review 3).
 import { sql } from './db.ts';
+import { logSafe } from './privacy-log.ts';
 import { evidenceLine, pct, stats } from './trades.ts';
 import { cardEvidence, evidenceRangeText } from './record-card.ts';
 import { winRateText } from './copy.ts';
@@ -139,12 +140,12 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
       } catch (e) {
         // Reliability review: one record that throws (or one row the insert refuses) must not block the rest of its
         // chunk on every tick: the chunk is retried one record at a time. The log line carries counts only.
-        console.error('display log chunk failed; retrying one record at a time', { records: ids.length, error: (e as { code?: string }).code ?? 'error' });
+        console.error('display log chunk failed; retrying one record at a time', JSON.stringify({ records: ids.length }), logSafe(e));
         for (const id of ids) {
           if (clock() >= end) return report(false);
           try { written += await insertRows(day, await snapshots([id], now)); } catch { failed++; }
         }
-        if (failed) console.error('display log records failed', { failed });
+        if (failed) console.error('display log records failed', JSON.stringify({ failed }));
       }
       after = ids[ids.length - 1];
     }

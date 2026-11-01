@@ -12,6 +12,7 @@
 //   "Not interested" rows (an unfollow is never a hide: owner decision O4).
 import { createHash, randomUUID } from 'node:crypto';
 import { sql } from './db.ts';
+import { logSafe } from './privacy-log.ts';
 import { hiddenTraders } from './follows.ts';
 import { feedList, records, type PaneRow } from './feed.ts';
 import { recordStates, type RecordStatus } from './connections.ts';
@@ -144,7 +145,7 @@ function refresh(k: Kept, key: string, hour: number, now: number, ids?: number[]
       if (f?.pool != null && f.at != null) { similarTesting.fetches++; install(key, f.hour, f.at, decodePool(f.pool), now); }
     }
   };
-  k.next = run().catch((e: unknown) => { console.error('similar pool refresh failed', e instanceof Error ? e.message : 'error'); }).finally(() => { k.next = undefined; });
+  k.next = run().catch((e: unknown) => { console.error('similar pool refresh failed', logSafe(e)); }).finally(() => { k.next = undefined; });
 }
 
 export async function similarPool(now: number, ids?: number[]): Promise<Kept> {
@@ -158,6 +159,8 @@ export async function similarPool(now: number, ids?: number[]): Promise<Kept> {
     }
     return p;
   }
+  // ponytail: in a new hour, while another server builds its pool, every profile view here re-reads the row and tries the
+  // claim (k.hour < hour ignores k.checked; up to the 60 s lease if that builder died) — throttle it to once a second.
   if (!k.next && (k.hour < hour || now - k.checked >= SIMILAR_REFRESH_MS)) refresh(k, key, hour, now, ids);
   return k;
 }
