@@ -151,6 +151,7 @@ finds those rows:
   - `missing`: a shortfall that is not the previous pass's;
   - `bound`: more pages than `ceil(expected / (limit − 50)) + 2`, where expected is every stored row the read can return
     at the start (share rows, unusable trade rows and option rows);
+  - `confirm`: 2 failed syncs in a row that were to make the widened confirm read (`sync_read_marks.confirm_failures`);
   - `failures`: 2 failed page steps in a row (`RECONCILE_MAX_FAILURES`). A failure counts (`pageFailureCounts`) for any
     error thrown inside the page step, code errors such as a `TypeError` included, except vendor or database outages
     (429, 5xx, a vendor timeout, transport and database-wide codes) and a cut at the route's end (`RouteDeadlineError`).
@@ -175,10 +176,15 @@ finds those rows:
     time-zone boundary). Never the union of a pass's pages: they are days apart, so it could hold an original from
     before its re-issue and the re-issue from after. Twins sorted by date are neighbours and the 50-row overlap puts
     neighbours on one page, so genuine twins are still found. The row is kept and published. Final;
-  - `suspected`: what a complete pass leaves pending (no single page listed it with every unheld twin, or the held row
-    itself is no longer listed). Held, counted for the owner. Held rows and their twins never make a pass short.
-  The connect-time import (`importStep`) checks each page together with the account's previous import page (pages
-  run back to back, seconds apart), so genuine twins split across a page boundary are never held. Option rows are
+  - `confirm`: a complete pass listed the row and every unheld twin, but never on one page. The account's next daily
+    activities read (inside F-14's budget) is widened to a day before the row's trade date: one call, a superset of the
+    week read. It makes the row genuine when it lists both, otherwise suspected (the one week read that can suspect).
+    Two failed syncs in a row that were to make it give it up (rows suspected, reason `confirm`, the week read). Held;
+  - `suspected`: no single read listed it with every unheld twin, or a twin was not listed at all. Held, counted for the
+    owner; a later pass that lists it and its twins on different pages sets it to `confirm` again. Held rows and their
+    twins never make a pass short.
+  The connect-time import (`importStep`) checks each page on its own; its pages overlap by up to 50 rows so neighbouring
+  twins share a page (an import step can wait an hour or more behind a backoff, so pages are never joined). Option rows are
   counted (`optionTwins`), not held: a re-issued option close can show twice until the owner decides (owner item).
 - **Close-change count:** every rebuild compares the trader's closes (share and option) before and after, by id and a
   hash of the shown fields (theses left out). Closes that were shown and are now changed or removed are added to
@@ -192,7 +198,7 @@ finds those rows:
 | Line | When | Shape |
 |---|---|---|
 | `sync closes rewritten <id> {…}` | a rebuild changed or removed a close already shown | `{"changed":n,"removed":n,"added":n}` |
-| `sync reissues <id> {…}` | a sync found, cleared or counted re-issues | `{"found":n,"cleared":n,"pending":n,"suspected":n,"optionTwins":n}`: found and cleared in this sync; pending and suspected are the trader's totals |
+| `sync reissues <id> {…}` | a sync found, cleared or counted re-issues | `{"found":n,"cleared":n,"pending":n,"confirm":n,"suspected":n,"optionTwins":n}`: found and cleared in this sync; pending, confirm and suspected are the trader's totals |
 | `sync reconcile invalid <id> {…}` | a pass ended without deciding, or was given up | `{"reason":"shifted" \| "missing" \| "bound" \| "failures"}` |
 | `sync reconcile marks failed <id> <error>` | writing the failure count after the transaction failed (never fatal) | `console.error`, `logSafe(e)` |
 

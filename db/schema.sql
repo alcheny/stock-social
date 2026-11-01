@@ -1137,14 +1137,18 @@ select schema_add_column('broker_accounts', 'reconcile_invalid', 'int not null d
 -- Possible re-issues (D5): a row with a new vendor id whose account, symbol, side, time, units and price equal an older
 -- stored row's. Activities stay raw and immutable (no flag column): this side table holds the state, and the rebuild
 -- leaves out every row not 'genuine'. 'pending' = held until a complete read decides it; 'genuine' = a read listed both
--- ids (kept); 'suspected' = a complete pass did not list the original (held, counted for the owner).
+-- ids (kept); 'suspected' = no single read listed it with its unheld twins (held, counted for the owner; a later read
+-- that lists both still clears it).
 create table if not exists activity_reissues (
   user_id int not null references users on delete cascade,
   source text not null,
   external_id text not null,                         -- the newer row (N)
   account_id text not null,
   original_id text not null,                         -- the older stored twin (E)
-  state text not null check (state in ('pending', 'genuine', 'suspected')),
+  -- confirm: a complete pass listed this row and its twins on different pages; the account's next daily activities read,
+  -- widened to a day before its trade date, decides it (genuine if that one read lists both, else suspected). Only
+  -- genuine is published.
+  state text not null check (state in ('pending', 'confirm', 'genuine', 'suspected')),
   found_at timestamptz not null default now(),
   decided_at timestamptz,
   primary key (source, external_id)
@@ -1155,3 +1159,6 @@ select schema_add_column('users', 'closes_rewritten', 'int not null default 0');
 -- Failed syncs in a row that were to read a reconcile page for this account (written after the transaction, like the
 -- F-14 marks): at 2 the pass is given up and the week is read instead.
 select schema_add_column('sync_read_marks', 'reconcile_failures', 'int not null default 0');
+-- Failed syncs in a row that were to make the widened confirm read (any cause): at 2 the account's 'confirm' rows become
+-- 'suspected' and the plain week is read.
+select schema_add_column('sync_read_marks', 'confirm_failures', 'int not null default 0');

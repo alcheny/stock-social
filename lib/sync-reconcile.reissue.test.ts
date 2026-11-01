@@ -51,12 +51,13 @@ async function trader() {
     externalId: `${tag}-${id}`, accountId: acc.id, symbol, side, units, price, fee: 0, executedAt: date, verified: true, raw: { type: side, id: `${tag}-${id}` },
   });
   // The vendor: `list` is its full history in its own order; `order` (if set) gives the list for the nth page call.
-  const v = { list: [] as Row[], order: null as null | ((call: number) => Row[]), weekCalls: 0, pageCalls: [] as number[] };
+  const v = { list: [] as Row[], order: null as null | ((call: number) => Row[]), weekCalls: 0, pageCalls: [] as number[], sinces: [] as Date[] };
   const broker = {
     pageLimit: undefined as number | undefined,
     listAccounts: async () => [acc],
     fetchActivities: async (_u: unknown, since: Date, ids?: string[]) => {
       v.weekCalls++;
+      v.sinces.push(since);
       return v.list.filter((r) => (ids ?? []).includes(r.accountId) && r.executedAt >= since);
     },
     fetchActivitiesPage: async (_u: unknown, id: string, offset: number, limit = 1000) => {
@@ -153,7 +154,7 @@ dbTest('(b) genuine: the full read lists both E and N → genuine, two closes', 
   } finally { await t.cleanup(); }
 });
 
-dbTest('(c1) E only on page 1 (outside the overlap) and N only on page 2 → N suspected, exactly one close', async () => {
+dbTest('(c1) E only on page 1 (outside the overlap) and N only on page 2 → never genuine from the pass: confirm, then the next daily (widened) read that lists N without E → suspected, exactly one close', async () => {
   const t = await trader();
   try {
     const { b1, e, n } = pair(t, 12, -30);
@@ -178,13 +179,25 @@ dbTest('(c1) E only on page 1 (outside the overlap) and N only on page 2 → N s
     assert.equal(await t.state('n'), null, 'the week read did not list N');
     await t.round(75); // page 2: N inserted; E was listed only on page 1, days before
     assert.deepEqual(t.v.pageCalls, [0, 10]);
-    assert.equal(await t.state('n'), 'suspected', 'no single response listed both rows');
+    // F-24 committee option C (orchestrator review F2): no single page listed both rows, so the pass never makes N genuine;
+    // its pages together listed both, so N is 'confirm' (still held) and the next daily read, widened to a day before
+    // N's trade date, decides it in one response.
+    assert.equal(await t.state('n'), 'confirm', 'no single response listed both rows: held for the confirm read');
     assert.deepEqual((await t.closes()).map((r) => r.sell_id), [e.externalId], 'exactly one close');
-    assert.ok(t.inSync.every((x) => x <= 1), `never two closes: ${t.inSync.join(',')}`);
     const cur = await t.cursor();
     assert.equal(cur.reconcile_offset, null);
     assert.equal(cur.reconcile_invalid, 0, 'the pass decided');
     assert.equal(cur.reconcile_seen, null, 'listed ids dropped at the pass end');
+    // By the confirm read the vendor lists N and no longer E (a re-issue): suspected.
+    t.v.list = t.v.list.filter((r) => r !== e);
+    const w = t.v.sinces.length;
+    await t.round(100);
+    assert.equal(t.v.sinces.length, w + 1, 'one activities call: the widened read');
+    assert.ok(t.v.sinces[w].getTime() <= n.executedAt.getTime() - DAY, 'widened to a day before N');
+    assert.deepEqual(t.v.pageCalls, [0, 10], 'not a page');
+    assert.equal(await t.state('n'), 'suspected', 'the one read did not list both rows');
+    assert.deepEqual((await t.closes()).map((r) => r.sell_id), [e.externalId], 'exactly one close');
+    assert.ok(t.inSync.every((x) => x <= 1), `never two closes: ${t.inSync.join(',')}`);
     snap = await t.unchanged(snap, '(c1)');
   } finally { await t.cleanup(); }
 });
@@ -563,8 +576,14 @@ for (const variant of [1, 2] as const) {
       assert.deepEqual(t.v.pageCalls, [0, 10]);
       await check('h74');
       if (variant === 2) {
-        assert.equal(await t.state('n'), 'suspected');
+        // Option C (orchestrator review F2): page 1 listed E and page 2 N, so the pass leaves N 'confirm' (held); the next
+        // daily read, widened to a day before N, lists N without E (dropped): suspected.
+        assert.equal(await t.state('n'), 'confirm');
         assert.equal((await t.cursor()).reconcile_invalid, 0, 'the pass decided');
+        await t.round(99);
+        await check('h99');
+        assert.deepEqual(t.v.pageCalls, [0, 10], 'the widened read, not a page');
+        assert.equal(await t.state('n'), 'suspected');
       } else {
         // Variant 1 shifted the list by one row (the pass may end invalid); the next pass decides.
         await t.due();
@@ -628,7 +647,10 @@ dbTest('(n1) two genuine identical fills split across two import pages (A last o
     listed: [importRow(tag, acc, 'b', 'BUY', 20, 10, at(-30)), importRow(tag, acc, 'fa', 'SELL', 10, 12, at(-20)), importRow(tag, acc, 'fb', 'SELL', 10, 12, at(-20))],
   }), 2);
   try {
-    assert.deepEqual(r.pages, [0, 2], 'A last on page 1, B first on page 2');
+    // F-24 (orchestrator review F1): import pages overlap by importOverlap(2) = 1 row, so the page at 1 lists A and B in
+    // one response (A last on the page at 0, B first after it); the page at 2 lists B alone (done).
+    assert.deepEqual(r.pages, [0, 1, 2], 'overlapping pages: A and B together on the page at 1');
+    assert.equal(await r.state('fb'), 'genuine', 'one response listed both');
     assert.equal((await r.sql`select count(*)::int as n from activities where user_id = ${r.u.id}`)[0].n, 3);
     assert.notEqual(await r.state('fb'), 'pending', 'B not held');
     assert.notEqual(await r.state('fb'), 'suspected');

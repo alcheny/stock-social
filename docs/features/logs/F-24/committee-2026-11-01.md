@@ -138,3 +138,29 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
   - A pass is planned only when the page limit exceeds the 50-row overlap (`passPageLimitOk`).
   - The PR body states the local compliance exit status precisely.
 
+## Orchestrator second review of #84 (dc08182: BLOCK) and the committee's ruling
+- **F1, high:** the import's "previous page" union brought the defect back. An import step can wait behind a backoff
+  of up to an hour, a deadline cut or the stale clock, so a reconnect could list E on page 1 and the re-issue N on
+  page 2, and N went genuine. Fix:
+  - import pages overlap (`importOverlap` = min(50, limit − 1)), so neighbouring twins share a page;
+  - `markGenuine` runs on the current page only;
+  - `imported_count` counts new rows only.
+  Tests: R1 (both variants); the connection tests' page offsets are updated to the overlap.
+- **F2, medium (committee decision):** the one-page rule could leave a genuine identical fill listed far from its twin
+  `suspected` forever, so a real loss stayed off the Verified record (repro R2). Three options:
+  - A: keep the rule;
+  - B: one extra targeted read (needs an F-14 cap exception);
+  - C: flag the row `confirm` and widen the account's next daily read to its trade date: no extra request.
+  **Chosen: C, with three amendments:**
+  1. only rows the pass listed with all their twins (on different pages) are flagged;
+  2. suspected rows are re-examined by each later complete pass;
+  3. the widened read is given up after 2 failed syncs, and the shard budget is charged its estimated pages.
+  Positions:
+  - Business lead (C): no hidden loss, no extra request.
+  - Engineer (C, amended): small diff, no F-14 change; charge the extra pages.
+  - Reliability (C, amended): bounded failure modes.
+  Accepted residual: a true re-issue whose original the vendor still lists in that one read shows twice (D5's own
+  rule). This is an owner question, and so is the vendor's list order. The decision, AC6 note, schema comment and open
+  questions are recorded in the feature file.
+- **F3, nit:** the `!last` whole-history read now checks twins page by page.
+

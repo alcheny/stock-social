@@ -11,7 +11,7 @@ import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
 // F-24 late-posted trades (docs/features/F-24-late-sell-reconciliation.md): the pass cursor, the re-issue states and the
 // rebuild's hold filter.
-import { bringForward, dropUnread, markGenuine, markTwins, notReissued, pageFailureCounts, passPageLimitOk, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
+import { bringForward, dropUnread, markGenuine, markTwins, notReissued, pageFailureCounts, passPageLimitOk, plannedConfirm, endConfirm, writeConfirmFailures, plannedPages, recordPage, reissueCounts, restartPeriod, writeReconcileFailures, type PassPlan } from './reconcile.ts';
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
 import { insertOptionActivities, optionTwins, lastOptionActivityAt, markBackfilled, pendingBackfill, moveUnlistedOptionPositions, rebuildRecord, replaceAccountOptionPositions, saveBackfill } from './options-sync.ts';
@@ -417,6 +417,7 @@ export async function syncUser(
   // F-24: accounts planned for a pass page this sync, and those whose page step threw an error that counts (after the
   // transaction: reconcile_failures).
   let recPlanned: string[] = [];
+  let confirmPlanned: string[] = []; // accounts whose read this sync is the widened confirm read (F-24 committee option C)
   const recFailed = new Set<string>();
   let committed = false;
   const consentedAuths = async (tx: TransactionSql) => new Set((await tx`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
@@ -507,6 +508,7 @@ export async function syncUser(
       const listedBy: string[] = [];
       let weekListed: string[] = [], weekFrom: Date | null = null;
       let passFound = 0; // possible re-issues a pass page found (counted in the log line)
+      let cleared = 0; // held rows a read cleared (counted in the log line)
       if (!last && broker.fetchActivitiesPage) {
         // No stored history (a pre-F-1 record): the whole history, one vendor page per insert, never held at once.
         const limit = broker.pageLimit ?? PAGE_LIMIT;
@@ -514,11 +516,13 @@ export async function syncUser(
           for (let offset = 0; ; offset += limit) {
             const page = await broker.fetchActivitiesPage(bu, id, offset, limit, sink);
             if (offset === 0) readActs.push(id); // F-14 (code review): marked once its first page returned
-            listedBy.push(...page.activities.map((a) => a.externalId));
             await insertActivities(user.id, 'snaptrade', page.activities, tx);
             await insertCorporateActions(tx, user.id, 'snaptrade', page.unusable ?? []); // F3-1: counted, never dropped
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
             read += page.activities.length;
+            // F-24: a pair is genuine only when one vendor response lists both rows, so each page is checked on its own.
+            await markTwins(tx, user.id);
+            await markGenuine(tx, user.id, page.activities.map((a) => a.externalId));
             if (page.done) break;
           }
         }
@@ -547,13 +551,29 @@ export async function syncUser(
           // F-14 (code review): one call per account, each recorded as it returns, so a failure on a later account
           // still marks the reads already made (G2's floor applies to them).
           for (const id of windowed) {
-            const got = tradeRead(await broker.fetchActivities(bu, since, [id], sink));
+            // F-24 committee (option C): an account with 'confirm' rows reads from a day before their earliest trade date
+            // instead of the week: one call, a superset of the week read (no extra request), that lists both twins if
+            // the vendor still has both. Two failed syncs in a row that were to make it give it up: the rows become
+            // suspected and the plain week is read.
+            // ponytail: the widened read pages internally by 1,000 rows with no overlap (lib/broker.ts#fetchActivities), so
+            // a list shift inside the call can leave a genuine row suspected until the next pass — fix: page with overlap
+            // (a lib/broker.ts change, owner).
+            const from = await plannedConfirm(tx, user.id, id);
+            const widened = from ? new Date(Math.min(since.getTime(), from.getTime() - 86_400_000)) : since;
+            if (from) confirmPlanned.push(id);
+            const got = tradeRead(await broker.fetchActivities(bu, widened, [id], sink));
             readActs.push(id);
-            weekListed.push(...got.activities.map((a) => a.externalId));
             await insertActivities(user.id, 'snaptrade', got.activities, tx);
             await insertCorporateActions(tx, user.id, 'snaptrade', got.unusable); // F3-1: counted, never dropped
             await insertOptionActivities(user.id, 'snaptrade', options.splice(0), tx); // OPTIONS
             read += got.activities.length;
+            if (from) {
+              // The widened read decides: rows it lists with every unheld twin (dated a day inside its window) are genuine,
+              // every other 'confirm' row of the account is suspected (the one exception to "a week read never suspects").
+              await markTwins(tx, user.id);
+              cleared += await markGenuine(tx, user.id, got.activities.map((a) => a.externalId), id, new Date(widened.getTime() + 86_400_000));
+              await endConfirm(tx, user.id, id);
+            } else weekListed.push(...got.activities.map((a) => a.externalId));
           }
         } else {
           const got = windowed.length ? tradeRead(await broker.fetchActivities(bu, since, windowed, sink)) : { activities: [], unusable: [] };
@@ -615,7 +635,7 @@ export async function syncUser(
       // F-24 (D5, plan §2): every row this transaction stored with an older twin is held until a read lists both rows or
       // a complete pass decides it; a pair one read listed both rows of is genuine (a week read: only inside its window).
       const found = passFound + (await markTwins(tx, user.id));
-      const cleared = (await markGenuine(tx, user.id, listedBy)) + (weekFrom ? await markGenuine(tx, user.id, weekListed, undefined, weekFrom) : 0);
+      cleared += (await markGenuine(tx, user.id, listedBy)) + (weekFrom ? await markGenuine(tx, user.id, weekListed, undefined, weekFrom) : 0);
       // A row found by this sync's week read that it could not decide: the next pass comes sooner (never for an account
       // whose pass ran this sync: an ended or given-up pass waits its period).
       if (opts.cadence) await bringForward(tx, user.id, t, recPlanned);
@@ -627,7 +647,7 @@ export async function syncUser(
       if (found || cleared || optTwins || decided) {
         const { id } = user; // the internal id and counts only (lib/privacy-logs.test.ts)
         const counts = await reissueCounts(tx, user.id);
-        console.log('sync reissues', id, JSON.stringify({ found, cleared, pending: counts.pending, suspected: counts.suspected, optionTwins: optTwins }));
+        console.log('sync reissues', id, JSON.stringify({ found, cleared, pending: counts.pending, confirm: counts.confirm, suspected: counts.suspected, optionTwins: optTwins }));
       }
       // F-14 (G4): rebuilt when activities were read or the account set changed, so last_synced_at means "activities
       // last read" (the freshness line, the queue order, the coverage age). Always without `cadence`.
@@ -709,6 +729,11 @@ export async function syncUser(
     if (opts.cadence && (readActs.length || readPos.length)) {
       const { id } = user; // the internal id only (lib/privacy-logs.test.ts)
       try { await writeMarks(id, readActs, readPos, shiftMs); } catch (e) { console.error('sync marks failed', id, logSafe(e)); }
+    }
+    // F-24 committee (option C): a sync that was to make the widened confirm read and failed (any cause) counts one.
+    if (confirmPlanned.length) {
+      const { id } = user;
+      try { await writeConfirmFailures(id, confirmPlanned, !committed); } catch (e) { console.error('sync confirm marks failed', id, logSafe(e)); }
     }
     // F-24 (plan item 7): a page step that failed counts toward giving its pass up; a committed sync clears the counts.
     const recIds = committed ? recPlanned : [...recFailed];

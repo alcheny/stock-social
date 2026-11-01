@@ -67,6 +67,27 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
   A one-page pass that returns everything counts as the week read. Why: decided by the committee under the owner's instruction of 2026-11-01; it reuses F-14's existing rules instead of adding
   a column; a one-day skew across accounts is a known limit.
 
+- 2026-11-01: A pair counts as genuine only when one vendor response lists both rows: one pass page, one week read or
+  one import page. Pages read days or hours apart are never combined, and import pages overlap so neighbouring twins
+  share a page. Why: decided by the committee under the owner's instruction of 2026-11-01; a pass's pages, or import steps separated by a backoff, can list an original before its re-issue and
+  the re-issue after it, which published one fill twice (orchestrator review of #84).
+- 2026-11-01: A complete pass no longer leaves a held row suspected only because no single page listed it with its
+  twins:
+  - A pending or suspected row that the pass's pages listed, together with every unheld twin, but never on one page,
+    is set to `confirm`. A row whose unheld twin the pass did not list is suspected, as before.
+  - The account's next daily activities read, inside F-14's one read per 24 h, is widened to one day before the
+    earliest `confirm` row's trade date. It is a single `fetchActivities` call that is a superset of the week read, so
+    TR-4 and "Updated" treat it as a week read.
+  - That read makes a `confirm` row genuine when it lists the row and every unheld twin dated on or after its start plus
+    one day. Every other `confirm` row it covers becomes suspected. This read is the one exception to "a week read
+    never marks a row suspected".
+  - Two failed syncs in a row that were to make it, for any cause, turn the account's `confirm` rows suspected, and the
+    week is read. The shard budget is charged the read's estimated vendor pages.
+  Why: decided by the committee under the owner's instruction of 2026-11-01; twins share a trade time, so a window from that date lists both whatever the vendor's order. A genuine identical
+  fill listed far from its twin therefore reaches the Verified record (D5 "both kept when the vendor's full read lists
+  both", POLICY F4 never hide losses) at no vendor request beyond F-14's caps, while a re-issue listed before its
+  original is gone still never joins it. The accepted residual: a true re-issue whose original the vendor still lists in
+  that one read is published twice (D5's own "lists both" rule; owner question below).
 ## Acceptance criteria
 - [ ] Fake-vendor e2e: a SELL dated 10 days before the newest stored trade appears in `closed_trades` after
       reconciliation, and a second run inserts 0 rows.
@@ -78,7 +99,9 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
       and increments the owner-visible count.
 - [ ] A re-issued row (new id, same account, symbol, time, units, price) is counted as a possible re-issue and not
       published twice; two genuine identical fills with different ids are both kept when the vendor's full read lists
-      both (tests both ways).
+      both (tests both ways, including two genuine fills listed far apart, kept after the account's next daily read
+      without an extra request, and an original listed only on an earlier page than its re-issue, which stays held;
+      committee note 2026-11-01).
 - [ ] A found close carries no "late", "corrected" or "new" label (copy test); its thesis, if any, stays attached.
 
 ## Out of scope
@@ -88,6 +111,12 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
 ## Open questions
 - Owner (cycle-3 Q3): may the importer keep vendor corrections in an append-only revisions table? Not decided here.
 - Vendor question list: how corrections, cancels and late postings appear (unverified; `docs/direction/cycle3-2026-11-01.md` §9).
+- Vendor (F-24 committee, 2026-11-01): in what order does the activities endpoint list rows (trade date, settlement or
+  posting date, vendor id), is that order stable across offsets, and does `startDate` filter on trade date or posting
+  date? The pass's "twins are neighbours" assumption, and so how often a widened confirm read is needed, depends on it;
+  the correctness of the confirm read does not.
+- Owner (F-24 committee, 2026-11-01): is it acceptable that a true re-issue whose original the vendor still lists in one
+  read is published twice, until the corrections question (cycle-3 Q3) is decided?
 
 ## Rework notes
 

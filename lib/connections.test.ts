@@ -230,9 +230,12 @@ dbTest('signed in: link writes a pending row and provisional claims only (no act
     assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n, 0); // rebuilt once, at the end
     for (let i = 0; i < 10 && r.state === 'importing'; i++) { r = await importStep(id, deps); seen.push(r.imported); }
     assert.equal(r.state, 'connected');
-    assert.deepEqual(v.calls.filter((x) => x.startsWith('page:')), [`page:${a1}:0`, `page:${a1}:3`, `page:${a1}:6`, `page:${a2}:0`]);
+    // F-24 (orchestrator review F1): import pages overlap by importOverlap(limit) = min(50, limit − 1) rows, so at limit 3
+    // each page moves the offset by 1 (a1: 0..6, the page at 6 lists 2 < 3 rows: done), and the count shown while
+    // importing adds only rows new in that step.
+    assert.deepEqual(v.calls.filter((x) => x.startsWith('page:')), [0, 1, 2, 3, 4, 5, 6].map((o) => `page:${a1}:${o}`).concat(`page:${a2}:0`));
     assert.equal(v.calls.filter((x) => x === 'positions').length, 2);
-    assert.deepEqual(seen, [3, 6, 8, 10, 10, 10]); // monotonic
+    assert.deepEqual(seen, [3, 4, 5, 6, 7, 8, 8, 10, 10, 10]); // monotonic
     const c3 = await getConnection(id);
     assert.equal(c3!.state, 'connected');
     assert.ok(c3!.connected_at);
@@ -552,7 +555,9 @@ dbTest('tick advances every importing row with no client poll, resuming from the
     assert.equal(c.import_cursor.pass, 2);
     assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 6);
     assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n, 3);
-    assert.equal(c.imported_count, 4 + 6); // the counter counts rows read, duplicates included; the record dedupes on (source, external_id)
+    // F-24 (orchestrator review F1): the counter adds only rows new in each step (pages overlap, so rows read twice are
+    // never counted twice): 4 from the first pass, then the second pass's 2 new rows.
+    assert.equal(c.imported_count, 4 + 2);
   } finally {
     await cleanup([u.id], [acc]);
   }
@@ -680,16 +685,18 @@ dbTest('concurrency: two import steps for one user at once never interleave: eac
   const acc = `${tag}-cc`;
   const { v, deps } = fakeVendor();
   v.accounts = [acct(acc)];
-  v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2), ...pair(acc, 3), ...pair(acc, 4), ...pair(acc, 5)]); // 10 rows, 4 pages of 3
+  v.rows.set(acc, [...pair(acc, 1), ...pair(acc, 2), ...pair(acc, 3), ...pair(acc, 4), ...pair(acc, 5)]); // 10 rows, pages of 3 (overlapping: F-24)
   v.delayMs = 60;
   try {
     await startConnection({ userId: u.id, attemptId: attempt }, 'r', deps);
     const { id } = await completeLink({ userId: u.id, attemptId: attempt }, deps) as { id: number };
     await consent(id, new Date(), deps);
-    const results = await Promise.all([importStep(id, deps), importStep(id, deps), importStep(id, deps), importStep(id, deps)]);
+    // F-24 (orchestrator review F1): pages overlap by importOverlap(3) = 2 rows, so the 10 rows take 9 pages (offsets 0..8,
+    // one row forward each; the page at 8 lists 2 < 3 rows: done) and each step counts only its new rows.
+    const results = await Promise.all(Array.from({ length: 9 }, () => importStep(id, deps)));
     const pages = v.calls.filter((x) => x.startsWith('page:'));
-    assert.deepEqual(pages, [`page:${acc}:0`, `page:${acc}:3`, `page:${acc}:6`, `page:${acc}:9`]); // in order, each once
-    assert.deepEqual(results.map((r) => r.imported).sort((a, b) => a - b), [3, 6, 9, 10]);
+    assert.deepEqual(pages, [0, 1, 2, 3, 4, 5, 6, 7, 8].map((o) => `page:${acc}:${o}`)); // in order, each once
+    assert.deepEqual(results.map((r) => r.imported).sort((a, b) => a - b), [3, 4, 5, 6, 7, 8, 9, 10, 10]);
     const c = await conn(id);
     assert.equal(c.imported_count, 10);
     assert.deepEqual(c.import_cursor, { i: 1, offset: 0, pass: 1 });

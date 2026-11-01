@@ -104,8 +104,13 @@ async function endPass(tx: TransactionSql, userId: number, accountId: string, t:
     reconcile_seen = null, reconcile_pages = 0, reconcile_valid = true where user_id = ${userId} and account_id = ${accountId}`;
 }
 /** A pass that ends without deciding (or is abandoned): counted per account and logged (internal id and reason only). */
-async function giveUp(tx: TransactionSql, userId: number, accountId: string, t: Frag, reason: 'shifted' | 'missing' | 'bound' | 'failures') {
+type InvalidReason = 'shifted' | 'missing' | 'bound' | 'failures' | 'confirm';
+async function giveUp(tx: TransactionSql, userId: number, accountId: string, t: Frag, reason: InvalidReason) {
   await endPass(tx, userId, accountId, t);
+  await countInvalid(tx, userId, accountId, reason);
+}
+/** Counted per account and logged (the internal id and a reason code only; the one call site of this line). */
+async function countInvalid(tx: TransactionSql, userId: number, accountId: string, reason: InvalidReason) {
   await tx`update broker_accounts set reconcile_invalid = reconcile_invalid + 1 where user_id = ${userId} and account_id = ${accountId}`;
   const id = userId;
   console.log('sync reconcile invalid', id, JSON.stringify({ reason }));
@@ -118,7 +123,7 @@ export async function restartPeriod(tx: TransactionSql, userId: number, ids: str
   await tx`update broker_accounts set reconcile_due_at = ${t} + ${ms(RECONCILE_EVERY_MS)} where user_id = ${userId} and account_id in ${tx(ids)} and reconcile_offset is null`;
 }
 
-export type PageResult = { complete: boolean; onePage: boolean; decided: { genuine: number; suspected: number } | null };
+export type PageResult = { complete: boolean; onePage: boolean; decided: { genuine: number; suspected: number; confirm?: number } | null };
 type PassRow = { reconcile_tail: string[] | null; reconcile_seen: string[] | null; reconcile_pages: number; reconcile_expect: number;
   reconcile_valid: boolean; reconcile_missing: string[] | null; reconcile_started_at: Date };
 
@@ -161,7 +166,9 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
   // (pages are days apart, so the union can hold an original from before its re-issue and the re-issue from after;
   // orchestrator review of #84). Twins sorted by trade date are neighbours, and the 50-row overlap puts any two
   // neighbours on one page, so genuine twins are still found; twins further apart stay held (the safe side). `seen`
-  // serves only the completeness check below.
+  // serves the completeness check and the 'confirm' step below (never a genuine decision).
+  // ponytail: "twins sorted by trade date are neighbours" assumes the vendor lists rows in trade-date order (unverified:
+  // the vendor question on list order, feature file Open questions) — a widened confirm read decides any other case.
   const early = await markGenuine(tx, userId, listed, accountId);
   if (!done && pages > bound) {
     await giveUp(tx, userId, accountId, t, 'bound');
@@ -192,7 +199,7 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
     await giveUp(tx, userId, accountId, t, valid ? 'missing' : 'shifted');
     return { complete: true, onePage: plan.start, decided: null };
   }
-  const decided = await decidePass(tx, userId, accountId);
+  const decided = await decidePass(tx, userId, accountId, seen);
   decided.genuine += early;
   await endPass(tx, userId, accountId, t);
   await tx`update broker_accounts set reconcile_invalid = 0 where user_id = ${userId} and account_id = ${accountId}`;
@@ -201,13 +208,58 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
 
 /** A complete pass decides the account's held rows: those its pages did not clear (markGenuine, one page at a time) are
  *  suspected. */
-async function decidePass(tx: TransactionSql, userId: number, accountId: string) {
-  // What a complete pass leaves pending is suspected: no single page listed it with every unheld twin (a twin missing,
-  // listed only on another page, or the held row itself no longer listed; QA D2: never left pending forever).
+async function decidePass(tx: TransactionSql, userId: number, accountId: string, seen: string[]) {
+  // F-24 committee (orchestrator review F2, option C): a held row (pending, or suspected by an earlier pass) that the
+  // pass's pages listed together with every unheld twin, but never on one page, is set to 'confirm': the account's next
+  // daily read, widened to its trade date, lists both in one response or not (lib/sync.ts). A row whose unheld twin the
+  // pass did not list (or that is itself no longer listed) is suspected (QA D2: never left pending forever).
+  const c = await tx`update activity_reissues r set state = 'confirm', decided_at = now()
+    from activities n
+    where r.user_id = ${userId} and r.account_id = ${accountId} and r.state in ('pending', 'suspected')
+      and n.source = r.source and n.external_id = r.external_id and r.external_id = any(${seen}::text[])
+      and not exists (select 1 from activities e where e.user_id = ${userId} and ${twin(tx, 'n', 'e')} and not ${held(tx, 'e')}
+        and not (e.external_id = any(${seen}::text[])))`;
   const s = await tx`update activity_reissues set state = 'suspected', decided_at = now()
     where user_id = ${userId} and account_id = ${accountId} and state = 'pending'`;
-  return { genuine: 0, suspected: s.count };
+  return { genuine: 0, suspected: s.count, confirm: c.count };
 }
+
+/** The widened confirm read (committee option C): the earliest trade date of the account's 'confirm' rows, or null.
+ *  ponytail: only the cadence sync (the shard runner) makes it, so under syncTick a 'confirm' row stays held (never
+ *  published) until a cadence sync reads the account — fix: the same widening in the non-cadence windowed read. */
+export async function confirmFrom(tx: TransactionSql, userId: number, accountId: string): Promise<Date | null> {
+  const [{ at }] = await tx`select min(n.executed_at) as at from activity_reissues r join activities n on n.source = r.source and n.external_id = r.external_id
+    where r.user_id = ${userId} and r.account_id = ${accountId} and r.state = 'confirm'`;
+  return (at as Date | null) ?? null;
+}
+/** After the widened read: rows it listed with every unheld twin are genuine (markGenuine, by the caller); every other
+ *  'confirm' row of the account is suspected. Also the give-up path (two failed widened reads). */
+export async function endConfirm(tx: TransactionSql, userId: number, accountId: string): Promise<number> {
+  const r = await tx`update activity_reissues set state = 'suspected', decided_at = now() where user_id = ${userId} and account_id = ${accountId} and state = 'confirm'`;
+  return r.count;
+}
+/** The widened read for an account with 'confirm' rows, or null: after CONFIRM_MAX_FAILURES failed syncs in a row that
+ *  were to make it (counted after the transaction), it is given up: the rows become suspected (counted and logged with
+ *  reason 'confirm') and the plain week is read. */
+export async function plannedConfirm(tx: TransactionSql, userId: number, accountId: string): Promise<Date | null> {
+  const from = await confirmFrom(tx, userId, accountId);
+  if (!from) return null;
+  const [r] = await tx`select confirm_failures as n from sync_read_marks where user_id = ${userId} and account_id = ${accountId}`;
+  if (Number(r?.n ?? 0) < CONFIRM_MAX_FAILURES) return from;
+  await endConfirm(tx, userId, accountId);
+  await tx`update sync_read_marks set confirm_failures = 0 where user_id = ${userId} and account_id = ${accountId}`;
+  await countInvalid(tx, userId, accountId, 'confirm');
+  return null;
+}
+/** After the transaction: a sync that was to make a widened read and failed (any cause) counts one; a committed one
+ *  clears the count. Never fatal (the caller catches). */
+export async function writeConfirmFailures(userId: number, ids: string[], failed: boolean) {
+  for (const id of ids) {
+    await sql`insert into sync_read_marks (user_id, account_id, confirm_failures) values (${userId}, ${id}, ${failed ? 1 : 0})
+      on conflict (user_id, account_id) do update set confirm_failures = ${failed ? sql`sync_read_marks.confirm_failures + 1` : 0}`;
+  }
+}
+export const CONFIRM_MAX_FAILURES = 2;
 
 /** A held row is genuine when one read listed it and every other row of its twin group that is not itself held: the
  *  vendor shows as many fills as are kept (QA D1: with two genuine identical fills stored, a re-issue of one of them is
@@ -267,10 +319,11 @@ export async function dropUnread(tx: TransactionSql, userId: number, real: strin
 }
 
 /** Owner counts for the per-sync log line. */
-export async function reissueCounts(tx: TransactionSql, userId: number): Promise<{ pending: number; suspected: number }> {
-  const [r] = await tx`select count(*) filter (where state = 'pending')::int as pending, count(*) filter (where state = 'suspected')::int as suspected
+export async function reissueCounts(tx: TransactionSql, userId: number): Promise<{ pending: number; confirm: number; suspected: number }> {
+  const [r] = await tx`select count(*) filter (where state = 'pending')::int as pending, count(*) filter (where state = 'confirm')::int as confirm,
+      count(*) filter (where state = 'suspected')::int as suspected
     from activity_reissues where user_id = ${userId}`;
-  return { pending: r.pending as number, suspected: r.suspected as number };
+  return { pending: r.pending as number, confirm: r.confirm as number, suspected: r.suspected as number };
 }
 
 /** A failure of a pass page step that counts toward giving the pass up: not a vendor outage, rate limit, timeout or a

@@ -25,7 +25,7 @@ const at = (d: number) => new Date(base + d * DAY);
 const F24 = ['sync closes rewritten', 'sync reissues', 'sync reconcile invalid'];
 const KEYS: Record<string, string[]> = {
   'sync closes rewritten': ['changed', 'removed', 'added'],
-  'sync reissues': ['found', 'cleared', 'pending', 'suspected', 'optionTwins'],
+  'sync reissues': ['found', 'cleared', 'pending', 'confirm', 'suspected', 'optionTwins'], // confirm: committee option C
   'sync reconcile invalid': ['reason'],
 };
 
@@ -181,7 +181,7 @@ dbTest('the sync reissues and sync reconcile invalid lines: the internal id and 
     await t.sql`update broker_accounts set reconcile_due_at = ${new Date(base + 30 * DAY).toISOString()} where account_id = ${t.acc.id}`;
     t.logs.length = 0;
     await t.round(25);
-    assert.deepEqual(t.lines('sync reissues'), [['sync reissues', t.user.id, '{"found":1,"cleared":0,"pending":1,"suspected":0,"optionTwins":0}']]);
+    assert.deepEqual(t.lines('sync reissues'), [['sync reissues', t.user.id, '{"found":1,"cleared":0,"pending":1,"confirm":0,"suspected":0,"optionTwins":0}']]);
     t.logs.length = 0;
     await t.round(50); // brought forward: the pass; x is missing, so it decides nothing
     assert.deepEqual(t.lines('sync reconcile invalid'), [['sync reconcile invalid', t.user.id, '{"reason":"missing"}']]);
@@ -196,7 +196,7 @@ dbTest('the sync reissues and sync reconcile invalid lines: the internal id and 
     await t.round(75);
     assert.equal((await t.sql`select state from activity_reissues where external_id = ${n.externalId}`)[0].state, 'suspected');
     assert.deepEqual(t.lines('sync reconcile invalid'), []);
-    assert.deepEqual(t.lines('sync reissues'), [['sync reissues', t.user.id, '{"found":0,"cleared":0,"pending":0,"suspected":1,"optionTwins":0}']],
+    assert.deepEqual(t.lines('sync reissues'), [['sync reissues', t.user.id, '{"found":0,"cleared":0,"pending":0,"confirm":0,"suspected":1,"optionTwins":0}']],
       'a pass that decides re-issue states logs the counts');
     t.assertShapes();
   } finally { await t.cleanup(); }
