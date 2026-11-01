@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { sql } from '@/lib/db.ts';
+import { visibleUserIds } from '@/lib/visible-users.ts';
 import { COMPARE_COPY, compareDescription, compareEvidenceText, compareKind, compareOverlapText, compareTickers, parseCompare, toTicker, type CompareSide, type TickerRow, type TradeRow } from '@/lib/ticker.ts';
 // FIXES-LABELS (D-03): title, explainer, notes and overlap by the pair's state; Demo is never "verified".
 import { FIXES_LABELS as FL } from '@/lib/copy.ts';
@@ -9,6 +10,7 @@ import { Disclaimer } from '../../disclaimer.tsx';
 import { pct, rangeText } from '@/lib/trades.ts';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge } from '../../ui.tsx';
+import { toneClass } from '../../open-rows.tsx';
 import Spread from '../[symbol]/Spread.tsx';
 // F-6: open positions per stock, one aggregate line per column.
 import { asOfDay, OPEN } from '@/lib/copy.ts';
@@ -24,7 +26,7 @@ async function load(searchParams: Props['searchParams']) {
   if (parsed.kind !== 'ok') return { parsed };
   const rows = (await sql`
     select t.user_id, t.symbol, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified
-    from closed_trades t where t.symbol in (${parsed.a}, ${parsed.b}) and t.filing_url is null`) as unknown as (TradeRow & { symbol: string })[];
+    from closed_trades t where t.symbol in (${parsed.a}, ${parsed.b}) and t.filing_url is null and t.user_id in (${visibleUserIds()})`) as unknown as (TradeRow & { symbol: string })[];
   const side = (s: string): TickerRow[] => rows.filter((r) => r.symbol === s).map(toTicker);
   return { parsed, compare: compareTickers(side(parsed.a), side(parsed.b), new Date()), open: await symbolOpen(parsed.a, parsed.b) };
 }
@@ -79,7 +81,7 @@ function Column({ symbol, side, id, shared, open, note = true }: { symbol: strin
       {s.mixed && <p role="note" className="muted">{FL.mixedNote}</p>}
       <div className="stats">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
-        <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : s.avgReturn! < 0 ? 'down' : ''}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
+        <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
           <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
         </div>
       </div>
