@@ -37,3 +37,27 @@ test('AC24 (fix round 3): the card shows the "Excluding options" pill (headline 
   // Importing: no line (nothing partial is presented).
   assert.equal(recordCard({ ...base, kind: 'square', state: 'importing', options: { shareLabel: true, line: gated } }).optionsLine, null);
 });
+
+// F4-5 (cycle 4, C4-10): the profile's text unfurl carries the options qualifier and the count line, as the card and
+// its alt do; without options it is unchanged.
+test('F4-5: the unfurl description carries ", excluding options" after the headline label and the count line after the evidence', async () => {
+  const { cardDescription } = await import('./record-card.ts');
+  const plain = recordCard({ ...base, kind: 'unfurl' });
+  const m = recordCard({ ...base, kind: 'unfurl', options: { shareLabel: true, line: gated } });
+  const p = cardDescription(plain)!;
+  const d = cardDescription(m)!;
+  assert.doesNotMatch(p, /options/i, 'no options: unchanged');
+  assert.ok(d.startsWith(`${m.headline} ${m.headlineLabel}, ${OPTIONS.altQualifier}`), d);
+  assert.ok(d.endsWith(`${m.evidence} · ${gated}`), d);
+  // Everything else is the plain description's words, in order.
+  assert.equal(d.replace(`, ${OPTIONS.altQualifier}`, '').replace(` · ${gated}`, ''), p);
+  // Open positions: the count line still follows the evidence, the open line after it.
+  const o = recordCard({ ...base, kind: 'unfurl', open: [0.1], options: { shareLabel: true, line: gated } });
+  assert.ok(cardDescription(o, 'F6 LINE')!.endsWith(` · ${gated} · F6 LINE`));
+  // Open options only (no share label): the line shows, no qualifier.
+  const l = recordCard({ ...base, kind: 'unfurl', options: { shareLabel: false, line: OPTIONS.gated(0, 1) } });
+  assert.doesNotMatch(cardDescription(l)!, /excluding options/);
+  assert.ok(cardDescription(l)!.endsWith(` · ${OPTIONS.gated(0, 1)}`));
+  // Importing / empty: still no stats text.
+  assert.equal(cardDescription(recordCard({ ...base, kind: 'unfurl', state: 'importing', options: { shareLabel: true, line: gated } })), null);
+});

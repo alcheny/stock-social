@@ -109,7 +109,9 @@ test('symbol change chain A → B → C, with a 2-for-1 share exchange on the se
 
 test('a symbol change whose shares do not match the ledger, or carry a leftover, is unpriceable: nothing moves, nothing is guessed', () => {
   const m = accounted([t('BUY', 100, 100, 1), t('SELL', 100, 120, 10, { symbol: 'BBB' }), t('SELL', 100, 90, 11)], [rename(5, 'AAA', 'BBB', 90)]);
-  assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [0, 1, 1]); // BBB has no lots; AAA's lots are tainted
+  // Fixes cycle 4 (C4-1, engineer): the 90 BBB shares the rename names arrive with no basis, so the BBB sell draws them
+  // and is counted as the action's (it was counted as missing history); AAA's lots are tainted. Still nothing shown.
+  assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [0, 0, 2]);
   assert.equal(renameRatio(100, 150.5), null);
   assert.deepEqual(renameRatio(100, 50), { p: 1, q: 2 });
 });

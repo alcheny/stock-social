@@ -39,7 +39,9 @@ export type HoldRule = {
 // version, so a rule change without a new version fails there.
 // Fix round 7: version 3 adds the period-first and "mo" rate rule (since: 3), the split-word join (splitWordLabel) and
 // the reflective timing exemption (REFLECT).
-export const MODERATION_VERSION = 3;
+// F4-18 (cycle 4): version 4 adds the country-code domain, payment cashtag and solicitation paraphrase rules
+// (since: 4).
+export const MODERATION_VERSION = 4;
 
 // A closed list of top-level domains: "BRK.B", "3.5x", "v2.0", "10-K", "Q3/FY25", "approx.5", "U.S.", "e.g." and
 // "Inc." never look like a domain (the name needs 2+ characters with a letter, the ending must be on this list).
@@ -48,6 +50,17 @@ const TLD = '(?:com|net|org|io|co|gg|app|xyz|info|biz|ly|link|club|live|tv|uk|ru
 // ponytail: spaced endings that are English words (".me", ".to", ".co", ".live", ".trade") publish — "nice trade . me
 // too" would hold otherwise; the unspaced forms are held.
 const TLD_SPACED = '(?:com|net|org|io|gg|xyz|app|info|biz)';
+// F4-18 (cycle 4, version 4): common country-code endings for the domain-cc rule. CC holds bare; CC_GUARDED (English
+// words, and endings written after a ticker for its exchange) needs a second-level part or a path.
+// Review of #89: ca, ch, se, ro and vn are exchange suffixes too ("XYZ.CA", "ABC.CH", "ABC.SE"), so they are guarded.
+const CC = '(?:au|jp|kr|sg|fr|es|nl|dk|fi|pl|cz|pt|ie|ar|cl|za|ng|ke|ae|il|gr|hu|ua|ph|pk|eu|ws|su|nu)';
+const CC_GUARDED = '(?:in|it|is|no|at|be|my|us|id|cn|hk|tw|mx|nz|sa|br|ca|ch|se|ro|vn)';
+// F4-18: a "$handle" (a letter first, so "$500" is an amount); CASHTAG_HANDLE is handle-shaped: a digit, "_" or "-",
+// or 6+ letters (longer than a ticker). Review of #89: "-" is no handle signal ("$BRK-B", "$BF-B" are share classes).
+// ponytail: a hyphenated handle ("$sample-trader") after a weak payment word publishes — hold it if the review queue
+// shows such tags.
+const CASHTAG = String.raw`(?<![\w$])\$[a-z][a-z0-9_-]{1,19}(?![\w-])`;
+const CASHTAG_HANDLE = String.raw`(?<![\w$])\$(?=[a-z0-9_]*(?:[0-9_]|[a-z]{6}))[a-z][a-z0-9_]{2,19}(?![\w-])`;
 // A dot, also bracketed or parenthesised ("example[.]org", "example(.)net").
 const DOT = String.raw`(?:\.|\s*[[(]\s*\.\s*[)\]]\s*)`;
 // A domain name: 2+ characters with a letter, starting where no name character precedes it (linear per start).
@@ -132,6 +145,26 @@ export const HOLD_V2: HoldRule[] = [
   // ponytail: a bare "example com" with no www and no path publishes ("the company com" style text can't be told from
   // it) — hold it too if the review queue shows such links.
   { rule: 'domain-dotless', label: 'link', re: new RegExp(String.raw`(?<![a-z0-9-])www\s+[a-z0-9-]+\s+${TLD}\b|${NAME}\s+${TLD_SPACED}\/[\w/]`, 'i') },
+  // F4-18 (cycle 4, C4-19; version 4): bare domains on common country-code endings, F-9's "Hold … links and domains".
+  // Endings that are never an English word or a common exchange suffix hold bare ("example.fr", "example.com.au"); the
+  // rest (CC_GUARDED: English words, and endings traders write after a ticker, "XYZ.HK") hold only after a second-level
+  // part ("example.co.in", "example.com.br") or with a path ("example.it/room").
+  // ponytail: "example.hk", "example.in" and the other guarded endings publish bare — hold them if the review queue
+  // shows such links (a ticker suffix list would tell them apart).
+  { rule: 'domain-cc', label: 'link', words: true, since: 4, re: new RegExp(String.raw`${NAME}(?:\.[a-z0-9-]+)*${DOT}${CC}(?:\/\S*)?(?![\w.-]*\w)|${NAME}\.(?:co|com|net|org|gov|edu|ac)${DOT}(?:${CC}|${CC_GUARDED})(?:\/\S*)?(?![\w.-]*\w)|${NAME}${DOT}${CC_GUARDED}\/[\w/]`, 'i') },
+  // F4-18 (version 4): a payment cashtag: a "$handle" next to a payment word ("Tips welcome: $handle", "$handle for
+  // tips", "send tips to $handle"). A ticker ("$XYZ for the dividend") and a "$" amount ("Paid $40 a share") publish:
+  // the handle starts with a letter, and a bare "send", "pay" or "tips" counts only with a handle-shaped tag (a digit,
+  // "_" or "-", or 6+ letters: longer than a ticker).
+  { rule: 'cashtag', label: 'contact details', since: 4, re: new RegExp(String.raw`\b(?:cash\s*tag|tip\s*jar|tips?\s+(?:me|welcome|appreciated)|donations?\s+(?:welcome|appreciated)|(?:payment|pay|money|cash)\s*app|send\s+me\s+(?:money|cash|tips?|a tip)|pay\s+me|tip\s+me|donate)\b[^.!?\n]{0,30}?${CASHTAG}|${CASHTAG}[^.!?\n]{0,30}?\b(?:cash\s*tag|tip\s*jar|for\s+(?:tips|donations)|(?:payment|pay|money|cash)\s*app|tips?\s+(?:welcome|appreciated)|donations?\s+(?:welcome|appreciated))\b|\b(?:tips?|tipping|donat\w*|send|pay(?:ments?)?)\s+(?:(?:to|at|via|on|me)\s+)?${CASHTAG_HANDLE}`, 'i') },
+  // F4-18 (version 4): solicitation paraphrases next to the frozen "link in bio": pointing at the bio ("Check my bio for
+  // the link", "details in bio"), "Follow me for more calls" and running a trading room ("I run a trading room, ask me
+  // how to get in"). "I updated my bio", "My bio says I swing trade", "I left a trading group" and "Ask me how I sized
+  // it" publish. Review of #89: "the bio of the CEO" is no pointer, and a "club" alone is no room ("We run a stock club
+  // at work").
+  { rule: 'bio-pointer', label: 'promotion', words: true, since: 4, re: /\b(?:check(?:\s+out)?|see|visit|tap|click|hit|go\s+to|head\s+to|look\s+at)\s+(?:the\s+)?(?:links?\s+in\s+)?(?:my|our)\s+bio\b(?!\s+of\b)|\b(?:links?|details|info|more|access|invites?|sign[\s-]?up)\s+(?:is\s+|are\s+)?(?:in|on|at)\s+(?:my\s+|our\s+)?bio\b(?!\s+of\b)|\b(?:my|our)\s+bio\s+(?:for|has|have)\s+(?:the\s+|a\s+|more\s+)?(?:links?|details|info|access|invites?|sign[\s-]?up|group|room|signals?|alerts?)\b/i },
+  { rule: 'follow-for', label: 'promotion', words: true, since: 4, re: /\bfollow\s+(?:(?:me|us)\s+)?(?:here\s+)?(?:for|4)\s+(?:(?:more|daily|weekly|the|my|our|free|real[\s-]?time|live)\s+)*(?:calls?|picks?|plays?|alerts?|signals?|entries|setups?|trades|updates|ideas|content)\b/i },
+  { rule: 'trading-room', label: 'promotion', words: true, since: 4, re: /\b(?:i|we)\s+(?:run|host|own|lead|manage|started|moderate)\s+(?:a|an|my|our)\s+(?:(?:small|private|little|free|paid|live)\s+)?(?:day[\s-]?)?(?:trading|stock|options?|investing)\s+(?:room|chat\s*room|group(?:\s+chat)?|chat|server|channel)\b|\bask\s+(?:me|us)\s+(?:how\s+(?:to\s+)?(?:get(?:ting)?\s+in|join(?:ing)?|sign(?:ing)?\s+up|access)|about\s+(?:joining|getting\s+in|access|the\s+(?:room|group|chat|server|channel)))\b/i },
   // Copy trading and mirroring.
   // Fix round 2 (business lead, decision 2 revised): only the solicitation or the offer holds — "copy trading is open",
   // "join copy trading", copy/mirror/replicate/tail + my/our trades, "copy me", "trade with me", auto-copy. Talk about

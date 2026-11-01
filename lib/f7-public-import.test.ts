@@ -270,3 +270,32 @@ dbTest('fix round 3: an import run that finds the advisory lock held skips the t
   const r = await run(state);
   assert.equal(r.ran, true); assert.equal(r.busy, false); assert.equal(r.filings, 2);
 });
+
+dbTest('F4-9 (C4-13): a backlog stopped on the filing cap keeps last_success_at until the walk reaches today and exhausts it', async () => {
+  const { sql } = await import('./db.ts');
+  const o = owner(`${tag} Backlog`, { other: true }); // role-skipped: cheap filings, no profile
+  const filings: FakeFiling[] = [];
+  for (const day of ['2026-03-03', '2026-03-04', '2026-03-05']) for (let i = 0; i < 2; i++)
+    filings.push({ id: fid(), day, owner: o, symbol: 'QZXR', rows: [{ date: '2026-03-02', code: 'P', units: 1, price: 1, ad: 'A', after: 1 }] });
+  await setScenario(fake.base, { filings });
+  const state = await stateAt('2026-03-03');
+  const old = new Date('2026-01-01T00:00:00Z');
+  await sql`update public_import_state set last_success_at = ${old} where source = ${state}`;
+  const stamp = async () => (await sql`select cursor, last_success_at from public_import_state where source = ${state}`)[0];
+  // 3 days behind, 2 filings a tick: the first two ticks stop on the cap before today is exhausted.
+  assert.equal((await run(state, { max: 2 })).filings, 2);
+  let st = await stamp();
+  assert.equal(st.last_success_at.getTime(), old.getTime()); assert.deepEqual(st.cursor, { day: '2026-03-04', seen: [] });
+  assert.equal((await run(state, { max: 2 })).filings, 2);
+  st = await stamp();
+  assert.equal(st.last_success_at.getTime(), old.getTime()); assert.deepEqual(st.cursor, { day: '2026-03-05', seen: [] });
+  // The cap reached on today's index with one filing still unread: still not stamped.
+  assert.equal((await run(state, { max: 1 })).filings, 1);
+  st = await stamp();
+  assert.equal(st.last_success_at.getTime(), old.getTime()); assert.equal(st.cursor.day, '2026-03-05'); assert.equal(st.cursor.seen.length, 1);
+  // Today's index read to its end: stamped now.
+  assert.equal((await run(state, { max: 2 })).filings, 1);
+  st = await stamp();
+  assert.ok(st.last_success_at.getTime() > old.getTime()); assert.equal(st.cursor.day, '2026-03-05');
+  assert.equal(st.cursor.seen.length, 2);
+});
