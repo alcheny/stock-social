@@ -81,6 +81,7 @@ export async function placeholderAttempt(tx: TransactionSql): Promise<string> {
 async function createFilerUser(tx: TransactionSql, filerId: number, name: string): Promise<{ id: number }> {
   const attempt = await placeholderAttempt(tx);
   const slug = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 13) || 'filer';
+  // ponytail: if both candidate handles are taken the filing fails on every read — a numbered fallback would fix it.
   for (const handle of [`pf_${slug}`, `pf_${slug.slice(0, 9)}_${filerId.toString(36)}`]) {
     const [u] = await tx`insert into users (handle, display_name, adult_attested_at, signup_attempt_id, public_filer_id)
       select ${handle}, ${name.trim().slice(0, 40)}, ${PLACEHOLDER_ATTESTED_AT}, ${attempt}, ${filerId}

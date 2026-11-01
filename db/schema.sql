@@ -326,6 +326,7 @@ create table if not exists public_filers (
   filer_key text not null,                          -- the filing system's filer id; identity never by name
   demo boolean not null default false,              -- fictional fixture filer: Demo badge (POLICY P2)
   excluded jsonb not null default '{}', open_symbols text[] not null default '{}', -- counts by reason; open lots, symbols only
+  -- ponytail: open positions carry no percent — an owner-approved market-data vendor would give unrealized returns (TR-4).
   hidden_at timestamptz, removed_at timestamptz,    -- hidden pending review; removed on request (never re-imported)
   created_at timestamptz not null default now(), unique (source, filer_key)
 );
