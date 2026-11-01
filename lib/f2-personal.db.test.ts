@@ -516,13 +516,23 @@ async function purgeOnce() {
   throw new Error('the purge never ran to the end');
 }
 
-dbTest('purge: a "Not interested" that ran its 90 days stays stored (listed, removable); one the viewer ended goes a day later; an orphaned like is marked, kept, deleted 30 days on, and unmarked when its close comes back', async () => {
+// The orphan purge is lib/privacy-purge.ts (one mechanism, privacy_orphans); the discovery purge never marks or deletes a
+// like or hidden trade. Retried on 23503 like lib/privacy-purge.test.ts (another file may delete a users row meanwhile).
+async function orphansPass(opts: Record<string, unknown> = {}) {
+  const { purgePrivacy } = await import('./privacy-purge.ts');
+  for (let i = 1; ; i++) {
+    try { return await purgePrivacy({ only: ['orphans'], ...opts }); } catch (e) { if ((e as { code?: string }).code !== '23503' || i >= 5) throw e; }
+  }
+}
+
+dbTest('purge: a "Not interested" that ran its 90 days stays stored (listed, removable); one the viewer ended goes a day later; an orphaned like is marked (privacy_orphans), kept, deleted 30 days on, and unmarked when its close comes back; the discovery purge touches no like', async () => {
   const f = await fixture(4);
   const { exclude, endExclusion, expiredHides, removeExpiredHide } = await import('./follows.ts');
   const { tradeKey } = await import('./likes.ts');
   const v = f.viewer, [N, E, T, R] = f.traders;
   const excl = (t: number) => f.sql`select count(*)::int as n from viewer_exclusions where viewer_id = ${v} and trader_id = ${t}`.then((r) => r[0].n as number);
-  const likeRow = (k: string) => f.sql`select orphan_at from trade_likes where viewer_id = ${v} and trade_key = ${k}`;
+  const likeRow = (k: string) => f.sql`select l.trade_key, (select o.first_seen_at from privacy_orphans o where o.kind = 'like' and o.viewer_id = l.viewer_id and o.trade_key = l.trade_key) as orphan_at
+    from trade_likes l where l.viewer_id = ${v} and l.trade_key = ${k}`;
   try {
     await f.sql`insert into viewer_exclusions (viewer_id, trader_id, created_at, until, reason)
       values (${v}, ${N}, now() - interval '190 days', now() - interval '100 days', 'not_interested')`;
@@ -535,6 +545,8 @@ dbTest('purge: a "Not interested" that ran its 90 days stays stored (listed, rem
     await purgeOnce();
     assert.equal(await excl(N), 1, 'a hide that ran its 90 days is never deleted on a timer');
     assert.equal(await excl(E), 0, 'one the viewer ended goes a day later');
+    assert.equal((await likeRow(k1))[0].orphan_at, null, 'the discovery purge marks no orphan');
+    await orphansPass();
     const l1 = await likeRow(k1), l2 = await likeRow(k2);
     assert.equal(l1.length, 1);
     assert.ok(l1[0].orphan_at !== null, 'marked');
@@ -545,10 +557,12 @@ dbTest('purge: a "Not interested" that ran its 90 days stays stored (listed, rem
     await removeExpiredHide(v, N);
     assert.equal(await excl(N), 0);
     // k1 still gone 31 days on: deleted. k2's close comes back: unmarked, kept.
-    await f.sql`update trade_likes set orphan_at = now() - interval '31 days' where viewer_id = ${v} and trade_key = ${k1}`;
+    await f.sql`update privacy_orphans set first_seen_at = now() - interval '31 days' where kind = 'like' and viewer_id = ${v} and trade_key = ${k1}`;
     await f.sql`insert into closed_trades (user_id, sell_id, account_id, symbol, opened_at, closed_at, return_pct, holding_days, verified)
       values (${R}, ${s2}, 'a', 'PB', now() - interval '3 days', now() - interval '2 days', 0.01, 1, true)`;
     await purgeOnce();
+    assert.equal((await likeRow(k1)).length, 1, 'the discovery purge deletes no like');
+    await orphansPass();
     assert.equal((await likeRow(k1)).length, 0);
     const back = await likeRow(k2);
     assert.equal(back.length, 1);

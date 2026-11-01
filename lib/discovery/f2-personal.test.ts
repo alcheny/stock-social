@@ -225,7 +225,8 @@ test('owner 2026-11-01: nothing is deleted on a timer: the purge deletes only vi
   const purge = src('./purge.ts');
   assert.match(purge, /reason = 'unfollow' or ended_at is not null/);
   assert.doesNotMatch(purge, /discovery_events/);
-  assert.match(src('../delete.ts'), /orphan_at < now\(\) - \$\{ORPHAN_DAYS\}/);
-  // Orchestrator review 3: the marks come from a bounded keyset walk, never a whole-table anti-join.
-  assert.match(src('../delete.ts'), /order by l\.viewer_id, l\.trade_key limit \$\{o\.batch\}/);
+  // One orphan mechanism (lib/privacy-purge.ts, privacy_orphans): the discovery purge and account deletion carry none.
+  assert.doesNotMatch(purge, /trade_likes|trade_exclusions/);
+  assert.doesNotMatch(src('../delete.ts'), /orphan/i);
+  assert.match(src('../privacy-purge.ts'), /privacy_orphans/);
 });

@@ -2,7 +2,6 @@
 // cascades (identities, sessions, activities, closed_trades, claims, events), the sign-in links that carried the address
 // go in the same transaction, and the handle is reserved for a year
 // with no personal data. The two-step screen (S9) is PR-2a; this is the action behind it.
-import type { ReservedSql } from 'postgres';
 import { sql } from './db.ts';
 import { deleteUser } from './broker.ts';
 
@@ -40,49 +39,11 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
       or email in (select email from identities where user_id = ${u.id} and email is not null)`;
     await tx`insert into handle_reservations (handle, until) values (${u.handle}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day')
       on conflict (handle) do update set until = excluded.until`;
+    // Privacy work (committee D17): the account's attempts stay as anonymous funnel rows (user_id goes null with the
+    // users row, F-1 design); any vendor id left on one is blanked here, so nothing on them points at the person.
+    // Only the vendor user just deleted above (orchestrator review nit): any other vendor id stays for its own cleanup.
+    if (u.snaptrade_user_id) await tx`update signup_attempts set snaptrade_user_id = null, snaptrade_secret_enc = null
+      where (user_id = ${u.id} or id = (select signup_attempt_id from users where id = ${u.id})) and snaptrade_user_id = ${u.snaptrade_user_id}`;
     await tx`delete from users where id = ${u.id}`;
   });
-}
-
-// F-2 PR-5 (owner 2026-11-01: preference data is stored until removed; only orphans are purged): a like or hidden trade
-// whose close is gone is marked; one still gone ORPHAN_DAYS later is deleted; a close that came back (a rebuild, a lifted
-// quarantine) clears its mark. Run by lib/discovery/purge.ts under its lock and time box. Orchestrator review 3: the
-// marks come from a keyset walk over each table's primary key, `batch` rows a statement, resumed where the last call
-// stopped (a per-process cursor; a restart starts the walk again), so no statement reads the whole table; the deletes
-// read only marked rows (a partial index on orphan_at).
-export const ORPHAN_DAYS = 30;
-type Conn = typeof sql | ReservedSql;
-const walkAt = new Map<string, { v: number; k: string }>();
-export function resetOrphanWalk() { walkAt.clear(); }
-export async function purgeOrphans(conn: Conn, o: { batch: number; end: number; clock: () => number }): Promise<{ deleted: number; done: boolean }> {
-  let deleted = 0;
-  for (const table of ['trade_likes', 'trade_exclusions'] as const) {
-    const t = conn(table);
-    // One full pass at most per call: from the saved cursor to the end, then from the start back to it.
-    const from = walkAt.get(table) ?? { v: 0, k: '' };
-    let at = from, wrapped = false;
-    for (;;) {
-      if (o.clock() >= o.end) { walkAt.set(table, at); return { deleted, done: false }; }
-      const rows = await conn`select l.viewer_id, l.trade_key, l.orphan_at is not null as marked,
-          exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id) as live
-        from ${t} l where (l.viewer_id, l.trade_key) > (${at.v}, ${at.k}) ${wrapped ? conn`and (l.viewer_id, l.trade_key) <= (${from.v}, ${from.k})` : conn``}
-        order by l.viewer_id, l.trade_key limit ${o.batch}`;
-      const mark = rows.filter((r) => !r.live && !r.marked), clear = rows.filter((r) => r.live && r.marked);
-      for (const [set, on] of [[mark, true], [clear, false]] as const) if (set.length) await conn`update ${t} set orphan_at = ${on ? conn`now()` : null}
-        where (viewer_id, trade_key) in (select * from unnest(${set.map((r) => r.viewer_id as number)}::int[], ${set.map((r) => r.trade_key as string)}::text[]))`;
-      if (rows.length) { const last = rows[rows.length - 1]; at = { v: last.viewer_id as number, k: last.trade_key as string }; }
-      if (rows.length < o.batch) {
-        if (wrapped || (from.v === 0 && from.k === '')) { walkAt.set(table, { v: 0, k: '' }); break; }
-        wrapped = true; at = { v: 0, k: '' };
-      }
-    }
-    for (;;) {
-      if (o.clock() >= o.end) return { deleted, done: false };
-      const gone = await conn`delete from ${t} where (viewer_id, trade_key) in (select viewer_id, trade_key from ${t} l where orphan_at < now() - ${ORPHAN_DAYS} * interval '1 day'
-        and not exists (select 1 from closed_trades c where c.trade_key = l.trade_key and c.user_id = l.trader_id) limit ${o.batch})`;
-      deleted += gone.count;
-      if (gone.count < o.batch) break;
-    }
-  }
-  return { deleted, done: true };
 }

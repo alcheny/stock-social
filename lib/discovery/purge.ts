@@ -3,9 +3,8 @@
 // for); the caller that loses the lock skips only the purge. A fixed time box of ≤ 30 s per call, in batches by the
 // (until) index; a call cut by its box resumes on the next tick. In PR-2 it deletes exclusions that ended over a day
 // ago (an ended row is kept a day so a same-day feed cursor never changes). PR-5: only rows the viewer ended, ended
-// unfollows and orphans (below); the event log is never purged on a timer (owner 2026-11-01).
+// unfollows; orphans go through lib/privacy-purge.ts; the event log is never purged on a timer (owner 2026-11-01).
 import { sql } from '../db.ts';
-import { purgeOrphans } from '../delete.ts';
 
 export const PURGE_LOCK = 3; // USER_LOCK (lib/sync.ts) is 1, ATTEMPT_LOCK (lib/connections.ts) is 2
 export const PURGE_BOX_MS = 30_000;
@@ -38,10 +37,7 @@ export async function purgeDiscovery(opts: { boxMs?: number; batch?: number; clo
         deleted += gone.count;
         if (gone.count < batch) break;
       }
-      // F-2 PR-5: orphans (lib/delete.ts#purgeOrphans, under this lock and box).
-      const o = await purgeOrphans(conn, { batch, end, clock });
-      deleted += o.deleted;
-      if (!o.done) return { ran: true, deleted, done: false };
+      // F-2 PR-5: orphaned likes and hidden trades are purged by lib/privacy-purge.ts (one mechanism, privacy_orphans).
       return { ran: true, deleted, done: true };
     } finally {
       await conn`select pg_advisory_unlock(${PURGE_LOCK}, 0)`;

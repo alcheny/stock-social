@@ -12,6 +12,7 @@ import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTIO
 import { personalList, personalPool, personalReason, relevanceOf, type PersonalReason, type TraderShape, type Uses } from './discovery/personal.ts';
 import type { Personal, PersonalLoader } from './discovery/personal-load.ts';
 import { personalSlots } from './discovery/personal-cache.ts';
+import { logSafe } from './privacy-log.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
 // score = ln(1 + |r|·100) · exp(-max(0, min(age_hours / RECENCY_HOURS, MAX_DECAY)))
@@ -322,7 +323,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const c = readCursor(after, now, FEED_LIST_MAX);
   const [kept, mine, skips0, personal] = await Promise.all([listFor(c, now, opts.ids), opts.viewer ? exclusionsFor(opts.viewer, new Date(Math.min(c.asOf, now))) : [],
     opts.viewer ? sectionSkips(opts.viewer) : [],
-    opts.viewer && opts.personal ? opts.personal(new Date(c.asOf)).catch((e: unknown): Personal | null => { console.error('personal ordering failed', e instanceof Error ? e.message : e); return null; }) : null]);
+    opts.viewer && opts.personal ? opts.personal(new Date(c.asOf)).catch((e: unknown): Personal | null => { console.error('personal ordering failed', logSafe(e)); return null; }) : null]);
   const { shaping, hidden } = splitExclusions(mine, c.asOf, now);
   // F-2 PR-5 (orchestrator review 4): the section leaves out followed traders in every mode (its Follow button reads
   // "not following"); Off changes the order only.

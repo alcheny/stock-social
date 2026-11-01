@@ -92,7 +92,7 @@ export async function signalsFor(viewer: number): Promise<Signal[]> {
 
 // ---- F-2 PR-5 (criterion 15, shipped before behavior-based ordering): the viewer's own hidden trades (/me/hidden). ----
 // A rejected trade stays out of that viewer's feed until they show it again. A hidden trade whose close is gone or whose
-// trader was deleted is not listed or counted (the orphan purge, lib/delete.ts#purgeOrphans, removes it later).
+// trader was deleted is not listed or counted (lib/privacy-purge.ts removes it 30 days after it is first seen gone).
 const KEY = /^[0-9a-f]{64}$/;
 const AFTER = /^([0-9]{1,17})\.([0-9a-f]{64})$/;
 export const HIDDEN_PAGE = 30;

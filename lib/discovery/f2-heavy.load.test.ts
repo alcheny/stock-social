@@ -134,9 +134,9 @@ test('heavy: deleting a trader named by 100,000 viewers\' activity rows takes < 
   }
 });
 
-test('heavy: 200,000 orphaned likes are marked, then drained, within 10 purgeDiscovery calls each, every call ≤ 30 s', { skip: skipDb, timeout: 900_000 }, async () => {
+test('heavy: 200,000 orphaned likes are marked, then drained, within 10 orphan purge calls (lib/privacy-purge.ts) each, every call ≤ 30 s', { skip: skipDb, timeout: 900_000 }, async () => {
   const { sql } = await import('../db.ts');
-  const { purgeDiscovery } = await import('./purge.ts');
+  const { purgePrivacy } = await import('../privacy-purge.ts');
   const VIEWERS = 2_000, PER = 100, TOTAL = VIEWERS * PER;
   const tag = `ho${Math.random().toString(36).slice(2, 6)}`;
   const [{ id: attempt }] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
@@ -147,14 +147,16 @@ test('heavy: 200,000 orphaned likes are marked, then drained, within 10 purgeDis
   await sql`insert into trade_likes (viewer_id, trade_key, trader_id)
     select v.id, encode(sha256((${tag} || ':' || v.id || ':' || k)::bytea), 'hex'), ${trader} from (${viewers}) v, generate_series(1, ${PER}) k`;
   await sql`analyze trade_likes`;
-  const mine = (cond: ReturnType<typeof sql>) => sql`select count(*)::int as n from trade_likes where trader_id = ${trader} ${cond}`.then((r) => r[0].n as number);
+  const mine = (cond: ReturnType<typeof sql> | ReturnType<typeof sql.unsafe>) => sql`select count(*)::int as n from trade_likes l where trader_id = ${trader} ${cond}`.then((r) => r[0].n as number);
+  const unmarked = sql`and not exists (select 1 from privacy_orphans o where o.kind = 'like' and o.viewer_id = l.viewer_id and o.trade_key = l.trade_key)`;
+  let at: Date | undefined; // the drain runs as if 31 days later (the purge's `now` hook)
   // One purge call that ran (another process may hold the lock for a moment).
   const call = async () => {
     for (let i = 0; i < 120; i++) {
       const t0 = performance.now();
-      const r = await purgeDiscovery();
+      const r = await purgePrivacy({ only: ['orphans'], ...(at ? { now: at } : {}) });
       const ms = performance.now() - t0;
-      if (r.ran) return { ...r, ms };
+      if (r.ran) return { ...r, deleted: r.likes + r.rejects, ms };
       await new Promise((res) => setTimeout(res, 250));
     }
     throw new Error('the purge lock was never free');
@@ -162,14 +164,14 @@ test('heavy: 200,000 orphaned likes are marked, then drained, within 10 purgeDis
   try {
     assert.equal(await mine(sql``), TOTAL);
     let calls = 0;
-    for (; calls < 10 && (await mine(sql`and orphan_at is null`)) > 0; calls++) {
+    for (; calls < 10 && (await mine(unmarked)) > 0; calls++) {
       const r = await call();
       console.log(`mark call ${calls + 1}: ${r.ms.toFixed(0)} ms, done ${r.done}`);
       assert.ok(r.ms <= 30_500, `${r.ms} ms`);
     }
-    assert.equal(await mine(sql`and orphan_at is null`), 0, `all marked within ${calls} calls`);
+    assert.equal(await mine(unmarked), 0, `all marked within ${calls} calls`);
     assert.equal(await mine(sql``), TOTAL, 'marking deletes nothing');
-    await sql`update trade_likes set orphan_at = now() - interval '31 days' where trader_id = ${trader}`;
+    at = new Date(Date.now() + 31 * 86_400_000);
     let drain = 0;
     let deleted = 0;
     for (; drain < 10 && (await mine(sql``)) > 0; drain++) {

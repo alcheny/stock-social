@@ -4,6 +4,7 @@ import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { boundAttempt, CONNECT_COOKIE, RateLimitedError, refuseUnbound, startConnection } from '@/lib/connections.ts';
 import { PORTAL } from '@/lib/copy.ts';
 import { currentUser, origin } from '@/lib/session.ts';
+import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 
 // S2 → the vendor's read-only portal by redirect: the S3 modal's fallback (a portal error, the persistent "Open in a new
 // page instead" link, S7a's "Continue in a new page", in-app browsers, no script). The embedded flow is POST /connect/portal.
@@ -26,6 +27,8 @@ export async function GET(req: NextRequest) {
     if (attemptId === null) return NextResponse.redirect(`${base}/login`);
     who = { userId: null, attemptId };
   }
+  // Launch gate (privacy work, D7): refused before any vendor call, with the reason on S2.
+  if (!(await connectAllowed(me))) return NextResponse.redirect(`${base}/connect?closed=1`);
   // Fix round 2 (engineer, Low): mints are rate-limited per trader; over the limit, a short plain page says so.
   try {
     return NextResponse.redirect(await startConnection(who, `${base}/connect/done`));
