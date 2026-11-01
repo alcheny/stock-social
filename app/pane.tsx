@@ -9,6 +9,9 @@ import { PerformanceChart } from './u/[handle]/chart.tsx';
 import { Badge, WhoName } from './ui.tsx';
 import { FollowButton } from './follow-button.tsx';
 import { NotInterested } from './not-interested.tsx';
+import { combined, openSummary } from '@/lib/open-split.ts';
+import { OPEN } from '@/lib/copy.ts';
+import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from './open-rows.tsx';
 
 export type PaneTrade = {
   id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; thesis: string | null; verified: boolean;
@@ -25,9 +28,35 @@ const day = (d: Date) => DAY.format(d);
 // Fix round 8: on the feed it is `feedPaneChart` (a stand-in line for a long record) and the chart fetches the full one
 // from `paneChartSrc` on its first swipe-open.
 // F-2 PR-2: `viewer`, signed in: Follow and the "…" menu with "Not interested" (fix round 1: nothing signed out).
-export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean }) {
+export function ProfilePane({ handle, name, trades, now, state = 'connected', chart, viewer, highlight, back = true, open: unrealized = [], openAsOf }: { handle: string; name: string; trades: PaneTrade[]; now: Date; state?: PublicState; chart?: PackedChart; viewer?: { signedIn: boolean; following: boolean }; highlight?: string; back?: boolean; open?: number[]; openAsOf?: Date }) {
   const p = paneSummary(trades);
+  // F-6: the trader's open positions (connected or failed records only, lib/feed.ts); the combined figure from the whole
+  // record, as on the profile. Nothing new renders without open positions.
+  const open = openSummary(unrealized);
+  const both = open && combined(trades.map((t) => t.returnPct), unrealized);
   const trust = paneTrust(trades, state);
+  const chartBlock = <>
+    <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} />
+    {open && <ChartNote o={open} />}
+  </>;
+  const summary = p.since && p.worst && (
+    <p className="summary">
+      Since first closed trade, {day(p.since)}: {counted(p.count, 'closed trade')}. Worst: {p.worst.symbol}{' '}
+      <b className={p.worst.returnPct > 0 ? 'up' : 'down'}>{pct(p.worst.returnPct)}</b>.
+      {trust.badge === 'demo' && <span className="muted"> Sample data, not from a real broker.</span>}
+    </p>
+  );
+  const incomplete = trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>;
+  const long = open ? longValues(pct(p.avgReturn), pct(open.avg), String(open.n)) : undefined;
+  const figures = <>
+    <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
+      {open && <RealizedLabel />}
+      <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
+      <div className="stat big"><b className={open ? toneClass(p.avgReturn) : p.avgReturn > 0 ? 'up' : 'down'}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>
+    </section>
+    {open && <OpenGrid o={open} asOf={openAsOf} long={long} />}
+    {both && <CombinedLine c={both} />}
+  </>;
   return (
     <section className="pane" aria-label={`${name}'s record`}>
       <header>
@@ -38,19 +67,9 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         {trust.badge && <Badge verified={trust.badge === 'verified'} />}
         {viewer?.signedIn && <div className="pane-actions"><FollowButton handle={handle} following={viewer.following} signedIn /><NotInterested handle={handle} /></div>}
       </header>
-      <PerformanceChart chart={chart ?? paneChart(trades, now)} src={paneChartSrc(handle)} now={now} linkBase={`/u/${handle}`} />
-      {p.since && p.worst && (
-        <p className="summary">
-          Since first closed trade, {day(p.since)}: {counted(p.count, 'closed trade')}. Worst: {p.worst.symbol}{' '}
-          <b className={p.worst.returnPct > 0 ? 'up' : 'down'}>{pct(p.worst.returnPct)}</b>.
-          {trust.badge === 'demo' && <span className="muted"> Sample data, not from a real broker.</span>}
-        </p>
-      )}
-      {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
-      <section className="stats">
-        <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
-        <div className="stat big"><b className={p.avgReturn > 0 ? 'up' : 'down'}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>
-      </section>
+      {/* F-6 (business lead D1): with open positions the figures lead, as on the profile (the pane is where most viewers
+          meet a record, SW-1); without them, today's order. */}
+      {open ? <>{incomplete}{figures}{chartBlock}{summary}</> : <>{chartBlock}{summary}{incomplete}{figures}</>}
       <h3>Last {counted(p.recent.length, 'trade')}</h3>
       <ul className="rows">
         {p.recent.map((t) => (
