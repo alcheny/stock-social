@@ -157,13 +157,17 @@ dbTest('schema: the five lookup indexes exist as defined', async () => {
 // Plan checks: the real query texts (parameters as $1), explained (never executed) with seq scans off, so the result
 // depends on the index being usable, not on table statistics other test files change in parallel (bitmap scans only, below).
 const PLAN_CASES: [string, string, unknown[]][] = [
-  ['identities_email', `select u.id, u.handle from identities i join users u on u.id = i.user_id where i.email = $1 and u.deleted_at is null limit 1`, ['x@example.com']], // lib/auth/attempts.ts
+  // lib/auth/attempts.ts signs in by `i.email = $1` joined to users; the join could also be driven from users through
+  // identities_user, so the case explains the identities side alone (the predicate this index is for).
+  ['identities_email', `select i.user_id from identities i where i.email = $1`, ['x@example.com']],
   ['subscriptions_customer', `update subscriptions set disputed_at = coalesce(disputed_at, now()), status = case when status = 'canceled' then status else 'unpaid' end, updated_at = now()
       where vendor_customer_id = $1 and status <> 'canceled' returning user_id, vendor_subscription_id`, ['cus_x']], // lib/billing.ts dispute
   ['subscriptions_customer', `update subscriptions set disputed_at = null, updated_at = now() where vendor_customer_id = $1 and disputed_at is not null returning vendor_subscription_id`, ['cus_x']],
   ['users_signup_attempt', `select 1 from only users x where signup_attempt_id = $1 for key share of x`, [1]], // the FK check on a signup_attempts delete
   ['connections_attempt', `select 1 from only connections x where attempt_id = $1 for key share of x`, [1]],
-  ['connections_attempt', `delete from connections where attempt_id in ($1) and user_id is null`, [1]], // lib/privacy-purge.ts
+  // lib/privacy-purge.ts deletes `where attempt_id in ($1) and user_id is null`: with bitmap scans only, `user_id is null`
+  // can also be served by connections_user (CI, PR #82), so the case explains the predicate this index is for.
+  ['connections_attempt', `delete from connections where attempt_id in ($1)`, [1]],
   ['users_signup_attempt', `select a.id from signup_attempts a
       where a.user_id is null and a.completed_at is null and a.snaptrade_user_id is null
         and a.created_at < $1::timestamptz - 30 * interval '1 day'

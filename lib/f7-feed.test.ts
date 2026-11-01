@@ -184,7 +184,7 @@ dbTest('AC 28 (C16): follow and like refuse a filer; "Not interested" still work
 
 dbTest('review (AC 9): the viewer\'s own lists leave out a hidden filer, and every filer with the switch off', async () => {
   const { sql } = await import('./db.ts');
-  const { ownLists, expiredHides } = await import('./follows.ts');
+  const { ownListsFirstPage, expiredHidesFirstPage } = await import('./follows.ts');
   const { ownHiddenTrades } = await import('./likes.ts');
   const day = 86_400_000;
   for (const [trader, until] of [[ids.a, Date.now() + day], [ids.hid, Date.now() + day], [ids.l, Date.now() - day]] as const) {
@@ -192,7 +192,7 @@ dbTest('review (AC 9): the viewer\'s own lists leave out a hidden filer, and eve
       on conflict (viewer_id, trader_id) do update set until = excluded.until, reason = excluded.reason, ended_at = null`;
   }
   await sql`insert into trade_exclusions (viewer_id, trade_key, trader_id) select ${ids.t}, trade_key, user_id from closed_trades where user_id in (${ids.a}, ${ids.hid}) on conflict do nothing`;
-  const lists = async () => ({ hidden: (await ownLists(ids.t)).hidden.map((x) => x.handle), expired: (await expiredHides(ids.t)).map((x) => x.handle),
+  const lists = async () => ({ hidden: (await ownListsFirstPage(ids.t)).hidden.map((x) => x.handle), expired: (await expiredHidesFirstPage(ids.t)).map((x) => x.handle),
     trades: [...new Set((await ownHiddenTrades(ids.t)).rows.map((x) => x.handle))] });
   const on = await withEnv(undefined, lists);
   assert.deepEqual(on, { hidden: [H.a], expired: [H.l], trades: [H.a] });
