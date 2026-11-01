@@ -7,6 +7,8 @@ import { CURSOR_MAX_AGE_MS, encodeCursor, pageOf, readCursor, type Cursor } from
 import { displayFilter, shapeList, splitExclusions } from './discovery/exclusions.ts';
 import { exclusionsFor, followingAmong, sectionSkips } from './follows.ts';
 import { rejectedAmong } from './likes.ts';
+// F-10: the feed card's record strip figures (lib/record-strip.ts), computed per page from the rows already read.
+import { feedStrips, type StripFigures } from './record-strip.ts';
 import { capped, chooseRows, median, reasonFor, SECTION_AT, SECTION_NEAR, SECTION_SPARES, sectionCandidates, sectionPool, type Reason, type SectionTrader, type TraderFacts } from './discovery/section.ts';
 
 // Feed ranking (DESIGN §2.6): size of move × recency. |return| means losses rank as high as equal gains.
@@ -158,7 +160,8 @@ async function candidateQuery({ ids, asOf, day }: { ids?: number[]; asOf?: Date;
 // → diversity caps and seeded exploration (lib/discovery/explore.ts). Pages are 30-card slices of it. The same list
 // for every viewer, signed in or out; nothing here reads a session or a viewer table (lib/feed.signed-out.test.ts).
 export type FeedItem = FeedCandidate & { explore: boolean };
-export type PaneRow = { userId: number; id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; verified: boolean; thesis: string | null };
+export type PaneRow = { userId: number; id: string; symbol: string; returnPct: number; holdingDays: number; closedAt: Date; verified: boolean; thesis: string | null;
+  openedAt: Date }; // F-10: the entry time, so the strip's bets (K) are the profile's (lib/record-strip.db.test.ts)
 
 // Every page trader's full current record, for the pane's chart and stats.
 // Fix round 1 (load check, tester Medium 3): one JSON text per trader instead of one row per close. A page of heavy
@@ -174,14 +177,18 @@ async function records1(userIds: number[]): Promise<PaneRow[]> {
   if (!userIds.length) return [];
   const rows = await sql`
     select user_id, '[' || string_agg(concat_ws(',', id, to_json(symbol)::text, return_pct, holding_days, verified::int,
-      date_part('epoch', closed_at) * 1000, coalesce(to_json(case when thesis_status = 'published' then thesis end)::text, 'null')), ',') || ']' as j
+      date_part('epoch', closed_at) * 1000, coalesce(to_json(case when thesis_status = 'published' then thesis end)::text, 'null'),
+      date_part('epoch', opened_at) * 1000), ',' order by closed_at desc, id desc) || ']' as j
     from closed_trades where user_id = any(${userIds}) group by user_id`;
+  // F-10: opened_at is the 8th field, and the rows come in the profile's list order (closed_at desc, id desc), so the
+  // strip's average and range are summed in the profile's order: the same floats, not just the same text.
   const out: PaneRow[] = [];
   for (const r of rows) {
     const a = JSON.parse(r.j as string) as (string | number | null)[];
-    for (let k = 0; k < a.length; k += 7) out.push({
+    for (let k = 0; k < a.length; k += 8) out.push({
       userId: r.user_id as number, id: String(a[k]), symbol: a[k + 1] as string, returnPct: a[k + 2] as number, holdingDays: a[k + 3] as number,
       verified: a[k + 4] === 1, closedAt: new Date(a[k + 5] as number), thesis: a[k + 6] as string | null,
+      openedAt: new Date(a[k + 7] as number), // F-10
     });
   }
   return out;
@@ -272,6 +279,8 @@ export type FeedPage = {
   open?: Map<number, number[]>;
   // F-6: the oldest read of each of those traders' positions ("as of").
   openAsOf?: Map<number, Date>;
+  // F-10: each card trader's record strip figures (average per trade + the profile's evidence), from byUser.
+  strips?: Map<number, StripFigures>;
 };
 export type SectionRow = { userId: number; handle: string; name: string; reason: Reason };
 
@@ -363,6 +372,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
     viewer: following && { id: opts.viewer!, following }, section,
     ...openOf(opens, onPage, states),
+    strips: feedStrips(new Map([...byUser].filter(([id]) => cards.some((t) => t.user_id === id))), new Date(now)), // F-10
   };
 }
 

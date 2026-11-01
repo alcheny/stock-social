@@ -16,9 +16,10 @@ function Figures({ parts }: { parts: StripPart[] }) {
   ));
 }
 
-export function RecordStrip({ strip }: { strip: Strip }) {
+// `lead` (feed only, additive, DS-22): what leads the line, the card's trust badge, then a space and the figures.
+export function RecordStrip({ strip, lead }: { strip: Strip; lead?: React.ReactNode }) {
   if (strip.surface === 'feed') {
-    return <p className="record-strip" data-strip><Figures parts={strip.figures} /></p>;
+    return <p className="record-strip" data-strip>{lead && <>{lead}{' '}</>}<Figures parts={strip.figures} /></p>;
   }
   if (strip.surface === 'figures') {
     return <p className="record-strip" data-strip-scope="month"><Figures parts={strip.figures} /></p>;

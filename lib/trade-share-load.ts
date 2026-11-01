@@ -1,7 +1,8 @@
 import { sql } from './db.ts';
 import { isDemoUser } from './demo.ts';
 import { publicRecord } from './connections.ts';
-import { tradeSharePayload } from './trade-share.ts';
+import { tradeSharePayload, type TradeView } from './trade-share.ts';
+import type { RecordState } from './copy.ts';
 
 // The only query behind the trade page and card. A held thesis is nulled in SQL, so it never reaches rendering code.
 export async function loadTradeShare(handle: string, sellId: string) {
@@ -21,7 +22,16 @@ export async function loadTradeShare(handle: string, sellId: string) {
   // Fix round 6 (TR-3): the record state and source travel with the payload, so the card and the link preview apply
   // the profile's rule (a failed import is never presented as a whole verified record).
   const verified = all.length > 0 && all.every((r) => r.verified);
-  return { ...payload, handle, displayName: t.display_name as string, state: (await publicRecord(Number(t.user_id))).state, verified };
+  const state = (await publicRecord(Number(t.user_id))).state;
+  return { ...payload, handle, displayName: t.display_name as string, state, verified, open: await openPercents(Number(t.user_id), state) } satisfies TradeView;
+}
+
+// F-12 (F-6 on every surface): the trader's open positions as unrealized percents, for the strip's open count. Read only
+// for a connected or failed record, as on the profile; never while an import runs (TR-3) or with nothing consented.
+export async function openPercents(userId: number, state: RecordState): Promise<number[] | undefined> {
+  if (state !== 'connected' && state !== 'failed') return undefined;
+  const rows = await sql`select unrealized_pct from open_positions where user_id = ${userId}`;
+  return rows.map((r) => r.unrealized_pct as number);
 }
 
 // Route params may be percent-encoded; malformed input is a 404, not a 500.

@@ -1,9 +1,11 @@
 import { sql } from './db.ts';
 import { isDemoUser } from './demo.ts';
 import { publicRecord } from './connections.ts';
-import { monthRecap, wholeRecord } from './recap.ts';
+import { monthRecap, wholeRecord, type RecapView } from './recap.ts';
+import { openPercents } from './trade-share-load.ts';
 
-// The only query behind the recap page and card. Reads closed_trades only, so recaps stay public after disconnect.
+// The only query behind the recap page and card. Reads closed_trades (so recaps stay public after disconnect), plus the
+// open positions' unrealized percents for the strip's open count on a connected or failed record (F-12).
 export async function loadRecap(handle: string, ym: string) {
   const [u] = await sql`select id, display_name from users where handle = ${handle} and deleted_at is null`;
   if (!u) return null;
@@ -12,5 +14,6 @@ export async function loadRecap(handle: string, ym: string) {
   const now = new Date();
   const recap = monthRecap(all, ym, now);
   if (!recap) return null;
-  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state: (await publicRecord(Number(u.id))).state, recap, record: wholeRecord(all, now) };
+  const state = (await publicRecord(Number(u.id))).state;
+  return { handle, displayName: u.display_name as string, demo: await isDemoUser(u.id), verified: rows.length > 0 && rows.every((r) => r.verified), state, recap, record: wholeRecord(all, now), open: await openPercents(Number(u.id), state) } satisfies RecapView;
 }
