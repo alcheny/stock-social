@@ -69,9 +69,9 @@ Traders never pay and never see a price.
   - owner checklist before live billing: `live-billing-checklist.md`.
 
 ## Testing
-All gates were run locally on the merged branch (main at the sharded-CI merge):
+All gates were run locally on the merged branch (latest main, after the orchestrator's review fixes):
 - `npx tsc --noEmit`: clean.
-- `npm test`: 737 tests, 725 pass, 0 fail, 12 skipped (all pre-existing skips). New: `lib/billing.test.ts` (22) and
+- `npm test` (twice): 749 tests, 737 pass, 0 fail, 12 skipped (all pre-existing skips). New: `lib/billing.test.ts` (24) and
   `lib/record-tools.test.ts` (10). They cover:
   - every lifecycle event (created, trial ending, renewed, payment failed, past due with grace, canceled at period end,
     resumed, refunded partial and full, disputed and won);
@@ -85,8 +85,8 @@ All gates were run locally on the merged branch (main at the sharded-CI merge):
   `node_modules/@img/sharp-wasm32`, which this container's `npm ci` installs; no package file changed.
 - `node scripts/autopilot.ts guard origin/main`: ok.
 - `npm run build`: ok.
-- `npx playwright test` (the whole suite, server with the fake-processor env): 132 passed, 3 skipped (pre-existing).
-  `e2e/f3-billing.spec.ts`: 9 tests, all pass with the fake processor. Without billing env (as CI runs it): 6 pass,
+- `npx playwright test` (the whole suite, server with the fake-processor env): 141 passed, 3 skipped (pre-existing).
+  `e2e/f3-billing.spec.ts`: 10 tests, all pass with the fake processor. Without billing env (as CI runs it): 7 pass,
   3 skip and say why.
 - The cycle:
   - committee user tests: compliance PASS from the business lead and the UX lead;
@@ -145,6 +145,18 @@ Committee record: `docs/features/logs/F-3/committee-2026-11-01.md`.
   STRIPE_PRICE_ANNUAL=price_e2e_annual
   ```
 - Pre-authorization requests are in `plan-round2.md`.
+- `.env.example` (owner-only) should document `STRIPE_SECRET_KEY` (test key; a live key is refused without
+  `LIVE_BILLING=on`), `STRIPE_WEBHOOK_SECRET` (comma-separated for rotation), `STRIPE_PRICE_MONTHLY`,
+  `STRIPE_PRICE_ANNUAL`, `STRIPE_API_BASE` (tests only; refused with a live key), `LIVE_BILLING` (unset until
+  `live-billing-checklist.md` is done) and `BILLING_CONTACT` (a role address).
+- Orchestrator review fixes in this push:
+  - the cancel line states both cases (within 14 days: ends at once with a full refund; after: at period end);
+  - a subscriber on a price no longer configured keeps their plan (grandfathered), and their account deletion never
+    waits on a price mapping;
+  - "Cancel subscription" deep-links to the portal's cancel flow;
+  - a first payment still being confirmed shows "Your payment is being confirmed" with Manage subscription and is
+    never offered a second checkout;
+  - the privacy assertion checks exact fields.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
