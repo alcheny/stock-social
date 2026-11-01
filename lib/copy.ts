@@ -775,7 +775,7 @@ export const RECORD_TOOLS = {
   followChoose: 'Choose…',
   // Known-limits sweep (lists): shown only when more than FOLLOW_OPTIONS_MAX (lib/record-tools.ts) are followed.
   followMore: 'Showing the first 100 you follow, A to Z. Type a handle above to add anyone else.',
-  followMoreNew: 'Showing the first 100 you follow, A to Z. Add anyone else by handle once the view is saved.',
+  followMoreNew: 'Showing the first 100 you follow, A to Z. Add anyone else by handle after you create the view.',
   addHint: 'Add 2 to 4 traders to compare.',
   addOneMore: 'Add one more trader to compare.',
   full: 'This view has 4 traders, the maximum. Remove one to add another.',
