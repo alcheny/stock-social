@@ -123,15 +123,17 @@ export async function setHandle(form: FormData) {
   const { changeHandle, HandleTakenError } = await import('@/lib/auth/attempts.ts');
   // Launch gate (code review 6, tester 5): a handle on the testing allowlist can't be taken by a rename while closed.
   const wanted = normalizeHandle(form.get('handle'));
-  if (wanted && wanted !== user.handle && handleReserved(wanted)) redirect(`/u/${user.handle}?handle=taken`);
+  if (wanted && wanted !== user.handle && handleReserved(wanted)) redirect(`/u/${user.handle}?handle=reserved`);
+  // The rejection names its rule (fix committee decision 7, C9): taken, reserved, lookalike or format.
+  let h: string;
   try {
-    const h = await changeHandle(user.id, form.get('handle'));
-    revalidatePath('/', 'layout'); // the root-layout nav shows the handle; without this it keeps the old one (now a 404) until a reload
-    redirect(`/u/${h}`);
+    h = await changeHandle(user.id, form.get('handle'));
   } catch (e) {
-    if (e instanceof HandleTakenError) redirect(`/u/${user.handle}?handle=taken`);
+    if (e instanceof HandleTakenError) redirect(`/u/${user.handle}?handle=${e.verdict}`);
     throw e;
   }
+  revalidatePath('/', 'layout'); // the root-layout nav shows the handle; without this it keeps the old one (now a 404) until a reload
+  redirect(`/u/${h}`);
 }
 
 // Deletion (POLICY P6). The two-step screen is PR-2a; this is its only deleting action, session user only.

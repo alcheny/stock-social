@@ -124,3 +124,89 @@ dbTest('referral on the attempt lands on the users row, insert-only', async () =
     await sql`delete from users where id in ${sql(ids)}`;
   }
 });
+
+// Fix committee 2026-11-01 (decisions 7, 8, 11): the rename hold, reclaim, look-alikes and display names.
+const letters = (p: string) => `${p}${Math.random().toString(36).replace(/[^a-z]/g, '').slice(0, 6).padEnd(6, 'q')}`;
+
+dbTest('changeHandle: the old handle is held ~365 days for others, the same trader can take it back, deletion leaves a bare reservation', async () => {
+  const { sql } = await import('../db.ts');
+  const { createAttempt, createUserForAttempt, changeHandle, handleAvailable, HandleTakenError } = await import('./attempts.ts');
+  const { checkHandle } = await import('../handles.ts');
+  const tag = letters('rh');
+  const a = `${tag}_a`, b = `${tag}_b`, c = `${tag}_c`;
+  const ids: number[] = [];
+  const verdict = (v: string) => (e: unknown) => e instanceof HandleTakenError && e.verdict === v;
+  try {
+    const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: a });
+    const other = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: c });
+    ids.push(u.id, other.id);
+    assert.equal(await changeHandle(u.id, b), b);
+    const [r] = await sql`select user_id, extract(epoch from until - now()) / 86400 as days from handle_reservations where handle = ${a}`;
+    assert.equal(Number(r.user_id), u.id);
+    assert.ok(Number(r.days) > 364.9 && Number(r.days) <= 365, String(r.days));
+    // Others: the old handle is unavailable, with the rule named.
+    assert.equal(await handleAvailable(a), false);
+    assert.equal(await checkHandle(a, other.id), 'taken');
+    await assert.rejects(changeHandle(other.id, a), verdict('taken'));
+    await assert.rejects(createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: a }), verdict('taken'));
+    await assert.rejects(changeHandle(other.id, b), verdict('taken'));
+    await assert.rejects(changeHandle(other.id, 'Bad Handle!'), verdict('format'));
+    await assert.rejects(changeHandle(other.id, 'admin'), verdict('reserved'));
+    // The same trader takes the old handle back; that reservation goes, and the handle they leave is held instead.
+    assert.equal(await checkHandle(a, u.id), 'ok');
+    assert.equal(await changeHandle(u.id, a), a);
+    assert.equal((await sql`select 1 from handle_reservations where handle = ${a}`).length, 0);
+    assert.equal(Number((await sql`select user_id from handle_reservations where handle = ${b}`)[0].user_id), u.id);
+    // The same handle again is a no-op.
+    assert.equal(await changeHandle(u.id, a), a);
+    assert.equal((await sql`select 1 from handle_reservations where handle = ${a}`).length, 0);
+    // Deleting the account leaves only the bare reservation (handle and date), still binding everyone.
+    await sql`delete from users where id = ${u.id}`;
+    const [bare] = await sql`select user_id, until > now() as active from handle_reservations where handle = ${b}`;
+    assert.deepEqual({ user_id: bare.user_id, active: bare.active }, { user_id: null, active: true });
+    assert.equal(await checkHandle(b, other.id), 'taken');
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+    await sql`delete from handle_reservations where handle in ${sql([a, b])}`;
+  }
+});
+
+dbTest('changeHandle and createUserForAttempt: a look-alike of another live handle names the look-alike rule', async () => {
+  const { sql } = await import('../db.ts');
+  const { createAttempt, createUserForAttempt, changeHandle, HandleTakenError } = await import('./attempts.ts');
+  const tag = letters('lk');
+  const ids: number[] = [];
+  const lookalike = (e: unknown) => e instanceof HandleTakenError && e.verdict === 'lookalike';
+  try {
+    const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_calm` });
+    const v = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_other` });
+    ids.push(u.id, v.id);
+    await assert.rejects(changeHandle(v.id, `${tag}_ca1m`), lookalike);
+    await assert.rejects(createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_ca1m` }), lookalike);
+    assert.equal((await sql`select handle from users where id = ${v.id}`)[0].handle, `${tag}_other`);
+  } finally {
+    await sql`delete from users where id in ${sql(ids)}`;
+  }
+});
+
+dbTest('createUserForAttempt: a refused display name throws DisplayNameError and writes nothing; an accepted one is stored cleaned', async () => {
+  const { sql } = await import('../db.ts');
+  const { createAttempt, createUserForAttempt, DisplayNameError } = await import('./attempts.ts');
+  const tag = letters('dn');
+  const ids: number[] = [];
+  try {
+    const bad = await createAttempt({ method: 'dev', attested: true });
+    await assert.rejects(createUserForAttempt(bad, { handle: `${tag}_x`, name: 'Verified Desk' }), (e: unknown) => e instanceof DisplayNameError && /verified/.test((e as Error).message));
+    await assert.rejects(createUserForAttempt(bad, { handle: `${tag}_x`, name: 'Desk ✅' }), DisplayNameError);
+    assert.equal((await sql`select 1 from users where handle = ${`${tag}_x`}`).length, 0);
+    assert.equal((await sql`select user_id from signup_attempts where id = ${bad}`)[0].user_id, null);
+    const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_y`, name: ' Ma​ya ‮' });
+    ids.push(u.id);
+    assert.equal((await sql`select display_name from users where id = ${u.id}`)[0].display_name, 'Maya');
+    const blank = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_z`, name: '​ ' });
+    ids.push(blank.id);
+    assert.equal((await sql`select display_name from users where id = ${blank.id}`)[0].display_name, `${tag}_z`, 'an empty name falls back to the handle');
+  } finally {
+    if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
+  }
+});

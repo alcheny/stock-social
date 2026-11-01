@@ -5,13 +5,21 @@ import { sql } from '../db.ts';
 import { recordFunnel } from '../funnel.ts';
 import { legacyVia, normalizeHandle, type ReferredSurface } from '../referral.ts';
 import { SignUpClosedError } from '../launch-gate.ts';
+import { checkDisplayName, checkHandle, HANDLE_RESERVED_DAYS, type HandleVerdict } from '../handles.ts';
+import { sanitizeUserText } from '../text-safety.ts';
 
 export const METHODS = ['provider_a', 'provider_b', 'email', 'brokerage', 'dev'] as const;
 export type Method = (typeof METHODS)[number];
 export const isMethod = (m: unknown): m is Method => typeof m === 'string' && (METHODS as readonly string[]).includes(m);
 
 export class NotAttestedError extends Error { constructor() { super('Stock Social is 18+ only'); } }
-export class HandleTakenError extends Error { constructor() { super('That handle is taken or reserved'); } }
+// Carries the verdict, so the profile can name the rule (C9): ?handle=taken|reserved|lookalike|format.
+export class HandleTakenError extends Error {
+  verdict: Exclude<HandleVerdict, 'ok'>;
+  constructor(verdict: Exclude<HandleVerdict, 'ok'> = 'taken') { super(`That handle is not available (${verdict})`); this.verdict = verdict; }
+}
+// A display name refused by lib/handles.ts#checkDisplayName; the message is the reason shown to the trader.
+export class DisplayNameError extends Error {}
 
 export type NewAttempt = { method: Method; attested: boolean; referredBy?: number | null; surface?: ReferredSurface | null; landedAt?: Date | null; source?: string | null };
 
@@ -37,9 +45,10 @@ export function provisionalHandle(rand: (n: number) => Buffer = randomBytes): st
   return `trader_${s}`;
 }
 
-export async function handleAvailable(handle: string): Promise<boolean> {
-  const [r] = await sql`select 1 from users where handle = ${handle} union all select 1 from handle_reservations where handle = ${handle} and until > now()`;
-  return !r;
+// A chosen handle gets the full verdict (taken, reserved, look-alike); a random provisional trader_* only needs taken
+// and reserved.
+export async function handleAvailable(handle: string, selfUserId?: number | null): Promise<boolean> {
+  return (await checkHandle(handle, selfUserId, { provisional: /^trader_[a-z0-9]{8}$/.test(handle) && !selfUserId })) === 'ok';
 }
 
 export type Attempt = { id: number; method: Method; user_id: number | null; completed_at: Date | null; referred_by_user_id: number | null; referred_surface: string | null };
@@ -53,11 +62,16 @@ export async function createUserForAttempt(attemptId: number, i: { handle?: stri
   const a = await getAttempt(attemptId);
   if (!a) throw new Error('unknown attempt');
   const surface = (a.referred_by_user_id ? a.referred_surface : null) as ReferredSurface | null;
+  // The display name is cleaned and checked first (decision 11); a blank one falls back to the handle.
+  let typed: string | null = null;
+  const cleaned = sanitizeUserText(i.name ?? '', 400);
+  if (cleaned) { const c = checkDisplayName(cleaned); if (!c.ok) throw new DisplayNameError(c.reason); typed = c.name; }
   for (let tries = 0; tries < 5; tries++) {
     const handle = i.handle ? normalizeHandle(i.handle) : provisionalHandle();
-    if (!handle) throw new HandleTakenError();
-    if (!(await handleAvailable(handle))) { if (i.handle) throw new HandleTakenError(); continue; }
-    const name = (i.name ?? '').trim().slice(0, 40) || handle;
+    if (!handle) throw new HandleTakenError('format');
+    const verdict = await checkHandle(handle, null, { provisional: !i.handle });
+    if (verdict !== 'ok') { if (i.handle) throw new HandleTakenError(verdict); continue; }
+    const name = typed ?? handle;
     const [u] = await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id, referred_by_user_id, referred_via, referred_surface)
       select ${handle}, ${name}, adult_attested_at, id, ${a.referred_by_user_id}, ${legacyVia(surface)}, ${surface} from signup_attempts where id = ${attemptId}
       on conflict (handle) do nothing returning id, handle`;
@@ -99,13 +113,35 @@ export async function signInWithIdentity(attemptId: number, id: Identity, opts: 
 // old handle (never typed by the trader; the provisional default) or blank follows the new handle in the same update,
 // so the discarded handle never lingers as the heading, page title, share-card name or feed name. A display name the
 // trader typed themselves is never overwritten.
+//
+// One transaction (fix committee decision 8): the verdict, the update, and the old handle reserved for
+// HANDLE_RESERVED_DAYS with this account's id, so only this trader can take it back (on account deletion the id goes
+// null and the bare reservation stays). A lost race on the unique handle is a HandleTakenError, never a 500.
+// ponytail: no 301 from /u/<old>/** yet (decision 10; old links 404) — look up handle_reservations.user_id in the
+// profile, trade and month routes and redirect to that account's current handle.
+// ponytail: no rename-frequency limit (OD-12 b/c are the owner's call) — add a last-renamed check here once decided.
 export async function changeHandle(userId: number, raw: unknown): Promise<string> {
   const handle = normalizeHandle(raw);
-  if (!handle) throw new HandleTakenError();
-  if (!(await handleAvailable(handle))) throw new HandleTakenError();
-  const [u] = await sql`update users
-    set handle = ${handle},
-        display_name = case when display_name = handle or btrim(display_name) = '' then ${handle} else display_name end
-    where id = ${userId} returning handle`;
-  return u.handle as string;
+  if (!handle) throw new HandleTakenError('format');
+  try {
+    return await sql.begin(async (tx) => {
+      const [me] = await tx`select handle from users where id = ${userId} for update`;
+      if (!me) throw new Error('unknown user');
+      if (me.handle === handle) return handle;
+      const verdict = await checkHandle(handle, userId, { db: tx });
+      if (verdict !== 'ok') throw new HandleTakenError(verdict);
+      const [u] = await tx`update users
+        set handle = ${handle},
+            display_name = case when display_name = handle or btrim(display_name) = '' then ${handle} else display_name end
+        where id = ${userId} returning handle`;
+      await tx`insert into handle_reservations (handle, until, user_id) values (${me.handle as string}, now() + ${HANDLE_RESERVED_DAYS} * interval '1 day', ${userId})
+        on conflict (handle) do update set until = excluded.until, user_id = excluded.user_id`;
+      // Taking back an own reserved handle: that reservation has done its job.
+      await tx`delete from handle_reservations where handle = ${handle} and user_id = ${userId}`;
+      return u.handle as string;
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === '23505') throw new HandleTakenError('taken');
+    throw e;
+  }
 }

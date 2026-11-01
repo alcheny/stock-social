@@ -433,3 +433,19 @@ begin
 end $t$;
 -- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
 select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
+
+-- fix-user-text A: handles and stored-text cleanup
+-- Rename hold (fix committee 2026-11-01, decision 8): a renamed handle is reserved for a year with the renaming
+-- account, so that trader can take it back; the link goes null when the account is deleted, leaving the bare
+-- reservation (handle and date only).
+select schema_add_column('handle_reservations', 'user_id', 'bigint references users(id) on delete set null');
+-- Look-alike handles (decision 7): the handle skeleton (lower, rn→m, 0→o, 1→l), same expression as lib/handles.ts#hskel.
+select schema_add_index('users_handle_skel', $d$create index users_handle_skel on users ((replace(replace(replace(lower(handle), 'rn', 'm'), '0', 'o'), '1', 'l')))$d$);
+-- Stored-text cleanup (decision 1): direction controls, zero-width/invisible format characters (never U+200D) and
+-- control characters (never \n or tab) leave stored theses and display names. Guarded, so a clean table is untouched.
+update closed_trades set thesis = regexp_replace(thesis, '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')
+  where thesis ~ '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]';
+update kept_theses set thesis = regexp_replace(thesis, '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')
+  where thesis ~ '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]';
+update users set display_name = coalesce(nullif(btrim(regexp_replace(display_name, '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]', '', 'g')), ''), handle)
+  where display_name ~ '[‪-‮⁦-⁩‎‏؜​‌⁠-⁤﻿­᠎\x01-\x08\x0B-\x1F\x7F-\x9F]';

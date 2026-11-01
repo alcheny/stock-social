@@ -45,7 +45,8 @@ dbTest('deleteProfile: vendor first (a failure deletes nothing but marks deleted
     assert.equal((await sql`select 1 from login_links where email = ${email}`).length, 0); // zero rows carry the address (COMPLIANCE §3)
     assert.equal((await sql`select 1 from login_links where attempt_id in (${attempt}, ${laterAttempt})`).length, 0);
     const [res] = await sql`select * from handle_reservations where handle = ${u.handle}`;
-    assert.deepEqual(Object.keys(res).sort(), ['handle', 'until']);
+    assert.deepEqual(Object.keys(res).sort(), ['handle', 'until', 'user_id']);
+    assert.equal(res.user_id, null); // a deleted account's reservation never links to it (fix committee 2026-11-01, decision 8)
     assert.ok(new Date(res.until).getTime() > Date.now() + 364 * 86_400_000);
     const [att] = await sql`select user_id, completed_at from signup_attempts where id = ${attempt}`;
     assert.equal(att.user_id, null); // the funnel row survives without the person

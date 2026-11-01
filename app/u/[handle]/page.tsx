@@ -40,6 +40,15 @@ import { combined, openSummary } from '@/lib/open-split.ts';
 import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
 
+// The handle-change rejection names its rule (fix committee 2026-11-01, decision 7; C9).
+const HANDLE_ERR: Record<string, string> = {
+  taken: 'That handle is taken.',
+  reserved: 'That handle is reserved.',
+  lookalike: 'That handle looks too much like another one.',
+  format: '3–20 lowercase letters, numbers or _.',
+};
+const handleErr = (k?: string) => (k && Object.hasOwn(HANDLE_ERR, k) ? HANDLE_ERR[k] : undefined);
+
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
 async function load(handle: string) {
@@ -212,10 +221,10 @@ export default async function Profile({ params, searchParams }: Params) {
           <summary className="button secondary">{PROFILE.changeHandle}</summary>
           <form action={setHandle} className="inline">
             <label htmlFor="new-handle" className="sr-only">New handle</label>
-            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" defaultValue={user.handle} aria-describedby={(await searchParams)?.handle === 'taken' ? 'handle-err' : undefined} />
+            <input id="new-handle" name="handle" type="text" required pattern="[a-z0-9_]{3,20}" defaultValue={user.handle} aria-describedby={handleErr((await searchParams)?.handle) ? 'handle-err' : undefined} />
             <button>Save</button>
           </form>
-          {(await searchParams)?.handle === 'taken' && <p id="handle-err" role="alert" className="down small">That handle is taken or reserved, or not 3–20 lowercase letters, numbers or _.</p>}
+          {handleErr((await searchParams)?.handle) && <p id="handle-err" role="alert" className="down small">{handleErr((await searchParams)?.handle)}</p>}
         </details>
       )}
       {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (

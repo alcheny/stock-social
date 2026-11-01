@@ -6,7 +6,7 @@
 //   account   kept until the account is deleted (deletion removes every row, lib/delete.ts and the users cascade)
 //   session   kept until it expires, then purged by the tick (lib/privacy-purge.ts, lib/auth/links.ts)
 //   short     unfinished or orphaned rows purged by the tick after a fixed window (lib/privacy-purge.ts)
-//   reserved  no personal data; kept for a fixed period (a deleted handle's reservation)
+//   reserved  kept for a fixed period (a deleted or renamed handle's reservation; no personal data once the account is gone)
 //   none      no personal data; operational rows
 export type RetentionClass = 'account' | 'session' | 'short' | 'reserved' | 'none';
 export type TableEntry = { personal: boolean; retention: RetentionClass; holds: string };
@@ -24,7 +24,7 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   identities: { personal: true, retention: 'account', holds: 'sign-in provider subject and email address' },
   sessions: { personal: true, retention: 'session', holds: 'hashed session token and user id; purged at expiry' },
   login_links: { personal: true, retention: 'session', holds: 'email address of a sign-in link; purged when expired or its attempt finished' },
-  handle_reservations: { personal: false, retention: 'reserved', holds: 'a deleted handle and its release date' },
+  handle_reservations: { personal: true, retention: 'reserved', holds: 'a deleted or renamed handle and its release date (a year); a renamed one also links the renaming account so that trader can take it back, and that link is removed when the account is deleted' },
   funnel_events: { personal: false, retention: 'short', holds: 'sign-up step names and times per attempt; purged with an unfinished attempt' },
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot; a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },

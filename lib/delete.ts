@@ -4,11 +4,12 @@
 // with no personal data. The two-step screen (S9) is PR-2a; this is the action behind it.
 import { sql } from './db.ts';
 import { deleteUser } from './broker.ts';
+import { HANDLE_RESERVED_DAYS } from './handles.ts';
 
 export type DeletableUser = { id: number; handle: string; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 export type DeleteDeps = { deleteVendorUser: (u: { snaptradeUserId: string; secretEnc: string }) => Promise<void> };
 
-export const HANDLE_RESERVED_DAYS = 365;
+export { HANDLE_RESERVED_DAYS };
 
 // A vendor user already gone (404) counts as deleted; any other vendor error keeps the row, marked, for the hourly retry.
 export const defaultDeleteDeps: DeleteDeps = {
