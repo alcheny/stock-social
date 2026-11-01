@@ -34,6 +34,14 @@ export const LISTABLE_TYPES = ['BUY', 'SELL'];
 
 const ms = (n: number) => sql`${n}::float8 * interval '1 millisecond'`;
 
+// Two activity rows are twins: same user, source, account, symbol, side, time, units and price; another vendor id; both
+// from the activities read. `x` and `y` are row aliases.
+const twin = (db: Db, x: string, y: string) => db.unsafe(`${y}.user_id = ${x}.user_id and ${y}.source = ${x}.source and ${y}.account_id = ${x}.account_id
+  and ${y}.symbol = ${x}.symbol and ${y}.side = ${x}.side and ${y}.executed_at = ${x}.executed_at and ${y}.units = ${x}.units and ${y}.price = ${x}.price
+  and ${y}.external_id <> ${x}.external_id and ${y}.raw->>'type' in ('BUY', 'SELL')`);
+// A row held as a possible re-issue (not genuine) never counts as another row's original.
+const held = (db: Db, alias: string) => db.unsafe(`exists (select 1 from activity_reissues h where h.source = ${alias}.source and h.external_id = ${alias}.external_id and h.state <> 'genuine')`);
+
 /** The rebuild's filter (rows aliased `a`): a possible re-issue that no read has shown to be genuine is held. */
 export const notReissued = (db: Db) => db`not exists (select 1 from activity_reissues r where r.source = a.source and r.external_id = a.external_id and r.state <> 'genuine')`;
 
@@ -159,7 +167,9 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
   const missing = (await tx`select a.external_id from activities a where a.user_id = ${userId} and a.account_id = ${accountId} and a.source = 'snaptrade'
       and a.raw->>'type' in ${tx(LISTABLE_TYPES)} and a.created_at < ${p.reconcile_started_at}
       and not (a.external_id = any(${seen}::text[]))
-      and not exists (select 1 from activity_reissues r where r.user_id = ${userId} and r.original_id = a.external_id and r.state <> 'genuine')
+      and not ${held(tx, 'a')}
+      and not exists (select 1 from activity_reissues r join activities n on n.source = r.source and n.external_id = r.external_id
+        where r.user_id = ${userId} and r.state <> 'genuine' and ${twin(tx, 'n', 'a')})
     order by a.external_id`).map((r) => r.external_id as string);
   const prev = new Set(p.reconcile_missing ?? []);
   const decides = valid && (missing.length === 0 || missing.every((id) => prev.has(id)));
@@ -176,22 +186,29 @@ export async function recordPage(tx: TransactionSql, userId: number, accountId: 
   return { complete: true, onePage: plan.start, decided };
 }
 
-/** A complete pass decides the account's held rows: original listed → genuine, else suspected. */
+/** A complete pass decides the account's held rows: listed with every unheld twin → genuine, else suspected. */
 async function decidePass(tx: TransactionSql, userId: number, accountId: string, seen: string[]) {
   const genuine = await markGenuine(tx, userId, seen, accountId);
+  // What a complete pass leaves pending is suspected: a twin it did not list, or the held row itself no longer listed
+  // (QA D2: never left pending forever).
   const s = await tx`update activity_reissues set state = 'suspected', decided_at = now()
-    where user_id = ${userId} and account_id = ${accountId} and state = 'pending' and not (original_id = any(${seen}::text[]))`;
+    where user_id = ${userId} and account_id = ${accountId} and state = 'pending'`;
   return { genuine, suspected: s.count };
 }
 
-/** Rows of a pair both listed by one read are genuine. `minAt`: only rows dated on or after it (a week read decides only
- *  inside its window, a day clear of its time-zone boundary). */
+/** A held row is genuine when one read listed it and every other row of its twin group that is not itself held: the
+ *  vendor shows as many fills as are kept (QA D1: with two genuine identical fills stored, a re-issue of one of them is
+ *  not cleared by the other being listed). `minAt`: only rows dated on or after it (a week read decides only inside its
+ *  window, a day clear of its time-zone boundary). */
 export async function markGenuine(tx: TransactionSql, userId: number, listed: string[], accountId?: string, minAt?: Date): Promise<number> {
   if (!listed.length) return 0;
   const r = await tx`update activity_reissues r set state = 'genuine', decided_at = now()
+    from activities n
     where r.user_id = ${userId} and r.state <> 'genuine' ${accountId ? tx`and r.account_id = ${accountId}` : tx``}
-      and r.external_id = any(${listed}::text[]) and r.original_id = any(${listed}::text[])
-      ${minAt ? tx`and exists (select 1 from activities a where a.source = r.source and a.external_id = r.external_id and a.executed_at >= ${minAt})` : tx``}`;
+      and n.source = r.source and n.external_id = r.external_id and r.external_id = any(${listed}::text[])
+      ${minAt ? tx`and n.executed_at >= ${minAt}` : tx``}
+      and not exists (select 1 from activities e where e.user_id = ${userId} and ${twin(tx, 'n', 'e')} and not ${held(tx, 'e')}
+        and not (e.external_id = any(${listed}::text[])))`;
   return r.count;
 }
 
@@ -200,13 +217,15 @@ export async function markGenuine(tx: TransactionSql, userId: number, listed: st
  *  lists both or a complete pass decides it. Rows that arrive together were listed by the same read, so they are never
  *  each other's re-issue (two genuine identical fills are never held). Returns how many were found. */
 export async function markTwins(tx: TransactionSql, userId: number): Promise<number> {
-  const rows = await tx`insert into activity_reissues (user_id, source, external_id, account_id, original_id, state, decided_at)
-    select distinct on (n.source, n.external_id) n.user_id, n.source, n.external_id, n.account_id, e.external_id,
-      'pending', null
-    from activities n join activities e on e.user_id = n.user_id and e.source = n.source and e.account_id = n.account_id and e.symbol = n.symbol
-      and e.side = n.side and e.executed_at = n.executed_at and e.units = n.units and e.price = n.price and e.created_at < now()
-    where n.user_id = ${userId} and n.source = 'snaptrade' and n.created_at = now()
-      and n.raw->>'type' in ${tx(LISTABLE_TYPES)} and e.raw->>'type' in ${tx(LISTABLE_TYPES)}
+  // The new rows are read first (materialized), so each twin lookup goes through activities_user_pair whatever the
+  // table's statistics (QA D5: before an analyze the planner chose a scan over every pair of rows).
+  const rows = await tx`with n as materialized (select * from activities where user_id = ${userId} and source = 'snaptrade' and created_at = now()
+      and raw->>'type' in ${tx(LISTABLE_TYPES)})
+    insert into activity_reissues (user_id, source, external_id, account_id, original_id, state, decided_at)
+    select distinct on (n.source, n.external_id) n.user_id, n.source, n.external_id, n.account_id, e.external_id, 'pending', null
+    from n join lateral (select e.external_id, e.id from activities e where e.user_id = n.user_id and e.account_id = n.account_id and e.symbol = n.symbol
+        and e.executed_at = n.executed_at and ${twin(tx, 'n', 'e')} and e.created_at < now() and not ${held(tx, 'e')}
+      order by e.id limit 1) e on true
     order by n.source, n.external_id, e.id
     on conflict (source, external_id) do nothing
     returning 1`;
