@@ -1,4 +1,5 @@
 import { timelineCaption, type Timeline as TimelineData } from '@/lib/ticker.ts';
+import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
 import { Badge } from '../../ui.tsx';
 
 const SLOT = 28, AXIS = 40, TOP = 12, BASE = 112, H = 128;
@@ -33,8 +34,8 @@ export default function Timeline({ timeline, symbol, demoOnly, mixed }: { timeli
     <section aria-label="Trades by month">
       <h2>By month {demoOnly && <Badge verified={false} />}</h2>
       <p className="muted small" style={{ marginTop: 0 }}>Each pair of bars counts trades that closed in that month. Bars show how many trades, not how much they made.</p>
-      {demoOnly && <p role="note" className="muted small">Sample data, not from a real broker.</p>}
-      {mixed && <p role="note" className="muted small">Includes sample data marked Demo.</p>}
+      {/* QA round 2 (N9): the Demo sentence is said once, in the page note; the heading badge marks the section */}
+      {mixed && <p role="note" className="muted small">{FL.mixedNote}</p>}
       <div className="timeline-wrap">
         <svg className="timeline-axis" width={AXIS} height={H} viewBox={`0 0 ${AXIS} ${H}`} aria-hidden="true">
           <g fontSize="11" fill="var(--muted)">

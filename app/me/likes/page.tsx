@@ -7,6 +7,8 @@ import { LIKES } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { removeLikeForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../disclaimer.tsx';
 import { toneClass } from '../../open-rows.tsx';
 
 export const metadata: Metadata = { title: `${LIKES.title} · Stock Social`, robots: { index: false, follow: false } };
@@ -23,6 +25,8 @@ export default async function Likes({ searchParams }: { searchParams?: Promise<{
     <main className="page">
       <h1>{LIKES.title}</h1>
       <p className="muted">{LIKES.private}</p>
+      {/* FIXES-LABELS (D-09): above the list of liked trades and their returns, so it is in view however long the list */}
+      {rows.length > 0 && <Disclaimer />}
       {rows.length ? (
         <ul className="rows people likes">
           {rows.map((r) => (

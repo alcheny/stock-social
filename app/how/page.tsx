@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../disclaimer.tsx';
 import Link from 'next/link';
 import { HOW, HOW_PERSONAL, OPEN, OPTIONS, PUBLIC } from '@/lib/copy.ts';
 
@@ -13,6 +15,8 @@ export default function How() {
       <p>{HOW.verified}</p>
       <h2>{HOW.mathTitle}</h2>
       <ul>{HOW.math.map((l) => <li key={l}>{l}</li>)}{/* F-6 */}{OPEN.how.map((l) => <li key={l}>{l}</li>)}</ul>
+      {/* FIXES-LABELS (D-09): after the block that describes the returns */}
+      <Disclaimer />
       {/* OPTIONS (docs/features/logs/options/plan.md D8): the profile's gated count line links here. */}
       <h2 id="options">{OPTIONS.howTitle}</h2>
       <p>{OPTIONS.how}</p>

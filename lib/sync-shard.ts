@@ -12,6 +12,7 @@ import { VENDOR_TIMEOUT_MS } from './broker.ts';
 import {
   accountsOf, claimable, clockSql, defaultBroker, syncable, syncCost, syncRequests, syncUser, SYNC_FIT_CAP, SYNC_LEASE_MS, ROUND_MS,
   type Broker, type SyncableUser,
+  idleCount,
 } from './sync.ts';
 import {
   BACKOFF_BASE_MS, BACKOFF_CAP_MS, Breaker, LatencyWindow, plannedSyncMs, routeEndMargin, RouteDeadlineError, TRANSIENT_LIMIT, classify, dbConfigCheck, runConfig, TokenBucket,
@@ -415,6 +416,9 @@ export type Coverage = {
   of: number; missingShards: number; unclaimedPrevRound: number; neverSynced: number; stalestHours: number;
   inBackoff: number; refused: number; quarantined: number; oldestRefusalHours: number; dbConfigOk: boolean; dbProblems: string[];
   db: { statementTimeoutMs: number; idleInTxMs: number; maxConnections: number };
+  // FIXES-LABELS: status (F-11): idle records (no successful sync for IDLE_DAYS, lib/sync.ts#idleCount), over the same
+  // scope (the whole fleet on the route); null when the count failed. A count only, never an id.
+  idle: number | null;
   // F-14 (G9): the cadence's evidence, over the accounts still read (a live connection's snapshot, not disconnected,
   // not simulated; code review). Activities reads in the last 24 h over connected real accounts (≤ 1 by the cap;
   // `capBreach` above 1.05), and the oldest activities and positions reads of connected real accounts (alarms above
@@ -457,12 +461,14 @@ export async function coverage(of: number, scope: Scope = {}, cfg: RunConfig = r
   const settings = Object.fromEntries((await sql`select name, setting from pg_settings
     where name in ('statement_timeout', 'idle_in_transaction_session_timeout', 'max_connections')`).map((x) => [x.name as string, Number(x.setting)]));
   const db = { statementTimeoutMs: settings.statement_timeout ?? 0, idleInTxMs: settings.idle_in_transaction_session_timeout ?? 0, maxConnections: settings.max_connections ?? 0 };
+  let idle: number | null = null;
+  try { idle = await idleCount(scope.ids, scope.idRange); /* QA round 2 (N5): the same scope */ } catch (e) { console.error('sync idle count failed', logSafe(e)); } // FIXES-LABELS: status
   const workers = Math.max(1, Math.min(cfg.concurrency, POOL_MAX - 2));
   const check = dbConfigCheck(db, { shards: of, workers, maxSyncCostMs: syncCost(SYNC_FIT_CAP), userLeaseMs: SYNC_LEASE_MS });
   const out: Coverage = {
     of, missingShards: c.missingShards, unclaimedPrevRound: c.unclaimedPrevRound, neverSynced: c.neverSynced,
     stalestHours: Math.round((c.stalestHours ?? 0) * 10) / 10, inBackoff: c.inBackoff, refused: c.refused, quarantined: c.quarantined,
-    oldestRefusalHours: Math.round((c.oldestRefusalHours ?? 0) * 10) / 10, dbConfigOk: check.ok, dbProblems: check.problems, db,
+    oldestRefusalHours: Math.round((c.oldestRefusalHours ?? 0) * 10) / 10, dbConfigOk: check.ok, dbProblems: check.problems, db, idle,
     activitiesReads24h: c.activitiesReads24h, realAccounts: c.realAccounts,
     capRatio: c.realAccounts ? Math.round((c.activitiesReads24h / c.realAccounts) * 100) / 100 : 0,
     capBreach: c.realAccounts > 0 && c.activitiesReads24h / c.realAccounts > CAP_BREACH_RATIO,

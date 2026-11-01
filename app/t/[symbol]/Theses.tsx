@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { FIXES_LABELS as FL } from '@/lib/copy.ts'; // FIXES-LABELS (D-03): Demo notes
 import { THESIS_CAP, type ThesisList } from '@/lib/ticker.ts';
 import { pct } from '@/lib/trades.ts';
 import { toneClass } from '@/lib/open-split.ts'; // A11Y-FIXES #23
@@ -16,8 +17,8 @@ export default function Theses({ list, symbol, badgeFor = (v) => (v ? 'verified'
     <section aria-label="Why traders took these trades" data-testid="theses" data-symbol={symbol}>
       <h2>Why they traded it {list.demoOnly && <Badge verified={false} />}</h2>
       <p className="muted small" style={{ marginTop: 0 }}>Reasons traders published for closed trades in {symbol}, newest first. Showing up to {THESIS_CAP}. Text is written by the trader and is not checked for accuracy.</p>
-      {list.demoOnly && <p role="note" className="muted small">Sample data, not from a real broker.</p>}
-      {list.mixed && <p role="note" className="muted small">Includes sample data marked Demo.</p>}
+      {/* QA round 2 (N9): the Demo sentence is said once, in the page note; the heading badge marks the section */}
+      {list.mixed && <p role="note" className="muted small">{FL.mixedNote}</p>}
       {list.n === 0 ? (
         <p className="muted" data-testid="theses-empty">No published theses for this stock yet.</p>
       ) : (

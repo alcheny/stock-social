@@ -9,6 +9,7 @@ import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pa
 import { firstByKey, moveUnlistedPositions, replaceListedPositions, settleAccountPositions } from './positions.ts';
 import { decide, dueSql, writeMarks, type DueFlags } from './sync-cadence.ts';
 import { logSafe } from './privacy-log.ts';
+import { IDLE_DAYS } from './record-status.ts'; // FIXES-LABELS: status
 // OPTIONS (docs/features/logs/options/plan.md D1, D4, AC 11): option rows are stored beside the share rows, the record is
 // rebuilt by rebuildRecord (rebuildTrades, unchanged, then the option steps) and the re-read window covers both tables.
 import { insertOptionActivities, lastOptionActivityAt, markBackfilled, pendingBackfill, moveUnlistedOptionPositions, rebuildRecord, replaceAccountOptionPositions, saveBackfill } from './options-sync.ts';
@@ -333,7 +334,7 @@ export const accountsThatFit = (remainingMs: number) => Math.floor((remainingMs 
 
 // `deadline` (epoch ms on `clock`, the instance's own clock: it measures this call's duration only) stops claiming
 // once reached; `report` receives what the end-of-call log line says; `clock`, `release` and the rest are test hooks.
-export type TickReport = { ok: number; skipped: number; failed: number; unclaimed: number | null; stoppedAtDeadline: boolean };
+export type TickReport = { ok: number; skipped: number; failed: number; unclaimed: number | null; stoppedAtDeadline: boolean; idle?: number | null };
 export async function syncTick<R>(opts: {
   sync?: (u: SyncableUser) => Promise<R>; ids?: number[]; clockShiftMs?: () => number;
   deadline?: number; routeEnd?: number; clock?: () => number; release?: (u: ClaimedUser) => Promise<void>; report?: (r: TickReport) => void;
@@ -376,7 +377,11 @@ export async function syncTick<R>(opts: {
   try { unclaimed = await unclaimedCount({ ids: opts.ids, shiftMs: opts.clockShiftMs?.() ?? 0 }); } catch (e) { console.error('sync unclaimed count failed', logSafe(e)); }
   // Traders left because they did not fit the time left are a stop at the deadline too.
   if (!stopped && fit < SYNC_FIT_CAP && (unclaimed ?? 0) > 0) stopped = true;
-  const report: TickReport = { ok, skipped, failed: failed.length, unclaimed, stoppedAtDeadline: stopped };
+  // FIXES-LABELS: status (F-11): idle records (no successful sync for IDLE_DAYS) counted internally, one number in this
+  // counts-only line. Over the whole fleet, so a tick scoped to `ids` (tests, tools) leaves the field out.
+  let idle: number | null = null;
+  if (!opts.ids) try { idle = await idleCount(); } catch (e) { console.error('sync idle count failed', logSafe(e)); }
+  const report: TickReport = { ok, skipped, failed: failed.length, unclaimed, stoppedAtDeadline: stopped, ...(opts.ids ? {} : { idle }) };
   console.log('sync tick', JSON.stringify(report)); // counts only
   opts.report?.(report);
   return { ok, skipped, failed };
@@ -462,6 +467,31 @@ export async function syncUser(
       // Claim first so no conflicting data is ever read for the wrong user. Zero-activity accounts are claimed too.
       if (accounts.length && !(await claimIn(tx, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
       const real = accounts.filter((a) => !a.isPaper).map((a) => a.id);
+      // FIXES-LABELS: status (F-11, TR-5 "Account removed ‹date›"). Only after the vendor's list came back (a fetch error has
+      // already thrown) and is not empty (an empty list is the confirmed-freeze path above, F3-3): a confirmed real account
+      // the list no longer has, whose connection still lists at least one account, is stamped once (again after a relisting
+      // with a trade, QA round 2 N2). PR #85 review (B1): every account the list names again has its stamp cleared first, so
+      // a flapping list labels an account row only until the account is listed again; a removal never freezes the record
+      // (only disconnected_at does, lib/record-status.ts). Its trades stay listed (TR-1); its last positions move aside with
+      // the per-account positions read below (replaceListedPositions, F3-4).
+      // F-14: the list is read on every run, cadence or not (only activities and positions wait for their due time), so
+      // every run that reaches here fetched it (lib/sync-removed-cadence.test.ts).
+      // ponytail: an account removed while the vendor list is empty is recorded as a disconnect, not a removal — vendor per-account removal events
+      // ponytail: one short list stamps removed_at (no F3-3 two-list confirmation as for disconnected_at), which labels only that account's row, never the record, until the account is listed again — confirm with a missing_since per account if vendor short lists show up
+      if (accounts.length) {
+        const listed = accounts.map((a) => a.id);
+        await tx`update broker_accounts set removed_at = null where user_id = ${user.id} and removed_at is not null and account_id in ${tx(listed)}`;
+        // QA round 2 (N2): stamped again when it was listed again in between (a trade on it executed after the last stamp,
+        // which only a later listing imports), so a second removal shows its own date (lib/record-status-load.ts hides a
+        // stamp older than such a trade).
+        await tx`update broker_accounts b set removed_at = ${now}
+          where b.user_id = ${user.id} and b.confirmed_at is not null
+            and (b.removed_at is null or exists (select 1 from activities av where av.user_id = b.user_id and av.account_id = b.account_id and av.executed_at > b.removed_at))
+            and not b.is_paper and b.account_id not in ${tx(listed)}
+            and exists (select 1 from connections c, jsonb_array_elements(c.accounts) a
+              where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null and a->>'id' = b.account_id and coalesce((a->>'isPaper')::boolean, false) = false
+                and exists (select 1 from jsonb_array_elements(c.accounts) l where l->>'id' in ${tx(listed)}))`;
+      }
       // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
       if (!accounts.length) return 0;
       // F-14: which accounts are due (every real account without `cadence`).
@@ -663,4 +693,27 @@ export async function syncAll<U extends { id: number }>(users: U[], sync: (u: U)
     }
   }
   return { ok, failed };
+}
+
+// FIXES-LABELS: status (F-11): the number of idle records, the predicate of lib/record-status.ts#idleSince in SQL: a
+// record with a live (not disconnected) consented connected connection whose last successful sync, or else its earliest
+// live consent, is IDLE_DAYS old or more. A frozen record (every connection disconnected) is not idle. A count only.
+// QA round 2 (N5): only records that would show the idle line: at least one close, a broker record (no Demo data, not
+// built from public filings), and no consented import running or failed. PR #85 review (B1): a record whose live
+// accounts are all removed is not frozen (only disconnected_at freezes), so it shows the idle line and is counted.
+// `idRange` is lib/sync-shard.ts's Scope.idRange (the coverage step's scope).
+// ponytail: the import/failed test is per consented connection, not lib/connections.ts#aggregateRecord's full rule (a legacy claim, paper-only links) — fix: store the record state per user and read it here
+export async function idleCount(ids?: number[], idRange?: [number, number]): Promise<number> {
+  if (ids && !ids.length) return 0;
+  const [{ n }] = await sql`
+    select count(*)::int as n from users u,
+      lateral (select min(c.consent_at) as first from connections c where c.user_id = u.id and c.state = 'connected' and c.consent_at is not null and c.disconnected_at is null) l
+    where u.deleted_at is null and l.first is not null ${ids ? sql`and u.id in ${sql(ids)}` : sql``}
+      ${idRange ? sql`and u.id between ${idRange[0]} and ${idRange[1]}` : sql``}
+      and coalesce(u.last_synced_at, l.first) <= now() - make_interval(days => ${IDLE_DAYS})
+      and u.public_filer_id is null
+      and exists (select 1 from closed_trades t where t.user_id = u.id)
+      and not exists (select 1 from activities d where d.user_id = u.id and d.source = 'demo')
+      and not exists (select 1 from connections c where c.user_id = u.id and c.consent_at is not null and c.state in ('importing', 'failed'))`;
+  return n as number;
 }
