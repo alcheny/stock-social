@@ -91,18 +91,18 @@ const sess = (kind: string, cost: number, startedH: number, activeH = 0, extra: 
 const range = (r: { low: number; point: number; high: number }) => [r.low, r.point, r.high].map((x) => Math.round(x * 1e6) / 1e6);
 
 test('remaining cost: prior − spent dominates for a young session; high is widened by safety', () => {
-  const r = remainingCost(sess('build', 2, 0.5), NOW, RESET); // burn $4/h × 1h left = 4
+  const r = remainingCost(sess('build', 2, 0.5), NOW, RESET); // burn $4/h × 1.25h left = 5
   assert.equal(r.basis, 'prior');
-  assert.deepEqual(range(r.remaining), [18, 43, 68 * 1.5]);
-  assert.deepEqual(r.priorUsd, { low: 20, point: 45, high: 70 });
+  assert.deepEqual(range(r.remaining), [18, 38, 68 * 1.5]);
+  assert.deepEqual(r.priorUsd, { low: 20, point: 40, high: 70 });
 });
 
 test('remaining cost: burn × remaining hours dominates when burning fast', () => {
-  const r = remainingCost(sess('build', 40, 0.5), NOW, RESET); // $80/h, 1 typical hour left
+  const r = remainingCost(sess('build', 40, 0.5), NOW, RESET); // $80/h, 1.25 typical hours left
   assert.equal(r.basis, 'burn');
   assert.ok(near(r.burnUsdPerHour, 80, 1e-9));
-  assert.ok(near(r.remainingHours, 1, 1e-9));
-  assert.deepEqual(range(r.remaining), [80, 80, 120]);
+  assert.ok(near(r.remainingHours, 1.25, 1e-9));
+  assert.deepEqual(range(r.remaining), [100, 100, 150]);
 });
 
 test('remaining cost: a session over its prior keeps its burn over the tail, never 0', () => {
@@ -113,10 +113,10 @@ test('remaining cost: a session over its prior keeps its burn over the tail, nev
 });
 
 test('remaining cost: the floor applies when prior and burn are both small', () => {
-  const slow = remainingCost(sess('build', 80, 100), NOW, RESET); // $0.80/h × 0.25h tail
+  const slow = remainingCost(sess('build', 80, 1000), NOW, RESET); // $0.08/h × the 6.08h to reset
   assert.equal(slow.basis, 'floor');
   assert.deepEqual(range(slow.remaining), [4, 4, 6]);
-  const review = remainingCost(sess('review', 5.5, 2), NOW, RESET);
+  const review = remainingCost(sess('review', 5.5, 100), NOW, RESET);
   assert.equal(review.basis, 'floor');
   assert.deepEqual(range(review.remaining), [1, 1, 1.5]);
 });
@@ -176,12 +176,12 @@ const used = (p: Plan) => p.spend.windowUsd + p.reserve.totalUsd + p.admit.reduc
 test('admission: spend + running point reserve + admitted low estimates never exceed cap high', () => {
   const p = plan(snap({
     config: { capUsd: 300 },
-    sessions: [build('a', 4, 2), build('b', 2, 1)], // point remaining 41 + 43 = 84
+    sessions: [build('a', 4, 2), build('b', 2, 1)], // point remaining 36 + 38 = 74
     queue: [1, 2, 3, 4, 5, 6].map((i) => ({ id: `q${i}`, kind: 'build', estimateUsd: 40 })),
   }));
-  assert.ok(near(p.reserve.totalUsd, 84));
-  assert.ok(near(p.capacity.headroomUsd!, 300 - 6 - 84));
-  assert.equal(p.admit.length, 5); // 5 × 40 = 200 ≤ 210
+  assert.ok(near(p.reserve.totalUsd, 74));
+  assert.ok(near(p.capacity.headroomUsd!, 300 - 6 - 74));
+  assert.equal(p.admit.length, 5); // 5 × 40 = 200 ≤ 220
   assert.equal(p.queued[0].id, 'q6');
   assert.ok(used(p) <= 300 + 0.011);
 });
@@ -213,7 +213,7 @@ test('admission: overshoot risk is none, possible or likely', () => {
 
 test('admission: a single estimate is used for low, point and high; the kind prior range otherwise; safety is not in the check', () => {
   const p = plan(snap({ config: { capUsd: 100, safety: 3 }, queue: [{ id: 'a', kind: 'review', priority: 2, estimateUsd: 70 }, { id: 'b', kind: 'build', priority: 1 }] }));
-  assert.deepEqual(p.admit.map((a) => [a.id, a.estimate]), [['a', { low: 70, point: 70, high: 70 }], ['b', { low: 20, point: 45, high: 70 }]]);
+  assert.deepEqual(p.admit.map((a) => [a.id, a.estimate]), [['a', { low: 70, point: 70, high: 70 }], ['b', { low: 20, point: 40, high: 70 }]]);
 });
 
 test('admission: with a known cap it fills to cap high within one item\'s low estimate and never beyond', () => {
@@ -428,11 +428,11 @@ test('projection: burn is the running sessions\' burn; the history slope is repo
 // --- Fill: use the whole budget by reset ---------------------------------------------------------------------------
 
 test('fill: spare budget and an empty queue → reports the unused budget and asks for more work', () => {
-  const p = plan(snap({ config: { capUsd: 300 }, sessions: [build('a', 10, 1)] })); // 300 − 10 − 35 = 255 unused
-  assert.ok(near(p.fill.expectedUnusedUsd!, 255));
+  const p = plan(snap({ config: { capUsd: 300 }, sessions: [build('a', 10, 1)] })); // 300 − 10 − 30 = 260 unused
+  assert.ok(near(p.fill.expectedUnusedUsd!, 260));
   assert.equal(p.fill.recommendAdmitUsd, p.fill.expectedUnusedUsd);
   assert.equal('maxItemHours' in p.fill, false); // window.hoursToReset says it
-  assert.deepEqual(p.fill.suggestedKinds, ['build', 'council', 'build:small', 'review']);
+  assert.deepEqual(p.fill.suggestedKinds, ['council', 'build', 'build:small', 'review']); // point 45, 40, 9, 3
   assert.match(p.fill.message, /unused at reset/);
   assert.match(p.fill.message, /queue more work/);
   assert.match(p.summary, /unused/);
@@ -445,11 +445,11 @@ test('fill: admitted items count at their point estimate', () => {
 
 test('fill: near the reset suggestions rank kinds by what they would spend before the reset', () => {
   const p = plan(snap({ now: iso(RESET - 1 * H), config: { capUsd: 300 } }));
-  // in-window per item: council 45 × 1/1.25 = 36, build 45 × 1/1.5 = 30, build:small 9, review 3
+  // in-window per item: council 45 × 1/1.25 = 36, build 40 × 1/1.75 = 22.86, build:small 9, review 3
   assert.deepEqual(p.fill.suggestedKinds, ['council', 'build', 'build:small', 'review']);
   assert.match(p.fill.message, /short/);
   const late = plan(snap({ now: iso(RESET - 0.2 * H), config: { capUsd: 300 } }));
-  assert.deepEqual(late.fill.suggestedKinds, ['council', 'build', 'build:small', 'review']); // 7.2, 6, 3.6, 2.4
+  assert.deepEqual(late.fill.suggestedKinds, ['council', 'build', 'build:small', 'review']); // 7.2, 4.57, 3.6, 2.4
   assert.doesNotMatch(late.fill.message, /none fits/);
 });
 
@@ -521,9 +521,9 @@ test('robust: a queue id equal to a running session id is not admitted', () => {
 test('robust: an unknown kind is treated as build and reported', () => {
   const p = plan(snap({ sessions: [{ ...build('a', 1, 0.5), kind: 'mystery' }], queue: [{ id: 'q', kind: 'weird' }] }));
   assert.equal(p.reserve.sessions[0].kind, 'build');
-  assert.equal(p.reserve.sessions[0].priorUsd?.point, 45);
+  assert.equal(p.reserve.sessions[0].priorUsd?.point, 40);
   assert.equal(p.admit[0].kind, 'build');
-  assert.equal(p.admit[0].estimate.point, 45);
+  assert.equal(p.admit[0].estimate.point, 40);
   assert.equal(codes(p).filter((c) => c === 'unknown-kind').length, 2);
 });
 
@@ -543,7 +543,7 @@ test('robust: out-of-range config values fall back to the defaults and are repor
     const p = plan(snap({ config, sessions: [build('a', 10, 1)] }));
     assert.ok(codes(p).includes('bad-config'), JSON.stringify(config));
     assert.equal(p.reserve.safety, 1.5);
-    assert.deepEqual(p.reserve.sessions[0].priorUsd, { low: 20, point: 45, high: 70 });
+    assert.deepEqual(p.reserve.sessions[0].priorUsd, { low: 20, point: 40, high: 70 });
   }
 });
 
@@ -562,7 +562,8 @@ test('2026-11-01 data, cap $1500: spend about $586, history slope about $258/h, 
   assert.equal(p.brake, 'none');
   assert.ok(p.spend.windowUsd > 560 && p.spend.windowUsd < 620, `spend ${p.spend.windowUsd}`);
   assert.equal(p.projection.burnSource, 'sessions');
-  assert.ok(p.projection.burnUsdPerHour > 150 && p.projection.burnUsdPerHour < 220, `burn ${p.projection.burnUsdPerHour}`);
+  // the sessions' burns, with the four under 10 minutes old at their prior's average rate: about the real $294/h
+  assert.ok(p.projection.burnUsdPerHour > 250 && p.projection.burnUsdPerHour < 320, `burn ${p.projection.burnUsdPerHour}`);
   assert.ok(p.projection.historyBurnUsdPerHour! > 240 && p.projection.historyBurnUsdPerHour! < 300, `history ${p.projection.historyBurnUsdPerHour}`);
   assert.ok(!codes(p).includes('burn-mismatch'));
   assert.equal(p.reserve.sessions.length, 15); // the 6 done sessions reserve nothing
@@ -690,6 +691,9 @@ test('properties: 1,500 random snapshots keep every invariant', () => {
     if (p.cap.known) {
       assert.ok(near(p.capacity.headroomUsd!, p.cap.high! - p.spend.windowUsd - p.reserve.totalUsd, 0.02), ctx);
       if (p.admit.length) assert.ok(used(p) <= p.cap.high! + 0.011 * (p.admit.length + 2), ctx);
+      // … and what running and admitted work carries into the next window fits under it too.
+      const carry = p.reserve.sessions.reduce((t, r) => t + r.carriesOverUsd, 0) + p.admit.reduce((t, x) => t + x.estimate.low - x.inWindow.low, 0);
+      if (p.admit.length) assert.ok(carry <= p.cap.high! + 0.011 * (p.admit.length + p.reserve.sessions.length + 2), ctx);
       assert.ok(p.cap.low! <= p.cap.point! && p.cap.point! <= p.cap.high!, ctx);
     }
     for (const r of p.reserve.sessions) {
@@ -815,7 +819,7 @@ test('reserve: config safety widens only the high figure', () => {
   const p = plan(snap({ config: { capUsd: 1000, safety: 3 }, sessions: [build('a', 2, 0.5)] }));
   assert.equal(p.reserve.safety, 3);
   const r = p.reserve.sessions[0].remaining;
-  assert.deepEqual([r.low, r.point, r.high], [18, 43, 204]); // low: 20 − 2 (burn $4.17/h × 1h is less); high: (70 − 2) × 3
+  assert.deepEqual([r.low, r.point, r.high], [18, 38, 204]); // low: 20 − 2 (burn $4.17/h × 1.25h is less); high: (70 − 2) × 3
 });
 
 test('robust: prototype keys as ids, kinds, phases, priors keys and config keys neither throw nor leak', () => {
@@ -1051,19 +1055,16 @@ test('window: rateLimitType is accepted as window.type; neither is reported', ()
 
 test('projection: a history slope far from the sessions\' burn is reported for information, and the summary names the cap-hit time', () => {
   const s = nov1({ capUsd: 1500 });
-  s.history = [
-    { at: '2026-11-01T07:55:00Z', totalCostUsd: 0, status: 'allowed' },
-    { at: '2026-11-01T08:25:00Z', totalCostUsd: 100, status: 'allowed' },
-  ];
+  s.history = [{ at: '2026-11-01T08:35:00Z', totalCostUsd: 0, status: 'allowed' }];
   const p = plan(s);
-  assert.ok(p.projection.historyBurnUsdPerHour! > 500);
+  assert.ok(p.projection.historyBurnUsdPerHour! > 1500); // $586 in 20 minutes
   assert.equal(p.projection.burnSource, 'sessions'); // the burn used is still the sessions'
-  assert.ok(p.projection.burnUsdPerHour < 220);
+  assert.ok(p.projection.burnUsdPerHour < 320);
   const issue = p.issues.find((i) => i.code === 'burn-mismatch');
   assert.ok(issue, JSON.stringify(p.issues));
   assert.equal(issue.level, 'warn');
   assert.match(issue.detail, /history/);
-  assert.equal(p.projection.capHitBeforeReset, true); // (1500 − 586) / ~$178/h ≈ 5.1h < 6.08h
+  assert.equal(p.projection.capHitBeforeReset, true); // (1500 − 586) / ~$295/h ≈ 3.1h < 6.08h
   assert.match(p.summary, /cap hit ~\d\d:\d\dZ at current burn/);
   assert.doesNotMatch(p.summary, /queue more work/);
 });
@@ -1076,6 +1077,7 @@ test('remaining cost: a session under 10 minutes old has no lifetime-burn term y
   const over = remainingCost(sess('council', 35, 5 / 60), NOW, RESET); // spent past its low prior: the burn counts
   assert.equal(over.basis, 'burn');
   assert.equal(DEFAULT_PRIORS.council.high, 65);
+  assert.deepEqual([DEFAULT_PRIORS.build.point, DEFAULT_PRIORS.build.typicalHours], [40, 1.75]);
 });
 
 test('duplicates: done wins, then the larger cost, then the later lastActiveAt; id-less sessions never collide', () => {
@@ -1100,7 +1102,8 @@ test('pause: the rule is stated, the summary lists the first three and a count, 
   }));
   assert.match(p.pause.rule, /one per tick, until the brake is none \(status allowed or allowed_warning\)/);
   assert.match(p.pause.rule, /orchestrator is never paused/);
-  assert.match(p.summary, /pause a, b, c \+2 more/);
+  assert.match(p.summary, /pause a now \(then b, c \+2 more\)/);
+  assert.equal(p.pause.next, 'a');
   assert.match(p.pause.reason!, /rejected/);
   const tight = plan(snap({ config: { capUsd: 20 }, sessions: [build('a', 10, 1)] }));
   assert.equal(tight.pause.stallRisk, true);
@@ -1132,7 +1135,7 @@ test('robust: a recent reading above the cost is reported; done accepts "true"/"
 });
 
 test('cap: running work over a known cap is reported with the shortfall', () => {
-  const p = plan(snap({ config: { capUsd: 30 }, sessions: [build('a', 10, 1)] })); // 10 + ~40 > 30
+  const p = plan(snap({ config: { capUsd: 30 }, sessions: [build('a', 10, 1)] })); // 10 + 30 > 30
   const issue = p.issues.find((i) => i.code === 'running-over-cap');
   assert.ok(issue);
   assert.match(issue.detail, /\$\d+\.\d\d/);
@@ -1189,8 +1192,8 @@ test('history: entries of another window type are ignored; a consistent own rese
     history: [{ at: '2026-11-01T08:00:00Z', totalCostUsd: 50, status: 'allowed_warning', type: 'seven_day', resetsAt: '2026-11-01T10:00:00Z' }] });
   assert.equal(typed.cap.source, 'unknown');
   assert.ok(typed.issues.some((i) => i.code === 'history-other-type'));
-  // An older window that reset at an odd minute: its own resetsAt is kept, not snapped to this window's grid.
-  const own = RESET - 7 * DAY + 30 * 60_000;
+  // An older window that reset at an odd minute (not overlapping this one): its own resetsAt is kept, not snapped.
+  const own = RESET - 7 * DAY - 30 * 60_000;
   const p = plan(snap({ config: {}, history: [{ at: iso(own - DAY), totalCostUsd: 600, status: 'allowed_warning', resetsAt: own / 1000 }] }));
   assert.equal(p.cap.calibratedFrom?.resetsAt, iso(own));
 });
@@ -1204,15 +1207,17 @@ test('pause: the rule depends on the brake; paused sessions are not recommended,
   assert.match(over.pause.rule, /one per tick, until the brake is none \(isUsingOverage false\)/);
   assert.deepEqual(over.pause.recommend, ['a']);
   assert.equal(over.pause.needed, true);
-  assert.deepEqual(over.resume, []);
+  assert.deepEqual(over.resume.ids, []);
   assert.equal(over.reserve.sessions.length, 4);
   const ok = plan(snap({ sessions, queue: [{ id: 'q', kind: 'review' }] }));
-  assert.deepEqual(ok.resume, ['c', 'd', 'b']); // priority first, then the most progress (nearly done work finishes)
+  assert.deepEqual(ok.resume.ids, ['c', 'd', 'b']); // priority first, then the most progress (nearly done work finishes)
+  assert.equal(ok.resume.next, 'c');
+  assert.match(ok.resume.rule, /one per tick/);
   assert.equal(ok.pause.needed, false);
-  assert.match(ok.summary, /resume c, d, b first/);
+  assert.match(ok.summary, /resume c now/);
   assert.equal(ok.spend.windowUsd, 85);
-  // paused sessions keep their reserve: a 45 − 5; b and d burn ($30, $40 over 0.98h) × 0.5h; c 45 − 10
-  assert.ok(near(ok.reserve.totalUsd, 40 + (30 / 0.98) * 0.5 + 35 + (40 / 0.98) * 0.5, 0.02));
+  // paused sessions keep their reserve: a 40 − 5; b and d burn ($30, $40 over 0.98h) × 0.75h; c 40 − 10
+  assert.ok(near(ok.reserve.totalUsd, 35 + (30 / 0.98) * 0.75 + 30 + (40 / 0.98) * 0.75, 0.02));
   const bad = plan(snap({ sessions: [build('x', 5, 1, { paused: 'yes' })] }));
   assert.ok(codes(bad).includes('bad-paused'));
 });
@@ -1263,18 +1268,19 @@ test('reserve: work that runs past the reset is charged to this window only up t
   const s = (over: Record<string, unknown>) => snap({ now: iso(now), sessions: [{ id: 'a', kind: 'build', costUsd: 10, startedAt: iso(now - 0.5 * H), lastActiveAt: iso(now) }], ...over });
   const p = plan(s({ config: { capUsd: 100 } }));
   const r = p.reserve.sessions[0];
-  assert.deepEqual([r.remaining.low, r.remaining.point, r.remaining.high], [20, 35, 90]); // 1h left, $20/h burn
-  assert.deepEqual([r.inWindow.low, r.inWindow.point, r.inWindow.high], [10, 17.5, 45]); // half of it before the reset
-  assert.equal(r.carriesOverUsd, 17.5);
-  assert.equal(p.reserve.totalUsd, 17.5);
-  // fill: in-window per item at 0.5h: council 18, build 15, build:small 9, review 3; unused 100 − 10 − 17.5 = 72.5
-  assert.ok(near(p.fill.expectedUnusedUsd!, 72.5));
+  assert.deepEqual([r.remaining.low, r.remaining.point, r.remaining.high], [25, 30, 90]); // 1.25h left, $20/h burn
+  assert.deepEqual([r.inWindow.low, r.inWindow.point, r.inWindow.high], [10, 12, 36]); // 0.5 of its 1.25h before the reset
+  assert.equal(r.carriesOverUsd, 18);
+  assert.equal(p.reserve.totalUsd, 12);
+  // fill: in-window per item at 0.5h: council 18, build 11.43, build:small 9, review 3; unused 100 − 10 − 12 = 78.
+  // Counts are limited by this window (78 / in-window) and by the next (100 − 18 carried, / each item's carry-over).
+  assert.ok(near(p.fill.expectedUnusedUsd!, 78));
   assert.deepEqual(p.fill.suggestions.map((x) => [x.kind, x.phase, x.inWindowUsd, x.count]),
-    [['council', null, 18, 4], ['build', null, 15, 4], ['build', 'small', 9, 8], ['review', null, 3, 24]]);
-  // A new build's low $20 does not fit in the $12.50 left, but its in-window part ($20 × 0.5/1.5) does.
+    [['council', null, 18, 3], ['build', null, 11.43, 2], ['build', 'small', 9, 8], ['review', null, 3, 26]]);
+  // A new build's low $20 does not fit in the $18 left, but its in-window part ($20 × 0.5/1.75) does.
   const q = plan(s({ config: { capUsd: 40 }, queue: [{ id: 'q', kind: 'build' }] }));
   assert.deepEqual(q.admit.map((a) => a.id), ['q']);
-  assert.ok(near(q.admit[0].inWindow.low, 6.67));
+  assert.ok(near(q.admit[0].inWindow.low, 5.71));
   // Without a usable reset time nothing is clipped.
   const none = plan({ ...s({}), window: { type: 'seven_day', status: 'allowed' } });
   assert.deepEqual(none.reserve.sessions[0].inWindow, none.reserve.sessions[0].remaining);
@@ -1350,8 +1356,8 @@ test('queued: reasonCode for each case, and an over-cap reason with the real sho
   const p = plan(snap({ config: { capUsd: 100 }, sessions: [build('x', 10, 1)],
     queue: [{ id: 'x', kind: 'build' }, { id: 'big', kind: 'build', priority: 2, estimateUsd: 500 }, { id: 'small', kind: 'review', priority: 1 }] }));
   assert.deepEqual(p.queued.map((q) => [q.id, q.reasonCode]), [['big', 'over-cap'], ['small', 'behind'], ['x', 'already-running']]);
-  const over = plan(snap({ config: { capUsd: 30 }, sessions: [build('a', 10, 1)], queue: [{ id: 'q', kind: 'review' }] })); // 10 + 35 > 30
-  assert.match(over.queued[0].reason, /already exceeds the cap's high end by \$15\.00/);
+  const over = plan(snap({ config: { capUsd: 30 }, sessions: [build('a', 10, 1)], queue: [{ id: 'q', kind: 'review' }] })); // 10 + 30 > 30
+  assert.match(over.queued[0].reason, /already exceeds the cap's high end by \$10\.00/);
 });
 
 test('config: admitAt "point" admits at point estimates; at low a deep queue can be reported likely over', () => {
@@ -1385,4 +1391,195 @@ test('epsilon: running high figures exactly at the cap\'s low end fit with safet
     sessions: [{ id: 'd', kind: 'build', costUsd: 0.1, startedAt: '2026-11-01T08:00:00Z', lastActiveAt: '2026-11-01T08:10:00Z', done: true },
       { id: 'r', kind: 'review', costUsd: 0, startedAt: '2026-11-01T08:29:00Z', lastActiveAt: '2026-11-01T08:29:00Z' }] });
   assert.equal(p.projection.runningFitsWithSafety, true); // 0.1 + 0.2 = 0.30000000000000004
+});
+
+// --- 12. Review round 3 -----------------------------------------------------------------------------------------------
+
+test('carry-over: near the reset, admission also keeps what new work carries into the next window under the cap', () => {
+  const s = (config: Record<string, unknown>) => snap({ now: iso(RESET - 0.3 * H), config,
+    queue: Array.from({ length: 40 }, (_, i) => ({ id: `b${String(i).padStart(2, '0')}`, kind: 'build' })) });
+  const p = plan(s({ capUsd: 300 }));
+  // each build: in-window low 20 × 0.3/1.75 = $3.43 (this window has room for all 40), carry-over $16.57: 18 fit next window
+  assert.equal(p.admit.length, 18);
+  assert.equal(p.queued[0].reasonCode, 'over-next-window');
+  assert.match(p.queued[0].reason, /next window/);
+  assert.ok(p.projection.overshoot.nextWindowCarryUsd > 0);
+  assert.ok(near(p.capacity.nextWindowHeadroomUsd!, 300));
+  assert.equal(plan(s({})).admit.length, 40); // cap unknown: no test
+});
+
+test('orchestrator: its remaining hours look ahead at most 24h (config.orchestratorLookaheadHours)', () => {
+  const s = (config: Record<string, unknown>) => ({ now: '2026-11-01T16:00:00Z', window: { rateLimitType: 'seven_day', resetsAt: '2026-11-08T15:00:00Z', status: 'allowed' }, config,
+    sessions: [{ id: 'orch', kind: 'orchestrator', costUsd: 100, startedAt: '2026-10-30T09:00:00Z', lastActiveAt: '2026-11-01T15:59:00Z', recent: { costUsd: 98, at: '2026-11-01T15:50:00Z' } }],
+    queue: [{ id: 'f5-build', kind: 'build', priority: 4 }, { id: 'rev1', kind: 'review' }] });
+  const p = plan(s({ capUsd: 1200 }));
+  const o = p.reserve.sessions[0];
+  assert.equal(o.remainingHours, 24);
+  assert.ok(near(o.remaining.point, 12 * 24)); // $2 in 10 minutes
+  assert.deepEqual(p.admit.map((a) => a.id), ['f5-build', 'rev1']);
+  assert.equal(plan(s({ capUsd: 1200, orchestratorLookaheadHours: 48 })).reserve.sessions[0].remainingHours, 48);
+  assert.ok(codes(plan(s({ capUsd: 1200, orchestratorLookaheadHours: -1 }))).includes('bad-config'));
+});
+
+test('fill: while the queue is blocked by strict priority it recommends nothing and names the blocker', () => {
+  const p = plan(snap({ config: { capUsd: 300 }, queue: [{ id: 'huge', kind: 'build', priority: 9, estimateUsd: 500 }, { id: 'rev', kind: 'review' }] }));
+  assert.deepEqual(p.queued.map((q) => q.reasonCode), ['over-cap', 'behind']);
+  assert.ok(near(p.fill.expectedUnusedUsd!, 300));
+  assert.equal(p.fill.recommendAdmitUsd, 0);
+  assert.equal(p.fill.blockedBy, 'huge');
+  assert.match(p.fill.message, /blocked behind huge/);
+  assert.match(p.fill.message, /above its priority|splitting|lowering/);
+  assert.match(p.summary, /blocked behind huge/);
+  assert.doesNotMatch(p.summary, /queue more work/);
+});
+
+test('brakes: a real rejected or overage status is not hidden by a bad window', () => {
+  const sessions = [build('a', 10, 1), build('b', 20, 1)];
+  const q = [{ id: 'q', kind: 'review' }];
+  const rej = plan(snap({ window: { type: 'seven_day', status: 'rejected' }, sessions, queue: q }));
+  assert.equal(rej.brake, 'rejected');
+  assert.equal(rej.pause.stallRisk, true);
+  assert.deepEqual(rej.pause.recommend, ['a', 'b']);
+  assert.equal(rej.queued[0].nextAdmitAt, null); // the window is unknown, so there is no reset to wait for
+  assert.equal(plan(snap({ window: { type: 'seven_day', status: 'allowed', isUsingOverage: true }, sessions })).brake, 'overage');
+  assert.equal(plan(snap({ window: { type: 'five_hour', status: 'rejected', resetsAt: (NOW + 30 * H) / 1000 }, sessions })).brake, 'rejected');
+  assert.equal(plan(snap({ window: { type: 'seven_day', status: 'allowed' }, sessions })).brake, 'bad-window');
+});
+
+test('history: an entry of a newer or overlapping window of the same type is ignored', () => {
+  const now = '2026-11-01T08:00:00Z';
+  const p = plan({ now, config: {}, window: { type: 'seven_day', status: 'allowed', resetsAt: '2026-11-02T00:00:00Z' },
+    history: [{ at: '2026-11-01T07:00:00Z', totalCostUsd: 5, status: 'rejected', type: 'seven_day', resetsAt: '2026-11-06T00:00:00Z' }] });
+  assert.equal(p.cap.source, 'unknown');
+  assert.ok(codes(p).includes('history-other-window'));
+});
+
+test('robust: recent.costUsd follows the money rules; windowKnown "false"; unparseable history resetsAt; overage null and after rollover', () => {
+  const W = { type: 'seven_day', status: 'allowed', resetsAt: '2026-11-05T00:00:00Z' };
+  const s = { id: 'a', kind: 'build', costUsd: 10, startedAt: '2026-11-01T07:00:00Z', lastActiveAt: '2026-11-01T07:59:00Z' };
+  const lv = (p: Plan, code: string) => p.issues.filter((i) => i.code === code).map((i) => i.level);
+  const str = plan({ now: '2026-11-01T08:00:00Z', window: W, sessions: [{ ...s, recent: { costUsd: '5', at: '2026-11-01T07:30:00Z' } }] });
+  assert.ok(codes(str).includes('string-number'));
+  assert.ok(near(str.reserve.sessions[0].burnUsdPerHour, 10)); // $5 in 30 minutes
+  assert.deepEqual(lv(plan({ now: '2026-11-01T08:00:00Z', window: W, sessions: [{ ...s, recent: { costUsd: 'lots', at: '2026-11-01T07:30:00Z' } }] }), 'bad-recent'), ['error']);
+  const wk = plan({ now: '2026-11-01T08:00:00Z', config: {}, window: W, history: [{ at: '2026-11-01T07:00:00Z', totalCostUsd: 300, status: 'allowed_warning', windowKnown: 'false', type: 'seven_day' }] });
+  assert.equal(wk.cap.source, 'unknown');
+  assert.ok(codes(wk).includes('history-no-window'));
+  const br = plan({ now: '2026-11-01T08:00:00Z', config: {}, window: W, history: [{ at: '2026-11-01T07:00:00Z', totalCostUsd: 8, status: 'allowed_warning', type: 'seven_day', resetsAt: 'garbage' }] });
+  assert.equal(br.cap.source, 'unknown');
+  assert.ok(codes(br).includes('bad-history'));
+  const on = plan({ now: '2026-11-01T08:00:00Z', window: { ...W, isUsingOverage: null } });
+  assert.equal(on.brake, 'none');
+  assert.ok(!codes(on).includes('bad-overage'));
+  const ro = plan({ now: '2026-11-01T08:00:00Z', window: { ...W, resetsAt: '2026-11-01T07:00:00Z', isUsingOverage: 'yes' } });
+  assert.equal(ro.brake, 'none');
+  assert.deepEqual(lv(ro, 'bad-overage'), ['warn']);
+  const rt = plan({ now: '2026-11-01T08:00:00Z', window: { type: 'seven_day', resetsAt: '2026-11-01T07:00:00Z', isUsingOverage: 'true' } });
+  assert.ok(codes(rt).includes('stale-status'));
+});
+
+test('robust: BigInt and circular values in the snapshot never throw', () => {
+  const circular: Record<string, unknown> = { a: 1 };
+  circular.o = circular;
+  for (const v of [{ now: 1n }, { now: iso(NOW), sessions: [{ id: 'a', costUsd: 5n, kind: 1n }] }, { now: circular }, snap({ queue: [{ id: 'q', kind: circular, priority: 2n }] })]) {
+    assert.doesNotThrow(() => plan(v));
+  }
+});
+
+test('projection: a session too young for its burn to count projects at least its prior\'s average rate', () => {
+  const p = plan(snap({ sessions: [{ id: 'c', kind: 'council', costUsd: 1, startedAt: ago(5 / 60), lastActiveAt: iso(NOW) }] }));
+  assert.ok(near(p.projection.burnUsdPerHour, 36)); // max($4/h, 45 / 1.25h)
+  assert.ok(near(p.reserve.sessions[0].projectedBurnUsdPerHour, 36));
+  const nov = plan(nov1({ capUsd: 1500 }));
+  assert.match(nov.summary, /unused by estimates/);
+  assert.match(nov.summary, /cap hit ~\d\d:\d\dZ at current burn/);
+});
+
+test('remaining cost: an overrun session keeps half its overrun as remaining hours, capped at the hours to reset', () => {
+  const r = remainingCost(sess('council', 60, 4.25), NOW, NOW + 10 * H); // 3h over its 1.25h
+  assert.ok(near(r.remainingHours, 1.5, 1e-9));
+  assert.ok(near(remainingCost(sess('council', 60, 4.25), NOW, NOW + H).remainingHours, 1, 1e-9));
+  assert.ok(near(remainingCost(sess('council', 60, 1.3), NOW, RESET).remainingHours, 0.25, 1e-9)); // tail
+});
+
+test('resume: only while running work fits; summary names the next one', () => {
+  const sessions = [build('p', 10, 1, { paused: true }), build('a', 10, 1)];
+  const ok = plan(snap({ config: { capUsd: 1000 }, sessions }));
+  assert.equal(ok.resume.next, 'p');
+  assert.match(ok.summary, /resume p now/);
+  const tight = plan(snap({ config: { capUsd: 50 }, sessions })); // 20 + 30 + 30 > 50
+  assert.equal(tight.projection.runningFits, false);
+  assert.deepEqual(tight.resume.ids, ['p']);
+  assert.equal(tight.resume.next, null);
+  assert.doesNotMatch(tight.summary, /resume p now/);
+  assert.equal(plan(snap()).pause.next, null);
+});
+
+test('fill: suggestions are "any one of" the kinds', () => {
+  const p = plan(snap({ config: { capUsd: 300 } }));
+  assert.match(p.fill.message, /any one of: /);
+});
+
+test('summary: running work over the cap, cap reached, brake reset times and the admitted ids', () => {
+  const over = plan(snap({ config: { capUsd: 30 }, sessions: [build('a', 10, 1)] }));
+  assert.match(over.summary, /running work over cap by \$10\.00/);
+  const reached = plan(snap({ config: { capUsd: 30 }, sessions: [build('a', 30, 1, { done: true })] }));
+  assert.match(reached.summary, /cap reached/);
+  const rej = plan(snap({ window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'rejected' } }));
+  assert.match(rej.summary, /~15:00Z/);
+  const many = plan(snap({ queue: ['a', 'b', 'c', 'd'].map((id) => ({ id, kind: 'review' })) }));
+  assert.match(many.summary, /Admit 4 of 4 queued \(a, b, c \+1 more\)/);
+});
+
+test('issues: clamp names the reading that set the high end; bad-status is an error; status case; burn-mismatch mentions paused; now missing', () => {
+  const raised = plan(snap({ config: {}, window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'rejected' },
+    sessions: [build('a', 900, 5, { done: true })],
+    history: [{ at: ago(3), totalCostUsd: 600, status: 'allowed_warning' }, { at: ago(2), totalCostUsd: 880, status: 'allowed' }, { at: ago(1), totalCostUsd: 950, status: 'rejected' }] }));
+  const clamp = raised.issues.find((i) => i.code === 'lower-bound-clamped');
+  assert.ok(clamp, JSON.stringify(raised.issues));
+  assert.match(clamp.detail, /\$880\.00 spent this window without a rejection/);
+  const bad = plan(snap({ window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'junk' } }));
+  assert.deepEqual(bad.issues.filter((i) => i.code === 'bad-status').map((i) => i.level), ['error']);
+  const upper = plan(snap({ window: { type: 'seven_day', resetsAt: RESET / 1000, status: 'ALLOWED' } }));
+  assert.equal(upper.brake, 'none');
+  assert.ok(codes(upper).includes('status-case'));
+  const s = nov1({ capUsd: 1500 });
+  s.history = [{ at: '2026-11-01T08:35:00Z', totalCostUsd: 0, status: 'allowed' }];
+  assert.match(plan(s).issues.find((i) => i.code === 'burn-mismatch')!.detail, /paused/);
+  assert.match(plan({ window: {} }).issues.find((i) => i.code === 'bad-now')!.detail, /now is missing/);
+});
+
+test('2026-11-01 data 0.3h before reset with 40 queued builds: carry-over at low fits, the point case is flagged, and only short work is suggested', () => {
+  const s = nov1({ capUsd: 1500 });
+  s.window = { type: 'seven_day', resetsAt: Date.parse('2026-11-01T08:55:00Z') / 1000 + 0.3 * 3600, status: 'allowed', isUsingOverage: false };
+  s.queue = Array.from({ length: 40 }, (_, i) => ({ id: `b${String(i).padStart(2, '0')}`, kind: 'build', priority: 1 }));
+  const p = plan(s);
+  const carry = p.reserve.sessions.reduce((t, r) => t + r.carriesOverUsd, 0) + p.admit.reduce((t, a) => t + a.estimate.low - a.inWindow.low, 0);
+  assert.ok(carry <= 1500 + 0.5, `carry ${carry}`);
+  assert.equal(p.projection.overshoot.nextWindowFits, false); // at point estimates the next window starts over the cap
+  assert.match(p.projection.overshoot.note!, /next window/);
+  assert.deepEqual(p.fill.suggestedKinds, ['review']); // only work that finishes before the reset still fits
+});
+
+test('fill: unused budget that no kind fits recommends nothing', () => {
+  const p = plan(snap({ config: { capUsd: 2 } })); // $2 left; the cheapest kind (review) costs $3
+  assert.ok(near(p.fill.expectedUnusedUsd!, 2));
+  assert.equal(p.fill.recommendAdmitUsd, 0);
+  assert.match(p.fill.message, /none fits/);
+  assert.doesNotMatch(p.summary, /queue more work/);
+});
+
+test('remaining cost: a session within its typical hours but closer to the end than its tail keeps the tail', () => {
+  assert.ok(near(remainingCost(sess('build', 30, 1.7), NOW, RESET).remainingHours, 0.25, 1e-9)); // 0.05h left of 1.75h
+});
+
+test('carry-over: running work\'s carry-over counts against the next window, and a later item waits behind the first misfit', () => {
+  const now = RESET - 0.5 * H;
+  const running = [{ id: 'a', kind: 'build', costUsd: 10, startedAt: iso(now - 0.5 * H), lastActiveAt: iso(now) }]; // carries $18
+  const p = plan(snap({ now: iso(now), config: { capUsd: 40 }, sessions: running,
+    queue: [{ id: 'q1', kind: 'build', priority: 2 }, { id: 'q2', kind: 'build', priority: 2 }, { id: 'r', kind: 'review', priority: 1 }] }));
+  // next window: 40 − 18 = 22 left; each build carries $14.29 at its low estimate, so only one fits
+  assert.ok(near(p.capacity.nextWindowHeadroomUsd!, 22));
+  assert.deepEqual(p.admit.map((a) => a.id), ['q1']);
+  assert.deepEqual(p.queued.map((q) => [q.id, q.reasonCode]), [['q2', 'over-next-window'], ['r', 'behind']]); // r carries nothing but waits
 });
