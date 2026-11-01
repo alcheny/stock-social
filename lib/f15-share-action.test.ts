@@ -50,7 +50,10 @@ test('F-15 siteOrigin: moved to lib/site.ts; billing re-exports it with identica
   assert.equal(siteOrigin({}), 'http://localhost:3000');
   const layout = readFileSync(new URL('../app/layout.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(layout, /lib\/billing/);
-  assert.match(layout, /metadataBase: new URL\(siteOrigin\(\)\)/);
+  assert.match(layout, /metadataBase: metadataBase\(\)/);
+  assert.match(layout, /try \{ return new URL\(siteOrigin\(\)\); \} catch/);
+  assert.equal(siteOrigin({ NEXT_PUBLIC_SITE_URL: 'app.example' }), 'https://app.example'); // no scheme: https://, never a throw
+  assert.doesNotThrow(() => new URL(siteOrigin({ NEXT_PUBLIC_SITE_URL: 'app.example/' })));
   for (const [f, re] of [['../app/u/[handle]/page.tsx', /canonical: `\/u\/\$\{user\.handle\}`/], ['../app/u/[handle]/month/[ym]/page.tsx', /canonical: `\/u\/\$\{r\.handle\}\/month\/\$\{r\.recap\.ym\}`/]] as const) {
     assert.match(readFileSync(new URL(f, import.meta.url), 'utf8'), re, f);
   }

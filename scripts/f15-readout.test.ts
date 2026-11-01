@@ -325,7 +325,7 @@ test('G2: strict row, threshold verbatim, partial rows and fixed lines', () => {
   assert.ok(g2.includes('Shares made before the share_action rows began are not counted (the old users columns are not read)'));
   assert.ok(!g2.includes('2026-09-02')); // the first row's day is never printed
   assert.ok(g2.includes(G2_OUTCOME_LINE));
-  assert.equal(G2_OUTCOME_LINE, 'sheet = the share sheet resolved, not that anything was posted; copy = the link copied');
+  assert.equal(G2_OUTCOME_LINE, 'sheet = the share sheet resolved, not that anything was posted; copy = the link copied; both as the trader\'s own browser reports them');
   assert.match(g2, /Traders with a connected broker \(strict G1\), not share actions/);
   assert.match(g2, /on or before 2026-10-25, within the 120-day retention/);
 });

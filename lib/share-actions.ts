@@ -39,21 +39,31 @@ export const shareOutcome = (how: unknown): ShareOutcome | null => (how === 'sha
 
 // The headline's sign as the profile shows it: the same rows its stats() reads (every closed trade of the trader), the
 // average per trade at the headline's one decimal (lib/format.ts#tone); 'none' when the profile shows no headline (no
-// closed trade, an import running or failed).
+// closed trade, or an import running). A failed import still shows the headline (with the incomplete line), so it
+// keeps its sign (independent review, blocking 1).
+// ponytail: the state is read without the profile's clocks (lib/connections.ts#applyClocks), so an import past its
+// deadline that the profile would show as failed still reads as running here until the hourly tick moves it — fix: run
+// the clocks first if a share in that window ever matters.
 export async function recordSign(userId: number): Promise<RecordSign> {
   const [{ n, avg }] = await sql<{ n: number; avg: number | null }[]>`select count(*)::int n, avg(return_pct)::float8 avg from closed_trades where user_id = ${userId}`;
   if (!n || avg === null) return 'none';
   const { state } = (await publicRecordDetail(userId)).public;
-  if (state === 'importing' || state === 'failed') return 'none';
+  if (state === 'importing') return 'none';
   return tone(avg);
 }
 
 export type ShareViewer = { id: number; handle: string } | null;
+// ponytail: completion is reported by the trader's own browser (the share sheet resolved, the link copied), so a trader
+// could record a share that never left the device — up to the cap; G2 rests on that report (the readout says so) — fix:
+// none without reading the destination, which is never stored.
 // One row for the session user's own completed share, or nothing: unknown outcome or path, another trader's record, a
 // demo or deleted account, or the day's cap reached. Never throws for bad input; a database error is the caller's to log.
 export async function writeShareAction(viewer: ShareViewer, path: unknown, how: unknown, picture: unknown): Promise<boolean> {
   const target = shareTarget(path, picture), outcome = shareOutcome(how);
   if (!viewer || !target || !outcome || target.handle !== viewer.handle) return false;
+  // The cheap capped count first, so a loop past the cap costs one query (the locked count below is the authority).
+  const [{ n }] = await sql<{ n: number }[]>`select count(*)::int n from share_action where user_id = ${viewer.id} and day = (now() at time zone 'utc')::date`;
+  if (n >= SHARE_CAP_PER_DAY) return false;
   if (await isDemoUser(viewer.id)) return false;
   const sign = await recordSign(viewer.id);
   const rows = await sql.begin(async (tx) => {

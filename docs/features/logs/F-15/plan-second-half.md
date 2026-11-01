@@ -209,3 +209,12 @@ Every demand is accepted; where the two differ, the choice is stated.
 - Engineer: SIGN (nits taken: `SHARE_ACTION_LOCK = 15` with all six namespaces listed; `TradeShare` `kind` is a closed
   union with no default).
 - UX lead: plan author; no screen change.
+
+## Independent review (2026-11-01) and fixes
+- Blocking 1: Round 2 item 4's premise was wrong: a failed import still shows the headline (with the incomplete line),
+  so the sign is kept for it; `none` only with no close or an import running. Fixed in `lib/share-actions.ts`, its db
+  test and the decision text.
+- Nits fixed: the G2 retention floor is anchored to the window's end (a printed week is stable across runs); the unused
+  first-share query is gone; a scheme-less `NEXT_PUBLIC_SITE_URL` gets `https://` and the layout's `metadataBase` can't
+  throw; a cheap capped count runs first; the readout and a `ponytail:` say completion is the trader's own browser's
+  report. Kept: the trade page re-decodes the matched param (it equals the stored sell id the row matched on).

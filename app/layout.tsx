@@ -12,9 +12,14 @@ import { ViewBeacon } from './view-beacon.tsx';
 import { siteOrigin } from '@/lib/site.ts';
 import './globals.css';
 
+// An unparseable configured origin must never take every page down: no base then (relative URLs resolve per request).
+function metadataBase(): URL | undefined {
+  try { return new URL(siteOrigin()); } catch { return undefined; }
+}
+
 export const metadata: Metadata = {
   // F-15 second half: canonical links (and image URLs) resolve against the configured public origin, never a Host header.
-  metadataBase: new URL(siteOrigin()),
+  metadataBase: metadataBase(),
   title: 'Stock Social',
   description: 'Verified trades, straight from the broker. Losses included.',
 };

@@ -51,7 +51,8 @@ dbTest('F-15 share_action: the day is the UTC date even when the session runs in
     assert.equal(x.d, x.utc);
   });
   const src = readFileSync(new URL('./share-actions.ts', import.meta.url), 'utf8');
-  assert.equal((src.match(/\(now\(\) at time zone 'utc'\)::date/g) ?? []).length, 2); // the insert and the cap's count
+  assert.equal((src.match(/\(now\(\) at time zone 'utc'\)::date/g) ?? []).length, 3); // the cheap pre-check, the insert and the locked count
+  assert.doesNotMatch(src, /current_date/);
   assert.doesNotMatch(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8').split('F-15 second half')[1], /default current_date/);
 });
 
@@ -71,7 +72,7 @@ dbTest('F-15 share_action: owner only; another trader, a demo account, a marked 
   for (const u of [a, b, demo, marked]) assert.equal((await rows(u.id)).length, 0);
 });
 
-dbTest('F-15 share_action: the sign is the headline the profile shows (stats over every close, one decimal); none with no headline', async () => {
+dbTest('F-15 share_action: the sign is the headline the profile shows (stats over every close, one decimal); none with no headline (no close, import running)', async () => {
   const { sql } = await import('./db.ts');
   const { recordSign } = await import('./share-actions.ts');
   const { stats } = await import('./trades.ts');
@@ -91,12 +92,13 @@ dbTest('F-15 share_action: the sign is the headline the profile shows (stats ove
     const all = await sql`select return_pct, holding_days, closed_at from closed_trades where user_id = ${d.id}`;
     assert.equal(await recordSign(d.id), all.length ? tone(stats(all.map((r) => ({ returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at }))).avgReturn) : 'none', handle);
   }
-  // An import running or failed: the profile shows no headline, so the sign is none.
-  for (const state of ['importing', 'failed'] as const) {
+  // An import running: the profile shows no headline, so the sign is none. A failed import still shows the headline
+  // (with the incomplete line), so it keeps its sign.
+  for (const [state, want] of [['importing', 'none'], ['failed', 'up']] as const) {
     const u = await user({ trades: [0.03] });
     const [a] = await sql`select signup_attempt_id id from users where id = ${u.id}`;
     await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at) values (${a.id}, ${u.id}, ${state}, now(), now())`;
-    assert.equal(await recordSign(u.id), 'none', state);
+    assert.equal(await recordSign(u.id), want, state);
   }
 });
 

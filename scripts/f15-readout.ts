@@ -290,7 +290,7 @@ export const G2_ROWS: [string, G2Cell[], number][] = [
 ];
 export const G2_STRICT_CELLS: G2Cell[] = ['story', 'card'];
 export const G2_COHORT_LINE = '14-day share rate per weekly cohort: not printed (gate definition, MRC2-3, owner)';
-export const G2_OUTCOME_LINE = 'sheet = the share sheet resolved, not that anything was posted; copy = the link copied';
+export const G2_OUTCOME_LINE = 'sheet = the share sheet resolved, not that anything was posted; copy = the link copied; both as the trader\'s own browser reports them';
 // No date is printed: the first row's day would say that some trader shared on that day (orchestrator review).
 export const g2PreSliceLine = (_first?: string | null) =>
   'Shares made before the share_action rows began are not counted (the old users columns are not read)';
@@ -419,14 +419,11 @@ async function main() {
              coalesce(bool_or(s.record_sign = 'down'), false) as down
       from users u
       left join share_action s on s.user_id = u.id and s.day <= ${to}::date
-        and s.day >= (now() at time zone 'utc')::date - ${SHARE_RETENTION_DAYS}::int
+        and s.day >= ${to}::date - ${SHARE_RETENTION_DAYS}::int -- anchored to the window, so a printed week's figure is stable across runs
       where u.deleted_at is null
         and not exists (select 1 from activities a where a.user_id = u.id and a.source = 'demo')
         and exists (select 1 from connections c where c.user_id = u.id and c.state = 'connected')
       group by u.id`;
-    const [first] = await sql<{ day: string | null }[]>`
-      select to_char(min(day), 'YYYY-MM-DD') as day from share_action
-      where day >= (now() at time zone 'utc')::date - ${SHARE_RETENTION_DAYS}::int`;
     const [g1] = await sql<{ strict: number; partial: number }[]>`
       select count(*) filter (where t.connected)::int as strict, count(*) filter (where not t.connected)::int as partial
       from (select u.id, bool_or(c.state = 'connected') as connected
@@ -437,7 +434,7 @@ async function main() {
     // G1 strict is the G2 trader count itself, so the two can't disagree.
     const text = buildReadout({
       rollup: [...rollup], drops: [...drops], g1: { strict: traders.length, partial: g1?.partial ?? 0 },
-      g2: { traders: [...traders], firstDay: first?.day ?? null, retentionDays: SHARE_RETENTION_DAYS },
+      g2: { traders: [...traders], firstDay: null, retentionDays: SHARE_RETENTION_DAYS }, // no first-share date is read
     }, now);
     mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `f15-readout-${now.toISOString().slice(0, 10)}.md`);

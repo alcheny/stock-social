@@ -142,7 +142,7 @@ council (`docs/ideas/approval-2026-11-01-cycle2.md`, K3: second-vote mean 4.13, 
   instruction of 2026-11-01; a viewer's share would tie a viewer to a trader (POLICY P3) and is F-2's opt-in log
   territory; G2 counts traders only.
 - 2026-11-01: Second half: Record sign: computed on the server from the same rows the profile's headline reads (every
-  closed trade, one decimal), none while the profile shows no headline (no close, import running or failed). Why:
+  closed trade, one decimal), none while the profile shows no headline (no close or an import running; a failed import still shows its headline). Why:
   decided by the committee under the owner's instruction of 2026-11-01; E5's "record sign at that moment", never sent by
   the client; a db test pins it to the profile's own stats and tone.
 - 2026-11-01: Second half: Old columns: the four users share columns stay and are written exactly as before (a month
