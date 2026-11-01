@@ -4,8 +4,8 @@
   --text: #f4f4f6;
   --muted: #8b8b98;
   --line: #262631;
-  --up: #22c55e;
-  --down: #f43f5e;
+  --up: #3cc4b4;
+  --down: #ff8a5b;
   --accent: #a78bfa;
   --on-accent: #0b0b0f; /* text on the accent: 7.2:1 on the dark lilac (white was 2.72:1) */
   color-scheme: dark;
@@ -13,7 +13,7 @@
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #fafafa; --surface: #fff; --text: #111118; --muted: #6b6b78; --line: #e5e5ea;
-    --up: #15803d; --down: #be123c; --accent: #6d28d9; --on-accent: #fff; /* 7.1:1 */
+    --up: #0b6b70; --down: #b2441b; --accent: #6d28d9; --on-accent: #fff; /* 7.1:1 */
     color-scheme: light;
   }
 }
@@ -486,6 +486,37 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .rt button, .rt .button, .rt summary { min-height: 44px; }
 .rt-back a, .rt-card h2 a, .rt-rename summary, .rt-note-fold summary, .rt-confirm summary { display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; }
 .rt-card:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12 #13 #14 #26 and range-button target size, 2026-11-01) */
+/* Builds on #55's A11Y-FIXES block below (--control, --focus, the control-border list, the short-viewport card scroll and
+   the nav rule live there). This block keeps only this fix set's additions. */
+/* #12 (WCAG 1.4.11): the pane's current-row cue is drawn in --focus (6.15/6.42 light, 8.47/7.76 dark on bg/surface;
+   --line was 1.20/1.31). Width 2 px, offset 2 px and weight 600 stay, so colour is not the only cue. */
+.pane .rows .line.hl { outline-color: var(--focus); }
+/* #14 (WCAG 2.4.11): while a fixed bottom bar shows (sign-in line, hide bar, no-JS confirmation; 62 px tall at 360, 64 px
+   at 320 where it wraps, 16 px off the bottom edge), each feed row's pages keep 94 px clear at the bottom and the
+   scrollers pad their bottom edge by the same, so focus stays ≥ 14 px above the bar. Nothing goes on .feed (padding
+   there moves every snap point). The content moves up while a bar shows, with no transition (decision 4).
+   `.signin-line:not(:empty)` relies on React emitting no whitespace inside the <p> in app/feed-gestures.tsx: a stray
+   text node would make it never :empty and reserve the room for good. */
+/* ponytail: 94 px keeps ≥ 8 px clear for a bar up to 70 px tall (one or two lines); a bar of three or more lines (large
+   text settings) outgrows it — fix: render the bars in the flow (F-10's row #15) instead of a fixed room. */
+body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed .row > * { padding-bottom: 94px; }
+html:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) { scroll-padding-bottom: 94px; }
+body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .pane { scroll-padding-bottom: 94px; }
+/* Under 480 px tall the card scrolls inside itself (F-13's short-viewport rule): the 94 px room above outranks F-10's
+   12 px card padding there, and the card's own scroller pads the same, so a focused link scrolls to clear of the bar.
+   While the bar shows, the card's parts keep their size (flex-shrink 0), so the room makes the card scroll instead of
+   squeezing F-10's clamped thesis to nothing (measured 0 px at 320×420). */
+@media (max-height: 480px) {
+  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card { scroll-padding-bottom: 94px; }
+  body:has(.signin-line:not(:empty), .hide-bar > p, .nojs-done) .feed > .row > .card > * { flex-shrink: 0; }
+}
+/* Target size (orchestrator, 2026-11-01; POLICY A1 44 px targets): the chart's range buttons were 35 px tall (6 px
+   padding around one line). 44 px at every width; six of them still share one row at 320 px (each ≥ 44 px wide). */
+.tabs button { min-height: 44px; min-width: 44px; }
+/* #13 (Q4): the three bars' own edge in --control, so each reads as separate from the content under it. */
+.signin-line:not(:empty), .hide-bar p, .nojs-done { border-color: var(--control); }
+/* end FIXES-CYCLE2-A11Y */
 
 /* Privacy work (2026-11-01): the consent page (S4) with the longer public-scope line keeps its primary above the fold
    at 360×640 and 375×667 (committee D9): tighter list and heading spacing; the deadline sits under the buttons. */
