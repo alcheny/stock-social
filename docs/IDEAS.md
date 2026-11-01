@@ -13,6 +13,8 @@ adopted.
 Adopted ideas that add functions or requirements go to the approval council ([`team/approval-council.md`](../team/approval-council.md)),
 whose most-elected ideas are approved automatically and built (owner's delegation of 2026-11-01).
 
+The whole path from idea to merged feature, with states and exit criteria: [`docs/process/lifecycle.md`](process/lifecycle.md).
+
 ## How an idea gets reviewed
 
 1. Anyone (the owner, a design session, a committee, an agent) adds it to the register below with status

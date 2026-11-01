@@ -6,6 +6,8 @@ using research with sources rather than opinion where facts exist. Their output 
 still goes through the committee cycle (`docs/IMPLEMENTATION.md`), and every proposal that becomes a decision
 goes through the idea board's consistency check first (`team/idea-board.md`).
 
+Where this sits in the whole path: `docs/process/lifecycle.md`.
+
 Rules for all three: POLICY binds (no third-party names except integrated vendors, so competitors and products
 are described generically: "a copy-trading app", "a single-line scrubbable price chart"; no advice; adults only;
 no rewards for trading activity). Research is cited with sources; anything not verified is labelled. Nothing

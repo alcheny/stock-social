@@ -20,6 +20,9 @@ they're held to. No member grades their own work.
 | **Doctor** | [doctor.md](doctor.md) | Lines mode, hourly, when a line is stuck | Fixing the loop itself (workflows, loop scripts, specs, docs) so lines keep going; never its own constraints | Loop files only, via a PR the Gate merges |
 | **Human (@alcheny)** | `docs/AUTOPILOT.md` → "What stays human" | Always | Choosing versions in human mode, protected paths, phases, launch, kill gates | Yes |
 
+Interactive runs (orchestrator, child sessions, in-session committees, councils run as sessions):
+`docs/process/architecture.md`.
+
 ## How a change moves through the team
 
 ```
@@ -37,11 +40,9 @@ Business lead ─ reviews what shipped against the business case; demands for th
 
 ## Feature pipeline committee
 
-Features the owner decided in design sessions (`docs/FEATURES.md`) are built by a committee
-(`docs/IMPLEMENTATION.md`, "The cycle"): the UX lead plans, the business lead and the engineer sign; the
-engineer builds tests first; the tester loop runs; then the business lead and the UX lead user-test the
-running app and each return a compliance and a usability verdict. Demands go back to the plan, up to
-`COMMITTEE_ROUNDS` (5). Committee members have every tool, but their file changes are discarded after each
+Features the owner decided in design sessions (`docs/FEATURES.md`) are built by a committee (the UX lead,
+the business lead and the engineer, with the tester loop) that follows `docs/IMPLEMENTATION.md` → The cycle,
+up to `COMMITTEE_ROUNDS` (5). Committee members have every tool, but their file changes are discarded after each
 call, so no member grades work it changed. Every round is logged in `docs/features/logs/<F-n>/`.
 
 ## Permissions: every tool, inside the design
