@@ -111,14 +111,14 @@ jobs:
       - run: npm ci
       - name: Pick this shard's tests (each test in exactly one shard)
         env: # from the matrix itself, so adding or removing a leg can never leave a slice unrun
-          SHARD_INDEX: ${{ strategy.job-index }}
-          SHARDS: ${{ strategy.job-total }}
+          LEG_INDEX: ${{ strategy.job-index }}
+          LEG_TOTAL: ${{ strategy.job-total }}
         run: |
-          SHARD=$((SHARD_INDEX + 1))
+          shard=$((LEG_INDEX + 1))
           npx playwright test --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
-          node scripts/e2e-shard.ts pick "$RUNNER_TEMP/e2e-list.json" "$SHARD" "$SHARDS" > "$RUNNER_TEMP/e2e-shard.txt"
+          node scripts/e2e-shard.ts pick "$RUNNER_TEMP/e2e-list.json" "$shard" "$LEG_TOTAL" > "$RUNNER_TEMP/e2e-shard.txt"
           npx playwright test --list --reporter=json --test-list "$RUNNER_TEMP/e2e-shard.txt" > "$RUNNER_TEMP/e2e-got.json"
-          node scripts/e2e-shard.ts verify "$RUNNER_TEMP/e2e-list.json" "$RUNNER_TEMP/e2e-got.json" "$SHARD" "$SHARDS"
+          node scripts/e2e-shard.ts verify "$RUNNER_TEMP/e2e-list.json" "$RUNNER_TEMP/e2e-got.json" "$shard" "$LEG_TOTAL"
       - name: Playwright version
         id: pw
         run: echo "version=$(node -p "require('./node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
