@@ -81,6 +81,15 @@ second-vote mean 3.67, final vote 15/15, all with conditions).
 - 2026-11-01: Existing assertions that pinned the old precision are replaced by the F-23 contract, each at least as
   strict, none deleted (list: `docs/features/logs/F-23/committee-2026-11-01.md`, decision 10). Why: decided by the committee under the owner's instruction of 2026-11-01; the council
   decision itself changes what they pinned.
+- 2026-11-01: Closes at the same instant run in list order in the chart (the last key step is the list's top row), and
+  one UTC day's closes drawn under 2 CSS px apart are one pointer target, the newest. Why: decided by the committee under the owner's instruction of 2026-11-01; the user test found the chart
+  and the list disagreeing on two of three demo records (the council's scrub condition, DK).
+- 2026-11-01: When no range is downsampled, the chart goes out in a compact form (`sfx`: ALL as [day, value] pairs, row
+  indices from position, dated ranges as values only) that decodes to exactly the regular form. Why: decided by the committee under the owner's instruction of 2026-11-01; the tester measured
+  a dense 4,700-close profile at 445 KB against the 400 KB budget; this is the business lead's allowed fallback (a).
+- 2026-11-01: A drawdown goes out rounded as it prints (negated: `-wirePct(-dd)`); near -100% a wire return comes from
+  the printed digits plus at most one; a chart whose closes fall on one UTC day prints one end date. Why: decided by the committee under the owner's instruction of 2026-11-01; the
+  independent code review and the user test.
 
 ## Acceptance criteria
 - [ ] For a fixture with an odd return and a 14:31:07 close, `/pane`, `/pane-chart` and the feed HTML contain no return

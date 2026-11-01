@@ -59,4 +59,29 @@ F-21 (slot partner) is draft and not built: this cycle owns the pane, pane-chart
     Residual risk and any consent caveat go to the owner and the AI legal committee.
 
 ## Round 2 sign-off
-(below, after the revised plan is reviewed)
+- Business lead: SIGN (conditions for the build verdict: the display and scan specs, the self-check, the Compliance
+  list in the PR).
+- Engineer: SIGN after two more demands, both done: ALL runs edge to edge (t0/t1 from its first and last drawn point,
+  dated ranges keep day ends); the scan's hash mask no longer hides float noise (a mask needs a hex letter), an
+  unparsed packed chart is a finding, two noise self-checks. Accepted the display spec computing expectations from
+  stored values with main's unchanged formatters instead of a snapshot recorded on main.
+
+## Build, QA, user test, review (round 3)
+- Tests first: `lib/f23-public-wire.test.ts`, `lib/chart-series.f23.test.ts`, `lib/pane-model.test.ts`,
+  `e2e/f23-display.spec.ts`, `e2e/f23-payload-scan.spec.ts`; then the code.
+- Tester: clean except Medium 1, fixed: a dense record (4,700 closes, 2 h apart) weighed 445 KB on the profile. Fix
+  (the business lead's allowed fallback a): when nothing is downsampled, the chart goes out in a compact form (`sfx`:
+  ALL as [day, value] pairs, row indices from position, dated ranges as values only); decoded to exactly the regular
+  form (unit test); e2e pins the dense profile under 400 KB. Lows: dated ranges run to the end of today's UTC day
+  (ponytail in `lib/chart-series.ts`); `follow.spec.ts:171` flaked once (pre-existing, passed alone); `/pane-chart`
+  serves an importing record (pre-existing, not F-23's scope).
+- Independent code review: blocking 1 fixed (the drawdown prints negated: rounded as printed, `-wirePct(-dd)`, so
+  "max drawdown -99.999%" is unchanged); 2 fixed (a dated range's start sits on its left edge); 3 fixed (near -100% the
+  wire value comes from the printed digits, at most one more, never the stored ones; 200,000-value test); 4 fixed (the
+  dead `points` path of the chart removed: the browser compounds nothing).
+- User test at 360 px (UX lead, business lead): compliance PASS both. Usability demands, all fixed: (1) closes at the
+  same instant now run in list order in the chart (the last key step is the list's top row); (2) one UTC day's closes
+  drawn under 2 CSS px apart are one pointer target, the newest, so a right-edge release opens the top row; (3) a
+  one-day chart prints one end date ("First and last close ‹date›"); (4) the failed line has `role="status"` and its
+  link does not wrap before the arrow. Business lead demand 2: `e2e/f23-display.spec.ts` checks the last key step and
+  the right-edge release on the three seeded demo records, in UTC and Pacific/Auckland.
