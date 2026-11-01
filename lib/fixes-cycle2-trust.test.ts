@@ -64,7 +64,7 @@ test('fix #11: no "pick" or "signal" in compare copy or /me/record (POLICY F1a)'
 });
 
 test('fix #19: a flat figure is uncolored on /me/likes and /me/record', async () => {
-  const { tone } = await import('./open-split.ts');
+  const { tone } = await import('./format.ts');
   // toneClass (app/open-rows.tsx) is tone() with 'flat' as no class: check the rule it reads.
   assert.equal(tone(0), 'flat');
   assert.equal(tone(-0.0004), 'flat'); // prints "0.0%": never painted as a loss

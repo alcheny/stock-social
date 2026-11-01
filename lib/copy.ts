@@ -732,3 +732,9 @@ export const PUBLIC_SHORT = {
   sharePrompt: (fieldWords: string[]) =>
     `Public: your handle, display name, any reasons you publish, ${fieldWords.slice(0, -1).join(', ')}, and ${fieldWords.at(-1)}. Losses are included. Never sizes, prices or balances. Your broker login stays private.`,
 };
+
+// ---- F-19 · What's-this line (first slice: the constant and its test, lib/range-note.f19.test.ts). The range printed
+// beside an average is the arithmetic range of the average per trade (lib/record-card.ts#cardEvidence), not the spread
+// of single trades.
+// ponytail: not shown on any screen yet — the F-19 sweep rework places it on the stats-row What's-this after F-18 merges.
+export const RANGE_NOTE = 'the range is for the average, not one trade';
