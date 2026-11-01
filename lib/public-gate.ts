@@ -39,7 +39,6 @@ export async function filerInfo(userId: number): Promise<FilerInfo | null> {
   const [r] = await sql`select pf.id, pf.demo, pf.hidden_at, pf.removed_at, pf.excluded, pf.open_symbols, s.last_success_at
     from users u join public_filers pf on pf.id = u.public_filer_id left join public_import_state s on s.source = pf.source
     where u.id = ${userId}`;
-  if (!r) return null;
-  return { filerId: r.id, demo: r.demo, hidden: !!r.hidden_at, removed: !!r.removed_at, lastChecked: r.last_success_at ?? null, excluded: r.excluded ?? {}, openSymbols: r.open_symbols ?? [] };
+  return !r ? null : { filerId: r.id, demo: r.demo, hidden: !!r.hidden_at, removed: !!r.removed_at, lastChecked: r.last_success_at ?? null, excluded: r.excluded ?? {}, openSymbols: r.open_symbols ?? [] };
 }
 export const filerVisible = (f: FilerInfo | null, env: Env = process.env) => !f || (publicTradersOn(env) && !f.hidden && !f.removed);

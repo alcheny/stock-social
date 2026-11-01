@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { sql } from './db.ts';
 import type { Signal } from './discovery/weights.ts';
 import { followable, unfollowsFor } from './follows.ts';
+import { filerVisibleSql } from './public-gate.ts';
 
 export const tradeKey = (sellId: string) => createHash('sha256').update(sellId, 'utf8').digest('hex');
 export const LIKES_PAGE = 50;
@@ -120,7 +121,7 @@ export async function ownHiddenTrades(viewer: number, after?: unknown): Promise<
       order by created_at desc, trade_key desc limit ${HIDDEN_PAGE + 1})
     select x.trade_key, x.us, u.handle, u.display_name, t.symbol, t.sell_id, t.closed_at, t.verified
     from x left join lateral (select symbol, sell_id, closed_at, verified from closed_trades where trade_key = x.trade_key and user_id = x.trader_id limit 1) t on true
-      left join users u on u.id = x.trader_id and u.deleted_at is null
+      left join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
     order by x.created_at desc, x.trade_key desc`;
   const page = rows.slice(0, HIDDEN_PAGE), last = page.at(-1);
   return {

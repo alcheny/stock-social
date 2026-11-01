@@ -2,10 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PUBLIC } from '@/lib/copy.ts';
 
-// F-7 (legal C12): what public filing records are, where they come from, what is excluded, that the person has not
-// joined, and how to ask for a correction or removal. Reachable with the switch off; names no filer. The contact is a
-// deploy setting (PUBLIC_RECORDS_CONTACT), never committed; unset, requests open before launch. Promises a review and a
-// reply only, never an outcome or a time.
+// F-7 (legal C12): what public filing records are, where they come from, what is excluded, that the person has not joined, and how
+// to ask for a correction or removal. Reachable with the switch off; names no filer. The contact is a deploy setting
+// (PUBLIC_RECORDS_CONTACT), never committed; unset, requests open before launch. Promises a review and a reply only, never an outcome or a time.
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: `${PUBLIC.page.title} · Stock Social` };
 

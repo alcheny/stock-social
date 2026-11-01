@@ -99,6 +99,23 @@ test('feed floor: the latest effective filed time among the filings behind the t
   assert.equal(t.filingUrl, sell.filing_url);
 });
 
+test('review: a priced sale the FIFO matcher drops on its own epsilon is still counted, never lost', () => {
+  const m = matchPublic([row({ code: 'P', units: 1000000.0005, price: 10, day: 0 }), row({ code: 'S', units: 1000000, price: 12, day: 1 }),
+    row({ code: 'P', units: 100, price: 10, day: 2 }), row({ code: 'S', units: 100.0005, price: 11, day: 3 })]);
+  assert.equal(m.trades.length + Object.values(m.excluded).reduce((a, b) => a + b, 0), 2);
+});
+
+test('review: "Bought" links come from the effective direct open-market purchases that opened the trade only', async () => {
+  const { openingFilings } = await import('./public-trades.ts');
+  const orig = row({ code: 'P', units: 10, price: 10, day: 0, filing_id: 'q1', filing_url: 'https://x.test/q1' });
+  const fix = row({ code: 'P', units: 10, price: 9, day: 0, filing_id: 'q2', amends: 'q1', filing_url: 'https://x.test/q2', filed_at: new Date(Date.UTC(2026, 1, 1)) });
+  const indirect = row({ code: 'P', units: 5, price: 10, day: 0, indirect: true, filing_url: 'https://x.test/ind' });
+  const other = row({ code: 'P', units: 5, price: 10, day: 0, symbol: 'QZXB', filing_url: 'https://x.test/other' });
+  const later = row({ code: 'P', units: 5, price: 10, day: 1, filing_url: 'https://x.test/later' });
+  assert.deepEqual(openingFilings([orig, fix, indirect, other, later], 'QZXA', orig.executed_at), ['https://x.test/q2']);
+  assert.deepEqual(openingFilings([orig, indirect], 'QZXA', orig.executed_at), ['https://x.test/q1']);
+});
+
 // --- DB: the rebuild and the filer's users row (AC 29) ---
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL', timeout: 120_000 }, fn);

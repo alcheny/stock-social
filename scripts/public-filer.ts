@@ -11,10 +11,5 @@ try {
   } else if ((FILER_ACTIONS as readonly string[]).includes(cmd) && who) {
     const [f] = /^\d+$/.test(who) ? [{ id: Number(who) }] : await sql`select public_filer_id as id from users where handle = ${who} and public_filer_id is not null`;
     console.log(JSON.stringify({ action: cmd, done: !!f && (await filerAction(f.id, cmd as (typeof FILER_ACTIONS)[number], reason)) }));
-  } else {
-    console.error('usage: public-filer.ts hide|unhide|remove <filer id | handle> [reason] | --dry-run [YYYY-MM-DD]');
-    process.exitCode = 2;
-  }
-} finally {
-  await sql.end({ timeout: 1 });
-}
+  } else { console.error('usage: public-filer.ts hide|unhide|remove <filer id | handle> [reason] | --dry-run [YYYY-MM-DD]'); process.exitCode = 2; }
+} finally { await sql.end({ timeout: 1 }); }

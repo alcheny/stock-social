@@ -92,6 +92,39 @@ test('AC 11: repeated 429 or 5xx backs off, then stops the tick', async () => {
   assert.equal((await filingsClient(fake.base, env, Date.now() + 5000).listFilings({ day: '2026-03-02' })).length, 1);
 });
 
+test('review: bodies are read with a byte cap even when chunked (no content-length); index links must be on the base origin', async () => {
+  const { createServer } = await import('node:http');
+  const pad = ' '.repeat(64 * 1024), entry = (url: string, id: string) => ({ id, url, filedAt: '2026-03-02T21:00:00Z' });
+  let base = '', big = false;
+  const srv = createServer((req, res) => {
+    res.on('error', () => {});
+    const body = req.url!.startsWith('/index/') ? JSON.stringify({ filings: [entry(`${base}/view/a`, 'a'), entry('https://elsewhere.example.test/view/b', 'b')] }) : '<ownershipDocument/>';
+    res.writeHead(200); // no content-length: chunked
+    res.write(body.slice(0, -1));
+    let n = 0;
+    const more = () => { while (big && n++ * pad.length <= MAX_DOC_BYTES) if (!res.write(pad)) return void res.once('drain', more); res.end(body.slice(-1)); };
+    more();
+  });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+  try {
+    const c = filingsClient(base, env);
+    assert.deepEqual((await c.listFilings({ day: '2026-03-02' })).map((e) => e.id), ['a']); // the other origin is skipped
+    assert.equal(await c.fetchFiling('x'), '<ownershipDocument/>');
+    big = true;
+    assert.deepEqual(await c.listFilings({ day: '2026-03-02' }), []);
+    assert.equal(await c.fetchFiling('x'), '');
+  } finally { srv.closeAllConnections(); srv.close(); }
+});
+
+test('review: many unclosed tags or comments parse in linear time', () => {
+  for (const junk of ['<ownershipDocument>'.repeat(30_000), '<!--'.repeat(30_000), `<ownershipDocument>${'<issuer '.repeat(100_000)}</ownershipDocument>`]) {
+    const t0 = performance.now();
+    assert.equal(parseFiling(junk).filing, null);
+    assert.ok(performance.now() - t0 < 500, `${Math.round(performance.now() - t0)} ms`);
+  }
+});
+
 test('the fake mirrors the parser: a generated filing parses to its rows', () => {
   const { filing } = parseFiling(filingXml({ id: 'x', day: '2026-01-02', owner: { key: '9000000999', name: 'Lee Fictional', officer: true }, symbol: 'QZXE',
     rows: [{ date: '2026-01-01', code: 'S', units: 3, price: 2, ad: 'D', after: null }] }));

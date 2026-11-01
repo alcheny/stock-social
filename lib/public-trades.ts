@@ -58,7 +58,9 @@ export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Re
     const reason = r.side !== 'SELL' ? (r.code === 'G' ? 'gift' : 'other') : q.broken ? 'unreconciled' : !sale || !allPriced ? 'no_price' : null;
     if (reason) count(reason); else priced.set(r.external_id, { row: r, filed: latest });
   }
-  const trades = matchTrades(acts).trades.filter((t) => t.verified && priced.has(t.sellId)).map((t) => {
+  const got = matchTrades(acts).trades.filter((t) => t.verified && priced.has(t.sellId)), ids = new Set(got.map((t) => t.sellId));
+  for (const id of priced.keys()) if (!ids.has(id)) count('no_price'); // lib/trades.ts's own epsilon left it unpriced: counted, never lost
+  const trades = got.map((t) => {
     const p = priced.get(t.sellId)!;
     return { sellId: `pub:${t.sellId}`, symbol: t.symbol, openedAt: t.openedAt, closedAt: t.closedAt, returnPct: t.returnPct, holdingDays: t.holdingDays,
       filingUrl: p.row.filing_url, feedAfter: new Date(p.filed + PUBLIC_FEED_DELAY_DAYS * DAY) };
@@ -66,6 +68,9 @@ export function matchPublic(input: PubRow[]): { trades: PubTrade[]; excluded: Re
   const openSymbols = [...queues].filter(([, q]) => q.lots.some((l) => l.priced && l.units > EPS)).map(([s]) => s).sort();
   return { trades, excluded, openSymbols };
 }
+// The trade page's "Bought" links: the effective direct open-market purchases of the symbol on the trade's opening day.
+export const openingFilings = (rows: PubRow[], symbol: string, at: Date) => [...new Set(effectiveRows(rows).filter((r) => r.side === 'BUY' && !r.indirect
+  && !r.derivative && (r.price ?? 0) > 0 && r.symbol === symbol && +r.executed_at === +at).map((r) => r.filing_url))];
 // The placeholder attempt (NOT an attestation): re-created after the purge takes it; `for share` keeps the purge off it.
 export async function placeholderAttempt(tx: TransactionSql): Promise<string> {
   const at = PLACEHOLDER_ATTESTED_AT;

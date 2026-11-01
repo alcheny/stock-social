@@ -54,7 +54,8 @@ export function namedScenario(name: string): { filings: FakeFiling[]; fail?: { s
   return { filings: [buy, sell, { id: 'fx-0004', day: '2026-03-03', owner: OFFICER, symbol: 'QZXB', rows: [{ date: '2026-03-02', code: 'P', units: 10, price: 5, ad: 'A', after: 10 }] }] };
 }
 
-export const fakeFilingUrl = (id: string) => `https://filings.example.test/view/${id}`;
+// On the fake's own origin: the client keeps only links on its base's origin.
+export const fakeFilingUrl = (host: string, id: string) => `http://${host}/view/${id}`;
 
 export function startPublicFilingsFake(port: number): Promise<{ server: Server; base: string }> {
   let filings: FakeFiling[] = [];
@@ -79,7 +80,7 @@ export function startPublicFilingsFake(port: number): Promise<{ server: Server; 
     if (day) {
       const list = filings.filter((f) => f.day === day);
       if (!list.length) { res.writeHead(404); return res.end(); }
-      return json(200, { filings: list.map((f) => ({ id: f.id, url: fakeFilingUrl(f.id), filedAt: f.filedAt ?? `${f.day}T21:00:00Z`, ...(f.amends ? { amends: f.amends } : {}) })) });
+      return json(200, { filings: list.map((f) => ({ id: f.id, url: fakeFilingUrl(String(req.headers.host), f.id), filedAt: f.filedAt ?? `${f.day}T21:00:00Z`, ...(f.amends ? { amends: f.amends } : {}) })) });
     }
     const id = path.match(/^\/filings\/([\w-]+)\.xml$/)?.[1];
     const f = filings.find((x) => x.id === id);

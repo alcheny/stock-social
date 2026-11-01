@@ -5,6 +5,7 @@
 // it (until = now()) without deleting it, so a same-day feed cursor never changes (lib/discovery/exclusions.ts).
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
+import { filerVisibleSql } from './public-gate.ts';
 import { EXCLUSION_DAYS, FEED_HIDES_UNFOLLOWED } from './discovery/weights.ts';
 import type { ExclusionRow } from './discovery/exclusions.ts';
 
@@ -89,7 +90,7 @@ export async function ownLists(viewer: number): Promise<{ following: Listed[]; h
   const [following, hidden] = await Promise.all([
     sql`select u.handle, u.display_name from follows f join users u on u.id = f.trader_id and u.deleted_at is null
       where f.viewer_id = ${viewer} order by f.created_at desc`,
-    sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
+    sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
       where x.viewer_id = ${viewer} and x.until > now() and (x.reason = 'not_interested' or ${FEED_HIDES_UNFOLLOWED}::boolean) order by x.created_at desc`,
   ]);
   const listed = (r: Record<string, unknown>): Listed => ({ handle: r.handle as string, name: r.display_name as string, ...(r.until ? { until: r.until as Date } : {}) });
@@ -119,7 +120,7 @@ export async function unfollowsFor(viewer: number): Promise<{ trader: number; at
 // interested" rows that ran their 90 days on their own. No longer applied, still stored; "Remove" deletes one.
 // ponytail: one unpaged list (every expired hide of the viewer) — page it like /me/likes if a viewer collects thousands.
 export async function expiredHides(viewer: number): Promise<Listed[]> {
-  const rows = await sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null
+  const rows = await sql`select u.handle, u.display_name, x.until from viewer_exclusions x join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
     where x.viewer_id = ${viewer} and x.reason = 'not_interested' and x.ended_at is null and x.until <= now() order by x.until desc`;
   return rows.map((r) => ({ handle: r.handle as string, name: r.display_name as string, until: r.until as Date }));
 }
