@@ -80,3 +80,18 @@ under the owner's instruction of 2026-11-01; the reason follows the decision.
 ## Build, QA, user test and review
 
 (Filled in as each stage completes.)
+
+### Paused 2026-11-01 (owner instruction via the orchestrator: weekly usage limit; resume after 2026-11-08 ~15:00 UTC)
+
+State at the pause:
+- Done and pushed: plan rounds 1-3, signed by the business lead and the engineer; WP0 (the `FC5` copy object,
+  `lib/bucket-cache.ts` and its test, the F5-14 coordination line). Main merged through #103.
+- Not started in code: WP1 (F5-2, F5-24, F5-26, F5-11, F5-25), WP2 (F5-8, F5-15, F5-16, F5-17, F5-18, F5-20), WP3 (F5-4,
+  F5-27, F5-13) and WP4 (F5-5, F5-6, F5-7, F5-9, F5-10, F5-12, F5-19, F5-21, F5-22, F5-23). The builders were still
+  reading; only WP2 had a first draft of `lib/fixes-cycle5-sync.db.test.ts`, kept unrun as
+  `lib/fixes-cycle5-sync.db.test.ts.wip` (rename it to resume).
+- Part 2 (a second PR from main): five items approval council 5 (#103) routed to the fixes lane: MK-P6, C5-41, C5-34,
+  C5-4's zero-width split, C5-5's "per closed trade" wording (`docs/ideas/approval-2026-11-01-cycle5.md` → Fixes lane).
+  Its plan was not written yet.
+- To resume: re-fork WP1..WP4 from this branch with the briefs in the round-3 section (the builder brief is restated in
+  the PR session's notes), then QA, the 360 px user test, the independent review, and one PR labelled `feature`.
