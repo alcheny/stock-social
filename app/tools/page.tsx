@@ -94,7 +94,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
 
   if (view) return <ViewPage view={view} entitled={entitled} status={status} />;
 
-  const follows = entitled ? await followOptions(me.id) : [];
+  const { options: follows, more: followsMore } = entitled ? await followOptions(me.id) : { options: [], more: false };
   return (
     <main className="page rt">
       <h1>{RECORD_TOOLS.title}</h1>
@@ -115,6 +115,7 @@ export default async function Tools({ searchParams }: { searchParams?: Promise<S
             <fieldset className="rt-follows">
               <legend>{RECORD_TOOLS.followLabel}</legend>
               {follows.map((f) => <label key={f.handle} className="rt-check"><input type="checkbox" name="handle" value={f.handle} /> @{f.handle}</label>)}
+              {followsMore && <p className="muted small">{RECORD_TOOLS.followMoreNew}</p>}
             </fieldset>
           )}
           <button className="button">{RECORD_TOOLS.createView}</button>
@@ -165,7 +166,7 @@ async function ViewPage({ view, entitled, status }: { view: View; entitled: bool
   const cards: Card[] = entitled ? await compareCards(view.traders) : [];
   const owner = (await currentUser())!;
   const notes = new Map((await listNotes(owner.id)).map((n) => [n.traderId, n.body]));
-  const follows = entitled ? (await followOptions(owner.id)).filter((f) => !view.traders.some((t) => t.handle === f.handle)) : [];
+  const { options: follows, more: followsMore } = entitled ? await followOptions(owner.id, view.traders.map((t) => t.handle)) : { options: [], more: false };
   const n = view.traders.length;
   return (
     <main className="page rt">
@@ -199,6 +200,7 @@ async function ViewPage({ view, entitled, status }: { view: View; entitled: bool
                 {follows.map((f) => <option key={f.handle} value={f.handle}>@{f.handle}</option>)}
               </select>
               <button className="button secondary">{RECORD_TOOLS.addButton}</button>
+              {followsMore && <p className="muted small">{RECORD_TOOLS.followMore}</p>}
             </form>
           )}
         </div>

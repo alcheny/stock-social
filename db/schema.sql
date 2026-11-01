@@ -776,3 +776,9 @@ select schema_add_column('billing_runs', 'lease_id', 'text');
 select schema_add_column('billing_runs', 'lease_until', 'timestamptz');
 -- When the current pass last listed or fetched this subscription; rows the pass has not seen are fetched one by one.
 select schema_add_column('subscriptions', 'listed_at', 'timestamptz');
+
+-- Known-limits sweep (lists): /me/following pages each list newest first (lib/follows.ts#ownFollowing, #ownHidden,
+-- #expiredHides). These let a page read its 51 rows off the viewer's index instead of sorting every row they have.
+select schema_add_index('follows_viewer_created', 'create index follows_viewer_created on follows (viewer_id, created_at desc, trader_id desc)');
+select schema_add_index('viewer_exclusions_viewer_created', 'create index viewer_exclusions_viewer_created on viewer_exclusions (viewer_id, created_at desc, trader_id desc)');
+select schema_add_index('viewer_exclusions_viewer_until', 'create index viewer_exclusions_viewer_until on viewer_exclusions (viewer_id, until desc, trader_id desc)');

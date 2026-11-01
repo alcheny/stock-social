@@ -331,3 +331,87 @@ test('F-2 PR-2 fix round 1: the "…" menu fits the screen with a 20-character h
     await release();
   }
 });
+
+// Known-limits sweep (lists): /me/following pages each list 50 at a time ("Older …", then "Back to the newest"), each
+// list keeps its place while another pages, and "Show again" / "Remove" come back to the same pages. Screenshots go to
+// the scratch directory given by LISTS_SHOTS (not committed); without it none are taken.
+test('lists: /me/following pages follows, hidden traders and expired hides 50 at a time; actions keep the page position', async ({ page }) => {
+  test.setTimeout(120_000);
+  const sql = await db();
+  const me = `fl${Math.random().toString(36).slice(2, 8)}`;
+  const tag = `lp${Math.random().toString(36).slice(2, 6)}`;
+  const [{ id: attempt }] = await sql`insert into signup_attempts (method, adult_attested_at) values ('dev', now()) returning id`;
+  const traders = (await sql`insert into users (handle, display_name, adult_attested_at, signup_attempt_id)
+    select ${tag} || '_' || lpad(i::text, 3, '0'), 'Pager ' || i, now(), ${attempt} from generate_series(0, 160) i order by i returning id`).map((r) => r.id as number);
+  const snap = async (name: string) => {
+    const dir = process.env.LISTS_SHOTS;
+    if (!dir) return;
+    for (const colorScheme of ['light', 'dark'] as const) { await page.emulateMedia({ colorScheme }); await page.screenshot({ path: `${dir}/${name}-${colorScheme}.png`, fullPage: true }); }
+    await page.emulateMedia({ colorScheme: 'light' });
+  };
+  try {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await signIn(page, me);
+    const [{ id: viewer }] = await sql`select id from users where handle = ${me}`;
+    const ago = (i: number) => new Date(Date.now() - (i + 1) * 60_000);
+    await sql`insert into follows ${sql(traders.slice(0, 55).map((t, i) => ({ viewer_id: viewer, trader_id: t, created_at: ago(i) })))}`;
+    await sql`insert into viewer_exclusions ${sql(traders.slice(55, 108).map((t, i) => ({ viewer_id: viewer, trader_id: t, created_at: ago(i), until: new Date(Date.now() + 30 * 86_400_000), reason: 'not_interested' })))}`;
+    await sql`insert into viewer_exclusions ${sql(traders.slice(108, 160).map((t, i) => ({ viewer_id: viewer, trader_id: t, created_at: new Date(Date.now() - 100 * 86_400_000), until: ago(i), reason: 'not_interested' })))}`;
+    const lists = page.locator('main ul.people');
+    const older = (name: string) => page.getByRole('link', { name, exact: true });
+    await page.goto('/me/following');
+    await expect(lists.nth(0).locator('li')).toHaveCount(50);
+    await expect(lists.nth(1).locator('li')).toHaveCount(50);
+    await expect(lists.nth(2).locator('li')).toHaveCount(50);
+    for (const name of ['Older follows', 'Older hidden traders', 'Older expired hides']) await expect(older(name)).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Back to the newest' })).toHaveCount(0);
+    // The button sits clear of its list (as on /me/likes) and inside the screen.
+    const gap = (await older('Older follows').boundingBox())!.y - ((await lists.nth(0).boundingBox())!.y + (await lists.nth(0).boundingBox())!.height);
+    expect(gap).toBeGreaterThanOrEqual(8);
+    const b = (await older('Older follows').boundingBox())!;
+    expect(b.height).toBeGreaterThanOrEqual(44);
+    expect(b.x + b.width).toBeLessThanOrEqual(375 - 16 + 0.5);
+    await snap('me-following-paged-375');
+
+    // Following, page 2: the other two lists stay on their first page.
+    await older('Older follows').click();
+    await expect(page).toHaveURL(/\/me\/following\?f=[0-9]+\.[0-9]+$/);
+    await expect(lists.nth(0).locator('li')).toHaveCount(5);
+    await expect(older('Older follows')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Back to the newest' })).toHaveCount(1);
+    await expect(lists.nth(1).locator('li')).toHaveCount(50);
+    await expect(lists.nth(0)).toContainText(`@${tag}_054`);
+    await expect(lists.nth(0)).not.toContainText(`@${tag}_000`);
+
+    // Hidden traders, page 2, keeping following's page.
+    await older('Older hidden traders').click();
+    await expect(page).toHaveURL(/\?f=[0-9.]+&h=[0-9.]+$/);
+    await expect(lists.nth(1).locator('li')).toHaveCount(3);
+    await expect(lists.nth(0).locator('li')).toHaveCount(5);
+    await snap('me-following-page2-375');
+    // "Show again" on page 2 comes back to the same pages, saying who is back.
+    await page.getByRole('button', { name: `Show @${tag}_105 again` }).click();
+    await expect(page).toHaveURL(new RegExp(`\\?f=[0-9.]+&h=[0-9.]+&back=${tag}_105$`));
+    await expect(page.locator('main > p.follow-status[role="status"]')).toHaveText(`@${tag}_105 is back in your feed.`);
+    await expect(lists.nth(1).locator('li')).toHaveCount(2);
+    await expect(lists.nth(0).locator('li')).toHaveCount(5);
+
+    // Expired hides, page 2; "Remove" there keeps it.
+    await older('Older expired hides').click();
+    await expect(lists.nth(2).locator('li')).toHaveCount(2);
+    await page.getByRole('button', { name: `Remove @${tag}_159` }).click();
+    await expect(page).toHaveURL(/\?f=[0-9.]+&h=[0-9.]+&e=[0-9.]+$/);
+    await expect(lists.nth(2).locator('li')).toHaveCount(1);
+    // "Back to the newest" for one list leaves the others where they are.
+    await page.getByRole('link', { name: 'Back to the newest' }).first().click();
+    await expect(page).toHaveURL(/\?h=[0-9.]+&e=[0-9.]+$/);
+    await expect(lists.nth(0).locator('li')).toHaveCount(50);
+    // A crafted cursor reads the first page.
+    await page.goto('/me/following?f=x&h=1.&e=%00');
+    await expect(lists.nth(0).locator('li')).toHaveCount(50);
+  } finally {
+    await sql`delete from users where handle = ${me} or id in ${sql(traders)}`;
+    await sql`delete from signup_attempts where id = ${attempt}`;
+    await sql`delete from handle_reservations where handle = ${me}`;
+  }
+});

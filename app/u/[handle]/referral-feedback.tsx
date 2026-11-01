@@ -17,13 +17,14 @@ export function ReferralFeedback({ handles, byVia }: { handles: string[]; byVia:
     <>
     <p className="muted small">
       {n} {n === 1 ? 'trader' : 'traders'} connected from your link:{' '}
-      {/* ponytail: handles past MAX_SHOWN are not named and nothing says so (the total is shown) — add "and N more". */}
+      {/* Past MAX_SHOWN the rest are counted, not named: "and N more" (no page lists them; the total is above). */}
       {handles.slice(0, MAX_SHOWN).map((h, i) => (
         <span key={h}>
           {i > 0 && ', '}
           <Link href={`/u/${h}`}>@{h}</Link>
         </span>
       ))}
+      {n > MAX_SHOWN && ` and ${n - MAX_SHOWN} more`}
     </p>
     {parts.length > 0 && <p className="muted small">{parts.join(', ')}.</p>}
     </>
