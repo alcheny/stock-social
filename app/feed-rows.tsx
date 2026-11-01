@@ -9,6 +9,7 @@ import { SuggestSection } from './suggest-section.tsx';
 import { CardMenu } from './card-menu.tsx';
 import { tradeKey } from '@/lib/likes.ts';
 import { SECTION_AT } from '@/lib/discovery/section.ts';
+import { cardSegments, paneSegments } from '@/lib/record-status.ts'; // FIXES-LABELS: status
 import { recordStrip, type Strip } from '@/lib/record-strip.ts';
 import { paneTrust, type TrustBadge } from '@/lib/pane.ts';
 import { ReportNote } from './report-note.tsx';
@@ -27,13 +28,17 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   // One chart per trader, drawn at screen resolution (F-1 fix round 7) and shared by all of that trader's cards on the
   // page; for a long record a stand-in line, the full chart loading on the pane's first swipe-open (fix round 8). The
   // pane is built once per trader and the same element placed in each of that trader's rows.
-  const panes = new Map<number, ReturnType<typeof ProfilePane>>();
-  const paneOf = (t: { user_id: number; handle: string; display_name: string }) => {
-    let p = panes.get(t.user_id);
+  // FIXES-LABELS (D-09): keyed `${user_id}:${flag}`: a card's pane carries the F3 line, a sheet's pane does not (the
+  // sheet has its own .sheet-note, so each sheet shows one).
+  const panes = new Map<string, ReturnType<typeof ProfilePane>>();
+  const paneOf = (t: { user_id: number; handle: string; display_name: string }, disclaimer = true) => {
+    const key = `${t.user_id}:${disclaimer}`;
+    let p = panes.get(key);
     const trades = page.byUser.get(t.user_id) ?? [];
     // F-2 PR-2: no Follow or "…" on the viewer's own record.
     const viewer = page.viewer?.id === t.user_id ? undefined : { signedIn: !!page.viewer, following: !!page.viewer?.following.has(t.user_id) };
-    if (!p) panes.set(t.user_id, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id), options: page.options?.get(t.user_id) /* OPTIONS */ })));
+    if (!p) panes.set(key, (p = ProfilePane({ handle: t.handle, name: t.display_name, trades, chart: feedPaneChart(trades, now), now, state: page.records.get(t.user_id)?.state, viewer, open: page.open?.get(t.user_id), openAsOf: page.openAsOf?.get(t.user_id), options: page.options?.get(t.user_id) /* OPTIONS */, disclaimer,
+      status: paneSegments(page.status?.get(t.user_id), now) /* FIXES-LABELS: status */ })));
     return p;
   };
   // F-10: one record strip per card trader, from the figures loadFeedPage computed (page.strips): formatting only here.
@@ -60,7 +65,8 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
       id: String(t.id),
       node: (
         <div className="row" key={t.id} data-trade={t.id} data-key={tradeKey(t.sell_id)} data-handle={t.handle}>
-          <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
+          <TradeCard t={row} state={page.records.get(t.user_id)?.state} open={page.open?.get(t.user_id)} openAsOf={page.openAsOf?.get(t.user_id)} now={now} strip={stripOf(t)} stripBadge={strips.get(t.user_id) ? badges.get(t.user_id) : undefined}
+            status={cardSegments(page.status?.get(t.user_id), now)} /* FIXES-LABELS: status */
             // F-9: Report only for a signed-in reader who is not the trader, and never on a public filer's card (F-7: no notes there).
             // ponytail: Report still names the close by its row id (lib/reports.ts looks up closed_trades.id), so a report sent from a page
             // rendered before a rebuild is refused as invalid — key it by trade_key as the card menu now is (F-9's file).
@@ -76,7 +82,7 @@ export function feedRowNodes(page: FeedPage): { id: string; node: React.ReactNod
   // F-2 PR-3: the suggestions section after the 5th card (position 6), on every page that has one.
   if (page.section && out.length >= SECTION_AT) {
     const rows = new Map(page.section.map((r) => [r.userId, r]));
-    const pane = (id: number) => { const r = rows.get(id)!; return paneOf({ user_id: id, handle: r.handle, display_name: r.name }); };
+    const pane = (id: number, disclaimer = true) => { const r = rows.get(id)!; return paneOf({ user_id: id, handle: r.handle, display_name: r.name }, disclaimer); };
     out.splice(SECTION_AT, 0, { id: `section-${page.offset}`, node: <SuggestSection key={`section-${page.offset}`} page={page} pane={pane} /> });
   }
   return out;

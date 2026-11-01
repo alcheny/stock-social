@@ -4,6 +4,7 @@ import { stripFigures, type Strip, type StripInput, stripTextAfterCount } from '
 import { RECORD_STRIP, wholeRecordPreview, type RecordState } from './copy.ts';
 import { counted } from './format.ts';
 import { DISCLAIMER } from './share.ts';
+import type { StatusFacts } from './record-status.ts'; // FIXES-LABELS: status
 
 export type RecapTrade = ConfidenceInput & { sellId: string };
 
@@ -53,6 +54,12 @@ export function monthRecap(all: RecapTrade[], ym: string, now: Date) {
   };
 }
 
+// ---- FIXES-LABELS ---- (D-24): a month shows its numbers and a 95% range, never a verdict: the month page's F-12
+// figures strip (monthStripInput below) is the one month line.
+// Distinct UTC months (YYYY-MM) with a closed trade: "One of N months on record".
+export const monthsOnRecord = (all: { closedAt: Date }[]): number =>
+  new Set(all.map((t) => `${t.closedAt.getUTCFullYear()}-${t.closedAt.getUTCMonth()}`)).size;
+
 export function wholeRecord(all: RecapTrade[], now: Date) {
   const s = stats(all.map(toStat));
   const c = confidence(all, now);
@@ -64,6 +71,8 @@ export type RecapView = {
   handle: string; displayName: string; demo: boolean; verified: boolean; state: RecordState;
   recap: NonNullable<ReturnType<typeof monthRecap>>; record: ReturnType<typeof wholeRecord>;
   open?: number[]; // unrealized percents, read for a connected or failed record only
+  months?: number; // FIXES-LABELS (D-24): distinct months on record (monthsOnRecord)
+  status?: StatusFacts | null; // FIXES-LABELS: status (F-11): the status-line facts beside the state
   excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
 };
 const who = (r: RecapView) => ({ state: r.state, demo: r.demo, verified: r.verified, handle: r.handle });

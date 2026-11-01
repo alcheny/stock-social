@@ -48,6 +48,15 @@ import { SimilarSection } from './similar-section.tsx';
 import { combined, openSummary } from '@/lib/open-split.ts';
 import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass } from '../../open-rows.tsx';
+// FIXES-LABELS (D-09 / D20, POLICY F3): the F3 line in plain view after the first performance block.
+import { Disclaimer } from '../../disclaimer.tsx';
+// FIXES-LABELS: status (F-11 / D-12 / fix #4): the record status line.
+import { statusForOrNull as statusFor } from '@/lib/record-status-load.ts'; // QA round 2 (N3): guarded, null on error
+import { statusRowsOrEmpty, withStates } from '@/lib/record-status-load.ts'; // PR #85 review (nit 5): read beside the load
+import { segments, statusParts } from '@/lib/record-status.ts';
+import { STATUS_LINE } from '@/lib/copy.ts';
+import { StatusList, StatusText } from '../../status-line.tsx';
+import { dateText } from '@/lib/date-text.ts'; // QA round 2 (N12): the rows' dates follow the year rule
 // OPTIONS (docs/features/logs/options/plan.md D5, D6): the one reader and its pure renders.
 import { loadOptionRecord, shareLabel, hasOptions, oldestRead } from '@/lib/options-load.ts';
 import { OpenPositionsBlock, OptionsLines, OptionTradesSection, ShareTradesLabel, UnsupportedLine } from './options-block.tsx';
@@ -129,7 +138,13 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 }
 
 export default async function Profile({ params, searchParams }: Params) {
-  const data = await load((await params).handle);
+  // FIXES-LABELS: status (PR #85 review, nit 5): the status row is read beside the profile load, not after it (the
+  // user read is the same per-request one); the record state is attached once the load has it.
+  const handleParam = (await params).handle;
+  const statusRowP = routeHandle(handleParam)
+    ? reads.user(handleParam).then((u) => (u ? statusRowsOrEmpty([u.id]) : new Map()))
+    : Promise.resolve(new Map());
+  const [data, statusRow] = await Promise.all([load(handleParam), statusRowP]);
   if (!data) notFound();
   const { user, filer, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf, opt, optOpen } = data;
   // F-7: a public record shows its top block, exclusions, open symbols and filing links; never Follow, theses, a share
@@ -205,6 +220,10 @@ export default async function Profile({ params, searchParams }: Params) {
   const promptCard = isMe && !claimed && shareable && sharePromptShowing ? await loadRecordCard(user.handle, 'unfurl') : null;
   // A11Y-FIXES #10 (POLICY P2, F3a): a demo profile says so and never mentions connected accounts (mixed records count as demo).
   const connected = allVerified ? `${connectedLine(brokers, accounts)}. ${DEMO_PROFILE.connectedOnly}` : DEMO_PROFILE.line;
+  // FIXES-LABELS: status. Live mode: this page is rendered per request; "updated" is the last successful sync.
+  const statusF = await statusFor(user.id, state, async (id, st) => withStates(statusRow, new Map([[id, { state: st }]])).get(id) ?? null);
+  const now = new Date(); // QA round 2 (N12): one request time for the rows' dates
+  const status = statusF ? statusParts(statusF, now, 'live', DEMO_PROFILE.line /* #10: the demo line names Demo, not a broker */) : null;
   // F-1 PR-3 fix round 4 (UX lead demand 1, POLICY F3/A1, TR-1): the list shows one window of 50 closes (`?closes=N`);
   // every close stays one "Show 50 more" away, and the stats and the chart above cover the whole record.
   const win = closesWindow((await searchParams)?.closes, trades.length);
@@ -217,8 +236,28 @@ export default async function Profile({ params, searchParams }: Params) {
   const fresh = isMe && !claimed && !user.snaptrade_user_id && trades.length === 0;
   const similar = await similarP;
 
+  // FIXES-LABELS (PR #85 review, nit 1): on the owner's own profile the share prompt, the new-trades prompt and the share
+  // card follow the headline figures and their F3 line (they were above them, which pushed the F3 line off the first
+  // screen at 360 and 320 px); a record without headline figures keeps them where they were.
+  const shareAfterFigures = complete && trades.length > 0;
+  const ownerPrompts = (<>
+      {isMe && !claimed && shareable && sharePromptShowing && (
+        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={promptCard?.range ?? null} isNew={isNew}
+          previewAlt={`Preview of your share card. ${promptCard ? cardAlt(promptCard) : ''}`} />
+      )}
+      {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
+        <NewTradesPrompt handle={user.handle} trades={nt.shown.map((x) => ({ sellId: x.sellId, symbol: x.symbol, returnPct: x.returnPct, closedAt: x.closedAt.toISOString() }))} more={nt.more} />
+      )}
+  </>);
+  const ownerShareCard = (<>
+      {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
+        <ShareCard handle={user.handle} recapYm={recapYm}
+          recapLabel={recapYm ? new Date(`${recapYm}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : null} />
+      )}
+  </>);
+
   return (
-    <main className="page">
+    <main className="page profile-page">{/* QA round 2 (B2): .profile-page tightens the h1 on a phone (globals.css) */}
       {/* fix-user-text fix round 5 (item 5): the name is isolated (<bdi>), like WhoName. */}
       <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : <bdi>{user.display_name}</bdi>}</h1>
       {/* PR-2b: one line reserved, so the badge arriving when an import finishes does not push the banner down. */}
@@ -236,9 +275,19 @@ export default async function Profile({ params, searchParams }: Params) {
           line survives the refresh that follows the end of the import. */}
       {!pub && <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />}
       {state === 'failed' && (
-        <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
+        <p role={isMe ? 'alert' : 'status'} className="warn record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
       )}
-      {complete && first && !pub && (
+      {/* FIXES-LABELS: status. Two rows (design system StatusLine): row 1 (since · connected, partial or frozen), row 2
+          (last close · updated, or the idle fact), then the accounts when there are two or more. A record the
+          status line does not cover (importing, failed, no connection) keeps today's line; an F-7 public record has
+          neither (its own lines are above). */}
+      {status?.show && !pub ? (
+        <div className="record-status-block">
+          <StatusText segments={segments(status.line1)} kind="line1" />
+          <StatusText segments={segments(status.line2)} kind="line2" />
+          <StatusList items={status.accounts.map((p) => segments([p]))} label={STATUS_LINE.accountsLabel} />
+        </div>
+      ) : complete && first && !pub && (
         <p className="muted small" style={{ marginTop: 0 }}>
           Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}
         </p>
@@ -249,14 +298,8 @@ export default async function Profile({ params, searchParams }: Params) {
       {claimed && (
         <p role="alert" className="down"><b>{ACCOUNT_CLAIMED_TITLE}</b> {ACCOUNT_CLAIMED_BODY}</p>
       )}
-      {isMe && !claimed && shareable && sharePromptShowing && (
-        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={promptCard?.range ?? null} isNew={isNew}
-          previewAlt={`Preview of your share card. ${promptCard ? cardAlt(promptCard) : ''}`} />
-      )}
+      {!shareAfterFigures && ownerPrompts /* FIXES-LABELS (PR #85 review, nit 1) */}
       {isMe && !claimed && user.trades_prompt_seen_at === null && <MarkTradesPromptSeen />}
-      {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
-        <NewTradesPrompt handle={user.handle} trades={nt.shown.map((x) => ({ sellId: x.sellId, symbol: x.symbol, returnPct: x.returnPct, closedAt: x.closedAt.toISOString() }))} more={nt.more} />
-      )}
       {isMe && (state === 'none' || claimed) && (
         <p><a className="button" href="/connect">Connect your broker (read-only)</a></p>
       )}
@@ -276,10 +319,7 @@ export default async function Profile({ params, searchParams }: Params) {
           {handleError && <p id="handle-err" role="alert" className="down small">{handleError}</p>}
         </details>
       )}
-      {isMe && !claimed && shareable && trades.length > 0 && !sharePromptShowing && (
-        <ShareCard handle={user.handle} recapYm={recapYm}
-          recapLabel={recapYm ? new Date(`${recapYm}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : null} />
-      )}
+      {!shareAfterFigures && ownerShareCard /* FIXES-LABELS (PR #85 review, nit 1) */}
 
       {/* Headline = win rate + avg return: readable in one glance (DESIGN Stage 2, BL). */}
       {/* OPTIONS (D5, D6): "Share trades" over the share-only headline; the count line (gated) or the options lines. */}
@@ -292,7 +332,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {open && <RealizedLabel />}
         <div className="stat big"><b>{(s.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
         {/* F-6: with open positions, tone by the printed sign beside the unrealized row ("0.0%" uncolored in both). */}
-        <div className="stat big"><b className={toneClass(s.avgReturn)}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
+        <div className="stat big"><b className={toneClass(s.avgReturn) /* QA round 1 (finding 8): tone of the printed value */}>{pct(s.avgReturn)}</b><small>avg return / trade</small>
           {/* PR-2b: "Too early to tell" is said once, in the evidence line below; here only an actual range. */}
           {range && <small className="range">{`${range} · 95% range`}</small>}
         </div>
@@ -300,6 +340,10 @@ export default async function Profile({ params, searchParams }: Params) {
       {/* F-6: the unrealized grid directly under the realized one, same size (TR-4), then the combined average. */}
       {open && <OpenGrid o={open} asOf={openAsOf ?? undefined} long={long} />}
       {both && <CombinedLine c={both} />}
+      {/* FIXES-LABELS (D-09): the F3 line right after the headline figures. QA round 2 (B2): before the evidence line, so
+          it is on the first screen at 320 px with an F-7 top block or a 40-character name above the figures. */}
+      <Disclaimer />
+      {shareAfterFigures && <>{ownerPrompts}{ownerShareCard}</> /* FIXES-LABELS (PR #85 review, nit 1): after the F3 line */}
       <div className="evidence">
         <p style={{ margin: 0 }}>
           {/* F-4 rework: the card's evidence (shown); F-6: "Closed trades: " scopes it when there are open positions. */}
@@ -342,6 +386,7 @@ export default async function Profile({ params, searchParams }: Params) {
         <p className="muted small">{PUBLIC.openNote}</p>
       </section>}
 
+      {/* FIXES-LABELS: status. ponytail: open-position rows number accounts per symbol, not "Account i of n" — map rows through accountLabels with an f6 spec update */}
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
       {complete && <UnsupportedLine counts={opt.counts} />}
       {/* OPTIONS fix round 3 (item 1): one "Open positions" heading and one list, share rows first, option rows after. */}
@@ -361,7 +406,7 @@ export default async function Profile({ params, searchParams }: Params) {
         {listed.map((t) => (
           <li key={t.id} id={`trade-${t.id}`} tabIndex={-1}>
             <div className="line">
-              <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{t.closed_at.toLocaleDateString('en-US')}</span></span>
+              <span><b><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></b> <span className="muted">{dateText(t.closed_at, now)}</span></span>
               <Link className="trade-link" href={`/u/${user.handle}/trade/${encodeURIComponent(t.sell_id)}`} aria-label={`${t.symbol} ${pct(t.return_pct)}, open trade page`}>
                 <b className={toneClass(t.return_pct)}>{pct(t.return_pct)}</b>
               </Link>

@@ -256,3 +256,7 @@ to it, unbuilt (each owner builds the row as the record states it, or hands it b
   `claude/fix-truthful-labels` (one row): this branch rewrote the snapshot; the later merge keeps this table and re-applies
   that row's file-name fix.
 - **F4-22 (CLAUDE.md known limits line)** and **F4-6 half (2) (PROMO out of `scripts/compliance.ts`)** → owner (protected files).
+- **Update after `claude/fix-truthful-labels` merged as #85 (8e3e9a5) without building F4-4, F4-14, F4-16 or F4-17:** the rows
+  move to the sessions that still own their files: F4-17 → `claude/f16-f17-trust-safety` (profile page); F4-16 and F4-14 →
+  `claude/f26-held-like-none` (`lib/feed.ts`, the pane-chart route, `app/ui.tsx`); F4-4 → a small follow-up after PR #77
+  (`lib/record-strip.ts`) and F-16/F-17 (the month page) merge. F4-8 waits on PR #77 only (the labels wording is on main).

@@ -4,7 +4,7 @@ Snapshot taken: 2026-11-01 by the fixes-cycle-4 session (F4-21, council cycle 4 
 snapshot of the process-docs session, which listed merged work as building or planned. Source: the GitHub MCP tool
 `list_pull_requests` (state open), `git fetch origin`, `git rev-list --count` for ahead and behind, and
 `git merge-tree --write-tree --name-only origin/main origin/claude/<topic>` for conflicting files, with main at
-`e6731d5` (#83). Merged work is not listed: `git log origin/main --first-parent` holds it (since the last snapshot,
+`e6731d5` (#83), then updated when main reached `8e3e9a5` (#86 approval council 4, #85 truthful labels). Merged work is not listed: `git log origin/main --first-parent` holds it (since the last snapshot,
 among others, #46 sharded sync, #52 and #81 known limits, #54 F-10/F-12, #55 F-13, #56 F-7, #62 options, #64 F-14,
 #65 F-9, #69 and #80 F-15, #75 the token-budget governor, #79 fixes cycle 3, #82 known-limits follow-up, #83 the
 cycle-4 record).
@@ -44,8 +44,7 @@ conflict counts are against main at `e6731d5`.
 
 | Work item | Kind | Client kind | Branch | PR | Files owned | State | Depends on | Merge position |
 |---|---|---|---|---|---|---|---|---|
-| Fix: truthful labels (F-11 status line, record strip, pane) | fix | cloud child session | `claude/fix-truthful-labels` (20 ahead, 6 behind, 7 conflicting files) | — (no PR) | the pane, the record strip, the status line; `lib/copy.ts`, `lib/feed.ts`, `lib/sync.ts`, `lib/trades.ts` (confidence math), `lib/month-card.ts`, `lib/recap-load.ts`, `app/ui.tsx`, the profile, trade and month pages, `app/u/[handle]/chart.tsx`, `app/t/**` | building | — | 1 (main is frozen for code merges until it lands) |
-| Fixes, council cycle 4 | fix | cloud child session | `claude/fixes-cycle4` | opened by that session | `lib/trades.ts` (matcher), `lib/options.ts`, `lib/options-load.ts`, `lib/public-trades.ts`, `lib/public-import.ts`, `lib/record-card.ts`, `lib/moderation.ts`, `next.config.ts`, `scripts/f15-readout.ts`, `scripts/f15-bot-validation.ts`, process docs, the F-14 status line | building | truthful labels | 2 |
+| Fixes, council cycle 4 | fix | cloud child session | `claude/fixes-cycle4` | opened by that session | `lib/trades.ts` (matcher), `lib/options.ts`, `lib/options-load.ts`, `lib/public-trades.ts`, `lib/public-import.ts`, `lib/record-card.ts`, `lib/moderation.ts`, `next.config.ts`, `scripts/f15-readout.ts`, `scripts/f15-bot-validation.ts`, process docs, the F-14 status line | building | — | 1 (main's freeze lifted when truthful labels merged as #85) |
 | F-20 design tokens | feature build | cloud child session | `claude/f20-design-tokens` (21 ahead, 5 behind, 1 conflicting file) | #77 | `app/globals.css`, `app/home-card/route.tsx`, `app/u/[handle]/record-card-image.tsx`, `lib/palette.ts`, `lib/colour-math.ts`, `lib/record-strip.ts` | pr-ready | truthful labels (record strip) | — |
 | F-16/F-17 trust and safety | feature build | cloud child session | `claude/f16-f17-trust-safety` (19 ahead, 1 behind, 0 conflicting) | — (no PR) | `lib/reports.ts`, `lib/trust-*.ts`, `lib/visible-users.ts`, `app/u/[handle]/report/**`, one-line edits to the profile, month and trade pages, additive `lib/copy.ts` and `db/schema.sql` | building | — | — |
 | F-24 late postings | feature build | cloud child session | `claude/f24-late-postings` (16 ahead, 0 behind, 0 conflicting) | — (no PR) | `lib/reconcile.ts`, `lib/sync.ts` (including the future-count query), `lib/options-sync.ts` (`rebuildRecord` wrapper), `lib/connections.ts`, additive `db/schema.sql` | building | — | — |
@@ -53,7 +52,7 @@ conflict counts are against main at `e6731d5`.
 
 ## Merge order (current)
 
-Truthful labels → fixes cycle 4 → the rest as they reach green and reviewed. A PR that is green and reviewed earlier
+Truthful labels (merged, #85) → fixes cycle 4 → the rest as they reach green and reviewed. A PR that is green and reviewed earlier
 may go earlier when it conflicts with no unmerged PR above it
 ([collaboration.md → Merge order](collaboration.md#merge-order)).
 
