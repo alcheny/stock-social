@@ -168,6 +168,8 @@ trimmed; only its overlap with D-08 is built here). Every role was a separate su
   exemption and claim checks (a change there needs a version raise by hand).
 - Phrase rules are English only; a first-person gain under 20% with no time total publishes; spaced "@ plainword",
   spaced endings that are English words, phone digits spelt as words and a bare "name com" publish.
+- Fix round 7: a word split by one space is joined only into a word of the frozen or scanner phrase lists; a split into
+  3+ parts, or one beside a leet or look-alike letter, publishes.
 - Handles: other users' handles are compared with the basic skeleton only (1→l, underscores kept).
 - Pre-existing items the user test saw outside this change: profile vs trade-page range rounding, the doubled brackets
   on the trade page's evidence line, the `/t` hold-time table header at 360 px.

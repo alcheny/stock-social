@@ -37,7 +37,9 @@ export type HoldRule = {
 // Fix round 6: version 2 adds the period-rate rules (since: 2), the spelled-out phrase variants, the narrower call-to-act
 // exemption and the script g look-alike (lib/text-safety.ts); lib/moderation-v2.test.ts pins a hash of the rules per
 // version, so a rule change without a new version fails there.
-export const MODERATION_VERSION = 2;
+// Fix round 7: version 3 adds the period-first and "mo" rate rule (since: 3), the split-word join (splitWordLabel) and
+// the reflective timing exemption (REFLECT).
+export const MODERATION_VERSION = 3;
 
 // A closed list of top-level domains: "BRK.B", "3.5x", "v2.0", "10-K", "Q3/FY25", "approx.5", "U.S.", "e.g." and
 // "Inc." never look like a domain (the name needs 2+ characters with a letter, the ending must be on this list).
@@ -76,7 +78,9 @@ const CLAUSE = String.raw`(?:^|[.!?;:\n]\s+|(?<!\d)[.!?;]|\n)`;
 // Fix round 6 (item 1): a period ("weekly", "a month", "per wk", "/mo"), a rate word, and a period adjective.
 // ponytail: a rate word reaches its figure across at most 4 words ("my avg over the last few weeks is 5% a week" with
 // more words between publishes); widen it if the review queue shows such claims.
-const PERIOD = String.raw`(?:weekly|monthly|yearly|daily|annually|annuali[sz]ed|p\.a\.|(?:a|per|each|every)\s+(?:week|wk|month|mo|year|yr|day|annum|quarter|qtr)\b|\/\s*(?:wk|week|mo|month|yr|year|day)\b)(?!\s*(?:range|moves?|swings?|volatility|vol|volume|candles?|bars?|closes?|trend|limit|cap|charts?)\b)`;
+// Not a period of return: a range, a move or a volume of that period ("the 1.5% daily range").
+const PERIOD_NOT = String.raw`(?!\s*(?:range|moves?|swings?|volatility|vol|volume|candles?|bars?|closes?|trend|limit|cap|charts?)\b)`;
+const PERIOD = String.raw`(?:weekly|monthly|yearly|daily|annually|annuali[sz]ed|p\.a\.|(?:a|per|each|every)\s+(?:week|wk|month|mo|year|yr|day|annum|quarter|qtr)\b|\/\s*(?:wk|week|mo|month|yr|year|day)\b)${PERIOD_NOT}`;
 const AVG = String.raw`(?:avg|average|averag(?:es|ed|ing))`;
 const PER_ADJ = String.raw`(?:weekly|monthly|yearly|daily|annually|annual)`;
 
@@ -186,6 +190,9 @@ export const HOLD_V2: HoldRule[] = [
   // subject comes before it with no first person, or a third-party noun sits in it or right after it (rateHolds below):
   // "Revenue averaged 12% a year", "Dividend growth averaged 6% annually" and "5% a year revenue growth" publish.
   { rule: 'return-period', label: 'return claim', since: 2, when: rateHolds, re: new RegExp(String.raw`\b${AVG}\b(?:\s+[a-z']+|\s*[=:]){0,4}?\s*${NUM_ANY}\s*${PERIOD}|\b${AVG}\s+${PER_ADJ}\s+(?:(?:returns?|gains?|profits?|is|of|was|=|:)\s*){0,2}${NUM_ANY}|\b${FP}\s+(?:[\w']+\s+){0,2}?${GAIN}\s+(?:[\w']+\s+){0,2}?${NUM_ANY}\s*${PERIOD}|\b(?:my|our)\s+(?:[\w']+\s+){0,2}?(?:returns?|gains?|profits?|performance|account|portfolio|port|p&l|pnl|equity)(?![\w&])[^.\n%]{0,30}?${NUM_ANY}\s*${PERIOD}|${CLAUSE}(?:${GAIN}\s+(?:[\w']+\s+){0,2}?|(?:up|\+)\s*)?${NUM_ANY}\s*(?:(?:returns?|gains?|profits?)\s+)?${PERIOD}`, 'i') },
+  // Fix round 7 (item 1): the period word before the rate word ("monthly avg 30%", "weekly avg: 5%"), and "mo" with no
+  // slash after a figure, only with a rate word ("avg 30% mo"): a bare "30% mo" in ordinary text publishes.
+  { rule: 'return-period-word', label: 'return claim', since: 3, when: rateHolds, re: new RegExp(String.raw`\b${PER_ADJ}\s+${AVG}\b(?:\s+[a-z']+|\s*[=:]){0,2}?\s*${NUM_ANY}|\b${AVG}\b(?:\s+[a-z']+|\s*[=:]){0,4}?\s*${NUM_ANY}\s*mo\b${PERIOD_NOT}`, 'i') },
   // Fix round 2: a multiple of the trader's own money, no figure needed ("Doubled my money", "Tripled the account").
   { rule: 'return-multiple', label: 'return claim', re: /\b(?:doubled|tripled|quadrupled)\s+(?:my|our|the)\s+(?:money|account|portfolio|port|capital|savings|stack|equity|net worth)\b|\b(?:my|our)\s+(?:money|account|portfolio|port|capital|savings|stack|equity|net worth)\s+(?:has\s+|have\s+|just\s+)?(?:doubled|tripled|quadrupled)\b/i },
 ];
@@ -361,10 +368,13 @@ const CALL = /\b(?:you|your|yours|you're|youre|y'all|yall|ya|everyone|everybody|
 const CALL_AFTER = /^\s*[:!]/;
 const PAST = /\b(?:was|were|had|thought|decided|felt|figured|seemed|knew|realized|realised|believed|wondered|whether|if|looked)\b/i;
 const SYSTEM = /\b(?:this|my|our|the)\s+(?:[\w-]+\s+)?(?:strategy|system|method|setup|approach|model|algo|bot|service|picks?|signals?|portfolio)\b|\b(?:i|we)\s+(?:\w+\s+)?$/i;
+// Fix round 7 (item 3): the timing phrase told as the trader's own past choice: the phrase followed by "was" (when it
+// was right), or a "which I did" later in the sentence.
+const REFLECT = /^\s+(?:was|were|had\s+been)\b(?!\s+(?:now|today|here)\b)|\bwhich\s+(?:i|we)\s+did\b/i;
 const EVERY = /^\s*(?:every|each|daily|weekly|monthly|consistently|all\s+the\s+time|fast|quick(?:ly)?|easy|easily)\b/i;
 // ponytail: the rules hash in lib/moderation-v2.test.ts covers these patterns and every rule source, not the code of
 // promoTalk or claimShape; a change to that code alone needs a version raise by hand.
-export const TALK_RULES: RegExp[] = [HOLD_TALK.get(HOLD[6])!, PROMO_TALK_V1, PROMO_TALK, CALL, CALL_AFTER, PAST, SYSTEM, EVERY];
+export const TALK_RULES: RegExp[] = [HOLD_TALK.get(HOLD[6])!, PROMO_TALK_V1, PROMO_TALK, CALL, CALL_AFTER, PAST, SYSTEM, EVERY, REFLECT];
 function sentenceSides(text: string, at: number, len: number): [string, string] {
   const s = sentenceAt(text, at, text.slice(at, at + len));
   const head = text.slice(0, at);
@@ -379,7 +389,7 @@ function promoTalk(f: string, at: number): boolean {
   if (pm[1]) return !SYSTEM.test(before);
   if (pm[2]) return !EVERY.test(after);
   const asked = /^[^.!?\n]*\?/.test(f.slice(at + pm[0].length));
-  if (pm[4] || pm[5]) return asked || PAST.test(before);
+  if (pm[4] || pm[5]) return asked || PAST.test(before) || REFLECT.test(after);
   return true; // the popular-name phrase as commentary; the "buy" phrase (the frozen HOLD holds its calls)
 }
 type Talk = (f: string, at: number) => boolean;
@@ -440,6 +450,25 @@ function variantLabel(forms: { text: string; joined: [number, number][] }[]): st
   return null;
 }
 
+// Fix round 7 (item 2): one word split by a space ("guar anteed"). Two adjacent letter runs (2+ letters each) are joined
+// only when the joined word matches a frozen HOLD or scanner PROMO rule that neither part matches alone; the text with
+// that one space removed is then read by that rule (with its talk exemption). Ordinary word pairs never join into such
+// a word, so they never meet the rule.
+// ponytail: a split into 3+ parts, or one beside a leet or look-alike letter, publishes; join more parts if the review
+// queue shows them.
+const SPLIT_PAIR = /(?<![\p{L}\p{N}])(\p{L}{2,})\s(?=(\p{L}{2,})(?![\p{L}\p{N}]))/gu;
+function splitWordLabel(f: string): string | null {
+  for (const m of f.matchAll(SPLIT_PAIR)) {
+    const a = m[1], b = m[2], w = a + b, cut = m.index! + a.length;
+    for (const re of [...HOLD, ...PROMO]) {
+      if (!re.test(w) || re.test(a) || re.test(b)) continue;
+      const talk = HOLD.includes(re) ? regexTalk(HOLD_TALK.get(re)) : promoTalk;
+      if (matchesExcept(re, f.slice(0, cut) + f.slice(cut + 1), talk)) return 'promotion';
+    }
+  }
+  return null;
+}
+
 // The full verdict: status plus the label of the first rule that matched (null when published). Matching runs on the
 // raw text and its skeleton (figures read as figures); `words` rules and LONG_WORDS also on leet and squashed forms.
 // Fix round 5 (item 2): the frozen HOLD and the imported PROMO also run on the leet and squashed forms ("gu4rant33d",
@@ -474,6 +503,8 @@ export function moderateDetail(text: string, opts: { after?: number } = {}): { s
   if (on()) for (const r of LONG_WORDS) if (long.some((f) => r.re.test(f))) return { status: 'held', rule: r.label };
   const variant = on(2) ? variantLabel([sk, ...leet(sk)].map(squashSpans)) : null;
   if (variant) return { status: 'held', rule: variant };
+  const split = on(3) ? splitWordLabel(sk) : null;
+  if (split) return { status: 'held', rule: split };
   return { status: 'published', rule: null };
 }
 

@@ -448,7 +448,7 @@ test('fix round 5: generic words from the scanner list, the payment-plan phrase 
 
 test('fix round 5: the start-up re-check applies only rules newer than the version a note was checked at', async () => {
   const { MODERATION_VERSION } = await import('./moderation.ts');
-  assert.equal(MODERATION_VERSION, 2); // fix round 6 raised it (the round 6 tests below pin what version 2 adds)
+  assert.equal(MODERATION_VERSION, 3); // fix rounds 6 and 7 raised it (the tests below pin what versions 2 and 3 add)
   assert.ok(HOLD_V2.every((r) => (r.since ?? 1) <= MODERATION_VERSION));
   // A note checked at the current version matches nothing new; a note from main's rules (version 0) is matched by
   // every rule of this branch, but not by the frozen HOLD on its raw text (it passed that when it was saved).
@@ -527,6 +527,7 @@ test('fix round 6: the start-up re-check holds version 1 notes only on what vers
 // against it. Each version pins the hash of every rule source; a change needs a new version and a new entry here.
 const RULE_HASHES: Record<number, string> = {
   2: '713b08cb0d5c66fad954435cfe51b57bd41a13ff60c87b85a3d25477bc709893',
+  3: '57ced0678529edf7d9fabb8104b826d8420e73b9395f03329815aa67201a8ec7',
 };
 test('fix round 6: rules cannot change without raising MODERATION_VERSION', async () => {
   const { createHash } = await import('node:crypto');
@@ -541,4 +542,52 @@ test('fix round 6: rules cannot change without raising MODERATION_VERSION', asyn
   const pinned = RULE_HASHES[m.MODERATION_VERSION];
   assert.ok(pinned, `no rules hash pinned for MODERATION_VERSION ${m.MODERATION_VERSION}: add { ${m.MODERATION_VERSION}: '${hash}' } to RULE_HASHES`);
   assert.equal(hash, pinned, `the moderation rules changed: bump MODERATION_VERSION (give new rules since: <new version>) and pin { <new version>: '${hash}' } in RULE_HASHES`);
+});
+
+// ---- Fix round 7 (period word before the rate word, "mo" as a period, a split word, reflective timing) ----
+
+// [text, expected label]
+const BYPASS_R7: [string, string][] = [
+  // item 1: a period word before the rate word; "mo" (no slash) after a figure when a rate word is there
+  ['monthly avg 30%', 'return claim'], ['Monthly average 30% on my setup.', 'return claim'], ['weekly avg: 5%', 'return claim'],
+  ['avg 30% mo', 'return claim'], ['averaging 30% mo on this', 'return claim'], ['my average is 12% mo.', 'return claim'],
+  // item 2: one word split by a space
+  ['guar anteed returns', 'promotion'], ['guaran teed profits every week', 'promotion'],
+];
+const NEGATIVE_R7: string[] = [
+  // item 1: "mo" with no rate word, and third-party period rates
+  '30% mo', 'Up 30% mo and then gave it back.', 'Monthly avg volume rose 30%.', 'monthly avg 30% for the index, mostly beta.',
+  'Annual average inflation 3% this decade.', 'avg 30% mo range on this name',
+  // item 2: ordinary word pairs are never joined into a phrase-rule word
+  'Semis out perform when rates fall, so I sized up.', 'I sold the rest at the open.', 'Bear case: guidance cut, sold.',
+  // item 3: the timing phrase as the trader's own past or reflective choice
+  'Time to buy was right after the selloff, which I did.', 'Time to buy was right after the selloff.', 'Time to sell, which I did at 52.',
+];
+
+test('fix round 7: period-first rate claims, "mo" rate claims and split words are held with the expected label', () => {
+  for (const [t, label] of BYPASS_R7) {
+    assert.deepEqual(moderateDetail(t), { status: 'held', rule: label }, JSON.stringify(t));
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(sanitizeUserText(t)));
+  }
+  // the calls to act stay held
+  for (const t of ['Time to buy!', 'Time to buy $XYZ, everyone.', 'Guys, time to sell.', "It's time to buy."]) assert.equal(moderate(t), 'held', t);
+});
+
+test('fix round 7: "mo" without a rate word, third-party rates, word pairs and reflective timing publish (no rule)', () => {
+  for (const t of NEGATIVE_R7) {
+    assert.deepEqual(moderateDetail(t), { status: 'published', rule: null }, JSON.stringify(t));
+    assert.deepEqual(moderateDetail(sanitizeUserText(t)), { status: 'published', rule: null }, JSON.stringify(t));
+  }
+});
+
+test('fix round 7: the start-up re-check holds version 2 notes only on what version 3 added', () => {
+  for (const t of ['monthly avg 30%', 'avg 30% mo', 'guar anteed returns']) {
+    assert.equal(moderateDetail(t, { after: 1 }).status, 'held', t);
+    assert.equal(moderateDetail(t, { after: 2 }).status, 'held', t);
+    assert.deepEqual(moderateDetail(t, { after: 3 }), { status: 'published', rule: null }, t);
+  }
+  // a version 2 rule is not re-applied to a version 2 note
+  assert.deepEqual(moderateDetail('my avg is 30% a month', { after: 2 }), { status: 'published', rule: null });
+  assert.ok(HOLD_V2.some((r) => r.since === 3));
+  assert.ok(HOLD_V2.every((r) => (r.since ?? 1) <= 3));
 });
