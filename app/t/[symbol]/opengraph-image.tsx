@@ -1,8 +1,8 @@
 // Ticker share card: unfurls a pasted /t/SYMBOL link. Percentages only; never throws on a bad symbol.
 import { ImageResponse } from 'next/og';
 import { DISCLAIMER } from '@/lib/share.ts';
-import { sql } from '@/lib/db.ts';
-import { decodeSymbolParam, tickerSummary, type TickerRow, type TickerSummary } from '@/lib/ticker.ts';
+import { decodeSymbolParam, type TickerSummary } from '@/lib/ticker.ts';
+import { tickerHeadline } from '@/lib/ticker-sql.ts';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
 
 export const size = { width: 1200, height: 630 };
@@ -31,11 +31,9 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
   try {
     const symbol = decodeSymbolParam((await params).symbol);
     if (!symbol) return neutral('Stock Social', 'Verified trades by stock', 'Stock Social · verified trading records');
-    const found = (await sql`select user_id, return_pct, holding_days, opened_at, closed_at, verified from closed_trades where symbol = ${symbol}`) as unknown as
-      { user_id: number; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean }[];
-    if (!found.length) return neutral(symbol, 'No verified trades yet', 'Stock Social · verified trading records');
-    const rows: TickerRow[] = found.map((r) => ({ userId: r.user_id, returnPct: r.return_pct, holdingDays: r.holding_days, openedAt: r.opened_at, closedAt: r.closed_at, verified: r.verified }));
-    const s: TickerSummary = tickerSummary(rows, new Date());
+    // The page's own SQL summary (live users only), so the card and the page show the same numbers.
+    const s: TickerSummary = (await tickerHeadline(symbol)).summary;
+    if (!s.n) return neutral(symbol, 'No verified trades yet', 'Stock Social · verified trading records');
     const c = s.conf!;
     const range = rangeText(c);
     const status = s.demoOnly ? 'Sample data' : s.mixed ? 'Includes sample data' : 'Verified from broker' /* no check mark: the image font has no glyph for it */;
