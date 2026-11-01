@@ -77,3 +77,18 @@ sale, later sells of that stock in that account are counted unless every reading
 
 **Owner Q1: not needed.** The decided rules settle correctness. Owner items (non-blocking): a vendor position read with
 units to clear a gap (`lib/broker.ts` is protected; storing units is a privacy call).
+
+## After sign-off: tester QA and independent code review (fresh context)
+- **Code review, blocking 1:** a run moved a date-only buy past a split dated inside its span (corporate actions are not
+  part of runs), so the lot was never scaled and a later sell showed -40% (truth +20%; main counted it). Fix: a run whose
+  span holds a corporate action of its pair (or an account-wide one) keeps its stamps, its buys open tainted lots and its
+  sells are counted as the action's. The probe is a test ("code review, blocking 1").
+- **Code review, blocking 2:** the e2e vendor fake stamped buys at 00:00Z and sells at 12:00Z the same day, so its
+  histories would be counted whole under the new tie rule. The fake's buys now carry 01:00Z.
+- **QA, copy:** "read in the order that cannot overstate a record" was an absolute claim the accepted P4b ponytail
+  contradicts; now "read in the cautious order".
+- **Code review, F4-10:** the purchase links are one per filing, so they are numbered as filings ("filing 2 of 3").
+- Non-blocking, listed in the PR's Known limits: moderation false positives on ticker exchange suffixes and a few
+  phrasings (held for review, never dropped), a split row's vendor count that may be a total (a larger no-basis lot only
+  over-counts or shifts FIFO toward counted lots), the excluded/excludedCorporate bucket of tied sells around a corporate
+  action can still depend on input order (shown trades and the total counted never do; main has the same class).

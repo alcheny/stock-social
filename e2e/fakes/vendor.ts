@@ -96,7 +96,8 @@ export function generateActivities(accountId: string, n: number): FakeActivity[]
   for (let i = 0; i < n; i++) {
     const pair = Math.floor(i / 2);
     const sell = i % 2 === 1;
-    const day = new Date(Date.UTC(2024, 0, 1) + pair * 86_400_000 + (sell ? 43_200_000 : 0)).toISOString();
+    // Fixes cycle 4 (C4-1): buys at 01:00Z, not 00:00Z, which reads as a date-only stamp and ties with the 12:00Z sell.
+    const day = new Date(Date.UTC(2024, 0, 1) + pair * 86_400_000 + (sell ? 43_200_000 : 3_600_000)).toISOString();
     out.push({ id: `${accountId}-${i}`, symbol: syms[pair % syms.length], type: sell ? 'SELL' : 'BUY', units: 10, price: sell ? 100 + ((pair * 7) % 11) - 5 : 100, fee: 0, trade_date: day });
   }
   return out;

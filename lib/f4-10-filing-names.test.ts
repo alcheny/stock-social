@@ -19,10 +19,10 @@ test('F4-10: each filing link name starts with its visible text, names the symbo
   }
 });
 
-test('F4-10: with two or more purchases each name is distinct ("purchase 1 of 2"), and still starts with the visible text', () => {
+test('F4-10: with two or more purchase filings each name is distinct ("filing 1 of 2"), and still starts with the visible text', () => {
   const names = [1, 2, 3].map((i) => PUBLIC.boughtNameOf('ZQXA', i, 3));
   assert.equal(new Set(names).size, 3);
-  assert.equal(names[1], 'Bought: filing for the ZQXA purchase 2 of 3, opens another site');
+  assert.equal(names[1], 'Bought: filing 2 of 3 for the ZQXA purchase, opens another site');
   for (const n of names) assert.ok(n.startsWith(visible(PUBLIC.bought)));
 });
 

@@ -327,7 +327,7 @@ export const HOW = {
     'Transfers in, and sells with no recorded entry, or no certain one, in the imported history (shown as excluded sells, never guessed).',
     // Fixes cycle 4 (C4-1, C4-2; UX lead, committee round 2).
     'After a sell of more shares than the imported history holds (an earlier holding, a transfer in or a short sale), later sells of that stock in that account are excluded and counted too, unless every possible reading gives the same figure.',
-    'Some brokers send trades without exact times, or with only the date. Trades of one stock stamped at the same moment, or on a date-only day, are read in the order that cannot overstate a record: a sell draws only shares bought before it, so a same-day buy and sell with nothing older held is excluded and counted. The rows can’t tell a day trade from a short sale.',
+    'Some brokers send trades without exact times, or with only the date. Trades of one stock stamped at the same moment, or on a date-only day, are read in the cautious order: a sell draws only shares bought before it, so a same-day buy and sell with nothing older held is excluded and counted. The rows can’t tell a day trade from a short sale.',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
     // Fixes cycle 3, F3-1 (lib/trades.ts): unusable broker trade rows are counted, never dropped.
     'Trade rows the broker sent without a usable price, share count or date: the trades they touch are excluded and counted, never guessed. With no share count, that includes the later trades of the same stock in the same account; with no date, all of its trades there.',
@@ -877,7 +877,8 @@ export const PUBLIC = {
   // F4-10 (cycle 4, C4-14; WCAG 2.5.3, 2.4.4): the trade page's filing link names start with their visible words and
   // tell purchases apart ("purchase 1 of 2"); the sale's names its close date. Replaces boughtName and soldName above on
   // the trade page.
-  boughtNameOf: (symbol: string, n: number, of: number) => `Bought: filing for the ${symbol} purchase${of > 1 ? ` ${n} of ${of}` : ''}, opens another site`,
+  // Code review: the links are one per filing (a filing can hold several purchases), so they are numbered as filings.
+  boughtNameOf: (symbol: string, n: number, of: number) => `Bought: filing${of > 1 ? ` ${n} of ${of}` : ''} for the ${symbol} purchase, opens another site`,
   soldNameOn: (symbol: string, day: string) => `Sold: filing for the ${symbol} sale closed ${day}, opens another site`,
   openTitle: 'Open positions', openNote: 'Only shares bought in open-market purchases shown in the filings and not yet sold. This is not the person’s full holdings, and current value isn’t available from the filings, so no percent is shown.',
   recap: 'Recaps list the month\u2019s closed trades built from public filings, and none can be hidden.',

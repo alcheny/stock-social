@@ -206,3 +206,15 @@ test('C4-1 (reliability, round 2): public filings pass their known order, so sam
   // Broker rows (no option) are counted in both cases.
   assert.deepEqual(matchTrades([row('BUY', 100, 10, '2026-10-01T00:00:00Z'), row('SELL', 100, 12, '2026-10-01T00:00:00Z')]).trades, []);
 });
+
+test('C4-1 (code review, blocking 1): a date-only row is never moved across a split of its pair; the run is counted', () => {
+  // BUY 100 @10 date-only on Mar 1; 2:1 split at Mar 2 00:00Z; SELL 50 @6 at Mar 2 06:00Z (in the buy's date window);
+  // SELL 50 @6 on Apr 20. Floated past the split, the buy was never scaled and the last sell showed -40% (truth +20%).
+  const split = { externalId: 'sp', accountId: 'acc1', symbol: 'FAKE', executedAt: new Date('2026-03-02T00:00:00Z'), kind: 'split', ratio: { p: 2, q: 1 } } as const;
+  const rows = [row('BUY', 100, 10, '2026-03-01T00:00:00Z'), row('SELL', 50, 6, '2026-03-02T06:00:00Z'), row('SELL', 50, 6, '2026-04-20T15:00:00Z')];
+  for (const input of [rows, [...rows].reverse()]) {
+    const m = matchTrades(input, [split]);
+    assert.deepEqual(m.trades, []);
+    assert.equal(m.excluded + m.excludedCorporate, 2);
+  }
+});

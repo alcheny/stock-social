@@ -121,6 +121,17 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
   // date-only flags once the vendor names the brokerages (vendor question list, MRC2-10).
   const sortAt = new Map<object, number>();
   const runOf = new Map<object, string>();
+  // Review (blocking 1): a run whose span holds a corporate action of its pair (a split, a rename into or out of it, an
+  // account-wide action) can't float its date-only rows across that action, and their side of it is unknown: its rows
+  // keep their stamps, its buys open tainted lots and its sells are counted as the action's.
+  const crossed = new Set<object>();
+  const actionAt = new Map<string, number[]>();
+  for (const ca of actions) {
+    if (isTradeRow(ca)) continue;
+    const t = ca.executedAt.getTime();
+    const keys = [`${ca.accountId}|${ca.symbol}`, ...(ca.kind === 'symbol-change' ? [`${ca.accountId}|${ca.newSymbol}`] : []), ...(ca.kind === 'unpriceable' && ca.scope === 'account' ? [`${ca.accountId}|`] : [])];
+    for (const k of keys) { const l = actionAt.get(k); if (l) l.push(t); else actionAt.set(k, [t]); }
+  }
   if (!opts.orderKnown) {
     const byPair = new Map<string, { t: number; r: Activity | TradeRow }[]>();
     const add = (r: Activity | TradeRow) => { const k = `${r.accountId}|${r.symbol}`, l = byPair.get(k), x = { t: r.executedAt.getTime(), r }; if (l) l.push(x); else byPair.set(k, [x]); };
@@ -135,10 +146,13 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
       let run: typeof rows = [];
       const close = () => {
         if (run.length > 1 && run.some((x) => dateOnly(x.t))) {
-          const lo = run[0].t, hi = run[run.length - 1].t, id = `run${runs++}`;
+          const lo = run[0].t, hi = run[run.length - 1].t, id = `run${runs++}`, r0 = run[0].r;
+          const inSpan = (k: string) => (actionAt.get(k) ?? []).some((t) => t >= lo && t <= hi);
+          const cross = inSpan(`${r0.accountId}|${r0.symbol}`) || inSpan(`${r0.accountId}|`);
           for (const x of run) {
             runOf.set(x.r, id);
-            if (dateOnly(x.t)) sortAt.set(x.r, x.r.side === 'SELL' ? lo : hi);
+            if (cross) crossed.add(x.r);
+            else if (dateOnly(x.t)) sortAt.set(x.r, x.r.side === 'SELL' ? lo : hi);
           }
         }
         run = [];
@@ -363,7 +377,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     const open = b.lots;
     if (a.side === 'BUY') {
       // A buy on the day of a repricing action may be at either side of it: tainted, never scaled or left on a guess.
-      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) ? { tainted: true } : {}), ...tieOf(e) });
+      open.push({ units: a.units, price: a.price, feePerUnit: a.fee / a.units, at: a.executedAt, verified: a.verified, ...(sameDayAction(a) || unknownFrom.has(key) || crossed.has(a) ? { tainted: true } : {}), ...tieOf(e) });
       continue;
     }
 
@@ -386,7 +400,7 @@ function replay(activities: Activity[], actions: CorporateAction[], opts: MatchO
     let entryFees = 0;
     let openedAt: Date | null = null;
     let verified = a.verified;
-    let tainted = false;
+    let tainted = crossed.has(a);
     const touched = new Set<TieGroup>();
     while (!tiny(remaining, a.units) && open.length) {
       const lot = open[0];
