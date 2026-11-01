@@ -26,7 +26,7 @@ function rows(n: number, spanDays: number, mean: number, spread: number, sign: 1
     return { symbol: `F${i % symbols}`, opened: closed - hold * DAY, closed, r: Math.expm1(x) };
   });
 }
-type Fixture = { name: string; trades: Row[]; verified?: boolean; demo?: boolean; connection?: 'connected' | 'importing' | 'failed' };
+type Fixture = { name: string; trades: Row[]; verified?: boolean; demo?: boolean; connection?: 'connected' | 'importing' | 'failed'; open?: number[] };
 const FIXTURES: Record<string, Fixture> = {
   winning: { name: 'Winning Fixture', trades: rows(48, 420, 0.012, 0.05, 1, 48) },
   losing: { name: 'Losing Fixture', trades: rows(48, 420, 0.012, 0.05, -1, 48) },
@@ -42,6 +42,17 @@ const FIXTURES: Record<string, Fixture> = {
   longname: { name: 'A Forty Character Display Name For Tests', trades: rows(48, 420, 0.012, 0.05, 1, 48) },
   months: { name: 'Many Months', trades: rows(40, 3400, 0.01, 0.05, 1, 40) },
   one: { name: 'One Trade', trades: rows(1, 1, 0.05, 0, 1, 1, 3) },
+  // F-4 rework (2026-11-01): the trust rows not rendered before, and F-6's open positions on the card.
+  under5: { name: 'Under Five Bets', trades: rows(4, 30, 0.02, 0.03, 1, 4) },
+  modneg: { name: 'Moderate Negative', trades: rows(60, 200, 0.03, 0.03, -1, 60) },
+  strongpos: { name: 'Strong Positive', trades: rows(150, 500, 0.02, 0.03, 1, 150) },
+  open_mixed: { name: 'Open Mixed', trades: rows(48, 420, 0.012, 0.05, 1, 48), connection: 'connected', open: [0.121, 0.034, -0.08] },
+  open_losing: { name: 'Open Losing', trades: rows(48, 420, 0.012, 0.05, 1, 48), connection: 'connected', open: [-0.08, -0.215, -0.031] },
+  open_only: { name: 'Open Only', trades: [], connection: 'connected', open: [0.121, 0.034, -0.08] },
+  open_under5: { name: 'Open Under Five', trades: rows(3, 20, 0.02, 0.03, 1, 3, 2), connection: 'connected', open: [0.05, -0.02] },
+  open_flat: { name: 'Open One Flat', trades: rows(48, 420, 0.012, 0.05, 1, 48), connection: 'connected', open: [0.0004] },
+  open_tight: { name: 'A Thirty Character Display Nam', trades: rows(8, 20, 0.01, 0.05, 1, 8, 2), connection: 'failed',
+    open: [-1, 2.5, -0.991, 1.234, 0.5, -0.25, 0.75, -0.6, 1.01, -0.333, 0.12, 9.99] },
 };
 const handle = (k: string) => `f4_card_${k}`;
 const HANDLES = Object.keys(FIXTURES).map(handle);
@@ -60,6 +71,7 @@ test.beforeAll(async () => {
       values (${u.id}, 'demo', ${`${handle(k)}-demo`}, 'demo-acct', 'F0', 'BUY', 1, 10, now() - interval '61 days', '{}')`;
     if (f.connection) await sql`insert into connections (attempt_id, user_id, state, consent_at, importing_at, last_progress_at)
       values (${u.signup_attempt_id}, ${u.id}, ${f.connection}, now(), now(), now())`;
+    if (f.open?.length) await sql`insert into open_positions ${sql(f.open.map((x, i) => ({ user_id: u.id, account_id: 'f4', symbol: `O${i}`, unrealized_pct: x })))}`;
   }
   if (SHOTS) mkdirSync(DIR, { recursive: true });
 });
@@ -105,4 +117,28 @@ test('F-4 card (round 1, demand 8): a forged Host header never reaches the print
     // The same picture byte for byte: the host the request named is not printed on it.
     expect(Buffer.compare(await forged.body(), plain), format).toBe(0);
   }
+});
+
+// F-4 rework (2026-11-01) and F-6 on the card, against the running app: the text under the link preview drops the
+// win rate and matches the card; open positions appear in words; the demo record reads the same length on the profile
+// and the card (first trade to last close).
+test('F-4 rework: the link-preview text matches the card, with open positions, and never a win rate', async ({ page }) => {
+  const description = async (h: string) => {
+    await page.goto(`/u/${h}`);
+    return (await page.locator('meta[name="description"]').getAttribute('content')) ?? '';
+  };
+  const win = await description(handle('winning'));
+  expect(win).not.toMatch(/win rate/i);
+  expect(win).toMatch(/[+-]\d+\.\d% average per trade, likely between [+-]\d+\.\d% and [+-]\d+\.\d% · Record since \w{3} \d{4} · \d+ \w+ · Evidence: \w+/);
+  const mixed = await description(handle('open_mixed'));
+  expect(mixed).toContain('average per closed trade');
+  expect(mixed).toContain('Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%');
+  expect(mixed).not.toMatch(/\bO\d\b/); // no symbol
+  expect(await description(handle('open_only'))).toContain('Still open: 3 positions');
+  // The demo record: the profile's evidence line and the card (its words under the preview) give the same days.
+  const demo = await description('momentum_maya');
+  const cardDays = demo.match(/ · (\d+) days · Evidence/)?.[1];
+  const profileDays = (await page.getByText(/Evidence: \w+ \(\d+ bets?, \d+ days?\)/).first().textContent())?.match(/, (\d+) days?\)/)?.[1];
+  expect(cardDays).toBeTruthy();
+  expect(cardDays).toBe(profileDays);
 });

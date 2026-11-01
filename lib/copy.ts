@@ -139,7 +139,14 @@ export const SHARE_CARD = {
   perTrade: 'average per trade',
   likely: (low: string, high: string) => `likely between ${low} and ${high}`,
   lossesIncluded: 'losses included',
-  chartCaption: 'If every trade were the same size',
+  // F-4 (2026-11-01): the running sum of per-trade returns, for every trader until F-5 (position size) is built.
+  chartCaption: 'Sum of trade returns, in order · position size not shown',
+  // F-6 on the card (committee 2026-11-01): realized and unrealized apart, in words, percent only, no symbols.
+  perClosedTrade: 'average per closed trade',
+  openFull: (n: number) => `Still open: ${n} ${n === 1 ? 'position' : 'positions'}`,
+  openShort: (n: number) => `${n} still open`,
+  openNote: 'unrealized, not sold yet',
+  openAlt: 'Still open, unrealized at current value:',
 } as const;
 // The profile's link-preview text (app/u/[handle]/page.tsx). Committee round 1, demand 10: "0% win rate" when there are
 // no wins (the old `pct(0, 0).slice(1)` dropped the digit and printed "% win rate").

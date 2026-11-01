@@ -10,8 +10,9 @@
 import { counted } from './format.ts';
 import { imageTrust, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
-import { confidence, equityCurve, headline, isNewRecord, pct, type ConfidenceInput } from './trades.ts';
-import { evidenceLabel, spanBetween, spanText, spanUnit, trustLine, type Span, type SpanUnit } from './confidence.ts';
+import { confidence, headline, isNewRecord, pct, type ConfidenceInput, type Interval, type Tier } from './trades.ts';
+import { evidenceLabel, MIN_BETS, spanBetween, spanText, spanUnit, tierFor, tooWide, trustLine, type Span, type SpanUnit } from './confidence.ts';
+import { arithmeticRange } from './bets.ts';
 import { downsampleIndices } from './downsample.ts';
 import { pathD } from './chart-series.ts';
 import { siteUrl } from './ticker.ts';
@@ -25,14 +26,15 @@ export type CardKind = 'unfurl' | 'square' | 'story';
 // trust line's row, the unfurl drops the brand word (the link preview names the site), the disclaimer takes two lines.
 // `body` is the trust line, the small labels and the 0% label; `line` the count and the period (1.5× body); `headline`
 // the one big number. `chart` is the plot box (with the 0% gutter, without the caption); the story's runs edge to edge
-// (`bleed`). `noteCut`: how much the chart gives up when a failed import's note line is shown.
+// (`bleed`). `noteCut` / `openCut`: how much the chart gives up when a failed import's note line / the open-positions
+// row is shown. `lh`: the line height of wrapping text (single-line rows use 1).
 export const CARD_LAYOUT = {
-  unfurl: { width: 1200, height: 630, padX: 40, padTop: 16, padBottom: 12, gap: 6, left: 540, bleed: false, noteCut: 39, chart: { w: 556, h: 322 },
-    font: { brand: 35, label: 35, name: 46, handle: 35, headline: 100, body: 35, line: 53, newRecord: 53, disclaimer: 35, zero: 35 } },
-  square: { width: 1080, height: 1080, padX: 56, padTop: 40, padBottom: 32, gap: 8, left: 0, bleed: false, noteCut: 0, chart: { w: 968, h: 364 },
-    font: { brand: 32, label: 32, name: 52, handle: 32, headline: 130, body: 32, line: 48, newRecord: 48, disclaimer: 32, zero: 32 } },
-  story: { width: 1080, height: 1920, padX: 72, padTop: 250, padBottom: 340, gap: 8, left: 0, bleed: true, noteCut: 30, chart: { w: 1080, h: 580 },
-    font: { brand: 34, label: 34, name: 60, handle: 36, headline: 160, body: 32, line: 52, newRecord: 52, disclaimer: 32, zero: 32 } },
+  unfurl: { width: 1200, height: 630, padX: 40, padTop: 8, padBottom: 6, gap: 6, lh: 1.0, left: 540, bleed: false, noteCut: 41, openCut: 41, chart: { w: 556, h: 372 },
+    font: { brand: 35, label: 35, name: 46, handle: 35, headline: 98, body: 35, line: 53, newRecord: 35, disclaimer: 35, zero: 35 } },
+  square: { width: 1080, height: 1080, padX: 56, padTop: 36, padBottom: 28, gap: 4, lh: 1.05, left: 0, bleed: false, noteCut: 0, openCut: 0, chart: { w: 968, h: 364 },
+    font: { brand: 32, label: 32, name: 52, handle: 32, headline: 112, body: 32, line: 48, newRecord: 48, disclaimer: 32, zero: 32 } },
+  story: { width: 1080, height: 1920, padX: 72, padTop: 250, padBottom: 340, gap: 4, lh: 1.05, left: 0, bleed: true, noteCut: 0, openCut: 0, chart: { w: 1080, h: 580 },
+    font: { brand: 34, label: 34, name: 60, handle: 36, headline: 128, body: 32, line: 52, newRecord: 52, disclaimer: 32, zero: 32 } },
 } as const;
 export type CardLayout = (typeof CARD_LAYOUT)[CardKind];
 export const UNFURL_COLUMN_GAP = 24; // between the unfurl's text column and its chart
@@ -59,11 +61,21 @@ export function zeroGutter(kind: CardKind): { labelW: number; gutter: number } {
 export const CARD_CHART_POINTS = 240;
 
 export type CardPoint = { at: number; value: number };
-// The CH-1 series (equityCurve: compounded, equal weight, one step per close), starting at 0% at the first close.
-export function cardSeries(trades: Pick<ConfidenceInput, 'returnPct' | 'closedAt'>[], max = CARD_CHART_POINTS): CardPoint[] {
-  const curve = equityCurve(trades);
-  if (!curve.length) return [];
-  const pts = [{ at: curve[0].trade.closedAt.getTime(), value: 0 }, ...curve.map((p) => ({ at: p.trade.closedAt.getTime(), value: p.cumulative }))];
+// F-4 (2026-11-01): which line the card draws. 'sum' = the running sum of per-trade returns in close order, for every
+// trader today; it ends at count × average, so it always agrees with the headline. 'account' = the account-weighted
+// line for a trader who opted in to position size (F-5, blocked): the seam is kept here, and it refuses to draw until
+// F-5 supplies the data, so no caller can show it by mistake.
+export type CardSeriesKind = 'sum' | 'account';
+type SeriesInput = Pick<ConfidenceInput, 'returnPct' | 'closedAt'> & Partial<Pick<ConfidenceInput, 'openedAt' | 'symbol'>>;
+const byClose = (a: SeriesInput, b: SeriesInput) =>
+  a.closedAt.getTime() - b.closedAt.getTime() || (a.openedAt?.getTime() ?? 0) - (b.openedAt?.getTime() ?? 0) || ((a.symbol ?? '') < (b.symbol ?? '') ? -1 : (a.symbol ?? '') > (b.symbol ?? '') ? 1 : 0);
+// Starts at 0% at the first close; one step per close, in order (ties broken by entry, then symbol: deterministic).
+export function cardSeries(trades: SeriesInput[], max = CARD_CHART_POINTS, kind: CardSeriesKind = 'sum'): CardPoint[] {
+  if (kind === 'account') throw new Error('the account-weighted line is not available before F-5 (position size)');
+  if (!trades.length) return [];
+  const sorted = [...trades].sort(byClose);
+  let sum = 0;
+  const pts = [{ at: sorted[0].closedAt.getTime(), value: 0 }, ...sorted.map((t) => ({ at: t.closedAt.getTime(), value: (sum += t.returnPct) }))];
   if (pts.length <= max) return pts;
   return downsampleIndices(pts.map((p) => p.at), pts.map((p) => p.value), max).map((i) => pts[i]);
 }
@@ -72,7 +84,7 @@ export type CardChart = { d: string; w: number; h: number; zeroY: number; down: 
 // One line in a w×h box, right of the gutter: x by close time, y over a range that always holds 0% and every point
 // (never cropped), the 0% baseline at zeroY. down = the record ends below 0% (the line takes the down color, as on the
 // profile chart).
-export function cardChart(trades: Pick<ConfidenceInput, 'returnPct' | 'closedAt'>[], box: { w: number; h: number }, g = { labelW: 0, gutter: 4 }): CardChart | null {
+export function cardChart(trades: SeriesInput[], box: { w: number; h: number }, g = { labelW: 0, gutter: 4 }): CardChart | null {
   const pts = cardSeries(trades);
   if (pts.length < 2) return null;
   const { w, h } = box;
@@ -87,9 +99,10 @@ export function cardChart(trades: Pick<ConfidenceInput, 'returnPct' | 'closedAt'
 }
 
 const since = (first: Date) => `Record since ${first.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })}`;
-// "Record since Mar 2024 · 31 months": the first entry (TR-3, the profile's "Record since") and the span to now.
-export function periodText(first: Date | null, now: Date, unit: SpanUnit = 'months'): string | null {
-  return first ? `${since(first)} · ${spanText(spanBetween(first, now), unit)}` : null;
+// "Record since Mar 2024 · 31 months": the first entry (TR-3, the profile's "Record since") and the record's length.
+// F-4 (2026-11-01): the card passes the last close as `end` (an idle record doesn't look longer).
+export function periodText(first: Date | null, end: Date, unit: SpanUnit = 'months'): string | null {
+  return first ? `${since(first)} · ${spanText(spanBetween(first, end), unit)}` : null;
 }
 
 // Round 1, demand 7: the trust line never ends on one word (its last two words are joined by a no-break space), a
@@ -104,7 +117,16 @@ export function disclaimerLines(d: string): string[] {
 // Round 1, demand 8: the profile link printed on the square / story pictures comes from the configured public origin
 // (NEXT_PUBLIC_SITE_URL, as sign-in links and the sitemap use), never from the request's Host header: the picture is
 // publicly cacheable, so a forged Host must not end up printed on it.
-export const cardLink = (env: Record<string, string | undefined>, handle: string) => `${new URL(siteUrl(env)).host}/u/${handle}`;
+// Orchestrator review (2026-11-01): a configured origin without a scheme ("example.com") gets https://; one that is no
+// URL at all prints no link (the card handles a null link) instead of failing the image route.
+export function cardLink(env: Record<string, string | undefined>, handle: string): string | null {
+  const o = siteUrl(env).trim();
+  try {
+    return `${new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(o) ? o : `https://${o}`).host}/u/${handle}`;
+  } catch {
+    return null;
+  }
+}
 
 export type CardInput = {
   kind: CardKind;
@@ -116,7 +138,49 @@ export type CardInput = {
   verified: boolean; // every closed trade from the broker (POLICY F3a)
   now: Date;
   link: string | null; // the profile link printed on the square / story pictures (they travel without an unfurl)
+  open?: number[]; // F-6: unrealized percent of each open position (0.05 = +5%), nothing else
 };
+
+// F-6 on the card (committee 2026-11-01): the open positions in words, percent only, no symbols, no combined figure and
+// no average (a number no account has, lib/positions.ts). Up/down/flat follow the printed one-decimal value; the
+// lowest comes first so a held loser is never hidden; one position, or all printed alike, reads "at x%".
+export type CardOpen = {
+  count: number; up: number; down: number; flat: number;
+  low: string; high: string; lowTone: Tone; highTone: Tone;
+  title: string; shortTitle: string; // "Still open: 3 positions" / "3 still open"
+  split: string; spread: string;
+  full: string; // "Still open: 3 positions · 2 up, 1 down · lowest -8.0%, highest +12.1%"
+  short: string; // the link preview's form: "3 still open · 2 up, 1 down · lowest -8.0%, highest +12.1%"
+  note: string;
+};
+type Tone = 'up' | 'down' | 'flat';
+const toneOf = (x: number): Tone => { const v = Number((x * 100).toFixed(1)); return v > 0 ? 'up' : v < 0 ? 'down' : 'flat'; };
+export function cardOpen(pcts: number[]): CardOpen | null {
+  const xs = pcts.filter(Number.isFinite);
+  if (!xs.length) return null;
+  const tones = xs.map(toneOf);
+  const up = tones.filter((t) => t === 'up').length, down = tones.filter((t) => t === 'down').length, flat = xs.length - up - down;
+  const lo = Math.min(...xs), hi = Math.max(...xs);
+  const low = pct(lo), high = pct(hi);
+  const split = `${up} up, ${down} down${flat ? `, ${flat} flat` : ''}`;
+  const spread = low === high ? `at ${low}` : `lowest ${low}, highest ${high}`;
+  return {
+    count: xs.length, up, down, flat, low, high, lowTone: toneOf(lo), highTone: toneOf(hi),
+    title: SHARE_CARD.openFull(xs.length), shortTitle: SHARE_CARD.openShort(xs.length), split, spread,
+    full: `${SHARE_CARD.openFull(xs.length)} · ${split} · ${spread}`, short: `${SHARE_CARD.openShort(xs.length)} · ${split} · ${spread}`, note: SHARE_CARD.openNote,
+  };
+}
+
+// The card's statistics (F-4, 2026-10-31): the range is the arithmetic one around the headline (lib/bets.ts); the
+// tier is confidence()'s thresholds with the "too wide" check on that same range; the trust line's sign reads it.
+export type CardEvidence = { n: number; k: number; tier: Tier; perTrade: Interval | null; spanDays: number };
+export function cardEvidence(trades: ConfidenceInput[], now: Date): CardEvidence {
+  const c = confidence(trades, now);
+  const r = arithmeticRange(trades);
+  const perTrade = r && { low: r.low, mid: r.mid, high: r.high };
+  const tier = c.k < MIN_BETS || !perTrade || tooWide(perTrade) ? 'too-early' : tierFor(c.k, c.spanDays);
+  return { n: c.n, k: c.k, tier, perTrade, spanDays: c.spanDays };
+}
 
 export type CardTone = 'ok' | 'muted' | 'warn' | 'demo';
 export type CardModel = {
@@ -128,7 +192,7 @@ export type CardModel = {
   note: string | null; // the failed-import line or the importing note
   body: string | null; // "No closed trades yet" / "Import in progress": no figures, no chart
   headline: string | null;
-  headlineTone: 'up' | 'down' | 'flat' | null;
+  headlineTone: Tone | null;
   headlineLabel: string | null;
   range: string | null;
   count: string | null; // countValue · countNote
@@ -144,6 +208,7 @@ export type CardModel = {
   link: string | null;
   disclaimer: string;
   chart: CardChart | null;
+  open: CardOpen | null; // F-6: the unrealized part, beside the realized figures
 };
 
 export function recordCard(i: CardInput): CardModel {
@@ -160,24 +225,29 @@ export function recordCard(i: CardInput): CardModel {
     headline: null, headlineTone: null, headlineLabel: null, range: null, count: null, countValue: null, countNote: null,
     period: null, periodSince: null, periodLength: null, evidence: null,
     newRecord: false, trust: null, caption: null, link: i.kind === 'unfurl' ? null : i.link, disclaimer: DISCLAIMER, chart: null,
+    // F-6: open positions only where the profile lists them (a broker record) and never while an import runs.
+    open: i.state !== 'none' && t.stats ? cardOpen(i.open ?? []) : null,
   };
   if (body !== null) return card;
 
   const avg = headline(i.trades).avgReturn; // the profile's "avg return / trade", the same number
-  const shown = Number((avg * 100).toFixed(1));
-  const c = confidence(i.trades, i.now);
+  const c = cardEvidence(i.trades, i.now);
   const first = new Date(Math.min(...i.trades.map((x) => x.openedAt.getTime())));
-  // Round 1, demand 1: one span (first entry to now) and one unit (the trust line's) for both lines.
-  const span: Span = spanBetween(first, i.now);
+  const last = new Date(Math.max(...i.trades.map((x) => x.closedAt.getTime())));
+  // Round 1, demand 1, and F-4 2026-11-01: one span (first trade to last close, as the profile's evidence line) and
+  // one unit (the trust line's) for both lines.
+  const span: Span = spanBetween(first, last);
   const periodLength = spanText(span, spanUnit(c.tier));
   const countValue = counted(n, 'closed trade');
   const L = CARD_LAYOUT[i.kind];
-  const box = { w: L.chart.w, h: L.chart.h - (t.note ? L.noteCut : 0) };
+  // The unfurl's chart gives up a row's height to the failed-import note and to the open-positions row (F-4
+  // 2026-10-31: about 24% of the preview with every element kept); the square and story keep theirs (30%).
+  const box = { w: L.chart.w, h: L.chart.h - (t.note ? L.noteCut : 0) - (card.open ? L.openCut : 0) };
   return {
     ...card,
     headline: pct(avg),
-    headlineTone: shown > 0 ? 'up' : shown < 0 ? 'down' : 'flat',
-    headlineLabel: SHARE_CARD.perTrade,
+    headlineTone: toneOf(avg),
+    headlineLabel: card.open ? SHARE_CARD.perClosedTrade : SHARE_CARD.perTrade,
     range: c.perTrade ? SHARE_CARD.likely(pct(c.perTrade.low), pct(c.perTrade.high)) : null,
     count: `${countValue} · ${SHARE_CARD.lossesIncluded}`, countValue, countNote: SHARE_CARD.lossesIncluded,
     period: `${since(first)} · ${periodLength}`, periodSince: since(first), periodLength,
@@ -203,7 +273,18 @@ export function cardAlt(m: CardModel): string {
     parts.push(`${m.count}.`, `${m.period}.`, `Chart: ${m.caption}.`, `${m.evidence}.`);
     if (m.trust) parts.push(m.trust);
   }
+  if (m.open) parts.push(`${SHARE_CARD.openAlt} ${counted(m.open.count, 'position')}, ${m.open.split}, ${m.open.spread}.`);
   if (m.link) parts.push(`${m.link}.`);
   parts.push(m.disclaimer);
   return parts.join(' ');
+}
+
+// F-4 (2026-11-01): the text under the link preview matches the card: the average per trade with its range, the
+// period and the evidence label (the closed-trade count comes first, from the profile's own wording), and no win rate
+// (on its own it can look good while the average is negative). F-6: the open positions in words when there are any.
+// null when the card shows no figures (empty or importing: the profile's own words stand alone).
+export function cardDescription(m: CardModel): string | null {
+  const open = m.open ? ` · ${m.open.full}` : '';
+  if (m.body !== null) return open ? open.slice(3) : null;
+  return `${m.headline} ${m.headlineLabel}${m.range ? `, ${m.range}` : ''} · ${m.period} · ${m.evidence}${open}`;
 }

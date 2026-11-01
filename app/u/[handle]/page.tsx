@@ -8,8 +8,8 @@ import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy, winRateText } from '@/lib/copy.ts';
-import { cardAlt } from '@/lib/record-card.ts';
+import { CLOSES_PAGING, connectedLine, FOLLOW, PROFILE, SETTINGS, profileDescription, RECORD_BODY, recordBodyCopy } from '@/lib/copy.ts';
+import { cardAlt, cardDescription } from '@/lib/record-card.ts';
 import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
@@ -76,10 +76,14 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const openGraph = { images: [{ url: `/u/${user.handle}/opengraph-image`, width: 1200, height: 630, type: 'image/png', alt: card ? cardAlt(card) : '' }] };
   // While any import runs the unfurl text quotes no stats (TR-3: nothing partial is presented as complete); with no
   // closes there is no stats line at all (PR-2b), only the profile's own empty-record words.
-  const statsText = `${winRateText(s.winRate)} · ${pct(s.avgReturn)} avg return · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
+  // F-4 (2026-11-01): the stats part is the card's own words (average per trade with its range, period, evidence; no
+  // win rate), from the same model as the image; F-6: open positions in words when the trader has any.
+  const cardText = card ? cardDescription(card) : null;
+  const statsText = cardText ?? `${pct(s.avgReturn)} average per trade · Evidence: ${c.tier === 'too-early' ? 'too early' : c.tier}`;
+  const base = profileDescription({ state, demo, verified, trades: s.trades, stats: statsText });
   return {
     title: `${user.display_name} (@${user.handle}) · Stock Social`,
-    description: profileDescription({ state, demo, verified, trades: s.trades, stats: statsText }),
+    description: s.trades === 0 && cardText ? `${base} ${cardText}.` : base,
     openGraph,
   };
 }
@@ -128,6 +132,8 @@ export default async function Profile({ params, searchParams }: Params) {
       })
     : { connected: 0, handles: [] as string[], byVia: {} as Record<string, number> };
   const sharePromptShowing = isMe && state !== 'importing' && state !== 'failed' && shouldShowSharePrompt(user as Parameters<typeof shouldShowSharePrompt>[0]);
+  // F-4 rework: the share prompt quotes the card's own range (around the average it prints) and alt, from its model.
+  const promptCard = sharePromptShowing ? await loadRecordCard(user.handle, 'unfurl') : null;
   const nt = isMe
     ? newTradesSince(trades.map((t) => ({ sellId: t.sell_id, symbol: t.symbol, returnPct: t.return_pct, closedAt: t.closed_at })), user.trades_prompt_seen_at)
     : { shown: [], more: 0 };
@@ -183,8 +189,8 @@ export default async function Profile({ params, searchParams }: Params) {
         <p role="alert" className="down"><b>{ACCOUNT_CLAIMED_TITLE}</b> {ACCOUNT_CLAIMED_BODY}</p>
       )}
       {isMe && !claimed && shareable && sharePromptShowing && (
-        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={range} isNew={isNew}
-          previewAlt={`Preview of your share card. ${cardAlt((await loadRecordCard(user.handle, 'unfurl'))!)}`} />
+        <SharePrompt handle={user.handle} displayName={user.display_name} trades={trades.length} range={promptCard?.range ?? null} isNew={isNew}
+          previewAlt={`Preview of your share card. ${promptCard ? cardAlt(promptCard) : ''}`} />
       )}
       {isMe && !claimed && user.trades_prompt_seen_at === null && <MarkTradesPromptSeen />}
       {isMe && !claimed && shareable && user.trades_prompt_seen_at !== null && !sharePromptShowing && nt.shown.length > 0 && (
