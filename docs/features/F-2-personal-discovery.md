@@ -141,5 +141,15 @@ Each one testable; the pipeline writes a test for every line.
   Why: the owner's decision in the design session of 2026-10-24.
 - Resolved 2026-10-24 (O5): the desktop layout stays a phone-width column for now. A separate web
   version will be designed later as its own feature. Why: owner decision.
+- Idea board 2026-11-01 (idea 7): the criterion "Raw events older than 90 days are deleted by a nightly job"
+  contradicts the 2026-11-01 indefinite-storage decision; restate or strike it before PR-5. Proposed: keep follows,
+  hides, permanent rejects, watchlist and a visible likes list; delete the implicit activity log and expired
+  like/reject events at 90 days; a "Your choices" page; a notice after two years idle.
+- Idea board 2026-11-01 (idea 8): keep Off; only the owner flips it, and a later default-on applies to new viewers
+  only; with logging off, "More like what you read" uses explicit signals; drop the model if under ~10% opt in.
+- Idea board 2026-11-01 (ideas 7-8): ordering by likes and rejects counts as an addictive feed under California
+  Health & Safety Code §27000.5 even with logging off; from 2027-01-01 (California) and 2027-01-25 (New York) it
+  needs a reasonable age determination, which self-attested 18+ likely isn't. Choose before then: follows-only
+  ordering without age assurance, an age-assurance step, or the attorney review's answer.
 
 ## Rework notes

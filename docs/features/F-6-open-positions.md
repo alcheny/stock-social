@@ -43,5 +43,12 @@ account divided between realized and unrealized gains and losses.
 
 ## Open questions
 - Resolved by the committee during the build (owner's instruction of 2026-11-01).
+- Idea board 2026-11-01 (idea 9): add the market-data gate: unrealized values reach real users only after the
+  vendor's written answer or a separately licensed price source (its terms bar redistributing market data). Chart:
+  realized-only line with a labeled unrealized marker (fits CH-1); "Open: N positions · X% unrealized" beside each
+  headline; "prices as of ‹time›"; image URL changes with the figure; per-security pages show aggregate counts only.
+- Idea board 2026-11-01 (idea 9): owner's call: withhold the symbol on thin names or delay new positions, and one
+  "Open" line instead of splitting every stat. The range has three definitions (TR-9, F-4, F-6); one rule must
+  govern.
 
 ## Rework notes
