@@ -9,6 +9,6 @@ export function siteOrigin(env: Record<string, string | undefined> = process.env
   const vercel = env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
   return (site || (vercel ? (/^https?:\/\//.test(vercel) ? vercel : `https://${vercel}`) : 'http://localhost:3000')).replace(/\/+$/, '');
 }
-// ponytail: a preview deploy without NEXT_PUBLIC_SITE_URL resolves the layout's canonical and image URLs (F-15
-// metadataBase) to the production origin, so a preview's link previews fetch production cards — fix: set
-// NEXT_PUBLIC_SITE_URL on preview deploys.
+// ponytail: a preview deploy without NEXT_PUBLIC_SITE_URL declares the production origin as its canonical link (the
+// framework itself uses the preview URL for social image URLs when VERCEL_ENV=preview, so only the canonical is
+// affected) — fix: set NEXT_PUBLIC_SITE_URL on preview deploys.
