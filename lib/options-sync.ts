@@ -3,15 +3,16 @@
 // lib/connections.ts only call these helpers; rebuildTrades and lib/trades.ts are untouched.
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
-import { FUTURE_GRACE_HOURS, INSERT_CHUNK, rebuildTrades } from './sync.ts';
+import { FUTURE_GRACE_HOURS, INSERT_CHUNK, rebuildTrades, USER_LOCK } from './sync.ts';
 import { chainsOf, loadCorporateActions, pairKey } from './corporate-actions.ts';
-import { contractKey, matchOptions, zeroCounts, type Counts, type OptionRow } from './options.ts';
+import { contractKey, matchOptions, parseOcc, zeroCounts, type Counts, type OptionRow } from './options.ts';
 import type { OptionPosition, PositionSplit } from './broker.ts';
 
 type Db = TransactionSql | typeof sql;
 export const OPTION_PAGE = 1000;
 // The database's OCC pattern (lib/options.ts#parseOcc): root, YYMMDD, C or P, 8-digit strike.
-export const OCC_SQL_PATTERN = '^[A-Z0-9./ -]{1,6}?[ ]*[0-9]{6}[CP][0-9]{8}$';
+// Fix round 6: matched against upper(btrim(symbol)), with any whitespace between root and date, as parseOcc does.
+export const OCC_SQL_PATTERN = '^[A-Z0-9./ -]{1,6}?\\s*[0-9]{6}[CP][0-9]{8}$';
 const notFuture = (db: Db) => db`(executed_at is null or executed_at <= now() + ${FUTURE_GRACE_HOURS}::float8 * interval '1 hour')`;
 const notPaper = (db: Db, userId: number) => db`not exists (select 1 from broker_accounts b where b.account_id = o.account_id and b.user_id = ${userId} and b.is_paper)`;
 
@@ -107,12 +108,54 @@ export async function rebuildOptionTrades(userId: number, tx: TransactionSql, as
 /** D4 (b): the taint set — (account, underlying, UTC day) of every exercise and assignment row, paper accounts and
  *  future-dated rows left out. */
 export async function exerciseDays(tx: Db, userId: number): Promise<{ account_id: string; underlying: string; day: string }[]> {
-  // Fix round 1 (review nit): a row without option_symbol taints through the activity's own symbol.
-  return tx`select distinct o.account_id, coalesce(o.underlying, o.raw->'symbol'->>'symbol') as underlying,
+  // Fix round 1 (review nit): a row without option_symbol taints through the activity's own symbol. Fix round 6: that
+  // symbol may be the OCC contract string; its root is the underlying (parseOcc), and a symbol that is neither is used as is.
+  const rows = await tx`select distinct o.account_id, coalesce(o.underlying, o.raw->'symbol'->>'symbol') as underlying,
       to_char((o.executed_at at time zone 'UTC')::date, 'YYYY-MM-DD') as day from option_activities o
     where o.user_id = ${userId} and o.kind in ('OPTIONEXERCISE', 'OPTIONASSIGNMENT') and o.account_id is not null
       and coalesce(o.underlying, o.raw->'symbol'->>'symbol') is not null
-      and o.executed_at is not null and ${notPaper(tx, userId)} and ${notFuture(tx)}` as never;
+      and o.executed_at is not null and ${notPaper(tx, userId)} and ${notFuture(tx)}`;
+  const out = new Map<string, { account_id: string; underlying: string; day: string }>();
+  for (const r of rows) {
+    const underlying = parseOcc(r.underlying)?.root ?? (r.underlying as string);
+    out.set(`${r.account_id}|${underlying}|${r.day}`, { account_id: r.account_id as string, underlying, day: r.day as string });
+  }
+  return [...out.values()];
+}
+
+// The option pairs among the rows the rebuild reads (paper accounts and future-dated rows left out), their closes removed.
+async function removeOptionPairs(tx: TransactionSql, userId: number): Promise<number> {
+  const pairs = await tx`select o.account_id, o.symbol, count(*) filter (where o.side = 'SELL')::int as sells from activities o
+    where o.user_id = ${userId} and (upper(btrim(o.symbol)) ~ ${OCC_SQL_PATTERN} or o.raw->>'option_type' is not null)
+      and ${notPaper(tx, userId)} and ${notFuture(tx)} group by o.account_id, o.symbol`;
+  if (!pairs.length) return 0;
+  const hit = await tx`select c.sell_id, c.thesis, c.thesis_status from closed_trades c
+    join (select * from jsonb_to_recordset(${tx.json(pairs.map((p) => ({ account_id: p.account_id, symbol: p.symbol })) as never)}::jsonb) as t(account_id text, symbol text)) t
+      on t.account_id = c.account_id and t.symbol = c.symbol
+    where c.user_id = ${userId}`;
+  await keepTheses(tx, userId, hit.filter((h) => h.thesis !== null));
+  if (hit.length) await tx`delete from closed_trades where user_id = ${userId} and sell_id in ${tx(hit.map((h) => h.sell_id as string))}`;
+  const sells = pairs.reduce((a, p) => a + (p.sells as number), 0);
+  const orphans = Math.max(0, sells - hit.length);
+  if (orphans) await tx`update users set excluded_positions = greatest(0, excluded_positions - ${orphans}) where id = ${userId}`;
+  return sells;
+}
+
+/** Fix round 6 (orchestrator review blocking 1): records rebuilt before this PR (frozen ones never sync again) may still
+ *  hold a close from an option pair. Rebuilds each such record with rebuildRecord under the trader's lock. Idempotent:
+ *  a repaired record holds no such close, so the next call finds nothing. Run by scripts/db-setup.ts. `ids` is a test hook. */
+export async function repairOptionShareCloses(ids?: number[]): Promise<number> {
+  const users = await sql`select distinct c.user_id from closed_trades c
+    where ${ids ? sql`c.user_id in ${sql(ids.length ? ids : [0])} and` : sql``}
+      (upper(btrim(c.symbol)) ~ ${OCC_SQL_PATTERN} or exists (select 1 from activities a where a.user_id = c.user_id and a.account_id = c.account_id
+        and a.symbol = c.symbol and (upper(btrim(a.symbol)) ~ ${OCC_SQL_PATTERN} or a.raw->>'option_type' is not null)))`;
+  for (const u of users) {
+    await sql.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(${USER_LOCK}, ${u.user_id as number})`;
+      await rebuildRecord(u.user_id as number, tx);
+    });
+  }
+  return users.length;
 }
 
 // Theses of closes the rebuild removes go to kept_theses (re-attached by sell_id if the close returns), with the same
@@ -153,12 +196,12 @@ export async function rebuildRecord(userId: number, tx?: TransactionSql, asOf = 
     // can remove an unrelated trade, and it keeps delivered buys, whose basis leaves out the premium); shares delivered or
     // removed by an exercise or assignment may also arrive as PR #40's transfer-in or adjustment rows (its lot handling;
     // renames are followed, fix round 2) — the exact rule, per delivered or removed lot, belongs inside the share matcher.
-    // Fix round 1 (review 5, QA 3): an option row stored on the share path before the importer routed it (an OCC string as
-    // its symbol) never becomes a public close: removed here on every rebuild, counted as an option exclusion.
-    // Fix round 2 (re-review B): their theses are kept aside first, as the taint step does.
-    await keepTheses(tx, userId, await tx`select sell_id, thesis, thesis_status from closed_trades
-      where user_id = ${userId} and upper(symbol) ~ ${OCC_SQL_PATTERN} and thesis is not null`);
-    const occRemoved = (await tx`delete from closed_trades where user_id = ${userId} and upper(symbol) ~ ${OCC_SQL_PATTERN}`).count;
+    // Fix round 1 (review 5, QA 3), round 6 (orchestrator review blocking 1): an option row stored on the share path before
+    // the importer routed it never becomes a public close. Every (account, symbol) with a row whose symbol is an OCC
+    // contract or whose raw row carries option_type is an option pair: its closes are removed on every rebuild (theses
+    // kept aside, round 2) and each of its sells — a close or a sell with no entry — is counted once, under options; a
+    // sell with no entry leaves users.excluded_positions so it is not counted twice.
+    const occRemoved = await removeOptionPairs(tx, userId);
     // Fix round 2 (re-review A): a rename (PR #40's chain matching) gives the close the new symbol, so each taint row
     // covers every symbol in its rename chain, in the same account, as rebuildTrades matches them.
     const taint = await withRenames(tx, userId, await exerciseDays(tx, userId));
@@ -206,8 +249,11 @@ export async function replaceOptionPositions(tx: TransactionSql, userId: number,
 /** D7 (E1): removes open_positions rows whose symbol is an OCC contract (it carries the strike). Runs after each
  *  positions write (one user) and in scripts/db-setup.ts and the privacy purge (everyone, frozen traders included). Not
  *  in schema.sql, which may not delete. Returns how many rows went. */
+// ponytail: an option on a future stored in open_positions before this PR (a frozen trader's) also carries a strike, but
+// futures option symbols have no one safe pattern across venues, so they are not purged here — the positions endpoint now
+// counts every future_option as unsupported (never stored); purge them by instrument id if the vendor's ids are kept.
 export async function purgeOccPositions(db: Db = sql, userId?: number): Promise<number> {
-  const r = await db`delete from open_positions where upper(symbol) ~ ${OCC_SQL_PATTERN} ${userId === undefined ? db`` : db`and user_id = ${userId}`}`;
+  const r = await db`delete from open_positions where upper(btrim(symbol)) ~ ${OCC_SQL_PATTERN} ${userId === undefined ? db`` : db`and user_id = ${userId}`}`;
   return r.count;
 }
 

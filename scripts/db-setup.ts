@@ -16,8 +16,11 @@ await sql.unsafe(readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf
 console.log('db-setup: schema applied');
 // OPTIONS (docs/features/logs/options/plan.md D7): option contract symbols stored in open_positions before the fix are
 // removed here, which reaches frozen traders who never sync again (schema.sql may not delete). A count only.
-const { purgeOccPositions } = await import('../lib/options-sync.ts');
+const { purgeOccPositions, repairOptionShareCloses } = await import('../lib/options-sync.ts');
 console.log(`db-setup: ${await purgeOccPositions()} option contract positions removed`);
+// OPTIONS fix round 6: records rebuilt before options were routed (frozen ones never sync again) are rebuilt once with
+// rebuildRecord, so no option row stays a public share close. Idempotent; a count only.
+console.log(`db-setup: ${await repairOptionShareCloses()} records rebuilt without option rows on the share path`);
 
 if (process.env.VERCEL_ENV === 'preview' || process.env.SEED === '1') {
   await import('./seed.ts'); // closes the pool when done

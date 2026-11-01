@@ -60,7 +60,14 @@ largest legal risk of this product.
 | State securities ("blue sky") laws and state adviser registration | Each state has its own adviser definition and exemptions; some are stricter than federal. | A feature legal federally can still require state registration. Counsel reviews F-2/F-3 per state. |
 | FINRA rules | Apply to member broker-dealers; not to this app unless it becomes one. | A reminder of why F5 exists: becoming a broker-dealer brings FINRA. |
 | Anti-touting and promotion rules (Securities Act §17(b); SEC/FTC actions on "finfluencers") | Paid promotion of securities without disclosure. | No one can pay for visibility; no sponsored records; theses that promote a security for compensation are user-content violations (Section 6). |
-| CFTC / NFA | Futures, options on futures, forex. | Re-reviewed 2026-11-01 (options support, `docs/features/logs/options/`): listed equity and ETF options are imported read-only. Long options are shown as percent only under the per-trader consent gate; short options, exercises and assignments are counted. Strike, premium, contract counts and OCC symbols are private. Labels never name a direction, an outcome or urgency. Open option positions are profile-only, never pushed or aggregated per security. Options on futures and other underlyings stay out of scope and are counted. Index options are not claimed. |
+| CFTC / NFA | Futures, options on futures, forex. | Options and futures are out of scope; `fetchActivities` skips them. If added, re-review. |
+
+**Re-review 2026-11-01 (options support, `docs/features/logs/options/`):** listed equity and ETF options are SEC/FINRA-regulated
+securities, not CFTC products; they are now imported read-only. Long options are shown as percent only under the per-trader
+consent gate; short options, exercises and assignments are counted. Strike, premium, contract counts and OCC symbols are
+private. Labels never name a direction, an outcome or urgency. Open option positions are profile-only, never pushed or
+aggregated per security. Futures, options on futures and other non-stock underlyings stay out of scope (the row above) and
+are counted, never shown. Index options are not claimed.
 
 **Procedures:** every performance surface carries the disclaimer (F3). Copy review against the banned
 words list (F2, scanner). Any new ranking, label, badge, alert or suggestion goes to counsel before
