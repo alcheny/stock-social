@@ -4,7 +4,7 @@
 // declared by the trade page's generateMetadata (it depends on the record).
 import { ImageResponse } from 'next/og';
 import { notFound } from 'next/navigation';
-import { permanentRedirect } from 'next/navigation'; // F-25
+import { permanentRedirect } from 'next/navigation'; // F-25 (its own line: lib/f12-followups.test.ts pins the notFound import)
 import { DISCLAIMER } from '@/lib/share.ts';
 import { decodeSellId, legacyTradeKey, loadTradeShareByKey } from '@/lib/trade-share-load.ts';
 import { tradePageHref } from '@/lib/trade-href.ts';

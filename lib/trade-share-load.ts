@@ -20,8 +20,8 @@ export async function loadTradeShareByKey(handle: string, tradeKey: string) {
   return loadTrade(handle, sql`ct.trade_key = ${tradeKey}`);
 }
 
-// The trade a legacy URL names by its closing sell's vendor id. Kept for old shared links (the page and image answer 308
-// to the trade_key form) and for tests; never used to build a URL.
+// The trade by its closing sell's vendor id: test-only since F-25 (lib/thesis-save, f7-routes, options-strip and others load
+// fixtures by sell id); the pages load by key, and old links resolve through legacyTradeKey. Never used to build a URL.
 export async function loadTradeShare(handle: string, sellId: string) {
   if (sellId.includes('\0')) return null; // F12: junk in the URL is a 404, not a database error
   return loadTrade(handle, sql`ct.sell_id = ${sellId}`);

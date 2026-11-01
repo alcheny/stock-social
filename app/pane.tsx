@@ -115,18 +115,16 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
           // the highlighted row's link carries aria-current (moved from the <li>). A row without a key (none in practice:
           // records1 keys the 5 latest) stays plain text rather than linking elsewhere.
           <li key={t.id}>
-            {t.tradeKey ? (
-              <Link href={tradePageHref({ handle, tradeKey: t.tradeKey })} className={t.id === highlight ? 'line f25-row hl' : 'line f25-row'} aria-current={t.id === highlight ? 'true' : undefined}>
+            {(() => {
+              const cls = t.id === highlight ? 'line hl' : 'line', current = t.id === highlight ? 'true' as const : undefined;
+              const cells = <>
                 <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
                 <b className={toneClass(t.returnPct)}><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</b>
-                <span className="sr-only">{TRADE_LINK.suffix(t.symbol)}</span>
-              </Link>
-            ) : (
-              <div className={t.id === highlight ? 'line hl' : 'line'} aria-current={t.id === highlight ? 'true' : undefined}>
-                <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
-                <b className={toneClass(t.returnPct)}><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</b>
-              </div>
-            )}
+              </>;
+              return t.tradeKey
+                ? <Link href={tradePageHref({ handle, tradeKey: t.tradeKey })} className={`${cls} f25-row`} aria-current={current}>{cells}<span className="sr-only">{TRADE_LINK.suffix(t.symbol)}</span></Link>
+                : <div className={cls} aria-current={current}>{cells}</div>;
+            })()}
           </li>
         ))}
       </ul>

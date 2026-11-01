@@ -8,7 +8,7 @@ import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from 
 import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { toneClass } from '@/lib/open-split.ts';
 import { decodeSellId, legacyTradeKey, loadTradeShareByKey } from '@/lib/trade-share-load.ts';
-import { tradePageHref } from '@/lib/trade-href.ts'; // F-25: the one trade URL builder
+import { tradePageHref, withQuery } from '@/lib/trade-href.ts'; // F-25: the one trade URL builder
 import { tradeAlt, tradeDescription, tradeStripInput } from '@/lib/trade-share.ts';
 import { recordStrip } from '@/lib/record-strip.ts';
 import { RecordStrip } from '@/app/record-strip.tsx';
@@ -44,9 +44,7 @@ async function legacyRedirect(p: Params['params'], q: Search['searchParams']) {
   const id = decodeSellId(segment);
   const key = id === null ? null : await legacyTradeKey(handle, id);
   if (!key) return;
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(await q)) for (const x of Array.isArray(v) ? v : v === undefined ? [] : [v]) qs.append(k, x);
-  permanentRedirect(tradePageHref({ handle, tradeKey: key }) + (qs.size ? `?${qs}` : ''));
+  permanentRedirect(withQuery(tradePageHref({ handle, tradeKey: key }), await q));
 }
 async function load(p: Params['params']) {
   const { handle, sellId } = await p;

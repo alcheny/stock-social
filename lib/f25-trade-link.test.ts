@@ -7,7 +7,7 @@ import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { createRequire, registerHooks } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { MARKS, MINORS, PROMO } from '../scripts/compliance.ts';
-import { tradePageHref, TRADE_KEY_RE } from './trade-href.ts';
+import { tradePageHref, TRADE_KEY_RE, withQuery } from './trade-href.ts';
 import { PUBLIC, RECORD_LINK, RECORD_LINK_ARROW, TRADE_LINK, signWord } from './copy.ts';
 import { pct } from './format.ts';
 import { tone } from './format.ts';
@@ -22,6 +22,19 @@ test('F-25 tradePageHref: /u/<handle>/trade/<trade_key>, and nothing but a 64-he
   assert.equal(tradePageHref({ handle: 'momentum_maya', tradeKey: KEY }), `/u/momentum_maya/trade/${KEY}`);
   for (const bad of ['', 'sell-1', 'C'.repeat(64), 'c'.repeat(63), `${KEY}0`, 'a/b', '../x']) assert.throws(() => tradePageHref({ handle: 'h', tradeKey: bad }), bad);
   assert.ok(TRADE_KEY_RE.test(KEY));
+});
+
+test('F-25 withQuery: the legacy 308 keeps every query value (via, repeated keys, reserved characters); none gives the bare href', () => {
+  const h = `/u/maya/trade/${KEY}`;
+  assert.equal(withQuery(h, {}), h);
+  assert.equal(withQuery(h, { via: undefined }), h);
+  assert.equal(withQuery(h, { via: 'trade' }), `${h}?via=trade`);
+  assert.equal(withQuery(h, { via: 'trade', tag: ['a', 'b'] }), `${h}?via=trade&tag=a&tag=b`);
+  const u = new URL(withQuery(h, { q: 'a&b=c %#?', via: 'trade' }), 'http://x.invalid');
+  assert.equal(u.pathname, h);
+  assert.equal(u.searchParams.get('q'), 'a&b=c %#?');
+  assert.equal(u.searchParams.get('via'), 'trade');
+  assert.equal(u.hash, '');
 });
 
 test('F-25 TRADE_LINK: names carry the symbol, the sign word matching tone(), the printed % and the destination', () => {
@@ -87,7 +100,7 @@ test('F-25: the legacy lookup and its 308 live in the page body and the image ro
   assert.match(body, /if \(!t\) \{ await legacyRedirect\(params, searchParams\); notFound\(\); \}/);
   const legacy = page.slice(page.indexOf('async function legacyRedirect'), page.indexOf('const held'));
   assert.match(legacy, /legacyTradeKey\(handle, id\)/);
-  assert.match(legacy, /permanentRedirect\(tradePageHref\(\{ handle, tradeKey: key \}\) \+ \(qs\.size \? `\?\$\{qs\}` : ''\)\)/);
+  assert.match(legacy, /permanentRedirect\(withQuery\(tradePageHref\(\{ handle, tradeKey: key \}\), await q\)\)/);
   const img = code(read('app/u/[handle]/trade/[sellId]/opengraph-image.tsx'));
   assert.match(img, /legacyTradeKey\(handle, id\)/);
   assert.match(img, /permanentRedirect\(`\$\{tradePageHref\(\{ handle, tradeKey: legacy \}\)\}\/opengraph-image`\)/);
