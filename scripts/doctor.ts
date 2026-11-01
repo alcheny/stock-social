@@ -19,7 +19,7 @@ export const DOCTOR_ALLOWED = ['/.github/workflows/', '/scripts/', '/team/', '/d
 export const DOCTOR_FORBIDDEN = ['/.github/CODEOWNERS', '/.github/workflows/ci.yml', '/.github/workflows/gate.yml', '/.github/workflows/doctor.yml',
   '/scripts/doctor.ts', '/scripts/doctor.test.ts', '/scripts/invariants.test.ts', '/team/doctor.md', '/package.json', '/package-lock.json',
   '/docs/POLICY.md', '/SECURITY.md', '/scripts/compliance.ts', '/scripts/compliance.test.ts', '/scripts/policy.test.ts', '/scripts/workflow-security.test.ts',
-  '/scripts/features.ts', '/.github/workflows/features.yml'];
+  '/scripts/features.ts', '/.github/workflows/features.yml', '/scripts/handoff.ts', '/scripts/handoff.test.ts'];
 const matches = (file: string, patterns: string[]) => patterns.some((p) => {
   const q = p.replace(/^\//, '');
   return q.endsWith('/') ? file.startsWith(q) : file === q;

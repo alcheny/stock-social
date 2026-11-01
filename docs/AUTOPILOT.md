@@ -21,6 +21,67 @@ Security rules for the loop itself (rule R in the policy; tested by `scripts/wor
   runs) and pass explicit tool allowlists; no agent step ever gets `GH_TOKEN`.
 - No `${{ github.event.* }}` inside `run:`; no `pull_request_target` job checks out PR code; third-party
   actions are pinned to full commit SHAs (Dependabot updates them); the Gate ignores fork PRs.
+- **Agents never share a job with a write token** (`build.yml` and `features.yml`; owner's decision 2026-11-01).
+  An agent with every tool is root on its runner: it could read any token the job holds, and edit `$LOOP_DIR`,
+  `~/.local/bin`, `GITHUB_ENV` and `GITHUB_PATH`. So each task runs as three jobs:
+  - `prepare` runs no agents and only main's scripts (`loop/`). It reads the task from GitHub and, on a line's first
+    round, pushes the line branch. `handoff.ts prep` checks that no token is left in `.git`, then the job uploads the
+    prepared workspace.
+  - The agents' job (`variant`/`build`) has `permissions: contents: read` and nothing else, and no GitHub token in any
+    step. It uploads `agent-<key>`: a git bundle of its commits since the base, plus `.autopilot/result.json`,
+    `handoff.md` and `plan.json`.
+  - `publish` runs on a fresh runner and executes only a fresh checkout of main's loop, never the agents' checkout or
+    `$LOOP_DIR`. It installs nothing and restores no cache. It takes the branch, the base commit and the base ref from
+    the pick job and from GitHub, never from an artifact (for a fix, from the PR: the new commits must build on its
+    head).
+  - `scripts/handoff.ts verify` refuses the hand-off, and nothing is pushed, unless:
+    - the artifact holds only the known plain files, within size caps;
+    - the bundle has one head that descends from the trusted base, and its objects pass `git fsck --strict`;
+    - it changes at most 3000 paths. A path counts as changed when it differs from every trusted copy: the base,
+      main and the base ref now, the main commit the branch merged in, and git's clean merge of the base with that
+      commit. So taking the owner's copy in a merge is not a change, even when main has moved on since;
+    - none of those paths are protected (`PROTECTED` in `team.ts`; on a line, also `LOOP_PATHS`), apart from the
+      team's own `docs/features/logs/`;
+    - none are a symlink, a submodule, `.gitattributes`, `.gitmodules`, `.lfsconfig`, a CODEOWNERS file or a file that
+      instructs agents (`CLAUDE.md`, `AGENTS.md`, `.mcp.json`, `.claude/`);
+    - the target is not `main` or a line branch;
+    - the tree is still clean once the hand-off files are in place, and `.autopilot/` is still ignored.
+
+    Publish then pushes one new commit of the verified tree, never the agents' history (a side parent or a commit
+    message is never checked). Its parents are the base and the main commit the branch merged in, so the PR stays
+    mergeable. A refusal is posted to the PR or issue when there is one. A refused feature build has neither, so it
+    is recorded on the feature as `Status: blocked` (`features.ts refused`), which stops the planner rebuilding it
+    every round until the owner clears it.
+
+    Which artifact is the leg's own: every leg's root agent holds the run's runtime token, so a name like
+    `agent-b` proves nothing. Publish (`handoff.ts artifact`) first checks that the leg's own agents' job (found by
+    its job name) succeeded. It then reads the artifact ID that upload-artifact printed in that job's log, which no
+    other leg can write, and downloads by that ID. Each leg names its artifact `agent-<key>-<32 random hex>`, drawn
+    after its agents finished, so another leg can't take the name first and knock it out. A leg with nothing to
+    publish gets a warning annotation, plus a comment on its PR or issue when it has one. A line's round must build
+    on the line commit the prepare job recorded (no agents, after its loop sync), so a branch reset to an older line
+    commit with older guardrails is refused. A line that moved on during the run is still fine. A verify that crashes
+    (GitHub unreachable) writes no refusal, so it never blocks a feature.
+
+    It also cleans the agents' text before the bot posts it. Every HTML comment is defanged, so an agent can't forge
+    the loop's markers (`approved:`, attempts, costs, limits). GitHub's closing keywords (`Closes #12`) and the
+    hand-off notes heading are neutralized too. `committeePath` is kept only when it is a committee
+    record path. Only after this does Publish run `features.ts publish`/`resolved`/`notes` or `autopilot.ts publish`
+    with `GITHUB_TOKEN`. CODEOWNERS-only paths (`package.json`, `lib/broker.ts`, …) may still be published to a PR
+    into main, because the Gate never auto-merges them.
+  - No job that holds a write token restores a cache, since agents on main's ref can write main's cache.
+  - What remains: a root agent holds its job's Actions runtime token, which reaches every artifact and cache in the
+    run.
+    - Another leg's hand-off can no longer be swapped in: Publish downloads only the artifact ID logged by its own
+      leg. An agent can still point its own leg at another artifact (for example by faking that log line through
+      its own runner), but only to publish what it could already push to its own branch.
+    - It could seed main-scoped caches. npm checks every package against `package-lock.json`, and no write-token job
+      restores a cache. But CI's other caches (browsers, the Next.js build) are restored on PRs; they belong to
+      `ci.yml`, which needs its own fix.
+    - It could set `limit: true` in `result.json`, which pauses new work for `LIMIT_COOLDOWN_HOURS`. Agent
+    text (PR title, summary, notes) is still agent-authored, passed to `gh` as arguments, never through a shell.
+    `doctor.yml`, `plan.yml`, `judge.yml` and `review.yml` still run their agents beside a token and are not split
+    yet.
 
 These files are owner-only: `docs/POLICY.md`, `SECURITY.md`, `scripts/compliance.ts` and its tests,
 `scripts/policy.test.ts`, `scripts/workflow-security.test.ts`. They're in CODEOWNERS, `LOOP_PATHS`
@@ -379,7 +440,8 @@ business-lead: agree? ──yes──► done
 Every branch (so every variant A, B and C, and every fix) is built by its own small product team. Each
 role is a **separate headless Claude Code call**: fresh context, its own tools, a JSON answer, and turn
 and dollar caps. `scripts/team.ts` runs the loops, enforces the caps, and writes everything down. The
-agents hold no GitHub credentials; the Publish step pushes afterwards.
+agents' job holds no write token. The Publish job runs afterwards on a fresh runner: it verifies the bundle the
+agents handed over (`scripts/handoff.ts`), then pushes it (Security, above).
 
 ```
             ┌──────────── feedback (≤ SPEC_ROUNDS) ────────────┐
