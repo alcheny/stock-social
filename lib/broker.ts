@@ -2,6 +2,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Snaptrade, SnaptradeAuth } from 'snaptrade-typescript-sdk';
 import type { Activity } from './trades.ts';
+import { fromVendorRows, type VendorRow } from './corporate-actions.ts';
 
 // SNAPTRADE_BASE_URL points the SDK at the in-repo fake in tests (e2e/fakes/vendor.ts); unset, the SDK uses the vendor.
 const client = () =>
@@ -164,4 +165,25 @@ export async function fetchActivities(u: BrokerUser, since: Date, accountIds?: s
     }
   }
   return out;
+}
+
+// ---- Corporate actions (POLICY F3c, PR #40; docs/features/logs/corporate-actions/) ----
+// Kept apart from the trade import above. The share-moving rows of an account's whole history, read with the vendor's
+// own type filter values as the SDK documents them for this endpoint (`SPLIT`, `STOCK_DIVIDEND`, `REI`, `TRANSFER`),
+// mapped by lib/corporate-actions.ts#fromVendorRows: splits and stock dividends become actions, a dividend reinvestment
+// with units and a price becomes a BUY, transfers and anything else that moves shares become unpriceable (counted).
+// The whole history is read on every call: these rows are rare, and an action dated before the sync window still
+// reprices the lots it touches.
+// ponytail: renames (the vendor's ADJUSTMENT rows) and transfers from outside the vendor (EXTERNAL_ASSET_TRANSFER_IN/OUT)
+// are not filter values the SDK documents for this endpoint, so they are not read: a renamed position's sells oversell
+// and are excluded (counted), never priced — fix: read them once the vendor documents those filter values.
+export const SHARE_MOVE_TYPES = 'SPLIT,STOCK_DIVIDEND,REI,TRANSFER';
+export async function fetchShareMoves(u: BrokerUser, accountId: string): Promise<ReturnType<typeof fromVendorRows>> {
+  const rows: VendorRow[] = [];
+  for (let offset = 0; ; offset += PAGE_LIMIT) {
+    const { data } = await bounded((o) => client().accountInformation.getAccountActivities({ ...auth(u), accountId, type: SHARE_MOVE_TYPES, offset, limit: PAGE_LIMIT }, o));
+    rows.push(...((data.data ?? []) as VendorRow[]));
+    if ((data.data?.length ?? 0) < PAGE_LIMIT) break;
+  }
+  return fromVendorRows(accountId, rows);
 }

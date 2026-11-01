@@ -330,9 +330,50 @@ test('the emailed link opened on another host of the same server lands signed in
   const other = new URL(link.toString());
   other.hostname = link.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
   await page.goto(other.toString());
+  // Security hardening (2026-11-01), F14: the other host does not see this browser's attempt cookie (cookies are per
+  // host), so the link asks first; pressing Continue signs in there.
+  await page.getByRole('button', { name: 'Continue signing in' }).click();
   const handle = await landedOnNotice(page, `^${other.origin.replace(/[.]/g, '\\.')}`); // signed in where the cookie was set
   const sql = await db();
   await sql`delete from users where handle = ${handle}`;
+});
+
+test('security hardening (F14): the link opened in another browser only reads it: a confirm step names the masked address, nothing is claimed until Continue (a POST), which then signs that browser in', async ({ page }) => {
+  const email = `cnf-${uniq()}@example.com`;
+  await page.goto('/login');
+  await attest(page).check();
+  await page.getByLabel('Email').fill(email);
+  await page.getByRole('button', { name: 'Send me a link' }).click();
+  await expect(page).toHaveURL(/\/login\/sent\?a=\d+$/);
+  const id = Number(page.url().match(/a=(\d+)/)![1]);
+  const link = await lastLink(page);
+  const sql = await db();
+  const fresh = await page.context().browser()!.newContext();
+  try {
+    const other = await fresh.newPage();
+    // A mail scanner's or a preview's GET: nothing claimed, nobody signed in.
+    const scan = await fresh.request.get(link, { maxRedirects: 0 });
+    expect(scan.status()).toBe(303);
+    expect(scan.headers()['location']).toMatch(/\/auth\/email\/confirm\?t=/);
+    await other.goto(link);
+    await expect(other).toHaveURL(/\/auth\/email\/confirm\?t=/);
+    await expect(other.getByRole('heading', { level: 1, name: 'Continue signing in' })).toBeVisible();
+    await expect(other.getByText(`This link signs in the account for c•••@example.com.`)).toBeVisible();
+    expect(await other.locator('main').innerText()).not.toContain(email);
+    expect((await sql`select used_at from login_links where attempt_id = ${id}`)[0].used_at).toBeNull();
+    expect((await fresh.cookies()).find((c) => c.name === 'sid')).toBeUndefined();
+    const button = other.getByRole('button', { name: 'Continue signing in' });
+    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await button.click();
+    const handle = await landedOnNotice(other);
+    expect((await sql`select used_at from login_links where attempt_id = ${id}`)[0].used_at).toBeTruthy();
+    // The asking browser's own copy of the link is now used.
+    await page.goto(link);
+    await expect(page).toHaveURL(/\/login\?error=used$/);
+    await sql`delete from users where handle = ${handle}`;
+  } finally {
+    await fresh.close();
+  }
 });
 
 test('an expired link says expired, keeps the address and offers "Send a new link"', async ({ page }) => {
@@ -426,6 +467,8 @@ for (const key of ['provider_a', 'provider_b'] as const) {
     const before = await maxAttempt();
     await button.click();
     const handle = await landedOnNotice(page);
+    // Security hardening (2026-11-01), F15: the signed transaction cookie is cleared on its own path once used.
+    expect((await page.context().cookies()).find((c) => c.name === 'auth_tx')).toBeUndefined();
     const sql = await db();
     // The new user's own attempt (a global count races with app.spec.ts's dev sign-ins in the other worker).
     const [att] = await sql`select a.id, a.method, a.completed_at from signup_attempts a join users u on u.signup_attempt_id = a.id where u.handle = ${handle}`;
