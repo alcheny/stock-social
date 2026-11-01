@@ -5,7 +5,8 @@ import { sql } from '@/lib/db.ts';
 import { NotFound } from '../result/connection-not-found.tsx';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser } from '@/lib/session.ts';
-import { CONSENT } from '@/lib/copy.ts';
+import { CONSENT, LAUNCH } from '@/lib/copy.ts';
+import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 import { consentAction, declineAction } from '../actions.ts';
 
 // S4 consent: names the import depth before anything is read. The 24-hour clock is applied on this read too, so an
@@ -25,15 +26,20 @@ export default async function Consent({ searchParams }: { searchParams?: Promise
   }
   if (c.state !== 'pending') redirect(`/connect/result?c=${c.id}`);
   const { total, paper } = accountCounts(c);
+  const allowed = await connectAllowed(me);
+  // Privacy work (D9): the deadline sits under the buttons (consent-page CSS block) so the primary stays above the fold
+  // with the longer public-scope line. Launch gate (D8): closed, no import; "Don't import" still removes the link.
   return (
-    <main className="page auth">
+    <main className="page auth consent">
       <h1>{CONSENT.title}</h1>
       <ul className="notice">
         {CONSENT.lines(total, paper).map((l) => <li key={l}>{l}</li>)}
       </ul>
-      <p className="muted small">{CONSENT.deadline}</p>
-      <form action={consentAction}><input type="hidden" name="c" value={c.id} /><button className="wide">{CONSENT.primary}</button></form>
+      {allowed
+        ? <form action={consentAction}><input type="hidden" name="c" value={c.id} /><button className="wide">{CONSENT.primary}</button></form>
+        : <p role="status">{LAUNCH.connectClosed}</p>}
       <form action={declineAction}><input type="hidden" name="c" value={c.id} /><button className="wide secondary">{CONSENT.secondary}</button></form>
+      <p className="muted small">{CONSENT.deadline}</p>
     </main>
   );
 }

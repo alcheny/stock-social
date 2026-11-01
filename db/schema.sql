@@ -378,3 +378,48 @@ create table if not exists trade_exclusions (
 -- Fix round 1: when the hidden trade was liked, the like's time (Undo restores the like; a hidden trade is never liked).
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
+
+-- Privacy work (2026-11-01, docs/features/logs/privacy/committee-2026-11-01.md). Every table here is in
+-- lib/privacy-retention.ts#SCHEMA_MAP (a test fails for a table without an entry).
+-- D10: a like or rejected trade whose trade is gone. This supersedes "kept and ignored on read" above for likes and
+-- rejects only: the tick (lib/privacy-purge.ts) marks one when its trade_key first matches no closed trade, clears the
+-- mark when the trade is back (a simulated flag lifted, a vendor correction), and removes the like or reject only after
+-- 30 days orphaned. A like with a live trade is never removed by any timer (owner, 2026-11-01).
+create table if not exists privacy_orphans (
+  kind text not null check (kind in ('like', 'reject')),
+  viewer_id int not null references users on delete cascade,
+  trade_key text not null,
+  first_seen_at timestamptz not null default now(),
+  primary key (kind, viewer_id, trade_key)
+);
+select schema_add_index('privacy_orphans_seen', 'create index privacy_orphans_seen on privacy_orphans (first_seen_at)');
+select schema_add_index('sessions_expires', 'create index sessions_expires on sessions (expires_at)');
+select schema_add_index('signup_attempts_open', 'create index signup_attempts_open on signup_attempts (created_at) where user_id is null and completed_at is null');
+
+-- D14: append-only display log. One row per public record per day: what the profile displayed (headline, 95% range,
+-- trade count, open-position summary, evidence line), percent only, so the app can show what it displayed on a past
+-- date (lib/display-log.ts). Never updated; never removed except with the account (the users cascade). The trigger
+-- lets a row go only when its users row is already gone. Known limit: a truncate is not trapped.
+create table if not exists display_log (
+  user_id int not null references users on delete cascade,
+  day date not null,
+  demo boolean not null,
+  headline text not null,
+  range_text text,
+  trade_count int not null,
+  open_summary text not null,
+  evidence text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, day)
+);
+create or replace function display_log_append_only() returns trigger language plpgsql as $f$
+begin
+  if tg_op = 'DELETE' and not exists (select 1 from users where id = old.user_id) then return old; end if;
+  raise exception 'display_log is append-only (% refused)', tg_op;
+end $f$;
+do $t$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'display_log_append_only' and not tgisinternal) then
+    create trigger display_log_append_only before update or delete on display_log for each row execute function display_log_append_only();
+  end if;
+end $t$;

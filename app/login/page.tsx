@@ -3,7 +3,9 @@ import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { startSignIn } from '../auth/actions.ts';
 import { normalizeHandle, normalizeVia } from '@/lib/referral.ts';
-import { SIGNIN } from '@/lib/copy.ts';
+import { LAUNCH, SIGNIN } from '@/lib/copy.ts';
+import { signUpOpen } from '@/lib/launch-gate.ts';
+import { FocusHeading } from '../connect/result/focus-heading.tsx';
 import { deviceFirst, orderMethods, providersFromEnv, type MethodKey } from '@/lib/auth/providers.ts';
 import { currentUser, devAuthAllowed, LAST_METHOD_COOKIE } from '@/lib/session.ts';
 import { EMAIL_COOKIE } from '@/lib/auth/links.ts';
@@ -25,6 +27,9 @@ export default async function Login({ searchParams }: { searchParams?: Promise<S
   const error = sp.error;
   const linkAgain = error === 'expired' || error === 'used';
   const typed = error ? jar.get(EMAIL_COOKIE)?.value ?? '' : ''; // the address typed before a validation redirect, or the one the link went to
+  // Launch gate (D6): while sign-up is closed the page says so before anyone starts, and the brokerage-first button
+  // (it only ever creates an account) is hidden; email and providers stay for existing accounts.
+  const open = signUpOpen();
   const blocks: Partial<Record<MethodKey, React.ReactNode>> = {
     provider_a: providers.find((p) => p.key === 'provider_a') && <button name="method" value="provider_a" className="button wide">{SIGNIN.provider(providers.find((p) => p.key === 'provider_a')!.label)}</button>,
     provider_b: providers.find((p) => p.key === 'provider_b') && <button name="method" value="provider_b" className="button wide">{SIGNIN.provider(providers.find((p) => p.key === 'provider_b')!.label)}</button>,
@@ -37,7 +42,7 @@ export default async function Login({ searchParams }: { searchParams?: Promise<S
         <button name="method" value="email" className="button wide">{linkAgain ? SIGNIN.newLink : SIGNIN.emailButton}</button>
       </div>
     ),
-    brokerage: (
+    brokerage: open && (
       <>
         <p className="divider muted" aria-hidden="true">{SIGNIN.divider}</p>
         <button name="method" value="brokerage" className="button wide secondary">{SIGNIN.brokerage}</button>
@@ -48,6 +53,9 @@ export default async function Login({ searchParams }: { searchParams?: Promise<S
     <main className="page auth">
       <h1>{SIGNIN.title}</h1>
       <p className="muted">{SIGNIN.sub}</p>
+      {error === 'closed'
+        ? <><p id="launch-closed" role="alert" tabIndex={-1}>{LAUNCH.closedAfter}</p><FocusHeading id="launch-closed" /></>
+        : !open && <p role="status">{LAUNCH.closed}</p>}
       {error === 'expired' && <p role="alert">{SIGNIN.linkExpired}</p>}
       {error === 'used' && <p role="alert">{SIGNIN.linkUsed}</p>}
       {error === 'provider' && <p role="alert" className="down">{SIGNIN.providerError}</p>}

@@ -6,6 +6,10 @@ import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
 import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
 import { purgeDiscovery, type PurgeReport } from '@/lib/discovery/purge.ts';
+import { logSafe } from '@/lib/privacy-log.ts';
+import { purgePrivacy, type PrivacyPurgeReport } from '@/lib/privacy-purge.ts';
+import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
+import { gateReport } from '@/lib/launch-gate.ts';
 
 // Cron: POST /api/sync with `Authorization: Bearer $CRON_SECRET`, every 5 minutes and never at :30 (request #7 as amended;
 // rounds run :30 to :30, lib/sync.ts).
@@ -31,11 +35,19 @@ export async function POST(req: NextRequest) {
   // F-2 PR-2 (plan demand D): ended exclusions, ≤ 30 s under its own lock. Never a branch: whatever it returns or
   // throws, the traders below are claimed exactly as before.
   let purged: PurgeReport | null = null;
-  try { purged = await purgeDiscovery(); } catch (e) { console.error('discovery purge failed', e instanceof Error ? e.message : e); }
+  try { purged = await purgeDiscovery(); } catch (e) { console.error('discovery purge failed', logSafe(e)); }
+  // Privacy work (committee D13, D14, D3): the privacy purges and today's display-log rows, each in its own try/catch
+  // and time box; whatever they return or throw, the traders below are synced exactly as before. Counts only.
+  let privacy: PrivacyPurgeReport | null = null;
+  try { privacy = await purgePrivacy(); } catch (e) { console.error('privacy purge failed', logSafe(e)); }
+  let displayLog: DisplayLogReport | null = null;
+  try { displayLog = await writeDisplayLog(); } catch (e) { console.error('display log failed', logSafe(e)); }
+  const launch = gateReport();
+  console.log('privacy tick', JSON.stringify({ privacy, displayLog, launch })); // counts and the gate state only
   // Only traders with a connected (consented) connection and no import in progress, each claimed by one caller per
   // round (lib/sync.ts#syncTick), so overlapping cron calls split the traders instead of syncing each one twice.
   // ponytail: one caller is sequential, ~5k traders/hour; more concurrent calls add throughput, then a queue (DESIGN §2.7)
   let end: TickReport | null = null;
   const { ok, skipped, failed } = await syncTick({ deadline, routeEnd: syncRouteEnd(startedAt), report: (r) => { end = r; } });
-  return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions, purged });
+  return NextResponse.json({ ok, skipped, failed, unclaimed: end!.unclaimed, stoppedAtDeadline: end!.stoppedAtDeadline, purgedLinks, connections, deletions, purged, privacy, displayLog, launch });
 }

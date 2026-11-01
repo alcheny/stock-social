@@ -433,3 +433,9 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .likes .who-col a > * { white-space: normal; }
 .signin-line .quiet-x { background: transparent; color: var(--muted); border: 0; font-weight: 400; font-size: 1.25rem; padding: 0; }
 .nojs-done { position: fixed; z-index: 20; left: 16px; right: 16px; bottom: 16px; max-width: 528px; margin: 0 auto; padding: 12px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+
+/* Privacy work (2026-11-01): the consent page (S4) with the longer public-scope line keeps its primary above the fold
+   at 360×640 and 375×667 (committee D9): tighter list and heading spacing; the deadline sits under the buttons. */
+.auth.consent h1 { margin: 0 0 12px; }
+.auth.consent .notice { gap: 6px; margin: 0 0 14px; }
+.auth.consent form + form { margin-top: 8px; }

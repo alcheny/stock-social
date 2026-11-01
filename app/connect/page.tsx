@@ -4,7 +4,9 @@ import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { boundAttempt, CONNECT_COOKIE, refuseUnbound } from '@/lib/connections.ts';
-import { SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from '@/lib/copy.ts';
+import { LAUNCH, SIGNIN, TRUST_NOTICE, VENDOR_SECURITY_URL } from '@/lib/copy.ts';
+import { connectAllowed } from '@/lib/privacy-gate-data.ts';
+import { FocusHeading } from './result/focus-heading.tsx';
 import { providersFromEnv } from '@/lib/auth/providers.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
 import { PortalButton } from './portal-button.tsx';
@@ -17,8 +19,11 @@ import { PortalButton } from './portal-button.tsx';
 // S1) gets the same primary; /connect/start reads the cookie, never an id. Signed out with no bound attempt there is
 // no primary: a status line says what comes first and lists the sign-in options. An attempt id in the URL is never
 // trusted; one this browser's cookie does not match is refused and counted (lib/connections.ts#refuseUnbound).
-export default async function Connect({ searchParams }: { searchParams?: Promise<{ attempt?: string }> }) {
+export default async function Connect({ searchParams }: { searchParams?: Promise<{ attempt?: string; closed?: string }> }) {
   const me = await currentUser();
+  // Launch gate (D7): who may connect now. Signed out, only a sign-up could follow, so the sign-up rule applies.
+  const allowed = await connectAllowed(me);
+  const refused = (await searchParams)?.closed === '1';
   const attempt = me ? null : await boundAttempt((await cookies()).get(CONNECT_COOKIE)?.value, sessionSecret());
   const presented = (await searchParams)?.attempt;
   if (!me && presented !== undefined && presented !== String(attempt)) await refuseUnbound(presented);
@@ -30,6 +35,7 @@ export default async function Connect({ searchParams }: { searchParams?: Promise
   return (
     <main className="page auth">
       <h1>{TRUST_NOTICE.title}</h1>
+      {refused && <><p id="connect-closed" role="alert" tabIndex={-1}>{LAUNCH.connectClosed}</p><FocusHeading id="connect-closed" /></>}
       <ul className="notice">
         {TRUST_NOTICE.lines.map((l) => <li key={l}>{l}</li>)}
       </ul>
@@ -38,16 +44,16 @@ export default async function Connect({ searchParams }: { searchParams?: Promise
       <p className="small"><Link className="tap" href="/how">{TRUST_NOTICE.howLink}</Link></p>
       {me ? (
         <>
-          <PortalButton label={TRUST_NOTICE.primary} />
+          {allowed ? <PortalButton label={TRUST_NOTICE.primary} /> : !refused && <p role="status">{LAUNCH.connectClosed}</p>}
           {/* After sign-in the trader lands here (committee item 7); the profile stays one tap away. */}
           <p className="small"><Link className="tap" href={`/u/${me.handle}`}>{TRUST_NOTICE.profileLink}</Link></p>
           <p className="small"><Link className="tap" href="/settings">{TRUST_NOTICE.settingsLink}</Link></p>
         </>
-      ) : attempt !== null ? (
+      ) : attempt !== null && allowed ? (
         <PortalButton label={TRUST_NOTICE.primary} />
       ) : (
         <>
-          <p role="status">{TRUST_NOTICE.signInFirst}</p>
+          <p role="status">{allowed ? TRUST_NOTICE.signInFirst : LAUNCH.closed}</p>
           <ul className="options">
             {options.map((o) => <li key={o.key}><Link className="button wide secondary" href={`/login?method=${o.key}`}>{o.label}</Link></li>)}
           </ul>

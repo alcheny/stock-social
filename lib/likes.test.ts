@@ -41,7 +41,16 @@ const closes = async (user: number, sellIds: string[]) => {
 test('only lib/likes.ts, lib/delete.ts name trade_likes and trade_exclusions; every read and delete is keyed by the viewer; nothing counts them; no public page, card, image or route imports them', () => {
   const tables = /\b(trade_likes|trade_exclusions)\b/;
   const naming = [...sources('app'), ...sources('lib')].filter((f) => [...readFileSync(join(root, f), 'utf8').matchAll(/sql`[^`]*`|tx`[^`]*`|conn`[^`]*`/g)].some((m) => tables.test(m[0])));
-  assert.deepEqual(naming.sort(), ['lib/delete.ts', 'lib/likes.ts']);
+  assert.deepEqual(naming.sort(), ['lib/delete.ts', 'lib/likes.ts', 'lib/privacy-purge.ts']);
+  // Privacy work (committee D10): the tick's purge names the tables only to find, mark and remove likes and rejects whose
+  // trade is gone (a closed_trades not-exists in every statement); it never reads them for anyone or counts them.
+  const purge = [...readFileSync(join(root, 'lib/privacy-purge.ts'), 'utf8').matchAll(/(?:sql|tx|conn)`([^`]*)`/g)].map((m) => m[1]).filter((q) => tables.test(q));
+  assert.ok(purge.length >= 4);
+  for (const q of purge) {
+    assert.doesNotMatch(q, /count\s*\(/i, q);
+    assert.match(q, /(not exists \(select 1 from closed_trades c where c\.trade_key = [lx]\.trade_key\)|privacy_orphans)/, q);
+    if (/^\s*(with gone as \(\s*)?delete from trade_(likes|exclusions)/i.test(q)) assert.match(q, /not exists \(select 1 from closed_trades/, q);
+  }
   const statements = [...readFileSync(join(root, 'lib/likes.ts'), 'utf8').matchAll(/sql`([^`]*)`/g)].map((m) => m[1]).filter((q) => tables.test(q));
   assert.ok(statements.length >= 8);
   for (const q of statements) {
@@ -53,7 +62,10 @@ test('only lib/likes.ts, lib/delete.ts name trade_likes and trade_exclusions; ev
 
 test('no like copy carries a number or a count', async () => {
   const { LIKES } = await import('./copy.ts');
-  for (const v of Object.values(LIKES)) { const t = typeof v === 'function' ? (v as (...a: string[]) => string)('KQ', 'Jan') : v; assert.doesNotMatch(t, /\d|\bcount\b|people|others/i, t); }
+  // Privacy work (owner copy, 2026-11-01): the likes line says there is no count, in exactly these words; that phrase is
+  // the only mention allowed, and the line must keep saying it.
+  assert.match(LIKES.private, /no one sees a count\./);
+  for (const v of Object.values(LIKES)) { const t = (typeof v === 'function' ? (v as (...a: string[]) => string)('KQ', 'Jan') : v).replace('no one sees a count.', ''); assert.doesNotMatch(t, /\d|\bcount\b|people|others/i, t); }
 });
 
 dbTest('trade_key equals node:crypto sha256 (UTF-8) for a\\b, \\x41, \\\\, \\001, a trailing \\ and non-ASCII text; no input error', async () => {
