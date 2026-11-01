@@ -181,6 +181,10 @@ export function fromVendorRows(accountId: string, rows: VendorRow[]): { activiti
       } else actions.push({ ...base, kind: 'unpriceable', reason: 'unknown' });
     } else if (Number.isFinite(units) && units !== 0) {
       moves.push({ row, symbol, at, units, adjustment: row.type === 'ADJUSTMENT' });
+    } else {
+      // A share-moving row with no share count (review round 3): the shares it moved are unknown, so the pair's lots are
+      // tainted (excluded and counted), never left as if nothing happened.
+      actions.push({ ...base, kind: 'unpriceable', reason: 'unknown' });
     }
   }
   // Pair moves: same trade date, exactly one out and one in on different symbols.
@@ -259,6 +263,9 @@ function detailOf(a: CorporateAction & { raw?: unknown }): Record<string, unknow
 }
 
 // Idempotent like insertActivities: a row already stored (same source and vendor id) is left as it was.
+// ponytail: a vendor correction to a stored row (a SPLIT whose ratio is added later) is never picked up; the old row
+// keeps its trades excluded, which is safe but never self-corrects — fix: upsert `detail` and `raw` when the vendor's row
+// changes, and let the rebuild re-read it.
 export async function insertCorporateActions(db: Db, userId: number, source: 'snaptrade' | 'demo', actions: (CorporateAction & { raw: unknown })[]) {
   for (let i = 0; i < actions.length; i += 1000) {
     const rows = actions.slice(i, i + 1000).map((a) => ({

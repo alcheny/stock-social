@@ -211,6 +211,13 @@ test('cash in lieu never resolves to a wrong exact ratio: 33 → 3 (1:10 with 0.
   assert.deepEqual([m.trades.length, m.excludedCorporate], [0, 1]);
 });
 
+test('a share-moving row with no share count is unpriceable: the pair\'s lots are tainted, the later sell excluded and counted (review round 3)', () => {
+  const { actions } = fromVendorRows('acc', [{ id: 'x', type: 'TRANSFER', symbol: { symbol: 'AAA' }, units: null, trade_date: '2026-01-20T00:00:00Z' }]);
+  assert.deepEqual(actions.map((a) => [a.kind, a.symbol]), [['unpriceable', 'AAA']]);
+  const m = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 110, 40)], actions);
+  assert.deepEqual([m.trades.length, m.excludedCorporate], [0, 1]);
+});
+
 test('a transfer out of one symbol and a transfer in of another on the same day are not a rename: the sell of the new symbol is excluded', () => {
   const row = (id: string, type: string, symbol: string, units: number) => ({ id, type, symbol: { symbol }, units, trade_date: '2026-01-10T00:00:00Z' });
   const { actions } = fromVendorRows('acc', [row('o', 'TRANSFER', 'AAA', -10), row('i', 'EXTERNAL_ASSET_TRANSFER_IN', 'BBB', 10)]);

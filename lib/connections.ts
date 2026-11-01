@@ -524,6 +524,8 @@ export async function importStep(id: number, deps: Deps = realDeps, now = new Da
         return save(advanceCursor(cur, page.done, limit), true, c.imported_count + page.activities.length);
       }
       // Corporate actions (F3c): one account's share-moving rows per step, after its trades and before the rebuild.
+      // ponytail: an account with more than one page (1,000) of share-moving rows makes several bounded requests in this
+      // step, more than the step's reserve assumes — fix: keep an offset in the cursor and read one page per step.
       if (!cur.rebuilt && deps.fetchShareMoves && (cur.m ?? 0) < real.length) {
         const k = cur.m ?? 0;
         const moves = await deps.fetchShareMoves(bu, real[k].id);
