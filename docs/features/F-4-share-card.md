@@ -87,6 +87,18 @@ elements that catch the eye and travel, and leave detail for the profile.
   position size not shown". The running sum ends at count × average, so it always agrees with the headline.
   Why: the owner's answer to committee question A, after deciding F-5; a compounded equal-stake line hides
   position size and can disagree with the average.
+- 2026-11-01: The text under the link preview drops the win rate; it matches the card (average per trade with
+  its range, closed trades, period). Why: the owner's choice; a win rate on its own can look good while the
+  average is negative.
+- 2026-11-01: Ranking keeps its floor of 10 bets (`RANK_MIN_BETS`): records show a range from 5 bets but only
+  rank from 10. Why: the owner's choice; lucky short streaks can't climb the feed.
+- 2026-11-01: The cards keep the image renderer's built-in font; no font file is bundled. Why: the owner's
+  choice; no new file or licence.
+- 2026-11-01: A record's length is measured from the first trade to the last close, the same on the card and the
+  profile (Maya: 60 days on both). Why: the owner's choice; the built card counted to today (64 days) while the
+  profile counted to the last close (60), and an idle record shouldn't look longer.
+- 2026-11-01: The period keeps the trust line's unit per evidence tier: days while thin, months when moderate,
+  years when strong. Why: the owner's choice; the card and its trust line always use the same unit.
 
 ## Current card (built, for reference)
 Three big numbers (win rate, average return per trade, trade count with "losses included"), name and
@@ -122,12 +134,6 @@ Each one testable; the pipeline writes a test for every line.
 - Per-trade cards (`/u/[handle]/trade`) keep their own design; this file is the record card.
 
 ## Open questions
-- From committee round 1 (2026-10-26, `docs/features/logs/F-4/committee-round-1.md`), for the owner:
-  - Win rate in the link-preview text under the card: keep or drop.
-  - Ranking floor: stays at 10 bets unless changed.
-  - A bundled font file (OFL) would need license sign-off; none is added now.
-  - The period line's unit follows the trust line's tier (days when thin, years when strong) where AC1's example
-    reads months.
 - Later depth: which per-trade elements, and whether they appear on the record card or only on
   per-trade cards.
 
