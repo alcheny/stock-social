@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { markTradesPromptSeen, recordTradesPromptAction } from '../../actions.ts';
 import { moreText, type TradesPromptAction } from '@/lib/new-trades.ts';
 import { pct } from '@/lib/trades.ts';
+import { signWord } from '@/lib/copy.ts';
 
 type Row = { sellId: string; symbol: string; returnPct: number; closedAt: string };
 
@@ -30,7 +31,7 @@ export function NewTradesPrompt({ handle, trades, more }: { handle: string; trad
             {/* Opening one row advances the timestamp, so the other new trades stop being prompted (accepted). */}
             <Link href={`/u/${handle}/trade/${encodeURIComponent(t.sellId)}`} onClick={() => record('opened')}>
               <span><b>{t.symbol}</b> <span className="muted small">closed {new Date(t.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}</span></span>
-              <b><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</b>
+              <b><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</b>
             </Link>
           </li>
         ))}

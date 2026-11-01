@@ -528,6 +528,96 @@ body:has(.open-stats) .options-stats .stat.big b { font-size: clamp(18px, 6vw, 3
 .nowrap, .options-how { white-space: nowrap; }
 .pane .share-label { margin-top: 8px; }
 #options { scroll-margin-top: 72px; }
+/* F-13 (first-visit line, swipe hint, nav reflow) */
+/* Already dismissed or used on this device: hidden before the first paint (the pre-paint script in app/layout.tsx). */
+html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint { display: none; }
+/* In flow at the top of page 1's first card (after F-10, so the card's return, record strip and disclaimer stay on the
+   first screen); never fixed, sticky or over the card's content. No transition or animation, so reduced motion needs no
+   override. */
+.feed .card .first-visit { position: static; display: flow-root; padding: 0; }
+.first-visit p { margin: 0; }
+.first-visit .fv-text { font-size: 0.8125rem; line-height: 16px; } /* the block sets the line boxes (its strut) */
+.first-visit .fv-text p { display: inline; }
+.first-visit .fv-line { font-size: 0.8125rem; line-height: 16px; color: var(--text); }
+.first-visit .fv-line a { display: inline; padding: 11px 0; } /* a 44 px tall hit area; inline padding keeps the line box */
+.first-visit .fv-demo { margin-left: 6px; font-size: 0.8125rem; line-height: 16px; color: var(--muted); }
+/* Whole-pixel line boxes (the block's height stays a whole number; a fractional one once left feed rows at -0.4 px). */
+.first-visit .fv-demo .badge { line-height: 14px; vertical-align: 1px; }
+.first-visit .quiet-x { float: right; position: relative; width: 24px; height: 24px; margin: -3px -4px 0 6px; background: transparent; color: var(--muted); border: 0; padding: 0; font-weight: 400; font-size: 1.25rem; line-height: 1; }
+/* 24 px in the layout (the text wraps closer), a 44 × 44 px hit area around it (WCAG 2.5.8, POLICY A1). */
+.first-visit .quiet-x::before { content: ''; position: absolute; inset: -10px; }
+.swipe-hint { position: static; margin: 0 0 6px; color: var(--muted); }
+/* "Trades by stock" (D27) fits the nav at 320–390 px without horizontal overflow, ≤ 56 px tall (WCAG 1.4.10). */
+@media (max-width: 420px) { nav.top { gap: 8px; padding: 12px; } }
+/* Orchestrator review (blocking 2, cycle-2 a11y user test): each nav link is a 44 px target (WCAG 2.5.8 / POLICY A1) and
+   a 20-character handle stays on one line beside the others, so the nav is ≤ 54.4 px (85% of the feed's 64 px top). */
+@media (max-width: 420px) {
+  body > nav.top { padding-block: 0; }
+  nav.top a:not(.me) { display: inline-flex; align-items: center; min-height: 44px; }
+  nav.top .me { display: inline-block; max-width: 18vw; line-height: 44px; } /* block-level, so its ellipsis still applies */
+}
+@media (max-width: 420px) { nav.top a:not(.logo):not(.me) { white-space: normal; line-height: 1.1; text-align: center; } }
+@media (max-width: 340px) { nav.top { font-size: 0.8125rem; } }
+/* The hint shares the footer link's line, so it adds no height and F-10's in-card disclaimer stays on the card's one
+   screen with the first-visit line above (e2e/record-strip.spec.ts AC8 at 320×640 and 780×360). */
+.feed .card .swipe-hint { display: inline; margin: 0 12px 0 0; }
+/* While the line is in card 1, card 1's thesis excerpt waits until the line is dismissed (it stays on the trade page and
+   in the pane), so the return, the record strip and the card's disclaimer keep F-10's 15% headroom on the first screen
+   (e2e/record-strip.spec.ts AC8 at 320×640). Short screens (landscape) also get a smaller symbol and return.
+   ponytail: card 1's thesis excerpt is hidden until the line is dismissed — a line shorter than the D27 sentence, or a card with more room, would show both. */
+html:not([data-ss-seen~="line"]) .feed .card .fv-slot:has(> .first-visit) > .thesis { display: none; }
+/* The design system council's slot rule (§2.5): the line first, the hint after it is dismissed (or on a later visit). */
+html:not([data-ss-seen~="line"]) .feed .card:has(.first-visit) .swipe-hint { display: none; }
+@media (max-height: 480px) {
+  html:not([data-ss-seen~="line"]) .feed .card:has(.first-visit) .hero .ret { font-size: 36px; }
+  html:not([data-ss-seen~="line"]) .feed .card:has(.first-visit) .symbol { font-size: 16px; }
+  html:not([data-ss-seen~="line"]) .feed .row > .card:has(.first-visit) { gap: 4px; }
+}
+/* end F-13 */
+
+
+
+/* A11Y-FIXES (approval council fixes, 2026-11-01). Minimal contrast tokens: the design system council's tokens may
+   supersede them; lib/a11y-contrast.test.ts keeps the floor. */
+/* #13, #14 tokens: values from the design system council 2026-11-01 (§5.1), only the ones these fixes need.
+   --control: control borders only (separators, cards and tiles keep --line): 3.75/3.91 light, 4.29/3.93 dark (bg/surface).
+   --verified: the Verified badge's text (the tint stays built from --up). --focus: the :target bar (6.15/6.42, 8.47/7.76). */
+:root { --control: #6f7682; --focus: #86a8ff; --verified: var(--text); }
+@media (prefers-color-scheme: light) { :root { --control: #7c818b; --focus: #2152d9; } }
+/* #13 text contrast (WCAG 1.4.3): Verified text was --up on its own 18% tint (3.77:1 light); a :target row drops its
+   fill (which took muted text to 4.01:1) for a 3 px bar, with no fill (DS §5.1), the text staying where it was. */
+.badge.verified { color: var(--verified); }
+.rows li:target { background: none; box-shadow: inset 3px 0 0 var(--focus); margin-left: -12px; padding-left: 12px; }
+/* #14 control boundaries (WCAG 1.4.11): each selector that draws a control's border, repeated so it wins by order. */
+input, textarea, select,
+.pane .back,
+.share-prompt .actions .secondary, .trade-share .secondary, .new-trades .secondary,
+.rec-chips button, .auth .button.secondary, .auth button.secondary, .handle-edit summary.secondary,
+.follow.secondary, .more-menu .secondary, .people .secondary, .pane-actions .button.secondary, .more-menu summary,
+.switch-pair .switch, .personalize form > button.secondary,
+.rt .button.choice, .rt button.choice, .rt .button.secondary, .rt button.secondary,
+.rt-form input, .rt-form select, .rt-note textarea { border-color: var(--control); }
+/* #15 the fixed nav never hides focus (WCAG 2.4.11): scrollers keep focus and anchors below the nav (72 px) and off the
+   bottom edge. Not on .feed itself (it would move every snap point); the feed's pane scrolls inside itself. The rows'
+   own 72 px margin is dropped where the scroller now pads, so an anchor does not land 144 px down. */
+html { scroll-padding-top: 72px; scroll-padding-bottom: 16px; }
+.feed > .row > .pane { scroll-padding-top: 72px; }
+.page .rows li, .feed > .row > .pane .rows li { scroll-margin-top: 0; }
+/* #19 reflow (WCAG 1.4.10, 1.4.4; POLICY P2: Demo always visible): a 20-character handle or a long name wraps instead
+   of widening the page or pushing the badge off screen; the big return is capped by the viewport height, and on a
+   short viewport the feed card scrolls inside itself instead of clipping (only there: at 360×640 it stays hidden). */
+h1 { overflow-wrap: anywhere; }
+.card header .who { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.card header .badge { flex-shrink: 0; }
+.ret { font-size: clamp(40px, min(22vw, 16vh), 120px); }
+@media (max-height: 480px) {
+  .feed .row > * { padding-top: 56px; padding-bottom: 8px; }
+  .feed .row > .card { gap: 8px; overflow-y: auto; scroll-padding-top: 56px; }
+}
+/* #19 (WCAG 1.4.10): at 320 px two stat tiles are 138 px wide, and a 36 px "+20.0%" (155 px) widened the profile to
+   332 px. Below 341 px the tiles stack, one per row, so the figure keeps its size and the page never scrolls sideways. */
+@media (max-width: 340px) { .stats { grid-template-columns: 1fr; } }
+/* end A11Y-FIXES */
 /* ---- F-7 public-record traders: the "Public filing" badge (text on surface, accent ring), the top block, filing links. */
 .badge.public { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
 .public-top { margin: 0 0 12px; }

@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { isPublicRecord, PUBLIC, RECORD_STRIP, wholeRecordView } from '@/lib/copy.ts';
+import { isPublicRecord, PUBLIC, RECORD_STRIP, signWord, wholeRecordView } from '@/lib/copy.ts';
 import { Badge, PublicNotice } from '../../../../ui.tsx';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthAlt, monthCountText, monthDescription, monthStripInput, recordStripInput } from '@/lib/recap.ts';
@@ -54,7 +54,7 @@ export default async function RecapPage({ params }: Params) {
     <section className="trade-card" aria-label={title}>
       <h2>{title}</h2>
       <Link href={link(t.sellId)} style={{ display: 'block', minHeight: 44, padding: '4px 0' }}>
-        <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</span>
+        <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
         <span className="muted small">{held(t.holdingDays)}</span>
       </Link>
     </section>
@@ -95,7 +95,7 @@ export default async function RecapPage({ params }: Params) {
             <Link href={link(t.sellId)} style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, minHeight: 44, alignItems: 'center' }}>
               <span className="muted">{day(t.closedAt)}</span>
               <b>{t.symbol}</b>
-              <span><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</span>
+              <span><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
               <span className="muted">{held(t.holdingDays)}</span>
             </Link>
           </li>
