@@ -55,6 +55,14 @@ When the owner talks about how the app should look, work or feel, Claude:
 
 Ask in the chat at any time: "what's decided?", "what's left?", or run `node scripts/features.ts list`.
 
+## Features approved by the council
+
+Besides design sessions, new features can come from the approval council (owner's delegation of 2026-11-01,
+`team/approval-council.md`): ideas from the market, creative and design councils and the idea board that a
+15-member committee elects over several rounds (at least 10 of 15 approve, mean score at least 3.5, no veto) become
+feature files with `Status: ready`, at most three per cycle. They are built like any other feature. The owner can
+overrule an approval at any time, and owner decisions always win.
+
 ## The pipeline (CI)
 
 - **Switch:** repo variable `FEATURES` (`on`/`off`). Independent of `AUTOPILOT`. Turning it off stops new rounds
