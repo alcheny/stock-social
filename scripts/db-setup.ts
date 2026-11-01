@@ -21,6 +21,11 @@ console.log(`db-setup: ${await purgeOccPositions()} option contract positions re
 // OPTIONS fix round 6: records rebuilt before options were routed (frozen ones never sync again) are rebuilt once with
 // rebuildRecord, so no option row stays a public share close. Idempotent; a count only.
 console.log(`db-setup: ${await repairOptionShareCloses()} records rebuilt without option rows on the share path`);
+// Fixes cycle 4 (C4-1, C4-2): every record (frozen ones included) is rebuilt once per share-matcher version, so no
+// figure the old same-instant order or a short's cover produced stays published. Null when this version already ran.
+const { rebuildAllForMatcher } = await import('../lib/matcher-rebuild.ts');
+const rebuilt = await rebuildAllForMatcher();
+console.log(rebuilt === null ? 'db-setup: records already rebuilt for this matcher version' : `db-setup: ${rebuilt} records rebuilt for the share matcher`);
 
 // fix-user-text (F-9, D-08): re-check stored user text against the current rules after every schema apply. Theses:
 // published → held only, owner-released ones skipped (lib/thesis-review.ts). Display names: lib/handles.ts#recheckDisplayNames

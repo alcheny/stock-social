@@ -16,7 +16,7 @@ test('profile shows headline stats and excluded positions', async ({ page }) => 
   await expect(page.getByText('avg return / trade')).toBeVisible();
   await expect(page.getByText('max drawdown (per-trade, equal-weight)')).toBeVisible();
   // Fix round 8 (tester re-run 4): the count is pluralized properly (the seed gives each demo trader one orphan sell).
-  await expect(page.getByText('1 earlier position excluded: no matching entry in the imported history.', { exact: true })).toBeVisible();
+  await expect(page.getByText("1 sell excluded: the imported history can't match it to a buy for certain (an earlier holding, a short sale, or trades the broker stamped without exact times).", { exact: true })).toBeVisible();
 });
 
 test('profile chart is labeled, accessible and links points to trades', async ({ page }) => {

@@ -186,8 +186,10 @@ dbTest('PR-3 defect 3: the rebuild reads activities in a total order, so same-in
     await insertActivities(two.user.id, 'snaptrade', rows(two.tag).reverse()); // stored sell first
     for (const s of [one, two]) await rebuildTrades(s.user.id);
     assert.deepEqual(await shape(one), await shape(two));
-    assert.equal((await shape(one)).length, 2);
-    for (const s of [one, two]) assert.equal((await s.sql`select excluded_positions from users where id = ${s.user.id}`)[0].excluded_positions, 1);
+    // Fixes cycle 4 (C4-1): the tied AAA buy and sell can't be ordered, so the sell is counted in both stored orders (it
+    // was shown, closed by the buy); the BBB close stays.
+    assert.equal((await shape(one)).length, 1);
+    for (const s of [one, two]) assert.equal((await s.sql`select excluded_positions from users where id = ${s.user.id}`)[0].excluded_positions, 2);
     // The same answer as the pure matcher over the whole history, sorted the same way.
     const all = rows(one.tag).sort((a, b) => a.accountId.localeCompare(b.accountId) || a.symbol.localeCompare(b.symbol) || a.executedAt.getTime() - b.executedAt.getTime() || a.externalId.localeCompare(b.externalId));
     assert.deepEqual((await shape(one)).map((r) => (r as Record<string, unknown>).return_pct), matchTrades(all).trades.sort((a, b) => a.sellId.localeCompare(b.sellId)).map((t) => t.returnPct));
@@ -198,10 +200,12 @@ dbTest('PR-3 defect 3: the rebuild reads activities in a total order, so same-in
     // Paged reads: a history several pages long, across pairs and with a pair spanning page boundaries, is complete.
     assert.equal(REBUILD_PAGE, 1000);
     const many = [];
-    for (let i = 0; i < 2500; i++) many.push({ externalId: `${two.tag}-m${String(i).padStart(5, '0')}`, accountId: `${two.tag}-z`, symbol: i < 1500 ? 'LONG' : 'SHORTER', side: (i % 2 ? 'SELL' : 'BUY') as 'BUY' | 'SELL', units: 1, price: 10 + (i % 7), fee: 0, executedAt: new Date(Date.UTC(2024, 1, 1) + i * 60_000), verified: true, raw: {} });
+    // Fixes cycle 4 (C4-1): stamped 30 s past each minute, so no row reads as date-only (exactly 00:00:00Z), which would
+    // tie it with every row of its trading date; this part checks paging only.
+    for (let i = 0; i < 2500; i++) many.push({ externalId: `${two.tag}-m${String(i).padStart(5, '0')}`, accountId: `${two.tag}-z`, symbol: i < 1500 ? 'LONG' : 'SHORTER', side: (i % 2 ? 'SELL' : 'BUY') as 'BUY' | 'SELL', units: 1, price: 10 + (i % 7), fee: 0, executedAt: new Date(Date.UTC(2024, 1, 1) + i * 60_000 + 30_000), verified: true, raw: {} });
     await insertActivities(two.user.id, 'snaptrade', many);
     const r = await rebuildTrades(two.user.id);
-    assert.equal(r.trades, 2 + 1250);
+    assert.equal(r.trades, 1 + 1250); // the record's earlier close (its tied AAA sell is counted since fixes cycle 4) and every new one
     assert.ok(r.maxHeld <= REBUILD_PAGE + 1500, `held ${r.maxHeld}`); // a page plus the open pair, never all 2,505
   } finally {
     await one.cleanup([]);

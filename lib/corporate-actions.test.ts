@@ -109,7 +109,9 @@ test('symbol change chain A → B → C, with a 2-for-1 share exchange on the se
 
 test('a symbol change whose shares do not match the ledger, or carry a leftover, is unpriceable: nothing moves, nothing is guessed', () => {
   const m = accounted([t('BUY', 100, 100, 1), t('SELL', 100, 120, 10, { symbol: 'BBB' }), t('SELL', 100, 90, 11)], [rename(5, 'AAA', 'BBB', 90)]);
-  assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [0, 1, 1]); // BBB has no lots; AAA's lots are tainted
+  // Fixes cycle 4 (C4-1, engineer): the 90 BBB shares the rename names arrive with no basis, so the BBB sell draws them
+  // and is counted as the action's (it was counted as missing history); AAA's lots are tainted. Still nothing shown.
+  assert.deepEqual([m.trades.length, m.excluded, m.excludedCorporate], [0, 0, 2]);
   assert.equal(renameRatio(100, 150.5), null);
   assert.deepEqual(renameRatio(100, 50), { p: 1, q: 2 });
 });
@@ -136,8 +138,14 @@ test('late posting: a sell within the window before a split row is excluded and 
   assert.deepEqual([m.excludedCorporate, m.trades.length], [1, 1]);
   near(m.trades[0].returnPct, 0.12);
   // Outside the window the earlier sell is shown.
-  const far = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 110, 1 + 0.5), t('SELL', 100, 56, 20)], [split(1 + 0.5 + LATE_POSTING_DAYS + 1, 2, 1)]);
+  // Fixes cycle 4 (C4-1): the buy and the sell carry hours here (d(1.5) is day 1 at 00:00Z, the buy's own stamp). Tied,
+  // or a buy stamped 00:00Z on the sell's day, the order is unknown and the sell is counted (asserted below).
+  const far = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 110, 1 + 0.5), t('SELL', 100, 56, 20)].map((x, i) => (i < 2 ? { ...x, executedAt: new Date(x.executedAt.getTime() + (i + 1) * 3_600_000) } : x)), [split(1 + 0.5 + LATE_POSTING_DAYS + 1, 2, 1)]);
   assert.equal(far.trades.length, 2);
+  const dateOnly = accounted([t('BUY', 100, 100, 1), t('SELL', 50, 110, 1 + 0.5), t('SELL', 100, 56, 20)], [split(1 + 0.5 + LATE_POSTING_DAYS + 1, 2, 1)]);
+  // The tied sell is counted; the later sell draws the one buy in every reading (the gap splits with the shares): shown.
+  assert.deepEqual([dateOnly.excluded, dateOnly.trades.length], [1, 1]);
+  near(dateOnly.trades[0].returnPct, 0.12);
 });
 
 test('mix across accounts: a split in one account leaves the same symbol in another account unadjusted', () => {

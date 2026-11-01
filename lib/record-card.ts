@@ -335,5 +335,9 @@ export function cardAlt(m: CardModel): string {
 // words stand alone, F-6 / PR-2b).
 export function cardDescription(m: CardModel, openLine: string | null = null): string | null {
   if (m.body !== null) return null;
-  return `${m.headline} ${m.headlineLabel}${m.range ? `, ${m.range}` : ''} · ${m.period} · ${m.evidence}${m.open && openLine ? ` · ${openLine}` : ''}`;
+  // F4-5 (cycle 4, C4-10): the options qualifier (the alt's legal wording) after the headline label, and the loader's
+  // count line after the evidence, as the card and its alt carry them; the page adds the disclaimer after.
+  const qualifier = m.shareLabel ? `, ${OPTIONS.altQualifier}` : '';
+  const options = m.optionsLine ? ` · ${m.optionsLine}` : '';
+  return `${m.headline} ${m.headlineLabel}${qualifier}${m.range ? `, ${m.range}` : ''} · ${m.period} · ${m.evidence}${options}${m.open && openLine ? ` · ${openLine}` : ''}`;
 }

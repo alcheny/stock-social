@@ -69,8 +69,8 @@ export default async function TradePage({ params }: Params) {
         {isPublicRecord(t.state) && <Badge kind={t.state} />}
       </p>
       {t.filings && <><PublicNotice />{/* F-7 (legal C15, AC 16): the not-joined line, then the purchase's and the sale's filings. */}
-        <p className="filing-links">{t.filings.bought.map((u) => <a key={u} className="filing-link" href={u} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.boughtName(t.symbol)}>{PUBLIC.bought}</a>)}
-          <a className="filing-link" href={t.filings.sold} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.soldName(t.symbol)}>{PUBLIC.sold}</a></p></>}
+        <p className="filing-links">{t.filings.bought.map((u, i, all) => <a key={u} className="filing-link" href={u} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.boughtNameOf(t.symbol, i + 1, all.length)}>{PUBLIC.bought}</a>)}
+          <a className="filing-link" href={t.filings.sold} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.soldNameOn(t.symbol, closed)}>{PUBLIC.sold}</a></p></>}
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-trade">
           <h2 id="this-trade">This trade</h2>

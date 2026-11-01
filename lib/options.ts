@@ -95,16 +95,40 @@ export function contractKey(r: Pick<OptionRow, 'accountId' | 'underlying' | 'exp
 const isEvent = (k: string | null) => k === 'OPTIONEXPIRATION' || k === 'OPTIONASSIGNMENT' || k === 'OPTIONEXERCISE';
 const isOpenType = (oc: string | null) => oc === 'BUY_TO_OPEN' || oc === 'SELL_TO_OPEN';
 // D4 order: at equal instants opens first, then rows whose side the ledger infers, then explicit closes, then events
-// (fix round 1, review 1); then by id. An event dated at midnight UTC exactly is a date-only row: it orders at the end of
-// its UTC day, after that day's trades (an expiry is the day's last act).
-const rank = (r: OptionRow) => (isOpenType(r.openClose) ? 0 : (r.kind === 'BUY' || r.kind === 'SELL') && !r.openClose ? 1 : isEvent(r.kind) ? 3 : 2);
-export const orderTime = (r: Pick<OptionRow, 'kind' | 'executedAt'>) => {
+// (fix round 1, review 1); then by id. The id tie-break is for determinism only (plan E7), never a claim about trade order:
+// where the order would decide between shown and counted, the rows are counted instead (F4-2 below).
+// F4-2 (cycle 4, C4-7): an expiry orders by the contract's own `expiry` field, not by its stamp's hour: at the end of the
+// expiry day (UTC) or at its stamp if later, after every trade of the contract dated on or before that day (nothing trades
+// a contract after it expires). An exercise or assignment can come before expiry, so it keeps its stamp; one dated at
+// midnight UTC exactly is a date-only row and orders at the end of its UTC day (fix round 1).
+const rank = (r: OptionRow) => (isOpenType(r.openClose) ? 0 : isInferred(r) ? 1 : isEvent(r.kind) ? 3 : 2);
+const isInferred = (r: Pick<OptionRow, 'kind' | 'openClose'>) => (r.kind === 'BUY' || r.kind === 'SELL') && !r.openClose;
+export const orderTime = (r: Pick<OptionRow, 'kind' | 'executedAt' | 'expiry'>) => {
   const t = r.executedAt!.getTime();
+  if (r.kind === 'OPTIONEXPIRATION' && r.expiry) return Math.max(t, Date.parse(`${r.expiry}T00:00:00Z`) + DAY - 1);
   return isEvent(r.kind) && t % DAY === 0 ? t + DAY - 1 : t;
 };
+const orderDay = (r: OptionRow) => Math.floor(orderTime(r) / DAY);
 export function orderRows(rows: OptionRow[]): OptionRow[] {
   return [...rows].sort((a, b) => (orderTime(a) - orderTime(b)) || (rank(a) - rank(b)) || (a.externalId < b.externalId ? -1 : a.externalId > b.externalId ? 1 : 0));
 }
+/** F4-2: the UTC days (by order time) whose closes the ledger's order cannot settle: an exercise or assignment stamped
+ *  with an hour (not 00:00:00Z) on a day the contract also trades. Its hour may be the vendor's, not the event's, so
+ *  that day's closes of the contract are counted under `contradict` (an assignment stays `short`, D4) instead of being
+ *  ordered on it, and the contract is tainted until flat. */
+export function unorderedDays(rows: OptionRow[]): Set<number> {
+  const trading = new Set(rows.filter((r) => r.kind === 'BUY' || r.kind === 'SELL').map(orderDay));
+  return new Set(rows.filter((r) => (r.kind === 'OPTIONEXERCISE' || r.kind === 'OPTIONASSIGNMENT') && r.executedAt!.getTime() % DAY !== 0 && trading.has(orderDay(r))).map(orderDay));
+}
+/** F4-2: an inferred-side row sharing its instant with an inferred-side row of the other side: on a flat net the id
+ *  alone would decide which one opens (long or short), so the contract is counted under `contradict` until flat. */
+// ponytail: same-instant inferred rows on a non-flat net can still decide a flip by id (net +1, an inferred sell of 2
+// and buy of 1 at one instant) — count them too if the vendor ever sends unlabelled same-instant pairs (none seen).
+const racesAt = (rows: OptionRow[]) => {
+  const sides = new Map<number, Set<string>>();
+  for (const r of rows) if (isInferred(r)) { const t = orderTime(r); const s = sides.get(t); if (s) s.add(r.kind!); else sides.set(t, new Set([r.kind!])); }
+  return (r: OptionRow) => isInferred(r) && (sides.get(orderTime(r))?.size ?? 0) > 1;
+};
 
 const finitePos = (x: number | null): x is number => x !== null && Number.isFinite(x) && x > 0;
 const finiteNonNeg = (x: number | null): x is number => x !== null && Number.isFinite(x) && x >= 0;
@@ -196,9 +220,20 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
     tainted = net !== 0;
   };
 
+  const unordered = unorderedDays(rows);
+  const races = racesAt(rows);
   for (const r of rows) {
     const u = units(r);
-    if (tainted) {
+    const inDay = unordered.has(orderDay(r));
+    // F4-2: on a flat net, an inferred row racing another at its instant moves the net without a basis: neither opening
+    // row counts, and every close until flat is counted under contradict.
+    if (!tainted && !inDay && net === 0 && races(r)) {
+      net += r.kind === 'BUY' ? u : -u;
+      longLots = [];
+      tainted = net !== 0;
+      continue;
+    }
+    if (tainted || inDay) {
       // Every row while tainted moves the net; a non-opening one is counted (its basis is unknown). Plan D4 (orchestrator
       // decision 2026-11-01): a short close while tainted stays counted under "other" (contradict), not "short": the
       // contract is tainted until flat, whatever the side of the close.
@@ -206,7 +241,9 @@ function matchContract(rows: OptionRow[], asOf: Date, counts: Counts, trades: Op
       if (r.kind === 'OPTIONASSIGNMENT') counts.short++;
       else if (!isOpenType(r.openClose)) counts.contradict++;
       net += signed;
-      if (Math.abs(net) < 1e-12) { net = 0; tainted = false; longLots = []; }
+      if (Math.abs(net) < 1e-12) net = 0;
+      tainted = net !== 0;
+      longLots = []; // basis unknown while tainted; flat leaves nothing
       continue;
     }
     if (r.kind === 'BUY') {

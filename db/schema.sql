@@ -1112,3 +1112,11 @@ create table if not exists share_action (
 );
 select schema_add_index('share_action_user_day', 'create index share_action_user_day on share_action (user_id, day)');
 select schema_add_index('share_action_day', 'create index share_action_day on share_action (day)');
+
+-- Fixes cycle 4 (C4-1, C4-2; reliability condition 5): which share-matcher version every record was rebuilt with. A
+-- deploy rebuilds every record (frozen ones included) once per lib/trades.ts MATCHER_VERSION, then writes the version
+-- here. No user ids: numbers and a time only.
+create table if not exists matcher_runs (
+  version smallint primary key,
+  done_at timestamptz not null default now()
+);

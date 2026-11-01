@@ -448,7 +448,7 @@ test('fix round 5: generic words from the scanner list, the payment-plan phrase 
 
 test('fix round 5: the start-up re-check applies only rules newer than the version a note was checked at', async () => {
   const { MODERATION_VERSION } = await import('./moderation.ts');
-  assert.equal(MODERATION_VERSION, 3); // fix rounds 6 and 7 raised it (the tests below pin what versions 2 and 3 add)
+  assert.equal(MODERATION_VERSION, 4); // fix rounds 6 and 7 and F4-18 raised it (the tests below and lib/moderation.test.ts pin what versions 2, 3 and 4 add)
   assert.ok(HOLD_V2.every((r) => (r.since ?? 1) <= MODERATION_VERSION));
   // A note checked at the current version matches nothing new; a note from main's rules (version 0) is matched by
   // every rule of this branch, but not by the frozen HOLD on its raw text (it passed that when it was saved).
@@ -528,6 +528,7 @@ test('fix round 6: the start-up re-check holds version 1 notes only on what vers
 const RULE_HASHES: Record<number, string> = {
   2: '713b08cb0d5c66fad954435cfe51b57bd41a13ff60c87b85a3d25477bc709893',
   3: '57ced0678529edf7d9fabb8104b826d8420e73b9395f03329815aa67201a8ec7',
+  4: '9082da7e768d7b6419ff052834e061cae3ec16b81bdd5c095dc10e496a73c829', // F4-18 (cycle 4)
 };
 test('fix round 6: rules cannot change without raising MODERATION_VERSION', async () => {
   const { createHash } = await import('node:crypto');
@@ -589,5 +590,8 @@ test('fix round 7: the start-up re-check holds version 2 notes only on what vers
   // a version 2 rule is not re-applied to a version 2 note
   assert.deepEqual(moderateDetail('my avg is 30% a month', { after: 2 }), { status: 'published', rule: null });
   assert.ok(HOLD_V2.some((r) => r.since === 3));
-  assert.ok(HOLD_V2.every((r) => (r.since ?? 1) <= 3));
+  // F4-18 (version 4) adds only its own rules; every earlier rule is still version 3 or older.
+  const F4_18 = new Set(['domain-cc', 'cashtag', 'bio-pointer', 'follow-for', 'trading-room']);
+  assert.ok(HOLD_V2.every((r) => (r.since ?? 1) <= 3 || (F4_18.has(r.rule) && r.since === 4)));
+  assert.ok(HOLD_V2.filter((r) => F4_18.has(r.rule)).every((r) => r.since === 4));
 });

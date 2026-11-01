@@ -178,3 +178,27 @@ they unblock, their files and merge positions are as follows.
   - Files: a `WarnNotice` component and `.warn-notice` rules, the bar baseline in `app/t/[symbol]/Spread.tsx` and
     `Timeline.tsx`.
   - F-20's file is not edited: its build session owns it.
+
+## Fixes cycle 4 (2026-11-01): rows handed to the sessions that own their files
+
+Record: `docs/direction/cycle4-2026-11-01.md` → Fixes list. Built on `claude/fixes-cycle4`: F4-2, F4-5, F4-6 half (1),
+F4-7, F4-9, F4-10, F4-11, F4-12, F4-13, F4-18, F4-19, F4-20, F4-21, and the record-trust Priority 1 (C4-1, C4-2; committee
+`docs/features/logs/fixes-cycle4/committee-2026-11-01.md`). These rows touch files another session owns, so they are left
+to it, unbuilt (each owner builds the row as the record states it, or hands it back here):
+- **F4-4 (month recap completeness claim)** → `claude/fix-truthful-labels`: the month page, its foot (`FL.monthFoot`),
+  `lib/record-strip.ts`, `lib/recap-load.ts` and `lib/month-card.ts` are that branch's files.
+- **F4-8 (home preview names public filings)** → after `claude/fix-truthful-labels` (it writes the root-description wording
+  the row says to reuse) and PR #77 (`app/home-card/route.tsx`). Whichever lands later builds it.
+- **F4-14 (space between the Demo and Public filing badges)** → `claude/fix-truthful-labels` and `claude/f26-held-like-none`
+  both edit `app/ui.tsx` around that line; the first to merge adds the space.
+- **F4-15 (the @handle never shrinks on the share card)** → PR #77 (`app/u/[handle]/record-card-image.tsx`).
+- **F4-16 (chart sheet note dates)** → `claude/fix-truthful-labels` (`chart.tsx`, `lib/feed.ts`), then `claude/f26-held-like-none`
+  (pane-chart route).
+- **F4-17 (held reason described by the input)** → `claude/fix-truthful-labels` and `claude/f16-f17-trust-safety` (the profile page).
+- **F4-1 (symbol-less vendor rows; future unusable sells)** → the store half is `lib/broker.ts` (protected: owner item); the
+  future-count half is the query `claude/f24-late-postings` rewrites in `lib/sync.ts`: F-24 adds the unusable future sells
+  to `excluded_future` there.
+- **F4-21 (process docs)** → built here except that `docs/process/coordination.md` is also edited by
+  `claude/fix-truthful-labels` (one row): this branch rewrote the snapshot; the later merge keeps this table and re-applies
+  that row's file-name fix.
+- **F4-22 (CLAUDE.md known limits line)** and **F4-6 half (2) (PROMO out of `scripts/compliance.ts`)** → owner (protected files).
