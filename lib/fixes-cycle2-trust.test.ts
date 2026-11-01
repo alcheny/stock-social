@@ -63,9 +63,15 @@ test('fix #11: no "pick" or "signal" in compare copy or /me/record (POLICY F1a)'
   assert.doesNotMatch(copy, /\b(pick|signal)/i);
 });
 
-test('fix #19: every stock surface tones figures by the printed sign', () => {
+// Printed figures only: a class chosen by comparing a value with 0 ("x > 0 ? 'up'", "x < 0 ? 'down' : 'up'") instead of
+// toneClass. Chart marks that print no number (Spread.tsx dot fills) are not figures and use CSS variables, not classes.
+test('fix #19: no printed figure on a stock surface picks its up/down class by comparing with zero', () => {
   const files = walk(`${root}app/t`).filter((f) => f.endsWith('.tsx'));
-  for (const f of files) assert.doesNotMatch(readFileSync(f, 'utf8'), /\? 'up' :|: 'down'|> 0 \? '#|< 0 \? '#/, relative(root, f));
+  assert.ok(files.length > 5);
+  const bad = /[<>]=? ?0 \? ["'](up|down)["']|\? ["'](up|down)["'] : ["'](up|down)["']/;
+  for (const f of files) assert.doesNotMatch(readFileSync(f, 'utf8'), bad, relative(root, f));
+  assert.match("x > 0 ? 'up' : 'down'", bad); // the check itself catches both orders
+  assert.match('x < 0 ? "down" : "up"', bad);
 });
 
 test('fix #19: a flat figure is uncolored on /me/likes and /me/record', async () => {
