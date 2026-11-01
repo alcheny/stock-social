@@ -32,6 +32,7 @@ import { MarkTradesPromptSeen, NewTradesPrompt } from './new-trades-prompt.tsx';
 import { latestRecapYm } from '@/lib/recap.ts';
 import { shouldShowSharePrompt } from '@/lib/share-prompt.ts';
 import { count } from '@/lib/format.ts';
+import { routeHandle } from '@/lib/params.ts';
 import { closesWindow, packPoints } from '@/lib/paging.ts';
 import { RowFocus } from './row-focus.tsx';
 import { FollowButton } from '../../follow-button.tsx';
@@ -50,6 +51,7 @@ import { ChartNote, CombinedLine, OpenGrid, RealizedLabel, longValues, toneClass
 type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ connect?: string; via?: string; handle?: string; closes?: string; done?: string; first?: string }> };
 
 async function load(handle: string) {
+  if (!routeHandle(handle)) return null; // security hardening (2026-11-01), F12: junk in the URL is a 404, not a 500
   const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
   if (!user) return null;
   const trades = await sql`

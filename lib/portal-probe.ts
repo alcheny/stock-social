@@ -11,10 +11,11 @@
 //   fetched. Redirects are not followed by fetch (`redirect: 'manual'`); a redirect is followed by hand only while it
 //   stays on that same origin (at most MAX_HOPS), and one that leaves it (another host, loopback, another scheme or port)
 //   is "unknown": embedded, with the client's fallback.
-// Per instance: the cache and the in-flight map live in this process's memory. Behind N instances each one probes once
-// per origin per hour, and a new instance starts empty. That is acceptable for a HEAD of one trader's URL per instance
-// per hour; the limits that must hold across instances (the mint limit, the registration lock) are in the database.
+// Security hardening (2026-11-01): the answer lives in the database (portal_probes, sharedProbeStore), so every server
+// instance shares it: behind N instances a vendor origin is probed once per hour between them. The route passes that
+// store; the in-memory one is the default for unit tests.
 import { framingAllowed } from './portal.ts';
+import { sql } from './db.ts';
 import type { PortalMode } from './connections.ts';
 
 export const PROBE_TIMEOUT_MS = 1_500; // the whole probe, every hop included
@@ -24,18 +25,39 @@ export const PROBE_MAX_HOPS = 3; // same-origin redirects followed by hand
 
 type ProbeResponse = Pick<Response, 'headers'> & { status?: number; body?: ReadableStream | null };
 type Fetch = (url: string, init: RequestInit) => Promise<ProbeResponse>;
-const cache = new Map<string, { mode: PortalMode; until: number }>();
+// Where answers are kept: per vendor origin, with the time they stop counting.
+export type ProbeStore = { get: (origin: string, now: number) => Promise<PortalMode | null>; set: (origin: string, mode: PortalMode, until: number) => Promise<void> };
+const memory = new Map<string, { mode: PortalMode; until: number }>();
+export const memoryProbeStore: ProbeStore = {
+  get: async (o, now) => { const c = memory.get(o); return c && c.until > now ? c.mode : null; },
+  set: async (o, mode, until) => { memory.set(o, { mode, until }); },
+};
+// Shared by every instance. A store that fails (the database briefly away) reads as a miss: the probe runs again.
+export const sharedProbeStore: ProbeStore = {
+  get: async (o, now) => {
+    const [r] = await sql`select mode from portal_probes where origin = ${o} and until > ${new Date(now)}`;
+    return r ? (r.mode as PortalMode) : null;
+  },
+  set: async (o, mode, until) => {
+    await sql`insert into portal_probes (origin, mode, until) values (${o}, ${mode}, ${new Date(until)})
+      on conflict (origin) do update set mode = excluded.mode, until = excluded.until`;
+  },
+};
+// Concurrent probes of one origin within this instance share one request.
+// ponytail: first probes of one origin that start at the same moment on different instances each send one HEAD (at
+// most one per instance per expiry) — a claim row in portal_probes taken before probing would merge them.
 const inflight = new Map<string, Promise<PortalMode>>();
-export const clearProbeCache = () => { cache.clear(); inflight.clear(); };
+export const clearProbeCache = () => { memory.clear(); inflight.clear(); };
 
-export function probePortalMode(url: string, portalOrigin: string, appOrigin: string, opts: { fetch?: Fetch; now?: () => number; timeoutMs?: number } = {}): Promise<PortalMode> {
+export async function probePortalMode(url: string, portalOrigin: string, appOrigin: string, opts: { fetch?: Fetch; now?: () => number; timeoutMs?: number; store?: ProbeStore } = {}): Promise<PortalMode> {
   const now = opts.now ?? Date.now;
-  const hit = cache.get(portalOrigin);
-  if (hit && hit.until > now()) return Promise.resolve(hit.mode);
+  const store = opts.store ?? memoryProbeStore;
+  const cached = await store.get(portalOrigin, now()).catch(() => null);
+  if (cached) return cached;
   const running = inflight.get(portalOrigin);
   if (running) return running;
-  const p = probe(url, portalOrigin, appOrigin, opts.fetch ?? fetch, opts.timeoutMs ?? PROBE_TIMEOUT_MS).then(({ mode, definite }) => {
-    cache.set(portalOrigin, { mode, until: now() + (definite ? PROBE_TTL_MS : PROBE_FAIL_TTL_MS) });
+  const p = probe(url, portalOrigin, appOrigin, opts.fetch ?? fetch, opts.timeoutMs ?? PROBE_TIMEOUT_MS).then(async ({ mode, definite }) => {
+    await store.set(portalOrigin, mode, now() + (definite ? PROBE_TTL_MS : PROBE_FAIL_TTL_MS)).catch(() => {});
     return mode;
   }).finally(() => { if (inflight.get(portalOrigin) === p) inflight.delete(portalOrigin); });
   inflight.set(portalOrigin, p);

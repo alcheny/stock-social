@@ -59,19 +59,36 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
 | 31 | Record status line remainder of D29 plus TR-5 "Account removed" (C7) | design council P-4, creative CR-7 | **approved: F-11** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
 | 32 | Record strip on trade and month pages and images, per idea 16 (C15) | design council P-4, creative CR-9/12/13 | **approved: F-12** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
 | 33 | Sync cadence within the vendor's guidance (C19) | market council #2 | **approved: F-14** | [approval 2026-11-01](ideas/approval-2026-11-01.md) | approved |
-| 34 | Handle and name integrity, trimmed (C9) | design council P-2, creative CR-33 | waiting (passed, over the cap; first next cycle) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
-| 35 | Privacy-safe gate counters (C17) | market council #3, idea 13 | waiting (first next cycle, week-0 prerequisite) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
-| 36 | One trust language (C10) | design council P-3, creative CR-5/8/14/15 | waiting (after #35 and the design system's wording) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
-| 37 | Owner sees the public record (C12) | design council P-8, creative CR-32 | waiting (after F-3) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
-| 38 | Feed reading mode, non-visual remainder (C11) | design council P-6, creative CR-26 | waiting (after #30) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
-| 39 | Design-system foundation and CI gate (C14) | design council P-10, creative CR-16..24 | waiting (a quiet cycle) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
-| 40 | Wayfinding remainder: month index, search (C13) | design council P-9 | waiting (no demand yet) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
-| 41 | Home link preview (C21) | creative council CR-1/31, market #12 | waiting (fix-sized; the orchestrator may build it) | [approval 2026-11-01](ideas/approval-2026-11-01.md) | waiting |
+| 34 | Handle and name integrity, trimmed (C9) | design council P-2, creative CR-33 | **approved: F-17** (cycle 2, K2) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 35 | Privacy-safe gate counters (C17) | market council #3, idea 13 | **approved: F-15** (cycle 2, K3 with MRC2-1 and BC-7) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 36 | One trust language (C10) | design council P-3, creative CR-5/8/14/15 | **approved: F-18** (cycle 2, K7) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 37 | Owner sees the public record (C12) | design council P-8, creative CR-32 | waiting (cycle 2, K15 1.87: no real traders yet; needs real sign-in) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 38 | Feed reading mode, non-visual remainder (C11) | design council P-6, creative CR-26 | waiting (cycle 2, K16 2.00: after fixes #14-#17 and F-10/F-13) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 39 | Design-system foundation and CI gate (C14) | design council P-10, creative CR-16..24 | **approved: F-20** (cycle 2, K9) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 40 | Wayfinding remainder: month index, search (C13) | design council P-9 | waiting (cycle 2, K21 1.13: no demand; after F-17) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 41 | Home link preview (C21) | creative council CR-1/31, market #12 | waiting (cycle 2, K20 2.13: chore-sized; the orchestrator may build it) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
 | 42 | Simulated-account exclusion and coverage copy (C20) | market council #14 | rejected as a feature: already built (`is_paper` filter); copy goes with fix #8 | [approval 2026-11-01](ideas/approval-2026-11-01.md) | rejected |
-| 43 | Whole-record preview at connect (C16) | market council #11 | flagged for owner: contradicts F-1 2026-10-22 (no import before consent); recommend a Demo-record preview | [approval 2026-11-01](ideas/approval-2026-11-01.md) | owner |
+| 43 | Whole-record preview at connect (C16) | market council #11 | flagged for owner: contradicts F-1 2026-10-22 (no import before consent); recommend a Demo-record preview (cycle 2 repeats it as K17's shape) | [approval 2026-11-01](ideas/approval-2026-11-01.md), [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
 | 44 | Trial arm, free limited Record tools, delete connection on disconnect, other price arms (MR-6/7/8/13) | market council | flagged for owner: contradict F-3 2026-11-01 / TR-5; not recommended now | [approval 2026-11-01](ideas/approval-2026-11-01.md) | owner |
+| 45 | Number format, tone and ranges, lib slice first (C5, D24, DS-10..13, DS-25, MRC2-5) | design system council, market council cycle 2 | **approved: F-19** | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 46 | Trust-and-safety slice: profile report, owner digest, audited hide, takedown page, anti-impersonation line (BC-2, BC-17, MRC2-6) | business council, market council cycle 2 | **approved: F-16** | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
+| 47 | Open-positions gate for real users with a count-only line (BC-3) | business council | flagged for owner: narrows F-6 2026-11-01 and TR-4; recommend a dated temporary exception in F-6 | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
+| 48 | Age-law posture: attestation version, hide on an under-18 report, pinned signed-out order (MRC2-12) | market council cycle 2 | waiting (K18 3.07: first next cycle, as an addition to F-16) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 49 | Sitemap and SEO pages (MRC2-13) | market council cycle 2 | waiting (K19 2.07: after fixes #1 and #4; no profiles before launch) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 50 | Billing hygiene checks in test mode (MRC2-11) | market council cycle 2 | waiting (K22 2.00: a test-only chore; Terms text is the owner's) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 51 | One image palette and image trust band (DS-6, DS-19) | design system council | waiting (K11 1.73: after F-12 and owner flags O-2/O-4) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 52 | Design-system variant tests V-1 neutral base, V-2 type and spacing collapse, V-3 nav labels (DSP-5..7) | design system council | waiting (KV 1.07: no traffic, held with C4/D23) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 53 | Amendments to idea-board decisions D27, D25, D22 and a one-maturity-signal rule (DSP-2, DSP-3, DSP-4, DSP-8) | design system council | proposed: goes to the idea board (the council may not reword a decided line) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | idea board |
+| 54 | Gate definitions, go-to-market v2, pricing research, vendor questions (MRC2-3, 4, 7, 10, 11) | market council cycle 2 | flagged for owner | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
 
 ## Decisions
+
+- 2026-11-01: The approval council's second cycle approved six features: F-15 measurement foundation (first slice),
+  F-16 trust-and-safety slice, F-17 handle and name integrity, F-18 one trust language, F-19 number format and ranges
+  (lib slice first), F-20 design tokens and the contrast test. They take five build slots (F-20 and F-18 share
+  `app/globals.css`). An approval whose prerequisite has not merged by the next council lapses to it. BC-3 (open
+  positions gate) and the Demo-record preview went to the owner. Why: approval council under the owner's delegation of
+  2026-11-01 ([record](ideas/approval-2026-11-01-cycle2.md)).
 
 - 2026-11-01: The approval council approved six features: F-9 thesis safety, F-10 feed record line and the shared RecordStrip, F-11 record status line, F-12 trade and month record strip, F-13 first-visit line and swipe hint, F-14 sync cadence. C1 and C9 passed but were over the cap of six; C1's remainder rides with fix #3. Why: approval council under the owner's delegation of 2026-11-01 ([record](ideas/approval-2026-11-01.md)).
 
@@ -160,6 +177,12 @@ whose most-elected ideas are approved automatically and built (owner's delegatio
   instruction of 2026-11-01.
 
 ## Flags for the owner
+
+- Approval council cycle 2 2026-11-01: BC-3 open-positions gate (recommend a dated temporary exception in F-6 with the
+  count-only line); the Demo-record preview as C16's shape; commit 107d3f4 on `claude/f13-a11y-fixes` rewords D27's
+  decided line (revert, or amend D27 at the idea board first); DSP-2/3/4/8 go to the idea board; MRC2-3/4/7/10/11 and
+  BC-1, 5, 8, 9, 10, 12-16, 18 are the owner's; BC-11's legal calls (T2, the legislator source, the launch-gate bypass)
+  are the owner's. Record: [approval cycle 2](ideas/approval-2026-11-01-cycle2.md#flags-for-the-owner-the-councils-recommendation-not-approved).
 
 - Approval council 2026-11-01: C16 whole-record preview needs an F-1 change (recommend a Demo-record preview); MR-6/7/8/13 contradict F-3 and TR-5 (not recommended); treat the privacy-safe gate counters (C17) and handle integrity (C9) as the first items of the next cycle; CLAUDE.md and DESIGN §2.7 "hourly sync" wording after F-14; DECISIONS #11 logged twice; D22's "Too early to tell" vs F-4's under-5-bets line; F-13's line needs new wording if F-7 public profiles enter the feed. Record: [approval 2026-11-01](ideas/approval-2026-11-01.md#flags-for-the-owner-the-councils-recommendation-not-approved).
 

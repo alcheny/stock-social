@@ -8,6 +8,7 @@ import { checkDisplayName, checkHandle, devLoginRedirect } from '@/lib/handles.t
 import { sanitizeUserText } from '@/lib/text-safety.ts';
 import { afterSigninTools } from '@/lib/auth/landing.ts';
 import { saveThesisFor } from '@/lib/thesis-save.ts';
+import { tradeIdParam } from '@/lib/params.ts';
 import { isDemoUser } from '@/lib/demo.ts';
 import { normalizeHandle, normalizeVia, resolveReferrer } from '@/lib/referral.ts';
 import { TRADES_PROMPT_ACTIONS, type TradesPromptAction } from '@/lib/new-trades.ts';
@@ -52,7 +53,7 @@ export async function login(form: FormData) {
   const referredBy = resolveReferrer({ refHandle, referrer, newHandle: handle });
   const attempt = await createAttempt({ method: 'dev', attested: form.get('adult') === 'on', referredBy, surface: referredBy ? normalizeVia(form.get('via')) : null, source: refHandle ? 'profile' : 'direct' });
 
-  const [existing] = await sql`select id from users where handle = ${handle}`;
+  const [existing] = await sql`select id from users where handle = ${handle} and deleted_at is null`; // never a profile marked for deletion
   // Launch gate (orchestrator review 1): the dev form signs existing handles in, but creates a new account only while
   // sign-up is open (the e2e sandbox counts as open). Fix round 2: the closed case already went back to the form above;
   // this throw stays as the guard for a switch flipped mid-request (lib/launch-gate-signin.test.ts checks its order).
@@ -80,7 +81,9 @@ export async function login(form: FormData) {
 export async function saveThesis(form: FormData) {
   const user = await currentUser();
   if (!user) redirect('/login');
-  await saveThesisFor(user.id, String(form.get('tradeId')), String(form.get('thesis') ?? ''));
+  const tradeId = tradeIdParam(form.get('tradeId')); // F19: a non-numeric id is a no-op, not a bigint error and a 500
+  if (!tradeId) return;
+  await saveThesisFor(user.id, tradeId, String(form.get('thesis') ?? ''));
   revalidatePath(`/u/${user.handle}`);
 }
 

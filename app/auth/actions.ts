@@ -3,15 +3,16 @@
 // is created only when a method completes (lib/auth/attempts.ts). Nothing personal is logged.
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { sql } from '@/lib/db.ts';
 import { createAttempt, isMethod } from '@/lib/auth/attempts.ts';
 import { encodeTx, TX_COOKIE, type Tx } from '@/lib/auth/tx.ts';
 import { authorizeUrl, discover, pkce, randomToken } from '@/lib/auth/oidc.ts';
 import { providersFromEnv } from '@/lib/auth/providers.ts';
-import { ATTEMPT_COOKIE, attemptCookieValue, EMAIL_COOKIE, EMAIL_COOKIE_SECONDS, hashToken, issueLink, normalizeEmail, ownsAttempt, pendingLinkEmail, requireLinkOrigin, SendFailedError } from '@/lib/auth/links.ts';
+import { ATTEMPT_COOKIE, attemptCookieValue, EMAIL_COOKIE, EMAIL_COOKIE_SECONDS, issueLink, normalizeEmail, ownsAttempt, pendingLinkEmail, requireLinkOrigin, SendFailedError } from '@/lib/auth/links.ts';
 import { defaultSender } from '@/lib/auth/email.ts';
-import { allow } from '@/lib/auth/rate-limit.ts';
+import { attemptAllowed, resendAllowed, sendAllowed } from '@/lib/auth/send-limits.ts';
+import { clientIp } from '@/lib/rate-limit.ts';
 import { sessionSecret, signToken } from '@/lib/auth/sessions.ts';
 import { currentUser, origin, signOut as endSession } from '@/lib/session.ts';
 import { deleteProfile as deleteRow } from '@/lib/delete.ts';
@@ -45,9 +46,10 @@ async function keepEmail(form: FormData) {
   const email = typeof raw === 'string' ? raw.trim().slice(0, 254) : '';
   (await cookies()).set(EMAIL_COOKIE, email, { httpOnly: true, sameSite: 'lax', path: '/login', maxAge: email ? EMAIL_COOKIE_SECONDS : 0, secure: (await origin()).startsWith('https://') });
 }
-// "Send again" is bound to the browser that started the attempt (lib/auth/links.ts#ownsAttempt).
+// "Send again" is bound to the browser that started the attempt (lib/auth/links.ts#ownsAttempt). Path / so the emailed
+// link (/auth/email) sees it too: opened in the browser that asked, the link signs in at once; anywhere else it asks first.
 async function bindAttempt(attemptId: number) {
-  (await cookies()).set(ATTEMPT_COOKIE, attemptCookieValue(attemptId, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/login', maxAge: 3600, secure: (await origin()).startsWith('https://') });
+  (await cookies()).set(ATTEMPT_COOKIE, attemptCookieValue(attemptId, sessionSecret()), { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 3600, secure: (await origin()).startsWith('https://') });
 }
 
 export async function startSignIn(form: FormData) {
@@ -57,13 +59,16 @@ export async function startSignIn(form: FormData) {
   const keep = { ref: r.ref, via: r.via, method };
   if (form.get('adult') !== 'on') { await keepEmail(form); return back({ ...keep, error: 'attest' }); }
   const landedAt = Number(form.get('landed_at'));
+  // Every method writes an attempt (and brokerage-first leads to a vendor user): limited per client (shared, in the DB).
+  const ip = clientIp(await headers());
+  if (!(await attemptAllowed(ip))) { await keepEmail(form); return back({ ...keep, error: 'rate' }); }
   const base = { method, attested: true, referredBy: r.referredBy, surface: r.surface, landedAt: landedAt ? new Date(landedAt) : null, source: r.surface ?? (r.ref ? 'profile' : 'direct') };
 
   if (method === 'email') {
     requireLinkOrigin(); // production refuses to send a link whose origin would come from the Host header
     const email = normalizeEmail(form.get('email'));
     if (!email) { await keepEmail(form); return back({ ...keep, error: 'email' }); }
-    if (!allow(`mail:${hashToken(email)}`, 5, 15 * 60_000)) { await keepEmail(form); return back({ ...keep, error: 'rate' }); }
+    if (!(await sendAllowed(email, ip))) { await keepEmail(form); return back({ ...keep, error: 'rate' }); }
     await keepEmail(form);
     const attemptId = await createAttempt(base);
     await bindAttempt(attemptId);
@@ -107,8 +112,16 @@ export async function resendLink(form: FormData) {
   if (!ownsAttempt((await cookies()).get(ATTEMPT_COOKIE)?.value, attemptId, sessionSecret())) redirect('/login');
   const email = await pendingLinkEmail(attemptId);
   if (!email) redirect('/login');
-  if (!allow(`mail:${hashToken(email)}`, 5, 15 * 60_000) || !allow(`attempt:${attemptId}`, 3, 15 * 60_000)) redirect(`/login/sent?a=${attemptId}&error=limit`);
+  if (!(await resendAllowed(attemptId, email, clientIp(await headers())))) redirect(`/login/sent?a=${attemptId}&error=limit`);
   redirect(`/login/sent?a=${attemptId}${(await sendOrFail(attemptId, email)) || '&again=1'}`);
+}
+
+// F14: the confirm step's POST (app/auth/email/confirm). Server actions are checked against the page's origin, so another
+// site cannot submit it.
+export async function confirmEmailLink(form: FormData) {
+  const { finishEmailLink } = await import('./email/finish.ts');
+  const t = form.get('t');
+  redirect(await finishEmailLink(typeof t === 'string' ? t : ''));
 }
 
 export async function signOut() {
@@ -140,7 +153,12 @@ export async function setHandle(form: FormData) {
 export async function deleteProfile() {
   const user = await currentUser();
   if (!user) redirect('/login');
-  await deleteRow(user);
-  await endSession();
+  // F17: this browser's session ends even when the vendor step throws (the profile is marked and its other sessions
+  // already went in deleteRow's first step); the hourly retry finishes the deletion.
+  try {
+    await deleteRow(user);
+  } finally {
+    await endSession();
+  }
   redirect('/');
 }
