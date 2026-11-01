@@ -32,10 +32,11 @@ file wins over a one-line mention elsewhere ([README](README.md) maps the homes)
 The owner alone decides:
 - Every item in [POLICY → H. Human-only decisions](../POLICY.md#h-human-only-decisions): making the
   repository or product public, the license, Terms and Privacy Policy, POLICY itself, scanner exceptions,
-  new dependencies, payments, launch to real users, deleting data, credentials, GitHub and deploy settings.
-  The approval council's delegation (POLICY H, second paragraph) never reaches these.
-- The lane-A items in [AUTOPILOT.md → What stays human](../AUTOPILOT.md#what-stays-human): switching modes
-  (and so the `AUTOPILOT` and `FEATURES` switches), creating accounts and keys, anything in a protected path,
+  new dependencies, payments, launch to real users, deleting data, credentials, GitHub and deploy settings
+  (which include the `AUTOPILOT` and `FEATURES` repo variables). The approval council's delegation (POLICY H,
+  second paragraph) never reaches these; it reaches only H's "Phase 2/3 features" item.
+- The lane-A items in [AUTOPILOT.md → What stays human](../AUTOPILOT.md#what-stays-human): switching modes,
+  creating accounts and keys, anything in a protected path,
   phase changes, curating "Standing direction" in DECISIONS.md, legal gates, production launch and the
   DESIGN week-8 kill decision.
 - The [hard stops](../IMPLEMENTATION.md#hard-stops-where-the-autonomous-cycle-must-wait-for-the-owner) of the
@@ -177,7 +178,7 @@ recommendation is a recommendation, not a decision.
 **Q5. Design sessions committing to main.**
 - Rule: "Commits the docs to main (docs only; no code is written in a design session unless the owner
   asks), and starts the pipeline when the owner says go: `gh workflow run features.yml --ref main`."
-  (FEATURES.md → "How Claude runs a design session", step 5)
+  (FEATURES.md → "How Claude runs a design session (chat)", step 5)
 - Lane-C rule: never push to `main` ([collaboration.md → Branches](collaboration.md#branches)).
 - Options: (a) design sessions open a docs PR like everyone else; (b) design sessions keep the exception.
 - Recommendation: (a) while parallel sessions run, since a direct push moves main under every open PR.

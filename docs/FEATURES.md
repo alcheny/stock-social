@@ -76,7 +76,7 @@ Repo variable `FEATURES` (`on`/`off`). Independent of `AUTOPILOT`. Turning it of
 and merges; builds already running finish and publish their PR.
 
 Interactive sessions also label their PRs `feature`. While `FEATURES` is on, the pipeline treats every open PR
-with that label as its own: it counts against `FEATURE_PARALLEL` and may get a fix, conflict or update-branch task
+with that label as its own: unless it is labeled `needs-human`, it counts against `FEATURE_PARALLEL` and may get a fix, conflict or update-branch task
 (`scripts/features.ts` `featurePrs`, `planRound`). See `docs/process/collaboration.md` → When FEATURES or
 AUTOPILOT is on.
 

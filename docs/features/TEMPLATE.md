@@ -22,5 +22,5 @@ Each one testable; the pipeline writes a test for every line.
 Feedback after trying a built version (each item also becomes a dated decision above).
 
 ## Build log
-Appended when the feature merges (pipeline publish step, or the build session's PR: see
-docs/process/lifecycle.md).
+Appended by the feature's build PR (the pipeline's publish step, or the build session's PR: see
+docs/process/lifecycle.md); it reaches main when that PR merges.
