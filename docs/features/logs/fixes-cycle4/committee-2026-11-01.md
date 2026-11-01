@@ -2,7 +2,9 @@
 
 Source: `docs/direction/cycle4-2026-11-01.md` → Fixes list, Priority 1 of the orchestrator's brief (C4-1 same-instant
 order on date-only stamps, C4-2 a short's cover pricing a later long; section 6 ranks 1 and 2). Members, each a
-fresh-context agent: UX lead, business lead, engineer, reliability reviewer. Three rounds; all four signed in round 3.
+fresh-context agent: UX lead, business lead, engineer, reliability reviewer. Five rounds: all four signed a first rule in
+round 3; it was revised in rounds 4 and 5 after approval council 4 (F-28, F-30) and signed again (reliability with a recorded
+dissent, below). The rule as built is the round-4 rule.
 Every probe is a simulation on fictional rows (symbols FAKE, TEST, XYZ; accounts acc1 and similar).
 
 ## Binding rules
@@ -92,3 +94,55 @@ units to clear a gap (`lib/broker.ts` is protected; storing units is a privacy c
   phrasings (held for review, never dropped), a split row's vendor count that may be a total (a larger no-basis lot only
   over-counts or shifts FIFO toward counted lots), the excluded/excludedCorporate bucket of tied sells around a corporate
   action can still depend on input order (shown trades and the total counted never do; main has the same class).
+
+## Round 4: revision after approval council 4 (F-28, F-30 on main, #86)
+The orchestrator relayed that approval council 4 approved F-28 (a short's cover never prices a later trade) and F-30
+(same-instant order on date-only stamps), both blocked on owner Q1, and asked this fix to be the minimal safe fix
+compatible with them, respecting F-30's red-team constraint: no exclusion the trader can steer by choosing when or how
+much to close (a trader on a date-only broker could close losers the same day, counted, and hold winners overnight,
+shown). The round-3 rule failed it twice: counting every date-only same-day round trip (F-30 probe C), and showing a
+sell after a gap when it fit inside one lot (steerable by sale size).
+
+**Revised rule (as built):**
+1. Same instant: F3-5 restored (buys before sells), then the vendor id as a canonical tie-break (the result never depends
+   on the input order). No date-only float, runs or tie groups. With evidence on the pair (an earlier oversell, an F3-1
+   unknown ledger) every sell is counted anyway, so no same-instant short is shown there (F-30's evidence rule, minus the
+   broker-position part, which needs `lib/broker.ts`). Without evidence a date-only same-day short is still shown: F-30's
+   accepted residual, disclosed on /how (UX lead) and named in a ponytail.
+2. Gap: blanket. After an oversell every later sell of the pair is counted in `excluded`, whatever its size or outcome;
+   the mark moves with a rename (F-28 probe B).
+3. Kept: no-basis lots for shares an action names that the ledger lacks; the deploy rebuild; theses set aside and
+   returned; option-pair accounting. Public filings need no option (their order is F3-5's).
+4. Copy (F-28's true-cause wording): "N sells excluded: a short sale or earlier history means no buy in the imported
+   history can be matched to them for certain."
+
+**Contradiction with F-28 recorded for its build:** F-28 decides "the next k units bought are tainted … later lots stay
+fresh", with the criterion "a pre-history oversell followed by two later round trips prices the second". The round-1
+probes (+65%, +60%, +25%) show that rule publishing wrong figures under the short reading, so this fix counts those sells
+(POLICY F3c, "never guess"). F-28's build should start from this rule.
+
+- **UX lead:** OBJECT on copy, then SIGN. /how's "Short options and short sales … excluded" became untrue for the
+  residual; a bullet now discloses it ("… a same-day short sale with no earlier sign of one can appear as a long trade (a
+  known limit)."), pinned in `lib/copy.test.ts`.
+- **Business lead:** SIGN. Its round-2 window condition is withdrawn (F-30 overrides it). Follow-up for the owner: a trader
+  with margin can hide a loser by overselling it by one share (an oversell is excluded whole); on main already.
+- **Engineer:** SIGN. Vendor-id order makes shuffles invariant (10 seeds × 400 cases × 4 shuffles); reference model with
+  F3-5 tie readings: 0 failures in about 4,300 shown sells. Residual for a ponytail: same-side tied rows at different
+  prices are matched in vendor-id order (deterministic, not steerable; fix: pool tied costs).
+- **Reliability:** OBJECT: probe S1 (BUY 100 @10, SELL 101 @5: the -50% is counted, not shown; selling 100 shows it), a
+  steering path by sale size. Proposed: publish the oversell's matched part.
+
+The adapted property test (`lib/fixes-cycle4.property.test.ts`, 9,000 histories, F3-5 tie readings, every split of each
+shortfall) passes, with a new assertion that no sell after a pair's first oversell is shown; sensitivity-checked against
+three broken copies (gap check off, vendor-id tie-break removed, gap not moved on a rename).
+
+## Round 5: chair's ruling on S1
+Not adopted. The corporate-actions committee ruled (pinned by `lib/trades.test.ts` "partial unmatched sell is excluded
+whole") that an oversell proves a missing inflow, which may be an unrecorded split: BUY 100 @10, an unreported 2:1
+split, SELL 101 @5 is truly +0%, and publishing the 100 matched units at @10 shows -50%, a guessed Verified figure. S1
+exists on main, is outside C4-1/C4-2, and the business lead and engineer rate it no new lever (it costs every later sell
+of the stock and shows as a count). It goes to the owner with the vendor position read as its fix.
+- **Reliability:** SIGN with the S1 dissent recorded (no fix from the rows alone avoids a guess under the unrecorded-split
+  reading; S1 stays an owner item, fixed by reading the vendor position).
+
+All four signed the round-4 rule.

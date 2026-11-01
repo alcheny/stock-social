@@ -104,6 +104,9 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
   // read buy first and shown as a long (C4-1's residual, accepted by F-30: counting every same-day round trip would let a
   // trader close losers the same day and keep winners overnight) — fix: F-30 (blocked on owner Q1(a)) and the vendor's
   // per-brokerage date-only answer (MRC2-10).
+  // ponytail: rows on one side at one instant (two buys at different prices, for one) are matched in vendor-id order, which
+  // is deterministic and not the trader's choice but may not be the true fill order (off by at most the instant's price
+  // spread) — fix: pool the cost of tied buys and split tied sells pro rata (engineer, committee round 4).
   const sideOrder = (side: 'BUY' | 'SELL') => (side === 'BUY' ? 2 : 3);
   const idOf = (e: Event) => e.act?.externalId ?? e.ca?.externalId ?? '';
   const events: Event[] = [
