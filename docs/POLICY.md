@@ -180,6 +180,12 @@ new dependencies, Phase 2/3 features, payments, launching to real users, deletin
 creating credentials, and GitHub or deploy settings. An agent that needs one of these stops and says
 what the owner should do.
 
+Owner decision 2026-11-01: new features and requirements (including Phase 2/3 features) may be approved by the
+approval council's vote (`team/approval-council.md`) and built without waiting for the owner. Approval never
+changes this file, overrules an owner decision, turns on real charges, opens the product to real users, deletes
+data, adds a dependency, or touches credentials, deploy settings or the loop's guardrails; those stay with the
+owner.
+
 ## How it is enforced
 
 | Rule | Deterministic (CI, `scripts/compliance.ts`) | Judgment |
