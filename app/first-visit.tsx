@@ -3,17 +3,19 @@
 // own weight (POLICY F3a, P2): it holds for a mixed feed, where the first card may be verified.
 import Link from 'next/link';
 import type { FeedPage } from '@/lib/feed.ts';
-import { cardTrust } from '@/lib/pane.ts';
+import { paneTrust } from '@/lib/pane.ts';
 import { FIRST_VISIT } from '@/lib/copy.ts';
 import { Badge } from './ui.tsx';
 import { FirstVisitBox } from './first-visit-client.tsx';
 
 export function FirstVisit({ page }: { page: FeedPage }) {
   if (page.viewer || page.offset !== 0 || !page.cards.length) return null;
-  const demo = page.cards.some((c) => cardTrust(c, page.records.get(c.user_id)?.state).badge === 'demo');
+  // The record-level rule F-10's strip badge uses (paneTrust over the trader's rows): a verified card from a demo record
+  // still puts Demo beside the line (orchestrator review, blocking 1).
+  const demo = page.cards.some((c) => paneTrust(page.byUser.get(c.user_id) ?? [c], page.records.get(c.user_id)?.state ?? 'connected').badge === 'demo');
   return (
     <FirstVisitBox dismissLabel={FIRST_VISIT.dismiss}>
-      <p className="fv-line"><span>{FIRST_VISIT.line}</span> <Link href="/how">{FIRST_VISIT.how}</Link></p>
+      <p className="fv-line"><span>{FIRST_VISIT.line}</span> <Link href="/how">{FIRST_VISIT.how}<span aria-hidden="true"> →</span></Link></p>
       {demo && <p className="fv-demo"><Badge verified={false} /> {FIRST_VISIT.demo}</p>}
     </FirstVisitBox>
   );

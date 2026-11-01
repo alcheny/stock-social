@@ -13,8 +13,8 @@ const WORDS = /\b(every|all|full record|whole record|signals?|picks?|buy|sell|ho
 test('F-13 copy is verbatim', () => {
   assert.equal(FIRST_VISIT.line, 'Verified trades, straight from the broker. Losses included.');
   assert.equal(FIRST_VISIT.hint, 'Swipe ← for profile');
-  assert.equal(FIRST_VISIT.how, `${FOOTER.how} →`);
-  assert.equal(FIRST_VISIT.how, 'How records are calculated →');
+  assert.equal(FIRST_VISIT.how, FOOTER.how);
+  assert.equal(FIRST_VISIT.how, 'How records are calculated');
   assert.equal(FIRST_VISIT.dismiss, 'Dismiss this note');
   assert.equal(FIRST_VISIT.demo, 'Demo records are marked Demo.');
   assert.equal(NAV.stocks, 'Trades by stock');

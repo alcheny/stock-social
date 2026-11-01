@@ -208,7 +208,7 @@ test('F-13: signed in, the line never shows; the hint is a device first run for 
   await anon.ctx.close();
 });
 
-test('F-13: the nav reads "Trades by stock", goes to /t, and fits at 320, 360 and 390 px signed out and signed in (≤ 56 px tall)', async ({ browser }) => {
+test('F-13: the nav reads "Trades by stock", goes to /t, and fits at 320, 360 and 390 px signed out and signed in with a 20-character handle (≤ 54.4 px tall, every link a 44 px target)', async ({ browser }) => {
   const fits = async (page: Page) => {
     for (const width of [320, 360, 390]) {
       await page.setViewportSize({ width, height: 640 });
@@ -216,7 +216,13 @@ test('F-13: the nav reads "Trades by stock", goes to /t, and fits at 320, 360 an
       const m = await page.locator('nav.top').evaluate((n) => ({ sw: n.scrollWidth, cw: n.clientWidth, h: (n as HTMLElement).offsetHeight, doc: document.documentElement.scrollWidth, iw: innerWidth }));
       expect(m.sw, `nav at ${width}`).toBeLessThanOrEqual(m.cw);
       expect(m.doc, `page at ${width}`).toBeLessThanOrEqual(m.iw);
-      expect(m.h, `nav height at ${width}`).toBeLessThanOrEqual(56);
+      // 85% of the feed's 64 px content top (orchestrator review): the nav never covers the card header.
+      expect(m.h, `nav height at ${width}`).toBeLessThanOrEqual(54.4);
+      // Every nav link is a 44 px tall target under 420 px (WCAG 2.5.8, POLICY A1).
+      if (width <= 420) for (const b of await page.locator('nav.top a').evaluateAll((as) => as.map((a) => { const r = a.getBoundingClientRect(); return { t: a.textContent, w: r.width, h: r.height }; }))) {
+        expect(b.h, `${b.t} height at ${width}`).toBeGreaterThanOrEqual(44);
+        expect(b.w, `${b.t} width at ${width}`).toBeGreaterThanOrEqual(24);
+      }
     }
   };
   const { ctx, page } = await fresh(browser);
@@ -224,7 +230,7 @@ test('F-13: the nav reads "Trades by stock", goes to /t, and fits at 320, 360 an
   await page.locator('nav.top').getByRole('link', { name: 'Trades by stock' }).click();
   await expect(page).toHaveURL(/\/t$/);
   await ctx.close();
-  const h = handle();
+  const h = `${handle()}xxxxxxxxxxxxxxxxxxxx`.slice(0, 20); // the longest legal handle (lib/follows.ts)
   const signed = await fresh(browser);
   try {
     await signIn(signed.page, h);

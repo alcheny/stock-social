@@ -520,7 +520,7 @@ html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint 
 .first-visit p { margin: 0; }
 .first-visit .fv-text p { display: inline; }
 .first-visit .fv-line { font-size: 0.875rem; line-height: 20px; color: var(--text); }
-.first-visit .fv-line a { display: inline; }
+.first-visit .fv-line a { display: inline; padding: 11px 0; } /* a 44 px tall hit area; inline padding keeps the line box */
 .first-visit .fv-demo { margin-left: 6px; font-size: 0.8125rem; line-height: 20px; color: var(--muted); }
 /* Whole-pixel line boxes (the block's height stays a whole number; a fractional one once left feed rows at -0.4 px). */
 .first-visit .fv-demo .badge { line-height: 16px; vertical-align: 1px; }
@@ -528,6 +528,13 @@ html[data-ss-seen~="line"] .first-visit, html[data-ss-seen~="hint"] .swipe-hint 
 .swipe-hint { position: static; margin: 0 0 6px; color: var(--muted); }
 /* "Trades by stock" (D27) fits the nav at 320–390 px without horizontal overflow, ≤ 56 px tall (WCAG 1.4.10). */
 @media (max-width: 420px) { nav.top { gap: 8px; padding: 12px; } }
+/* Orchestrator review (blocking 2, cycle-2 a11y user test): each nav link is a 44 px target (WCAG 2.5.8 / POLICY A1) and
+   a 20-character handle stays on one line beside the others, so the nav is ≤ 54.4 px (85% of the feed's 64 px top). */
+@media (max-width: 420px) {
+  body > nav.top { padding-block: 0; }
+  nav.top a:not(.me) { display: inline-flex; align-items: center; min-height: 44px; }
+  nav.top .me { display: inline-block; max-width: 18vw; line-height: 44px; } /* block-level, so its ellipsis still applies */
+}
 @media (max-width: 420px) { nav.top a:not(.logo):not(.me) { white-space: normal; line-height: 1.1; text-align: center; } }
 @media (max-width: 340px) { nav.top { font-size: 0.8125rem; } }
 /* The hint shares the footer link's line, so it adds no height and F-10's in-card disclaimer stays on the card's one

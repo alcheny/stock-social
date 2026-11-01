@@ -347,7 +347,7 @@ export const FOOTER = { terms: 'Terms', privacy: 'Privacy', how: 'How records ar
 // If F-7 public profiles enter the feed, `line` becomes false for them and goes back to the idea board (2026-11-01).
 export const FIRST_VISIT = {
   line: 'Verified trades, straight from the broker. Losses included.',
-  how: `${FOOTER.how} →`,
+  how: FOOTER.how, // the arrow is drawn aria-hidden (app/first-visit.tsx)
   dismiss: 'Dismiss this note',
   demo: 'Demo records are marked Demo.',
   hint: 'Swipe ← for profile',
