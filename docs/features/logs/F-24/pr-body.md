@@ -55,8 +55,8 @@ reviewer; 3 planning rounds, all signed):
 
 ## Testing
 - `npx tsc --noEmit`: clean.
-- `npm test`, run twice on the final tree (after the fourth orchestrator review and council cycle 5's RT-2, main at
-  84a8b03 merged): 2311 tests, 0 failures in both runs. The existing owner TODOs (H4, F-20 OQ-2) show as "not ok".
+- `npm test`, run twice on the final tree (final orchestrator review, main at 82360be merged): 2319 tests, 0 failures
+  in both runs. The existing owner TODOs (H4, F-20 OQ-2) show as "not ok".
   - `lib/sync-test-hours.test.ts` (#90) passes; no F-24 test file calls `runShard` or names `sync_read_counts`.
 - New tests:
   - `lib/sync-reconcile.db.test.ts`: AC1–AC4, including AC1 over the vendor fake through the real `lib/broker.ts`.
@@ -66,6 +66,9 @@ reviewer; 3 planning rounds, all signed):
   - `.busy.test.ts`: C7 (busy account, no widened read, reason `busy`) and C6 (a two-page call), failing on 811b398.
   - `.hold.test.ts`: RT-2's matcher probes and an end-to-end held → counted → decided → exact-figure run, failing on
     811b398.
+  - `.final.test.ts`: the final review's H3, H4, H5, a 2,000-case fuzz (order independence, each real sell counted
+    once, no held sell shown, every shown close identical under both readings) and the give-up hold, failing on
+    f0d75fa. `e2e/f24-excluded-held.spec.ts`: the public line appears with its count and is gone at 0.
   - `.log.test.ts`: AC5 and the log shapes.
   - `.copy.test.ts`: AC7, rendering the real Profile, TradePage and TradeCard.
   - `.review.test.ts`: code-review regressions; each one fails on the pre-fix commit.
@@ -80,14 +83,16 @@ reviewer; 3 planning rounds, all signed):
   - after the first orchestrator review: 291 passed, 6 skipped, 0 failed;
   - after the second review (main at 63f48f4): 314 passed, 6 skipped, 0 failed;
   - after the third review (main at 1eab2ef): 316 passed, 6 skipped, 0 failed;
-  - on the final tree (fourth review and RT-2, main at 84a8b03): 326 passed, 6 skipped, 0 failed.
+  - after the fourth review and RT-2 (main at 84a8b03): 326 passed, 6 skipped, 0 failed;
+  - on the final tree (final review, main at 82360be): 328 passed, 6 skipped, 0 failed.
 - Heavy use, per the tester: about 20–40 ms more per sync for a trader with 5,000 activities, within run-to-run noise
   next to the rebuild.
 
 ## Compliance
 1. **Performance shown, ranked or described?** The display is unchanged. Records become more complete: a late close,
    loss or gain, joins the record and its stats like any close, and losses are ranked the same (tested). Held rows are
-   only possible re-issues, counted for the owner. No close already shown is pulled by this rule.
+   only possible re-issues; while one is checked, its pair's later sells are excluded and counted on the profile (a
+   neutral line, no claim). A decided duplicate never removes a shown original.
 2. **Personal data?**
    - New `activity_reissues` (vendor activity ids, account id, state) is deleted with the profile (cascade) and is in
      SCHEMA_MAP.
@@ -171,6 +176,14 @@ reviewer; 3 planning rounds, all signed):
   end-to-end run (held → counted → decided → exact figure), all failing on 811b398. The AC3 flake's cause (a
   millisecond race at exact 24 h round spacing) is fixed in the test.
 
+- **Final review (BLOCK on f0d75fa):**
+  - R1: a row the count rule decided suspected is a duplicate, left out of the rebuild. Only undecided rows (pending,
+    confirm, give-ups flagged `undecided`) are held, so a vendor re-issue of every id no longer empties the record (H5).
+  - R2: a canonical-order hold mark (carried by renames), so no shown figure depends on how a held row is decided (H3,
+    H4, fuzz). Each real sell is counted once.
+  - Public line: "N sells excluded while the importer checks a broker row that may repeat an earlier one.", on the
+    profile and in record tools, only when there are any (POLICY F3c).
+
 ## Owner items
 - Confirm that held rows (pending, confirm or suspected) and their pair's later sells are kept out of the record and
   counted for the owner only, so a held genuine fill can be absent until a read decides it (D5's trade-off). See the owner queries in `docs/SYNC.md`.
@@ -184,7 +197,7 @@ reviewer; 3 planning rounds, all signed):
   on `fetchActivities` or per-page id lists (AC6 owner residual, Open questions).
 - For an old confirm date, the widened read is in effect a whole-history read in one sync: the burst the pass's pacing
   avoids while MR-1 (the vendor's answer on history pages) is open.
-- `users.excluded_held` (sells counted while a re-issue is held) is shown nowhere yet: decide its public wording.
+- The public line for `users.excluded_held` ships with the committee's wording; decide the final wording.
 - RT-2 trade-off: while a re-issue is held, its pair's later sells are counted, not shown. If a reconnect makes the
   vendor re-issue ids, many pairs could stay counted until decided (vendor question in Open questions).
 - CLAUDE.md "Sync paths" (protected) could mention the weekly full-history pass.
