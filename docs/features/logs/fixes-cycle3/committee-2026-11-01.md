@@ -119,6 +119,30 @@ never priced against a buy the broker dated after it.
   reworded, and the unit test now checks it too. `e2e/connect.spec.ts` pins the corporate exclusion line: updated to
   the new wording (same assertion).
 
+### Round 4 (orchestrator's independent review of b6a8008)
+- **B1 (F3-3), fixed:** the freeze marks shared the sync's transaction, so a list that showed the accounts again in a
+  sync that later failed rolled back its clear, and a later empty list froze a connection that had been listed in
+  between. The marks now commit in a short first transaction right after the list succeeds and the claim check passes
+  (the check runs in a savepoint that is always rolled back, so a claim conflict still writes nothing); the sync is the
+  second transaction, which takes the lock again and re-reads the consented set. This also removes the earlier
+  ponytail. Test reproduces h0 empty → h1 listed but the read fails → h25 empty: not frozen.
+- **B2 (F3-1), fixed:** a rename returned before carrying an unknown ledger to the new symbol when no lots moved
+  (a unit-less or undated buy leaves none) or the share count did not match; NEW then priced a guess (+20%). The
+  carry now happens first in the rename branch (tests for both cases).
+- **Also fixed:** the rename-chain read in the rebuild lacked the shared-account filter (council cycle 3 fix list):
+  a marked account still published through a chain (test). `scripts/rebuild-records.ts` skips public filers (F-7),
+  which have no broker record.
+- **Known limit added:** the freeze window compares the app clock, not the database clock (ponytail at
+  `FREEZE_CONFIRM_HOURS`).
+- **Owner notes added:** `completeLink` treats a frozen connection's authorization as known, so a trader cannot
+  re-link it (with Q1); one short list hides a second connection's positions at once (they move to
+  `unlisted_positions` and return on the next good list): it matches the display rule until Q2 but not F3-3's two-read
+  rule (with Q2).
+- **Overlap with PR #62 (options), whoever merges second keeps the meaning:** (a) the option filter runs before
+  `unusableTrade()` in `toActivities`, or a price-less option row is counted twice; (b) its hourly backfill path stores
+  `unusable` too; (c) option positions are replaced per account (F3-4); (d) `scripts/rebuild-records.ts` calls its
+  `rebuildRecord` once #62 is in.
+
 ## 3. Decisions
 1. Unusable vendor trade rows live in `corporate_actions` (kind `unpriceable`, reason `trade`), counted in
    `excluded_corporate`; no new users column. Reason: the table is raw, immutable and already feeds the matcher; the
@@ -133,8 +157,11 @@ never priced against a buy the broker dated after it.
 
 ## 4. Owner items
 - **Q1 (TR-5 freeze rule):** whether a confirmed-absent account the vendor lists again unfreezes, and whether repeated
-  refusals freeze. Today: nothing unfreezes, refusals never freeze. Also the confirmation window (24 h).
-- **Q2 / OD-9:** whether a disconnected account's last positions show ("last known ‹date›"); the rows are kept.
+  refusals freeze. Today: nothing unfreezes, refusals never freeze. Also the confirmation window (24 h), and
+  `completeLink` (lib/connections.ts) treating a frozen connection's authorization as known, so it cannot be re-linked.
+- **Q2 / OD-9:** whether a disconnected account's last positions show ("last known ‹date›"); the rows are kept. Note:
+  one short list hides a second connection's positions at once (they return on the next good list), which matches
+  today's display until Q2 but not F3-3's two-read rule.
 - **Vendor question list:** whether a price of 0 is ever a real close; how often BUY/SELL rows arrive without a price,
   units or date.
 - **Rollout:** run `node --env-file=.env scripts/rebuild-records.ts` once after deploy.

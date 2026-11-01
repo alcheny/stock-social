@@ -254,3 +254,19 @@ test('F3-1 (QA): lots a rename moves into a pair whose ledger is unknown are tai
   }
   assert.equal(matchTrades(rows, [rename]).trades.length, 1); // without the unusable row, the renamed lot prices
 });
+
+test('F3-1 (orchestrator review): an unknown ledger stays unknown through a rename that moves no lots or whose share count does not match', () => {
+  const newRows = [act('BUY', 100, 10, 15, 0, { symbol: 'NEW' }), act('SELL', 100, 12, 20, 0, { symbol: 'NEW' })];
+  // No lots: a unit-less (or undated) BUY on OLD leaves none, so the rename used to leave NEW clean (+20% published).
+  for (const bad of [unusable('BUY', 1), unusable('BUY', null)]) {
+    const rename: CorporateAction = { externalId: `r${n++}`, accountId: 'acc', symbol: 'OLD', executedAt: d(10), kind: 'symbol-change', newSymbol: 'NEW', outUnits: 100, inUnits: 100 };
+    const m = matchTrades(newRows, [{ ...bad, symbol: 'OLD' }, rename]);
+    assert.deepEqual(m.trades, [], `${(bad as { undated?: boolean }).undated ? 'undated' : 'unit-less'} buy`);
+    assert.equal(m.excludedCorporate, 1);
+  }
+  // Lots whose count doesn't match the rename's: they stay behind, tainted, and NEW is unknown too.
+  const rename: CorporateAction = { externalId: `r${n++}`, accountId: 'acc', symbol: 'OLD', executedAt: d(10), kind: 'symbol-change', newSymbol: 'NEW', outUnits: 999, inUnits: 999 };
+  const m = matchTrades([act('BUY', 50, 10, 1, 0, { symbol: 'OLD' }), ...newRows], [{ ...unusable('BUY', 2), symbol: 'OLD' }, rename]);
+  assert.deepEqual(m.trades, []);
+  assert.equal(m.excludedCorporate, 1);
+});

@@ -326,3 +326,52 @@ dbTest('F3-1: an unusable sell in an account marked as another profile\'s is not
     await cleanup([acc]);
   }
 });
+
+dbTest('F3-3 (orchestrator review B1): a list that shows the accounts clears the mark even when the rest of that sync fails, so a later empty list cannot freeze', async () => {
+  const { sql, tag, mkUser, connect, cleanup } = await setup();
+  const { syncUser, FREEZE_CONFIRM_HOURS } = await import('./sync.ts');
+  const acc = `${tag}-acc`;
+  const H = 3_600_000, t0 = Date.now();
+  try {
+    const u = await mkUser('a');
+    const c = await connect(u.id, [acc]);
+    const conn = async () => (await sql`select missing_since, disconnected_at from connections where id = ${c}`)[0];
+    await syncUser(u, { listAccounts: async () => vendorAcc([acc]), fetchActivities: async () => [] }, undefined, new Date(t0 - H)); // claims acc
+    await syncUser(u, { listAccounts: async () => [], fetchActivities: async () => [] }, undefined, new Date(t0)); // h0: missed
+    assert.ok((await conn()).missing_since);
+    // h1: listed again, but the activity read fails: the sync rolls back, the clear stays.
+    await assert.rejects(syncUser(u, { listAccounts: async () => vendorAcc([acc]), fetchActivities: async () => { throw new Error('vendor 503'); } }, undefined, new Date(t0 + H)), /vendor 503/);
+    assert.equal((await conn()).missing_since, null);
+    await syncUser(u, { listAccounts: async () => [], fetchActivities: async () => [] }, undefined, new Date(t0 + (1 + FREEZE_CONFIRM_HOURS) * H)); // h25
+    assert.equal((await conn()).disconnected_at, null); // only a new first miss
+    assert.ok((await conn()).missing_since);
+    // A claim conflict still writes nothing: neither claims nor marks.
+    const w = await mkUser('b');
+    const cw = await connect(w.id, [acc], 'b');
+    await sql`update connections set missing_since = ${new Date(t0)} where id = ${cw}`;
+    const { AccountClaimedError } = await import('./claims.ts');
+    await assert.rejects(syncUser(w, { listAccounts: async () => vendorAcc([acc], 'b'), fetchActivities: async () => [] }, undefined, new Date(t0 + 2 * H)), AccountClaimedError);
+    assert.ok((await sql`select missing_since from connections where id = ${cw}`)[0].missing_since);
+  } finally {
+    await cleanup([acc]);
+  }
+});
+
+dbTest('cycle-3 council: a rename chain in an account marked as another profile\'s publishes nothing on this profile', async () => {
+  const { sql, tag, mkUser, act, closes, cleanup } = await setup();
+  const { insertActivities, rebuildTrades } = await import('./sync.ts');
+  const { insertCorporateActions } = await import('./corporate-actions.ts');
+  const acc = `${tag}-acc`;
+  try {
+    const u = await mkUser('a');
+    await insertActivities(u.id, 'snaptrade', [act('b1', acc, 'BUY', 10, 1, 100, 'OLD'), act('s1', acc, 'SELL', 11, 40, 100, 'NEW')], sql);
+    await insertCorporateActions(sql, u.id, 'snaptrade', [{ externalId: `${tag}-rn`, accountId: acc, symbol: 'OLD', executedAt: new Date(Date.UTC(2024, 0, 10)), kind: 'symbol-change', newSymbol: 'NEW', outUnits: 100, inUnits: 100, raw: {} }]);
+    await rebuildTrades(u.id);
+    assert.equal((await closes(u.id)).length, 1);
+    await sql`insert into shared_account_marks (account_id, user_id) values (${acc}, ${u.id})`;
+    await rebuildTrades(u.id);
+    assert.deepEqual(await closes(u.id), []);
+  } finally {
+    await cleanup([acc]);
+  }
+});

@@ -137,6 +137,7 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
       const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
         from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
+        and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
@@ -179,6 +180,8 @@ export const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActiv
 
 // F3-3: how long a connection's accounts must stay unlisted, over at least two successful lists, before it freezes.
 export const FREEZE_CONFIRM_HOURS = 24;
+// ponytail: the marks compare the app's clock (`now`), not the database clock the claim rounds use, so instance skew
+// shifts the 24 h window by the skew — fix: compare against the database's now() as clockSql does.
 
 export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
@@ -356,8 +359,9 @@ export async function syncTick<R>(opts: {
   return { ok, skipped, failed };
 }
 
-// One transaction per user under the per-user advisory lock: a concurrent sync for the same user is skipped and a
-// failure anywhere leaves activities, closed_trades, claims and positions exactly as before.
+// Under the per-user advisory lock: a concurrent sync for the same user is skipped. A short first transaction lists the
+// accounts and commits the TR-5 freeze marks (F3-3); the sync itself is one transaction, so a failure anywhere in it
+// leaves activities, closed_trades, claims and positions exactly as before.
 // Only accounts under a consented authorization (one in the snapshot of a `connected` connection) are read or claimed:
 // a pending link, a link still in the portal and a failed import's accounts are left exactly as they are (D1, D5).
 // Returns the activity count, 'skipped' when another sync holds the lock; throws AccountClaimedError (writing nothing)
@@ -370,22 +374,32 @@ export async function syncUser(
 ): Promise<number | 'skipped'> {
   if (!user.snaptrade_user_id || !user.snaptrade_secret_enc) return 0;
   const bu = { snaptradeUserId: user.snaptrade_user_id, secretEnc: user.snaptrade_secret_enc };
-  return sql.begin(async (tx) => {
-    const [{ got }] = await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${user.id}) as got`;
-    if (!got) return 'skipped';
-    const consented = new Set((await tx`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
+  const consentedAuths = async (tx: TransactionSql) => new Set((await tx`select a->>'authorizationId' as auth from connections c, jsonb_array_elements(c.accounts) a
       where c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`).map((r) => r.auth as string));
+  const lock = async (tx: TransactionSql) => (await tx`select pg_try_advisory_xact_lock(${USER_LOCK}, ${user.id}) as got`)[0].got as boolean;
+  // TR-5 (F3-3): a connection whose accounts the vendor no longer lists is disconnected; its record stays, frozen. One
+  // list is not enough (an empty or short answer can be a vendor fault): absence is confirmed only by a second successful
+  // list at least FREEZE_CONFIRM_HOURS after the first that missed them all (`missing_since`), and a list that shows one
+  // again clears it. A vendor error throws before the marks and stamps nothing.
+  // Orchestrator review B1: the marks are what the list showed, so they commit in their own short transaction as soon as
+  // the list succeeded and the claim check passed; a later failure in the sync (activities, positions, rebuild) never
+  // rolls back a clear, which would let a later empty list freeze a connection that was listed in between. The claim
+  // check runs in a savepoint that is always rolled back, so a conflict still writes nothing; the claims themselves are
+  // written with the sync below.
+  // Owner question Q1 (cycle 3) is open: nothing clears `disconnected_at`, so a frozen connection stays frozen and unread.
+  const listing = await sql.begin(async (tx) => {
+    if (!(await lock(tx))) return null;
+    const consented = await consentedAuths(tx);
     const accounts = (await broker.listAccounts(bu)).filter((a) => consented.has(a.authorizationId));
-    // Claim first so no conflicting data is ever read for the wrong user. Zero-activity accounts are claimed too.
-    if (accounts.length && !(await claimIn(tx, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
-    const real = accounts.filter((a) => !a.isPaper).map((a) => a.id);
-    // TR-5 (F3-3): a connection whose accounts the vendor no longer lists is disconnected; its record stays, frozen. One
-    // list is not enough (an empty or short answer can be a vendor fault): absence is confirmed only by a second successful
-    // list at least FREEZE_CONFIRM_HOURS after the first that missed them all (`missing_since`), and a list that shows one
-    // again clears it. A vendor error throws before this point and stamps nothing.
-    // Owner question Q1 (cycle 3) is open: nothing clears `disconnected_at`, so a frozen connection stays frozen and unread.
-    // ponytail: the stamp shares the sync's transaction, so a later failure in the same sync (another account's read)
-    // rolls it back and a freeze waits for a sync that completes — fix: stamp in its own transaction after the list.
+    if (accounts.length) {
+      const checked = Symbol('claim check only');
+      try {
+        await tx.savepoint(async (sp) => {
+          if (!(await claimIn(sp, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
+          throw checked;
+        });
+      } catch (e) { if (e !== checked) throw e; }
+    }
     const listed = tx(accounts.length ? accounts.map((a) => a.id) : ['']);
     const none = tx`not exists (select 1 from jsonb_array_elements(c.accounts) a where a->>'id' in ${listed})`;
     const live = tx`c.user_id = ${user.id} and c.state = 'connected' and c.disconnected_at is null`;
@@ -393,6 +407,18 @@ export async function syncUser(
       and c.missing_since <= ${now}::timestamptz - ${FREEZE_CONFIRM_HOURS}::float8 * interval '1 hour'`;
     await tx`update connections c set missing_since = ${now} where ${live} and ${none} and c.missing_since is null`;
     await tx`update connections c set missing_since = null where ${live} and not ${none} and c.missing_since is not null`;
+    return accounts;
+  });
+  if (!listing) return 'skipped';
+  return sql.begin(async (tx) => {
+    // The lock again (another sync may have taken it between the two transactions: this one is then skipped), and the
+    // consented set again, so a connection frozen or removed in between is never read.
+    if (!(await lock(tx))) return 'skipped';
+    const consented = await consentedAuths(tx);
+    const accounts = listing.filter((a) => consented.has(a.authorizationId));
+    // Claim first so no conflicting data is ever read for the wrong user. Zero-activity accounts are claimed too.
+    if (accounts.length && !(await claimIn(tx, user.id, accounts, { confirmed: true, now })).ok) throw new AccountClaimedError();
+    const real = accounts.filter((a) => !a.isPaper).map((a) => a.id);
     // Nothing consented is listed: no read, no rebuild, no positions (a failed import's pages are never published by a sync).
     if (!accounts.length) return 0;
     // Fix round 6: a quarantined future date never sets the re-read window (it would skip the real last week).

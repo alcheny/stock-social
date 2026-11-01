@@ -181,6 +181,13 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         if (r.leftover > 0) removeOldest(b.lots, r.leftover); // cash in lieu: not a trade, not counted
         if (openedInWindow(b.lots, e.at)) taint(b.lots);
       } else if (ca.kind === 'symbol-change') {
+        // F3-1: an unknown ledger stays unknown under its new symbol, whether or not lots move (a unit-less or undated buy
+        // leaves none; a share count that doesn't match leaves them behind, tainted).
+        if (unknownFrom.has(key) && ca.newSymbol !== ca.symbol) {
+          const unknownTo = `${ca.accountId}|${ca.newSymbol}`;
+          unknownFrom.add(unknownTo);
+          taint(book(unknownTo).lots);
+        }
         if (!b.lots.length) continue;
         const h = held(b.lots);
         const r = ca.newSymbol !== ca.symbol && Math.abs(h - ca.outUnits) <= RATIO_TOLERANCE * Math.max(1, h) ? renameRatio(ca.outUnits, ca.inUnits) : null;
@@ -192,7 +199,6 @@ function replay(activities: Activity[], actions: CorporateAction[]): { result: M
         to.lots = [...to.lots, ...b.lots].sort((x, y) => x.at.getTime() - y.at.getTime());
         if (unknownFrom.has(toKey)) taint(to.lots); // F3-1: lots moved into a pair whose ledger is unknown
         books.set(key, { lots: [] }); // a recycled ticker starts fresh lots
-        if (unknownFrom.has(key)) unknownFrom.add(toKey); // F3-1: an unknown ledger stays unknown under its new symbol
         movedTo.set(key, { at: e.at, to: `${ca.accountId}|${ca.newSymbol}` });
         if (r.p !== r.q) exchangedInto.set(toKey, e.at);
       } else {
