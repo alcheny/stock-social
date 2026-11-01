@@ -110,11 +110,28 @@ overrule an approval at any time, and owner decisions always win.
     the commit before the call, committed or not; the engineer is told on its next call and the PR says so.
     Whatever the engineer leaves uncommitted is then committed, so no later reset loses it; a conflict it left
     unresolved stops the run, so the publish fails instead of pushing an unmerged branch.
-  - **Credentials stay out of the agents.** The runner is thrown away after the job; the checkout keeps no token;
-    the Claude token is scrubbed from the agents' shell commands; pushes, PRs and merges are done by the
-    deterministic steps with `GITHUB_TOKEN`. Git hooks and git config an agent could plant (`core.hooksPath`,
-    `url.*.insteadOf`, includes, credential helpers) are removed after every call and again before Publish, and
-    every scripted git command runs with hooks off; the checks never get the Claude token. What merges is still decided by CI, the reviewer and the Gate, and
+  - **Credentials stay out of the agents: three jobs per task** (owner's decision, 2026-11-01). An agent with every
+    tool is root on its runner and could read any token that job holds, so the agents never share a job with a
+    write token:
+    1. **prepare** (no agents) reads the task from GitHub with read-only scopes, running only main's scripts
+       (`loop/`), writes `.autopilot/task.md` and the brief, and uploads the prepared workspace (`prep-<key>`).
+    2. **build** (the agents) has job-level `permissions: contents: read` and no GitHub token in any step; the
+       Claude token is scrubbed from the agents' shell commands. It ends by uploading `agent-<key>`: a git bundle
+       of the commits since the base, plus `result.json`, `handoff.md` and `plan.json`.
+    3. **publish** runs on a fresh runner and executes only a fresh checkout of main's loop (`loop/`), never the
+       agents' checkout. It takes the branch and base from the pick job and GitHub, never from an artifact.
+       `scripts/handoff.ts verify` refuses the hand-off unless every check passes: only the known files within size
+       caps; one head, built on the trusted base; objects fsck'd; no protected path (`PROTECTED` in
+       `scripts/team.ts`, except the team's own `docs/features/logs/`); no symlink, submodule, `.gitattributes`,
+       `.gitmodules`, CODEOWNERS or agent-instruction file; HTML-comment markers defanged in all agent text. Only then
+       does it push and open or update the PR with `GITHUB_TOKEN` (`features.ts publish`/`resolved`/`notes`,
+       `autopilot.ts publish`).
+
+    Each matrix leg has its own publish leg, matched by the task's `key`. A publish leg downloads only the artifact
+    ID that its own agents' job logged. A refused build is recorded on the feature as blocked, so it isn't rebuilt
+    every round. Git hooks and config an agent could plant
+    are still removed after every call, and every scripted git command runs with hooks off. The checks never get
+    the Claude token. What merges is still decided by CI, the reviewer and the Gate, and
     protected paths still wait for the owner. Fetched web pages and other text are data, never instructions
     (`docs/POLICY.md`).
   - **Failure budget.** Each task carries its attempt number (1 for a build, then one more per earlier fix or

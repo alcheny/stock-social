@@ -90,3 +90,75 @@ export async function signalsFor(viewer: number): Promise<Signal[]> {
   return [...rows.map((r) => ({ trader: r.trader_id as number, kind: r.kind as Signal['kind'], at: (r.created_at as Date).getTime() })),
     ...unfollows.map((u) => ({ trader: u.trader, kind: 'unfollow' as const, at: u.at }))];
 }
+
+// ---- F-2 PR-5 (criterion 15, shipped before behavior-based ordering): the viewer's own hidden trades (/me/hidden). ----
+// A rejected trade stays out of that viewer's feed until they show it again. A hidden trade whose close is gone or whose
+// trader was deleted is not listed or counted (lib/privacy-purge.ts removes it 30 days after it is first seen gone).
+const KEY = /^[0-9a-f]{64}$/;
+const AFTER = /^([0-9]{1,17})\.([0-9a-f]{64})$/;
+// ponytail: a page skips hidden trades whose close is gone (until the privacy purge removes them), so it can show fewer
+// than HIDDEN_PAGE rows — filtering in the keyset query would keep pages full.
+export const HIDDEN_PAGE = 30;
+
+// The viewer's own number of hidden trades whose close exists, for their feed line, read as at most HIDDEN_COUNT_MAX + 1
+// rows (past HIDDEN_COUNT_MAX the line says "1,000+"; nothing here counts anyone else's).
+// ponytail: past HIDDEN_COUNT_MAX the line says "1,000+" — an exact count would need a stored per-viewer counter.
+export const HIDDEN_COUNT_MAX = 1_000;
+export async function hiddenTradeCount(viewer: number): Promise<number> {
+  return (await sql`select 1 from trade_exclusions x
+    where x.viewer_id = ${viewer} and exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+      where t.trade_key = x.trade_key and t.user_id = x.trader_id) limit ${HIDDEN_COUNT_MAX + 1}`).length;
+}
+
+export type HiddenTrade = { key: string; handle: string; name: string; symbol: string; sellId: string; closedAt: Date; verified: boolean };
+// Newest first, HIDDEN_PAGE at a time (keyset on created_at in microseconds, then key), like /me/likes.
+export async function ownHiddenTrades(viewer: number, after?: unknown): Promise<{ rows: HiddenTrade[]; next: string | null }> {
+  const m = typeof after === 'string' ? AFTER.exec(after) : null;
+  const rows = await sql`with x as materialized (
+      select trade_key, trader_id, created_at, (extract(epoch from created_at) * 1000000)::bigint::text as us from trade_exclusions
+      where viewer_id = ${viewer} ${m ? sql`and (created_at, trade_key) < (timestamptz 'epoch' + ${m[1]}::bigint * interval '1 microsecond', ${m[2]})` : sql``}
+      order by created_at desc, trade_key desc limit ${HIDDEN_PAGE + 1})
+    select x.trade_key, x.us, u.handle, u.display_name, t.symbol, t.sell_id, t.closed_at, t.verified
+    from x left join lateral (select symbol, sell_id, closed_at, verified from closed_trades where trade_key = x.trade_key and user_id = x.trader_id limit 1) t on true
+      left join users u on u.id = x.trader_id and u.deleted_at is null
+    order by x.created_at desc, x.trade_key desc`;
+  const page = rows.slice(0, HIDDEN_PAGE), last = page.at(-1);
+  return {
+    rows: page.filter((r) => r.sell_id !== null && r.handle !== null).map((r) => ({ key: r.trade_key as string, handle: r.handle as string,
+      name: r.display_name as string, symbol: r.symbol as string, sellId: r.sell_id as string, closedAt: r.closed_at as Date, verified: r.verified as boolean })),
+    next: rows.length > HIDDEN_PAGE && last ? `${last.us}.${last.trade_key}` : null,
+  };
+}
+
+// "Show again" by the trade's key: the row goes at once (the feed reads rejects live) and a like it carried comes back,
+// as lib/likes.ts#undoRejectTrade does for a card id.
+export async function showTradeAgain(viewer: number, key: unknown): Promise<boolean> {
+  if (typeof key !== 'string' || !KEY.test(key)) return false;
+  await sql`with d as (delete from trade_exclusions where viewer_id = ${viewer} and trade_key = ${key} returning trader_id, liked_at)
+    insert into trade_likes (viewer_id, trade_key, trader_id, created_at) select ${viewer}, ${key}, trader_id, liked_at from d where liked_at is not null
+    on conflict do nothing`;
+  return true;
+}
+
+// The /me/hidden status line after "Show again" (`?back=<key>`): the trader's handle when that trade exists and is not
+// hidden by this viewer now, so a crafted link can only state something true.
+export async function backHandle(viewer: number, key: unknown): Promise<string | null> {
+  if (typeof key !== 'string' || !KEY.test(key)) return null;
+  const [r] = await sql`select u.handle from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+    where t.trade_key = ${key} and t.user_id <> ${viewer}
+      and not exists (select 1 from trade_exclusions x where x.viewer_id = ${viewer} and x.trade_key = ${key}) limit 1`;
+  return r ? (r.handle as string) : null;
+}
+
+// ---- F-2 PR-5: personal ordering's inputs (lib/discovery/personal-load.ts): this viewer's likes and rejected trades made
+// at or before asOf and after `since`, with the close's symbol when it still exists. ----
+export type Dated = { trader: number; at: number; symbol: string | null };
+const dated = (rows: readonly Record<string, unknown>[]): Dated[] => rows.map((r) => ({ trader: r.trader_id as number, at: (r.created_at as Date).getTime(), symbol: (r.symbol as string | null) ?? null }));
+export async function likesAt(viewer: number, since: Date, asOf: Date): Promise<Dated[]> {
+  return dated(await sql`select l.trader_id, l.created_at, (select t.symbol from closed_trades t where t.trade_key = l.trade_key and t.user_id = l.trader_id limit 1) as symbol
+    from trade_likes l where l.viewer_id = ${viewer} and l.created_at <= ${asOf} and l.created_at > ${since}`);
+}
+export async function rejectsAt(viewer: number, since: Date, asOf: Date): Promise<Dated[]> {
+  return dated(await sql`select x.trader_id, x.created_at, (select t.symbol from closed_trades t where t.trade_key = x.trade_key and t.user_id = x.trader_id limit 1) as symbol
+    from trade_exclusions x where x.viewer_id = ${viewer} and x.created_at <= ${asOf} and x.created_at > ${since}`);
+}

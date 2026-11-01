@@ -60,6 +60,10 @@ export const PROFILE = {
   // Fix round 8 (tester re-run 4): counts pluralized ("1 earlier position", "2 imported trades"), never "(s)".
   excludedPositions: (n: number) => `${counted(n, 'earlier position')} excluded: no matching entry in the imported history.`,
   excludedFuture: (n: number) => `${counted(n, 'imported trade')} excluded: dated in the future by the broker.`,
+  // Corporate actions (POLICY F3c, committee 2026-11-01): sells the importer can't price exactly, counted, never guessed.
+  // ponytail: shown on the public profile only; the owner's /me/record line shows excluded_positions alone — fix: add
+  // excluded_corporate to the session user row (lib/session.ts, protected) and a line there.
+  excludedCorporate: (n: number) => `${counted(n, 'trade')} excluded: a stock split or other corporate action the importer can't price exactly.`,
 } as const;
 
 // S4 consent (the UX lead's strings): the depth of the import, named before anything is read.
@@ -145,7 +149,14 @@ export const SHARE_CARD = {
   perTrade: 'average per trade',
   likely: (low: string, high: string) => `likely between ${low} and ${high}`,
   lossesIncluded: 'losses included',
-  chartCaption: 'If every trade were the same size',
+  // F-4 (2026-11-01): the running sum of per-trade returns, for every trader until F-5 (position size) is built.
+  chartCaption: 'Sum of trade returns, in order · position size not shown',
+  // F-6 on the card (committee 2026-11-01): realized and unrealized apart, in words, percent only, no symbols.
+  perClosedTrade: 'average per closed trade',
+  openFull: (n: number) => `Still open: ${n} ${n === 1 ? 'position' : 'positions'}`,
+  openShort: (n: number) => `${n} open, unrealized`,
+  openNote: 'unrealized, not sold yet',
+  openAlt: 'Still open, unrealized as of the last sync:',
 } as const;
 // The profile's link-preview text (app/u/[handle]/page.tsx). Committee round 1, demand 10: "0% win rate" when there are
 // no wins (the old `pct(0, 0).slice(1)` dropped the digit and printed "% win rate").
@@ -279,11 +290,15 @@ export const HOW = {
     'Return is the percent change between the matched buys and the sell, after the fees the broker reported. Nothing is weighted by size.',
     'Headline stats are the win rate and the average return per trade. Max drawdown is per-trade and equal-weight, not an account return.',
     'Only percentages are stored and shown: no amounts, quantities or prices.',
+    // Corporate actions (F3c, PR #40).
+    'When the broker reports a stock split, reverse split or stock dividend with an exact ratio, earlier buys are adjusted to match and the holding period still starts at the first buy. Fractional shares paid out as cash are not counted as trades.',
   ],
   excludedTitle: 'What is excluded, and counted',
   excluded: [
     'Options, short sales and other activity the importer cannot price correctly.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
+    'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
+    'A sell of more shares than the imported history holds (for example after a stock split the broker did not report) is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
   ],
@@ -440,6 +455,90 @@ export const SIMILAR = {
   closed: (symbol: string, day: string) => `${symbol} · closed ${day}`,
 };
 
+// ---- F-2 PR-5: hidden trades, personalization switches, personal section (docs/features/logs/F-2/plan-pr5-ux-lead.md) ----
+// Durations come from the constants (lib/discovery/personal.ts#FADE_DAYS = 90), never typed twice.
+const F2_DAYS = 90;
+const HIDDEN_LINE_MAX = 1_000; // lib/likes.ts#HIDDEN_COUNT_MAX: past it the line says "1,000+"
+export const HIDDEN_TRADES = {
+  title: 'Hidden trades',
+  explain: 'Trades you hid stay out of your feed until you show them again. Only you can see this list.',
+  closed: (symbol: string, day: string) => `${symbol}, closed ${day}`,
+  trade: 'Trade page →',
+  showAgain: 'Show again',
+  showAgainFor: (handle: string, symbol: string, day: string) => `Show again: @${handle}, ${symbol} closed ${day}`,
+  back: (handle: string) => `@${handle}'s trade is back in your feed.`,
+  none: "You haven't hidden a trade.",
+  older: 'Older hidden trades',
+  backLink: 'Following and hidden',
+  // The feed's line, signed in and only when N > 0.
+  line: (n: number) => `${n > HIDDEN_LINE_MAX ? `${HIDDEN_LINE_MAX.toLocaleString('en-US')}+` : n} ${n === 1 ? 'trade' : 'trades'} hidden by you.`,
+  showThem: 'Show them',
+  // The accessible name starts with the visible text (WCAG 2.5.3, review fix 4).
+  showThemFor: (n: number) => `Show them: ${n > HIDDEN_LINE_MAX ? `${HIDDEN_LINE_MAX.toLocaleString('en-US')}+` : n} hidden ${n === 1 ? 'trade' : 'trades'}`,
+};
+export const PERSONALIZE = {
+  title: 'Personalize your feed',
+  link: 'Personalize your feed',
+  on: 'On',
+  off: 'Off',
+  feedTitle: 'Personalize my feed',
+  feedExplain: `Uses your follows, likes, hidden traders and hidden trades to order your feed and its “More like what you read” section. Each choice counts for ${F2_DAYS} days, fading over that time. Off: you get the order everyone gets, minus what you hid.`,
+  activityTitle: 'Personalize with my activity',
+  activityExplain: `Off unless you turn it on. When on, Stock Social records which records you see, how long you look, and which you skip or open, while you're signed in. Only the last ${F2_DAYS} days are used to order your feed. The record is kept until you clear it or delete your account.`,
+  activityPaused: 'Not recorded or used while Personalize my feed is off.',
+  clear: 'Clear my activity',
+  saved: {
+    feedOn: 'Personalize my feed is on.',
+    feedOff: 'Personalize my feed is off. You get the order everyone gets, minus what you hid.',
+    activityOn: 'Activity is on. Recording starts now.',
+    activityOff: "Activity is off. Nothing new is recorded, and what was recorded isn't used. Clear my activity deletes it.",
+    cleared: 'Your activity is cleared.',
+    nothing: 'There was no activity to clear.',
+  },
+  // The feed's order line, signed in, personalize On, at least one choice in the window.
+  // Names only the kinds of choice that count now (business lead Q11).
+  orderLine: (follows: unknown, likes: unknown, hides: unknown, activity: unknown) => {
+    const kinds = [follows && 'follows', likes && 'likes', hides && 'hides', activity && 'activity'].filter(Boolean) as string[];
+    const list = kinds.length > 1 ? `${kinds.slice(0, -1).join(', ')} and ${kinds.at(-1)}` : kinds[0] ?? 'choices';
+    return `Ordered using your ${list}.`;
+  },
+  change: 'Change',
+  changeFor: 'Change: how your feed is ordered',
+  // /me/following: "Not interested" rows that ran their 90 days (stored until removed, owner 2026-11-01).
+  expiredHeading: 'No longer applied',
+  expiredExplain: `These hides ran their ${F2_DAYS} days and no longer change your feed. They stay saved until you remove them.`,
+  ended: (d: string) => `ended ${d}`,
+  remove: 'Remove',
+  removeFor: (handle: string) => `Remove @${handle}`,
+  groupOn: (group: string) => `${group}: On`,
+  groupOff: (group: string) => `${group}: Off`,
+};
+// /how (Q12: the documented method, POLICY F1): how a signed-in viewer's feed is ordered.
+export const HOW_PERSONAL = {
+  title: 'How your feed is ordered',
+  text: `Signed out, everyone gets the same order. Signed in, your own follows, likes and hides move traders up or down in your feed; with "Personalize with my activity" on, so do the records you look at, open or skip. Each choice counts for ${F2_DAYS} days, fading over that time. Nothing about a return's size or sign is used, so losses count the same as gains. With "Personalize my feed" off you get the order everyone gets, minus what you hid. No security is ever suggested.`,
+};
+// H4 (business lead demand 6): the facts the Privacy Policy must state about F-2's preference data, from the same
+// constants as the code. lib/discovery/f2-privacy.test.ts checks the policy page once it has text.
+export const PREFERENCE_DATA = [
+  'stored until you remove it or delete your account',
+  `only the last ${F2_DAYS} days are used to order your feed`,
+  'activity is recorded only if you turn on Personalize with my activity',
+  'Clear my activity deletes it at once',
+];
+// Approval council fix #12: the empty feed in plain words (no developer instructions in the product).
+export const FEED_EMPTY = {
+  title: 'No trades yet',
+  body: 'Verified records appear here once traders connect a broker.',
+  publish: 'Publish your own',
+};
+export const SECTION_PERSONAL = {
+  heading: 'More like what you read',
+  explain: 'Traders like the ones you follow, like and read, ordered by how much evidence each record has. Losses count the same as gains.',
+  similarHold: (handle: string) => `Similar holding period to @${handle}`,
+  symbolsRead: 'Trades symbols you read',
+  newToYou: 'New to you',
+};
 // ---- F-6 · Open positions in every number (docs/features/logs/F-6/plan.md §3) ----
 // Percent and counts only (POLICY P3). Up and down are always printed, so an all-losing set reads "0 up, 5 down" (TR-4).
 // `fmt` is lib/trades.ts#pct, passed in so this file keeps no dependency on the trade math.
@@ -503,10 +602,114 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
   return out;
 }
 
+// ---- F-3 · Record tools and billing (docs/features/logs/F-3/plan.md; legal committee conditions in
+// docs/features/logs/F-3/committee-2026-11-01.md). Additive block; its own checks are in lib/record-tools.test.ts.
+const billingDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+export const RECORD_TOOLS = {
+  title: 'Record tools',
+  what: 'Put 2 to 4 public trader records side by side in the order you choose, save the comparison, and keep private notes only you can see.',
+  free: 'Trader records stay free to view without a subscription.',
+  trader: 'Record tools is included with your connected record.',
+  removedNotice: 'A trader in your views or notes deleted their account; they and your note were removed.',
+  dismiss: 'OK',
+  removedAdvance: 'If a trader deletes their account, they leave your views and your note about them is deleted.',
+  lapsed: 'Your subscription has ended. The comparison is off; your saved views and notes stay here to read, edit, download or delete.',
+  endsOn: (d: Date) => `Your subscription ends on ${billingDate(d)}. Record tools stays on until then.`,
+  pastDue: (d: Date) => `Your last payment did not go through. You keep Record tools until ${billingDate(d)}. Update your card in Manage subscription.`,
+  viewsTitle: 'Your saved views',
+  noViews: 'No saved views yet. Create one to compare 2 to 4 traders.',
+  traders: (n: number) => (n === 1 ? '1 trader' : `${n} traders`),
+  newViewLabel: 'Name (optional)',
+  createView: 'Create view',
+  viewsFull: 'You have 20 saved views, the maximum. Delete one to create another.',
+  notesTitle: 'Your notes',
+  noNotes: 'No notes yet.',
+  allViews: 'All views',
+  renameSummary: 'Rename view',
+  renameLabel: 'View name',
+  saveName: 'Save name',
+  addLabel: 'Add a trader by exact handle',
+  addButton: 'Add',
+  followLabel: 'Or choose someone you follow',
+  followChoose: 'Choose…',
+  addHint: 'Add 2 to 4 traders to compare.',
+  addOneMore: 'Add one more trader to compare.',
+  full: 'This view has 4 traders, the maximum. Remove one to add another.',
+  position: (i: number, n: number) => `${i} of ${n}`,
+  moveUp: 'Move up', moveDown: 'Move down', remove: 'Remove',
+  noteLabel: (h: string) => `Private note about @${h} (only you can see it)`,
+  noteCount: (n: number) => `${n.toLocaleString('en-US')} of 2,000 characters`,
+  saveNote: 'Save note', deleteNote: 'Delete note',
+  noteSummary: (h: string, has: boolean) => (has ? `Your private note about @${h}` : `Add a private note about @${h}`),
+  lockedAdd: 'Adding and comparing traders needs a subscription. Your views and notes stay yours.',
+  deleteView: 'Delete view',
+  deleteViewConfirm: (name: string) => `Delete "${name}"? Your notes stay.`,
+  keep: 'Keep it',
+  updated: (d: Date) => `Updated ${billingDate(d)}`,
+  rows: { closed: 'Closed trades', winRate: 'Win rate', avg: 'Avg return / trade', range: '95% range', low: 'Lower end of range', evidence: 'Evidence', drawdown: 'Max drawdown (per-trade, equal-weight)', excluded: 'Positions excluded (no matching entry)' },
+  importing: 'Importing: figures appear when the import finishes.',
+  noTrades: 'No closed trades yet.',
+  messages: {
+    created: 'View created.', renamed: 'Name saved.', added: (i: number, n: number) => `Trader added in position ${i} of ${n}.`,
+    moved: (i: number, n: number) => `Trader moved to position ${i} of ${n}.`, removed: 'Trader removed from this view. Your note stays.',
+    deleted: 'View deleted.', noteSaved: 'Note saved.', noteDeleted: 'Note deleted.',
+    unknown: 'No trader has that exact handle.', duplicate: 'That trader is already in this view.', name: 'Give the view a name.',
+    noteLong: 'Notes can be up to 2,000 characters.', noteSelf: 'You cannot keep a note about your own record.',
+  },
+  account: 'Account', download: 'Download my data', open: 'Open Record tools',
+} as const;
+export const BILLING = {
+  title: 'Subscribe to Record tools',
+  testMode: 'Test mode, no real charge',
+  whatYouGet: 'What you get: side-by-side comparison of 2 to 4 public records, up to 20 saved views, and one private note per trader. Trader records stay free to view without a subscription.',
+  planMonthly: 'Monthly: $9.99 per month plus applicable sales tax',
+  planAnnual: 'Yearly: $99.99 per year plus applicable sales tax',
+  noTrial: 'No free trial. You are charged today.',
+  renewMonthly: (next: Date) => `Monthly renews automatically every month at $9.99 plus tax. If you subscribe today, the next charge is on ${billingDate(next)}.`,
+  renewAnnual: (next: Date) => `Yearly renews automatically every year at $99.99 plus tax. If you subscribe today, the next charge is on ${billingDate(next)}.`,
+  cancelHow: 'To cancel: Account → Cancel subscription. Within 14 days of your first charge or of a yearly renewal, canceling ends it at once with a full refund; after that, it takes effect at the end of the paid period: you keep access until that date and are not charged again.',
+  refund: 'Cancel within 14 days of your first charge, or of a yearly renewal, for a full refund. Otherwise there are no partial refunds, except for billing errors, a discontinued feature, or where the law requires one.',
+  card: "You enter your card details on the payment processor's page. Stock Social never sees your card number.",
+  agreeMonthly: 'I agree my subscription renews automatically at $9.99 per month plus tax until I cancel.',
+  agreeAnnual: 'I agree my subscription renews automatically at $99.99 per year plus tax until I cancel.',
+  subscribeMonthly: 'Subscribe: $9.99/month',
+  subscribeAnnual: 'Subscribe: $99.99/year',
+  notNow: 'Not now',
+  signIn: 'Sign in to subscribe',
+  errAgree: 'Tick the box to agree to automatic renewal.',
+  errPlan: 'Choose a plan.',
+  errCheckout: 'We could not open checkout. Nothing was charged. Try again.',
+  errPortal: 'We could not open the billing page. Nothing changed. Try again.',
+  unavailable: 'Subscriptions are not available right now. Trader records stay free to view.',
+  notOpen: 'Subscriptions are not open yet. Trader records stay free to view.',
+  accountTitle: 'Account',
+  activating: 'Activating your subscription…',
+  activatingSlow: 'Activation is taking longer than usual. You do not need to pay again; refresh this page in a minute.',
+  checkAgain: 'Check again',
+  plan: (p: 'monthly' | 'annual') => (p === 'annual' ? 'Plan: Yearly, $99.99 per year plus tax' : 'Plan: Monthly, $9.99 per month plus tax'),
+  renewsOn: (d: Date, p: 'monthly' | 'annual') => `Renews on ${billingDate(d)} at ${p === 'annual' ? '$99.99' : '$9.99'} plus tax.`,
+  receipt: 'Your receipt from the payment processor shows the total charged, including tax.',
+  endsOn: (d: Date) => `Your subscription ends on ${billingDate(d)}. You keep Record tools until then and will not be charged again.`,
+  keepIt: 'To keep it, open Manage subscription.',
+  contact: (c: string) => `Billing questions: ${c}`,
+  manage: 'Manage subscription',
+  cancel: 'Cancel subscription',
+  none: 'You have no subscription.',
+  seeTools: 'See Record tools',
+  lapsed: 'You have no active subscription. Your saved views and notes stay available to read, edit, download or delete.',
+  subscribeAgain: 'Subscribe again',
+  confirming: 'Your payment is being confirmed. You do not need to pay again. To stop it, open Manage subscription.',
+  traderCanceled: 'Your subscription was canceled when you connected a brokerage. The unused part is refunded automatically; the payment processor emails you the details.',
+  refunded: 'Your subscription ended with a refund.',
+  downloadHelp: 'A JSON file with your saved views, notes and subscription status.',
+  deleteBilling: 'If you subscribe to Record tools, deleting cancels it first; you are not charged again. We keep only the record of what you agreed to at checkout, for 3 years, without your name or email.',
+  deleteNotes: "If you publish a record, other subscribers' private notes about you are deleted and you are removed from their saved views.",
+} as const;
+export { billingDate };
 // ---- F-7 public-record traders (docs/features/logs/F-7/plan.md Round 4 item 1, Round 5 items 3-6; legal C9-C12, C15,
 // C18, C24). Never "Verified"; no advice, signals or completeness claims (lib/f7-trust.test.ts walks every string).
 export const isPublicRecord = (s: string): s is 'public' | 'public_demo' => s === 'public' || s === 'public_demo';
