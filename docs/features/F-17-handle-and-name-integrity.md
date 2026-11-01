@@ -1,7 +1,7 @@
 # F-17 · Handle and name integrity: reserved handles, rename hold, display-name rules
 
 Status: blocked
-Blocked: waits for F-9 (thesis safety, the text normaliser in `lib/moderation.ts`)
+Blocked: waits for F-9 to merge from `claude/fix-user-text-safety` with F-9's acceptance criteria met on main (its normaliser and `checkDisplayName` in `lib/handles.ts`)
 Start conditions: F-9 merges first (its normaliser in `lib/moderation.ts` is reused). Security hardening (#42, which
 edits `lib/auth/attempts.ts` and `app/auth/actions.ts`) has merged (ea7cd52).
 
@@ -50,6 +50,21 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
   approved by the approval council (cycle 2); every member's condition (veto condition: DK, CS); the F-9 dependency
   was made explicit after the orchestrator's review.
 
+- 2026-11-01: Lapsed at approval council cycle 3 (F-9 had not merged) and **re-approved by the approval council,
+  cycle 3** (`docs/ideas/approval-2026-11-01-cycle3.md`: second-vote mean 3.93, final vote 15/15). Every decision above stands word for word, including the
+  neutral 404 for an old handle with no 301 and no link to the new handle; the round-5 suggestions to redirect an old
+  handle are not adopted because they contradict that decision. It is built as rework on top of
+  `claude/fix-user-text-safety` once it merges with F-9's acceptance criteria met on main. If it has not merged by the
+  next approval council (cycle 4), this approval lapses to that council. Why: approved by the approval council
+  (cycle 3); lapse rule; DK, LG, CS, TS, PD.
+- 2026-11-01: Exactly one normaliser: the one on that branch (`checkDisplayName` in `lib/handles.ts`, built on F-9's
+  normaliser) is used by sign-up, rename, display name, search and reports, with a test that every caller imports it.
+  A confusables test set covers mixed scripts, zero-width characters, bidi overrides and full-width or case folds.
+  Why: approved by the approval council (cycle 3); red team (two normalisers are a bypass) (veto condition: CS).
+- 2026-11-01: A rename changes every handle-keyed share image, card and cache key, so no card or image is served under
+  a freed or held handle. Rejection messages name the field and the rule in visible text, use `role=alert` and move
+  focus to the field. Why: approved by the approval council (cycle 3); RE, EN, A11Y, UX.
+
 ## Acceptance criteria
 - [ ] The reserved list (new `lib/handles.ts`) contains only generic and own-product words; the compliance scanner and
       a test find no third-party or person name in it, its tests or fixtures (veto condition: DK, LG, CS).
@@ -74,6 +89,13 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle2.md`, K2
 - [ ] The PR answers COMPLIANCE §1 Q2 (fields, location, visibility, deletion).
 - [ ] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
+- [ ] A test fails if any of sign-up, rename, display name, search or reports normalises text without importing the
+      one normaliser.
+- [ ] The confusables set (mixed script, zero-width, bidi override, full-width, case fold) is refused or folded as the
+      decisions above require (unit tests).
+- [ ] After a rename, the old handle's share image, card and og:image URLs no longer serve the trader's content (test).
+- [ ] A rejected handle or name shows its rule in visible text tied to the field, announced with `role=alert`, focus on
+      the field (e2e at 360 px).
 
 ## Out of scope
 - Retiring handles forever (O-9): owner.

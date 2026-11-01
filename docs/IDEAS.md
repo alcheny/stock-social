@@ -75,16 +75,29 @@ The whole path from idea to merged feature, with states and exit criteria: [`doc
 | 45 | Number format, tone and ranges, lib slice first (C5, D24, DS-10..13, DS-25, MRC2-5) | design system council, market council cycle 2 | **approved: F-19** | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
 | 46 | Trust-and-safety slice: profile report, owner digest, audited hide, takedown page, anti-impersonation line (BC-2, BC-17, MRC2-6) | business council, market council cycle 2 | **approved: F-16** | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | approved |
 | 47 | Open-positions gate for real users with a count-only line (BC-3) | business council | flagged for owner: narrows F-6 2026-11-01 and TR-4; recommend a dated temporary exception in F-6 | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
-| 48 | Age-law posture: attestation version, hide on an under-18 report, pinned signed-out order (MRC2-12) | market council cycle 2 | waiting (K18 3.07: first next cycle, as an addition to F-16) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
+| 48 | Age-law posture: attestation version, hide on an under-18 report, pinned signed-out order (MRC2-12) | market council cycle 2 | **approved as an addition to F-16** (cycle 3, re-approval L-16 4.07; blocked on F-9) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md), [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approved |
 | 49 | Sitemap and SEO pages (MRC2-13) | market council cycle 2 | waiting (K19 2.07: after fixes #1 and #4; no profiles before launch) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
 | 50 | Billing hygiene checks in test mode (MRC2-11) | market council cycle 2 | waiting (K22 2.00: a test-only chore; Terms text is the owner's) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
 | 51 | One image palette and image trust band (DS-6, DS-19) | design system council | waiting (K11 1.73: after F-12 and owner flags O-2/O-4) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
 | 52 | Design-system variant tests V-1 neutral base, V-2 type and spacing collapse, V-3 nav labels (DSP-5..7) | design system council | waiting (KV 1.07: no traffic, held with C4/D23) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
 | 53 | Amendments to idea-board decisions D27, D25, D22 and a one-maturity-signal rule (DSP-2, DSP-3, DSP-4, DSP-8) | design system council | proposed: goes to the idea board (the council may not reword a decided line) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | idea board |
 | 54 | Gate definitions, go-to-market v2, pricing research, vendor questions (MRC2-3, 4, 7, 10, 11) | market council cycle 2 | flagged for owner | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
-| 55 | Council cycle 3 whole-app audit of main: 18 ranked proposal briefs for approval cycle 3 (top: C3-2 transfers as share moves, C3-3 oversells publish the recorded part, C3-17 exclusion counts beside the headline, C3-15 in-app disconnect, C3-9 broker corrections), a 27-item fixes list (F3-1..F3-27, no vote) and 10 owner questions | council cycle 3 (nine lenses, two cross-reviews, synthesis, verification, red team) | proposed: briefs go to approval council cycle 3; fixes to the orchestrator; questions to the owner | [cycle 3](direction/cycle3-2026-11-01.md) | approval cycle 3 |
+| 55 | Council cycle 3 whole-app audit of main: 18 ranked proposal briefs for approval cycle 3 (top: C3-2 transfers as share moves, C3-3 oversells publish the recorded part, C3-17 exclusion counts beside the headline, C3-15 in-app disconnect, C3-9 broker corrections), a 27-item fixes list (F3-1..F3-27, no vote) and 10 owner questions | council cycle 3 (nine lenses, two cross-reviews, synthesis, verification, red team) | reviewed: approval cycle 3 approved C3-17 (F-21), C3-2 (F-22, owner's yes first), C3-36 (F-23), C3-9a (F-24); rows 56-61 | [cycle 3](direction/cycle3-2026-11-01.md), [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approval cycle 3 |
+| 56 | Exclusion counts beside the headline: one muted line on the pane and record strip, one shared sum (C3-17, reshaped) | council cycle 3 | **approved: F-21** (cycle 3, 4.13, 15/15; blocked on F3-2 and F-22) | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approved |
+| 57 | Transfers as share moves, not repricings; transferred-out count (C3-2) | council cycle 3 | **approved: F-22, conditional on the owner's yes** (cycle 3, 4.07, 15/15; amends `lib/trades.ts:52` and the corporate-actions committee rule) | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approved; owner |
+| 58 | Public payloads no more precise than the screens show (C3-36) | council cycle 3 | **approved: F-23** (cycle 3, 3.67, 15/15; blocked on F3-2) | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approved |
+| 59 | Late-posted trades reach the record by insert-only reconciliation (C3-9a); vendor corrections in a revisions table (C3-9b) | council cycle 3 | **approved: F-24** for C3-9a (cycle 3, 3.60, 15/15; blocked on F-14); C3-9b flagged for owner (Q3) | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approved; owner |
+| 60 | Lapsed cycle-2 approvals re-voted: F-16 (+K18), F-17, F-20 re-approved; F-18 and F-19's sweep not re-approved | approval council cycle 3 (lapse rule) | F-16 4.07, F-17 3.93, F-20 3.67 **re-approved** (blocked); F-18 3.13 → draft; F-19 sweep 2.80 lapsed | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | approved / waiting |
+| 61 | Cycle-3 briefs not approved: C3-37 day-7 marker, C3-34 health endpoint, C3-39/40 settings and locked Record tools, C3-15 disconnect, C3-16 connection health, C3-38 drop-off counts, C3-42 full export, C3-43 public since, C3-35 cached images, C3-3 oversells; C3-41/C3-45 to a design session; C3-44 chore | council cycle 3 | waiting (C3-37 3.47 flagged for owner; C3-34 and C3-39 chores; C3-3 rejected in substance, 1.47) | [approval cycle 3](ideas/approval-2026-11-01-cycle3.md) | waiting |
 
 ## Decisions
+
+- 2026-11-01: The approval council's third cycle approved four new features: F-21 exclusion counts beside the
+  headline, F-22 transfers as share moves (conditional on the owner's yes, because it amends a decided matcher rule),
+  F-23 public payload precision, F-24 late-posted trades by insert-only reconciliation. It re-approved three lapsed
+  cycle-2 approvals: F-16 (with K18's under-18 report), F-17 and F-20. F-18 and F-19's sweep lapsed and were not
+  re-approved. Four build slots; nothing can start today (each waits on in-flight work, with a lapse clause to cycle 4).
+  Why: approval council under the owner's delegation of 2026-11-01 ([approval cycle 3](ideas/approval-2026-11-01-cycle3.md)).
 
 - 2026-11-01: The approval council's second cycle approved six features: F-15 measurement foundation (first slice),
   F-16 trust-and-safety slice, F-17 handle and name integrity, F-18 one trust language, F-19 number format and ranges
@@ -180,6 +193,12 @@ The whole path from idea to merged feature, with states and exit criteria: [`doc
   instruction of 2026-11-01.
 
 ## Flags for the owner
+
+- Approval council cycle 3 2026-11-01: F-22 amends `lib/trades.ts:52` and the corporate-actions committee's rule
+  (recommend yes, with the basis rule); F-9 on `claude/fix-user-text-safety` holds F-16, F-17 and K18 (recommend
+  merging it next); the cap reading (re-approvals not counted as new; slots counted); C3-9b revisions table (Q3,
+  recommend yes); C3-37 day-7 marker missed by 0.03 (recommend folding into F-15 if the privacy committee agrees);
+  K18's age-assurance method; contrast floors in a protected file. Record: [approval cycle 3](ideas/approval-2026-11-01-cycle3.md).
 
 - Council cycle 3 2026-11-01: ten owner questions, one list, each with a recommended answer (TR-5 freeze rule,
   OD-9 positions of a disconnected account, append-only revisions for broker corrections, exclusion count on the share

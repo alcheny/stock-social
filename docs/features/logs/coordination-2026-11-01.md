@@ -125,3 +125,38 @@ to ready by the orchestrator as prerequisites merge. F-15, F-16 and F-17 all add
   lane. Sweep lapses if those have not merged by the next council.
 
 Fixes list for cycle 2 (30 rows, #29 dropped as resolved by #40; `docs/ideas/approval-2026-11-01-cycle2.md`): built by the orchestrator without a vote, before the features that depend on them (fix #2 with the route-tree disclaimer guard first; fix #4 before F-16; fix #28 before F-15; fixes #12, #13, #26 before F-20; fixes #1, #2, #8, #9, #10 before F-18). Waiting, first in line next cycle: K18 age-law posture as an addition to F-16.
+
+## Approval council 2026-11-01 (cycle 3): approved features (F-21 to F-24) and re-approvals (F-16, F-17, F-20)
+
+Record: `docs/ideas/approval-2026-11-01-cycle3.md` (base f467293). Four build slots. Nothing can start today: every
+file below is `Status: blocked` with a `Blocked:` line, and each approval lapses to council cycle 4 if its prerequisite
+has not merged by then. The orchestrator flips each to ready as its prerequisites merge. F-18 went to `Status: draft`
+and F-19's sweep lapsed (not re-approved).
+
+- **Ledger slot: F-22 transfers as share moves, then F-24 late-posted trades** (`docs/features/F-22-transfers-as-share-moves.md`,
+  `docs/features/F-24-late-sell-reconciliation.md`). Owns the TRANSFER path in `lib/trades.ts` and
+  `lib/corporate-actions.ts`, a reconciliation step in `lib/sync.ts` (reads through the existing `fetchActivitiesPage`;
+  `lib/broker.ts` is protected and untouched), an additive `excluded_transferred_out` column and re-issue counter in
+  `db/schema.sql`, the transferred-out line in `app/u/[handle]/page.tsx` and `lib/copy.ts`, and /how's transfer line.
+  F-22 waits for the owner's yes (it amends `lib/trades.ts:52`), F-14 (`claude/f14-sync-cadence`, rewrites `syncUser`),
+  cycle-3 fixes F3-1, F3-5, F3-15 and `claude/fix-truthful-labels`. F-24 waits for F-14 and runs inside its read
+  budget. Overlaps: PR #62 options (`lib/trades.ts`, `lib/sync.ts`, `db/schema.sql`), the cycle-3 fixes branch.
+- **Pane and payload slot: F-21 exclusion counts, then F-23 payload precision** (`docs/features/F-21-exclusion-counts-beside-the-headline.md`,
+  `docs/features/F-23-public-payload-precision.md`). Owns one shared exclusion-sum function (new, in `lib/`), its line in
+  `app/pane.tsx` and the record strip (`app/record-strip.tsx`, `lib/record-strip.ts`), serialisation rounding in
+  `app/u/[handle]/pane/route.ts`, the pane-chart route, `lib/chart-series.ts` and `lib/feed.ts` (client data only).
+  Both wait for fix F3-2 (same pane files); F-21 also takes F-22's count when F-22 lands first. F-21 needs the
+  rename-chain `notShared` fix (`lib/sync.ts:121-127`) on the fixes list. Overlaps: PR #55 (F-13, pane and feed),
+  PR #56 (F-7), F-11 (pane status line), F-16 (pane report control).
+- **Trust and safety slot: F-16 (with K18's under-18 report), then F-17** (re-approved; files unchanged from cycle 2).
+  Both wait for `claude/fix-user-text-safety` (F-9 built, 53b74e3, no open PR) to merge with F-9's criteria met on
+  main; F-16 extends F-9's `lib/reports.ts` (one reports table); F-17 is rework on top of that branch's `lib/handles.ts`
+  (`checkDisplayName`, the one normaliser).
+- **F-20 design tokens and contrast test** (re-approved; own slot now that F-18 is not re-approved). Waits for PR #55
+  (`lib/a11y-contrast.test.ts`) and cycle-2 fixes #12, #13, #26.
+
+Fixes found during the vote (for the orchestrator's fixes list, no vote): the rename-chain read at `lib/sync.ts:121-127`
+lacks `notShared`; `app/ui.tsx:74` says "No thesis posted." over a held thesis; `lib/copy.ts:69`'s oversell line should
+name both possible causes (F3-15). Chores the council recommends (no vote): C3-34 health endpoint and 401 log line;
+C3-39 Record tools while billing is off (business lead signs off the F-3 entry point) with C3-44; K20 home link
+preview; K22 billing hygiene tests.

@@ -1,7 +1,7 @@
 # F-16 · Trust and safety slice: profile report, owner digest, audited hide, takedown page
 
 Status: blocked
-Blocked: waits for F-9 (thesis safety, `lib/reports.ts`) and fix #4 (shared visible-user predicate)
+Blocked: waits for F-9 to merge from `claude/fix-user-text-safety` with F-9's acceptance criteria met on main (fix #4 merged in #59)
 Start conditions: F-9 (thesis safety, which adds `lib/reports.ts`) and fix #4 (one shared visible-user predicate)
 merge first.
 
@@ -64,6 +64,26 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
 - 2026-11-01: Sequencing: starts after F-9 and fix #4 merge. If F-9 has not merged by the next approval council, this
   approval lapses to that council. Why: approved by the approval council (cycle 2); EN, RT, BL, CS, MR, PF, RE, UX.
 
+- 2026-11-01: Lapsed at approval council cycle 3 (F-9 had not merged) and **re-approved by the approval council,
+  cycle 3** (`docs/ideas/approval-2026-11-01-cycle3.md`: second-vote mean 4.07, final vote 15/15). Every decision above stands word for word. F-9 is built
+  on `claude/fix-user-text-safety` (53b74e3, with `lib/reports.ts`); fix #4 merged in #59. This feature starts once
+  that branch merges with F-9's acceptance criteria met on main, and extends F-9's reports module (one reports table).
+  If it has not merged by the next approval council (cycle 4), this approval lapses to that council. Why: approved by
+  the approval council (cycle 3); lapse rule; EN, DK.
+- 2026-11-01: K18 (age-law posture, MRC2-12) joins as an addition: a "may be under 18" report category in the same
+  form, as a labelled control. No report of any kind, under-18 included, hides a record on its own: the owner reviews,
+  and any hide is the owner-run audited script, never a single trade, never a deletion; any deletion is the owner's.
+  No date of birth, ID or age estimation, no automatic deletion, no age-group words for minors; the age-assurance
+  method stays the owner's. Under-18 reports come first in the owner digest. Why: approved by the approval council
+  (cycle 3); cycle 2's K18 conditions; POLICY P4 (veto condition: LG, DK, CS).
+- 2026-11-01: Reporters are signed in and rate-limited per reporter and per target, one open report per reporter and
+  target; repeat unfounded reporters are counted for the owner. The reported trader never sees who reported, and
+  reporter identity is never exported. The hidden state is neutral and never says "reported" or "under review"; a
+  hide also stops the trader's images, cached responses and sitemap entries, including the rename-chain path. The
+  audit row is written in the same transaction as the hide. The report action is a quiet menu item, never next to
+  Follow or Share. Why: approved by the approval council (cycle 3); red team (reports are a weapon), TS, RE, UX, PD
+  (veto condition: CS for the reporter limits and hidden identity).
+
 ## Acceptance criteria
 - [ ] A test fails on any `from closed_trades` read under `app/` or `lib/` that lacks the shared visible-user predicate
       (veto condition: LG).
@@ -101,6 +121,14 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
 - [ ] The PR answers COMPLIANCE §1 Q2 and Q4.
 - [ ] Any limit the build leaves is marked in code with a `ponytail:` comment naming the limit and its next step, and
       the PR's hand-off note lists it.
+- [ ] An under-18 report is filed through the same form as a labelled option and hides nothing on its own (test);
+      the owner digest lists it first.
+- [ ] A reporter over the per-reporter or per-target limit is refused (db test); a second open report by the same
+      reporter on the same target is refused.
+- [ ] The reported trader's views and the account export never contain the reporter's identity (test).
+- [ ] After a hide, the trader's profile image, trade and month images, cached JSON and sitemap entries return the
+      neutral hidden state or 404 (e2e), including trades reached through a rename chain.
+- [ ] The hide's audit row and the hide commit in one transaction (db test: a failed audit insert leaves no hide).
 
 ## Out of scope
 - The under-18 report category and attestation version (K18) wait for the next cycle.
