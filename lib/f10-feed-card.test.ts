@@ -48,7 +48,9 @@ const row = { id: '1', symbol: 'ACME', return_pct: -0.052, holding_days: 3.4, cl
 const stripOf = (trades: ConfidenceInput[]) => recordStrip({ ...stripFigures(trades, now), state: 'connected', demo: false, verified: true, handle: row.handle }, 'feed');
 const render = (strip?: ReturnType<typeof stripOf>) => renderToStaticMarkup(createElement(TradeCard, { t: row, state: 'connected', strip }));
 const figures = (p: string) => text(p.replace(/<span class="badge [^"]*"[^>]*>[^<]*<\/span> /, ''));
-const text = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
+// Tags stripped until nothing changes (CodeQL: a single pass can leave a tag formed by what it removed); &amp; decoded last.
+const stripTags = (s: string) => { let prev: string; do { prev = s; s = s.replace(/<[^>]*>/g, ''); } while (s !== prev); return s; };
+const text = (html: string) => stripTags(html).replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
 
 test('F-10 AC1/AC9: a card given a strip shows it as real text in the hero, after the return, with no "held … · closed" line', () => {
   const strip = stripOf(rec(40, (i) => 0.009 + (i % 2 ? 0.004 : -0.004)));
