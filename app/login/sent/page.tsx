@@ -1,9 +1,13 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { resendLink } from '../../auth/actions.ts';
-import { SIGNIN } from '@/lib/copy.ts';
+import { SIGNIN, TITLES } from '@/lib/copy.ts';
 import { ATTEMPT_COOKIE, ownsAttempt } from '@/lib/auth/links.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
+
+// A11Y-FIXES #20 (WCAG 2.4.2): this route's own title.
+export const metadata: Metadata = { title: TITLES.loginSent };
 
 type SP = { a?: string; again?: string; error?: string };
 

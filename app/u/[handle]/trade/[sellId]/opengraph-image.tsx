@@ -1,14 +1,14 @@
 // Trade share card: percent only, and layout and colour never vary by sign.
 import { ImageResponse } from 'next/og';
 import { DISCLAIMER } from '@/lib/share.ts';
-import { imageTrust } from '@/lib/copy.ts';
+import { IMAGE_ALT, imageTrust } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { counted } from '@/lib/format.ts';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
-export const alt = 'One closed trade on Stock Social, with the full record';
+export const alt = IMAGE_ALT.trade;
 
 const MUTED = '#8b8b98';
 const TONE = { ok: '#22c55e', muted: MUTED, warn: '#f59e0b' } as const;

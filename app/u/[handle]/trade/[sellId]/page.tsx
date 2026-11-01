@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
+import { recordLink, signWord, wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
 import { decodeSellId, loadTradeShare } from '@/lib/trade-share-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from './trade-share.tsx';
@@ -41,14 +41,14 @@ export default async function TradePage({ params }: Params) {
   return (
     <main className="page">
       <p>
-        <Link href={`/u/${t.handle}`}>← @{t.handle}&apos;s full record</Link>{' '}
+        <Link href={`/u/${t.handle}`}>{recordLink(t.handle)}</Link>{' '}
         {t.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
       </p>
       <div className="trade-grid">
         <section className="trade-card" aria-labelledby="this-trade">
           <h2 id="this-trade">This trade</h2>
           <h1 style={{ margin: 0 }}>{t.symbol}</h1>
-          <p className="big"><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</p>
+          <p className="big"><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</p>
           <p className="muted small">{held(t.holdingDays)} · closed {closed}</p>
           {t.thesis && <blockquote>“{t.thesis}”</blockquote>}
         </section>

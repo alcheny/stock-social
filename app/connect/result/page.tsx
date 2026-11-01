@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -8,7 +9,10 @@ import { NotFound } from './connection-not-found.tsx';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { currentUser } from '@/lib/session.ts';
 import { ACCOUNT_CLAIMED_BODY, ACCOUNT_CLAIMED_TITLE } from '@/lib/claims.ts';
-import { RESULT } from '@/lib/copy.ts';
+import { RESULT, TITLES } from '@/lib/copy.ts';
+
+// A11Y-FIXES #20 (WCAG 2.4.2): this route's own title.
+export const metadata: Metadata = { title: TITLES.result };
 
 // S6 declined / expired, S6c no real account, S7 abandoned / failed / claimed. Every terminal state has one retry and
 // one way out (S7a also "Continue in a new page"); errors are role="alert" and take focus. No ids or vendor details are shown. `?k=abandoned` needs no

@@ -5,10 +5,13 @@ import { cardTrust } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
+// F-13: the SW-1 hint and the Verified definition (fix #9).
+import { FIRST_VISIT, VERIFIED_MEANING } from '@/lib/copy.ts';
+import { SwipeHint } from './first-visit-client.tsx';
 
 export function Badge({ verified }: { verified: boolean }) {
   return verified
-    ? <span className="badge verified" title="Pulled read-only from the trader's broker. Cannot be edited.">✓ Verified</span>
+    ? <span className="badge verified" title={VERIFIED_MEANING} /* fix #9 (F-13 group): one constant with the footer */>✓ Verified</span>
     : <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>;
 }
 
@@ -35,15 +38,16 @@ export function WhoName({ name, handle }: { name: string; handle: string }) {
 const CLOSED_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
 // F-2 PR-4: `menu`, the feed card's "…" menu for a signed-in viewer (app/card-menu.tsx).
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date }) {
+// F-13: `hint`, page 1's first card: the SW-1 "Swipe ← for profile" line, and the dismiss focus target (data-first-card-link).
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, hint }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; hint?: boolean }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
-  const up = t.return_pct > 0;
+  const tc = toneClass(t.return_pct); // A11Y-FIXES #23: flat (0.0%) is neither colour
   const trust = cardTrust(t, state);
   return (
     <article className="card">
       <header>
-        <Link href={`/u/${t.handle}`} className="who">
+        <Link href={`/u/${t.handle}`} className="who" data-first-card-link={hint || undefined}>
           <WhoName name={t.display_name} handle={t.handle} />
         </Link>
         <RowBadge kind={trust.badge} />
@@ -52,12 +56,13 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
       {trust.incomplete && <p role="status" className="down record-failed">{RECORD_BODY.failed}</p>}
       <div className="hero">
         <div className="symbol"><Link href={`/t/${encodeURIComponent(t.symbol)}`}>{t.symbol}</Link></div>
-        <div className={`ret ${up ? 'up' : 'down'}`}>{pct(t.return_pct)}</div>
+        <div className={tc ? `ret ${tc}` : 'ret'}>{pct(t.return_pct)}</div>
         <div className="muted">held {days(t.holding_days)} · closed {CLOSED_DAY.format(t.closed_at)}</div>
       </div>
       <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
+        {hint && <SwipeHint text={FIRST_VISIT.hint} />}
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
       </footer>
     </article>

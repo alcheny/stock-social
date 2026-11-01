@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { currentUser } from '@/lib/session.ts';
 import { pct } from '@/lib/trades.ts';
-import { wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
+import { RECAP_RECORD_LABEL, recordLink, signWord, wholeRecordPreview, wholeRecordView } from '@/lib/copy.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { JoinCta } from '../../join-cta.tsx';
 import { TradeShare } from '../../trade/[sellId]/trade-share.tsx';
@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   return {
     title: `${r.recap.label} · @${r.handle} · Stock Social`,
     // Reviewer fix (TR-3): the whole-record part follows the profile's record-state rule, as on the trade page.
-    description: `${plural(r.recap.count)} this month · whole record: ${wholeRecordPreview({ state: r.state, demo: r.demo, verified: r.verified, trades: r.record.trades }, `${(r.record.winRate * 100).toFixed(0)}% win rate`)}`,
+    description: `${plural(r.recap.count)} this month · ${RECAP_RECORD_LABEL}: ${wholeRecordPreview({ state: r.state, demo: r.demo, verified: r.verified, trades: r.record.trades }, `${(r.record.winRate * 100).toFixed(0)}% win rate`)}`,
   };
 }
 
@@ -41,7 +41,7 @@ export default async function RecapPage({ params }: Params) {
     <section className="trade-card" aria-label={title}>
       <h2>{title}</h2>
       <Link href={link(t.sellId)} style={{ display: 'block', minHeight: 44, padding: '4px 0' }}>
-        <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</span>
+        <span className="big" style={{ display: 'block', overflowWrap: 'anywhere' }}>{t.symbol} <span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
         <span className="muted small">{held(t.holdingDays)}</span>
       </Link>
     </section>
@@ -50,7 +50,7 @@ export default async function RecapPage({ params }: Params) {
   return (
     <main className="page">
       <p>
-        <Link href={`/u/${handle}`}>← @{handle}&apos;s full record</Link>{' '}
+        <Link href={`/u/${handle}`}>{recordLink(handle)}</Link>{' '}
         {r.demo && <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>}
       </p>
       <h1>{m.label} {m.monthSoFar && <span className="muted small">month so far</span>}</h1>
@@ -93,7 +93,7 @@ export default async function RecapPage({ params }: Params) {
             <Link href={link(t.sellId)} style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, minHeight: 44, alignItems: 'center' }}>
               <span className="muted">{day(t.closedAt)}</span>
               <b>{t.symbol}</b>
-              <span><span className="sr-only">{t.returnPct < 0 ? 'Loss ' : 'Gain '}</span>{pct(t.returnPct)}</span>
+              <span><span className="sr-only">{`${signWord(t.returnPct)} `}</span>{pct(t.returnPct)}</span>
               <span className="muted">{held(t.holdingDays)}</span>
             </Link>
           </li>

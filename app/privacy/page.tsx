@@ -1,4 +1,8 @@
-import { LEGAL_PLACEHOLDER } from '@/lib/copy.ts';
+import type { Metadata } from 'next';
+import { LEGAL_PLACEHOLDER, TITLES } from '@/lib/copy.ts';
+
+// A11Y-FIXES #20 (WCAG 2.4.2): this route's own title.
+export const metadata: Metadata = { title: TITLES.privacy };
 
 // POLICY P6/F3: the attestation links here. The owner supplies the final text (POLICY H); this is a marked placeholder.
 export default function Privacy() {

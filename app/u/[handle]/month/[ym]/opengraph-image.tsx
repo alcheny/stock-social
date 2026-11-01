@@ -6,10 +6,11 @@ import { ImageResponse } from 'next/og';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthCard, type CardLine } from '@/lib/month-card.ts';
+import { IMAGE_ALT } from '@/lib/copy.ts';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
-export const alt = 'A month of trades on Stock Social, with the whole record';
+export const alt = IMAGE_ALT.month;
 
 const MUTED = '#8b8b98';
 const WARN = '#f59e0b';

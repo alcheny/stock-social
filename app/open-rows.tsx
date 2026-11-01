@@ -3,10 +3,11 @@
 // them renders exactly today's HTML. Percent and counts only (POLICY P3); tone by the printed sign, words beside it.
 import { asOfDay, OPEN } from '@/lib/copy.ts';
 import { count } from '@/lib/format.ts';
-import { tone, type OpenSummary } from '@/lib/open-split.ts';
+import { toneClass, type OpenSummary } from '@/lib/open-split.ts';
 import { pct } from '@/lib/trades.ts';
 
-export const toneClass = (x: number) => { const t = tone(x); return t === 'flat' ? undefined : t; };
+// A11Y-FIXES #23: moved to lib/open-split.ts so every call site shares one helper; re-exported for existing imports.
+export { toneClass };
 
 // Long values (8+ characters, e.g. "+6122.6%") take a smaller shared size in both grids (data-long), so every big value
 // keeps a fifth of its tile spare at 360 px whatever the font (CI's renders wider) and the two rows stay equal (TR-4).

@@ -42,7 +42,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
   const summary = p.since && p.worst && (
     <p className="summary">
       Since first closed trade, {day(p.since)}: {counted(p.count, 'closed trade')}. Worst: {p.worst.symbol}{' '}
-      <b className={p.worst.returnPct > 0 ? 'up' : 'down'}>{pct(p.worst.returnPct)}</b>.
+      <b className={toneClass(p.worst.returnPct)}>{pct(p.worst.returnPct)}</b>.
       {trust.badge === 'demo' && <span className="muted"> Sample data, not from a real broker.</span>}
     </p>
   );
@@ -52,7 +52,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
     <section className="stats" aria-label={open ? OPEN.realizedLabel : undefined} data-long={long}>
       {open && <RealizedLabel />}
       <div className="stat big"><b>{(p.winRate * 100).toFixed(0)}%</b><small>win rate</small></div>
-      <div className="stat big"><b className={open ? toneClass(p.avgReturn) : p.avgReturn > 0 ? 'up' : 'down'}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>
+      <div className="stat big"><b className={toneClass(p.avgReturn)}>{pct(p.avgReturn)}</b><small>avg return / trade</small></div>
     </section>
     {open && <OpenGrid o={open} asOf={openAsOf} long={long} />}
     {both && <CombinedLine c={both} />}
@@ -75,7 +75,7 @@ export function ProfilePane({ handle, name, trades, now, state = 'connected', ch
         {p.recent.map((t) => (
           <li key={t.id} className={t.id === highlight ? 'line hl' : 'line'} aria-current={t.id === highlight ? 'true' : undefined}>
             <span><b>{t.symbol}</b> <span className="muted">{t.closedAt.toLocaleDateString('en-US')}</span></span>
-            <b className={t.returnPct > 0 ? 'up' : 'down'}>{pct(t.returnPct)}</b>
+            <b className={toneClass(t.returnPct)}>{pct(t.returnPct)}</b>
           </li>
         ))}
       </ul>

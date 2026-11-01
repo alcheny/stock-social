@@ -12,6 +12,10 @@ export function tone(x: number): Tone {
   return shown > 0 ? 'up' : shown < 0 ? 'down' : 'flat';
 }
 
+// A11Y-FIXES #23: the colour class for a percent as printed: up or down, and none for flat (it inherits the text
+// colour). The word beside it is signWord in lib/copy.ts (this file stays string-free).
+export const toneClass = (x: number): Exclude<Tone, 'flat'> | undefined => { const t = tone(x); return t === 'flat' ? undefined : t; };
+
 // Open positions as a set: each row is one position (one symbol held in two accounts is two), counted up, down and
 // flat by tone, averaged with equal weight (an amount-weighted average would need amounts we never store).
 export type OpenSummary = { n: number; up: number; down: number; flat: number; avg: number };

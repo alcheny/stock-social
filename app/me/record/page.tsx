@@ -73,7 +73,7 @@ export default async function MyRecord() {
       {r.total === 0 ? (
         <div className="rec-card">
           <p style={{ margin: 0 }}>No closed trades yet. Once a trade you&apos;ve connected closes, your habits appear here.</p>
-          <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will pick them up.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
+          <p style={{ margin: '8px 0 0' }}>{me.snaptrade_user_id ? 'Your next sync will add them.' : <Link href="/connect">Connect your broker (read-only)</Link>}</p>
         </div>
       ) : <>
         {r.total < MIN_TRADES && <p className="muted">You have {r.total} closed trade{r.total === 1 ? '' : 's'}. Figures need at least {MIN_TRADES} trades behind them.</p>}
@@ -195,7 +195,7 @@ export default async function MyRecord() {
       </>}
 
       <h2>Your rules</h2>
-      <p className="muted">Pick up to two rules for yourself. This page only counts how your closed trades measured up. It is private. A hold of exactly N days counts as following the rule.</p>
+      <p className="muted">Choose up to two rules for yourself. This page only counts how your closed trades measured up. It is private. A hold of exactly N days counts as following the rule.</p>
       <div className="rec-grid">
         {RULE_KINDS.map((kind) => {
           const rule = rules.find((x) => x.kind === kind);

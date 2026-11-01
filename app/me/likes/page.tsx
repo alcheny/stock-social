@@ -5,6 +5,7 @@ import { currentUser } from '@/lib/session.ts';
 import { ownLikes } from '@/lib/likes.ts';
 import { LIKES } from '@/lib/copy.ts';
 import { pct } from '@/lib/trades.ts';
+import { toneClass } from '@/lib/open-split.ts';
 import { removeLikeForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
 
@@ -28,7 +29,7 @@ export default async function Likes({ searchParams }: { searchParams?: Promise<{
             <li key={r.key} className="line">
               <span className="who-col">
                 <Link href={`/u/${r.handle}/trade/${encodeURIComponent(r.sellId)}`}>{LIKES.closed(r.symbol, DAY.format(r.closedAt))}</Link>{' '}
-                <b className={r.returnPct > 0 ? 'up' : 'down'}>{pct(r.returnPct)}</b>
+                <b className={toneClass(r.returnPct)}>{pct(r.returnPct)}</b>
                 <span className="small"><WhoName name={r.name} handle={r.handle} /></span>
               </span>
               <form action={removeLikeForm.bind(null, r.key, after)}><button className="secondary" aria-label={LIKES.removeFor(r.symbol)}>{LIKES.remove}</button></form>

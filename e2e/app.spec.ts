@@ -689,13 +689,15 @@ test('ticker page: unknown symbol has no theses section', async ({ page }) => {
   await expect(page.getByTestId('theses')).toHaveCount(0);
 });
 
-test('ticker page: unknown and invalid symbols are calm 200s', async ({ page }) => {
+test('ticker page: an unknown symbol is a calm 200, an invalid one a real 404', async ({ page }) => {
   let res = await page.goto('/t/ZZZZ');
   expect(res?.status()).toBe(200);
   await expect(page.getByText('No verified closed trades in ZZZZ yet.')).toBeVisible();
+  // A11Y-FIXES #21: an invalid symbol is a real 404 (was a soft 200), on the root not-found page.
   res = await page.goto('/t/%3Cscript%3E');
-  expect(res?.status()).toBe(200);
-  await expect(page.getByText("doesn't look like a ticker")).toBeVisible();
+  expect(res?.status()).toBe(404);
+  await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
+  await expect(page).toHaveTitle('Page not found · Stock Social');
 });
 
 test('ticker index: lists seeded symbols with no performance numbers, sort is safe, nav links to it', async ({ page }) => {
@@ -1121,6 +1123,9 @@ test('fix round 8, F-2 PR-1: 30-card pages from 50 distinct heavy traders each w
     const otherPane = other.locator('.pane');
     await expect(otherPane.locator('.chart-hit')).toBeAttached();
     await expect(otherPane.locator('figure.chart')).toHaveAttribute('data-chart', 'stand-in');
+    // A11Y-FIXES #17: a pane at rest off screen is inert (not focusable); the keyboard route into it is →.
+    await other.evaluate((el) => el.scrollIntoView());
+    await expect.poll(async () => { await page.keyboard.press('ArrowRight'); return other.evaluate((el) => el.scrollLeft); }).toBeGreaterThan(300);
     await otherPane.locator('.chart-stack').focus();
     await expect(otherPane.locator('figure.chart')).toHaveAttribute('data-chart', 'full');
     await page.keyboard.press('ArrowLeft');

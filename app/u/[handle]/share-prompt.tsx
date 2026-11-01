@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { markSharePromptSeen, recordSharePromptAction } from '../../actions.ts';
 import { ShareButton } from '../../share-button.tsx';
 import { counted } from '@/lib/format.ts';
+import { PUBLIC_SCOPE } from '@/lib/copy.ts';
 
 // range: the card's own "likely between" text (F-4 rework: the range around the average the card prints).
 // previewAlt: the card in words, from the card's own model (lib/record-card.ts#cardAlt; F-4 committee round 1, demand
@@ -37,7 +38,7 @@ export function SharePrompt({ handle, displayName, trades, range, isNew, preview
           alt={previewAlt} />
       )}
       <p style={{ margin: 0 }}>
-        Public: your win rate, average return, each closed trade and each open position as a percentage, losses included. Never sizes, prices or balances. Your broker login stays private.
+        {PUBLIC_SCOPE.share}
       </p>
       {isNew && (
         <p className="muted note" style={{ margin: 0 }}>
