@@ -203,8 +203,7 @@ export function relatedSymbols(rows: { symbol: string; userId: number; verified:
 }
 
 export const THESIS_CAP = 20;
-// sellId (fix #22): the closing sell's external_id, the trade page's stable key (closed_trades.id changes on every rebuild).
-export type ThesisRow = { id: number; sellId: string; handle: string; thesis: string | null; thesisStatus: string | null;
+export type ThesisRow = { id: number; handle: string; thesis: string | null; thesisStatus: string | null;
   returnPct: number; holdingDays: number; closedAt: Date; verified: boolean };
 export type ThesisItem = Omit<ThesisRow, 'thesisStatus' | 'thesis'> & { thesis: string };
 export type ThesisList = { items: ThesisItem[]; n: number; demoOnly: boolean; mixed: boolean };
@@ -315,28 +314,29 @@ export function parseCompare(a: string | undefined, b: string | undefined): Pars
 
 export const COMPARE_COPY = {
   title: 'Compare stocks · Stock Social',
-  // Fixes #1 and #11 (cycle 2): no "verified" on copy that also shows demo data; no "pick" (POLICY F1a).
-  explainer: 'Closed trades in each stock, side by side. Percentages only. Few trades means a wide range, and that is expected.',
+  explainer: 'Verified closed trades in each stock, side by side. Percentages only. Few trades means a wide range, and that is expected.',
+  // Fix #11 (cycle 2, POLICY F1a): no "pick" in product copy.
   pick: 'Choose two stocks to compare.',
   invalid: (raw: string) => `${raw} doesn't look like a ticker symbol.`,
   same: (a: string) => `Choose two different stocks. You chose ${a} twice.`,
-  bothEmpty: (a: string, b: string) => `No closed trades in ${a} or ${b} yet.`,
-  emptySide: (s: string) => `No closed trades in ${s} yet.`,
+  bothEmpty: (a: string, b: string) => `No verified closed trades in ${a} or ${b} yet.`,
+  emptySide: (s: string) => `No verified closed trades in ${s} yet.`,
   overlap: (n: number, a: string, b: string) => n === 0
-    ? 'No trader has closed trades in both yet.'
-    : `${n} trader${n === 1 ? '' : 's'} closed trades in both ${a} and ${b}.`,
+    ? 'No trader has closed verified trades in both yet.'
+    : `${n} trader${n === 1 ? '' : 's'} closed verified trades in both ${a} and ${b}.`,
   footer: 'Different traders, different sizes and timing. This is what happened, not a prediction.',
-  demoOnly: 'All trades on this page are demo data, not from a real broker.',
-  mixed: 'Some trades here are demo data and are marked Demo. The summary includes them.',
+  tooEarly: 'too early',
+  demoOnly: 'All trades on this page are sample data, not from a real broker.',
+  mixed: 'Some trades here are sample data and are marked Demo. The summary includes them.',
 };
 
 const sideDescription = (symbol: string, s: CompareSide) => s.empty
-  ? `${symbol}: no closed trades yet.`
+  ? `${symbol}: no verified trades yet.`
   : `${symbol}: ${s.summary.n} trade${s.summary.n === 1 ? '' : 's'}, ${(s.summary.winRate! * 100).toFixed(0)}% win rate, ${signed(s.summary.avgReturn! * 100, 1)} avg return.`;
 
 export function compareDescription(symbolA: string, symbolB: string, c: Compare): string {
   const demo = c.a.summary.demoOnly || c.a.summary.mixed || c.b.summary.demoOnly || c.b.summary.mixed;
-  return `${sideDescription(symbolA, c.a)} ${sideDescription(symbolB, c.b)}${demo ? ' Demo data.' : ''}`;
+  return `${sideDescription(symbolA, c.a)} ${sideDescription(symbolB, c.b)}${demo ? ' Sample data.' : ''}`;
 }
 
 export const WATCH_CAP = 25;

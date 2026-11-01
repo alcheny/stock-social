@@ -14,9 +14,8 @@ const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: '
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 export const metadata: Metadata = {
-  // Fixes #1 and #8: the index lists demo symbols too (marked Demo), so it doesn't call them verified or claim "every".
-  title: 'Stocks with closed trades · Stock Social',
-  description: 'Stocks with closed trades on Stock Social: trade counts and traders, percentages only, losses included. Demo data is marked Demo.',
+  title: 'Stocks with verified trades · Stock Social',
+  description: 'Browse every stock with verified closed trades: trade counts and traders, percentages only, losses included.',
 };
 
 // One query for all of the user's watches (max 25). Counts only: no returns. demoOnly uses ALL of a symbol's trades.
@@ -76,7 +75,7 @@ export default async function Stocks({ searchParams }: Props) {
       <main className="page">
         <h1>Stocks</h1>
         <Strip strip={strip} />
-        <p>No closed trades yet.</p>
+        <p>No verified trades yet.</p>
         <p className="muted">Stocks appear here when a trader connects a broker and closes a position.</p>
         <p><Link href="/">Back to the feed</Link></p>
       </main>
@@ -102,7 +101,7 @@ export default async function Stocks({ searchParams }: Props) {
       <p><Link href="/">← Feed</Link></p>
       <h1>Stocks</h1>
       <Strip strip={strip} />
-      <p className="muted">Stocks with at least one closed trade. Trades from connected broker accounts are verified; demo data is marked Demo. Open a stock to see its trades, losses included. Percentages only.</p>
+      <p className="muted">Stocks with at least one verified closed trade from connected accounts. Open a stock to see its trades, losses included. Percentages only.</p>
       <form role="search" action="/t" method="get" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <label htmlFor="q">Find a stock</label>
         <input id="q" name="q" type="search" defaultValue={rawQ} placeholder="NVDA" maxLength={10} autoCapitalize="characters" autoCorrect="off" spellCheck={false} style={{ minHeight: 44 }} />
@@ -115,7 +114,7 @@ export default async function Stocks({ searchParams }: Props) {
       </nav>
       {(f.kind === 'none' || f.kind === 'invalid') ? (
         <>
-          <p>No stock with closed trades matches “{q.slice(0, 20)}”.</p>
+          <p>No stock with verified trades matches “{q.slice(0, 20)}”.</p>
           <p className="muted">Stocks appear here once a trader closes a position in them.</p>
           <p><Link href={clearHref} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>See all stocks</Link></p>
         </>
@@ -127,7 +126,7 @@ export default async function Stocks({ searchParams }: Props) {
           {searching && <> · <Link href={clearHref}>Clear search</Link></>}
         </p>
       )}
-      <ul className="rows ticker-rows" aria-label="Stocks with closed trades">
+      <ul className="rows ticker-rows" aria-label="Stocks with verified trades">
         {rows.map((r) => {
           const when = date(r.lastClosedAt);
           return (
@@ -135,7 +134,7 @@ export default async function Stocks({ searchParams }: Props) {
               <Link
                 href={`/t/${encodeURIComponent(r.symbol)}`}
                 className="trow"
-                aria-label={`${r.symbol}, ${plural(r.trades, 'trade')}, ${plural(r.traders, 'trader')}, last closed ${when}${r.demoOnly ? ', demo data' : ''}`}
+                aria-label={`${r.symbol}, ${plural(r.trades, 'trade')}, ${plural(r.traders, 'trader')}, last closed ${when}${r.demoOnly ? ', sample data' : ''}`}
               >
                 <span className="who"><b>{r.symbol}</b> {r.demoOnly && <Badge verified={false} />}</span>
                 <span className="muted">{plural(r.trades, 'trade')} · {plural(r.traders, 'trader')} · last closed {when}</span>

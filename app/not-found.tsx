@@ -3,7 +3,8 @@ import Link from 'next/link';
 
 // Fix #20 (approval council cycle 2): a real 404 (status and a distinct title) for unknown routes and notFound() calls,
 // such as an invalid ticker symbol, instead of a 200 page that reads "not found".
-export const metadata: Metadata = { title: 'Page not found · Stock Social', robots: { index: false } };
+// Next.js adds <meta name="robots" content="noindex"> to this page itself.
+export const metadata: Metadata = { title: 'Page not found · Stock Social' };
 
 export default function NotFound() {
   return (

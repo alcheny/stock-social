@@ -8,7 +8,6 @@ import { pct } from '@/lib/trades.ts';
 import { removeLikeForm } from '../../discovery-actions.ts';
 import { WhoName } from '../../ui.tsx';
 import { toneClass } from '../../open-rows.tsx';
-import { Disclaimer } from '../../disclaimer.tsx';
 
 export const metadata: Metadata = { title: `${LIKES.title} · Stock Social`, robots: { index: false, follow: false } };
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -24,7 +23,6 @@ export default async function Likes({ searchParams }: { searchParams?: Promise<{
     <main className="page">
       <h1>{LIKES.title}</h1>
       <p className="muted">{LIKES.private}</p>
-      <Disclaimer />
       {rows.length ? (
         <ul className="rows people likes">
           {rows.map((r) => (

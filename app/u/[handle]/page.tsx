@@ -5,7 +5,6 @@ import { sql } from '@/lib/db.ts';
 import { currentUser } from '@/lib/session.ts';
 import { confidence, edgeText, evidenceLine, isNewRecord, pct, stats } from '@/lib/trades.ts';
 import { DISCLAIMER } from '@/lib/share.ts';
-import { Disclaimer } from '../../disclaimer.tsx';
 import { saveThesis } from '../../actions.ts';
 import { setHandle } from '../../auth/actions.ts';
 import { recordFunnel } from '@/lib/funnel.ts';
@@ -265,8 +264,6 @@ export default async function Profile({ params, searchParams }: Params) {
           95% range from independent bets (same-stock trades that overlap count as one). A wider range means less evidence.
         </details>
       </div>
-      {/* Fix #2 (cycle 2, POLICY F3): the disclaimer in plain view beside the headline stats. */}
-      <Disclaimer />
       <section className="stats">
         <div className="stat"><b>{count(s.trades)}</b><small>closed trades</small></div>
         <div className="stat"><b>{s.profitFactor === null ? '—' : s.profitFactor.toFixed(2)}</b><small>profit factor</small></div>

@@ -6,11 +6,6 @@ import { recordStates, type PublicState } from '@/lib/connections.ts';
 import { rowBadge } from '@/lib/pane.ts';
 import { baselineVerdict, decodeSymbolParam, holdBuckets, isIndexableTicker, monthlyTimeline, outcomeSpread, relatedSymbols, selectTheses, tickerSummary, toSpreadPct, toTicker } from '@/lib/ticker.ts';
 import { pct, rangeText } from '@/lib/trades.ts';
-import { notFound } from 'next/navigation';
-import { tradesWord } from '@/lib/stock-labels.ts';
-// Fix #19: tone by the printed sign. F-19 is moving tone() to lib/format.ts in parallel; this imports it from where it is on main.
-import { toneClass } from '../../open-rows.tsx';
-import { Disclaimer } from '../../disclaimer.tsx';
 import { MIN_BETS } from '@/lib/confidence.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
 import Spread from './Spread.tsx';
@@ -24,11 +19,11 @@ import Watch, { loadWatch, markSeen } from './Watch.tsx';
 // F-6: open positions in this stock, aggregate only.
 import OpenPositions from './OpenPositions.tsx';
 import { symbolOpen } from '../open-positions.ts';
-import { STOCK_LABELS } from '@/lib/stock-labels.ts';
 
 type Params = { params: Promise<{ symbol: string }>; searchParams?: Promise<{ watch?: string | string[] }> };
 
 const CAP = 500;
+const EXPLAINER = 'Verified closed trades in this stock from connected accounts, newest first. Percentages only. Few trades means a wide range, and that is expected.';
 const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
 const heldWords = (d: number) => (d < 1 ? 'less than a day' : `${Math.round(d)} day${Math.round(d) === 1 ? '' : 's'}`);
@@ -51,18 +46,17 @@ type Row = { id: number; user_id: number; handle: string; display_name: string; 
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { symbol, rows } = await load((await params).symbol);
-  // Fix #20: an invalid symbol is a real 404 (app/not-found.tsx), not a 200 "Ticker not found" page.
-  if (!symbol) notFound();
-  if (!rows.length) return { title: STOCK_LABELS.title(symbol, null), description: STOCK_LABELS.empty(symbol), robots: { index: false } };
+  if (!symbol) return { title: 'Ticker not found · Stock Social', robots: { index: false } };
+  const title = `${symbol} verified trades · Stock Social`;
+  if (!rows.length) return { title, description: `No verified closed trades in ${symbol} yet.`, robots: { index: false } };
   const s = tickerSummary(rows.map(toTicker), new Date());
-  const title = STOCK_LABELS.title(symbol, s);
   const tier = s.conf!.tier === 'too-early' ? 'too early' : s.conf!.tier;
   const verifiedRows = rows.filter((r) => r.verified);
   const thin = !isIndexableTicker({ verifiedTrades: verifiedRows.length, verifiedTraders: new Set(verifiedRows.map((r) => r.user_id)).size });
   return {
     title,
     ...(thin ? { robots: { index: false } } : {}),
-    description: `${s.n} ${tradesWord(s)} in ${symbol} · ${(s.winRate! * 100).toFixed(0)}% win rate · ${pct(s.avgReturn!)} avg return · Evidence: ${tier}${STOCK_LABELS.suffix(s)}`,
+    description: `${s.n} verified closed trades in ${symbol} · ${(s.winRate! * 100).toFixed(0)}% win rate · ${pct(s.avgReturn!)} avg return · Evidence: ${tier}${s.demoOnly ? ' Sample data.' : ''}`,
   };
 }
 
@@ -71,19 +65,20 @@ export default async function Ticker({ params, searchParams }: Params) {
   const w = (await searchParams)?.watch;
   const capHit = (Array.isArray(w) ? w[0] : w) === 'cap';
   // Session is read only here, never in generateMetadata, sitemap, robots or the OG image.
-  if (!symbol) notFound();
-  const watchState = await loadWatch(symbol);
-  if (!rows.length) {
-    const open = (await symbolOpen(symbol)).get(symbol);
-    await markSeen(symbol, watchState);
+  const watchState = symbol ? await loadWatch(symbol) : { signedIn: false, watching: false };
+  if (!symbol || !rows.length) {
+    const open = symbol ? (await symbolOpen(symbol)).get(symbol) : undefined;
+    await markSeen(symbol ?? '', watchState);
     return (
       <main className="page">
         <p><Link href="/t">← All stocks</Link></p>
-        <h1>{symbol}</h1>
-        <Watch symbol={symbol} state={watchState} capHit={capHit} />
-        <p className="muted">{STOCK_LABELS.explainer}</p>
-        <p>{STOCK_LABELS.empty(symbol)} Trades appear here when traders connect a broker and close a position in this stock.</p>
-        {open && <><OpenPositions symbol={symbol} open={open} closes={false} /><Disclaimer /></>}
+        <h1>{symbol ?? 'Ticker not found'}</h1>
+        {symbol && <Watch symbol={symbol} state={watchState} capHit={capHit} />}
+        <p className="muted">{EXPLAINER}</p>
+        <p>{symbol
+          ? `No verified closed trades in ${symbol} yet. Trades appear here when traders connect a broker and close a position in this stock.`
+          : "That doesn't look like a ticker symbol."}</p>
+        {symbol && open && <OpenPositions symbol={symbol} open={open} closes={false} />}
         <p><Link href="/">Back to the feed</Link> · <Link href="/t">All stocks</Link></p>
       </main>
     );
@@ -108,12 +103,12 @@ export default async function Ticker({ params, searchParams }: Params) {
   const spread = outcomeSpread(returns);
   // Held text is never selected: status is filtered in SQL, and selectTheses re-checks it.
   const thesisRows = (await sql`
-    select t.id, t.sell_id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status
+    select t.id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status
     from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
     where t.symbol = ${symbol} and t.thesis_status = 'published' and t.thesis is not null
     order by t.closed_at desc, t.id desc
-    limit 20`) as unknown as { id: number; sell_id: string; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null }[];
-  const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, sellId: r.sell_id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified })));
+    limit 20`) as unknown as { id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null }[];
+  const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified })));
   // Cohort follows the ticker: verified rows if it has any, otherwise the sample rows. One aggregate, this symbol excluded.
   let baseline: ReturnType<typeof baselineVerdict> | null = null;
   try {
@@ -134,24 +129,23 @@ export default async function Ticker({ params, searchParams }: Params) {
       <p><Link href="/t">← All stocks</Link></p>
       <h1 style={{ marginBottom: 4 }}>{symbol} {!s.mixed && <Badge verified={!s.demoOnly} />}</h1>
       <Watch symbol={symbol} state={watchState} capHit={capHit} />
-      <p className="muted" style={{ marginTop: 0 }}>{STOCK_LABELS.explainer}</p>
+      <p className="muted" style={{ marginTop: 0 }}>{EXPLAINER}</p>
       <form action="/t/compare" method="get" className="compare-form">
         <input type="hidden" name="a" value={symbol} />
         <label htmlFor="compare-b">Compare with…</label>
         <input id="compare-b" name="b" maxLength={10} autoCapitalize="characters" autoComplete="off" spellCheck={false} />
         <button type="submit">Compare</button>
       </form>
-      {s.demoOnly && <p role="note" className="muted">{STOCK_LABELS.pageDemoNote}</p>}
-      {s.mixed && <p role="note" className="muted">{STOCK_LABELS.pageMixedNote}</p>}
+      {s.demoOnly && <p role="note" className="muted">All trades on this page are sample data, not from a real broker.</p>}
+      {s.mixed && <p role="note" className="muted">Some trades here are sample data and are marked Demo. The summary includes them.</p>}
 
       <section className="stats" aria-label="Summary">
         <div className="stat big"><b>{(s.winRate! * 100).toFixed(0)}%</b><small>win rate</small></div>
-        <div className="stat big"><b className={toneClass(s.avgReturn!)}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
+        <div className="stat big"><b className={s.avgReturn! > 0 ? 'up' : 'down'}>{pct(s.avgReturn!)}</b><small>avg return / trade</small>
           <small className="range">{range ? `${range} · 95% range` : `Too early to tell (${c.k} of ${MIN_BETS} bets)`}</small>
           <small className="median">median {pct(spread.median! / 100)}</small>
         </div>
       </section>
-      <Disclaimer />
       <p className="muted small">{s.n} trades · {s.traders} trader{s.traders === 1 ? '' : 's'}</p>
       {/* docs/POLICY.md F3b: a page about a security never rates or scores the security, so no verdict line here */}
       <div className="evidence">
@@ -187,7 +181,7 @@ export default async function Ticker({ params, searchParams }: Params) {
               aria-label={`@${r.handle}, ${symbol}, ${pct(r.return_pct)}, held ${heldWords(r.holding_days)}, closed ${date(r.closed_at)}`}
             >
               <span className="who">@{r.handle} <RowBadge kind={badgeFor(r.verified, r.handle)} /></span>
-              <b className={toneClass(r.return_pct)}>{pct(r.return_pct)}</b>
+              <b className={r.return_pct > 0 ? 'up' : 'down'}>{pct(r.return_pct)}</b>
               <span className="muted">held {held(r.holding_days)} · {date(r.closed_at)}</span>
             </Link>
           </li>
@@ -197,14 +191,14 @@ export default async function Ticker({ params, searchParams }: Params) {
         <section aria-labelledby="also-h">
           <h2 id="also-h">Also closed by these traders</h2>
           <p className="muted small">Other stocks closed by people who have closed {symbol}. This is not a recommendation, and no returns are shown.</p>
-          {s.demoOnly && <p className="muted small">Based on demo data.</p>}
+          {s.demoOnly && <p className="muted small">Based on sample data.</p>}
           <ul className="rows ticker-rows">
             {related.map((r) => (
               <li key={r.symbol} className="related-li">
                 <Link
                   href={`/t/${encodeURIComponent(r.symbol)}`}
                   className="trow"
-                  aria-label={`${r.symbol}, ${r.traders} trader${r.traders === 1 ? '' : 's'} in common, ${r.trades} trade${r.trades === 1 ? '' : 's'}${r.demoOnly ? ', demo data' : ''}`}
+                  aria-label={`${r.symbol}, ${r.traders} trader${r.traders === 1 ? '' : 's'} in common, ${r.trades} trade${r.trades === 1 ? '' : 's'}${r.demoOnly ? ', sample data' : ''}`}
                 >
                   <span className="who"><b>{r.symbol}</b> {r.demoOnly && <Badge verified={false} />}</span>
                   <span className="muted">{r.traders} trader{r.traders === 1 ? '' : 's'} in common · {r.trades} trade{r.trades === 1 ? '' : 's'}</span>

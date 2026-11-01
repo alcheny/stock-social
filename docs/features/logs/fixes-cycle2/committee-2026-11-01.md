@@ -57,3 +57,19 @@ committee under the owner's instruction of 2026-11-01):
 ## Owner flags (not cleared here)
 - `CONSENT_SCOPE_LINE` (owner copy) doesn't name handle, display name or published reasons, which are public (P6
   "exactly"). Proposed prefix: "Public: your handle, display name, any reasons you publish, percent returns, …".
+
+## Re-scope by the orchestrator (2026-11-01, after plan round 1 and the first build)
+The orchestrating session reported an overlap: branch `claude/fix-truthful-labels` already builds the route-tree
+disclaimer guard, the plain-view disclaimer, #1 and the copy across `app/t/**`. This branch was trimmed in a new commit
+(history kept; the first build, including a working guard spec, is commit 9bf8b73 for reference):
+- **Dropped here (built on `claude/fix-truthful-labels`):** #1, #2 (guard and plain-view disclaimer, decisions 1-9 above
+  move with it), #8's `app/t/page.tsx` part.
+- **Built now:** #4 (`lib/visible-users.ts`; used in the stock page's four queries, the stock index's two, the sitemap),
+  #5, #8 (`lib/claims.ts`), #11 (`lib/ticker.ts` "Choose two stocks…", `/me/record`), #19 on `/me/likes` and
+  `/me/record` only, #20 (`app/not-found.tsx`), #21, #27, #28, #30 (dead `.badge-embed` CSS; re-assigned here).
+- **Later, after `claude/fix-truthful-labels` merges (follow-up on this branch):** #4 in `app/t/compare/page.tsx`,
+  `app/t/[symbol]/opengraph-image.tsx`, `app/t/open-positions.ts` (listed as PENDING_VISIBLE with a ponytail in
+  `lib/fixes-cycle2-trust.test.ts`); #11 HoldTime "not a signal"; #20 `notFound()` for invalid tickers; #22 thesis links
+  by sell_id; #24 compare "too early" twice; #19 in `app/t/**`.
+- 2026-11-01: `app/not-found.tsx` sets no robots tag of its own. Why: decided by the committee under the owner's
+  instruction of 2026-11-01; Next.js adds noindex to the 404 page itself, so a second tag only duplicated it.

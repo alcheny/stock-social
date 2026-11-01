@@ -1,6 +1,5 @@
 import { timelineCaption, type Timeline as TimelineData } from '@/lib/ticker.ts';
 import { Badge } from '../../ui.tsx';
-import { STOCK_LABELS } from '@/lib/stock-labels.ts';
 
 const SLOT = 28, AXIS = 40, TOP = 12, BASE = 112, H = 128;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -34,8 +33,8 @@ export default function Timeline({ timeline, symbol, demoOnly, mixed }: { timeli
     <section aria-label="Trades by month">
       <h2>By month {demoOnly && <Badge verified={false} />}</h2>
       <p className="muted small" style={{ marginTop: 0 }}>Each pair of bars counts trades that closed in that month. Bars show how many trades, not how much they made.</p>
-      {demoOnly && <p role="note" className="muted small">{STOCK_LABELS.demoNote}</p>}
-      {mixed && <p role="note" className="muted small">{STOCK_LABELS.mixedNote}</p>}
+      {demoOnly && <p role="note" className="muted small">Sample data, not from a real broker.</p>}
+      {mixed && <p role="note" className="muted small">Includes sample data marked Demo.</p>}
       <div className="timeline-wrap">
         <svg className="timeline-axis" width={AXIS} height={H} viewBox={`0 0 ${AXIS} ${H}`} aria-hidden="true">
           <g fontSize="11" fill="var(--muted)">

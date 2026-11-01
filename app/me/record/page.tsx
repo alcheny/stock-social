@@ -10,7 +10,6 @@ import { RULE_KINDS, RULE_LABEL, ruleAdherence, ruleOutcomes, rulesByReason, rul
 import { setReflection, setRule } from '@/app/actions.ts';
 import { Badge } from '../../ui.tsx';
 import { toneClass } from '../../open-rows.tsx';
-import { Disclaimer } from '../../disclaimer.tsx';
 
 export const metadata: Metadata = { title: 'My record · Stock Social', robots: { index: false, follow: false } };
 
@@ -72,7 +71,6 @@ export default async function MyRecord() {
       <h1 style={{ marginBottom: 4 }}>My record {demo && <Badge verified={false} />}</h1>
       <p className="muted" style={{ marginTop: 0 }}>Only you can see this page. It&apos;s a description of your closed trades, not advice.</p>
       <p><Link href={`/u/${me.handle}`}>← Back to my profile</Link></p>
-      <Disclaimer />
 
       {r.total === 0 ? (
         <div className="rec-card">

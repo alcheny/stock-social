@@ -1,7 +1,6 @@
 import type { BaselineResult, TickerSummary } from '@/lib/ticker.ts';
 import { evidenceLine, pct, rangeText } from '@/lib/trades.ts';
 import { Badge } from '../../ui.tsx';
-import { STOCK_LABELS } from '@/lib/stock-labels.ts';
 
 const wr = (x: number | null) => (x === null ? 'n/a' : `${Math.round(x * 100)}%`);
 
@@ -17,7 +16,7 @@ export default function Baseline({ result, summary, symbol }: { result: Baseline
       <h2>Compared with all other stocks here {demo && <Badge verified={false} />}</h2>
       {kind === 'empty' ? <p className="muted">No other stocks to compare with yet.</p> : (
         <>
-          {summary.mixed && <p role="note" className="muted small">{STOCK_LABELS.mixedNote}</p>}
+          {summary.mixed && <p role="note" className="muted small">Includes sample data marked Demo.</p>}
           <div className="baseline-grid">
             <div className="stat">
               <small>This stock</small>
@@ -38,9 +37,9 @@ export default function Baseline({ result, summary, symbol }: { result: Baseline
           {kind === 'clearly_higher' && <p data-testid="baseline-verdict">This stock&apos;s per-trade return range {range} sits above the average for all other stocks ({base}).</p>}
           {kind === 'no_clear_difference' && <p data-testid="baseline-verdict">No clear difference: the average for all other stocks ({base}) falls inside this stock&apos;s range {range}.</p>}
           {kind === 'too_few_trades' && <p>{c ? evidenceLine(c) : 'Too early to tell'}. Not enough independent bets for a comparison yet.</p>}
-          {demo && <p>Demo data. No comparison verdict is drawn from demo data.</p>}
+          {demo && <p>Sample data. No comparison verdict is drawn from sample data.</p>}
           <p className="muted small">Win rate is shown for context. No range exists for it, so no verdict is drawn from it.</p>
-          <p className="muted small">Baseline = {demo ? 'demo' : 'verified'} closed trades in all other stocks, pooled, as the geometric per-trade mean. {symbol} is excluded. Different traders, sizes and timing. This is context, not a prediction.</p>
+          <p className="muted small">Baseline = {demo ? 'sample' : 'verified'} closed trades in all other stocks, pooled, as the geometric per-trade mean. {symbol} is excluded. Different traders, sizes and timing. This is context, not a prediction.</p>
         </>
       )}
     </section>
