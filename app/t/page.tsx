@@ -26,7 +26,7 @@ async function loadStrip(): Promise<WatchItem[]> {
   if (!watches.length) return [];
   const trades = (await sql`
     select symbol, closed_at, verified from closed_trades
-    where symbol in (select symbol from ticker_watches where user_id = ${user.id}) and user_id in (${visibleUserIds()})`) as unknown as { symbol: string; closed_at: Date; verified: boolean }[];
+    where filing_url is null and symbol in (select symbol from ticker_watches where user_id = ${user.id}) and user_id in (${visibleUserIds()})`) as unknown as { symbol: string; closed_at: Date; verified: boolean }[];
   return watchSummary(
     watches.map((w) => ({ symbol: w.symbol, lastSeenAt: w.last_seen_at })),
     trades.map((t) => ({ symbol: t.symbol, closedAt: t.closed_at, verified: t.verified })),
@@ -65,7 +65,7 @@ export default async function Stocks({ searchParams }: Props) {
   const aggs = (await sql`
     select symbol, count(*)::int as trades, count(distinct user_id)::int as traders,
            max(closed_at) as last_closed_at, count(*) filter (where verified)::int as verified_trades
-    from closed_trades where user_id in (${visibleUserIds()}) group by symbol`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number }[];
+    from closed_trades where filing_url is null and user_id in (${visibleUserIds()}) group by symbol`) as unknown as { symbol: string; trades: number; traders: number; last_closed_at: Date; verified_trades: number }[];
   const all = tickerIndex(
     aggs.map((a): SymbolAggregate => ({ symbol: a.symbol, trades: a.trades, traders: a.traders, lastClosedAt: a.last_closed_at, verifiedTrades: a.verified_trades })),
     sort,

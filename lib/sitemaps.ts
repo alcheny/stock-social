@@ -25,13 +25,13 @@ export function sitemapUrls(baseUrl: string, n: number): string[] {
   return [`${base}/sitemap.xml`, ...extraSitemapIds(n).map((id) => `${base}${EXTRA_SITEMAP_PATH}/${id}.xml`)];
 }
 
-// `prefix` is a test hook (only symbols starting with it); the app passes none. Only visible users' closes count (fix #4,
+// `prefix` is a test hook (only symbols starting with it); the app passes none. F-7: public filings never count. Only visible users' closes count (fix #4,
 // lib/visible-users.ts: a profile being deleted is never on a public aggregate surface).
 const indexable = (prefix?: string) => sql`
   select symbol, max(closed_at) as last_closed_at,
          count(*) filter (where verified) as verified_trades,
          count(distinct user_id) filter (where verified) as verified_traders
-  from closed_trades where user_id in (${visibleUserIds()}) ${prefix ? sql`and starts_with(symbol, ${prefix})` : sql``}
+  from closed_trades where filing_url is null and user_id in (${visibleUserIds()}) ${prefix ? sql`and starts_with(symbol, ${prefix})` : sql``}
   group by symbol
   having count(*) filter (where verified) >= ${MIN_INDEX_TRADES} and count(distinct user_id) filter (where verified) >= ${MIN_INDEX_TRADERS}`;
 

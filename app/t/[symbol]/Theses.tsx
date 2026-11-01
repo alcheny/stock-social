@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { THESIS_CAP, type ThesisList } from '@/lib/ticker.ts';
 import { pct } from '@/lib/trades.ts';
+import type { rowBadge } from '@/lib/pane.ts';
 import { Badge, RowBadge } from '../../ui.tsx';
 
 const date = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -8,7 +9,7 @@ const held = (d: number) => (d < 1 ? '<1d' : `${Math.round(d)}d`);
 
 // Newest first, no ranking. Gains and losses share one style. Text is the trader's, shown as moderated at publish time.
 // badgeFor (fix round 5, TR-3): the row badge by the trader's record state; without it, the trade's own flag as before.
-export default function Theses({ list, symbol, badgeFor = (v) => (v ? 'verified' : 'demo') }: { list: ThesisList; symbol: string; badgeFor?: (verified: boolean, handle: string) => 'verified' | 'demo' | null }) {
+export default function Theses({ list, symbol, badgeFor = (v) => (v ? 'verified' : 'demo') }: { list: ThesisList; symbol: string; badgeFor?: (verified: boolean, handle: string) => ReturnType<typeof rowBadge> }) {
   return (
     <section aria-label="Why traders took these trades" data-testid="theses" data-symbol={symbol}>
       <h2>Why they traded it {list.demoOnly && <Badge verified={false} />}</h2>

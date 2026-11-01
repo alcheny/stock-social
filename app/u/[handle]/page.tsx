@@ -14,7 +14,10 @@ import { cardAlt, cardDescription, cardEvidence, evidenceRangeText } from '@/lib
 import { loadRecordCard } from './record-card-data.ts';
 import { applyClocks, importedRows, publicRecordDetail, recordInstitutions } from '@/lib/connections.ts';
 import { paneTrust } from '@/lib/pane.ts';
-import { Badge } from '../../ui.tsx';
+import { Badge, PublicNotice } from '../../ui.tsx';
+// F-7 public-record traders.
+import { isPublicRecord, PUBLIC, publicExclusions } from '@/lib/copy.ts';
+import { filerInfo, filerVisible, PUBLIC_STALE_DAYS } from '@/lib/public-gate.ts';
 import { PerformanceChart } from './chart.tsx';
 import { SharePrompt } from './share-prompt.tsx';
 import { ShareCard } from './share-card.tsx';
@@ -48,11 +51,15 @@ type Params = { params: Promise<{ handle: string }>; searchParams?: Promise<{ co
 // reads the whole record 3–4 times — wrap load and loadRecordCard in React cache() so each runs once per request.
 async function load(handle: string) {
   if (!routeHandle(handle)) return null; // security hardening (2026-11-01), F12: junk in the URL is a 404, not a 500
-  const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at from users where handle = ${handle} and deleted_at is null`;
+  const [user] = await sql`select id, handle, display_name, excluded_positions, excluded_future, excluded_corporate, last_synced_at, snaptrade_user_id, share_prompt_seen_at, trades_prompt_seen_at, public_filer_id from users where handle = ${handle} and deleted_at is null`;
   if (!user) return null;
+  // F-7: a filer's record shows only while the switch is on and it is neither hidden nor removed (legal C13, C19).
+  const filer = user.public_filer_id ? await filerInfo(user.id) : null;
+  if (!filerVisible(filer)) return null;
   const trades = await sql`
-    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status
+    select id, sell_id, symbol, return_pct, holding_days, opened_at, closed_at, verified, thesis, thesis_status, filing_url
     from closed_trades where user_id = ${user.id} order by closed_at desc, id desc`; // list order (lib/paging.ts)
+  if (filer && !trades.length) return null; // F-7 (plan Round 4 item 2): no page without a priced closed trade
   const [{ accounts }] = await sql`select count(distinct account_id)::int as accounts from activities where user_id = ${user.id} and source = 'snaptrade'`;
   const c = confidence(trades.map((t) => ({ symbol: t.symbol, openedAt: t.opened_at, closedAt: t.closed_at, returnPct: t.return_pct, holdingDays: t.holding_days })), new Date());
   // F-1: the expiry and staleness clocks apply on every read (marking only), then the record's state drives the body copy.
@@ -71,7 +78,7 @@ async function load(handle: string) {
   // importing); null without positions, so such a record renders exactly as before. "As of": the oldest read.
   const open = state === 'connected' || state === 'failed' ? openSummary(positions.map((p) => p.unrealized_pct as number)) : null;
   const openAsOf = open ? new Date(Math.min(...positions.map((p) => (p.fetched_at as Date).getTime()))) : null;
-  return { user, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
+  return { user, filer, trades, state, imported, open, openAsOf, positions: positionRows(positions.map((p) => ({ accountId: p.account_id as string, symbol: p.symbol as string, pct: p.unrealized_pct as number }))), paper: paper as number, brokers, read, accounts: accounts as number, c, s: stats(trades.map((t) => ({ returnPct: t.return_pct, holdingDays: t.holding_days, closedAt: t.closed_at }))) };
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -104,20 +111,26 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     // with no closes keeps its empty-record line (PR-2b), and its profile shows the open positions.
     description: cardText ? `${base}. ${DISCLAIMER}` : base,
     openGraph,
+    ...(data.filer ? { robots: { index: false, follow: false } } : {}), // F-7 (legal C22): public records are noindex
   };
 }
 
 export default async function Profile({ params, searchParams }: Params) {
   const data = await load((await params).handle);
   if (!data) notFound();
-  const { user, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf } = data;
+  const { user, filer, trades, s, c, brokers, accounts, state, positions, paper, read, open, openAsOf } = data;
+  // F-7: a public record shows its top block, exclusions, open symbols and filing links; never Follow, theses, a share
+  // prompt, a join CTA, Similar trades or New record (legal C10, C15-C17).
+  const pub = isPublicRecord(state);
+  const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  const stale = !!filer && (!filer.lastChecked || Date.now() - filer.lastChecked.getTime() > PUBLIC_STALE_DAYS * 86_400_000);
   const long = open ? longValues(pct(s.avgReturn), pct(open.avg), String(open.n)) : undefined;
   const both = open && combined(trades.map((t) => t.return_pct as number), positions.map((p) => p.pct));
   const me = await currentUser();
   const isMe = me?.id === user.id;
   // F-2 PR-3b: "Similar trades" (lib/similar.ts), only for a whole record with a typical holding period; the same for every
   // viewer, minus a signed-in viewer's own record and hidden traders. Read alongside the rest of the page.
-  const similarP = state !== 'importing' ? loadSimilar({ trader: user.id, hold: median(trades.map((t) => t.holding_days as number)), closes: trades.length, viewer: me?.id, panes: false }) : null;
+  const similarP = state !== 'importing' && !pub ? loadSimilar({ trader: user.id, hold: median(trades.map((t) => t.holding_days as number)), closes: trades.length, viewer: me?.id, panes: false }) : null;
   similarP?.catch(() => {}); // awaited below; never an unhandled rejection meanwhile
   // F-2 PR-2: whether this viewer follows the trader (their own row only); never a count, never on your own profile.
   const following = !!me && !isMe && (await followingAmong(me.id, [user.id])).has(user.id);
@@ -133,7 +146,7 @@ export default async function Profile({ params, searchParams }: Params) {
       and not exists (select 1 from funnel_events f where f.attempt_id = signup_attempts.id and f.name = 'own_profile_viewed')`;
     if (a) await recordFunnel(Number(a), 'own_profile_viewed');
   }
-  const showJoin = !me && !(await isDemoUser(user.id));
+  const showJoin = !me && !pub && !(await isDemoUser(user.id));
   const referred = isMe
     ? referralSummary({
         ownerId: user.id,
@@ -162,7 +175,7 @@ export default async function Profile({ params, searchParams }: Params) {
   // Fix round 4 (TR-3): the same trust rule as the feed pane: a failed record carries no Verified badge.
   const trust = paneTrust(trades.map((t) => ({ verified: t.verified as boolean })), state);
   const first = trades.length ? new Date(Math.min(...trades.map((t) => t.opened_at.getTime()))) : null;
-  const isNew = isNewRecord(trades.map((t) => ({ openedAt: t.opened_at })), trades.length, new Date());
+  const isNew = !pub && isNewRecord(trades.map((t) => ({ openedAt: t.opened_at })), trades.length, new Date());
   // F-4 rework (committee user test 2026-11-01): the profile shows the same evidence as the card it was shared from (the
   // 95% range around the average it prints, the tier, the "Past results" verdict; lib/record-card.ts#cardEvidence), so
   // a viewer arriving from a link sees one answer, not two. Ranking keeps confidence()'s own interval (`c`).
@@ -193,17 +206,22 @@ export default async function Profile({ params, searchParams }: Params) {
       <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
       {/* PR-2b: one line reserved, so the badge arriving when an import finishes does not push the banner down. */}
       <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
-        {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge verified={trust.badge === 'verified'} />} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
+        {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge kind={trust.badge} />}{pub && <span className="muted"> {PUBLIC.kind}</span>} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}
       </p>
-      {me && !isMe && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}{done === 'hidden' && <> <Link href="/me/following">{FOLLOW.settingsLink}</Link></>}</p>}</div>}
+      {pub && filer && <div className="public-top" data-public-top>
+        <PublicNotice link={false} />
+        <p className="muted small">{PUBLIC.since(trades.length ? day(new Date(Math.min(...trades.map((t) => t.opened_at.getTime())))) : PUBLIC.notYet, filer.lastChecked ? day(filer.lastChecked) : PUBLIC.notYet)} · <Link className="tap44" href="/public-records">{PUBLIC.correction}</Link></p>
+        <p className="muted small">{PUBLIC.caveat}{stale && ` ${PUBLIC.stale}`}</p>
+      </div>}
+      {me && !isMe && !pub && <div className="profile-follow"><FollowButton handle={user.handle} following={following} signedIn />{doneLine && <p role="status" className="small">{doneLine}{done === 'hidden' && <> <Link href="/me/following">{FOLLOW.settingsLink}</Link></>}</p>}</div>}
       {fresh && <p role="status">{PROFILE.youreIn}</p>}
       {/* S5: the live banner (owner polls; visitors see the server's line). Rendered in every state so its finished
           line survives the refresh that follows the end of the import. */}
-      <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />
+      {!pub && <ImportBanner state={state} closes={trades.length} read={read} owner={isMe} quiet={sharePromptShowing} />}
       {state === 'failed' && (
         <p role={isMe ? 'alert' : 'status'} className="down record-failed">{RECORD_BODY.failed}{isMe && <> <Link className="button secondary" href="/connect">{RECORD_BODY.retry}</Link></>}</p>
       )}
-      {complete && first && (
+      {complete && first && !pub && (
         <p className="muted small" style={{ marginTop: 0 }}>
           Record since {first.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {connected}. Only trades from connected accounts are shown.
         </p>
@@ -290,6 +308,12 @@ export default async function Profile({ params, searchParams }: Params) {
         <p className="muted">{PROFILE.excludedCorporate(user.excluded_corporate)}</p>
       )}
       {paper > 0 && <p className="muted">{RECORD_BODY.paperExcluded(paper)}</p>}
+      {filer && publicExclusions(filer.excluded).map((l) => <p key={l} className="muted" data-public-excluded>{l}</p>)}
+      {filer && filer.openSymbols.length > 0 && <section aria-labelledby="public-open" data-public-open>
+        <h2 id="public-open">{PUBLIC.openTitle}</h2>
+        <p>{[...filer.openSymbols].sort().join(', ')}</p>
+        <p className="muted small">{PUBLIC.openNote}</p>
+      </section>}
 
       {/* TR-4: open positions, symbol and unrealized percent only, before the closed trades (S5 and S8). */}
       {positions.length > 0 && <>
@@ -317,6 +341,7 @@ export default async function Profile({ params, searchParams }: Params) {
                 <b className={t.return_pct > 0 ? 'up' : 'down'}>{pct(t.return_pct)}</b>
               </Link>
             </div>
+            {t.filing_url && <a className="filing-link" href={t.filing_url} target="_blank" rel="noopener noreferrer" aria-label={PUBLIC.filingName(t.symbol, day(t.closed_at))}>{PUBLIC.filing}</a>}
             {t.thesis_status === 'published' && <p style={{ margin: '4px 0 0' }}>“{t.thesis}”</p>}
             {isMe && t.thesis_status === 'held' && <p className="muted" style={{ margin: '4px 0 0' }}>Thesis held for review.</p>}
             {isMe && (

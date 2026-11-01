@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { PublicState } from '@/lib/connections.ts';
-import { asOfDay, OPEN, RECORD_BODY } from '@/lib/copy.ts';
-import { cardTrust } from '@/lib/pane.ts';
+import { asOfDay, isPublicRecord, OPEN, PUBLIC, RECORD_BODY } from '@/lib/copy.ts';
+import { cardTrust, type TrustBadge } from '@/lib/pane.ts';
 import { pct } from '@/lib/trades.ts';
 import { openSummary } from '@/lib/open-split.ts';
 import { toneClass } from './open-rows.tsx';
@@ -10,15 +10,22 @@ import { DISCLAIMER } from '@/lib/share.ts';
 import type { Strip } from '@/lib/record-strip.ts';
 import { retEms } from '@/lib/feed-focus.ts';
 
-export function Badge({ verified }: { verified: boolean }) {
-  return verified
+// F-7: `kind` 'public' / 'public_demo' is the "Public filing" badge (Demo beside it on a fictional fixture), never Verified.
+export function Badge({ verified, kind = verified ? 'verified' : 'demo' }: { verified?: boolean; kind?: TrustBadge }) {
+  if (kind === 'public' || kind === 'public_demo') return <>{kind === 'public_demo' && <Badge kind="demo" />}<span className="badge public" title={PUBLIC.badgeTitle}>{PUBLIC.badge}</span></>;
+  return kind === 'verified'
     ? <span className="badge verified" title="Pulled read-only from the trader's broker. Cannot be edited.">✓ Verified</span>
     : <span className="badge demo" title="Sample data, not from a real broker.">Demo</span>;
 }
 
 // A badge chosen by a trust rule (paneTrust / cardTrust / rowBadge): null shows none.
-export function RowBadge({ kind }: { kind: 'verified' | 'demo' | null }) {
-  return kind ? <Badge verified={kind === 'verified'} /> : null;
+export function RowBadge({ kind }: { kind: TrustBadge | null }) {
+  return kind ? <Badge kind={kind} /> : null;
+}
+
+// F-7 (legal C15, plan Round 5 item 4): the not-joined line and correction link on a public record's pages and pane.
+export function PublicNotice({ link = true }: { link?: boolean }) {
+  return <p className="public-line" data-public-line>{PUBLIC.notJoined}{link && <> <Link className="tap44" href="/public-records">{PUBLIC.correction}</Link></>}</p>;
 }
 
 export type TradeRow = {
@@ -49,11 +56,12 @@ export const closedDay = (d: Date, now: Date) => (d.getUTCFullYear() === now.get
 // then leads the record line in .hero, not the header. `stripBadge`: the record-level badge (paneTrust, code review
 // 2026-11-01), since it labels the record's figures; without it, the card's own. Without a strip (other callers) the card is unchanged.
 // F-10 follow-up #23: `now` dates the card (today by default), so a close in another UTC year shows its year.
-export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, now = new Date() }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: 'verified' | 'demo' | null; now?: Date }) {
+export function TradeCard({ t, state = 'connected', menu, open: unrealized, openAsOf, strip, stripBadge, now = new Date() }: { t: TradeRow; state?: PublicState; menu?: React.ReactNode; open?: number[]; openAsOf?: Date; strip?: Strip; stripBadge?: TrustBadge | null; now?: Date }) {
   // F-6: one line about the trader's open positions (no symbols, no combined figure); nothing without them.
   const open = unrealized && openAsOf ? openSummary(unrealized) : null;
   const up = t.return_pct > 0;
   const trust = cardTrust(t, state);
+  const pub = isPublicRecord(state); // F-7: the card line in place of the thesis (filers post none)
   // F-10 follow-up #18: the figure's length caps its size (app/globals.css "F-10 follow-ups"), so "+12345.6%" fits the card.
   const ret = pct(t.return_pct);
   return (
@@ -71,7 +79,7 @@ export function TradeCard({ t, state = 'connected', menu, open: unrealized, open
         <div className={`ret ${up ? 'up' : 'down'}`} style={{ '--ret-em': retEms(ret) } as React.CSSProperties}>{ret}</div>
         {strip ? <RecordStrip strip={strip} lead={(stripBadge === undefined ? trust.badge : stripBadge) ? <RowBadge kind={stripBadge === undefined ? trust.badge : stripBadge} /> : undefined} /> : <div className="muted">held {days(t.holding_days)} · closed {closedDay(t.closed_at, now)}</div>}
       </div>
-      <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>
+      {pub ? <p className="thesis muted" data-public-card>{PUBLIC.cardLine}</p> : <p className="thesis">{t.thesis_status === 'published' ? `“${t.thesis}”` : <span className="muted">No thesis posted.</span>}</p>}
       {open && <p className="open-also" data-open><span className="muted">{OPEN.feedLabel}</span>{OPEN.feedCounts(open)}<b className={toneClass(open.avg)}>{pct(open.avg)}</b>{OPEN.feedTail(open.n, asOfDay(openAsOf!))}</p>}
       <footer className="muted">
         <Link href={`/u/${t.handle}`}>See their record, wins and losses →</Link>
