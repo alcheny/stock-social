@@ -534,8 +534,7 @@ select schema_add_index('open_positions_symbol', 'create index open_positions_sy
 -- Corporate actions (POLICY F3c, docs/features/logs/corporate-actions/committee-2026-11-01.md): the vendor's split,
 -- stock-dividend, symbol-change and other share-moving rows, raw and immutable like `activities`, mapped by
 -- lib/corporate-actions.ts#fromVendorRows. The rebuild applies them to the FIFO lots (lib/trades.ts#matchTrades).
--- Deleted with the profile (cascade).
--- ponytail: empty in production until lib/broker.ts passes these rows through — fix: the owner's broker.ts change (PR #40).
+-- Deleted with the profile (cascade). Filled by the sync and the import step (lib/broker.ts#fetchShareMoves).
 create table if not exists corporate_actions (
   id bigint generated always as identity primary key,
   user_id int not null references users on delete cascade,

@@ -26,7 +26,7 @@ import { createServer, type Server } from 'node:http';
 // Corporate actions (F3c): share-moving rows (SPLIT, STOCK_DIVIDEND, REI, ADJUSTMENT...) with an optional description,
 // served like the vendor's; the activities endpoint honours the `type` filter as the vendor documents it.
 export type FakeActivity = { id: string; symbol: string; type: 'BUY' | 'SELL'; units: number; price: number; fee?: number; trade_date: string; option_symbol?: unknown };
-export type FakeCorporateRow = Omit<FakeActivity, 'type'> & { type: 'SPLIT' | 'STOCK_DIVIDEND' | 'REI' | 'ADJUSTMENT'; description?: string };
+export type FakeCorporateRow = Omit<FakeActivity, 'type'> & { type: 'SPLIT' | 'STOCK_DIVIDEND' | 'REI' | 'ADJUSTMENT' | 'TRANSFER'; description?: string };
 export type FakeAccount = { id: string; authorization?: string; institution?: string; paper?: boolean; activities?: number | (FakeActivity | FakeCorporateRow)[]; seed?: number; syncDone?: boolean; positions?: { symbol: string; units: number; price: number; cost_basis: number }[] }; // price and cost_basis per unit, as the SDK documents
 type Scenario = { accounts: FakeAccount[]; delayMs?: number; portalDelayMs?: number; portalFrameBlocked?: boolean; portalFrameHeaders?: boolean };
 type User = { secret: string; accounts: Map<string, FakeAccount & { authorization: string; rows: (FakeActivity | FakeCorporateRow)[]; syncDone: boolean }> };

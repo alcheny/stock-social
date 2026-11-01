@@ -285,14 +285,15 @@ export const HOW = {
     'Return is the percent change between the matched buys and the sell, after the fees the broker reported. Nothing is weighted by size.',
     'Headline stats are the win rate and the average return per trade. Max drawdown is per-trade and equal-weight, not an account return.',
     'Only percentages are stored and shown: no amounts, quantities or prices.',
+    // Corporate actions (F3c, PR #40).
+    'When the broker reports a stock split, reverse split or stock dividend with an exact ratio, earlier buys are adjusted to match and the holding period still starts at the first buy. Fractional shares paid out as cash are not counted as trades.',
   ],
   excludedTitle: 'What is excluded, and counted',
   excluded: [
     'Options, short sales and other activity the importer cannot price correctly.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
-    // Corporate actions (F3c): only what is true today. Split adjustment goes live with the owner's broker change
-    // (docs/features/logs/corporate-actions/committee-2026-11-01.md); its /how sentence lands with it.
-    'A sell of more shares than the imported history holds (for example after a stock split the import did not record) is excluded whole, wins and losses alike.',
+    'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
+    'A sell of more shares than the imported history holds (for example after a stock split the broker did not report) is excluded whole, wins and losses alike.',
     'Simulated ("paper") accounts.',
     'Accounts and brokers that are not connected.',
   ],

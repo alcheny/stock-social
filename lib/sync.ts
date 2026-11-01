@@ -1,10 +1,10 @@
 import { sql } from './db.ts';
 import type { TransactionSql } from 'postgres';
-import { fetchActivities, fetchActivitiesPage, fetchPositions, listAccounts, PAGE_LIMIT, VENDOR_TIMEOUT_MS } from './broker.ts';
+import { fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves, listAccounts, PAGE_LIMIT, VENDOR_TIMEOUT_MS } from './broker.ts';
 import { AccountClaimedError, claimIn } from './claims.ts';
 import { reattachTheses, type KeptThesis } from './theses.ts';
 import { matchTrades, type Activity } from './trades.ts';
-import { actionIndex, chainsOf, loadCorporateActions, pairKey } from './corporate-actions.ts';
+import { actionIndex, chainsOf, insertCorporateActions, loadCorporateActions, pairKey } from './corporate-actions.ts';
 import { replacePositions } from './positions.ts';
 import { logSafe } from './privacy-log.ts';
 
@@ -149,9 +149,10 @@ type Broker = {
   // PR-3 (heavy-use): a sync with no stored history reads it page by page (one page held at a time) when available.
   fetchActivitiesPage?: typeof fetchActivitiesPage;
   fetchPositions?: typeof fetchPositions;
+  fetchShareMoves?: typeof fetchShareMoves; // corporate actions (F3c): each real account's share-moving rows
   pageLimit?: number;
 };
-const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions };
+const defaultBroker: Broker = { listAccounts, fetchActivities, fetchActivitiesPage, fetchPositions, fetchShareMoves };
 
 export type SyncableUser = { id: number; snaptrade_user_id: string | null; snaptrade_secret_enc: string | null };
 // The hourly sync's users (F-1, COMPLIANCE §3 consent at collection): a trader is synced only once a connection is
@@ -366,6 +367,18 @@ export async function syncUser(
       const acts = real.length ? await broker.fetchActivities(bu, since, real) : [];
       await insertActivities(user.id, 'snaptrade', acts, tx);
       read = acts.length;
+    }
+    // Corporate actions (F3c): every real account's share-moving rows (whole history, idempotent inserts) before the
+    // rebuild applies them.
+    // ponytail: one more vendor request per account than syncCost counts (1 + 2n), so a trader near SYNC_FIT_CAP accounts
+    // can overrun the route (it then rolls back and is retried) — fix: count it in syncCost with the sharded-sync budget.
+    if (broker.fetchShareMoves) {
+      for (const id of real) {
+        const moves = await broker.fetchShareMoves(bu, id);
+        await insertActivities(user.id, 'snaptrade', moves.activities, tx);
+        await insertCorporateActions(tx, user.id, 'snaptrade', moves.actions);
+        read += moves.activities.length;
+      }
     }
     await rebuild(user.id, tx);
     if (broker.fetchPositions) {

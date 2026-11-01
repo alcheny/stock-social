@@ -3,10 +3,11 @@
 // (lib/trades.ts#matchTrades) applies these to its lots; anything it cannot price exactly is excluded and counted,
 // never guessed. Decisions and their reasons: docs/features/logs/corporate-actions/committee-2026-11-01.md.
 //
-// ponytail: no corporate-action row reaches the app yet (lib/broker.ts, protected, requests BUY and SELL rows only), so an
-// unrecorded split followed by a partial sale is still shown with a wrong return; only an oversell is caught — fix: the
-// owner's broker.ts change (request the share-moving types, pass them through `fromVendorRows`, store them with
-// `insertCorporateActions`, return position units for reconciliation; docs/features/logs/corporate-actions/).
+// lib/broker.ts#fetchShareMoves reads the vendor's share-moving rows and maps them with `fromVendorRows`; the sync and the
+// import step store them with `insertCorporateActions` before the rebuild.
+// ponytail: a split the vendor never reports (no SPLIT row) followed by a partial sale is still priced on the old basis;
+// only an oversell catches it — fix: reconcile each pair's ledger units with the vendor's position units (fetchPositions
+// reads them; a mismatch taints the pair).
 
 import type { PendingQuery, Row as PgRow, Sql, TransactionSql } from 'postgres';
 import type { Activity } from './trades.ts';
@@ -137,7 +138,7 @@ export function parsePercent(description: string | null | undefined): Ratio | nu
   return { p: p / g, q: q / g };
 }
 
-// ---- Vendor rows → actions (what lib/broker.ts would call; see the ponytail above) ----
+// ---- Vendor rows → actions (lib/broker.ts#fetchShareMoves calls this) ----
 
 // The raw vendor activity row (the integrated vendor's activity fields this module reads).
 export type VendorRow = {
@@ -258,8 +259,6 @@ function detailOf(a: CorporateAction & { raw?: unknown }): Record<string, unknow
 }
 
 // Idempotent like insertActivities: a row already stored (same source and vendor id) is left as it was.
-// ponytail: not called by the sync or the import yet, so the table stays empty in production — fix: call it next to
-// insertActivities once the owner's broker.ts change returns actions (see the header).
 export async function insertCorporateActions(db: Db, userId: number, source: 'snaptrade' | 'demo', actions: (CorporateAction & { raw: unknown })[]) {
   for (let i = 0; i < actions.length; i += 1000) {
     const rows = actions.slice(i, i + 1000).map((a) => ({

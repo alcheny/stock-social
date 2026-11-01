@@ -127,6 +127,29 @@ exchanges arrive as renames, which need an exact match and are excluded otherwis
 - With the episode rule gone, the heavy-feed e2e fixture is back above its original floors (4,595 to 4,802 closes per
   trader), so `e2e/app.spec.ts` is unchanged by this PR.
 
+## lib/broker.ts change (authorised by the orchestrator under the owner's instruction, 2026-11-01)
+The owner's orchestrating session authorised this PR to make the broker change itself, so F3c holds end to end.
+`lib/broker.ts` is still the only file that imports the vendor SDK. The change is a separate block at the end of the
+file, so the options session's edits there do not conflict.
+- `fetchShareMoves(u, accountId)` reads an account's whole history of share-moving rows, using the vendor's documented
+  type-filter values `SPLIT,STOCK_DIVIDEND,REI,TRANSFER` (taken from the SDK's types, not guessed), and maps them with
+  `fromVendorRows`.
+- The sync (`syncUser`) and the import step (one account per step, cursor field `m`, after the trade pages and before
+  the rebuild) store them: REI becomes a BUY activity, the rest go into `corporate_actions`.
+- The trade read stays BUY/SELL only.
+- Tests through the real path:
+  - `lib/broker-corporate.test.ts`: the vendor fake over HTTP, then `syncUser` into the database;
+  - the e2e import step in `e2e/connect.spec.ts`.
+  The -45% (2:1 split, then a partial sale) and +1000% (1:10 reverse split) inputs read +10%. A 5% stock dividend and a
+  reinvestment are priced, and a transfer in is excluded and counted.
+- **What remains:**
+  - a split the vendor never reports, followed by a partial sale (fix: reconcile the ledger with the vendor's position
+    units);
+  - renames and external transfers, whose types are not documented filter values (their sells are excluded, never
+    priced);
+  - one extra vendor request per account that `syncCost` does not count.
+  Each has a ponytail note in the code.
+
 ## Follow-ups (not in this change)
 - Widen the rival check past 100:100 if real data ever shows ratios that large.
 - `confidence()` clusters bets by symbol, so a renamed position can count as two bets: at most one extra per rename.
