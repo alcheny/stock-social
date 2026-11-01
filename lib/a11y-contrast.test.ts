@@ -307,11 +307,12 @@ for (const [part, bgKey] of [['card', 'card.bg'], ['strip', 'stripBg']] as const
 }
 
 // ---- AC8 (DS-27): every outline is the focus ring: var(--focus) at a 2 px offset ----
-// The one state outline kept: the pane's current row (#12 drew it in --focus, 2 px at 2 px offset, weight 600; a state, not
-// focus, plan OQ-4). The selected switch's forced-colours outline (R5) is transparent: forced colours paint it, nothing else.
+// The state outlines kept, by name: the pane's current row (#12 drew it in --focus, 2 px at 2 px offset, weight 600; a
+// state, not focus, plan OQ-4) and the selected switch (2 px --text at 1 px: committee R5's fallback, since a box-shadow
+// redraw changed corner pixels; owner question OQ-3). Each is allowed exactly its current declarations.
 const STATE_OUTLINES: Record<string, (m: string[], decl: [string, string]) => boolean> = {
-  '.pane .rows .line.hl': () => true,
-  '.switch-pair .switch.current': (m, [k, v]) => m.some((x) => /forced-colors:\s*active/.test(x)) && (k === 'outline' ? /^2px solid transparent$/.test(v) : v === '1px'),
+  '.pane .rows .line.hl': (m, [k, v]) => m.length === 0 && (k === 'outline' ? v === '2px solid var(--focus)' : k === 'outline-offset' ? v === '2px' : k === 'outline-color' && v === 'var(--focus)'),
+  '.switch-pair .switch.current': (m, [k, v]) => m.length === 0 && (k === 'outline' ? v === '2px solid var(--text)' : k === 'outline-offset' && v === '1px'),
 };
 test('F-20 AC8: every outline is none or var(--focus), every outline-offset is 2 px, and only focus selectors draw one', () => {
   const all = parseRaw(rawCss.replace(/\/\*[\s\S]*?\*\//g, ''));

@@ -441,14 +441,16 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 
 /* ---- F-2 PR-5: personalization switches, the feed's notes line, hidden trades ---- */
 /* On and Off are equally prominent: the same neutral style and size, side by side at 360 px; the current one adds a
-   visual ✓ and a 2 px ring (aria-pressed carries the state; never color alone). */
+   visual ✓ and a 2 px outline (aria-pressed carries the state; never color alone). */
 .switch-pair { display: flex; gap: 12px; margin: 8px 0 20px; }
 .switch-pair form { flex: 1; display: flex; }
 .switch-pair .switch { flex: 1; min-width: 140px; min-height: 44px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
-.switch-pair .switch.current { box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--text); }
-/* F-20 (DS-27, committee R5): outlines are for focus only, so the selected cue is the same 2 px ring 1 px out, drawn as a
-   shadow. Forced colours drop shadows: a transparent outline there is painted in the system colour instead. */
-@media (forced-colors: active) { .switch-pair .switch.current { outline: 2px solid transparent; outline-offset: 1px; } }
+/* F-20 (DS-27, committee R5 fallback): the selected switch keeps its 2 px --text outline at 1 px, the one named exception to
+   "outlines are focus rings" (lib/a11y-contrast.test.ts allow-lists it). A box-shadow redraw differed from main at the
+   rounded corners (about 100 anti-aliased pixels per switch pair), so it was not value-neutral.
+   ponytail: a selected state drawn as an outline next to --focus rings; next step the owner's call (plan OQ-3): a
+   shadow ring as a visible change, or a different selected cue. */
+.switch-pair .switch.current { outline: 2px solid var(--text); outline-offset: 1px; }
 .switch-pair .switch:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .personalize form > button.secondary { min-height: 44px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
 /* User test demand 1: the feed snaps to every card, so the notes are a snap stop of their own at the top, padded below
