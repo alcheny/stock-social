@@ -312,7 +312,11 @@ export const HOW = {
   ],
   excludedTitle: 'What is excluded, and counted',
   excluded: [
-    'Options, short sales and other activity the importer cannot price correctly.',
+    // OPTIONS (docs/features/logs/options/plan.md D8): the options bullets replace "Options, short sales and other
+    // activity the importer cannot price correctly." (word order kept so "short sales" and "Options" still lead).
+    'Short options and short sales: their risk has no fixed amount to measure a percent against.',
+    'Exercised or assigned options, and share trades held over the day of an exercise or assignment in that stock. These are left out of the options average, so it does not include contracts that ended in the money.',
+    'Options on futures or other non-stock underlyings, contracts adjusted after a corporate action, and contracts past expiry with no closing record.',
     'Transfers in, and sells with no recorded entry in the imported history (shown as excluded positions, never guessed).',
     'Stock splits and other corporate actions whose ratio is not known exactly, spin-offs and transfers in: the trades they touch are excluded and counted, never guessed.',
     'A sell of more shares than the imported history holds (for example after a stock split the broker did not report) is excluded whole, wins and losses alike.',
@@ -412,6 +416,63 @@ export const LOGIN_MAIL = {
   subject: 'Your Stock Social sign-in link',
   text: (url: string) => `Open this link to sign in to Stock Social. It works once, for 15 minutes.\n\n${url}\n\nIf you did not ask for it, ignore this email.`,
 } as const;
+
+// OPTIONS (docs/features/logs/options/plan.md D5, D6, D8): the option words, the plan's own. Functions take numbers and
+// already formatted percents only (this file does not format returns). No direction, outcome or urgency words, and no
+// countdown: an expiry is an absolute date (expiryText).
+const optionPart = (n: number, one: string) => counted(n, one);
+const OPTION_LINE_HEAD = (n: number, winPct: string) => `Options: ${counted(n, 'trade')} · ${winPct} wins · `;
+export const OPTIONS = {
+  // Fix round 3 (user test, business lead B4): the headline's qualifier reads "Excluding options" everywhere.
+  shareLabel: 'Excluding options',
+  // D5: the one line while the consent gate is closed. Zero parts are dropped.
+  gated: (closes: number, open: number) => {
+    const parts = [closes > 0 ? optionPart(closes, 'option trade') : '', open > 0 ? optionPart(open, 'open option') : ''].filter(Boolean);
+    // Fix round 3 (UX N6): plain words; the link to /how is its own short link (howLink).
+    // Legal re-sign (fix round 4): these words exactly.
+    return `${parts.join(' and ')} imported. Option results aren't shown on this record.`;
+  },
+  howLink: 'How options are counted',
+  // Fix round 3 (business lead B2): the options grid's row label.
+  gridLabel: (n: number) => `Options · ${counted(n, 'trade')}`,
+  // Fix round 3 (item 8): an option row's link names the whole row and where it goes.
+  rowName: (underlying: string, chip: string, exp: string, figure: string) => `${underlying} ${String(chip).toLowerCase()}, ${exp}, ${figure}, stock page`,
+  // D6: "Options: 14 trades · 36% wins · -22.0% avg (-41.0% to -3.0%)".
+  line: (n: number, winPct: string, avg: string, range: string | null) => `${OPTION_LINE_HEAD(n, winPct)}${avg} avg${range ? ` ${range}` : ''}`,
+  lineHead: (n: number, winPct: string) => OPTION_LINE_HEAD(n, winPct),
+  short: (closed: number, open: number) => `Short options not shown: ${count(closed)} closed, ${count(open)} open. Their risk has no fixed amount to measure a percent against.`,
+  // Fix round 1 (QA 8): share closes removed by the exercise-day rule are named as share trades, never option trades.
+  technical: (n: number, shares = 0) => `${counted(n, 'option trade')} excluded: exercised, assigned or adjusted contracts and others the importer can't price exactly${shares > 0 ? `, and ${counted(shares, 'share trade')} held over an exercise or assignment day` : ''}.`,
+  exerciseShares: (n: number) => `Excluded: ${counted(n, 'share trade')} held over an exercise or assignment day.`,
+  // Fix round 1 (QA 9): open options the importer can't price exactly (not futures).
+  openOther: (n: number) => `${counted(n, 'open option')} not shown: the importer can't price ${n === 1 ? 'it' : 'them'} exactly.`,
+  listTitle: 'Option trades',
+  // Fix round 2 (re-review C): the pane's closing note follows the gate: options are not shown while gated (or absent),
+  // and summarized in the options line once open.
+  paneNote: (open: boolean) => open
+    ? "Closed share trades from connected accounts are published, losses included; option trades are summarized above. Positions with no recorded entry aren't shown."
+    : "Closed trades from connected accounts are published, losses included. Options and positions with no recorded entry aren't shown.",
+  call: 'Call option',
+  put: 'Put option',
+  unsupported: (n: number) => `Plus ${counted(n, 'open position')} not shown: futures and similar contracts are out of scope.`,
+  noShareCloses: 'No closed share trades yet',
+  chartNone: 'The chart shows share trades. None yet.',
+  chartShareOnly: ' · excluding options',
+  howTitle: 'Options',
+  // Legal re-sign (fix round 4): these words exactly.
+  how: 'Option results are shown only on records whose trader has consented to publishing them. Until then a record shows how many option trades and open options were imported, and its headline stats exclude options.',
+  // Legal re-sign (fix round 4): alt text says exactly this phrase, lower case, after the figures it qualifies.
+  altQualifier: 'excluding options',
+  howMath: [
+    // Fix round 1 (QA 7): per-contract fees can take a very cheap contract far below -100%.
+    'An option trade\u2019s return is on what the contracts cost, fees included: a contract that expires worthless shows \u2212100%, and fees can take it lower, by a lot on very cheap contracts.',
+    // Fix round 3: the summary is its own stats row; the headline excludes options (the label's words).
+    'Option trades are summarized in their own row, with a range once there are 5 independent bets. The headline stats, chart, range and the order of traders exclude options.',
+  ],
+} as const;
+const EXPIRY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+/** D6 (BL5, L6): the one expiry format, everywhere: "exp Dec 19, 2026". An absolute date only. */
+export const expiryText = (isoDay: string) => `exp ${EXPIRY.format(new Date(`${isoDay.slice(0, 10)}T00:00:00Z`))}`;
 
 // Everything above, flattened, for the banned-list test.
 // F-2 PR-1: the feed's paging and end card (plan §1 PR-1). "today's": the order is seeded per UTC day; the list is
@@ -667,7 +728,7 @@ export function allCopy(): string[] {
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy()].forEach(walk);
+  [LAUNCH, SIGNIN, TRUST_NOTICE, PROFILE, CONSENT, RECORD_BODY, SHARE_CARD, WHOLE_RECORD, RECORD_STRIP, RESULT, PORTAL, HOW, SETTINGS, CLOSES_PAGING, FOOTER, LEGAL_PLACEHOLDER, LOGIN_MAIL, FEED, FEED_COUNTS, FOLLOW, SECTION, SIMILAR, LIKES, HIDDEN_TRADES, PERSONALIZE, SECTION_PERSONAL, HOW_PERSONAL, PREFERENCE_DATA, FEED_EMPTY, openCopy(), /* OPTIONS */ OPTIONS].forEach(walk);
   return out;
 }
 

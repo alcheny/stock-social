@@ -31,11 +31,13 @@ export function tradeSharePayload(i: TradeShareInput, today: Date) {
 export type TradeView = ReturnType<typeof tradeSharePayload> & {
   handle: string; displayName: string; state: RecordState; verified: boolean;
   open?: number[]; // unrealized percents, read for a connected or failed record only
+  excludingOptions?: boolean; // OPTIONS: the trader has option closes or exclusions (lib/options-load.ts#paneView)
   filings?: { sold: string; bought: string[] } | null; // F-7: a public record's filing links
 };
 
 export const tradeStripInput = (t: TradeView): StripInput => ({
   ...t.strip, state: t.state, demo: t.demo, verified: t.verified, handle: t.handle, open: t.open,
+  excludingOptions: t.excludingOptions, // OPTIONS
 });
 
 export const closedDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
