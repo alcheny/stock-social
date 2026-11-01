@@ -82,6 +82,7 @@ The whole path from idea to merged feature, with states and exit criteria: [`doc
 | 52 | Design-system variant tests V-1 neutral base, V-2 type and spacing collapse, V-3 nav labels (DSP-5..7) | design system council | waiting (KV 1.07: no traffic, held with C4/D23) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | waiting |
 | 53 | Amendments to idea-board decisions D27, D25, D22 and a one-maturity-signal rule (DSP-2, DSP-3, DSP-4, DSP-8) | design system council | proposed: goes to the idea board (the council may not reword a decided line) | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | idea board |
 | 54 | Gate definitions, go-to-market v2, pricing research, vendor questions (MRC2-3, 4, 7, 10, 11) | market council cycle 2 | flagged for owner | [approval cycle 2](ideas/approval-2026-11-01-cycle2.md) | owner |
+| 55 | Council cycle 3 whole-app audit of main: 18 ranked proposal briefs for approval cycle 3 (top: C3-2 transfers as share moves, C3-3 oversells publish the recorded part, C3-17 exclusion counts beside the headline, C3-15 in-app disconnect, C3-9 broker corrections), a 27-item fixes list (F3-1..F3-27, no vote) and 10 owner questions | council cycle 3 (nine lenses, two cross-reviews, synthesis, verification, red team) | proposed: briefs go to approval council cycle 3; fixes to the orchestrator; questions to the owner | [cycle 3](direction/cycle3-2026-11-01.md) | approval cycle 3 |
 
 ## Decisions
 
@@ -179,6 +180,11 @@ The whole path from idea to merged feature, with states and exit criteria: [`doc
   instruction of 2026-11-01.
 
 ## Flags for the owner
+
+- Council cycle 3 2026-11-01: ten owner questions, one list, each with a recommended answer (TR-5 freeze rule,
+  OD-9 positions of a disconnected account, append-only revisions for broker corrections, exclusion count on the share
+  card, F3b account-event email scope, viewer sign-up gate, data-export scope, consent for "public since", trader reach
+  counts, one owner queue). Record: [cycle 3](direction/cycle3-2026-11-01.md#7-owner-questions).
 
 - Approval council cycle 2 2026-11-01: BC-3 open-positions gate (recommend a dated temporary exception in F-6 with the
   count-only line); the Demo-record preview as C16's shape; commit 107d3f4 on `claude/f13-a11y-fixes` rewords D27's

@@ -84,8 +84,11 @@ async function load(handle: string) {
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  // ponytail: generateMetadata and the page each run load(), so a profile view reads (and runs applyClocks) twice — fix:
+  // share one per-request load (React cache) once applyClocks is safe to run once per request.
   const data = await load((await params).handle);
-  if (!data) return {};
+  // Cycle 2 review of fix #20: a missing profile's 404 takes the 404 page's title, not the site default.
+  if (!data) notFound();
   const { user, s, c, state } = data;
   // Fix round 5 (TR-3): the same count wording as the trade and month previews ("closed" for a failed or partly
   // unverified record, "demo" for demo data, "verified" only for a whole record from the broker).
