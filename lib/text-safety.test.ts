@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cutCodePoints, leet, neutralizeFigures, sanitizeUserText, skeleton, squash } from './text-safety.ts';
+import { cutCodePoints, isStripped, leet, neutralizeFigures, sanitizeUserText, skeleton, squash } from './text-safety.ts';
 
 // Every character decision 1 says is removed from stored text.
 const STRIPPED: number[] = [
   ...range(0x202a, 0x202e), ...range(0x2066, 0x2069), 0x200e, 0x200f, 0x061c,
-  0x200b, 0x200c, ...range(0x2060, 0x2064), 0xfeff, 0x00ad, 0x180e,
+  // Fix round 5: U+200C (non-joiner) is kept in stored text (Persian, Indic).
+  0x200b, ...range(0x2060, 0x2064), 0xfeff, 0x00ad, 0x180e,
   ...range(0x00, 0x08), ...range(0x0b, 0x0c), ...range(0x0e, 0x1f), 0x7f, ...range(0x80, 0x9f),
 ]; // tab becomes a space, CR a line break (tested below)
 function range(a: number, b: number) { const o: number[] = []; for (let i = a; i <= b; i++) o.push(i); return o; }
@@ -21,14 +22,17 @@ test('sanitizeUserText: no stripped character survives, wherever it sits', () =>
 });
 
 test('sanitizeUserText: the zero-width joiner is kept (emoji sequences need it)', () => {
-  const family = '\u{1F468}‍\u{1F469}‍\u{1F467}';
+  const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
   assert.equal(sanitizeUserText(`Long ${family}`), `Long ${family}`);
 });
 
 test('sanitizeUserText: look-alike digits and percent signs become ASCII', () => {
   assert.equal(sanitizeUserText('４０％'), '40%'); // fullwidth
-  assert.equal(sanitizeUserText('٤٠٪'), '40%'); // Arabic-Indic + Arabic percent
-  assert.equal(sanitizeUserText('۴۰﹪'), '40%'); // extended Arabic-Indic + small percent
+  // Fix round 5 (item 1): native Arabic-Indic and Persian digits and the Arabic percent sign are stored as typed (the
+  // skeleton reads them as figures); the small percent sign is a look-alike and still becomes '%'.
+  assert.equal(sanitizeUserText('٤٠٪'), '٤٠٪');
+  assert.equal(sanitizeUserText('۴۰﹪'), '۴۰%');
+  assert.equal(skeleton('٤٠٪ ۴۰﹪'), '40% 40%');
   assert.equal(sanitizeUserText('\u{1D7D2}\u{1D7CE}%'), '40%'); // mathematical bold
   assert.equal(sanitizeUserText('\u{1D7FA}\u{1D7F6}%'), '40%'); // mathematical monospace
   assert.equal(neutralizeFigures('abc 12'), 'abc 12');
@@ -53,12 +57,12 @@ test('sanitizeUserText: at most max code points, never a split surrogate', () =>
 
 test('sanitizeUserText: idempotent (sanitising twice changes nothing)', () => {
   const samples = [
-    'I made ‮%05‬ this year', 'e​́ café', '４０％ gain', ' x '.repeat(200),
-    'Line one\n\n\n\nline two\t\tend', '\u{1F468}‍\u{1F469} ok', 'a'.repeat(279) + '\u{1F600}\u{1F600}',
+    'I made \u202E%05\u202C this year', 'e\u200B́ café', '４０％ gain', ' x '.repeat(200),
+    'Line one\n\n\n\nline two\t\tend', '\u{1F468}\u200D\u{1F469} ok', 'a'.repeat(279) + '\u{1F600}\u{1F600}',
     'trailing space cut ' + 'y'.repeat(270),
   ];
   // Pseudo-random strings mixing every class of character the function touches.
-  const pool = ['a', 'Z', ' ', '\n', '\t', '‮', '​', '‍', '５', '٥', '%', '٪', 'e', '́', '\u{1F600}', '\u0007'];
+  const pool = ['a', 'Z', ' ', '\n', '\t', '\u202E', '\u200B', '\u200D', '５', '٥', '%', '٪', 'e', '́', '\u{1F600}', '\u0007'];
   let seed = 7;
   for (let n = 0; n < 300; n++) {
     let s = '';
@@ -74,7 +78,7 @@ test('sanitizeUserText: idempotent (sanitising twice changes nothing)', () => {
 });
 
 test('skeleton: NFKC, every format character gone (joiner too), lower case, Cyrillic and Greek look-alikes mapped', () => {
-  assert.equal(skeleton('G​u‍ar‮antee'), 'guarantee');
+  assert.equal(skeleton('G\u200Bu\u200Dar\u202Eantee'), 'guarantee');
   assert.equal(skeleton('сору trading'), 'copy trading'); // Cyrillic s, o, r, u
   assert.equal(skeleton('ορα'), 'opa'); // Greek omicron, rho, alpha
   assert.equal(skeleton('ＴＯＰ'), 'top'); // fullwidth letters fold
@@ -106,7 +110,7 @@ test('sanitizeUserText and skeleton: Hangul fillers, the grapheme joiner, braill
     assert.equal(skeleton(`Exam${c}ple`), 'example', `U+${cp.toString(16)}`);
   }
   // Kept in stored text: the joiner, emoji presentation and CJK variation selectors. Gone in the skeleton.
-  for (const c of ['‍', '︎', '️', '\u{E0100}', '\u{E01EF}']) {
+  for (const c of ['\u200D', '︎', '️', '\u{E0100}', '\u{E01EF}']) {
     assert.equal(sanitizeUserText(`a${c}b`), `a${c}b`, JSON.stringify(c));
     assert.equal(skeleton(`a${c}b`), 'ab', JSON.stringify(c));
   }
@@ -133,4 +137,75 @@ test('the Postgres cleanup class equals the stored-text strip set, code point by
   const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
   const uses = schema.split(STRIP_CLASS_SQL).length - 1;
   assert.ok(uses >= 6, `schema.sql uses STRIP_CLASS_SQL verbatim (${uses})`);
+});
+
+// ---- Fix round 5 (item 1): store faithfully, normalise only for matching ----
+
+const ENGLAND = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}';
+const SCOTLAND = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}';
+const WALES = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}';
+
+test('fix round 5: the non-joiner survives in Persian and Indic text and names; the skeleton removes it', async () => {
+  const { checkDisplayName } = await import('./handles.ts');
+  for (const t of ['می\u200Cخواهم', 'क्\u200Cष', 'ابراهیم\u200Cزاده']) {
+    assert.ok(t.includes('\u200C'));
+    assert.equal(sanitizeUserText(t), t);
+    assert.ok(!skeleton(t).includes('\u200C'));
+  }
+  assert.deepEqual(checkDisplayName('ابراهیم\u200Cزاده'), { ok: true, name: 'ابراهیم\u200Cزاده' });
+  assert.equal(isStripped('\u200C'), false);
+});
+
+test('fix round 5: subdivision flag tag sequences survive; a stray tag still goes, also after a cut', () => {
+  for (const f of [ENGLAND, SCOTLAND, WALES]) {
+    assert.equal(sanitizeUserText(`Long the pound ${f}`), `Long the pound ${f}`);
+    assert.equal(skeleton(`a${f}b`), 'a b'); // the flag is an emoji (a space); its tags go
+  }
+  assert.equal(sanitizeUserText('exam\u{E0041}ple'), 'example'); // a tag outside a sequence
+  assert.equal(sanitizeUserText('\u{1F3F4}\u{E0067}\u{E0062} no cancel'), '\u{1F3F4} no cancel'); // no cancel tag: not a sequence
+  assert.equal(sanitizeUserText('\u{E0067}\u{E0062}\u{E007F}x'), 'x'); // no black flag
+  // A cut inside the sequence leaves no stray tag, and cleaning again changes nothing.
+  const cut = sanitizeUserText(`ab ${ENGLAND}`, 6);
+  assert.equal(cut, 'ab \u{1F3F4}');
+  assert.equal(sanitizeUserText(cut, 6), cut);
+});
+
+test('fix round 5: fullwidth and mathematical figures still become ASCII in stored text (D-02); native digits stay', () => {
+  assert.equal(sanitizeUserText('I made ４０％'), 'I made 40%');
+  assert.equal(sanitizeUserText('\u{1D7D2}\u{1D7CE}%'), '40%');
+  assert.equal(sanitizeUserText('سود ۳۰٪ در ماه'), 'سود ۳۰٪ در ماه');
+  assert.equal(skeleton('سود ۳۰٪'), 'سود 30%');
+});
+
+test('fix round 5: the script examples are unchanged by cleaning and still matched by moderation', async () => {
+  const { moderateDetail } = await import('./moderation.ts');
+  for (const t of ['می\u200Cخواهم بخرم', `Sold the pound ${ENGLAND}`]) {
+    assert.equal(sanitizeUserText(t), t);
+    assert.equal(moderateDetail(t).status, 'published');
+  }
+  // A claim in Persian digits is stored as typed and still held; a link split by a non-joiner is still a link.
+  for (const t of ['۳۰٪ a month, easy', 'my account is up ٤٠٪', 'exam\u200Cple.com', `${ENGLAND} copy my trades`]) {
+    assert.equal(sanitizeUserText(t), t);
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', t);
+  }
+});
+
+test('fix round 5: emoji and symbols separate words in the matching forms; dashes read as "-"; spaced domains keep dots', () => {
+  assert.equal(skeleton('dm🔥me'), 'dm me');
+  assert.equal(skeleton('stop\u2010loss \u22125%'), 'stop-loss -5%');
+  assert.equal(squash('join🔥my🔥group'), 'join my group');
+  assert.equal(squash('e x a m p l e . c o m'), 'example.com');
+  assert.equal(squash('g.u.a.r.a.n.t.e.e.d'), 'guaranteed');
+  assert.equal(squash("didn't join; my plan"), 'didnt join; my plan');
+});
+
+test('fix round 5: the stray-tag cleanup is the same in Postgres', { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' }, async () => {
+  const { STRAY_TAG_SQL } = await import('./text-safety.ts');
+  const { sql } = await import('./db.ts');
+  try {
+    for (const t of [`a ${ENGLAND} b`, 'exam\u{E0041}ple', `x\u{E0067}${WALES}\u{E007F}`, '\u{1F3F4}\u{E0067} y']) {
+      const [{ out }] = await sql`select regexp_replace(${t}::text, ${STRAY_TAG_SQL}, ${'\\1'}, 'g') as out`;
+      assert.equal(out, sanitizeUserText(t), JSON.stringify(t));
+    }
+  } finally { await sql.end({ timeout: 1 }); }
 });

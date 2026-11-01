@@ -211,7 +211,8 @@ export default async function Profile({ params, searchParams }: Params) {
 
   return (
     <main className="page">
-      <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : user.display_name}</h1>
+      {/* fix-user-text fix round 5 (item 5): the name is isolated (<bdi>), like WhoName. */}
+      <h1 style={{ marginBottom: 4 }}>{provisional ? `@${user.handle}` : <bdi>{user.display_name}</bdi>}</h1>
       {/* PR-2b: one line reserved, so the badge arriving when an import finishes does not push the banner down. */}
       <p className="muted" style={{ marginTop: 0, minHeight: '1.45em' }}>
         {!provisional && `@${user.handle} `}{complete && trades.length > 0 && trust.badge && <Badge kind={trust.badge} />}{pub && <span className="muted"> {PUBLIC.kind}</span>} {complete && isNew && trades.length > 0 && <span className="badge new">New record</span>}

@@ -4,11 +4,16 @@
 //   clears it, so an edit after a release never brings the old reports back. Run by scripts/review-theses.ts. It only changes a thesis's state, never its text, and never deletes.
 // - remoderateAll: after a rules change, every published thesis is matched again; a match flips it to held. Only
 //   published → held; a thesis the owner released is skipped (an edit clears the release, lib/thesis-save.ts).
+//   Fix round 5 (item 3): only notes checked at an older rules version (thesis_checked_version below
+//   lib/moderation.ts#MODERATION_VERSION; null = main's rules) are read, each is matched only against the rules added
+//   after its version, and each is then marked checked at the current version, held or not: a note is never re-held by
+//   rules it already passed, and a released note is never re-hidden.
 //   Returns counts only, and nothing here logs a thesis or an id.
 // - listHeld: the review list (the script and the flagged review page). Read-only.
 // No session or viewer is read here: the owner runs the script; the page is off until real admin identity exists.
 import { sql } from './db.ts';
-import { moderateDetail } from './moderation.ts';
+import { MODERATION_VERSION, moderateDetail } from './moderation.ts';
+import { KEPT_RULE } from './report-copy.ts';
 
 export type Decision = 'publish' | 'keep';
 const PAGE = 1000;
@@ -20,7 +25,9 @@ export async function releaseThesis(userId: number, sellId: string, decision: De
   return sql.begin(async (tx) => {
     const set = publish
       ? tx`thesis_status = 'published', thesis_hold_rule = null, thesis_reviewed_at = now(), thesis_reports_from = now()`
-      : tx`thesis_reviewed_at = now(), thesis_reports_from = now()`;
+      // ponytail: keeping replaces the matched rule's label with 'kept' (the list then shows "rule: kept") — store both if
+      // the owner needs the original reason after a keep.
+      : tx`thesis_hold_rule = ${KEPT_RULE}, thesis_reviewed_at = now(), thesis_reports_from = now()`; // fix round 5 (item 9): stays held through edits
     const a = await tx`update closed_trades set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis is not null and thesis_status = 'held' returning 1`;
     const b = await tx`update kept_theses set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis_status = 'held' returning 1`;
     return a.length + b.length > 0;
@@ -51,33 +58,34 @@ export async function listHeld(limit = 200, userId?: number): Promise<HeldRow[]>
 export async function remoderateAll(only?: number[]): Promise<{ checked: number; held: number }> {
   let checked = 0, held = 0;
   const scope = () => (only ? sql`and user_id = any(${only})` : sql``);
+  const stale = () => sql`coalesce(thesis_checked_version, 0) < ${MODERATION_VERSION}`;
   for (let after = '0'; ;) {
-    const page = await sql`select id::text as id, thesis from closed_trades
-      where thesis_status = 'published' and thesis is not null and thesis_reviewed_at is null and id > ${after}::bigint ${scope()}
+    const page = await sql`select id::text as id, thesis, thesis_checked_version as v from closed_trades
+      where thesis_status = 'published' and thesis is not null and thesis_reviewed_at is null and ${stale()} and id > ${after}::bigint ${scope()}
       order by id limit ${PAGE}`;
     for (const r of page) {
       checked++;
-      const m = moderateDetail(r.thesis);
-      if (m.status !== 'held') continue;
-      const u = await sql`update closed_trades set thesis_status = 'held', thesis_hold_rule = ${m.rule}
-        where id = ${r.id} and thesis_status = 'published' and thesis_reviewed_at is null returning 1`;
-      held += u.length;
+      const m = moderateDetail(r.thesis, { after: r.v ?? 0 });
+      const u = await sql`update closed_trades set thesis_checked_version = ${MODERATION_VERSION}
+        ${m.status === 'held' ? sql`, thesis_status = 'held', thesis_hold_rule = ${m.rule}` : sql``}
+        where id = ${r.id} and thesis_status = 'published' and thesis_reviewed_at is null and thesis = ${r.thesis} returning 1`;
+      if (m.status === 'held') held += u.length;
     }
     if (page.length < PAGE) break;
     after = page[page.length - 1].id;
   }
   for (let after: { u: number; s: string } | null = null; ;) {
-    const page: { user_id: number; sell_id: string; thesis: string }[] = await sql<{ user_id: number; sell_id: string; thesis: string }[]>`select user_id, sell_id, thesis from kept_theses
-      where thesis_status = 'published' and thesis_reviewed_at is null ${scope()}
+    const page: { user_id: number; sell_id: string; thesis: string; v: number | null }[] = await sql<{ user_id: number; sell_id: string; thesis: string; v: number | null }[]>`select user_id, sell_id, thesis, thesis_checked_version as v from kept_theses
+      where thesis_status = 'published' and thesis_reviewed_at is null and ${stale()} ${scope()}
       ${after ? sql`and (user_id, sell_id) > (${after.u}, ${after.s})` : sql``}
       order by user_id, sell_id limit ${PAGE}`;
     for (const r of page) {
       checked++;
-      const m = moderateDetail(r.thesis);
-      if (m.status !== 'held') continue;
-      const u = await sql`update kept_theses set thesis_status = 'held', thesis_hold_rule = ${m.rule}
-        where user_id = ${r.user_id} and sell_id = ${r.sell_id} and thesis_status = 'published' and thesis_reviewed_at is null returning 1`;
-      held += u.length;
+      const m = moderateDetail(r.thesis, { after: r.v ?? 0 });
+      const u = await sql`update kept_theses set thesis_checked_version = ${MODERATION_VERSION}
+        ${m.status === 'held' ? sql`, thesis_status = 'held', thesis_hold_rule = ${m.rule}` : sql``}
+        where user_id = ${r.user_id} and sell_id = ${r.sell_id} and thesis_status = 'published' and thesis_reviewed_at is null and thesis = ${r.thesis} returning 1`;
+      if (m.status === 'held') held += u.length;
     }
     if (page.length < PAGE) break;
     const last = page[page.length - 1];

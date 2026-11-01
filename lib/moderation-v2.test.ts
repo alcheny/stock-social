@@ -408,3 +408,51 @@ test('fix round 4: own targets, calls, "never lose", win-rate and money "turned 
     assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(sanitizeUserText(t)));
   }
 });
+
+// ---- Fix round 5 (independent review: bypasses, false holds, rate claims) ----
+
+const HY = String.fromCodePoint(0x2010); // hyphen
+// [text, expected label]
+const BYPASS_R5: [string, string][] = [
+  ['g.u.a.r.a.n.t.e.e.d returns', 'promotion'], ['gu4rant33d returns', 'promotion'], ['r1sk-free income', 'promotion'],
+  [`risk${HY}free profits`, 'promotion'], ['dm🔥me', 'contact details'], ['join🔥my🔥group', 'promotion'],
+  ['copy🔥my🔥trades', 'copy trading'], ['e x a m p l e . c o m', 'link'],
+  // item 4: rate claims
+  ['I average 30% a month', 'return claim'], ['Avg 30% per month on my system', 'return claim'], ['Doing 30% monthly. Ask me', 'return claim'],
+  ["I'm pulling 25% a month", 'return claim'],
+];
+const NEGATIVE_R5: string[] = [
+  'Decided it was time to sell after the second miss.', 'Semis outperform when rates fall, so I sized up.',
+  'The company does not make money yet; sold.', 'It was a hot stock in 2021 and I bought late.',
+  'Buy now pay later names sold off and I exited.', 'Copy this trade? No.',
+  // item 4: one trade over a span; position talk with a rate verb but no time total
+  'Gained 35% in 4 months; sold into the run-up', "I'm doing 25% trims into strength.",
+];
+
+test('fix round 5: leet, squashed, emoji-split and dash look-alike bypasses and rate claims are held', () => {
+  for (const [t, label] of BYPASS_R5) {
+    assert.deepEqual(moderateDetail(t), { status: 'held', rule: label }, JSON.stringify(t));
+    assert.equal(moderateDetail(sanitizeUserText(t)).status, 'held', JSON.stringify(sanitizeUserText(t)));
+  }
+});
+
+test('fix round 5: generic words from the scanner list, the payment-plan phrase and one-trade spans publish (no rule)', () => {
+  for (const t of NEGATIVE_R5) {
+    assert.deepEqual(moderateDetail(t), { status: 'published', rule: null }, JSON.stringify(t));
+    assert.deepEqual(moderateDetail(sanitizeUserText(t)), { status: 'published', rule: null }, JSON.stringify(t));
+  }
+  // The offer and claim forms of the same lists still hold, and the frozen HOLD entry still holds a plain call.
+  for (const t of ['buy now before earnings', 'guaranteed returns', 'risk free', 'you should buy this', 'passive income daily', 'top picks inside', 'Copy my trades'])
+    assert.equal(moderate(t), 'held', t);
+});
+
+test('fix round 5: the start-up re-check applies only rules newer than the version a note was checked at', async () => {
+  const { MODERATION_VERSION } = await import('./moderation.ts');
+  assert.equal(MODERATION_VERSION, 1);
+  assert.ok(HOLD_V2.every((r) => (r.since ?? 1) <= MODERATION_VERSION));
+  // A note checked at the current version matches nothing new; a note from main's rules (version 0) is matched by
+  // every rule of this branch, but not by the frozen HOLD on its raw text (it passed that when it was saved).
+  assert.deepEqual(moderateDetail('DM me, join my group', { after: MODERATION_VERSION }), { status: 'published', rule: null });
+  assert.equal(moderateDetail('see example.com', { after: 0 }).status, 'held');
+  assert.equal(moderateDetail('see example.com').status, 'held');
+});

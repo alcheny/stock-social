@@ -1,5 +1,6 @@
 import { sql } from './db.ts';
-import { moderateDetail } from './moderation.ts';
+import { MODERATION_VERSION, moderateDetail } from './moderation.ts';
+import { KEPT_RULE } from './report-copy.ts';
 import { sanitizeUserText } from './text-safety.ts';
 import { REPORT_HOLD_AT, REPORT_RULE } from './reports.ts';
 
@@ -21,6 +22,9 @@ export const THESIS_MAX = 280;
  * reports stays held through an edit until the owner reviews it, so editing one character never escapes a report hold.
  * Fix round 3 (item 9): nor does clearing it and writing it again: any save of a note that REPORT_HOLD_AT distinct readers
  * reported since the last release (the count lib/reports.ts holds on) is held with rule 'reports'.
+ * Fix round 5 (item 9): a note the owner reviewed and kept held (rule 'kept') stays held through an edit, until the owner
+ * releases it. Fix round 5 (item 3): a saved note records the rules version it was checked at (thesis_checked_version),
+ * so the start-up re-check only applies rules added after it.
  */
 export async function saveThesisFor(userId: number, tradeId: string, input: string) {
   if (!/^[0-9]{1,18}$/.test(tradeId)) return;
@@ -32,7 +36,7 @@ export async function saveThesisFor(userId: number, tradeId: string, input: stri
     if (!text) {
       await tx`
         update closed_trades set thesis = null, thesis_status = null, thesis_written_at = null, thesis_edited_at = null,
-          thesis_hold_rule = null, thesis_reviewed_at = null
+          thesis_hold_rule = null, thesis_reviewed_at = null, thesis_checked_version = null
         where id = ${tradeId} and user_id = ${userId}`;
     } else if (text !== prev.thesis) {
       const first = prev.thesis === null;
@@ -45,10 +49,13 @@ export async function saveThesisFor(userId: number, tradeId: string, input: stri
             and (${from}::timestamptz is null or r.created_at > ${from}::timestamptz)`;
         reported = n >= REPORT_HOLD_AT;
       }
-      const [st, why] = reported ? ['held', REPORT_RULE] : [status, status === 'held' ? rule : null];
+      // ponytail: clearing a kept note and writing it again starts moderation afresh (a cleared note keeps no rule, and
+      // rebuildTrades carries only notes with text) — keep a per-sell kept mark if the review queue shows it used.
+      const kept = prev.thesis_status === 'held' && prev.thesis_hold_rule === KEPT_RULE;
+      const [st, why] = reported ? ['held', REPORT_RULE] : kept ? ['held', KEPT_RULE] : [status, status === 'held' ? rule : null];
       await tx`
         update closed_trades set thesis = ${text}, thesis_status = ${st}, thesis_hold_rule = ${why},
-          thesis_reviewed_at = null,
+          thesis_reviewed_at = null, thesis_checked_version = ${MODERATION_VERSION},
           thesis_written_at = ${first ? tx`now()` : tx`thesis_written_at`},
           thesis_edited_at = ${first ? tx`null` : tx`now()`}
         where id = ${tradeId} and user_id = ${userId}`;

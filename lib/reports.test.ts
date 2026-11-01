@@ -201,10 +201,14 @@ dbTest('release then edit: the reports made before the release never count again
   } finally { await removePeople([trader, a, b, c, d]); }
 });
 
-dbTest('after a release a reader who reported before can report again (the row is re-dated, never deleted)', async () => {
+// Fix round 5 (item 6; corrected expectation): after a release the same readers can't hold the note again by pressing
+// Report again ('already'); only when the author changed the note since the release does an earlier report count again
+// (the row is re-dated, never deleted).
+dbTest('after a release the same three reporters cannot re-hide the note; after an edit their reports count again', async () => {
   const { sql } = await import('./db.ts');
   const { reportThesis } = await import('./reports.ts');
   const { releaseThesis } = await import('./thesis-review.ts');
+  const { saveThesisFor } = await import('./thesis-save.ts');
   const { tag, ids: [trader, a, b, c] } = await people(4);
   try {
     const [t] = await trades(trader, tag, 1);
@@ -213,6 +217,11 @@ dbTest('after a release a reader who reported before can report again (the row i
     assert.equal(await reportThesis(c, t.id, yes), 'held');
     await sql`update thesis_reports set created_at = created_at - interval '2 minutes' where trader_id = ${trader}`;
     assert.equal(await releaseThesis(trader, t.sell, 'publish'), true);
+    for (const r of [a, b, c]) assert.equal(await reportThesis(r, t.id, yes), 'already');
+    assert.equal((await sql`select thesis_status from closed_trades where id = ${t.id}`)[0].thesis_status, 'published');
+    // The author edits the note after the release: the earlier reporters may report the new text.
+    await saveThesisFor(trader, t.id, 'Faded the gap, covered at the open. Sized too big.');
+    assert.equal((await sql`select thesis_status from closed_trades where id = ${t.id}`)[0].thesis_status, 'published');
     assert.equal(await reportThesis(a, t.id, yes), 'reported');
     assert.equal(await reportThesis(a, t.id, yes), 'already');
     assert.equal(await reportThesis(b, t.id, yes), 'reported');

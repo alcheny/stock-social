@@ -17,7 +17,7 @@ export function LazyPane({ handle, name, highlight }: { handle: string; name: st
     return () => { live = false; };
   }, [handle]);
   if (data === 'failed') return <p className="muted small sheet-wait">The record could not be loaded. <a href={`/u/${handle}`}>See full profile →</a></p>;
-  if (!data) return <p className="muted small sheet-wait" role="status">Loading {name}’s record…</p>;
+  if (!data) return <p className="muted small sheet-wait" role="status">Loading <bdi>{name}</bdi>’s record…</p>;
   const now = new Date();
   return <ProfilePane handle={handle} name={name} trades={data.trades} chart={feedPaneChart(data.trades, now)} now={now} state={data.state} highlight={highlight} back={false} open={data.open} openAsOf={data.openAsOf} />;
 }

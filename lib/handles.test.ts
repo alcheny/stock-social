@@ -265,7 +265,10 @@ test('dev sign-in: a handle whose profile is pending deletion is treated as new 
 test('F-7 filer handles are refused on every chosen-handle path', async () => {
   const { readFileSync } = await import('node:fs');
   const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
-  assert.match(src('../app/actions.ts'), /if \(isFilerHandle\(handle\)\) back\('handle-reserved'\);/);
+  // F-7's exact behaviour: the dev form shows F-7's own alert for `?error=handle`, and no second one.
+  assert.match(src('../app/actions.ts'), /if \(isFilerHandle\(handle\)\) redirect\('\/login\/dev\?error=handle'\);/);
+  const { signInErrorText } = await import('./handles.ts');
+  assert.equal(signInErrorText('handle'), undefined);
   const att = src('./auth/attempts.ts');
   assert.equal([...att.matchAll(/if \(isFilerHandle\(handle\)\) throw new HandleTakenError\('reserved'\);/g)].length, 2);
   assert.match(src('./reports.ts'), /u\.public_filer_id is null/);

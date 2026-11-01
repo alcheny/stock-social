@@ -89,6 +89,29 @@ trimmed; only its overlap with D-08 is built here). Every role was a separate su
     forms and underscores removed; demo handles also with doubled letters collapsed. Concurrent renames to look-alike
     handles are serialized (advisory lock on the skeleton).
 18. **The feed card's note has no byline** (the card already names the trader) and keeps F-10's two-line clamp.
+19. **Stored text is kept as typed; only matching normalises** (2026-11-01, fix round 5, independent review; revises
+    decision 1). The zero-width non-joiner U+200C stays in stored theses and names (Persian and Indic words need it), and
+    so do emoji tag sequences (the black flag, tags, the cancel tag: the subdivision flags); a tag outside such a sequence
+    is still removed. Arabic-Indic and Persian digits and the Arabic percent sign are stored as typed. Fullwidth and
+    mathematical digits and the fullwidth and small percent signs are still turned into ASCII in stored text: they exist
+    to imitate ASCII figures, which is D-02's spoof, so neutralising them on save protects surfaces that can't use
+    `<bdi>` (titles, share images). The skeleton still removes the non-joiner and tags and reads every digit block as
+    digits, so matching is unchanged. Why: the reviewer showed real names and words corrupted by the old cleanup; only the
+    look-alikes carry D-02's risk.
+20. **The start-up re-check holds only on rules added since a note was checked** (2026-11-01, fix round 5). Each note
+    records the rules version it was checked at (`thesis_checked_version`; `MODERATION_VERSION` = 1, main's rules are
+    version 0); the re-check reads only notes at an older version, matches them only against newer rules, marks them
+    current, and never reads a note the owner released. The frozen HOLD and the scanner's PROMO list are read through
+    exceptions (the payment-plan phrase for HOLD; single generic words such as a sector beating another or a company
+    earning nothing yet for PROMO), never edited. Why: every start-up re-matched every note, so a rule change could
+    re-hide notes the rules had already passed, and generic words held ordinary notes.
+21. **A report made before a release counts again only after the note changes** (2026-11-01, fix round 5). After the
+    owner releases a note, a reader who reported it before is answered "already" unless the author edited it after the
+    release. Why: three accounts could otherwise re-hide a released note by pressing Report again.
+22. **At most 3 rename holds per account** (2026-11-01, fix round 5). A rename that would give an account a fourth active
+    reservation first releases its oldest one (its hold ends at once; ended reservations are purged by the tick). Why:
+    repeated renames could park many handles for a year each. OD-12 (b) permanent retirement and (c) a rename limit
+    remain the owner's call; this cap is neither.
 
 ## Build, QA, review
 
@@ -111,8 +134,8 @@ trimmed; only its overlap with D-08 is built here). Every role was a separate su
 ## Follow-ups and known limits (each marked `ponytail:` in code)
 
 - 301 redirects from renamed handles (old links 404 for the 365-day hold).
-- OD-12 (b) permanent retirement and (c) a rename limit: the owner's call. Until then one account can hold several
-  old handles through repeated renames.
+- OD-12 (b) permanent retirement and (c) a rename limit: the owner's call. Until then one account holds at most 3 old
+  handles at once (decision 22).
 - Report action on profiles (POLICY U2, pre-launch); handle-led page titles (D-18).
 - The review page stays off (and refused in production) until real admin identity exists; the owner CLI is the release
   path. The CLI lists 200 held notes at a time.

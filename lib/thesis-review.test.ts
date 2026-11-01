@@ -84,6 +84,52 @@ dbTest('remoderateAll: published → held only, released theses skipped, kept_th
     assert.deepEqual(st.get(t4.id), ['published', null]);
     assert.deepEqual((await sql`select sell_id, thesis_status from kept_theses where user_id = ${trader} order by sell_id`).map((x) => [x.sell_id, x.thesis_status]),
       [[`${tag}-gone`, 'held'], [`${tag}-gone2`, 'published']]);
-    assert.deepEqual(await remoderateAll([trader]), { checked: 2, held: 0 }); // idempotent
+    // Fix round 5 (item 3; corrected expectation): every note read is marked checked at the current rules version, so a
+    // second pass reads none (it was { checked: 2 } when every published note was matched again on every start-up).
+    assert.deepEqual(await remoderateAll([trader]), { checked: 0, held: 0 }); // idempotent
   } finally { await removePeople([trader, other]); }
+});
+
+dbTest('fix round 5: the re-check reads only notes checked at an older rules version and marks them current; a note saved now is never re-checked', async () => {
+  const { sql } = await import('./db.ts');
+  const { remoderateAll } = await import('./thesis-review.ts');
+  const { MODERATION_VERSION } = await import('./moderation.ts');
+  const { saveThesisFor } = await import('./thesis-save.ts');
+  const { tag, ids: [trader] } = await people(1);
+  try {
+    const [t1, t2, t3] = await trades(trader, tag, 3);
+    // t1: saved under main's rules (no version), a link: held now. t2: already checked at the current version (as if a
+    // rule matching it existed only before): left alone. t3: saved now (clean): carries the current version.
+    await sql`update closed_trades set thesis = 'notes at example.com', thesis_status = 'published' where id = ${t1.id}`;
+    await sql`update closed_trades set thesis = 'notes at example.com, checked', thesis_status = 'published', thesis_checked_version = ${MODERATION_VERSION} where id = ${t2.id}`;
+    await saveThesisFor(trader, t3.id, 'Bought the retest.');
+    assert.deepEqual(await remoderateAll([trader]), { checked: 1, held: 1 });
+    const rows = await sql`select id::text as id, thesis_status, thesis_checked_version as v from closed_trades where user_id = ${trader} order by sell_id`;
+    assert.deepEqual(rows.map((r) => [r.thesis_status, r.v]), [['held', MODERATION_VERSION], ['published', MODERATION_VERSION], ['published', MODERATION_VERSION]]);
+    // The version survives a rebuild (carried with the thesis by sell_id).
+    const { rebuildTrades } = await import('./sync.ts');
+    await rebuildTrades(trader);
+    const after = await sql`select thesis_checked_version as v from closed_trades where user_id = ${trader} and thesis is not null`;
+    assert.ok(after.length === 3 && after.every((r) => r.v === MODERATION_VERSION));
+  } finally { await removePeople([trader]); }
+});
+
+dbTest('fix round 5: a note the owner kept held stays held through an edit until released, with its own held line', async () => {
+  const { sql } = await import('./db.ts');
+  const { saveThesisFor } = await import('./thesis-save.ts');
+  const { releaseThesis } = await import('./thesis-review.ts');
+  const { heldLine, KEPT_RULE } = await import('./report-copy.ts');
+  const { tag, ids: [trader] } = await people(1);
+  try {
+    const [t1] = await trades(trader, tag, 1);
+    await saveThesisFor(trader, t1.id, 'DM me for the setup');
+    assert.equal(await releaseThesis(trader, t1.sell, 'keep'), true);
+    await saveThesisFor(trader, t1.id, 'Bought the retest of the breakout.');
+    const [r] = await sql`select thesis, thesis_status, thesis_hold_rule from closed_trades where id = ${t1.id}`;
+    assert.deepEqual([r.thesis, r.thesis_status, r.thesis_hold_rule], ['Bought the retest of the breakout.', 'held', KEPT_RULE]);
+    assert.equal(heldLine(KEPT_RULE), 'Thesis held for review. Only you can see it. Held after review; it stays held until the owner releases it.');
+    assert.doesNotMatch(heldLine(KEPT_RULE), /Edit it to publish/);
+    assert.equal(await releaseThesis(trader, t1.sell, 'publish'), true);
+    assert.equal((await sql`select thesis_status from closed_trades where id = ${t1.id}`)[0].thesis_status, 'published');
+  } finally { await removePeople([trader]); }
 });

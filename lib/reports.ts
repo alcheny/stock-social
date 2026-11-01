@@ -31,7 +31,7 @@ export async function reportThesis(reporterId: number | null | undefined, tradeI
     // reports) gets one neutral answer, 'not-found' (REPORT_COPY.done), on every press: nothing is written and no rate
     // slot is spent, so a reader can't tell a held note from a missing one. A held note needs no more reports. Only the
     // author is told it is their own (they know their note exists).
-    const [t] = await tx`select t.user_id, t.sell_id, t.thesis_status, t.thesis_reports_from from closed_trades t
+    const [t] = await tx`select t.user_id, t.sell_id, t.thesis_status, t.thesis_reports_from, t.thesis_edited_at from closed_trades t
       join users u on u.id = t.user_id and u.deleted_at is null and u.public_filer_id is null -- F-7: filers have no notes
       where t.id = ${tradeId} and t.thesis is not null and t.thesis <> '' for update of t`;
     if (!t) return 'not-found';
@@ -42,6 +42,10 @@ export async function reportThesis(reporterId: number | null | undefined, tradeI
     const [dup] = await tx`select (${from}::timestamptz is null or created_at > ${from}::timestamptz) as counts from thesis_reports
       where reporter_id = ${reporterId} and trader_id = ${t.user_id} and sell_id = ${t.sell_id}`;
     if (dup?.counts) return 'already';
+    // Fix round 5 (item 6): a report made before the release counts again only when the note changed since the release
+    // (edited after it); the same readers can't re-hide the note the owner released by pressing Report again.
+    const edited = t.thesis_edited_at as Date | null;
+    if (dup && !(from && edited && edited > from)) return 'already';
     const [recent] = await tx`select 1 from thesis_reports where reporter_id = ${reporterId} and created_at > now() - ${REPORT_INTERVAL_MS / 1000} * interval '1 second' limit 1`;
     if (recent) return 'rate';
     if (dup) {

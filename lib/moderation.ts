@@ -24,10 +24,17 @@ export const HOLD: RegExp[] = [
 // on the size of the figure alone ("Up 25% after earnings" is price talk).
 // Fix round 3: `claim: 'total'` (a figure with a time total, held unless it is a small figure about this one trade),
 // `claim: 'dollar'` (a dollar gain, held with a time total or span) and `when` (a per-match check, the price target).
+// Fix round 5 (item 3): `since`, the rules version (MODERATION_VERSION) that added the rule; unset means 1. The start-up
+// re-check (lib/thesis-review.ts#remoderateAll) holds a note only on rules added after the version it was checked at.
 export type HoldRule = {
   rule: string; label: string; re: RegExp; words?: boolean; claim?: boolean | 'timed' | 'total' | 'dollar';
-  when?: (sentence: string, m: RegExpMatchArray) => boolean;
+  when?: (sentence: string, m: RegExpMatchArray) => boolean; since?: number;
 };
+// Fix round 5 (item 3): the rules version. Version 0 is main's rules (the frozen HOLD on the raw text only: every note
+// saved before this branch was checked with them); version 1 is every rule in this file. Raise it, and give each rule
+// added after it `since: <the new version>`, whenever a rule is added, so the re-check holds only on the new rules
+// and leaves notes already checked (and notes the owner released) alone.
+export const MODERATION_VERSION = 1;
 
 // A closed list of top-level domains: "BRK.B", "3.5x", "v2.0", "10-K", "Q3/FY25", "approx.5", "U.S.", "e.g." and
 // "Inc." never look like a domain (the name needs 2+ characters with a letter, the ending must be on this list).
@@ -52,10 +59,13 @@ const MONTH = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|jul
 const SPAN = String.raw`(?:(?:in|over|within)\s+(?:the\s+)?(?:(?:past|last|first)\s+)?(?:\d+|a|one|two|three|four|five|six|seven|eight|nine|ten|twelve|few)\s+(?:weeks?|wks?|months?|mos?|years?|yrs?|quarters?|qtrs?)\b|since\s+(?:${MONTH}|spring|summer|fall|autumn|winter|(?:19|20)\d\d|the start of the year|new year)\b)`;
 // First-person or system context for a span: a pronoun, "this/the system|strategy|setup|method", or a sentence that
 // opens with a claim verb ("Made 30% since 2025").
-const CTX = String.raw`\b(?:i|we|i'm|we're|i've|we've|me|us|my|our)\b|\b(?:this|the)\s+(?:system|strategy|setup|method)\b|^\s*(?:made|returned|gained|earned|netted|banked|compounded|averaged|doubled|tripled)\b`;
+const CTX = String.raw`\b(?:i|we|i'm|we're|i've|we've|me|us|my|our)\b|\b(?:this|the)\s+(?:system|strategy|setup|method)\b|^\s*(?:made|returned|gained|earned|netted|banked|compounded|averaged|average|avg|doing|pulling|doubled|tripled)\b`;
 // First person as the subject of a gain ("I made", "we're up", "I was up"), and the verbs of a gain.
 const FP = String.raw`(?:i|we|i've|we've|i'm|we're|i'd|we'd|i have|we have|i am|we are|i was|we were)`;
-const GAIN = String.raw`(?:made|make|making|returned|return|returning|gained|gain|earned|netted|banked|profited|compounded|averaged|averaging|booked|cleared|up)`;
+// Fix round 5 (item 4): "average" and "avg" too ("I average 30% a month"). "doing" and "pulling" are in RATE (below):
+// they hold only with a time total, since "I'm doing 25% trims" is position talk.
+const GAIN = String.raw`(?:made|make|making|returned|return|returning|gained|gain|earned|netted|banked|profited|compounded|averaged|averaging|average|avg|booked|cleared|up)`;
+const RATE = String.raw`(?:doing|pulling(?:\s+in)?|averag(?:e|es|ing|ed)|avg)`;
 // The start of the text or of a sentence. Fix round 2: a stop right after a digit is a decimal point ("3.2% a year"),
 // never a sentence break.
 const CLAUSE = String.raw`(?:^|[.!?;:\n]\s+|(?<!\d)[.!?;]|\n)`;
@@ -97,8 +107,10 @@ export const HOLD_V2: HoldRule[] = [
   { rule: 'url', label: 'link', re: /\b(?:h[tx]{2}ps?:\/\/|www\.)\S+/i },
   // Fix round 3 (QA item 8): the name is one run of [a-z0-9-] that starts where no such character precedes it, and its
   // letter is checked by a lookahead, so matching is linear per start ("A-A-A-…" was polynomial with nested runs).
-  { rule: 'domain', label: 'link', re: new RegExp(String.raw`${NAME}${DOT}${TLD}(?:\/\S*)?(?![\w.-]*\w)`, 'i') },
-  { rule: 'domain', label: 'link', re: new RegExp(String.raw`${NAME}(?:\s+\.\s*|\s*\.\s+)${TLD_SPACED}\b(?![\w.-]*\w)`, 'i') },
+  // Fix round 5 (item 2): also on the squashed forms, where a spaced-out domain is joined with its dots ("e x a m p l e .
+  // c o m").
+  { rule: 'domain', label: 'link', words: true, re: new RegExp(String.raw`${NAME}${DOT}${TLD}(?:\/\S*)?(?![\w.-]*\w)`, 'i') },
+  { rule: 'domain', label: 'link', words: true, re: new RegExp(String.raw`${NAME}(?:\s+\.\s*|\s*\.\s+)${TLD_SPACED}\b(?![\w.-]*\w)`, 'i') },
   // Fix round 3: also on the squashed forms ("example dot c o m"); "dot" in prose ("connect the dots", "the dotcom
   // bubble", "looked dotcom bubble crazy") publishes.
   { rule: 'domain-spelt', label: 'link', words: true, re: new RegExp(String.raw`(?<![a-z0-9-])(?!(?:the|an|this|that|like|of|post)\b)[a-z0-9-]{2,}\s*[([]?\s*dot\s*[)\]]?\s*${TLD}\b(?![\s-]*(?:bubble|era|boom|bust|crash|mania|days|stocks?|names|companies)\b)`, 'i') },
@@ -132,7 +144,7 @@ export const HOLD_V2: HoldRule[] = [
   // Fix round 3 (committee: advice, calls and win-rate claims are held; POLICY F1/F2): urging others to buy or get in
   // now, rating calls, and claims never to lose. Past tense ("I bought it now that the base is set"), a hit target
   // ("Target was 52, hit it.") and a negation ("wouldn't buy it now") publish.
-  { rule: 'hype', label: 'promotion', re: new RegExp(String.raw`(?<!(?:n't|not|never|no)\s+)\bbuy\s+(?:it\s+|this\s+|them\s+|these\s+|here\s+)?(?:right\s+)?(?:now|today)\b|\bload(?:ing)?\s+up\s+(?:now|today|here|before|while)\b|(?:^|[.!?,;:]\s*)load\s+up\s*(?:[.!?]|$)|\b(?:buy|load up|get in|grab)\b[^.!?\n]{0,25}\bbefore\s+(?:it|this|they)\s+(?:rips?|runs?|moons?|pops?|explodes?|flies|takes off|skyrockets?)\b|\bstrong\s+buy\b(?=\s*(?:[.!,;:)\-–—]|$|(?:target|now|here|today|imo|right|on|at|for|from|zone|all day)\b))|(?<!(?:n't|not|never|to|could|can)\s+)\bget\s+in\s*(?:(?:now|before|while)\b|early\s*(?:[.!,;]|$|(?:before|while|on|here)\b)|[.!]|$)|\b(?:everyone|everybody|you|y'all|you all|people|ppl)\s+(?:should|must|needs? to|gotta|have to|has to|better)\s+(?:buy|load|get in|grab|own)\b|\bbuy[\s,!.]+buy\b|\b(?:i|we)\s+(?:never|rarely|almost never)\s+lose\b(?!\s+(?:sleep|sight|track|focus|more|much|than|over|patience|interest|discipline))`, 'i') },
+  { rule: 'hype', label: 'promotion', re: new RegExp(String.raw`(?<!(?:n't|not|never|no)\s+)\bbuy\s+(?:it\s+|this\s+|them\s+|these\s+|here\s+)?(?:right\s+)?(?:now|today)\b(?!\s+pay\s+later\b)|\bload(?:ing)?\s+up\s+(?:now|today|here|before|while)\b|(?:^|[.!?,;:]\s*)load\s+up\s*(?:[.!?]|$)|\b(?:buy|load up|get in|grab)\b[^.!?\n]{0,25}\bbefore\s+(?:it|this|they)\s+(?:rips?|runs?|moons?|pops?|explodes?|flies|takes off|skyrockets?)\b|\bstrong\s+buy\b(?=\s*(?:[.!,;:)\-–—]|$|(?:target|now|here|today|imo|right|on|at|for|from|zone|all day)\b))|(?<!(?:n't|not|never|to|could|can)\s+)\bget\s+in\s*(?:(?:now|before|while)\b|early\s*(?:[.!,;]|$|(?:before|while|on|here)\b)|[.!]|$)|\b(?:everyone|everybody|you|y'all|you all|people|ppl)\s+(?:should|must|needs? to|gotta|have to|has to|better)\s+(?:buy|load|get in|grab|own)\b|\bbuy[\s,!.]+buy\b|\b(?:i|we)\s+(?:never|rarely|almost never)\s+lose\b(?!\s+(?:sleep|sight|track|focus|more|much|than|over|patience|interest|discipline))`, 'i') },
   // Fix round 4: "next 10 bagger" holds only as an offer (an offer word in the sentence, or "!"), never as a question
   // or with a doubt ("Next 10 bagger? Doubt it.").
   { rule: 'hype-bagger', label: 'promotion', when: baggerHolds, re: /\bnext\s+(?:\d+|ten|hundred)[\s-]*baggers?\b(?!\s*\?)(\s*!)?/i },
@@ -156,6 +168,9 @@ export const HOLD_V2: HoldRule[] = [
   // Fix round 2: the subject left out ("Made 60% this year", "Up 85% since spring on my setup", "40% in 2 weeks on my
   // system"): held with a time total, or a span plus first-person or system context (claim: 'timed').
   { rule: 'return-dropped', label: 'return claim', claim: 'timed', re: new RegExp(String.raw`${CLAUSE}(?:(?:made|returned|gained|earned|netted|banked|compounded|averaged|up)\s+(?:[\w']+\s+){0,2}?|(?=\+))${NUM_ANY}|${CLAUSE}(?:(?:up|\+)\s*)?${NUM_ANY}\s*(?:(?:returns?|gains?|profits?|up|total|so far)\s+)?${SPAN}`, 'i') },
+  // Fix round 5 (item 4): a rate verb ("I average 30% a month", "Avg 30% per month on my system", "Doing 30% monthly"),
+  // with or without the subject: held with a time total, or a span plus context (claim: 'timed').
+  { rule: 'return-rate', label: 'return claim', claim: 'timed', re: new RegExp(String.raw`(?:${CLAUSE}|\b${FP}\s+(?:[\w']+\s+)?)${RATE}\s+(?:about\s+|around\s+|over\s+|~)?${NUM_ANY}`, 'i') },
   // Fix round 2: a multiple of the trader's own money, no figure needed ("Doubled my money", "Tripled the account").
   { rule: 'return-multiple', label: 'return claim', re: /\b(?:doubled|tripled|quadrupled)\s+(?:my|our|the)\s+(?:money|account|portfolio|port|capital|savings|stack|equity|net worth)\b|\b(?:my|our)\s+(?:money|account|portfolio|port|capital|savings|stack|equity|net worth)\s+(?:has\s+|have\s+|just\s+)?(?:doubled|tripled|quadrupled)\b/i },
 ];
@@ -176,6 +191,8 @@ const CTX_RE = new RegExp(CTX, 'i');
 // portfolio, a system or strategy, a year, or a per-month rate ("I made 6% in 2 weeks on my account", "3% a month").
 const ON_THIS = /\bon\s+(?:this|the|that)\s+(?:trade|position|name|one|stock|ticker|swing)\b|\bon\s+it\b/i;
 const STRONG = /\b(?:accounts?|acct|portfolio|port|system|strategy|ytd|years?|yrs?|annual\w*|annum|yearly|monthly|p\.a\.)(?![\w])|\b(?:a|per|each|every)\s+month\b|\/\s*(?:mo|month)\b/i;
+// Fix round 5 (item 4): words that tie a figure to one trade (an exit, an entry, the position).
+const TRADE_REF = /\b(?:sold|sell(?:ing)?\s+(?:into|half|some|the)|bought|trimmed|exited|closed\s+(?:it|the|out)|covered|stopped\s+out|took\s+(?:profits?|gains?)|run-?up|the\s+(?:position|trade|entry))\b/i;
 // The sentence around a match: from the last stop before it to the first stop after it.
 function sentenceAt(text: string, at: number, match: string): string {
   const head = text.slice(0, at), tail = text.slice(at + match.length);
@@ -200,7 +217,12 @@ function claimShape(text: string, at: number, match: string, mode: true | 'timed
   if (mode === 'total') return !(trade && ON_THIS.test(sentence));
   if (TIME_RE.test(sentence)) return !(trade && ON_THIS.test(sentence));
   // Fix round 2: a span counts in a first-person or possessive claim, and in a dropped-subject one with context.
-  return SPAN_RE.test(sentence) && (mode !== 'timed' || CTX_RE.test(sentence.replace(/^[\s.!?;:]+/, ''))) && !trade;
+  // Fix round 5 (item 4): a figure over a span (no time total) is a period claim only with the account, a system,
+  // portfolio or strategy word, or as a first-person total that names no trade: "Gained 35% in 4 months; sold into the
+  // run-up" describes one trade and publishes.
+  if (!SPAN_RE.test(sentence) || trade) return false;
+  if (strong) return true;
+  return (mode !== 'timed' || CTX_RE.test(sentence.replace(/^[\s.!?;:]+/, ''))) && !ON_THIS.test(sentence) && !TRADE_REF.test(sentence);
 }
 // Fix round 3 (QA item 2): the price-target check (see the 'price-target' rule).
 const THIRD_PARTY = /\b(?:analysts?|street|consensus|banks?|brokers?|brokerage|firms?|upgraded?|upgrades|downgraded?|downgrades|their|they|sell[\s-]?side|coverage|research|desk)\b/i;
@@ -293,24 +315,49 @@ export const LONG_WORDS: HoldRule[] = [
 // a figure spoofed that way is read the way a viewer would see it.
 const unOverride = (s: string) => s.replace(/‮([^‬⁩\n]*)/g, (_, run: string) => Array.from(run).reverse().join(''));
 
+// Fix round 5 (item 3): the frozen HOLD list and the scanner's PROMO list (lib/moderation.test.ts snapshots HOLD; PROMO
+// belongs to the scanner) are read through exceptions instead of being edited. A match is talk, not a hold, when the
+// text from the match on starts with one of these. HOLD's "buy" entry: the payment-plan phrase ("buy" + "now pay later"
+// names a kind of lender). PROMO: single generic words and phrases that are ordinary talk in a note about one's own
+// trade (a sector beating another, a company earning nothing yet, a popular name, the moment one chose to exit, asking
+// oneself whether to repeat a trade); the offer and claim forms (promised or riskless returns, getting wealthy fast,
+// passive earnings, ranked pick lists, telling readers what to purchase, completeness claims, verified-by) still hold.
+const HOLD_TALK = new Map<RegExp, RegExp>([[HOLD[6], /^buy\snow\s+pay\s+later\b/i]]);
+const PROMO_TALK = /^(?:out[p]erform(?:s|ed|ing)?|make\smoney|hot\sstock|buy\snow|copy\sthis\strades?|time\sto\s(?:buy|sell))\b/i;
+function matchesExcept(re: RegExp, f: string, talk: RegExp | undefined): boolean {
+  if (!talk) return re.test(f);
+  let g = globalCopy.get(re);
+  if (!g) globalCopy.set(re, (g = new RegExp(re.source, re.flags.replace('g', '') + 'g')));
+  for (const m of f.matchAll(g)) if (!talk.test(f.slice(m.index))) return true;
+  return false;
+}
+
 // The full verdict: status plus the label of the first rule that matched (null when published). Matching runs on the
 // raw text and its skeleton (figures read as figures); `words` rules and LONG_WORDS also on leet and squashed forms.
-export function moderateDetail(text: string): { status: ThesisStatus; rule: string | null } {
+// Fix round 5 (item 2): the frozen HOLD and the imported PROMO also run on the leet and squashed forms ("gu4rant33d",
+// "g.u.a.r.a.n.t.e.e.d", "join🔥my🔥group").
+// Fix round 5 (item 3): `after` (the start-up re-check) applies only the rules added after that version: HOLD on the raw
+// text is version 0 (main's rules), everything else version 1 unless the rule says otherwise (HoldRule.since).
+export function moderateDetail(text: string, opts: { after?: number } = {}): { status: ThesisStatus; rule: string | null } {
+  const on = (since = 1) => opts.after === undefined || since > opts.after;
   const raw = String(text ?? '');
   const sk = figures(skeleton(raw));
   const forms = [...new Set([raw, sk, figures(skeleton(unOverride(raw)))])];
   const wordForms = [...new Set([...forms, ...[sk, ...leet(sk)].flatMap((f) => [f, squash(f)])])];
-  for (const r of HOLD_V2) if ((r.words ? wordForms : forms).some((f) => ruleHolds(r, f))) return { status: 'held', rule: r.label };
-  const spelt = speltLabel(sk);
+  for (const r of HOLD_V2) if (on(r.since) && (r.words ? wordForms : forms).some((f) => ruleHolds(r, f))) return { status: 'held', rule: r.label };
+  const spelt = on() ? speltLabel(sk) : null;
   if (spelt) return { status: 'held', rule: spelt };
-  for (const re of HOLD) if (forms.some((f) => re.test(f))) return { status: 'held', rule: 'promotion' };
+  for (const re of HOLD) {
+    if (on(0) && matchesExcept(re, raw, HOLD_TALK.get(re))) return { status: 'held', rule: 'promotion' };
+    if (on() && wordForms.some((f) => matchesExcept(re, f, HOLD_TALK.get(re)))) return { status: 'held', rule: 'promotion' };
+  }
   // Fix round 3 (QA item 2): the scanner's list also names a singular top-ranked pick; in a note that is talk about the
   // trader's own choice ("Not my best one, cut it"), so PROMO sees it as "choice". The offer forms (plural, dated, free)
   // were held by the picks rule above.
-  const promoForms = forms.map((f) => f.replace(SINGLE_PICK, '$1 choice'));
-  for (const re of PROMO) if (promoForms.some((f) => re.test(f))) return { status: 'held', rule: 'promotion' };
+  const promoForms = wordForms.map((f) => f.replace(SINGLE_PICK, '$1 choice'));
+  if (on()) for (const re of PROMO) if (promoForms.some((f) => matchesExcept(re, f, PROMO_TALK))) return { status: 'held', rule: 'promotion' };
   const long = [sk, ...leet(sk)].flatMap((f) => [f, squash(f)]);
-  for (const r of LONG_WORDS) if (long.some((f) => r.re.test(f))) return { status: 'held', rule: r.label };
+  if (on()) for (const r of LONG_WORDS) if (long.some((f) => r.re.test(f))) return { status: 'held', rule: r.label };
   return { status: 'published', rule: null };
 }
 

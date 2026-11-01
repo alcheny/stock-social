@@ -39,8 +39,10 @@ const days = (d: number) => (d < 1 ? `${Math.max(1, Math.round(d * 24))}h` : `${
 
 // state: the trader's aggregate record state (recordStates); a failed import shows no Verified badge and the short line.
 // Fix round 8 (tester re-run 4): a display name equal to the handle is shown once ("@name", not "name@name").
+// fix-user-text fix round 5 (item 5): the name is isolated (<bdi>), so a right-to-left name never pulls the handle after
+// it into its direction (the handle stays whole and in order).
 export function WhoName({ name, handle }: { name: string; handle: string }) {
-  return <>{name !== handle && <><strong>{name}</strong>{' '}</>}<span className="muted">@{handle}</span></>;
+  return <>{name !== handle && <><strong><bdi>{name}</bdi></strong>{' '}</>}<span className="muted">@{handle}</span></>;
 }
 
 // F-2 PR-1 fix round 2 (render cost): one formatter, not one per card (toLocaleDateString with options builds a new one

@@ -154,7 +154,7 @@ dbTest('schema cleanup: a thesis of stripped characters only becomes NULL with n
   const { sql } = await import('./db.ts');
   const { readFileSync } = await import('node:fs');
   const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
-  const start = schema.indexOf('update closed_trades set thesis = nullif(btrim(regexp_replace(thesis,');
+  const start = schema.indexOf('update closed_trades set thesis = nullif(btrim(regexp_replace(regexp_replace(thesis,');
   assert.ok(start > 0, 'the cleanup statement is in the schema');
   const stmt = schema.slice(start, schema.indexOf(';', start));
   const { tag, ids: [trader] } = await people(1);
@@ -181,8 +181,8 @@ dbTest('schema cleanup: an emptied thesis loses its rule and dates; an emptied k
     assert.ok(start > 0, head);
     return schema.slice(start, schema.indexOf(';', start));
   };
-  const strip = stmt('update closed_trades set thesis = nullif(btrim(regexp_replace(thesis,');
-  const stripKept = stmt('update kept_theses set thesis = regexp_replace(thesis,');
+  const strip = stmt('update closed_trades set thesis = nullif(btrim(regexp_replace(regexp_replace(thesis,');
+  const stripKept = stmt('update kept_theses set thesis = regexp_replace(regexp_replace(thesis,');
   const clear = stmt('update closed_trades set thesis_status = null, thesis_hold_rule = null,');
   const clearKept = stmt("update kept_theses set thesis = '', thesis_status = null,");
   const { tag, ids: [trader, a] } = await people(2);

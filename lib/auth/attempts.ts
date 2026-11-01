@@ -154,6 +154,9 @@ export async function signInWithIdentity(attemptId: number, id: Identity, opts: 
 // ponytail: no 301 from /u/<old>/** yet (decision 10; old links 404) — look up handle_reservations.user_id in the
 // profile, trade and month routes and redirect to that account's current handle.
 // ponytail: no rename-frequency limit (OD-12 b/c are the owner's call) — add a last-renamed check here once decided.
+// Fix round 5 (item 7): one account holds at most RENAME_HOLD_CAP old handles at once (a fourth rename releases its oldest
+// reservation), so repeated renames can't park handles; permanent retirement and a rename limit stay the owner's call.
+export const RENAME_HOLD_CAP = 3;
 export async function changeHandle(userId: number, raw: unknown): Promise<string> {
   const handle = normalizeHandle(raw);
   if (!handle) throw new HandleTakenError('format');
@@ -175,6 +178,10 @@ export async function changeHandle(userId: number, raw: unknown): Promise<string
         on conflict (handle) do update set until = excluded.until, user_id = excluded.user_id`;
       // Taking back an own reserved handle: that reservation has done its job.
       await tx`delete from handle_reservations where handle = ${handle} and user_id = ${userId}`;
+      // Fix round 5 (item 7): at most RENAME_HOLD_CAP active reservations per account: past it, the account's oldest
+      // ones are released (their hold ends now; the purge removes the row later, lib/privacy-purge.ts).
+      await tx`update handle_reservations set until = now() where handle in (
+        select handle from handle_reservations where user_id = ${userId} and until > now() order by until desc, handle offset ${RENAME_HOLD_CAP})`;
       return u.handle as string;
     });
   } catch (e) {

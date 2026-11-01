@@ -11,10 +11,12 @@ after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout
 // The schema's display-name cleanup statement, limited to the ids in $1.
 function usersCleanup(): string {
   const schema = readFileSync(new URL('../db/schema.sql', import.meta.url), 'utf8');
-  const start = schema.indexOf('update users set display_name = coalesce(nullif(btrim(regexp_replace(display_name,');
+  const start = schema.indexOf('update users set display_name = coalesce(nullif(btrim(regexp_replace(regexp_replace(display_name,');
   assert.ok(start > 0, 'the cleanup statement is in the schema');
   const stmt = schema.slice(start, schema.indexOf(';', start));
-  assert.match(stmt, /\n {2}where display_name ~ '\[[^']+\]'$/);
+  // Fix round 5 (item 1): the guard also finds stray tags, and is one parenthesised condition, so the id filter below
+  // narrows all of it.
+  assert.match(stmt, /\n {2}where \(display_name ~ '\[[^']+\]' or regexp_replace\(display_name, '[^']+', '\\1', 'g'\) <> display_name\)$/);
   return `${stmt} and id = any($1::int[])`;
 }
 
@@ -179,5 +181,37 @@ dbTest('checkHandle: a handle whose profile is pending deletion is taken', async
     assert.equal(await checkHandle(`${tag}_a`), 'taken');
   } finally {
     await sql`delete from users where id = ${u.id}`;
+  }
+});
+
+// Fix round 5 (item 7): one account holds at most 3 old handles; a fourth rename releases its oldest reservation (its
+// hold ends now; nothing is deleted here), and the released handle is free for anyone.
+dbTest('rename hold cap: at most 3 active reservations per account; the oldest is released first', async () => {
+  const { sql } = await import('./db.ts');
+  const { createAttempt, createUserForAttempt, changeHandle, RENAME_HOLD_CAP } = await import('./auth/attempts.ts');
+  const { checkHandle } = await import('./handles.ts');
+  assert.equal(RENAME_HOLD_CAP, 3);
+  const tag = `rc${rand()}`;
+  const ids: number[] = [];
+  try {
+    const u = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_h0` });
+    ids.push(u.id);
+    const o = await createUserForAttempt(await createAttempt({ method: 'dev', attested: true }), { handle: `${tag}_other` });
+    ids.push(o.id);
+    for (let i = 1; i <= 3; i++) await changeHandle(u.id, `${tag}_h${i}`);
+    const active = async () => (await sql`select handle from handle_reservations where user_id = ${u.id} and until > now() order by handle`).map((r) => r.handle);
+    assert.deepEqual(await active(), [`${tag}_h0`, `${tag}_h1`, `${tag}_h2`]);
+    assert.equal(await checkHandle(`${tag}_h0`, o.id), 'reserved');
+    await changeHandle(u.id, `${tag}_h4`); // a fourth reservation (h3): h0, the oldest, is released
+    assert.deepEqual(await active(), [`${tag}_h1`, `${tag}_h2`, `${tag}_h3`]);
+    const [h0] = await sql`select until <= now() as ended from handle_reservations where handle = ${`${tag}_h0`}`;
+    assert.equal(h0.ended, true); // released by ending its hold, not deleted
+    assert.equal(await checkHandle(`${tag}_h0`, o.id), 'ok');
+    // Taking an own reserved handle back frees a slot (no release needed).
+    await changeHandle(u.id, `${tag}_h2`);
+    assert.deepEqual(await active(), [`${tag}_h1`, `${tag}_h3`, `${tag}_h4`]);
+  } finally {
+    await sql`delete from handle_reservations where handle like ${tag + '%'}`;
+    if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
   }
 });
