@@ -94,7 +94,7 @@ Internal accounts line:
 - set: `- internal accounts: removed only in the rows "partial: strict G1 without internal accounts" and "partial: strict G3 without internal accounts' profiles"; every other row still counts them.`
   When entries were ignored, it adds ` <n> listed entry was not a valid handle and was ignored.` (or `entries were`). That is a
   count of config entries, never their text.
-  Whenever the env is set (`set` or `none-valid`), one more line follows (INTERNAL_RUNS_LINE, E1):
+  Only when the state is `set` (never `none-valid`, which prints no internal rows), one more line follows (INTERNAL_RUNS_LINE, E1, round 3):
   `- Changing the internal list between runs can reveal one profile's counts; compare runs only with the same list.`
 
 Each decided sentence maps to a line. "first-party … inflated, not verified" is line 1. "signed-out self, owner and team
@@ -201,7 +201,7 @@ viewers, so the small-cell rule applies to b.
 SPLIT_LINE: The "of which" rows split the strict row by profile: a broker-trader profile or a public-filing profile. They print only in a week whose strict figure is exact, and read "(s)" when either part, or anything that could be worked out from them and the rows below, would be 1 to 4; they have no total and no difference row.
 TOP_LINE: The largest single profile's share is one profile's strict G3 views over the week's strict G3, rounded down to a whole percent; it names no profile, reads "(s)" unless that profile has 5 or more views and nothing from 1 to 4 can be worked out from it, and reads "—" when the strict figure is 0.
 SELF_LINE: "self-views removed (signed in)" counts signed-in traders' views of their own profile, trade and month pages; they are in no other row. Signed-out self-views can't be told apart and stay in the counts.
-INTERNAL_LINE (env set only): Internal accounts come from an env list read only on the machine that runs this readout; no handle is printed. The G1 row reads "(s)" when strict G1, or what is left without internal accounts, is 1 to 4; the G3 row reads "(s)" when 1 to 4 views of internal profiles, or 1 to 4 of what is left, would be worked out by subtraction.
+INTERNAL_LINE (env set only): Internal accounts come from an env list read only on the machine that runs this readout; no handle is printed. The G1 row reads "(s)" when strict G1, or what is left without internal accounts, is 1 to 4; the G3 row reads "(s)" when 1 to 4 views of internal profiles, or 1 to 4 of what is left, would be worked out by subtraction. The G1 row may reveal how many listed accounts have a connected broker.
 ```
 
 ### 3.6 Worked example: the baseline input (AC8)
@@ -411,7 +411,7 @@ Row labels make sense on their own when a screen reader reads a row.
     - `parseInternalHandles`: blank → unset; `' @F31_a , f31b,, x , pf_f31c '` → set, `['f31_a', 'f31b']`, ignored 2
     - unset → `internal accounts: not removed (READOUT_INTERNAL_HANDLES is unset).`, no internal rows and no
       INTERNAL_RUNS_LINE
-    - set and none-valid → INTERNAL_RUNS_LINE is present, pinned as a literal (E1)
+    - none-valid → no INTERNAL_RUNS_LINE; set → INTERNAL_RUNS_LINE is present, pinned as a literal (E1, round 3)
     - set → both rows with values
     - G1 row (B1): g = 50, k = 1 → `49`; g = 7, k = 3 → `(s)`
   - DB: run `main` as a subprocess (`node scripts/f15-readout.ts --out <os tmpdir>`) with
@@ -460,7 +460,7 @@ The existing tests stay unchanged, and their count only grows. `lib/privacy-rete
 3. **"Under each G3 row"** (D9): the strict G3 row only, confirmed by the business lead in round 2. Only the owner
    can widen it. If it widens, each extra row needs its own family and its own exhaustive test.
 4. **Comparing runs with a different internal list** can reveal one profile's counts. The readout says so on every
-   run with the env set (INTERNAL_RUNS_LINE).
+   run where the internal state is `set` (INTERNAL_RUNS_LINE).
 
 No counsel item, no secret, no new dependency or vendor. Nothing here waits on a hard stop.
 
@@ -515,7 +515,7 @@ The business lead approved D1–D5 and D7–D10, and confirmed D9 as the strict 
 |---|---|---|
 | B1 | G1 internal row: drop OK(k) | Done. The row prints iff `OK(g) && OK(g − k)`, because k is the owner's own listed accounts. The G3 internal row keeps `OK(b)`. §3.4 and INTERNAL_LINE (§3.5) are updated. Test (AC5): g = 50, k = 1 → `49`; g = 7, k = 3 → `(s)`. |
 | B2 | No view_cap_days allowlist in AC7 | Removed. The scan test has no path allowlist (§8 AC7). |
-| E1 | Cross-run leak from changing the list | INTERNAL_RUNS_LINE, exact text: "Changing the internal list between runs can reveal one profile's counts; compare runs only with the same list." It prints as a facts bullet whenever the env is set (§2) and is pinned in AC5 (§8). |
+| E1 | Cross-run leak from changing the list | INTERNAL_RUNS_LINE, exact text: "Changing the internal list between runs can reveal one profile's counts; compare runs only with the same list." It prints as a facts bullet when the internal state is `set` (§2; narrowed in round 3) and is pinned in AC5 (§8). |
 | E2 | Lexer-based scan | Done as specified: only `sql` literal bodies, nested fragments tracked, `--` comments stripped, `count(*)` allowed, and banned identifiers allowed only as operands of `is [not] null`, `= any(...)` or `= $param`. It has the listed must-fail and must-pass fixtures (§8 AC7, D8). |
 | E3 | Beacon write | `markCapDay(trusted, now, write = insertCapDay)`: in-flight attempts are memoized synchronously per (day, kind), a failure is retried no sooner than 5 minutes later, and the route calls it after the `over` return (§4). The tests listed under AC4 cover 50 concurrent calls → 1 write, the backoff, the next UTC day, and a throwing markCap still calling recordView and answering 204. |
 | E4 | Shared database | view_cap_days fixtures use a per-run random day X before 1985, with assertions and cleanup scoped to that day, and a purge `now` of X + VIEW_RETENTION_DAYS + 1. The AC5 subprocess test asserts only presence and absence (§8 AC4, AC5). |
@@ -523,3 +523,10 @@ The business lead approved D1–D5 and D7–D10, and confirmed D9 as the strict 
 | E6 | loadTop DB test | Self-view, Demo-target and deleted-user views don't change n; n ≤ S with the same `onlyUsers`; keys are exactly `['week','n']` (§8 AC6). |
 | E7 | Exhaustive grouping | Grouped by the full output tuple, S over {0} ∪ 5..24 (§8 AC2(a)). |
 | E9 | Keep `selfs` | Kept as specified in §3.2. |
+
+### Round 3 (2026-11-01)
+
+| # | Demand | Answer |
+|---|---|---|
+| BL-R3 | INTERNAL_RUNS_LINE only when the state is `set` | Done. `none-valid` prints no internal rows, so there is nothing to compare across runs. Updated in §2 and in the AC5 test (§8): `none-valid` has no INTERNAL_RUNS_LINE; `set` has it, pinned as a literal. |
+| EN-R3 (optional, adopted) | INTERNAL_LINE wording | INTERNAL_LINE (§3.5) adds: "The G1 row may reveal how many listed accounts have a connected broker." |
