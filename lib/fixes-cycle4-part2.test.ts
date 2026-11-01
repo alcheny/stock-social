@@ -37,14 +37,14 @@ registerHooks({
 const { renderToStaticMarkup } = await import('react-dom/server' as string) as { renderToStaticMarkup: (e: unknown) => string };
 const { createElement } = await import('react');
 const { Badge } = await import(pathToFileURL(new URL('app/ui.tsx', ROOT).pathname).href) as typeof import('../app/ui.tsx');
-const text = (html: string) => html.replace(/<[^>]+>/g, '');
 
 // ---- F4-14 (C4-15) ----
 test('F4-14: the Demo and Public filing badges read as two words, "Demo Public filing"', () => {
   const html = renderToStaticMarkup(createElement(Badge, { kind: 'public_demo' }));
-  assert.equal(text(html), 'Demo Public filing');
+  // The two badges' own markup with one space between them (asserted as markup: no tag stripping).
+  assert.match(html, /^<span class="badge demo"[^>]*>Demo<\/span> <span class="badge public"[^>]*>Public filing<\/span>$/);
   assert.equal((html.match(/class="badge demo"/g) ?? []).length, 1, 'one Demo badge');
-  assert.equal(text(renderToStaticMarkup(createElement(Badge, { kind: 'public' }))), 'Public filing', 'no stray space without Demo');
+  assert.match(renderToStaticMarkup(createElement(Badge, { kind: 'public' })), /^<span class="badge public"[^>]*>Public filing<\/span>$/, 'no stray space without Demo');
 });
 
 // ---- F4-15 (C4-16) ----
