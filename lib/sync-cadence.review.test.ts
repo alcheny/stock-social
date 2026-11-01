@@ -5,6 +5,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { claimHours } from './sync-test-hours.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
 const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !hasDb && 'no DATABASE_URL', timeout: 60_000 }, fn);
@@ -126,6 +127,9 @@ dbTest('review 4: a connected_at ahead of the database clock never turns the thr
 dbTest('review 5: a cadence sync cut by the route-end guard mid-read leaves no marks and is read in full by the next call', async () => {
   const t = await trader(2);
   const { runShard } = await import('./sync-shard.ts');
+  // Its two runs' hours, claimed in sync_read_counts, where every run adds its reads (lib/sync-test-hours.ts).
+  const hours = await claimHours('lib/sync-cadence.review.test.ts', [0, 1]);
+  const runAt = (h: number) => hours.T0 + 5 * 60_000 + h * HOUR - Date.now();
   try {
     const of = 1013 + Math.floor(Math.random() * 6); // its own range (lib/sync-cadence.db.test.ts lists the split)
     let wall = 1_000_000;
@@ -138,7 +142,7 @@ dbTest('review 5: a cadence sync cut by the route-end guard mid-read leaves no m
     };
     const shard = { shard: t.user.id % of, of };
     const cfg = { concurrency: 1, rps: 1000, burst: 1000, page: 500 };
-    const r = await runShard({ shard, ids: [t.user.id], shiftMs: shiftAt(0), jitterMs: 0, config: cfg, log: () => {},
+    const r = await runShard({ shard, ids: [t.user.id], shiftMs: runAt(0), jitterMs: 0, config: cfg, log: () => {},
       broker: broker as never, clock: () => wall, routeEnd: wall + 100_000, vendorBoundMs: 30_000 });
     assert.equal(r.cutAtDeadline, 1, JSON.stringify(r));
     assert.deepEqual(calls, [t.accs[0].id], 'the second account\'s call never started');
@@ -147,13 +151,13 @@ dbTest('review 5: a cadence sync cut by the route-end guard mid-read leaves no m
     // The next call (a whole budget, the next round) reads both accounts at once.
     calls.length = 0;
     wall = 2_000_000;
-    const r2 = await runShard({ shard, ids: [t.user.id], shiftMs: shiftAt(1), jitterMs: 0, config: cfg, log: () => {},
+    const r2 = await runShard({ shard, ids: [t.user.id], shiftMs: runAt(1), jitterMs: 0, config: cfg, log: () => {},
       broker: { ...broker, fetchActivities: async (_u: unknown, _s: Date, ids?: string[]) => { calls.push(ids![0]); return []; } } as never,
       clock: () => wall, routeEnd: wall + 300_000, vendorBoundMs: 30_000 });
     assert.equal(r2.done, 1, JSON.stringify(r2));
     assert.deepEqual(calls.sort(), t.accs.map((a) => a.id).sort());
     await t.sql`delete from sync_shards where of = ${of}`;
-  } finally { await t.cleanup(); }
+  } finally { await t.cleanup(); await hours.release(); }
 });
 
 // Orchestrator review: last_synced_at (F-11's "Updated …") is the oldest real account's last activities read, never

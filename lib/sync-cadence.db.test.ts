@@ -2,7 +2,7 @@
 // docs/features/logs/F-14/committee-2026-11-01.md, G1–G10 and the round 3 final rule). Every vendor call goes over HTTP
 // to the in-repo vendor fake (e2e/fakes/vendor.ts, started in this process) through the real lib/broker.ts; its
 // `/_stats` per-account counts are the evidence (activities, share moves, positions, failed). Each test has its own
-// traders (`ids`), its own past rounds (the database clock shifted back to a slot of its own, far from other files'),
+// traders (`ids`), its own past rounds (the database clock shifted back to hours it claims: lib/sync-test-hours.ts),
 // and an `of` no other test uses. Skipped without DATABASE_URL.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { FakeAccount, FakeActivity } from '../e2e/fakes/vendor.ts';
 import type { RunReport } from './sync-shard.ts';
+import { claimHours } from './sync-test-hours.ts';
 import { ACTIVITIES_EVERY_MS, ATTEMPT_FLOOR_MS, FUTURE_SLACK_MS, POSITIONS_EVERY_MS, POSITIONS_PER_DAY, type DueFlags } from './sync-cadence.ts';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -42,9 +43,6 @@ const usedOf = new Set<number>();
 // each other's: lib/sync-shard.test.ts 500–1000, this file 1001–1012 (up to 8 used), lib/sync-cadence.review.test.ts
 // 1013–1018, lib/options-shard.test.ts 1019–1024 (the table allows 1–1024).
 const freshOf = () => { for (;;) { const of = 1001 + Math.floor(Math.random() * 12); if (!usedOf.has(of)) { usedOf.add(of); return of; } } };
-// Each test's own past: slots of 100 h from 2,000 h back (other files use the last few hundred hours), plus a random
-// offset per process so two runs of this file at once do not share hours either.
-let slot = 2000 + Math.floor(Math.random() * 40) * 1000;
 const post = async (path: string, body: unknown) => {
   const r = await fetch(`${base}${path}`, { method: 'POST', body: JSON.stringify(body) });
   assert.equal(r.status, 200, `${path} answered ${r.status}`);
@@ -63,7 +61,10 @@ async function harness() {
   const S = await import('./sync.ts');
   const broker = await import('./broker.ts');
   const { createAttempt, createUserForAttempt } = await import('./auth/attempts.ts');
-  const T0 = Math.floor(Date.now() / HOUR) * HOUR - (slot += 100) * HOUR;
+  // Each test's own past: the hours from 2 before T0 to 100 after it (every round, bucket and read-count window below),
+  // claimed in sync_read_counts, so the coverage sums count this test's reads only (lib/sync-test-hours.ts).
+  const hours = await claimHours('lib/sync-cadence.db.test.ts', [-2, 100]);
+  const T0 = hours.T0;
   // Round r runs at minute 5 of hour r (rounds run :30 to :30, so this is round r).
   const at = (minute: number) => () => T0 + minute * MIN - Date.now();
   const atRound = (r: number) => at(r * 60 + 5);
@@ -93,6 +94,7 @@ async function harness() {
   const acct = (k: string, o: Partial<FakeAccount> = {}) => ({ id: `${tag}-${k}`, authorization: `${tag}-auth-${k}`, activities: [], positions: [], ...o });
   // One hourly round: runShard (the production default sync, cadence on) over every shard of this test's traders.
   const round = async (r: number): Promise<RunReport> => {
+    assert.ok(hours.owns(T0 + r * HOUR), `round ${r} is outside this test's claimed hours`);
     const shards = [...new Set(ids.map((id) => id % of))];
     const reports = [];
     for (const shard of shards) reports.push(await H.runShard({ shard: { shard, of }, ids, shiftMs: atRound(r), jitterMs: 0, config: { concurrency: 2, rps: 1000, burst: 1000, page: 500 }, log: (l) => lines.push(l) }));
@@ -125,7 +127,7 @@ async function harness() {
     if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
     if (accountIds.length) await sql`delete from broker_accounts where account_id in ${sql(accountIds)}`;
     await sql`delete from sync_shards where of = ${of}`;
-    await sql`delete from sync_read_counts where hour between ${new Date(T0 - 2 * HOUR)} and ${new Date(T0 + 100 * HOUR)}`;
+    await hours.release();
   };
   return { sql, H, S, broker, T0, at, atRound, of, tag, ids, trader, acct, round, delta, ba, marks, open, closed, dbAt, cleanup, lines };
 }
@@ -562,7 +564,6 @@ dbTest('coverage: capRatio and capBreach from the hourly read counts, the oldest
     }
   } finally {
     await h.cleanup();
-    await h.sql`delete from sync_read_counts where hour between ${new Date(h.T0 - 48 * HOUR)} and ${new Date(h.T0 + 100 * HOUR)}`;
   }
 });
 
