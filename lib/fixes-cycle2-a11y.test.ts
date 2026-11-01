@@ -120,7 +120,7 @@ for (const [name, on] of Object.entries(SCHEMES)) {
 // ---- block placement, #14 and target size ----
 const START = '/* FIXES-CYCLE2-A11Y (approval council cycle 2 fixes #12 #13 #14 #26 and range-button target size, 2026-11-01) */';
 const END = '/* end FIXES-CYCLE2-A11Y */';
-const ANCHOR = '.rt-card:focus { outline: 2px solid var(--accent); outline-offset: 2px; }';
+const ANCHOR = '.rt-card:focus { outline: 2px solid var(--focus); outline-offset: 2px; }'; // F-20 DS-27 (committee R4)
 test('the FIXES-CYCLE2-A11Y block exists once, right after .rt-card:focus, before #55\'s A11Y-FIXES block it builds on', () => {
   assert.equal(raw.split(START).length, 2, 'one opening marker');
   assert.equal(raw.split(END).length, 2, 'one closing marker');
