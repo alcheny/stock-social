@@ -178,14 +178,15 @@ export type Task = { mode: 'fix' | 'build'; number: number } | { mode: 'idle'; r
 export function pickTask(prs: OpenPr[], issues: ReadyIssue[], o: { trusted: string[]; maxAttempts: number }) {
   const stuck: { kind: 'pr' | 'issue'; number: number }[] = [];
   const parked = (labels: string[]) => labels.includes(L.stuck) || labels.includes(L.human);
-  const idle = (reason: string, plan = false) => ({ task: { mode: 'idle', reason, plan } as Task, stuck });
+  // attempt: this attempt's number (earlier attempt comments + 1), so team.ts grows the failure budget (budgetScale).
+  const idle = (reason: string, plan = false) => ({ task: { mode: 'idle', reason, plan } as Task, stuck, attempt: 0 });
 
   // 1. Failing autopilot PRs come first: finishing a set is part of the same change.
   // A PR waiting for a human only because it touches protected paths is still repaired first, so the human
   // reviews a green PR; only `stuck` stops repairs.
   for (const pr of prs.filter((p) => p.failing && !p.labels.includes(L.stuck)).sort((a, b) => a.number - b.number)) {
     if (pr.attempts >= o.maxAttempts) { stuck.push({ kind: 'pr', number: pr.number }); continue; }
-    return { task: { mode: 'fix', number: pr.number } as Task, stuck };
+    return { task: { mode: 'fix', number: pr.number } as Task, stuck, attempt: pr.attempts + 1 };
   }
   // 2. Anything still open is awaiting checks or a human decision: wait for it.
   if (prs.length) return idle(`${prs.length} open autopilot PR(s) awaiting checks or review`);
@@ -194,7 +195,7 @@ export function pickTask(prs: OpenPr[], issues: ReadyIssue[], o: { trusted: stri
   for (const is of issues.filter((i) => !parked(i.labels)).sort((a, b) => a.number - b.number)) {
     if (!o.trusted.includes(is.author)) continue; // untrusted text never reaches an agent
     if (is.attempts >= o.maxAttempts) { stuck.push({ kind: 'issue', number: is.number }); continue; }
-    return { task: { mode: 'build', number: is.number } as Task, stuck };
+    return { task: { mode: 'build', number: is.number } as Task, stuck, attempt: is.attempts + 1 };
   }
   return idle('no ready issues', true);
 }
@@ -317,7 +318,8 @@ export function renderQueue(q: { repo: string; mode: Mode; updated: string; sets
 
 // ---------- GitHub I/O ----------
 
-const sh = (cmd: string, args: string[]) => execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
+// git never runs hooks here: an agent on the same runner could have planted one, and these commands carry GH_TOKEN.
+const sh = (cmd: string, args: string[]) => execFileSync(cmd, cmd === 'git' ? ['-c', 'core.hooksPath=/dev/null', ...args] : args, { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
 const gh = (...args: string[]) => sh('gh', args);
 const ghJson = <T>(...args: string[]): T => JSON.parse(gh(...args) || 'null');
 const repo = () => process.env.GITHUB_REPOSITORY!;
@@ -412,19 +414,19 @@ function next() {
     for (const p of prs) nudge(p.number, p.headRefName, p.headRefOid);
   }
 
-  const { task, stuck } = pickTask(
+  const { task, stuck, attempt } = pickTask(
     prs.map((p) => ({
       number: p.number, labels: p.labels.map((l) => l.name), failing: ownChecks(p.headRefOid).some(failed),
       attempts: countMarker(p.comments), issue: branchInfo(p.headRefName)?.issue ?? null,
     })),
     issues.map((i) => ({ number: i.number, labels: i.labels.map((l) => l.name), author: i.author.login, attempts: countMarker(i.comments) })),
     // Request mode builds only what a human filed; other modes also accept issues from the Planner.
-    { trusted: mode === 'request' ? [env('GITHUB_REPOSITORY_OWNER')] : [env('GITHUB_REPOSITORY_OWNER'), 'app/github-actions', BOT], maxAttempts: mode === 'lines' ? Number(env('LINE_MAX_ATTEMPTS', '10')) : Number(env('MAX_ATTEMPTS', '3')) },
+    { trusted: mode === 'request' ? [env('GITHUB_REPOSITORY_OWNER')] : [env('GITHUB_REPOSITORY_OWNER'), 'app/github-actions', BOT], maxAttempts: mode === 'lines' ? Number(env('LINE_MAX_ATTEMPTS', '10')) : Number(env('MAX_ATTEMPTS', '10')) },
   );
 
   for (const s of stuck) {
     label(s.kind, s.number, L.stuck, L.human);
-    comment(s.kind, s.number, `Autopilot gave up after ${env('MAX_ATTEMPTS', '3')} attempts. A human needs to look at this.`);
+    comment(s.kind, s.number, `Autopilot gave up after ${env('MAX_ATTEMPTS', '10')} attempts. A human needs to look at this.`);
   }
   // Budget guard: at most DAILY_PR_CAP autopilot PRs opened per rolling 24h.
   const since = new Date(Date.now() - 86_400_000).toISOString().slice(0, 19) + 'Z';
@@ -443,6 +445,7 @@ function next() {
   output('mode', final.mode);
   output('plan', final.mode === 'idle' && final.plan ? 'true' : 'false');
   if (final.mode === 'idle') return console.log(`idle: ${final.reason}${final.plan ? ' → requesting a plan' : ''}`);
+  output('attempt', attempt); // final is the picked task here, so this is its attempt
 
   let variants = [SINGLE];
   if (final.mode === 'build' && mode === 'lines') {

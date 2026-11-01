@@ -137,7 +137,7 @@ pipeline scripts and the workflows. Each is a yes/no for the owner; answers are 
 |---|---|---|---|
 | 1 | Carve-out in CODEOWNERS and the Gate for `lib/session.ts`, `lib/broker.ts`, `package.json`, `package-lock.json`, scoped to feature PRs | Gate labels any PR touching them needs-human | pre-authorized (decision above); owner edits the files |
 | 2 | Raise the Gate's diff cap (`MAX_DIFF`, 800 lines) to ~4000 for `feature` PRs, or let the plan split F-1 into three sequential PRs (sign-in; connection state machine + consent + import; heavy tests) | F-1 with tests is 2k to 4k lines; every PR would go needs-human | pre-authorized 2026-10-24: the 800-line cap counts product lines only (not tests, e2e, docs or screenshots); done 2026-10-25 in `scripts/autopilot.ts` (`productLines`, feature PRs) |
-| 3 | Repo variables: `TEAM_BUDGET_USD` ≈ 60 (now 15), `BUDGET_ENGINEER` ≈ 10, `FEATURE_MAX_ATTEMPTS` 10 for F-1 then 5 | F-1's size exhausts the current budgets and attempt cap | 2026-10-26: the feature pipeline's default is now 60 (`features.yml`); the variables override it |
+| 3 | Repo variables: `TEAM_BUDGET_USD` ≈ 60 (now 15), `BUDGET_ENGINEER` ≈ 10, `FEATURE_MAX_ATTEMPTS` 10 for F-1 then 5 | F-1's size exhausts the current budgets and attempt cap | 2026-10-26: the feature pipeline's default is now 150 per run, growing with each attempt up to 4×, `BUDGET_ENGINEER` 15 and `FEATURE_MAX_ATTEMPTS` 15 (`docs/FEATURES.md` → "Permissions and the failure budget"); the variables override them |
 | 4 | Test-mode secrets created and passed to the build and CI jobs (names only): the vendor's test key pair, the email-provider sign-in client id and secret, the phone-maker sign-in team id, key id and private key, the email-sending key and from-address, a session secret, the public site URL | Only the owner creates secrets; without them the committee's running-preview test of sign-in and the portal is mocks only | |
 | 5 | One new dependency: the vendor's web SDK for the embedded portal. Everything else built without dependencies (sign-in via standard OIDC with the runtime's crypto, email via one HTTPS call, the t multiplier inline) | POLICY H: new dependencies are the owner's | |
 | 6 | One new vendor: an email-sending service for the magic link (the single Phase 1 exception to "no new vendor") | DESIGN §3 and Standing direction 3 | |
@@ -220,8 +220,8 @@ Interim rule (until request #13 is answered): any PR touching `lib/sync.ts`, `li
 - Per-feature implementation logs with the debate positions and committee verdicts.
 
 ## Open questions
-- ~~Committee rounds: a hard cap per feature?~~ Wired 2026-10-26 as `COMMITTEE_ROUNDS` (3) inside one build,
-  then the PR's fix attempts (`FEATURE_MAX_ATTEMPTS`, 5) before the owner is asked.
+- ~~Committee rounds: a hard cap per feature?~~ Wired 2026-10-26 as `COMMITTEE_ROUNDS` (5) inside one build,
+  then the PR's fix attempts (`FEATURE_MAX_ATTEMPTS`, 15, each with a larger budget) before the owner is asked.
 - Does the business lead's "market demand" debate apply to a feature the owner already decided, or
   only to how it is implemented (recommendation: only how; demand was settled in the design session)?
 - How the process is run: extend `scripts/features.ts` and `scripts/team.ts` (owner-only files) or a
