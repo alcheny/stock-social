@@ -56,8 +56,8 @@ test('month page CTA uses via="month", not "trade"', () => {
   const cta = readFileSync(new URL('../app/u/[handle]/join-cta.tsx', import.meta.url), 'utf8');
   assert.ok(cta.includes('/login?ref=${handle}&via=${via}'));
 });
-test('attribution surfaces are exactly the shareable pages (the website badge was removed)', () => {
-  assert.deepEqual([...REFERRED_SURFACES], ['profile', 'trade', 'month']);
+test('attribution surfaces are exactly the shareable pages and the nav link on them (the website badge was removed)', () => {
+  assert.deepEqual([...REFERRED_SURFACES], ['profile', 'trade', 'month', 'nav']);
 });
 test('signup derivation: month stores surface only', () => {
   const s = normalizeVia('month');
