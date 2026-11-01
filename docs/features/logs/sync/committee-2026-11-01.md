@@ -157,3 +157,10 @@ requests are timed) and the plan 40 shards x 6 workers at 12 req/s per shard.
 **Chair's change after sign-off:** a cut sync gives its round claim back (as a lock-skipped sync does) rather than
 keeping it, so the next call in the same round takes it first instead of the next round. It is strictly better for
 coverage and has no double-sync risk, since the cut sync rolled back.
+
+**Measured (signing condition met).** LOAD=1 at 40 x 6, 12 req/s per shard, three reads per account (time scaled by
+10): every healthy trader of 100,000 synced once in round 1; 0 deferred, 0 cut at a call's end, 0 false quarantines;
+the worst shard used 7.07 of 11 calls (1.56x; whole calls 7 of 11, 1.57x); the latency model is within 2.4% of its
+prediction. The first run of the guard used an unscaled 10 s margin in the time-scaled test (cutting 35,901 syncs,
+1.25x); the margin now scales with the request bound and is part of the dispatch fit check, so a trader is not
+dispatched only to be cut. Round 3 is signed on this measurement.

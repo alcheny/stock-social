@@ -29,7 +29,7 @@ const int = (v: string | undefined, dflt: number, min: number, max: number) => {
 // Defaults are today's effective rate (one worker, ~2 vendor requests a second: the sequential tick), so merging this
 // does not raise the vendor load before the switch-on gate (docs/SYNC.md; orchestrator review 2).
 // ponytail: the defaults hold production at the old sequential rate (~5k traders/hour) until the owner sets the plan's
-// SYNC_CONCURRENCY=6 and SYNC_VENDOR_RPS=10 with the 32-shard cron, after the vendor confirms the quota in writing.
+// SYNC_CONCURRENCY=6 and SYNC_VENDOR_RPS=12 with the 40-shard cron, after the vendor confirms the quota in writing.
 export const DEFAULT_CONCURRENCY = 1;
 export const DEFAULT_RPS = 2;
 export function runConfig(env: Record<string, string | undefined> = process.env): RunConfig {

@@ -70,7 +70,7 @@ Alert on `sync round incomplete`, on `breaker: true`, and on `dbConfigOk: false`
 | Variable | Default | Meaning |
 |---|---|---|
 | `SYNC_CONCURRENCY` | 1 (1–32) | workers per run; clamped to `DATABASE_POOL_MAX − 2`. The plan sets 6 at switch-on |
-| `SYNC_VENDOR_RPS` | 2 (1–1000) | vendor requests per second per shard. The plan sets 10 at switch-on |
+| `SYNC_VENDOR_RPS` | 2 (1–1000) | vendor requests per second per shard. The plan sets 12 at switch-on |
 | `SYNC_VENDOR_BURST` | = RPS | the most requests saved up |
 | `SYNC_PAGE` | 500 | traders read per queue page |
 | `SYNC_START_JITTER_MS` | 15000 | sharded calls (`of > 1`) other than shard 0 start after a random delay up to this; 0 disables |
@@ -87,33 +87,40 @@ q is its vendor requests. Each round has 11 calls (every 5 minutes, never at :30
 
 | Plan | Assumptions | Per shard per round | Total |
 |---|---|---|---|
-| **32 shards × 6 workers, RPS 10** (the plan) | p95 0.5 s per request, half the traders with 2 accounts (q ≈ 4, L ≈ 2.1 s) | design min(2.8, 2.5) × 2,310 = 5,775; **measured ≈ 4,860** | **≈ 155k, extrapolated** from the measured per-shard rate × 32 (1.55× over 100k) |
-| 16 × 6, RPS 10 | the same | ≈ 4,860 | ≈ 78k: too small |
-| of=1, defaults (1 worker, RPS 2) | the same | rate-bound: 2 / 4 = 0.5 a second × 2,310 ≈ 1.2k at p95 latency | the old sequential rate (~5k/hour at 0.5 s a trader) |
+| **40 shards × 6 workers, RPS 12** (the plan, committee round 3) | p95 0.5 s per request, half the traders with 2 accounts (q = 1 + 3 × 1.5 = 5.5, L ≈ 2.75 s) | design min(6/2.75, 12/5.5) = 2.18 a second × 2,310 ≈ 5,000; **measured ≈ 3,890** | **≈ 155k, extrapolated** from the measured per-shard rate × 40 (1.56× over 100k) |
+| 32 × 6, RPS 10 (the plan before #40's third read) | the same | measured ≈ 3,125 | ≈ 100k: no headroom |
+| of=1, defaults (1 worker, RPS 2) | the same | rate-bound: 2 / 5.5 ≈ 0.36 a second × 2,310 ≈ 840 at p95 latency | the old sequential rate (~5k/hour at 0.5 s a trader) |
 
-**Measured** (`lib/sync-shard.load.test.ts`, opt-in `LOAD=1`, 2026-11-01). The test runs 100,000 synthetic traders
-against the in-repo vendor fake on 32 shards × 6 workers. Time is scaled by 10: 50 ms a request, a 3 s request bound,
-30 s calls with a 9 s reserve, and 100 req/s per shard. Database time is not scaled, so the test errs on the
-conservative side. The database server had 100 connections, so about 11 shards ran at once (in three batches),
-not all 32. The 155k total is therefore the measured per-shard rate times 32, an extrapolation that assumes a database
-sized for 32 × 8 connections. The test drives `runShard` directly, not the route; with housekeeping in its own call
-(above), every shard's window is the same.
+**Measured** (`lib/sync-shard.load.test.ts`, opt-in `LOAD=1`, 2026-11-01, after #40). The test runs 100,000 synthetic
+traders against the in-repo vendor fake on 40 shards × 6 workers, including the share-move read. Time is scaled by 10:
+50 ms a request, a 3 s request bound, 30 s calls with a 9 s reserve, and 120 req/s per shard. Database time is not
+scaled, so the test errs on the conservative side. The database server had 100 connections, so 10 shards ran at once
+(in four batches), not all 40. The 155k total is therefore the measured per-shard rate times 40, an extrapolation that
+assumes a database sized for 40 × 8 connections. The test drives `runShard` directly, not the route; with housekeeping
+in its own call (above), every shard's window is the same.
 
 - Of the 100,000 traders, 98,912 healthy ones were synced exactly once in round 1. The 989 slow traders, whose requests
   pass the bound, counted as transient and were synced in round 2. The 99 failing traders were backed off.
-- Shards were disjoint, at 20.6 traders a second per shard in scaled time. The worst shard used 7.08 of the round's
-  11 calls (1.55× headroom); in whole calls, 8 of 11.
-- The latency-model test (one shard, real 200–500 ms latency, RPS 10, 6 workers) measured 2.58 traders a second. The
-  prediction was 2.60 (−0.6%).
+- Nothing was deferred, cut at a call's end or falsely quarantined. Shards were disjoint, at 16.5 traders a second per
+  shard in scaled time (5.45 requests a trader).
+- The worst shard used 7.07 of the round's 11 calls (**1.56× headroom**); in whole calls, 7 of 11 (1.57×).
+- The latency-model test (one shard, real 200–500 ms latency, RPS 12, 6 workers) measured 2.17 traders a second. The
+  prediction was 2.22 (−2.4%).
 
-**Why the measured figure is below the design figure.** The fit check (below) claims a 2-account trader only while 5
-request bounds (150 s) still fit before the call's end. Late in each call a shard therefore claims only 1-account
-traders, and 2-account traders wait for the next call. This keeps a worst-case sync from overrunning, at the cost of
-about 15% of a mixed shard's throughput. A shard whose traders all have many accounts gets proportionally less
-throughput: size N for the real account distribution.
+**Why the measured figure is below the design figure.** The database's own time (about 17 ms a sync) is not scaled in
+the test, and the workers spend time waiting for pool connections. At production speed, a trader's sync is measured at
+2.89 s, giving min(C/L = 2.07, RPS/requests = 2.20) ≈ 2.07 a second per shard. The plan has no concurrency slack:
+C/L and RPS/requests are nearly equal, so latency spread lowers throughput directly. Re-measure on the real account
+distribution before switch-on.
 
-**Database:** peak connections are `N × (C + 2)` = 32 × 8 = **256**, plus the rest of the app. A pooler does not reduce
-this: each held transaction pins a server connection. Size the server for about 300 backends (`max_connections` ≥ 300,
+**Fit rule (committee round 3).** A trader is dispatched only if its requests fit before the call's end at the run's
+observed p99, plus one whole bound for a straggler, plus a 10 s margin (all at the bound until 50 requests are timed).
+The run's first trader is always dispatched. A vendor request that could end in the call's last 10 s is refused
+(`RouteDeadlineError`). The trader's transaction then rolls back, so nothing is published, and its round claim goes
+back for the next call (`cutAtDeadline`). The platform never kills a sync mid-way.
+
+**Database:** peak connections are `N × (C + 2)` = 40 × 8 = **320**, plus the rest of the app. A pooler does not reduce
+this: each held transaction pins a server connection. Size the server for about 360 backends (`max_connections` ≥ 340, the coverage check's `N × (C + 2) + 20`,
 and memory for them: `work_mem` × backends must fit next to `shared_buffers`). Set timeouts at the role level, for
 example:
 
@@ -143,21 +150,21 @@ Sharded (after the switch-on gate): one entry per shard plus the housekeeping en
 
 ```json
 { "crons": [
-  { "path": "/api/sync?shard=0&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
-  { "path": "/api/sync?shard=1&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
+  { "path": "/api/sync?shard=0&of=40", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
+  { "path": "/api/sync?shard=1&of=40", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
   …
-  { "path": "/api/sync?shard=31&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
-  { "path": "/api/sync?task=housekeeping&of=32", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }
+  { "path": "/api/sync?shard=39&of=40", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" },
+  { "path": "/api/sync?task=housekeeping&of=40", "schedule": "0,5,10,15,20,25,35,40,45,50,55 * * * *" }
 ] }
 ```
 
 
 - **Today (until the gate below is met):** one call `/api/sync` (shard 0 of 1) every 5 minutes, never at :30:
   `0,5,10,15,20,25,35,40,45,50,55 * * * *`. It does everything, at the default rate.
-- **Sharded plan:** 32 calls on that same schedule, `/api/sync?shard=i&of=32` for i = 0…31, plus **one housekeeping
-  call** `/api/sync?task=housekeeping&of=32` on the same schedule. Configure them as 33 cron entries, or one scheduler
-  job that sends all 33 at once. Each call has `maxDuration` 300 s. The random start delay spreads them out. Set
-  `SYNC_CONCURRENCY=6`, `SYNC_VENDOR_RPS=10` and `DATABASE_POOL_MAX=8` (C + 2).
+- **Sharded plan:** 40 calls on that same schedule, `/api/sync?shard=i&of=40` for i = 0…39, plus **one housekeeping
+  call** `/api/sync?task=housekeeping&of=40` on the same schedule. Configure them as 41 cron entries, or one scheduler
+  job that sends all 41 at once. Each call has `maxDuration` 300 s. The random start delay spreads them out. Set
+  `SYNC_CONCURRENCY=6`, `SYNC_VENDOR_RPS=12` and `DATABASE_POOL_MAX=8` (C + 2).
 - Runs with different shard counts do not exclude each other: a manual unsharded call during an `of=N` schedule adds
   its own vendor budget (round claims still prevent any double sync). Avoid manual calls while sharded.
 - Changing N is safe at any time: round claims carry over, so nobody is synced twice. Leases are per (N, shard), so
@@ -167,8 +174,11 @@ Sharded (after the switch-on gate): one entry per shard plus the housekeeping en
 
 Every item below must hold. Until then, the cron stays at `of=1`.
 
-1. **The vendor has confirmed the quota in writing**: at least `N × SYNC_VENDOR_RPS` (320 req/s for the plan), for the
-   plan's account. If the quota is lower, the quota caps capacity, not N. Lower RPS and re-run the capacity table.
+1. **The vendor has confirmed in writing both the quota and its cost**: at least `N × SYNC_VENDOR_RPS` (480 req/s for the
+   plan), plus housekeeping's import and deletion calls, for the plan's account. If the quota is lower, the quota caps
+   capacity, not N: lower RPS and re-run the capacity table. Whether the share-move read must run hourly is an open
+   question for the owner and F-14 (sync cadence): read daily, it would cut the cost per account from 3 requests to
+   about 2.
 2. **The "Last updated ‹date›" line has shipped.** A connected record whose last sync is over 24 h old must say so on the
    profile and the open-positions block (owner decision via the three-variant process). Without it, a trader in backoff
    keeps a record that looks live.
