@@ -664,11 +664,19 @@ test('fix round 4 (TR-3): a trader whose second import failed stays in the feed,
   await scenario([{ id: a2, activities: recent(a2, 2) }, { id: a3, activities: recent(a3, 2) }]);
   await connectThrough(page);
   await expect(page).toHaveURL(/\/connect\/consent\?c=\d+$/);
-  await page.getByRole('button', { name: 'Import my record' }).click();
-  await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
-  expect((await step(page.request)).state).toBe('importing');
-  await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
-  expect((await step(page.request)).state).toBe('failed');
+  // Known-limits sweep 2026-11-01: another file's cron tick drives every importing connection, so one landing between
+  // these steps finished the import early (flaky in full runs). The tick callers hold e2e/cron-lock.ts shared; this
+  // holds it exclusively from consent to the failure, so only these steps move this import.
+  const noTicks = await cronLock('exclusive');
+  try {
+    await page.getByRole('button', { name: 'Import my record' }).click();
+    await expect(page).toHaveURL(new RegExp(`/u/${handle}$`));
+    expect((await step(page.request)).state).toBe('importing');
+    await fetch(`${vendor.base}/_fail`, { method: 'POST', body: JSON.stringify({ status: 403, times: 1 }) });
+    expect((await step(page.request)).state).toBe('failed');
+  } finally {
+    await noTicks();
+  }
   // Signed out: still in the feed (incompleteness is never hidden), but never presented as whole.
   await feed.goto('/');
   await expect(feed.locator(`a[href="/u/${handle}"]`).first()).toBeAttached();

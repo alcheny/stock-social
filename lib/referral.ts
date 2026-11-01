@@ -9,7 +9,8 @@ export function normalizeHandle(raw: unknown): string | null {
 export const REFERRED_VIA = ['profile', 'trade'] as const;
 export type ReferredVia = (typeof REFERRED_VIA)[number];
 // Which surface's call to action brought the signup (referred_surface column; validated here, no CHECK).
-export const REFERRED_SURFACES = ['profile', 'trade', 'month'] as const;
+// Fix #28 (cycle 2): 'nav' is the nav's sign-in link on a profile (app/nav-login.tsx); it was sent but dropped here.
+export const REFERRED_SURFACES = ['profile', 'trade', 'month', 'nav'] as const;
 export type ReferredSurface = (typeof REFERRED_SURFACES)[number];
 export function normalizeVia(v: unknown): ReferredSurface | null {
   if (typeof v !== 'string') return null;
@@ -19,7 +20,10 @@ export function normalizeVia(v: unknown): ReferredSurface | null {
 export function legacyVia(s: ReferredSurface | null): ReferredVia | null {
   return s === 'profile' || s === 'trade' ? s : null;
 }
-export const ctaVia = (raw: unknown): ReferredSurface => normalizeVia(raw) ?? 'profile';
+// A join button's own surface: the page it sits on. 'nav' is only the nav link's (app/nav-login.tsx), so a hand-typed
+// ?via=nav on a profile still attributes that profile's join button to the profile (cycle 2 review of fix #28).
+export type CtaSurface = Exclude<ReferredSurface, 'nav'>;
+export const ctaVia = (raw: unknown): CtaSurface => { const v = normalizeVia(raw); return v && v !== 'nav' ? v : 'profile'; };
 
 export type Referrer = { id: number; handle: string; isDemo: boolean };
 

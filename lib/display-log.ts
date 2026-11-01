@@ -68,6 +68,9 @@ export async function writeDisplayLog(opts: { now?: Date; boxMs?: number; batch?
   const end = clock() + Math.min(opts.boxMs ?? DISPLAY_LOG_BOX_MS, DISPLAY_LOG_BOX_MS);
   const batch = opts.batch ?? DISPLAY_LOG_BATCH;
   let after = 0, written = 0;
+  // ponytail: one snapshot per trader, one after another (~5 queries and a whole-record read each) inside a 20 s box per
+  // tick, so past (ticks per day × box ÷ time per trader) records get no row that day — snapshot a batch in one
+  // set-based query, or run it as its own job that reports its backlog.
   for (;;) {
     const users = await sql`select u.id from users u where u.deleted_at is null and u.id > ${after}
       ${opts.ids ? sql`and u.id in ${sql(opts.ids.length ? opts.ids : [0])}` : sql``}

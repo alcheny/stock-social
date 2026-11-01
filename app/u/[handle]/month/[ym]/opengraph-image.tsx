@@ -5,6 +5,7 @@
 // import is never labelled Verified; an import still running shows no record stats). The alt text is declared by the
 // month page's generateMetadata (it depends on the record).
 import { ImageResponse } from 'next/og';
+import { notFound } from 'next/navigation';
 import { DISCLAIMER } from '@/lib/share.ts';
 import { loadRecap } from '@/lib/recap-load.ts';
 import { monthStripInput, recordStripInput } from '@/lib/recap.ts';
@@ -18,14 +19,10 @@ export const contentType = 'image/png';
 
 export default async function Card({ params }: { params: Promise<{ handle: string; ym: string }> }) {
   const { handle, ym } = await params;
-  const r = await loadRecap(handle, ym).catch(() => null);
-
-  if (!r) {
-    const shell = { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 64, background: '#0b0b0f', color: '#f4f4f6', fontFamily: 'sans-serif' } as const;
-    return new ImageResponse((
-      <div style={shell}><span style={{ fontSize: 36, fontWeight: 800 }}>Stock Social</span><span style={{ fontSize: 72, fontWeight: 800 }}>Recap not found</span><span /></div>
-    ), size);
-  }
+  // Cycle-2 fix #20: a missing recap (unknown handle, invalid month, a month without trades) is a 404, as the profile
+  // card is, never a 200 picture saying "not found" that a link preview would show.
+  const r = await loadRecap(handle, ym);
+  if (!r) notFound();
 
   const { lines } = monthBand(r, recordStrip(recordStripInput(r), 'image'), recordStrip(monthStripInput(r), 'figures'));
   return new ImageResponse(<RecordStripImage lines={disclaimerAtFoot(lines)} disclaimer={DISCLAIMER} />, size);

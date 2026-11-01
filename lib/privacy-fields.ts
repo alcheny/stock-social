@@ -29,6 +29,7 @@ export const NOT_A_FIELD: Record<string, string> = {
   'closed_trades.trade_key': 'key (hash of sell_id)', 'closed_trades.verified': 'shown as the Verified badge',
   'closed_trades.thesis': 'written by the trader', 'closed_trades.thesis_status': 'moderation state',
   'open_positions.user_id': 'key', 'open_positions.fetched_at': 'freshness, internal',
+  'closed_trades.sell_imported_at': 'when the closing sell was imported, internal (feed paging)',
 };
 
 const list = (xs: string[]) => (xs.length > 2 ? `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}` : xs.join(' and '));
