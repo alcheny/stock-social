@@ -113,19 +113,24 @@ a note was held.
       dates for a held note. Checked signed out and signed in as another user (e2e with a seeded held thesis that
       contains a unique marker string).
 - [ ] Any response that contains `heldLine` text is sent with `Cache-Control: private, no-store`. The responses of
-      `/u/<handle>/pane`, `/u/<handle>/pane-chart` and every `opengraph-image` never contain it (e2e header and body
-      check).
+      `/u/<handle>/pane`, `/u/<handle>/pane-chart`, `/u/<handle>/story` and every `opengraph-image` never contain it
+      (e2e header and body check).
 - [ ] The trade page's `generateMetadata` and its `opengraph-image` route read no session and select no thesis status,
       hold rule or note date for a non-published note. Only the page body reads the session, for the author check
       (source test, as `lib/feed.signed-out.test.ts`).
 - [ ] For one seeded trade, a viewer fetches the trade page before and after its thesis is set to held. The `<main>`
       HTML, `<title>`, meta description and `og:image` URL are identical (e2e, same viewer, per-request tokens
       stripped).
+- [ ] For one seeded trade, the same viewer (signed out, and signed in as another user) fetches before and after the
+      hold: `/`, one feed paging-action response, `/u/<handle>`, `/u/<handle>/pane`, `/u/<handle>/pane-chart`, the
+      month page and `/t/<SYMBOL>`. Each body, with per-request tokens stripped, and each `Cache-Control` header is
+      identical before and after (e2e).
 - [ ] For a viewer, the feed, pane, profile and trade page run the same SQL statements for a held note as for no note
       (query-log test). No count shown to viewers (notes count, "Showing N", likes or hidden counts) includes held
       notes.
 - [ ] F-9's report confirmation is the same string for a report below the hold threshold and for the report that
-      reaches it (unit test on the report action's result).
+      reaches it (unit test on the report action's result). Reporting an already-held note gets the same response as
+      reporting a note its author removed (unit test).
 - [ ] The trade page, viewed by its author, shows `heldLine(rule)` and an "Edit it on your profile" link that lands on
       the profile row with its edit field present, including for a trade outside the first 50 closes (e2e). The
       `count(*)` behind the link runs only for the author (query-log test).

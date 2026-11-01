@@ -96,9 +96,10 @@ Item-by-item outcomes are in `revisions.md`.
 | Accessibility and legal | SIGN (R3-1, R3-2 applied) | SIGN (r2) | SIGN (R3-3 applied) |
 
 ## Owner questions raised (not decided)
-1. **F-27:** may the dark share images move gain and loss to the page tones #3cc4b4 / #ff8a5b? The committee
+1. **F-27** (the same question as F-20's OQ-1 on `claude/f20-design-tokens`; one answer settles both): may the dark share images move gain and loss to the page tones #3cc4b4 / #ff8a5b? The committee
    recommends yes. Image colours are the owner's (F-20, O-2).
-2. **F-27 → F-20:** if the answer to 1 is no, F-20 as decided cannot pass. Its colour-blind floor covers images,
+2. **F-27 → F-20:** this blocks F-20's image criterion, not its whole build (F-20's branch carries it as a `todo`
+   test). If the answer to 1 is no, F-20's image criterion cannot pass as decided. Its colour-blind floor covers images,
    while its table must keep the old dark pair, which measures 6.3 ΔE00 under deutan. The owner must choose between
    a named image exemption recorded in F-20 and the hue change. No builder lowers the floor.
 3. **F-25 (note, not a choice):** the consent copy and `lib/privacy-fields.ts` call `sell_id` "never shown". Every
@@ -111,3 +112,19 @@ Item-by-item outcomes are in `revisions.md`.
 - F-9's answer to a repeat report by the same user should not depend on whether the note is held.
 - The `role="status"` on failed-import cards announces on every appended feed page. This is noted for F-11 and F-20.
 - F-25 hides the "✓" glyph in the Verified badge from screen readers in the `Badge` component, so it applies everywhere the badge shows.
+
+## Fix round after independent review (2026-11-01)
+
+The orchestrator relayed an independent review of 7ea9c3a. The chair applied it as doc edits, with no new decision
+beyond what the review found:
+- **F-25.** F-15's view count matched trade views by `sell_id` (`lib/views.ts` `viewedUserId`). It now matches by
+  `trade_key`, recorded as a new decision with a db test.
+- **F-25.** The 308 keeps the query string, so `?via=` survives on old links.
+- **F-25.** The legacy lookup applies the share page's visibility rule before redirecting, so a hidden filer's
+  `sell_id` gets a 404.
+- **F-25.** `e2e/similar.spec.ts:105` is added to the test-update list.
+- **F-26.** The before/after identity check now covers the feed, a paging response, the profile, both pane routes, the
+  month page and the stock page, with `Cache-Control`. `/u/<handle>/story` joins the no-held-line check. Reporting an
+  already-held note answers like reporting a removed one.
+- **F-27 and owner Q1/Q2.** These cite F-20's OQ-1 so the owner answers once. Q2 blocks F-20's image criterion only.
+- **F-7.** An additive dated line points to F-25's amendment of AC20.

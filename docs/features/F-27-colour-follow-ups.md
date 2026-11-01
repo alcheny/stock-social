@@ -98,7 +98,8 @@ is still told apart from a loss mainly by hue.
 - `role="status"` on every failed card announcing on appended pages (logged for F-20 and F-11).
 
 ## Open questions
-- Owner: may the dark share images move gain/loss from #22c55e / #f43f5e to the page's #3cc4b4 / #ff8a5b? The values
+- Owner (the same question as F-20's OQ-1 on `claude/f20-design-tokens`; one answer settles both): may the dark
+  share images move gain/loss from #22c55e / #f43f5e to the page's #3cc4b4 / #ff8a5b? The values
   live in `lib/record-strip.ts` `IMAGE_COLOURS` and `app/u/[handle]/record-card-image.tsx` `C`, or in F-20's single
   table once built. **The committee recommends yes:**
   - the share card and the page it opens then use one colour per meaning;
@@ -108,7 +109,8 @@ is still told apart from a loss mainly by hue.
   The table's `ok` key (also #22c55e, the Verified tone) would stay unless the owner says otherwise. A yes becomes a
   dated decision with its own criteria, added to this file before build: the image table equals the page tones, a
   parity test, and ≥ 4.5:1 on the image background. A no or no answer changes nothing in this feature.
-- Owner (blocks F-20's build, not only this file): if the owner says no to the hue change, F-20 as decided cannot
+- Owner (blocks F-20's image criterion, not F-20's whole build; F-20's branch carries it as a `todo` test under
+  OQ-1): if the owner says no to the hue change, F-20 as decided cannot
   pass. Its colour-blind floor covers images ("Images are not exempt", ΔE00 ≥ 9, never lowered). The old dark image
   pair is 6.3 ΔE00 under deutan, while F-20's table must equal today's values. The owner must then choose between:
   - a named image exemption recorded in F-20;

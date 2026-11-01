@@ -171,7 +171,8 @@ they unblock, their files and merge positions are as follows.
 - **F-25 one link rule for trade rows.** It builds after F-26, F-9 and F-11.
   - Files: new `lib/trade-href.ts`; the trade route's legacy redirect (page body and image route); the row links in
     `app/pane.tsx`, `lib/pane.ts`, `app/t/[symbol]/**` and the month page; the card footer in `app/ui.tsx`; the
-    shared footer constant in `lib/copy.ts`; `/me/record` and `app/actions.ts`; the label in `lib/privacy-fields.ts`.
+    shared footer constant in `lib/copy.ts`; `/me/record` and `app/actions.ts`; the label in `lib/privacy-fields.ts`; the trade match in `lib/views.ts`
+    (`viewedUserId`, F-15's view counting).
   - It supersedes F3-8's naming of the stock-page rows.
 - **F-27 colour follow-ups.** It builds after F-20 and F-11.
   - Files: a `WarnNotice` component and `.warn-notice` rules, the bar baseline in `app/t/[symbol]/Spread.tsx` and

@@ -18,20 +18,27 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
   and the surface is not already that profile or that stock. Nothing that holds a link is itself a link. Why: decided
   by the committee under the owner's instruction of 2026-11-01; one predictable destination per thing tapped (C3-41),
   and the trade page is the one place that shows the note, the strip and Share.
-- 2026-11-01: Trade URLs move from the vendor id to the stored key: `/u/<handle>/trade/<trade_key>`. `trade_key` is the
-  existing generated column `encode(sha256(sell_id with backslashes doubled), 'hex')` (`db/schema.sql:404`, indexed by
-  `closed_trades_trade_key`). It depends only on `sell_id`, which `rebuildTrades` reproduces from the same activities,
-  so it is stable across rebuilds (likes and rejects already rely on that, `lib/likes.ts:3`). The route looks up, in
-  order: (1) `(handle, trade_key)`; (2) otherwise `(handle, sell_id)`, answered with `permanentRedirect` (308) to the
-  `tradePageHref` URL; (3) otherwise `notFound()`. That covers any unknown segment, including another handle's
-  `sell_id`, and it never redirects. The lookup, legacy branch included, is a database read in the page body and in
-  the `opengraph-image` route. It never happens in `proxy.ts` (hashing there would 308 junk segments to pages that then
-  404) and never in `generateMetadata` (a redirect thrown there can stream as a soft redirect). The `[sellId]` folder
-  name stays; only the variable is renamed, so the six file-reading tests F-11's branch also edits are not churned.
-  The share image, canonical URL and metadata use the `trade_key` URL. No rendered href, `data-*` attribute, form
-  field, client prop, RSC payload or JSON response carries a `sell_id`. Why: decided by the committee under the owner's
-  instruction of 2026-11-01; shared links are permanent and must keep working, F-25 puts trade URLs on the signed-out
-  feed and the pane, and a 308 for a page that does not exist would be cached forever.
+- 2026-11-01: Trade URLs move from the vendor id to the stored key: `/u/<handle>/trade/<trade_key>`. `trade_key` is
+  the existing generated column `encode(sha256(sell_id with backslashes doubled), 'hex')` (`db/schema.sql:404`,
+  indexed by `closed_trades_trade_key`). It depends only on `sell_id`, which `rebuildTrades` reproduces from the same
+  activities, so it is stable across rebuilds (likes and rejects already rely on that, `lib/likes.ts:3`). The route
+  looks up, in order: (1) `(handle, trade_key)`; (2) otherwise `(handle, sell_id)`, answered with `permanentRedirect`
+  (308) to the `tradePageHref` URL; (3) otherwise `notFound()`. That covers any unknown segment, including another
+  handle's `sell_id`, and it never redirects. Step (2) applies `loadTradeShare`'s visibility rule (a deleted user, a
+  hidden or removed public filer) before it redirects, so a 308 never reveals the `trade_key` of a page that then
+  404s. The 308 keeps the request's query string, so `?via=` on an old shared link survives the redirect. The lookup,
+  legacy branch included, is a database read in the page body and in the `opengraph-image` route. It never happens in
+  `proxy.ts` (hashing there would 308 junk segments to pages that then 404) and never in `generateMetadata` (a
+  redirect thrown there can stream as a soft redirect). The `[sellId]` folder name stays; only the variable is
+  renamed, so the six file-reading tests F-11's branch also edits are not churned. The share image, canonical URL and
+  metadata use the `trade_key` URL. No rendered href, `data-*` attribute, form field, client prop, RSC payload or JSON
+  response carries a `sell_id`. Why: decided by the committee under the owner's instruction of 2026-11-01; shared
+  links are permanent and must keep working, F-25 puts trade URLs on the signed-out feed and the pane, and a 308 for a
+  page that does not exist would be cached forever.
+- 2026-11-01: F-15's view counting follows the URL: `lib/views.ts#viewedUserId` matches a trade view by `c.trade_key =
+  detail` instead of `c.sell_id = detail`, under the same visibility rule. Neither the key nor the id is stored. Why:
+  decided by the committee under the owner's instruction of 2026-11-01; every trade URL carries the key after F-25, so
+  matching the old id would silently count no trade-page views.
 - 2026-11-01: `lib/privacy-fields.ts` relabels `closed_trades.trade_key` from "key (hash of sell_id)" to "key (hash of
   sell_id; shown in trade-page URLs)". `closed_trades.sell_id` keeps "never shown", and the consent line (owner copy)
   is unchanged. Why: decided by the committee under the owner's instruction of 2026-11-01; the inventory must match the
@@ -61,15 +68,15 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
 - 2026-11-01: Feed card. The card stays as F-10 built it: name → `/u/<handle>`, symbol → `/t/<SYMBOL>`, no card-wide
   link, and the big return figure is not a link. The footer holds two text links, set at 0.875rem, in this order:
   "This trade →" (trade page; accessible name "This trade: ‹SYMBOL› ‹Gain|Loss|Flat› ‹signed %›", symbol and figure in
-  a visually hidden span, the arrow `aria-hidden`) and "Record, wins and losses →" (profile; the arrow `aria-hidden` and a visually hidden handle after the visible
-  text, so its accessible name is "Record, wins and losses: @‹handle›"). At 360 px the card's
-  content box is 320 px and the footer is 16 px today; at 0.875rem the two links measure about 286 px in the e2e font
-  (`e2e/fonts.conf`), about 11% spare. They share one line at 360 px and wider and stack below 360 px.
-  Each has a hit box at least 44 px tall. The trade link never replaces the profile link. The card's href is built on
-  the server from `page.cards` (which already holds the row), with no new query. Why: decided by the committee under
-  the owner's instruction of 2026-11-01; F-2 reserves taps on the card body for the double-tap like, and a link on the
-  largest element in the middle of the card would turn the first tap of a double tap into navigation. The measured
-  widths leave room on one line only with the shorter text and size.
+  a visually hidden span, the arrow `aria-hidden`) and "Record, wins and losses →" (profile; the arrow `aria-hidden`
+  and a visually hidden handle after the visible text, so its accessible name is "Record, wins and losses:
+  @‹handle›"). At 360 px the card's content box is 320 px and the footer is 16 px today; at 0.875rem the two links
+  measure about 286 px in the e2e font (`e2e/fonts.conf`), about 11% spare. They share one line at 360 px and wider
+  and stack below 360 px. Each has a hit box at least 44 px tall. The trade link never replaces the profile link. The
+  card's href is built on the server from `page.cards` (which already holds the row), with no new query. Why: decided
+  by the committee under the owner's instruction of 2026-11-01; F-2 reserves taps on the card body for the double-tap
+  like, and a link on the largest element in the middle of the card would turn the first tap of a double tap into
+  navigation. The measured widths leave room on one line only with the shorter text and size.
 - 2026-11-01: The footer's profile link reads "Record, wins and losses →" on connected and F-7 public-record cards
   alike. This amends F-7 AC20 ("See their record, wins and losses →"); F-7's file is not edited, and the amendment
   lives here. One `lib/copy.ts` constant serves both `app/ui.tsx` (an inline string today) and `PUBLIC.cardFooter`, so
@@ -134,8 +141,12 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
       seeded sell ids carrying a unique marker).
 - [ ] `GET /u/<handle>/trade/<sell_id>` and `GET /u/<handle>/trade/<sell_id>/opengraph-image`, fetched with
       `maxRedirects: 0`, answer 308 with `Location` equal to the `tradePageHref` form. Following that, the page answers
-      200 and the image renders (200, `image/png`). An unknown segment in either form, including another handle's
-      `sell_id`, answers 404 with no redirect (e2e).
+      200 and the image renders (200, `image/png`). An unknown segment in either form, another handle's `sell_id`, and
+      the `sell_id` of a hidden or removed public filer or a deleted user answer 404 with no redirect (e2e).
+- [ ] `GET /u/<handle>/trade/<sell_id>?via=trade` with `maxRedirects: 0` answers 308 with `Location` equal to
+      `tradePageHref(...) + '?via=trade'`, and the landed page's view beacon records `via=trade` (e2e).
+- [ ] A view beacon for `/u/<handle>/trade/<trade_key>` counts one trade view for that trader, and one for
+      `/u/<handle>/trade/<sell_id>` counts none (db test beside `lib/f15-views.db.test.ts`).
 - [ ] The legacy lookup and its redirect live in the trade page body and the `opengraph-image` route, and in neither
       `proxy.ts` nor `generateMetadata` (source test).
 - [ ] `lib/privacy-fields.ts` labels `closed_trades.trade_key` "key (hash of sell_id; shown in trade-page URLs)" and
@@ -171,6 +182,7 @@ the signed-out feed would widen the mismatch, so the URL changes in the same fea
         `e2e/fixes-cycle2-a11y.spec.ts:282,288,294,330,359-361`, `e2e/a11y-feed.spec.ts:174`) are narrowed to
         `footer a[href="/u/<handle>"]`;
       - `e2e/connect.spec.ts:663` asserts `a.trow[href^="/u/<handle>/trade/"]` (destination changed by this feature);
+      - `e2e/similar.spec.ts:105` expects the similar-trades href in the `trade_key` form;
       - `e2e/app.spec.ts:519` expects the new-trades link's href in the `trade_key` form; `e2e/app.spec.ts:413-418`
         are unchanged and now exercise the legacy redirect and the 404.
 - [ ] `e2e/record-strip.spec.ts:168` asserts zero links matching `/(See t|T)heir record, wins and losses|Record, wins
