@@ -1,14 +1,14 @@
 # F-22 · Transfers as share moves, not repricings
 
 Status: blocked
-Blocked: waits for the owner's yes on amending the matcher's transfer rule (`lib/trades.ts:52` "an unpriceable action taints them" and the corporate-actions committee's "when in doubt, exclude and count"), F-14 (`claude/f14-sync-cadence`, `lib/sync.ts`) and cycle-3 fixes F3-1, F3-5, F3-15 (`lib/trades.ts`, exclusion copy)
+Blocked: waits for the owner's yes on amending the matcher's transfer rule (`lib/trades.ts:52` "an unpriceable action taints them" and the corporate-actions committee's "when in doubt, exclude and count"), F-14 (PR #64, `claude/f14-sync-cadence`, `lib/sync.ts`) and cycle-3 fixes F3-1, F3-5, F3-15 (`lib/trades.ts`, exclusion copy)
 Start conditions: the owner answers the flag in `docs/ideas/approval-2026-11-01-cycle3.md` (Flags for the owner, 1) with
-yes; F-14 merges (both edit `lib/sync.ts`); fixes F3-1, F3-5 and F3-15 merge, and the `claude/fix-truthful-labels`
+yes; F-14 (PR #64) merges (both edit `lib/sync.ts`); fixes F3-1, F3-5 and F3-15 merge, and the `claude/fix-truthful-labels`
 branch merges or is closed (both edit `lib/trades.ts` or the exclusion copy). Shares one build slot (the ledger slot)
 with F-24.
 
 ## Why
-Every TRANSFER is read as an unpriceable corporate action (`lib/corporate-actions.ts:200` at d98f32d) and taints every
+Every TRANSFER is read as an unpriceable corporate action (`lib/corporate-actions.ts:200` at 3d66114) and taints every
 lot on the pair (`lib/trades.ts:171`). Fictional probes from council cycle 3: transfer 1 share in, sell the 100
 recorded units at a loss → the loss becomes a "corporate action" count; transfer 1 out, sell 99 → excluded; transfer
 the whole position out → no trade, no count, no line. Any trader can trigger the last case at will, so a Verified

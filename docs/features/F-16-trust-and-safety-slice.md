@@ -1,7 +1,7 @@
 # F-16 · Trust and safety slice: profile report, owner digest, audited hide, takedown page
 
 Status: blocked
-Blocked: waits for F-9 to merge from `claude/fix-user-text-safety` with F-9's acceptance criteria met on main (fix #4 merged in #59)
+Blocked: waits for F-9 to merge (PR #65, `claude/fix-user-text-safety`) with F-9's acceptance criteria met on main (fix #4 merged in #59)
 Start conditions: F-9 (thesis safety, which adds `lib/reports.ts`) and fix #4 (one shared visible-user predicate)
 merge first.
 
@@ -131,7 +131,8 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
 - [ ] The hide's audit row and the hide commit in one transaction (db test: a failed audit insert leaves no hide).
 
 ## Out of scope
-- The under-18 report category and attestation version (K18) wait for the next cycle.
+- The under-18 report category and attestation version (K18) wait for the next cycle. (Superseded for the report
+  category by the cycle-3 decision above: the under-18 report category is in scope; the attestation version is not.)
 - Email sending of the digest: waits for the owner to choose a sender.
 - Hiding a single trade (never: TR-1).
 - The anti-impersonation line on share cards, link previews or story images (F-4 owner decisions).
@@ -139,6 +140,8 @@ business council's BC-2 remainder and BC-17 and the market council's MRC2-6. App
 - Retiring handles forever (O-9): owner.
 
 ## Open questions
+- Owner: K18's age-assurance method stays the owner's (approval council cycle 3, flag 6); this feature uses no date of
+  birth, ID or age estimation.
 - Owner: approve the takedown page wording and the anti-impersonation line before real users reach them.
 - Owner: choose an email sender, if the digest should ever be emailed.
 

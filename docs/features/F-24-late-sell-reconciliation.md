@@ -1,12 +1,12 @@
 # F-24 · Late-posted trades reach the record (insert-only reconciliation)
 
 Status: blocked
-Blocked: waits for F-14 (sync cadence, `claude/f14-sync-cadence`, rewrites `syncUser` and owns the per-account read limit)
-Start conditions: F-14 merges. Shares one build slot (the ledger slot) with F-22; whichever starts second merges
+Blocked: waits for F-14 (sync cadence, PR #64, `claude/f14-sync-cadence`, rewrites `syncUser` and owns the per-account read limit)
+Start conditions: F-14 (PR #64) merges. Shares one build slot (the ledger slot) with F-22; whichever starts second merges
 `main` first.
 
 ## Why
-The hourly read starts at the newest stored activity minus 7 days (`lib/sync.ts:12`, `:381` at d98f32d), so a row the
+The hourly read starts at the newest stored activity minus 7 days (`lib/sync.ts:12`, `:381` at 3d66114), so a row the
 vendor posts later with an older trade date is never read. A missed sell drops a close from a Verified record; a
 missed buy turns a later sell into an "earlier position" exclusion. Council cycle 3 brief C3-9, split in round 0: this
 is part (a), the late-row reconciliation; part (b), keeping vendor corrections in a revisions table, goes to the owner
@@ -29,7 +29,8 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
   approved by the approval council (cycle 3); red team, CS (veto condition: LG, CS).
 - 2026-11-01: A row with a new id that matches an existing row's account, symbol, time, units and price is never
   merged and never published twice silently: it is counted as a possible re-issue for the owner. Two genuine identical
-  fills must both survive. Identity stays `unique(source, external_id)`. Why: approved by the approval council
+  fills must both survive: rows with different ids are both kept when the vendor's full read lists both, and a row is
+  treated as a re-issue only when its original id is absent from that full read. Identity stays `unique(source, external_id)`. Why: approved by the approval council
   (cycle 3); RE, TS, DK (veto condition: DK, CS).
 - 2026-11-01: No "late", "corrected" or "new" wording or styling on a found close, nothing that implies the trader
   edited anything; "updated" keeps meaning the last successful vendor read. Theses stay attached by `sell_id`. Why:

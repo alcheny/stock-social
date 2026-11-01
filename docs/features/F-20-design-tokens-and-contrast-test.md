@@ -1,7 +1,7 @@
 # F-20 · Design tokens and the contrast test
 
 Status: blocked
-Blocked: waits for PR #55 (F-13, carrying `lib/a11y-contrast.test.ts`) and cycle-2 fixes #12, #13, #26
+Blocked: waits for cycle-2 fix #26 (light gain/loss under deuteranopia) and a check that PR #55 (merged as 92d03f4, with `lib/a11y-contrast.test.ts`) covered fixes #12 and #13
 Start conditions: fixes #12, #13 and #26 merge, and the F-13 contrast-test branch (`lib/a11y-contrast.test.ts` on
 `claude/f13-a11y-fixes`) merges. F-20 lands before F-18 in their shared `app/globals.css` slot.
 
@@ -46,8 +46,9 @@ test that every later change must pass. Approved by the approval council
   A11Y, DV (veto condition: DK, CS).
 
 - 2026-11-01: Lapsed at approval council cycle 3 (its prerequisites had not merged) and **re-approved by the approval
-  council, cycle 3** (`docs/ideas/approval-2026-11-01-cycle3.md`: second-vote mean 3.67, final vote 15/15). Every decision above stands word for word. It
-  starts after PR #55 (which carries `lib/a11y-contrast.test.ts`) and fixes #12, #13 and #26 merge. F-18 is not
+  council, cycle 3** (`docs/ideas/approval-2026-11-01-cycle3.md`: second-vote mean 3.67, final vote 15/15). Every decision above stands word for word. PR #55
+  (which carries `lib/a11y-contrast.test.ts` and the contrast and control-boundary fixes) merged as 92d03f4 during this
+  council; F-20 starts once fix #26 merges and the build session confirms #55 covered fixes #12 and #13. F-18 is not
   re-approved this cycle, so F-20 holds its own build slot. If those have not merged by the next approval council
   (cycle 4), this approval lapses to that council. Why: approved by the approval council (cycle 3); lapse rule; DK.
 - 2026-11-01: The tested pairs are listed by name: the disclaimer text, gain, loss and Flat tones (ΔE00 ≥ 9 under
@@ -90,6 +91,8 @@ test that every later change must pass. Approved by the approval council
 - One image palette and image trust band (K11): not approved.
 
 ## Open questions
-- None from the council.
+- Owner (approval council cycle 3, flag 7): should the contrast floors live in a protected file (for example
+  `scripts/invariants.test.ts`), so the change that breaks them cannot lower them? The council may not change a
+  guardrail itself.
 
 ## Rework notes

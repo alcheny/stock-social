@@ -6,30 +6,32 @@ recommended option; anything POLICY or COMPLIANCE reserves for the owner or coun
 findings and still goes to the owner as a flag). Fifteen members voted, each a separate agent with fresh context, in
 parallel within each round (the owner asked not to limit the rate). The chair ran the rounds and counted the votes and
 did not vote. Base for the rounds: `origin/main` **f467293** (#63, the council cycle 3 record); members' ballots cite
-f467293. Main then moved to **d98f32d** (#56, F-7 public traders, merged into this branch); F-7 moved lines in the
-files this record cites but changed no prerequisite or finding, so this record's own citations and the feature files
-are at **d98f32d** unless marked (mapping in Appendix A). Not legal advice. Every probe trade named here is fictional.
+f467293. Main then moved to d98f32d (#56, F-7), 92d03f4 (#55, F-13) and **3d66114** (#67), each merged into this
+branch. They moved lines in files this record cites; #55 also landed F-20's contrast test (see Result). This record's
+own citations and the feature files are at **3d66114** unless marked (mapping in Appendix A). Not legal advice. Every probe trade named here is fictional.
 
 ## Result
 
 | Rank | Candidate | Second-vote mean | Final vote | Outcome | Can start / blocked on |
 |---|---|---|---|---|---|
-| 1 | C3-17 Exclusion counts beside the headline (reshaped: pane and strip, not feed cards) | 4.13 | 15/15 (all AC) | **Approved: F-21** | Blocked: fix F3-2 (same pane file) and F-22 (ledger slot) |
-| 2 | C3-2 Transfers as share moves, not repricings | 4.07 | 15/15 (all AC) | **Approved, conditional on the owner's yes: F-22** | Blocked: owner's yes (amends a decided rule), F-14, fixes F3-1, F3-5, F3-15 |
-| 2 | L-16 F-16 trust-and-safety slice, plus K18's under-18 report (lapsed, re-voted) | 4.07 | 15/15 (all AC) | **Re-approved: F-16** | Blocked: F-9 merging from `claude/fix-user-text-safety` |
+| 1 | C3-17 Exclusion counts beside the headline (reshaped: pane and strip, not feed cards) | 4.13 | 15/15 (all AC) | **Approved: F-21** | Blocked: fix F3-2 (same pane file) and F-22 if the owner says yes (ledger slot) |
+| 2 | C3-2 Transfers as share moves, not repricings | 4.07 | 15/15 (all AC) | **Approved, conditional on the owner's yes: F-22** | Blocked: owner's yes (amends a decided rule), F-14 (PR #64), fixes F3-1, F3-5, F3-15 |
+| 2 | L-16 F-16 trust-and-safety slice, plus K18's under-18 report (lapsed, re-voted) | 4.07 | 15/15 (all AC) | **Re-approved: F-16** | Blocked: F-9 merging (PR #65, `claude/fix-user-text-safety`) |
 | 4 | L-17 F-17 handle and name integrity (lapsed, re-voted) | 3.93 | 15/15 (all AC) | **Re-approved: F-17** | Blocked: the same F-9 branch merging |
 | 5 | C3-36 Public payloads no more precise than the screens | 3.67 | 15/15 (all AC) | **Approved: F-23** | Blocked: fix F3-2 (same pane route) |
-| 5 | L-20 F-20 design tokens and contrast test (lapsed, re-voted) | 3.67 | 15/15 (all AC) | **Re-approved: F-20** | Blocked: PR #55 (contrast test) and cycle-2 fixes #12, #13, #26 |
-| 7 | C3-9a Late-posted trades reach the record (insert-only reconciliation) | 3.60 | 15/15 (all AC) | **Approved: F-24** | Blocked: F-14 (`claude/f14-sync-cadence`) |
+| 5 | L-20 F-20 design tokens and contrast test (lapsed, re-voted) | 3.67 | 15/15 (all AC) | **Re-approved: F-20** | Blocked: cycle-2 fix #26 (PR #55's contrast test merged as 92d03f4) |
+| 7 | C3-9a Late-posted trades reach the record (insert-only reconciliation) | 3.60 | 15/15 (all AC) | **Approved: F-24** | Blocked: F-14 (PR #64, `claude/f14-sync-cadence`) |
 
 No veto applied to any approved item as conditioned. The decisions keeper, legal and common sense named the
 conditions whose removal would trigger their veto; the feature files mark them "(veto condition: …)".
 
 **Nothing can start today.** Every approved item waits on work that is in flight but not on main (verified with
-`git log origin/main` and `git ls-remote` on 2026-11-01): F-9 is built on `claude/fix-user-text-safety` (53b74e3, no
-open PR); F-14 is on `claude/f14-sync-cadence` (unmerged); PR #55 (F-13, with `lib/a11y-contrast.test.ts`) is open;
-the cycle-3 fixes F3-1..F3-27 are being built and none is on main; cycle-2 fixes #1, #2 (`claude/fix-truthful-labels`),
-#10, #12, #13, #26 are unmerged. Each approved file is `Status: blocked` with a `Blocked:` line the pipeline reads
+`git log origin/main` and `git ls-remote` on 2026-11-01, re-checked at 3d66114): F-9 is built on
+`claude/fix-user-text-safety` and open as **PR #65**; F-14 is open as **PR #64** (`claude/f14-sync-cadence`); the cycle-3
+fixes F3-1..F3-27 are in progress and none is on main (their branch is not pushed yet); cycle-2 fixes #1, #2
+(`claude/fix-truthful-labels`), #10 and #26 are unmerged. PR #55 (F-13, with `lib/a11y-contrast.test.ts` and the
+contrast and control-boundary fixes) merged as 92d03f4 while this PR was open, so F-20 now waits only for fix #26 and
+a check that #55 covered fixes #12 and #13. Each approved file is `Status: blocked` with a `Blocked:` line the pipeline reads
 (`scripts/features.ts` `blockedOn`) and a lapse clause: **if its prerequisite has not merged by the next approval
 council (cycle 4), the approval lapses to that council.** The orchestrator flips each to `ready` as its prerequisites
 merge.
@@ -190,7 +192,7 @@ published twice silently; two genuine identical fills both survive.
 | C3-37 Day-7 marker as an F-15 amendment | 3.47 (R4) | Growth, business and market research rate it the only way the G4 gate can be read at week 8 (sessions purge at 30 days, `lib/auth/sessions.ts:10`, `:33`, `:46`; `lib/privacy-purge.ts:52`); most others see a new stored field the privacy committee has not ruled on, for a reading with no real viewers yet. | Flagged to the owner (flag 5): fold into F-15's rework if the owner and the privacy committee agree (one first-seen day and one returned-after-day-7 day per account, purged with the account, never G4 itself). |
 | C3-34 Health endpoint and cron 401 log line | 3.40 (R4) | Size S, no prerequisites, but owner-facing ops with no trader or viewer effect; most members want it as a chore. | The orchestrator may build it as a chore with the cycle-3 fixes: public body ok/degraded only, detail behind the cron bearer, `no-store`, threshold from the schedule constant (not a fixed 20 minutes), one rate-limited 401 line with no token fragment, header or IP. |
 | C3-39/40 Record tools while billing is off + settings order | 3.40 (R4) | C3-39 (no primary button to locked /tools, `app/account/page.tsx:61`; a way back from `app/tools/page.tsx:69-78`) has broad support; C3-40 demotes "Delete my profile", against P6 easy deletion and the signed F-1 plan (`logs/F-1/plan.md:75-77`). | C3-39 alone, with C3-44, as a settings-lane chore if the business lead signs off the F-3 entry-point change (`logs/F-3/plan.md:142`) in the billing-closed state; C3-40 only with Delete visible at 360 px and an explicit amendment of the F-1 plan. |
-| C3-15 In-app disconnect | 3.13 (R3) | Needed before real users (consent `lib/copy.ts:91` promises a rule the app cannot act on), but blocked three ways: fix F3-3, F-11, owner Q1/Q2 (OD-9). | When F3-3 and F-11 merge and the owner answers Q1 and Q2. No reads after disconnect; step 1 links Delete; no confirm-shaming; no vendor delete before BC-16. |
+| C3-15 In-app disconnect | 3.13 (R3) | Needed before real users (consent `lib/copy.ts:92` promises a rule the app cannot act on), but blocked three ways: fix F3-3, F-11, owner Q1/Q2 (OD-9). | When F3-3 and F-11 merge and the owner answers Q1 and Q2. No reads after disconnect; step 1 links Delete; no confirm-shaming; no vendor delete before BC-16. |
 | L-18 F-18 one trust language (lapsed) | 3.13 (R3) | Six unmerged prerequisites (F-20, F-11, F-13, fixes #1, #2, #10); its false-label parts are already fixes. | Once F-20 and those prerequisites merge. File kept at `Status: draft`. |
 | C3-16 Connection health | 2.87 (R3) | 0 connections; vendor authorization signal unverified; needs F3-3. Reliability showed a first slice can use the stored refusal streak (`users.sync_failure_kind`, `db/schema.sql:458`). | After F3-3, built on the stored refusal streak; trader-only line; no email until owner Q5. |
 | L-19s F-19 call-site sweep (lapsed) | 2.80 (R3) | Waits on F-18. | After F-18 is re-approved; the range property test could run once fix #7 merges (DV). |
@@ -198,7 +200,7 @@ published twice silently; two genuine identical fills both survive.
 | C3-42 Full data export | 2.60 (R3) | Scope is owner Q7 and BC-10; F-3 committee condition 11 fixes today's file; a full export under dev-stub auth is an account-takeover prize. | After real sign-in and the owner's Q7: a separate route, re-authentication, rate limit. |
 | C3-43 "Public since" | 2.33 (R3) | A new public field (P6, owner Q8); undefined with several connections or a reconnect. | Owner Q8 plus a rule: the first-ever consent date, never reset; inside F-11's status line. |
 | C3-35 Versioned share images | 2.00 (R3) | Saving below build cost at beta volume; a long-cached stale image under Verified fights takedowns; needs F3-26. | When F-15 shows real image traffic; short shared cache unless a purge on hide, delete, rename and disconnect is wired. |
-| C3-3 Oversell publishes its recorded part | 1.47 (R3) | Rejected in substance: the matcher cannot rule out an unseen inflow; the decisions keeper's probe (buy 100 @100, unreported 2:1 split, sell 101 @50) would publish −50% Verified when the truth is 0%. | Only with a vendor position-units check that rules out an unseen inflow. Its wrong-cause copy (`lib/copy.ts:69`) goes to the fixes list (below). |
+| C3-3 Oversell publishes its recorded part | 1.47 (R3) | Rejected in substance: the matcher cannot rule out an unseen inflow; the decisions keeper's probe (buy 100 @100, unreported 2:1 split, sell 101 @50) would publish −50% Verified when the truth is 0%. | Only with a vendor position-units check that rules out an unseen inflow. Its wrong-cause copy (`lib/copy.ts:70`) goes to the fixes list (below). |
 
 **Routed in round 0 (not voted).** C3-41 (one link rule for trade rows) and C3-45 (a quieter "No thesis posted.") go
 to a design session (F-2 gestures, F-10's card). C3-44 (subscriber-notes line on delete) is a chore in the F-3
@@ -215,8 +217,8 @@ forward unchanged: their own bring-back conditions are unmet. K18 joined F-16 (r
    basis rule (oldest first only where it cannot change a basis), moved-in units excluded and counted, every transfer
    out counted, and unknown kinds still tainted. F-22 stays blocked until the owner answers. The owner may also amend
    POLICY's list of exclusion causes to name transfers out.
-2. **F-9 is the bottleneck.** It is built on `claude/fix-user-text-safety` (53b74e3; no open PR) and holds F-16, F-17
-   and K18, all launch prerequisites (POLICY U2/U3). **Recommendation:** open its PR and merge it next; this is the
+2. **F-9 is the bottleneck.** It is built on `claude/fix-user-text-safety` and open as PR #65; it holds F-16, F-17
+   and K18, all launch prerequisites (POLICY U2/U3). **Recommendation:** merge PR #65 next; this is the
    second council at which F-16 and F-17 would otherwise lapse.
 3. **Cap reading.** The council counted re-approvals of lapsed features as not new and counted build slots (four).
    `team/approval-council.md` is protected; the owner may confirm or correct the reading.
@@ -243,10 +245,10 @@ fixes list (cycle-3 fixes are building; these are not yet on it):
   though the main stream applies it (`:101`); a marked shared account in a rename chain still feeds the record. The
   existing test only counts filter uses (`lib/shared-accounts.test.ts:14`). Needs a behavioural test (reliability).
   F-21 also depends on it.
-- **"No thesis posted." over a held thesis.** `app/ui.tsx:82` prints "No thesis posted." when a thesis exists but is
+- **"No thesis posted." over a held thesis.** `app/ui.tsx:57` prints "No thesis posted." when a thesis exists but is
   held, which states something untrue (legal). F-9's `UserNote` on `claude/fix-user-text-safety` may already change
   this line; check after that branch merges.
-- **Oversell copy.** With C3-3 not approved, `lib/copy.ts:69` keeps blaming missing history for a sell that drew only
+- **Oversell copy.** With C3-3 not approved, `lib/copy.ts:70` keeps blaming missing history for a sell that drew only
   recorded lots; members ask F3-15 to name both possible causes (a short sale or unseen history) without guessing.
 - Fixes that need a feature to land: F3-2 unblocks F-21 and F-23; F3-1, F3-5 and F3-15 unblock F-22; F3-3 unblocks
   C3-15 and C3-16 (not approved); F3-26 unblocks C3-35 (not approved).
@@ -269,16 +271,17 @@ All 18 C3 problems still exist on main; #52, #60 and #61 fixed none. Moved citat
 `app/u/[handle]/page.tsx:289-292` (was 284-287); `lib/sync.ts:37` (on conflict do nothing, was 36), `:378` (7-day
 window, was 376); `lib/privacy-purge.ts:52` (sessions, was 47), `:180` (funnel delete, was 118), `:22`
 (`UNFINISHED_SIGNUP_DAYS`, was 19); `lib/feed.ts:197-198` (epochs, was 185-186); `db/schema.sql:289` (`consent_at`,
-was 285); `app/ui.tsx:82` (was 65); `lib/billing.ts:212-217` (was 206-211). New: #52's `notShared` exclusion
+was 285); `app/ui.tsx:57` (was 65); `lib/billing.ts:212-217` (was 206-211). New: #52's `notShared` exclusion
 (`lib/sync.ts:101`) has no count. The brief's "cycle-2 K6 condition 2" citation for C3-35 does not resolve (K6 went to
 the owner).
 
-**Lines at d98f32d (after #56 merged).** Counts block `app/u/[handle]/page.tsx:301-310`; `lib/sync.ts:101`
+**Lines at 3d66114 (after #56, #55 and #67 merged).** Counts block `app/u/[handle]/page.tsx:302-311`; `lib/sync.ts:101`
 (`notShared`), `:123-129` (rename-chain read without it), `:12` and `:381` (7-day window), `:37` unchanged;
 `app/u/[handle]/pane/route.ts:23` (`closedAt` in ms), `:28` (public cache); `lib/feed.ts:202-203` (epochs);
-`app/ui.tsx:82` ("No thesis posted."); `db/schema.sql:694` (`excluded_corporate`), `:458` (`sync_failure_kind`),
-`:289` (`consent_at`) and `:34`, `:319` unchanged; `lib/copy.ts:69`, `:79`, `:91`, `lib/trades.ts:41-42`, `:52`, `:171`,
-`lib/corporate-actions.ts:200` unchanged. Still open: PR #55 (F-13) and PR #62 (options); F-7 is no longer an open PR.
+`app/ui.tsx:57` ("No thesis posted.", in `thesisLine`); `db/schema.sql:694` (`excluded_corporate`), `:458` (`sync_failure_kind`),
+`:289` (`consent_at`) and `:34`, `:319` unchanged; `lib/copy.ts:70` (oversell line), `:80` (consent scope), `:92`
+(disconnect line); `lib/trades.ts:41-42`, `:52`, `:171` and `lib/corporate-actions.ts:200` unchanged. Open PRs at
+3d66114: #62 (options), #64 (F-14), #65 (F-9); #55 and #56 have merged.
 
 ### The 32-item draft ballot
 - **A. Cycle 3 briefs (18):** C3-2, C3-3, C3-17, C3-15, C3-9, C3-16, C3-37, C3-36, C3-34, C3-39, C3-40, C3-42,

@@ -1,14 +1,14 @@
 # F-21 · Exclusion counts beside the headline (pane and record strip)
 
 Status: blocked
-Blocked: waits for fix F3-2 (cycle-3 fixes list: the pane's TR-9 range and "New record", same `app/pane.tsx` file) and F-22 (the ledger slot, whose transferred-out count joins the shared sum)
+Blocked: waits for fix F3-2 (cycle-3 fixes list: the pane's TR-9 range and "New record", same `app/pane.tsx` file) and F-22 if the owner says yes (the ledger slot, whose transferred-out count joins the shared sum)
 Start conditions: fix F3-2 merges (`docs/direction/cycle3-2026-11-01.md` §5). F-22 merges first where both are ready; if
 the owner declines F-22, this feature starts after F3-2 alone (Open questions). Shares one build slot with F-23 (same
 pane and payload files).
 
 ## Why
-Excluded trades are counted, but the counts render only on the profile (`app/u/[handle]/page.tsx:301-310` at
-d98f32d). The swipe pane, which SW-1 makes the main record view, and the record strip on trade and month pages print
+Excluded trades are counted, but the counts render only on the profile (`app/u/[handle]/page.tsx:302-311` at
+3d66114). The swipe pane, which SW-1 makes the main record view, and the record strip on trade and month pages print
 win rate, average and range with no sign that anything was left out. #52 added a further exclusion (`notShared`,
 `lib/sync.ts:101`) that has no count anywhere. A headline that hides its exclusions where people read it implies a
 completeness the record does not have (POLICY F3a, F4). Council cycle 3 brief C3-17 (rank 3), reshaped in round 0.
@@ -28,7 +28,9 @@ Approved by the approval council (`docs/ideas/approval-2026-11-01-cycle3.md`: se
 - 2026-11-01: One function computes the exclusion sum for the profile, the pane and the strip. It includes every
   exclusion counter the record keeps (today `users.excluded_positions`, `excluded_future` and `excluded_corporate`,
   `db/schema.sql:34`, `:319`, `:694`; F3-1's unpriceable rows and F-22's transfers out when they land; and `notShared`
-  shared-account exclusions, which need a real per-sell counter computed in the rebuild, never an estimate). Where a kind is deliberately not an
+  shared-account exclusions, which need a real per-sell counter computed in the rebuild, never an estimate). Paper
+  (simulated) accounts are left out of the sum and named in the function as not a trade exclusion: they are whole
+  accounts the record never includes, and the profile keeps their own line (`app/u/[handle]/page.tsx:311`). Where a kind is deliberately not an
   exclusion, it is named in the function with the reason. A new exclusion kind added outside the function fails a
   test. Why: approved by the approval council (cycle 3); red team (a kind left out of the sum is a place to route
   exclusions), RE, TS (veto condition: LG, CS).

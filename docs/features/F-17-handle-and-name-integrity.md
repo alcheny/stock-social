@@ -1,7 +1,7 @@
 # F-17 · Handle and name integrity: reserved handles, rename hold, display-name rules
 
 Status: blocked
-Blocked: waits for F-9 to merge from `claude/fix-user-text-safety` with F-9's acceptance criteria met on main (its normaliser and `checkDisplayName` in `lib/handles.ts`)
+Blocked: waits for F-9 to merge (PR #65, `claude/fix-user-text-safety`) with F-9's acceptance criteria met on main (its normaliser and `checkDisplayName` in `lib/handles.ts`)
 Start conditions: F-9 merges first (its normaliser in `lib/moderation.ts` is reused). Security hardening (#42, which
 edits `lib/auth/attempts.ts` and `app/auth/actions.ts`) has merged (ea7cd52).
 
