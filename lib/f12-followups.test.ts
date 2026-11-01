@@ -130,8 +130,10 @@ test('cycle-2 #20: the trade and month images call notFound() for a missing reco
   assert.match(code(read('app/u/[handle]/trade/[sellId]/opengraph-image.tsx')), /\btradeBand\(/);
 });
 
-test('review: the stock image counts closed trades of live traders only (users.deleted_at is null, the page rule)', () => {
+test('review: the stock image counts closed trades of live traders only (the shared visible-user predicate, the page rule)', () => {
   const s = code(read('app/t/[symbol]/opengraph-image.tsx'));
   const q = s.slice(s.indexOf('from closed_trades'), s.indexOf('as unknown as'));
-  assert.match(q, /join users u on u\.id = t\.user_id and u\.deleted_at is null/);
+  // Cycle 2 fix #4: the rule is lib/visible-users.ts (deleted_at is null, extended by F-16), read through visibleUser('u').
+  assert.match(q, /join users u on u\.id = t\.user_id and \$\{visibleUser\('u'\)\}/);
+  assert.match(code(read('lib/visible-users.ts')), /deleted_at is null/); // code only: a comment can't keep it passing
 });
