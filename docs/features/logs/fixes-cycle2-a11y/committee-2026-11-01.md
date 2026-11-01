@@ -105,3 +105,8 @@ exits 0 with no conflict, with the block after `.rt-card:focus`.
 17. 2026-11-01: the 18vw handle cap and nav padding move to #55, which adopts them; the 44 px nav-link target demand
     goes with them to #55's owner via the orchestrator. Why: decided by the committee under the owner's instruction
     of 2026-11-01; the orchestrator asked that the nav rule exist once, in #55.
+- Tester QA: checks 1-6 clean (colours on every route, `.hl` 6.15 / 8.47:1, control borders, fixed bars with Tab at
+  360×740/640/480 and 320×568, nav, feed snap and swipe); one High in the spec's cleanup (the attempts' child rows,
+  `funnel_events`, blocked the delete) — fixed: the attempts' `login_links`, `funnel_events` and `connections` rows go
+  first, in one transaction. Lows accepted: at 320×420 the disclaimer sits under the bar until the card is scrolled
+  (decision 5); no-JS first card under the bar until the first snap (focus never obscured).

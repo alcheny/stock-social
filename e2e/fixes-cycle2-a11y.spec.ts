@@ -40,8 +40,13 @@ test.beforeAll(async () => {
 async function removeUsers(ids: number[]) {
   if (!ids.length) return;
   const attempts = (await sql`select signup_attempt_id as a from users where id = any(${ids}) and signup_attempt_id is not null`).map((r) => r.a as number);
-  await sql`delete from users where id = any(${ids})`;
-  if (attempts.length) await sql`delete from signup_attempts where id = any(${attempts})`;
+  // One transaction; the attempts' own child rows (login links, funnel events, connections) go first.
+  await sql.begin(async (tx) => {
+    await tx`delete from users where id = any(${ids})`;
+    if (!attempts.length) return;
+    for (const t of ['login_links', 'funnel_events', 'connections']) await tx`delete from ${tx(t)} where attempt_id = any(${attempts})`;
+    await tx`delete from signup_attempts where id = any(${attempts})`;
+  });
 }
 test.afterAll(async () => {
   const own = viewers.length ? (await sql`select id from users where handle = any(${viewers})`).map((r) => r.id as number) : [];
