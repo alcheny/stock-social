@@ -91,14 +91,28 @@ test('F-10 AC8: reflow at 320, 360×640 and 780×360: no horizontal scroll, the 
     const box = (await strip.boundingBox())!;
     const lh = await strip.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.45);
     // With the badge leading (DS-22) and the range labelled (user test 2026-11-01), three lines at phone widths, the design
-    // system council's own budget for the 320 px box (§4.3); two in landscape.
-    expect(box.height, `${w}x${h}`).toBeLessThanOrEqual(lh * (w >= 780 ? 2 : 3) * 1.15);
+    // system council's own budget for the 320 px box (§4.3); two in landscape. F-10 follow-up (review of #54): counted in
+    // lines, with 0.1 line for subpixel rounding (the old 1.15× allowance let a strip run past its budget by half a line).
+    expect(box.height / lh, `${w}x${h} strip lines`).toBeLessThanOrEqual((w >= 780 ? 2 : 3) + 0.1);
     // Nothing clipped: the strip fits its card.
     const card = (await cardOf(page, 'f10_strip').boundingBox())!;
-    // The card's disclaimer stays inside its screen even with a 280-character thesis (rows are one screen tall).
+    // The card's disclaimer stays inside its screen even with a 280-character thesis (rows are one screen tall); 2 px for
+    // subpixel rounding. It still fails if the disclaimer is pushed off the row.
     const row = (await page.locator('.row[data-handle="f10_strip"]').first().boundingBox())!;
     const disc = (await cardOf(page, 'f10_strip').locator('[data-disclaimer]').boundingBox())!;
-    expect(disc.y + disc.height, `${w}x${h} disclaimer`).toBeLessThanOrEqual(row.y + row.height + 1);
+    expect(disc.y + disc.height, `${w}x${h} disclaimer`).toBeLessThanOrEqual(row.y + row.height + 2);
+    // F-10 follow-up (repo lesson: ≥ 15% headroom in fit assertions): the card's content still fits its row if every block
+    // were 15% taller (a wider font, one more wrapped line). Natural heights: the hero (flex: 1, it takes the spare) counts
+    // as its children plus their gaps; gaps between blocks and the card's padding count once.
+    const fit = await cardOf(page, 'f10_strip').evaluate((card) => {
+      const hero = card.querySelector('.hero')!, cs = getComputedStyle(card), hs = getComputedStyle(hero);
+      const h = (el: Element) => el.getBoundingClientRect().height;
+      const heroNat = [...hero.children].reduce((t, c) => t + h(c), 0) + (parseFloat(hs.rowGap) || 0) * (hero.children.length - 1);
+      const blocks = [...card.children].reduce((t, c) => t + (c === hero ? heroNat : h(c)), 0);
+      const fixed = (parseFloat(cs.rowGap) || 0) * (card.children.length - 1) + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      return { need: blocks * 1.15 + fixed, row: card.parentElement!.clientHeight };
+    });
+    expect(fit.need, `${w}x${h} card content with 15% headroom`).toBeLessThanOrEqual(fit.row);
     expect(box.x).toBeGreaterThanOrEqual(card.x - 1);
     expect(box.x + box.width).toBeLessThanOrEqual(card.x + card.width + 1);
   }
