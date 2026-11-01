@@ -69,6 +69,7 @@ export async function rejectedAmong(viewer: number, sellIds: readonly string[]):
 
 // /me/likes: the viewer's likes, newest first, LIKES_PAGE at a time (keyset on created_at in microseconds, then key). The
 // page's likes are chosen first on the viewer's index, then joined (a plan that stays fast before statistics exist).
+// ponytail: before planner statistics exist the first page (no cursor) sorts all of the viewer's likes and the lateral join reads the trader's closes per like (about 13 ms vs 1 ms for 10,000 likes; fast in time, not in rows read) — autovacuum's analyze fixes it; a closed_trades (user_id, trade_key) index-only path or an analyze after bulk imports would remove the dependence
 // A like whose close is gone after a rebuild, or whose trader was deleted, is skipped (its page is one row shorter).
 export type Liked = { key: string; handle: string; name: string; symbol: string; sellId: string; returnPct: number; closedAt: Date };
 // The page's query, not yet run (lib/likes.test.ts EXPLAINs it to hold that a deep page reads no more rows than the first).
