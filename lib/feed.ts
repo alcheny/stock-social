@@ -276,6 +276,11 @@ export type FeedPage = {
   // F-2 PR-5: signed in with personalization On and at least one choice counted: the order line and the personal
   // section heading show (app/feed-notes.tsx, app/suggest-section.tsx). Never anyone else's data.
   personal?: { signals: number; uses: Uses };
+  // F-6: each page trader's open positions (unrealized percents, one per position), for a connected or failed record
+  // only (never a record with no consented connection, TR-3 importing never reaches the page). Percent only.
+  open?: Map<number, number[]>;
+  // F-6: the oldest read of each of those traders' positions ("as of").
+  openAsOf?: Map<number, Date>;
 };
 // F-2 PR-5: `why`, the personal reason line when one is true (lib/discovery/personal.ts#personalReason).
 export type SectionRow = { userId: number; handle: string; name: string; reason: Reason; why?: PersonalReason };
@@ -347,7 +352,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
   const likely = (chooseRows(cands) ?? []).map((t) => t.trader);
   const withSection = page.items.length >= SECTION_AT && likely.length > 0;
   // F-2 PR-4: signed in, the page's closes this viewer rejected (for good, O3) leave the page as a gap, in place.
-  const [rows, states, panes, following, people, rejected] = await Promise.all([
+  const [rows, states, panes, following, people, rejected, opens] = await Promise.all([
     page.items.length ? sql`
       select t.id, t.sell_id, t.symbol, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status, t.user_id, u.handle, u.display_name
       from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
@@ -359,6 +364,8 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     opts.viewer ? followingAmong(opts.viewer, traders) : null,
     withSection ? sql`select id, handle, display_name from users where id = any(${candIds}) and deleted_at is null` : [],
     opts.viewer ? rejectedAmong(opts.viewer, page.items.map((s) => s.key)) : null,
+    // F-6: the same trader set as the record states (it holds every section trader the page can pick).
+    openPositions(withSection ? [...new Set([...traders, ...candIds])] : traders),
   ]);
   const bySell = new Map(rows.map((r) => [r.sell_id as string, r]));
   const cards: FeedItem[] = page.items.flatMap((s) => {
@@ -383,6 +390,7 @@ export async function loadFeedPage(after: unknown, opts: { now?: number; ids?: n
     from: c.offset + 1, to: c.offset + sliced.items.length, byUser, records: new Map([...states].filter(([id]) => onPage.has(id))),
     viewer: following && { id: opts.viewer!, following }, section,
     ...(profile ? { personal: { signals: profile.signals, uses: profile.uses } } : {}),
+    ...openOf(opens, onPage, states),
   };
 }
 
@@ -398,4 +406,23 @@ function traderShapes(kept: Kept): Map<number, TraderShape> {
   for (const s of kept.ranked) get(s.trader).symbols.add(s.symbol);
   for (const t of kept.pool) get(t.trader).hold = t.hold;
   return out;
+}
+
+// F-6: open positions (unrealized percent only) per trader, kept for page traders whose record is connected or failed.
+type OpenRow = { user_id: number; unrealized_pct: number; fetched_at: Date };
+async function openPositions(userIds: number[]): Promise<OpenRow[]> {
+  if (!userIds.length) return [];
+  return (await sql`select user_id, unrealized_pct, fetched_at from open_positions where user_id = any(${userIds})`) as unknown as OpenRow[];
+}
+function openOf(rows: OpenRow[], onPage: Set<number>, states: Map<number, RecordStatus>): { open: Map<number, number[]>; openAsOf: Map<number, Date> } {
+  const open = new Map<number, number[]>(), openAsOf = new Map<number, Date>();
+  for (const r of rows) {
+    const state = states.get(r.user_id)?.state;
+    if (!onPage.has(r.user_id) || (state !== 'connected' && state !== 'failed')) continue;
+    const a = open.get(r.user_id);
+    if (a) a.push(r.unrealized_pct); else open.set(r.user_id, [r.unrealized_pct]);
+    const d = openAsOf.get(r.user_id);
+    if (!d || r.fetched_at < d) openAsOf.set(r.user_id, r.fetched_at);
+  }
+  return { open, openAsOf };
 }

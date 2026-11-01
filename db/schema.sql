@@ -442,3 +442,5 @@ select schema_add_index('trade_exclusions_orphan', 'create index trade_exclusion
 -- Tester finding 1: the events gate is a window (at most 3 batches per 10 s), so a page-leave batch right after the
 -- periodic one is kept.
 select schema_add_column('users', 'activity_batch_n', 'smallint not null default 0');
+-- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
+select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
