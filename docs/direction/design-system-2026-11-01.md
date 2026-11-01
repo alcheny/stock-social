@@ -1,15 +1,16 @@
 # Stock Social design system: 2026-11-01
 
-Date: 2026-11-01 · Status: **Final: signed by all ten members after five passes; for the approval council** · Council: design system council (ten members, chair, drafting secretary) · Base: `origin/main` e12a834 (#30, #35, #36 merged; open PRs that overlap: #40, #42)
+Date: 2026-11-01 · Status: **Final: signed by all ten members after five passes; revised after the PR #48 review (§1.4); for the approval council** · Council: design system council (ten members, chair, drafting secretary) · Base: `origin/main` 31004e7 (#30, #35, #36 merged; #44 approved F-9 to F-14, which this spec follows; open PRs that overlap: #40, #42)
 
 **Summary.** The design system build sessions implement without reopening the debate. It settles the conflicts
 between the two direction councils and the idea board (D20 to D29) and changes no owner decision (POLICY, DESIGN
-Stage 5, F-1 to F-8). **Fixes ship now on today's base:** light Verified is 3.77:1; light gain/loss are ΔE00 2.8
+Stage 5, F-1 to F-8) or approval-council feature (F-9 to F-14); where they overlap, the feature builds it and this
+spec only supplies what the feature leaves to it. **Fixes ship now on today's base:** light Verified is 3.77:1; light gain/loss are ΔE00 2.8
 apart under deutan; display ranges can exclude their headline; the feed hero overflows at 360 px; failed imports
 use loss red; `:target` rows fail AA. One `TRUST_LOOK` table (bare "Verified", tuned plum Demo, "New record",
 "Public source" for F-7), one `pct()`, the owner's F-4 range wording. **Three variants:** neutral base + ink accent
-(V-1), type/spacing/radius collapse (V-2), signed-in nav labels (V-3). Idea-board wording changes are proposals
-(DSP-n); owner questions are flags (O-n) with recommendations.
+(V-1), type/spacing/radius collapse (V-2), signed-in nav labels (V-3). Idea-board and approved-feature wording
+changes are proposals (DSP-n); owner questions are flags (O-n) with recommendations.
 
 POLICY T1 note: the creative council's palette codename is used nowhere in this document or in code. It is "the
 ink palette". Tokens are named by role.
@@ -19,18 +20,20 @@ ink palette". Tokens are named by role.
 | # | Conflict | Ruling (≤ 20 words) | One-line reason | Where |
 |---|---|---|---|---|
 | 1 | Badge text: "Verified" vs "Verified from broker" | Bare **"Verified"**: no check glyph, `--verified` outline, links to `/how#verified` | "from broker" reads as broker endorsement (F3a); 76.0 vs 168.1 px at 13 px | §2.1; `SHARE_CARD.verified`; F-4 2026-10-22 |
-| 2 | First-visit line (D27 wording) | D27 mechanism kept; wording becomes the positioning line, "Demo records are marked Demo." when needed, D27's link | D27's line calls demo cards verified and hides that Stock Social calculates returns | §2.5; DSP-2 |
+| 2 | First-visit line (D27 wording) | **Built by F-13** with D27's words verbatim and F-13's Demo-badge rule; the positioning line is a proposal to amend F-13 | F-13 (approval council) settled the wording; this council's objection goes back to that council | §2.5; F-13; DSP-2 |
 | 3 | Demo colour: plum vs sky | **Tuned plum** #6e1f66 / #f0b8e8, dashed border, ring; same box as Verified | The only candidate ≥ 9 ΔE00 from every meaning colour under every simulated deficiency, both bases | §2.2 |
-| 4 | "as of" date stamp | "as of" only beside open-position values; records use "Last close · updated"; images print absolute dates with year | "as of" beside a closed return reads as a live valuation | §2.3; F-6 2026-11-01 |
-| 5 | Short-record label | TR-7's **"New record"**, on profile and record card only; recommend "Early record" (O-1) | The trigger is < 30 days **or** < 10 trades; "Short record" reads as short selling | §2.4; `lib/trades.ts#isNewRecord` |
-| 6 | Positioning line | **"Closed trades imported read-only from connected broker accounts. Losses included."** | States scope and method | §2.5; DSP-2 |
+| 4 | "as of" date stamp | "as of" only beside open-position values; records use F-11's "Last close · updated"; images print absolute dates, year outside the current year (F-11) | "as of" beside a closed return reads as a live valuation | §2.3; F-6 2026-11-01; F-11; DSP-12 |
+| 5 | Short-record label | TR-7's **"New record"**, on profile and record card only; on the card a pill the trust badge's size (F-4); recommend "Early record" (O-1) | The trigger is < 30 days **or** < 10 trades; "Short record" reads as short selling | §2.4; `lib/trades.ts#isNewRecord`; F-4 2026-11-01 |
+| 6 | Positioning line | **"Closed trades imported read-only from connected broker accounts. Losses included."** for the meta description, `/` image and `/how` intro; on the first-visit line only if DSP-2 amends F-13 | States scope and method | §2.5; DSP-2 |
 | 7 | Number format | One `pct()`: U+2212, one decimal under 1,000%, two decimals at most, "≈−100.0%" just above −100% | Same advance as "+"; one form per value; each range end printed on its own | §2.6, §3 |
-| 8 | Trust language and record context | One `TRUST_LOOK`; feed badge leads the record line; StatusLine on record surfaces; computed image crop band | Three Verified wordings and three Demo names ship today | §2.7, §4 |
+| 8 | Trust language and record context | One `TRUST_LOOK`; feed badge leads F-10's record line; F-11's status line on record surfaces; F-12's strip and safe area on trade and month pages and images | Three Verified wordings and three Demo names ship today | §2.7, §4; F-10, F-11, F-12 |
 | 9 | Tokens: fix vs V-1 | Meaning colours and blue focus ring ship now on today's base; base, accent, on-accent only with V-1 | A value ships as a fix only when a measured defect requires it; the nine names stay | §2.8, §5.1; P4-1; DSP-5 |
 | 10 | Hero and tile headroom | Content-fitted figures sized to 78% of their box from the Bold table, tracking counted | F-6's `used ≤ 0.80` then holds; other fonts render wider than pinned DejaVu | §2.8; P4-2 |
 | 11 | Range centring | `confidence()` unchanged; display ranges use arithmetic `cardEvidence`; printed lo ≤ avg ≤ hi everywhere | Log-centred ranges can exclude their headline (+25.2% vs −12.5% to +20.6%); ranking must not move | §2.6; DS-13; P4-3 |
 | 12 | Type scale and radius | rem steps, clamp only on h1, h2; radius 6/10/999 (999 badges only); collapse = V-2 | The binding constraint is figure width, not the ratio | §5.2; DSP-6 |
 | 13 | F-7 public traders | **"Public source"** state: own label, link to each filing, never the Verified look | F-7 owner decision 2026-11-01 | §4.2 |
+| 14 | Thesis attribution and moderation | **Built by F-9**: one `UserNote`, `<bdi>`, "Written ‹date›, after the trade closed · edited ‹date›", F-9's hold list; this spec adds only the note's type and box | F-9 (approval council) settled them; a handle prefix and three extra hold patterns are proposals | §2.7; F-9; DSP-9, DSP-10 |
+| 15 | Sync cadence and "updated" | F-14 reads activities at most daily; "updated" is the last successful vendor read (F-11), never a throttled round | A skipped round that advanced "updated" would be false freshness | §2.3; F-11, F-14; DSP-11 |
 
 ---
 
@@ -44,8 +47,29 @@ ink palette". Tokens are named by role.
 | 4 | Chair rulings P4-1 to P4-13 settled pass-3 disagreements; the secretary revised and re-ran every number. | §1.2 |
 | 5 | Sign-off: all ten sign, no dissent; the secretary applied the remaining defects in a final edit | §1.3 |
 
-Precedence: POLICY > owner decisions (F-*.md, DESIGN Stage 5 Musts) > chair rulings (pass 4 over pass 2) >
-idea-board decisions D20 to D29 (the approval council can amend their wording) > council proposals.
+Precedence: POLICY > owner decisions (F-1 to F-8, DESIGN Stage 5 Musts) > approval-council features (F-9 to F-14,
+#44) > chair rulings (pass 4 over pass 2) > idea-board decisions D20 to D29 not yet built by a feature (the approval
+council can amend their wording) > council proposals. Where an approved feature builds something, its DS row says
+"built by F-n" and keeps only what the feature leaves open; a different wording is a DSP-n or an O-n, never a fix.
+
+**Method, stated once.** Contrast is WCAG 2.x. Colour-vision distance is CIEDE2000 between colours simulated with
+the published 2009 dichromat matrices (protan, deutan, tritan) at full severity, applied on linear sRGB, clipped and
+re-encoded to 8-bit sRGB; a cell gives the minimum over the three. One threshold for every meaning-colour pair:
+**≥ 9 ΔE00**. The one pair below it, warn vs down (3.2 light / 6.4 dark), is never told apart by hue: warn always
+carries its icon, box and words (§2.7), and DS-2 tests that instead of the distance. The method moves the numbers: without the 8-bit step tuned plum vs gain is 9.22 (not 9.17), and on
+gamma-encoded sRGB it is 8.30, under the bar. Widths are DejaVu Sans advances with the font's pair kerning, no
+shaping. Scripts (Python 3 standard library, no font file: the advance and kerning table is inline in `widths.py`),
+run with `python3 -I docs/direction/design-system-2026-11-01-scripts/<script>.py`:
+
+| Script | Numbers |
+|---|---|
+| `a11ylib.py` | shared contrast, simulation and CIEDE2000 code with published self-checks (imported) |
+| `tokens.py` | every token pair on both bases; `--surface-2`; Demo and `--demo-bg`; CVD per deficiency; focus with and without offset; tints; `:target`; image colours (§2.1, §2.2, §2.8, §5.1) |
+| `demo.py` | the Demo candidates and the method variants (§2.2) |
+| `fit.py` (`widths.py`) | Bold table; hero; tiles; nav; badges; StatusLine; first-visit line; image band; F-12 safe column (§2.1, §2.5, §2.8, §4.3) |
+| `budget.py` (`widths.py`) | card-1 height at 360×740, with and without the held line (§4.3) |
+
+The §2.6 range reproductions call the shipped `lib/trades.ts` functions; DS-13 adds them as test fixtures.
 
 ### 1.1 Pass 3 review
 
@@ -65,20 +89,14 @@ idea-board decisions D20 to D29 (the approval council can amend their wording) >
 Non-blocking items applied where cheap: legal N1–N8; engineer's file corrections; common-sense wording;
 content's brokerage, my/your, "result", "skill" and term-drift notes; T&S N1–N6; red-team N1–N3, N5–N9 (N7 as
 O-17); accessibility's F94, pressed-state and nav-wrap notes; product designer's radius, variant constraints and
-borderless New record; data-viz tint, axis, chart-name and dead-feature notes.
+borderless New record (web profile only; the record card keeps F-4's pill, §2.4); data-viz tint, axis, chart-name and dead-feature notes.
 
 ### 1.2 Pass 4 revision
 
 **What changed:** rulings P4-1 to P4-13 applied as listed in §1.1 and marked where used.
 
-**Numbers re-run by the secretary** (Python run isolated; scripts in the scratchpad's `pass4/`):
-
-| Script | What it re-ran |
-|---|---|
-| `pass4/tokens.py` (shared `a11ylib.py`) | every token pair on both bases; `--surface-2`; Demo and `--demo-bg`; Demo CVD vs every meaning colour; focus with and without offset; tints; `:target`; image colours |
-| `pass4/fit.py` | Bold table; hero at 78% with tracking; tile longest fit; nav; badges; StatusLine; Notice; definition; image band; card widths |
-| `pass4/budget.py` | card-1 height estimate at 360×740; image band heights |
-| `pass1/range.ts` (re-run) | the range-vs-headline reproductions (§2.6) |
+**Numbers re-run by the secretary** with the scripts listed under §1 (now committed beside this spec) and the
+§2.6 range reproductions against the shipped functions.
 
 **Numbers that differ from a ruling:** the 78% hero at 360 is **41.4–70.4 px**, not "42–72": the box is 320 px
 (22cqi caps at 70.4) and "+123,457%" lands at 41.4. Intent kept. The accessibility note "hero ≥ 1.5× root at 200%
@@ -108,6 +126,36 @@ for Verified does not reproduce: the same measure that gives New record 101.8 px
 The optional red-team check (a tinted element's nearest opaque ancestor is `--surface`) is added to DS-2's
 acceptance.
 
+### 1.4 Post-PR review
+
+An independent review of PR #48 found the spec silent on the approved features F-9 to F-14 (#44). The secretary
+re-read all six and applied the rule above: the feature builds what it covers, and a different wording becomes a
+proposal or flag. Changes:
+
+- **Routed to features:** DS-21 → F-11 (status line; this spec keeps the "as of" / "updated" wording, TR-8 names and
+  the date helpers), DS-22 → F-10 (record line in place of "held · closed"), DS-23 → F-13 (first-visit line, hint,
+  nav label), DS-19 → F-12 (strip, safe area, alt text), DS-32 and DS-34 → F-9, DS-16's nav label → F-13. DS-31
+  routed to C9, which the approval council deferred (F-9 leaves names out).
+- **Wording now follows the feature, objections are proposals:** DSP-2 amends F-13 (F-13 settled D27's words; its Demo
+  badge answers half the objection); DSP-4 amends F-10; new DSP-9 (author in F-9's attribution), DSP-10 (extra hold
+  patterns), DSP-11 (F-14 skipped rounds leave "updated" alone), DSP-12 (year always on images, against F-11's
+  rule, which `imageDate()` now follows), DSP-13 (no record numbers on F-12's stock image).
+- **F-11:** every relative time sits next to its absolute date in one `<time datetime>` (§2.3, DS-21); row 2 becomes
+  2 lines (425 px). **F-12:** its square and 1.91:1 safe area replaces this spec's 1,072 px strip and disclaimer rows;
+  at 35 px the band no longer fits 502 px, given as input to F-12's floor (§4.3). **F-14:** "updated" means the last
+  vendor read (§2.3). **F-9:** the held note is neutral, not `--warn` (§5.1).
+- **F-4:** the record card keeps "the New record pill is the trust badge's size"; borderless is the profile only (§2.4,
+  §4.2).
+- **Demo threshold:** one method and one threshold, ≥ 9, stated in §1; "< 10" removed; why the original plum fails (§2.2).
+- **Numbers re-checked** with the committed scripts: light gain/loss after DS-4 is 27.8 protan / 36.1 deutan (the
+  minimum 27.8 was mislabelled deutan; 28.3 / 36.2 without the 8-bit step); focus vs violet under deutan is 0.3
+  (0.6 without the 8-bit step); muted on a sign tint goes as low as 4.36 over surface (an up tint, which pass 4 did
+  not compute) and 4.23 over bg, not 4.42; the F-13 line with its link is 3 lines. Badge widths include the font's
+  pair kerning (the old "no kerning" note was wrong; no number changes).
+- **Paths and pins:** DS-7 and DS-11 cite `app/u/[handle]/similar-section.tsx`; DS-10 adds the `≈−100.0%` pin at
+  `lib/trades.test.ts:140`.
+- **Scripts** committed beside this spec (§1), standard library only, no font file.
+
 ---
 
 ## 2. Decisions with reasons and evidence
@@ -120,19 +168,20 @@ the record line under the figure, never in the name/handle row; elsewhere beside
 name, handle or avatar. Replaces "✓ Verified from broker" (`lib/copy.ts` `SHARE_CARD.verified`, an F-4 committee
 round; the owner's F-4 2026-10-22 names the state "Verified"/"Demo").
 
-| Measure (DejaVu Sans Bold, 13 px, 16 px padding, 2 px border) | "Verified" | "Verified from broker" |
+| Measure (DejaVu Sans Bold, 13 px, 16 px padding, 2 px border; `fit.py`) | "Verified" | "Verified from broker" |
 |---|---|---|
 | Width | 76.0 px | 168.1 px |
 | 200% text | 133.9 px | 318.2 px; > 328 with an icon |
 | Literal reading | provenance | "the broker verified this" (F3a) |
 
-One measure for every badge in this spec (Bold text width + 16 px padding + 2 px border, no kerning):
+One measure for every badge in this spec (Bold text width with pair kerning + 16 px padding + 2 px border):
 Verified 76.0, Demo 60.1 + ring, New record 101.8, Early record 107.1, Public source 116.1 px.
 
 - Accessible name "Verified: imported read-only from the trader's broker" (2.4.4); the hover-only tooltip goes.
 - Today light Verified = `--up` on an 18% tint = **3.77:1** (fails 1.4.3, `app/globals.css:110`); dark is the gain
   colour itself (ΔE00 0). New: `--text` 18.01 / 18.80 light, 17.88 / 16.39 dark (today's base).
-- The guard R1 relies on (no "Verified" or check glyph in names) is built in DS-31.
+- The guard R1 relies on (no "Verified" or check glyph in names) is DS-31, routed to C9 (waiting, first next cycle);
+  until then F-9 holds "verified" in theses only.
 
 ### 2.2 R2: Demo colour is tuned plum
 
@@ -142,15 +191,21 @@ bordered circle (P4-6). `--demo-bg` #f8eef6 / #2a1a28 (hex literals; the kept `l
 hex only).
 
 Fix tokens are identical on both bases, so Demo's CVD distances hold on today's base and on V-1. Cells: normal ΔE00
-/ minimum over protan, deutan, tritan (`chair_demo.py`, `pass4/tokens.py`). < 10 = close at badge size.
+/ minimum over protan, deutan, tritan (`demo.py`, `tokens.py`; method in §1). A candidate passes when every
+minimum is **≥ 9**, the one threshold this spec uses for any meaning-colour pair.
 
 | Candidate | Scheme | vs up | vs down | vs focus | vs warn | Verdict |
 |---|---|---|---|---|---|---|
 | **tuned plum #6e1f66** | light | 38.8 / **9.2** | 37.2 / 18.8 | 26.2 / 16.2 | 48.9 / 14.6 | **adopted** |
 | **tuned plum #f0b8e8** | dark | 44.9 / **10.3** | 33.0 / 18.0 | 26.0 / 11.1 | 46.5 / 10.1 | **adopted** |
-| plum #8a2b7f / #e79ddd | L / D | 6.1 (deutan) / 9.0 | 14.2 / 13.1 | 12.7 / 6.6 | 10.9 / 9.6 | fails < 10 |
-| sky #0369a1 / #38bdf8 | L / D | 5.1 / 4.7 (tritan) | 44.6 / 45.3 | 6.9 / 1.9 (deutan) | 43.6 / 50.1 | rejected |
-| violet #6d28d9 / #a78bfa | L / D | 17.7 / 19.5 | 37.2 / 32.2 | **0.3** / 3.2 | 30.2 / 29.4 | rejected (today's accent) |
+| plum #8a2b7f / #e79ddd | L / D | 6.1 (deutan) / 9.0 | 14.2 / 13.1 | 12.7 / 6.6 | 10.9 / 9.6 | fails ≥ 9 |
+| sky #0369a1 / #38bdf8 | L / D | 5.1 / 4.7 (tritan) | 44.6 / 45.3 | 6.9 / 1.9 (deutan) | 43.6 / 50.1 | fails ≥ 9 |
+| violet #6d28d9 / #a78bfa | L / D | 17.7 / 19.5 | 37.2 / 32.2 | **0.3** / 3.2 | 30.2 / 29.4 | fails ≥ 9 (today's accent) |
+
+Why the original plum fails: under deutan, plum #8a2b7f and the light gain #0b6b70 both simulate to greyish blues of
+nearly the same lightness (L\* 37.6 and 39.2), 6.1 apart, and the dark plum vs focus is 6.6 (protan). Tuned plum is
+darker in light mode (simulated L\* 29.4), which lifts the light minimum to 9.2, and lighter and less saturated in
+dark mode (10.3 vs gain, 11.1 vs focus). 9.2 clears ≥ 9 by 0.2 under this method only, hence the device check (§10).
 
 | Tuned plum, re-run | Light | Dark |
 |---|---|---|
@@ -167,22 +222,30 @@ min vs today's card gain/loss 34.4 / 29.8, vs ink 10.3 / 18.0. The product desig
 
 ### 2.3 R3: Dates
 
+The record status line, its dates and the image date rule are **built by F-11** (D29, TR-5, fix #4); F-11 leaves the
+wording of "as of" and "updated" to this council, which settles it below.
+
 | Context | Form | Rule |
 |---|---|---|
 | Open-position value | "as of ‹Mon D[, YYYY]›" (`lib/copy.ts` `OPEN`) | only beside a valuation, same element (F-6 2026-11-01) |
-| Record freshness, web | "Last close ‹date› · updated ‹relative›"; "updated just now" under 1 min | D29; StatusLine row 2; server sends the absolute time, the client formats the relative part (the pane JSON is cached 60 s) |
-| Idle (no sync 30 days) | "Last close ‹date› · not updated since ‹Mon D, YYYY›" | D29 |
-| Frozen | "Disconnected ‹Mon D, YYYY› · record frozen"; "updated" dropped | TR-5; outranks every freshness date |
-| Account removed | "Account removed ‹Mon D, YYYY›" on its rows | TR-5 |
-| Trade image | "closed ‹Mon D, YYYY›" beside the link + state line "Last close ‹Mon D, YYYY›" | year always; never relative, never "as of" |
+| Record freshness, web | "Last close ‹date› · updated ‹relative› (‹Mon D[, YYYY]›)"; "updated just now" under 1 min | F-11 (D29); the relative part and its absolute date sit in one `<time datetime="‹ISO›">` (F-11); both come from `last_synced_at` of the last successful sync, sent as an absolute time and formatted on the client; the pane JSON is cached 60 s, so the shown time can only be older than the truth, never fresher |
+| Idle (no sync 30 days) | "Last close ‹date› · not updated since ‹Mon D, YYYY›" | F-11 (D29): facts only |
+| Frozen | "Disconnected ‹Mon D, YYYY› · record frozen"; "updated" dropped | TR-5, fix #4, F-11; outranks every freshness date |
+| Account removed | "Account removed ‹Mon D, YYYY›" on its rows | TR-5, F-11 |
+| Trade image | "closed ‹Mon D[, YYYY]›" beside the link + state line "Last close ‹Mon D[, YYYY]›" | F-11: absolute only, year outside the current year (DSP-12 proposes year always); never relative, never "as of" |
 | Month image | the month + "Last close ‹Mon D, YYYY›" | same |
 | Stock image | no date | F3b |
 | Frozen record on any image | "Disconnected ‹Mon D, YYYY› · record frozen" replaces "Last close" | TR-5 |
 | Record card | O-3 (OD-14) | recommend "Last close ‹Mon D, YYYY›" |
-| Web year rule | year only when not the current year | one `dateText()`, UTC |
+| Web year rule | year only when not the current year | one `dateText()`, UTC; F-11's single status-line helper calls it |
 
 Reasons: "as of" beside a closed return reads as a live valuation; relative time on an image freezes at render; a
 trade image keeps its own close date by the link so an old trade never looks current.
+
+**Sync cadence (F-14).** After F-14 the hourly round reads activities at most once per 24 hours per account, so a
+record can honestly read "updated 23 hours ago". "Updated" means the last successful activities read; a round that
+the throttle skips makes no vendor call and must not advance `last_synced_at` (DSP-11 asks the approval council to
+add that test to F-14). The 30-day idle fact is unaffected.
 
 ### 2.4 R4: Short-record label
 
@@ -194,8 +257,10 @@ trade image keeps its own close date by the link so an old trade never looks cur
 | "Early record" (O-1) | 107.1 px | true under both triggers; matches "Too early to tell" |
 
 **Decision.** "New record" verbatim, **on the profile (TR-7) and the record card image only**; the feed card, pane,
-trade and month pages carry the record line, which shows the range or "Too early to tell". Plain `--muted` text, no
-border (Verified is the only solid outline, Demo the only dashed one), links to `/how#new-record`. The sub-line "New record · short record, wide uncertainty" is removed from
+trade and month pages carry the record line, which shows the range or "Too early to tell". On the profile: plain
+`--muted` text, no border (Verified is the only `--verified` outline, Demo the only dashed one), links to
+`/how#new-record`. On the record card it stays **a pill the trust badge's size** (F-4 2026-11-01): the trust pill's
+height, padding and type size, muted word, no outline, so it never takes Verified's or Demo's border. The sub-line "New record · short record, wide uncertainty" is removed from
 `lib/month-card.ts:39`, the trade image (`trade/[sellId]/opengraph-image.tsx:59`) and the trade and month pages. On
 the profile it becomes "New record · under 30 days or under 10 closed trades".
 
@@ -207,10 +272,20 @@ the profile it becomes "New record · under 30 days or under 10 closed trades".
 | Design P-3.7 "Trading records imported read-only from traders' brokers. …" | "traders' brokers" reads as all their brokers (TR-8) |
 | **"Closed trades imported read-only from connected broker accounts. Losses included."** | **adopted**: scope and method |
 
-**Decision.** The line is the meta description, `/` image text and `/how` intro (DSP-2; else D27 verbatim).
-First-visit Notice (D27 mechanism): the line, "Demo records are marked Demo." while page 1 holds a demo card, then
-D27's link "How records are calculated →": 1,043 px, **4 lines** beside the floated 44 px Dismiss, ≈ 105 px. It
-shares the SW-1 slot one at a time: the Notice first, the "Swipe ← for profile" hint after dismissal or on card 2.
+**The first-visit line is built by F-13**, which settled it: D27 verbatim, "Verified trades, straight from the
+broker. Losses included.", linking to "How records are calculated", never a modal; while any record shown is demo the
+Demo badge sits in the same viewport at equal weight; storage-blocked dismissal; inline, never covering the card,
+its link or focus; the "Trades by stock" nav label; and the SW-1 hint "Swipe ← for profile" once on the first card.
+F-13's Demo-badge rule answers half of this council's objection (demo cards called verified); the other half ("straight
+from" hides that Stock Social calculates the returns) remains, so **DSP-2 asks the approval council to amend F-13** to
+the positioning line. Until it does, F-13's wording ships and is exempt by name from the "straight from" ban (§4.1).
+
+**Decision.** The positioning line is the meta description, `/` image text and `/how` intro (none of them is F-13's
+first-visit line; DS-24). What this spec adds to F-13's build (layout inputs, F-13 decides): the line and the link in one element
+beside a floated 44 px Dismiss (F-13 wording with the link: 618 px, 3 lines; with the positioning line and DSP-2's demo
+sentence 1,043 px, 4 lines, ≈ 105 px); the line and the hint never show at once on the first card (the line first,
+the hint after dismissal), so F-13's "first card shows the hint once" still holds; both hidden while `.hide-bar`
+shows. The earlier "hint on card 2" is dropped: F-13 puts it on the first card.
 D25's Stocks line → "Browse stocks that have closed trades on Stock Social." (DSP-3; demo-only stocks are
 listed). "Check the record, not the screenshot." stays off every surface until the name is cleared (T5a).
 
@@ -245,26 +320,32 @@ and ranking). Display surfaces take the arithmetic range through `lib/record-car
   Verified wordings and three Demo names ship ("Demo", "Demo data", "Sample data").
 - **Failed import never uses `--down`** (today `className="down record-failed"` in `app/ui.tsx`, profile and month
   page). Warn vs down CVD min is 3.2 light / 6.4 dark (deutan), so warn always has icon, box and words.
-- **Feed card:** badge + D22's one record line; no 7-part strip. **Pane:** StatusLine ending "What Verified means
-  →", headline + range, in-view disclaimer. **Profile, trade, month, `/t`:** StatusLine + `VERIFIED_DEFINITION` +
-  in-view disclaimer (D20). **Images:** the computed crop band (§4.3).
+- **Feed card:** badge + F-10's one record line (D22), in place of "held · closed" (DSP-4 asks to keep the close
+  date); one `RecordStrip`, never a second strip. **Pane:** F-11's status line ending "What Verified means →",
+  headline + range, in-view disclaimer. **Profile, `/t`:** F-11's status line + `VERIFIED_DEFINITION` + in-view
+  disclaimer (D20). **Trade and month pages and images:** F-12's `RecordStrip` ("Closed trades", count, average with
+  range, "@‹handle›'s record", "losses included", disclaimer) inside F-12's square and 1.91:1 safe area (§4.3).
 - **Evidence label stays (P4-4; TR-9 Display Must, F-4 2026-10-22):** "Evidence: ‹tier› (‹K› bets, ‹D› days)" beside
   the F-4 trust line. Today's string from `lib/trades.ts#evidenceLine`: "Past results: above zero · Evidence: thin
   (12 bets, 60 days)" (edge clause "above zero" / "below zero" / "unclear"). The edge clause is owner flag O-15.
 - **"Too early to tell"** replaces the range when K < 5 **or** the half-width exceeds 10 points per trade (F-4
   2026-10-22, TR-9).
-- **User text never passes as platform text (P4-11):** every thesis renders in one `UserNote` with an attribution
-  label (DS-32); platform lines use `--fs-small` / `--muted` and user text never does.
+- **User text never passes as platform text (P4-11):** **built by F-9**: every thesis renders in one `UserNote` with
+  `<bdi>` and F-9's attribution line "Written ‹date›, after the trade closed · edited ‹date›", never larger than the
+  verified figure. This spec adds the type: platform lines use `--fs-small` / `--muted` and user text never does
+  (DS-32). Naming the author in that line is DSP-9. The author's "Held for review" note and its rule are neutral
+  `--text` (F-9: "neutral tone, never the loss colour"), so not `--warn` either.
 
 ### 2.8 R8: Tokens
 
 Full table in §5. **Rule (P4-1):** a value ships as a fix only when a measured AA, CVD or fit defect requires that
 value.
-- **Fixes on today's base:** meaning colours (§5.1 "fix" rows; light deutan gain/loss ΔE00 2.8 → 27.8). **V-1:**
+- **Fixes on today's base:** meaning colours (§5.1 "fix" rows; light gain/loss CVD minimum ΔE00 2.8 (deutan) → 27.8 (protan;
+  deutan 36.1)). **V-1:**
   bg, surface, text, muted, line, accent, on-accent; today's base has no defect (muted 5.03 / 5.25, 5.84 / 5.35).
 - **Focus ring = fix:** blue #2152d9 / #86a8ff with a mandatory 2 px offset is 6.15 / 6.42 light and 8.47 / 7.76
   dark against today's bg/surface. Without the offset it is 1.11 / 1.17 against a violet button (2.79 / 1.99 against
-  an ink one), so the offset is required. Under deutan the ring and the violet fill look alike (ΔE00 0.3); the 2 px
+  an ink one), so the offset is required. Under deutan the ring and the violet fill look alike (ΔE00 0.3; 0.6 without the 8-bit step); the 2 px
   gap of page colour separates them.
 - Keep the nine variable names (about 55 rules merged with #30 and #36 read them). 13 px text floor. Links stay
   underlined (no accent reaches 3:1 against body text; WCAG F73).
@@ -357,9 +438,9 @@ Rows marked (DSP-n) are proposals: if rejected, the governing decision's own wor
 | new `VERIFIED_DEFINITION` | two paraphrases (`app/layout.tsx`, `HOW.verified`) | "Imported read-only from the trader's broker. Returns are calculated by Stock Social from those trades. Options are skipped. Sells with no recorded entry, including short sales and shares transferred in, are left out and counted on the profile. Verified does not confirm who the trader is, does not show accounts at other brokers, and is not a measure of skill, an audit or an endorsement by the broker, SnapTrade or anyone else." (links `/how#excluded`) | R1, P4-8, F3a |
 | new `PANE.verifiedLink` | none | "What Verified means →" (`/how#verified`) | P4-8 |
 | `DISCLAIMER` (footer) | literal in `app/layout.tsx` | `DISCLAIMER` from `lib/share.ts` | F3, D20 |
-| `metadata.description` | D27 line | positioning line; + "Demo records are marked Demo." while demo users exist (DSP-2) | R5 |
-| new `FIRST_VISIT.line` / `.demo` / `.link` / `.dismiss` | none | positioning line (DSP-2) / "Demo records are marked Demo." (demo card on page 1) / "How records are calculated →" (= `FOOTER.how`) / "Dismiss" (aria "Dismiss this note") | R5, D27 |
-| nav | "Stocks"; "Publish your trades"; "My record" + "@handle" | "Trades by stock"; "Sign in"; signed in "Account" | D21, D27, V-3 |
+| `metadata.description` | D27 line | positioning line; + "Demo records are marked Demo." while demo users exist | R5 (not F-13's line) |
+| new `FIRST_VISIT.line` / `.demo` / `.link` / `.dismiss` | none | **built by F-13**: "Verified trades, straight from the broker. Losses included." (F-13, D27 verbatim; positioning line only if DSP-2 amends F-13) / Demo badge in the same viewport (F-13; the sentence "Demo records are marked Demo." only with DSP-2) / "How records are calculated →" (= `FOOTER.how`) / "Dismiss" (aria "Dismiss this note") | F-13, D27 |
+| nav | "Stocks"; "Publish your trades"; "My record" + "@handle" | "Trades by stock" (built by F-13); "Sign in"; signed in "Account" | D21, F-13, V-3 |
 | `/t` title / description / intro | "Stocks with verified trades …" / "Browse every stock …" / "…verified closed trade…" | "Trades by stock · Stock Social" / "Browse stocks that have closed trades on Stock Social." (DSP-3) / "Stocks with at least one closed trade from connected accounts or demo records. Open a stock to see its trades, losses included. Percentages only." | D25, F3a |
 | `/t` aria (`app/t/page.tsx:128`) | "Stocks with verified trades" | "Trades by stock" | F3a |
 | `SIGNIN.title`, publish/follow paths | "Publish your trades" | "Sign in"; "Publish my record" / "Follow and save records" | D21 |
@@ -368,30 +449,33 @@ Rows marked (DSP-n) are proposals: if rejected, the governing decision's own wor
 | "brokerage" sweep | `SIGNIN.brokerage`, `PROFILE.youreIn`, `RESULT.*`, `PORTAL.title`, `HOW.freeze`, `SETTINGS.deleteExplain`, `LAUNCH.connectClosed` | "broker" (`SIGNIN.brokerage` likely goes under D21); `LAUNCH.connectClosed` "Connecting a broker isn't open yet." | glossary |
 | `lib/claims.ts:7` | "This is what keeps every record verified." | "This keeps each broker account on one record." | F3a |
 | StatusLine row 1, real | "Record since ‹date› · ‹connected›. Only trades from connected accounts are shown." | "Record since ‹Mon D, YYYY› · Connected: ‹broker names› (‹N accounts›)" via `connectedLine` + `counted()` | TR-8 |
-| StatusLine row 2 | none | "Last close ‹date› · updated ‹relative›" / "· not updated since ‹date›" | D29 |
+| StatusLine row 2 (built by F-11; wording settled here) | none | "Last close ‹date› · updated ‹relative› (‹date›)" in one `<time datetime>` / "· not updated since ‹date›" | F-11, D29 |
 | StatusLine, demo / frozen | same as real / "Connected: …" after disconnect | "Record since ‹date› · Demo" / row 1 "Disconnected ‹Mon D, YYYY› · record frozen", row 2 "Last close ‹date›" | P2, TR-5 |
-| `STATUS.accountRemoved` / `.account` | none / "account N" | "Account removed ‹Mon D, YYYY›" / "Account N of M" | TR-5, D29 |
+| `STATUS.accountRemoved` / `.account` (built by F-11) | none / "account N" | "Account removed ‹Mon D, YYYY›" / "Account N of M" | TR-5, F-11 |
 | `.badge.new` | "New record" (profile, card, month, trade pages) | profile and record card only; link `/how#new-record` | TR-7, R4 |
 | New-record sub-line | "New record · short record, wide uncertainty" (`lib/month-card.ts:39`, `trade/[sellId]/opengraph-image.tsx:59`) | removed there and on trade and month pages; profile only: "New record · under 30 days or under 10 closed trades" | R4 |
-| "Short record:" lines | "Short record: ‹N› so far. A short record shows wide uncertainty." (`month/[ym]/page.tsx:82`, `trade/[sellId]/page.tsx:64`) | removed; the record line shows the range or "Too early to tell" | R4 |
+| "Short record:" lines | "Short record: ‹N› so far. A short record shows wide uncertainty." (`month/[ym]/page.tsx:82`, `trade/[sellId]/page.tsx:64`) | removed; F-12's `RecordStrip` shows the range or "Too early to tell" | R4, F-12 |
 | `share-prompt.tsx:46` | "A short record means wide uncertainty. …" | "A new record has a wide range. You have ‹N closed trades› so far, and the card is labelled New record. Right now the range is ‹range›." | TR-7 |
 | new `HOW.newRecord` | none | "New record: under 30 days of history or under 10 closed trades. A new record has a wide range." | D24 |
 | incomplete badge | `.badge.new` reused (`app/suggest-section.tsx`) | `TRUST_LOOK.incomplete` (warn) | R7 |
 | evidence line | "Past results: ‹edge› · Evidence: ‹tier› (…)" (`evidenceLine`) | "Evidence: ‹tier› (‹K› bets, ‹D› days)" beside the F-4 trust line; edge clause per O-15 | P4-4 |
 | too-early, grouped (`evidenceLine`, `confidence`) | "Too early to tell: N trades in K overlapping positions (5 independent bets needed)"; "(‹K› bets from ‹N› trades)" | "Too early to tell: the range is still wide. ‹N› trades, counted as ‹K› separate bets because some overlapped." | D24 |
 | profile preview (`statsText`, `app/u/[handle]/page.tsx`) | "Evidence: too early" | "Too early to tell" | D24 |
+| thesis attribution (`UserNote`, built by F-9) | none | "Written ‹date›, after the trade closed · edited ‹date›" (F-9 verbatim; a handle prefix is DSP-9) | F-9 |
 | `Baseline.tsx:39` | "Not enough independent bets…" | "Not enough bets…" | D24 |
 | range caption / note | "‹lo› to ‹hi› · 95% range"; "95% range from independent bets (…)"; `rangeText` "(‹lo› to ‹hi›)"; "· 95% range" (`[symbol]/page.tsx:144`, `[symbol]/HoldTime.tsx:29`, `[symbol]/Concentration.tsx:28`, `t/compare/page.tsx:78`); "95% range" (`[symbol]/opengraph-image.tsx:68`) | `rangeLine()` "likely between ‹lo› and ‹hi›"; note "Range from bets: same-stock trades that overlap count as one bet. A wider range means less evidence." ("95%" on `/how` only) | F-4, D24 |
 | too-early caption | "Too early to tell (‹K› of 5 bets)" (`[symbol]/page.tsx:144,163`, `HoldTime.tsx:29`, `Concentration.tsx:28`, `t/compare/page.tsx:78`) | unchanged (§3 example) | F-4, TR-9 |
 | avg label | "avg return / trade", "avg return" (pane headline stat, profile `statsText` and headline stat, month `:64,:80`, trade `:62`, `[symbol]/page.tsx:143`, compare `:77`, `[symbol]/opengraph-image.tsx:61`, `lib/ticker.ts:334`); "avg ‹pct›" (`lib/month-card.ts`) | "average per trade" (F-6's owner-decided "avg / result" exempt by name) | D24, F-4 |
 | profit factor | "profit factor" | "Profit factor"; What's this: "Total gains divided by total losses, in percent per trade." | D24 |
-| completeness | "Their whole record", "whole record:", "@h's full record", "Whole record:" (month page, `lib/month-card.ts`); "full record" (`trade/[sellId]/page.tsx:44`); alt "…, with the whole record" / "…, with the full record" | "Their record", "record:", "@h's record", "Record:"; alt "…, with the trader's record line" + both disclaimer sentences | F3a |
+| completeness | "Their whole record", "whole record:", "@h's full record", "Whole record:" (month page, `lib/month-card.ts`); "full record" (`trade/[sellId]/page.tsx:44`); alt "…, with the whole record" / "…, with the full record" | "Their record", "record:", "@h's record", "Record:"; alt "…, with the trader's record line" + both disclaimer sentences | F3a, F-12 (link text "@‹handle›'s record") |
 | empty feed | dev command | "No public records yet." + (only when connect is on, D26) "Connect your broker to publish the first record." | D25 |
 | `FEED.retry` / `SECTION.skip` | "Retry" / "Skip to the disclaimer" | "Try again" / "Skip to disclaimer and legal links" | glossary |
 
-Exempt by name (owner wording, F-1): `TRUST_NOTICE` "full trade history" and `CONSENT` "every account".
+Exempt by name (owner wording, F-1): `TRUST_NOTICE` "full trade history" and `CONSENT` "every account";
+(approved feature, F-13): `FIRST_VISIT.line`.
 
-**Banned in UI copy** (string test, case-insensitive): "Verified from broker", "straight from", "sample data",
+**Banned in UI copy** (string test, case-insensitive): "Verified from broker", "straight from" (F-13's first-visit
+line exempt by name unless DSP-2 is approved), "sample data",
 "independent bets", "overlapping position", "95% range" (outside `/how`), "every stock", "whole record", "full
 record", "Record under 30 days", "short record", "brokerage", "Retry", "Verify your record", any check glyph
 (U+2611, U+2705, U+2713, U+2714, U+1F5F8).
@@ -415,7 +499,7 @@ and every image file read it; image colours from `lib/palette.ts` (DS-6).
 | Importing | "Importing record" | `--muted` | none | static "…" | `/how#verified` | stats hidden |
 | Broker connected (no closes) | "Broker connected" | `--muted` | none | none | none | no check glyph |
 | Record incomplete / failed import | "Import did not finish" | `--warn` on `--warn-bg` box | 1 px solid `--warn` | warning triangle, SVG, `aria-hidden` | `/how#incomplete` | `role="status"`; never `--down`; never beside a figure |
-| New record | "New record" (O-1) | `--muted` | none | none | `/how#new-record` | profile and record card only |
+| New record | "New record" (O-1) | `--muted` | none on the profile; on the record card a pill the trust badge's size, no outline (F-4 2026-11-01) | none | `/how#new-record` | profile and record card only |
 | Not verified / no broker | "Not verified" / "No broker connected" | `--muted` | none | none | `/how#verified` | card-only; `lib/pane.ts` maps a not-all-verified record here, never to Demo |
 | Disconnected | "Disconnected ‹Mon D, YYYY›" | `--muted` | none (StatusLine) | none | `/how#disconnect` | badge stays Verified; card per O-4 |
 
@@ -428,32 +512,39 @@ max-width: 100%`, `border` (never `box-shadow`). F-8 game screens never reuse th
 
 | Surface | File | Trust mark | Record context | Dates | Disclaimer |
 |---|---|---|---|---|---|
-| Feed card | `app/ui.tsx` (`TradeCard`), `app/page.tsx` | badge **leads the record line** under the figure; header row holds name, handle and menu only | "‹badge› ‹N› closed trades · ‹avg› average per trade, likely between ‹lo› and ‹hi›" or "Too early to tell" (about 664 px with the badge, 3 lines in the 320 px box); "Disconnected ‹date›" muted line when frozen; thesis in `UserNote`, 2 lines + "more" | "Held ‹N› days · closed ‹date›" (DSP-4) | first screen at 360 and each appended page |
+| Feed card | `app/ui.tsx` (`TradeCard`), `app/page.tsx` | badge **leads the record line** under the figure (a layout input to F-10's plan debate); header row holds name, handle and menu only | **F-10's** `RecordStrip` line: "‹badge› ‹N› closed trades · ‹avg› average per trade, likely between ‹lo› and ‹hi›" or "Too early to tell" (about 664 px with the badge, 3 lines in the 320 px box); "Disconnected ‹date›" muted line when frozen (F-11); thesis in F-9's `UserNote`, 2 lines + "more" | none: F-10 puts the record line in place of "held · closed"; DSP-4 proposes keeping the close date | first screen at 360 and each appended page |
 | Swipe pane | `app/pane.tsx` | badge beside the headline stats | StatusLine ending "What Verified means →"; headline + range; F-6 open line | StatusLine | under the headline |
 | Profile | `app/u/[handle]/page.tsx` | badge on the stats row | StatusLine; headline + range + evidence label; disclaimer; `VERIFIED_DEFINITION` (72 words, 2,997 px at 14 px: 10 lines in 328 px, after the disclaimer, so the in-view check is unaffected); New record; open positions (TR-4) | StatusLine | under the headline stats |
-| Trade page | `app/u/[handle]/trade/[sellId]/page.tsx` | badge beside the record line | one box: "‹SYM› ‹pct› · closed ‹date›" + "Record: ‹record line›" + StatusLine | year rule | in that box |
-| Month page | `app/u/[handle]/month/[ym]/page.tsx` | badge beside "Their record" | record line + StatusLine | month + Last close | in view |
+| Trade page | `app/u/[handle]/trade/[sellId]/page.tsx` | badge beside the strip | one box: "‹SYM› ‹pct› · closed ‹date›" + **F-12's** `RecordStrip` ("Closed trades", count, average with range, open count when open, "@‹handle›'s record", "losses included") + F-11's status line | year rule | in that box (F-12) |
+| Month page | `app/u/[handle]/month/[ym]/page.tsx` | badge beside the strip | **F-12's** `RecordStrip` + F-11's status line; no "Past results:" verdict, same fields every month (F-12) | month + Last close | in view (F-12) |
 | `/t/[symbol]` | `app/t/[symbol]/page.tsx` | per-row `plain` badge after the figure, never beside the handle | intro "Closed trades on Stock Social, shown as percentages, losses included. Records of trades, not a rating of the stock."; no security-level win rate, average or Verified pill (F3b) | "closed ‹date›" per row | under the stats block |
 | `/t/compare` | `app/t/compare/page.tsx` | per-row `plain` badge | arithmetic range per row (DS-13) | none | in view |
 | Stocks index | `app/t/page.tsx` | none | DSP-3 line + intro | none | footer |
 | Public-source profile (F-7) | F-7's build | Public source label + filing links | StatusLine names the source | per filing | under the headline stats |
 | Record card image | `record-card-image.tsx`, `lib/record-card.ts` | `TRUST_LOOK` pill | as F-4 decided; range wraps after "between" (634 px at 35 px vs 540 column) | O-3; frozen per O-4 | ≥ 35 px (complies) |
-| Trade / month image | `trade/[sellId]/opengraph-image.tsx`, `month/[ym]/opengraph-image.tsx`, `lib/month-card.ts` | trust pill on the figure's line | computed band below | §2.3 | ≥ 35 px (today 22) |
-| Stock image | `app/t/[symbol]/opengraph-image.tsx` | "Demo data" / "Includes demo records" only | no numbers for the security | none | ≥ 35 px (today 30) |
+| Trade / month image | `trade/[sellId]/opengraph-image.tsx`, `month/[ym]/opengraph-image.tsx`, `lib/month-card.ts` | trust pill on the figure's line | **F-12's** strip, "losses included" and disclaimer inside the centred square and 1.91:1 safe area; no win rate (F-12); alt text carries the same facts | §2.3 (F-11) | in F-12's safe area, size per F-12's floor (today 22) |
+| Stock image | `app/t/[symbol]/opengraph-image.tsx` | "Demo data" / "Includes demo records" only | no numbers for the security (F3b); F-12 lists the stock image for its strip, which has no single trader: DSP-13 | none | in F-12's safe area (today 30) |
 | Story / square | `story/route.tsx` | pill + `STORY_VERIFIED`, or the Demo line | as F-4 | as F-4 | ≥ 32 px at 1080 |
 | Link preview | `generateMetadata` (profile, trade, month, `/t`) | og:title leads "@handle"; "Demo" for demo records | record line; no "verified" for demo or a security | none | both sentences end every description with a return (O-11) |
 
-**StatusLine (14 px, 328 px box):** row 1 "Record since Mar 4, 2025 · Connected: ‹broker names› (2 accounts)" 448 px
-with a 10-character broker name, 2 lines; row 2 "Last close Oct 30, 2026 · updated 2 hours ago" 324 px, 1 line; frozen
-row 1 298 px. Wraps at "·" and spaces; no-break spaces only inside a date ("Oct 30, 2026" = 182 px at 200%).
+**StatusLine (F-11's status line; 14 px, 328 px box):** row 1 "Record since Mar 4, 2025 · Connected: ‹broker names› (2 accounts)" 448 px
+with a 10-character broker name, 2 lines; row 2 "Last close Oct 30, 2026 · updated 2 hours ago (Nov 1, 2026)" 425 px, 2
+lines, the relative part and its date in one `<time datetime>` (F-11); frozen row 1 298 px. Wraps at "·" and spaces; no-break spaces only inside a date ("Oct 30, 2026" = 182 px at 200%).
 
 **Card 1 at 360×740 (worst case: signed out, demo card, 4-line Notice, frozen, F-6 line, 280-character thesis):**
-line-height estimate 614 px (`pass4/budget.py`, re-run in the final edit: record line 3 lines at 320 px after the
-84.4 px badge and gap, 64.9 px; 126 px spare); the pass-3 UX measurement with card chrome reached 736 px. The e2e
+line-height estimate 614 px (`budget.py`: record line 3 lines at 320 px after the 84.4 px badge and gap, 64.9 px;
+126 px spare), 594 px (146 spare) once F-10 removes the held line, 614 again if DSP-4 keeps it; the pass-3 UX measurement with card chrome reached 736 px. The e2e
 fixture is the gate: disclaimer in the viewport, never intersecting `.hide-bar` (78 px; the Notice is hidden while
 it shows; WCAG 2.4.11).
 
-**Image band, 1200×630 (content 1,072 × 502 px; `pass4/fit.py`):**
+**Image band, 1200×630 (content 1,072 × 502 px; `fit.py`).** F-12 builds the strip and its anti-crop band: the
+strip, "losses included" and the disclaimer sit inside the centred safe area that survives a square (630 px, a
+566 px column after 32 px padding) and a 1.91:1 crop. That supersedes the 1,072 px record-line, state and disclaimer
+rows below, which stay as this council's pass-5 measure. Input to F-12's plan debate (its legibility floor is open):
+in the 566 px column the strip takes 3 lines at 30 px and 4 at 35, the 20-character "@‹handle›'s record" link is
+570 px at 35 (2 lines), the disclaimer 3 lines; the band then totals 490 px at 30 px with a 94 px figure and 628 px
+at 35, over the 502 px box. So F-12's ≥ 35 px target fits only with fewer lines (shorter strip or smaller figure).
+The figure row is not in F-12's safe area and keeps the rule below.
 
 | Block | Size | Rule |
 |---|---|---|
@@ -472,7 +563,7 @@ it shows; WCAG 2.4.11).
 
 Dark stays the default `:root`; light under `@media (prefers-color-scheme: light)`. Every row keeps today's
 variable name or is new. **Fix** values ship now on today's base; **V-1** values only with the chosen variant.
-Contrast re-run in `pass4/tokens.py`.
+Contrast re-run in `tokens.py` (§1).
 
 ![Fix tokens on today's base, light and dark, at 360 px](screens-design-system-2026-11-01/tokens-fix-360.png)
 
@@ -485,7 +576,7 @@ Cells: light bg/sf · dark bg/sf.
 | `--bg` | V-1 | #fafafa / #0b0b0f (#f6f6f3 / #0f1114) | — | — | page |
 | `--surface` | V-1 | #fff / #16161d (#fff / #181b20) | — | — | cards, inputs, sheets |
 | `--text` | V-1 | #111118 / #f4f4f6 (#15171c / #eceef1) | 18.01/18.80 · 17.88/16.39 | 16.56/17.93 · 16.27/14.85 | body, figures |
-| `--muted` | V-1 | #6b6b78 / #8b8b98 (#585e69 / #9aa1ac) | 5.03/5.25 · 5.84/5.35 | 6.02/6.52 · 7.26/6.63 | labels, flat figures; never on a sign tint (4.42) |
+| `--muted` | V-1 | #6b6b78 / #8b8b98 (#585e69 / #9aa1ac) | 5.03/5.25 · 5.84/5.35 | 6.02/6.52 · 7.26/6.63 | labels, flat figures; never on a sign tint (as low as 4.36 on a 12% tint over surface, 4.23 over bg) |
 | `--line` | V-1 | #e5e5ea / #262631 (#dedfda / #2a2e35) | 1.20/1.26 · 1.31/1.20 | 1.24/1.34 · 1.39/1.27 | decorative dividers only |
 | `--accent` | V-1 | #6d28d9 / #a78bfa (ink #15171c / #eceef1) | 6.81/7.10 · 7.22/6.61 | 16.56/17.93 · 16.27/14.85 | primary fill, selected chip |
 | `--on-accent` | V-1 | #fff / #0b0b0f (#fff / #0f1114) | on accent 7.10 · 7.22 | 17.93 · 16.27 | text on accent |
@@ -497,13 +588,14 @@ Cells: light bg/sf · dark bg/sf.
 | `--verified` | fix | `var(--text)` | as text | as text | Verified text and border |
 | `--demo` | fix | #6e1f66 / #f0b8e8 | 9.81/10.24 · 11.91/10.91 | 9.46/10.24 · 11.46/10.46 | Demo text, dashed border |
 | `--demo-bg` | fix (hex) | #f8eef6 / #2a1a28 | demo on it 9.05 · 9.97 | same | Demo fill (not relied on) |
-| `--warn` | fix | #8a5a00 / #f2b84b | 5.68/5.93 · 10.98/10.06 | 5.47/5.93 · 10.56/9.65 | failed import, held thesis; never bare text |
+| `--warn` | fix | #8a5a00 / #f2b84b | 5.68/5.93 · 10.98/10.06 | 5.47/5.93 · 10.56/9.65 | failed import (not F-9's held note, which is neutral); never bare text |
 | `--warn-bg` | fix | #fdf3df / #2a2213 | warn on it 5.38 · 8.78 | same | warn box |
 | `--focus` | fix | #2152d9 / #86a8ff | 6.15/6.42 · 8.47/7.76 | 5.92/6.42 · 8.16/7.45 | ring: 2 px + mandatory 2 px offset; `:target` bar |
 | `--scrim` | fix | `color-mix(in srgb, var(--bg) 70%, transparent)` | — | — | replaces 3 inline mixes |
 
-- Gain vs loss CVD min ΔE00: ink 27.8 light / 20.1 dark (luminance 1.11 / 1.08, so sign, mark and words stay
-  required); today's 2.8 light (deutan) / 6.3 dark.
+- Gain vs loss CVD ΔE00 (`tokens.py`): ink light 27.8 protan / 36.1 deutan (28.3 / 36.2 without the 8-bit step),
+  ink dark 20.1 protan / 30.1 deutan; minimum 27.8 light / 20.1 dark (luminance 1.11 / 1.08, so sign, mark and words
+  stay required); today's 2.8 light (deutan) / 6.3 dark (deutan).
 - **Tints (P4-10):** text on a tint only over `--surface` (ink light down on a 12% tint over the V-1 bg #f6f6f3 is
   4.39, fails; 4.52 over today's bg). `:target` rows: `box-shadow: inset 3px 0 0 var(--focus)`, no fill (today's 14%
   accent fill: muted 4.01 over bg and 4.17 over surface, both failing; today's down passes at 4.80; after DS-4 ink
@@ -560,7 +652,9 @@ zeroes transforms, animations and smooth scroll; nothing informational disappear
 ## 6. Per-screen and per-component change list
 
 Builders work from this table; §2 explains why. Order key: **Now** = waits on no other PR (#30, #35 and #36 are
-merged); **after DS-n** = ordering only. Open PRs that overlap: #40 (`lib/trades.ts`, `lib/trades.test.ts`,
+merged); **after DS-n** = ordering only; **with or after F-n** = shares files with an approved feature (F-9 to F-14),
+whose build lands first or carries the row; **built by F-n** = that feature's build owns it and the row lists only
+what the feature leaves open. Open PRs that overlap: #40 (`lib/trades.ts`, `lib/trades.test.ts`,
 `lib/copy.ts`, `lib/sync.ts`, `app/u/[handle]/page.tsx`) and #42 (`lib/copy.ts`, `lib/auth/attempts.ts`,
 `app/u/[handle]/page.tsx`). Those files are cited by symbol, and whichever lands second rebases. Type: **fix** or **3V** (three variants). Pinned tests are updated, never deleted.
 
@@ -571,26 +665,26 @@ next step, and the PR's hand-off note lists it (expected limits after the table)
 |---|---|---|---|---|
 | DS-1 | Token layer, value-neutral: every §5.1 token at today's value or alias, `--sp-*`, `--tap`, `--r-*`, `--fs-*`; dedupe `.sr-only` (3×) | `app/globals.css` | fix · S · Now | a node:test pins every token's resolved value per scheme to today's (DS-4 updates that table); computed styles of 6 routes × 2 schemes equal before and after (JSON); one `.sr-only` |
 | DS-2 + DS-3 (one PR with DS-4) | Contrast-pair test generalising the kept `lib/badge-contrast.test.ts` into `lib/tokens.test.ts` (`PAIRS`, resolves `var()`); AA fixes: Verified to `--verified` outline (3.77 → 18.01), control borders (about 15 rules) to `--control`, `.hl` and `:target` to `--focus` (inset bar, no fill), scroll padding, zero-label 11 → 13 px | `lib/tokens.test.ts`, `app/globals.css` | fix · S-M · Now | text tokens ≥ 4.5 on bg, surface, surface-2; `--control`, `--focus` ≥ 3; each badge ≥ 4.5 on its bg; each tint × {up, down} over surface ≥ 4.5; `--demo` ΔE00 ≥ 9 (each deficiency) vs up, down, focus, warn, accent; e2e computed border of `.badge.verified`; zero-label 13 px; a tinted element's nearest opaque ancestor background is `--surface` |
-| DS-4 | Meaning colours on today's base: `--up --down` (ink), new `--control --warn* --demo* --surface-2 --verified --flat --scrim`; base unchanged | `app/globals.css` | fix (CVD 2.8 → 27.8) · S · Now, same PR as DS-2 + DS-3 | DS-2 green on today's base; gain/loss CVD ΔE00 ≥ 20; computed `color` of `.up`/`.down` = token values in both schemes |
+| DS-4 | Meaning colours on today's base: `--up --down` (ink), new `--control --warn* --demo* --surface-2 --verified --flat --scrim`; base unchanged | `app/globals.css` | fix (CVD min 2.8 → 27.8) · S · Now, same PR as DS-2 + DS-3 | DS-2 green on today's base; gain/loss CVD min ΔE00 ≥ 9 (the §1 threshold; 27.8 / 20.1 pinned); computed `color` of `.up`/`.down` = token values in both schemes |
 | DS-5 | Demo look: dashed `--demo` border, ring, hex `--demo-bg`, same box as Verified; hand-rolled spans (month, trade pages) become `Badge` | `app/globals.css`, `app/ui.tsx`, those pages | fix · S · Now | computed `border-style: dashed`, ring node, word; height = Verified ± 1 px; existing `'Demo'` e2e asserts pass |
 | DS-6 | One image palette `lib/palette.ts {dark, light}`; images take ink up/down; one grey; `themeColor` per scheme | new `lib/palette.ts`; `record-card-image.tsx` (`C`), `app/u/[handle]/opengraph-image.tsx`, `story/route.tsx`, trade, month and stock `opengraph-image.tsx`, `app/layout.tsx:13` | fix · M · Now | parity test: each key = CSS value; no `#rrggbb` in `app/**/*.tsx` outside it; card Demo per O-2 |
-| DS-7 | `TRUST_LOOK` (§4.2); `Badge` `linked`/`plain` (`plain` inside row links: `/t/[symbol]`, `Theses.tsx`, `suggest-section.tsx`, `similar-section.tsx`); tooltip removed; `/how` anchors `#verified #demo #public #new-record #incomplete #disconnect #excluded` | new `lib/trust-look.ts`; `app/ui.tsx`, `lib/copy.ts`, `lib/record-card.ts`, `lib/month-card.ts`, `app/how/page.tsx`, `app/globals.css` | fix · M · Now | one word per state across Badge and image models; no nested `a`; banned-string test (§4.1); `/how` changes keep its history (COMPLIANCE §12) |
+| DS-7 | `TRUST_LOOK` (§4.2); `Badge` `linked`/`plain` (`plain` inside row links: `/t/[symbol]`, `app/t/[symbol]/Theses.tsx`, `app/suggest-section.tsx`, `app/u/[handle]/similar-section.tsx`); tooltip removed; `/how` anchors `#verified #demo #public #new-record #incomplete #disconnect #excluded` | new `lib/trust-look.ts`; `app/ui.tsx`, `lib/copy.ts`, `lib/record-card.ts`, `lib/month-card.ts`, `app/how/page.tsx`, `app/globals.css` | fix · M · Now | one word per state across Badge and image models; no nested `a`; banned-string test (§4.1); `/how` changes keep its history (COMPLIANCE §12) |
 | DS-8 | Badge off the h1 line onto the stats row; `VERIFIED_DEFINITION` visible on the profile; pane link "What Verified means →"; titles lead "@handle" | `app/u/[handle]/page.tsx`, `app/pane.tsx`, `lib/copy.ts` | fix · S · Now | badge not a sibling of name, handle, avatar; definition visible on profile (not `title`); pane has the link; og:title starts "@"; e2e `header .badge.verified` selectors move, count kept |
 | DS-9 | Footer renders `DISCLAIMER` and `VERIFIED_DEFINITION`, not literals | `app/layout.tsx`, `lib/copy.ts` | fix · S · Now | sentence literal only in `lib/share.ts`; every existing disclaimer assertion (10) passes |
-| DS-10 | `lib/format.ts`: `pct()` (U+2212, at most two decimals in all, "≈−100.0%" rule, ≥ 1,000% whole); `imagePct()` ("about"); `winPct()`; `figureEms()` | `lib/format.ts`, `lib/trades.ts#pct` (re-export), about 12 win-rate sites | fix · S code / M tests (about 45 hyphen-sign assertions in 16 files) · Now | `pct(-0.99999)` "≈−100.0%"; `pct(-0.9995)` "−99.95%"; `pct(-1)` "−100.0%"; `pct(12.3456)` "+1,235%"; `pct(-0.0004)` "0.0%"; the `lib/trades.test.ts` pins `pct(-0.99996)` '-99.996%' → '≈−100.0%' and `pct(-0.9998, 0)` '-99.98%' → '−99.98%' (kept); `winPct` 199/200 → 99, 1/200 → 1 |
-| DS-11 | One `tone()` from the printed string; `.flat` + "Flat" + "about even"; replace 15 inline decisions; chart line by printed end value, flat in `--text`; accessible names use `pct()` default digits (`chart.tsx` uses `pct(last, 0)`) | `lib/format.ts`, `lib/open-split.ts`, `app/ui.tsx`, `app/pane.tsx`, `app/me/likes/page.tsx`, `app/me/record/page.tsx`, `/t` files, `app/u/[handle]/page.tsx`, `chart.tsx`, `similar-section.tsx`, `lib/record-card.ts` | fix · M · Now | grep bans inline tone decisions in `app/`; 0.0% fixture renders `.flat` on hero, pane, profile, chart; names contain "a gain", "a loss" or "about even" |
+| DS-10 | `lib/format.ts`: `pct()` (U+2212, at most two decimals in all, "≈−100.0%" rule, ≥ 1,000% whole); `imagePct()` ("about"); `winPct()`; `figureEms()` | `lib/format.ts`, `lib/trades.ts#pct` (re-export), about 12 win-rate sites | fix · S code / M tests (about 45 hyphen-sign assertions in 16 files) · Now | `pct(-0.99999)` "≈−100.0%"; `pct(-0.9995)` "−99.95%"; `pct(-1)` "−100.0%"; `pct(12.3456)` "+1,235%"; `pct(-0.0004)` "0.0%"; the `lib/trades.test.ts` pins `pct(-0.99996)` '-99.996%' → '≈−100.0%' (`:139`), `pct(-0.9999999999)` '≈-100.0%' → '≈−100.0%' (`:140`, the ≈ kept, the sign becomes U+2212) and `pct(-0.9998, 0)` '-99.98%' → '−99.98%' (`:138`, kept); `winPct` 199/200 → 99, 1/200 → 1 |
+| DS-11 | One `tone()` from the printed string; `.flat` + "Flat" + "about even"; replace 15 inline decisions; chart line by printed end value, flat in `--text`; accessible names use `pct()` default digits (`chart.tsx` uses `pct(last, 0)`) | `lib/format.ts`, `lib/open-split.ts`, `app/ui.tsx`, `app/pane.tsx`, `app/me/likes/page.tsx`, `app/me/record/page.tsx`, `/t` files, `app/u/[handle]/page.tsx`, `app/u/[handle]/chart.tsx`, `app/u/[handle]/similar-section.tsx`, `lib/record-card.ts` | fix · M · Now | grep bans inline tone decisions in `app/`; 0.0% fixture renders `.flat` on hero, pane, profile, chart; names contain "a gain", "a loss" or "about even" |
 | DS-12 | Chart line keeps the tone of its own printed end value; where it differs in sign from the headline, the figcaption plus the header value's sign are the caption; never recolour either. Feed card: the record line's running sum takes the headline's tone | `lib/record-card.ts`, `chart.tsx`, `app/ui.tsx` | fix · S · Now | positive-average, negative-end fixture: `.down` line, `.up` headline, caption visible; 100 trades averaging +0.04% ("0.0%" Flat) fixture |
 | DS-13 | Display range contains the headline: `/t` (`HoldTime`, `Concentration`, compare), `lib/recap.ts`, pane, trade and month pages call `lib/record-card.ts#cardEvidence` / `lib/bets.ts#arithmeticRange`; `confidence()` untouched; `rangeLine()` "likely between", no "· 95% range" | `lib/recap.ts`, `app/pane.tsx`, `lib/pane.ts`, trade and month pages, `/t` files, `app/t/compare/page.tsx` | fix (build gap vs F-4 10-31) · S-M · Now | property test on printed values: lo ≤ avg ≤ hi on every surface, lo ≥ "−100.0%"; §2.6 records as fixtures with tiers; `evidenceWeight` and `rankTraders` output unchanged on the seeded DB and property fixtures; `lib/ticker.ts` compares like with like |
 | DS-14 | Feed hero: `.ret` display formula, `--fig-em` from `figureEms()`, card body `container-type: inline-size`, `.hero { align-items: safe center }`; "Flat" on its own line; no ▲/▼ | `app/globals.css` (`.ret`), `app/ui.tsx` | fix · S · Now | unit: size × tracked em ≤ 0.78 of box for §2.8 fixtures at 280/320/520; e2e 360×740 and 320×640: F-6-style `used ≤ 0.80`, one rect on `.ret`; with `letter-spacing: .12em` injected the first glyph's left ≥ card left |
 | DS-15 | Reflow: `.stats` `minmax(min(100%, 8.5rem), 1fr)`; `.stats > *` `container-type: inline-size`; tile figures by `--grid-fig-em`; `h1, .who` `overflow-wrap: anywhere`; ranges joined by ordinary spaces; badges wrap; retire `.stats[data-long]` (the `.stats[data-long] .stat.big b` rule in `globals.css`, set by `app/open-rows.tsx` and `app/pane.tsx`) | `app/globals.css`, `app/u/[handle]/page.tsx`, `app/pane.tsx`, `app/open-rows.tsx` | fix · S · Now | computed font-size of a 2-column tile with "+6,123%" at 360 = 20.9 px; F-6 `used ≤ 0.80` asserts pass; 200% text: no horizontal scroll with "+123,457%", a 20-character handle and the longest StatusLine fixture |
-| DS-16 | Nav: signed out "Stock Social · Trades by stock · Sign in"; signed-in "Account" links to `/account` (F-3's page, title `BILLING.accountTitle`); that page gains, at the top, "Your profile (@handle)" → `/u/‹handle›` and "My record" → `/me/record` (interim; V-3); `nav.top` `flex-wrap` at 200% text | `app/layout.tsx`, `app/account/page.tsx`, `app/globals.css` (`nav.top`), `lib/copy.ts` | fix (D21, D27, overflow) · S · Now | `nav.top` `scrollWidth ≤ clientWidth` at 360 signed out and signed in with a 20-character handle; both links reachable in ≤ 1 tap from the nav at 360 px; no horizontal scroll at 200% |
+| DS-16 | Nav: signed out "Stock Social · Trades by stock · Sign in" (the "Trades by stock" label is **built by F-13**; this row keeps the fit and the rest); signed-in "Account" links to `/account` (F-3's page, title `BILLING.accountTitle`); that page gains, at the top, "Your profile (@handle)" → `/u/‹handle›` and "My record" → `/me/record` (interim; V-3); `nav.top` `flex-wrap` at 200% text | `app/layout.tsx`, `app/account/page.tsx`, `app/globals.css` (`nav.top`), `lib/copy.ts` | fix (D21, overflow) · S · after F-13's label | `nav.top` `scrollWidth ≤ clientWidth` at 360 signed out and signed in with a 20-character handle; both links reachable in ≤ 1 tap from the nav at 360 px; no horizontal scroll at 200% |
 | DS-17 | Warn for failures: failed import, account claimed, form errors use the warn Notice (icon, box, words) | `app/ui.tsx`, `app/u/[handle]/page.tsx`, month page, `app/login/*`, handle error, `app/globals.css` | fix · S · Now | no `down` class beside `record-failed` (class kept for `e2e/connect.spec.ts`); warn box has icon + words |
 | DS-18 | Completeness words (§4.1) incl. `trade/[sellId]/page.tsx:44`, `lib/claims.ts:7`, month page and images | those files, `lib/month-card.ts` | fix (F3a) · S · Now | banned-string test; F-1 strings exempt by name |
-| DS-19 | Image band (§4.3): figure row sized by `figureEms()` (today symbol + figure share a row in `overflow: hidden` and "+12,346%" can print as "+12,34": build gap); pill on the figure line; date + link; record line ≥ 40 px ≤ 2 lines; state line (Last close / Disconnected / Demo); disclaimer 22 → ≥ 35 px; stock footer 30 → ≥ 35; "about" for "≈"; Demo ring drawn; no thesis | trade, month, stock `opengraph-image.tsx`, `lib/month-card.ts` | fix (F3, TR-5) · M · Now | trust pill's box overlaps the figure's box vertically; summed block heights ≤ 502 for the longest fixture; widest 5-letter symbol × {"−100.0%", "about −100.0%", "+12,346%"}: row ≤ 1,072 px; any centre 1:1 or 4:3 crop holding ≥ 50% of the figure holds the whole trust word; frozen fixture contains "Disconnected"; U+2212 cmap test |
+| DS-19 | Image figure row and trust marks (§4.3); **the strip, "losses included", the disclaimer, the anti-crop band, alt text and "no win rate" are built by F-12** in its safe area. This row keeps: figure row sized by `figureEms()` (today symbol + figure share a row in `overflow: hidden` and "+12,346%" can print as "+12,34": build gap); pill on the figure line; date + link; state line (Last close / Disconnected / Demo); "about" for "≈"; Demo ring drawn; no thesis | trade, month, stock `opengraph-image.tsx`, `lib/month-card.ts` | fix (F3, TR-5) · M · with or after F-12 (same files) | trust pill's box overlaps the figure's box vertically; widest 5-letter symbol × {"−100.0%", "about −100.0%", "+12,346%"}: row ≤ 1,072 px; F-12's square and 1.91:1 crop tests also find the whole trust word; summed block heights ≤ 502 with F-12's strip at its floor; frozen fixture contains "Disconnected"; U+2212 cmap test |
 | DS-20 | One Demo name (§4.1 "sample data" row); demo StatusLine "Record since ‹date› · Demo" | files in that row, `app/u/[handle]/page.tsx` | fix (P2) · S · Now | `/sample data/i` absent from `app/`, `lib/` user copy; no "verified" on demo-only `/t` pages and images |
-| DS-21 | `StatusLine` (two rows, §4.3); TR-8 broker names via `connectedLine` + `counted()`; `dateText()` (UTC, year rule), `imageDate()` (year always) replace 21 date sites; "updated" from an absolute time formatted on the client | `app/ui.tsx`, `lib/format.ts`, `lib/copy.ts` (`connectedLine`), `lib/positions.ts`, profile, pane, `chart.tsx` | fix (D29, TR-5, TR-8) · M · Now | disconnected fixture: "Disconnected ‹date›", no "updated"; idle fixture: "not updated since"; broker names present; "as of" only beside an unrealized value; image dates carry the year |
-| DS-22 | Feed card: badge leads the D22 record line (header: name, handle, menu); "Held · closed" (DSP-4); "Disconnected ‹date›" line; thesis in `UserNote`, `line-clamp: 2` + "more"; pane disclaimer under the headline | `app/ui.tsx`, `app/page.tsx`, `app/pane.tsx`, `lib/pane.ts` | fix (D20, D22) · M · Now | badge not a descendant of `.who`; badge and figure in one `.hero` box; e2e worst-case fixture (§4.3): disclaimer in viewport on card 1, pane and profile, never intersecting `.hide-bar`; "Too early to tell" fixtures for K < 5 and half-width > 10 points |
-| DS-23 | First-visit `Notice` in the SW-1 slot: signed out, dismissible, never modal; server-rendered, hidden before paint by an inline script reading storage in try/catch; one at a time with the SW-1 hint; hidden while `.hide-bar` shows | `app/page.tsx`, `app/ui.tsx`, `lib/copy.ts`, `app/globals.css` | fix (D27 mechanism) · S · Now | renders with storage throwing; link and line in one element; demo sentence only with a demo card on page 1; returning visitor: CLS 0, no Notice |
+| DS-21 | **Status line built by F-11** (its single pure helper, "Last close · updated", idle fact, "Account N of M", "Account removed", "Disconnected · record frozen", `last_synced_at` only). This row keeps what F-11 leaves to it: the "as of" and "updated" wording (§2.3), TR-8 broker names via `connectedLine` + `counted()`, and `lib/format.ts` `dateText()` (UTC, year only outside the current year) and `imageDate()` (absolute, year outside the current year per F-11; year always only if DSP-12 is approved), which F-11's helper calls and which replace 21 date sites. Every relative time sits next to its absolute date in one `<time datetime="‹ISO›">` (F-11) | `lib/format.ts`, `lib/copy.ts` (`connectedLine`), `lib/positions.ts`, `app/u/[handle]/chart.tsx`; F-11's files for the line | fix (TR-8; wording for F-11) · M · with or after F-11 | broker names present; "as of" only beside an unrealized value; every relative time has a `<time datetime>` with the absolute date beside it (F-11's component test); image and cached dates never relative and show the year outside the current year (F-11's test) |
+| DS-22 | Feed card around **F-10's record line** (F-10 builds the line, its `RecordStrip`, the one aggregate query and its tests, in place of "held · closed"; DSP-4 proposes keeping the close date). This row keeps: badge leads the record line (layout input to F-10's plan debate; header: name, handle, menu); "Disconnected ‹date›" line (F-11); thesis in F-9's `UserNote`, `line-clamp: 2` + "more"; pane disclaimer under the headline | `app/ui.tsx`, `app/page.tsx`, `app/pane.tsx`, `lib/pane.ts` | fix (D20) · M · with or after F-10 | badge not a descendant of `.who`; badge and figure in one `.hero` box; e2e worst-case fixture (§4.3): disclaimer in viewport on card 1, pane and profile, never intersecting `.hide-bar`; "Too early to tell" fixtures for K < 5 and half-width > 10 points |
+| DS-23 | **Built by F-13** (first-visit line, its wording, Demo badge in the same viewport, storage-blocked dismissal, inline never overlay, SW-1 hint on the first card, "Trades by stock"). Kept here as layout inputs for F-13's build only: line and link in one element; server-rendered, hidden before paint by an inline script reading storage in try/catch; line and hint never at once on card 1; both hidden while `.hide-bar` shows | F-13's files | built by F-13 · — · — | F-13's acceptance criteria; returning visitor: CLS 0, no line |
 | DS-24 | Meta description, `/t` title, description, intro, aria (§4.1) | `app/layout.tsx:11`, `app/t/page.tsx` | fix; description per DSP-3 · S · Now | no "verified" or "every" in `/t` metadata; meta description = positioning constant |
 | DS-25 | Glossary sweep: D24 bet wording, "average per trade", "Profit factor" + What's this, "Try again", skip string, "brokerage", my/your buttons; evidence line per P4-4 | `lib/copy.ts`, `lib/trades.ts#evidenceLine`, `lib/confidence.ts`, `Baseline.tsx`, `app/pane.tsx`, profile, `lib/ticker.ts`, `lib/month-card.ts`, `/t` files | fix (D24, F-4) · S · Now | grep bans `independent bet\|overlapping position\|avg return\|brokerage` in user copy; F-6 "avg / result" and `lib/display-log.ts` (a log) exempt by name; "Evidence: ‹tier›" still present (TR-9) |
 | DS-26 | Delete dead `.badge-embed` CSS | `app/globals.css` | fix · S · Now | no `badge-embed` |
@@ -598,10 +692,10 @@ next step, and the PR's hand-off note lists it (expected limits after the table)
 | DS-28 | **V-1** neutral base (bg, surface, text, muted, line) + ink accent + `--on-accent`, as one palette per variant | `app/globals.css`, `lib/palette.ts` | 3V · S each · after DS-27 | each variant passes DS-2 and the §5.3 variant constraints |
 | DS-29 | **V-2** type, spacing, radius collapse (24 sizes → §5.2, 428 px literals → `--sp-*`, 8 radii → 6/10/999) | `app/globals.css`, `app/me/record/page.tsx`, month page | 3V · L · after DS-27 | ratchet counts only fall; e2e fit asserts pass under DejaVu |
 | DS-30 | **V-3** signed-in nav labels ("Account" or alternatives) | `app/layout.tsx`, `lib/copy.ts` | 3V · S · after DS-16 | nav ≤ 328 px signed in with a 20-character handle |
-| DS-31 | Display names: NFKC; strip U+200E/F, U+202A–202E, U+2066–2069; refuse U+2611, 2705, 2713, 2714, 1F5F8 and seal glyphs and the words Verified / Official; skeleton test vs verified, demo, official, support, admin | `lib/auth/attempts.ts` (name handling), its tests | fix (R1 depends on it) · S · Now (#42 also edits this file) | "Verifіed" (Cyrillic і) and a name with U+202E are refused; existing names render through the same normaliser |
-| DS-32 | `UserNote`: "@h wrote · after the trade closed · ‹date›" over a left-ruled box, text `--fs-body` / `--text` in `<bdi>`; feed card, pane, profile, trade page, `Theses.tsx`, chart sheet | `app/ui.tsx`, those files | fix (U2, F3a) · S · Now | every thesis node has a `UserNote` ancestor; thesis never in `--fs-small` / `--muted`; never larger than the verified figure |
+| DS-31 | Display names: NFKC; strip U+200E/F, U+202A–202E, U+2066–2069; refuse U+2611, 2705, 2713, 2714, 1F5F8 and seal glyphs and the words Verified / Official; skeleton test vs verified, demo, official, support, admin. **Routed to C9** (handle and name integrity: passed by the approval council, waiting over the cap, first next cycle; F-9 leaves it out); this row is input to C9, not a fix | `lib/auth/attempts.ts` (name handling), its tests | waits for C9 · S · — (#42 also edits this file) | "Verifіed" (Cyrillic і) and a name with U+202E are refused; existing names render through the same normaliser |
+| DS-32 | **`UserNote` built by F-9** (one component, `<bdi>`, attribution "Written ‹date›, after the trade closed · edited ‹date›", `thesis_written_at` / `thesis_edited_at`, never larger than the verified figure). This row keeps only the look: a left-ruled box, label `--fs-small` / `--muted`, text `--fs-body` / `--text`; a handle prefix on the label is DSP-9 | `app/ui.tsx` (F-9's component) | fix (F3a; look only) · S · with or after F-9 | thesis text never in `--fs-small` / `--muted` (computed style) |
 | DS-33 | `TRUST_LOOK` "Public source" row (F-7); F-7's build uses it | `lib/trust-look.ts`, F-7 files | fix (F-7) · S · with F-7 | no public-source profile renders "Verified" or `VERIFIED_DEFINITION`; each filing link present |
-| DS-34 | Moderation HOLD patterns `/\bverified\b/i`, `/likely between/i`, `/record frozen/i`, `/closed trades ·/i` (held, never dropped) | `lib/moderation.ts`, its tests | fix (U2) · S · Now | matching thesis is `held`; tests added |
+| DS-34 | **Built by F-9**: "verified", "official", product-name claims and stated return percentages are already on F-9's hold list. Its remainder, holding platform phrases that make a thesis read as record text (`/likely between/i`, `/record frozen/i`, `/closed trades ·/i`; held, never dropped), is DSP-10, a proposal to amend F-9 | `lib/moderation.ts` (F-9's file) | proposal (DSP-10) · S · after F-9 | if approved: matching thesis is `held`; F-9's negative corpus still has zero false holds |
 
 **Expected `ponytail:` limits:**
 
@@ -617,7 +711,7 @@ next step, and the PR's hand-off note lists it (expected limits after the table)
 | DS-19 | the renderer font's widths come from the DejaVu table until the render snapshot measures them |
 | DS-21 | relative "updated" time is client-formatted; without script it shows the absolute time only |
 | DS-22 | the height budget is measured at 360×740 with DejaVu; shorter viewports rely on the in-view e2e |
-| DS-23 | dismissal is per device; no first-party counters exist yet for D27's measures |
+| DS-23 | (for F-13's build) dismissal is per device; no first-party counters exist yet for D27's measures (F-13: waits for C17) |
 
 ---
 
@@ -632,8 +726,8 @@ next step, and the PR's hand-off note lists it (expected limits after the table)
 | O-5 | (deleted, pass 4: F-4 2026-11-01 fixes the trust-line sign; #35, merged, implements it) | — | — |
 | O-6 | (deleted, pass 4: #41 merged) | — | — |
 | O-7 | "bet" vs wagering vocabulary | Keep "bet" | The owner wrote it in F-4 and D24 |
-| O-8 | `scripts/compliance.ts` patterns (protected path) | Add "Verified from broker", "straight from", "every stock", "whole record", "full record", `/sample data/i`, check glyphs — **after** DS-7, DS-18, DS-20 and DS-24 remove the live hits; "Verified by" is already in `PROMO` | Enforces §4.1 bans in CI; human-only change |
-| O-9 | Handles that ever had a connected record (OD-12 b) | Retire them, never reissue | DS-31 covers names; handle reuse stays with OD-12 and the design council's P-1/P-2 |
+| O-8 | `scripts/compliance.ts` patterns (protected path) | Add "Verified from broker", "straight from" (only if DSP-2 amends F-13; F-13's line uses it), "every stock", "whole record", "full record", `/sample data/i`, check glyphs — **after** DS-7, DS-18, DS-20 and DS-24 remove the live hits; "Verified by" is already in `PROMO` | Enforces §4.1 bans in CI; human-only change |
+| O-9 | Handles that ever had a connected record (OD-12 b) | Retire them, never reissue | DS-31 (input to C9) covers names; handle reuse stays with OD-12 and the design council's P-1/P-2 |
 | O-10 | Name clearance; the internal phrase | Keep the name as plain text in the body font; the phrase stays off all surfaces until cleared | T1, T5a |
 | O-11 | Disclaimer in link-preview descriptions | Both sentences end every description that carries a return | Unfurls travel without the page |
 | O-12 | OD-2 (one chart series or two) | Unchanged; interim DS-12 | One picture can give two signs |
@@ -650,14 +744,19 @@ next step, and the PR's hand-off note lists it (expected limits after the table)
 
 | ID | Proposal | Type | Reason | Measure |
 |---|---|---|---|---|
-| DSP-1 | DS-1 to DS-27 and DS-31 to DS-34 as one ordered fix programme (§6) | fix | AA, CVD, range, overflow and F3a defects with computed evidence | DS-2 suite green; range property test; overflow e2e green at 320 and 360 |
-| DSP-2 | Amend D27's first-visit wording to the positioning line + "Demo records are marked Demo." (conditional) + "How records are calculated →"; mechanism unchanged | amend idea-board decision | D27's line calls demo cards verified and hides that returns are calculated (F3a, P2) | D27's measures once first-party counters exist; a five-person 360 px read test |
+| DSP-1 | DS-1 to DS-22, DS-24 to DS-27, DS-32 and DS-33 as one ordered fix programme (§6), sequenced with F-9 to F-14 where the rows say "with or after F-n"; DS-23 and the built-by parts are the features'; DS-31 waits for C9; DS-34 is DSP-10 | fix | AA, CVD, range, overflow and F3a defects with computed evidence | DS-2 suite green; range property test; overflow e2e green at 320 and 360 |
+| DSP-2 | Amend **F-13**'s first-visit wording (D27 verbatim) to the positioning line + "Demo records are marked Demo." (conditional) + "How records are calculated →"; F-13's mechanism and Demo-badge rule unchanged; the meta description, `/` image and `/how` intro use the positioning line either way | amend approved feature (F-13) | F-13's Demo badge answers the demo half; "straight from the broker" still hides that Stock Social calculates the returns (F3a) | D27's measures once first-party counters exist; a five-person 360 px read test |
 | DSP-3 | Amend D25's Stocks line to "Browse stocks that have closed trades on Stock Social." | amend idea-board decision | The index lists demo-only stocks | correctness |
-| DSP-4 | Read D22 as adding the record line while keeping "Held ‹N› days · closed ‹date›" | amend idea-board decision | Without the date a 2020 trade looks current | card-1 budget e2e; pane-open rate unchanged |
+| DSP-4 | Amend **F-10**, which puts the record line "in place of" "held · closed", to keep "Held ‹N› days · closed ‹date›" beside it | amend approved feature (F-10) | Without the date a 2020 trade looks current | card-1 budget e2e (614 px with it, 594 without); pane-open rate unchanged |
 | DSP-5 | **V-1**: neutral base + ink accent replace today's base and violet | three variants | One palette per variant; trade-dress distance | pane-open rate, sign-in starts, focus-visible audit |
 | DSP-6 | **V-2**: type, spacing, radius collapse | three variants | 24 font sizes, 8 radii, 428 px literals today | ratchet counts; e2e fit |
 | DSP-7 | **V-3**: signed-in nav labels | three variants | "My record" does not fit with a handle | nav fit; taps on own record |
 | DSP-8 | Add badge placement and "one record-maturity signal per surface" to the idea board's register | amend idea-board decision | Stops a second maturity badge returning | string and DOM tests |
+| DSP-9 | Amend **F-9**'s attribution line to name the author: "@‹handle› · Written ‹date›, after the trade closed · edited ‹date›" | amend approved feature (F-9) | On `/t/[symbol]` and in `Theses.tsx` theses from several traders sit in one list | component test on every `UserNote` surface |
+| DSP-10 | Add to **F-9**'s hold list the platform phrases `/likely between/i`, `/record frozen/i`, `/closed trades ·/i` (held, never dropped) | amend approved feature (F-9) | A thesis that copies record-line text reads as platform copy (P4-11) | F-9's bypass and negative corpora |
+| DSP-11 | Add to **F-14** a test that a round the throttle skips leaves `last_synced_at` unchanged | amend approved feature (F-14) | Otherwise F-11's "updated" shows freshness without a vendor read (F-11's own rule) | the test |
+| DSP-12 | Amend **F-11** so share images print the year on every date, not only outside the current year | amend approved feature (F-11) | An image made in November and read in January shows "Oct 30" with no year and looks current; images outlive the year | image render test |
+| DSP-13 | Read **F-12**'s stock-image strip as "losses included" + the disclaimer only, no record numbers | amend approved feature (F-12) | A stock image has no single trader's record, and a return attached to a security is F3b | stock-image string test |
 
 ---
 
@@ -671,7 +770,8 @@ next step, and the PR's hand-off note lists it (expected limits after the table)
 - **F-8:** design only; game screens never reuse the Verified, Demo or Public source looks.
 - **Build gap for the owner:** `chart.tsx` still carries trade-linked points, tooltips and the release sheet that
   decision #25 A dropped; not styled here beyond the focus rule.
-- **Moderation v2 and handle reservation:** the design council's P-1/P-2.
+- **Moderation v2 and handle reservation:** moderation is F-9 (approved); handle and name integrity is C9 (waiting,
+  first next cycle), which takes DS-31 as input.
 - **Logo, glyph, favicon art, any font file and the product name:** none until the owner clears the name (T5a).
 - **Policy text:** this spec changes no POLICY, DESIGN or F-*.md text; O-1, O-8 and O-16 are owner or human edits.
 
@@ -683,10 +783,10 @@ Builds mark matching code with `ponytail:` (§6).
 
 | Limit | Why it matters | Next step |
 |---|---|---|
-| Contrast and CVD are computed (WCAG 2.x, simulated full-severity dichromacy, CIEDE2000), not measured on devices | gamma, night modes and anomalous vision differ; Demo vs up is 9.2 light (0.2 above the bar) | device check of Demo, gain, loss, warn badges on a low-end phone, both schemes, before the first public card |
+| Contrast and CVD are computed (WCAG 2.x, simulated full-severity dichromacy, CIEDE2000), not measured on devices | gamma, night modes and anomalous vision differ; Demo vs up is 9.2 light (0.2 above the bar; 8.3 if simulated on gamma-encoded sRGB) | device check of Demo, gain, loss, warn badges on a low-end phone, both schemes, before the first public card |
 | Widths use the DejaVu table, no kerning | other fonts differ; 78% leaves 2.5% to F-6's 0.80 | spot-check two common phone system fonts |
 | Hero ignores the text-size setting (F94 pattern) | at 200% text it stays 36–70 px, under 1.5× a 32 px root for long figures | the same figure prints in scalable text in the pane |
-| Blue focus ring vs violet fill under deutan (ΔE00 0.3) | ring and fill look alike; the 2 px page-colour gap separates them | V-1 replaces violet |
+| Blue focus ring vs violet fill under deutan (ΔE00 0.3; 0.6 without the 8-bit step) | ring and fill look alike; the 2 px page-colour gap separates them | V-1 replaces violet |
 | No print or forced-colours (high-contrast) mode | borders, glyphs and words survive; tints and hues vanish | `@media (forced-colors: active)` pass |
 | Screen-reader voicing of U+2212 unverified | some readers may skip the sign | test on two common readers; "a gain" / "a loss" accessible words required meanwhile |
 | Image renderer widths and glyphs | estimated from DejaVu; U+2212 by cmap test only | render snapshots (DS-19) |
