@@ -434,6 +434,61 @@ body[data-viewer="publisher"] .feed-end .for-guest, body:not([data-viewer="publi
 .signin-line .quiet-x { background: transparent; color: var(--muted); border: 0; font-weight: 400; font-size: 1.25rem; padding: 0; }
 .nojs-done { position: fixed; z-index: 20; left: 16px; right: 16px; bottom: 16px; max-width: 528px; margin: 0 auto; padding: 12px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
 
+/* ---- F-2 PR-5: personalization switches, the feed's notes line, hidden trades ---- */
+/* On and Off are equally prominent: the same neutral style and size, side by side at 360 px; the current one adds a
+   visual ✓ and a 2 px outline (aria-pressed carries the state; never color alone). */
+.switch-pair { display: flex; gap: 12px; margin: 8px 0 20px; }
+.switch-pair form { flex: 1; display: flex; }
+.switch-pair .switch { flex: 1; min-width: 140px; min-height: 44px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
+.switch-pair .switch.current { outline: 2px solid var(--text); outline-offset: 1px; }
+.switch-pair .switch:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.personalize form > button.secondary { min-height: 44px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
+/* User test demand 1: the feed snaps to every card, so the notes are a snap stop of their own at the top, padded below
+   the fixed nav: the feed opens on them with the first card's top in view, and one scroll lands on the first card. */
+.feed .feed-notes { scroll-snap-align: start; margin: 0; padding: 64px max(20px, calc((100% - 560px) / 2)) 12px; }
+.hidden-trades .closed { white-space: nowrap; }
+.hidden-trades .small { display: flex; flex-direction: column; align-items: flex-start; }
+.feed-notes a, .hidden-trades .small a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; vertical-align: middle; }
+/* ---- F-3 · Record tools and billing (docs/features/logs/F-3/plan.md). Existing tokens only; no animation. Every card
+   has the same size, border and type: nothing is first-place styled (committee K3). */
+.rt-disclaimer { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin: 12px 0; }
+.rt-disclaimer p { margin: 0; }
+.rt-legal { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.rt-legal a, .rt-links a, .rt-views a { display: inline-flex; align-items: center; min-height: 44px; }
+.badge.test-mode { display: inline-block; background: var(--surface); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+.rt-banner { border-left: 3px solid var(--line); padding: 6px 10px; background: var(--surface); }
+.rt-msg:empty { display: none; }
+.rt .button.choice, .rt button.choice { display: block; width: 100%; text-align: center; background: var(--surface); color: var(--text); border: 1px solid var(--line); font-weight: 700; min-height: 48px; margin: 8px 0; }
+.rt .button.secondary, .rt button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--line); min-height: 44px; }
+.rt-subscribe { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 8px; }
+.rt-plan-form { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 12px 0; }
+.rt-plan-form h3 { margin: 0 0 4px; font-size: 1rem; }
+.rt-check { display: flex; gap: 10px; align-items: flex-start; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.rt-check input { width: 22px; height: 22px; margin-top: 2px; flex: none; }
+.rt-form { display: grid; gap: 8px; margin: 12px 0; }
+.rt-form input, .rt-form select, .rt-note textarea { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--text); min-height: 44px; width: 100%; }
+.rt-handle { display: flex; align-items: center; gap: 4px; }
+.rt-follows { border: 0; padding: 0; display: grid; gap: 6px; }
+.rt-cards { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 12px; }
+@media (min-width: 720px) { .rt-cards.rt-n2 { grid-template-columns: repeat(2, 1fr); } .rt-cards.rt-n3 { grid-template-columns: repeat(3, 1fr); } .rt-cards.rt-n4 { grid-template-columns: repeat(2, 1fr); } }
+.rt-card { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px; min-width: 0; }
+.rt-card h2 { font-size: 1.1rem; margin: 0 0 4px; overflow-wrap: anywhere; }
+.rt h1, .rt-views a, .rt-confirm p { overflow-wrap: anywhere; min-width: 0; } /* QA M1: a 60-character view name */
+.rt-pos { margin: 0; }
+.rt-figures { margin: 8px 0; display: grid; gap: 6px; }
+.rt-figures div { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.rt-figures dt { color: var(--muted); }
+.rt-figures dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.rt-figures .rt-wide dd { text-align: left; }
+.rt-controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.rt-note { display: grid; gap: 6px; margin-top: 8px; }
+.rt-note textarea { white-space: pre-wrap; }
+.rt-inline { display: inline-block; margin: 4px 8px 4px 0; }
+.rt-actions { display: grid; gap: 0; }
+.rt button, .rt .button, .rt summary { min-height: 44px; }
+.rt-back a, .rt-card h2 a, .rt-rename summary, .rt-note-fold summary, .rt-confirm summary { display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; }
+.rt-card:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* Privacy work (2026-11-01): the consent page (S4) with the longer public-scope line keeps its primary above the fold
    at 360×640 and 375×667 (committee D9): tighter list and heading spacing; the deadline sits under the buttons. */
 .auth.consent h1 { margin: 0 0 10px; font-size: 1.375rem; }

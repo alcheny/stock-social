@@ -386,6 +386,160 @@ create table if not exists trade_exclusions (
 select schema_add_column('trade_exclusions', 'liked_at', 'timestamptz');
 select schema_add_index('trade_exclusions_trader', 'create index trade_exclusions_trader on trade_exclusions (trader_id)');
 
+-- ---- F-2 PR-5 (docs/features/logs/F-2/plan-pr5-ux-lead.md): the viewer's activity log and personalization settings ----
+-- Two per-viewer switches. personalize_feed (default on): ordering may use the viewer's own follows, likes and hides;
+-- off, the viewer gets the order everyone gets minus their own hides. activity_log_on_at (default null = off, owner
+-- 2026-11-01): when set, the implicit logger runs and its events shape ordering; off, nothing is logged or used.
+select schema_add_column('users', 'personalize_feed', 'boolean not null default true');
+select schema_add_column('users', 'activity_log_on_at', 'timestamptz');
+-- Lookup tables, not CHECKs (widening a CHECK needs a drop). Seeded idempotently.
+create table if not exists discovery_event_types (code smallint primary key, name text not null unique);
+create table if not exists discovery_surfaces (code smallint primary key, name text not null unique);
+insert into discovery_event_types (code, name) values (1, 'impression'), (2, 'dwell_short'), (3, 'dwell_long'), (4, 'skip'),
+  (5, 'swipe_open'), (6, 'profile_open'), (7, 'share'), (8, 'watch'), (9, 'unwatch') on conflict do nothing;
+insert into discovery_surfaces (code, name) values (1, 'feed'), (2, 'pane'), (3, 'profile'), (4, 'section'), (5, 'me') on conflict do nothing;
+-- One row per implicit event: viewer, surface, target (trader, trade or symbol), type and time only. No address, device,
+-- IP, user agent, amount, price or broker field (criterion 3, lib/f2-personal.db.test.ts). A trade target keeps its
+-- trader too (the close's stable trade_key; no foreign key: a rebuild deletes closed_trades rows). Stored until the
+-- viewer clears it or deletes the account (owner 2026-11-01); only the last 90 days are read, fading.
+create table if not exists discovery_events (
+  id bigint generated always as identity primary key,
+  viewer_id int not null references users on delete cascade,
+  at timestamptz not null default now(),
+  surface smallint not null references discovery_surfaces,
+  type smallint not null references discovery_event_types,
+  target_kind text not null check (target_kind in ('trader', 'trade', 'symbol')),
+  target_user_id int references users on delete cascade,
+  target_trade_key text,
+  target_symbol text,
+  check ((target_kind = 'trader' and target_user_id is not null and target_trade_key is null and target_symbol is null)
+    or (target_kind = 'trade' and target_user_id is not null and target_trade_key is not null and target_symbol is null)
+    or (target_kind = 'symbol' and target_user_id is null and target_trade_key is null and target_symbol is not null)),
+  check (viewer_id <> target_user_id)
+);
+select schema_add_index('discovery_events_viewer_at', 'create index discovery_events_viewer_at on discovery_events (viewer_id, at desc)');
+select schema_add_index('discovery_events_target_user', 'create index discovery_events_target_user on discovery_events (target_user_id)');
+select schema_add_index('discovery_events_trade_key', 'create index discovery_events_trade_key on discovery_events (target_trade_key) where target_trade_key is not null');
+-- Likes and rejected trades looked up by key (lib/privacy-purge.ts orphans, lib/discovery/personal-load.ts).
+select schema_add_index('trade_likes_key', 'create index trade_likes_key on trade_likes (trade_key)');
+select schema_add_index('trade_exclusions_key', 'create index trade_exclusions_key on trade_exclusions (trade_key)');
+select schema_add_index('trade_exclusions_viewer_at', 'create index trade_exclusions_viewer_at on trade_exclusions (viewer_id, created_at desc, trade_key desc)');
+-- The events route's per-viewer gate (one batch per 2 s, held by a row lock, so it holds across server instances).
+select schema_add_column('users', 'activity_batch_at', 'timestamptz');
+-- F-2 PR-5 (owner 2026-11-01: preference data is stored until the viewer removes it): when the viewer ended an
+-- exclusion themselves (Undo, "Show again", a new follow). The purge deletes only those, a day later, and ended 'unfollow'
+-- rows (the system's −1 record of a removed follow); a "Not interested" that ran its 90 days stays stored, unread.
+-- Backfill once, when the column is added (deletes nothing): rows that ended before their 90 days were ended by the viewer.
+-- Never on a later apply: every test file applies this file, and an update here would touch rows other sessions hold.
+do $f$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'viewer_exclusions' and column_name = 'ended_at') then
+    alter table viewer_exclusions add column ended_at timestamptz;
+    update viewer_exclusions set ended_at = until where until <= now() and until < created_at + interval '90 days' - interval '1 minute';
+  end if;
+end $f$;
+-- Orphaned likes and hidden trades are marked in privacy_orphans and purged by lib/privacy-purge.ts (one mechanism).
+-- Review fix 5: the purge reads only the rows it may delete through a partial index (expired "Not interested" rows are
+-- kept, so a scan over every exclusion would grow with history).
+select schema_add_index('viewer_exclusions_purgeable', $$create index viewer_exclusions_purgeable on viewer_exclusions (until) where reason = 'unfollow' or ended_at is not null$$);
+-- Tester finding 1: the events gate is a window (at most 3 batches per 10 s), so a page-leave batch right after the
+-- periodic one is kept.
+select schema_add_column('users', 'activity_batch_n', 'smallint not null default 0');
+-- ---- F-3 · Viewer subscriptions and Record tools (docs/features/F-3-viewer-subscriptions.md; legal committee record
+-- docs/features/logs/F-3/committee-2026-11-01.md). The processor holds charges, refunds, tax and card data; the app
+-- keeps ids, plan, status and dates only (committee condition 20). No card, name, email, address or tax-location column.
+create table if not exists billing_customers (
+  user_id int primary key references users on delete cascade,
+  vendor_customer_id text unique not null,
+  created_at timestamptz not null default now()
+);
+-- Entitlements are read from this row, never from a live processor call. One live row per user (partial unique index).
+create table if not exists subscriptions (
+  id int generated always as identity primary key,
+  user_id int not null references users on delete cascade,
+  vendor_subscription_id text unique not null,
+  vendor_customer_id text not null,
+  plan text not null check (plan in ('monthly', 'annual')),
+  status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused', 'incomplete')),
+  current_period_start timestamptz,
+  current_period_end timestamptz,
+  cancel_at_period_end boolean not null default false,
+  grace_until timestamptz,
+  disputed_at timestamptz,
+  ended_reason text check (ended_reason in ('refund', 'trader', 'deletion')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+-- ponytail: 'incomplete' (a first payment being confirmed) is outside the one-live index; lib/billing.ts#startCheckout
+-- refuses a second checkout while one exists — add it to the index (a new index name) to enforce it in the database.
+select schema_add_index('subscriptions_one_live', $$create unique index subscriptions_one_live on subscriptions (user_id) where status in ('trialing', 'active', 'past_due')$$);
+select schema_add_index('subscriptions_user', 'create index subscriptions_user on subscriptions (user_id)');
+-- The webhook inbox: one row per processor event id (duplicates are no-ops). No payload (committee condition 20); the
+-- handler fetches the object from the processor by id. Purged 35 days after receipt by the nightly reconciliation.
+create table if not exists billing_events (
+  vendor_event_id text primary key,
+  type text not null,
+  vendor_object_id text,
+  vendor_customer_id text,
+  livemode boolean not null,
+  received_at timestamptz not null default now(),
+  processed_at timestamptz,
+  error_code text,
+  flagged boolean not null default false,
+  claimed_at timestamptz -- a delivery's 2-minute lease while it applies the event (concurrent duplicates are no-ops)
+);
+select schema_add_index('billing_events_received', 'create index billing_events_received on billing_events (received_at)');
+select schema_add_index('billing_events_customer', 'create index billing_events_customer on billing_events (vendor_customer_id)');
+-- When the daily reconciliation last started (lib/billing.ts#reconcileIfDue, run from the hourly sync tick).
+create table if not exists billing_runs (
+  job text primary key,
+  last_at timestamptz not null
+);
+-- Renewal consent (committee condition 16): the full disclosure text's version and hash, never an IP, email or name.
+-- At account deletion user_id is nulled and the row is kept 3 years under the processor customer id (retain_until).
+create table if not exists billing_consents (
+  id int generated always as identity primary key,
+  user_id int references users on delete set null,
+  vendor_customer_id text,
+  plan text not null check (plan in ('monthly', 'annual')),
+  disclosure_version text not null,
+  disclosure_hash text not null,
+  livemode boolean not null,
+  created_at timestamptz not null default now(),
+  retain_until timestamptz
+);
+select schema_add_index('billing_consents_user', 'create index billing_consents_user on billing_consents (user_id)');
+-- Record tools: saved views (name and ordered traders only, never a snapshot of numbers) and private notes, visible only
+-- to their owner. A view's id is random (owner-only URL). Either account's deletion cascades.
+create table if not exists record_views (
+  id uuid primary key default gen_random_uuid(),
+  owner_id int not null references users on delete cascade,
+  name text not null check (char_length(name) between 1 and 60),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+select schema_add_index('record_views_owner', 'create index record_views_owner on record_views (owner_id, created_at)');
+create table if not exists record_view_traders (
+  view_id uuid not null references record_views on delete cascade,
+  trader_id int not null references users on delete cascade,
+  position int not null,
+  primary key (view_id, trader_id)
+);
+select schema_add_index('record_view_traders_trader', 'create index record_view_traders_trader on record_view_traders (trader_id)');
+create table if not exists record_notes (
+  owner_id int not null references users on delete cascade,
+  trader_id int not null references users on delete cascade,
+  body text not null check (char_length(body) between 1 and 2000),
+  updated_at timestamptz not null default now(),
+  primary key (owner_id, trader_id),
+  check (owner_id <> trader_id)
+);
+select schema_add_index('record_notes_trader', 'create index record_notes_trader on record_notes (trader_id)');
+-- Committee condition 12: a count of removals from this owner's views and notes since the last visit, no trader id kept.
+create table if not exists record_tool_notices (
+  owner_id int primary key references users on delete cascade,
+  removed int not null default 0
+);
+
 -- Privacy work (2026-11-01, docs/features/logs/privacy/committee-2026-11-01.md). Every table here is in
 -- lib/privacy-retention.ts#SCHEMA_MAP (a test fails for a table without an entry).
 -- D10: a like or rejected trade whose trade is gone. This supersedes "kept and ignored on read" above for likes and
