@@ -474,9 +474,10 @@ dbTest('transient streak: TRANSIENT_LIMIT transient failures in a row quarantine
     assert.equal(q.sync_failure_kind, 'quarantined');
     assert.ok(q.sync_retry_at, 'backed off');
     assert.equal((await h.sql`select sync_transients from users where id = ${slow.id}`)[0].sync_transients, 0);
-    // The next round does not dispatch it; the other trader is synced every round.
+    // The next round (40 minutes on, inside its 1 h backoff: rounds start at :30) does not dispatch it; the other trader
+    // is synced every round.
     const before = c.count(slow.id);
-    await run(TRANSIENT_LIMIT);
+    await h.H.runShard({ shard: { shard: 0, of }, ids: h.ids, shiftMs: h.at(5 + 60 * (TRANSIENT_LIMIT - 1) + 40), jitterMs: 0, config: cfg(1), log: h.quiet, sync: c.sync });
     assert.equal(c.count(slow.id), before);
     assert.equal(c.count(other.id), TRANSIENT_LIMIT + 1);
     // A success resets a streak: two transients, a success, then the streak starts from zero.
