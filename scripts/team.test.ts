@@ -180,3 +180,137 @@ test('permissions: in a conflict task, main\'s changes to protected paths are ke
   assert.equal(read(join(dir, 'lib/a.ts'), 'utf8'), 'feature+main\n');
   assert.equal(g('status', '--porcelain'), '');
 });
+
+// ---------- review fixes: renames and quoted names, uncommitted work, planted git state, the time cap ----------
+
+import { chmodSync, lstatSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { spawnSync as run } from 'node:child_process';
+import { checkEnv, gitSnapshot, keepEngineerWork, restoreGit } from './team.ts';
+
+const scratch = (prefix: string) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const g = (...a: string[]) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
+  g('init', '-q', '-b', 'main'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 't');
+  return { dir, g };
+};
+const inDir = <T>(dir: string, f: () => T): T => { const cwd = process.cwd(); try { process.chdir(dir); return f(); } finally { process.chdir(cwd); } };
+
+test('permissions: a renamed protected file and a non-ASCII new protected path are put back too', () => {
+  const { dir, g } = scratch('design-rename-');
+  mkdirs(join(dir, 'scripts')); mkdirs(join(dir, 'docs/features'), { recursive: true });
+  write(join(dir, 'scripts/team.ts'), 'original\n'); write(join(dir, 'scripts/plan.ts'), 'plan\n'); g('add', '-A'); g('commit', '-qm', 'base');
+  const before = g('rev-parse', 'HEAD');
+  // Rename detection would list only the new path; core.quotePath would quote the non-ASCII one.
+  g('mv', 'scripts/team.ts', 'scripts/team2.ts'); g('commit', '-qm', 'rename');
+  g('mv', 'scripts/plan.ts', 'scripts/plan-old.ts'); // staged, not committed
+  write(join(dir, 'docs/features/F-9-café.md'), 'Status: ready\n');
+  assert.deepEqual(inDir(dir, () => restoreProtected(before)).sort(), ['docs/features/F-9-café.md', 'scripts/plan.ts', 'scripts/team.ts']);
+  assert.equal(read(join(dir, 'scripts/team.ts'), 'utf8'), 'original\n');
+  assert.equal(read(join(dir, 'scripts/plan.ts'), 'utf8'), 'plan\n');
+  assert.ok(!exists(join(dir, 'docs/features/F-9-café.md')));
+});
+
+test('engineer: work left uncommitted at the end of a call is committed, so a later reviewer reset cannot wipe it', () => {
+  const { dir, g } = scratch('engineer-left-');
+  mkdirs(join(dir, 'lib')); write(join(dir, 'lib/a.ts'), 'a1\n'); g('add', '-A'); g('commit', '-qm', 'base');
+  const before = g('rev-parse', 'HEAD');
+  write(join(dir, 'lib/a.ts'), 'a2\n'); write(join(dir, 'lib/b.ts'), 'b\n'); write(join(dir, 'CLAUDE.md'), 'planted\n');
+  assert.deepEqual(inDir(dir, () => keepEngineerWork(before, '')), ['CLAUDE.md']);
+  assert.equal(g('status', '--porcelain'), '');
+  assert.equal(g('diff', '--name-only', before), 'lib/a.ts\nlib/b.ts');
+  write(join(dir, 'lib/c.ts'), 'c\n'); // no protected path this time: the work gets its own commit
+  inDir(dir, () => keepEngineerWork(g('rev-parse', 'HEAD'), ''));
+  assert.match(g('log', '-1', '--format=%s'), /left uncommitted/);
+  assert.equal(g('status', '--porcelain'), '');
+});
+
+const conflicted = (prefix: string) => {
+  const s = scratch(prefix);
+  mkdirs(join(s.dir, 'lib')); write(join(s.dir, 'lib/a.ts'), 'a\n'); write(join(s.dir, 'lib/c.ts'), 'c\n'); s.g('add', '-A'); s.g('commit', '-qm', 'base');
+  s.g('checkout', '-qb', 'feature/f-1'); write(join(s.dir, 'lib/a.ts'), 'feature\n'); write(join(s.dir, 'lib/c.ts'), 'feature c\n'); s.g('commit', '-qam', 'feature');
+  s.g('checkout', '-q', 'main'); write(join(s.dir, 'lib/a.ts'), 'main\n'); write(join(s.dir, 'lib/c.ts'), 'main c\n'); s.g('commit', '-qam', 'main');
+  s.g('checkout', '-q', 'feature/f-1');
+  try { s.g('merge', 'main'); } catch { /* the conflicts are the task */ }
+  return { ...s, before: s.g('rev-parse', 'HEAD'), merging: s.g('rev-parse', 'MERGE_HEAD') };
+};
+
+test('engineer: a resolved but uncommitted merge is completed; unresolved conflicts are left for features.ts resolved to fail', () => {
+  const done = conflicted('merge-done-');
+  write(join(done.dir, 'lib/a.ts'), 'both\n'); write(join(done.dir, 'lib/c.ts'), 'both c\n'); done.g('add', 'lib/a.ts', 'lib/c.ts');
+  inDir(done.dir, () => keepEngineerWork(done.before, done.merging));
+  assert.equal(done.g('log', '-1', '--format=%P').split(' ').length, 2, 'a merge commit');
+  assert.equal(done.g('status', '--porcelain'), '');
+  assert.equal(read(join(done.dir, 'lib/c.ts'), 'utf8'), 'both c\n');
+
+  const half = conflicted('merge-half-');
+  write(join(half.dir, 'lib/a.ts'), 'both\n'); half.g('add', 'lib/a.ts'); // c.ts still conflicted
+  inDir(half.dir, () => keepEngineerWork(half.before, half.merging));
+  assert.equal(half.g('rev-parse', 'HEAD'), half.before, 'nothing committed');
+  assert.equal(half.g('rev-parse', 'MERGE_HEAD'), half.merging, 'the merge is still pending');
+  assert.equal(half.g('diff', '--name-only', '--diff-filter=U'), 'lib/c.ts');
+});
+
+test('git state: hooks and config an agent plants never run, and are removed after the call', () => {
+  const { dir, g } = scratch('git-state-');
+  write(join(dir, 'a.txt'), 'a\n'); g('add', '-A'); g('commit', '-qm', 'base');
+  const snap = inDir(dir, () => gitSnapshot());
+  const config = read(join(dir, '.git/config'), 'utf8');
+  const before = g('rev-parse', 'HEAD');
+  // The "agent": a hook in .git/hooks, a hooksPath of its own, a URL rewrite, an include and a worktree config.
+  const marker = join(dir, 'hook-ran');
+  const hook = `#!/bin/sh\necho ran > '${marker}'\n`;
+  write(join(dir, '.git/hooks/pre-commit'), hook); chmodSync(join(dir, '.git/hooks/pre-commit'), 0o755);
+  mkdirs(join(dir, '.evil')); write(join(dir, '.evil/pre-commit'), hook); chmodSync(join(dir, '.evil/pre-commit'), 0o755);
+  g('config', 'core.hooksPath', '.evil'); g('config', 'url.https://evil.example/.insteadOf', 'https://github.com/'); g('config', 'include.path', '/tmp/x');
+  write(join(dir, '.git/config.worktree'), '[core]\n\tfsmonitor = true\n');
+  write(join(dir, 'b.txt'), 'b\n');
+  inDir(dir, () => keepEngineerWork(before, '')); // commits b.txt with the planted hooks still in place
+  assert.ok(!exists(marker), 'no hook ran during the commit');
+  assert.notEqual(g('rev-parse', 'HEAD'), before);
+  inDir(dir, () => restoreGit(snap));
+  assert.equal(read(join(dir, '.git/config'), 'utf8'), config);
+  assert.ok(!exists(join(dir, '.git/config.worktree')));
+  assert.deepEqual(readdirSync(join(dir, '.git/hooks')).filter((f) => !f.endsWith('.sample')), []);
+  // Symlinks planted in .git are dropped, never followed: hooks pointing into the product code, config pointing out.
+  mkdirs(join(dir, 'lib')); write(join(dir, 'lib/keep.ts'), 'k\n'); write(join(dir, 'outside.txt'), 'o\n');
+  rmSync(join(dir, '.git/hooks'), { recursive: true }); symlinkSync(join(dir, 'lib'), join(dir, '.git/hooks'));
+  rmSync(join(dir, '.git/config')); symlinkSync(join(dir, 'outside.txt'), join(dir, '.git/config'));
+  inDir(dir, () => restoreGit(snap));
+  assert.equal(read(join(dir, 'lib/keep.ts'), 'utf8'), 'k\n');
+  assert.equal(read(join(dir, 'outside.txt'), 'utf8'), 'o\n');
+  assert.equal(read(join(dir, '.git/config'), 'utf8'), config);
+  assert.ok(!lstatSync(join(dir, '.git/hooks')).isSymbolicLink());
+});
+
+test('checks: the agent-written code they run never sees the Claude token', () => {
+  const saved = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-ant-oat01-secret';
+  try { assert.ok(!('CLAUDE_CODE_OAUTH_TOKEN' in checkEnv({ VERCEL_ENV: 'preview' }))); assert.equal(checkEnv({ VERCEL_ENV: 'preview' }).VERCEL_ENV, 'preview'); }
+  finally { if (saved === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN; else process.env.CLAUDE_CODE_OAUTH_TOKEN = saved; }
+});
+
+test('time cap: after TEAM_MINUTES a running call is stopped and the QA loop runs no more checks', () => {
+  const { dir, g } = scratch('time-cap-');
+  write(join(dir, 'a.txt'), 'a\n'); g('add', '-A'); g('commit', '-qm', 'base');
+  // A fake CLI: the first call (the fix-mode engineer) answers at once and leaves its work uncommitted; every later
+  // call hangs. PATH holds only node and git, so the checks fail fast and the port-3000 cleanup finds nothing to kill.
+  const bin = mkdtempSync(join(tmpdir(), 'time-cap-bin-'));
+  symlinkSync(process.execPath, join(bin, 'node'));
+  symlinkSync(execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(), join(bin, 'git'));
+  write(join(bin, 'claude'), `#!/usr/bin/env node
+const fs = require('fs'); const f = ${JSON.stringify(join(bin, 'calls'))};
+const n = fs.existsSync(f) ? Number(fs.readFileSync(f, 'utf8')) + 1 : 1; fs.writeFileSync(f, String(n));
+if (n > 1) setTimeout(() => {}, 60000);
+else { fs.writeFileSync('work.txt', 'engineer\\n'); console.log(JSON.stringify({ structured_output: { done: true, title: 't', summary: 's' }, total_cost_usd: 0 })); }
+`);
+  chmodSync(join(bin, 'claude'), 0o755);
+  const t0 = Date.now();
+  const p = run(process.execPath, [new URL('./team.ts', import.meta.url).pathname], { cwd: dir, encoding: 'utf8', timeout: 50_000,
+    env: { NODE_ENV: 'test', PATH: bin, HOME: dir, MODE: 'fix', NUMBER: '1', CLAUDE_BIN: join(bin, 'claude'), TEAM_MINUTES: '0.1', QA_ROUNDS: '40' } });
+  assert.equal(p.status, 0, p.stderr);
+  assert.ok(Date.now() - t0 < 30_000, 'the hanging call was stopped at TEAM_MINUTES');
+  assert.equal((p.stdout.match(/→ check: /g) ?? []).length, 1, p.stdout);
+  assert.match(read(join(dir, '.autopilot/result.json'), 'utf8'), /after 1 QA round/);
+  assert.match(g('log', '--format=%s'), /left uncommitted/);
+  assert.equal(g('show', 'HEAD:work.txt'), 'engineer');
+});

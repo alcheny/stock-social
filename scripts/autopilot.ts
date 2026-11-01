@@ -178,14 +178,15 @@ export type Task = { mode: 'fix' | 'build'; number: number } | { mode: 'idle'; r
 export function pickTask(prs: OpenPr[], issues: ReadyIssue[], o: { trusted: string[]; maxAttempts: number }) {
   const stuck: { kind: 'pr' | 'issue'; number: number }[] = [];
   const parked = (labels: string[]) => labels.includes(L.stuck) || labels.includes(L.human);
-  const idle = (reason: string, plan = false) => ({ task: { mode: 'idle', reason, plan } as Task, stuck });
+  // attempt: this attempt's number (earlier attempt comments + 1), so team.ts grows the failure budget (budgetScale).
+  const idle = (reason: string, plan = false) => ({ task: { mode: 'idle', reason, plan } as Task, stuck, attempt: 0 });
 
   // 1. Failing autopilot PRs come first: finishing a set is part of the same change.
   // A PR waiting for a human only because it touches protected paths is still repaired first, so the human
   // reviews a green PR; only `stuck` stops repairs.
   for (const pr of prs.filter((p) => p.failing && !p.labels.includes(L.stuck)).sort((a, b) => a.number - b.number)) {
     if (pr.attempts >= o.maxAttempts) { stuck.push({ kind: 'pr', number: pr.number }); continue; }
-    return { task: { mode: 'fix', number: pr.number } as Task, stuck };
+    return { task: { mode: 'fix', number: pr.number } as Task, stuck, attempt: pr.attempts + 1 };
   }
   // 2. Anything still open is awaiting checks or a human decision: wait for it.
   if (prs.length) return idle(`${prs.length} open autopilot PR(s) awaiting checks or review`);
@@ -194,7 +195,7 @@ export function pickTask(prs: OpenPr[], issues: ReadyIssue[], o: { trusted: stri
   for (const is of issues.filter((i) => !parked(i.labels)).sort((a, b) => a.number - b.number)) {
     if (!o.trusted.includes(is.author)) continue; // untrusted text never reaches an agent
     if (is.attempts >= o.maxAttempts) { stuck.push({ kind: 'issue', number: is.number }); continue; }
-    return { task: { mode: 'build', number: is.number } as Task, stuck };
+    return { task: { mode: 'build', number: is.number } as Task, stuck, attempt: is.attempts + 1 };
   }
   return idle('no ready issues', true);
 }
@@ -317,7 +318,8 @@ export function renderQueue(q: { repo: string; mode: Mode; updated: string; sets
 
 // ---------- GitHub I/O ----------
 
-const sh = (cmd: string, args: string[]) => execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
+// git never runs hooks here: an agent on the same runner could have planted one, and these commands carry GH_TOKEN.
+const sh = (cmd: string, args: string[]) => execFileSync(cmd, cmd === 'git' ? ['-c', 'core.hooksPath=/dev/null', ...args] : args, { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
 const gh = (...args: string[]) => sh('gh', args);
 const ghJson = <T>(...args: string[]): T => JSON.parse(gh(...args) || 'null');
 const repo = () => process.env.GITHUB_REPOSITORY!;
@@ -340,6 +342,19 @@ export type RollupItem = { __typename: string; name?: string; context?: string; 
 export const failed = (r: RollupItem) =>
   (r.name === 'check' || r.context === 'ai-review') &&
   ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED'].includes((r.conclusion || r.state || '').toUpperCase());
+
+// `gh run view --log-failed` prints every failed job's lines, each starting "<job>\t<step>\t". CI fails several jobs
+// at once (e2e shards, then the `check` aggregate), so keep the last `n` lines of each job, not of the whole log:
+// otherwise the last job's tail would push the earlier shards' failure summaries out of the fix task.
+export function tailPerJob(log: string, n: number): string {
+  const jobs = new Map<string, string[]>();
+  for (const line of log.split('\n')) {
+    const job = line.includes('\t') ? line.slice(0, line.indexOf('\t')) : '';
+    if (!jobs.has(job)) jobs.set(job, []);
+    jobs.get(job)!.push(line);
+  }
+  return [...jobs.values()].flatMap((lines) => lines.slice(-n)).join('\n');
+}
 
 // Read checks from the commit, not the PR's statusCheckRollup: GitHub leaves runs started by
 // workflow_dispatch (which is how the loop runs CI) out of the PR rollup.
@@ -412,7 +427,7 @@ function next() {
     for (const p of prs) nudge(p.number, p.headRefName, p.headRefOid);
   }
 
-  const { task, stuck } = pickTask(
+  const { task, stuck, attempt } = pickTask(
     prs.map((p) => ({
       number: p.number, labels: p.labels.map((l) => l.name), failing: ownChecks(p.headRefOid).some(failed),
       attempts: countMarker(p.comments), issue: branchInfo(p.headRefName)?.issue ?? null,
@@ -443,6 +458,7 @@ function next() {
   output('mode', final.mode);
   output('plan', final.mode === 'idle' && final.plan ? 'true' : 'false');
   if (final.mode === 'idle') return console.log(`idle: ${final.reason}${final.plan ? ' → requesting a plan' : ''}`);
+  output('attempt', attempt); // final is the picked task here, so this is its attempt
 
   let variants = [SINGLE];
   if (final.mode === 'build' && mode === 'lines') {
@@ -550,7 +566,7 @@ function prepare() {
     const logs = ownChecks(pr.headRefOid).filter(failed).map((r) => {
       const run = r.detailsUrl?.match(/actions\/runs\/(\d+)/)?.[1];
       let log = '';
-      try { log = run ? gh('run', 'view', run, '--log-failed').split('\n').slice(-250).join('\n') : ''; } catch { /* log may be gone */ }
+      try { log = run ? tailPerJob(gh('run', 'view', run, '--log-failed'), 250) : ''; } catch { /* log may be gone */ }
       return `### Failing: ${r.name ?? r.context}\n\n\`\`\`\n${log || '(no log available)'}\n\`\`\``;
     });
     const review = pr.comments.filter((c) => c.body.includes(REVIEW)).at(-1)?.body ?? '';
