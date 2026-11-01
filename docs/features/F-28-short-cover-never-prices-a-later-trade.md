@@ -1,7 +1,7 @@
 # F-28 · A short's cover never prices a later long trade
 
-Status: blocked
-Blocked: waits for the owner's yes on cycle-4 owner question Q1(b) (amends the 2026-11-01 orchestrator ruling "later buys start fresh lots", `lib/trades.ts:46`)
+Status: draft
+Blocked: lapsed at approval council cycle 5 (draft); see the dated lapse decision
 Start conditions: the owner answers Q1(b) yes (`docs/direction/cycle4-2026-11-01.md` §7). No in-flight branch edits
 the matcher's replay (`claude/fix-truthful-labels` touches only `confidence()` in `lib/trades.ts`), so the build can
 start the day the owner answers. Shares one build slot (the matcher slot) and one builder with F-30.
@@ -47,6 +47,18 @@ second-vote mean 4.67, final vote 15/15, all with conditions).
 - 2026-11-01: Sequencing and lapse: blocked until the owner answers Q1(b). It builds with F-30 in the matcher slot,
   then F-22 if the owner re-opens it. If the owner has not answered by the next approval council (cycle 5), this
   approval lapses to that council. Why: approved by the approval council (cycle 4); lapse rule.
+
+- 2026-11-01: Lapsed at approval council cycle 5: the owner had not answered OD 2.27 (cycle-4 Q1(b)). It was voted
+  again and not re-approved: round-3 mean 0.47 (`docs/ideas/approval-2026-11-01-cycle5.md`). The council found it
+  overtaken by #89: after an oversell, main already counts every later sell of the pair and never prices it, and a
+  rename moves the mark (`lib/trades.ts:48-53`). This feature's "taint the next k units, later lots stay fresh" rule
+  would publish sells main now counts (the fixes-cycle-4 committee's probes, +65%/+60%/+25%,
+  `docs/features/logs/fixes-cycle4/committee-2026-11-01.md:119-122`). Its true-cause wording is already on main
+  (`lib/copy.ts:73`). The file and every decision above are kept word for word. Owner note: OD 2.27 is overtaken by #89
+  and needs no answer. The remaining cost to traders is that the oversell mark never clears (`lib/trades.ts:54-57`).
+  Clearing it needs vendor position evidence (protected `lib/broker.ts`, stored units), which is the owner's call. Any
+  future release rule must never publish a close that main counts. Why: approval council cycle 5; lapse rule; RT, LC
+  (F3c veto against re-approval as written), CO.
 
 ## Acceptance criteria
 - [ ] Probe (intraday): SELL 100 @15 with nothing held, BUY 100 @14, BUY 100 @20, SELL 100 @18. The last sell is

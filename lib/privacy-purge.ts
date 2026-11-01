@@ -14,6 +14,7 @@
 //   - fix round 5 (item 8): handle reservations whose hold has ended (a deleted or renamed handle after its year, or one
 //     released early by the rename cap, lib/auth/attempts.ts#changeHandle): the handle is free, the row has no use.
 //   - F-15: aggregate view counts (view_rollup, view_drops) older than VIEW_RETENTION_DAYS (lib/views.ts);
+//   - F-31: address-cap day marks (view_cap_days) older than VIEW_RETENTION_DAYS, in the same step, counted in views;
 //   - F-15 second half: share_action rows older than SHARE_RETENTION_DAYS (lib/share-actions.ts).
 // Account deletion is separate and removes everything (lib/delete.ts).
 import type { ReservedSql } from 'postgres';
@@ -37,7 +38,7 @@ export type PrivacyPurgeReport = {
   sessions: number; links: number; attempts: number; similarPools: number; orphansMarked: number; orphansCleared: number; likes: number; rejects: number;
   orphanTimeouts: number; // cursor batches that hit ORPHAN_BATCH_MS and were retried with a smaller window
   reservations: number;
-  views: number; // F-15: view_rollup and view_drops rows past VIEW_RETENTION_DAYS
+  views: number; // F-15: view_rollup and view_drops rows past VIEW_RETENTION_DAYS (F-31: and view_cap_days)
   shares: number; // F-15 second half: share_action rows past SHARE_RETENTION_DAYS
   occPositions?: number; // OPTIONS
 };
@@ -216,6 +217,8 @@ export async function purgePrivacy(opts: Opts = {}): Promise<PrivacyPurgeReport>
           select ctid from view_rollup where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count),
         async () => full((await conn`delete from view_drops where ctid in (
           select ctid from view_drops where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count),
+        async () => full((await conn`delete from view_cap_days where ctid in (
+          select ctid from view_cap_days where day < ${now}::date - ${VIEW_RETENTION_DAYS}::int limit ${batch})`).count),
       ];
       for (const step of !opts.only || opts.only.includes('views') ? views : []) {
         for (;;) {

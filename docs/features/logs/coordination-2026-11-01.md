@@ -280,3 +280,42 @@ to it, unbuilt (each owner builds the row as the record states it, or hands it b
   (`lib/record-strip.ts`) and F-16/F-17 (the month page) merge. F4-8 waits on PR #77 only (the labels wording is on main).
 - **Update after #87 (F-26) and #77 (F-20) merged (63f48f4):** the orchestrator moved F4-4, F4-8, F4-14, F4-15 and F4-16 to a
   part-2 session (`claude/fixes-cycle4-part2`); F4-17 stays with `claude/f16-f17-trust-safety`.
+
+## Approval council 2026-11-01 (cycle 5): approved features (F-32 to F-36) and re-approvals (F-29, F-21)
+
+Record: `docs/ideas/approval-2026-11-01-cycle5.md` (base e16d6aa). Four new build slots out of six. F-29 is `ready`.
+Every other file is `Status: blocked` with a `Blocked:` line naming its in-flight PRs or owner questions. The
+orchestrator flips each to `ready` as they clear. F-28 and F-30 went to `Status: draft` (lapsed: F-28 overtaken by #89,
+F-30 mostly on main).
+
+- **Matcher slot: F-32 transfers are named, with F-36 fees in the denominator.**
+  - Files: `docs/features/F-32-transfers-named-never-remove-a-closed-trade.md`,
+    `docs/features/F-36-fees-in-the-return-denominator.md`.
+  - One builder. Owns `lib/trades.ts` (`MatchResult`, the taint cause, the return formula), `lib/corporate-actions.ts`
+    and their tests. Separate MATCHER_VERSION bumps, never in the same deploy, each after chore C5-43(b).
+  - Waits: #84 (F-24) for both. F-32 Part B waits on OD 2.28 + MRC2-10, F-36 on cycle-5 Q1.
+  - Overlaps: F-21's shared sum takes F-32's "transfer" key; `lib/copy.ts` (/how lines) with the pane/strip slot.
+- **Ranking slot: F-33 ranking weight needs evidence.**
+  - File: `docs/features/F-33-ranking-weight-needs-evidence.md`.
+  - Owns `lib/confidence.ts`, `lib/bets.ts`, the weight in `lib/feed.ts`, and the printed range's one producer
+    (`lib/copy.ts` `early`).
+  - Waits: cycle-5 Q3 with OD 2.32/2.33/2.34, and #100 and #102 (both edit `lib/feed.ts`).
+  - Overlaps: the fixes lane's zero-width step, which F-33 later supersedes.
+- **Pane/strip slot: F-34 one open-positions line, with F-29 (ready) and F-21 riding as re-approvals.**
+  - Files: `docs/features/F-34-one-open-positions-line.md`, `docs/features/F-29-gated-options-wording.md`,
+    `docs/features/F-21-exclusion-counts-beside-the-headline.md`.
+  - One builder owns the pane's line order (exclusions, open, options qualifier) and the 360 px criterion.
+  - F-29 starts now (rebase on #97 if it merges first). F-21 waits on #97 and #84. F-34 waits on OD 2.25, #100, #102
+    and #97.
+  - Overlaps: F-23 (#97) on `app/pane.tsx`; #100 and #102 on the image routes and the record strip.
+- **Sync slot: F-35 publish once the date has passed.**
+  - File: `docs/features/F-35-publish-once-the-date-has-passed.md`.
+  - Owns the future grace and a matured-rows query in `lib/sync.ts`, plus an additive watermark in `db/schema.sql`.
+  - Waits: #84. Chore C5-43(d) can ride.
+
+Not approved, with where each goes (no vote):
+- Chore lane: C5-43 (part b before any matcher bump), C5-39, C5-38, C5-40, C5-42, C5-36 (narrowed), C5-37 (narrowed),
+  and F-30's readout row.
+- Fixes lane: MK-P6 (one /how sentence), C5-41 (legal words), C5-34 (preview equals the shared image), C5-4's
+  zero-width step, and C5-5's "per closed trade" wording.
+- Waiting: C5-32, C5-35, C5-33, C5-10, MK-P5, MK-P3, MK-P4.
