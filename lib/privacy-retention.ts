@@ -30,10 +30,15 @@ export const SCHEMA_MAP: Record<string, TableEntry> = {
   connections: { personal: true, retention: 'short', holds: 'vendor authorization id, institution and account snapshot; a signed-out unfinished one is purged with its attempt' },
   open_positions: { personal: true, retention: 'account', holds: 'public open positions: symbol and unrealized percent' },
   follows: { personal: true, retention: 'account', holds: 'private follows' },
-  viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; ended rows purged after a day' },
+  viewer_exclusions: { personal: true, retention: 'short', holds: 'private "not interested" and unfollow; rows the viewer ended and ended unfollows purged after a day; a "not interested" that ran its 90 days is kept until removed (F-2 PR-5)' },
   trade_likes: { personal: true, retention: 'account', holds: 'private likes (preference data, kept indefinitely); a like whose trade is gone for 30 days is purged' },
   trade_exclusions: { personal: true, retention: 'account', holds: 'private rejected trades (preference data, kept indefinitely); one whose trade is gone for 30 days is purged' },
   privacy_orphans: { personal: true, retention: 'short', holds: 'when a like or reject first had no trade; removed when the trade returns or the row is purged' },
+  // F-2 PR-5: the opt-in activity log (stored until the viewer clears it or deletes the account, owner 2026-11-01) and its
+  // lookup tables.
+  discovery_events: { personal: true, retention: 'account', holds: 'opt-in activity log: viewer, surface, target (trader, trade or symbol), type and time; kept until cleared ("Clear my activity") or the account is deleted' },
+  discovery_event_types: { personal: false, retention: 'none', holds: 'event type names' },
+  discovery_surfaces: { personal: false, retention: 'none', holds: 'surface names' },
   // F-3 (docs/features/logs/F-3/committee-2026-11-01.md, conditions 16 and 20). The processor is the record holder for
   // charges, refunds and tax; the app keeps ids, plan, status and dates only.
   billing_customers: { personal: true, retention: 'account', holds: 'the processor customer id of a subscriber; deleted with the account after the processor customer is deleted' },

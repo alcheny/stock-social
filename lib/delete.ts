@@ -30,6 +30,9 @@ export async function deleteProfile(u: DeletableUser, deps: DeleteDeps = default
     // F-2 PR-4: likes and rejected trades, made by this account or naming it.
     tx`delete from trade_likes where viewer_id = ${u.id} or trader_id = ${u.id}`,
     tx`delete from trade_exclusions where viewer_id = ${u.id} or trader_id = ${u.id}`,
+    // F-2 PR-5: the activity log, made by this account or naming it.
+    tx`delete from discovery_events where viewer_id = ${u.id}`,
+    tx`delete from discovery_events where target_user_id = ${u.id}`,
     // F-3 Record tools (committee condition 12): every subscriber whose views or notes named this account gets one
     // line on the next visit (a count, no trader id kept); then the notes and view entries naming it, and its own.
     tx`insert into record_tool_notices (owner_id, removed)
