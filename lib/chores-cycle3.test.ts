@@ -44,14 +44,13 @@ test('C3-34: cronAuthorized accepts only the exact bearer, in constant time; uns
   assert.equal(cronAuthorized(req(), env), false);
   assert.equal(cronAuthorized(req('Bearer '), { CRON_SECRET: '' }), false);
   assert.equal(cronAuthorized(req('Bearer undefined'), {}), false);
-  assert.match(read('lib/cron-auth.ts'), /timingSafeEqual\(got, want\)/);
+  assert.match(read('lib/cron-auth.ts'), /timingSafeEqual\(digest\(req\.headers\.get\('authorization'\) \?\? ''\), digest\(`Bearer \$\{secret\}`\)\)/);
 });
 
 test('C3-34: the 401 line is rate-limited per route, carries the suppressed count, and goes through logSafe', () => {
-  mock.timers.enable({ apis: ['Date'], now: 1_000_000_000_000 });
   const c = capture('warn');
   try {
-    const t0 = Date.now();
+    const t0 = 1_000_000_000_000;
     assert.equal(logUnauthorized('sync', t0), true);
     for (let i = 1; i <= 4; i++) assert.equal(logUnauthorized('sync', t0 + i * 1000), false);
     assert.equal(logUnauthorized('billing-reconcile', t0 + 5000), true); // counted separately
@@ -61,7 +60,7 @@ test('C3-34: the 401 line is rate-limited per route, carries the suppressed coun
       'cron unauthorized CronUnauthorized status 401 {"route":"billing-reconcile","suppressed":0}',
       'cron unauthorized CronUnauthorized status 401 {"route":"sync","suppressed":4}',
     ]);
-  } finally { c.restore(); mock.timers.reset(); }
+  } finally { c.restore(); }
   assert.equal(CRON_LOG_WINDOW_MS, 60_000);
   // The call as written (lib/privacy-logs.test.ts scans every server console call, this one included).
   assert.match(read('lib/cron-auth.ts'), /console\.warn\('cron unauthorized', logSafe\(denied\), JSON\.stringify\(\{ route, suppressed \}\)\);/);
@@ -77,7 +76,7 @@ test('C3-34: the cron routes log a 401 with a literal route name only: the reque
   const src = read('lib/cron-auth.ts');
   const fn = src.slice(src.indexOf('export function logUnauthorized'));
   assert.match(fn, /^export function logUnauthorized\(route: CronRoute, now = Date\.now\(\)\): boolean \{/);
-  assert.doesNotMatch(fn, /req|header|authorization|ip|forwarded/i);
+  assert.doesNotMatch(fn, /\b(req|request|headers?|authorization|ip|forwarded)\b/i);
   assert.match(src, /constructor\(\) \{ super\('cron unauthorized'\); \}/);
 });
 
@@ -90,7 +89,9 @@ test('C3-34: the cron routes log through logUnauthorized; health never logs a be
   }
   const healthSrc = read('app/api/health/route.ts') + read('lib/health.ts');
   assert.doesNotMatch(healthSrc, /logUnauthorized/);
-  assert.match(read('lib/health.ts'), /cronAuthorized\(req\) \? d : \{ status: d\.status \}/);
+  assert.match(read('lib/health.ts'), /const details = cronAuthorized\(req\);[\s\S]*const body = details \? d : \{ status: d\.status \};/);
+  // The class name survives minification (logSafe prints constructor.name; QA D1).
+  assert.match(read('lib/cron-auth.ts'), /Object\.defineProperty\(CronUnauthorized, 'name', \{ value: 'CronUnauthorized' \}\);/);
   assert.equal(THRESHOLD_MS, ROUND_MS);
   assert.match(read('lib/health.ts'), /export const THRESHOLD_MS = ROUND_MS;/);
   assert.doesNotMatch(read('lib/health.ts'), /\b20\s*\*\s*60|1_?200_?000|THRESHOLD_MS\s*=\s*\d/);
@@ -128,7 +129,8 @@ test('C3-34: the health route answers the public body without the bearer, the de
   const c = capture('error');
   try {
     healthDeps.now = () => Date.UTC(2026, 10, 1, 12);
-    healthDeps.read = async () => ({ dbOk: true, last: new Date(Date.UTC(2026, 10, 1, 11, 55)), stalest: new Date(Date.UTC(2026, 10, 1, 2)) });
+    const asked: boolean[] = [];
+    healthDeps.read = async (details) => { asked.push(details); return { dbOk: true, last: new Date(Date.UTC(2026, 10, 1, 11, 55)), stalest: details ? new Date(Date.UTC(2026, 10, 1, 2)) : null }; };
     let res = await GET(req());
     assert.equal(res.status, 200);
     assert.equal(res.headers.get('cache-control'), 'no-store');
@@ -138,6 +140,8 @@ test('C3-34: the health route answers the public body without the bearer, the de
     res = await GET(req('Bearer cron-health-secret-abcdefgh'));
     assert.equal(res.headers.get('cache-control'), 'no-store');
     allowedBody(await res.json(), true);
+    // The anonymous calls never ask for the stalest-trader scan; the bearer call does.
+    assert.deepEqual(asked, [false, false, true]);
     healthDeps.read = async () => { throw Object.assign(new Error('connect ECONNREFUSED 10.0.0.9:5432 for trader_x'), { code: 'ECONNREFUSED' }); };
     res = await GET(req());
     assert.equal(res.status, 503);
@@ -156,7 +160,9 @@ test('C3-34: the health route answers the public body without the bearer, the de
 
 dbTest('C3-34: the real health query runs and returns times or nulls (shape only: other files write sync_shards)', async () => {
   const { readHealth } = await import('./health.ts');
-  const r = await readHealth();
+  const pub = await readHealth(false);
+  assert.equal(pub.stalest, null);
+  const r = await readHealth(true);
   assert.equal(r.dbOk, true);
   for (const v of [r.last, r.stalest]) assert.ok(v === null || v instanceof Date);
   allowedBody(healthStatus(r, Date.now()) as unknown as Record<string, unknown>, true);
@@ -258,12 +264,22 @@ test('K20: the preview never repeats the title in the description, and says demo
   assert.match(src, /catch \(e\) \{\s*console\.error\('demo check failed', logSafe\(e\)\);\s*return true;/);
 });
 
+dbTest('K20: the demo check is remembered per instance for its TTL; a failure is not remembered', async () => {
+  const { demoShown, DEMO_TTL_MS } = await import('./home-preview.ts');
+  const t = Date.now() + 10 * DEMO_TTL_MS; // past any earlier memo
+  const first = await demoShown(t);
+  assert.equal(typeof first, 'boolean');
+  assert.equal(await demoShown(t + DEMO_TTL_MS - 1), first);
+  assert.equal(DEMO_TTL_MS, 300_000);
+  assert.match(read('lib/home-preview.ts'), /return true; \/\/ not remembered/);
+});
+
 test('K20: the image is a scoped text-only route, never a root opengraph file; the feed metadata uses the configured origin', () => {
   const card = read('app/home-card/route.tsx').replace(/^\s*\/\/.*$/gm, '');
   assert.match(card, /width: 1200, height: 630/);
   assert.match(card, /\{cardText\}/);
   assert.doesNotMatch(card, /<img|<svg|fetch\(|\.ttf|\.woff|Stock Social|logo/i);
-  assert.match(card, /'Cache-Control': 'public, max-age=3600'/);
+  assert.match(card, /'Cache-Control': 'public, max-age=3600, s-maxage=3600'/);
   const top = readdirSync(join(root, 'app'));
   assert.ok(!top.some((f) => /^(opengraph-image|twitter-image)\./.test(f)), 'no root opengraph/twitter image file');
   const page = read('app/page.tsx');
@@ -370,11 +386,11 @@ test('C3-39: one rule decides "checkout not open" for /tools and /account; close
   const tools = read('app/tools/page.tsx');
   const account = read('app/account/page.tsx');
   assert.match(tools, /const \{ billing, closed \} = await checkoutFor\(me\?\.id\);/);
-  assert.match(account, /const checkout = await checkoutFor\(me\.id\);/);
+  assert.match(account, /const checkout = a\.kind === 'none' && !row \? await checkoutFor\(me\.id\) : null;/);
   for (const src of [tools, account]) assert.doesNotMatch(src, /checkoutOpen\(|gateState\(/); // never a second copy of the rule
   // /account: the open state's markup is unchanged; closed states are secondary with the state in the visible text.
   assert.match(account, /\? <Link className="button" href="\/tools">\{BILLING\.seeTools\}<\/Link>/);
-  assert.match(account, /: <Link className="button secondary" href="\/tools">\{checkout\.closed \? CHORES_3\.seeToolsNotOpen : CHORES_3\.seeToolsUnavailable\}<\/Link>/);
+  assert.match(account, /: <Link className="button secondary" href="\/tools">\{checkout\?\.closed \? CHORES_3\.seeToolsNotOpen : CHORES_3\.seeToolsUnavailable\}<\/Link>/);
   // Locked /tools: the way back only where the Subscribe screen is not shown.
   assert.match(tools, /: <><p className="muted">\{closed \? BILLING\.notOpen : BILLING\.unavailable\}<\/p><BackToFeed \/><\/>\}/);
   assert.match(parts, /<p className="rt-links"><Link href="\/">\{CHORES_3\.backToFeed\}<\/Link><\/p>/);

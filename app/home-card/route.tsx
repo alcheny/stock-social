@@ -14,6 +14,6 @@ export async function GET() {
         {cardText}
       </div>
     ),
-    { ...HOME_CARD_SIZE, headers: { 'Cache-Control': 'public, max-age=3600' } },
+    { ...HOME_CARD_SIZE, headers: { 'Cache-Control': 'public, max-age=3600, s-maxage=3600' } },
   );
 }

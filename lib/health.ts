@@ -31,28 +31,31 @@ export function healthStatus(r: HealthReading, now: number): HealthDetails {
   };
 }
 
-// One statement. Stalest is over the same traders the sync claims (lib/sync.ts#syncable), so frozen or disconnected
-// records, whose last sync grows for ever by design, never count. A record never synced yet is not "stale" here: the
-// coverage line counts those (`neverSynced`).
-export async function readHealth(): Promise<HealthReading> {
-  const [r] = await sql`select (select max(heartbeat_at) from sync_shards) as last,
-    (select min(u.last_synced_at) from users u where ${syncable()}) as stalest`;
+// One statement. The public answer needs the newest heartbeat only (sync_shards is one row per shard); the stalest
+// trader is read only for a caller with the cron bearer, so an anonymous caller can't make the database scan the
+// syncable set. Stalest is over the traders the sync claims (lib/sync.ts#syncable): frozen or disconnected records,
+// whose last sync grows for ever by design, never count; records never synced yet are the coverage line's `neverSynced`.
+export async function readHealth(details = true): Promise<HealthReading> {
+  const [r] = details
+    ? await sql`select (select max(heartbeat_at) from sync_shards) as last, (select min(u.last_synced_at) from users u where ${syncable()}) as stalest`
+    : await sql`select (select max(heartbeat_at) from sync_shards) as last, null::timestamptz as stalest`;
   return { dbOk: true, last: (r.last as Date | null) ?? null, stalest: (r.stalest as Date | null) ?? null };
 }
 
 // Test hook: the reading (a test injects a throwing one).
-export const healthDeps: { read: () => Promise<HealthReading>; now: () => number } = { read: readHealth, now: () => Date.now() };
+export const healthDeps: { read: (details: boolean) => Promise<HealthReading>; now: () => number } = { read: readHealth, now: () => Date.now() };
 
-export async function health(): Promise<HealthDetails> {
+export async function health(details = true): Promise<HealthDetails> {
   let reading: HealthReading = { dbOk: false, last: null, stalest: null };
-  try { reading = await healthDeps.read(); } catch (e) { console.error('health query failed', logSafe(e)); }
+  try { reading = await healthDeps.read(details); } catch (e) { console.error('health query failed', logSafe(e)); }
   return healthStatus(reading, healthDeps.now());
 }
 
 // The route's answer (app/api/health/route.ts): the public body unless the cron bearer is presented; 503 when degraded,
 // so a monitor that reads only status codes sees it. Never cached. A wrong bearer is not logged here.
 export async function healthResponse(req: Request): Promise<Response> {
-  const d = await health();
-  const body = cronAuthorized(req) ? d : { status: d.status };
+  const details = cronAuthorized(req);
+  const d = await health(details);
+  const body = details ? d : { status: d.status };
   return Response.json(body, { status: d.status === 'ok' ? 200 : 503, headers: { 'cache-control': 'no-store' } });
 }
