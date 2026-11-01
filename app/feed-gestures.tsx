@@ -98,6 +98,7 @@ export function FeedGestures({ signedIn }: { signedIn: boolean }) {
   }, [signedIn]);
   useSignInLineDismiss(askSignIn, () => setAskSignIn(false)); // A11Y-FIXES #16
   return (
+    // ponytail: for a touch user the fixed line covers the bottom of the card (its hint and record link) until × or a row change — render it inline in the card, or pad the card while it shows (A11Y-FIXES #16 covers keyboard focus only).
     <p className="signin-line" role="status">
       {askSignIn && <>{LIKES.signIn} <Link href="/login">{LIKES.signInLink}</Link> <button type="button" className="quiet-x" aria-label={LIKES.close} onClick={() => setAskSignIn(false)}>×</button></>}
     </p>
