@@ -101,7 +101,18 @@ not fully met until that change lands.
    `insertActivities` (the rebuild already reads the table).
 4. `fetchPositions`: also return `units` per position, so a later change can reconcile the ledger (gap above).
 
+## QA round 3
+No blocking defect. The tester's brute force found 0 wrong resolutions across:
+- 20,961 cash-in-lieu split cases and 18,960 cash-in-lieu stock-dividend cases;
+- 155,240 off-grid ratios with both sides up to 30;
+- half-percent stock dividends.
+
+Remaining minor case: a true ratio with a side above 100 (57:113, 101:1) can still resolve to a nearby grid ratio.
+This came up in 14,470 of 8.05M generated cases. No real split or stock dividend uses such ratios. Odd merger
+exchanges arrive as renames, which need an exact match and are excluded otherwise.
+
 ## Follow-ups (not in this change)
+- Widen the rival check past 100:100 if real data ever shows ratios that large.
 - `confidence()` clusters bets by symbol, so a renamed position can count as two bets: at most one extra per rename.
   That one extra bet moves the 5-bet floor for showing a range and lowers the degrees of freedom of the interval.
   The fix is a chain key per trade (a `closed_trades` column).
