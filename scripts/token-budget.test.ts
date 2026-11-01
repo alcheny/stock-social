@@ -562,15 +562,10 @@ test('2026-11-01 data, cap $1500: spend about $586, history slope about $258/h, 
   assert.equal(p.brake, 'none');
   assert.ok(p.spend.windowUsd > 560 && p.spend.windowUsd < 620, `spend ${p.spend.windowUsd}`);
   assert.equal(p.projection.burnSource, 'sessions');
-  // the rate each running session's reserve implies before the reset (above the real $294/h: the priors expect the
-  // sessions near their typical hours to finish their remaining cost within the tail)
-  const implied = p.reserve.sessions.reduce((t, r) => t + r.projectedBurnUsdPerHour, 0);
-  assert.ok(near(p.projection.burnUsdPerHour, implied, 0.2), `burn ${p.projection.burnUsdPerHour} vs ${implied}`);
-  assert.ok(p.projection.burnUsdPerHour > 250, `burn ${p.projection.burnUsdPerHour}`);
+  // the sessions' burns, with the four under 10 minutes old at their prior's average rate: about the real $294/h
+  assert.ok(p.projection.burnUsdPerHour > 250 && p.projection.burnUsdPerHour < 320, `burn ${p.projection.burnUsdPerHour}`);
   assert.ok(p.projection.historyBurnUsdPerHour! > 240 && p.projection.historyBurnUsdPerHour! < 300, `history ${p.projection.historyBurnUsdPerHour}`);
-  // the reserves' implied rate is about twice the observed slope here: reported, information only
-  const mismatch = p.issues.find((i) => i.code === 'burn-mismatch');
-  if (mismatch) assert.match(mismatch.detail, /reserves expect more remaining cost/);
+  assert.ok(!codes(p).includes('burn-mismatch'));
   assert.equal(p.reserve.sessions.length, 15); // the 6 done sessions reserve nothing
   assert.ok(p.reserve.sessions.every((s) => s.remaining.point > 0));
   assert.equal(p.reserve.sessions.find((s) => s.id === 'orchestrator')?.basis, 'burn');
@@ -916,8 +911,7 @@ test('B2 timestamps outside the Date range (ns epoch, 1e17, -1e17) are invalid, 
 });
 
 test('B3 a tiny positive burn gives a null capHitAt, not a throw', () => {
-  // (The orchestrator projects at its own burn; another session now projects at its reserve's rate, which is not tiny.)
-  const p = plan(snap({ sessions: [{ id: 'a', kind: 'orchestrator', costUsd: 1e-6, startedAt: iso(NOW - 1000 * H), lastActiveAt: iso(NOW) }] }));
+  const p = plan(snap({ sessions: [{ id: 'a', kind: 'build', costUsd: 1e-6, startedAt: iso(NOW - 1000 * H), lastActiveAt: iso(NOW) }] }));
   assert.equal(p.projection.capHitAt, null);
   assert.equal(p.projection.capHitBeforeReset, false);
 });
@@ -1067,7 +1061,7 @@ test('projection: a history slope far from the sessions\' burn is reported for i
   const p = plan(s);
   assert.ok(p.projection.historyBurnUsdPerHour! > 1500); // $586 in 20 minutes
   assert.equal(p.projection.burnSource, 'sessions'); // the burn used is still the sessions'
-  assert.ok(p.projection.burnUsdPerHour < p.projection.historyBurnUsdPerHour! / 2);
+  assert.ok(p.projection.burnUsdPerHour < 320);
   const issue = p.issues.find((i) => i.code === 'burn-mismatch');
   assert.ok(issue, JSON.stringify(p.issues));
   assert.equal(issue.level, 'warn');
@@ -1390,7 +1384,7 @@ test('cap: the allowed reading for the low end comes from the warning\'s own win
 
 test('projection: paused sessions keep their reserve but add nothing to the burn', () => {
   const p = plan(snap({ sessions: [build('a', 10, 1, { lastActiveAt: iso(NOW) }), build('b', 30, 1, { lastActiveAt: iso(NOW), paused: true })] }));
-  assert.ok(near(p.projection.burnUsdPerHour, 40)); // a's reserve: 30 over its 0.75h left
+  assert.ok(near(p.projection.burnUsdPerHour, 10));
   assert.equal(p.reserve.sessions.length, 2);
 });
 
@@ -1495,10 +1489,10 @@ test('robust: BigInt and circular values in the snapshot never throw', () => {
   }
 });
 
-test('projection: each session projects at the rate its reserve implies (a young one included)', () => {
+test('projection: a session too young for its burn to count projects at least its prior\'s average rate', () => {
   const p = plan(snap({ sessions: [{ id: 'c', kind: 'council', costUsd: 1, startedAt: ago(5 / 60), lastActiveAt: iso(NOW) }] }));
-  assert.ok(near(p.projection.burnUsdPerHour, 44 / (1.25 - 5 / 60))); // $44 left over its 1.17h
-  assert.ok(near(p.reserve.sessions[0].projectedBurnUsdPerHour, 44 / (1.25 - 5 / 60)));
+  assert.ok(near(p.projection.burnUsdPerHour, 36)); // max($4/h, 45 / 1.25h)
+  assert.ok(near(p.reserve.sessions[0].projectedBurnUsdPerHour, 36));
   const nov = plan(nov1({ capUsd: 1500 }));
   assert.match(nov.summary, /unused: queue more work/);
   assert.match(nov.summary, /cap hit ~\d\d:\d\dZ at current burn, information only/);
@@ -1652,10 +1646,10 @@ test('orchestrator: what it will spend after the reset, up to its lookahead, cou
   assert.ok(near(p.capacity.nextWindowHeadroomUsd!, 500 - 264));
 });
 
-test('projection: a prior-basis session projects its remaining reserve over its remaining hours', () => {
+test('projection: a prior-basis session projects at its observed burn, not its reserve\'s rate', () => {
   const p = plan(snap({ sessions: [build('a', 10, 1, { lastActiveAt: iso(NOW) })] }));
-  assert.ok(near(p.reserve.sessions[0].projectedBurnUsdPerHour, 40)); // $30 over 0.75h
-  assert.ok(near(p.reserve.sessions[0].burnUsdPerHour, 10)); // its own lifetime rate, reported
+  assert.ok(near(p.reserve.sessions[0].projectedBurnUsdPerHour, 10)); // not $30 over its 0.75h
+  assert.ok(near(p.reserve.sessions[0].burnUsdPerHour, 10));
 });
 
 test('history: resetsAt values within 60 seconds name the same window', () => {
@@ -1715,8 +1709,8 @@ test('orchestrator: in a five-hour window its next-window carry is limited to th
   assert.ok(near(p.reserve.sessions[0].carriesOverUsd, 12 * 3)); // $12/h × (5h − 2h), not × (24h − 2h)
 });
 
-test('projection: a session that runs past the reset projects its in-window reserve over the hours to reset', () => {
+test('projection: a session that runs past the reset still projects at its observed burn', () => {
   const now = RESET - 0.5 * H;
   const p = plan(snap({ now: iso(now), sessions: [{ id: 'a', kind: 'build', costUsd: 10, startedAt: iso(now - 0.5 * H), lastActiveAt: iso(now) }] }));
-  assert.ok(near(p.reserve.sessions[0].projectedBurnUsdPerHour, 24)); // $12 in window over 0.5h
+  assert.ok(near(p.reserve.sessions[0].projectedBurnUsdPerHour, 20)); // $10 over 0.5h, not its in-window reserve's $24/h
 });

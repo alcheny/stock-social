@@ -317,10 +317,11 @@ ends under its estimate frees the difference then. `queued[].reasonCode` is `bra
 (strict priority order) or `already-running`; an over-cap reason shows the real shortfall when the running
 work alone already exceeds the cap.
 
-**Projection.** The burn rate is what the reserve model implies: the sum, over the running (not paused)
-sessions, of each one's in-window point reserve / min(its remaining hours, hours to reset), and for the
-orchestrator its own burn (`reserve.sessions[].projectedBurnUsdPerHour`). `burnUsdPerHour` per session is
-still its observed rate. `historyBurnUsdPerHour` reports the window-spend slope since the earliest history
+**Projection.** The burn rate is the sum of the running (not paused) sessions' observed burns (recent,
+else lifetime once it counts; the orchestrator its own burn). A session too young for its burn to count yet
+is projected at no less than its prior's average rate (point prior / typical hours),
+`reserve.sessions[].projectedBurnUsdPerHour`; on 2026-11-01 this gave $295/h against about $294/h real.
+`historyBurnUsdPerHour` reports the window-spend slope since the earliest history
 reading of the last 2 hours (at least 15 minutes old) for information only; when it and the projected
 burn differ by more than 2x the plan reports `burn-mismatch` (a warning: there is no independent
 account-level total, since history holds the planner's own past entries). Time to cap = (cap high −
@@ -380,10 +381,8 @@ while the cap is unknown. `issues[]` are `{ level, code, detail }`; `level` is `
 
 ## Limits
 
-- The projected burn is the reserve model's rate, which reads high when sessions near their typical hours
-  still have most of their prior left (the 2026-11-01 data: about $570/h projected against $258/h
-  observed, reported as `burn-mismatch`); time to cap is information only for this reason.
-
+- A session's projected rate jumps from its prior's average to its observed burn when it turns 10 minutes
+  old (5 with a recent reading).
 - Cost is a proxy for tokens: cache reads are cheap in dollars but may weigh differently against the cap.
 - Spend the orchestrator cannot see (a person's own sessions on the same account) is missing from spend,
   so a cap calibrated from a warning comes out lower than the real one: that errs on the safe side.

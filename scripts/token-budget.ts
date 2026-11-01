@@ -159,7 +159,7 @@ export function windowSpend(sessions: SpendSession[], windowStartMs: number): nu
 }
 
 export type RunningSession = SpendSession & { kind: string; phase?: string | null; recent?: { costUsd: number; atMs: number } | null };
-export type Remaining = { priorUsd: Range | null; burnUsdPerHour: number; remainingHours: number; remaining: Range; basis: 'prior' | 'burn' | 'floor' };
+export type Remaining = { priorUsd: Range | null; burnUsdPerHour: number; projectedBurnUsdPerHour: number; remainingHours: number; remaining: Range; basis: 'prior' | 'burn' | 'floor' };
 
 export function priorFor(kind: string, phase: string | null | undefined, priors: Readonly<Record<string, Prior>> = DEFAULT_PRIORS): Prior {
   return (phase ? own(priors, `${kind}:${phase}`) : undefined) ?? own(priors, kind) ?? own(priors, 'build') ?? DEFAULT_PRIORS.build;
@@ -200,7 +200,12 @@ export function remainingCost(s: RunningSession, nowMs: number, resetsAtMs: numb
   const pointPrior = p.point === null ? -Infinity : p.point - s.costUsd;
   const basis = pointPrior >= byBurn && pointPrior >= p.floorUsd ? 'prior' : byBurn >= p.floorUsd ? 'burn' : 'floor';
   const priorUsd = p.low === null || p.point === null || p.high === null ? null : { low: p.low, point: p.point, high: p.high };
-  return { priorUsd, burnUsdPerHour: burn, remainingHours: hours, remaining: { low: one(p.low), point: one(p.point), high: one(p.high) * safety }, basis };
+  // The projection uses the session's observed burn; one too young for its burn to count is projected at no less
+  // than its prior's average rate.
+  // ponytail: a session's projected rate jumps from its prior's average to its observed burn at 10 minutes of age (5
+  // with a recent reading) — a per-kind early-burn profile would make it continuous.
+  const projectedBurnUsdPerHour = burnCounts || p.point === null || !p.typicalHours ? burn : Math.max(burn, p.point / p.typicalHours);
+  return { priorUsd, burnUsdPerHour: burn, projectedBurnUsdPerHour, remainingHours: hours, remaining: { low: one(p.low), point: one(p.point), high: one(p.high) * safety }, basis };
 }
 
 // The part of a cost spread evenly over `hours` that falls before the reset (no clipping without a known reset).
@@ -624,13 +629,8 @@ function reserveFor(running: Session[], win: Window, cfg: Config, nowMs: number,
     if (s.kind === 'orchestrator' && hoursToReset !== null) {
       carriesOverUsd += r.burnUsdPerHour * Math.max(0, Math.min(cfg.orchestratorLookaheadHours, win.durMs / H) - hoursToReset);
     }
-    // The projected rate is what the reserve implies before the reset (the orchestrator: its own burn).
-    // ponytail: the reserve's rate reads high when sessions near their typical hours still have most of their prior
-    // left (about 2x the observed slope on 2026-11-01) — refitted priors, or blending in the observed burn, would fix it.
-    const span = hoursToReset === null ? r.remainingHours : Math.min(r.remainingHours, hoursToReset);
-    const projectedBurnUsdPerHour = s.kind === 'orchestrator' || span <= 0 ? r.burnUsdPerHour : inWindow.point / span;
     return { id: s.id, kind: s.kind, phase: s.phase, priority: s.priority, paused: s.paused, spentUsd: s.costUsd, priorUsd: r.priorUsd,
-      burnUsdPerHour: r.burnUsdPerHour, projectedBurnUsdPerHour, remainingHours: r.remainingHours, remaining: r.remaining, inWindow,
+      burnUsdPerHour: r.burnUsdPerHour, projectedBurnUsdPerHour: r.projectedBurnUsdPerHour, remainingHours: r.remainingHours, remaining: r.remaining, inWindow,
       carriesOverUsd, basis: r.basis };
   });
 }
@@ -910,7 +910,7 @@ export function plan(snapshot: unknown): Plan {
     const [hi, lo] = historyBurn > burn ? [historyBurn, burn] : [burn, historyBurn];
     if (hi > 0 && hi > BURN_MISMATCH * lo) {
       warn(c, 'burn-mismatch', `history burn ${usd(historyBurn)}/h and the running sessions' projected ${usd(burn)}/h differ by over ${BURN_MISMATCH}x (information only: the projection uses the sessions' burn, paused sessions excluded; `
-        + (historyBurn > burn ? 'sessions that just finished, or spend outside the listed sessions)' : 'the reserves expect more remaining cost before the reset than the sessions are spending, or history readings are missing)'));
+        + (historyBurn > burn ? 'sessions that just finished, or spend outside the listed sessions)' : 'lifetime averages overstate the current burn, or history readings are missing)'));
     }
   }
   const projection = projectionOf(cap, spend, reserves, admit, burn, historyBurn, hoursToReset, nowMs, cfg);
