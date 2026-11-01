@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { currentUser, origin, rememberMethod, signIn } from '@/lib/session.ts';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
-import { boundAttempt, completeLink, CONNECT_COOKIE, refuseUnbound } from '@/lib/connections.ts';
+import { boundAttempt, completeLink, CONNECT_COOKIE, linkCheckAllowed, refuseUnbound } from '@/lib/connections.ts';
+import { PORTAL } from '@/lib/copy.ts';
 
 // Back from the portal (redirect flow, or the embedded modal): zero-depth validation (F-1). Lists accounts, records the link and the provisional claims,
 // imports nothing, then shows the consent screen. Mechanic (a): a link whose accounts are all one existing trader's
@@ -19,6 +20,9 @@ export async function GET(req: NextRequest) {
   }
   if (!me && attempt === null) return NextResponse.redirect(`${base}/login`);
   const who = me ? { userId: me.id, attemptId: me.signup_attempt_id } : { userId: null, attemptId: attempt! };
+  // Security hardening (2026-11-01), F21: each check asks the vendor for the account list; limited per attempt or user,
+  // with the same short plain page as the mint limit.
+  if (!(await linkCheckAllowed(who))) return new NextResponse(PORTAL.tooMany, { status: 429, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '600' } });
   // PR-2b: the embedded modal returns here with m=embedded (on SUCCESS or when the portal closes); anything else is the
   // redirect flow. Only these two values are read; the link itself is whatever the vendor lists for this user.
   const out = await completeLink(who, undefined, undefined, req.nextUrl.searchParams.get('m') === 'embedded' ? 'embedded' : 'redirect');

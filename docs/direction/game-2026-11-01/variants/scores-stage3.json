@@ -1,0 +1,505 @@
+{
+ "judge_A_game_behavioural": {
+  "scores": {
+   "CA-006": 8,
+   "HH-004": 8,
+   "CA-015": 6,
+   "WC-061": 9,
+   "M-3783": 8,
+   "M-4931": 6,
+   "M-5616": 7,
+   "M-4215": 7,
+   "M-7771": 5,
+   "M-1803": 6,
+   "M-4345": 8.5,
+   "M-1966": 8,
+   "M-7342": 6,
+   "M-4802": 7.5,
+   "M-8623": 5,
+   "M-0473": 5,
+   "M-0964": 7.5,
+   "M-5444": 7,
+   "DP-030": 7.5,
+   "PR-098": 7,
+   "M-2369": 7.5,
+   "M-0981": 5.5,
+   "M-1333": 7,
+   "M-1732": 5.5,
+   "M-2983": 6,
+   "M-8008": 6,
+   "M-1503": 5.5,
+   "M-7437": 6.5,
+   "M-6072": 6.5,
+   "M-5670": 8,
+   "M-3653": 6.5,
+   "M-2703": 8,
+   "M-5558": 7.5,
+   "PR-001": 6.5,
+   "PR-029": 6,
+   "M-2895": 7,
+   "M-4970": 5,
+   "M-8222": 5.5,
+   "DP-099": 6.5,
+   "M-3085": 6,
+   "M-8043": 7,
+   "M-6575": 5.5,
+   "RG-012": 9,
+   "RG-089": 5.5,
+   "M-4837": 5.5,
+   "PR-019": 5,
+   "M-5301": 6.5,
+   "M-5593": 7.5,
+   "M-4060": 7,
+   "PR-022": 6.5,
+   "CA-004": 7,
+   "M-4629": 5.5,
+   "M-4731": 5,
+   "M-6027": 7.5,
+   "M-8485": 7.5,
+   "M-5945": 6.5,
+   "SC-007": 5.5,
+   "M-6948": 6,
+   "M-5261": 6,
+   "HH-014": 7,
+   "M-6934": 6.5,
+   "M-7102": 6,
+   "PS-062": 5.5,
+   "M-0596": 5,
+   "M-2510": 5,
+   "M-4052": 6,
+   "M-0129": 5,
+   "M-8858": 7.5,
+   "RG-036": 8,
+   "M-2847": 7.5,
+   "M-0193": 4.5,
+   "M-5977": 6,
+   "M-3327": 5,
+   "M-8421": 6.5,
+   "M-3622": 4.5,
+   "M-7400": 6,
+   "M-4771": 6,
+   "M-7027": 5,
+   "M-6593": 5,
+   "M-8235": 4.5,
+   "LS-051": 5,
+   "M-8328": 4.5,
+   "M-2051": 7,
+   "PR-053": 7.5,
+   "SC-075": 4.5,
+   "M-4875": 6.5,
+   "M-8188": 6.5,
+   "M-4648": 5,
+   "M-4343": 6.5,
+   "M-0592": 4.5,
+   "M-8843": 5,
+   "M-6764": 6.5,
+   "WC-049": 4,
+   "M-2994": 4,
+   "M-7578": 7.5,
+   "M-2912": 5,
+   "M-8397": 6,
+   "M-0300": 7,
+   "M-6940": 7.5,
+   "M-7862": 7
+  },
+  "top20": [
+   {
+    "id": "WC-061",
+    "why": "Seeded 3-min gauntlet + friend link: same cards kill card-luck, Brier on a thumb slider, ladder gives mastery; best replay+social loop.",
+    "merges": [
+     "M-3783",
+     "M-5670",
+     "M-8858",
+     "M-0964",
+     "PR-053",
+     "HH-004"
+    ]
+   },
+   {
+    "id": "RG-012",
+    "why": "Health bar makes log loss legible: confident misses hurt, boss rooms give run tension and flow peaks; the true roguelike here.",
+    "merges": [
+     "M-7578"
+    ]
+   },
+   {
+    "id": "M-4345",
+    "why": "Ranks only when your Brier band clears chance: skill, not a hot day, decides standing; mirrors TR-8 lower bound.",
+    "merges": []
+   },
+   {
+    "id": "CA-006",
+    "why": "Known true odds score you on judgment, not outcome luck; belt ladder is a clean mastery curve. Ideal training mode.",
+    "merges": [
+     "M-6948"
+    ]
+   },
+   {
+    "id": "M-2703",
+    "why": "Earn the right to say 90%: range caps lift as you prove calibration. Best-designed mastery gate in the set.",
+    "merges": []
+   },
+   {
+    "id": "M-1966",
+    "why": "Ten rounds, one slider, a calibration dot per call, harder charts unlock: tight 2-3 min core loop.",
+    "merges": [
+     "M-5945"
+    ]
+   },
+   {
+    "id": "RG-036",
+    "why": "Narrowing bridge turns sharpness-vs-coverage into a readable run with escalating stakes.",
+    "merges": [
+     "M-6940"
+    ]
+   },
+   {
+    "id": "M-6027",
+    "why": "Daily seeded five-boss run with spoiler-free pip grid: shared ritual and conversation without a streak.",
+    "merges": [
+     "M-4343"
+    ]
+   },
+   {
+    "id": "M-2369",
+    "why": "Week season = median of best five days: forgives a bad day, rewards consistent calibration, anti-tilt.",
+    "merges": [
+     "M-8397"
+    ]
+   },
+   {
+    "id": "M-5593",
+    "why": "Tight-but-right cone feels like sniping; reveal sweep is a great payoff. Needs presets for one thumb.",
+    "merges": [
+     "M-5301",
+     "PR-022"
+    ]
+   },
+   {
+    "id": "M-8485",
+    "why": "Run-end report card (calibration, overconfidence count, one habit) gives the reason to run again.",
+    "merges": []
+   },
+   {
+    "id": "M-4802",
+    "why": "75s daily 80% range puzzle, hit/miss grid: smallest session that still scores calibration honestly.",
+    "merges": [
+     "DP-030",
+     "M-5444",
+     "M-2895"
+    ]
+   },
+   {
+    "id": "M-5558",
+    "why": "Native to the swipe feed: one-thumb, instant reveal, capped at three a day. Needs swipe-distance confidence.",
+    "merges": [
+     "PR-001",
+     "M-2051",
+     "M-4875"
+    ]
+   },
+   {
+    "id": "M-2847",
+    "why": "Boss built from your own worst bias: adaptive difficulty that targets what you need to learn.",
+    "merges": []
+   },
+   {
+    "id": "M-5616",
+    "why": "Interval Archer with a finite archive: catch-up without daily guilt; archive kept unranked.",
+    "merges": [
+     "CA-004",
+     "M-3653",
+     "M-6934"
+    ]
+   },
+   {
+    "id": "HH-014",
+    "why": "Async range duel on one seed: narrower-and-right wins; score width and coverage jointly to stop always-wide.",
+    "merges": [
+     "M-8188",
+     "PR-098",
+     "M-5261"
+    ]
+   },
+   {
+    "id": "M-8043",
+    "why": "Word-a-day chart puzzle with five-dot share grid and ghost: strongest daily social artifact.",
+    "merges": [
+     "M-7102",
+     "M-4931"
+    ]
+   },
+   {
+    "id": "M-1333",
+    "why": "Division promotion on Brier skill gives weekly stakes; cap rated rounds to stop grind.",
+    "merges": [
+     "M-6764",
+     "M-1803"
+    ]
+   },
+   {
+    "id": "M-4060",
+    "why": "90s: give probabilities, get a shareable reliability curve. The curve is the reward.",
+    "merges": [
+     "M-1503",
+     "M-4629"
+    ]
+   },
+   {
+    "id": "M-4215",
+    "why": "Same masked path for all, ranked on calibration with a 10-day minimum: fair field comparison.",
+    "merges": [
+     "DP-099",
+     "M-6072",
+     "M-3085",
+     "M-1732",
+     "M-4771"
+    ]
+   }
+  ],
+  "clusters": "1) Seeded shared-card runs/duels (Gauntlet, Tape Reader, Showdown, Boss Rush) - best replay+social. 2) Roguelike health/bridge runs (Boss Gap, Narrow Bridge, Overconfidence Boss). 3) Slider calibration drills with ladders/curves (Confidence Ladder, Ladder of Doubt, Dojo, Mirror). 4) Range/cone interval games (Archer, Cone Catcher, Number Line, Twin Timeline). 5) Daily puzzles & crowd boards. 6) Seasons/leagues. 7) Bias/lesson/story niche (Echo, Anchor, Cycle, Morning Pages).",
+  "warning": "Do not let one 10-card session decide a winner: card luck swamps calibration at n=10. Score on proper rules (Brier/log or joint width+coverage, never hit rate or paper P&L), show bands, rank only past a sample floor, and keep binary swipes from erasing confidence. Avoid daily streak pressure, multi-slider cards and free text on a phone."
+ },
+ "judge_B_safety_legal_engineering": {
+  "scores": {
+   "CA-006": 8.5,
+   "HH-004": 7,
+   "CA-015": 7.5,
+   "WC-061": 8,
+   "M-3783": 6.5,
+   "M-4931": 5,
+   "M-5616": 9,
+   "M-4215": 5.5,
+   "M-7771": 7.5,
+   "M-1803": 6,
+   "M-4345": 6,
+   "M-1966": 7.5,
+   "M-7342": 7,
+   "M-4802": 5.5,
+   "M-8623": 7,
+   "M-0473": 6,
+   "M-0964": 7.5,
+   "M-5444": 7,
+   "DP-030": 6,
+   "PR-098": 6.5,
+   "M-2369": 6,
+   "M-0981": 6,
+   "M-1333": 6,
+   "M-1732": 4.5,
+   "M-2983": 6.5,
+   "M-8008": 7,
+   "M-1503": 5,
+   "M-7437": 7,
+   "M-6072": 5,
+   "M-5670": 7,
+   "M-3653": 8,
+   "M-2703": 7,
+   "M-5558": 3.5,
+   "PR-001": 4,
+   "PR-029": 4,
+   "M-2895": 6.5,
+   "M-4970": 6,
+   "M-8222": 5,
+   "DP-099": 5,
+   "M-3085": 5,
+   "M-8043": 5.5,
+   "M-6575": 7.5,
+   "RG-012": 7.5,
+   "RG-089": 6,
+   "M-4837": 6,
+   "PR-019": 7,
+   "M-5301": 6,
+   "M-5593": 7.5,
+   "M-4060": 6.5,
+   "PR-022": 7,
+   "CA-004": 8.5,
+   "M-4629": 6.5,
+   "M-4731": 6,
+   "M-6027": 4.5,
+   "M-8485": 8,
+   "M-5945": 7,
+   "SC-007": 5.5,
+   "M-6948": 7,
+   "M-5261": 5.5,
+   "HH-014": 7.5,
+   "M-6934": 7.5,
+   "M-7102": 5,
+   "PS-062": 7,
+   "M-0596": 6,
+   "M-2510": 5,
+   "M-4052": 7.5,
+   "M-0129": 6.5,
+   "M-8858": 5.5,
+   "RG-036": 8.5,
+   "M-2847": 8,
+   "M-0193": 5.5,
+   "M-5977": 7.5,
+   "M-3327": 4.5,
+   "M-8421": 6.5,
+   "M-3622": 4,
+   "M-7400": 6.5,
+   "M-4771": 4,
+   "M-7027": 5,
+   "M-6593": 5,
+   "M-8235": 6,
+   "LS-051": 6.5,
+   "M-8328": 4.5,
+   "M-2051": 3.5,
+   "PR-053": 5.5,
+   "SC-075": 5.5,
+   "M-4875": 4.5,
+   "M-8188": 7,
+   "M-4648": 3.5,
+   "M-4343": 3.5,
+   "M-0592": 6,
+   "M-8843": 5,
+   "M-6764": 5,
+   "WC-049": 3,
+   "M-2994": 3,
+   "M-7578": 6,
+   "M-2912": 6,
+   "M-8397": 4.5,
+   "M-0300": 3.5,
+   "M-6940": 8,
+   "M-7862": 4
+  },
+  "top20": [
+   {
+    "id": "M-5616",
+    "why": "Range drill with a finite archive shelf: completion without a daily treadmill, keyboard-adjustable handles, coverage scoring is honest and explainable",
+    "merges": [
+     "M-3653",
+     "M-6934"
+    ]
+   },
+   {
+    "id": "RG-036",
+    "why": "Narrowing-bridge roguelike on synthetic paths: real fun, zero data licence cost, sharpness-vs-coverage made visible; no ranking needed",
+    "merges": [
+     "M-6940"
+    ]
+   },
+   {
+    "id": "CA-006",
+    "why": "Synthetic paths with known true odds: the only design where 'good prediction' is measurable without noise; cheap, no signal risk",
+    "merges": [
+     "M-6948"
+    ]
+   },
+   {
+    "id": "CA-004",
+    "why": "Interval Archer base: plain one-line explainer, ladder unlocks harder charts not score; strong ergonomic gesture",
+    "merges": []
+   },
+   {
+    "id": "WC-061",
+    "why": "Seeded 3-min gauntlet shared by link: social without feeds or contact import; rate-limit invites, no global board",
+    "merges": [
+     "M-5670",
+     "M-3783",
+     "M-8858"
+    ]
+   },
+   {
+    "id": "M-8485",
+    "why": "Run ends in a descriptive report card (calibration, overconfident count, one habit), weekly cadence: closure instead of 'one more run'",
+    "merges": []
+   },
+   {
+    "id": "M-2847",
+    "why": "Boss built from your own past biases, kept on-device: personal replay variety, privacy-safe (P3), log scoring teaches humility",
+    "merges": []
+   },
+   {
+    "id": "M-0964",
+    "why": "Seeded friend gauntlet plus descriptive habit tags; codex instead of rating keeps game far from verified records",
+    "merges": []
+   },
+   {
+    "id": "M-7771",
+    "why": "Synthetic hidden drift teaches noise looks like trend; ascension modifiers neutral or harder, never extra score (no power creep)",
+    "merges": [
+     "CA-015",
+     "M-7342"
+    ]
+   },
+   {
+    "id": "M-1966",
+    "why": "Ten-round masked slider with a calibration dot each round; simplest honest core; must label paper-only, not trading skill",
+    "merges": [
+     "M-5945"
+    ]
+   },
+   {
+    "id": "M-5977",
+    "why": "Weekly pass/fail mastery trials with retry, no ranking: progression without leaderboard anxiety or loss-chasing",
+    "merges": [
+     "M-2912"
+    ]
+   },
+   {
+    "id": "M-6575",
+    "why": "Fictional confident opinions sway your slider; scoring rewards ignoring them: an anti-signal game that trains independence",
+    "merges": []
+   },
+   {
+    "id": "M-4052",
+    "why": "Balanced synthetic draws expose up-bias with a neutral tilt meter; cheap, educational, no real securities",
+    "merges": []
+   },
+   {
+    "id": "RG-012",
+    "why": "Boss gap rooms make tail risk memorable; health bar makes log loss legible; needs a calm run end, no instant retry prompt",
+    "merges": [
+     "M-7578"
+    ]
+   },
+   {
+    "id": "M-5593",
+    "why": "Cone catcher with anchor decoy revealed afterwards: tactile and teaches a bias; needs keyboard/preset handles for A1",
+    "merges": [
+     "PS-062",
+     "M-0129"
+    ]
+   },
+   {
+    "id": "HH-014",
+    "why": "Seeded synthetic range duel scoring width and coverage jointly; synthetic avoids licensing and any read as a real call",
+    "merges": [
+     "M-8188",
+     "M-5261",
+     "PR-098"
+    ]
+   },
+   {
+    "id": "M-8008",
+    "why": "Over-extrapolation drill with a bias readout about your forecasts only; counters chasing momentum, fits slider",
+    "merges": [
+     "M-7437"
+    ]
+   },
+   {
+    "id": "PR-019",
+    "why": "Volatility-up probability on labelled synthetic paths; teaches clustering without direction calls (less signal-like)",
+    "merges": [
+     "M-8623",
+     "M-0473"
+    ]
+   },
+   {
+    "id": "M-2703",
+    "why": "Earned probability range (40-60% first, extremes later) is a clever honest progression; swap swipe for a slider",
+    "merges": []
+   },
+   {
+    "id": "LS-051",
+    "why": "Friend league votes on synthetic world rules: social governance fun, labelled simulated, no global rank",
+    "merges": [
+     "M-8235"
+    ]
+   }
+  ],
+  "clusters": "1) Range/interval drills (Interval Archer, Sweet Spot, Cone, Bridge, Twin Timeline): best gesture, honest scoring. 2) Probability-slider calibration drills on synthetic or masked paths (Dojo, Blind Drift, Confidence Ladder, Mirror). 3) Seeded async challenges by link (Gauntlet, Tape Reader). 4) Daily shared-seed boards and share grids (Crowd vs You, Mystery Month, Jury). 5) Seasons/leagues/divisions. 6) Bias-exposure games (anchor decoy, echo chamber, tilt, bias boss). 7) Binary swipe rounds (Fog of Candles). 8) Story/journaling with free text.",
+  "warning": "Don't let 'replayable' slide into compulsion: daily share grids, global boards, promotion/relegation, unlimited unrated runs and 60-second timers each rebuild streaks or slot loops. Prefer synthetic data (no licence cost, no real-security read). Keep game scores off profiles and feed, never call them skill, and give every drag or swipe a keyboard and screen-reader path."
+ }
+}

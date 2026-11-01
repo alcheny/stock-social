@@ -3,9 +3,11 @@ import { isDemoUser } from './demo.ts';
 import { publicRecord } from './connections.ts';
 import { tradeSharePayload, type TradeView } from './trade-share.ts';
 import type { RecordState } from './copy.ts';
+import { routeHandle } from './params.ts';
 
 // The only query behind the trade page and card. A held thesis is nulled in SQL, so it never reaches rendering code.
 export async function loadTradeShare(handle: string, sellId: string) {
+  if (!routeHandle(handle) || sellId.includes('\0')) return null; // F12: junk in the URL is a 404, not a database error
   const [t] = await sql`
     select ct.user_id, ct.symbol, ct.return_pct, ct.holding_days, ct.closed_at,
       case when ct.thesis_status = 'published' then ct.thesis end as thesis,
@@ -34,7 +36,9 @@ export async function openPercents(userId: number, state: RecordState): Promise<
   return rows.map((r) => r.unrealized_pct as number);
 }
 
-// Route params may be percent-encoded; malformed input is a 404, not a 500.
+// Route params may be percent-encoded; malformed input (or a NUL byte, which Postgres text cannot hold) is a 404, not a 500.
 export function decodeSellId(raw: string): string | null {
-  try { return decodeURIComponent(raw); } catch { return null; }
+  let id: string;
+  try { id = decodeURIComponent(raw); } catch { return null; }
+  return id.includes('\0') ? null : id;
 }

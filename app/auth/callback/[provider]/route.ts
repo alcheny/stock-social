@@ -19,7 +19,7 @@ async function finish(params: URLSearchParams, provider: string) {
   if (!p) return fail('unknown');
   const jar = await cookies();
   const tx = decodeTx(unsignToken(jar.get(TX_COOKIE)?.value, sessionSecret()));
-  jar.delete(TX_COOKIE);
+  jar.delete({ name: TX_COOKIE, path: '/auth' }); // F15: the path it was set on (startSignIn), or it would never clear
   if (!tx) return fail('tx');
   const code = params.get('code'), state = params.get('state');
   if (tx.m !== provider || !code || !state || state !== tx.s) return fail('state');

@@ -3,7 +3,8 @@ import { cookies } from 'next/headers';
 import { sessionSecret } from '@/lib/auth/sessions.ts';
 import { boundAttempt, CONNECT_COOKIE, mintPortal, PortalRefusedError, RateLimitedError } from '@/lib/connections.ts';
 import { portalOrigin } from '@/lib/portal.ts';
-import { probePortalMode } from '@/lib/portal-probe.ts';
+import { frameAllowed, portalFrameOrigins } from '@/lib/csp.ts';
+import { probePortalMode, sharedProbeStore } from '@/lib/portal-probe.ts';
 import { currentUser, origin } from '@/lib/session.ts';
 import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 
@@ -16,8 +17,8 @@ import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 // (the dialog frames it) or 'redirect' (the browser navigates to it; recorded as a redirect open). Mints are
 // rate-limited per trader (429) and serialized under the per-user lock (lib/connections.ts#mintPortal).
 // Fix round 4: the probe runs after the mint's transaction commits (no lock or pool connection held while the vendor is
-// slow), one in flight per vendor origin, pinned to the origin minted here, following no redirect off it. Its cache
-// and in-flight map are per instance; the mint limit and the registration lock are in the database.
+// slow), one in flight per vendor origin, pinned to the origin minted here, following no redirect off it. Its answer is
+// shared by every instance (portal_probes, security hardening 2026-11-01), as are the mint limit and the registration lock.
 const noStore = { 'cache-control': 'no-store' };
 export async function POST() {
   const me = await currentUser();
@@ -32,7 +33,11 @@ export async function POST() {
     // counted, so a 502 never uses up one of the trader's opens.
     const { url, mode } = await mintPortal({ userId: me?.id ?? null, attemptId }, `${app}/connect/done`, async (u) => {
       const o = portalOrigin(u, { allowLoopback });
-      return o ? probePortalMode(u, o, app) : 'embedded';
+      if (!o) return 'embedded';
+      const probed = await probePortalMode(u, o, app, { store: sharedProbeStore });
+      // Security hardening (2026-11-01): the page's CSP frames the vendor portal origin only (lib/csp.ts); a portal on
+      // another origin opens by redirect rather than as a blank frame.
+      return frameAllowed(o, portalFrameOrigins()) ? probed : 'redirect';
     }, undefined, (u) => portalOrigin(u, { allowLoopback }) !== null);
     const portal = portalOrigin(url, { allowLoopback })!;
     return NextResponse.json({ url, origin: portal, mode }, { headers: noStore });
