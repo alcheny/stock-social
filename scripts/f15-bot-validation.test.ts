@@ -3,6 +3,7 @@
 // shape the filter drops would make the 95% human bar fail on real devices). Pure: no server, no database.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { scanText } from './compliance.ts';
 import { BOTS, HUMAN_AGENTS } from './f15-bot-validation.ts';
 import { botReason } from '../lib/views.ts';
 
@@ -23,5 +24,9 @@ test('F4-13: every human agent shape is counted by the filter; every declared bo
 });
 
 test('F4-13: the agent shapes name no app, device maker or service (generic shapes only)', () => {
-  for (const a of HUMAN_AGENTS) assert.doesNotMatch(a.ua, /iphone|ipad|pixel|galaxy|samsung|instagram|facebook|fban|fbav|twitter|tiktok|line\/|snapchat|linkedin|whatsapp|telegram|discord|reddit/i, a.ua);
+  // The repo's own mark list (scripts/compliance.ts MARKS) plus device and in-app tokens, so this file names none of them.
+  for (const a of HUMAN_AGENTS) {
+    assert.deepEqual(scanText('agent.txt', a.ua), [], a.ua);
+    assert.doesNotMatch(a.ua, /iphone|ipad|pixel|galaxy|fban|fbav|line\//i, a.ua);
+  }
 });
