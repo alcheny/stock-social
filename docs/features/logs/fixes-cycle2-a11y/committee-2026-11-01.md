@@ -62,3 +62,10 @@ h1 / `.who` / badge reflow; this branch builds only the remainder and carries F-
   line is drawn in `--line` (1.20-1.31:1); DS-2 puts it on `--control`.
 - Row #25 (warn): warn #8a5a00 vs the new loss #b2441b is 3.2 ΔE00 under deutan; the failed-import state keeps its
   icon, box and words (design system §2.7).
+
+## Round 2
+
+- Business lead: SIGN (condition: re-run `git merge-tree` against `origin/claude/f13-a11y-fixes` with the block at
+  its new position and record the result below).
+- Engineer: SIGN (decisions 1-10 cover demands 1-9; the cascade holds before and after F-13 merges; the unit test
+  locates our block by its markers, not by end of file).
