@@ -7,8 +7,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-  G2_TEXT, G3_LABEL, G3_OWNER_LINE, G4_TEXT, DELETION_LINE, RECONCILE_LINE, buildReadout, parseOutArg, resolveOut, suppress, weekWindow,
-  type ReadoutInput, type RollupRow,
+  G2_COHORT_LINE, G2_OUTCOME_LINE, G3_LABEL, G3_OWNER_LINE, G4_TEXT, DELETION_LINE, RECONCILE_LINE, buildReadout, parseOutArg, resolveOut, suppress, weekWindow,
+  type ReadoutInput, type RollupRow, type SharerRow,
 } from './f15-readout.ts';
 
 const NOW = new Date('2026-11-01T12:00:00Z'); // a Sunday in 2026-W44: printed weeks 2026-W36 .. 2026-W43
@@ -36,9 +36,12 @@ function fixture(): ReadoutInput {
       { day: dayOf(2), surface: 'feed', reason: 'no_fetch_metadata', n: 4 },
     ],
     g1: { strict: 3, partial: 1 },
+    g2: { traders: [T({ card: true, sheet: true }), T(), T()], firstDay: '2026-09-02', retentionDays: 120 },
   };
 }
 
+const T = (o: Partial<SharerRow> = {}): SharerRow => ({ card: false, story: false, record: false, sheet: false, copy: false, down: false, ...o });
+const NO_G2 = { traders: [], firstDay: null, retentionDays: 120 };
 const tableCells = (md: string) =>
   md.split('\n').filter((l) => l.startsWith('|') && !/^\|(-+\|)+$/.test(l)).flatMap((l) => l.slice(1, -1).split('|').map((c) => c.trim()));
 const rowOf = (md: string, label: string) => md.split('\n').find((l) => l.startsWith(`| ${label} |`));
@@ -77,7 +80,7 @@ test('small surface × via rows roll into "other"; totals only when nothing in t
   assert.ok(rowOf(md, 'other | other'));
   assert.equal(rowOf(md, 'profile | inv_t'), undefined);
   assert.equal(rowOf(md, 'trade | trade'), undefined);
-  const clean = buildReadout({ rollup: mondays.map((_, w) => view(w, 9, { surface: 'feed', ref_class: 'internal' })), drops: [], g1: { strict: 0, partial: 0 } }, NOW);
+  const clean = buildReadout({ rollup: mondays.map((_, w) => view(w, 9, { surface: 'feed', ref_class: 'internal' })), drops: [], g1: { strict: 0, partial: 0 }, g2: NO_G2 }, NOW);
   assert.match(rowOf(clean, 'feed | none')!, /\| 72 \|$/); // 8 × 9, nothing hidden: exact total
   assert.match(rowOf(clean, 'all | all')!, /\| 72 \|$/);
 });
@@ -96,9 +99,9 @@ test('the four DESIGN §3.5 metric and threshold lines are printed verbatim', ()
 
 test('G2, G3 and G4 strings; G4 has no signed-in count', () => {
   const md = buildReadout(fixture(), NOW);
-  assert.equal(G2_TEXT, 'after the share_action slice');
+  assert.ok(md.includes('| Of those, share their card at least once | ≥ 60% | (s) |'), 'G2 strict row; G1 "<5" hides it');
   assert.equal(G4_TEXT, "strict G4 can't be read in this slice; signed-out D7 return is not measured");
-  assert.ok(md.includes(`| ${G2_TEXT} |`));
+  assert.ok(!md.includes('after the share_action slice'));
   assert.ok(md.includes(`| ${G4_TEXT} |`));
   assert.ok(md.includes(G3_LABEL));
   assert.ok(md.includes(G3_OWNER_LINE));
@@ -167,7 +170,7 @@ test('a missing --out throws', () => {
 const cellsOf = (line: string | undefined) => (line ?? '').slice(1, -1).split('|').map((c) => c.trim());
 const g3Row = (md: string, label: string) => cellsOf(md.split('\n').find((l) => l.startsWith(`| ${label}`))).slice(2);
 const tableRow = (md: string, label: string) => cellsOf(rowOf(md, label)).slice(2);
-const only = (rows: RollupRow[]): ReadoutInput => ({ rollup: rows, drops: [], g1: { strict: 0, partial: 0 } });
+const only = (rows: RollupRow[]): ReadoutInput => ({ rollup: rows, drops: [], g1: { strict: 0, partial: 0 }, g2: NO_G2 });
 
 test('cross-table: G3 invite minus the surface × via table cannot recover a hidden 3 (20 + 3)', () => {
   const rows = [...mondays.map((_, w) => view(w, 20, { via: 'inv_t', ref_class: 'none' })), view(5, 3, { surface: 'feed', via: 'inv_t', ref_class: 'none' })];
@@ -252,4 +255,118 @@ test('two runs (mid-week, then the next week) print the same value for every wee
   for (const [k, v] of mc) if (me.has(k)) assert.equal(me.get(k), v, k);
   assert.ok(shared > 20, `compared ${shared} cells`);
   assert.ok(!a.includes('| 20 |') && !a.includes('≥ 20'));
+});
+
+// ---- G2 (share_action) ----
+const g2Input = (traders: SharerRow[]): ReadoutInput => ({ rollup: [], drops: [], g1: { strict: traders.length, partial: 0 }, g2: { traders, firstDay: '2026-09-02', retentionDays: 120 } });
+const many = (n: number, o: Partial<SharerRow>) => Array.from({ length: n }, () => T(o));
+const G2_LABELS = ['Of those, share their card at least once', 'partial: shared any surface', 'partial: used the share sheet', 'partial: copied the link', 'partial: shared the picture', 'partial: shared while the record was down'];
+function g2Values(md: string): string[] {
+  const sec = md.slice(md.indexOf('## G2'), md.indexOf('## G3')).split('\n');
+  return G2_LABELS.map((l) => { const line = sec.find((x) => x.startsWith(`| ${l}`)); assert.ok(line, l); return cellsOf(line).at(-1)!; });
+}
+
+// Everyone who reads the readout knows G1 and the printed G2 rows. Enumerate every per-trader cell split consistent
+// with them (a picture share always goes through the sheet) and require that each cell, each row and each G1 − row
+// whose true value is 1-4 has more than one possible value.
+function assertNothingDerivable(traders: SharerRow[]) {
+  const md = buildReadout(g2Input(traders), NOW);
+  const G = traders.length;
+  const printed = g2Values(md).map((v) => {
+    let m = /^([\d,]+) of ([\d,]+)/.exec(v);
+    if (m) return { eq: Number(m[1].replace(/,/g, '')) };
+    m = /^≥ ([\d,]+) of/.exec(v);
+    if (m) return { ge: Number(m[1].replace(/,/g, '')) };
+    assert.equal(v, '(s)');
+    return {};
+  });
+  const quantities = (c: number[]) => { // story, card, other, non, sheetOnly, copyOnly, both, down, upOnly
+    const rows = [c[0] + c[1], c[0] + c[1] + c[2], c[4] + c[6], c[5] + c[6], c[0], c[7]];
+    return { rows, all: [...c, ...rows, ...rows.map((r) => G - r)] };
+  };
+  const t = traders;
+  const truth = [
+    t.filter((x) => x.story).length, t.filter((x) => !x.story && x.card).length, t.filter((x) => !x.story && !x.card && x.record).length,
+    t.filter((x) => !x.story && !x.card && !x.record).length,
+  ];
+  const sh = t.filter((x) => x.story || x.card || x.record);
+  truth.push(sh.filter((x) => x.sheet && !x.copy).length, sh.filter((x) => !x.sheet).length, sh.filter((x) => x.sheet && x.copy).length,
+    sh.filter((x) => x.down).length, sh.filter((x) => !x.down).length);
+  const real = quantities(truth).all;
+  const seen = real.map(() => new Set<number>());
+  for (let a = 0; a <= G; a++) for (let b = 0; a + b <= G; b++) for (let o = 0; a + b + o <= G; o++) {
+    const non = G - a - b - o, S = G - non;
+    for (let so = 0; so <= S; so++) for (let co = 0; so + co <= S; co++) {
+      const both = S - so - co;
+      if (a > so + both) continue;
+      for (let d = 0; d <= S; d++) {
+        const c = [a, b, o, non, so, co, both, d, S - d];
+        const q = quantities(c);
+        if (!printed.every((p, i) => ('eq' in p ? q.rows[i] === p.eq : 'ge' in p ? q.rows[i] >= p.ge! : true))) continue;
+        q.all.forEach((v, i) => seen[i].add(v));
+      }
+    }
+  }
+  real.forEach((v, i) => { if (v > 0 && v < 5) assert.ok(seen[i].size > 1, `quantity ${i} = ${v} is derivable: ${g2Values(md).join(' / ')}`); });
+  return md;
+}
+
+test('G2: strict row, threshold verbatim, partial rows and fixed lines', () => {
+  const traders = [...many(8, { card: true, sheet: true }), ...many(6, { story: true, sheet: true, copy: true, down: true }), ...many(6, {})];
+  const md = buildReadout(g2Input(traders), NOW);
+  assert.ok(md.includes('| Of those, share their card at least once | ≥ 60% | 14 of 20 (70%) |'));
+  const g2 = md.slice(md.indexOf('## G2'), md.indexOf('## G3'));
+  assert.ok(g2.indexOf('Of those, share their card') < g2.indexOf('partial:'), 'strict row first');
+  for (const l of G2_LABELS.slice(1)) assert.ok(g2.includes(`| ${l}`), l);
+  assert.ok(!/trade or month only/.test(g2));
+  assert.ok(g2.includes('| partial: shared the picture |  | 6 of 20 (30%) |'));
+  assert.ok(g2.includes(G2_COHORT_LINE));
+  assert.equal(G2_COHORT_LINE, '14-day share rate per weekly cohort: not printed (gate definition, MRC2-3, owner)');
+  assert.ok(g2.includes('Shares made before the share_action rows began are not counted (the old users columns are not read)'));
+  assert.ok(!g2.includes('2026-09-02')); // the first row's day is never printed
+  assert.ok(g2.includes(G2_OUTCOME_LINE));
+  assert.equal(G2_OUTCOME_LINE, 'sheet = the share sheet resolved, not that anything was posted; copy = the link copied');
+  assert.match(g2, /Traders with a connected broker \(strict G1\), not share actions/);
+  assert.match(g2, /on or before 2026-10-25, within the 120-day retention/);
+});
+
+test('G2: when G1 prints "<5" every G2 cell is "(s)"', () => {
+  const md = buildReadout(g2Input([T({ card: true, sheet: true }), T({ card: true, copy: true }), T()]), NOW);
+  assert.ok(md.includes('| Traders with a connected broker | ≥ 50 | <5 |'));
+  assert.deepEqual(g2Values(md), G2_LABELS.map(() => '(s)'));
+});
+
+test('G2: 12/10/12, 12/9/8 and 12/9/11 never let a hidden cell be derived', () => {
+  // 12/10/12: G1 12, strict 10, any surface 12 (G1 − strict = 2 trade/month-only sharers).
+  let md = assertNothingDerivable([...many(10, { card: true, sheet: true }), ...many(2, { record: true, copy: true })]);
+  assert.notEqual(g2Values(md)[0], '10 of 12 (83%)');
+  // 12/9/8: G1 12, strict 9, sheet 8 (copy only 1 among the sharers; 3 non-sharers).
+  md = assertNothingDerivable([...many(5, { card: true, sheet: true }), ...many(3, { story: true, sheet: true, copy: true }), T({ card: true, copy: true }), ...many(3, {})]);
+  assert.ok(!g2Values(md).includes('9 of 12 (75%)'));
+  // 12/9/11: G1 12, strict 9, any surface 11 (2 trade/month only, 1 non-sharer).
+  md = assertNothingDerivable([...many(9, { card: true, sheet: true, down: true }), ...many(2, { record: true, copy: true }), T()]);
+  assert.ok(!g2Values(md).some((v) => /^(9|11) of 12 \(/.test(v)));
+});
+
+test('G2: random trader sets never let a hidden cell be derived', () => {
+  let seed = 15;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed / 2 ** 31; };
+  for (let i = 0; i < 60; i++) {
+    const n = 5 + Math.floor(rnd() * 8);
+    const traders = Array.from({ length: n }, () => {
+      const k = rnd();
+      if (k < 0.2) return T();
+      const story = k < 0.35, card = !story && k < 0.8, record = !story && !card;
+      const sheet = story || rnd() < 0.6, copy = !sheet || rnd() < 0.3;
+      return T({ story, card, record, sheet, copy, down: rnd() < 0.3 });
+    });
+    assertNothingDerivable(traders);
+  }
+});
+
+test('G2: no handle, id or return reaches the output from the trader rows', () => {
+  const leaky = { handle: 'zed_trader', user_id: 987654, return_pct: 12.34 };
+  const traders = [...many(9, { card: true, sheet: true }), ...many(6, {})].map((t) => ({ ...t, ...leaky }) as SharerRow);
+  const md = buildReadout(g2Input(traders), NOW);
+  for (const bad of ['zed_trader', '987654', '12.34', '@']) assert.ok(!md.includes(bad), bad);
 });

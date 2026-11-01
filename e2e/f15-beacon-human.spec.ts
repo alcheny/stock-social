@@ -116,7 +116,10 @@ test('the layout mount adds no focusable element: the first Tab lands on the ski
   await page.goto(`/u/${HANDLE}`);
   const order = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
     .filter((el) => !el.hasAttribute('disabled')).map((el) => `${el.tagName}:${el.getAttribute('href') ?? el.textContent?.trim().slice(0, 20)}`));
-  const before = await order();
+  // The page's own content settles first (the chart's points arrive after the first paint).
+  await page.waitForLoadState('networkidle');
+  let before = await order();
+  await expect.poll(async () => { const prev = JSON.stringify(before); await page.waitForTimeout(300); before = await order(); return JSON.stringify(before) === prev; }).toBe(true);
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.activeElement?.className)).toContain('skip-link');
   await page.waitForTimeout(2_600); // the beacon has fired
