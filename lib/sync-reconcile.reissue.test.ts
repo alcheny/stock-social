@@ -409,3 +409,88 @@ dbTest('(h) a stored row the vendor never lists: the first pass is missing (no d
     await t.unchanged(snap, '(h)');
   } finally { console.log = orig; await t.cleanup(); }
 });
+
+dbTest('(j) QA D1: two genuine identical fills stored together, then one re-issued: the re-issue is held (pending, then suspected), never genuine; at most 2 closes', async () => {
+  const t = await trader();
+  try {
+    const b = t.row('b', 'BUY', 30, 10, at(-30));
+    const e = t.row('e', 'SELL', 10, 12, at(-20)), n1 = t.row('n1', 'SELL', 10, 12, at(-20)), n2 = t.row('n2', 'SELL', 10, 12, at(-20));
+    await t.store([b, e, n1]); // stored together: both genuine fills
+    t.v.list = [b, e, n1];
+    await t.round(0);
+    assert.equal((await t.closes()).length, 2, 'both fills published');
+    assert.equal(await t.state('n1'), null);
+    const snap = await t.raw();
+    await t.due(new Date(base + 30 * DAY).toISOString());
+    t.v.list = [b, e, n2]; // the vendor re-issued N1 as N2 (inside the week window)
+    await t.round(25);
+    assert.equal(t.v.pageCalls.length, 0, 'a week read');
+    assert.equal(await t.state('n2'), 'pending', 'E being listed does not clear N2: N1 is not listed');
+    assert.ok(t.inSync.at(-1)! <= 2);
+    assert.equal((await t.closes()).length, 2);
+    await t.round(50); // brought forward: the deciding pass
+    assert.equal(t.v.pageCalls.length, 1, 'the pass ran');
+    assert.equal(await t.state('n2'), 'suspected', 'never genuine');
+    assert.ok(t.inSync.every((n) => n <= 2), `at most 2 closes in every sync: ${t.inSync.join(',')}`);
+    assert.equal((await t.closes()).length, 2);
+    assert.equal((await t.cursor()).reconcile_invalid, 0, 'the pass decided');
+    await t.unchanged(snap, '(j)');
+  } finally { await t.cleanup(); }
+});
+
+dbTest('(k) QA D2: a pending N no longer listed (its original E listed) is suspected by a complete pass, and the next pass is not pulled forward daily', async () => {
+  const t = await trader();
+  try {
+    const { b1, e, n } = pair(t);
+    await t.store([b1, e]);
+    t.v.list = [b1, e];
+    await t.round(0);
+    const snap = await t.raw();
+    await t.due(new Date(base + 30 * DAY).toISOString());
+    t.v.list = [b1, n]; // a week read lists N, not E: N held
+    await t.round(25);
+    assert.equal(await t.state('n'), 'pending');
+    t.v.list = [b1, e]; // the vendor lists E again and no longer N
+    await t.round(50); // brought forward: the pass
+    assert.equal(t.v.pageCalls.length, 1, 'the pass ran');
+    assert.equal(await t.state('n'), 'suspected', 'a complete pass leaves nothing pending');
+    const cur = await t.cursor();
+    assert.equal(cur.reconcile_invalid, 0, 'the pass decided');
+    assert.ok((cur.reconcile_due_at as Date).getTime() > base + 50 * HOUR + 6 * DAY, 'the next pass a period later');
+    for (const h of [75, 100, 125]) await t.round(h); // daily week reads
+    assert.equal(t.v.pageCalls.length, 1, 'page calls only on the pass day');
+    assert.equal((await t.closes()).length, 1);
+    await t.unchanged(snap, '(k)');
+  } finally { await t.cleanup(); }
+});
+
+dbTest('(l) QA D7: a held row the vendor no longer lists does not make the pass missing: the first complete pass decides', async () => {
+  const t = await trader();
+  const logs: unknown[][] = [];
+  const orig = console.log;
+  try {
+    const { b1, e, n } = pair(t);
+    await t.store([b1, e]);
+    t.v.list = [b1, e];
+    await t.round(0);
+    const snap = await t.raw();
+    t.v.list = [b1, n]; // re-issue: pass 1 suspects N
+    await t.due();
+    await t.round(25);
+    assert.equal(await t.state('n'), 'suspected');
+    t.v.list = [b1, e]; // the vendor no longer lists the held N
+    await t.due();
+    const pages = t.v.pageCalls.length;
+    console.log = (...a: unknown[]) => { logs.push(a); };
+    await t.round(50);
+    console.log = orig;
+    assert.equal(t.v.pageCalls.length, pages + 1, 'one pass');
+    assert.deepEqual(logs.filter((l) => l[0] === 'sync reconcile invalid'), [], 'not missing');
+    const cur = await t.cursor();
+    assert.equal(cur.reconcile_invalid, 0, 'the first complete pass decided');
+    assert.equal(cur.reconcile_missing, null);
+    assert.equal(await t.state('n'), 'suspected');
+    assert.equal((await t.closes()).length, 1);
+    await t.unchanged(snap, '(l)');
+  } finally { console.log = orig; await t.cleanup(); }
+});
