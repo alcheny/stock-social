@@ -311,18 +311,29 @@ dbTest('AC3: a 3-page pass (offset null -> 50 -> 100 -> null) paced 47 h with a 
   const { insertActivities } = await import('./sync.ts');
   const on = await trader([{ auth: 'a', accts: [{ k: 'a' }] }]);
   const off = await trader([{ auth: 'a', accts: [{ k: 'a' }] }]);
+  // Determinism (a flake seen once in a parallel run): the read stamps are clock_timestamp() at the end of a round's
+  // vendor calls, and a round's clock is now() at its transaction start, both shifted by the same shiftAt(h). Rounds
+  // exactly 24 h (or 47 h, or 6 h) apart then compare as 24 h plus (the later round's start delay − the earlier round's
+  // end delay): a few milliseconds either way, decided by load (a slow listing transaction under parallel files made a
+  // read due at h + 24 in one run and h + 25 in the other, so the on/off schedules differed). Each round's clock is moved
+  // a further minute per hour, far above any round's duration, so every boundary is crossed by a minute, never by
+  // jitter: reads land exactly 24 rounds apart and pages 48 rounds apart, in both runs.
+  const roundAt = (t: Trader, b: Mem, h: number) => {
+    b.h = h;
+    return import('./sync.ts').then(({ syncUser }) => syncUser(t.user, b as never, undefined, undefined, { cadence: true, shiftMs: shiftAt(h) + h * MIN }));
+  };
   try {
     const run = async (t: Trader, pass: boolean) => {
       const A = t.id('a');
       const rows = history(t.tag, A, 160, at(-24));
       await insertActivities(t.user.id, 'snaptrade', rows);
       const b = memBroker({ accounts: () => [t.vendor('a', 'a')], history: { [A]: rows }, pageLimit: 100 });
-      await round(t, b, 0);
+      await roundAt(t, b, 0);
       await due(t, A, pass ? 1 : 100_000);
       const offsets: (number | null)[] = [];
       for (let h = 1; h <= 7 * 24; h++) {
         const pages = b.calls.filter((c) => c.kind === 'page').length;
-        await round(t, b, h);
+        await roundAt(t, b, h);
         if (b.calls.filter((c) => c.kind === 'page').length > pages) offsets.push((await cursor(t, A)).reconcile_offset);
       }
       return { A, b, offsets };

@@ -88,6 +88,18 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
   both", POLICY F4 never hide losses) at no vendor request beyond F-14's caps, while a re-issue listed before its
   original is gone still never joins it. The accepted residual: a true re-issue whose original the vendor still lists in
   that one read is published twice (D5's own "lists both" rule; owner question below).
+- 2026-11-01: A held possible re-issue is no longer dropped from the rebuild. It goes to the matcher as a hold:
+  - a held BUY opens no lot;
+  - a held SELL is counted under `excluded`;
+  - every sell of that pair dated after the held row, or at its instant but not its own unheld twin, is counted under
+    `excluded` while the row is held.
+  Genuine prices it normally on the next rebuild. Suspected keeps the pair counted. While a row is pending, a pair's
+  later sells are counted, not shown, and they come back when it is decided. `MATCHER_VERSION` stays at 2: the output
+  changes only where a held row exists, and none exists before this feature ships. Why: decided by the committee under the owner's instruction of 2026-11-01; dropping a held row made FIFO
+  price later sells from a ledger missing (or doubling) a row: a -40% close vanished uncounted and the next sell
+  published -60% instead of +33.3% (council cycle 5 RT-2; POLICY F3c "count, never guess"). Residual for the owner: if
+  a reconnect makes the vendor re-issue ids, every re-issued pair stays counted until a read decides it (the vendor
+  makes the ids, the trader can't; vendor question below).
 ## Acceptance criteria
 - [ ] Fake-vendor e2e: a SELL dated 10 days before the newest stored trade appears in `closed_trades` after
       reconciliation, and a second run inserts 0 rows.
@@ -119,6 +131,8 @@ is part (a), the late-row reconciliation; part (b), keeping vendor corrections i
   the correctness of the confirm read does not.
 - Owner (F-24 committee, 2026-11-01): is it acceptable that a true re-issue whose original the vendor still lists in one
   read is published twice, until the corrections question (cycle-3 Q3) is decided?
+- Vendor (council cycle 5 RT-2, 2026-11-01): does a reconnect (a new authorization for the same accounts) re-issue
+  activity ids? If yes, every re-issued row is held and its pair's later sells are counted until a read decides it.
 - Owner (orchestrator review C7, 2026-11-01): a busy account's far-apart genuine identical fill stays held and counted
   (reason `busy`), because its widened read would span several vendor pages and decide nothing. Lifting this needs a
   `lib/broker.ts` change: an end date on `fetchActivities` (a two-day window around the twins fits one page) or per-page

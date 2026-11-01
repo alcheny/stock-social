@@ -77,7 +77,7 @@ const thesisMeta = (k: KeptThesis | undefined) => ({
 // history. The order is total (account, symbol, time, then the vendor's id), so same-instant rows always match the same
 // way and repeated rebuilds give byte-identical rows (defect 3: the read had no order at all). Returns what it wrote and
 // the most activity rows it held at once.
-type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string };
+type PairRow = { account_id: string; symbol: string; executed_at: Date; at: string; external_id: string; side: 'BUY' | 'SELL'; units: number; price: number; fee: number; source: string; held: boolean };
 export async function rebuildTrades(userId: number, tx?: TransactionSql): Promise<{ trades: number; excluded: number; future: number; maxHeld: number; excludedCorporate: number }> {
   const run = async (tx: TransactionSql) => {
     // F-7: a public filer's trades come from its filings only (lib/public-trades.ts); this rebuild never touches them.
@@ -130,19 +130,18 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     // sharing a vendor id at a page boundary lost a row.
     let after: { account_id: string; symbol: string; at: string; external_id: string; source: string } | null = null;
     for (;;) {
-      const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
+      const page: PairRow[] = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source, not ${notReissued(tx)} as held
         from activities a where a.user_id = ${userId}
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
-        and ${notReissued(tx)}
         ${after ? tx`and (a.account_id, a.symbol, a.executed_at, a.external_id, a.source) > (${after.account_id}, ${after.symbol}, ${after.at}::timestamptz, ${after.external_id}, ${after.source})` : tx``}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source limit ${REBUILD_PAGE}`;
       for (const r of page) {
         const a: Activity = {
           externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,
-          price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
+          price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade', ...(r.held ? { held: true } : {}),
         };
         if (open.length && (open[0].accountId !== a.accountId || open[0].symbol !== a.symbol)) { await flush(open); open = []; }
         if (chainOf.has(pairKey(a.accountId, a.symbol))) continue; // matched with its chain below
@@ -159,18 +158,17 @@ export async function rebuildTrades(userId: number, tx?: TransactionSql): Promis
     for (const [k, root] of chainOf) chains.set(root, [...(chains.get(root) ?? []), k]);
     for (const keys of chains.values()) {
       const pairs = keys.map((k) => [k.slice(0, k.lastIndexOf('|')), k.slice(k.lastIndexOf('|') + 1)]);
-      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source
+      const rows = await tx<PairRow[]>`select account_id, symbol, executed_at, executed_at::text as at, external_id, side, units, price, fee, source, not ${notReissued(tx)} as held
         from activities a where a.user_id = ${userId} and (a.account_id, a.symbol) in (select * from unnest(${pairs.map((x) => x[0])}::text[], ${pairs.map((x) => x[1])}::text[]))
         and not exists (select 1 from broker_accounts b where b.account_id = a.account_id and b.user_id = ${userId} and b.is_paper)
         and ${notShared(tx, userId)}
         and ${notFuture(tx)}
         and ${storedFirst(tx)}
-        and ${notReissued(tx)}
         order by a.account_id, a.symbol, a.executed_at, a.external_id, a.source`;
       maxHeld = Math.max(maxHeld, rows.length);
       await flush(rows.map((r) => ({
         externalId: r.external_id, accountId: r.account_id, symbol: r.symbol, side: r.side, units: r.units,
-        price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade',
+        price: r.price, fee: r.fee, executedAt: r.executed_at, verified: r.source === 'snaptrade', ...(r.held ? { held: true } : {}),
       })), new Set(keys));
     }
     // F3-1: an unusable sell in a pair with no stored activity is never replayed above; it is still counted.

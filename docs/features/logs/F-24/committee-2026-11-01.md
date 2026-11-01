@@ -195,3 +195,24 @@ Engineer r2: CHANGES REQUIRED: 1 set check created before reconcile_started_at e
   dropped rows could pass as one. Fix: `fetchActivities` calls the option sink once per internal vendor page, so the
   sync counts those calls and requires one page.
 
+## Council cycle 5, record-trust lens: RT-2 (high) — taken
+- **Finding:** `rebuildTrades` dropped held rows, so FIFO ran on a ledger missing them and published later closes from
+  the wrong lot. Probes:
+  - a held identical SELL: a -40% close vanished uncounted, and the next sell published -60% instead of +33.3%;
+  - a held identical BUY: a -20% close published as +6.7%.
+- **Decision**, under the owner's instruction, on the orchestrator's recommendation:
+  - Held rows go to `matchTrades` as holds (`Activity.held`). A held BUY opens no lot, and a held SELL is counted under
+    `excluded`.
+  - Every sell of the pair after a held row is counted under `excluded`. So is any sell at its instant that isn't the
+    held row's own unheld twin, which stays shown so a shown original is never pulled.
+  - Genuine prices normally on the next rebuild; suspected keeps the pair counted. Theses go to `kept_theses` and come
+    back by `sell_id`.
+  - Trade-off: while pending, a pair's later sells are counted, not shown ("count, never guess"), and they return when
+    decided.
+- **Steering check:** the vendor creates re-issued ids, not the trader. If a reconnect makes the vendor re-issue ids,
+  every such pair stays counted until a read lists the rows (the count rule) or a pass decides them. That is a vendor
+  question and an owner item, recorded in Open questions.
+- **`MATCHER_VERSION` stays at 2:** the output changes only where a held row exists, and `activity_reissues` is new, so
+  no record's output changes at deploy.
+- **Ponytail:** a rename after a held row moves the lots but not the hold.
+

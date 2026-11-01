@@ -163,6 +163,11 @@ reviewer; 3 planning rounds, all signed):
     `busy`, with no wasted widened read. Recorded as an owner residual.
   - C6: one response means one vendor page by the sink's per-page call count, not by the filtered row count.
 
+- **Council cycle 5, RT-2 (high, record trust):** held rows are no longer dropped from the rebuild. They go to the
+  matcher as holds: a held BUY opens no lot, and a held SELL and every later sell of its pair are counted in `excluded`
+  until the row is decided, never priced from the wrong lot. Genuine prices normally; suspected keeps the pair counted.
+  `MATCHER_VERSION` is unchanged: there are no held rows before this ships.
+
 ## Owner items
 - Confirm that held rows (pending, confirm or suspected) are kept out of the record and counted for the owner only, so a held
   genuine fill can be absent until its pass decides it (D5's trade-off). See the owner queries in `docs/SYNC.md`.
@@ -176,6 +181,8 @@ reviewer; 3 planning rounds, all signed):
   on `fetchActivities` or per-page id lists (AC6 owner residual, Open questions).
 - For an old confirm date, the widened read is in effect a whole-history read in one sync: the burst the pass's pacing
   avoids while MR-1 (the vendor's answer on history pages) is open.
+- RT-2 trade-off: while a re-issue is held, its pair's later sells are counted, not shown. If a reconnect makes the
+  vendor re-issue ids, many pairs could stay counted until decided (vendor question in Open questions).
 - CLAUDE.md "Sync paths" (protected) could mention the weekly full-history pass.
 - A true re-issue whose original the vendor still lists in one read is published twice (D5's own "lists both" rule)
   until the corrections question (cycle-3 Q3) is decided.
