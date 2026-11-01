@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<someOtherDocument><issuer><issuerTradingSymbol>QZXD</issuerTradingSymbol></issuer>
+<reportingOwner><reportingOwnerId><rptOwnerCik>9000000102</rptOwnerCik><rptOwnerName>Sam Fictional</rptOwnerName></reportingOwnerId>
+<reportingOwnerRelationship><isDirector>1</isDirector></reportingOwnerRelationship></reportingOwner>
+<nonDerivativeTable><nonDerivativeTransaction><transactionDate><value>not a date</value></transactionDate></nonDerivativeTransaction></nonDerivativeTable>
+</someOtherDocument>

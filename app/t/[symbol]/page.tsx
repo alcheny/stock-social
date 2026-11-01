@@ -36,7 +36,7 @@ async function load(raw: string) {
     select t.id, t.user_id, u.handle, u.display_name, t.symbol, t.return_pct, t.holding_days,
            t.opened_at, t.closed_at, t.verified
     from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
-    where t.symbol = ${symbol}
+    where t.symbol = ${symbol} and t.filing_url is null -- F-7 (legal C18): public filings stay off stock pages
     order by t.closed_at desc, t.id desc`) as unknown as Row[];
   return { symbol, rows };
 }
@@ -95,8 +95,8 @@ export default async function Ticker({ params, searchParams }: Params) {
   const overlap = (await sql`
     select o.symbol, o.user_id, o.verified
     from closed_trades o
-    where o.symbol <> ${symbol}
-      and o.user_id in (select distinct user_id from closed_trades where symbol = ${symbol} and user_id in (${visibleUserIds()}))`) as unknown as { symbol: string; user_id: number; verified: boolean }[];
+    where o.symbol <> ${symbol} and o.filing_url is null
+      and o.user_id in (select distinct user_id from closed_trades where symbol = ${symbol} and filing_url is null and user_id in (${visibleUserIds()}))`) as unknown as { symbol: string; user_id: number; verified: boolean }[];
   const related = relatedSymbols(overlap.map((o) => ({ symbol: o.symbol, userId: o.user_id, verified: o.verified })), symbol);
   // All rows, not the display cap. Non-finite values are dropped so bin counts always sum to n.
   const returns = rows.map((r) => toSpreadPct(r.return_pct)).filter(Number.isFinite);
@@ -105,7 +105,7 @@ export default async function Ticker({ params, searchParams }: Params) {
   const thesisRows = (await sql`
     select t.id, u.handle, t.return_pct, t.holding_days, t.closed_at, t.verified, t.thesis, t.thesis_status
     from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
-    where t.symbol = ${symbol} and t.thesis_status = 'published' and t.thesis is not null
+    where t.symbol = ${symbol} and t.filing_url is null and t.thesis_status = 'published' and t.thesis is not null
     order by t.closed_at desc, t.id desc
     limit 20`) as unknown as { id: number; handle: string; return_pct: number; holding_days: number; closed_at: Date; verified: boolean; thesis: string | null; thesis_status: string | null }[];
   const theses = selectTheses(thesisRows.map((r) => ({ id: r.id, handle: r.handle, thesis: r.thesis, thesisStatus: r.thesis_status, returnPct: r.return_pct, holdingDays: r.holding_days, closedAt: r.closed_at, verified: r.verified })));
@@ -117,7 +117,7 @@ export default async function Ticker({ params, searchParams }: Params) {
              avg((return_pct > 0)::int)::float8 as win_rate,
              exp(avg(ln(greatest(1 + return_pct, 1e-9)))) - 1 as per_trade
       from closed_trades
-      where symbol <> ${symbol} and verified = ${!s.demoOnly} and user_id in (${visibleUserIds()})`) as unknown as { n: number; win_rate: number | null; per_trade: number | null }[];
+      where symbol <> ${symbol} and verified = ${!s.demoOnly} and filing_url is null and user_id in (${visibleUserIds()})`) as unknown as { n: number; win_rate: number | null; per_trade: number | null }[];
     const num = (v: unknown) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v));
     baseline = baselineVerdict(s, { n: agg?.n ?? 0, winRate: num(agg?.win_rate), perTrade: num(agg?.per_trade), demoOnly: s.demoOnly });
   } catch { baseline = null; }

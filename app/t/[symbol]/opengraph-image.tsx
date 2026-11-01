@@ -29,7 +29,7 @@ export default async function Card({ params }: { params: Promise<{ symbol: strin
     if (!symbol) return neutral('Stock Social', 'Verified trades by stock');
     // Deleted traders' trades are not counted (the page's rule: users.deleted_at is null). The truthful-labels session's
     // shared tickerHeadline (branch claude/fix-truthful-labels) replaces this read.
-    const found = (await sql`select t.user_id, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.symbol = ${symbol}`) as unknown as
+    const found = (await sql`select t.user_id, t.return_pct, t.holding_days, t.opened_at, t.closed_at, t.verified from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null where t.symbol = ${symbol} and t.filing_url is null`) as unknown as
       { user_id: number; return_pct: number; holding_days: number; opened_at: Date; closed_at: Date; verified: boolean }[];
     if (!found.length) return neutral(symbol, 'No verified trades yet');
     const rows: TickerRow[] = found.map((r) => ({ userId: r.user_id, returnPct: r.return_pct, holdingDays: r.holding_days, openedAt: r.opened_at, closedAt: r.closed_at, verified: r.verified }));

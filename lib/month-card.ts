@@ -3,7 +3,7 @@
 // and the disclaimer always fits. The label's size shrinks with its length so the longest month label stays on one line.
 // F-12: the month image now draws lib/record-strip.ts's band (monthBand below); monthCard stays as the adapter its tests
 // pin, with the record line in the strip's words and no win rate.
-import { imageTrust, RECORD_STRIP, SHARE_CARD, type RecordState } from './copy.ts';
+import { imageTrust, isPublicRecord, RECORD_STRIP, SHARE_CARD, type RecordState } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { pct } from './trades.ts';
 import { counted } from './format.ts';
@@ -51,7 +51,7 @@ export function monthCard(r: MonthCardInput) {
   // The incomplete line takes the evidence line's place, as on the profile card; otherwise the link's words.
   if (trust.note) bottom.push({ role: 'note', text: trust.note, size: 26, warn: trust.tone === 'warn', muted: trust.tone !== 'warn' });
   else bottom.push({ role: 'evidence', text: RECORD_STRIP.link(r.handle), size: 26, muted: true });
-  if (trust.stats && w.newRecord) bottom.push({ role: 'new', text: 'New record', size: 26, muted: true });
+  if (trust.stats && w.newRecord && !isPublicRecord(r.state)) bottom.push({ role: 'new', text: 'New record', size: 26, muted: true });
   return { header: { label: trust.label, tone: trust.tone }, top, bottom, disclaimer: { role: 'disclaimer', text: DISCLAIMER, size: 22, muted: true, lines: [...DISCLAIMER_LINES] } as CardLine & { lines: string[] } };
 }
 
