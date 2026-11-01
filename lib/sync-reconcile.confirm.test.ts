@@ -261,15 +261,20 @@ async function importWithLists(later: (r: Record<string, Row>) => Row[], waitMs:
   const cleanup = async () => { await sql`delete from users where id = ${u.id}`; await sql`delete from broker_accounts where account_id = ${acc}`; };
   const t0 = Date.now();
   try {
-    await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'https://app.example/connect/done', deps as never);
-    const out = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps as never);
-    const id = (out as { id: number }).id;
-    await consent(id, new Date(t0), deps as never);
-    for (let i = 0; i < 12; i++) {
-      // Each later step `waitMs` after the previous one (a backoff, a deadline cut, the tick's spacing).
-      const res = await importStep(id, deps as never, new Date(t0 + (i + 1) * waitMs));
-      if (res.state !== 'importing') break;
-    }
+    // #99: no global tick (another file's, with its own vendor deps) may drive this import between its steps.
+    const { unswept } = await import('./test-sweep-lock.ts');
+    const id = await unswept(async () => {
+      await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'https://app.example/connect/done', deps as never);
+      const out = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps as never);
+      const cid = (out as { id: number }).id;
+      await consent(cid, new Date(t0), deps as never);
+      for (let i = 0; i < 12; i++) {
+        // Each later step `waitMs` after the previous one (a backoff, a deadline cut, the tick's spacing).
+        const res = await importStep(cid, deps as never, new Date(t0 + (i + 1) * waitMs));
+        if (res.state !== 'importing') break;
+      }
+      return cid;
+    });
     const [c] = await sql`select state from connections where id = ${id}`;
     const nState = (await sql`select state from activity_reissues where source = 'snaptrade' and external_id = ${r.n.externalId}`)[0]?.state ?? null;
     const xx = (await sql`select sell_id from closed_trades where user_id = ${u.id} and symbol = 'XX'`).map((x) => x.sell_id as string);

@@ -335,11 +335,15 @@ dbTest('(e) two identical fills on the same import page are never held (importSt
     deleteConnection: async () => {}, deleteUser: async () => {},
   };
   try {
-    await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'https://app.example/connect/done', deps as never);
-    const out = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps as never);
-    const id = (out as { id: number }).id;
-    await consent(id, new Date(), deps as never);
-    for (let i = 0; i < 8; i++) if ((await importStep(id, deps as never)).state !== 'importing') break;
+    // #99: no global tick (another file's, with its own vendor deps) may drive this import between its steps.
+    const { unswept } = await import('./test-sweep-lock.ts');
+    await unswept(async () => {
+      await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'https://app.example/connect/done', deps as never);
+      const out = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps as never);
+      const id = (out as { id: number }).id;
+      await consent(id, new Date(), deps as never);
+      for (let i = 0; i < 8; i++) if ((await importStep(id, deps as never)).state !== 'importing') break;
+    });
     assert.equal((await sql`select count(*)::int as n from activities where user_id = ${u.id}`)[0].n, 3, 'the page was imported');
     assert.equal((await sql`select count(*)::int as n from activity_reissues where user_id = ${u.id}`)[0].n, 0, 'never held');
     assert.equal((await sql`select count(*)::int as n from closed_trades where user_id = ${u.id}`)[0].n, 2, 'both closes');
@@ -627,11 +631,15 @@ async function importRun(rows: (tag: string, acc: string) => { stored: Row[]; li
   };
   const cleanup = async () => { await sql`delete from users where id = ${u.id}`; await sql`delete from broker_accounts where account_id = ${acc}`; };
   try {
-    await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'https://app.example/connect/done', deps as never);
-    const out = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps as never);
-    const id = (out as { id: number }).id;
-    await consent(id, new Date(), deps as never);
-    for (let i = 0; i < 10; i++) if ((await importStep(id, deps as never)).state !== 'importing') break;
+    // #99: no global tick (another file's, with its own vendor deps) may drive this import between its steps.
+    const { unswept } = await import('./test-sweep-lock.ts');
+    await unswept(async () => {
+      await startConnection({ userId: u.id, attemptId: Number(attempt) }, 'https://app.example/connect/done', deps as never);
+      const out = await completeLink({ userId: u.id, attemptId: Number(attempt) }, deps as never);
+      const id = (out as { id: number }).id;
+      await consent(id, new Date(), deps as never);
+      for (let i = 0; i < 10; i++) if ((await importStep(id, deps as never)).state !== 'importing') break;
+    });
   } catch (e) { await cleanup(); throw e; }
   const state = async (x: string) => (await sql`select state from activity_reissues where source = 'snaptrade' and external_id = ${`${tag}-${x}`}`)[0]?.state ?? null;
   const closes = async () => (await sql`select sell_id from closed_trades where user_id = ${u.id} order by sell_id`).map((r) => r.sell_id as string);
