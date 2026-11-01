@@ -5,6 +5,7 @@ import { boundAttempt, CONNECT_COOKIE, mintPortal, PortalRefusedError, RateLimit
 import { portalOrigin } from '@/lib/portal.ts';
 import { probePortalMode } from '@/lib/portal-probe.ts';
 import { currentUser, origin } from '@/lib/session.ts';
+import { connectAllowed } from '@/lib/privacy-gate-data.ts';
 
 // S3 (PR-2b): the embedded portal's URL, minted here for the session user or the attempt bound to this browser by the
 // signed cookie, exactly as /connect/start does for the redirect flow. Nothing in the request (query, body, referrer)
@@ -22,6 +23,8 @@ export async function POST() {
   const me = await currentUser();
   const attemptId = me ? me.signup_attempt_id : await boundAttempt((await cookies()).get(CONNECT_COOKIE)?.value, sessionSecret());
   if (attemptId === null) return NextResponse.json({ error: 'unbound' }, { status: 401, headers: noStore });
+  // Launch gate (privacy work): refused before any vendor call; the browser falls back to /connect/start, which says why.
+  if (!(await connectAllowed(me))) return NextResponse.json({ error: 'closed' }, { status: 403, headers: noStore });
   const app = await origin();
   const allowLoopback = !!process.env.SNAPTRADE_BASE_URL;
   try {

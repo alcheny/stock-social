@@ -65,5 +65,12 @@ To be written once the open questions are settled.
   written permission still gates the build.
 - Found during the review, outside F-5: open-position percentages are computed from the vendor's prices, which
   its market-data clause may not allow publicly; and records can't show what they displayed on a past date.
+- Idea board 2026-11-01 (idea 6): amend P3, CH-1 and TR-1/TR-5 before the build. Proposed: one ranking method for
+  everyone (equal-weight lower bound); Verified covers equal-weight figures only and the weighted figure says
+  "estimated, weighted by position size" beside it; opt-out at once, cooldown on opting back in, "Size shown since
+  ‹date›" public; size published a few trading days after close; weighted ranges use an effective number of bets;
+  a numeric "thinly traded" rule; never "as funds report returns". Whole percents are a flag only.
+- Idea board 2026-11-01: the vendor's developer terms bar re-packaging end-user data to third parties without the
+  written consent of the user and the vendor; the written permission should cover sizes and the public record.
 
 ## Rework notes

@@ -40,6 +40,29 @@ opinion lands.
 - 2026-11-01: F-3 is ready: the pipeline builds billing and Record tools in the vendor's test mode only. Charging
   real money waits for the Privacy Policy and Terms (POLICY P6) and the data vendor's market-data answer for
   Record tools' open-position values; the owner switches it on. Why: the owner's decision.
+- 2026-11-01: Refunds (Terms draft option; the owner approves the final text, POLICY H): cancel any time,
+  self-serve, effective at period end. A full refund on request within 14 days of the first charge (monthly or
+  annual) and of each annual renewal. Otherwise no partial refunds, except pro-rata when a paid feature or the
+  service is discontinued, for billing errors, for a charge after a cancellation the app failed to apply, and where
+  law requires. Stated at checkout; never called "risk-free". Why: decided by the idea board under the owner's
+  instruction of 2026-11-01.
+- 2026-11-01: Price-change notice (Terms draft option; the owner approves the final text, POLICY H): an email sent
+  25 to 30 days before the change takes effect, never more than 30 or fewer than 7 (California's window), applied
+  only from the next renewal, with old and new price, effective date and a cancel link, and no record fields
+  (F3b). Annual renewal reminders are a separate email 30-40 days before renewal. Why: decided by the idea board
+  under the owner's instruction of 2026-11-01.
+- 2026-11-01: Failed-payment grace (Terms draft option; the owner approves the final text, POLICY H): 7 days of
+  access with an in-app banner while the vendor retries for up to about 14 days in all; then paid features switch
+  off and the subscription becomes `unpaid`. No late fees, no back-billing, no charge for grace days on cancel; a
+  lapse never touches the record; a new subscription goes through checkout again. Why: decided by the idea board
+  under the owner's instruction of 2026-11-01.
+- 2026-11-01: Creator payouts start only when all of these hold: the week-8 gates passed and measured retention
+  shows supply is the bottleneck; 3 months of positive contribution margin after all costs; at least 500 paying
+  viewers; an AI legal finding on the exact formula, then the attorney review; a formula never based on returns,
+  trade count, views or activity; payee MFA, identity and tax checks through the processor, no funds held;
+  anti-sybil rules and clawback; a working report and appeal process; amount-only statements with no per-viewer
+  data; Terms banning paid promotion and trading against one's record; a share that keeps break-even below measured
+  conversion. The owner starts them. Why: decided by the idea board under the owner's instruction of 2026-11-01.
 
 ## What viewers pay for (candidates; each needs the legal committee's review before build)
 Decided 2026-11-01: Record tools ships first. Alerts are barred by POLICY F3b, and paid follow or watchlist
@@ -189,5 +212,22 @@ Each one testable; the pipeline writes a test for every line.
 
 ## Open questions
 - When creator payouts start, and their share (none for now, decided 2026-10-26; needs counsel first).
+- Idea board 2026-11-01 (idea 1): Out of scope still says "Building any of this before Phase 1's supply gate
+  passes" and Why still says billing waits on a counsel opinion, against "F-3 is ready". Proposed: build in test
+  mode; LIVE_BILLING only after the week-8 gates pass and 30 traders have a Moderate record; reword both lines.
+- Idea board 2026-11-01 (idea 1): checkout conditions proposed: price, interval, auto-renew, next charge date,
+  cancel method and tax beside an unchecked box, no plan preselected; acknowledgment email; annual reminder 30-40
+  days before renewal; monthly plans get the annual notice and a notice 25-40 days before months 12, 24 and 36;
+  savings copy "about 17%"; no trial flow; no price on profiles or outside-link landings; a Demo-trader preview.
+- Idea board 2026-11-01 (idea 1): a connected trader can never be shown a price, so can't buy Record tools.
+  Confirm, or change; if kept, one plain line tells the trader. Finance would test a trial after launch.
+- Idea board 2026-11-01 (idea 2): Terms say traders are not paid and ban selling signals or paid access through a
+  profile, thesis or card; moderation covers handles and display names; track the win/loss mix of supply.
+- Idea board 2026-11-01 (idea 3): run an in-app priced notify-me control ("nothing is charged now") before building
+  beyond two records side by side; saved views store only the viewer's own list and order; unrealized values only
+  as an aggregate; no benchmark, no paid "similar traders", no return-sorted or bulk export; rate limits.
+- Idea board 2026-11-01 (idea 4): full-page redirect only, no vendor script on app pages; the processor's written
+  confirmation that the business is allowed before the integration build; data-processing terms; one-click cancel;
+  dispute alarm at 0.75%; descriptor after name clearance; run the 100,000-event load test only before live billing.
 
 ## Rework notes

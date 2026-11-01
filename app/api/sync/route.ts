@@ -8,6 +8,14 @@ import { purgeExpiredLinks } from '@/lib/auth/links.ts';
 import { tick } from '@/lib/connections.ts';
 import { deleteProfile, type DeletableUser } from '@/lib/delete.ts';
 import { purgeDiscovery, type PurgeReport } from '@/lib/discovery/purge.ts';
+import { logSafe } from '@/lib/privacy-log.ts';
+import { purgePrivacy, type PrivacyPurgeReport } from '@/lib/privacy-purge.ts';
+import { writeDisplayLog, type DisplayLogReport } from '@/lib/display-log.ts';
+import { gateReport } from '@/lib/launch-gate.ts';
+
+const PRIVACY_SLOT_MS = 5_000;
+const PRIVACY_STAGE_MS = 10_000;
+const PRIVACY_STAGE_MARGIN_MS = 30_000;
 
 // Cron: POST /api/sync with `Authorization: Bearer $CRON_SECRET`, every 5 minutes and never at :30 (request #7 as amended;
 // rounds run :30 to :30, lib/sync.ts). Sharded (docs/SYNC.md): `?shard=i&of=N` syncs only traders with `id % N = i`;
@@ -30,8 +38,9 @@ export async function POST(req: NextRequest) {
 
   // Housekeeping runs once per cron mark, on shard 0, before and regardless of the shard lease (committee O4): a busy
   // shard 0 still finishes pending deletions. Each step is safe to overlap with another call.
+  const zero = shard.shard === 0;
   let housekeeping: Record<string, unknown> = {};
-  if (shard.shard === 0) {
+  if (zero) {
     const t0 = performance.now();
     const purgedLinks = await purgeExpiredLinks(); // expired sign-in links go with their address (COMPLIANCE §3)
     // F-1: clocks (pending → expired, stale importing → failed), every importing row advanced, cleanups retried.
@@ -42,22 +51,43 @@ export async function POST(req: NextRequest) {
     // F-2 PR-2 (plan demand D): ended exclusions, ≤ 30 s under its own lock. Never a branch: whatever it returns or
     // throws, the traders below are claimed exactly as before.
     let purged: PurgeReport | null = null;
-    try { purged = await purgeDiscovery(); } catch (e) { console.error('discovery purge failed', e instanceof Error ? e.message : e); }
+    try { purged = await purgeDiscovery(); } catch (e) { console.error('discovery purge failed', logSafe(e)); }
     housekeeping = { purgedLinks, connections, deletions, purged, housekeepingMs: Math.round(performance.now() - t0) };
   }
-
+  // Privacy work (committee D13, D14, D3, D19; orchestrator review 2): the privacy purges and today's display-log rows
+  // get a small fixed slot before the sync (PRIVACY_SLOT_MS each, so a busy tick can never starve them), then use any
+  // time left after it (up to PRIVACY_STAGE_MS each, never within PRIVACY_STAGE_MARGIN_MS of the route's end). Both
+  // resume where they stopped. Each call in its own try/catch; the log line carries counts, milliseconds and the gate
+  // state only. Sharded sync: they are housekeeping, so they run on shard 0 only (once per cron mark).
+  const left = () => syncRouteEnd(startedAt) - PRIVACY_STAGE_MARGIN_MS - Date.now();
+  let privacy: PrivacyPurgeReport | null = null;
+  let displayLog: DisplayLogReport | null = null;
+  const ms = { privacy: 0, displayLog: 0 };
+  const privacyStages = async (boxMs: number) => {
+    if (!zero) return;
+    const t0 = Date.now();
+    try { if (boxMs > 0) privacy = await purgePrivacy({ boxMs }); } catch (e) { console.error('privacy purge failed', logSafe(e)); }
+    const t1 = Date.now();
+    try { if (boxMs > 0 && left() > 0) displayLog = await writeDisplayLog({ boxMs }); } catch (e) { console.error('display log failed', logSafe(e)); }
+    ms.privacy += t1 - t0; ms.displayLog += Date.now() - t1;
+  };
+  await privacyStages(PRIVACY_SLOT_MS);
   // Only traders with a connected (consented) connection and no import in progress, each claimed once per round
   // (lib/sync.ts), in this shard, by bounded concurrent workers under the shard's lease (lib/sync-shard.ts).
   const run = await runShard({ shard, deadline, routeEnd: syncRouteEnd(startedAt) });
+  await privacyStages(Math.min(PRIVACY_STAGE_MS, left()));
   let cover: Coverage | null = null;
-  if (shard.shard === 0) {
-    try { cover = await coverage(shard.of); } catch (e) { console.error('sync coverage failed', e instanceof Error ? e.name : 'error'); }
+  let launch: ReturnType<typeof gateReport> | null = null;
+  if (zero) {
+    try { cover = await coverage(shard.of); } catch (e) { console.error('sync coverage failed', logSafe(e)); }
+    launch = gateReport();
+    console.log('privacy tick', JSON.stringify({ privacy, displayLog, launch, ms })); // counts, milliseconds and the gate state only
   }
   // `ok`, `skipped`, `failed` (internal ids), `unclaimed`, `stoppedAtDeadline` keep the unsharded call's answer; `run` is
   // the run's counters (as logged).
   const { failedIds, ...counters } = run;
   return NextResponse.json({
     ok: run.done, skipped: run.skipped, failed: failedIds, unclaimed: run.remaining, stoppedAtDeadline: run.stoppedAtDeadline,
-    run: counters, coverage: cover, ...housekeeping,
+    run: counters, coverage: cover, ...housekeeping, ...(zero ? { privacy, displayLog, launch, ms } : {}),
   });
 }

@@ -795,7 +795,9 @@ dbTest('fix round 4 (engineer note): a lost connection while releasing a lease d
     };
     const r = await h.S.syncTick({ ids: h.ids, clockShiftMs: () => h.T0 - Date.now(), sync: h.at(0), release });
     assert.deepEqual(r, { ok: 3, skipped: 0, failed: [] }); // every trader after the failed release was still synced
-    assert.ok(errors.some((e) => e === `sync lease release failed ${first} connection terminated`));
+    // Privacy work (log hygiene, committee D15): the error is logged by class only, never its message.
+    assert.ok(errors.some((e) => e === `sync lease release failed ${first} Error`), JSON.stringify(errors));
+    assert.ok(!errors.some((e) => e.includes('connection terminated')));
     const [row] = await h.sets[0].sql`select sync_lease_until as l from users where id = ${first}`;
     assert.notEqual(row.l, null); // left to lapse
     await h.tick(5); // inside the lease: nobody

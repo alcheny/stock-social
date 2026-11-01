@@ -15,6 +15,9 @@ import Theses from './Theses.tsx';
 import Baseline from './Baseline.tsx';
 
 import Watch, { loadWatch, markSeen } from './Watch.tsx';
+// F-6: open positions in this stock, aggregate only.
+import OpenPositions from './OpenPositions.tsx';
+import { symbolOpen } from '../open-positions.ts';
 
 type Params = { params: Promise<{ symbol: string }>; searchParams?: Promise<{ watch?: string | string[] }> };
 
@@ -63,6 +66,7 @@ export default async function Ticker({ params, searchParams }: Params) {
   // Session is read only here, never in generateMetadata, sitemap, robots or the OG image.
   const watchState = symbol ? await loadWatch(symbol) : { signedIn: false, watching: false };
   if (!symbol || !rows.length) {
+    const open = symbol ? (await symbolOpen(symbol)).get(symbol) : undefined;
     await markSeen(symbol ?? '', watchState);
     return (
       <main className="page">
@@ -73,6 +77,7 @@ export default async function Ticker({ params, searchParams }: Params) {
         <p>{symbol
           ? `No verified closed trades in ${symbol} yet. Trades appear here when traders connect a broker and close a position in this stock.`
           : "That doesn't look like a ticker symbol."}</p>
+        {symbol && open && <OpenPositions symbol={symbol} open={open} closes={false} />}
         <p><Link href="/">Back to the feed</Link> · <Link href="/t">All stocks</Link></p>
       </main>
     );
@@ -115,6 +120,7 @@ export default async function Ticker({ params, searchParams }: Params) {
     const num = (v: unknown) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v));
     baseline = baselineVerdict(s, { n: agg?.n ?? 0, winRate: num(agg?.win_rate), perTrade: num(agg?.per_trade), demoOnly: s.demoOnly });
   } catch { baseline = null; }
+  const open = (await symbolOpen(symbol)).get(symbol);
   // Last, after all page queries, so page content is unaffected.
   await markSeen(symbol, watchState);
   return (
@@ -144,6 +150,8 @@ export default async function Ticker({ params, searchParams }: Params) {
       <div className="evidence">
         <p className="muted small" style={{ margin: 0 }}>Different traders, different sizes and timing. This is what happened, not a prediction or a rating of the stock.</p>
       </div>
+      {/* F-6 (UX lead D5): after the closed-trade figures' caveat, so each caveat sits with its own figures. */}
+      {open && <OpenPositions symbol={symbol} open={open} />}
 
       <Concentration rows={rows.map(toTicker)} symbol={symbol} demoOnly={s.demoOnly} mixed={s.mixed} />
 

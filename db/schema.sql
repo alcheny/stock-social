@@ -121,11 +121,18 @@ select schema_add_index('broker_accounts_user', 'create index broker_accounts_us
 -- ponytail: if two users already share an account (the exploit) their rows stay; cleanup is a follow-up.
 -- Already-claimed accounts are filtered in the same snapshot as the activities: a user deleted (with its claims and
 -- activities) by a concurrent transaction is then never re-inserted and failed on the users FK (fix round 2, PR-2a).
-insert into broker_accounts (account_id, user_id)
-  select distinct on (account_id) account_id, user_id from activities a
-  where source = 'snaptrade' and not exists (select 1 from broker_accounts b where b.account_id = a.account_id)
-  order by account_id, executed_at
-  on conflict (account_id) do nothing;
+-- CI review (2026-11-01, privacy PR): a users row deleted by another session between this snapshot and the insert's
+-- foreign-key check raised 23503 and rolled back the whole apply (node:test files apply this file in parallel while
+-- others delete their users). The backfill is idempotent, so on that error it is skipped and the next apply runs it.
+do $bf$
+begin
+  insert into broker_accounts (account_id, user_id)
+    select distinct on (account_id) account_id, user_id from activities a
+    where source = 'snaptrade' and not exists (select 1 from broker_accounts b where b.account_id = a.account_id)
+    order by account_id, executed_at
+    on conflict (account_id) do nothing;
+exception when foreign_key_violation then null;
+end $bf$;
 
 -- Private ticker watchlist: a user-owned preference. last_seen_at drives "new since you last looked".
 create table if not exists ticker_watches (
@@ -405,3 +412,50 @@ create table if not exists sync_shards (
 -- reports refusals and the oldest one's age, numbers only). Cleared by a successful sync.
 select schema_add_column('users', 'sync_failure_kind', $d$text check (sync_failure_kind in ('refused','trader','quarantined'))$d$);
 select schema_add_column('users', 'sync_failing_since', 'timestamptz');
+-- Privacy work (2026-11-01, docs/features/logs/privacy/committee-2026-11-01.md). Every table here is in
+-- lib/privacy-retention.ts#SCHEMA_MAP (a test fails for a table without an entry).
+-- D10: a like or rejected trade whose trade is gone. This supersedes "kept and ignored on read" above for likes and
+-- rejects only: the tick (lib/privacy-purge.ts) marks one when its trade_key first matches no closed trade, clears the
+-- mark when the trade is back (a simulated flag lifted, a vendor correction), and removes the like or reject only after
+-- 30 days orphaned. A like with a live trade is never removed by any timer (owner, 2026-11-01).
+create table if not exists privacy_orphans (
+  kind text not null check (kind in ('like', 'reject')),
+  viewer_id int not null references users on delete cascade,
+  trade_key text not null,
+  first_seen_at timestamptz not null default now(),
+  primary key (kind, viewer_id, trade_key)
+);
+select schema_add_index('privacy_orphans_seen', 'create index privacy_orphans_seen on privacy_orphans (first_seen_at)');
+select schema_add_index('sessions_expires', 'create index sessions_expires on sessions (expires_at)');
+select schema_add_index('login_links_expires', 'create index login_links_expires on login_links (expires_at)');
+select schema_add_index('signup_attempts_open', 'create index signup_attempts_open on signup_attempts (created_at) where user_id is null and completed_at is null');
+
+-- D14: append-only display log. One row per public record per day: what the profile displayed (headline, 95% range,
+-- trade count, open-position summary, evidence line), percent only, so the app can show what it displayed on a past
+-- date (lib/display-log.ts). Never updated; never removed except with the account (the users cascade). The trigger
+-- lets a row go only when its users row is already gone. Known limit: a truncate is not trapped.
+create table if not exists display_log (
+  user_id int not null references users on delete cascade,
+  day date not null,
+  demo boolean not null,
+  headline text not null,
+  range_text text,
+  trade_count int not null,
+  open_summary text not null,
+  evidence text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, day)
+);
+create or replace function display_log_append_only() returns trigger language plpgsql as $f$
+begin
+  if tg_op = 'DELETE' and not exists (select 1 from users where id = old.user_id) then return old; end if;
+  raise exception 'display_log is append-only (% refused)', tg_op;
+end $f$;
+do $t$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'display_log_append_only' and not tgisinternal) then
+    create trigger display_log_append_only before update or delete on display_log for each row execute function display_log_append_only();
+  end if;
+end $t$;
+-- F-6 (review N4): stock pages count open positions by symbol (aggregate only, docs/features/logs/F-6/plan.md §6).
+select schema_add_index('open_positions_symbol', 'create index open_positions_symbol on open_positions (symbol)');
