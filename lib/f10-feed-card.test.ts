@@ -78,12 +78,12 @@ test('DS-22 (PR #48): with a strip, the trust badge leads the record line in .he
   const header = html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? '';
   assert.doesNotMatch(header, /class="badge/);
   const p = html.slice(html.indexOf('<p class="record-strip"'), html.indexOf('</p>', html.indexOf('<p class="record-strip"')));
-  assert.match(p, /^<p class="record-strip" data-strip(="[^"]*")?><span class="badge verified"[^>]*>✓ Verified<\/span> <span><span data-role="count">/);
+  assert.match(p, /^<p class="record-strip" data-strip(="[^"]*")?><span class="badge verified"[^>]*>✓ Verified<\/span> <span( data-part="count")?><span data-role="count">/);
   // Demo records keep the .badge.demo class; a failed import shows no badge and no stray space.
   const demo = renderToStaticMarkup(createElement(TradeCard, { t: { ...row, verified: false }, state: 'connected', strip: stripOf(rec(3, () => 0.1)) }));
   assert.match(demo, /<p class="record-strip" data-strip(="[^"]*")?><span class="badge demo"/);
   const failed = renderToStaticMarkup(createElement(TradeCard, { t: row, state: 'failed', strip: stripOf(rec(3, () => 0.1)) }));
-  assert.match(failed, /<p class="record-strip" data-strip(="[^"]*")?><span><span data-role="count">/);
+  assert.match(failed, /<p class="record-strip" data-strip(="[^"]*")?><span( data-part="count")?><span data-role="count">/);
   assert.doesNotMatch(failed, /class="badge/);
 });
 
