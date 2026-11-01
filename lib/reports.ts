@@ -11,7 +11,6 @@ import { hit, limitKey } from './rate-limit.ts';
 import { PROFILE_REPORT_COPY, REPORT_COPY, isReportCategory, type ProfileReportState } from './report-copy.ts';
 import { normalizeHandle } from './referral.ts';
 import { visibleUser } from './visible-users.ts';
-import { logSafe } from './privacy-log.ts';
 export { REPORT_COPY, type ReportState } from './report-copy.ts';
 
 export const REPORT_HOLD_AT = 3;
@@ -116,7 +115,11 @@ export async function reportProfile(reporterId: number | null | undefined, handl
   const h = normalizeHandle(handle);
   if (!h || !isReportCategory(category)) return 'invalid';
   return sql.begin(async (tx): Promise<ProfileReportOutcome> => {
-    // v2 E10: the target first, then its lock, so concurrent reports on one profile are counted one at a time.
+    // Fix round 1 (review item 5): the reporter's lock first, so two concurrent reports by one reader on two profiles
+    // meet the one-a-minute rule one at a time. Always reporter then target, so two transactions never wait on each
+    // other in opposite orders.
+    await tx`select pg_advisory_xact_lock(hashtext(${`report-reporter:${reporterId}`}))`;
+    // v2 E10: the target, then its lock, so concurrent reports on one profile are counted one at a time.
     const [t] = await tx`select u.id from users u where u.handle = ${h} and ${visibleUser('u')}`;
     if (!t) return 'not-found';
     const traderId = t.id as number;
@@ -151,14 +154,12 @@ export function profileReportState(o: ProfileReportOutcome, category?: unknown):
   return { state: 'invalid', message: c.failed }; // a malformed handle, or a profile no longer shown
 }
 
-/** The server action's body, testable without a request: the caller passes the signed-in reader's id. */
+/**
+ * The server action's body, testable without a request: the caller passes the signed-in reader's id. A failure throws:
+ * app/report-actions.ts is the one try/catch (it logs the error's name only and shows PROFILE_REPORT_COPY.failed).
+ */
 export async function submitProfileReport(reporterId: number | null | undefined, form: { get: (k: string) => unknown }, deps: ProfileReportDeps = defaultProfileReportDeps): Promise<ProfileReportState> {
   const category = form.get('category');
-  try {
-    return profileReportState(await reportProfile(reporterId, form.get('handle'), category, deps), category);
-  } catch (e) {
-    console.error('report profile failed', logSafe(e)); // the error's name only, never the handle or the reporter
-    return { state: 'error', message: PROFILE_REPORT_COPY.failed };
-  }
+  return profileReportState(await reportProfile(reporterId, form.get('handle'), category, deps), category);
 }
 // end F-16

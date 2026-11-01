@@ -10,9 +10,10 @@ const dbTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !ha
 before(async () => { if (hasDb) await (await import('./privacy-test-schema.ts')).applySchemaForTests(); });
 after(async () => { if (hasDb) await (await import('./db.ts')).sql.end({ timeout: 1 }); });
 
-test('isVisibleUser: hidden or deleted is not visible; hidden_at is optional for existing callers', () => {
-  assert.equal(isVisibleUser({ deleted_at: null }), true);
+test('isVisibleUser: hidden or deleted is not visible; hidden_at is required (fix round 1)', () => {
   assert.equal(isVisibleUser({ deleted_at: null, hidden_at: null }), true);
+  // @ts-expect-error a row loaded without hidden_at is refused by the type, and never reads as visible
+  assert.equal(isVisibleUser({ deleted_at: null }), false);
   assert.equal(isVisibleUser({ deleted_at: null, hidden_at: new Date() }), false);
   assert.equal(isVisibleUser({ deleted_at: new Date(), hidden_at: null }), false);
 });

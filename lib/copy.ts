@@ -939,6 +939,9 @@ export const HIDDEN_NOTICE = {
   title: `Profile not available · ${PRODUCT_NAME}`,
   h1: 'Profile not available',
   line: 'This profile is not available right now.',
+  // Fix round 1 (review item 2): the name shown in a viewer's own lists (follows, Not interested, Record tools views)
+  // for a trader the owner hid, in place of their display name; the row and its unfollow or remove keep working.
+  name: 'Profile not available',
 } as const;
 export const RETIRED_NOTICE = {
   title: `Handle no longer in use · ${PRODUCT_NAME}`,
@@ -947,9 +950,12 @@ export const RETIRED_NOTICE = {
 } as const;
 // Q9 (plan §2.1): the one private line a hidden trader sees on their own profile's notice. Neutral: never "reported",
 // "review" or a reason. Rendered only to that signed-in trader, on a private, no-store 404.
+// Fix round 1 (review item 7): the download is Record tools' "Download my data" (/account/export: saved views, notes and
+// subscription status), so the line says what it holds and links to it, beside the settings link.
 export const HIDDEN_OWN = {
-  line: 'Only you see this: your profile is not shown to others right now. Your settings and your data download still work.',
+  line: 'Only you see this: your profile is not shown to others right now. Your settings still work, and you can still download your saved views and notes.',
   settings: 'Settings',
+  download: 'Download my data',
 } as const;
 // The anti-impersonation line (plan §5.4, v2 B7; app/trust-foot.tsx). Draft: the owner flips `approved` after approving
 // the wording (F-16 Open questions); until then it renders only in the sandbox (lib/takedown.ts#impersonationLineShown).

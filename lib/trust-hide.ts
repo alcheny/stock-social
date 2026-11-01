@@ -12,6 +12,7 @@
 import type { TransactionSql } from 'postgres';
 import { sql } from './db.ts';
 import { HIDDEN_RULE } from './report-copy.ts';
+import { MODERATION_VERSION, moderateDetail } from './moderation.ts';
 import { HIDE_KINDS, HIDE_REASONS, UNHIDE_REASONS, isHideKind, isHideReason, isUnhideReason, type HideKind, type HideReason, type UnhideReason } from './trust-hide-reasons.ts';
 export { HIDE_KINDS, HIDE_REASONS, UNHIDE_REASONS, isHideKind, isHideReason, isUnhideReason, type HideKind, type HideReason, type UnhideReason };
 
@@ -79,7 +80,7 @@ export async function hideThesis(userId: number, sellId: string, reason: HideRea
 
 /**
  * Unhide a thesis (plan v2 E6): allowed while the latest audit row for it is a hide. Whatever row exists then is
- * published again (the trader may have cleared or rewritten it meanwhile); with none, the audit row alone ends the hide,
+ * moderated again and published only when its current text passes (the trader may have rewritten it meanwhile); with none, the audit row alone ends the hide,
  * so the trader's next note is moderated as usual. Reports count afresh from now (thesis_reports_from).
  */
 export async function unhideThesis(userId: number, sellId: string, reason: UnhideReason, actor = 'owner', deps: HideDeps = defaultHideDeps): Promise<boolean> {
@@ -87,9 +88,21 @@ export async function unhideThesis(userId: number, sellId: string, reason: Unhid
   if (!isUnhideReason(reason)) throw new RefusedInput('unhide reason');
   return sql.begin(async (tx) => {
     if (!(await thesisHiddenByOwner(tx, userId, sellId))) return false;
-    const set = tx`thesis_status = 'published', thesis_hold_rule = null, thesis_reviewed_at = now(), thesis_reports_from = now()`;
-    await tx`update closed_trades set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis is not null and thesis_hold_rule = ${HIDDEN_RULE}`;
-    await tx`update kept_theses set ${set} where user_id = ${userId} and sell_id = ${sellId} and thesis_hold_rule = ${HIDDEN_RULE}`;
+    // Fix round 1 (review item 1): an edit made while hidden was stored held/hidden without its own moderation result,
+    // so each row's current text is moderated here (lib/moderation.ts#moderateDetail, as lib/thesis-save.ts does) and
+    // only a clean note is published; a match stays held with its rule and no review mark, like a fresh save.
+    for (const table of ['closed_trades', 'kept_theses'] as const) {
+      const rows = await tx`select thesis from ${tx(table)} where user_id = ${userId} and sell_id = ${sellId}
+        and thesis is not null and thesis_hold_rule = ${HIDDEN_RULE} for update`;
+      for (const { thesis } of rows) {
+        const { status, rule } = moderateDetail(thesis);
+        const set = status === 'published'
+          ? tx`thesis_status = 'published', thesis_hold_rule = null, thesis_reviewed_at = now()`
+          : tx`thesis_status = 'held', thesis_hold_rule = ${rule}, thesis_reviewed_at = null`;
+        await tx`update ${tx(table)} set ${set}, thesis_reports_from = now(), thesis_checked_version = ${MODERATION_VERSION}
+          where user_id = ${userId} and sell_id = ${sellId} and thesis = ${thesis} and thesis_hold_rule = ${HIDDEN_RULE}`;
+      }
+    }
     await deps.audit(tx, { kind: 'thesis', user_id: userId, sell_id: sellId, action: 'unhide', reason, actor });
     return true;
   });

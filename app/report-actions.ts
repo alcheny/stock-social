@@ -13,7 +13,7 @@ export async function reportProfileAction(_prev: ProfileReportState, formData: F
     const user = await currentUser();
     return await submitProfileReport(user?.id ?? null, formData);
   } catch (e) {
-    console.error('report profile failed', logSafe(e));
+    console.error('report profile failed', logSafe(e)); // the one catch: the error's name only, never the handle or the reporter
     return { state: 'error', message: PROFILE_REPORT_COPY.failed };
   }
 }

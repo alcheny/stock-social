@@ -72,15 +72,32 @@ node --env-file=.env scripts/trust-digest.ts reporters
 
 ## 5. Restore from a backup, with deletion replay (Owner only)
 
-A backup can bring back accounts that were closed after it was taken. After any restore:
+A backup can bring back accounts that were closed after it was taken, and roll back hides and unhides made after it.
+The restore replaces the very tables that record those changes, so read them from the live database first:
 
-1. Note the backup's time.
-2. List the handles held after a closing whose release date, minus 365 days, is later than the backup's time. Each
-   names an account closed after the backup.
-3. For each one, re-run the product's account-closing path (`lib/delete.ts#deleteProfile`, the same path the settings
-   page uses), so the closing is complete again, including the vendor step.
-4. Re-run `scripts/hide.ts history <user_id>` for any hidden profile you know of: hides restored with the backup are
-   correct as of its time; repeat any hide or unhide made after it.
+1. Note the backup's time (written below as `BACKUP_TIME`, an ISO timestamp such as `2026-10-01T03:00:00Z`).
+2. Before restoring, export from the live database:
+   - the handles held after a closing (`user_id` is null) whose release date, minus 365 days, is later than the
+     backup's time. Each names an account closed after the backup:
+
+     ```
+     psql "$DATABASE_URL" -c "\copy (select handle, until from handle_reservations where user_id is null and until - interval '365 days' > timestamptz 'BACKUP_TIME' order by until) to 'closed-after-backup.csv' csv header"
+     ```
+
+   - every hide and unhide made after the backup's time:
+
+     ```
+     psql "$DATABASE_URL" -c "\copy (select at, kind, user_id, sell_id, action, reason, actor from trust_audit where at > timestamptz 'BACKUP_TIME' order by at, id) to 'trust-audit-after-backup.csv' csv header"
+     ```
+
+   Keep both files on the owner's machine, outside the repository. Never paste them into an issue, a PR or a log.
+3. Restore the backup.
+4. For each handle in `closed-after-backup.csv`, find the restored account that holds it and re-run the product's
+   account-closing path (`lib/delete.ts#deleteProfile`, the same path the settings page uses), so the closing is
+   complete again, including the vendor step.
+5. Replay `trust-audit-after-backup.csv` in order (oldest first), one command per row with the row's own reason and
+   actor: `scripts/hide.ts profile`, `thesis`, `unhide-profile` or `unhide-thesis` with `--actor=<actor>`. Skip a row
+   whose account no longer exists after step 4. Check the result with `scripts/hide.ts history <user_id>`.
 
 This is an owner procedure. There is no SQL in this runbook that removes rows.
 

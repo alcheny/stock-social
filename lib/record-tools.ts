@@ -7,11 +7,11 @@
 // discovery code and never logged (K5).
 import { sql } from './db.ts';
 import { confidence, evidenceLine, isNewRecord, pct, rangeText, stats, type Confidence } from './trades.ts';
-import { connectedLine, PROFILE, RECORD_BODY } from './copy.ts';
+import { connectedLine, HIDDEN_NOTICE, PROFILE, RECORD_BODY } from './copy.ts';
 import { DISCLAIMER } from './share.ts';
 import { publicRecordDetail, recordInstitutions, type PublicState } from './connections.ts';
 import { paneTrust } from './pane.ts';
-import { followHandles, traderId } from './follows.ts';
+import { followHandles, shownName, traderId } from './follows.ts';
 import { exportSubscription } from './billing.ts';
 import { toneClass } from './open-split.ts';
 import { visibleId, visibleUser } from './visible-users.ts';
@@ -49,9 +49,9 @@ export async function getView(owner: number, id: unknown): Promise<View | null> 
   if (!isViewId(id)) return null;
   const [v] = await sql`select id, name from record_views where id = ${id} and owner_id = ${owner}`;
   if (!v) return null;
-  const traders = await sql`select u.id, u.handle, u.display_name from record_view_traders t join users u on u.id = t.trader_id and u.deleted_at is null
+  const traders = await sql`select u.id, u.handle, ${shownName('u')} as display_name from record_view_traders t join users u on u.id = t.trader_id and u.deleted_at is null
     where t.view_id = ${id} order by t.position, t.trader_id`;
-  return { id: v.id as string, name: v.name as string, traders: traders.map((t) => ({ id: t.id as number, handle: t.handle as string, name: t.display_name as string })) };
+  return { id: v.id as string, name: v.name as string, traders: traders.map((t) => ({ id: t.id as number, handle: t.handle as string, name: (t.display_name as string | null) ?? HIDDEN_NOTICE.name })) };
 }
 
 export type CreateResult = { ok: true; id: string } | { ok: false; reason: 'name' | 'limit' };

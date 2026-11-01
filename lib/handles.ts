@@ -178,8 +178,12 @@ export type NameReasonCode = keyof typeof NAME_REASON;
 // while "Un-official", "Official Desk" and "v.e.r.i.f.i.e.d" (its punctuation-free form) stay refused. A lower-to-upper
 // case change counts as a boundary ("VerifiedTrader", checkDisplayName's camel form). Brand words stay substring rules
 // ("StockSocialFan").
+// Fix round 1 (review item 3): the left boundary stays (so "Unofficial Notes" and "Unverified Hunches" pass), but on the
+// right only a common suffix ending the word ("-ly", "-dom", "-ness") may follow: any other letter is a compound and is
+// refused whatever precedes it ("Verifiedtrader", "VERIFIEDTRADER", "Officialtrader", "THEOFFICIALDESK").
+const VERIFIED_WORD = '(?:verified|official|ver+[il1]?f[il1y]+e?d|of+[il1]c+[il1]?a[l1])';
 const NAME_WORDS: [RegExp, NameReasonCode][] = [
-  [/(?<!\p{L})(?:verified|official|ver+[il1]?f[il1y]+e?d|of+[il1]c+[il1]?a[l1])(?!\p{L})/u, 'verified'],
+  [new RegExp(`(?<!\\p{L})${VERIFIED_WORD}(?!\\p{L})|${VERIFIED_WORD}(?!(?:ly|dom|ness)(?!\\p{L}))(?=\\p{L})`, 'u'), 'verified'],
   [/stock\s?social|snaptrade/, 'brand'],
 ];
 // Fix round 1: a name that is only a staff or role word ("Admin", "Support Team", "The Moderators"), compared on its

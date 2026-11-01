@@ -72,7 +72,7 @@ dbTest('digest: open reports by category (under-18 first), links, held and hidde
     const abusive = d.groups.find((g) => g.category === 'abusive')!;
     assert.equal(abusive.reports, 3);
     assert.deepEqual(abusive.profiles, [{ handle: hs.get(b), reports: 2 }, { handle: hs.get(a), reports: 1 }]);
-    assert.equal(d.held, 2); // the link hold and the owner's hide
+    assert.equal(d.held, 1); // the link hold; the owner's hide counts under hiddenTheses only (fix round 1, item 6)
     assert.equal(d.hiddenTheses, 1);
     assert.equal(d.hiddenProfiles, 1);
     const lines = formatDigest(d, 'https://site.test');
@@ -108,4 +108,22 @@ dbTest('digest: open reports by category (under-18 first), links, held and hidde
     assert.match(all[1], /^ {2}May be under 18: \d+/);
     assert.match(all.at(-1)!, /^Last sync tick: .*; stopped at deadline: (yes|no)$/);
   } finally { await removePeople(ids); }
+});
+
+dbTest('fix 6: a hidden thesis is counted once (hiddenTheses), never also as held', async () => {
+  const { sql } = await import('./db.ts');
+  const { digest } = await import('./trust-digest.ts');
+  const { hideThesis } = await import('./trust-hide.ts');
+  const { tag, ids: [u] } = await people(1, 'f16d');
+  try {
+    const [t1, t2, t3] = await trades(u, tag, 3);
+    await sql`update closed_trades set thesis = 'f16 digest note', thesis_status = 'published' where id = any(${[t1.id, t2.id, t3.id]})`;
+    await sql`update closed_trades set thesis_status = 'held', thesis_hold_rule = 'link' where id = ${t3.id}`;
+    assert.equal(await hideThesis(u, t1.sell, 'abusive'), true);
+    assert.equal(await hideThesis(u, t2.sell, 'abusive'), true);
+    const d = await digest([u]);
+    assert.equal(d.hiddenTheses, 2);
+    assert.equal(d.held, 1);
+    assert.match(digestNotice(d), /1 held theses, 2 hidden items/);
+  } finally { await removePeople([u]); }
 });

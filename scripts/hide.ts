@@ -8,7 +8,7 @@
 // Only a whole profile or a thesis can be hidden; anything else (a trade, a card, a month) exits 2 and writes nothing.
 // Every change writes one trust_audit row in the same transaction. Nothing is removed: an unhide restores.
 // Output goes to the owner's terminal only.
-import { HIDE_REASONS, UNHIDE_REASONS, REFUSED_KIND, RefusedInput, hideHistory, hideProfile, hideThesis, isHideReason, isUnhideReason, unhideProfile, unhideThesis, type HideDeps } from '../lib/trust-hide.ts';
+import { HIDE_REASONS, UNHIDE_REASONS, RefusedInput, RefusedKind, hideHistory, hideItem, isHideReason, isUnhideReason, unhideProfile, unhideThesis, type HideDeps, type HideReason } from '../lib/trust-hide.ts';
 
 export type Out = (line: string) => void;
 const USAGE = 'usage: hide.ts profile <user_id> <reason> | thesis <user_id> <sell_id> <reason> | unhide-profile <user_id> <unhide-reason> | unhide-thesis <user_id> <sell_id> <unhide-reason> | history <user_id>  [--actor=<role>]';
@@ -22,7 +22,15 @@ export async function run(argv: string[], out: Out, env: Record<string, string |
   const args = argv.filter((a) => !a.startsWith('--'));
   const [cmd, uid] = args;
   if (!cmd) { out(USAGE); return 2; }
-  if (!COMMANDS.includes(cmd)) { out(REFUSED_KIND); out(USAGE); return 2; }
+  // Fix round 1 (review item 7): any other command is a hide of another kind, refused by the library's one check
+  // (lib/trust-hide.ts#hideItem throws RefusedKind before it reads anything else), so the tested path is the one used.
+  if (!COMMANDS.includes(cmd)) {
+    try { await hideItem(cmd, Number(uid), args[2] ?? null, args.at(-1) as HideReason, actor, deps); } catch (e) {
+      if (e instanceof RefusedKind) { out(e.message); out(USAGE); return 2; }
+      throw e;
+    }
+    throw new Error('unreachable: hideItem accepted a kind run() does not know');
+  }
   if (!UID.test(uid ?? '')) { out(USAGE); return 2; }
   const userId = Number(uid);
   const thesis = cmd === 'thesis' || cmd === 'unhide-thesis';
@@ -43,8 +51,7 @@ export async function run(argv: string[], out: Out, env: Record<string, string |
       return 2;
     }
     let ok: boolean;
-    if (cmd === 'profile') ok = await hideProfile(userId, reason as never, actor, deps);
-    else if (cmd === 'thesis') ok = await hideThesis(userId, sellId, reason as never, actor, deps);
+    if (hiding) ok = await hideItem(cmd, userId, thesis ? sellId : null, reason as HideReason, actor, deps);
     else if (cmd === 'unhide-profile') ok = await unhideProfile(userId, reason as never, actor, deps);
     else ok = await unhideThesis(userId, sellId, reason as never, actor, deps);
     const done = { profile: 'Profile hidden.', thesis: 'Thesis hidden.', 'unhide-profile': 'Profile shown again.', 'unhide-thesis': 'Thesis shown again.' }[cmd]!;

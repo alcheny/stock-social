@@ -176,3 +176,28 @@ dbTest('a hidden thesis stays hidden through rebuildRecord (keyed by sell id), a
     assert.deepEqual(await row(), { thesis_status: 'published', thesis_hold_rule: null });
   } finally { await removePeople([u]); }
 });
+
+dbTest('fix 1: an edit made while hidden is moderated at unhide: a link stays held (rule link), a clean edit publishes', async () => {
+  const { sql } = await import('./db.ts');
+  const { hideThesis, unhideThesis } = await import('./trust-hide.ts');
+  const { saveThesisFor } = await import('./thesis-save.ts');
+  const { moderateDetail } = await import('./moderation.ts');
+  const { tag, ids: [u] } = await people(1, 'f16m');
+  try {
+    const [t, t2] = await trades(u, tag, 2);
+    const SPAM = 'Join my paid group at https://example.com guaranteed 10x';
+    assert.deepEqual(moderateDetail(SPAM), { status: 'held', rule: 'link' });
+    const row = async (id: string) => ({ ...(await sql`select thesis_status, thesis_hold_rule, thesis_reviewed_at from closed_trades where id = ${id}`)[0] });
+    for (const x of [t, t2]) { await saveThesisFor(u, x.id, TEXT); assert.equal(await hideThesis(u, x.sell, 'abusive'), true); }
+    await saveThesisFor(u, t.id, SPAM);
+    await saveThesisFor(u, t2.id, `${TEXT} Edited cleanly.`);
+    assert.equal((await row(t.id)).thesis_hold_rule, HIDDEN_RULE);
+    assert.equal(await unhideThesis(u, t.sell, 'issue-resolved'), true);
+    assert.deepEqual(await row(t.id), { thesis_status: 'held', thesis_hold_rule: 'link', thesis_reviewed_at: null });
+    assert.equal(await unhideThesis(u, t2.sell, 'issue-resolved'), true);
+    const clean = await row(t2.id);
+    assert.equal(clean.thesis_status, 'published');
+    assert.equal(clean.thesis_hold_rule, null);
+    assert.equal((await sql`select count(*)::int as n from trust_audit where user_id = ${u} and action = 'unhide'`)[0].n, 2);
+  } finally { await removePeople([u]); }
+});

@@ -71,7 +71,8 @@ export async function rejectedAmong(viewer: number, sellIds: readonly string[]):
 
 // /me/likes: the viewer's likes, newest first, LIKES_PAGE at a time (keyset on created_at in microseconds, then key). The
 // page's likes are chosen first on the viewer's index, then joined (a plan that stays fast before statistics exist).
-// A like whose close is gone after a rebuild, or whose trader was deleted, is skipped (its page is one row shorter).
+// A like whose close is gone after a rebuild, or whose trader was deleted or hidden by the owner (F-16 visibleUser), is
+// skipped (its page is one row shorter).
 export type Liked = { key: string; handle: string; name: string; symbol: string; sellId: string; returnPct: number; closedAt: Date };
 export async function ownLikes(viewer: number, after?: unknown): Promise<{ rows: Liked[]; next: string | null }> {
   const m = typeof after === 'string' ? /^([0-9]{1,17})\.([0-9a-f]{64})$/.exec(after) : null;
@@ -81,7 +82,7 @@ export async function ownLikes(viewer: number, after?: unknown): Promise<{ rows:
       order by created_at desc, trade_key desc limit ${LIKES_PAGE + 1})
     select l.trade_key, l.us, u.handle, u.display_name, t.symbol, t.sell_id, t.return_pct, t.closed_at
     from l left join lateral (select symbol, sell_id, return_pct, closed_at from closed_trades where trade_key = l.trade_key and user_id = l.trader_id limit 1) t on true
-      left join users u on u.id = l.trader_id and u.deleted_at is null
+      left join users u on u.id = l.trader_id and ${visibleUser('u')}
     order by l.created_at desc, l.trade_key desc`;
   const page = rows.slice(0, LIKES_PAGE);
   const last = page.at(-1);
@@ -102,7 +103,7 @@ export async function signalsFor(viewer: number): Promise<Signal[]> {
 
 // ---- F-2 PR-5 (criterion 15, shipped before behavior-based ordering): the viewer's own hidden trades (/me/hidden). ----
 // A rejected trade stays out of that viewer's feed until they show it again. A hidden trade whose close is gone or whose
-// trader was deleted is not listed or counted (lib/privacy-purge.ts removes it 30 days after it is first seen gone).
+// trader was deleted (or hidden by the owner, F-16 visibleUser) is not listed or counted (lib/privacy-purge.ts removes it 30 days after it is first seen gone).
 const KEY = /^[0-9a-f]{64}$/;
 const AFTER = /^([0-9]{1,17})\.([0-9a-f]{64})$/;
 // ponytail: a page skips hidden trades whose close is gone (until the privacy purge removes them), so it can show fewer
@@ -115,7 +116,7 @@ export const HIDDEN_PAGE = 30;
 export const HIDDEN_COUNT_MAX = 1_000;
 export async function hiddenTradeCount(viewer: number): Promise<number> {
   return (await sql`select 1 from trade_exclusions x
-    where x.viewer_id = ${viewer} and exists (select 1 from closed_trades t join users u on u.id = t.user_id and u.deleted_at is null
+    where x.viewer_id = ${viewer} and exists (select 1 from closed_trades t join users u on u.id = t.user_id and ${visibleUser('u')}
       where t.trade_key = x.trade_key and t.user_id = x.trader_id) limit ${HIDDEN_COUNT_MAX + 1}`).length;
 }
 
@@ -129,7 +130,7 @@ export async function ownHiddenTrades(viewer: number, after?: unknown): Promise<
       order by created_at desc, trade_key desc limit ${HIDDEN_PAGE + 1})
     select x.trade_key, x.us, u.handle, u.display_name, t.symbol, t.sell_id, t.closed_at, t.verified, (select pf.demo from public_filers pf where pf.id = u.public_filer_id) as pf_demo
     from x left join lateral (select symbol, sell_id, closed_at, verified from closed_trades where trade_key = x.trade_key and user_id = x.trader_id limit 1) t on true
-      left join users u on u.id = x.trader_id and u.deleted_at is null and ${filerVisibleSql('u')}
+      left join users u on u.id = x.trader_id and ${visibleUser('u')} and ${filerVisibleSql('u')}
     order by x.created_at desc, x.trade_key desc`;
   const page = rows.slice(0, HIDDEN_PAGE), last = page.at(-1);
   return {

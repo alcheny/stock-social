@@ -147,6 +147,7 @@ test('Q9 / B4: the hidden trader sees one private neutral line on their own 404;
     const own = page.locator('[data-own-line]');
     await expect(own).toContainText('not shown to others right now');
     await expect(own.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+    await expect(own.getByRole('link', { name: 'Download my data' })).toHaveAttribute('href', '/account/export');
     const mine = await page.locator('main').innerText();
     expect(mine).not.toMatch(/report|review/i);
     expect(mine).not.toMatch(/%|Verified|Demo/);

@@ -137,3 +137,18 @@ dbTest('the reported trader\'s own reads and data export never carry the reporte
     assert.doesNotMatch(seen, /reporter|impersonation-elsewhere|"category"/);
   } finally { await removePeople([trader, r]); }
 });
+
+dbTest('fix 5: one reporter reporting two profiles at once: exactly one reported and one rate (reporter lock first)', async () => {
+  const { sql } = await import('./db.ts');
+  const { reportProfile } = await import('./reports.ts');
+  for (let round = 0; round < 5; round++) {
+    const { ids } = await people(3, 'f16r');
+    const [a, b, r] = ids;
+    const h = await handles([a, b]);
+    try {
+      const outs = await Promise.all([reportProfile(r, h.get(a), 'abusive', yes), reportProfile(r, h.get(b), 'abusive', yes)]);
+      assert.deepEqual(outs.sort(), ['rate', 'reported'], `round ${round}`);
+      assert.equal((await sql`select count(*)::int as n from thesis_reports where reporter_id = ${r}`)[0].n, 1);
+    } finally { await removePeople(ids); }
+  }
+});

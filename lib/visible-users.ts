@@ -30,8 +30,8 @@ export const visibleOwner = (alias: string, col = 'user_id') =>
 export const visibleId = (id: number) => sql`exists (select 1 from users v where v.id = ${id} and ${visibleUser('v')})`;
 
 // The same rule on a loaded row, for code that already holds the user (tests pin that the two agree). hidden_at is
-// optional so callers that load only deleted_at keep compiling; they should select hidden_at too.
-export const isVisibleUser = (u: { deleted_at: Date | null; hidden_at?: Date | null }) => u.deleted_at === null && !u.hidden_at;
+// required (fix round 1, review item 7): a row loaded without it must not read as visible.
+export const isVisibleUser = (u: { deleted_at: Date | null; hidden_at: Date | null }) => u.deleted_at === null && u.hidden_at === null;
 
 // What /u/<handle> renders (plan §5.1, v2 E13; app/u/[handle]/not-found.tsx picks its title and notice from it):
 // - visible / hidden: a live users row (deleted_at null) with that handle, without or with the owner's hide;

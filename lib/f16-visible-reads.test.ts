@@ -130,7 +130,7 @@ export const ALLOW: Allow[] = [
   { file: 'lib/options-sync.ts', count: 6, reason: 'options rebuild and sync (writes; owned by the sync sessions)' },
   { file: 'lib/feed.ts', count: 1, reason: 'olderThan: a window probe that returns one timestamp (no trader data); elig applies the predicate to every row it can rank' },
   { file: 'lib/thesis-fixtures.ts', count: 1, reason: 'test fixture helper' },
-  { file: 'lib/likes.ts', count: 6, reason: "viewer's own list (E12): likedAmong, ownLikes, hiddenTradeCount, ownHiddenTrades, likesAt, rejectsAt read only what this viewer stored" },
+  { file: 'lib/likes.ts', count: 3, reason: "viewer's own signals (E12): likedAmong marks ids already on a visible page; likesAt and rejectsAt read only trader id and symbol for this viewer's own ordering, never shown (ownLikes, hiddenTradeCount and ownHiddenTrades apply visibleUser)" },
   { file: 'lib/discovery/activity.ts', count: 1, reason: "viewer's own list (E12): eventsFor reads this viewer's logged events for their own ordering" },
   { file: 'lib/views.ts', count: 2, reason: "F-15 view targets: both reads splice the `visible` binding, which is visibleUser('u')", proof: /const visible = sql`\$\{visibleUser\('u'\)\} and/ },
 ];

@@ -42,7 +42,8 @@ export async function digest(only?: number[]): Promise<Digest> {
     };
   });
   const [c] = await sql`select
-      (select count(*)::int from closed_trades t where t.thesis_status = 'held' and t.thesis is not null ${scope('t.user_id')}) as held,
+      (select count(*)::int from closed_trades t where t.thesis_status = 'held' and t.thesis is not null
+        and t.thesis_hold_rule is distinct from ${HIDDEN_RULE} ${scope('t.user_id')}) as held, -- fix round 1: a hidden note counts once, under hidden
       (select count(*)::int from users u where u.hidden_at is not null and u.deleted_at is null ${scope('u.id')}) as hidden_profiles,
       (select count(*)::int from closed_trades t where t.thesis_hold_rule = ${HIDDEN_RULE} and t.thesis is not null ${scope('t.user_id')}) as hidden_theses,
       (select count(distinct r.trader_id)::int from thesis_reports r join users u on u.id = r.trader_id and u.deleted_at is null

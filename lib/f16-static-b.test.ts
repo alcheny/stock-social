@@ -93,8 +93,12 @@ test('E9: no new index for reports; E10: the target is looked up before the advi
   const s = code('lib/reports.ts');
   const body = s.slice(s.indexOf('export async function reportProfile'));
   const look = body.indexOf('from users u where u.handle');
-  const lock = body.indexOf('pg_advisory_xact_lock');
-  assert.ok(look > 0 && lock > look, 'lookup, then lock');
+  const lock = body.indexOf('report-target:');
+  assert.ok(look > 0 && lock > look, 'lookup, then the target lock');
+  // Fix round 1 (item 5): the reporter's lock comes first (one order: reporter, then target), before the lookup.
+  const mine = body.indexOf('report-reporter:');
+  assert.ok(mine > 0 && mine < look && body.indexOf('pg_advisory_xact_lock') < look, 'reporter lock, then lookup');
+  assert.equal(body.slice(0, body.indexOf('export function profileReportState')).match(/pg_advisory_xact_lock/g)?.length, 2);
   assert.ok(body.indexOf("'own'") > lock && body.indexOf('insert into thesis_reports') > lock);
 });
 

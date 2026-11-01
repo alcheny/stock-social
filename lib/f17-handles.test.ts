@@ -102,6 +102,14 @@ test('F-17 AC7/AC8: "Verified" and "Official" are refused as whole words only; i
   }
 });
 
+test('F-17 fix round 1: a right-side compound is refused (only -ly, -dom, -ness may follow), with or without a left prefix', () => {
+  for (const n of ['Verifiedtrader', 'VERIFIEDTRADER', 'THEOFFICIALDESK', 'Officialtrader']) {
+    const c = checkDisplayName(n);
+    assert.ok(!c.ok && c.code === 'verified', n);
+  }
+  for (const n of ['Unofficially bullish', 'Officialdom fan']) assert.ok(checkDisplayName(n).ok, n);
+});
+
 test('F-17 (v2 E7): brand words stay substring rules', () => {
   for (const n of ['StockSocialFan', 'stocksocialfan', 'Stock Social Desk', 'snaptradefan']) {
     const c = checkDisplayName(n);

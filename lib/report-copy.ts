@@ -89,7 +89,6 @@ export const PROFILE_REPORT_COPY = {
 // The report form's state (app/report-actions.ts#reportProfileAction with useActionState). `field` names the input an
 // error belongs to ('category'), so the form can place it beside that field.
 export const PROFILE_REPORT_STATES = ['idle', 'sent', 'already', 'rate', 'signed-out', 'invalid', 'error'] as const;
-export type ProfileReportStateName = (typeof PROFILE_REPORT_STATES)[number];
 export type ProfileReportState = { state: string; message: string; field?: string }; // state: one of PROFILE_REPORT_STATES
 export const PROFILE_REPORT_IDLE: ProfileReportState = { state: 'idle', message: '' };
 // end F-16

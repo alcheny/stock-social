@@ -40,7 +40,7 @@ export async function generateMetadata(props: { params?: Promise<{ handle?: stri
 const tap = { display: 'inline-flex', alignItems: 'center', minHeight: 44 } as const;
 
 // Q9 (plan §2.1, v2 B4): the hidden trader, signed in, also reads one private neutral line and a way to their settings
-// (sign-in, settings and the data download still work for them). This 404 reads cookies and headers, so it is dynamic
+// (sign-in, settings and Record tools' data download, /account/export, still work for them). This 404 reads cookies and headers, so it is dynamic
 // and Next sends it `private, no-cache, no-store` (e2e/f16-pages.spec.ts checks both the trader's and a signed-out
 // response): a shared cache never hands the private line to anyone else.
 async function isHiddenOwner(s: HandleStatus): Promise<boolean> {
@@ -58,7 +58,7 @@ export default async function HandleNotFound() {
     <main className="page">
       <h1>{n.h1}</h1>
       <p>{n.line}</p>
-      {own && <p className="muted" data-own-line>{HIDDEN_OWN.line} <Link className="tap44" href="/settings">{HIDDEN_OWN.settings}</Link></p>}
+      {own && <p className="muted" data-own-line>{HIDDEN_OWN.line} <Link className="tap44" href="/settings">{HIDDEN_OWN.settings}</Link> · <a className="tap44" href="/account/export" download>{HIDDEN_OWN.download}</a></p>}
       <p style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
         <Link href="/" style={tap}>Back to the feed</Link>
         <Link href="/t" style={tap}>All stocks</Link>

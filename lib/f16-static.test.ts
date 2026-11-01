@@ -142,7 +142,7 @@ test('AC-F16-14 / B6 profile: the line is the last thing in <main>; the quiet me
 });
 
 test('AC-F16-10 hidden and retired notices and the hidden trader\'s private line: neutral words only, in the copy scan', () => {
-  for (const s of [HIDDEN_NOTICE.title, HIDDEN_NOTICE.h1, HIDDEN_NOTICE.line, RETIRED_NOTICE.title, RETIRED_NOTICE.h1, RETIRED_NOTICE.line, HIDDEN_OWN.line, HIDDEN_OWN.settings]) {
+  for (const s of [HIDDEN_NOTICE.title, HIDDEN_NOTICE.h1, HIDDEN_NOTICE.line, RETIRED_NOTICE.title, RETIRED_NOTICE.h1, RETIRED_NOTICE.line, HIDDEN_OWN.line, HIDDEN_OWN.settings, HIDDEN_OWN.download]) {
     assert.doesNotMatch(s, HIDDEN_WORDS, s);
     assert.ok(allCopy().includes(s), s);
   }
@@ -152,6 +152,9 @@ test('AC-F16-10 hidden and retired notices and the hidden trader\'s private line
   const nf = code(read('app/u/[handle]/not-found.tsx'));
   assert.match(nf, /if \(s !== 'hidden'\) return false;/);
   assert.match(nf, /\{own && <p className="muted" data-own-line>\{HIDDEN_OWN\.line\} <Link className="tap44" href="\/settings">/);
+  // Fix round 1: the download the line names is Record tools' export, linked, and the line says what it holds.
+  assert.match(nf, /<a className="tap44" href="\/account\/export" download>\{HIDDEN_OWN\.download\}<\/a>/);
+  assert.match(HIDDEN_OWN.line, /download your saved views and notes/);
   assert.doesNotMatch(nf, /report|review/i);
 });
 
